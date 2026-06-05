@@ -1,0 +1,95 @@
+name: 🐞 Bug Report
+description: 'Report something that is not working correctly'
+title: "[BUG] "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Prerequisites
+      options:
+        - label: I have searched existing(open/closed) issues and Read [Known Issues / Compatibility](https://github.com/Azornes/Comfyui-Resolution-Master?tab=readme-ov-file#%EF%B8%8F-known-issues--compatibility) to make sure this isn't a duplicate
+          required: true
+        - label: I am running the latest version of [ComfyUI](https://github.com/Comfy-Org/ComfyUI/releases)
+          required: true
+        - label: I am running the latest version of [ComfyUI_frontend](https://github.com/Comfy-Org/ComfyUI_frontend/releases)
+          required: true
+        - label: I am running the latest version of Resolution Master [Github](https://github.com/Azornes/Comfyui-Resolution-Master/releases) | [Manager](https://registry.comfy.org/publishers/azornes/nodes/Comfyui-Resolution-Master)
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug. Include screenshots or videos if helpful.
+      placeholder: |
+        Example: "When I connect a image to an Input, the connection line appears but the workflow fails to execute with an error message..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can I reproduce this issue? Please attach your workflow (JSON or PNG) if needed.
+      placeholder: |
+        1. Connect Image to Input
+        2. Click Scale button
+        3. Click Queue Prompt
+        4. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How is this affecting you?
+      options:
+        - Crashes ComfyUI completely
+        - Workflow won't execute
+        - Feature doesn't work as expected
+        - Visual/UI issue only
+        - Minor inconvenience
+    validations:
+      required: true
+    
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser are you using?
+      options:
+        - Chrome/Chromium
+        - Firefox
+        - Safari
+        - Edge
+        - Other
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Additional Information (Optional)
+        *The following fields help me debug complex issues but are not required for most bug reports.*
+
+  - type: textarea
+    id: console-errors
+    attributes:
+      label: Console Errors
+      description: If you see red error messages in the browser console (F12), paste them here
+      render: javascript
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: If relevant, paste any terminal/server logs here
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context, Environment (OS, ComfyUI versions, ResolutionMaster version)
+      description: Any other information that might help (OS, GPU, specific nodes involved, etc.)
+
+      

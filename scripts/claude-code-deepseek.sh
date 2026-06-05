@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+########################################
+# Claude Code — DeepSeek Provider Wrapper
+#
+# Wrapper function 'deepseek' that connects Claude Code to the DeepSeek API
+# via an Anthropic-compatible endpoint.
+# See: https://api-docs.deepseek.com/guides/anthropic_api
+#
+# USAGE:
+#   source scripts/claude-code-deepseek.sh
+#   deepseek [claude args...]
+#
+# Or run directly:
+#   bash scripts/claude-code-deepseek.sh [claude args...]
+#
+#   2. Set your API key:
+#      export DEEPSEEK_API_KEY="your_actual_api_key_here"
+#
+#   3. Use the deepseek command:
+#      deepseek "your prompt here"
+#      deepseek --help  # for claude help
+#
+# FEATURES:
+# - Runs in subshell to avoid side effects on your shell environment
+# - Validates API key before execution
+# - Provides clear error messages for missing configuration
+# - Uses default models if not overridden
+#
+# CUSTOMIZATION:
+# Override these environment variables if needed:
+#   DEEPSEEK_MODEL_DEFAULT="deepseek-v4-pro[1m]"    # Default model to use
+#   DEEPSEEK_MODEL_REASONER="deepseek-v4-pro[1m]"   # Reasoning/Opus-equivalent model
+#   DEEPSEEK_MODEL_AIR="deepseek-v4-flash"          # Fast/Haiku-equivalent model
+########################################
+
+# Default values (only set if not already defined)
+: "${DEEPSEEK_MODEL_DEFAULT:="deepseek-v4-pro[1m]"}"
+: "${DEEPSEEK_MODEL_REASONER:="deepseek-v4-pro[1m]"}"
+: "${DEEPSEEK_MODEL_AIR:="deepseek-v4-flash"}"
+
+deepseek()
+{
+  # Check if DEEPSEEK_API_KEY is defined
+  if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
+    echo "Error: DEEPSEEK_API_KEY is not defined. Please set it before running deepseek." >&2
+    echo "Example: export DEEPSEEK_API_KEY=\"your_api_key_here\"" >&2
+    return 1
+  fi
+
+  # Run in subshell to avoid side effects
+  (
+    export ANTHROPIC_AUTH_TOKEN="${DEEPSEEK_API_KEY}"
+    export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
+    export ANTHROPIC_MODEL="${DEEPSEEK_MODEL_DEFAULT}"
+    export ANTHROPIC_DEFAULT_OPUS_MODEL="${DEEPSEEK_MODEL_REASONER}"
+    export ANTHROPIC_DEFAULT_SONNET_MODEL="${DEEPSEEK_MODEL_DEFAULT}"
+    export ANTHROPIC_DEFAULT_HAIKU_MODEL="${DEEPSEEK_MODEL_AIR}"
+    export CLAUDE_CODE_SUBAGENT_MODEL="${DEEPSEEK_MODEL_AIR}"
+    export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+    export CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK=1
+    export CLAUDE_CODE_EFFORT_LEVEL=max
+    export API_TIMEOUT_MS=600000
+    export BASH_DEFAULT_TIMEOUT_MS=600000
+    export BASH_MAX_TIMEOUT_MS=600000
+    export MAX_MCP_OUTPUT_TOKENS=50000
+    export DISABLE_COST_WARNINGS=1
+    export CLAUDE_CONFIG_DIR="${HOME}/.claude-deepseek"
+    export CLAUDE_START_CWD="${PWD}"
+
+    echo "Using model: ${ANTHROPIC_MODEL}"
+    exec claude "$@" --dangerously-skip-permissions
+  )
+}
+
+# Auto-run when executed directly (not sourced)
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    deepseek "$@"
+fi

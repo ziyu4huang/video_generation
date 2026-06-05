@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+
+# Model files (too large for git)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+
+# comfyui_data — models (too large for git)
+comfyui_data/models/
+
+# comfyui_data — generated output
+comfyui_data/output/
+comfyui_data/temp/
+
+# comfyui_data — input images (user uploads)
+comfyui_data/input/
+
+# comfyui_data — runtime/generated files
+comfyui_data/user/*.db
+comfyui_data/user/*.db-*
+comfyui_data/user/*.log
+comfyui_data/user/__manager/
+comfyui_data/user/default/comfy.settings.json
+comfyui_data/user/default/workflows/.index.json

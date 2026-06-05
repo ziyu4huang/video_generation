@@ -1,0 +1,52 @@
+# Unified Python deps — all Python apps in dev_game
+# Installed into ~/proj/unified_venv
+#
+# Apps that share this venv:
+#   bun_app/video_gen_m5, python_app/mflux, python_app/mlx_music, python_app/mlx_tts
+#
+# Exceptions (keep isolated .venv):
+#   python_app/comfyui — heavy torch+custom nodes, likely conflicts
+
+# === Core ML (Apple Silicon) ===
+mlx>=0.17
+mlx-lm>=0.31
+mlx-metal>=0.31
+mlx-video>=0.0.1
+mlx-vlm>=0.4
+mlx-audio>=0.4.0
+
+# === PyTorch (CPU-only for T5 encoder, weight loading) ===
+torch>=2.11
+
+# === NLP/AI ===
+transformers>=5.0
+huggingface-hub>=1.0
+hf-transfer>=0.1
+hf-xet>=1.0
+datasets>=4.0
+
+# === Audio ===
+soundfile>=0.13
+sounddevice>=0.5
+misaki[en]>=0.9.4
+jieba>=0.42.1
+
+# === Web ===
+fastapi>=0.100
+uvicorn>=0.20
+python-multipart>=0.0.9
+
+# === Utilities ===
+numpy
+omegaconf
+tqdm
+aiohttp>=3.13
+anthropic>=0.89
+
+# === Testing ===
+playwright>=1.40
+pytest>=8.0
+pytest-asyncio>=0.23
+
+# === mflux ===
+mflux>=0.5
