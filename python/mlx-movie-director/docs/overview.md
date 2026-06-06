@@ -38,6 +38,80 @@ cd /Users/huangziyu/proj/video_generation
   --lora-scale 1.0
 ```
 
+## Run Config & Manifest
+
+Every run produces three files with a shared base name:
+
+```
+output/output_20260606_220112.png          # generated image
+output/output_20260606_220112.run.json     # full run configuration
+output/output_20260606_220112.manifest.json # timing, memory, results
+```
+
+### `.run.json` — Run Configuration
+
+Captures all parameters (including defaults) before execution. Schema versioned for forward compatibility.
+
+```json
+{
+  "schema_version": 1,
+  "action": "text2img",
+  "prompt": "cinematic portrait photo",
+  "prompt_file": null,
+  "width": 640,
+  "height": 960,
+  "steps": 9,
+  "seed": 42,
+  "lora_path": null,
+  "lora_scale": 1.0
+}
+```
+
+### `.manifest.json` — Post-Run Metrics
+
+Written after execution (success or error). Contains phase-level timing, peak memory, output file info, or error details.
+
+```json
+{
+  "run_file": "output_20260606_220112.run.json",
+  "status": "success",
+  "start_time": "2026-06-06T22:01:12.345678+00:00",
+  "end_time": "2026-06-06T22:01:26.789012+00:00",
+  "elapsed_seconds": 14.44,
+  "memory_peak_mb": 8234.5,
+  "timings": {
+    "text_encoding_seconds": 3.12,
+    "transformer_load_seconds": 2.87,
+    "lora_apply_seconds": 0.0,
+    "denoising_seconds": 7.20,
+    "denoising_step_times": [0.82, 0.79, 0.80, 0.81, 0.79, 0.80, 0.81, 0.79, 0.79],
+    "vae_decode_seconds": 1.01
+  },
+  "output_files": [{ "path": "output_20260606_220112.png", "size_bytes": 774464, "width": 640, "height": 960 }],
+  "error": null
+}
+```
+
+### Replay
+
+Reproduce any previous run with identical parameters:
+
+```bash
+./python/venv/bin/python python/mlx-movie-director/run.py \
+  --replay output/output_20260606_220112.run.json
+```
+
+Replay generates a **new** output with a fresh timestamp (original is preserved). Same seed → same image.
+
+### Actions
+
+| Action | Description |
+|--------|-------------|
+| `text2img` | Text-to-image generation (default) |
+| *(future)* `img2img` | Image-to-image transformation |
+| *(future)* `batch` | Batch generation from prompt list |
+| *(future)* `variation` | Generate variations of an existing image |
+
 ## Python Environment
 
 Always use `python/venv/` (Python 3.13, has mlx, diffusers, transformers):

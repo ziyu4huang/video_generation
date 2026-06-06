@@ -6,6 +6,7 @@ import json
 import os
 import time
 import gc
+from dataclasses import dataclass
 from PIL import Image
 from transformers import AutoTokenizer
 from diffusers import AutoencoderKL
@@ -14,6 +15,13 @@ from app.transformer import ZImageTransformerMLX
 from app.text_encoder import TextEncoderMLX
 from app.lora_utils import apply_lora
 from app import config as cfg
+
+
+@dataclass
+class GenerationResult:
+    """Pipeline output: the generated image plus structured per-phase timings."""
+    image: Image.Image
+    timings: dict  # phase_name → seconds; includes "denoising_step_times" list
 
 
 def create_coordinate_grid(size, start):
@@ -57,6 +65,18 @@ def load_sharded_weights(model_path):
             for f in files:
                 weights.update(mx.load(f))
     return weights
+
+
+def _latent_upscale(latent_mx: mx.array, scale_factor: float) -> mx.array:
+    """Bilinear upscale of latent tensor in spatial dims (keeps even dims for patchify)."""
+    import torch.nn.functional as F
+    arr_np = np.array(latent_mx.astype(mx.float32))  # [1, C, H, W]
+    arr_pt = torch.from_numpy(arr_np)
+    scaled = F.interpolate(arr_pt, scale_factor=scale_factor, mode='bilinear', align_corners=False)
+    _, _, H, W = scaled.shape
+    H -= H % 2  # ensure divisible by 2 for patchify
+    W -= W % 2
+    return mx.array(scaled[:, :, :H, :W].numpy()).astype(mx.bfloat16)
 
 
 class MLXFlowMatchEulerScheduler:
@@ -103,11 +123,93 @@ class ZImagePipeline:
                     f"Run convert.py --all first to convert and download models."
                 )
 
-    def generate(self, prompt, width=1024, height=1024, steps=9, seed=42, lora_path=None, lora_scale=1.0):
-        mx.set_cache_limit(0)
+    @staticmethod
+    def upscale_esrgan(image: Image.Image, model_path: str) -> Image.Image:
+        """Upscale PIL image using a spandrel-compatible ESRGAN model (.pth)."""
+        import spandrel
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        loader = spandrel.ModelLoader(device=device)
+        model_sr = loader.load_from_file(model_path)
+        model_sr.eval()
+        img_np = np.array(image.convert("RGB")).astype(np.float32) / 255.0
+        img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device)
+        with torch.no_grad():
+            result_pt = model_sr(img_pt)
+        result_np = result_pt.squeeze(0).permute(1, 2, 0).cpu().float().numpy()
+        result_np = np.clip(result_np * 255, 0, 255).round().astype("uint8")
+        return Image.fromarray(result_np)
 
-        print(f"Pipeline Started | Size: {width}x{height} | Steps: {steps}")
+    def generate(
+        self,
+        prompt,
+        width=1024,
+        height=1024,
+        steps=9,
+        seed=42,
+        lora_path=None,
+        lora_scale=1.0,
+        # img2img params
+        input_image: Image.Image = None,
+        latent_upscale: float = 1.0,
+        denoise_strength: float = 1.0,
+        # post-process
+        upscale: bool = False,
+        upscale_model: str = None,
+    ) -> "GenerationResult":
+        mx.set_cache_limit(0)
+        timings = {}
+
+        label = f"{width}x{height}"
+        if input_image is not None:
+            label = f"img2img denoise={denoise_strength}"
+            if latent_upscale != 1.0:
+                label += f" latent×{latent_upscale}"
+        print(f"Pipeline Started | {label} | Steps: {steps}")
         global_start = time.time()
+
+        # ----------------------------------------------------------------
+        # [Phase 0] VAE Encode input image (img2img only)
+        # ----------------------------------------------------------------
+        clean_latent = None
+        if input_image is not None:
+            t0 = time.time()
+            print("[Phase 0] VAE Encoding input image...", end=" ", flush=True)
+
+            # Resize to multiple of 16 for clean latent dims
+            iw, ih = input_image.size
+            iw = (iw // 16) * 16
+            ih = (ih // 16) * 16
+            if (iw, ih) != input_image.size:
+                input_image = input_image.resize((iw, ih), Image.LANCZOS)
+
+            device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
+            vae_enc = AutoencoderKL.from_pretrained(cfg.VAE_DIR).to(device_pt)
+
+            img_np = np.array(input_image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+            img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
+            with torch.no_grad():
+                enc = vae_enc.encode(img_pt).latent_dist.mean
+            shift = getattr(vae_enc.config, "shift_factor", 0.0)
+            enc = (enc - shift) * vae_enc.config.scaling_factor
+            clean_latent = mx.array(enc.cpu().numpy()).astype(mx.bfloat16)
+
+            del vae_enc, img_pt, enc
+            gc.collect()
+            timings["vae_encode_seconds"] = time.time() - t0
+            print(f"Done ({timings['vae_encode_seconds']:.2f}s) → latent {list(clean_latent.shape)}")
+
+            # [Phase 0.5] Latent upscale
+            if latent_upscale != 1.0:
+                t05 = time.time()
+                print(f"[Phase 0.5] Latent ×{latent_upscale} upscale...", end=" ", flush=True)
+                clean_latent = _latent_upscale(clean_latent, latent_upscale)
+                timings["latent_upscale_seconds"] = time.time() - t05
+                print(f"Done → {list(clean_latent.shape)}")
+
+            # Derive generation size from latent
+            _, _, H_lat, W_lat = clean_latent.shape
+            height = H_lat * 8
+            width = W_lat * 8
 
         # ----------------------------------------------------------------
         # [Phase 1] Text Encoding
@@ -159,7 +261,8 @@ class ZImagePipeline:
         del text_encoder, tokenizer
         mx.clear_cache()
         gc.collect()
-        print(f"Done ({time.time() - t_start:.2f}s)")
+        timings["text_encoding_seconds"] = time.time() - t_start
+        print(f"Done ({timings['text_encoding_seconds']:.2f}s)")
 
         # ----------------------------------------------------------------
         # [Phase 2] Transformer Loading (4-bit)
@@ -184,17 +287,22 @@ class ZImagePipeline:
         # ----------------------------------------------------------------
         # [Phase 2.5] Apply LoRA
         # ----------------------------------------------------------------
+        lora_start = time.time()
         if lora_path:
             print(f"[Phase 2.5] Applying LoRA...", end=" ", flush=True)
             model = apply_lora(model, lora_path, scale=lora_scale)
+            timings["lora_apply_seconds"] = time.time() - lora_start
             print("Done")
+        else:
+            timings["lora_apply_seconds"] = 0.0
 
         print(f"Fusing QKV projection layers...", end=" ", flush=True)
         model.fuse_model()
         print("Done")
 
         model.eval()
-        print(f"Done ({time.time() - t_start:.2f}s)")
+        timings["transformer_load_seconds"] = time.time() - t_start
+        print(f"Done ({timings['transformer_load_seconds']:.2f}s)")
 
         # ----------------------------------------------------------------
         # [Phase 3] Denoising (Fully MLX & Compiled)
@@ -205,16 +313,39 @@ class ZImagePipeline:
 
         if seed is not None:
             np.random.seed(seed)
-        latents_np = np.random.randn(1, 16, height // 8, width // 8).astype(np.float32)
-        latents = mx.array(latents_np).astype(mx.bfloat16)
 
-        mu = calculate_shift((latents.shape[2] // 2) * (latents.shape[3] // 2))
+        if clean_latent is not None:
+            # img2img: use clean latent shape
+            noise = mx.array(np.random.randn(*clean_latent.shape)).astype(mx.bfloat16)
+        else:
+            noise = mx.array(np.random.randn(1, 16, height // 8, width // 8)).astype(mx.bfloat16)
+
+        # Use latent shape as ground truth for spatial dims
+        _, C_lat, H_lat, W_lat = noise.shape if clean_latent is None else clean_latent.shape
+        H_tok, W_tok = H_lat // 2, W_lat // 2
+
+        mu = calculate_shift(H_tok * W_tok)
         scheduler.set_timesteps(steps, mu=mu)
 
-        total_len = cap_feats_mx.shape[1]
-        H_tok, W_tok = (height // 8) // 2, (width // 8) // 2
+        # Determine start step for img2img
+        # Use steps×strength to decide how many steps to run (matches ComfyUI denoise semantics).
+        # Dynamic mu-shifting compresses timesteps near 1.0, so searching by t value is unreliable.
+        start_step = 0
+        if clean_latent is not None and denoise_strength < 1.0:
+            steps_to_run = max(1, round(steps * denoise_strength))
+            start_step = steps - steps_to_run
+            t_mix = float(scheduler.timesteps[start_step])
+            latents = (1.0 - t_mix) * clean_latent + t_mix * noise
+            print(f"   img2img: {steps_to_run} steps from step {start_step + 1}/{steps} (t_mix={t_mix:.3f})")
+        elif clean_latent is not None:
+            # denoise_strength=1.0 → full re-denoise from noise
+            latents = noise
+        else:
+            latents = noise
 
-        cache_key = (width, height, total_len)
+        total_len = cap_feats_mx.shape[1]
+
+        cache_key = (W_lat, H_lat, total_len)
         if self._pos_cache_key == cache_key and self._pos_cache is not None:
             img_pos, cap_pos = self._pos_cache
             cos_cached, sin_cached = self._rope_cache
@@ -241,8 +372,9 @@ class ZImagePipeline:
             return noise_pred
 
         denoise_start = time.time()
+        step_times = []
 
-        for i in range(steps):
+        for i in range(start_step, steps):
             step_start = time.time()
 
             t_curr = scheduler.timesteps[i]
@@ -252,9 +384,15 @@ class ZImagePipeline:
             latents = scheduler.step(noise_pred, i, latents)
             mx.eval(latents)
 
-            print(f"   Step {i + 1}/{steps}: {time.time() - step_start:.2f}s")
+            step_elapsed = time.time() - step_start
+            step_times.append(step_elapsed)
+            print(f"   Step {i + 1}/{steps}: {step_elapsed:.2f}s")
 
-        print(f"   Avg Speed: {(time.time() - denoise_start) / steps:.2f} s/it")
+        steps_run = steps - start_step
+        timings["denoising_seconds"] = time.time() - denoise_start
+        timings["denoising_step_times"] = step_times
+        if steps_run > 0:
+            print(f"   Avg Speed: {timings['denoising_seconds'] / steps_run:.2f} s/it")
 
         # ----------------------------------------------------------------
         # [Phase 4] Decoding (VAE with Tiling & Memory Cleanup)
@@ -279,10 +417,30 @@ class ZImagePipeline:
         with torch.no_grad():
             image = vae.decode(latents_pt).sample
 
-        image = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
-        pil_image = Image.fromarray((image[0] * 255).round().astype("uint8"))
+        image_np = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
+        image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+        pil_image = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
 
-        print(f"Done ({time.time() - t_dec:.2f}s)")
+        del vae, latents_pt, image, image_np
+        gc.collect()
+
+        timings["vae_decode_seconds"] = time.time() - t_dec
+        print(f"Done ({timings['vae_decode_seconds']:.2f}s)")
+
+        # ----------------------------------------------------------------
+        # [Phase 5] ESRGAN Upscale (optional)
+        # ----------------------------------------------------------------
+        if upscale and upscale_model:
+            if not os.path.exists(upscale_model):
+                print(f"[Phase 5] ESRGAN model not found: {upscale_model} — skipping")
+            else:
+                t_up = time.time()
+                w0, h0 = pil_image.size
+                print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
+                pil_image = self.upscale_esrgan(pil_image, upscale_model)
+                timings["esrgan_seconds"] = time.time() - t_up
+                print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+
         print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
 
-        return pil_image
+        return GenerationResult(image=pil_image, timings=timings)

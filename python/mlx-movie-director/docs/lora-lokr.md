@@ -13,8 +13,10 @@
   --prompt "YOUR PROMPT" \
   --width 640 --height 960 --steps 9 --seed 42 \
   --lora-path comfyui_data/models/loras/zit_sda_v1.safetensors \
-  --lora-scale 1.0
+  --lora-scale 0.49
 ```
+
+> **Note**: moody-zimage-v7.5.json 中 `LoraLoaderModelOnly` 節點 strength = **0.49**（非 1.0）。
 
 ### LoKR 格式說明
 
