@@ -1,14 +1,15 @@
---- /tmp/orig_ops.py	2026-06-05 19:08:30
-+++ ComfyUI/comfy/ops.py	2026-06-05 18:34:31
-@@ -1058,9 +1058,16 @@
-     layer_conf = state_dict.pop(f"{prefix}comfy_quant", None)
+diff --git a/comfy/ops.py b/comfy/ops.py
+index 119177c3..502d10a5 100644
+--- a/comfy/ops.py
++++ b/comfy/ops.py
+@@ -1059,8 +1059,15 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
      if layer_conf is not None:
          layer_conf = json.loads(layer_conf.numpy().tobytes())
-+
+ 
 +    # MPS does not support fp8 storage or compute; fall back to fp16 weights directly
 +    _device_type = getattr(device, 'type', str(device)) if device is not None else ''
 +    _is_mps = (_device_type == 'mps')
- 
++
      if layer_conf is None:
 -        module.weight = torch.nn.Parameter(weight.to(device=device, dtype=compute_dtype), requires_grad=False)
 +        fallback_dtype = compute_dtype
@@ -18,15 +19,14 @@
      else:
          module.quant_format = layer_conf.get("format", None)
          module._full_precision_mm_config = layer_conf.get("full_precision_matrix_mult", False)
-@@ -1071,33 +1078,43 @@
+@@ -1071,32 +1078,55 @@ def _load_quantized_module(module, super_load, state_dict, prefix, local_metadat
          if module.quant_format is None:
              raise ValueError(f"Unknown quantization format for layer {layer_name}")
  
 -        qconfig = QUANT_ALGOS[module.quant_format]
 -        module.layout_type = qconfig["comfy_tensor_layout"]
 -        layout_cls = get_layout_class(module.layout_type)
-+        FP8_FORMATS = ("float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4")
- 
+-
 -        # Per-format scales; fp8 dtype views handle both legacy uint8-on-disk and native fp8.
 -        if module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
 -            scales = {"scale": pop_scale("weight_scale")}
@@ -41,25 +41,24 @@
 -            if ts is None or bs is None:
 -                raise ValueError(f"Missing NVFP4 scales for layer {layer_name}")
 -            scales = {"scale": ts, "block_scale": bs}
--        else:
--            raise ValueError(f"Unsupported quantization format: {module.quant_format}")
-+        # On MPS, skip quantized tensor loading and use fp16 weights directly
-+        if _is_mps and module.quant_format in FP8_FORMATS:
++        FP8_FORMATS = ("float8_e4m3fn", "float8_e5m2", "mxfp8", "nvfp4")
++
++        # On MPS without fp8 compute support: skip quantized loading, fall back to fp16
++        # When --supports-fp8-compute is set: store FP8 as uint8 on MPS (same bit pattern)
++        # and rely on fp8-mps-metal Metal kernels for the actual compute.
++        _mps_fp8_compute = _is_mps and comfy.model_management.supports_fp8_compute()
++        if _is_mps and module.quant_format in FP8_FORMATS and not _mps_fp8_compute:
 +            fallback_dtype = compute_dtype if compute_dtype not in (torch.float8_e4m3fn, torch.float8_e5m2) else torch.float16
 +            if fallback_dtype is None:
 +                fallback_dtype = torch.float16
 +            module.weight = torch.nn.Parameter(weight.to(device=device, dtype=fallback_dtype), requires_grad=False)
 +            module._full_precision_mm = True
-+        else:
+         else:
+-            raise ValueError(f"Unsupported quantization format: {module.quant_format}")
 +            qconfig = QUANT_ALGOS[module.quant_format]
 +            module.layout_type = qconfig["comfy_tensor_layout"]
 +            layout_cls = get_layout_class(module.layout_type)
- 
--        params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
--        module.weight = torch.nn.Parameter(
--            QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params),
--            requires_grad=False,
--        )
++
 +            # Per-format scales; fp8 dtype views handle both legacy uint8-on-disk and native fp8.
 +            if module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
 +                scales = {"scale": pop_scale("weight_scale")}
@@ -76,13 +75,27 @@
 +                scales = {"scale": ts, "block_scale": bs}
 +            else:
 +                raise ValueError(f"Unsupported quantization format: {module.quant_format}")
- 
++
 +            params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
+ 
+-        params = layout_cls.Params(**scales, orig_dtype=compute_dtype, orig_shape=module._orig_shape)
+-        module.weight = torch.nn.Parameter(
+-            QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params),
+-            requires_grad=False,
+-        )
++            # MPS cannot hold float8 tensors; reinterpret as uint8 (same bits, valid on MPS)
++            # fp8-mps-metal Metal kernels then handle the actual FP8 compute via torch._scaled_mm.
++            if _mps_fp8_compute and module.quant_format in ("float8_e4m3fn", "float8_e5m2"):
++                storage_t = torch.uint8
++                weight_for_storage = weight.cpu().to(qconfig["storage_t"]).view(torch.uint8).to(device)
++            else:
++                storage_t = qconfig["storage_t"]
++                weight_for_storage = weight.to(device=device, dtype=storage_t)
++
 +            module.weight = torch.nn.Parameter(
-+                QuantizedTensor(weight.to(device=device, dtype=qconfig["storage_t"]), module.layout_type, params),
++                QuantizedTensor(weight_for_storage, module.layout_type, params),
 +                requires_grad=False,
 +            )
-+
+ 
          if load_extra_params:
              for param_name in qconfig["parameters"]:
-                 if param_name in {"weight_scale", "weight_scale_2"}:

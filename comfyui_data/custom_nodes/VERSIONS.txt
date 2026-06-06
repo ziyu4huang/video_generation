@@ -1,0 +1,23 @@
+# Custom node versions (recorded 2026-06-06)
+# Format: directory commit_hash remote_url
+
+ComfyUI_Comfyroll_CustomNodes  d78b780ae43fcf8c6b7c6505e6ffb4584281ceca  https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes
+ComfyUI_essentials  9d9f4bedfc9f0321c19faf71855e228c93bd0dc9  https://github.com/cubiq/ComfyUI_essentials.git
+ComfyUI_LayerStyle  d94bef1ee5ed3656f5ff1bb2830a4ffd94f40935  https://github.com/chflame163/ComfyUI_LayerStyle
+comfyui_memory_cleanup  58de13a6090e04408e343501ff8902c034d9f518  https://github.com/LAOGOU-666/Comfyui-Memory_Cleanup.git
+ComfyUI_RH_LLM_API  26e18d1a769bd08e115b59bfdf170f8a2166c0df  https://github.com/HM-RunningHub/ComfyUI_RH_LLM_API
+ComfyUI_UltimateSDUpscale  bebd5696fddd61cb0d08949a222c508898ab5577  https://github.com/ssitu/ComfyUI_UltimateSDUpscale.git
+ComfyUI-AutoCropFaces  b2139db9a8ffb4707832106a58f519bbd04e6118  https://github.com/liusida/ComfyUI-AutoCropFaces.git
+ComfyUI-Custom-Scripts  609f3afaa74b2f88ef9ce8d939626065e3247469  https://github.com/pythongosssss/ComfyUI-Custom-Scripts
+ComfyUI-dapaoAPI  642820a97ab8fa92b8c065d8bab7ae8bd6220868  https://github.com/paolaoshi/ComfyUI-dapaoAPI.git
+ComfyUI-GGUF  6ea2651e7df66d7585f6ffee804b20e92fb38b8a  https://github.com/city96/ComfyUI-GGUF.git
+ComfyUI-Impact-Pack  429d0159ad429e64d2b3916e6e7be9c22d025c3c  https://github.com/ltdrdata/ComfyUI-Impact-Pack.git
+ComfyUI-Impact-Subpack  50c7b71a6a224734cc9b21963c6d1926816a97f1  https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git
+Comfyui-PainterFluxImageEdit  8b25957c6ba31a697ad5608f93f035d4d93cc5ab  https://github.com/princepainter/Comfyui-PainterFluxImageEdit.git
+ComfyUI-qwenmultiangle  6f93d9b15a50c07c13411734723fe5cae287e7aa  https://github.com/jtydhr88/ComfyUI-qwenmultiangle.git
+ComfyUI-ReservedVRAM  1e5757db878ef05ac4ac8f169ddfdbeb4b53dfaa  https://github.com/Windecay/ComfyUI-ReservedVRAM.git
+ComfyUI-SeedVR2_VideoUpscaler  4490bd1f482e026674543386bb2a4d176da245b9  https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler.git
+ComfyUI-VideoHelperSuite  4ee72c065db22c9d96c2427954dc69e7b908444b  https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+Dapao-Toolbox  19736400ad527f5e5e47de2279693cc3ea907232  https://github.com/paolaoshi/Dapao-Toolbox
+fp8-mps-metal  8db4dd2134c8e17e869e983f3c7e6ab1bf031fc8  https://github.com/tashiscool/fp8-mps-metal.git
+rgthree-comfy  738105af5fb14e96fbecaf406dc356e284797e8c  https://github.com/rgthree/rgthree-comfy

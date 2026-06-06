@@ -32,7 +32,17 @@ comfyui_data/input/
 # comfyui_data — runtime/generated files
 comfyui_data/user/*.db
 comfyui_data/user/*.db-*
+comfyui_data/user/*.db.lock
 comfyui_data/user/*.log
 comfyui_data/user/__manager/
-comfyui_data/user/default/comfy.settings.json
 comfyui_data/user/default/workflows/.index.json
+
+# comfyui_data — custom nodes (third-party cloned repos)
+# Use /* so negation patterns below still work
+comfyui_data/custom_nodes/*
+!comfyui_data/custom_nodes/ltx-missing-node-stubs/
+!comfyui_data/custom_nodes/VERSIONS.txt
+
+# comfyui_data — runtime per-node data
+comfyui_data/user/default/ComfyUI-Impact-Subpack/
+comfyui_data/user/default/test.json

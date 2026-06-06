@@ -1,6 +1,8 @@
---- /tmp/orig_model_management.py	2026-06-05 19:08:29
-+++ ComfyUI/comfy/model_management.py	2026-06-05 18:31:41
-@@ -1447,6 +1447,13 @@
+diff --git a/comfy/model_management.py b/comfy/model_management.py
+index dfd58bf1..d4a34848 100644
+--- a/comfy/model_management.py
++++ b/comfy/model_management.py
+@@ -1447,6 +1447,13 @@ def cast_to_gathered(tensors, r, non_blocking=False, stream=None, r2=None):
  
  
  def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, stream=None, r=None):
