@@ -82,6 +82,11 @@ WORKFLOW_MAP: dict[str, dict[str, Any]] = {
         "variant": "fp8",
         "save_labels": {20: "expanded", 61: "upscaled"},
     },
+    "moody": {
+        "file": DATA_DIR / "user" / "default" / "workflows" / "moody-zimage-v7.5.json",
+        "variant": "moody-v12.6",
+        "save_labels": {732: "result"},
+    },
 }
 
 # SaveImage node ID → view label (legacy global; per-workflow labels in WORKFLOW_MAP take precedence)
@@ -199,15 +204,18 @@ WIDGET_ORDER: dict[str, list[str]] = {
     "SetNode": ["key"],
     "GetNode": ["key"],
     "PrimitiveInt": ["value"],   # skip trailing 'fixed' control value
-    "CR Prompt Text": ["text"],
+    "CR Prompt Text": ["prompt"],
     "DifferentialDiffusion": ["strength"],
     "InpaintModelConditioning": ["noise_mask"],
     "DrawMaskOnImage": ["color", "device"],
     "ImagePadForOutpaint": ["left", "top", "right", "bottom", "feathering"],
-    # SeedVR2: widgets_values has a UI-only 'randomize' control at index 1 after seed;
-    # list only "seed" so the control value doesn't get mapped to a real input name.
-    # resolution/batch/etc are handled via API lookup when ComfyUI is running.
-    "SeedVR2VideoUpscaler": ["seed"],
+    # SeedVR2: widgets_values[1] is a UI-only 'randomize' control → mapped to None (skipped).
+    "SeedVR2VideoUpscaler": [
+        "seed", None, "resolution", "max_resolution", "batch_size",
+        "uniform_batch_size", "color_correction", "temporal_overlap",
+        "prepend_frames", "input_noise_scale", "latent_noise_scale",
+        "offload_device", "enable_debug",
+    ],
     "SeedVR2LoadVAEModel": [
         "model", "device",
         "encode_tiled", "encode_tile_size", "encode_tile_overlap",
@@ -219,10 +227,86 @@ WIDGET_ORDER: dict[str, list[str]] = {
         "blocks_to_swap", "swap_io_components", "offload_device",
         "cache_model", "attention_mode",
     ],
+    # ── Moody Zimage v7.5 workflow nodes ──
+    "KSamplerAdvanced": [
+        "add_noise", "noise_seed", None,  # None = skip control_after_generate
+        "steps", "cfg", "sampler_name", "scheduler",
+        "start_at_step", "end_at_step", "return_with_leftover_noise",
+    ],
+    "EmptyLatentImage": ["width", "height", "batch_size"],
+    "LatentUpscaleBy": ["upscale_method", "scale_by"],
+    "ModelSamplingAuraFlow": ["shift"],
+    "ImageBlend": ["blend_factor", "blend_mode"],
+    "ImageUpscaleWithModel": [],  # all linked inputs, no widgets
+    "UltimateSDUpscale": [
+        "upscale_by", "seed", None,  # None = skip control_after_generate
+        "steps", "cfg", "sampler_name", "scheduler", "denoise",
+        # upscale_model is linked, not in widgets
+        "mode_type", "tile_width", "tile_height",
+        "mask_blur", "tile_padding",
+        "seam_fix_mode", "seam_fix_denoise", "seam_fix_width",
+        "seam_fix_mask_blur", "seam_fix_padding", "force_uniform_tiles",
+        # tiled_decode & batch_size: may be missing from older workflow saves
+        "tiled_decode", "batch_size",
+    ],
+    "UpscaleModelLoader": ["model_name"],
+    "FloatConstant": ["value"],
+    "PrimitiveStringMultiline": ["value"],
+    "PrimitiveBoolean": ["value"],
+    "Seed (rgthree)": ["seed", None, None, None],  # only seed matters; rest are UI
+    "SimpleMath+": ["value"],  # formula; a/b/c are linked inputs
+    "PreviewBridge": ["image_hash", "disable_shape", "compare_mode"],
+    # Impact Pack
+    "BboxDetectorSEGS": ["threshold", "dilation", "crop_factor", "drop_size", "labels"],
+    "ImpactDilateMask": ["dilation"],
+    "ImpactSEGSOrderedFilter": ["target", "order", "take_start", "take_count"],
+    "MaskToSEGS": ["combined", "crop_factor", "bbox_fill", "drop_size", "contour_fill"],
+    "SegsToCombinedMask": [],  # all linked
+    "MaskPreview": [],  # no widgets
+    "MaskPreview+": [],  # no widgets
+    "DetailerForEach": [
+        "guide_size", "guide_size_for", "max_size",
+        "seed", None,  # None = skip control_after_generate
+        "steps", "cfg", "sampler_name", "scheduler",
+        "denoise", "feather", "noise_mask", "force_inpaint",
+        "wildcard", "cycle",
+        # trailing widgets may include inpaint_model, noise_mask_feather, tiled_encode/decode UI state
+    ],
+    "UltralyticsDetectorProvider": ["model_name"],
+    # Switch nodes
+    "Conditioning Input Switch": ["Input"],  # INT switch selector (1 or 2)
+    # LoRA
+    "LoraLoaderModelOnly": ["lora_name", "strength_model"],
+}
+
+# Some workflows store display names that differ from the API class_type.
+# Map workflow type → API class_type.
+NODE_TYPE_ALIASES: dict[str, str] = {
+    "Conditioning Input Switch": "CR Conditioning Input Switch",
 }
 
 # Node types that are UI-only and should be excluded from API payload
-SKIP_NODE_TYPES = {"MarkdownNote", "Image Comparer (rgthree)", "PreviewImage"}
+SKIP_NODE_TYPES = {
+    "MarkdownNote", "Image Comparer (rgthree)", "PreviewImage",
+    # UI-only toggles, labels, notes — no API equivalent
+    "Label (rgthree)", "Note",
+    "Fast Bypasser (rgthree)", "Fast Groups Bypasser (rgthree)",
+}
+
+# Node types that require interactive user input (e.g. image upload, mask painting).
+# Treated as bypassed for API mode — their primary input passes through to output.
+# Node types that require interactive user input (e.g. image upload, mask painting).
+# For these, the converter auto-populates required but unlinked inputs.
+INTERACTIVE_NODE_TYPES: set[str] = set()
+
+# Some workflow node types store input names that differ from the API input names.
+# Map: (class_type, workflow_input_name) → API_input_name
+INPUT_NAME_ALIASES: dict[tuple[str, str], str] = {
+    ("CR Conditioning Input Switch", "conditioning_a"): "conditioning1",
+    ("CR Conditioning Input Switch", "conditioning_b"): "conditioning2",
+    # 'boolean' is a UI-only toggle; API uses 'Input' INT widget — drop it
+    ("CR Conditioning Input Switch", "boolean"): "__DROP__",
+}
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -667,6 +751,46 @@ def convert_workflow_to_api(
     # Build node lookup by ID
     node_by_id: dict[int, dict] = {n["id"]: n for n in nodes}
 
+    # Handle bypassed nodes (mode=4) and interactive nodes (PreviewBridge etc.):
+    # rewire links around them. A bypassed node passes its inputs through to
+    # outputs at the same slot index.
+    # Build a map: bypassed_node_id → {output_slot: (actual_from_node, actual_from_slot)}
+    _bypassed: set[int] = set()
+    for n in nodes:
+        if n.get("mode", 0) == 4 or n.get("type", "") in INTERACTIVE_NODE_TYPES:
+            _bypassed.add(n["id"])
+    _bypass_passthrough: dict[int, dict[int, tuple[int, int]]] = {}
+    for nid in _bypassed:
+        n = node_by_id[nid]
+        inputs = n.get("inputs", [])
+        outputs = n.get("outputs", [])
+        passthrough: dict[int, tuple[int, int]] = {}
+        for out_idx, out in enumerate(outputs):
+            # Find input at same index
+            if out_idx < len(inputs):
+                link_id = inputs[out_idx].get("link")
+                if link_id is not None and link_id in link_map:
+                    passthrough[out_idx] = link_map[link_id]
+        _bypass_passthrough[nid] = passthrough
+        log.debug(f"Bypass passthrough for node {nid}: {passthrough}")
+
+    # Rewrite link_map to resolve bypassed node outputs
+    def _resolve_bypass(from_node: int, from_slot: int, seen: set | None = None) -> tuple[int, int]:
+        """Follow bypass passthroughs until we reach a non-bypassed source."""
+        if seen is None:
+            seen = set()
+        if from_node in _bypass_passthrough and from_node not in seen:
+            seen.add(from_node)
+            actual = _bypass_passthrough[from_node].get(from_slot)
+            if actual:
+                return _resolve_bypass(actual[0], actual[1], seen)
+        return (from_node, from_slot)
+
+    resolved_link_map: dict[int, tuple[int, int]] = {}
+    for link_id, (from_node, from_slot) in link_map.items():
+        resolved_link_map[link_id] = _resolve_bypass(from_node, from_slot)
+    link_map = resolved_link_map
+
     # Track which inputs are linked (have a link ID) per node
     linked_inputs: dict[int, set[str]] = {}
     for n in nodes:
@@ -685,8 +809,15 @@ def convert_workflow_to_api(
         if ntype in SKIP_NODE_TYPES or ntype in _PORTAL_NODE_TYPES:
             continue
 
+        # Skip bypassed nodes (mode=4) — links already rewired around them
+        if nid in _bypassed:
+            continue
+
+        # Resolve display-name aliases to actual API class_type
+        api_type = NODE_TYPE_ALIASES.get(ntype, ntype)
+
         entry: dict[str, Any] = {
-            "class_type": ntype,
+            "class_type": api_type,
             "_meta": {"title": node.get("title", ntype)},
             "inputs": {},
         }
@@ -696,20 +827,24 @@ def convert_workflow_to_api(
             link_id = inp.get("link")
             if link_id is not None and link_id in link_map:
                 from_node, from_slot = link_map[link_id]
-                entry["inputs"][inp["name"]] = [str(from_node), from_slot]
+                # Apply input name alias if workflow name differs from API name
+                inp_name = INPUT_NAME_ALIASES.get((api_type, inp["name"]), inp["name"])
+                if inp_name == "__DROP__":
+                    continue  # UI-only input, not accepted by API
+                entry["inputs"][inp_name] = [str(from_node), from_slot]
 
         # 2. Resolve widget values (skip inputs already resolved via links)
         widgets = node.get("widgets_values", [])
         if widgets:
-            widget_names = _get_widget_names(ntype, client)
+            widget_names = _get_widget_names(ntype, client) or _get_widget_names(api_type, client)
             if widget_names is not None:
                 linked = linked_inputs.get(nid, set())
                 for i, name in enumerate(widget_names):
-                    if i < len(widgets) and name not in linked:
+                    if i < len(widgets) and name and name not in linked:
                         entry["inputs"][name] = widgets[i]
             else:
                 # Unknown type — try object_info from API
-                _map_widgets_from_api(ntype, widgets, entry, client)
+                _map_widgets_from_api(api_type, widgets, entry, client)
 
         api_format[str(nid)] = entry
 
@@ -719,6 +854,23 @@ def convert_workflow_to_api(
             if node_id_str in api_format:
                 for key, value in node_overrides.items():
                     api_format[node_id_str]["inputs"][key] = value
+
+    # Fix nodes with required but unlinked inputs that have defaults.
+    for node_id_str, entry in api_format.items():
+        ct = entry.get("class_type", "")
+
+        # PreviewBridge: 'image' is STRING (base64), required but unlinked in API mode.
+        # Provide empty string so the node can execute without interactive mask painting.
+        if ct == "PreviewBridge":
+            if "image" not in entry.get("inputs", {}):
+                entry["inputs"]["image"] = ""
+                log.debug(f"PreviewBridge node {node_id_str}: set image=''")
+
+        # CR Conditioning Input Switch: 'Input' widget may be missing from old workflows.
+        if ct == "CR Conditioning Input Switch":
+            if "Input" not in entry.get("inputs", {}):
+                entry["inputs"]["Input"] = 1
+                log.debug(f"CR Conditioning Input Switch node {node_id_str}: set Input=1")
 
     return api_format
 
@@ -748,7 +900,11 @@ def _map_widgets_from_api(
         info = client.get_object_info(class_type)
         input_order = info.get("input_order", {})
         all_inputs = input_order.get("required", []) + input_order.get("optional", [])
+        existing = set(entry.get("inputs", {}).keys())
         for i, name in enumerate(all_inputs):
+            # Skip inputs already resolved via links
+            if name in existing:
+                continue
             if i < len(widgets):
                 entry["inputs"][name] = widgets[i]
     except Exception as exc:

@@ -4,7 +4,7 @@
     "Comfy.TutorialCompleted": true,
     "Comfy.Templates.SortBy": "default",
     "Comfy.Templates.SelectedModels": [],
-    "Comfy.RightSidePanel.IsOpen": false,
+    "Comfy.RightSidePanel.IsOpen": true,
     "Comfy.CustomColorPalettes": {
         "obsidian": {
             "version": 112,
