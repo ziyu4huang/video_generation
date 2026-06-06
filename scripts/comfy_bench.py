@@ -20,6 +20,7 @@ import dataclasses
 import json
 import logging
 import os
+import random
 import shutil
 import signal
 import subprocess
@@ -49,7 +50,7 @@ RUN_SH = REPO_DIR / "run.sh"
 
 WORKFLOW_MAP: dict[str, dict[str, Any]] = {
     "fp16": {
-        "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein9b-character-profile.json",
+        "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein9b-character-profile-fp16.json",
         "variant": "bf16",
         "save_prefix": "ComfyUI",
     },
@@ -67,6 +68,20 @@ SAVE_IMAGE_LABELS: dict[int, str] = {
     142: "side",
     132: "stitched",
 }
+
+# Named parameter aliases → (node_id_str, input_name)
+PARAM_ALIASES: dict[str, tuple[str, str]] = {
+    "steps": ("138", "value"),
+    "seed_front": ("2", "noise_seed"),
+    "seed_back": ("120", "noise_seed"),
+    "seed_side": ("130", "noise_seed"),
+    "cfg_front": ("4", "cfg"),
+    "cfg_back": ("116", "cfg"),
+    "cfg_side": ("126", "cfg"),
+    "desc": ("137", "string"),
+}
+
+BASELINE_DIR = BENCH_RESULTS_DIR / "baseline"
 
 # ---------------------------------------------------------------------------
 # Static widget-order mapping (positional widgets_values → named inputs)
@@ -717,6 +732,117 @@ def cmd_convert(args: argparse.Namespace) -> None:
     print(json.dumps(api, indent=2, ensure_ascii=False))
 
 
+def _parse_param_overrides(args: argparse.Namespace) -> dict[str, dict]:
+    """Build overrides dict from --set-param, --param, and --randomize-seeds flags."""
+    overrides: dict[str, dict] = {}
+
+    # --set-param NODE_ID.INPUT=VALUE (raw, repeatable)
+    for spec in getattr(args, "set_param", None) or []:
+        parts = spec.split("=", 1)
+        if len(parts) != 2:
+            print(f"Invalid --set-param format: {spec} (expected NODE_ID.INPUT=VALUE)")
+            sys.exit(1)
+        node_key, value_str = parts
+        dot = node_key.split(".", 1)
+        if len(dot) != 2:
+            print(f"Invalid --set-param node key: {node_key} (expected NODE_ID.INPUT)")
+            sys.exit(1)
+        node_id, input_name = dot
+        # Auto-detect type: int → float → string
+        try:
+            value: Any = int(value_str)
+        except ValueError:
+            try:
+                value = float(value_str)
+            except ValueError:
+                value = value_str
+        overrides.setdefault(node_id, {})[input_name] = value
+        log.info(f"  Override: node {node_id}.{input_name} = {value!r}")
+
+    # --param ALIAS=VALUE (aliased, repeatable)
+    for spec in getattr(args, "param", None) or []:
+        parts = spec.split("=", 1)
+        if len(parts) != 2:
+            print(f"Invalid --param format: {spec} (expected ALIAS=VALUE)")
+            sys.exit(1)
+        alias, value_str = parts
+        if alias not in PARAM_ALIASES:
+            print(f"Unknown param alias: {alias}. Available: {', '.join(sorted(PARAM_ALIASES))}")
+            sys.exit(1)
+        node_id, input_name = PARAM_ALIASES[alias]
+        try:
+            value = int(value_str)
+        except ValueError:
+            try:
+                value = float(value_str)
+            except ValueError:
+                value = value_str
+        overrides.setdefault(node_id, {})[input_name] = value
+        log.info(f"  Override (alias {alias}): node {node_id}.{input_name} = {value!r}")
+
+    # --randomize-seeds
+    if getattr(args, "randomize_seeds", False):
+        base_seed = random.randint(0, 2**53)
+        for alias in ("seed_front", "seed_back", "seed_side"):
+            node_id, input_name = PARAM_ALIASES[alias]
+            seed_val = base_seed + {"seed_front": 0, "seed_back": 1, "seed_side": 2}[alias]
+            overrides.setdefault(node_id, {})[input_name] = seed_val
+            log.info(f"  Random seed ({alias}): {seed_val}")
+
+    return overrides
+
+
+def _emit_bench_output(
+    variant: str,
+    tag: str,
+    metrics: "RunMetrics",
+    image_paths: list[str],
+    metrics_path: Path,
+    mode: str = "api",
+    use_json: bool = False,
+) -> None:
+    """Print the structured bench run summary (text and optional JSON block)."""
+    result = {
+        "variant": variant,
+        "tag": tag,
+        "prompt_id": metrics.prompt_id,
+        "wall_time": metrics.wall_time_sec,
+        "peak_rss": metrics.peak_rss_mb,
+        "disk_output": f"{metrics.disk_output_bytes} bytes ({metrics.disk_output_files} files)",
+        "status": metrics.status,
+        "error": metrics.error_message or None,
+        "metrics_json": str(metrics_path),
+        "images": image_paths,
+    }
+
+    # Always print human-readable text
+    print()
+    print("=== BENCH RUN COMPLETE ===")
+    if mode == "playwright":
+        print(f"mode: playwright")
+    print(f"variant: {variant}")
+    print(f"tag: {tag}")
+    print(f"prompt_id: {metrics.prompt_id}")
+    print(f"wall_time: {metrics.wall_time_sec}s")
+    print(f"peak_rss: {metrics.peak_rss_mb} MB")
+    print(f"disk_output: {metrics.disk_output_bytes} bytes ({metrics.disk_output_files} files)")
+    print(f"status: {metrics.status}")
+    if metrics.error_message:
+        print(f"error: {metrics.error_message}")
+    print("images:")
+    for p in image_paths:
+        print(f"  - {p}")
+    print(f"metrics_json: {metrics_path}")
+    print("=== END BENCH RUN ===")
+
+    # Optional: structured JSON block for machine parsing
+    if use_json:
+        print()
+        print("=== JSON START ===")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        print("=== JSON END ===")
+
+
 def cmd_run(args: argparse.Namespace) -> None:
     wf_key = args.workflow
     if wf_key not in WORKFLOW_MAP:
@@ -754,6 +880,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         # Node 34 is LoadImage in this workflow
         overrides["34"] = {"image": dest.name}
         log.info(f"Using input image: {dest.name}")
+
+    # Merge parameter overrides from --set-param, --param, --randomize-seeds
+    param_overrides = _parse_param_overrides(args)
+    for node_id, node_ov in param_overrides.items():
+        overrides.setdefault(node_id, {}).update(node_ov)
 
     api_workflow = convert_workflow_to_api(wf_path, client=client, overrides=overrides)
     log.info(f"Converted {len(api_workflow)} nodes")
@@ -857,22 +988,15 @@ def cmd_run(args: argparse.Namespace) -> None:
     log.info(f"Metrics saved: {metrics_path}")
 
     # -- Structured summary --
-    print()
-    print("=== BENCH RUN COMPLETE ===")
-    print(f"variant: {variant}")
-    print(f"tag: {tag}")
-    print(f"prompt_id: {metrics.prompt_id}")
-    print(f"wall_time: {metrics.wall_time_sec}s")
-    print(f"peak_rss: {metrics.peak_rss_mb} MB")
-    print(f"disk_output: {metrics.disk_output_bytes} bytes ({metrics.disk_output_files} files)")
-    print(f"status: {metrics.status}")
-    if metrics.error_message:
-        print(f"error: {metrics.error_message}")
-    print("images:")
-    for p in image_paths:
-        print(f"  - {p}")
-    print(f"metrics_json: {metrics_path}")
-    print("=== END BENCH RUN ===")
+    _emit_bench_output(
+        variant=variant,
+        tag=tag,
+        metrics=metrics,
+        image_paths=image_paths,
+        metrics_path=metrics_path,
+        mode="api",
+        use_json=getattr(args, "json", False),
+    )
 
 
 # ===========================================================================
@@ -1185,23 +1309,15 @@ def cmd_run_ui(args: argparse.Namespace) -> None:
     log.info(f"Metrics saved: {metrics_path}")
 
     # -- Structured summary --
-    print()
-    print("=== BENCH RUN COMPLETE ===")
-    print(f"mode: playwright")
-    print(f"variant: {variant}")
-    print(f"tag: {tag}")
-    print(f"prompt_id: {metrics.prompt_id}")
-    print(f"wall_time: {metrics.wall_time_sec}s")
-    print(f"peak_rss: {metrics.peak_rss_mb} MB")
-    print(f"disk_output: {metrics.disk_output_bytes} bytes ({metrics.disk_output_files} files)")
-    print(f"status: {metrics.status}")
-    if metrics.error_message:
-        print(f"error: {metrics.error_message}")
-    print("images:")
-    for p in image_paths:
-        print(f"  - {p}")
-    print(f"metrics_json: {metrics_path}")
-    print("=== END BENCH RUN ===")
+    _emit_bench_output(
+        variant=variant,
+        tag=tag,
+        metrics=metrics,
+        image_paths=image_paths,
+        metrics_path=metrics_path,
+        mode="playwright",
+        use_json=getattr(args, "json", False),
+    )
 
 
 # ===========================================================================
@@ -1248,6 +1364,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--tag", default="", help="Tag for this run (e.g., baseline, comparison)")
     p_run.add_argument("--input-image", default=None, help="Override input image path")
     p_run.add_argument("--force-restart", action="store_true", help="Restart ComfyUI before run")
+    p_run.add_argument(
+        "--set-param", action="append", default=[],
+        metavar="NODE_ID.INPUT=VALUE",
+        help="Override a node input, e.g. --set-param 138.value=8",
+    )
+    p_run.add_argument(
+        "--param", action="append", default=[],
+        metavar="ALIAS=VALUE",
+        help="Override using named alias, e.g. --param steps=12 --param seed_back=999",
+    )
+    p_run.add_argument(
+        "--randomize-seeds", action="store_true",
+        help="Override all 3 noise seeds with random unique values",
+    )
+    p_run.add_argument(
+        "--json", action="store_true",
+        help="Emit structured JSON output after text summary",
+    )
 
     # run-ui (Playwright mode — drives the real web UI)
     p_rui = subs.add_parser("run-ui", help="Run a workflow benchmark via Playwright (web UI)")
@@ -1257,6 +1391,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_rui.add_argument("--tag", default="", help="Tag for this run (e.g., baseline, comparison)")
     p_rui.add_argument("--force-restart", action="store_true", help="Restart ComfyUI before run")
+    p_rui.add_argument(
+        "--set-param", action="append", default=[],
+        metavar="NODE_ID.INPUT=VALUE",
+        help="Override a node input, e.g. --set-param 138.value=8",
+    )
+    p_rui.add_argument(
+        "--param", action="append", default=[],
+        metavar="ALIAS=VALUE",
+        help="Override using named alias, e.g. --param steps=12",
+    )
+    p_rui.add_argument(
+        "--randomize-seeds", action="store_true",
+        help="Override all 3 noise seeds with random unique values",
+    )
+    p_rui.add_argument(
+        "--json", action="store_true",
+        help="Emit structured JSON output after text summary",
+    )
+
+    # baseline (save / load / compare)
+    p_bl = subs.add_parser("baseline", help="Manage benchmark baseline")
+    p_bl.add_argument(
+        "action", choices=["save", "load", "compare"],
+        help="save: save a run as baseline | load: print baseline info | compare: compare run vs baseline",
+    )
+    p_bl.add_argument("--run-dir", default=None, help="Run directory to save or compare")
 
     return parser
 
@@ -1264,6 +1424,194 @@ def build_parser() -> argparse.ArgumentParser:
 # ===========================================================================
 # Main
 # ===========================================================================
+
+
+def _extract_workflow_params(wf_path: Path) -> dict[str, Any]:
+    """Extract key parameters from a workflow JSON for baseline storage."""
+    with open(wf_path) as f:
+        wf = json.load(f)
+    nodes = {n["id"]: n for n in wf.get("nodes", [])}
+    params: dict[str, Any] = {}
+
+    def _widget(nodes_dict, nid, idx):
+        n = nodes_dict.get(nid)
+        if n and "widgets_values" in n:
+            vals = n["widgets_values"]
+            if idx < len(vals):
+                return vals[idx]
+        return None
+
+    params["steps"] = _widget(nodes, 138, 0)
+    params["seed_front"] = _widget(nodes, 2, 0)
+    params["seed_back"] = _widget(nodes, 120, 0)
+    params["seed_side"] = _widget(nodes, 130, 0)
+    params["cfg_front"] = _widget(nodes, 4, 0)
+    params["cfg_back"] = _widget(nodes, 116, 0)
+    params["cfg_side"] = _widget(nodes, 126, 0)
+    params["desc"] = _widget(nodes, 137, 0)
+    # Resolution from ResolutionMaster node 104
+    w = _widget(nodes, 104, 2)  # width index
+    h = _widget(nodes, 104, 3)  # height index
+    if w and h:
+        params["resolution"] = [w, h]
+
+    return params
+
+
+def cmd_baseline(args: argparse.Namespace) -> None:
+    """Manage benchmark baseline (save / load / compare)."""
+    action = args.action
+
+    if action == "save":
+        if not args.run_dir:
+            print("--run-dir is required for 'save'")
+            sys.exit(1)
+        run_dir = Path(args.run_dir)
+        if not run_dir.is_absolute():
+            run_dir = REPO_DIR / run_dir
+        metrics_path = run_dir / "metrics.json"
+        if not metrics_path.exists():
+            print(f"No metrics.json found in {run_dir}")
+            sys.exit(1)
+
+        metrics = json.loads(metrics_path.read_text())
+
+        # Determine which workflow was used from the variant
+        variant = metrics.get("variant", "bf16")
+        wf_key = "fp16" if variant in ("bf16", "fp16") else "fp8"
+        wf_path = WORKFLOW_MAP[wf_key]["file"]
+        params = _extract_workflow_params(wf_path)
+
+        # Collect image paths
+        images: dict[str, str] = {}
+        for label in ("front", "back", "side", "stitched"):
+            img = run_dir / f"{label}.png"
+            if img.exists():
+                images[label] = str(img)
+
+        baseline_data = {
+            "version": 1,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "source_run_dir": str(run_dir.relative_to(REPO_DIR)),
+            "metrics": metrics,
+            "parameters": params,
+            "images": images,
+        }
+
+        BASELINE_DIR.mkdir(parents=True, exist_ok=True)
+        baseline_path = BASELINE_DIR / "baseline.json"
+        baseline_path.write_text(json.dumps(baseline_data, indent=2, ensure_ascii=False))
+
+        # Symlink images into baseline dir for easy reference
+        bl_img_dir = BASELINE_DIR / variant
+        bl_img_dir.mkdir(parents=True, exist_ok=True)
+        for label, src_str in images.items():
+            src = Path(src_str)
+            link = bl_img_dir / f"{label}.png"
+            if link.exists() or link.is_symlink():
+                link.unlink()
+            link.symlink_to(src)
+
+        print(f"Baseline saved to {baseline_path}")
+        print(f"  Source: {run_dir}")
+        print(f"  Variant: {variant}")
+        print(f"  Parameters: steps={params.get('steps')}, seeds={params.get('seed_front')}/{params.get('seed_back')}/{params.get('seed_side')}")
+        print(f"  Images symlinked to {bl_img_dir}")
+
+    elif action == "load":
+        baseline_path = BASELINE_DIR / "baseline.json"
+        if not baseline_path.exists():
+            print("No baseline found. Run 'baseline save --run-dir ...' first.")
+            sys.exit(1)
+        baseline_data = json.loads(baseline_path.read_text())
+        print(json.dumps(baseline_data, indent=2, ensure_ascii=False))
+
+    elif action == "compare":
+        if not args.run_dir:
+            print("--run-dir is required for 'compare'")
+            sys.exit(1)
+        baseline_path = BASELINE_DIR / "baseline.json"
+        if not baseline_path.exists():
+            print("No baseline found. Run 'baseline save --run-dir ...' first.")
+            sys.exit(1)
+        run_dir = Path(args.run_dir)
+        if not run_dir.is_absolute():
+            run_dir = REPO_DIR / run_dir
+        metrics_path = run_dir / "metrics.json"
+        if not metrics_path.exists():
+            print(f"No metrics.json found in {run_dir}")
+            sys.exit(1)
+
+        baseline = json.loads(baseline_path.read_text())
+        new_metrics = json.loads(metrics_path.read_text())
+
+        bm = baseline["metrics"]
+        delta_wall = new_metrics.get("wall_time_sec", 0) - bm.get("wall_time_sec", 0)
+        delta_rss = new_metrics.get("peak_rss_mb", 0) - bm.get("peak_rss_mb", 0)
+
+        # Load reviews if available
+        reviews_path = run_dir / "reviews.json"
+        bl_reviews_path = Path(baseline["images"].get("front", "")).parent / "reviews.json" if baseline.get("images") else None
+        new_reviews = None
+        bl_reviews = None
+
+        if reviews_path.exists():
+            new_reviews = json.loads(reviews_path.read_text())
+        if bl_reviews_path and bl_reviews_path.exists():
+            bl_reviews = json.loads(bl_reviews_path.read_text())
+
+        comparison = {
+            "baseline_source": baseline["source_run_dir"],
+            "new_run_dir": str(run_dir.relative_to(REPO_DIR)),
+            "performance": {
+                "wall_time_delta_sec": round(delta_wall, 2),
+                "rss_delta_mb": round(delta_rss, 1),
+                "baseline_wall_time": bm.get("wall_time_sec"),
+                "new_wall_time": new_metrics.get("wall_time_sec"),
+            },
+            "status": {
+                "baseline": bm.get("status"),
+                "new": new_metrics.get("status"),
+            },
+        }
+
+        # Compute VLM score deltas if reviews exist
+        if new_reviews and bl_reviews:
+            def _avg_scores(reviews_list):
+                if not reviews_list:
+                    return None
+                dims = ["anatomy", "consistency", "quality", "background", "clothing", "overall"]
+                sums = {d: 0.0 for d in dims}
+                count = 0
+                for r in reviews_list:
+                    if isinstance(r, dict):
+                        count += 1
+                        for d in dims:
+                            sums[d] += r.get(d, 0)
+                if count == 0:
+                    return None
+                return {d: round(s / count, 1) for d, s in sums.items()}
+
+            bl_scores = _avg_scores(bl_reviews)
+            new_scores = _avg_scores(new_reviews)
+            if bl_scores and new_scores:
+                deltas = {d: round(new_scores[d] - bl_scores[d], 1) for d in bl_scores}
+                comparison["quality_deltas"] = deltas
+                comparison["baseline_scores"] = bl_scores
+                comparison["new_scores"] = new_scores
+                overall_delta = deltas.get("overall", 0)
+                if overall_delta >= 0.3:
+                    comparison["verdict"] = "improved"
+                elif overall_delta <= -0.3:
+                    comparison["verdict"] = "regressed"
+                else:
+                    comparison["verdict"] = "neutral"
+            else:
+                comparison["verdict"] = "no_baseline_reviews"
+        else:
+            comparison["verdict"] = "no_reviews"
+
+        print(json.dumps(comparison, indent=2, ensure_ascii=False))
 
 
 def main() -> None:
@@ -1278,6 +1626,7 @@ def main() -> None:
         "convert": cmd_convert,
         "run": cmd_run,
         "run-ui": cmd_run_ui,
+        "baseline": cmd_baseline,
     }
     cmd_map[args.command](args)
 

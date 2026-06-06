@@ -43,6 +43,24 @@ done
 # Auto-restore missing custom nodes (clones from manifest, applies patches)
 bash "$REPO_DIR/patches/custom_nodes/reinstall.sh" --quiet
 
+# Check if the target port is already in use
+PORT=8188
+for arg in "$@"; do
+  if [ "$_PREV_ARG" = "--port" ]; then PORT="$arg"; fi
+  _PREV_ARG="$arg"
+done
+if lsof -iTCP:"$PORT" -sTCP:LISTEN -t &>/dev/null; then
+  PIDS=$(lsof -iTCP:"$PORT" -sTCP:LISTEN -t)
+  echo "ERROR: Port $PORT is already in use by PID(s): $PIDS"
+  echo ""
+  echo "To kill the existing server and free the port:"
+  echo "  kill $PIDS"
+  echo ""
+  echo "Or to force kill (if the above doesn't work):"
+  echo "  kill -9 $PIDS"
+  exit 1
+fi
+
 # MPS memory: disable high-watermark throttling, allow CPU fallback for unsupported ops
 export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
 export PYTORCH_ENABLE_MPS_FALLBACK=1

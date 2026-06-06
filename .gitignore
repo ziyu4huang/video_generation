@@ -46,3 +46,12 @@ comfyui_data/custom_nodes/*
 # comfyui_data — runtime per-node data
 comfyui_data/user/default/ComfyUI-Impact-Subpack/
 comfyui_data/user/default/test.json
+
+# Patches for reinstallable custom nodes
+patches/comfyui_data/
+
+# Playwright
+.playwright-cli/
+
+# Playwright snapshots (top-level *.png)
+/*.png

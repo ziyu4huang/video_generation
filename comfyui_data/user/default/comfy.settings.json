@@ -210,5 +210,9 @@
                 }
             }
         }
-    }
+    },
+    "Comfy.WorkflowActions.SeenItems": [
+        "enter-app-mode",
+        "enter-builder-mode"
+    ]
 }

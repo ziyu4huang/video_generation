@@ -30,24 +30,33 @@ video_generation/
 │   │   │   └── Singularity-LTX-2.3_OmniCine_V1.safetensors  # LTX-2.3 video LoRA
 │   │   └── latent_upscale_models/
 │   │       └── ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors
-│   ├── custom_nodes/                             # cloned packages — NOT committed
-│   │   ├── ltx-missing-node-stubs/               # committed: stub nodes + InpaintModelConditioningTiled
-│   │   ├── ComfyUI-SeedVR2_VideoUpscaler/        # SeedVR2 image/video super-resolution
-│   │   ├── ComfyUI_UltimateSDUpscale/            # tiled image upscaling
-│   │   ├── ComfyUI-Impact-Pack/                  # face detailer (MPS-incompatible, bypassed)
-│   │   ├── ComfyUI-Impact-Subpack/               # Ultralytics detector provider
-│   │   └── ... (see Custom Nodes section)
+│   ├── custom_nodes/                             # third-party repos — NOT committed, auto-restored
+│   │   ├── VERSIONS.txt                          # committed: pinned commit manifest
+│   │   ├── ltx-missing-node-stubs/               # committed: our stub nodes
+│   │   └── ... (see Custom Node Management below)
 │   ├── user/default/workflows/
-│   │   ├── flux2-klein9b.json                    # committed: Anime → Real style transfer
-│   │   ├── anime2real.json                       # committed: Multi-pose character sheet generator
+│   │   ├── flux2-klein9b-character-profile.json  # committed: character sheet (bf16)
+│   │   ├── flux2-klein9b-character-profile-fp8.json  # committed: character sheet (fp8)
+│   │   ├── flux2-klein-face-head-swap.json       # committed: face/head swap
+│   │   ├── flux2-klein-image-expansion.json      # committed: image expansion
+│   │   ├── anime2real.json                       # committed: anime → real style transfer
 │   │   ├── ltx2.3-singularity.json               # committed: LTX-2.3 video generation
-│   │   └── moody-zimage-v7.5.json                # committed: Moody Zimage photorealistic pipeline
+│   │   └── moody-zimage-v7.5.json                # committed: Moody Zimage photorealistic
 │   └── output/                                   # generated images — NOT committed
-│       └── image/Moody/                          # Moody workflow outputs (date-organized)
 ├── docs/
-│   └── comfyui-flux2-klein9b-apple-silicon.md    # full setup guide
+│   ├── fp8-mps-apple-silicon.md                  # FP8 Metal GPU kernel details
+│   ├── flux2-klein-face-head-swap.md             # face swap pipeline guide
+│   └── flux2-klein9b-bf16-vs-fp8.md              # model format comparison
+├── patches/
+│   ├── comfyui/                                  # patches applied to ComfyUI submodule
+│   │   ├── model_management.patch                # MPS fp8 safety
+│   │   └── ops.patch                             # MPS quantized module fix
+│   └── custom_nodes/                             # custom node management
+│       ├── reinstall.sh                          # auto-restore missing nodes
+│       └── fp8-mps-metal-init.patch              # our Metal GPU FP8 kernel
 └── scripts/
-    └── install_stubs.sh                          # installs triton/decord stubs for macOS
+    ├── install_stubs.sh                          # triton/decord stubs for macOS
+    └── comfy_bench.py                            # benchmark tool
 ```
 
 ## Quick start
