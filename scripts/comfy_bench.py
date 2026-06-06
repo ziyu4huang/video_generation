@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""ComfyUI Benchmark & Workflow Automation.
+"""ComfyUI Workflow Runner & Benchmark Tool.
 
-CLI tool to manage ComfyUI lifecycle, run workflows (fp16/fp8),
+Universal CLI to manage ComfyUI lifecycle, run any workflow,
 collect metrics, and download outputs for VLM review.
 
 Usage:
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py start [--port 8188] [--force-restart]
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py stop  [--port 8188]
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py status [--port 8188]
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py run --workflow fp16 [--tag baseline] [--port 8188]
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py run-ui --workflow fp16 [--tag baseline] [--port 8188]
-    ComfyUI/.venv/bin/python scripts/comfy_bench.py convert --workflow fp16
+    # Lifecycle
+    python scripts/comfy_bench.py start [--port 8188] [--force-restart]
+    python scripts/comfy_bench.py stop  [--port 8188]
+    python scripts/comfy_bench.py status
+
+    # Run any workflow (universal)
+    python scripts/comfy_bench.py run --workflow-file path/to/workflow.json --variant my-label --tag test
+    python scripts/comfy_bench.py run --workflow-file workflow.json --variant fp8 --set-param 138.value=12
+
+    # Run via convenience alias (backward compat)
+    python scripts/comfy_bench.py run --workflow fp16 --tag baseline
+    python scripts/comfy_bench.py run --workflow fp8 --param steps=12 --randomize-seeds
+
+    # Other
+    python scripts/comfy_bench.py run-ui --workflow fp16
+    python scripts/comfy_bench.py convert --workflow fp16
+    python scripts/comfy_bench.py baseline save --run-dir comfyui_data/output/bench_results/run-dir
 """
 
 from __future__ import annotations
@@ -53,15 +64,27 @@ WORKFLOW_MAP: dict[str, dict[str, Any]] = {
         "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein9b-character-profile-fp16.json",
         "variant": "bf16",
         "save_prefix": "ComfyUI",
+        "save_labels": {140: "front", 141: "back", 142: "side", 132: "stitched"},
     },
     "fp8": {
         "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein9b-character-profile-fp8.json",
         "variant": "fp8",
         "save_prefix": "Klein9B-fp8",
+        "save_labels": {140: "front", 141: "back", 142: "side", 132: "stitched"},
+    },
+    "img-exp-bf16": {
+        "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein-image-expansion.json",
+        "variant": "bf16",
+        "save_labels": {20: "expanded", 61: "upscaled"},
+    },
+    "img-exp-fp8": {
+        "file": DATA_DIR / "user" / "default" / "workflows" / "flux2-klein-image-expansion-fp8.json",
+        "variant": "fp8",
+        "save_labels": {20: "expanded", 61: "upscaled"},
     },
 }
 
-# SaveImage node ID → view label
+# SaveImage node ID → view label (legacy global; per-workflow labels in WORKFLOW_MAP take precedence)
 SAVE_IMAGE_LABELS: dict[int, str] = {
     140: "front",
     141: "back",
@@ -82,6 +105,51 @@ PARAM_ALIASES: dict[str, tuple[str, str]] = {
 }
 
 BASELINE_DIR = BENCH_RESULTS_DIR / "baseline"
+
+
+# ---------------------------------------------------------------------------
+# Workflow resolution (alias or direct file path)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_workflow(args: argparse.Namespace) -> tuple[Path, str]:
+    """Resolve workflow file path and variant name from CLI args.
+
+    Supports two modes:
+      --workflow ALIAS       → lookup in WORKFLOW_MAP (backward compat)
+      --workflow-file PATH   → direct file path (requires --variant)
+
+    Returns (wf_path, variant_name).
+    """
+    wf_key = getattr(args, "workflow", None)
+    wf_file = getattr(args, "workflow_file", None)
+
+    if wf_key and wf_file:
+        print("Cannot use both --workflow and --workflow-file")
+        sys.exit(1)
+
+    if wf_key:
+        if wf_key not in WORKFLOW_MAP:
+            print(f"Unknown workflow alias: {wf_key}. Available: {', '.join(WORKFLOW_MAP)}")
+            sys.exit(1)
+        info = WORKFLOW_MAP[wf_key]
+        return info["file"], info["variant"]
+
+    if wf_file:
+        variant = getattr(args, "variant", None)
+        if not variant:
+            print("--variant is required when using --workflow-file")
+            sys.exit(1)
+        wf_path = Path(wf_file)
+        if not wf_path.is_absolute():
+            wf_path = REPO_DIR / wf_path
+        if not wf_path.exists():
+            print(f"Workflow file not found: {wf_path}")
+            sys.exit(1)
+        return wf_path, variant
+
+    print("Specify --workflow ALIAS or --workflow-file PATH")
+    sys.exit(1)
 
 # ---------------------------------------------------------------------------
 # Static widget-order mapping (positional widgets_values → named inputs)
@@ -126,10 +194,35 @@ WIDGET_ORDER: dict[str, list[str]] = {
     "VAEEncode": [],
     "ConditioningZeroOut": [],
     "ReferenceLatent": [],
+    "GetImageSize": [],
+    # image-expansion workflow nodes
+    "SetNode": ["key"],
+    "GetNode": ["key"],
+    "PrimitiveInt": ["value"],   # skip trailing 'fixed' control value
+    "CR Prompt Text": ["text"],
+    "DifferentialDiffusion": ["strength"],
+    "InpaintModelConditioning": ["noise_mask"],
+    "DrawMaskOnImage": ["color", "device"],
+    "ImagePadForOutpaint": ["left", "top", "right", "bottom", "feathering"],
+    # SeedVR2: widgets_values has a UI-only 'randomize' control at index 1 after seed;
+    # list only "seed" so the control value doesn't get mapped to a real input name.
+    # resolution/batch/etc are handled via API lookup when ComfyUI is running.
+    "SeedVR2VideoUpscaler": ["seed"],
+    "SeedVR2LoadVAEModel": [
+        "model", "device",
+        "encode_tiled", "encode_tile_size", "encode_tile_overlap",
+        "decode_tiled", "decode_tile_size", "decode_tile_overlap",
+        "tile_debug", "offload_device", "cache_model",
+    ],
+    "SeedVR2LoadDiTModel": [
+        "model", "device",
+        "blocks_to_swap", "swap_io_components", "offload_device",
+        "cache_model", "attention_mode",
+    ],
 }
 
 # Node types that are UI-only and should be excluded from API payload
-SKIP_NODE_TYPES = {"MarkdownNote"}
+SKIP_NODE_TYPES = {"MarkdownNote", "Image Comparer (rgthree)", "PreviewImage"}
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -486,6 +579,55 @@ class ComfyUILifecycle:
 # ===========================================================================
 
 
+def _resolve_portals(
+    nodes: list,
+    link_map: dict[int, tuple[int, int]],
+) -> dict[int, tuple[int, int]]:
+    """Resolve SetNode/GetNode portal connections into direct links.
+
+    ComfyUI's Set/Get nodes are frontend-only "portal" connectors — the browser UI
+    substitutes them with direct connections before submitting to /prompt.  We replicate
+    that substitution here so the API payload never references SetNode/GetNode.
+
+    Algorithm: any link whose source is a GetNode is replaced with the link that feeds
+    the matching SetNode (matched by the shared key widget value).
+    """
+    # key → (from_node, from_slot) of the value wired into each SetNode
+    set_sources: dict[str, tuple[int, int]] = {}
+    for n in nodes:
+        if n.get("type") == "SetNode":
+            key = n.get("widgets_values", [None])[0]
+            if key is None:
+                continue
+            for inp in n.get("inputs", []):
+                link_id = inp.get("link")
+                if link_id is not None and link_id in link_map:
+                    set_sources[key] = link_map[link_id]
+                    break
+
+    # node_id → key for every GetNode
+    get_keys: dict[int, str] = {}
+    for n in nodes:
+        if n.get("type") == "GetNode":
+            key = n.get("widgets_values", [None])[0]
+            if key is not None:
+                get_keys[n["id"]] = key
+
+    # Rewrite any link whose origin is a GetNode to the SetNode's source
+    resolved = dict(link_map)
+    for link_id, (from_node, from_slot) in link_map.items():
+        if from_node in get_keys:
+            key = get_keys[from_node]
+            if key in set_sources:
+                resolved[link_id] = set_sources[key]
+
+    return resolved
+
+
+# Portal node types — excluded from API payload after portal resolution
+_PORTAL_NODE_TYPES = {"SetNode", "GetNode"}
+
+
 def convert_workflow_to_api(
     workflow_path: Path,
     client: Optional[ComfyUIClient] = None,
@@ -515,6 +657,9 @@ def convert_workflow_to_api(
         from_output = link[2]
         link_map[link_id] = (from_node, from_output)
 
+    # Resolve SetNode/GetNode portals → direct connections
+    link_map = _resolve_portals(nodes, link_map)
+
     # Build node lookup by ID
     node_by_id: dict[int, dict] = {n["id"]: n for n in nodes}
 
@@ -532,8 +677,8 @@ def convert_workflow_to_api(
         nid = node["id"]
         ntype = node.get("type", "")
 
-        # Skip UI-only nodes
-        if ntype in SKIP_NODE_TYPES:
+        # Skip UI-only nodes and resolved portal nodes
+        if ntype in SKIP_NODE_TYPES or ntype in _PORTAL_NODE_TYPES:
             continue
 
         entry: dict[str, Any] = {
@@ -723,11 +868,7 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def cmd_convert(args: argparse.Namespace) -> None:
-    wf_key = args.workflow
-    if wf_key not in WORKFLOW_MAP:
-        print(f"Unknown workflow: {wf_key}. Available: {', '.join(WORKFLOW_MAP)}")
-        sys.exit(1)
-    wf_path = WORKFLOW_MAP[wf_key]["file"]
+    wf_path, _variant = _resolve_workflow(args)
     api = convert_workflow_to_api(wf_path)
     print(json.dumps(api, indent=2, ensure_ascii=False))
 
@@ -844,14 +985,7 @@ def _emit_bench_output(
 
 
 def cmd_run(args: argparse.Namespace) -> None:
-    wf_key = args.workflow
-    if wf_key not in WORKFLOW_MAP:
-        print(f"Unknown workflow: {wf_key}. Available: {', '.join(WORKFLOW_MAP)}")
-        sys.exit(1)
-
-    wf_info = WORKFLOW_MAP[wf_key]
-    wf_path = wf_info["file"]
-    variant = wf_info["variant"]
+    wf_path, variant = _resolve_workflow(args)
     tag = args.tag or "default"
 
     if not wf_path.exists():
@@ -869,6 +1003,22 @@ def cmd_run(args: argparse.Namespace) -> None:
     # -- Phase 1: Convert workflow to API format --
     log.info("=== Phase 1: Converting workflow to API format ===")
 
+    # Resolve save-image labels: --label overrides, else WORKFLOW_MAP defaults
+    save_labels: dict[int, str] = {}
+    if getattr(args, "label", None):
+        for spec in args.label:
+            parts = spec.split("=", 1)
+            if len(parts) != 2:
+                print(f"Invalid --label format: {spec} (expected NODE_ID=NAME)")
+                sys.exit(1)
+            save_labels[int(parts[0])] = parts[1]
+    else:
+        # Use per-workflow save_labels if defined, else fall back to global SAVE_IMAGE_LABELS
+        wf_key = getattr(args, "workflow", None)
+        if wf_key and wf_key in WORKFLOW_MAP:
+            wf_entry_labels = WORKFLOW_MAP[wf_key].get("save_labels")
+            save_labels = wf_entry_labels.copy() if wf_entry_labels else SAVE_IMAGE_LABELS.copy()
+
     overrides: dict[str, dict] = {}
     if args.input_image:
         input_dir = DATA_DIR / "input"
@@ -877,9 +1027,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         dest = input_dir / src.name
         if src != dest:
             shutil.copy2(src, dest)
-        # Node 34 is LoadImage in this workflow
-        overrides["34"] = {"image": dest.name}
-        log.info(f"Using input image: {dest.name}")
+        input_node = getattr(args, "input_node", "34") or "34"
+        overrides[input_node] = {"image": dest.name}
+        log.info(f"Using input image: {dest.name} (node {input_node})")
 
     # Merge parameter overrides from --set-param, --param, --randomize-seeds
     param_overrides = _parse_param_overrides(args)
@@ -960,7 +1110,6 @@ def cmd_run(args: argparse.Namespace) -> None:
     for node_id_str, node_output in outputs.items():
         images = node_output.get("images", [])
         node_id = int(node_id_str)
-        label = SAVE_IMAGE_LABELS.get(node_id)
 
         for img_info in images:
             filename = img_info["filename"]
@@ -968,9 +1117,9 @@ def cmd_run(args: argparse.Namespace) -> None:
             img_type = img_info.get("type", "output")
 
             # Determine output filename
-            if label:
+            if node_id in save_labels:
                 ext = Path(filename).suffix or ".png"
-                out_name = f"{label}{ext}"
+                out_name = f"{save_labels[node_id]}{ext}"
             else:
                 out_name = filename
 
@@ -1162,14 +1311,7 @@ def _run_ui_playwright(
 
 def cmd_run_ui(args: argparse.Namespace) -> None:
     """Run workflow through the ComfyUI web UI via Playwright."""
-    wf_key = args.workflow
-    if wf_key not in WORKFLOW_MAP:
-        print(f"Unknown workflow: {wf_key}. Available: {', '.join(WORKFLOW_MAP)}")
-        sys.exit(1)
-
-    wf_info = WORKFLOW_MAP[wf_key]
-    wf_path = wf_info["file"]
-    variant = wf_info["variant"]
+    wf_path, variant = _resolve_workflow(args)
     tag = args.tag or "default"
 
     if not wf_path.exists():
@@ -1277,16 +1419,15 @@ def cmd_run_ui(args: argparse.Namespace) -> None:
     for node_id_str, node_output in outputs.items():
         images = node_output.get("images", [])
         node_id = int(node_id_str)
-        label = SAVE_IMAGE_LABELS.get(node_id)
 
         for img_info in images:
             filename = img_info["filename"]
             subfolder = img_info.get("subfolder", "")
             img_type = img_info.get("type", "output")
 
-            if label:
+            if node_id in SAVE_IMAGE_LABELS:
                 ext = Path(filename).suffix or ".png"
-                out_name = f"{label}{ext}"
+                out_name = f"{SAVE_IMAGE_LABELS[node_id]}{ext}"
             else:
                 out_name = filename
 
@@ -1327,7 +1468,7 @@ def cmd_run_ui(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="ComfyUI Benchmark & Workflow Automation",
+        description="ComfyUI Workflow Runner & Benchmark Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -1351,64 +1492,80 @@ def build_parser() -> argparse.ArgumentParser:
     # convert
     p_convert = subs.add_parser("convert", help="Convert workflow to API format (debug)")
     p_convert.add_argument(
-        "--workflow", required=True, choices=list(WORKFLOW_MAP.keys()),
-        help="Workflow variant to convert",
+        "--workflow", default=None, choices=list(WORKFLOW_MAP.keys()),
+        help="Workflow alias to convert",
     )
+    p_convert.add_argument(
+        "--workflow-file", default=None,
+        help="Direct path to a workflow JSON file",
+    )
+    p_convert.add_argument(
+        "--variant", default=None,
+        help="Variant label (required with --workflow-file)",
+    )
+
+    def _add_universal_run_flags(p: argparse.ArgumentParser) -> None:
+        """Add workflow selection + override flags shared by run and run-ui."""
+        # Workflow selection: alias OR direct file (exactly one required)
+        wf_excl = p.add_mutually_exclusive_group(required=True)
+        wf_excl.add_argument(
+            "--workflow", default=None, choices=list(WORKFLOW_MAP.keys()),
+            help="Workflow alias (e.g. fp16, fp8)",
+        )
+        wf_excl.add_argument(
+            "--workflow-file", default=None,
+            help="Direct path to any workflow JSON file",
+        )
+        p.add_argument(
+            "--variant", default=None,
+            help="Variant label (required with --workflow-file)",
+        )
+        p.add_argument("--tag", default="", help="Tag for this run (e.g., baseline, comparison)")
+
+        # Input image
+        p.add_argument("--input-image", default=None, help="Override input image path")
+        p.add_argument(
+            "--input-node", default="34",
+            help="LoadImage node ID for --input-image (default: 34)",
+        )
+
+        # Output labels
+        p.add_argument(
+            "--label", action="append", default=[],
+            metavar="NODE_ID=NAME",
+            help="Rename SaveImage output, e.g. --label 140=front (repeatable)",
+        )
+
+        # Lifecycle
+        p.add_argument("--force-restart", action="store_true", help="Restart ComfyUI before run")
+
+        # Parameter overrides
+        p.add_argument(
+            "--set-param", action="append", default=[],
+            metavar="NODE_ID.INPUT=VALUE",
+            help="Override a node input, e.g. --set-param 138.value=8",
+        )
+        p.add_argument(
+            "--param", action="append", default=[],
+            metavar="ALIAS=VALUE",
+            help="Override using named alias, e.g. --param steps=12 --param seed_back=999",
+        )
+        p.add_argument(
+            "--randomize-seeds", action="store_true",
+            help="Override all 3 noise seeds with random unique values",
+        )
+        p.add_argument(
+            "--json", action="store_true",
+            help="Emit structured JSON output after text summary",
+        )
 
     # run (API mode)
-    p_run = subs.add_parser("run", help="Run a workflow benchmark (API mode)")
-    p_run.add_argument(
-        "--workflow", required=True, choices=list(WORKFLOW_MAP.keys()),
-        help="Workflow variant to run",
-    )
-    p_run.add_argument("--tag", default="", help="Tag for this run (e.g., baseline, comparison)")
-    p_run.add_argument("--input-image", default=None, help="Override input image path")
-    p_run.add_argument("--force-restart", action="store_true", help="Restart ComfyUI before run")
-    p_run.add_argument(
-        "--set-param", action="append", default=[],
-        metavar="NODE_ID.INPUT=VALUE",
-        help="Override a node input, e.g. --set-param 138.value=8",
-    )
-    p_run.add_argument(
-        "--param", action="append", default=[],
-        metavar="ALIAS=VALUE",
-        help="Override using named alias, e.g. --param steps=12 --param seed_back=999",
-    )
-    p_run.add_argument(
-        "--randomize-seeds", action="store_true",
-        help="Override all 3 noise seeds with random unique values",
-    )
-    p_run.add_argument(
-        "--json", action="store_true",
-        help="Emit structured JSON output after text summary",
-    )
+    p_run = subs.add_parser("run", help="Run a workflow (API mode)")
+    _add_universal_run_flags(p_run)
 
-    # run-ui (Playwright mode — drives the real web UI)
-    p_rui = subs.add_parser("run-ui", help="Run a workflow benchmark via Playwright (web UI)")
-    p_rui.add_argument(
-        "--workflow", required=True, choices=list(WORKFLOW_MAP.keys()),
-        help="Workflow variant to run",
-    )
-    p_rui.add_argument("--tag", default="", help="Tag for this run (e.g., baseline, comparison)")
-    p_rui.add_argument("--force-restart", action="store_true", help="Restart ComfyUI before run")
-    p_rui.add_argument(
-        "--set-param", action="append", default=[],
-        metavar="NODE_ID.INPUT=VALUE",
-        help="Override a node input, e.g. --set-param 138.value=8",
-    )
-    p_rui.add_argument(
-        "--param", action="append", default=[],
-        metavar="ALIAS=VALUE",
-        help="Override using named alias, e.g. --param steps=12",
-    )
-    p_rui.add_argument(
-        "--randomize-seeds", action="store_true",
-        help="Override all 3 noise seeds with random unique values",
-    )
-    p_rui.add_argument(
-        "--json", action="store_true",
-        help="Emit structured JSON output after text summary",
-    )
+    # run-ui (Playwright mode)
+    p_rui = subs.add_parser("run-ui", help="Run a workflow via Playwright (web UI)")
+    _add_universal_run_flags(p_rui)
 
     # baseline (save / load / compare)
     p_bl = subs.add_parser("baseline", help="Manage benchmark baseline")
