@@ -62,6 +62,38 @@ for patch in "$PATCHES_DIR"/*.patch; do
   fi
 done
 
+# Patch comfy_kitchen NVFP4 dequantize to support MPS (float8_e4m3fn not supported on MPS)
+# Dequantizes on CPU then moves result back to MPS device — same pattern as GGUF loaders
+NVFP4_FILE="$VENV/lib/python3.13/site-packages/comfy_kitchen/tensor/nvfp4.py"
+if [ -f "$NVFP4_FILE" ] && ! grep -q "qdata.device.type == 'mps'" "$NVFP4_FILE"; then
+  echo "[run.sh] Patching comfy_kitchen nvfp4 for MPS support"
+  "$VENV/bin/python" - <<'PYEOF'
+import re, pathlib
+p = pathlib.Path(__file__).parent  # unused, use env var below
+PYEOF
+  "$VENV/bin/python" -c "
+import pathlib
+f = pathlib.Path('$NVFP4_FILE')
+src = f.read_text()
+old = '''    @classmethod
+    def dequantize(cls, qdata: torch.Tensor, params: Params) -> torch.Tensor:
+        return ck.dequantize_nvfp4(qdata, params.scale, params.block_scale, params.orig_dtype)'''
+new = '''    @classmethod
+    def dequantize(cls, qdata: torch.Tensor, params: Params) -> torch.Tensor:
+        if qdata.device.type == 'mps':
+            result = ck.dequantize_nvfp4(
+                qdata.cpu(), params.scale.cpu(), params.block_scale.cpu(), params.orig_dtype
+            )
+            return result.to(qdata.device)
+        return ck.dequantize_nvfp4(qdata, params.scale, params.block_scale, params.orig_dtype)'''
+if old in src:
+    f.write_text(src.replace(old, new))
+    print('  patched ok')
+else:
+    print('  already patched or pattern not found — skipping')
+"
+fi
+
 # Auto-restore missing custom nodes (clones from manifest, applies patches)
 if $FIX_NODES; then
   echo "[run.sh] Running custom node fix (verbose)..."
