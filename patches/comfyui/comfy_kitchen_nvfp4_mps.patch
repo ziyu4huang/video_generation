@@ -1,0 +1,13 @@
+--- a/comfy_kitchen/tensor/nvfp4.py
++++ b/comfy_kitchen/tensor/nvfp4.py
+@@ -84,6 +84,12 @@ class TensorCoreNVFP4Layout(QuantizedLayout):
+
+     @classmethod
+     def dequantize(cls, qdata: torch.Tensor, params: Params) -> torch.Tensor:
++        if qdata.device.type == 'mps':
++            # MPS doesn't support float8_e4m3fn; dequantize on CPU then move back
++            result = ck.dequantize_nvfp4(
++                qdata.cpu(), params.scale.cpu(), params.block_scale.cpu(), params.orig_dtype
++            )
++            return result.to(qdata.device)
+         return ck.dequantize_nvfp4(qdata, params.scale, params.block_scale, params.orig_dtype)

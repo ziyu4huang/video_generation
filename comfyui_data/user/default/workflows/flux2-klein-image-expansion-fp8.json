@@ -3707,9 +3707,9 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        1000,
+        512,
         0,
-        1000,
+        512,
         0,
         100
       ],
