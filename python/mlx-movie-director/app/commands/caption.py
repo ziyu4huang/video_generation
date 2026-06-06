@@ -142,7 +142,7 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
                 },
             ],
         }],
-        "max_tokens": 512,
+        "max_tokens": 2048,
         "temperature": 0.3,
         "stream": False,
     }

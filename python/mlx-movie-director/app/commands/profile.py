@@ -220,10 +220,19 @@ def add_args(parser):
         help="Klein model variant (default: 9b, better quality; 4b for less memory)",
     )
     parser.add_argument(
-        "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=True,
+        "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=False,
         help=(
             "Pass the reference image twice for stronger clothing consistency "
-            "(default: True). Use --no-double-ref to disable on memory-limited machines."
+            "(default: False). Enable with --double-ref if needed."
+        ),
+    )
+    parser.add_argument(
+        "--chain-ref", "--no-chain-ref", action=argparse.BooleanOptionalAction, default=True,
+        help=(
+            "Use the generated front view as reference for back/side views "
+            "(default: True). The front view is a clean A-pose on white background, "
+            "providing better visual reference than the original photo. "
+            "Use --no-chain-ref to use the original reference for all views."
         ),
     )
     # VLM auto-caption options
@@ -339,7 +348,8 @@ def run(args):
         "no_strip": args.no_strip,
         "flux2_model_path": getattr(args, "flux2_model_path", None),
         "quantize": getattr(args, "quantize", None),
-        "double_ref": getattr(args, "double_ref", True),
+        "double_ref": getattr(args, "double_ref", False),
+        "chain_ref": getattr(args, "chain_ref", True),
         "vlm": getattr(args, "vlm", True),
         "vlm_caption": None,  # filled in after VLM call
     }
@@ -419,18 +429,57 @@ def run(args):
     all_timings = {}
 
     try:
-        # Build reference image list: optionally double the reference for stronger conditioning
-        ref_images = [args.input_image] if args.input_image else []
-        if args.input_image and use_flux2 and getattr(args, "double_ref", True):
-            ref_images = [args.input_image, args.input_image]
-            print(f"Double-ref: ON (reference passed twice, {len(ref_images)} copies)")
+        # Determine chain-ref eligibility:
+        # When enabled + flux2-klein + front is in views, generate front first
+        # and use it as reference for subsequent views.  The generated front is
+        # a clean A-pose on white background — much better reference than the
+        # original photo for consistent back/side generation.
+        use_chain_ref = (
+            use_flux2
+            and getattr(args, "chain_ref", True)
+            and "front" in views
+            and args.input_image is not None
+        )
+        if use_chain_ref:
+            print(f"Chain-ref: ON (front view will become reference for back/side)")
+
+        # Double-ref: optionally pass the same reference image twice for
+        # stronger conditioning (doubled attention signal).
+        use_double_ref = getattr(args, "double_ref", False)
+        if use_double_ref:
+            print(f"Double-ref: ON (reference passed twice)")
+
+        # Track the front view path for cascade reference
+        front_path = None
 
         for view in views:
             # NumPy/mflux seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
             view_seed = (args.seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
             prompt = _build_view_prompt(view, base_prompt, pipeline_type)
 
-            print(f"\n=== {view.upper()} (seed={view_seed}) ===")
+            # Determine reference images for this view
+            if use_flux2:
+                if use_chain_ref and front_path is not None:
+                    # Cascade: use generated front as reference for back/side
+                    ref_images = [front_path]
+                    ref_label = f"front.png (cascade)"
+                elif use_chain_ref and view == "front":
+                    # Front view: use original reference
+                    ref_images = [args.input_image]
+                    ref_label = "original"
+                else:
+                    # No chain-ref, or zimage fallback: use original reference
+                    ref_images = [args.input_image] if args.input_image else []
+                    ref_label = "original" if args.input_image else "none"
+
+                # Apply double-ref: pass the same image twice
+                if ref_images and use_double_ref:
+                    ref_images = [ref_images[0], ref_images[0]]
+            else:
+                ref_images = []
+                ref_label = "none"
+
+            print(f"\n=== {view.upper()} (seed={view_seed}) === [ref: {ref_label}]")
             print(f"  {prompt[:120]}...")
 
             if use_flux2:
@@ -459,6 +508,10 @@ def run(args):
             result.image.save(view_path)
             print(f"  Saved: {view_path}")
 
+            # Track front view for cascade reference
+            if use_chain_ref and view == "front":
+                front_path = view_path
+
             view_images.append(result.image)
             all_timings[view] = result.timings
             view_outputs.append({
@@ -466,6 +519,7 @@ def run(args):
                 "prompt": prompt,
                 "seed": view_seed,
                 "path": view_path,
+                "ref_source": ref_label,
                 "size_bytes": os.path.getsize(view_path),
                 "width": result.image.width,
                 "height": result.image.height,
