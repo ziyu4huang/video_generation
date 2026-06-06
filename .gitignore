@@ -41,6 +41,7 @@ comfyui_data/user/default/workflows/.index.json
 # Use /* so negation patterns below still work
 comfyui_data/custom_nodes/*
 !comfyui_data/custom_nodes/ltx-missing-node-stubs/
+!comfyui_data/custom_nodes/fp8-mps-metal/
 !comfyui_data/custom_nodes/VERSIONS.txt
 
 # comfyui_data — runtime per-node data
