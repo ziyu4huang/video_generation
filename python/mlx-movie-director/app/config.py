@@ -10,12 +10,27 @@ SRC_TRANSFORMER = os.path.join(COMFY_MODELS, "diffusion_models", "moody-porn-v12
 SRC_TEXT_ENCODER = os.path.join(COMFY_MODELS, "text_encoders", "qwen_3_4b.safetensors")
 
 MODELS_DIR = os.path.join(PROJECT_DIR, "models")
-TRANSFORMER_DIR = os.path.join(MODELS_DIR, "transformer")
-TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder")
-TOKENIZER_DIR = os.path.join(MODELS_DIR, "tokenizer")
-VAE_DIR = os.path.join(MODELS_DIR, "vae")
+
+# Default ZImage model instance paths (named subdirectories under each type)
+TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "zimage-moody-v126")
+TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "qwen3-4b")
+TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer",     "qwen3")
+VAE_DIR          = os.path.join(MODELS_DIR, "vae",           "flux-ae")
 
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
+
+# SeedVR2 source models (for convert.py)
+SRC_SEEDVR2_DIT_7B = os.path.join(COMFY_MODELS, "SEEDVR2", "seedvr2_ema_7b_fp16.safetensors")
+SRC_SEEDVR2_VAE = os.path.join(COMFY_MODELS, "SEEDVR2", "ema_vae_fp16.safetensors")
+
+# SeedVR2 pre-converted MLX models (output of convert.py --seedvr2-dit / --seedvr2-vae)
+SEEDVR2_DIT_DIR = os.path.join(MODELS_DIR, "seedvr2_dit_7b")
+SEEDVR2_VAE_DIR = os.path.join(MODELS_DIR, "seedvr2_vae")
+
+# SeedVR2 text embeddings (loaded at inference, not converted)
+SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")
+SEEDVR2_POS_EMB = os.path.join(SEEDVR2_CUSTOM_NODES, "pos_emb.pt")
+SEEDVR2_NEG_EMB = os.path.join(SEEDVR2_CUSTOM_NODES, "neg_emb.pt")
 
 TRANSFORMER_CONFIG = {
     "_class_name": "ZImageTransformer2DModel",

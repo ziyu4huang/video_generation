@@ -1,9 +1,18 @@
 """profile — multi-view character profile sheet (front / back / side).
 
-Generation strategy: pure text-to-image from empty latent, mirroring the
-ComfyUI flux2-klein9b-character-profile workflow which uses EmptyFlux2LatentImage
-as the sampler starting point. The optional --input-image is shown alongside the
-generated views in the strip for visual reference only (not used for generation).
+Two pipeline modes:
+
+  flux2-klein (default when --input-image is provided):
+    Uses mflux Flux2KleinEdit with real reference-image conditioning.
+    The reference image latent is concatenated into the attention sequence
+    (prepare_reference_image_conditioning), giving the model genuine knowledge
+    of the character appearance.  Requires Klein 4B (~15 GB, auto-downloaded
+    from HuggingFace on first use).
+
+  zimage (fallback when no --input-image, or --pipeline zimage):
+    Pure text-to-image from empty latent via ZImagePipeline.  Matches the
+    ComfyUI EmptyFlux2LatentImage starting point.  --base-prompt is the only
+    way to describe the character.
 """
 
 import json
@@ -43,6 +52,25 @@ VIEW_PROMPTS = {
     ),
 }
 
+# Flux2 Klein: reference image is injected as conditioning — prompts are view-only
+VIEW_PROMPTS_FLUX2 = {
+    "front": (
+        "A-pose front view full body character design sheet, "
+        "character standing upright, white background, "
+        "professional anime/game character design"
+    ),
+    "back": (
+        "A-pose back view full body character design sheet, "
+        "character standing upright, white background, "
+        "professional anime/game character design"
+    ),
+    "side": (
+        "A-pose side view full body character design sheet, "
+        "character standing upright, white background, "
+        "professional anime/game character design"
+    ),
+}
+
 # front/back share the same seed; side uses seed+1 — mirrors the ComfyUI workflow design
 VIEW_SEED_OFFSETS = {"front": 0, "back": 0, "side": 1}
 
@@ -51,25 +79,28 @@ VIEW_SEED_OFFSETS = {"front": 0, "back": 0, "side": 1}
 # ---------------------------------------------------------------------------
 
 PARSER_META = {
-    "help": "Character profile sheet: front / back / side views (text-to-image)",
+    "help": "Character profile sheet: front / back / side views",
     "description": (
-        "Generate a multi-view character profile sheet (front, back, side) using\n"
-        "pure text-to-image generation — mirroring the ComfyUI workflow which uses\n"
-        "EmptyFlux2LatentImage as the sampler starting point.\n\n"
-        "If --input-image is provided it is shown as a reference panel on the left\n"
-        "of the strip but does NOT influence generation (ZImage Turbo does not\n"
-        "support ReferenceLatent conditioning). Use --base-prompt to describe the\n"
-        "character so the model can maintain appearance consistency across views.\n\n"
+        "Generate a multi-view character profile sheet (front, back, side).\n\n"
+        "Pipeline selection (--pipeline):\n"
+        "  auto        — flux2-klein when --input-image is given, zimage otherwise\n"
+        "  flux2-klein — Flux2 Klein 4B with real reference conditioning (mflux).\n"
+        "                Reference image latent is injected into attention; model\n"
+        "                genuinely sees and follows the character appearance.\n"
+        "                First run downloads ~15 GB from HuggingFace.\n"
+        "  zimage      — ZImage Turbo pure text-to-image (original behaviour).\n"
+        "                Use --base-prompt to describe the character.\n\n"
         "Output folder: output/profile_YYYYMMDD_HHMMSS/\n"
         "  reference.png               — input image copy (if provided)\n"
         "  front.png, back.png, side.png — generated views\n"
         "  strip.png                   — [ref | front | back | side] horizontal stitch\n"
         "  run.json, manifest.json     — audit records\n\n"
         "Examples:\n"
-        "  run.py profile --base-prompt 'young woman, light blue hanfu'\n"
-        "  run.py profile --input-image char.png --base-prompt 'blue dress, silver hair'\n"
-        "  run.py profile --input-image char.png --views front side --steps 6\n"
-        "  run.py profile --seed 42 --steps 9"
+        "  run.py profile --input-image char.png                  # flux2-klein (auto)\n"
+        "  run.py profile --input-image char.png --quantize 8     # quantize Klein to INT8\n"
+        "  run.py profile --input-image char.png --pipeline zimage # force ZImage t2i\n"
+        "  run.py profile --pipeline zimage --base-prompt 'blue hanfu woman'\n"
+        "  run.py profile --flux2-model-path /local/klein-4b/ --steps 4"
     ),
 }
 
@@ -126,14 +157,38 @@ def add_args(parser):
         "--strip-gap", type=int, default=0, metavar="PX",
         help="Gap in pixels between panels in the strip (default: 0)",
     )
+    # Pipeline selection
+    parser.add_argument(
+        "--pipeline", choices=["auto", "flux2-klein", "zimage"], default="auto",
+        help=(
+            "auto: flux2-klein when --input-image present, zimage otherwise. "
+            "flux2-klein: Flux2 Klein 4B with reference conditioning (mflux). "
+            "zimage: ZImage Turbo text-to-image."
+        ),
+    )
+    parser.add_argument(
+        "--flux2-model-path", default=None, metavar="PATH",
+        help=(
+            "Local path to Klein 4B model in HuggingFace directory structure "
+            "(transformer/, vae/, text_encoder/, tokenizer/). "
+            "Omit to let mflux auto-download from HuggingFace."
+        ),
+    )
+    parser.add_argument(
+        "--quantize", type=int, choices=[4, 8], default=None, metavar="BITS",
+        help="Quantization for Flux2 Klein (4 or 8 bits). Recommended: 8 for MPS.",
+    )
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_view_prompt(view: str, base_prompt: str | None) -> str:
-    template = VIEW_PROMPTS[view]
+def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = "zimage") -> str:
+    if pipeline_type == "flux2-klein":
+        template = VIEW_PROMPTS_FLUX2[view]
+    else:
+        template = VIEW_PROMPTS[view]
     if base_prompt and base_prompt.strip():
         return f"{template}, {base_prompt.strip()}"
     return template
@@ -157,13 +212,19 @@ def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
 
 def run(args):
     from PIL import Image
-    from app.pipeline import ZImagePipeline
     from app.manifest import Manifest, collect_model_fingerprint
 
     # Validate input image path if provided
     if args.input_image and not os.path.exists(args.input_image):
         print(f"ERROR: input image not found: {args.input_image}", file=sys.stderr)
         sys.exit(1)
+
+    # Determine pipeline type
+    use_flux2 = (
+        args.pipeline == "flux2-klein"
+        or (args.pipeline == "auto" and args.input_image is not None)
+    )
+    pipeline_type = "flux2-klein" if use_flux2 else "zimage"
 
     # Maintain canonical view order regardless of --views input order
     views = [v for v in ALL_VIEWS if v in args.views]
@@ -176,7 +237,8 @@ def run(args):
     # Write run.json
     run_meta = {
         "command": "profile",
-        "mode": "t2i",
+        "pipeline": pipeline_type,
+        "mode": "reference-conditioning" if use_flux2 else "t2i",
         "input_image": args.input_image,
         "views": views,
         "base_prompt": args.base_prompt,
@@ -184,10 +246,12 @@ def run(args):
         "seed": args.seed,
         "width": args.width,
         "height": args.height,
-        "lora_path": args.lora_path,
-        "lora_scale": args.lora_scale,
+        "lora_path": getattr(args, "lora_path", None),
+        "lora_scale": getattr(args, "lora_scale", 1.0),
         "strip_gap": args.strip_gap,
         "no_strip": args.no_strip,
+        "flux2_model_path": getattr(args, "flux2_model_path", None),
+        "quantize": getattr(args, "quantize", None),
     }
     run_file = os.path.join(out_dir, "run.json")
     with open(run_file, "w") as f:
@@ -196,16 +260,27 @@ def run(args):
 
     print(f"Output folder: {out_dir}")
     print(f"Views: {' + '.join(views)}")
-    print(f"Mode: text-to-image (empty latent start)")
+    print(f"Pipeline: {pipeline_type}")
 
-    # Load reference image for display (not used in generation)
+    # Load reference image
     ref_image = None
     if args.input_image:
         ref_image = Image.open(args.input_image).convert("RGB")
         ref_image.save(os.path.join(out_dir, "reference.png"))
-        print(f"Reference: {args.input_image} ({ref_image.width}×{ref_image.height}) — display only")
+        ref_note = "reference conditioning" if use_flux2 else "display only"
+        print(f"Reference: {args.input_image} ({ref_image.width}×{ref_image.height}) — {ref_note}")
 
-    pipeline = ZImagePipeline()
+    # Initialise the chosen pipeline (once — model stays loaded across all views)
+    if use_flux2:
+        from app.flux2_pipeline import Flux2KleinPipeline
+        pipeline = Flux2KleinPipeline(
+            model_path=getattr(args, "flux2_model_path", None),
+            quantize=getattr(args, "quantize", None),
+        )
+    else:
+        from app.pipeline import ZImagePipeline
+        pipeline = ZImagePipeline()
+
     start_time = datetime.now(timezone.utc).isoformat()
 
     view_outputs = []
@@ -214,26 +289,34 @@ def run(args):
 
     try:
         for view in views:
-            # NumPy seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
+            # NumPy/mflux seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
             view_seed = (args.seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
-            prompt = _build_view_prompt(view, args.base_prompt)
+            prompt = _build_view_prompt(view, args.base_prompt, pipeline_type)
 
             print(f"\n=== {view.upper()} (seed={view_seed}) ===")
-            print(f"  {prompt[:100]}...")
+            print(f"  {prompt[:120]}...")
 
-            # Pure text-to-image — no input_image → starts from empty noise latent,
-            # matching ComfyUI's EmptyFlux2LatentImage → SamplerCustomAdvanced flow
-            result = pipeline.generate(
-                prompt=prompt,
-                width=args.width,
-                height=args.height,
-                steps=args.steps,
-                seed=view_seed,
-                lora_path=args.lora_path,
-                lora_scale=args.lora_scale,
-                upscale=False,
-                upscale_model=None,
-            )
+            if use_flux2:
+                result = pipeline.generate(
+                    seed=view_seed,
+                    prompt=prompt,
+                    reference_images=[args.input_image] if args.input_image else [],
+                    width=args.width,
+                    height=args.height,
+                    steps=args.steps,
+                )
+            else:
+                result = pipeline.generate(
+                    prompt=prompt,
+                    width=args.width,
+                    height=args.height,
+                    steps=args.steps,
+                    seed=view_seed,
+                    lora_path=getattr(args, "lora_path", None),
+                    lora_scale=getattr(args, "lora_scale", 1.0),
+                    upscale=False,
+                    upscale_model=None,
+                )
 
             view_path = os.path.join(out_dir, f"{view}.png")
             result.image.save(view_path)
