@@ -89,9 +89,11 @@ def execute_generation(run_config) -> None:
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
-    first_base = generate_base_name()
-    run_file = os.path.join(cfg.OUTPUT_DIR, f"{first_base}.run.json")
-    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{first_base}.manifest.json")
+    # Single base name shared by .run.json, .manifest.json, and .png files.
+    # Batch images get a _s{seed} suffix but keep the same timestamp base.
+    base_name = generate_base_name()
+    run_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.run.json")
+    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.manifest.json")
 
     run_config.to_json(run_file)
 
@@ -139,7 +141,6 @@ def execute_generation(run_config) -> None:
                 upscale_model=upscale_model,
             )
 
-            base_name = generate_base_name()
             suffix = f"_s{seed}" if count > 1 else ""
             out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}{suffix}.png")
             result.image.save(out_path)

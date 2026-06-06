@@ -1,5 +1,6 @@
 # Large model weight files (reproduce via convert.py)
 models/**/*.safetensors
+models/lora/
 models/tokenizer/tokenizer.json
 models/tokenizer/merges.txt
 models/tokenizer/vocab.json
