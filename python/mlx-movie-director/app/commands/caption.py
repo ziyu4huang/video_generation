@@ -17,7 +17,7 @@ PARSER_META = {
         "Examples:\n"
         "  run.py caption output/base.png\n"
         "  run.py caption base.png --style photography\n"
-        "  run.py caption base.png --style prompt\n"
+        "  run.py caption base.png --style prompt --lang en\n"
     ),
 }
 
@@ -32,6 +32,14 @@ _STYLE_PROMPTS = {
         "Describe subject, appearance, clothing, pose, background, lighting, style, and atmosphere. "
         "Output only the prompt, no preamble."
     ),
+}
+
+# Language instructions — appended to style prompt
+_LANG_INSTRUCTIONS = {
+    "zh_TW": "請用繁體中文回答。",
+    "zh_CN": "请用简体中文回答。",
+    "en": "Answer in English.",
+    "ja": "日本語で答えてください。",
 }
 
 _DEFAULT_API_URL = "http://localhost:1234/v1"
@@ -51,6 +59,8 @@ def add_args(parser):
                         help=f"Model name (default: {_DEFAULT_MODEL})")
     parser.add_argument("--style", choices=list(_STYLE_PROMPTS.keys()), default="default",
                         help="Caption style (default: default)")
+    parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
+                        help="Output language (default: zh_TW)")
 
 
 def run(args):
@@ -70,10 +80,11 @@ def run(args):
         output_path = f"{base}.caption.json"
 
     style = args.style
-    prompt_text = _STYLE_PROMPTS[style]
+    lang = args.lang
+    prompt_text = _STYLE_PROMPTS[style] + "\n" + _LANG_INSTRUCTIONS[lang]
 
     # 1. Encode image to base64
-    print(f"Captioning {input_path} (style={style})...", end=" ", flush=True)
+    print(f"Captioning {input_path} (style={style}, lang={lang})...", end=" ", flush=True)
     b64 = _image_to_base64(input_path)
 
     # 2. Call VLM API
