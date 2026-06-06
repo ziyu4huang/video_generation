@@ -15,6 +15,7 @@ Two pipeline modes:
     way to describe the character.
 """
 
+import argparse
 import json
 import os
 import sys
@@ -30,6 +31,19 @@ from app.commands._shared import generate_base_name
 # ---------------------------------------------------------------------------
 
 ALL_VIEWS = ["front", "back", "side"]
+
+# Aspect ratio presets (width × height, both multiples of 16 for VAE compatibility).
+# "portrait"  — 3:4, good for upper-body or half-body shots
+# "standing"  — 2:3, balanced full-body standing figure (recommended)
+# "full-body" — 1:2, tall full-body with headroom
+# "tall"      — current ComfyUI default (864×2016 ≈ 1:2.33), very narrow
+RATIO_PRESETS = {
+    "portrait":  (1024, 1360),   # ~3:4
+    "standing":  (1024, 1536),   # 2:3  ← recommended default
+    "full-body": (896, 1792),    # 1:2
+    "tall":      (864, 2016),    # ComfyUI original
+}
+DEFAULT_RATIO = "standing"
 
 VIEW_PROMPTS = {
     "front": (
@@ -52,27 +66,36 @@ VIEW_PROMPTS = {
     ),
 }
 
-# Flux2 Klein: reference image is injected as conditioning — prompts are view-only
+# Flux2 Klein: reference image is injected as conditioning — prompts are view-only.
+# Chinese prompts with strong clothing preservation instructions; Qwen3 text encoder
+# understands Chinese natively.  The explicit clothing language anchors the text
+# conditioning to prevent the model from hallucinating different garments per view.
 VIEW_PROMPTS_FLUX2 = {
     "front": (
-        "A-pose front view full body character design sheet, "
-        "character standing upright, white background, "
-        "professional anime/game character design"
+        "生成图中人物A-pose的正面图。人物站立，去除杂物，纯白色背景。"
+        "完美的身体比例，头不要太大。"
+        "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
+        "保持服装的颜色、款式、纹理、图案、材质完全一致，"
+        "不得更改或遗漏任何服装细节"
     ),
     "back": (
-        "A-pose back view full body character design sheet, "
-        "character standing upright, white background, "
-        "professional anime/game character design"
+        "生成图中人物A-pose的背面图。人物站立，去除杂物，纯白色背景。"
+        "完美的身体比例，头不要太大。"
+        "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
+        "保持服装的颜色、款式、纹理、图案、材质完全一致，"
+        "不得更改或遗漏任何服装细节"
     ),
     "side": (
-        "A-pose side view full body character design sheet, "
-        "character standing upright, white background, "
-        "professional anime/game character design"
+        "生成图中人物A-pose的侧面图。人物站立，去除杂物，纯白色背景。"
+        "完美的身体比例，头不要太大。"
+        "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
+        "保持服装的颜色、款式、纹理、图案、材质完全一致，"
+        "不得更改或遗漏任何服装细节"
     ),
 }
 
-# front/back share the same seed; side uses seed+1 — mirrors the ComfyUI workflow design
-VIEW_SEED_OFFSETS = {"front": 0, "back": 0, "side": 1}
+# All views use the same seed for maximum inter-view consistency
+VIEW_SEED_OFFSETS = {"front": 0, "back": 0, "side": 0}
 
 # ---------------------------------------------------------------------------
 # Parser
@@ -118,28 +141,42 @@ def add_args(parser):
     parser.add_argument(
         "--base-prompt", type=str, default=None, metavar="TEXT",
         help=(
-            "Character description appended to each view prompt — important for\n"
-            "appearance consistency (e.g. 'blue dress, silver hair, young woman')"
+            "Character clothing/appearance description appended to each view prompt.\n"
+            "Works for both flux2-klein and zimage pipelines.\n"
+            "For flux2-klein, this adds explicit clothing info to text conditioning,\n"
+            "which helps preserve outfit consistency across views.\n"
+            "When omitted with flux2-klein + --vlm, auto-generated from reference image.\n"
+            "Example: 'red jacket, blue jeans, white sneakers, silver hair'"
         ),
     )
     parser.add_argument(
-        "--steps", type=int, default=4,
-        help="Denoising steps per view (default: 4, matches ComfyUI workflow)",
+        "--steps", type=int, default=6,
+        help="Denoising steps per view (default: 6, matches ComfyUI workflow)",
     )
     parser.add_argument(
         "--seed", type=int, default=63515082432616,
         help=(
             "Base seed (default: 63515082432616, matches ComfyUI workflow). "
-            "front/back use this seed; side uses seed+1."
+            "All views use the same seed for maximum consistency."
         ),
     )
     parser.add_argument(
-        "--width", type=int, default=864,
-        help="Output width per view in pixels (default: 864)",
+        "--ratio",
+        choices=list(RATIO_PRESETS.keys()),
+        default=DEFAULT_RATIO,
+        help=(
+            "Aspect ratio preset per view. "
+            f"Choices: {', '.join(f'{k} ({v[0]}×{v[1]})' for k, v in RATIO_PRESETS.items())}. "
+            f"Default: {DEFAULT_RATIO}. Overridden by explicit --width/--height."
+        ),
     )
     parser.add_argument(
-        "--height", type=int, default=2016,
-        help="Output height per view in pixels (default: 2016)",
+        "--width", type=int, default=None,
+        help="Output width per view in pixels (overrides --ratio)",
+    )
+    parser.add_argument(
+        "--height", type=int, default=None,
+        help="Output height per view in pixels (overrides --ratio)",
     )
     parser.add_argument(
         "--lora-path", type=str, default=None,
@@ -178,6 +215,35 @@ def add_args(parser):
         "--quantize", type=int, choices=[4, 8], default=None, metavar="BITS",
         help="Quantization for Flux2 Klein (4 or 8 bits). Recommended: 8 for MPS.",
     )
+    parser.add_argument(
+        "--variant", choices=["4b", "9b"], default="9b",
+        help="Klein model variant (default: 9b, better quality; 4b for less memory)",
+    )
+    parser.add_argument(
+        "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=True,
+        help=(
+            "Pass the reference image twice for stronger clothing consistency "
+            "(default: True). Use --no-double-ref to disable on memory-limited machines."
+        ),
+    )
+    # VLM auto-caption options
+    parser.add_argument(
+        "--vlm", "--no-vlm", action=argparse.BooleanOptionalAction, default=True,
+        help=(
+            "Auto-generate clothing description from reference image using VLM "
+            "when --base-prompt is not provided (default: True). "
+            "Requires LM Studio with Qwen3-VL running on localhost:1234. "
+            "Use --no-vlm to disable."
+        ),
+    )
+    parser.add_argument(
+        "--vlm-api-url", type=str, default="http://localhost:1234/v1",
+        help="VLM API base URL for auto-captioning (default: http://localhost:1234/v1)",
+    )
+    parser.add_argument(
+        "--vlm-model", type=str, default="qwen/qwen3-vl-4b",
+        help="VLM model name for auto-captioning (default: qwen/qwen3-vl-4b)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +252,15 @@ def add_args(parser):
 
 def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = "zimage") -> str:
     if pipeline_type == "flux2-klein":
+        # Flux2 Klein reference conditioning carries character identity from the
+        # image latent.  base_prompt is appended as an explicit clothing description
+        # to anchor text conditioning — this compensates for the lack of ComfyUI's
+        # ReferenceLatent attention-sharing mechanism.
         template = VIEW_PROMPTS_FLUX2[view]
-    else:
-        template = VIEW_PROMPTS[view]
+        if base_prompt and base_prompt.strip():
+            return f"{template}。人物穿着：{base_prompt.strip()}"
+        return template
+    template = VIEW_PROMPTS[view]
     if base_prompt and base_prompt.strip():
         return f"{template}, {base_prompt.strip()}"
     return template
@@ -226,6 +298,20 @@ def run(args):
     )
     pipeline_type = "flux2-klein" if use_flux2 else "zimage"
 
+    # Resolve dimensions: explicit --width/--height override --ratio preset
+    if args.width is not None and args.height is not None:
+        width, height = args.width, args.height
+    else:
+        preset = RATIO_PRESETS[args.ratio]
+        width, height = preset
+        # If user specifies only one of width/height, keep the other from preset
+        if args.width is not None:
+            width = args.width
+        if args.height is not None:
+            height = args.height
+
+    print(f"Resolution: {width}×{height} (ratio={args.ratio})")
+
     # Maintain canonical view order regardless of --views input order
     views = [v for v in ALL_VIEWS if v in args.views]
 
@@ -244,14 +330,18 @@ def run(args):
         "base_prompt": args.base_prompt,
         "steps": args.steps,
         "seed": args.seed,
-        "width": args.width,
-        "height": args.height,
+        "width": width,
+        "height": height,
+        "ratio": args.ratio,
         "lora_path": getattr(args, "lora_path", None),
         "lora_scale": getattr(args, "lora_scale", 1.0),
         "strip_gap": args.strip_gap,
         "no_strip": args.no_strip,
         "flux2_model_path": getattr(args, "flux2_model_path", None),
         "quantize": getattr(args, "quantize", None),
+        "double_ref": getattr(args, "double_ref", True),
+        "vlm": getattr(args, "vlm", True),
+        "vlm_caption": None,  # filled in after VLM call
     }
     run_file = os.path.join(out_dir, "run.json")
     with open(run_file, "w") as f:
@@ -270,12 +360,53 @@ def run(args):
         ref_note = "reference conditioning" if use_flux2 else "display only"
         print(f"Reference: {args.input_image} ({ref_image.width}×{ref_image.height}) — {ref_note}")
 
+    # Resolve base_prompt: user-provided, VLM auto-caption, or None
+    base_prompt = args.base_prompt
+    vlm_caption = None
+    if use_flux2 and args.input_image and not base_prompt and getattr(args, "vlm", True):
+        try:
+            from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
+            print("[VLM] Auto-captioning reference image for clothing description...", end=" ", flush=True)
+            b64 = _image_to_base64(args.input_image)
+            style_prompt = _STYLE_PROMPTS["profile"] + "\n" + _LANG_INSTRUCTIONS["zh_CN"]
+            vlm_caption = _call_vlm(
+                getattr(args, "vlm_api_url", "http://localhost:1234/v1"),
+                getattr(args, "vlm_model", "qwen/qwen3-vl-4b"),
+                b64,
+                style_prompt,
+            )
+            base_prompt = vlm_caption
+            print("Done")
+            print(f"[VLM] Clothing: {vlm_caption}")
+            # Save caption JSON alongside reference
+            caption_out = {
+                "image": args.input_image,
+                "style": "profile",
+                "caption": vlm_caption,
+            }
+            with open(os.path.join(out_dir, "reference.caption.json"), "w") as f:
+                json.dump(caption_out, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        except Exception as exc:
+            print(f"\n[VLM] Warning: auto-caption failed ({exc}) — continuing without it")
+
+    if base_prompt:
+        print(f"Base prompt: {base_prompt}")
+
+    # Update run.json with resolved base_prompt / VLM caption
+    run_meta["base_prompt_resolved"] = base_prompt
+    run_meta["vlm_caption"] = vlm_caption
+    with open(run_file, "w") as f:
+        json.dump(run_meta, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
     # Initialise the chosen pipeline (once — model stays loaded across all views)
     if use_flux2:
         from app.flux2_pipeline import Flux2KleinPipeline
         pipeline = Flux2KleinPipeline(
             model_path=getattr(args, "flux2_model_path", None),
             quantize=getattr(args, "quantize", None),
+            variant=args.variant,
         )
     else:
         from app.pipeline import ZImagePipeline
@@ -288,10 +419,16 @@ def run(args):
     all_timings = {}
 
     try:
+        # Build reference image list: optionally double the reference for stronger conditioning
+        ref_images = [args.input_image] if args.input_image else []
+        if args.input_image and use_flux2 and getattr(args, "double_ref", True):
+            ref_images = [args.input_image, args.input_image]
+            print(f"Double-ref: ON (reference passed twice, {len(ref_images)} copies)")
+
         for view in views:
             # NumPy/mflux seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
             view_seed = (args.seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
-            prompt = _build_view_prompt(view, args.base_prompt, pipeline_type)
+            prompt = _build_view_prompt(view, base_prompt, pipeline_type)
 
             print(f"\n=== {view.upper()} (seed={view_seed}) ===")
             print(f"  {prompt[:120]}...")
@@ -300,16 +437,16 @@ def run(args):
                 result = pipeline.generate(
                     seed=view_seed,
                     prompt=prompt,
-                    reference_images=[args.input_image] if args.input_image else [],
-                    width=args.width,
-                    height=args.height,
+                    reference_images=ref_images,
+                    width=width,
+                    height=height,
                     steps=args.steps,
                 )
             else:
                 result = pipeline.generate(
                     prompt=prompt,
-                    width=args.width,
-                    height=args.height,
+                    width=width,
+                    height=height,
                     steps=args.steps,
                     seed=view_seed,
                     lora_path=getattr(args, "lora_path", None),

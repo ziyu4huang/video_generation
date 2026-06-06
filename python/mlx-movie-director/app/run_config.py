@@ -44,6 +44,7 @@ class RunConfig:
     # Post-process
     upscale: bool = False
     upscale_model: str | None = None
+    upscale_method: str = "esrgan"
 
     # Batch
     count: int = 1
@@ -82,6 +83,7 @@ class RunConfig:
             denoise_strength=getattr(args, "denoise_strength", 1.0),
             upscale=getattr(args, "upscale", False),
             upscale_model=getattr(args, "upscale_model", None),
+            upscale_method=getattr(args, "upscale_method", "esrgan"),
             count=getattr(args, "count", 1),
             seed_start=getattr(args, "seed_start", None),
             frames=getattr(args, "frames", None),

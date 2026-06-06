@@ -32,6 +32,12 @@ _STYLE_PROMPTS = {
         "Describe subject, appearance, clothing, pose, background, lighting, style, and atmosphere. "
         "Output only the prompt, no preamble."
     ),
+    "profile": (
+        "仔细描述这个人物的服装和外貌。"
+        "包括：上衣、下装、鞋子、配饰、发型、发色、肤色。"
+        "只输出服装和外貌描述，不要描述背景、姿势或构图。"
+        "用简体中文回答，使用简洁的逗号分隔列表格式。"
+    ),
 }
 
 # Language instructions — appended to style prompt

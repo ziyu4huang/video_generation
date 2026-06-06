@@ -43,6 +43,8 @@ def add_common_generation_args(parser):
                         help=f"ESRGAN 4× upscale after generation (default model: 4xNomosWebPhoto_RealPLKSR.pth)")
     parser.add_argument("--upscale-model", type=str, default=None,
                         help="Path to ESRGAN .pth model (overrides default)")
+    parser.add_argument("--upscale-method", choices=["esrgan", "seedvr2"], default="esrgan",
+                        help="Upscale method when --upscale is set (default: esrgan)")
 
     # Batch
     parser.add_argument("--count", type=int, default=1,
@@ -139,6 +141,7 @@ def execute_generation(run_config) -> None:
                 denoise_strength=run_config.denoise_strength,
                 upscale=run_config.upscale,
                 upscale_model=upscale_model,
+                upscale_method=run_config.upscale_method,
             )
 
             suffix = f"_s{seed}" if count > 1 else ""

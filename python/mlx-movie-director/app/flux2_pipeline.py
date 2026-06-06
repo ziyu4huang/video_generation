@@ -39,7 +39,7 @@ class Flux2KleinPipeline:
         self,
         model_path: str | None = None,
         quantize: int | None = None,
-        variant: str = "4b",
+        variant: str = "9b",
     ):
         """
         Args:
