@@ -214,5 +214,6 @@
     "Comfy.WorkflowActions.SeenItems": [
         "enter-app-mode",
         "enter-builder-mode"
-    ]
+    ],
+    "Comfy.Minimap.Visible": true
 }

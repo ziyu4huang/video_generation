@@ -129,7 +129,6 @@ cd "$COMFY_DIR"
   --database-url "sqlite:///$DATA_DIR/user/comfyui.db" \
   --use-split-cross-attention \
   --supports-fp8-compute \
-  --gpu-only \
   "${PASSTHROUGH_ARGS[@]}"
   # --supports-fp8-compute: stores FP8 model weights as uint8 on MPS (same bits, valid dtype).
   # The fp8-mps-metal custom node patches comfy_kitchen.scaled_mm_v2 to use Metal GPU kernels,

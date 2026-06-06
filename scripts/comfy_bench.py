@@ -87,6 +87,14 @@ WORKFLOW_MAP: dict[str, dict[str, Any]] = {
         "variant": "moody-v12.6",
         "save_labels": {732: "result"},
     },
+    "anime2real-fp16": {
+        "file": DATA_DIR / "user" / "default" / "workflows" / "anime2real-fp16.json",
+        "variant": "bf16",
+    },
+    "anime2real-fp8": {
+        "file": DATA_DIR / "user" / "default" / "workflows" / "anime2real-fp8.json",
+        "variant": "fp8",
+    },
 }
 
 # SaveImage node ID → view label (legacy global; per-workflow labels in WORKFLOW_MAP take precedence)

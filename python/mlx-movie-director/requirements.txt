@@ -1,0 +1,12 @@
+mlx>=0.20.0
+torch
+torchvision
+numpy
+diffusers>=0.25.0
+transformers
+huggingface_hub
+Pillow
+safetensors
+accelerate
+hf_transfer
+tqdm
