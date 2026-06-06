@@ -1,18 +1,24 @@
 // Flux 2 Klein 9B Character Profile — FP8 vs FP16 Quality Comparison
 //
 // Runs both fp16 and fp8 variants with identical parameters (fixed seeds),
-// collects VLM quality reviews, and produces a side-by-side comparison report
-// to help decide whether to migrate to fp8 for disk/runtime savings.
+// collects VLM quality reviews via local VLM server, and produces a side-by-side
+// comparison report (terminal + HTML) to help decide whether to migrate to fp8.
+//
+// Companion scripts (in scripts/):
+//   flux2-klein-bench-vlm-review.py     — local VLM image quality review (Review phase)
+//   flux2-klein-bench-compare-html.py   — HTML comparison report generator (Report HTML phase)
+//   comfy_bench.py                      — workflow runner + metrics (Run phases)
 //
 // Phases:
-//   Resolve   → detect absolute project root, derive all paths
-//   Plan      → resolve args, set fixed comparison seeds
-//   Setup     → ensure ComfyUI running
-//   Run FP16  → run fp16 variant with fixed seeds
-//   Run FP8   → run fp8 variant with same fixed seeds
-//   Review    → parallel VLM review of all images
-//   Compare   → quality/performance/disk deltas
-//   Report    → structured comparison + migration recommendation
+//   Resolve      → detect absolute project root, derive all paths, get timestamp
+//   Plan         → resolve args, set fixed comparison seeds
+//   Setup        → ensure ComfyUI running
+//   Run FP16     → run fp16 variant with fixed seeds
+//   Run FP8      → run fp8 variant with same fixed seeds
+//   Review       → local VLM review of all images (skips if VLM server down)
+//   Compare      → quality/performance/disk deltas
+//   Report       → structured comparison + migration recommendation
+//   Report HTML  → generate comparison.html with side-by-side images
 //
 // Usage:
 //   /flux2-klein-character-profile-bench                         — run both fp16 + fp8 comparison (default)
@@ -28,14 +34,15 @@ export const meta = {
   description: "FP8 vs FP16 quality comparison with VLM review for Flux 2 Klein character profile workflow",
   whenToUse: "Compare fp8 vs fp16 quality, performance, and disk usage to decide on migration",
   phases: [
-    { title: "Resolve", detail: "Detect absolute project root to eliminate CWD-dependent paths" },
+    { title: "Resolve", detail: "Detect absolute project root, get timestamp" },
     { title: "Plan", detail: "Set fixed comparison seeds, resolve args" },
     { title: "Setup", detail: "Ensure ComfyUI is running" },
     { title: "Run FP16", detail: "Run fp16 variant with fixed seeds" },
     { title: "Run FP8", detail: "Run fp8 variant with same fixed seeds" },
-    { title: "Review", detail: "VLM analysis of all generated images" },
+    { title: "Review", detail: "Local VLM analysis of all generated images" },
     { title: "Compare", detail: "Compute quality/performance/disk deltas" },
     { title: "Report", detail: "Structured comparison + migration recommendation" },
+    { title: "Report HTML", detail: "Generate comparison.html with side-by-side images and metrics" },
   ],
 };
 
@@ -71,29 +78,27 @@ if (!PROJECT_ROOT) {
 const PYTHON = PROJECT_ROOT ? `${PROJECT_ROOT}/ComfyUI/.venv/bin/python` : "ComfyUI/.venv/bin/python"
 const BENCH_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/comfy_bench.py` : "scripts/comfy_bench.py"
 const BENCH_RESULTS_DIR = PROJECT_ROOT ? `${PROJECT_ROOT}/comfyui_data/output/bench_results` : "comfyui_data/output/bench_results"
+const VLM_REVIEW_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-vlm-review.py` : "scripts/flux2-klein-bench-vlm-review.py"
+const COMPARE_HTML_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-compare-html.py` : "scripts/flux2-klein-bench-compare-html.py"
 
 log("Resolved paths:")
 log(`  PROJECT_ROOT: ${PROJECT_ROOT || "(fallback: relative)"}`)
 log(`  PYTHON:       ${PYTHON}`)
 log(`  BENCH_SCRIPT: ${BENCH_SCRIPT}`)
 
-// ── Review schema (shared across all VLM calls) ───────────────────────────────
-
-const REVIEW_SCHEMA = {
+// Get precise timestamp for unique output directory
+const TIMESTAMP_SCHEMA = {
   type: "object",
-  properties: {
-    anatomy: { type: "number", description: "Anatomical correctness 1-10" },
-    consistency: { type: "number", description: "Character consistency 1-10" },
-    quality: { type: "number", description: "Image quality 1-10" },
-    background: { type: "number", description: "Background cleanliness 1-10" },
-    clothing: { type: "number", description: "Clothing detail 1-10" },
-    overall: { type: "number", description: "Overall score 1-10" },
-    issues: { type: "array", items: { type: "string" }, description: "Issues found" },
-    strengths: { type: "array", items: { type: "string" }, description: "Strengths observed" },
-    summary: { type: "string", description: "Brief summary" },
-  },
-  required: ["anatomy", "consistency", "quality", "background", "clothing", "overall", "issues", "strengths", "summary"],
-};
+  properties: { timestamp: { type: "string" } },
+  required: ["timestamp"],
+}
+
+const timestampResult = await agent(
+  `Run this command and return its output as a JSON object with key "timestamp":\ndate "+%Y-%m-%d_%H%M%S"`,
+  { label: "get-timestamp", phase: "Resolve", model: "haiku", schema: TIMESTAMP_SCHEMA },
+)
+
+const resolvedTimestamp = timestampResult?.timestamp || ""
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -182,7 +187,7 @@ const comparisonSeeds = userSeeds
   ? { seed_front: userSeeds[0], seed_back: userSeeds[1], seed_side: userSeeds[2] }
   : DEFAULT_SEEDS;
 
-const now = args?.timestamp || "2026-06-06";
+const now = args?.timestamp || resolvedTimestamp || "unknown";
 const runTag = tag || `compare-${now}`;
 const variantsToRun = variant === "both" ? ["fp16", "fp8"] : [variant];
 
@@ -253,7 +258,7 @@ for (const v of variantsToRun) {
   }
 }
 
-// ── Phase: Review ─────────────────────────────────────────────────────────────
+// ── Phase: Review (local VLM) ──────────────────────────────────────────────────
 
 if (skipReview) {
   log("Skipping VLM review (--skip-review)");
@@ -267,40 +272,39 @@ if (skipReview) {
       continue;
     }
 
-    log(`Reviewing ${v} (${r.images.length} images) with VLM...`);
-
-    const reviews = await parallel(r.images.map((imgPath, i) => () =>
-      agent(
-        `Analyze this AI-generated character profile image. This was generated using the ${v === "fp16" ? "fp16 (bf16)" : "fp8"} model precision variant of Flux 2 Klein 9B.
-
-Evaluate on a 1-10 scale:
-
-1. **Anatomical correctness** — proportions, limb placement, face symmetry, hand detail
-2. **Consistency** — does the character look coherent across the sheet? Any contradictions?
-3. **Image quality** — sharpness, artifacts, color accuracy, skin texture
-4. **Background** — is the white background clean and uniform?
-5. **Clothing/detail** — are clothing details consistent and clear? Shoes consistent?
-6. **Overall score** — rate 1-10
-
-Image: ${imgPath}
-
-Return a structured assessment.`,
-        { label: `review-${v}-${i}`, phase: "Review", schema: REVIEW_SCHEMA }
-      )
-    ));
-
-    r.reviews = reviews.filter(Boolean);
-    const score = avgScore(r.reviews);
-    log(`${v} VLM review: avg score ${score.toFixed(1)}/10`);
-
-    // Save reviews.json alongside metrics
+    // Determine the image directory from metrics_json path
     const metricsDir = r.metrics_json ? r.metrics_json.replace(/\/metrics\.json$/, "") : null;
-    if (metricsDir) {
-      await agent(
-        `Write the following JSON content to the file ${metricsDir}/reviews.json. Use the Write tool with file_path="${metricsDir}/reviews.json" and content set to the JSON below:\n\n${JSON.stringify(r.reviews, null, 2)}`,
-        { label: `save-reviews-${v}`, phase: "Review" }
-      );
+    if (!metricsDir) {
+      log(`No metrics directory found for ${v}, skipping review`);
+      continue;
     }
+
+    log(`Reviewing ${v} (${r.images.length} images) with local VLM...`);
+
+    const reviewOutput = await agent(
+      `Run this command and return ALL of its stdout output verbatim:\n` +
+      `${PYTHON} ${VLM_REVIEW_SCRIPT} --batch-dir "${metricsDir}" --variant ${v}`,
+      { label: `review-${v}`, phase: "Review" }
+    );
+
+    // Parse the JSON array of reviews from stdout
+    try {
+      const parsed = JSON.parse(reviewOutput);
+      if (Array.isArray(parsed)) {
+        r.reviews = parsed;
+      } else if (parsed.status === "skipped") {
+        log(`VLM review skipped: ${parsed.reason}`);
+        r.reviews = [];
+      } else {
+        r.reviews = [parsed];
+      }
+    } catch (e) {
+      log(`Warning: could not parse VLM review output for ${v}: ${e}`);
+      r.reviews = [];
+    }
+
+    const score = avgScore(r.reviews);
+    log(`${v} VLM review: avg score ${score.toFixed(1)}/10 (${r.reviews.length} images reviewed)`);
   }
 }
 
@@ -423,6 +427,23 @@ if (variantsToRun.length === 2) {
 
 log("");
 log("=== END REPORT ===");
+
+// ── Phase: Report HTML ─────────────────────────────────────────────────────────
+
+if (variantsToRun.length === 2) {
+  phase("Report HTML");
+
+  log("Generating HTML comparison report...");
+  const seedsStr = `${comparisonSeeds.seed_front},${comparisonSeeds.seed_back},${comparisonSeeds.seed_side}`;
+
+  await agent(
+    `Run this command:\n${PYTHON} ${COMPARE_HTML_SCRIPT} --run-dir "${BENCH_RESULTS_DIR}/${runTag}" --seeds "${seedsStr}"`,
+    { label: "generate-html", phase: "Report HTML" }
+  );
+
+  log(`HTML report: ${BENCH_RESULTS_DIR}/${runTag}/comparison.html`);
+  log(`Open with:  open "${BENCH_RESULTS_DIR}/${runTag}/comparison.html"`);
+}
 
 // ── Return structured result ──────────────────────────────────────────────────
 

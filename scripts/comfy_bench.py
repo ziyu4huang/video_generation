@@ -510,17 +510,21 @@ class ComfyUILifecycle:
 
         # Not running — start it
         log.info(f"Starting ComfyUI on port {self.port}...")
+        log_path = BENCH_RESULTS_DIR / f"comfyui_port{self.port}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file = open(log_path, "a")
         proc = subprocess.Popen(
             ["bash", str(RUN_SH), "--port", str(self.port)],
             cwd=str(REPO_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_file,
+            stderr=log_file,
             env={
                 **os.environ,
                 "PYTORCH_MPS_HIGH_WATERMARK_RATIO": "0.0",
                 "PYTORCH_ENABLE_MPS_FALLBACK": "1",
             },
         )
+        log.info(f"ComfyUI stdout/stderr → {log_path}")
         self._started_by_us = True
         self._pid = proc.pid
 
@@ -694,13 +698,14 @@ def convert_workflow_to_api(
                 from_node, from_slot = link_map[link_id]
                 entry["inputs"][inp["name"]] = [str(from_node), from_slot]
 
-        # 2. Resolve widget values
+        # 2. Resolve widget values (skip inputs already resolved via links)
         widgets = node.get("widgets_values", [])
         if widgets:
             widget_names = _get_widget_names(ntype, client)
             if widget_names is not None:
+                linked = linked_inputs.get(nid, set())
                 for i, name in enumerate(widget_names):
-                    if i < len(widgets):
+                    if i < len(widgets) and name not in linked:
                         entry["inputs"][name] = widgets[i]
             else:
                 # Unknown type — try object_info from API
