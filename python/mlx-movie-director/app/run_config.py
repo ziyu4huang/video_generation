@@ -2,9 +2,15 @@
 
 import json
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+# v2 action names → v3 command names
+_ACTION_TO_COMMAND = {
+    "text2img": "generate",
+    "img2img": "refine",
+}
 
 
 @dataclass
@@ -12,44 +18,61 @@ class RunConfig:
     """Captures every parameter for a single pipeline run.
 
     Written to <base_name>.run.json before execution starts.
-    Loaded back via --replay to reproduce a run.
+    Loaded back via the replay command to reproduce a run.
     """
 
     schema_version: int = SCHEMA_VERSION
-    action: str = "text2img"
+    command: str = "generate"           # replaces v2 "action" field
+
+    # Prompt
     prompt: str | None = None
     prompt_file: str | None = None
-    width: int = 1024
-    height: int = 1024
+
+    # Generation
+    width: int = 640
+    height: int = 960
     steps: int = 9
     seed: int = 42
     lora_path: str | None = None
     lora_scale: float = 1.0
-    # img2img
+
+    # img2img / refine
     input_image: str | None = None
     latent_upscale: float = 1.0
     denoise_strength: float = 1.0
-    # post-process
+
+    # Post-process
     upscale: bool = False
     upscale_model: str | None = None
-    # batch
+
+    # Batch
     count: int = 1
     seed_start: int | None = None
+
+    # Future: video (LTX)
+    frames: int | None = None
+    fps: int | None = None
+    video_model: str | None = None
+
+    # Future: ControlNet / animate
+    control_image: str | None = None
+    control_type: str | None = None
+    control_strength: float | None = None
 
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_args(cls, args, action: str = "text2img") -> "RunConfig":
+    def from_args(cls, args, command: str = "generate") -> "RunConfig":
         """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
         return cls(
             schema_version=SCHEMA_VERSION,
-            action=action,
+            command=command,
             prompt=getattr(args, "prompt", None),
             prompt_file=getattr(args, "prompt_file", None),
-            width=getattr(args, "width", 1024),
-            height=getattr(args, "height", 1024),
+            width=getattr(args, "width", 640),
+            height=getattr(args, "height", 960),
             steps=getattr(args, "steps", 9),
             seed=getattr(args, "seed", 42),
             lora_path=getattr(args, "lora_path", None),
@@ -61,6 +84,12 @@ class RunConfig:
             upscale_model=getattr(args, "upscale_model", None),
             count=getattr(args, "count", 1),
             seed_start=getattr(args, "seed_start", None),
+            frames=getattr(args, "frames", None),
+            fps=getattr(args, "fps", None),
+            video_model=getattr(args, "video_model", None),
+            control_image=getattr(args, "control_image", None),
+            control_type=getattr(args, "control_type", None),
+            control_strength=getattr(args, "control_strength", None),
         )
 
     @classmethod
@@ -77,7 +106,8 @@ class RunConfig:
             )
 
         raw = _migrate(raw)
-        return cls(**{k: raw[k] for k in raw if k in cls.__dataclass_fields__})
+        known = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in raw.items() if k in known})
 
     # ------------------------------------------------------------------
     # Serialization
@@ -94,7 +124,7 @@ class RunConfig:
 
 
 def _migrate(raw: dict) -> dict:
-    """Migrate a raw run config dict from older schema versions."""
+    """Migrate a raw run config dict through version chain to SCHEMA_VERSION."""
     version = raw.get("schema_version", 0)
 
     if version < 1:
@@ -104,7 +134,7 @@ def _migrate(raw: dict) -> dict:
         )
 
     if version == 1:
-        # v1 → v2: add img2img, upscale, batch fields with defaults
+        # v1 → v2: add img2img, upscale, batch fields
         raw.setdefault("input_image", None)
         raw.setdefault("latent_upscale", 1.0)
         raw.setdefault("denoise_strength", 1.0)
@@ -113,5 +143,19 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("count", 1)
         raw.setdefault("seed_start", None)
         raw["schema_version"] = 2
+        version = 2
+
+    if version == 2:
+        # v2 → v3: rename action → command; add future fields
+        old_action = raw.pop("action", "text2img")
+        raw["command"] = _ACTION_TO_COMMAND.get(old_action, old_action)
+        raw.setdefault("frames", None)
+        raw.setdefault("fps", None)
+        raw.setdefault("video_model", None)
+        raw.setdefault("control_image", None)
+        raw.setdefault("control_type", None)
+        raw.setdefault("control_strength", None)
+        raw["schema_version"] = 3
+        version = 3
 
     return raw
