@@ -6,6 +6,28 @@ DATA_DIR="$REPO_DIR/comfyui_data"
 PATCHES_DIR="$REPO_DIR/patches/comfyui"
 VENV="$COMFY_DIR/.venv"
 
+# ── Parse run.sh-level options (strip before passing remaining args to ComfyUI) ──
+# Usage:
+#   ./run.sh --fix-nodes          clone/patch missing custom nodes (verbose), then exit
+#   ./run.sh --skip-restore       skip the auto-restore step for faster startup
+#   ./run.sh --port 8189 ...      all other args are passed through to ComfyUI main.py
+FIX_NODES=false
+SKIP_RESTORE=false
+PORT=8188
+PASSTHROUGH_ARGS=()
+_PREV_ARG=""
+for arg in "$@"; do
+  case "$arg" in
+    --fix-nodes)    FIX_NODES=true ;;
+    --skip-restore) SKIP_RESTORE=true ;;
+    *)
+      if [ "$_PREV_ARG" = "--port" ]; then PORT="$arg"; fi
+      PASSTHROUGH_ARGS+=("$arg")
+      ;;
+  esac
+  _PREV_ARG="$arg"
+done
+
 # Bootstrap venv if missing
 if [ ! -x "$VENV/bin/python" ]; then
   echo "[run.sh] .venv not found — creating..."
@@ -41,14 +63,18 @@ for patch in "$PATCHES_DIR"/*.patch; do
 done
 
 # Auto-restore missing custom nodes (clones from manifest, applies patches)
-bash "$REPO_DIR/patches/custom_nodes/reinstall.sh" --quiet
+if $FIX_NODES; then
+  echo "[run.sh] Running custom node fix (verbose)..."
+  bash "$REPO_DIR/patches/custom_nodes/reinstall.sh"
+  echo "[run.sh] Done."
+  exit 0
+elif $SKIP_RESTORE; then
+  echo "[run.sh] Skipping custom node restore (--skip-restore)."
+else
+  bash "$REPO_DIR/patches/custom_nodes/reinstall.sh" --quiet
+fi
 
 # Check if the target port is already in use
-PORT=8188
-for arg in "$@"; do
-  if [ "$_PREV_ARG" = "--port" ]; then PORT="$arg"; fi
-  _PREV_ARG="$arg"
-done
 if lsof -iTCP:"$PORT" -sTCP:LISTEN -t &>/dev/null; then
   PIDS=$(lsof -iTCP:"$PORT" -sTCP:LISTEN -t)
   echo "ERROR: Port $PORT is already in use by PID(s): $PIDS"
@@ -71,7 +97,7 @@ cd "$COMFY_DIR"
   --database-url "sqlite:///$DATA_DIR/user/comfyui.db" \
   --use-split-cross-attention \
   --supports-fp8-compute \
-  "$@"
+  "${PASSTHROUGH_ARGS[@]}"
   # --supports-fp8-compute: stores FP8 model weights as uint8 on MPS (same bits, valid dtype).
   # The fp8-mps-metal custom node patches comfy_kitchen.scaled_mm_v2 to use Metal GPU kernels,
   # so the "Invalid scaling configuration" (Byte vs Float8) error is now fixed.
