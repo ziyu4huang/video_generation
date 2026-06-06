@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Subcommand registry (order = display order in --help)
 # ---------------------------------------------------------------------------
 
-COMMAND_NAMES = ["generate", "t2i", "refine", "upscale", "replay", "video", "animate"]
+COMMAND_NAMES = ["generate", "t2i", "refine", "profile", "upscale", "replay", "video", "animate"]
 SUBCOMMANDS = set(COMMAND_NAMES)
 
 
