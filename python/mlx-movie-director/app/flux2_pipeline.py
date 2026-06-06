@@ -1,4 +1,4 @@
-"""flux2_pipeline — Flux2 Klein Edit wrapper using mflux.
+"""flux2_pipeline — Flux2 Klein Edit wrapper using mflux (vendored submodule).
 
 Provides real reference image conditioning via concatenated image latents
 (prepare_reference_image_conditioning), unlike ZImagePipeline which is
@@ -10,21 +10,19 @@ Model acquisition:
   - model_path=<dir> → local directory in HuggingFace directory structure:
                         {dir}/transformer/, vae/, text_encoder/, tokenizer/
 
-Requirements:
-  - /Users/huangziyu/proj/mflux must be on sys.path (added by run.py venv setup)
-  - For gated HF model: `huggingface-cli login` first
+mflux source is included as a git submodule at vendor/mflux/ — no pip install needed.
 """
 
 import os
 import sys
 
-from app.pipeline import GenerationResult
+from app.types import GenerationResult
 
 
-# Ensure mflux is importable from the adjacent repo
+# Ensure mflux is importable from the vendored submodule
 _MFLUX_SRC = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "..", "mflux", "src",
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "vendor", "mflux", "src",
 )
 if os.path.isdir(_MFLUX_SRC) and _MFLUX_SRC not in sys.path:
     sys.path.insert(0, _MFLUX_SRC)

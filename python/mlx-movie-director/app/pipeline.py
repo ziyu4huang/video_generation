@@ -11,17 +11,11 @@ from PIL import Image
 from transformers import AutoTokenizer
 from diffusers import AutoencoderKL
 
+from app.types import GenerationResult
 from app.transformer import ZImageTransformerMLX
 from app.text_encoder import TextEncoderMLX
 from app.lora_utils import apply_lora
 from app import config as cfg
-
-
-@dataclass
-class GenerationResult:
-    """Pipeline output: the generated image plus structured per-phase timings."""
-    image: Image.Image
-    timings: dict  # phase_name → seconds; includes "denoising_step_times" list
 
 
 def create_coordinate_grid(size, start):
@@ -155,6 +149,7 @@ class ZImagePipeline:
         # post-process
         upscale: bool = False,
         upscale_model: str = None,
+        upscale_method: str = "esrgan",
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
@@ -428,18 +423,33 @@ class ZImagePipeline:
         print(f"Done ({timings['vae_decode_seconds']:.2f}s)")
 
         # ----------------------------------------------------------------
-        # [Phase 5] ESRGAN Upscale (optional)
+        # [Phase 5] Upscale (optional)
         # ----------------------------------------------------------------
-        if upscale and upscale_model:
-            if not os.path.exists(upscale_model):
-                print(f"[Phase 5] ESRGAN model not found: {upscale_model} — skipping")
-            else:
+        if upscale:
+            if upscale_method == "seedvr2":
                 t_up = time.time()
                 w0, h0 = pil_image.size
-                print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
-                pil_image = self.upscale_esrgan(pil_image, upscale_model)
-                timings["esrgan_seconds"] = time.time() - t_up
-                print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+                print(f"[Phase 5] SeedVR2 upscale ({w0}×{h0})...", end=" ", flush=True)
+                from app.seedvr2.pipeline import SeedVR2Upscaler as _SV2
+                sv2 = _SV2(model_size="7b")
+                try:
+                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=seed or 42)
+                finally:
+                    sv2.unload()
+                timings["seedvr2_seconds"] = time.time() - t_up
+                print(f"Done ({timings['seedvr2_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+            elif upscale_model:
+                if not os.path.exists(upscale_model):
+                    print(f"[Phase 5] ESRGAN model not found: {upscale_model} — skipping")
+                else:
+                    t_up = time.time()
+                    w0, h0 = pil_image.size
+                    print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
+                    pil_image = self.upscale_esrgan(pil_image, upscale_model)
+                    timings["esrgan_seconds"] = time.time() - t_up
+                    print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+
+        return GenerationResult(image=pil_image, timings=timings)
 
         print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
 
