@@ -1,0 +1,43 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+  "model_version": "2.3.0",
+  "is_v2": true,
+  "model_type": "AudioVideo",
+  "num_attention_heads": 32,
+  "attention_head_dim": 128,
+  "in_channels": 128,
+  "out_channels": 128,
+  "num_layers": 48,
+  "cross_attention_dim": 4096,
+  "caption_channels": null,
+  "apply_gated_attention": true,
+  "audio_num_attention_heads": 32,
+  "audio_attention_head_dim": 64,
+  "audio_in_channels": 128,
+  "audio_out_channels": 128,
+  "audio_cross_attention_dim": 2048,
+  "positional_embedding_theta": 10000.0,
+  "positional_embedding_max_pos": [
+    20,
+    2048,
+    2048
+  ],
+  "audio_positional_embedding_max_pos": [
+    20
+  ],
+  "timestep_scale_multiplier": 1000,
+  "av_ca_timestep_scale_multiplier": 1000,
+  "norm_eps": 1e-06,
+  "connector_positional_embedding_max_pos": [
+    4096
+  ],
+  "connector_rope_type": "SPLIT",
+  "variants": {
+    "distilled": {
+      "cross_attention_adaln": true
+    },
+    "dev": {
+      "cross_attention_adaln": true
+    }
+  }
+}

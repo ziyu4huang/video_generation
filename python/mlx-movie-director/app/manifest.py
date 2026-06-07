@@ -84,6 +84,35 @@ def collect_model_fingerprint(lora_path: str | None = None,
     return models
 
 
+def collect_model_fingerprint_flux2(upscale_model: str | None = None) -> dict:
+    """Collect fingerprints for Flux2 Klein 9B model files."""
+    from app import config as cfg
+
+    models = {}
+
+    # Transformer (Klein 9B INT8)
+    tf_path = os.path.join(cfg.KLEIN_9B_TRANSFORMER_DIR, "model.safetensors")
+    models["transformer"] = file_fingerprint(tf_path)
+
+    # Text encoder (Qwen3 8B)
+    te_path = os.path.join(cfg.KLEIN_9B_TEXT_ENCODER_DIR, "model.safetensors")
+    models["text_encoder"] = file_fingerprint(te_path)
+
+    # VAE (Flux2 Klein)
+    vae_path = os.path.join(cfg.KLEIN_9B_VAE_DIR, "model.safetensors")
+    models["vae"] = file_fingerprint(vae_path)
+
+    # Tokenizer (Qwen3 Klein)
+    tok_path = os.path.join(cfg.KLEIN_9B_TOKENIZER_DIR, "tokenizer.json")
+    models["tokenizer"] = file_fingerprint(tok_path)
+
+    # Upscale model (optional)
+    if upscale_model and os.path.exists(upscale_model):
+        models["upscale"] = file_fingerprint(upscale_model)
+
+    return models
+
+
 @dataclass
 class Manifest:
     """Post-run audit record: timing, memory, models, output files, or error details."""

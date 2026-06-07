@@ -1,10 +1,16 @@
 {
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
   "name": "flux-ae",
   "type": "vae",
   "arch": "flux-ae",
-  "format": "pytorch-fp32",
-  "description": "Flux/ZImage compatible AutoencoderKL, PyTorch FP32, loaded on MPS/CPU via diffusers",
-  "compatible_with": ["zimage", "flux2-klein-4b", "flux2-klein-9b"],
-  "size_bytes": 167666902,
+  "format": "mlx-bf16",
+  "description": "Flux/ZImage compatible AutoencoderKL, converted to MLX BF16 from PyTorch FP32 via convert.py --vae-mlx",
+  "pipeline": ["zimage-turbo", "flux2-klein", "flux2-klein-edit"],
+  "compatible_with": [
+    "transformer/zimage-moody-v126",
+    "transformer/klein-9b"
+  ],
+  "size_bytes": 167666894,
+  "source": "Tongyi-MAI/Z-Image-Turbo",
   "created_at": "2026-06-06T00:00:00Z"
 }

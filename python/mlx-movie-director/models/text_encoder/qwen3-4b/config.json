@@ -1,4 +1,5 @@
 {
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
   "hidden_size": 2560,
   "intermediate_size": 9728,
   "num_attention_heads": 32,

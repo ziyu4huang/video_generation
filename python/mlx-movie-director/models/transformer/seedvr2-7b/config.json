@@ -1,0 +1,21 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+  "vid_dim": 3072,
+  "txt_in_dim": 5120,
+  "txt_dim": 3072,
+  "emb_dim": 18432,
+  "heads": 24,
+  "num_layers": 36,
+  "mm_layers": 36,
+  "rope_dim": 64,
+  "rope_on_text": false,
+  "rope_freqs_for": "pixel",
+  "use_output_ada": false,
+  "last_layer_vid_only": true,
+  "window": [
+    4,
+    3,
+    3
+  ],
+  "mlp_type": "normal"
+}

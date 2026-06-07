@@ -18,6 +18,7 @@ PARSER_META = {
         "  run.py caption output/base.png\n"
         "  run.py caption base.png --style photography\n"
         "  run.py caption base.png --style prompt --lang en\n"
+        "  run.py caption base.png --style score --lang en  ← VLM quality scoring\n"
     ),
 }
 
@@ -37,6 +38,22 @@ _STYLE_PROMPTS = {
         "包括：上衣、下装、鞋子、配饰、发型、发色、肤色。"
         "只输出服装和外貌描述，不要描述背景、姿势或构图。"
         "用简体中文回答，使用简洁的逗号分隔列表格式。"
+    ),
+    "score": (
+        "You are a professional image quality evaluator. "
+        "Analyze this AI-generated image and score it on a 1-10 scale.\n\n"
+        "Evaluate these dimensions:\n"
+        "1. overall — overall image quality and aesthetic appeal\n"
+        "2. detail — level of fine detail (textures, fabric, skin, hair)\n"
+        "3. sharpness — image sharpness and clarity across the frame\n"
+        "4. composition — framing, rule of thirds, visual balance\n"
+        "5. prompt_adherence — how well the image matches a typical text-to-image prompt intent\n"
+        "6. artifacts — absence of rendering artifacts (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
+        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
+        '{"overall": N, "detail": N, "sharpness": N, "composition": N, '
+        '"prompt_adherence": N, "artifacts": N, '
+        '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}\n'
+        "Each score is an integer 1-10."
     ),
 }
 

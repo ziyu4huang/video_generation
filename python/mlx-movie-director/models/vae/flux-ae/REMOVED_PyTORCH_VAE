@@ -1,0 +1,9 @@
+{
+  "removed_at": "2026-06-07T07:16:00Z",
+  "reason": "Replaced by MLX BF16 conversion (model.safetensors). PyTorch/diffusers VAE no longer needed.",
+  "original_format": "pytorch-fp32",
+  "original_files": ["diffusion_pytorch_model.safetensors"],
+  "original_size_bytes": 167666902,
+  "reconvert_command": "/Users/huangziyu/.local/bin/python3.13 convert.py --vae-mlx",
+  "ab_test_psnr_db": 50.57
+}

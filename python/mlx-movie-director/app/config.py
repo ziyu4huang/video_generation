@@ -1,4 +1,26 @@
 import os
+import json
+
+
+def check_model_available(model_dir: str) -> bool:
+    """Check if a model directory exists and is not marked as REMOVED.
+
+    If a REMOVED marker file is found, prints the reason and re-conversion
+    command, then returns False.  Used by pipeline init to fail gracefully
+    when model files have been deleted to reclaim disk space.
+    """
+    removed_marker = os.path.join(model_dir, "REMOVED")
+    if os.path.exists(removed_marker):
+        try:
+            with open(removed_marker) as f:
+                info = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            info = {}
+        print(f"ERROR: Model at {model_dir} has been removed.", flush=True)
+        print(f"  Reason: {info.get('reason', 'unknown')}")
+        print(f"  To restore: {info.get('reconvert_command', 'run convert.py')}")
+        return False
+    return os.path.isdir(model_dir)
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(APP_DIR)
@@ -23,9 +45,22 @@ OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
 SRC_SEEDVR2_DIT_7B = os.path.join(COMFY_MODELS, "SEEDVR2", "seedvr2_ema_7b_fp16.safetensors")
 SRC_SEEDVR2_VAE = os.path.join(COMFY_MODELS, "SEEDVR2", "ema_vae_fp16.safetensors")
 
-# SeedVR2 pre-converted MLX models (output of convert.py --seedvr2-dit / --seedvr2-vae)
-SEEDVR2_DIT_DIR = os.path.join(MODELS_DIR, "seedvr2_dit_7b")
-SEEDVR2_VAE_DIR = os.path.join(MODELS_DIR, "seedvr2_vae")
+# SeedVR2 upscaler models (converted from ComfyUI via convert.py --seedvr2-dit / --seedvr2-vae)
+SEEDVR2_DIT_DIR = os.path.join(MODELS_DIR, "transformer", "seedvr2-7b")
+SEEDVR2_VAE_DIR = os.path.join(MODELS_DIR, "vae", "seedvr2-vae")
+
+# Flux2 Klein 9B components (pre-quantized INT8, scattered across categories)
+KLEIN_9B_TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer", "klein-9b")
+KLEIN_9B_TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder", "qwen3-8b")
+KLEIN_9B_VAE_DIR          = os.path.join(MODELS_DIR, "vae", "flux2-klein")
+KLEIN_9B_TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer", "qwen3-klein")
+
+# LTX-2.3 22B video generation components (decomposed into standard model dirs)
+LTX_TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "ltx-2.3-dev-q8")
+LTX_LORA_DIR         = os.path.join(MODELS_DIR, "lora",          "ltx-2.3-distilled")
+LTX_TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "ltx-2.3-connector")
+LTX_VAE_DIR          = os.path.join(MODELS_DIR, "vae",           "ltx-2.3-vae")
+LTX_AUDIO_DIR        = os.path.join(MODELS_DIR, "audio",         "ltx-2.3-audio")
 
 # SeedVR2 text embeddings (loaded at inference, not converted)
 SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")

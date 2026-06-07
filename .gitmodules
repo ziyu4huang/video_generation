@@ -4,3 +4,6 @@
 [submodule "python/mlx-movie-director/vendor/mflux"]
 	path = python/mlx-movie-director/vendor/mflux
 	url = git@github.com:filipstrand/mflux.git
+[submodule "python/mlx-movie-director/vendor/ltx-2-mlx"]
+	path = python/mlx-movie-director/vendor/ltx-2-mlx
+	url = https://github.com/dgrauet/ltx-2-mlx.git

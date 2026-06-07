@@ -6,6 +6,17 @@
 - [x] Model conversion pipeline (convert.py: transformer + text encoder + tokenizer + VAE)
 - [x] LoKR LoRA support (zit_sda_v1 diversity adapter)
 - [x] 640×960 portrait generation matching moody-zimage-v7.5.json base stage
+- [x] Subcommand architecture: generate / profile / upscale / caption / replay
+- [x] Flux2 Klein 9B profile pipeline with reference image conditioning (mflux)
+- [x] Chain reference: front → back/side cascade for clothing consistency
+- [x] HTML viewer output (index.html) for profile sheets
+- [x] VLM auto-caption (Qwen3-VL) for clothing description from reference image
+- [x] ESRGAN + SeedVR2 upscale support
+- [x] On-the-fly BF16→INT8 quantization via `--quantize 8`
+- [x] Flux2 Klein 9B pre-quantized INT8 in local models/ with manifest system
+- [x] flux-ae VAE converted from PyTorch FP32 to MLX BF16 (PSNR 50.57 dB)
+- [x] REMOVED marker system for reclaimed model files
+- [x] Model conversion approach documented in `docs/model-conversion-approach.md`
 
 ## Active / Next
 

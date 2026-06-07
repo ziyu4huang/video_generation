@@ -1,11 +1,26 @@
 # Large model weight files (reproduce via convert.py)
-models/**/*.safetensors
-models/lora/
-models/tokenizer/tokenizer.json
-models/tokenizer/merges.txt
-models/tokenizer/vocab.json
+# Root .gitignore already blocks *.safetensors globally — this is a safety net
+# for any future non-safetensors large files (e.g. *.bin, *.pt from downloads).
+models/**/*.bin
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.gguf
+
+# Large downloaded/converted files (>1MB — restore via convert.py / download)
+models/tokenizer/qwen3/tokenizer.json
+models/tokenizer/qwen3/tmp/
+
+# HuggingFace download cache
+models/.cache/
+
+# Generated output
 output/
+
+# Python bytecode
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS
 .DS_Store

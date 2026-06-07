@@ -1,25 +1,36 @@
 # mlx-movie-director — Overview
 
-Native MLX inference pipeline for **Z-Image Turbo** (Moody V12.6) on Apple Silicon.
-Replicates the base text-to-image stage of the ComfyUI `moody-zimage-v7.5.json` workflow
-without ComfyUI, running fully on MPS via MLX + diffusers VAE.
+Native MLX inference toolkit on Apple Silicon with two pipelines:
 
-## What Works (Verified 2026-06-06)
+| Pipeline | Model | Purpose | Command |
+|----------|-------|---------|---------|
+| **Z-Image Turbo** (Moody V12.6) | Pre-converted 4-bit, local `models/` | Text-to-image, img2img, upscale | `run.py generate` |
+| **Flux2 Klein 9B** | HF auto-download, on-the-fly INT8 | Character profile sheets with reference conditioning | `run.py profile` |
 
-| Feature | Status |
-|---------|--------|
-| Text-to-image (640×960, 9 steps) | ✅ Working |
-| 4-bit MLX quantization (transformer + text encoder) | ✅ Working |
-| FlowMatch Euler scheduler with dynamic time-shifting | ✅ Working |
-| VAE decode via diffusers AutoencoderKL on MPS | ✅ Working |
-| LoRA loading (zit_sda_v1) | ✅ Working |
-| Speed: ~1.2 s/step, ~14s total for 9 steps | ✅ Measured |
+## What Works (Verified 2026-06-07)
+
+| Feature | Pipeline | Status |
+|---------|----------|--------|
+| Text-to-image (640×960, 9 steps) | Z-Image | ✅ Working |
+| 4-bit MLX quantization (transformer + text encoder) | Z-Image | ✅ Pre-converted on disk |
+| On-the-fly BF16→INT8 quantization | Klein | ✅ `--quantize 8` |
+| Reference image conditioning (profile sheets) | Klein | ✅ Working |
+| Chain reference (front → back/side) | Klein | ✅ `--chain-ref` (default) |
+| VLM auto-caption (Qwen3-VL via LM Studio) | Klein | ✅ `--vlm` (default) |
+| FlowMatch Euler scheduler with dynamic time-shifting | Z-Image | ✅ Working |
+| VAE decode via diffusers AutoencoderKL on MPS | Both | ✅ Working |
+| LoRA loading (zit_sda_v1) | Z-Image | ✅ Working |
+| ESRGAN / SeedVR2 upscale | Z-Image | ✅ Working |
+| HTML viewer output | Klein | ✅ `index.html` per run |
+| Speed: ~7s/step (INT8, 1024×1536) | Klein | ✅ Measured |
+| Speed: ~1.2 s/step, ~14s total for 9 steps | Z-Image | ✅ Measured |
 
 ## Quick Start
 
 ```bash
 cd /Users/huangziyu/proj/video_generation
 
+# --- Z-Image Turbo (text-to-image) ---
 # First time — convert models (one-time, ~20 min total)
 ./python/venv/bin/python python/mlx-movie-director/convert.py --tokenizer
 ./python/venv/bin/python python/mlx-movie-director/convert.py --vae
@@ -27,15 +38,23 @@ cd /Users/huangziyu/proj/video_generation
 ./python/venv/bin/python python/mlx-movie-director/convert.py --transformer
 
 # Inference (matches moody flow JSON base stage)
-./python/venv/bin/python python/mlx-movie-director/run.py \
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py generate \
   --prompt "cinematic portrait photo, beautiful woman, moody dramatic lighting, photorealistic" \
   --width 640 --height 960 --steps 9 --seed 42
 
 # With LoRA (zit diversity adapter)
-./python/venv/bin/python python/mlx-movie-director/run.py \
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py generate \
   --prompt "..." --width 640 --height 960 --steps 9 --seed 42 \
   --lora-path comfyui_data/models/loras/zit_sda_v1.safetensors \
   --lora-scale 1.0
+
+# --- Flux2 Klein (character profile sheets) ---
+# Model auto-downloads from HuggingFace on first run (~32 GB)
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py profile \
+  --input-image /path/to/character.png \
+  --quantize 8 --ratio standing
+
+# Output: output/profile_YYYYMMDD_HHMMSS/{front.png, back.png, side.png, index.html}
 ```
 
 ## Run Config & Manifest
@@ -103,25 +122,28 @@ Reproduce any previous run with identical parameters:
 
 Replay generates a **new** output with a fresh timestamp (original is preserved). Same seed → same image.
 
-### Actions
+### Actions (Sub-commands)
 
-| Action | Description |
-|--------|-------------|
-| `text2img` | Text-to-image generation (default) |
-| *(future)* `img2img` | Image-to-image transformation |
-| *(future)* `batch` | Batch generation from prompt list |
-| *(future)* `variation` | Generate variations of an existing image |
+| Command | Description |
+|---------|-------------|
+| `run.py generate` | Text-to-image, img2img, batch (Z-Image Turbo) |
+| `run.py profile` | Multi-view character profile sheet (Flux2 Klein) |
+| `run.py upscale` | ESRGAN / SeedVR2 upscale |
+| `run.py caption` | VLM image captioning (Qwen3-VL via LM Studio) |
+| `run.py replay` | Reproduce a previous run from `.run.json` |
 
 ## Python Environment
 
-Always use `python/venv/` (Python 3.13, has mlx, diffusers, transformers):
+mlx-movie-director uses Python 3.13 via `uv`:
 
 ```bash
-./python/venv/bin/python ...
-# NOT: python3, python3.13, ComfyUI/.venv/bin/python
+/Users/huangziyu/.local/bin/python3.13 ...
+# NOT: python3 (system 3.9), ComfyUI/.venv/bin/python (separate venv for ComfyUI)
 ```
 
-## Model Sizes After Conversion
+## Model Sizes
+
+### Z-Image Turbo (pre-converted on disk)
 
 | Model | Source | Converted |
 |-------|--------|-----------|
@@ -130,14 +152,19 @@ Always use `python/venv/` (Python 3.13, has mlx, diffusers, transformers):
 | Tokenizer | — | ~7 MB (HF download) |
 | VAE | — | ~160 MB (HF download) |
 
-## Source Model Paths
+### Flux2 Klein 9B (on-the-fly quantization)
 
-```
-comfyui_data/models/diffusion_models/moody-porn-v12.6_00001_.safetensors
-comfyui_data/models/text_encoders/qwen_3_4b.safetensors
-comfyui_data/models/loras/zit_sda_v1.safetensors
-```
+| Component | Disk (BF16) | Memory (INT8) |
+|-----------|-------------|---------------|
+| Transformer | 16.9 GB | ~8.5 GB |
+| Text Encoder | 15.3 GB | ~7.6 GB |
+| VAE | 160 MB | 160 MB (not quantized) |
+| Tokenizer | 15 MB | 15 MB |
+| **Total** | **~32 GB** | **~16 GB** |
 
 ## Output
 
-Images saved to `python/mlx-movie-director/output/output_YYYYMMDD_HHMMSS.png`.
+- **generate**: `output/output_YYYYMMDD_HHMMSS.png`
+- **profile**: `output/profile_YYYYMMDD_HHMMSS/{front.png, back.png, side.png, index.html, run.json, manifest.json}`
+- **upscale**: `output/upscale_YYYYMMDD_HHMMSS.png`
+- **caption**: `<image>.caption.json` alongside the input image

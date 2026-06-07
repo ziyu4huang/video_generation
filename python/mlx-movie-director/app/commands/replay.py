@@ -35,7 +35,8 @@ def run(args):
     print(f"  command={run_config.command}  seed={run_config.seed}  steps={run_config.steps}")
 
     if run_config.command in ("generate", "refine", "text2img", "img2img"):
-        execute_generation(run_config)
+        pipeline_type = getattr(run_config, "pipeline", "zimage")
+        execute_generation(run_config, pipeline_type=pipeline_type)
     elif run_config.command == "upscale":
         from app.commands._shared import DEFAULT_UPSCALE_MODEL, execute_upscale
         model = run_config.upscale_model or DEFAULT_UPSCALE_MODEL

@@ -4,19 +4,24 @@ Provides real reference image conditioning via concatenated image latents
 (prepare_reference_image_conditioning), unlike ZImagePipeline which is
 text-to-image only and cannot inject a reference image into generation.
 
-Model acquisition:
-  - model_path=None  → mflux auto-downloads from HuggingFace
-                        (black-forest-labs/FLUX.2-klein-4B, ~15-20 GB first run)
-  - model_path=<dir> → local directory in HuggingFace directory structure:
-                        {dir}/transformer/, vae/, text_encoder/, tokenizer/
+Model loading priority:
+  1. Explicit model_path (if provided)
+  2. Local pre-quantized components in models/{category}/{instance}/ (symlink assembly)
+  3. HF auto-download + on-the-fly quantization (fallback)
 
-mflux source is included as a git submodule at vendor/mflux/ — no pip install needed.
+When local pre-quantized components exist, a temporary symlink assembly directory
+is created so mflux sees the standard {root}/transformer/, text_encoder/, vae/,
+tokenizer/ layout it expects.
 """
 
 import os
+import shutil
 import sys
+import tempfile
+import time
 
-from app.types import GenerationResult
+from app import config as cfg
+from app.pipeline_types import GenerationResult
 
 
 # Ensure mflux is importable from the vendored submodule
@@ -32,7 +37,7 @@ class Flux2KleinPipeline:
     """Thin wrapper around mflux Flux2KleinEdit for multi-view profile generation.
 
     Keeps the model loaded in memory across multiple generate() calls so that
-    3-view profile generation does not reload ~15 GB of weights three times.
+    3-view profile generation does not reload ~16 GB of weights three times.
     """
 
     def __init__(
@@ -44,9 +49,9 @@ class Flux2KleinPipeline:
         """
         Args:
             model_path: Local directory (HF structure) or HF repo ID.
-                        None → mflux uses ModelConfig.model_name to auto-download.
-            quantize:   None / 4 / 8.  None keeps original precision (BF16 if downloaded).
-                        8 is recommended for memory-constrained Apple Silicon.
+                        None → auto-detect local pre-quantized, else HF auto-download.
+            quantize:   None / 4 / 8.  Not needed when local pre-quantized model exists.
+                        8 is recommended for HF auto-download on Apple Silicon.
             variant:    "4b" or "9b" — selects Flux2 Klein architecture size.
         """
         from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
@@ -54,18 +59,48 @@ class Flux2KleinPipeline:
 
         if variant == "9b":
             model_config = ModelConfig.flux2_klein_9b()
+            local_dirs = {
+                "transformer":  cfg.KLEIN_9B_TRANSFORMER_DIR,
+                "text_encoder": cfg.KLEIN_9B_TEXT_ENCODER_DIR,
+                "vae":          cfg.KLEIN_9B_VAE_DIR,
+                "tokenizer":    cfg.KLEIN_9B_TOKENIZER_DIR,
+            }
         else:
             model_config = ModelConfig.flux2_klein_4b()
+            local_dirs = None
 
-        print(f"[Flux2KleinPipeline] Loading Klein {variant.upper()} "
-              f"(quantize={quantize}, model_path={model_path or 'HF auto-download'})...")
+        # Resolve: explicit model_path > local pre-quantized > HF auto-download
+        resolved_path = model_path
+        effective_quantize = quantize
+        assembly_dir = None
 
+        if resolved_path is None and local_dirs and all(
+            os.path.isdir(d) for d in local_dirs.values()
+        ):
+            # All local components exist — create symlink assembly for mflux
+            assembly_dir = tempfile.mkdtemp(prefix=f"klein{variant}_")
+            for name, src in local_dirs.items():
+                os.symlink(src, os.path.join(assembly_dir, name))
+            resolved_path = assembly_dir
+            effective_quantize = None  # pre-quantized on disk
+            print(f"[Flux2KleinPipeline] Using local pre-quantized INT8 ({variant})")
+        else:
+            source = resolved_path or "HF auto-download"
+            print(f"[Flux2KleinPipeline] Loading Klein {variant.upper()} "
+                  f"(quantize={quantize}, {source})...")
+
+        t0 = time.time()
         self._model = Flux2KleinEdit(
             model_config=model_config,
-            model_path=model_path,
-            quantize=quantize,
+            model_path=resolved_path,
+            quantize=effective_quantize,
         )
-        print("[Flux2KleinPipeline] Model ready.")
+        elapsed = time.time() - t0
+        print(f"[Flux2KleinPipeline] Model ready.  (load: {elapsed:.1f}s)")
+
+        # Clean up assembly dir (symlinks already resolved by mflux during init)
+        if assembly_dir:
+            shutil.rmtree(assembly_dir, ignore_errors=True)
 
     def generate(
         self,

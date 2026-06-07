@@ -1,21 +1,39 @@
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
-import torch
 import json
 import os
+import sys
 import time
 import gc
 from dataclasses import dataclass
 from PIL import Image
 from transformers import AutoTokenizer
-from diffusers import AutoencoderKL
 
-from app.types import GenerationResult
+from app.pipeline_types import GenerationResult
 from app.transformer import ZImageTransformerMLX
 from app.text_encoder import TextEncoderMLX
 from app.lora_utils import apply_lora
 from app import config as cfg
+
+
+def _vae_mlx_available() -> bool:
+    """Check if the MLX VAE weights exist at the configured VAE dir."""
+    return os.path.exists(os.path.join(cfg.VAE_DIR, "model.safetensors"))
+
+
+def _load_mlx_vae():
+    """Load the MLX-native ZImage VAE from models/vae/flux-ae/model.safetensors."""
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from mflux.models.z_image.model.z_image_vae import VAE as ZImageVAE
+    vae = ZImageVAE()
+    vae.load_weights(os.path.join(cfg.VAE_DIR, "model.safetensors"))
+    mx.eval(vae.parameters())
+    return vae
 
 
 def create_coordinate_grid(size, start):
@@ -63,14 +81,18 @@ def load_sharded_weights(model_path):
 
 def _latent_upscale(latent_mx: mx.array, scale_factor: float) -> mx.array:
     """Bilinear upscale of latent tensor in spatial dims (keeps even dims for patchify)."""
-    import torch.nn.functional as F
-    arr_np = np.array(latent_mx.astype(mx.float32))  # [1, C, H, W]
-    arr_pt = torch.from_numpy(arr_np)
-    scaled = F.interpolate(arr_pt, scale_factor=scale_factor, mode='bilinear', align_corners=False)
-    _, _, H, W = scaled.shape
-    H -= H % 2  # ensure divisible by 2 for patchify
-    W -= W % 2
-    return mx.array(scaled[:, :, :H, :W].numpy()).astype(mx.bfloat16)
+    # MLX-native bilinear upscale using mx.nn.Upsample
+    arr = latent_mx.astype(mx.float32)  # [1, C, H, W]
+    _, C, H, W = arr.shape
+    new_H = int(H * scale_factor)
+    new_W = int(W * scale_factor)
+    # Ensure even dims for patchify
+    new_H -= new_H % 2
+    new_W -= new_W % 2
+    upsample = nn.Upsample(scale_factor=scale_factor, mode="bilinear", align_corners=False)
+    scaled = upsample(arr)
+    # Trim to even dims
+    return scaled[:, :, :new_H, :new_W].astype(mx.bfloat16)
 
 
 class MLXFlowMatchEulerScheduler:
@@ -111,9 +133,9 @@ class ZImagePipeline:
         self._rope_cache = None
 
         for required_dir in [cfg.TRANSFORMER_DIR, cfg.TEXT_ENCODER_DIR, cfg.TOKENIZER_DIR, cfg.VAE_DIR]:
-            if not os.path.exists(required_dir):
+            if not cfg.check_model_available(required_dir):
                 raise FileNotFoundError(
-                    f"Model directory not found: {required_dir}\n"
+                    f"Model directory not available: {required_dir}\n"
                     f"Run convert.py --all first to convert and download models."
                 )
 
@@ -121,6 +143,7 @@ class ZImagePipeline:
     def upscale_esrgan(image: Image.Image, model_path: str) -> Image.Image:
         """Upscale PIL image using a spandrel-compatible ESRGAN model (.pth)."""
         import spandrel
+        import torch
         device = "mps" if torch.backends.mps.is_available() else "cpu"
         loader = spandrel.ModelLoader(device=device)
         model_sr = loader.load_from_file(model_path)
@@ -177,18 +200,29 @@ class ZImagePipeline:
             if (iw, ih) != input_image.size:
                 input_image = input_image.resize((iw, ih), Image.LANCZOS)
 
-            device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
-            vae_enc = AutoencoderKL.from_pretrained(cfg.VAE_DIR).to(device_pt)
-
             img_np = np.array(input_image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
-            img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
-            with torch.no_grad():
-                enc = vae_enc.encode(img_pt).latent_dist.mean
-            shift = getattr(vae_enc.config, "shift_factor", 0.0)
-            enc = (enc - shift) * vae_enc.config.scaling_factor
-            clean_latent = mx.array(enc.cpu().numpy()).astype(mx.bfloat16)
 
-            del vae_enc, img_pt, enc
+            if _vae_mlx_available():
+                # MLX-native VAE encode
+                vae_mlx = _load_mlx_vae()
+                img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)  # (1, C, H, W)
+                encoded = vae_mlx.encode(img_mx)  # (1, C, 1, H_lat, W_lat)
+                clean_latent = encoded[:, :, 0, :, :]  # squeeze temporal dim → (1, C, H_lat, W_lat)
+                del vae_mlx
+            else:
+                # PyTorch fallback
+                import torch
+                from diffusers import AutoencoderKL
+                device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
+                vae_enc = AutoencoderKL.from_pretrained(cfg.VAE_DIR).to(device_pt)
+                img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
+                with torch.no_grad():
+                    enc = vae_enc.encode(img_pt).latent_dist.mean
+                shift = getattr(vae_enc.config, "shift_factor", 0.0)
+                enc = (enc - shift) * vae_enc.config.scaling_factor
+                clean_latent = mx.array(enc.cpu().numpy()).astype(mx.bfloat16)
+                del vae_enc, img_pt, enc
+
             gc.collect()
             timings["vae_encode_seconds"] = time.time() - t0
             print(f"Done ({timings['vae_encode_seconds']:.2f}s) → latent {list(clean_latent.shape)}")
@@ -390,7 +424,7 @@ class ZImagePipeline:
             print(f"   Avg Speed: {timings['denoising_seconds'] / steps_run:.2f} s/it")
 
         # ----------------------------------------------------------------
-        # [Phase 4] Decoding (VAE with Tiling & Memory Cleanup)
+        # [Phase 4] Decoding (VAE with Memory Cleanup)
         # ----------------------------------------------------------------
         print("[Phase 4] Decoding...", end=" ", flush=True)
         t_dec = time.time()
@@ -400,23 +434,40 @@ class ZImagePipeline:
             mx.clear_cache()
             gc.collect()
 
-        vae_path = cfg.VAE_DIR
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        if _vae_mlx_available():
+            # MLX-native VAE decode
+            vae_mlx = _load_mlx_vae()
+            latents_mx = latents.astype(mx.bfloat16)
+            decoded = vae_mlx.decode(latents_mx)  # (1, C, 1, H, W)
+            if decoded.ndim == 5:
+                decoded = decoded[:, :, 0, :, :]  # squeeze temporal dim
+            image_np = np.array(mx.clip(decoded.astype(mx.float32) / 2.0 + 0.5, 0, 1))
+            image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+            image_np = image_np[0].transpose(1, 2, 0)  # (C, H, W) → (H, W, C)
+            pil_image = Image.fromarray((image_np * 255).round().astype("uint8"))
+            del vae_mlx, decoded
+        else:
+            # PyTorch fallback
+            import torch
+            from diffusers import AutoencoderKL
+            vae_path = cfg.VAE_DIR
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-        vae = AutoencoderKL.from_pretrained(vae_path).to(device)
-        vae.enable_tiling()
+            vae = AutoencoderKL.from_pretrained(vae_path).to(device)
+            vae.enable_tiling()
 
-        latents_pt = torch.from_numpy(np.array(latents.astype(mx.float32))).to(device)
-        latents_pt = (latents_pt / vae.config.scaling_factor) + getattr(vae.config, "shift_factor", 0.0)
+            latents_pt = torch.from_numpy(np.array(latents.astype(mx.float32))).to(device)
+            latents_pt = (latents_pt / vae.config.scaling_factor) + getattr(vae.config, "shift_factor", 0.0)
 
-        with torch.no_grad():
-            image = vae.decode(latents_pt).sample
+            with torch.no_grad():
+                image = vae.decode(latents_pt).sample
 
-        image_np = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
-        image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
-        pil_image = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
+            image_np = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
+            image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+            pil_image = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
 
-        del vae, latents_pt, image, image_np
+            del vae, latents_pt, image, image_np
+
         gc.collect()
 
         timings["vae_decode_seconds"] = time.time() - t_dec

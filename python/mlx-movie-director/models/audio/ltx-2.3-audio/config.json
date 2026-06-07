@@ -1,0 +1,5 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Minimal config for consistency; the LTX pipeline loads audio components directly by filename.",
+  "model_type": "ltx-2.3-audio",
+  "components": ["audio_vae", "vocoder"]
+}

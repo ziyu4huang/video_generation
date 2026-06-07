@@ -14,6 +14,8 @@ import os
 import json
 import argparse
 import gc
+import shutil
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -461,6 +463,240 @@ def convert_seedvr2_vae():
     return True
 
 
+# === Flux2 Klein 9B conversion ===
+
+def convert_vae_to_mlx():
+    """Convert flux-ae VAE from PyTorch FP32 to MLX BF16.
+
+    Uses the mflux ZImageWeightMapping to handle Conv2d transpose and key renaming.
+    Saves to models/vae/flux-ae/model.safetensors alongside the old PyTorch file.
+    """
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from mflux.models.z_image.model.z_image_vae import VAE as ZImageVAE
+    from mflux.models.z_image.weights.z_image_weight_mapping import ZImageWeightMapping
+    from mflux.models.common.weights.mapping.weight_transforms import WeightTransforms
+    from mlx.utils import tree_flatten
+
+    src = os.path.join(cfg.VAE_DIR, "diffusion_pytorch_model.safetensors")
+    dst_dir = cfg.VAE_DIR
+
+    if not os.path.exists(src):
+        print(f"[vae-mlx] ERROR: PyTorch VAE not found: {src}")
+        return False
+
+    # 1. Load PyTorch weights
+    print(f"[vae-mlx] Loading PyTorch VAE ({os.path.basename(src)})...")
+    pt_weights = load_pt_file(src)
+
+    # 2. Build the mapping from mflux ZImageWeightMapping
+    #    The mapping uses placeholders: {block}, {res}, {i}
+    #    Encoder: down_blocks 0-3, resnets 0-1 per block
+    #    Encoder: mid_block resnets 0-1
+    #    Decoder: up_blocks 0-3, resnets 0-2 per block
+    #    Decoder: mid_block resnets 0-1
+    mappings = ZImageWeightMapping.get_vae_mapping()
+
+    # Expand placeholder patterns into concrete key mappings
+    def _expand_pattern(pattern, expansion_ranges):
+        """Expand a pattern like 'encoder.down_blocks.{block}.resnets.{res}.conv1.weight'
+        into all concrete keys given the ranges for each placeholder."""
+        import re
+        placeholders = re.findall(r'\{(\w+)\}', pattern)
+        if not placeholders:
+            return [pattern]
+
+        results = [pattern]
+        for ph in placeholders:
+            new_results = []
+            for r in results:
+                for val in expansion_ranges.get(ph, [0]):
+                    new_results.append(r.replace(f'{{{ph}}}', str(val)))
+            results = new_results
+        return results
+
+    expansion_ranges = {
+        # Encoder: down_blocks 0-3 with 2 resnets each
+        'block': [0, 1, 2, 3],
+        'res': [0, 1],
+        # Mid-block resnets and attention indices
+        'i': [0, 1],
+    }
+
+    # Also need decoder-specific ranges: up_blocks 0-3 with 3 resnets each
+    decoder_expansion = dict(expansion_ranges, res=[0, 1, 2])
+
+    # 3. Build a dict: pytorch_key → (mlx_key, transform_fn)
+    key_map = {}
+    for m in mappings:
+        to_pat = m.to_pattern
+        from_pats = m.from_pattern
+
+        for from_pat in from_pats:
+            # Determine which expansion to use based on whether it's decoder up_blocks
+            is_decoder_upblock = 'decoder.up_blocks.{block}' in from_pat
+            exp = decoder_expansion if is_decoder_upblock else expansion_ranges
+
+            from_keys = _expand_pattern(from_pat, exp)
+            to_keys = _expand_pattern(to_pat, exp)
+
+            for fk, tk in zip(from_keys, to_keys):
+                key_map[fk] = (tk, m.transform)
+
+    # 4. Convert weights
+    print("[vae-mlx] Converting weights (transposing Conv2d)...")
+    mlx_weights = {}
+    mapped = 0
+    for k, v in tqdm(pt_weights.items()):
+        if k in key_map:
+            new_key, transform = key_map[k]
+            val_np = v.detach().cpu().float().numpy() if isinstance(v, torch.Tensor) else v
+            arr = mx.array(val_np).astype(mx.bfloat16)
+            if transform is not None:
+                arr = transform(arr)
+            mlx_weights[new_key] = arr
+            mapped += 1
+        else:
+            # Pass through unmapped keys (shouldn't happen if mapping is complete)
+            print(f"[vae-mlx] Warning: unmapped key: {k}")
+
+    del pt_weights
+    gc.collect()
+
+    print(f"[vae-mlx] Mapped {mapped} weights")
+
+    # 5. Initialize MLX VAE and load weights
+    print("[vae-mlx] Initializing MLX VAE...")
+    vae = ZImageVAE()
+    model_keys = set(dict(tree_flatten(vae.parameters())).keys())
+    print(f"[vae-mlx] Model expects {len(model_keys)} parameters, got {len(mlx_weights)}")
+
+    # Check for missing keys
+    missing = model_keys - set(mlx_weights.keys())
+    if missing:
+        print(f"[vae-mlx] Warning: {len(missing)} missing keys: {sorted(missing)[:5]}...")
+
+    vae.load_weights(list(mlx_weights.items()))
+    del mlx_weights
+    mx.eval(vae.parameters())
+
+    # 6. Save
+    out_path = os.path.join(dst_dir, "model.safetensors")
+    print(f"[vae-mlx] Saving to {out_path}...")
+    vae.save_weights(out_path)
+
+    size_mb = os.path.getsize(out_path) / (1024 * 1024)
+    print(f"[vae-mlx] Done. MLX VAE saved: {size_mb:.0f} MB")
+    print(f"[vae-mlx] Old PyTorch file still at: {os.path.basename(src)}")
+    return True
+
+
+def quantize_seedvr2_vae_int8():
+    """Quantize SeedVR2 VAE from MLX BF16 to INT8.
+
+    Overwrites models/vae/seedvr2-vae/model.safetensors with quantized version.
+    """
+    vae_dir = cfg.SEEDVR2_VAE_DIR
+    src = os.path.join(vae_dir, "model.safetensors")
+
+    if not os.path.exists(src):
+        print(f"[seedvr2-vae-int8] ERROR: Model not found: {src}")
+        return False
+
+    print(f"[seedvr2-vae-int8] Loading {src}...")
+    model = SeedVR2VAE()
+    model.load_weights(src)
+    mx.eval(model.parameters())
+
+    print("[seedvr2-vae-int8] Quantizing to INT8 (group_size=64, skipping Conv3d/small Linear)...")
+    nn.quantize(model, bits=8, group_size=64, class_predicate=_quantize_predicate)
+    mx.eval(model.parameters())
+
+    # Backup old file
+    backup = src + ".bf16.bak"
+    if not os.path.exists(backup):
+        print(f"[seedvr2-vae-int8] Backing up old BF16 weights...")
+        shutil.copy2(src, backup)
+
+    print(f"[seedvr2-vae-int8] Saving quantized weights...")
+    model.save_weights(src)
+
+    old_mb = os.path.getsize(backup) / (1024 * 1024)
+    new_mb = os.path.getsize(src) / (1024 * 1024)
+    print(f"[seedvr2-vae-int8] Done. {old_mb:.0f} MB (BF16) → {new_mb:.0f} MB (INT8)")
+    print(f"[seedvr2-vae-int8] Backup at: {os.path.basename(backup)}")
+    return True
+
+def convert_klein_9b():
+    """Convert Flux2 Klein 9B from HF cache to pre-quantized INT8, stored in category dirs.
+
+    Uses mflux ModelSaver to save pre-quantized shards, then moves each component
+    (transformer, text_encoder, vae, tokenizer) to its own category directory
+    following the existing models/{category}/{instance}/ pattern.
+    """
+    # Ensure mflux is importable
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
+    from mflux.models.common.config.model_config import ModelConfig
+    from mflux.models.common.weights.saving.model_saver import ModelSaver
+    from mflux.models.flux2.weights.flux2_weight_definition import Flux2KleinWeightDefinition
+
+    model_config = ModelConfig.flux2_klein_9b()
+
+    # 1. Load from HF cache with on-the-fly INT8 quantization (~32 GB peak RAM)
+    print("[klein-9b] Loading from HF cache + quantizing to INT8...")
+    print("[klein-9b] (This requires ~32 GB RAM for BF16 → INT8 conversion)")
+    model = Flux2KleinEdit(
+        model_config=model_config,
+        quantize=8,
+    )
+
+    # 2. Save pre-quantized to temp dir (mflux writes transformer/, text_encoder/, vae/, tokenizer/)
+    tmp = tempfile.mkdtemp(prefix="klein9b_convert_")
+    print(f"[klein-9b] Saving pre-quantized INT8 to temp dir...")
+    try:
+        ModelSaver.save_model(
+            model=model,
+            bits=model.bits,
+            base_path=tmp,
+            weight_definition=Flux2KleinWeightDefinition,
+        )
+
+        # 3. Move each component to its category dir
+        moves = [
+            (os.path.join(tmp, "transformer"),    cfg.KLEIN_9B_TRANSFORMER_DIR),
+            (os.path.join(tmp, "text_encoder"),   cfg.KLEIN_9B_TEXT_ENCODER_DIR),
+            (os.path.join(tmp, "vae"),            cfg.KLEIN_9B_VAE_DIR),
+            (os.path.join(tmp, "tokenizer"),      cfg.KLEIN_9B_TOKENIZER_DIR),
+        ]
+        for src, dst in moves:
+            if os.path.exists(dst):
+                print(f"[klein-9b] Removing existing {dst}...")
+                shutil.rmtree(dst)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.move(src, dst)
+            size_mb = sum(
+                os.path.getsize(os.path.join(dp, f))
+                for dp, _, fns in os.walk(dst)
+                for f in fns
+            ) / (1024 * 1024)
+            print(f"[klein-9b]   {os.path.relpath(dst, cfg.MODELS_DIR)}: {size_mb:.0f} MB")
+
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print(f"[klein-9b] Done. ~16 GB saved across category dirs under {cfg.MODELS_DIR}")
+    print(f"[klein-9b] Next: run 'check-manifests -v' after adding manifest.json + README.md")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="mlx-movie-director: one-time model conversion and download",
@@ -476,7 +712,10 @@ Examples:
     convert.py --seedvr2-dit
     convert.py --seedvr2-vae
 
-  Or all at once:
+  Flux2 Klein 9B (profile generation):
+    convert.py --klein-9b
+
+  Or all at once (Z-Image only):
     convert.py --all
         """,
     )
@@ -487,6 +726,12 @@ Examples:
     parser.add_argument("--vae", action="store_true", help="Download VAE from HuggingFace (~160MB)")
     parser.add_argument("--seedvr2-dit", action="store_true", help="Convert SeedVR2 7B DiT (~15GB → ~5GB 4-bit)")
     parser.add_argument("--seedvr2-vae", action="store_true", help="Convert SeedVR2 VAE (~500MB bf16)")
+    parser.add_argument("--klein-9b", action="store_true",
+                        help="Convert Flux2 Klein 9B from HF cache to pre-quantized INT8 (~32GB BF16 → ~16GB INT8)")
+    parser.add_argument("--vae-mlx", action="store_true",
+                        help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
+    parser.add_argument("--seedvr2-vae-int8", action="store_true",
+                        help="Quantize SeedVR2 VAE from MLX BF16 to INT8 (~478MB → ~240MB)")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
@@ -505,6 +750,12 @@ Examples:
         convert_seedvr2_dit()
     if args.seedvr2_vae:
         convert_seedvr2_vae()
+    if args.klein_9b:
+        convert_klein_9b()
+    if args.vae_mlx:
+        convert_vae_to_mlx()
+    if args.seedvr2_vae_int8:
+        quantize_seedvr2_vae_int8()
 
 
 if __name__ == "__main__":

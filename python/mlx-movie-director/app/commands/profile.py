@@ -79,8 +79,11 @@ VIEW_PROMPTS_FLUX2 = {
         "不得更改或遗漏任何服装细节"
     ),
     "back": (
-        "生成图中人物A-pose的背面图。人物站立，去除杂物，纯白色背景。"
+        "生成图中人物A-pose的背面图。这是从背后观察的视角。人物站立，去除杂物，纯白色背景。"
         "完美的身体比例，头不要太大。"
+        "注意背面视角与正面完全不同：看不到脸部五官，只能看到后脑勺和头发；"
+        "手臂从背后看只能看到手背和手肘外侧，不能看到手掌和手指内侧；"
+        "肩膀和背部轮廓与正面截然不同。确保这是真正的背面视角，不要画成正面。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
         "不得更改或遗漏任何服装细节"
@@ -213,7 +216,7 @@ def add_args(parser):
     )
     parser.add_argument(
         "--quantize", type=int, choices=[4, 8], default=None, metavar="BITS",
-        help="Quantization for Flux2 Klein (4 or 8 bits). Recommended: 8 for MPS.",
+        help="Quantization for HF auto-download mode (4 or 8 bits). Not needed when local pre-quantized model exists.",
     )
     parser.add_argument(
         "--variant", choices=["4b", "9b"], default="9b",
@@ -285,6 +288,91 @@ def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
         strip.paste(img, (x, 0))
         x += img.width + gap
     return strip
+
+
+def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | None, view_outputs: list):
+    """Write a self-contained HTML file that shows all profile views left-to-right."""
+    import html as html_mod
+
+    # Build card entries: reference (if any) + generated views
+    cards = []
+    if ref_path:
+        cards.append({"label": "Reference", "file": "reference.png"})
+    for vo in view_outputs:
+        if vo.get("view") in ("html", "strip"):
+            continue
+        label = vo["view"].capitalize()
+        cards.append({"label": label, "file": os.path.basename(vo["path"])})
+
+    cards_html = ""
+    for c in cards:
+        safe_label = html_mod.escape(c["label"])
+        safe_file = html_mod.escape(c["file"])
+        cards_html += (
+            f'      <div class="card">\n'
+            f'        <img src="{safe_file}" alt="{safe_label}">\n'
+            f'        <div class="label">{safe_label}</div>\n'
+            f"      </div>\n"
+        )
+
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Character Profile Sheet</title>
+<style>
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+  body {{
+    background: #1a1a1a;
+    color: #eee;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 20px;
+    overflow-x: auto;
+  }}
+  h1 {{
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: #999;
+  }}
+  .row {{
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }}
+  .card {{
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: #222;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }}
+  .card img {{
+    display: block;
+    max-height: 90vh;
+    width: auto;
+    object-fit: contain;
+  }}
+  .label {{
+    padding: 6px 12px;
+    font-size: 13px;
+    color: #888;
+    text-align: center;
+  }}
+</style>
+</head>
+<body>
+  <h1>Character Profile</h1>
+  <div class="row">
+{cards_html}  </div>
+</body>
+</html>"""
+
+    with open(html_path, "w") as f:
+        f.write(page)
 
 
 # ---------------------------------------------------------------------------
@@ -525,27 +613,27 @@ def run(args):
                 "height": result.image.height,
             })
 
-        # Build stitch list: prepend reference image (resized to view height) if provided
-        stitch_images = view_images
-        if ref_image and view_images:
-            ref_h = view_images[0].height
-            ref_w = int(ref_image.width * ref_h / ref_image.height)
-            stitch_images = [ref_image.resize((ref_w, ref_h), Image.LANCZOS)] + view_images
+        # Generate HTML viewer showing all images left-to-right
+        html_path = os.path.join(out_dir, "index.html")
+        _write_html_viewer(html_path, out_dir, ref_image, args.input_image, view_outputs)
+        print(f"\nHTML: {html_path}")
+        view_outputs.append({
+            "view": "html",
+            "path": html_path,
+            "size_bytes": os.path.getsize(html_path),
+        })
 
-        # Create horizontal strip
-        strip_path = None
-        if not args.no_strip and len(stitch_images) > 1:
+        # Optionally also create the horizontal strip PNG
+        if not args.no_strip and len(view_images) > 0:
+            stitch_images = view_images
+            if ref_image:
+                ref_h = view_images[0].height
+                ref_w = int(ref_image.width * ref_h / ref_image.height)
+                stitch_images = [ref_image.resize((ref_w, ref_h), Image.LANCZOS)] + view_images
             strip = _stitch_horizontal(stitch_images, gap=args.strip_gap)
             strip_path = os.path.join(out_dir, "strip.png")
             strip.save(strip_path)
-            print(f"\nStrip: {strip_path}  ({strip.width}×{strip.height})")
-            view_outputs.append({
-                "view": "strip",
-                "path": strip_path,
-                "size_bytes": os.path.getsize(strip_path),
-                "width": strip.width,
-                "height": strip.height,
-            })
+            print(f"Strip: {strip_path}  ({strip.width}×{strip.height})")
 
         end_time = datetime.now(timezone.utc).isoformat()
         models = collect_model_fingerprint(lora_path=args.lora_path)

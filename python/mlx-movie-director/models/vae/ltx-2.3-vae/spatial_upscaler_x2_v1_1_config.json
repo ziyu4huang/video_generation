@@ -1,0 +1,11 @@
+{
+  "config": {
+    "in_channels": 128,
+    "mid_channels": 1024,
+    "num_blocks_per_stage": 4,
+    "spatial_upsample": true,
+    "temporal_upsample": false,
+    "spatial_scale": 2.0,
+    "rational_resampler": false
+  }
+}

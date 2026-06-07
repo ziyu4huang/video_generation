@@ -1,0 +1,21 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ltx-2.3-dev-q8",
+  "type": "transformer",
+  "arch": "ltx-2.3",
+  "format": "mlx-int8",
+  "description": "LTX-2.3 22B Stage-1 dev transformer, int8 MLX quantized. From dgrauet/ltx-2.3-mlx-q8.",
+  "source": "dgrauet/ltx-2.3-mlx-q8",
+  "weight_file": "transformer-dev.safetensors",
+  "pipeline": ["ltx-2.3"],
+  "compatible_with": [
+    "text_encoder/ltx-2.3-connector",
+    "vae/ltx-2.3-vae",
+    "lora/ltx-2.3-distilled",
+    "audio/ltx-2.3-audio"
+  ],
+  "hf_repo": "dgrauet/ltx-2.3-mlx-q8",
+  "hf_filename": "transformer-dev.safetensors",
+  "size_bytes": 20597189549,
+  "created_at": "2026-06-07T00:00:00Z"
+}

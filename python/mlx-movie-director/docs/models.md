@@ -1,8 +1,78 @@
 # Models Reference
 
-All model paths and defaults are configured in [`app/config.py`](../app/config.py). This document explains where each model lives, where it comes from, and how to reproduce it.
+Three pipelines, each with its own model set:
 
-## Directory Layout
+| Pipeline | Command | Models Location | Quantization |
+|----------|---------|----------------|--------------|
+| **Z-Image Turbo** (Moody V12.6) | `run.py generate` | `models/` (local, pre-converted) | Pre-converted 4-bit on disk |
+| **Flux2 Klein** (9B) | `run.py profile` | `models/` (local, pre-converted INT8) | Pre-quantized INT8 on disk |
+| **SeedVR2** (7B) | `run.py upscale --method seedvr2` | `models/` (local, pre-converted) | Pre-converted 4-bit on disk |
+
+## JSON File System
+
+Each model instance directory (`models/<category>/<instance>/`) contains two JSON files with distinct roles and origins.
+
+### manifest.json — Private Metadata (Always Ours)
+
+**Origin:** Created by `convert.py` or manually. Never downloaded from HuggingFace.
+
+**Purpose:** Model registry metadata — identity, source, format, size, compatibility.
+
+**Always safe to edit.** Identified by `_comment` field at top.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_comment` | string | Documentation marker — identifies this as our private file |
+| `name` | string | Instance name (must match directory name) |
+| `type` | string | Category: `transformer`, `text_encoder`, `vae`, `lora`, `tokenizer`, `audio` |
+| `arch` | string | Architecture family (e.g. `flux2-klein-9b`, `zimage-turbo`, `ltx-2.3`) |
+| `format` | string | Weight format (e.g. `mlx-4bit-gs32`, `mlx-8bit`, `safetensors-bf16`, `hf-tokenizer`) |
+| `description` | string | Human-readable one-line description |
+| `source` | string | Origin repo or URL |
+| `compatible_with` | string[] | Instance names or arch IDs this model works with |
+| `size_bytes` | int | Total size of weight files in bytes |
+| `created_at` | string | ISO-8601 timestamp |
+| `hf_repo` | string | *(optional)* HuggingFace repo ID for download |
+| `hf_filename` | string | *(optional)* Specific filename in HF repo |
+| `source_url` | string | *(optional)* Direct URL (e.g. Civitai) |
+| `convert_flag` | string | *(optional)* `convert.py` flag to re-create (e.g. `--transformer`) |
+| `weight_file` | string | *(optional)* Override weight filename (default: `model.safetensors`) |
+| `pipeline` | string[] | *(optional)* Pipeline names this model belongs to |
+
+### config.json — Model Architecture Config (Two Origins)
+
+**Origin varies — check for `_comment` to tell them apart:**
+
+| Origin | How to identify | Editable? |
+|--------|----------------|-----------|
+| **Downloaded from HuggingFace** | Has HF metadata (`_class_name`, `_diffusers_version`, `architectures`, `model_type`, `transformers_version`) — no `_comment` field | ❌ No — do not modify |
+| **Created by us** (convert.py) | Has `_comment` field: *"Architecture config created by mlx-movie-director..."* | ✅ Yes — safe to edit |
+
+**Purpose:** Defines model architecture parameters (layer counts, dimensions, channels) needed by MLX loading code.
+
+### Directory Layout Example
+
+```
+models/transformer/klein-9b/
+├── manifest.json          # Our private metadata (has _comment)
+├── config.json            # From HuggingFace (has _class_name, _diffusers_version)
+├── model.safetensors      # Weights
+└── README.md              # Human docs
+
+models/transformer/seedvr2-7b/
+├── manifest.json          # Our private metadata (has _comment)
+├── config.json            # Our config (has _comment: "created by mlx-movie-director")
+├── model.safetensors      # Weights
+└── README.md              # Human docs
+```
+
+Validated by `run.py check-manifests`.
+
+## Pipeline 1: Z-Image Turbo (local models)
+
+All model paths and defaults are configured in [`app/config.py`](../app/config.py).
+
+### Directory Layout
 
 ```
 python/mlx-movie-director/models/
@@ -21,23 +91,152 @@ python/mlx-movie-director/models/
 │   └── README.md
 ├── vae/                 # AutoencoderKL (Flux/Z-Image)
 │   ├── config.json
-│   ├── diffusion_pytorch_model.safetensors  (~160 MB)
+│   ├── model.safetensors        (~160 MB, MLX BF16)
+│   ├── REMOVED_PyTORCH_VAE      # marker: old PyTorch file removed
 │   └── README.md
+├── seedvr2_dit_7b/      # SeedVR2 upscaler transformer
+├── seedvr2_vae/         # SeedVR2 VAE
 └── lora/                # LoRA adapters (optional, applied at runtime)
     ├── zit_sda_v1.safetensors   (~162 MB)
     └── README.md
 ```
 
-## Source → Converted Mapping
+### Source → Converted Mapping
 
 | Component | Source (ComfyUI) | Converted (MLX) | How |
 |-----------|-----------------|-----------------|-----|
-| **Transformer** | `comfyui_data/models/diffusion_models/moody-porn-v12.6_00001_.safetensors` (~11 GB) | `models/transformer/model.safetensors` (~3.6 GB) | `convert.py --transformer` — key remap + 4-bit quantize |
-| **Text Encoder** | `comfyui_data/models/text_encoders/qwen_3_4b.safetensors` (~7.5 GB) | `models/text_encoder/model.safetensors` (~2.3 GB) | `convert.py --text-encoder` — 4-bit quantize |
+| **Transformer** | ~~`comfyui_data/.../moody-porn-v12.6_00001_.safetensors`~~ (deleted, 11 GB) | `models/transformer/model.safetensors` (~3.6 GB) | `convert.py --transformer` — key remap + 4-bit quantize |
+| **Text Encoder** | ~~`comfyui_data/.../qwen_3_4b.safetensors`~~ (deleted, 7.5 GB) | `models/text_encoder/model.safetensors` (~2.3 GB) | `convert.py --text-encoder` — 4-bit quantize |
 | **Tokenizer** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/tokenizer/` (~7 MB) | `convert.py --tokenizer` — download |
-| **VAE** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/vae/` (~160 MB) | `convert.py --vae` — download |
+| **VAE** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/vae/flux-ae/` (~160 MB) | `convert.py --vae` (download) + `convert.py --vae-mlx` (convert to MLX BF16) |
 | **LoRA** | `comfyui_data/models/loras/zit_sda_v1.safetensors` (~162 MB) | Used directly (no conversion needed) | Runtime in-memory PyTorch → MLX |
 | **Upscale** | `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` (~28 MB) | Used directly (PyTorch MPS) | No conversion — spandrel loads .pth on MPS |
+
+> **Note:** ComfyUI source files for transformer, text encoder, seedvr2-dit, and seedvr2-vae have been deleted after A/B validation confirmed MLX conversions are equivalent. Source models were community fine-tunes not available from public HuggingFace repos — to re-convert, you'd need to re-acquire the original ComfyUI checkpoints.
+
+### Defaults in Code
+
+#### `app/config.py` — Paths
+
+```python
+SRC_TRANSFORMER    = comfyui_data/models/diffusion_models/moody-porn-v12.6_00001_.safetensors
+SRC_TEXT_ENCODER   = comfyui_data/models/text_encoders/qwen_3_4b.safetensors
+TRANSFORMER_DIR    = models/transformer/
+TEXT_ENCODER_DIR   = models/text_encoder/
+TOKENIZER_DIR      = models/tokenizer/
+VAE_DIR            = models/vae/
+```
+
+#### `run.py` — CLI Defaults
+
+| Flag | Default | Source |
+|------|---------|--------|
+| `--lora-path` | None (no LoRA) | `models/lora/zit_sda_v1.safetensors` if used |
+| `--upscale-model` | `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` | `DEFAULT_UPSCALE_MODEL` in `run.py` |
+
+#### `app/config.py` — Architecture Configs
+
+**Transformer** (`TRANSFORMER_CONFIG`):
+
+| Param | Value |
+|-------|-------|
+| dim | 3840 |
+| in_channels | 16 |
+| n_layers | 30 |
+| n_refiner_layers | 2 |
+| n_heads / n_kv_heads | 30 |
+| cap_feat_dim | 2560 |
+| rope_theta | 256.0 |
+| t_scale | 1000.0 |
+
+**Text Encoder** (`TEXT_ENCODER_CONFIG`):
+
+| Param | Value |
+|-------|-------|
+| hidden_size | 2560 |
+| intermediate_size | 9728 |
+| num_attention_heads | 32 |
+| num_key_value_heads | 8 (GQA) |
+| num_hidden_layers | 36 |
+| head_dim | 128 |
+| vocab_size | 151,936 |
+
+### Reproduce All Models
+
+```bash
+# One-time conversion (order matters: tokenizer/vae first, then heavy conversions)
+./python/venv/bin/python python/mlx-movie-director/convert.py --tokenizer
+./python/venv/bin/python python/mlx-movie-director/convert.py --vae
+./python/venv/bin/python python/mlx-movie-director/convert.py --text-encoder
+./python/venv/bin/python python/mlx-movie-director/convert.py --transformer
+
+# LoRA — copy from ComfyUI (no conversion needed)
+cp comfyui_data/models/loras/zit_sda_v1.safetensors python/mlx-movie-director/models/lora/
+```
+
+---
+
+## Pipeline 2: Flux2 Klein 9B (local pre-quantized INT8)
+
+Used by `run.py profile` for character profile sheet generation with reference image conditioning.
+All components are pre-converted to INT8 and stored locally in `models/`. No HuggingFace download needed at runtime.
+
+### Components
+
+| Component | Model | Disk (INT8) | Location |
+|-----------|-------|-------------|----------|
+| **Transformer** | Flux2Transformer2DModel (32 heads, 8+24 layers) | 9.2 GB | `models/transformer/klein-9b/` |
+| **Text Encoder** | Qwen3ForCausalLM (4096 hidden, 36 layers) | 7.7 GB | `models/text_encoder/qwen3-8b/` |
+| **VAE** | AutoencoderKLFlux2 | 158 MB | `models/vae/flux2-klein/` |
+| **Tokenizer** | Qwen3 BPE | 11 MB | `models/tokenizer/qwen3-klein/` |
+
+**Total on disk:** ~17 GB INT8 (was ~32 GB BF16 in HF cache).
+
+### Loading: Symlink Assembly
+
+mflux requires a single root dir with `transformer/`, `text_encoder/`, `vae/`, `tokenizer/` subdirs.
+Since components are scattered across category dirs, a temp symlink assembly is created at load time:
+
+```python
+# flux2_pipeline.py creates /tmp/klein9b_XXX/ with symlinks to each component
+assembly_dir = tempfile.mkdtemp(prefix="klein9b_")
+os.symlink(cfg.KLEIN_9B_TRANSFORMER_DIR, os.path.join(assembly_dir, "transformer"))
+# ... same for text_encoder, vae, tokenizer
+model = Flux2KleinEdit(model_path=assembly_dir, quantize=None)  # pre-quantized
+```
+
+### Key Config
+
+| Component | Key Params |
+|-----------|------------|
+| Transformer | `attention_head_dim: 128`, `num_attention_heads: 32`, `num_layers: 8`, `num_single_layers: 24`, `joint_attention_dim: 12288`, `in_channels: 128`, `guidance_embeds: false` |
+| Text Encoder | `hidden_size: 4096`, `intermediate_size: 12288`, `num_hidden_layers: 36`, `architectures: ["Qwen3ForCausalLM"]` |
+| VAE | `scaling_factor: 0.3611`, `shift_factor: 0.1159`, `block_out_channels: [128, 256, 512, 512]` |
+
+### Reproduce
+
+```bash
+/Users/huangziyu/.local/bin/python3.13 convert.py --klein-9b
+```
+
+### Historical: HF Cache Cleanup
+
+After conversion, the HF cache (~32 GB) can be deleted:
+```bash
+rm -rf ~/.cache/huggingface/hub/models--black-forest-labs--FLUX.2-klein-9B
+```
+
+---
+
+## External Sources
+
+| Model | HuggingFace | Notes |
+|-------|-------------|-------|
+| Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tokenizer + VAE + architecture reference |
+| Qwen3-4B | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | Text encoder for Z-Image pipeline |
+| Flux2 Klein 9B | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Transformer + VAE + text encoder + tokenizer |
+| Moody V12.6 DPO | Community fine-tune on ComfyUI | Transformer base model |
+| 4xNomosWebPhoto | [NomosWebPhoto_RealPLKSR](https://openmodeldb.info/models/4xNomosWebPhoto_RealPLKSR) | ESRGAN upscaler |
 
 ## Defaults in Code
 

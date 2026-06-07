@@ -1,0 +1,15 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "seedvr2-7b",
+  "type": "transformer",
+  "arch": "seedvr2-dit",
+  "format": "mlx-4bit-gs32",
+  "description": "SeedVR2 7B diffusion transformer for AI upscaling, 4-bit MLX quantized (GS=32), remapped from ComfyUI single safetensors",
+  "source": "ByteDance-Seed/SeedVR2-7B",
+  "pipeline": ["seedvr2-upscale"],
+  "compatible_with": [
+    "vae/seedvr2-vae"
+  ],
+  "size_bytes": 5106997144,
+  "created_at": "2026-06-07T00:00:00Z"
+}

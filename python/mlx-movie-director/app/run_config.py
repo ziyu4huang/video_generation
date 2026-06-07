@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -23,6 +23,9 @@ class RunConfig:
 
     schema_version: int = SCHEMA_VERSION
     command: str = "generate"           # replaces v2 "action" field
+
+    # Pipeline selection
+    pipeline: str = "zimage"            # "zimage" or "flux2-klein"
 
     # Prompt
     prompt: str | None = None
@@ -50,10 +53,16 @@ class RunConfig:
     count: int = 1
     seed_start: int | None = None
 
-    # Future: video (LTX)
+    # Video (LTX)
     frames: int | None = None
-    fps: int | None = None
+    fps: float | None = None
     video_model: str | None = None
+    cfg_scale: float = 3.0
+    stg_scale: float = 1.0
+    low_ram: bool = False
+    audio: str | None = None
+    stage1_steps: int | None = None
+    stage2_steps: int | None = None
 
     # Future: ControlNet / animate
     control_image: str | None = None
@@ -70,6 +79,7 @@ class RunConfig:
         return cls(
             schema_version=SCHEMA_VERSION,
             command=command,
+            pipeline=getattr(args, "pipeline", "zimage"),
             prompt=getattr(args, "prompt", None),
             prompt_file=getattr(args, "prompt_file", None),
             width=getattr(args, "width", 640),
@@ -89,6 +99,12 @@ class RunConfig:
             frames=getattr(args, "frames", None),
             fps=getattr(args, "fps", None),
             video_model=getattr(args, "video_model", None),
+            cfg_scale=getattr(args, "cfg_scale", 3.0),
+            stg_scale=getattr(args, "stg_scale", 1.0),
+            low_ram=getattr(args, "low_ram", False),
+            audio=getattr(args, "audio", None),
+            stage1_steps=getattr(args, "stage1_steps", None),
+            stage2_steps=getattr(args, "stage2_steps", None),
             control_image=getattr(args, "control_image", None),
             control_type=getattr(args, "control_type", None),
             control_strength=getattr(args, "control_strength", None),
@@ -159,5 +175,22 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("control_strength", None)
         raw["schema_version"] = 3
         version = 3
+
+    if version == 3:
+        # v3 → v4: add LTX video generation params
+        raw.setdefault("cfg_scale", 3.0)
+        raw.setdefault("stg_scale", 1.0)
+        raw.setdefault("low_ram", False)
+        raw.setdefault("audio", None)
+        raw.setdefault("stage1_steps", None)
+        raw.setdefault("stage2_steps", None)
+        raw["schema_version"] = 4
+        version = 4
+
+    if version == 4:
+        # v4 → v5: add pipeline selection field
+        raw.setdefault("pipeline", "zimage")
+        raw["schema_version"] = 5
+        version = 5
 
     return raw

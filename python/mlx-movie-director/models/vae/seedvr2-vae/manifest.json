@@ -1,0 +1,15 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "seedvr2-vae",
+  "type": "vae",
+  "arch": "seedvr2-vae",
+  "format": "mlx-bf16",
+  "description": "SeedVR2 3D VAE for latent encode/decode in AI upscaling, MLX BF16 with Conv3D transposition",
+  "source": "ByteDance-Seed/SeedVR2-7B",
+  "pipeline": ["seedvr2-upscale"],
+  "compatible_with": [
+    "transformer/seedvr2-7b"
+  ],
+  "size_bytes": 501325022,
+  "created_at": "2026-06-07T00:00:00Z"
+}

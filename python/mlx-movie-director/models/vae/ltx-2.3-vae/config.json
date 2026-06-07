@@ -1,0 +1,12 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+  "model_type": "ltx-vae",
+  "in_channels": 3,
+  "out_channels": 3,
+  "latent_channels": 128,
+  "components": [
+    "vae_encoder",
+    "vae_decoder",
+    "spatial_upscaler_x2_v1_1"
+  ]
+}

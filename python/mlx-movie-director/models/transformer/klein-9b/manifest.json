@@ -1,0 +1,17 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "klein-9b",
+  "type": "transformer",
+  "arch": "flux2-klein-9b",
+  "format": "mlx-8bit",
+  "description": "Flux2 Klein 9B diffusion transformer (INT8), converted from black-forest-labs/FLUX.2-klein-9B BF16 via mflux ModelSaver",
+  "pipeline": ["flux2-klein", "flux2-klein-edit"],
+  "compatible_with": [
+    "text_encoder/qwen3-8b",
+    "tokenizer/qwen3-klein",
+    "vae/flux2-klein"
+  ],
+  "size_bytes": 9646067090,
+  "source": "black-forest-labs/FLUX.2-klein-9B",
+  "created_at": "2026-06-07T00:00:00Z"
+}
