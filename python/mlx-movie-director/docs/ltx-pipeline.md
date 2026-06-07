@@ -71,6 +71,72 @@ run.py video generate --prompt "Woman says hello" --audio-stage1-only --audio-vo
 
 ---
 
+## Image-to-Video (I2V)
+
+I2V mode generates video from a reference image + text prompt. The model preserves the image's visual identity (face, outfit, scene) while animating motion described in the prompt.
+
+### Quick Start
+
+```bash
+# Basic I2V — image provides visual identity, prompt describes motion/speech
+run.py video generate \
+  --input-image reference.png \
+  --prompt "Character turns head and speaks softly, 'Hello there.'" \
+  --width 512 --height 288 --frames 121 \
+  --audio-volume 50
+
+# A/B test with different denoising steps
+run.py video generate \
+  --input-image reference.png \
+  --prompt "Same prompt for all variations" \
+  --width 512 --height 288 --frames 121 \
+  --variations 3 --ab-params '{"stage1_steps":[6,9,12]}' \
+  --audio-volume 50
+```
+
+### How I2V Works
+
+1. **Image preprocessing** — The reference image is resized and center-cropped to match the target video dimensions. An H.264 round-trip (CRF=33) is applied to match the model's training distribution.
+
+2. **Latent replacement** — The image is VAE-encoded, and its latent tokens **replace frame 0** of the video latent. This anchors the first frame to the reference image.
+
+3. **Denoising** — The transformer generates remaining frames conditioned on the anchored first frame + text prompt. More `stage1_steps` = better identity preservation and less distortion.
+
+4. **Refinement** — Stage 2 adds detail at full resolution.
+
+### Dimension Handling
+
+The pipeline automatically handles mismatched image/video dimensions:
+
+- **Auto-fit**: If no explicit `--width/--height` is set, video dimensions adjust to match the image aspect ratio
+- **Center crop**: When dimensions differ, the image is aspect-preserving resized then center-cropped
+- **Resolution alignment**: Both dimensions are rounded to multiples of 32 (LTX VAE requirement)
+- **Frame alignment**: Frame count is rounded to nearest 8k+1
+
+```
+[video] Input image: photo.png (2462×1404, aspect 1.75:1)
+[video] Auto-fit to image: 704×480 → 832×480 (aspect 1.73:1)
+```
+
+### I2V Quality Tips
+
+| Issue | Solution |
+|-------|----------|
+| **Blurry / distorted** | Increase `--stage1-steps` (try 9 or 12 instead of 6) |
+| **Identity drift** | Use higher `--cfg-scale` (5.0 default is good) |
+| **Wrong aspect ratio** | Don't set `--width/--height` — let auto-fit match the image |
+| **Low resolution** | The image is downsampled to video resolution; use 704×480+ for detail |
+| **First frame doesn't match** | H.264 CRF=33 pre-processing intentionally softens the image slightly |
+
+### I2V Limitations
+
+- **First frame is approximate** — H.264 CRF=33 compression + VAE encoding means the first frame won't be pixel-identical to the source image
+- **Identity drift over time** — Character/scene fidelity is strongest in the first 1-2 seconds, then softens
+- **No control over crop position** — Currently always center-crops; off-center subjects may be partially cut
+- **Small resolution = blurry** — At 512×288, fine details from a 2462×1404 source image are lost
+
+---
+
 ## Pipeline Architecture
 
 ```
@@ -192,14 +258,14 @@ The correct value (1000.0) is stored in `embedded_config.json` inside the checkp
 | `--prompt` | (required)* | Text prompt |
 | `--prompt-file` | — | Read prompt from file |
 | `--test-prompt` | — | Built-in test prompt (voice-test, frog-yoga, dialog-test, etc.) |
-| `--width` | 704 | Frame width (must be divisible by 32) |
-| `--height` | 480 | Frame height (must be divisible by 32) |
-| `--frames` | 97 | Frame count (must satisfy 8k+1: 25, 33, 41, 49, …) |
+| `--width` | 704 | Frame width — auto-adjusted to nearest multiple of 32; auto-fit to image in I2V mode |
+| `--height` | 480 | Frame height — auto-adjusted to nearest multiple of 32; auto-fit to image in I2V mode |
+| `--frames` | 97 | Frame count — auto-adjusted to nearest 8k+1 (9, 17, 25, 33, …) |
 | `--fps` | 24.0 | Output frame rate |
 | `--seed` | 42 | Random seed |
 | `--cfg-scale` | 5.0 | Classifier-free guidance (optimal: 5.0) |
 | `--stg-scale` | 1.0 | Spatial-temporal guidance (essential: 1.0 for coherent motion) |
-| `--stage1-steps` | ~30 | Override stage 1 denoising steps |
+| `--stage1-steps` | 6 | Stage 1 denoising steps (try 9-12 for I2V quality) |
 | `--stage2-steps` | ~3 | Override stage 2 refinement steps |
 | `--input-image` | — | Reference image for I2V |
 | `--audio` | — | Audio file for A2V |

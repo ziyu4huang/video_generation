@@ -164,6 +164,59 @@ def _adjust_frames(frames: int) -> int:
     return adjusted
 
 
+# Argparse defaults for detecting user overrides (must match add_generate_args)
+_ARGPARSE_DIM_DEFAULTS = {"width": 704, "height": 480}
+
+
+def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
+    """Adjust video dimensions to match input image aspect ratio.
+
+    When the user provides --input-image without explicit --width/--height,
+    auto-adjusts the video dimensions to minimize center-cropping.
+    When dimensions are explicit, warns if image aspect ratio differs significantly.
+
+    Returns:
+        (width, height) — potentially adjusted to match image aspect ratio.
+    """
+    try:
+        from PIL import Image
+        img = Image.open(image_path)
+        img_w, img_h = img.size
+        img.close()
+    except ImportError:
+        return width, height
+
+    img_ratio = img_w / img_h
+    video_ratio = width / height
+    ratio_diff = abs(img_ratio - video_ratio) / max(img_ratio, video_ratio)
+
+    print(f"[video] Input image: {os.path.basename(image_path)} "
+          f"({img_w}×{img_h}, aspect {img_ratio:.2f}:1)")
+
+    if ratio_diff < 0.03:
+        # Close enough — no adjustment needed
+        print(f"[video] Video target: {width}×{height} — aspect match ✓")
+        return width, height
+
+    # Auto-fit: keep the shorter dimension, adjust the other to match image ratio
+    if width >= height:
+        # Landscape: keep height, adjust width
+        new_w = round(height * img_ratio / 32) * 32
+        new_w = max(32, new_w)
+        if new_w != width:
+            print(f"[video] Auto-fit to image: {width}×{height} → {new_w}×{height} "
+                  f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
+        return new_w, height
+    else:
+        # Portrait: keep width, adjust height
+        new_h = round(width / img_ratio / 32) * 32
+        new_h = max(32, new_h)
+        if new_h != height:
+            print(f"[video] Auto-fit to image: {width}×{height} → {width}×{new_h} "
+                  f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
+        return width, new_h
+
+
 def run_generate(args):
     """Entry point for video generation."""
     # If --test-prompt selected, inject its prompt text and apply recommended defaults
@@ -180,11 +233,15 @@ def run_generate(args):
         sys.exit(1)
 
     # --- Auto-adjust resolution and frames for pipeline constraints ---
+    # Fit video dimensions to input image aspect ratio (I2V mode)
+    image_path = args.input_image
+    if image_path and os.path.exists(image_path):
+        args.width, args.height = _fit_to_image(image_path, args.width, args.height)
+
     args.width, args.height = _adjust_resolution(args.width, args.height)
     args.frames = _adjust_frames(args.frames)
 
     audio_path = args.audio
-    image_path = args.input_image
 
     if audio_path and not os.path.exists(audio_path):
         print(f"ERROR: audio file not found: {audio_path}", file=sys.stderr)
@@ -222,9 +279,28 @@ def run_generate(args):
         args.first_frame = True
         args.caption = True
 
-    # --- Runtime estimation ---
-    eta = _estimate_runtime(args, variations)
-    print(f"[video] Estimated: {eta:.0f}s ({eta / 60:.1f} min) for {variations} variation(s)")
+    # --- Pre-flight summary ---
+    duration_s = args.frames / args.fps
+    print(f"[video] Resolution: {args.width}×{args.height}  "
+          f"Duration: {args.frames} frames @ {args.fps:.0f}fps = {duration_s:.1f}s")
+
+    if variations > 1:
+        print(f"\nA/B Test: {variations} variations (seed={args.seed})")
+        labels = [chr(65 + i) for i in range(variations)]  # A, B, C, ...
+        for vi in range(variations):
+            var_args = _override_args(args, vi, ab_params)
+            var_eta = _estimate_runtime(var_args, 1)
+            diff_parts = []
+            if ab_params:
+                for key, values in ab_params.items():
+                    diff_parts.append(f"{key}={values[vi]}")
+            diff_str = ", ".join(diff_parts) if diff_parts else "default params"
+            print(f"  {labels[vi]}: {diff_str}  → est {var_eta:.0f}s ({var_eta / 60:.1f} min)")
+        total_eta = _estimate_runtime(args, variations)
+        print(f"  Total estimated: {total_eta:.0f}s ({total_eta / 60:.1f} min)")
+    else:
+        eta = _estimate_runtime(args, 1)
+        print(f"[video] Estimated: {eta:.0f}s ({eta / 60:.1f} min)")
 
     if variations > 1:
         _run_variations(args, prompt, variations, ab_params)
@@ -513,7 +589,7 @@ def _override_args(args, variation_index: int, ab_params: dict | None):
     var_args = copy.copy(args)
 
     if ab_params is None:
-        var_args.seed = args.seed + variation_index
+        # A/B test: keep same seed for fair comparison
         return var_args
 
     for key, values in ab_params.items():
@@ -528,9 +604,7 @@ def _override_args(args, variation_index: int, ab_params: dict | None):
         dest = dest_map.get(key, key)
         setattr(var_args, dest, val)
 
-    if "seed" not in ab_params:
-        var_args.seed = args.seed + variation_index
-
+    # A/B test: keep same seed unless explicitly varied via --ab-params
     return var_args
 
 

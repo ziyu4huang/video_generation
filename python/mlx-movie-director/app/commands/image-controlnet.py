@@ -36,12 +36,12 @@ _DEFAULT_REF_IMAGE = os.path.join(
 )
 _DEFAULT_PROMPT = "背面拍摄，高清摄影。一个coser少女，她cos的是雷姆。"
 
-# A/B test variations: (label, strength, blur_sigma)
+# A/B test variations: (label, strength, blur_sigma_or_None, remove_outlines)
 _AB_VARIATIONS = [
-    ("A-str10",          1.0, None),
-    ("B-str10-blur10",   1.0, 10.0),
-    ("C-str06",          0.6, None),
-    ("D-str06-blur10",   0.6, 10.0),
+    ("A-raw",          1.0, None,  False),
+    ("B-blur5",        1.0, 5.0,   False),
+    ("C-remove-out",   1.0, None,  True),
+    ("D-remove+blur3", 1.0, 3.0,   True),
 ]
 
 
@@ -83,6 +83,16 @@ def add_controlnet_args(parser):
         ),
     )
     parser.add_argument(
+        "--remove-outlines", action="store_true", default=False,
+        dest="remove_outlines",
+        help=(
+            "Remove thick dark outlines (苗框線) from the reference image via "
+            "inpainting before VAE encoding. Fills outlines with surrounding colors, "
+            "keeping the image sharp while removing harsh black lines. "
+            "Better clarity than --blur-ref."
+        ),
+    )
+    parser.add_argument(
         "--scale", type=int, default=None,
         help="Scale longest side of generated image to this resolution "
              "(default: match reference image size)",
@@ -91,7 +101,7 @@ def add_controlnet_args(parser):
         "--controlnet-ab-test", action="store_true", default=False,
         dest="controlnet_ab_test",
         help=(
-            "Run A/B test with 4 variations: strength 0.6/1.0 × blur-ref off/on(10). "
+            "Run A/B test comparing outline removal and blur approaches. "
             "Opens manifest review HTML after completion."
         ),
     )
@@ -116,6 +126,7 @@ def run_controlnet(args):
     strength = getattr(args, "controlnet_strength", 1.0)
     skip_preprocess = getattr(args, "skip_preprocess", False)
     blur_ref = getattr(args, "blur_ref", None)
+    remove_outlines = getattr(args, "remove_outlines", False)
     scale = getattr(args, "scale", None)
     steps = getattr(args, "steps", None) or 9
     seed = getattr(args, "seed", 42)
@@ -163,6 +174,7 @@ def run_controlnet(args):
         strength=strength,
         skip_preprocess=skip_preprocess,
         blur_ref=blur_ref,
+        remove_outlines=remove_outlines,
         steps=steps,
         seed=seed,
         out_w=out_w,
@@ -189,6 +201,7 @@ def run_controlnet(args):
             strength=strength,
             skip_preprocess=skip_preprocess,
             blur_ref=blur_ref,
+            remove_outlines=remove_outlines,
             out_w=out_w,
             out_h=out_h,
             steps=steps,
@@ -238,10 +251,14 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
 
     manifest_files = []
 
-    for label, strength, blur_ref in _AB_VARIATIONS:
+    for label, strength, blur_ref, remove_outlines in _AB_VARIATIONS:
         print(f"\n{'=' * 60}")
-        blur_desc = f"blur_ref={blur_ref}" if blur_ref else "no blur"
-        print(f"A/B Test — {label}  (strength={strength}, {blur_desc})")
+        parts = [f"strength={strength}"]
+        if blur_ref:
+            parts.append(f"blur={blur_ref}")
+        if remove_outlines:
+            parts.append("remove-outlines")
+        print(f"A/B Test — {label}  ({', '.join(parts)})")
         print(f"{'=' * 60}")
 
         run_file, manifest_file, out_path = _make_output_paths(
@@ -254,6 +271,7 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
             strength=strength,
             skip_preprocess=skip_preprocess,
             blur_ref=blur_ref,
+            remove_outlines=remove_outlines,
             steps=steps,
             seed=seed,
             out_w=out_w,
@@ -273,6 +291,7 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
                 strength=strength,
                 skip_preprocess=skip_preprocess,
                 blur_ref=blur_ref,
+                remove_outlines=remove_outlines,
                 out_w=out_w,
                 out_h=out_h,
                 steps=steps,
@@ -323,12 +342,13 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
 # ---------------------------------------------------------------------------
 
 def _execute_generation(prompt, ref_image_path, ctrl_type, strength,
-                        skip_preprocess, blur_ref,
+                        skip_preprocess, blur_ref, remove_outlines,
                         out_w, out_h, steps, seed) -> "Image.Image":
     """Run the full ControlNet pipeline. Returns PIL Image."""
     # ── Preprocess reference image ───────────────────────────────────────────
     ctrl_pil = _load_and_preprocess(
-        ref_image_path, ctrl_type, out_w, out_h, skip_preprocess, blur_ref
+        ref_image_path, ctrl_type, out_w, out_h, skip_preprocess,
+        blur_ref=blur_ref, remove_outlines=remove_outlines,
     )
 
     # ── VAE encode control image ─────────────────────────────────────────────
@@ -370,7 +390,7 @@ def _make_output_paths(base_name):
 
 
 def _build_run_meta(prompt, ref_image_path, ctrl_type, strength,
-                    skip_preprocess, blur_ref, steps, seed,
+                    skip_preprocess, blur_ref, remove_outlines, steps, seed,
                     out_w, out_h, scale=None):
     """Build run.json metadata dict."""
     return {
@@ -381,6 +401,7 @@ def _build_run_meta(prompt, ref_image_path, ctrl_type, strength,
         "controlnet_strength": strength,
         "skip_preprocess": skip_preprocess,
         "blur_ref": blur_ref,
+        "remove_outlines": remove_outlines,
         "prompt": prompt,
         "steps": steps,
         "seed": seed,
@@ -402,16 +423,25 @@ def _write_json(path, data):
 # ---------------------------------------------------------------------------
 
 def _load_and_preprocess(path: str, ctrl_type: str, out_w: int, out_h: int,
-                          skip: bool, blur_ref: float | None = None) -> "Image.Image":
+                          skip: bool, blur_ref: float | None = None,
+                          remove_outlines: bool = False) -> "Image.Image":
     """Load and preprocess reference image. Returns PIL Image resized to (out_w, out_h)."""
     from PIL import Image
     img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
     if skip:
+        if remove_outlines:
+            print(f"[ControlNet] Removing outlines via inpainting...")
+            img = _remove_outlines(img)
         if blur_ref is not None:
             print(f"[ControlNet] Applying Gaussian blur (sigma={blur_ref})...")
             img = _blur_ref_image(img, blur_ref)
-        blur_desc = f"blur={blur_ref}" if blur_ref else "raw"
-        print(f"[ControlNet] Preprocessing skipped — using {blur_desc} image as control.")
+        parts = []
+        if remove_outlines:
+            parts.append("outlines-removed")
+        if blur_ref is not None:
+            parts.append(f"blur={blur_ref}")
+        desc = "+".join(parts) if parts else "raw"
+        print(f"[ControlNet] Preprocessing skipped — using {desc} image as control.")
         return img
     if ctrl_type == "canny":
         return _apply_canny(img)
@@ -451,6 +481,39 @@ def _blur_ref_image(pil_img: "Image.Image", sigma: float) -> "Image.Image":
     radius = max(1, int(sigma))
     blurred = pil_img.filter(ImageFilter.GaussianBlur(radius=radius))
     return blurred
+
+
+def _remove_outlines(pil_img: "Image.Image", threshold: int = 80,
+                     dilate: int = 2) -> "Image.Image":
+    """Remove thick dark outlines (苗框線) via inpainting with surrounding colors.
+
+    Detects dark pixels below threshold, dilates the mask slightly to cover
+    anti-aliased edges, then uses cv2.inpaint to fill with neighboring colors.
+    The result keeps color/pose information but removes harsh black outlines.
+    """
+    try:
+        import cv2
+    except ImportError:
+        print("[ControlNet] cv2 not available — skipping outline removal.", file=sys.stderr)
+        return pil_img
+
+    import numpy as np
+    from PIL import Image
+
+    img_np = np.array(pil_img.convert("RGB"))
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+
+    # Create mask of dark pixels (outlines)
+    _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+
+    # Dilate mask to cover anti-aliased edges around outlines
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    mask = cv2.dilate(mask, kernel, iterations=dilate)
+
+    # Inpaint: fill masked areas with surrounding colors
+    result = cv2.inpaint(img_np, mask, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+
+    return Image.fromarray(result)
 
 
 # ---------------------------------------------------------------------------

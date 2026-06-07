@@ -104,6 +104,25 @@ def _launch_review(args, manifest_paths: list[str]):
     ]
 
     tests = [_load_test(m) for m in manifests]
+
+    # Filter out failed (error-status) tests and warn
+    valid_tests = []
+    for t in tests:
+        if t["status"] == "error":
+            err = t.get("error_message", "unknown error")
+            print(f"  WARNING: skipping failed test: {err}", file=sys.stderr)
+        else:
+            valid_tests.append(t)
+
+    if not valid_tests:
+        print("ERROR: no successful tests to review", file=sys.stderr)
+        sys.exit(1)
+
+    if len(valid_tests) < len(tests):
+        print(f"[video-review] {len(valid_tests)}/{len(tests)} tests succeeded, "
+              f"reviewing successful ones")
+
+    tests = valid_tests
     labels = _make_labels(args.labels, len(tests))
     for t, label in zip(tests, labels):
         t["label"] = label
@@ -238,6 +257,12 @@ def _load_test(manifest_path: str) -> dict:
         if v is not None:
             params[key] = v
 
+    # Extract error info for failed tests
+    error_info = manifest.get("error")
+    error_message = ""
+    if error_info and isinstance(error_info, dict):
+        error_message = f"{error_info.get('type', 'Error')}: {error_info.get('message', '')}"
+
     return {
         "video_file": os.path.abspath(video_file) if video_file else None,
         "thumbnail_file": thumbnail_path,
@@ -248,6 +273,7 @@ def _load_test(manifest_path: str) -> dict:
         "elapsed": manifest.get("elapsed_seconds"),
         "memory_mb": manifest.get("memory_peak_mb"),
         "models": manifest.get("models", {}),
+        "error_message": error_message,
     }
 
 

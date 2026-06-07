@@ -57,6 +57,7 @@ _PARAM_KEYS = [
     "latent_upscale", "upscale", "upscale_method",
     # ControlNet-specific
     "controlnet_type", "controlnet_strength", "skip_preprocess", "blur_ref",
+    "remove_outlines",
 ]
 
 
