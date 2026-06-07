@@ -10,6 +10,7 @@ function renderHTML(config) {
   const testsJson = JSON.stringify(config.tests);
   const model = config.model || "unknown";
   const generatedAt = config.generatedAt || "";
+  const reviewerJsPath = config.reviewerJsPath || "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -56,10 +57,12 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .winner-btn:hover { border-color: var(--gold); color: var(--gold); }
 .card.winner .winner-btn { background: var(--gold); color: #111; border-color: var(--gold); font-weight: 600; }
 
-.video-wrap { background: #000; }
-.video-wrap video { width: 100%; display: block; max-height: 200px; object-fit: contain; }
-.no-video { height: 120px; display: flex; align-items: center; justify-content: center;
-            color: var(--muted); font-size: 12px; }
+.zoom-btn { display: block; width: 100%; padding: 5px; background: var(--bg3);
+            border: none; border-top: 1px solid var(--border); color: var(--muted);
+            cursor: pointer; font-size: 11px; transition: all .15s; }
+.zoom-btn:hover { color: var(--accent); background: var(--bg); }
+.no-video { height: 40px; display: flex; align-items: center; justify-content: center;
+            color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
 
 .params { padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .params table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -79,11 +82,6 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .rating-label { font-size: 11px; color: var(--muted); }
 
 .thumb-wrap img { width: 100%; display: block; max-height: 160px; object-fit: cover; cursor: zoom-in; }
-.video-wrap video { cursor: pointer; }
-.zoom-btn { display: block; width: 100%; padding: 5px; background: var(--bg3);
-            border: none; border-top: 1px solid var(--border); color: var(--muted);
-            cursor: pointer; font-size: 11px; transition: all .15s; }
-.zoom-btn:hover { color: var(--accent); background: var(--bg); }
 
 .caption-box { padding: 6px 12px; border-bottom: 1px solid var(--border);
                font-size: 11px; color: #aaa; line-height: 1.4; }
@@ -98,7 +96,7 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .comment textarea:focus { outline: none; border-color: var(--accent); }
 .comment textarea::placeholder { color: #444; }
 
-/* lightbox overlay */
+/* lightbox overlay — used for both image zoom and video playback */
 #lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92);
             z-index: 10000; align-items: center; justify-content: center; }
 #lightbox.open { display: flex; }
@@ -110,8 +108,8 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
                       border: none; color: #ccc; font-size: 32px; cursor: pointer;
                       line-height: 1; z-index: 10001; }
 #lightbox .lb-close:hover { color: #fff; }
-#lightbox .lb-info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-                     color: #888; font-size: 12px; }
+#lightbox .lb-label { position: absolute; top: 20px; left: 20px;
+                      color: #aaa; font-size: 14px; font-weight: 600; z-index: 10001; }
 
 /* bottom bar */
 #bottom { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2);
@@ -154,6 +152,7 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 <div id="lightbox" onclick="closeLightbox(event)">
   <button class="lb-close" onclick="closeLightbox(event)">&times;</button>
+  <div class="lb-label" id="lb-label"></div>
   <div id="lightbox-content"></div>
 </div>
 
@@ -182,6 +181,7 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 <script>
 const TESTS = ${testsJson};
 const MODEL = ${JSON.stringify(model)};
+const REVIEWER_JS = ${JSON.stringify(reviewerJsPath)};
 const STORE_KEY = 'review_' + MODEL + '_' + TESTS.map(t => t.label).join('');
 
 let state = { ratings: {}, comments: {}, winner: null, notes: '' };
@@ -241,24 +241,15 @@ function makeCard(t, i) {
     card.appendChild(thumb);
   }
 
-  // video
-  const vw = el('div', 'video-wrap');
+  // zoom button — opens video in lightbox (no inline video)
   if (t.videoPath) {
-    const vid = document.createElement('video');
-    vid.src = '/video/' + encodeURIComponent(t.label);
-    vid.controls = true; vid.loop = false; vid.preload = 'metadata';
-    vid.addEventListener('click', (e) => {
-      if (e.target === vid) { vid.paused ? vid.play() : vid.pause(); }
-    });
-    vw.appendChild(vid);
     const zoomBtn = el('button', 'zoom-btn');
-    zoomBtn.innerHTML = '🔍 Zoom';
-    zoomBtn.onclick = () => openLightbox('video', vid.src, t.label);
-    vw.appendChild(zoomBtn);
+    zoomBtn.innerHTML = '🔍 Play Video';
+    zoomBtn.onclick = () => openLightbox('video', '/video/' + encodeURIComponent(t.label), t.label);
+    card.appendChild(zoomBtn);
   } else {
-    vw.innerHTML = '<div class="no-video">No video</div>';
+    card.appendChild(el('div', 'no-video', 'No video'));
   }
-  card.appendChild(vw);
 
   // caption
   if (t.caption) {
@@ -346,6 +337,7 @@ function generatePlain() {
   const lines = [];
   lines.push('## A/B Review: ' + MODEL);
   lines.push('Date: ' + new Date().toISOString().slice(0, 16).replace('T', ' '));
+  if (REVIEWER_JS) lines.push('Reviewer: ' + REVIEWER_JS);
   const prompt = TESTS.map(t => t.prompt).find(Boolean) || '';
   if (prompt) lines.push('Prompt: "' + prompt + '"');
   lines.push('');
@@ -356,6 +348,7 @@ function generatePlain() {
     const stars = '★'.repeat(r) + '☆'.repeat(5 - r);
     const win = state.winner === t.label ? ' ← WINNER' : '';
     lines.push('[' + t.label + '] ' + stars + win);
+    if (t.videoPath) lines.push('Video: ' + t.videoPath);
     const ps = Object.entries(t.params || {}).map(([k, v]) => k + '=' + v).join('  ');
     if (ps) lines.push('Params: ' + ps);
     if (t.elapsed != null) lines.push('Time: ' + t.elapsed.toFixed(1) + 's');
@@ -368,6 +361,7 @@ function generatePlain() {
     if (w && w.params) {
       lines.push('### Recommended Parameters');
       Object.entries(w.params).forEach(([k, v]) => lines.push(k + ': ' + v));
+      if (w.videoPath) lines.push('Video: ' + w.videoPath);
       lines.push('');
     }
   }
@@ -382,11 +376,13 @@ function generateJSON() {
   return JSON.stringify({
     model: MODEL,
     date: new Date().toISOString(),
+    reviewer_js: REVIEWER_JS,
     prompt: TESTS.map(t => t.prompt).find(Boolean) || '',
     winner: state.winner,
     tests: TESTS.map(t => ({
       label: t.label,
       status: t.status,
+      video_file: t.videoPath || '',
       params: t.params,
       elapsed_seconds: t.elapsed,
       rating: state.ratings[t.label] || 0,
@@ -451,14 +447,16 @@ function toggleCaption(btn, fullText) {
 function openLightbox(type, src, label) {
   const lb = document.getElementById('lightbox');
   const content = document.getElementById('lightbox-content');
+  const labelEl = document.getElementById('lb-label');
   content.innerHTML = '';
+  labelEl.textContent = label || '';
   if (type === 'image') {
     const img = document.createElement('img');
     img.src = src; img.alt = label || '';
     content.appendChild(img);
   } else if (type === 'video') {
     const vid = document.createElement('video');
-    vid.src = src; vid.controls = true; vid.autoplay = false; vid.loop = false;
+    vid.src = src; vid.controls = true; vid.autoplay = true; vid.loop = true;
     content.appendChild(vid);
   }
   lb.classList.add('open');
@@ -468,12 +466,11 @@ function openLightbox(type, src, label) {
 function closeLightbox(event) {
   if (event && event.target) {
     const content = document.getElementById('lightbox-content');
-    if (content.contains(event.target)) return;  // click inside content doesn't close
+    if (content.contains(event.target)) return;
   }
   const lb = document.getElementById('lightbox');
   lb.classList.remove('open');
   document.body.style.overflow = '';
-  // stop video if playing
   const vid = lb.querySelector('video');
   if (vid) vid.pause();
 }
@@ -489,61 +486,12 @@ boot();
 }
 
 // ---------------------------------------------------------------------------
-// Video serving with Range support
-// ---------------------------------------------------------------------------
-
-function serveStaticFile(req, url, prefix) {
-  const label = decodeURIComponent(url.pathname.replace(prefix, ""));
-  const test = CONFIG.tests.find(t => t.label === label);
-
-  if (prefix === "/video/") {
-    if (!test || !test.videoPath) return new Response("Not found", { status: 404 });
-    const filePath = test.videoPath;
-    const mime = test.mime || "video/mp4";
-
-    const file = Bun.file(filePath);
-    const total = file.size;
-    const rangeHeader = req.headers.get("range");
-
-    if (rangeHeader) {
-      const [, rangeStr] = rangeHeader.split("=");
-      const [startStr, endStr] = rangeStr.split("-");
-      const start = parseInt(startStr, 10);
-      const end = endStr ? Math.min(parseInt(endStr, 10), total - 1) : total - 1;
-      return new Response(file.slice(start, end + 1), {
-        status: 206,
-        headers: {
-          "Content-Type": mime,
-          "Content-Range": `bytes ${start}-${end}/${total}`,
-          "Accept-Ranges": "bytes",
-          "Content-Length": String(end - start + 1),
-        },
-      });
-    }
-
-    return new Response(file, {
-      headers: {
-        "Content-Type": mime,
-        "Content-Length": String(total),
-        "Accept-Ranges": "bytes",
-      },
-    });
-  }
-
-  if (prefix === "/thumb/") {
-    if (!test || !test.thumbnailPath) return new Response("Not found", { status: 404 });
-    const file = Bun.file(test.thumbnailPath);
-    return new Response(file, {
-      headers: { "Content-Type": "image/png" },
-    });
-  }
-
-  return new Response("Not found", { status: 404 });
-}
-
-// ---------------------------------------------------------------------------
 // Bun HTTP server
 // ---------------------------------------------------------------------------
+
+function findTest(label) {
+  return CONFIG.tests.find(t => t.label === label);
+}
 
 const server = Bun.serve({
   port: 0,
@@ -554,11 +502,43 @@ const server = Bun.serve({
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
     }
-    if (url.pathname.startsWith("/video/")) {
-      return serveStaticFile(req, url, "/video/");
-    }
     if (url.pathname.startsWith("/thumb/")) {
-      return serveStaticFile(req, url, "/thumb/");
+      const label = decodeURIComponent(url.pathname.replace("/thumb/", ""));
+      const test = findTest(label);
+      if (!test || !test.thumbnailPath) return new Response("Not found", { status: 404 });
+      return new Response(Bun.file(test.thumbnailPath), {
+        headers: { "Content-Type": "image/png" },
+      });
+    }
+    if (url.pathname.startsWith("/video/")) {
+      const label = decodeURIComponent(url.pathname.replace("/video/", ""));
+      const test = findTest(label);
+      if (!test || !test.videoPath) return new Response("Not found", { status: 404 });
+      const file = Bun.file(test.videoPath);
+      const total = file.size;
+      const rangeHeader = req.headers.get("range");
+      if (rangeHeader) {
+        const [, rangeStr] = rangeHeader.split("=");
+        const [startStr, endStr] = rangeStr.split("-");
+        const start = parseInt(startStr, 10);
+        const end = endStr ? Math.min(parseInt(endStr, 10), total - 1) : total - 1;
+        return new Response(file.slice(start, end + 1), {
+          status: 206,
+          headers: {
+            "Content-Type": test.mime || "video/mp4",
+            "Content-Range": `bytes ${start}-${end}/${total}`,
+            "Accept-Ranges": "bytes",
+            "Content-Length": String(end - start + 1),
+          },
+        });
+      }
+      return new Response(file, {
+        headers: {
+          "Content-Type": test.mime || "video/mp4",
+          "Content-Length": String(total),
+          "Accept-Ranges": "bytes",
+        },
+      });
     }
     return new Response("Not found", { status: 404 });
   },

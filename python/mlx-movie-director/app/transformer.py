@@ -236,6 +236,9 @@ class ZImageTransformerMLX(nn.Module):
         x = self.x_embedder(x)
         if x_mask is not None: x = mx.where(x_mask[..., None], self.x_pad_token, x)
 
+        # Save original embedded x for ControlNet (ComfyUI passes original, not current)
+        x_original = x if use_cnet else None
+
         cap_feats = self.cap_embedder.layers[1](self.cap_embedder.layers[0](cap_feats))
         if cap_mask is not None: cap_feats = mx.where(cap_mask[..., None], self.cap_pad_token, cap_feats)
 
@@ -250,9 +253,9 @@ class ZImageTransformerMLX(nn.Module):
             sin_img = sin[:, :x.shape[1]]
 
             if use_cnet:
-                # Run ControlNet noise refiner block with main model's current hidden state
+                # Run ControlNet noise refiner block with original embedded x (not current)
                 residual, cnet_ctx = controlnet_model.forward_noise_refiner(
-                    ref_i, cnet_ctx, x, temb, cos_img, sin_img)
+                    ref_i, cnet_ctx, x_original, temb, cos_img, sin_img)
                 if residual is not None:
                     x = x + residual * controlnet_strength
 
@@ -263,6 +266,9 @@ class ZImageTransformerMLX(nn.Module):
         unified = mx.concatenate([x, cap_feats], axis=1)
         unified_pos = mx.concatenate([x_pos, cap_pos], axis=1)
         unified_mask = None
+
+        # Save original image tokens for ControlNet (ComfyUI uses img_input, captured once)
+        unified_original_img = unified[:, :x_len] if use_cnet else None
 
         # Track ControlNet layer index for stride-2 injection
         # In ComfyUI, ALL 15 control layers run again during main layers (even for broken mode),
@@ -277,7 +283,7 @@ class ZImageTransformerMLX(nn.Module):
                 # Advance control context and inject residuals at stride-2 positions
                 if cnet_idx < n_control_layers and cnet_layer_idx <= cnet_idx:
                     while cnet_layer_idx <= cnet_idx and cnet_layer_idx < n_control_layers:
-                        main_img = unified[:, :x_len]
+                        main_img = unified_original_img
                         cos_c = cos[:, :cnet_ctx.shape[1]]
                         sin_c = sin[:, :cnet_ctx.shape[1]]
                         residual, cnet_ctx = controlnet_model.control_layers[cnet_layer_idx](

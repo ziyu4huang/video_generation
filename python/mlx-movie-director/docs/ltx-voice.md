@@ -96,7 +96,7 @@ Correct: 1000.0 / 1000.0 = 1.0  ← full cross-modal attention
 2. ~~Audio latent scale too small~~ — Scale mismatch is only 1.39x, not 50x ✅ RULED OUT  
 3. **MLX numerical divergence** — Audio latents in wrong direction (layer 0 cosine sim=0.135, output=0.186 vs PyTorch) 🔴 CONFIRMED ROOT CAUSE
 
-### 5. MLX vs PyTorch Numerical Divergence 🟡 ONGOING — Text Encoder Fix Identified
+### 5. MLX vs PyTorch Numerical Divergence 🟡 ONGOING — Text Encoder RULED OUT
 
 **Impact:** Even with all fixes, MLX speech is ~60% intelligible vs near-perfect in PyTorch/ComfyUI. The 48-layer transformer accumulates precision differences between Metal (bf16) and CUDA/MPS.
 
@@ -106,18 +106,26 @@ Correct: 1000.0 / 1000.0 = 1.0  ← full cross-modal attention
 - Layer-by-layer: cosine similarity starts at 0.135 (layer 0), converges to 0.945 (interior layers), diverges again at output (0.186)
 - MLX std consistently lower than PyTorch (0.56 vs 0.79) — MLX output is compressed/muted
 
-**Proposed fix (from Acelogic — NOT YET APPLIED to our pipeline):**
+#### Acelogic text encoder fixes — NOT NEEDED for our pipeline ✅ VERIFIED (2026-06-07)
 
-The [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork (local: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/`) identified and fixed the root cause in the **text encoder** — specifically Gemma RoPE configuration and the connector. Their investigation is documented in `AUDIO_ISSUES.md`.
+The [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork (local: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/`) fixed text encoder issues in their **custom native MLX Gemma 3 implementation**. However, our pipeline uses **mlx-lm** which already handles these correctly:
 
-| # | Fix | File | Impact |
-|---|-----|------|--------|
-| 1 | **Gemma per-layer RoPE** — 40 sliding layers (theta=10k, no scaling, 1024 window) + 8 full layers (theta=1M, scaling=8.0) | `LTX_2_MLX/model/text_encoder/gemma3.py` | Cosine sim **0.05 → 0.934** at final text encoder layer |
-| 2 | **Gemma boolean attention masks** — float masks caused NaN for all-padded rows | `LTX_2_MLX/model/text_encoder/gemma3.py` | Stable attention computation |
-| 3 | **Connector register handling** — append registers (extend to 1024) instead of replacing padding | `LTX_2_MLX/model/text_encoder/connector.py` | Correct sequence length |
-| 4 | **Double-precision RoPE for connector** | `LTX_2_MLX/model/text_encoder/connector.py` | Precision fix |
+| # | Fix | Acelogic needed? | Our pipeline? | Evidence |
+|---|-----|-----------------|---------------|----------|
+| 1 | **Gemma per-layer RoPE** (40 sliding + 8 full layers) | ✅ They wrote Gemma from scratch, got it wrong | ❌ Not needed — mlx-lm `gemma3_text.Attention` already sets `is_sliding` per layer with correct theta | Diagnostic: consecutive layer cosine sim = 0.964–0.999 |
+| 2 | **Gemma boolean attention masks** | ✅ Their custom impl used float masks | ❌ Not needed — mlx-lm handles masks internally | No NaN in our output |
+| 3 | **Connector register append** (extend to 1024) | ✅ Their impl replaced padding | ℹ️ Different behavior (we use 256 replace vs 1024 append) but Acelogic confirmed "didn't fix speech quality" | Connector output: std=1.0, healthy |
+| 4 | **Double-precision RoPE for connector** | ✅ Float32 vs float64 precision | ℹ️ Not applied but Acelogic confirmed "didn't fix speech quality" | Connector output: std=1.0, healthy |
 
-**The Gemma per-layer RoPE fix (#1) is the biggest lever** — it takes text encoder cosine similarity from 0.05 to 0.934. Our current `vendor_patches.py` patches the transformer and audio pipeline but does NOT touch the text encoder. These fixes should be ported as new patches targeting `vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/text_encoder/`.
+**Diagnostic results (2026-06-07, `scripts/diagnose_text_encoder.py`):**
+- Consecutive Gemma layer cosine similarity: **0.964–0.999** (Acelogic reported 0.05 without their fix)
+- Connector output: video_embeds std=1.0, audio_embeds std=1.0 (normalized, non-degenerate)
+- Register mode: REPLACE (256 tokens) vs ComfyUI APPEND (1024 tokens)
+
+**Key evidence from Acelogic (AUDIO_ISSUES.md §7):**
+> "Exported ComfyUI text embeddings → fed to MLX pipeline → still no clear speech (rules out text encoder)"
+
+This definitively proves the remaining speech issues are in the **48-layer diffusion transformer**, not the text encoder or connector.
 
 **Active issue (both repos):** Duration-dependent amplitude — 5s clips are loud/healthy, 10s clips are 5× quieter. Not yet fixed.
 
@@ -247,12 +255,15 @@ repetitive speech"
 
 ## Action Items
 
-- [ ] **Port Acelogic text encoder fixes** — Add Gemma per-layer RoPE, boolean attention masks, connector register handling, and double-precision RoPE as monkey-patches in `app/vendor_patches.py`. The Gemma RoPE fix alone takes cosine sim from 0.05 → 0.934 — this is likely the biggest remaining lever for speech clarity. Source: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/AUDIO_ISSUES.md` and `LTX_2_MLX/model/text_encoder/gemma3.py`.
-- [ ] **File text encoder fixes upstream** on dgrauet/ltx-2-mlx once we verify the Acelogic patches work with our pipeline.
+- [x] ~~Port Acelogic text encoder fixes~~ — NOT NEEDED. mlx-lm already handles Gemma 3 per-layer RoPE correctly (diagnostic: cosine sim 0.964–0.999). Acelogic needed the fix because they wrote Gemma from scratch. Their §7 also proves text encoder is not the bottleneck: ComfyUI embeddings → MLX still garbled. *(resolved 2026-06-07)*
+- [x] ~~File text encoder fixes upstream~~ — Not applicable. Our pipeline uses mlx-lm which already handles this correctly. *(resolved 2026-06-07)*
 - [ ] **Investigate duration-dependent amplitude** — 5s clips loud, 10s clips 5× quieter (Acelogic also seeing this). Likely in noise generation, denoising step, or MultiModalGuider normalization.
+- [ ] **Investigate transformer numerical divergence** — The 48-layer diffusion transformer accumulates bf16 precision errors. Audio latents in wrong distribution (not just wrong scale). This is the confirmed root cause of remaining speech issues.
+- [ ] **Compare audio latent statistics across durations** — Generate 5s and 10s clips with same seed, compare audio latent z.std(), distribution shape, and per-token amplitude.
 - [x] ~~Try `--audio-cfg-scale 1.0`~~ — Tested: no effect. CFG=1.0 vs CFG=7.0 produces identical amplitude. *(resolved 2026-06-07)*
-- [x] ~~Compare with ComfyUI (PyTorch)~~ — Done (Acelogic). Layer-by-layer comparison confirms divergence starts at text encoder output (cosine sim 0.135 at layer 0). *(resolved 2026-06-07)*
-- [x] ~~Investigate the audio patchifier~~ — Superseded: the audio patchifier is NOT the first divergence point. The text encoder (Gemma RoPE misconfiguration) is. *(resolved 2026-06-07)*
+- [x] ~~Compare with ComfyUI (PyTorch)~~ — Done (Acelogic). Layer-by-layer comparison confirms divergence in the 48-layer transformer (not text encoder). *(resolved 2026-06-07)*
+- [x] ~~Investigate the audio patchifier~~ — Superseded: the audio patchifier is NOT the first divergence point. The transformer numerical divergence is. *(resolved 2026-06-07)*
+- [x] ~~Diagnose text encoder output quality~~ — Diagnostic script (`scripts/diagnose_text_encoder.py`) confirms healthy output: cosine sim 0.964–0.999, connector std=1.0. *(resolved 2026-06-07)*
 
 ---
 

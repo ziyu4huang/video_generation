@@ -55,6 +55,8 @@ _PARAM_KEYS = [
     "pipeline", "steps", "width", "height", "seed",
     "denoise_strength", "lora_path", "lora_scale",
     "latent_upscale", "upscale", "upscale_method",
+    # ControlNet-specific
+    "controlnet_type", "controlnet_strength", "skip_preprocess", "blur_ref",
 ]
 
 
@@ -1006,6 +1008,7 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
             "image": t["image_rel"],
             "prompt": prompt_text,
             "command": run.get("command", ""),
+            "action": run.get("action", ""),
             "params": params,
             "elapsed": t["elapsed"],
             "memory_mb": t["memory_mb"],
@@ -1222,8 +1225,10 @@ function makeCard(t,i) {{
   card.appendChild(div('params','<table>'+rows+'</table>'));
   const elapsed=t.elapsed?t.elapsed.toFixed(1)+'s':'—';
   const mem=t.memory_mb?(t.memory_mb/1024).toFixed(1)+' GB':'—';
+  const pipeline=(t.action||t.command||'').replace(/^(image|video)$/,t.params.pipeline||'$1');
+  const pipelineText=pipeline?`<span>Pipeline <b>${{pipeline}}</b></span>`:'';
   const sizeText=t.params.out_width&&t.params.out_height?`<span>Size <b>${{t.params.out_width}}×${{t.params.out_height}}</b></span>`:'';
-  card.appendChild(div('timing',`<span>Time <b>${{elapsed}}</b></span><span>Peak RAM <b>${{mem}}</b></span>${{sizeText}}`));
+  card.appendChild(div('timing',`${{pipelineText}}<span>Time <b>${{elapsed}}</b></span><span>Peak RAM <b>${{mem}}</b></span>${{sizeText}}`));
   const ratingRow=document.createElement('div'); ratingRow.className='rating-row';
   const stars=document.createElement('div'); stars.className='stars'; stars.id='stars-'+i;
   for (let s=1;s<=5;s++) {{

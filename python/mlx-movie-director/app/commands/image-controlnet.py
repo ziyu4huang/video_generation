@@ -18,8 +18,10 @@ import argparse
 import gc
 import json
 import os
+import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timezone
 
 import mlx.core as mx
@@ -27,12 +29,20 @@ import mlx.nn as nn
 import numpy as np
 
 from app import config as cfg
-from app.controlnet import load_controlnet, build_control_input_33ch
+from app.controlnet import load_controlnet, build_control_input_33ch, _FLUX_SHIFT_FACTOR, _FLUX_SCALE_FACTOR
 
 _DEFAULT_REF_IMAGE = os.path.join(
     cfg.OUTPUT_DIR, "Z-image+Controlnet+V2.1-ref-image.png"
 )
 _DEFAULT_PROMPT = "背面拍摄，高清摄影。一个coser少女，她cos的是雷姆。"
+
+# A/B test variations: (label, strength, blur_sigma)
+_AB_VARIATIONS = [
+    ("A-str10",          1.0, None),
+    ("B-str10-blur10",   1.0, 10.0),
+    ("C-str06",          0.6, None),
+    ("D-str06-blur10",   0.6, 10.0),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +73,27 @@ def add_controlnet_args(parser):
         help="Skip preprocessing — pass the reference image directly as control signal",
     )
     parser.add_argument(
+        "--blur-ref", type=float, default=None, metavar="SIGMA",
+        dest="blur_ref",
+        help=(
+            "Apply Gaussian blur (sigma) to the reference image before VAE encoding. "
+            "Softens thick outlines (苗框線) into gradients that still convey pose "
+            "but won't produce sharp line artifacts. Try values 5–20. "
+            "Default (when flag omitted): no blur."
+        ),
+    )
+    parser.add_argument(
         "--scale", type=int, default=None,
         help="Scale longest side of generated image to this resolution "
              "(default: match reference image size)",
+    )
+    parser.add_argument(
+        "--controlnet-ab-test", action="store_true", default=False,
+        dest="controlnet_ab_test",
+        help=(
+            "Run A/B test with 4 variations: strength 0.6/1.0 × blur-ref off/on(10). "
+            "Opens manifest review HTML after completion."
+        ),
     )
     # --server argument kept for backward compat but ignored (no ComfyUI needed)
     parser.add_argument(
@@ -87,9 +115,11 @@ def run_controlnet(args):
     ctrl_type = getattr(args, "controlnet_type", "canny")
     strength = getattr(args, "controlnet_strength", 1.0)
     skip_preprocess = getattr(args, "skip_preprocess", False)
+    blur_ref = getattr(args, "blur_ref", None)
     scale = getattr(args, "scale", None)
     steps = getattr(args, "steps", None) or 9
     seed = getattr(args, "seed", 42)
+    do_ab = getattr(args, "controlnet_ab_test", False)
 
     if not os.path.exists(ref_image_path):
         print(f"ERROR: Reference image not found: {ref_image_path}", file=sys.stderr)
@@ -111,19 +141,202 @@ def run_controlnet(args):
         out_w = (src_w // 16) * 16
         out_h = (src_h // 16) * 16
 
+    if do_ab:
+        _run_ab_test(
+            prompt=prompt,
+            ref_image_path=ref_image_path,
+            ctrl_type=ctrl_type,
+            skip_preprocess=skip_preprocess,
+            out_w=out_w,
+            out_h=out_h,
+            steps=steps,
+            seed=seed,
+        )
+        return
+
+    # ── Single run ───────────────────────────────────────────────────────────
+    run_file, manifest_file, out_path = _make_output_paths("controlnet")
+    run_meta = _build_run_meta(
+        prompt=prompt,
+        ref_image_path=ref_image_path,
+        ctrl_type=ctrl_type,
+        strength=strength,
+        skip_preprocess=skip_preprocess,
+        blur_ref=blur_ref,
+        steps=steps,
+        seed=seed,
+        out_w=out_w,
+        out_h=out_h,
+        scale=scale,
+    )
+    _write_json(run_file, run_meta)
+
     print(f"  Ref image : {ref_image_path} ({src_w}×{src_h})")
     print(f"  Output    : {out_w}×{out_h}")
     print(f"  Prompt    : {prompt}")
     print(f"  ControlNet: {ctrl_type} (strength={strength})")
     print(f"  Steps/seed: {steps} / {seed}")
+    print(f"Run config : {run_file}")
 
+    start_time = datetime.now(timezone.utc).isoformat()
+    last_timings = {}
+
+    try:
+        pil_image = _execute_generation(
+            prompt=prompt,
+            ref_image_path=ref_image_path,
+            ctrl_type=ctrl_type,
+            strength=strength,
+            skip_preprocess=skip_preprocess,
+            blur_ref=blur_ref,
+            out_w=out_w,
+            out_h=out_h,
+            steps=steps,
+            seed=seed,
+        )
+
+        pil_image.save(out_path)
+        print(f"Saved: {out_path}")
+
+        end_time = datetime.now(timezone.utc).isoformat()
+        output_files = [{
+            "path": out_path,
+            "seed": seed,
+            "size_bytes": os.path.getsize(out_path),
+            "width": pil_image.width,
+            "height": pil_image.height,
+        }]
+
+        from app.manifest import Manifest, collect_model_fingerprint_controlnet
+        models = collect_model_fingerprint_controlnet()
+        manifest = Manifest.from_success(
+            run_file, start_time, end_time, last_timings, output_files, models
+        )
+        manifest.to_json(manifest_file)
+        print(f"Manifest:   {manifest_file}")
+
+    except Exception as exc:
+        end_time = datetime.now(timezone.utc).isoformat()
+        from app.manifest import Manifest
+        manifest = Manifest.from_error(run_file, start_time, end_time, last_timings, exc, {})
+        manifest.to_json(manifest_file)
+        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+
+    return [out_path]
+
+
+# ---------------------------------------------------------------------------
+# A/B test runner
+# ---------------------------------------------------------------------------
+
+def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
+                 out_w, out_h, steps, seed):
+    """Run 4 ControlNet variations and open manifest review HTML."""
+    from app.manifest import Manifest, collect_model_fingerprint_controlnet
+
+    manifest_files = []
+
+    for label, strength, blur_ref in _AB_VARIATIONS:
+        print(f"\n{'=' * 60}")
+        blur_desc = f"blur_ref={blur_ref}" if blur_ref else "no blur"
+        print(f"A/B Test — {label}  (strength={strength}, {blur_desc})")
+        print(f"{'=' * 60}")
+
+        run_file, manifest_file, out_path = _make_output_paths(
+            f"controlnet_{label}"
+        )
+        run_meta = _build_run_meta(
+            prompt=prompt,
+            ref_image_path=ref_image_path,
+            ctrl_type=ctrl_type,
+            strength=strength,
+            skip_preprocess=skip_preprocess,
+            blur_ref=blur_ref,
+            steps=steps,
+            seed=seed,
+            out_w=out_w,
+            out_h=out_h,
+        )
+        _write_json(run_file, run_meta)
+        print(f"Run config : {run_file}")
+
+        start_time = datetime.now(timezone.utc).isoformat()
+        last_timings = {}
+
+        try:
+            pil_image = _execute_generation(
+                prompt=prompt,
+                ref_image_path=ref_image_path,
+                ctrl_type=ctrl_type,
+                strength=strength,
+                skip_preprocess=skip_preprocess,
+                blur_ref=blur_ref,
+                out_w=out_w,
+                out_h=out_h,
+                steps=steps,
+                seed=seed,
+            )
+
+            pil_image.save(out_path)
+            print(f"Saved: {out_path}")
+
+            end_time = datetime.now(timezone.utc).isoformat()
+            output_files = [{
+                "path": out_path,
+                "seed": seed,
+                "size_bytes": os.path.getsize(out_path),
+                "width": pil_image.width,
+                "height": pil_image.height,
+            }]
+
+            models = collect_model_fingerprint_controlnet()
+            manifest = Manifest.from_success(
+                run_file, start_time, end_time, last_timings, output_files, models
+            )
+            manifest.to_json(manifest_file)
+            print(f"Manifest:   {manifest_file}")
+            manifest_files.append(manifest_file)
+
+        except Exception as exc:
+            end_time = datetime.now(timezone.utc).isoformat()
+            manifest = Manifest.from_error(
+                run_file, start_time, end_time, last_timings, exc, {}
+            )
+            manifest.to_json(manifest_file)
+            print(f"ERROR in {label}: {type(exc).__name__}: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            manifest_files.append(manifest_file)
+
+    # Open manifest review HTML
+    if manifest_files:
+        import importlib
+        _review_mod = importlib.import_module("app.commands.image-review")
+        _open_manifest_review = _review_mod._open_manifest_review
+        labels = [v[0] for v in _AB_VARIATIONS]
+        _open_manifest_review(manifest_files, labels=labels)
+
+
+# ---------------------------------------------------------------------------
+# Core generation (shared by single run + A/B test)
+# ---------------------------------------------------------------------------
+
+def _execute_generation(prompt, ref_image_path, ctrl_type, strength,
+                        skip_preprocess, blur_ref,
+                        out_w, out_h, steps, seed) -> "Image.Image":
+    """Run the full ControlNet pipeline. Returns PIL Image."""
     # ── Preprocess reference image ───────────────────────────────────────────
-    ctrl_pil = _load_and_preprocess(ref_image_path, ctrl_type, out_w, out_h, skip_preprocess)
+    ctrl_pil = _load_and_preprocess(
+        ref_image_path, ctrl_type, out_w, out_h, skip_preprocess, blur_ref
+    )
 
     # ── VAE encode control image ─────────────────────────────────────────────
     print("[ControlNet] VAE encoding control image...", end=" ", flush=True)
     vae = _load_vae()
     ctrl_latent = _vae_encode(vae, ctrl_pil)   # [1, 16, H_lat, W_lat]
+    # Apply Flux latent format (matches ComfyUI latent_formats.Flux.process_in)
+    ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
 
     # Build 33-channel input: [ctrl_latent(16), mask(1), inpaint_latent(16)]
     ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
@@ -132,11 +345,7 @@ def run_controlnet(args):
     print(f"Done → control input {list(ctrl_33ch.shape)}")
 
     # ── Generate with ControlNet ─────────────────────────────────────────────
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    base_name = f"controlnet_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
-    out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.png")
-
-    pil_image = _generate(
+    return _generate(
         prompt=prompt,
         out_w=out_w,
         out_h=out_h,
@@ -146,9 +355,46 @@ def run_controlnet(args):
         strength=strength,
     )
 
-    pil_image.save(out_path)
-    print(f"Saved: {out_path}")
-    return [out_path]
+
+# ---------------------------------------------------------------------------
+# Output path / metadata helpers
+# ---------------------------------------------------------------------------
+
+def _make_output_paths(base_name):
+    """Return (run_file, manifest_file, output_png) for a given base name."""
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    run_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.run.json")
+    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.manifest.json")
+    out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.png")
+    return run_file, manifest_file, out_path
+
+
+def _build_run_meta(prompt, ref_image_path, ctrl_type, strength,
+                    skip_preprocess, blur_ref, steps, seed,
+                    out_w, out_h, scale=None):
+    """Build run.json metadata dict."""
+    return {
+        "command": "image",
+        "action": "controlnet",
+        "input_image": ref_image_path,
+        "controlnet_type": ctrl_type,
+        "controlnet_strength": strength,
+        "skip_preprocess": skip_preprocess,
+        "blur_ref": blur_ref,
+        "prompt": prompt,
+        "steps": steps,
+        "seed": seed,
+        "width": out_w,
+        "height": out_h,
+        "scale": scale,
+    }
+
+
+def _write_json(path, data):
+    """Write JSON with trailing newline."""
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -156,12 +402,16 @@ def run_controlnet(args):
 # ---------------------------------------------------------------------------
 
 def _load_and_preprocess(path: str, ctrl_type: str, out_w: int, out_h: int,
-                          skip: bool) -> "Image.Image":
+                          skip: bool, blur_ref: float | None = None) -> "Image.Image":
     """Load and preprocess reference image. Returns PIL Image resized to (out_w, out_h)."""
     from PIL import Image
     img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
     if skip:
-        print(f"[ControlNet] Preprocessing skipped — using raw image as control.")
+        if blur_ref is not None:
+            print(f"[ControlNet] Applying Gaussian blur (sigma={blur_ref})...")
+            img = _blur_ref_image(img, blur_ref)
+        blur_desc = f"blur={blur_ref}" if blur_ref else "raw"
+        print(f"[ControlNet] Preprocessing skipped — using {blur_desc} image as control.")
         return img
     if ctrl_type == "canny":
         return _apply_canny(img)
@@ -187,6 +437,20 @@ def _apply_canny(pil_img: "Image.Image") -> "Image.Image":
     # 3-channel so VAE expects RGB
     edges_rgb = np.stack([edges] * 3, axis=-1)
     return Image.fromarray(edges_rgb)
+
+
+def _blur_ref_image(pil_img: "Image.Image", sigma: float) -> "Image.Image":
+    """Apply Gaussian blur to soften thick outlines (苗框線) in the reference image.
+
+    Softens the image into gradients that still convey pose/composition
+    but won't produce sharp line artifacts in the ControlNet output.
+    Higher sigma = more blur = less outline influence.
+    """
+    from PIL import ImageFilter
+    # PIL GaussianBlur radius ≈ sigma * 2 for similar effect
+    radius = max(1, int(sigma))
+    blurred = pil_img.filter(ImageFilter.GaussianBlur(radius=radius))
+    return blurred
 
 
 # ---------------------------------------------------------------------------

@@ -33,11 +33,11 @@ def add_generate_args(parser):
                             help="Built-in test prompt (choices: %(choices)s)")
 
     parser.add_argument("--width", type=int, default=704,
-                        help="Video width — must be divisible by 32 (default: 704)")
+                        help="Video width — auto-adjusted to nearest multiple of 32 (default: 704)")
     parser.add_argument("--height", type=int, default=480,
-                        help="Video height — must be divisible by 32 (default: 480)")
+                        help="Video height — auto-adjusted to nearest multiple of 32 (default: 480)")
     parser.add_argument("--frames", type=int, default=97,
-                        help=f"Number of frames — {_VALID_FRAMES_MSG} (default: 97)")
+                        help="Number of frames — auto-adjusted to nearest 8k+1 (default: 97)")
     parser.add_argument("--fps", type=float, default=24.0,
                         help="Output frame rate (default: 24.0)")
 
@@ -52,8 +52,8 @@ def add_generate_args(parser):
                         help="Classifier-free guidance scale (default: 5.0)")
     parser.add_argument("--stg-scale", type=float, default=1.0, dest="stg_scale",
                         help="Spatial-temporal guidance scale (default: 1.0)")
-    parser.add_argument("--stage1-steps", type=int, default=16,
-                        help="Stage 1 denoising steps (default: 16)")
+    parser.add_argument("--stage1-steps", type=int, default=6,
+                        help="Stage 1 denoising steps (default: 6)")
     parser.add_argument("--stage2-steps", type=int, default=3,
                         help="Stage 2 refinement steps (default: 3)")
 
@@ -95,6 +95,75 @@ def add_generate_args(parser):
                              "Try 1.0 to disable audio CFG, 3.0 for less aggressive guidance.")
 
 
+# ---------------------------------------------------------------------------
+# Runtime estimation (empirical model from benchmarks)
+# ---------------------------------------------------------------------------
+# Calibrated on Apple Silicon MPS, LTX-2.3 22B Q8, ~21 GB peak RAM.
+# Per-million-pixel linear model. Accurate for large/long generations
+# (the cases where estimates matter most). Overestimates small/short runs.
+# Stage 2 is ~2× slower per step than stage 1 (refinement at full res).
+_BENCH_S1_SLOPE = 0.237    # seconds per Mpixel per stage1 step
+_BENCH_S2_SLOPE = 0.495    # seconds per Mpixel per stage2 step
+_BENCH_DECODE = 0.251      # seconds per Mpixel for VAE decode + mux
+_BENCH_OVERHEAD = 7.4      # fixed overhead (text encode, model load, audio)
+
+
+def _estimate_runtime(args, variations: int = 1) -> float:
+    """Estimate total generation time in seconds based on empirical benchmarks.
+
+    Calibrated from 1216×704×241 run: stage1=48.8s/step, stage2=102s/step,
+    decode=51.8s. Linear model accurate to ~5% for long generations.
+    """
+    mpx = args.width * args.height * args.frames / 1_000_000
+
+    s1_time = args.stage1_steps * _BENCH_S1_SLOPE * mpx
+    s2_time = args.stage2_steps * _BENCH_S2_SLOPE * mpx
+    decode = _BENCH_DECODE * mpx
+    single_run = s1_time + s2_time + decode + _BENCH_OVERHEAD
+
+    return single_run * variations
+
+
+def _adjust_resolution(width: int, height: int) -> tuple[int, int]:
+    """Auto-adjust width/height to nearest values valid for LTX-2.3.
+
+    Constraints: both dimensions must be divisible by 32.
+    Adjusts to the nearest valid value and prints what changed.
+    """
+    aligned_w = round(width / 32) * 32
+    aligned_h = round(height / 32) * 32
+    # Enforce minimum of 32
+    aligned_w = max(32, aligned_w)
+    aligned_h = max(32, aligned_h)
+
+    if aligned_w != width or aligned_h != height:
+        print(f"[video] Resolution adjusted: {width}×{height} → {aligned_w}×{aligned_h} "
+              f"(must be divisible by 32)")
+
+    return aligned_w, aligned_h
+
+
+def _adjust_frames(frames: int) -> int:
+    """Auto-adjust frame count to nearest valid value for LTX-2.3.
+
+    Constraint: frames must satisfy (frames-1) % 8 == 0 (i.e. 8k+1 pattern).
+    Adjusts to the nearest valid value and prints what changed.
+    """
+    if (frames - 1) % 8 == 0:
+        return frames
+
+    # Find nearest valid value (round to nearest 8k+1)
+    k = round((frames - 1) / 8)
+    adjusted = 8 * k + 1
+    if adjusted < 9:
+        adjusted = 9  # minimum meaningful frame count
+
+    print(f"[video] Frames adjusted: {frames} → {adjusted} "
+          f"(must satisfy 8k+1: 9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, ...)")
+
+    return adjusted
+
+
 def run_generate(args):
     """Entry point for video generation."""
     # If --test-prompt selected, inject its prompt text and apply recommended defaults
@@ -110,14 +179,9 @@ def run_generate(args):
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    frames = args.frames
-    if (frames - 1) % 8 != 0:
-        print(
-            f"ERROR: --frames {frames} does not satisfy 8k+1 pattern.\n"
-            f"Valid values: {_VALID_FRAMES_MSG}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # --- Auto-adjust resolution and frames for pipeline constraints ---
+    args.width, args.height = _adjust_resolution(args.width, args.height)
+    args.frames = _adjust_frames(args.frames)
 
     audio_path = args.audio
     image_path = args.input_image
@@ -157,6 +221,12 @@ def run_generate(args):
         # Auto-enable caption for A/B variations
         args.first_frame = True
         args.caption = True
+
+    # --- Runtime estimation ---
+    eta = _estimate_runtime(args, variations)
+    print(f"[video] Estimated: {eta:.0f}s ({eta / 60:.1f} min) for {variations} variation(s)")
+
+    if variations > 1:
         _run_variations(args, prompt, variations, ab_params)
     else:
         _run_single(args, prompt)
@@ -469,7 +539,7 @@ def _apply_prompt_defaults(args, defaults: dict) -> None:
     _ARGPARSE_DEFAULTS = {
         "frames": 97, "width": 704, "height": 480,
         "fps": 24.0, "cfg_scale": 5.0, "stg_scale": 1.0,
-        "stage1_steps": 16, "stage2_steps": 3,
+        "stage1_steps": 6, "stage2_steps": 3,
     }
     for prompt_key, value in defaults.items():
         if prompt_key in _ARGPARSE_DEFAULTS:

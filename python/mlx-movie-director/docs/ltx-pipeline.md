@@ -236,18 +236,23 @@ See [`docs/ltx-voice.md`](ltx-voice.md) for full investigation details.
 
 ### Speech Intelligibility ~60%
 
-MLX speech is ~60% intelligible vs near-perfect in PyTorch. The root cause is the **text encoder** — specifically Gemma RoPE misconfiguration and connector handling — not the diffusion transformer itself.
+MLX speech is ~60% intelligible vs near-perfect in PyTorch. The root cause is **numerical divergence in the 48-layer diffusion transformer** over Metal bf16 — not the text encoder.
 
-**Fix identified but not yet applied** from the [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork (local: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/`):
+**Text encoder verified correct (2026-06-07):** Diagnostic script (`scripts/diagnose_text_encoder.py`) confirmed:
+- mlx-lm already handles Gemma 3 per-layer RoPE correctly (sliding theta=10k, full theta=1M with scaling=8.0)
+- Consecutive layer cosine similarity: 0.964–0.999 (healthy)
+- Connector output: video_embeds std=1.0, audio_embeds std=1.0
 
-| Fix | Impact |
-|-----|--------|
-| Gemma per-layer RoPE (40 sliding + 8 full layers) | Cosine sim **0.05 → 0.934** at text encoder output |
-| Gemma boolean attention masks | Stable attention (no NaN) |
-| Connector register append (not replace) | Correct sequence length |
-| Double-precision RoPE for connector | Precision fix |
+The Acelogic fork's "Gemma RoPE fix" was needed because they wrote their own Gemma implementation from scratch. Our pipeline uses mlx-lm which handles this out of the box.
 
-These need to be ported as new patches in `app/vendor_patches.py` targeting `vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/text_encoder/`. See [`docs/ltx-voice.md`](ltx-voice.md) §5 and Acelogic's `AUDIO_ISSUES.md` for details.
+**Acelogic §7 confirmed:** "Exported ComfyUI text embeddings → fed to MLX pipeline → still no clear speech" — proves the text encoder is not the bottleneck.
+
+**Remaining investigation areas:**
+- Duration-dependent amplitude (10s clips 5× quieter than 5s)
+- Transformer bf16 numerical divergence over 48 layers
+- Audio latent distribution mismatch (MLX z.std=0.97 vs encoder z.std=1.35)
+
+See [`docs/ltx-voice.md`](ltx-voice.md) §5 for full investigation details.
 
 ---
 

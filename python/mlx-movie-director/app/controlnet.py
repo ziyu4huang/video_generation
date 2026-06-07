@@ -40,6 +40,11 @@ _T_EMB_DIM = 256               # min(dim, 256) from main transformer
 _N_CONTROL_LAYERS = 15
 _N_REFINERS = 2
 
+# Flux latent format constants (ZImage inherits Lumina2 → Flux latent format)
+# Matches ComfyUI latent_formats.Flux: process_in(latent) = (latent - shift) * scale
+_FLUX_SHIFT_FACTOR = 0.1159
+_FLUX_SCALE_FACTOR = 0.3611
+
 
 # ---------------------------------------------------------------------------
 # Sub-modules (attribute names match safetensors key structure)
@@ -296,6 +301,7 @@ def build_control_input_33ch(ctrl_latent: mx.array, vae_encode_fn) -> mx.array:
         (np.ones((H * 8, W * 8, 3), dtype=np.uint8) * 127).astype("uint8")
     )
     inpaint_latent = vae_encode_fn(gray_img)  # [1, 16, H, W]
+    inpaint_latent = (inpaint_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
 
     # Zero mask for non-inpaint mode
     mask = mx.zeros((1, 1, H, W)).astype(ctrl_latent.dtype)

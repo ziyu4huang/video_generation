@@ -116,7 +116,7 @@ def _launch_review(args, manifest_paths: list[str]):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_js = os.path.join(out_dir, f"video-reviewer-{slug}-{ts}.js")
 
-    config_js = _render_config_js(tests, model)
+    config_js = _render_config_js(tests, model, out_js)
     static_js = _read_static()
     with open(out_js, "w", encoding="utf-8") as f:
         f.write(config_js)
@@ -271,7 +271,7 @@ def _detect_model(tests: list[dict]) -> str:
     return "video"
 
 
-def _render_config_js(tests: list[dict], model: str) -> str:
+def _render_config_js(tests: list[dict], model: str, out_js: str) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     tests_data = [
         {
@@ -288,8 +288,10 @@ def _render_config_js(tests: list[dict], model: str) -> str:
         }
         for t in tests
     ]
-    config_json = json.dumps({"model": model, "generatedAt": now, "tests": tests_data},
-                             ensure_ascii=False)
+    config_json = json.dumps(
+        {"model": model, "generatedAt": now, "reviewerJsPath": os.path.abspath(out_js), "tests": tests_data},
+        ensure_ascii=False,
+    )
     return (
         f"// AUTO-GENERATED — regenerate with: run.py video review --inputs ...\n"
         f"// Model: {model}  |  Generated: {now}\n"

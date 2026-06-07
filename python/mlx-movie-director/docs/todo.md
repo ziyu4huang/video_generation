@@ -75,9 +75,11 @@ Or in one pass (base generation + immediate ESRGAN):
 
 ### Phase 6: LTX-2.3 Audio Quality
 
-- [ ] **Port Acelogic text encoder fixes** — Gemma per-layer RoPE (cosine sim 0.05→0.934), boolean attention masks, connector register handling, double-precision RoPE. Source: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/AUDIO_ISSUES.md`
-- [ ] **File text encoder fixes upstream** on dgrauet/ltx-2-mlx once Acelogic patches are verified
+- [x] ~~**Port Acelogic text encoder fixes**~~ — NOT NEEDED. mlx-lm already handles Gemma 3 per-layer RoPE correctly. Diagnostic confirms cosine sim 0.964–0.999. Acelogic §7 proves text encoder is not the bottleneck. *(resolved 2026-06-07)*
+- [x] ~~**File text encoder fixes upstream**~~ — Not applicable. Our pipeline uses mlx-lm which handles this correctly. *(resolved 2026-06-07)*
+- [x] ~~**Diagnose text encoder output quality**~~ — Script `scripts/diagnose_text_encoder.py` confirms healthy output. *(resolved 2026-06-07)*
 - [ ] **Investigate duration-dependent amplitude** — 5s clips loud, 10s clips 5× quieter. Likely in noise generation, denoising step, or MultiModalGuider normalization
+- [ ] **Investigate transformer numerical divergence** — 48-layer diffusion transformer accumulates bf16 errors. Audio latents in wrong distribution. This is the confirmed root cause of remaining ~40% speech garbling.
 
 ## Known Issues
 
