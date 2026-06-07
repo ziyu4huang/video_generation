@@ -39,6 +39,17 @@ _STYLE_PROMPTS = {
         "只输出服装和外貌描述，不要描述背景、姿势或构图。"
         "用简体中文回答，使用简洁的逗号分隔列表格式。"
     ),
+    "style": (
+        "Describe the ART STYLE and RENDERING TECHNIQUE of this image. "
+        "Include: medium (digital painting, anime cel-shading, watercolor, oil, 3D render, etc.), "
+        "color palette (vibrant/muted, warm/cool, dominant hues), "
+        "lighting style (soft/dramatic/flat, ambient/directional), "
+        "line work (thick/thin, present/absent, ink/pencil), "
+        "texture/shading technique (smooth/grainy, flat/cross-hatch, gradient), "
+        "overall aesthetic (realistic/semi-realistic/stylized/cartoon/anime). "
+        "Output ONLY the style description as a comma-separated list. "
+        "Answer in English."
+    ),
     "score": (
         "You are a professional image quality evaluator. "
         "Analyze this AI-generated image and score it on a 1-10 scale.\n\n"

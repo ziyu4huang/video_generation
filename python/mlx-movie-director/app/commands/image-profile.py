@@ -58,17 +58,40 @@ VIEW_PROMPTS = {
     ),
 }
 
-# Flux2 Klein: reference image is injected as conditioning — prompts are view-only.
-# Chinese prompts with strong clothing preservation instructions; Qwen3 text encoder
-# understands Chinese natively.  The explicit clothing language anchors the text
-# conditioning to prevent the model from hallucinating different garments per view.
+# Flux2 Klein: angle-style prompts (short & simple).
+# KEY INSIGHT: Long detailed prompts with anatomy instructions overwhelm the
+# reference image's latent conditioning with text conditioning, causing style drift.
+# The angle command uses short prompts and achieves excellent style matching —
+# the reference latent does the heavy lifting for both style and identity.
+# Profile adopts the same approach: minimal text, let the reference speak.
 VIEW_PROMPTS_FLUX2 = {
+    "front": (
+        "保持人物外貌、服裝、髮型完全一致，"
+        "front view, A-pose, standing upright, white background, "
+        "photorealistic, maintain character identity and appearance consistency"
+    ),
+    "back": (
+        "保持人物外貌、服裝、髮型完全一致，"
+        "back view, A-pose, standing upright, white background, "
+        "photorealistic, maintain character identity and appearance consistency"
+    ),
+    "side": (
+        "保持人物外貌、服裝、髮型完全一致，"
+        "side profile view (90 degrees), A-pose, standing upright, white background, "
+        "photorealistic, maintain character identity and appearance consistency"
+    ),
+}
+
+# Detailed prompts (legacy — available via --prompt-style detailed).
+# These provide explicit anatomy guidance per view but cause style drift
+# because the long text conditioning overrides the reference image's style signal.
+VIEW_PROMPTS_FLUX2_DETAILED = {
     "front": (
         "生成图中人物A-pose的正面图。人物站立，去除杂物，纯白色背景。"
         "完美的身体比例，头不要太大。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
-        "不得更改或遗漏任何服装细节"
+        "不得更改或遗漏任何服装细节。"
     ),
     "back": (
         "生成图中人物A-pose的背面图。这是从背后观察的视角。人物站立，去除杂物，纯白色背景。"
@@ -82,7 +105,7 @@ VIEW_PROMPTS_FLUX2 = {
         "确保这是真正的背面视角，不要画成正面。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
-        "不得更改或遗漏任何服装细节"
+        "不得更改或遗漏任何服装细节。"
     ),
     "side": (
         "生成图中人物A-pose的侧面图。这是从正侧面（90度）观察的视角。"
@@ -95,7 +118,7 @@ VIEW_PROMPTS_FLUX2 = {
         "确保这是真正的侧面视角，不要画成正面。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
-        "不得更改或遗漏任何服装细节"
+        "不得更改或遗漏任何服装细节。"
     ),
 }
 
@@ -156,8 +179,8 @@ def add_profile_args(parser):
     parser.add_argument(
         "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=False,
         help=(
-            "Pass the reference image twice for stronger clothing consistency "
-            "(default: False). Enable with --double-ref if needed."
+            "Pass the reference image twice for stronger conditioning "
+            "(default: False). Doubles reference token count but can cause style drift."
         ),
     )
     parser.add_argument(
@@ -169,12 +192,19 @@ def add_profile_args(parser):
         ),
     )
     parser.add_argument(
-        "--chain-ref", "--no-chain-ref", action=argparse.BooleanOptionalAction, default=True,
+        "--chain-ref", "--no-chain-ref", action=argparse.BooleanOptionalAction, default=False,
         help=(
-            "Use the generated front view as reference for back/side views "
-            "(default: True). The front view is a clean A-pose on white background, "
-            "providing better visual reference than the original photo. "
-            "Use --no-chain-ref to use the original reference for all views."
+            "Use generated views as cascade reference for subsequent views "
+            "(default: False). When on, side refs original+front, back refs original+side. "
+            "Can cause style drift — keep off for best style matching."
+        ),
+    )
+    parser.add_argument(
+        "--prompt-style", choices=["angle", "detailed"], default="angle",
+        help=(
+            "Prompt style for Flux2 Klein views. "
+            "'angle' (default): short prompt, lets reference latent drive style — best style matching. "
+            "'detailed': long anatomy/clothing instructions — better pose accuracy but style drift."
         ),
     )
     # VLM auto-caption options
@@ -201,12 +231,17 @@ def add_profile_args(parser):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = "zimage") -> str:
+def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = "zimage",
+                       prompt_style: str = "angle") -> str:
     if pipeline_type == "flux2-klein":
-        template = VIEW_PROMPTS_FLUX2[view]
-        if base_prompt and base_prompt.strip():
-            return f"{template}。人物穿着：{base_prompt.strip()}"
-        return template
+        if prompt_style == "detailed":
+            template = VIEW_PROMPTS_FLUX2_DETAILED[view]
+            parts = [template]
+            if base_prompt and base_prompt.strip():
+                parts.append(f"人物穿着：{base_prompt.strip()}")
+            return "。".join(parts)
+        # "angle" style — short prompt, reference latent drives style
+        return VIEW_PROMPTS_FLUX2[view]
     template = VIEW_PROMPTS[view]
     if base_prompt and base_prompt.strip():
         return f"{template}, {base_prompt.strip()}"
@@ -393,7 +428,8 @@ def run_profile(args):
         "flux2_model_path": getattr(args, "flux2_model_path", None),
         "quantize": getattr(args, "quantize", None),
         "double_ref": getattr(args, "double_ref", False),
-        "chain_ref": getattr(args, "chain_ref", True),
+        "chain_ref": getattr(args, "chain_ref", False),
+        "prompt_style": getattr(args, "prompt_style", "angle"),
         "vlm": getattr(args, "vlm", True),
         "vlm_caption": None,  # filled in after VLM call
     }
@@ -404,7 +440,7 @@ def run_profile(args):
 
     print(f"Output folder: {out_dir}")
     print(f"Views: {' + '.join(views)}")
-    print(f"Pipeline: {pipeline_type}")
+    print(f"Pipeline: {pipeline_type}  (prompt_style={getattr(args, 'prompt_style', 'angle')})")
 
     # Load reference image
     ref_image = None
@@ -417,39 +453,54 @@ def run_profile(args):
     # Resolve base_prompt: user-provided, VLM auto-caption, or None
     base_prompt = getattr(args, "base_prompt", None)
     vlm_caption = None
-    if use_flux2 and input_image and not base_prompt and getattr(args, "vlm", True):
+    vlm_style = None
+    prompt_style = getattr(args, "prompt_style", "angle")
+    if use_flux2 and input_image and getattr(args, "vlm", True):
         try:
             from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
-            print("[VLM] Auto-captioning reference image for clothing description...", end=" ", flush=True)
             b64 = _image_to_base64(input_image)
-            style_prompt = _STYLE_PROMPTS["profile"] + "\n" + _LANG_INSTRUCTIONS["zh_CN"]
-            vlm_caption = _call_vlm(
-                getattr(args, "vlm_api_url", "http://localhost:1234/v1"),
-                getattr(args, "vlm_model", "qwen/qwen3-vl-4b"),
-                b64,
-                style_prompt,
-            )
-            base_prompt = vlm_caption
-            print("Done")
-            print(f"[VLM] Clothing: {vlm_caption}")
-            # Save caption JSON alongside reference
-            caption_out = {
-                "image": input_image,
-                "style": "profile",
-                "caption": vlm_caption,
-            }
-            with open(os.path.join(out_dir, "reference.caption.json"), "w") as f:
-                json.dump(caption_out, f, indent=2, ensure_ascii=False)
-                f.write("\n")
+            vlm_api_url = getattr(args, "vlm_api_url", "http://localhost:1234/v1")
+            vlm_model = getattr(args, "vlm_model", "qwen/qwen3-vl-4b")
+
+            # Art style description — only for "detailed" prompt style
+            if prompt_style == "detailed" and (not base_prompt or not base_prompt.strip()):
+                print("[VLM] Analyzing art style...", end=" ", flush=True)
+                vlm_style = _call_vlm(
+                    vlm_api_url, vlm_model, b64,
+                    _STYLE_PROMPTS["style"],
+                )
+                print("Done")
+                print(f"[VLM] Style: {vlm_style}")
+
+            # Clothing/appearance description — only for "detailed" prompt style
+            if prompt_style == "detailed" and (not base_prompt or not base_prompt.strip()):
+                print("[VLM] Auto-captioning clothing...", end=" ", flush=True)
+                style_prompt = _STYLE_PROMPTS["profile"] + "\n" + _LANG_INSTRUCTIONS["zh_CN"]
+                vlm_caption = _call_vlm(vlm_api_url, vlm_model, b64, style_prompt)
+                base_prompt = vlm_caption
+                print("Done")
+                print(f"[VLM] Clothing: {vlm_caption}")
+
+            # Save captions alongside reference (even for angle style, useful for records)
+            if vlm_style or vlm_caption:
+                caption_out = {
+                    "image": input_image,
+                    "style_caption": vlm_style,
+                    "clothing_caption": vlm_caption,
+                }
+                with open(os.path.join(out_dir, "reference.caption.json"), "w") as f:
+                    json.dump(caption_out, f, indent=2, ensure_ascii=False)
+                    f.write("\n")
         except Exception as exc:
             print(f"\n[VLM] Warning: auto-caption failed ({exc}) — continuing without it")
 
     if base_prompt:
         print(f"Base prompt: {base_prompt}")
 
-    # Update run.json with resolved base_prompt / VLM caption
+    # Update run.json with resolved base_prompt / VLM caption / style
     run_meta["base_prompt_resolved"] = base_prompt
     run_meta["vlm_caption"] = vlm_caption
+    run_meta["vlm_style"] = vlm_style
     with open(run_file, "w") as f:
         json.dump(run_meta, f, indent=2, ensure_ascii=False)
         f.write("\n")
@@ -480,7 +531,7 @@ def run_profile(args):
         # front-facing hands/arms from the front reference.
         use_chain_ref = (
             use_flux2
-            and getattr(args, "chain_ref", True)
+            and getattr(args, "chain_ref", False)
             and "front" in views
             and input_image is not None
         )
@@ -501,7 +552,8 @@ def run_profile(args):
         for view in views:
             # NumPy/mflux seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
             view_seed = (seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
-            prompt = _build_view_prompt(view, base_prompt, pipeline_type)
+            prompt = _build_view_prompt(view, base_prompt, pipeline_type,
+                                        prompt_style=getattr(args, "prompt_style", "angle"))
 
             # Determine reference images for this view
             if use_flux2:

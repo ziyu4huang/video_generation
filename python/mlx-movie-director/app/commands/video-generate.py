@@ -90,6 +90,10 @@ def add_generate_args(parser):
                         help="Post-process audio volume multiplier (e.g. 50 for 50x boost). "
                              "LTX-2.3 MLX audio is ~50x too quiet; use 50 to normalize.")
 
+    parser.add_argument("--audio-cfg-scale", type=float, default=None, metavar="SCALE",
+                        help="Audio CFG guidance scale (default: 7.0, upstream hardcoded). "
+                             "Try 1.0 to disable audio CFG, 3.0 for less aggressive guidance.")
+
 
 def run_generate(args):
     """Entry point for video generation."""
@@ -204,6 +208,7 @@ def _run_single(args, prompt: str) -> None:
             image=image_path,
             audio_path=audio_path,
             audio_stage1_only=getattr(args, "audio_stage1_only", False),
+            audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
         )
 
         end_time = datetime.now(timezone.utc).isoformat()

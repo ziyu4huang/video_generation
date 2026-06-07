@@ -253,6 +253,86 @@ VIDEO_TEST_PROMPTS = {
         },
     },
 
+    "street-chatter": {
+        "name": "street-chatter",
+        "description": (
+            "Busy outdoor market — vendors calling out prices, customers haggling, "
+            "surrounding crowd noise, testing multi-source dialog and ambient sound"
+        ),
+        "prompt": (
+            "Style: cinematic realism. "
+            "A bustling outdoor street market on a sunny afternoon. Wooden stalls are "
+            "packed tightly along a narrow cobblestone lane. A heavyset vendor in a red "
+            "apron leans forward over a pile of oranges and shouts cheerfully in a gruff "
+            "voice, \"Three for a dollar, fresh today!\" His voice carries above the crowd "
+            "noise with a rough, energetic edge. A young woman in a yellow sundress stops "
+            "and calls back in a bright curious voice, \"How much for five?\" The vendor "
+            "laughs with a booming laugh and replies, \"Four dollars — best deal on the "
+            "street!\" Their short exchange cuts through the dense market soundscape: a "
+            "nearby vegetable vendor rhythmically thumps a cabbage on his stall, a child "
+            "laughs somewhere to the left, cart wheels grind across cobblestone with a "
+            "steady rolling clatter, and the general crowd hum — dozens of overlapping "
+            "conversations — fills every gap between louder sounds. Somewhere to the right, "
+            "a busker strums a guitar with a bright twangy chord. The air is warm, the scene "
+            "lively and chaotic, with voices weaving in and out of the ambient noise."
+        ),
+        "defaults": {
+            "frames": 65,
+            "width": 704,
+            "height": 480,
+            "fps": 24.0,
+            "cfg_scale": 5.0,
+            "stg_scale": 1.0,
+            "stage1_steps": 12,
+            "stage2_steps": 3,
+        },
+    },
+
+    "chinese-voice": {
+        "name": "chinese-voice",
+        "description": (
+            "Close-up of a Mandarin Chinese speaker in a quiet studio — "
+            "testing Chinese language voice generation with clear tones"
+        ),
+        "prompt": (
+            "Style: cinematic realism. "
+            "A close-up shot of a young Chinese woman, framed from the shoulders up, "
+            "sitting at a clean wooden desk in a softly lit room. She looks directly at "
+            "the camera and speaks clearly and naturally in Mandarin Chinese. She says, "
+            "\"今天天氣很好，我們出去走走吧。\" Her voice is warm, clear, and unhurried, "
+            "with natural Mandarin tones and a slight Beijing accent. She pauses briefly "
+            "and then continues, \"你喜歡喝茶還是喝咖啡？\" Her tone rises slightly on "
+            "the question. The room is quiet with minimal background sound — only a faint "
+            "hum of an air conditioner in the distance. Soft diffused light from a large "
+            "window on the left illuminates her face evenly. Her expression is calm, "
+            "approachable, and conversational. The background is a blurred warm cream wall."
+        ),
+        "defaults": {
+            "frames": 49,
+            "width": 704,
+            "height": 480,
+            "fps": 24.0,
+            "cfg_scale": 5.0,
+            "stg_scale": 1.0,
+            "stage1_steps": 12,
+            "stage2_steps": 3,
+        },
+        "configs": {
+            "standard": {
+                "label": "49f, cfg=5, stg=1 (default)",
+                "frames": 49, "cfg_scale": 5.0, "stg_scale": 1.0,
+            },
+            "longer": {
+                "label": "65f, cfg=5, stg=1 (more speech time)",
+                "frames": 65, "cfg_scale": 5.0, "stg_scale": 1.0,
+            },
+            "high-cfg": {
+                "label": "49f, cfg=7, stg=1 (stronger guidance)",
+                "frames": 49, "cfg_scale": 7.0, "stg_scale": 1.0,
+            },
+        },
+    },
+
     "frog-yoga": {
         "name": "frog-yoga",
         "description": (

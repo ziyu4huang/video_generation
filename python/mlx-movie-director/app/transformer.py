@@ -221,7 +221,17 @@ class ZImageTransformerMLX(nn.Module):
         for layer in self.layers: layer.attention.fuse_qkv()
 
     def __call__(self, x, t, cap_feats, x_pos, cap_pos, cos, sin, x_mask=None, cap_mask=None,
-                 controlnet_samples=None):
+                 controlnet_samples=None, controlnet_model=None, controlnet_context=None,
+                 controlnet_strength=1.0):
+        """Forward pass with optional interleaved ControlNet injection.
+
+        Args:
+            controlnet_samples: (deprecated) pre-computed residuals, ignored if controlnet_model is set
+            controlnet_model: ZImageControlnet instance for interleaved execution
+            controlnet_context: [1, N, 3840] initial control context from controlnet.embed_control()
+            controlnet_strength: float, strength for residual injection
+        """
+        use_cnet = controlnet_model is not None and controlnet_context is not None
         temb = self.t_embedder(t * self.t_scale)
         x = self.x_embedder(x)
         if x_mask is not None: x = mx.where(x_mask[..., None], self.x_pad_token, x)
@@ -229,8 +239,22 @@ class ZImageTransformerMLX(nn.Module):
         cap_feats = self.cap_embedder.layers[1](self.cap_embedder.layers[0](cap_feats))
         if cap_mask is not None: cap_feats = mx.where(cap_mask[..., None], self.cap_pad_token, cap_feats)
 
-        for l in self.noise_refiner:
-            x = l(x, None, x_pos, temb, cos=cos[:, :x.shape[1]], sin=sin[:, :x.shape[1]])
+        # Noise refiners — interleaved with ControlNet noise refiner blocks
+        cnet_ctx = controlnet_context
+        cos_img = cos[:, :x.shape[1]]
+        sin_img = sin[:, :x.shape[1]]
+
+        for ref_i, l in enumerate(self.noise_refiner):
+            x = l(x, None, x_pos, temb, cos=cos_img, sin=sin_img)
+            cos_img = cos[:, :x.shape[1]]  # update if shape changed
+            sin_img = sin[:, :x.shape[1]]
+
+            if use_cnet:
+                # Run ControlNet noise refiner block with main model's current hidden state
+                residual, cnet_ctx = controlnet_model.forward_noise_refiner(
+                    ref_i, cnet_ctx, x, temb, cos_img, sin_img)
+                if residual is not None:
+                    x = x + residual * controlnet_strength
 
         for l in self.context_refiner:
             cap_feats = l(cap_feats, None, cap_pos, None, cos=cos[:, x.shape[1]:], sin=sin[:, x.shape[1]:])
@@ -240,17 +264,40 @@ class ZImageTransformerMLX(nn.Module):
         unified_pos = mx.concatenate([x_pos, cap_pos], axis=1)
         unified_mask = None
 
+        # Track ControlNet layer index for stride-2 injection
+        # In ComfyUI, ALL 15 control layers run again during main layers (even for broken mode),
+        # injecting residuals at stride-2 positions: main_layer[2*k] gets control_layer[k]
+        cnet_layer_idx = 0
+        n_control_layers = len(controlnet_model.control_layers) if use_cnet else 0
+        div = max(1, round(len(self.layers) / n_control_layers)) if n_control_layers > 0 else 2
+
         for i, l in enumerate(self.layers):
-            # Inject ControlNet residual at stride-2: control layer i → main layer 2i
-            if controlnet_samples is not None and i % 2 == 0:
+            if use_cnet:
+                cnet_idx = i // div
+                # Advance control context and inject residuals at stride-2 positions
+                if cnet_idx < n_control_layers and cnet_layer_idx <= cnet_idx:
+                    while cnet_layer_idx <= cnet_idx and cnet_layer_idx < n_control_layers:
+                        main_img = unified[:, :x_len]
+                        cos_c = cos[:, :cnet_ctx.shape[1]]
+                        sin_c = sin[:, :cnet_ctx.shape[1]]
+                        residual, cnet_ctx = controlnet_model.control_layers[cnet_layer_idx](
+                            cnet_ctx, main_img, temb, cos_c, sin_c)
+                        cnet_layer_idx += 1
+                        # Inject residual into main model's image tokens
+                        unified = mx.concatenate(
+                            [unified[:, :x_len] + residual * controlnet_strength,
+                             unified[:, x_len:]], axis=1)
+
+            # Legacy support: pre-computed samples
+            if controlnet_samples is not None and not use_cnet and i % 2 == 0:
                 ctrl_idx = i // 2
                 if ctrl_idx < len(controlnet_samples):
-                    ctrl = controlnet_samples[ctrl_idx]  # [1, N_img, 3840]
-                    # Add residual only to image token portion of unified sequence
+                    ctrl = controlnet_samples[ctrl_idx]
                     unified = mx.concatenate(
                         [unified[:, :x_len] + ctrl, unified[:, x_len:]],
                         axis=1,
                     )
+
             unified = l(unified, unified_mask, unified_pos, temb, cos=cos, sin=sin)
 
         return self.final_layer(unified[:, :x_len, :], temb)

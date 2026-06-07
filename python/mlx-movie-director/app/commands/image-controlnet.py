@@ -27,21 +27,12 @@ import mlx.nn as nn
 import numpy as np
 
 from app import config as cfg
-from app.controlnet import load_controlnet, patchify_latent
+from app.controlnet import load_controlnet, build_control_input_33ch
 
 _DEFAULT_REF_IMAGE = os.path.join(
     cfg.OUTPUT_DIR, "Z-image+Controlnet+V2.1-ref-image.png"
 )
 _DEFAULT_PROMPT = "背面拍摄，高清摄影。一个coser少女，她cos的是雷姆。"
-
-# Union type index per preprocessor (4-dim indicator)
-_UNION_TYPE = {
-    "pose":     0,
-    "depth":    1,
-    "canny":    2,
-    "hed":      3,
-    "scribble": 4,
-}
 
 
 # ---------------------------------------------------------------------------
@@ -59,14 +50,13 @@ def add_controlnet_args(parser):
     )
     parser.add_argument(
         "--controlnet-type",
-        choices=list(_UNION_TYPE.keys()),
+        choices=["canny"],
         default="canny",
-        help="ControlNet preprocessor: canny (built-in) or pose/depth/hed/scribble "
-             "(use --skip-preprocess for external tools; default: canny)",
+        help="ControlNet preprocessor: canny (built-in, default: canny)",
     )
     parser.add_argument(
-        "--controlnet-strength", type=float, default=0.9, dest="controlnet_strength",
-        help="ControlNet conditioning strength 0.0–1.0 (default: 0.9)",
+        "--controlnet-strength", type=float, default=1.0, dest="controlnet_strength",
+        help="ControlNet conditioning strength (default: 1.0)",
     )
     parser.add_argument(
         "--skip-preprocess", action="store_true", default=False,
@@ -95,7 +85,7 @@ def run_controlnet(args):
     prompt = getattr(args, "prompt", None) or _DEFAULT_PROMPT
     ref_image_path = getattr(args, "input_image", None) or _DEFAULT_REF_IMAGE
     ctrl_type = getattr(args, "controlnet_type", "canny")
-    strength = getattr(args, "controlnet_strength", 0.9)
+    strength = getattr(args, "controlnet_strength", 1.0)
     skip_preprocess = getattr(args, "skip_preprocess", False)
     scale = getattr(args, "scale", None)
     steps = getattr(args, "steps", None) or 9
@@ -109,16 +99,17 @@ def run_controlnet(args):
     # ── Determine output dimensions ──────────────────────────────────────────
     with Image.open(ref_image_path) as img:
         src_w, src_h = img.size
+    # Dimensions must be divisible by 16: VAE divides by 8, then patchify divides by 2
     if scale is not None:
         if src_w >= src_h:
-            out_w = scale
-            out_h = max(8, round(src_h * scale / src_w / 8) * 8)
+            out_w = (scale // 16) * 16
+            out_h = max(16, (round(src_h * scale / src_w) // 16) * 16)
         else:
-            out_h = scale
-            out_w = max(8, round(src_w * scale / src_h / 8) * 8)
+            out_h = (scale // 16) * 16
+            out_w = max(16, (round(src_w * scale / src_h) // 16) * 16)
     else:
-        out_w = (src_w // 8) * 8
-        out_h = (src_h // 8) * 8
+        out_w = (src_w // 16) * 16
+        out_h = (src_h // 16) * 16
 
     print(f"  Ref image : {ref_image_path} ({src_w}×{src_h})")
     print(f"  Output    : {out_w}×{out_h}")
@@ -129,18 +120,16 @@ def run_controlnet(args):
     # ── Preprocess reference image ───────────────────────────────────────────
     ctrl_pil = _load_and_preprocess(ref_image_path, ctrl_type, out_w, out_h, skip_preprocess)
 
-    union_type = _UNION_TYPE.get(ctrl_type, 2)  # default to canny=2
-
     # ── VAE encode control image ─────────────────────────────────────────────
     print("[ControlNet] VAE encoding control image...", end=" ", flush=True)
     vae = _load_vae()
     ctrl_latent = _vae_encode(vae, ctrl_pil)   # [1, 16, H_lat, W_lat]
+
+    # Build 33-channel input: [ctrl_latent(16), mask(1), inpaint_latent(16)]
+    ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
     del vae
     _gc()
-    print(f"Done → {list(ctrl_latent.shape)}")
-
-    # Patchify control latent once (static across all denoising steps)
-    ctrl_patches = patchify_latent(ctrl_latent)   # [1, N, 64]
+    print(f"Done → control input {list(ctrl_33ch.shape)}")
 
     # ── Generate with ControlNet ─────────────────────────────────────────────
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
@@ -153,8 +142,7 @@ def run_controlnet(args):
         out_h=out_h,
         steps=steps,
         seed=seed,
-        ctrl_patches=ctrl_patches,
-        union_type=union_type,
+        ctrl_33ch=ctrl_33ch,
         strength=strength,
     )
 
@@ -177,7 +165,6 @@ def _load_and_preprocess(path: str, ctrl_type: str, out_w: int, out_h: int,
         return img
     if ctrl_type == "canny":
         return _apply_canny(img)
-    # For pose/depth/hed/scribble, instruct user to use --skip-preprocess
     print(
         f"[ControlNet] WARNING: preprocessor '{ctrl_type}' requires an external model. "
         f"Using raw image as fallback (run with --skip-preprocess to silence this warning).",
@@ -218,8 +205,19 @@ def _load_vae():
 
 def _vae_encode(vae, pil_img: "Image.Image") -> mx.array:
     """Encode PIL image → latent [1, 16, H//8, W//8]."""
+    from PIL import Image
     import numpy as np
-    img_np = np.array(pil_img.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+    # Handle both PIL Image and numpy array input
+    if isinstance(pil_img, Image.Image):
+        img_np = np.array(pil_img.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+    else:
+        img_np = np.array(pil_img).astype(np.float32) / 127.5 - 1.0
+    # Ensure H, W are multiples of 8
+    h, w = img_np.shape[:2]
+    h8 = (h // 8) * 8
+    w8 = (w // 8) * 8
+    if h8 != h or w8 != w:
+        img_np = img_np[:h8, :w8]
     img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)  # [1, 3, H, W]
     encoded = vae.encode(img_mx)   # [1, 16, 1, H_lat, W_lat]
     if encoded.ndim == 5:
@@ -229,11 +227,11 @@ def _vae_encode(vae, pil_img: "Image.Image") -> mx.array:
 
 
 # ---------------------------------------------------------------------------
-# Denoising loop with ControlNet injection
+# Denoising loop with ControlNet injection (interleaved)
 # ---------------------------------------------------------------------------
 
-def _generate(prompt, out_w, out_h, steps, seed, ctrl_patches, union_type, strength) -> "Image.Image":
-    """Run full denoising loop with ControlNet injection. Returns PIL Image."""
+def _generate(prompt, out_w, out_h, steps, seed, ctrl_33ch, strength) -> "Image.Image":
+    """Run full denoising loop with interleaved ControlNet. Returns PIL Image."""
     from PIL import Image
     from transformers import AutoTokenizer
     from app.pipeline import (
@@ -242,6 +240,7 @@ def _generate(prompt, out_w, out_h, steps, seed, ctrl_patches, union_type, stren
         calculate_shift, load_sharded_weights, _load_mlx_vae,
     )
     from app.text_encoder import TextEncoderMLX
+    from app.controlnet import patchify_latent
 
     print("[ControlNet] Loading ControlNet weights...")
     controlnet = load_controlnet(cfg.CONTROLNET_DIR)
@@ -291,7 +290,13 @@ def _generate(prompt, out_w, out_h, steps, seed, ctrl_patches, union_type, stren
     _gc()
     print("Done")
 
-    # ── Phase 3: Denoising with ControlNet ───────────────────────────────
+    # ── Phase 2.5: Embed control context ─────────────────────────────────
+    print("[Phase 2.5] Embedding control context...", end=" ", flush=True)
+    controlnet_context = controlnet.embed_control(ctrl_33ch)  # [1, N, 3840]
+    mx.eval(controlnet_context)
+    print(f"Done → {list(controlnet_context.shape)}")
+
+    # ── Phase 3: Denoising with interleaved ControlNet ────────────────────
     print("[Phase 3] Denoising with ControlNet...")
     scheduler = MLXFlowMatchEulerScheduler(shift=3.0, use_dynamic_shifting=True)
     if seed is not None:
@@ -316,40 +321,24 @@ def _generate(prompt, out_w, out_h, steps, seed, ctrl_patches, union_type, stren
     cos_cached = cos_cached.astype(mx.bfloat16)
     sin_cached = sin_cached.astype(mx.bfloat16)
 
-    N_img = H_tok * W_tok
-    # Slice image-token rope embeddings for ControlNet (same positions as noise tokens)
-    cos_img = cos_cached[:, :N_img]   # [1, N_img, 1, 64]
-    sin_img = sin_cached[:, :N_img]   # [1, N_img, 1, 64]
-
     for i in range(steps):
         step_start = time.time()
         t_curr = scheduler.timesteps[i]
         t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
 
-        # Patchify current noise latent → raw patches
-        x_patches = patchify_latent(latents)   # [1, N_img, 64]
+        # Re-embed control context for each step (ControlNet needs fresh context)
+        # Note: the control image doesn't change, so we reuse the embedded context
+        # But the noise latent changes, so we need to re-embed for each step
+        step_controlnet_context = controlnet.embed_control(ctrl_33ch)
 
-        # Compute time embedding (matches what the transformer computes internally)
-        temb = model.t_embedder(t_input * model.t_scale)   # [1, 256]
-
-        # Run ControlNet → 15 residuals [1, N_img, 3840]
-        ctrl_samples = controlnet(
-            x_raw=x_patches,
-            ctrl_raw=ctrl_patches,
-            union_type=union_type,
-            temb=temb,
-            cos=cos_img,
-            sin=sin_img,
-            strength=strength,
-        )
-        mx.eval(ctrl_samples)
-
-        # Run main transformer with controlnet injection
+        # Run main transformer with interleaved ControlNet
         B, C, H, W = latents.shape
         x_reshaped = latents.reshape(C, 1, 1, H_tok, 2, W_tok, 2).transpose(1, 2, 3, 5, 4, 6, 0).reshape(1, -1, C * 4)
         out = model(x_reshaped, t_input, cap_feats_mx, img_pos, cap_pos,
                     cos_cached, sin_cached, cap_mask=None,
-                    controlnet_samples=ctrl_samples)
+                    controlnet_model=controlnet,
+                    controlnet_context=step_controlnet_context,
+                    controlnet_strength=strength)
         noise_pred = -out.reshape(1, 1, H_tok, W_tok, 2, 2, C).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
 
         latents = scheduler.step(noise_pred, i, latents)

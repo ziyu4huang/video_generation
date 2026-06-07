@@ -1,13 +1,15 @@
 # LTX-2.3 Voice/Audio Generation — Investigation & Findings
 
 **Last updated:** 2026-06-07
-**Status:** Lip sync ✅ fixed. Audio amplitude workaround ✅ (`--audio-volume 50`). Root cause still open.
+**Status:** Lip sync ✅ fixed. Audio amplitude workaround ✅ (`--audio-volume 50`). Root cause confirmed: MLX transformer numerical divergence. New: `--audio-cfg-scale` flag added.
 
 ---
 
 ## Summary
 
 LTX-2.3 generates audio+video jointly via a 48-layer DiT with audio-video cross-attention. Our MLX port (dgrauet/ltx-2-mlx) had a critical bug that zeroed the AV cross-attention gate, plus an audio VAE output shape mismatch. After fixes, lip sync is correct but audio amplitude remains extremely low (~100x quieter than expected).
+
+**Root cause confirmed (2026-06-07):** The audio VAE decoder is correct (encoder→decoder round-trip works). The issue is that the MLX transformer produces audio latents in the wrong direction (not just scale) due to Metal bf16 numerical divergence over 48 layers. Evidence: encoder z.std=1.35 for real audio vs transformer z.std=0.97 (only 1.39x off — scale is not the issue). Amplifying the latent improves mel but not waveform (vocoder saturates at ~0.015 peak regardless of mel amplitude).
 
 ---
 
@@ -74,13 +76,25 @@ Correct: 1000.0 / 1000.0 = 1.0  ← full cross-modal attention
 | **Mel (after VAE decode)** | (1,2,201,64) | **[-11.1, 0.05]** | **Very negative — should be [-5, +2]** |
 | Waveform (after vocoder+BWE) | (1,2,96480) | [-0.01, 0.014] | Faithful to quiet mel |
 
-**Root cause:** The mel spectrogram maximum is only +0.05 instead of ~+2 for normal speech. The audio VAE decoder and vocoder are working correctly — they faithfully convert the quiet mel into quiet audio. The issue is that the **audio latent from the transformer** produces mel with insufficient dynamic range.
+**Root cause (confirmed 2026-06-07):** The audio VAE decoder itself is correct (encoder→decoder round-trip works). The issue is that the **audio latent from the transformer is in the wrong distribution** — not primarily scale, but direction (numerical divergence).
 
-**Hypotheses:**
+**Diagnostic results (2026-06-07):**
 
-1. **Per-channel statistics mismatch** — AudioVAEDecoder denormalizes using mean/std from `per_channel_statistics`. If these don't match what the transformer was trained with, the latent→mel mapping is wrong. Stats: mean range [-1.9, 2.7], std range [0.74, 2.05].
-2. **Audio latent scale** — The transformer may produce latents at a different scale than what the audio VAE expects. The video VAE has denormalize/normalize for the upsampler — does the audio VAE need similar treatment?
-3. **MLX numerical divergence** — The 48-layer transformer in bf16 produces audio latents with lower std (0.56 vs 0.79 in PyTorch per Acelogic), resulting in compressed/muted output.
+| Measurement | Value | Notes |
+|-------------|-------|-------|
+| `per_channel_statistics.mean_of_means` | [-1.9, +2.7], mean=0.018 | Correctly loaded ✅ |
+| `per_channel_statistics.std_of_means` | [0.74, 2.05], mean=1.17 | Correctly loaded ✅ |
+| Encoder z.std() for real 16kHz audio | **1.35** | Expected std for real speech |
+| Transformer audio z.std() | **0.97** | 1.39x smaller — small scale mismatch |
+| VAE round-trip (real audio) | mel max=-0.46 ✅ | Decoder works correctly |
+| VAE decode with z.std()=0.97 random | mel max=-0.48 | Similar to transformer output |
+
+**Conclusion:** The 1.39x scale difference (encoder produces z.std=1.35, transformer produces z.std=0.97) is too small to explain the amplitude issue. The root cause is **MLX numerical divergence** — the transformer produces audio latents in the wrong DIRECTION (not just wrong scale), causing the decoder to produce near-silent mel.
+
+**Hypotheses confirmed/ruled out:**
+1. ~~Per-channel statistics mismatch~~ — Stats are correctly loaded and reasonable ✅ RULED OUT
+2. ~~Audio latent scale too small~~ — Scale mismatch is only 1.39x, not 50x ✅ RULED OUT  
+3. **MLX numerical divergence** — Audio latents in wrong direction (layer 0 cosine sim=0.135, output=0.186 vs PyTorch) 🔴 CONFIRMED ROOT CAUSE
 
 ### 5. MLX vs PyTorch Numerical Divergence 🟡 ONGOING
 
@@ -218,17 +232,17 @@ repetitive speech"
 
 ## Next Steps (Priority Order)
 
-1. **Compare with ComfyUI (PyTorch)** — Run same seed/prompt in ComfyUI and check if PyTorch also produces quiet audio. If yes → model-level issue, not MLX. If no → MLX-specific bug.
-2. **Investigate per-channel statistics** — Compare the audio VAE's `per_channel_statistics` values between MLX and PyTorch checkpoints. If the mean/std don't match, denormalization produces quiet mel.
-3. **Compare MLX vs PyTorch audio latents** — Run same seed/prompt, save the audio latent before VAE decode in both, compare amplitude distributions.
-4. **File amplitude issue upstream** on dgrauet/ltx-2-mlx with full trace data (mel range [-11, +0.05] vs expected [-5, +2]).
-5. **Try different audio CFG scale** — Currently hardcoded at 7.0. Experiment with lower values (1.0, 3.0) to see if audio guidance over-suppresses amplitude.
+1. ~~**Try `--audio-cfg-scale 1.0`**~~ ✅ **TESTED — no effect.** CFG=1.0 vs CFG=7.0 produces identical amplitude (Peak 0.575 vs 0.576, RMS 0.103 vs 0.103 after 50x boost). Both conditioned and guided passes are in the same wrong distribution. The `rescale_scale=0.7` normalizes output back to cond's variance regardless of CFG scale.
+2. **Compare with ComfyUI (PyTorch)** — Run same seed/prompt in ComfyUI. The layer-by-layer comparison (Acelogic) shows cosine similarity at layer 0 = 0.135 and output = 0.186. We need to identify which specific sub-layers diverge most.
+3. **Investigate the audio patchifier** — Cosine similarity at layer 0 input is 0.135, suggesting the audio patchifier/embedding is the first divergence point. Check AudioPatchifier and the audio AdaLN layers.
+4. **File amplitude issue upstream** on dgrauet/ltx-2-mlx with full trace data (including confirmed encoder z.std=1.35 for real audio vs transformer z.std=0.97).
+5. **Accept the limitation** — MLX Metal bf16 accumulates rounding errors over 48 transformer blocks. Without fp32 precision or better Metal kernels, the numerical divergence may be unfixable. The `--audio-volume 50` workaround is practical.
 
 ---
 
 ## Test Prompts for Voice
 
-All voice prompts should use `--audio-volume 50` to compensate for the low-amplitude bug.
+All voice prompts should use `--audio-volume 50` to compensate for the low-amplitude bug. Optionally add `--audio-cfg-scale 1.0` to test without audio CFG guidance.
 
 ### `voice-test` — Close-up speaking, short clip
 ```

@@ -166,6 +166,7 @@ class LTXVideoPipeline:
         image: str | None = None,
         audio_path: str | None = None,
         audio_stage1_only: bool = False,
+        audio_cfg_scale: float | None = None,
     ) -> dict:
         """Generate a video and write to output_path.
 
@@ -198,6 +199,15 @@ class LTXVideoPipeline:
             kwargs["audio_path"] = audio_path
         if audio_stage1_only:
             kwargs["audio_stage1_only"] = True
+        if audio_cfg_scale is not None:
+            from ltx_core_mlx.components.guiders import MultiModalGuiderParams
+            kwargs["audio_guider_params"] = MultiModalGuiderParams(
+                cfg_scale=audio_cfg_scale,
+                stg_scale=stg_scale,
+                rescale_scale=0.7,
+                modality_scale=3.0,
+                stg_blocks=[28],
+            )
 
         self._pipeline.generate_and_save(**kwargs)
         return {"generate_seconds": time.time() - t0}
