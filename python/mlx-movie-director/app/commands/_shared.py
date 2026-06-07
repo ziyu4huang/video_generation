@@ -61,7 +61,7 @@ def resolve_prompt(args) -> str:
         with open(prompt_file, "r") as f:
             prompt = f.read().strip()
     if not prompt:
-        raise ValueError("No prompt provided. Use --prompt or --prompt-file.")
+        raise ValueError("No prompt provided. Use --prompt, --prompt-file, or --test-prompt.")
     return prompt
 
 
@@ -204,6 +204,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
         print(f"Manifest (error): {manifest_file}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
+    return manifest_file
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +387,7 @@ def execute_ab_test(run_config) -> None:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
+    return manifest_file
 
 
 # ---------------------------------------------------------------------------

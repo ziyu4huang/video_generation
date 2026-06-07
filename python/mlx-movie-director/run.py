@@ -18,8 +18,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Subcommand registry (order = display order in --help)
 # ---------------------------------------------------------------------------
 
-COMMAND_NAMES = ["generate", "t2i", "refine", "profile", "upscale", "caption", "replay", "video", "animate", "review-video", "review-image", "import-lora-image", "check-manifests"]
-SUBCOMMANDS = set(COMMAND_NAMES)
+COMMAND_NAMES = ["t2i", "image", "refine", "profile", "upscale", "caption", "replay", "video", "animate", "import-lora-image", "check-manifests"]
+
+# Commands that load a different module than their name implies.
+# "generate" is kept as a recognized subcommand for backward compat but
+# delegates to the "image" module (same parser, same run function).
+COMMAND_ALIASES = {"generate": "image"}
+
+SUBCOMMANDS = set(COMMAND_NAMES) | set(COMMAND_ALIASES)
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +88,9 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = True
 
-    for name in COMMAND_NAMES:
-        mod = importlib.import_module(f"app.commands.{name}")
+    for name in list(COMMAND_NAMES) + list(COMMAND_ALIASES):
+        module_name = COMMAND_ALIASES.get(name, name)
+        mod = importlib.import_module(f"app.commands.{module_name}")
         sub = subparsers.add_parser(
             name,
             formatter_class=argparse.RawDescriptionHelpFormatter,

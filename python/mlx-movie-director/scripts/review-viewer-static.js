@@ -78,7 +78,12 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .star.on { color: var(--gold); }
 .rating-label { font-size: 11px; color: var(--muted); }
 
-.thumb-wrap img { width: 100%; display: block; max-height: 160px; object-fit: cover; }
+.thumb-wrap img { width: 100%; display: block; max-height: 160px; object-fit: cover; cursor: zoom-in; }
+.video-wrap video { cursor: pointer; }
+.zoom-btn { display: block; width: 100%; padding: 5px; background: var(--bg3);
+            border: none; border-top: 1px solid var(--border); color: var(--muted);
+            cursor: pointer; font-size: 11px; transition: all .15s; }
+.zoom-btn:hover { color: var(--accent); background: var(--bg); }
 
 .caption-box { padding: 6px 12px; border-bottom: 1px solid var(--border);
                font-size: 11px; color: #aaa; line-height: 1.4; }
@@ -92,6 +97,21 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
                     padding: 5px 8px; resize: vertical; }
 .comment textarea:focus { outline: none; border-color: var(--accent); }
 .comment textarea::placeholder { color: #444; }
+
+/* lightbox overlay */
+#lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.92);
+            z-index: 10000; align-items: center; justify-content: center; }
+#lightbox.open { display: flex; }
+#lightbox-content { max-width: 95vw; max-height: 95vh; display: flex;
+                    align-items: center; justify-content: center; }
+#lightbox-content img, #lightbox-content video {
+  max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 4px; }
+#lightbox .lb-close { position: absolute; top: 16px; right: 20px; background: none;
+                      border: none; color: #ccc; font-size: 32px; cursor: pointer;
+                      line-height: 1; z-index: 10001; }
+#lightbox .lb-close:hover { color: #fff; }
+#lightbox .lb-info { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+                     color: #888; font-size: 12px; }
 
 /* bottom bar */
 #bottom { position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2);
@@ -131,6 +151,11 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 </header>
 
 <div id="grid"></div>
+
+<div id="lightbox" onclick="closeLightbox(event)">
+  <button class="lb-close" onclick="closeLightbox(event)">&times;</button>
+  <div id="lightbox-content"></div>
+</div>
 
 <div id="bottom">
   <div class="row1">
@@ -210,7 +235,8 @@ function makeCard(t, i) {
     const thumb = el('div', 'thumb-wrap');
     const img = document.createElement('img');
     img.src = '/thumb/' + encodeURIComponent(t.label);
-    img.alt = 'First frame';
+    img.alt = 'First frame — click to zoom';
+    img.addEventListener('click', () => openLightbox('image', img.src, t.label));
     thumb.appendChild(img);
     card.appendChild(thumb);
   }
@@ -220,8 +246,15 @@ function makeCard(t, i) {
   if (t.videoPath) {
     const vid = document.createElement('video');
     vid.src = '/video/' + encodeURIComponent(t.label);
-    vid.controls = true; vid.loop = true; vid.preload = 'metadata';
+    vid.controls = true; vid.loop = false; vid.preload = 'metadata';
+    vid.addEventListener('click', (e) => {
+      if (e.target === vid) { vid.paused ? vid.play() : vid.pause(); }
+    });
     vw.appendChild(vid);
+    const zoomBtn = el('button', 'zoom-btn');
+    zoomBtn.innerHTML = '🔍 Zoom';
+    zoomBtn.onclick = () => openLightbox('video', vid.src, t.label);
+    vw.appendChild(zoomBtn);
   } else {
     vw.innerHTML = '<div class="no-video">No video</div>';
   }
@@ -412,6 +445,42 @@ function toggleCaption(btn, fullText) {
     btn.textContent = 'more';
   }
 }
+
+// ---- lightbox ----
+
+function openLightbox(type, src, label) {
+  const lb = document.getElementById('lightbox');
+  const content = document.getElementById('lightbox-content');
+  content.innerHTML = '';
+  if (type === 'image') {
+    const img = document.createElement('img');
+    img.src = src; img.alt = label || '';
+    content.appendChild(img);
+  } else if (type === 'video') {
+    const vid = document.createElement('video');
+    vid.src = src; vid.controls = true; vid.autoplay = false; vid.loop = false;
+    content.appendChild(vid);
+  }
+  lb.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox(event) {
+  if (event && event.target) {
+    const content = document.getElementById('lightbox-content');
+    if (content.contains(event.target)) return;  // click inside content doesn't close
+  }
+  const lb = document.getElementById('lightbox');
+  lb.classList.remove('open');
+  document.body.style.overflow = '';
+  // stop video if playing
+  const vid = lb.querySelector('video');
+  if (vid) vid.pause();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLightbox();
+});
 
 boot();
 </script>

@@ -4,20 +4,19 @@ Copies the LoRA file to models/lora/<name>/, generates manifest.json and README.
 following the project's model manifest schema. Validates architecture compatibility
 and auto-detects companion link files for source attribution.
 
+Accepts 1-2 files: the .safetensors and optionally a link file (.url, .webloc, .txt).
+If only the .safetensors is given, auto-detects a companion link file alongside it.
+
 Examples:
   # Basic import (name derived from filename)
   run.py import-lora-image ~/Downloads/my-lora.safetensors --arch zimage-turbo
 
+  # Pass both LoRA and link file (order doesn't matter)
+  run.py import-lora-image my-lora.safetensors my-lora.webloc --arch flux2-klein-9b
+
   # With trigger words and test prompt (recommended)
   run.py import-lora-image my-lora.safetensors --arch zimage-turbo \\
       --trigger-words "style1,style2" --test-prompt "a photo in STYLE style"
-
-  # With explicit source info
-  run.py import-lora-image my-lora.safetensors --arch flux2-klein-9b \\
-      --source "civitai/user/model" --description "My custom LoRA"
-
-  # Auto-detects companion .url/.webloc/.txt link files
-  run.py import-lora-image ~/Downloads/my-lora.safetensors --arch zimage-turbo
 """
 
 import json
@@ -33,14 +32,15 @@ PARSER_META = {
     "help": "Import a LoRA .safetensors file into the model registry",
     "description": (
         "Import a LoRA adapter into models/lora/<name>/ with manifest.json and README.md.\n\n"
-        "Auto-detects companion link files (.url, .webloc, .txt) next to the LoRA file\n"
-        "and stores the URL as source_url in the manifest.\n\n"
+        "Accepts 1-2 files: the .safetensors and optionally a link file (.url, .webloc, .txt).\n"
+        "If only the .safetensors is given, auto-detects a companion link file alongside it.\n\n"
         "Architectures are strictly separated — a LoRA trained for one arch will not\n"
         "work with another. Choose the correct --arch for your LoRA.\n\n"
         "Examples:\n"
         "  run.py import-lora-image my-lora.safetensors --arch zimage-turbo\n"
-        "  run.py import-lora-image my-lora.safetensors --arch flux2-klein-9b \\\n"
-        "      --trigger-words 'style1,style2' --test-prompt 'a photo in STYLE style'\n"
+        "  run.py import-lora-image my-lora.safetensors my-lora.webloc --arch flux2-klein-9b\n"
+        "  run.py import-lora-image my-lora.safetensors --arch zimage-turbo \\\n"
+        "      --trigger-words 'style1,style2'\n"
     ),
 }
 
@@ -69,6 +69,8 @@ ARCH_METADATA = {
     },
 }
 
+_LINK_EXTENSIONS = {".url", ".webloc", ".txt"}
+
 _MANIFEST_COMMENT = (
     "Private metadata for mlx-movie-director model registry. "
     "Created by convert.py or manually. Validated by `run.py check-manifests`. "
@@ -77,8 +79,9 @@ _MANIFEST_COMMENT = (
 
 
 def add_args(parser):
-    parser.add_argument("file", metavar="FILE",
-                        help="Path to LoRA .safetensors file")
+    parser.add_argument("files", nargs="+", metavar="FILE",
+                        help="LoRA .safetensors file, optionally followed by a link file "
+                             "(.url, .webloc, .txt)")
     parser.add_argument("--arch", required=True, choices=list(ARCH_METADATA.keys()),
                         help="Target architecture (required)")
     parser.add_argument("--name", type=str, default=None,
@@ -88,7 +91,7 @@ def add_args(parser):
     parser.add_argument("--source-url", type=str, default=None,
                         help="Direct URL to LoRA source page")
     parser.add_argument("--link-file", type=str, default=None, metavar="PATH",
-                        help="Path to companion link/URL file (.url, .webloc, .txt)")
+                        help="Path to companion link/URL file (also accepted as 2nd positional)")
     parser.add_argument("--format", type=str, default=None, metavar="FMT",
                         help="Weight format override (default: auto-detected from tensor dtype)")
     parser.add_argument("--description", type=str, default=None,
@@ -100,7 +103,8 @@ def add_args(parser):
 
 
 def run(args):
-    src_path = os.path.abspath(args.file)
+    lora_path, explicit_link = _classify_inputs(args.files)
+    src_path = os.path.abspath(lora_path)
 
     # ── 1. Validate input file ────────────────────────────────────
     if not os.path.exists(src_path):
@@ -128,9 +132,11 @@ def run(args):
     link_url = args.source_url
     detected_link = None
     if not link_url:
-        if args.link_file:
-            link_url = _read_link_file(args.link_file)
-            detected_link = args.link_file
+        # Priority: --link-file flag > 2nd positional > auto-detect companion
+        link_src = args.link_file or explicit_link
+        if link_src:
+            link_url = _read_link_file(link_src)
+            detected_link = link_src
         else:
             link_url, detected_link = _auto_detect_link(src_path)
     if detected_link:
@@ -208,7 +214,40 @@ def run(args):
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Input classification
+# ---------------------------------------------------------------------------
+
+def _classify_inputs(file_args: list[str]) -> tuple[str, str | None]:
+    """Classify input files into (safetensors_path, link_path_or_None)."""
+    lora_file = None
+    link_file = None
+
+    for path in file_args:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".safetensors":
+            if lora_file:
+                print("ERROR: multiple .safetensors files provided", file=sys.stderr)
+                sys.exit(1)
+            lora_file = path
+        elif ext in _LINK_EXTENSIONS:
+            if link_file:
+                print("ERROR: multiple link files provided", file=sys.stderr)
+                sys.exit(1)
+            link_file = path
+        else:
+            print(f"WARNING: unrecognized file extension: {path}", file=sys.stderr)
+            if lora_file is None:
+                lora_file = path  # assume it's the LoRA file
+
+    if not lora_file:
+        print("ERROR: no .safetensors file found in arguments", file=sys.stderr)
+        sys.exit(1)
+
+    return lora_file, link_file
+
+
+# ---------------------------------------------------------------------------
+# Name helpers
 # ---------------------------------------------------------------------------
 
 def _sanitize_name(raw: str) -> str:
@@ -234,6 +273,10 @@ def _derive_name(filepath: str) -> str:
     return _sanitize_name(name)
 
 
+# ---------------------------------------------------------------------------
+# Format detection
+# ---------------------------------------------------------------------------
+
 def _detect_format(filepath: str) -> str:
     """Auto-detect weight format by inspecting tensor dtype in safetensors."""
     try:
@@ -254,6 +297,10 @@ def _detect_format(filepath: str) -> str:
     return "safetensors-fp16"  # safe default
 
 
+# ---------------------------------------------------------------------------
+# Link file detection & parsing
+# ---------------------------------------------------------------------------
+
 def _auto_detect_link(lora_path: str) -> tuple[str | None, str | None]:
     """Auto-detect companion link file next to the LoRA file.
 
@@ -272,6 +319,34 @@ def _auto_detect_link(lora_path: str) -> tuple[str | None, str | None]:
 
 def _read_link_file(path: str) -> str | None:
     """Read a link/URL from a .url, .webloc, or plain text file."""
+    ext = os.path.splitext(path)[1].lower()
+
+    # .webloc: macOS property list (binary or XML)
+    if ext == ".webloc":
+        return _read_webloc(path)
+
+    # .url, .txt, or other: text-based
+    return _read_text_link(path)
+
+
+def _read_webloc(path: str) -> str | None:
+    """Extract URL from macOS .webloc (binary or XML plist)."""
+    # Try binary plist first (modern macOS default)
+    try:
+        import plistlib
+        with open(path, "rb") as f:
+            data = plistlib.load(f)
+        if isinstance(data, dict) and "URL" in data:
+            return data["URL"]
+    except Exception:
+        pass
+
+    # Fallback: try reading as XML text (older .webloc format)
+    return _read_text_link(path)
+
+
+def _read_text_link(path: str) -> str | None:
+    """Extract URL from a .url, .txt, or XML-format .webloc file."""
     try:
         with open(path, encoding="utf-8") as f:
             content = f.read().strip()
@@ -286,7 +361,7 @@ def _read_link_file(path: str) -> str | None:
     if url_match:
         return url_match.group(1).strip()
 
-    # .webloc format: plist XML with <string>url</string>
+    # XML plist: <dict><key>URL</key><string>https://...</string></dict>
     if "<dict>" in content:
         string_match = re.search(r"<string>(https?://[^<]+)</string>", content)
         if string_match:
@@ -299,6 +374,10 @@ def _read_link_file(path: str) -> str | None:
 
     return None
 
+
+# ---------------------------------------------------------------------------
+# README generation
+# ---------------------------------------------------------------------------
 
 def _generate_readme(*, name, arch, filename, file_size, description,
                      source, source_url, trigger_words, test_prompt) -> str:
