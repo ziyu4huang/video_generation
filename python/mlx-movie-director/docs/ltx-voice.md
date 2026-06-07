@@ -258,7 +258,21 @@ repetitive speech"
 
 ## Test Prompts for Voice
 
-All voice prompts should use `--audio-volume 50` to compensate for the low-amplitude bug. Optionally add `--audio-cfg-scale 1.0` to test without audio CFG guidance.
+All voice prompts now use default `--audio-volume 50` (auto-applied). No manual flags needed.
+
+### Optimal Step Counts (A/B tested 2026-06-07)
+
+Same prompt, same seed=42, varying steps:
+
+| Config | stage1 | stage2 | Time | Rating | Notes |
+|--------|--------|--------|------|--------|-------|
+| A | 8 | 1 | 37s | 1/5 | Pure noise — unusable |
+| B | 12 | 1 | 54s | 1/5 | Still noise — unusable |
+| **C** | **16** | **3** | **84s** | **5/5** | **Winner — coherent, clear** |
+| D | 20 | 3 | 104s | 4/5 | Good but not better than C |
+| E | 30 | 3 | 151s | 3/5 | Worse than C — oversmoothed? |
+
+`stage2_steps=1` is insufficient (fails regardless of stage1). `stage1_steps=16` is optimal — more steps degrade quality with the dynamic shift schedule.
 
 ### `voice-test` — Close-up speaking, short clip
 ```
