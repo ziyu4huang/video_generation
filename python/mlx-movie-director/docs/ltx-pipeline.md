@@ -122,8 +122,8 @@ The pipeline automatically handles mismatched image/video dimensions:
 
 | Issue | Solution |
 |-------|----------|
-| **Blurry / distorted** | Increase `--stage1-steps` (try 9 or 12 instead of 6) |
-| **Identity drift** | Use higher `--cfg-scale` (5.0 default is good) |
+| **Blurry / distorted** | Increase `--stage1-steps` (9–12 recommended for I2V; 6 is too few) |
+| **Identity drift** | Use higher `--cfg-scale` (5.0 default is good); `stage1_steps=12` preserves best |
 | **Wrong aspect ratio** | Don't set `--width/--height` — let auto-fit match the image |
 | **Low resolution** | The image is downsampled to video resolution; use 704×480+ for detail |
 | **First frame doesn't match** | H.264 CRF=33 pre-processing intentionally softens the image slightly |
