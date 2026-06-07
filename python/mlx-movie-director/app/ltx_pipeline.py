@@ -35,6 +35,9 @@ for _pkg in ("packages/ltx-core-mlx", "packages/ltx-pipelines-mlx"):
     if os.path.isdir(_src) and _src not in sys.path:
         sys.path.insert(0, _src)
 
+# Apply vendor monkey-patches before any vendor classes are instantiated.
+import app.vendor_patches  # noqa: F401
+
 
 # ---------------------------------------------------------------------------
 # Component → file mapping  (all files live in a flat root for ltx-2-mlx)
