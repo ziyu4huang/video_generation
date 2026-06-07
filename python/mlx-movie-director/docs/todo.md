@@ -2,21 +2,26 @@
 
 ## Done ✅
 
-- [x] Z-Image Turbo text-to-image on Apple Silicon (MLX 4-bit, 14s for 9 steps)
-- [x] Model conversion pipeline (convert.py: transformer + text encoder + tokenizer + VAE)
-- [x] LoKR LoRA support (zit_sda_v1 diversity adapter)
-- [x] 640×960 portrait generation matching moody-zimage-v7.5.json base stage
-- [x] Subcommand architecture: generate / profile / upscale / caption / replay
-- [x] Flux2 Klein 9B profile pipeline with reference image conditioning (mflux)
-- [x] Chain reference: front → back/side cascade for clothing consistency
-- [x] HTML viewer output (index.html) for profile sheets
-- [x] VLM auto-caption (Qwen3-VL) for clothing description from reference image
-- [x] ESRGAN + SeedVR2 upscale support
-- [x] On-the-fly BF16→INT8 quantization via `--quantize 8`
-- [x] Flux2 Klein 9B pre-quantized INT8 in local models/ with manifest system
-- [x] flux-ae VAE converted from PyTorch FP32 to MLX BF16 (PSNR 50.57 dB)
-- [x] REMOVED marker system for reclaimed model files
-- [x] Model conversion approach documented in `docs/model-conversion-approach.md`
+- [x] Z-Image Turbo text-to-image on Apple Silicon (MLX 4-bit, 14s for 9 steps) *(resolved 2026-06-05)*
+- [x] Model conversion pipeline (convert.py: transformer + text encoder + tokenizer + VAE) *(resolved 2026-06-05)*
+- [x] LoKR LoRA support (zit_sda_v1 diversity adapter) *(resolved 2026-06-05)*
+- [x] 640×960 portrait generation matching moody-zimage-v7.5.json base stage *(resolved 2026-06-05)*
+- [x] Subcommand architecture: generate / profile / upscale / caption / replay *(resolved 2026-06-05)*
+- [x] Flux2 Klein 9B profile pipeline with reference image conditioning (mflux) *(resolved 2026-06-06)*
+- [x] Chain reference: front → back/side cascade for clothing consistency *(resolved 2026-06-06)*
+- [x] HTML viewer output (index.html) for profile sheets *(resolved 2026-06-06)*
+- [x] VLM auto-caption (Qwen3-VL) for clothing description from reference image *(resolved 2026-06-06)*
+- [x] ESRGAN + SeedVR2 upscale support *(resolved 2026-06-06)*
+- [x] On-the-fly BF16→INT8 quantization via `--quantize 8` *(resolved 2026-06-06)*
+- [x] Flux2 Klein 9B pre-quantized INT8 in local models/ with manifest system *(resolved 2026-06-06)*
+- [x] flux-ae VAE converted from PyTorch FP32 to MLX BF16 (PSNR 50.57 dB) *(resolved 2026-06-06)*
+- [x] REMOVED marker system for reclaimed model files *(resolved 2026-06-06)*
+- [x] Model conversion approach documented in `docs/model-conversion-approach.md` *(resolved 2026-06-06)*
+- [x] LTX-2.3 video pipeline: T2V, I2V, A2V with joint audio *(resolved 2026-06-07)*
+- [x] LTX vendor patches: av_ca_timestep_scale, MLX 0.31.2 Metal fixes, audio_stage1_only *(resolved 2026-06-07)*
+- [x] Move vendor fixes to app/vendor_patches.py monkey-patches (commit 605ac2b) *(resolved 2026-06-07)*
+- [x] Audio noise detection (false positive fixed: analyze at native 48kHz) *(resolved 2026-06-07)*
+- [x] Audio volume workaround (`--audio-volume 50`) for MLX low-amplitude bug *(resolved 2026-06-07)*
 
 ## Active / Next
 
@@ -67,6 +72,12 @@ Or in one pass (base generation + immediate ESRGAN):
 - [x] Batch mode: `--count N --seed-start S` to generate N images with sequential seeds
 - [ ] LoRA scale sweep script: compare effect of scale 0.0, 0.5, 0.8, 1.0, 1.2 in one command
   - Could be a small shell script wrapping run.py with different `--lora-scale` values
+
+### Phase 6: LTX-2.3 Audio Quality
+
+- [ ] **Port Acelogic text encoder fixes** — Gemma per-layer RoPE (cosine sim 0.05→0.934), boolean attention masks, connector register handling, double-precision RoPE. Source: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/AUDIO_ISSUES.md`
+- [ ] **File text encoder fixes upstream** on dgrauet/ltx-2-mlx once Acelogic patches are verified
+- [ ] **Investigate duration-dependent amplitude** — 5s clips loud, 10s clips 5× quieter. Likely in noise generation, denoising step, or MultiModalGuider normalization
 
 ## Known Issues
 

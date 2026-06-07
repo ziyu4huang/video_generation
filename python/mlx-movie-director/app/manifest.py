@@ -10,8 +10,16 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
 
+# ---------------------------------------------------------------------------
+# Memory measurement
+# ---------------------------------------------------------------------------
+
 def measure_peak_rss_mb() -> float:
-    """Return peak RSS in MB. macOS returns bytes from getrusage; Linux returns KB."""
+    """Return peak RSS in MB. macOS returns bytes from getrusage; Linux returns KB.
+
+    On Apple Silicon with unified memory, ru_maxrss includes Metal/GPU buffers
+    since they are mapped into the process's virtual address space.
+    """
     try:
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         if sys.platform == "darwin":
@@ -45,6 +53,7 @@ def file_fingerprint(path: str, chunk_mb: int = 1) -> dict:
 
     return {
         "path": path,
+        "realpath": os.path.realpath(path),
         "size_bytes": size,
         "md5_partial": md5.hexdigest(),
     }

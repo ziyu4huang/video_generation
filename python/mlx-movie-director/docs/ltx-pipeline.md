@@ -234,9 +234,20 @@ run.py video generate --test-prompt dialog-test --audio-volume 50    # Two-perso
 
 See [`docs/ltx-voice.md`](ltx-voice.md) for full investigation details.
 
-### Audio Intelligibility
+### Speech Intelligibility ~60%
 
-MLX speech is ~60% intelligible vs near-perfect in PyTorch. The 48-layer transformer accumulates precision differences — cosine similarity diverges at output layers. Acceptable for ambient sound and rough speech; not production-quality for dialog.
+MLX speech is ~60% intelligible vs near-perfect in PyTorch. The root cause is the **text encoder** — specifically Gemma RoPE misconfiguration and connector handling — not the diffusion transformer itself.
+
+**Fix identified but not yet applied** from the [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork (local: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/`):
+
+| Fix | Impact |
+|-----|--------|
+| Gemma per-layer RoPE (40 sliding + 8 full layers) | Cosine sim **0.05 → 0.934** at text encoder output |
+| Gemma boolean attention masks | Stable attention (no NaN) |
+| Connector register append (not replace) | Correct sequence length |
+| Double-precision RoPE for connector | Precision fix |
+
+These need to be ported as new patches in `app/vendor_patches.py` targeting `vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/text_encoder/`. See [`docs/ltx-voice.md`](ltx-voice.md) §5 and Acelogic's `AUDIO_ISSUES.md` for details.
 
 ---
 

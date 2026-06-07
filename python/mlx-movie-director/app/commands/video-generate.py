@@ -238,9 +238,11 @@ def _run_single(args, prompt: str) -> None:
                                          output_files, models)
         manifest.to_json(manifest_file)
 
+        peak_gb = manifest.memory_peak_mb / 1024
         print(f"[video] Saved:    {output_mp4}")
         print(f"[video] Run:      {run_file}")
         print(f"[video] Manifest: {manifest_file}")
+        print(f"[video] Peak RAM: {peak_gb:.1f} GB")
 
         # Optional first-frame extraction + caption
         if args.first_frame or args.caption:
