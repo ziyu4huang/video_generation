@@ -93,8 +93,33 @@ def run(args):
             print("ERROR: bun not found. Install from https://bun.sh, then run:")
             print(f"  bun run {out_js}")
             sys.exit(1)
-        subprocess.Popen([bun, "run", out_js])
-        print("[review-video] Launched — browser will open automatically")
+        # Start Bun server; read stdout via a temp file to avoid pipe-break kills
+        import tempfile
+        log_fd, log_path = tempfile.mkstemp(prefix="review-video-", suffix=".log")
+        os.close(log_fd)
+        proc = subprocess.Popen(
+            [bun, "run", out_js],
+            stdout=open(log_path, "w"),
+            stderr=subprocess.STDOUT,
+        )
+        # Wait briefly for the "Serving at" line
+        url = None
+        for _ in range(50):  # up to 5 seconds
+            import time; time.sleep(0.1)
+            with open(log_path) as f:
+                for line in f:
+                    if "Serving at" in line:
+                        url = line.strip().split()[-1]
+                        break
+            if url:
+                break
+        if url:
+            subprocess.Popen(["open", url])
+            print(f"[review-video] Opened {url}")
+            print(f"[review-video] Log: {log_path}  (PID: {proc.pid})")
+        else:
+            print("[review-video] Server started but could not detect URL")
+            print(f"[review-video] Log: {log_path}  (PID: {proc.pid})")
 
 
 # ---------------------------------------------------------------------------

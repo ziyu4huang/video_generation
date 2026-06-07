@@ -230,7 +230,7 @@ function makeCard(t, i) {
   // caption
   if (t.caption) {
     const capWrap = el('div', 'caption-box');
-    const short = t.caption.slice(0, 120).replace(/\n/g, ' ');
+    const short = t.caption.slice(0, 120).replace(/\\n/g, ' ');
     const isTrunc = t.caption.length > 120;
     const capText = el('span', 'cap-text');
     capText.textContent = short + (isTrunc ? '…' : '');
@@ -408,7 +408,7 @@ function toggleCaption(btn, fullText) {
     box.textContent = fullText;
     btn.textContent = 'less';
   } else {
-    box.textContent = fullText.slice(0, 120).replace(/\n/g, ' ') + '…';
+    box.textContent = fullText.slice(0, 120).replace(/\\n/g, ' ') + '…';
     btn.textContent = 'more';
   }
 }
@@ -498,4 +498,6 @@ const server = Bun.serve({
 const addr = `http://localhost:${server.port}`;
 console.log(`[review] Serving at ${addr}`);
 console.log(`[review] Tests: ${CONFIG.tests.map(t => t.label).join(", ")}`);
-Bun.openInBrowser(addr);
+try { Bun.openInBrowser(addr); } catch(e) {
+  const proc = Bun.spawn(["open", addr]); await proc.exited;
+}
