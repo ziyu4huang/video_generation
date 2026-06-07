@@ -161,7 +161,7 @@ class LTXVideoPipeline:
         seed: int = 42,
         stage1_steps: int | None = None,
         stage2_steps: int | None = None,
-        cfg_scale: float = 3.0,
+        cfg_scale: float = 5.0,
         stg_scale: float = 1.0,
         image: str | None = None,
         audio_path: str | None = None,

@@ -24,7 +24,14 @@ PARSER_META = {
         "  run.py video --prompt 'cinematic sunset' --fps 24 --frames 49\n"
         "  run.py video --prompt '...' --input-image frame.png --fps 24 --frames 49\n"
         "  run.py video --prompt '...' --audio track.wav --fps 24 --frames 97\n"
-        "  run.py video --prompt '...' --low-ram --frames 25   # ≤32 GB RAM\n"
+        "  run.py video --prompt '...' --low-ram --frames 25   # ≤32 GB RAM\n\n"
+        "A/B Testing (multiple variations):\n"
+        "  run.py video --prompt '...' --variations 4 \\\n"
+        "    --ab-params '{\"cfg_scale\":[3,5,3,5],\"stg_scale\":[1,1,0.5,0.5]}'\n\n"
+        "  Each variation gets its own _v1.._v4 manifest with elapsed_seconds and\n"
+        "  memory_peak_mb.  Caption (--caption) is auto-enabled for A/B variations.\n\n"
+        "  Review all variations:\n"
+        "    run.py review-video --inputs output/*_v*.manifest.json"
     ),
 }
 
@@ -77,6 +84,15 @@ def add_args(parser):
     parser.add_argument("--caption", action="store_true", default=False,
                         help="Extract first frame and run 'run.py caption' on it (implies --first-frame)")
 
+    parser.add_argument("--variations", type=int, default=1,
+                        help="Number of variations for A/B testing (default: 1)")
+    parser.add_argument("--ab-params", type=str, default=None, metavar="JSON",
+                        help=(
+                            "Per-variation parameter overrides as JSON dict of arrays. "
+                            "Keys: cfg_scale, stg_scale, seed, stage1_steps, stage2_steps. "
+                            "Example: '{\"cfg_scale\":[3,5],\"stg_scale\":[1,0.5]}'"
+                        ))
+
 
 def run(args):
     try:
@@ -103,6 +119,45 @@ def run(args):
     if image_path and not os.path.exists(image_path):
         print(f"ERROR: input image not found: {image_path}", file=sys.stderr)
         sys.exit(1)
+
+    # Parse --ab-params JSON
+    ab_params = None
+    if args.ab_params:
+        import json as _json
+        try:
+            ab_params = _json.loads(args.ab_params)
+        except _json.JSONDecodeError as e:
+            print(f"ERROR: --ab-params is not valid JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    variations = max(1, getattr(args, "variations", 1))
+
+    # Validate ab-params array lengths
+    if ab_params:
+        for key, values in ab_params.items():
+            if not isinstance(values, list):
+                print(f"ERROR: --ab-params key '{key}' must be an array, "
+                      f"got {type(values).__name__}", file=sys.stderr)
+                sys.exit(1)
+            if len(values) != variations:
+                print(f"ERROR: --ab-params key '{key}' has {len(values)} values "
+                      f"but --variations is {variations}", file=sys.stderr)
+                sys.exit(1)
+
+    if variations > 1:
+        # Auto-enable caption for A/B variations
+        args.first_frame = True
+        args.caption = True
+        _run_variations(args, prompt, variations, ab_params)
+    else:
+        _run_single(args, prompt)
+
+
+def _run_single(args, prompt: str) -> None:
+    """Generate a single video — the default behavior (backward compatible)."""
+    frames = args.frames
+    audio_path = args.audio
+    image_path = args.input_image
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     base_name = generate_base_name()
@@ -185,6 +240,151 @@ def run(args):
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
+
+
+def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) -> None:
+    """Run N video variations for A/B testing. Each gets its own manifest."""
+    import json as _json
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    base_name = generate_base_name()
+
+    mode = "A2V" if args.audio else ("I2V" if args.input_image else "T2V")
+    print(f"[video] A/B Test: {variations} variations  Mode: {mode}  "
+          f"Resolution: {args.width}×{args.height}  Frames: {args.frames}  FPS: {args.fps}")
+
+    from app.ltx_pipeline import LTXVideoPipeline
+
+    # Pipeline loaded once, reused across variations
+    pipeline = LTXVideoPipeline(
+        model_dir=args.video_model,
+        low_ram=args.low_ram,
+    )
+
+    for vi in range(variations):
+        suffix = f"_v{vi + 1}"
+        var_base = base_name + suffix
+        var_base_path = os.path.join(cfg.OUTPUT_DIR, var_base)
+        output_mp4 = var_base_path + ".mp4"
+        run_file = var_base_path + ".run.json"
+        manifest_file = var_base_path + ".manifest.json"
+
+        # Merge ab-params overrides for this variation
+        var_args = _override_args(args, vi, ab_params)
+        # Track variation metadata in run.json
+        var_args.variation_index = vi + 1
+        var_args.ab_params_json = ab_params
+
+        run_config = RunConfig.from_args(var_args, command="video")
+        run_config.to_json(run_file)
+
+        start_time = datetime.now(timezone.utc).isoformat()
+
+        print(f"\n{'=' * 60}")
+        print(f"[video] Variation {vi + 1}/{variations} "
+              f"(cfg_scale={var_args.cfg_scale}, stg_scale={var_args.stg_scale}, "
+              f"seed={var_args.seed})")
+        print(f"{'=' * 60}")
+
+        try:
+            timings = pipeline.generate(
+                prompt=prompt,
+                output_path=output_mp4,
+                height=args.height,
+                width=args.width,
+                num_frames=args.frames,
+                frame_rate=args.fps,
+                seed=var_args.seed,
+                stage1_steps=var_args.stage1_steps,
+                stage2_steps=var_args.stage2_steps,
+                cfg_scale=var_args.cfg_scale,
+                stg_scale=var_args.stg_scale,
+                image=args.input_image,
+                audio_path=args.audio,
+            )
+
+            end_time = datetime.now(timezone.utc).isoformat()
+
+            output_files = [{
+                "path": output_mp4,
+                "mode": mode,
+                "variation": vi + 1,
+                "seed": var_args.seed,
+                "cfg_scale": var_args.cfg_scale,
+                "stg_scale": var_args.stg_scale,
+                "size_bytes": os.path.getsize(output_mp4),
+                "width": args.width,
+                "height": args.height,
+                "frames": args.frames,
+                "fps": args.fps,
+            }]
+
+            models = _collect_model_fingerprints(pipeline._model_dir)
+            manifest = Manifest.from_success(
+                run_file, start_time, end_time, timings, output_files, models)
+            manifest.to_json(manifest_file)
+
+            print(f"[video] Saved:    {output_mp4}")
+            print(f"[video] Run:      {run_file}")
+            print(f"[video] Manifest: {manifest_file}")
+            print(f"[video] Elapsed:  {manifest.elapsed_seconds:.1f}s  "
+                  f"Peak RAM: {manifest.memory_peak_mb / 1024:.1f} GB")
+
+            # Auto-caption (forced on for variations)
+            png_path = var_base_path + ".png"
+            if _extract_first_frame(output_mp4, png_path):
+                print(f"[video] Frame:    {png_path}")
+                _run_caption(png_path)
+            else:
+                print("[video] WARNING: first-frame extraction failed",
+                      file=sys.stderr)
+
+        except Exception as exc:
+            end_time = datetime.now(timezone.utc).isoformat()
+            manifest = Manifest.from_error(
+                run_file, start_time, end_time, {}, exc, {})
+            manifest.to_json(manifest_file)
+            print(f"ERROR: variation {vi + 1} failed: "
+                  f"{type(exc).__name__}: {exc}", file=sys.stderr)
+            traceback.print_exc()
+            # Continue with remaining variations instead of aborting all
+            continue
+
+    print(f"\n{'=' * 60}")
+    print(f"[video] A/B Test complete: {variations} variations")
+    print(f"[video] Review: run.py review-video --inputs "
+          f"{os.path.join(cfg.OUTPUT_DIR, base_name)}_v*.manifest.json")
+    print(f"{'=' * 60}")
+
+
+def _override_args(args, variation_index: int, ab_params: dict | None):
+    """Create a copy of args with per-variation parameter overrides applied."""
+    import copy
+    var_args = copy.copy(args)
+
+    if ab_params is None:
+        # Default: vary seed only
+        var_args.seed = args.seed + variation_index
+        return var_args
+
+    # Apply explicit overrides from ab_params
+    for key, values in ab_params.items():
+        val = values[variation_index]
+        dest_map = {
+            "cfg_scale": "cfg_scale",
+            "stg_scale": "stg_scale",
+            "stage1_steps": "stage1_steps",
+            "stage2_steps": "stage2_steps",
+            "seed": "seed",
+        }
+        dest = dest_map.get(key, key)
+        setattr(var_args, dest, val)
+
+    # If seed not in ab_params, auto-increment
+    if "seed" not in ab_params:
+        var_args.seed = args.seed + variation_index
+
+    return var_args
 
 
 def _extract_first_frame(video_path: str, png_path: str) -> bool:

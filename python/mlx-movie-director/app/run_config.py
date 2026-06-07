@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -57,7 +57,7 @@ class RunConfig:
     frames: int | None = None
     fps: float | None = None
     video_model: str | None = None
-    cfg_scale: float = 3.0
+    cfg_scale: float = 5.0
     stg_scale: float = 1.0
     low_ram: bool = False
     audio: str | None = None
@@ -68,6 +68,10 @@ class RunConfig:
     control_image: str | None = None
     control_type: str | None = None
     control_strength: float | None = None
+
+    # A/B variation tracking
+    variation_index: int | None = None      # 1-based index within an A/B test
+    ab_params: dict | None = None           # the full ab-params JSON (for reference)
 
     # ------------------------------------------------------------------
     # Factories
@@ -99,7 +103,7 @@ class RunConfig:
             frames=getattr(args, "frames", None),
             fps=getattr(args, "fps", None),
             video_model=getattr(args, "video_model", None),
-            cfg_scale=getattr(args, "cfg_scale", 3.0),
+            cfg_scale=getattr(args, "cfg_scale", 5.0),
             stg_scale=getattr(args, "stg_scale", 1.0),
             low_ram=getattr(args, "low_ram", False),
             audio=getattr(args, "audio", None),
@@ -108,6 +112,8 @@ class RunConfig:
             control_image=getattr(args, "control_image", None),
             control_type=getattr(args, "control_type", None),
             control_strength=getattr(args, "control_strength", None),
+            variation_index=getattr(args, "variation_index", None),
+            ab_params=getattr(args, "ab_params_json", None),
         )
 
     @classmethod
@@ -192,5 +198,12 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("pipeline", "zimage")
         raw["schema_version"] = 5
         version = 5
+
+    if version == 5:
+        # v5 → v6: add A/B variation tracking fields
+        raw.setdefault("variation_index", None)
+        raw.setdefault("ab_params", None)
+        raw["schema_version"] = 6
+        version = 6
 
     return raw

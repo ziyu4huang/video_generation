@@ -85,6 +85,8 @@ OPTIONAL_FIELDS = {
     "hf_filename":   str,   # Specific filename in HF repo
     "convert_flag":  str,   # convert.py flag to re-create (e.g. "--transformer")
     "weight_file":   str,   # Override weight filename (e.g. "transformer-dev.safetensors")
+    "trigger_words": list,  # LoRA trigger words (e.g. ["style1", "style2"])
+    "test_prompt":   str,   # LoRA reference test prompt
 }
 
 # Known pipeline names (warn on unknown)
