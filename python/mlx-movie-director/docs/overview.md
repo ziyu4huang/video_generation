@@ -1,11 +1,12 @@
 # mlx-movie-director — Overview
 
-Native MLX inference toolkit on Apple Silicon with two pipelines:
+Native MLX inference toolkit on Apple Silicon with three pipelines:
 
 | Pipeline | Model | Purpose | Command |
 |----------|-------|---------|---------|
 | **Z-Image Turbo** (Moody V12.6) | Pre-converted 4-bit, local `models/` | Text-to-image, img2img, upscale | `run.py generate` |
-| **Flux2 Klein 9B** | HF auto-download, on-the-fly INT8 | Character profile sheets with reference conditioning | `run.py profile` |
+| **Flux2 Klein 9B** | Pre-converted INT8, local `models/` | Character profile sheets with reference conditioning | `run.py profile` |
+| **LTX-2.3 Video** (22B) | Pre-converted Q8 + vendored submodule | Text/image/audio-to-video with joint audio | `run.py video generate` |
 
 ## What Works (Verified 2026-06-07)
 
@@ -128,6 +129,8 @@ Replay generates a **new** output with a fresh timestamp (original is preserved)
 |---------|-------------|
 | `run.py generate` | Text-to-image, img2img, batch (Z-Image Turbo) |
 | `run.py profile` | Multi-view character profile sheet (Flux2 Klein) |
+| `run.py video generate` | Text/image/audio-to-video with audio (LTX-2.3) |
+| `run.py video review` | A/B variation review gallery |
 | `run.py upscale` | ESRGAN / SeedVR2 upscale |
 | `run.py caption` | VLM image captioning (Qwen3-VL via LM Studio) |
 | `run.py replay` | Reproduce a previous run from `.run.json` |

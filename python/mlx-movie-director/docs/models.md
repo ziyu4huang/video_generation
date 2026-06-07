@@ -6,6 +6,7 @@ Three pipelines, each with its own model set:
 |----------|---------|----------------|--------------|
 | **Z-Image Turbo** (Moody V12.6) | `run.py generate` | `models/` (local, pre-converted) | Pre-converted 4-bit on disk |
 | **Flux2 Klein** (9B) | `run.py profile` | `models/` (local, pre-converted INT8) | Pre-quantized INT8 on disk |
+| **LTX-2.3 Video** (22B) | `run.py video generate` | `models/` (local, pre-converted Q8) | Pre-quantized Q8 on disk |
 | **SeedVR2** (7B) | `run.py upscale --method seedvr2` | `models/` (local, pre-converted) | Pre-converted 4-bit on disk |
 
 ## JSON File System
@@ -228,6 +229,69 @@ rm -rf ~/.cache/huggingface/hub/models--black-forest-labs--FLUX.2-klein-9B
 
 ---
 
+## Pipeline 3: LTX-2.3 Video (local pre-converted Q8)
+
+Used by `run.py video generate` for text-to-video, image-to-video, and audio-to-video generation with joint audio. All components are pre-converted and stored locally in `models/`. The inference engine is the vendored `vendor/ltx-2-mlx` submodule with runtime monkey-patches.
+
+### Components
+
+| Component | Model | Disk (Q8) | Location |
+|-----------|-------|-----------|----------|
+| **Transformer** | LTX-2.3 22B DiT (48 layers, audio+video) | ~22 GB | `models/transformer/ltx-2.3-dev-q8/` |
+| **LoRA** | Distilled LoRA (384-dim) | — | `models/lora/ltx-2.3-distilled/` |
+| **Text Encoder** | Gemma 12B connector | — | `models/text_encoder/ltx-2.3-connector/` |
+| **VAE** | LTX VAE encoder + decoder + spatial upscaler | — | `models/vae/ltx-2.3-vae/` |
+| **Audio** | Audio VAE + BigVGAN vocoder | — | `models/audio/ltx-2.3-audio/` |
+
+### Loading: Flat Symlink Assembly
+
+ltx-2-mlx expects all weights in a single flat directory (HF-repo layout). Components are scattered across `models/<category>/<instance>/`, so a temp directory with symlinks is created at load time:
+
+```python
+# ltx_pipeline.py creates /tmp/ltx2_XXX/ with symlinks to each component file
+assembly_dir = tempfile.mkdtemp(prefix="ltx2_")
+os.symlink("models/transformer/ltx-2.3-dev-q8/transformer-dev.safetensors",
+           os.path.join(assembly_dir, "transformer-dev.safetensors"))
+# ... all components
+pipeline = TI2VidTwoStagesPipeline(model_dir=assembly_dir, low_memory=True)
+```
+
+Assembly dir survives for the pipeline's lifetime (block-streaming mode memory-maps weights lazily). Cleaned up on `close()` / `__del__`.
+
+### Vendor Patches
+
+The submodule stays at clean upstream HEAD. Six monkey-patches in `app/vendor_patches.py` fix bugs at import time:
+
+| # | Fix | Impact |
+|---|-----|--------|
+| 1–2 | MLX 0.31.2 `.at[strided].add()` Metal bug | Audio vocoder/BWE crash fix |
+| 3 | AudioVAEDecoder causal frame crop | Off-by-3 frames in mel |
+| 4 | `av_ca_timestep_scale_multiplier` 1.0→1000.0 | AV cross-attention gate (zeroed speech without it) |
+| 5 | Load config from `embedded_config.json` | Reads correct values from checkpoint |
+| 6 | `audio_stage1_only` parameter | Capture stage-1 audio before stage-2 overwrites |
+
+See [`docs/ltx-pipeline.md`](ltx-pipeline.md) for full details.
+
+### Config Paths
+
+```python
+# app/config.py
+LTX_TRANSFORMER_DIR  = models/transformer/ltx-2.3-dev-q8/
+LTX_LORA_DIR         = models/lora/ltx-2.3-distilled/
+LTX_TEXT_ENCODER_DIR = models/text_encoder/ltx-2.3-connector/
+LTX_VAE_DIR          = models/vae/ltx-2.3-vae/
+LTX_AUDIO_DIR        = models/audio/ltx-2.3-audio/
+```
+
+### Reproduce
+
+```bash
+# Download and prepare components (see model-conversion-approach.md)
+run.py video prepare-models    # or manual download + organize
+```
+
+---
+
 ## External Sources
 
 | Model | HuggingFace | Notes |
@@ -235,6 +299,8 @@ rm -rf ~/.cache/huggingface/hub/models--black-forest-labs--FLUX.2-klein-9B
 | Z-Image Turbo | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) | Tokenizer + VAE + architecture reference |
 | Qwen3-4B | [Qwen/Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) | Text encoder for Z-Image pipeline |
 | Flux2 Klein 9B | [black-forest-labs/FLUX.2-klein-9B](https://huggingface.co/black-forest-labs/FLUX.2-klein-9B) | Transformer + VAE + text encoder + tokenizer |
+| LTX-2.3 MLX Q8 | [dgrauet/ltx-2.3-mlx-q8](https://huggingface.co/dgrauet/ltx-2.3-mlx-q8) | Full video pipeline (transformer, VAE, audio, text encoder) |
+| LTX-2-MLX source | [dgrauet/ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx) | Vendored submodule — inference engine |
 | Moody V12.6 DPO | Community fine-tune on ComfyUI | Transformer base model |
 | 4xNomosWebPhoto | [NomosWebPhoto_RealPLKSR](https://openmodeldb.info/models/4xNomosWebPhoto_RealPLKSR) | ESRGAN upscaler |
 

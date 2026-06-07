@@ -67,17 +67,17 @@ VIEW_PROMPTS = {
 VIEW_PROMPTS_FLUX2 = {
     "front": (
         "保持人物外貌、服裝、髮型完全一致，"
-        "front view, A-pose, standing upright, white background, "
+        "front view, A-pose, full body from head to toes including feet and shoes, white background, "
         "photorealistic, maintain character identity and appearance consistency"
     ),
     "back": (
         "保持人物外貌、服裝、髮型完全一致，"
-        "back view, A-pose, standing upright, white background, "
+        "back view, A-pose, full body from head to toes including feet and shoes, white background, "
         "photorealistic, maintain character identity and appearance consistency"
     ),
     "side": (
         "保持人物外貌、服裝、髮型完全一致，"
-        "side profile view (90 degrees), A-pose, standing upright, white background, "
+        "side profile view (90 degrees), A-pose, full body from head to toes including feet and shoes, white background, "
         "photorealistic, maintain character identity and appearance consistency"
     ),
 }
@@ -177,10 +177,11 @@ def add_profile_args(parser):
         help="Gap in pixels between panels in the strip (default: 0)",
     )
     parser.add_argument(
-        "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=False,
+        "--ref-count", type=int, default=3, metavar="N",
         help=(
-            "Pass the reference image twice for stronger conditioning "
-            "(default: False). Doubles reference token count but can cause style drift."
+            "Number of times to pass the reference image to the model (default: 3). "
+            "More copies = stronger style/identity matching but slower per step. "
+            "1 = single ref (fastest), 2 = double ref, 3 = triple ref (best style)."
         ),
     )
     parser.add_argument(
@@ -427,7 +428,7 @@ def run_profile(args):
         "no_strip": args.no_strip,
         "flux2_model_path": getattr(args, "flux2_model_path", None),
         "quantize": getattr(args, "quantize", None),
-        "double_ref": getattr(args, "double_ref", False),
+        "ref_count": getattr(args, "ref_count", 3),
         "chain_ref": getattr(args, "chain_ref", False),
         "prompt_style": getattr(args, "prompt_style", "angle"),
         "vlm": getattr(args, "vlm", True),
@@ -538,11 +539,10 @@ def run_profile(args):
         if use_chain_ref:
             print(f"Chain-ref: ON (order: front → side → back, dual reference)")
 
-        # Double-ref: optionally pass the same reference image twice for
-        # stronger conditioning (doubled attention signal).
-        use_double_ref = getattr(args, "double_ref", False)
-        if use_double_ref:
-            print(f"Double-ref: ON (reference passed twice)")
+        # Multi-ref: pass the reference image N times for stronger conditioning.
+        ref_count = max(1, getattr(args, "ref_count", 3))
+        if ref_count > 1:
+            print(f"Multi-ref: ON (reference ×{ref_count})")
 
         ref_strength = getattr(args, "ref_strength", None)
 
@@ -557,33 +557,22 @@ def run_profile(args):
 
             # Determine reference images for this view
             if use_flux2:
-                if view == "front":
-                    # Front view: original reference only
-                    ref_images = [input_image]
-                    ref_label = "original"
-                elif use_chain_ref:
-                    # Cascade: use original + previous generated view as dual reference.
-                    # Find the most recent predecessor that was generated.
+                if use_chain_ref and view != "front":
+                    # Cascade: use N×original + previous generated view
                     order_idx = VIEW_ORDER.index(view)
                     prev_view = None
                     for candidate in reversed(VIEW_ORDER[:order_idx]):
                         if candidate in generated_paths:
                             prev_view = candidate
                             break
+                    ref_images = [input_image] * ref_count
                     if prev_view:
-                        ref_images = [input_image, generated_paths[prev_view]]
-                        ref_label = f"original + {prev_view}.png"
-                    else:
-                        ref_images = [input_image]
-                        ref_label = "original"
+                        ref_images.append(generated_paths[prev_view])
+                    ref_label = f"original ×{ref_count}" + (f" + {prev_view}.png" if prev_view else "")
                 else:
-                    # No chain-ref: use original reference
-                    ref_images = [input_image] if input_image else []
-                    ref_label = "original" if input_image else "none"
-
-                # Apply double-ref: pass the first image twice
-                if ref_images and use_double_ref:
-                    ref_images = [ref_images[0], ref_images[0]] + ref_images[1:]
+                    # Standard: N copies of original reference
+                    ref_images = [input_image] * ref_count if input_image else []
+                    ref_label = f"original ×{ref_count}" if input_image else "none"
             else:
                 ref_images = []
                 ref_label = "none"
