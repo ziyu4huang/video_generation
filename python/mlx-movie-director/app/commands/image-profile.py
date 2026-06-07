@@ -1,18 +1,11 @@
-"""profile — multi-view character profile sheet (front / back / side).
+"""image-profile — multi-view character profile sub-action for 'run.py image profile'.
 
-Two pipeline modes:
+Imported by app.commands.image via importlib (hyphen in filename prevents
+regular import statements).
 
-  flux2-klein (default when --input-image is provided):
-    Uses mflux Flux2KleinEdit with real reference-image conditioning.
-    The reference image latent is concatenated into the attention sequence
-    (prepare_reference_image_conditioning), giving the model genuine knowledge
-    of the character appearance.  Requires Klein 4B (~15 GB, auto-downloaded
-    from HuggingFace on first use).
-
-  zimage (fallback when no --input-image, or --pipeline zimage):
-    Pure text-to-image from empty latent via ZImagePipeline.  Matches the
-    ComfyUI EmptyFlux2LatentImage starting point.  --base-prompt is the only
-    way to describe the character.
+Public API:
+  add_profile_args(parser)  — register profile-specific CLI arguments
+  run_profile(args)         — execute multi-view character profile generation
 """
 
 import argparse
@@ -24,7 +17,6 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name
 
 # ---------------------------------------------------------------------------
 # View definitions
@@ -43,7 +35,7 @@ RATIO_PRESETS = {
     "full-body": (896, 1792),    # 1:2
     "tall":      (864, 2016),    # ComfyUI original
 }
-DEFAULT_RATIO = "standing"
+DEFAULT_RATIO = "full-body"
 
 VIEW_PROMPTS = {
     "front": (
@@ -82,15 +74,25 @@ VIEW_PROMPTS_FLUX2 = {
         "生成图中人物A-pose的背面图。这是从背后观察的视角。人物站立，去除杂物，纯白色背景。"
         "完美的身体比例，头不要太大。"
         "注意背面视角与正面完全不同：看不到脸部五官，只能看到后脑勺和头发；"
-        "手臂从背后看只能看到手背和手肘外侧，不能看到手掌和手指内侧；"
-        "肩膀和背部轮廓与正面截然不同。确保这是真正的背面视角，不要画成正面。"
+        "手臂在A-pose中向两侧展开，从背后看只能看到上臂后侧、手肘背面、"
+        "前臂后侧和手背朝外，手腕微微向前弯曲，手指自然并拢从背后只能看到指背轮廓，"
+        "绝对不能看到手掌、手指内侧或指纹；"
+        "肩膀呈现圆润的肩背弧线，不是正面的锁骨和肩头形状；"
+        "背部有脊椎中线和肩胛骨轮廓，这些在正面完全看不到。"
+        "确保这是真正的背面视角，不要画成正面。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
         "不得更改或遗漏任何服装细节"
     ),
     "side": (
-        "生成图中人物A-pose的侧面图。人物站立，去除杂物，纯白色背景。"
-        "完美的身体比例，头不要太大。"
+        "生成图中人物A-pose的侧面图。这是从正侧面（90度）观察的视角。"
+        "人物站立，去除杂物，纯白色背景。完美的身体比例，头不要太大。"
+        "注意侧面视角与正面截然不同：只能看到身体的一侧，"
+        "只能看到一只手臂、一只耳朵的侧面轮廓；"
+        "鼻子是侧面的突出轮廓，只能看到一只眼睛；"
+        "身体厚度变窄，肩膀和胸部只显示侧面弧度。"
+        "头部和身体必须同时朝向同一个侧方，不得只转头而身体朝前。"
+        "确保这是真正的侧面视角，不要画成正面。"
         "严格按照参考图中人物的服装、配饰、鞋子进行生成，"
         "保持服装的颜色、款式、纹理、图案、材质完全一致，"
         "不得更改或遗漏任何服装细节"
@@ -100,42 +102,23 @@ VIEW_PROMPTS_FLUX2 = {
 # All views use the same seed for maximum inter-view consistency
 VIEW_SEED_OFFSETS = {"front": 0, "back": 0, "side": 0}
 
+# Generation order for chain-ref: front → side → back.
+# Rationale: front is the cleanest A-pose reference. Side generated from front
+# then becomes a non-front-angle reference for back, preventing the model from
+# copying front-facing hands/arms into the back view.
+VIEW_ORDER = ["front", "side", "back"]
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
 
-PARSER_META = {
-    "help": "Character profile sheet: front / back / side views",
-    "description": (
-        "Generate a multi-view character profile sheet (front, back, side).\n\n"
-        "Pipeline selection (--pipeline):\n"
-        "  auto        — flux2-klein when --input-image is given, zimage otherwise\n"
-        "  flux2-klein — Flux2 Klein 4B with real reference conditioning (mflux).\n"
-        "                Reference image latent is injected into attention; model\n"
-        "                genuinely sees and follows the character appearance.\n"
-        "                First run downloads ~15 GB from HuggingFace.\n"
-        "  zimage      — ZImage Turbo pure text-to-image (original behaviour).\n"
-        "                Use --base-prompt to describe the character.\n\n"
-        "Output folder: output/profile_YYYYMMDD_HHMMSS/\n"
-        "  reference.png               — input image copy (if provided)\n"
-        "  front.png, back.png, side.png — generated views\n"
-        "  strip.png                   — [ref | front | back | side] horizontal stitch\n"
-        "  run.json, manifest.json     — audit records\n\n"
-        "Examples:\n"
-        "  run.py profile --input-image char.png                  # flux2-klein (auto)\n"
-        "  run.py profile --input-image char.png --quantize 8     # quantize Klein to INT8\n"
-        "  run.py profile --input-image char.png --pipeline zimage # force ZImage t2i\n"
-        "  run.py profile --pipeline zimage --base-prompt 'blue hanfu woman'\n"
-        "  run.py profile --flux2-model-path /local/klein-4b/ --steps 4"
-    ),
-}
+def add_profile_args(parser):
+    """Register profile-specific arguments on an argparse parser.
 
-
-def add_args(parser):
-    parser.add_argument(
-        "--input-image", default=None, metavar="PATH",
-        help="Reference character image (optional; shown in strip but not used for generation)",
-    )
+    Shared args (--steps, --seed, --width, --height, --pipeline, --quantize,
+    --variant, --flux2-model-path, --lora-path, --lora-scale) are registered
+    by image-t2i.py and _shared.py — profile applies its own defaults at runtime.
+    """
     parser.add_argument(
         "--views", nargs="+", default=["front", "back", "side"],
         choices=["front", "back", "side"], metavar="VIEW",
@@ -153,17 +136,6 @@ def add_args(parser):
         ),
     )
     parser.add_argument(
-        "--steps", type=int, default=6,
-        help="Denoising steps per view (default: 6, matches ComfyUI workflow)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=63515082432616,
-        help=(
-            "Base seed (default: 63515082432616, matches ComfyUI workflow). "
-            "All views use the same seed for maximum consistency."
-        ),
-    )
-    parser.add_argument(
         "--ratio",
         choices=list(RATIO_PRESETS.keys()),
         default=DEFAULT_RATIO,
@@ -174,22 +146,6 @@ def add_args(parser):
         ),
     )
     parser.add_argument(
-        "--width", type=int, default=None,
-        help="Output width per view in pixels (overrides --ratio)",
-    )
-    parser.add_argument(
-        "--height", type=int, default=None,
-        help="Output height per view in pixels (overrides --ratio)",
-    )
-    parser.add_argument(
-        "--lora-path", type=str, default=None,
-        help="Path to LoRA .safetensors file",
-    )
-    parser.add_argument(
-        "--lora-scale", type=float, default=1.0,
-        help="LoRA scale factor (default: 1.0)",
-    )
-    parser.add_argument(
         "--no-strip", action="store_true", default=False,
         help="Skip creating the horizontal strip image",
     )
@@ -197,36 +153,19 @@ def add_args(parser):
         "--strip-gap", type=int, default=0, metavar="PX",
         help="Gap in pixels between panels in the strip (default: 0)",
     )
-    # Pipeline selection
-    parser.add_argument(
-        "--pipeline", choices=["auto", "flux2-klein", "zimage"], default="auto",
-        help=(
-            "auto: flux2-klein when --input-image present, zimage otherwise. "
-            "flux2-klein: Flux2 Klein 4B with reference conditioning (mflux). "
-            "zimage: ZImage Turbo text-to-image."
-        ),
-    )
-    parser.add_argument(
-        "--flux2-model-path", default=None, metavar="PATH",
-        help=(
-            "Local path to Klein 4B model in HuggingFace directory structure "
-            "(transformer/, vae/, text_encoder/, tokenizer/). "
-            "Omit to let mflux auto-download from HuggingFace."
-        ),
-    )
-    parser.add_argument(
-        "--quantize", type=int, choices=[4, 8], default=None, metavar="BITS",
-        help="Quantization for HF auto-download mode (4 or 8 bits). Not needed when local pre-quantized model exists.",
-    )
-    parser.add_argument(
-        "--variant", choices=["4b", "9b"], default="9b",
-        help="Klein model variant (default: 9b, better quality; 4b for less memory)",
-    )
     parser.add_argument(
         "--double-ref", "--no-double-ref", action=argparse.BooleanOptionalAction, default=False,
         help=(
             "Pass the reference image twice for stronger clothing consistency "
             "(default: False). Enable with --double-ref if needed."
+        ),
+    )
+    parser.add_argument(
+        "--ref-strength", type=float, default=None, metavar="FLOAT",
+        help=(
+            "Reference image conditioning strength passed to Flux2 Klein "
+            "(None = mflux default). Lower = less reference influence, higher = more. "
+            "Try 0.3–0.8 to tune how closely the output follows the reference."
         ),
     )
     parser.add_argument(
@@ -264,10 +203,6 @@ def add_args(parser):
 
 def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = "zimage") -> str:
     if pipeline_type == "flux2-klein":
-        # Flux2 Klein reference conditioning carries character identity from the
-        # image latent.  base_prompt is appended as an explicit clothing description
-        # to anchor text conditioning — this compensates for the lack of ComfyUI's
-        # ReferenceLatent attention-sharing mechanism.
         template = VIEW_PROMPTS_FLUX2[view]
         if base_prompt and base_prompt.strip():
             return f"{template}。人物穿着：{base_prompt.strip()}"
@@ -379,38 +314,58 @@ def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | 
 # Command entry point
 # ---------------------------------------------------------------------------
 
-def run(args):
+# Profile-specific defaults (differ from t2i defaults)
+_PROFILE_DEFAULT_SEED = 63515082432616
+_PROFILE_DEFAULT_STEPS = 6
+
+
+def run_profile(args):
+    """Execute multi-view character profile generation. Called by image.py dispatcher."""
     from PIL import Image
     from app.manifest import Manifest, collect_model_fingerprint
 
-    # Validate input image path if provided
-    if args.input_image and not os.path.exists(args.input_image):
-        print(f"ERROR: input image not found: {args.input_image}", file=sys.stderr)
+    # Validate input image path if provided (--input is registered by image-angle.py)
+    input_image = getattr(args, "input", None)
+    if input_image and not os.path.exists(input_image):
+        print(f"ERROR: input image not found: {input_image}", file=sys.stderr)
         sys.exit(1)
 
-    # Determine pipeline type
+    # Apply profile-specific defaults for shared args
+    # Profile's default pipeline is "auto" (flux2-klein with input, zimage without).
+    # The shared --pipeline arg defaults to "zimage" from t2i — override for profile.
+    pipeline_choice = getattr(args, "pipeline", "zimage") or "zimage"
+    if pipeline_choice == "zimage" and input_image is not None:
+        pipeline_choice = "auto"
     use_flux2 = (
-        args.pipeline == "flux2-klein"
-        or (args.pipeline == "auto" and args.input_image is not None)
+        pipeline_choice == "flux2-klein"
+        or (pipeline_choice == "auto" and input_image is not None)
     )
     pipeline_type = "flux2-klein" if use_flux2 else "zimage"
 
+    steps = args.steps if args.steps is not None else _PROFILE_DEFAULT_STEPS
+    seed = getattr(args, "seed", _PROFILE_DEFAULT_SEED)
+    # If seed is still the t2i default (42), use profile default instead
+    if seed == 42:
+        seed = _PROFILE_DEFAULT_SEED
+
     # Resolve dimensions: explicit --width/--height override --ratio preset
-    if args.width is not None and args.height is not None:
-        width, height = args.width, args.height
-    else:
+    width = getattr(args, "width", None)
+    height = getattr(args, "height", None)
+    if width is None and height is None:
         preset = RATIO_PRESETS[args.ratio]
         width, height = preset
-        # If user specifies only one of width/height, keep the other from preset
-        if args.width is not None:
-            width = args.width
-        if args.height is not None:
-            height = args.height
+    elif width is None or height is None:
+        # If user specifies only one, fill the other from preset
+        preset = RATIO_PRESETS[args.ratio]
+        width = width or preset[0]
+        height = height or preset[1]
 
     print(f"Resolution: {width}×{height} (ratio={args.ratio})")
 
-    # Maintain canonical view order regardless of --views input order
-    views = [v for v in ALL_VIEWS if v in args.views]
+    # Maintain canonical view order regardless of --views input order.
+    # When chain-ref is active, generate in VIEW_ORDER (front → side → back)
+    # so each subsequent view can reference the previously generated one.
+    views = [v for v in VIEW_ORDER if v in args.views]
 
     # Create output folder: output/profile_YYYYMMDD_HHMMSS/
     base_name = f"profile_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -419,14 +374,15 @@ def run(args):
 
     # Write run.json
     run_meta = {
-        "command": "profile",
+        "command": "image",
+        "action": "profile",
         "pipeline": pipeline_type,
         "mode": "reference-conditioning" if use_flux2 else "t2i",
-        "input_image": args.input_image,
+        "input_image": input_image,
         "views": views,
-        "base_prompt": args.base_prompt,
-        "steps": args.steps,
-        "seed": args.seed,
+        "base_prompt": getattr(args, "base_prompt", None),
+        "steps": steps,
+        "seed": seed,
         "width": width,
         "height": height,
         "ratio": args.ratio,
@@ -452,20 +408,20 @@ def run(args):
 
     # Load reference image
     ref_image = None
-    if args.input_image:
-        ref_image = Image.open(args.input_image).convert("RGB")
+    if input_image:
+        ref_image = Image.open(input_image).convert("RGB")
         ref_image.save(os.path.join(out_dir, "reference.png"))
         ref_note = "reference conditioning" if use_flux2 else "display only"
-        print(f"Reference: {args.input_image} ({ref_image.width}×{ref_image.height}) — {ref_note}")
+        print(f"Reference: {input_image} ({ref_image.width}×{ref_image.height}) — {ref_note}")
 
     # Resolve base_prompt: user-provided, VLM auto-caption, or None
-    base_prompt = args.base_prompt
+    base_prompt = getattr(args, "base_prompt", None)
     vlm_caption = None
-    if use_flux2 and args.input_image and not base_prompt and getattr(args, "vlm", True):
+    if use_flux2 and input_image and not base_prompt and getattr(args, "vlm", True):
         try:
             from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
             print("[VLM] Auto-captioning reference image for clothing description...", end=" ", flush=True)
-            b64 = _image_to_base64(args.input_image)
+            b64 = _image_to_base64(input_image)
             style_prompt = _STYLE_PROMPTS["profile"] + "\n" + _LANG_INSTRUCTIONS["zh_CN"]
             vlm_caption = _call_vlm(
                 getattr(args, "vlm_api_url", "http://localhost:1234/v1"),
@@ -478,7 +434,7 @@ def run(args):
             print(f"[VLM] Clothing: {vlm_caption}")
             # Save caption JSON alongside reference
             caption_out = {
-                "image": args.input_image,
+                "image": input_image,
                 "style": "profile",
                 "caption": vlm_caption,
             }
@@ -517,19 +473,19 @@ def run(args):
     all_timings = {}
 
     try:
-        # Determine chain-ref eligibility:
-        # When enabled + flux2-klein + front is in views, generate front first
-        # and use it as reference for subsequent views.  The generated front is
-        # a clean A-pose on white background — much better reference than the
-        # original photo for consistent back/side generation.
+        # Chain-ref: generate views in cascade order (front → side → back).
+        # Each non-front view uses BOTH the original reference (for character
+        # identity/clothing) AND the previously generated view (for correct
+        # camera-angle awareness).  This prevents the back view from copying
+        # front-facing hands/arms from the front reference.
         use_chain_ref = (
             use_flux2
             and getattr(args, "chain_ref", True)
             and "front" in views
-            and args.input_image is not None
+            and input_image is not None
         )
         if use_chain_ref:
-            print(f"Chain-ref: ON (front view will become reference for back/side)")
+            print(f"Chain-ref: ON (order: front → side → back, dual reference)")
 
         # Double-ref: optionally pass the same reference image twice for
         # stronger conditioning (doubled attention signal).
@@ -537,32 +493,45 @@ def run(args):
         if use_double_ref:
             print(f"Double-ref: ON (reference passed twice)")
 
-        # Track the front view path for cascade reference
-        front_path = None
+        ref_strength = getattr(args, "ref_strength", None)
+
+        # Track generated views by name for cascade reference
+        generated_paths: dict[str, str] = {}
 
         for view in views:
             # NumPy/mflux seed must be in [0, 2**32-1]; fold the ComfyUI 64-bit seed
-            view_seed = (args.seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
+            view_seed = (seed + VIEW_SEED_OFFSETS[view]) % (2 ** 32)
             prompt = _build_view_prompt(view, base_prompt, pipeline_type)
 
             # Determine reference images for this view
             if use_flux2:
-                if use_chain_ref and front_path is not None:
-                    # Cascade: use generated front as reference for back/side
-                    ref_images = [front_path]
-                    ref_label = f"front.png (cascade)"
-                elif use_chain_ref and view == "front":
-                    # Front view: use original reference
-                    ref_images = [args.input_image]
+                if view == "front":
+                    # Front view: original reference only
+                    ref_images = [input_image]
                     ref_label = "original"
+                elif use_chain_ref:
+                    # Cascade: use original + previous generated view as dual reference.
+                    # Find the most recent predecessor that was generated.
+                    order_idx = VIEW_ORDER.index(view)
+                    prev_view = None
+                    for candidate in reversed(VIEW_ORDER[:order_idx]):
+                        if candidate in generated_paths:
+                            prev_view = candidate
+                            break
+                    if prev_view:
+                        ref_images = [input_image, generated_paths[prev_view]]
+                        ref_label = f"original + {prev_view}.png"
+                    else:
+                        ref_images = [input_image]
+                        ref_label = "original"
                 else:
-                    # No chain-ref, or zimage fallback: use original reference
-                    ref_images = [args.input_image] if args.input_image else []
-                    ref_label = "original" if args.input_image else "none"
+                    # No chain-ref: use original reference
+                    ref_images = [input_image] if input_image else []
+                    ref_label = "original" if input_image else "none"
 
-                # Apply double-ref: pass the same image twice
+                # Apply double-ref: pass the first image twice
                 if ref_images and use_double_ref:
-                    ref_images = [ref_images[0], ref_images[0]]
+                    ref_images = [ref_images[0], ref_images[0]] + ref_images[1:]
             else:
                 ref_images = []
                 ref_label = "none"
@@ -577,14 +546,15 @@ def run(args):
                     reference_images=ref_images,
                     width=width,
                     height=height,
-                    steps=args.steps,
+                    steps=steps,
+                    image_strength=ref_strength,
                 )
             else:
                 result = pipeline.generate(
                     prompt=prompt,
                     width=width,
                     height=height,
-                    steps=args.steps,
+                    steps=steps,
                     seed=view_seed,
                     lora_path=getattr(args, "lora_path", None),
                     lora_scale=getattr(args, "lora_scale", 1.0),
@@ -596,9 +566,8 @@ def run(args):
             result.image.save(view_path)
             print(f"  Saved: {view_path}")
 
-            # Track front view for cascade reference
-            if use_chain_ref and view == "front":
-                front_path = view_path
+            # Track generated view for cascade reference
+            generated_paths[view] = view_path
 
             view_images.append(result.image)
             all_timings[view] = result.timings
@@ -615,7 +584,7 @@ def run(args):
 
         # Generate HTML viewer showing all images left-to-right
         html_path = os.path.join(out_dir, "index.html")
-        _write_html_viewer(html_path, out_dir, ref_image, args.input_image, view_outputs)
+        _write_html_viewer(html_path, out_dir, ref_image, input_image, view_outputs)
         print(f"\nHTML: {html_path}")
         view_outputs.append({
             "view": "html",
@@ -636,7 +605,7 @@ def run(args):
             print(f"Strip: {strip_path}  ({strip.width}×{strip.height})")
 
         end_time = datetime.now(timezone.utc).isoformat()
-        models = collect_model_fingerprint(lora_path=args.lora_path)
+        models = collect_model_fingerprint(lora_path=getattr(args, "lora_path", None))
         manifest = Manifest.from_success(
             run_file, start_time, end_time, all_timings, view_outputs, models
         )

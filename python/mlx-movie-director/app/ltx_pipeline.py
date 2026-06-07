@@ -52,7 +52,7 @@ _LTX_COMPONENT_FILES: dict[str, list[str]] = {
     cfg.LTX_TEXT_ENCODER_DIR: [
         "connector.safetensors",
         "config.json",
-        "embedded_config.json",
+        "embedded_config.json",  # Transformer architecture config (av_ca_timestep_scale_multiplier)
     ],
     cfg.LTX_VAE_DIR: [
         "vae_encoder.safetensors",
@@ -165,6 +165,7 @@ class LTXVideoPipeline:
         stg_scale: float = 1.0,
         image: str | None = None,
         audio_path: str | None = None,
+        audio_stage1_only: bool = False,
     ) -> dict:
         """Generate a video and write to output_path.
 
@@ -195,6 +196,8 @@ class LTXVideoPipeline:
             kwargs["stage2_steps"] = stage2_steps
         if audio_path is not None:
             kwargs["audio_path"] = audio_path
+        if audio_stage1_only:
+            kwargs["audio_stage1_only"] = True
 
         self._pipeline.generate_and_save(**kwargs)
         return {"generate_seconds": time.time() - t0}

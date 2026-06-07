@@ -16,12 +16,12 @@ _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4}
 
 def add_t2i_args(parser):
     """Register T2I-specific arguments on an argparse parser."""
-    parser.add_argument("--width", type=int, default=640,
+    parser.add_argument("--width", type=int, default=None,
                         help="Image width in pixels (default: 640)")
-    parser.add_argument("--height", type=int, default=960,
+    parser.add_argument("--height", type=int, default=None,
                         help="Image height in pixels (default: 960)")
     parser.add_argument(
-        "--pipeline", choices=["zimage", "flux2-klein"], default="zimage",
+        "--pipeline", choices=["zimage", "flux2-klein", "auto"], default="zimage",
         help="Generation pipeline: zimage (default) or flux2-klein",
     )
     parser.add_argument(
@@ -48,6 +48,11 @@ def run_t2i(args):
     pipeline_type = getattr(args, "pipeline", "zimage")
     if args.steps is None:
         args.steps = _PIPELINE_DEFAULT_STEPS.get(pipeline_type, 9)
+    # Apply t2i defaults for shared args (profile resolves its own)
+    if args.width is None:
+        args.width = 640
+    if args.height is None:
+        args.height = 960
     run_config = RunConfig.from_args(args, command="image")
     if getattr(args, "ab_test", False):
         execute_ab_test(run_config)

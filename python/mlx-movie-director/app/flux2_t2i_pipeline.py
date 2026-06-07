@@ -46,6 +46,8 @@ class Flux2KleinT2IPipeline:
         model_path: str | None = None,
         quantize: int | None = None,
         variant: str = "9b",
+        lora_paths: list[str] | None = None,
+        lora_scales: list[float] | None = None,
     ):
         """
         Args:
@@ -54,6 +56,8 @@ class Flux2KleinT2IPipeline:
             quantize:   None / 4 / 8.  Not needed when local pre-quantized model exists.
                         8 is recommended for HF auto-download on Apple Silicon.
             variant:    "4b" or "9b" — selects Flux2 Klein architecture size.
+            lora_paths: Optional list of LoRA .safetensors file paths to apply.
+            lora_scales: Optional list of scale factors (one per lora_path).
         """
         from mflux.models.flux2.variants.txt2img.flux2_klein import Flux2Klein
         from mflux.models.common.config.model_config import ModelConfig
@@ -90,11 +94,17 @@ class Flux2KleinT2IPipeline:
             print(f"[Flux2KleinT2I] Loading Klein {variant.upper()} "
                   f"(quantize={quantize}, {source})...")
 
+        if lora_paths:
+            print(f"[Flux2KleinT2I] Applying {len(lora_paths)} LoRA(s): "
+                  f"{', '.join(os.path.basename(p) for p in lora_paths)}")
+
         t0 = time.time()
         self._model = Flux2Klein(
             model_config=model_config,
             model_path=resolved_path,
             quantize=effective_quantize,
+            lora_paths=lora_paths,
+            lora_scales=lora_scales,
         )
         elapsed = time.time() - t0
         print(f"[Flux2KleinT2I] Model ready.  (load: {elapsed:.1f}s)")
@@ -128,7 +138,7 @@ class Flux2KleinT2IPipeline:
             seed:             RNG seed.
             input_image:      Optional PIL.Image for img2img refinement.
             denoise_strength: 0.0–1.0, how much to change the input (1.0 = full t2i).
-            lora_path:        Ignored (not supported by Flux2Klein t2i).
+            lora_path:        Ignored (LoRA is applied at model init time, not generate time).
             lora_scale:       Ignored.
             upscale:          Ignored (handled by caller).
             upscale_model:    Ignored.
@@ -139,8 +149,8 @@ class Flux2KleinT2IPipeline:
         """
         if lora_path:
             warnings.warn(
-                "LoRA is not supported with --pipeline flux2-klein. "
-                "Ignoring --lora-path.",
+                "LoRA must be applied at model init time (Flux2KleinT2IPipeline constructor). "
+                "Pass lora_paths/ during pipeline creation. Ignoring generate-time --lora-path.",
                 stacklevel=2,
             )
 

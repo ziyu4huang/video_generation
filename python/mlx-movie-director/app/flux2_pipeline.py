@@ -110,6 +110,7 @@ class Flux2KleinPipeline:
         width: int = 1024,
         height: int = 1024,
         steps: int = 4,
+        image_strength: float | None = None,
     ) -> GenerationResult:
         """Generate one image with reference image conditioning.
 
@@ -119,6 +120,8 @@ class Flux2KleinPipeline:
             reference_images: Paths to reference images (usually just one).
             width / height:   Output dimensions.
             steps:            Denoising steps (4 is typical for distilled Klein).
+            image_strength:   Reference conditioning strength (None = mflux default).
+                              Lower = less reference influence, higher = more.
 
         Returns:
             GenerationResult with .image (PIL.Image) and .timings ({}).
@@ -127,6 +130,7 @@ class Flux2KleinPipeline:
             seed=seed % (2 ** 32),
             prompt=prompt,
             image_paths=reference_images if reference_images else None,
+            image_strength=image_strength,
             width=width,
             height=height,
             num_inference_steps=steps,

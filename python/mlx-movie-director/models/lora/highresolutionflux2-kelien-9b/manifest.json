@@ -1,0 +1,19 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "highresolutionflux2-kelien-9b",
+  "type": "lora",
+  "arch": "flux2-klein-9b",
+  "format": "safetensors-bf16",
+  "description": "LoRA adapter for flux2-klein-9b",
+  "source": "manual-import",
+  "compatible_with": [
+    "transformer/klein-9b"
+  ],
+  "size_bytes": 82866736,
+  "created_at": "2026-06-07T08:29:10Z",
+  "pipeline": [
+    "flux2-klein"
+  ],
+  "source_url": "https://civitai.com/models/2436859/high-resolution?modelVersionId=2760799",
+  "test_prompt": "a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd"
+}

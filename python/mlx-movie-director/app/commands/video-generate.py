@@ -82,6 +82,14 @@ def add_generate_args(parser):
     parser.add_argument("--allow-noise", action="store_true", default=False,
                         help="Suppress audio noise detection error (allow noisy audio)")
 
+    parser.add_argument("--audio-stage1-only", action="store_true", default=False,
+                        help="Use stage 1 audio latent only (skip stage 2 audio refinement). "
+                             "May improve audio quality — see upstream LTX-2 issue #126.")
+
+    parser.add_argument("--audio-volume", type=float, default=None, metavar="GAIN",
+                        help="Post-process audio volume multiplier (e.g. 50 for 50x boost). "
+                             "LTX-2.3 MLX audio is ~50x too quiet; use 50 to normalize.")
+
 
 def run_generate(args):
     """Entry point for video generation."""
@@ -195,9 +203,15 @@ def _run_single(args, prompt: str) -> None:
             stg_scale=args.stg_scale,
             image=image_path,
             audio_path=audio_path,
+            audio_stage1_only=getattr(args, "audio_stage1_only", False),
         )
 
         end_time = datetime.now(timezone.utc).isoformat()
+
+        # --- Audio volume boost (LTX-2.3 MLX audio is ~50x too quiet) ---
+        audio_volume = getattr(args, "audio_volume", None)
+        if audio_volume is not None:
+            _boost_audio_volume(output_mp4, audio_volume)
 
         # --- Audio noise detection ---
         allow_noise = getattr(args, "allow_noise", False)
@@ -304,9 +318,15 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                 stg_scale=var_args.stg_scale,
                 image=args.input_image,
                 audio_path=args.audio,
+                audio_stage1_only=getattr(args, "audio_stage1_only", False),
             )
 
             end_time = datetime.now(timezone.utc).isoformat()
+
+            # --- Audio volume boost ---
+            audio_volume = getattr(args, "audio_volume", None)
+            if audio_volume is not None:
+                _boost_audio_volume(output_mp4, audio_volume)
 
             # --- Audio noise detection ---
             _check_audio_noise(output_mp4, allow_noise=allow_noise)
@@ -371,6 +391,40 @@ def _check_audio_noise(mp4_path: str, *, allow_noise: bool = False) -> None:
     """Check generated video audio for noise. Exits on detection unless suppressed."""
     from app.audio_noise_detect import check_audio_noise_or_exit
     check_audio_noise_or_exit(mp4_path, allow_noise=allow_noise)
+
+
+def _boost_audio_volume(mp4_path: str, gain: float) -> None:
+    """Post-process audio volume in-place using ffmpeg.
+
+    LTX-2.3 MLX audio is ~50x too quiet (RMS ~0.002, peak ~0.014).
+    This applies a volume gain then re-encodes the MP4 with corrected audio.
+
+    Args:
+        mp4_path: Path to the MP4 file to modify in-place.
+        gain: Volume multiplier (e.g. 50 for 50x boost).
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("[video] WARNING: ffmpeg not found, skipping audio volume boost",
+              file=sys.stderr)
+        return
+
+    tmp_path = mp4_path + ".tmp.mp4"
+    result = subprocess.run(
+        [ffmpeg, "-y", "-i", mp4_path,
+         "-af", f"volume={gain}",
+         "-c:v", "copy",
+         tmp_path],
+        capture_output=True, timeout=60,
+    )
+    if result.returncode == 0 and os.path.exists(tmp_path):
+        os.replace(tmp_path, mp4_path)
+        print(f"[video] Audio volume boosted: {gain}x")
+    else:
+        print(f"[video] WARNING: audio volume boost failed",
+              file=sys.stderr)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _override_args(args, variation_index: int, ab_params: dict | None):

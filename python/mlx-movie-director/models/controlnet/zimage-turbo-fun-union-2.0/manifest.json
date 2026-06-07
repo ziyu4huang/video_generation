@@ -1,0 +1,13 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Edit freely — this is ours, not HuggingFace.",
+  "name": "zimage-turbo-fun-union-2.0",
+  "type": "controlnet",
+  "arch": "zimage-turbo",
+  "format": "safetensors-bf16",
+  "description": "Z-Image Turbo Fun ControlNet Union 2.0 — Union-style ControlNet patch supporting pose/depth/canny/hed/scribble preprocessors via a 4-dim type indicator. 15 control layers inject residuals into the main ZImage transformer at stride-2.",
+  "source": "https://civitai.com/models/2192289/zimageturbo-controlnet-6g-vram-can-run-it?modelVersionId=2509261",
+  "pipeline": ["zimage-turbo"],
+  "compatible_with": ["transformer/zimage-moody-v126"],
+  "size_bytes": 6712485600,
+  "created_at": "2026-06-07T00:00:00Z"
+}

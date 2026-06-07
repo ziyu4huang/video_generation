@@ -220,7 +220,8 @@ class ZImageTransformerMLX(nn.Module):
         for layer in self.context_refiner: layer.attention.fuse_qkv()
         for layer in self.layers: layer.attention.fuse_qkv()
 
-    def __call__(self, x, t, cap_feats, x_pos, cap_pos, cos, sin, x_mask=None, cap_mask=None):
+    def __call__(self, x, t, cap_feats, x_pos, cap_pos, cos, sin, x_mask=None, cap_mask=None,
+                 controlnet_samples=None):
         temb = self.t_embedder(t * self.t_scale)
         x = self.x_embedder(x)
         if x_mask is not None: x = mx.where(x_mask[..., None], self.x_pad_token, x)
@@ -234,11 +235,22 @@ class ZImageTransformerMLX(nn.Module):
         for l in self.context_refiner:
             cap_feats = l(cap_feats, None, cap_pos, None, cos=cos[:, x.shape[1]:], sin=sin[:, x.shape[1]:])
 
+        x_len = x.shape[1]
         unified = mx.concatenate([x, cap_feats], axis=1)
         unified_pos = mx.concatenate([x_pos, cap_pos], axis=1)
         unified_mask = None
 
-        for l in self.layers:
+        for i, l in enumerate(self.layers):
+            # Inject ControlNet residual at stride-2: control layer i → main layer 2i
+            if controlnet_samples is not None and i % 2 == 0:
+                ctrl_idx = i // 2
+                if ctrl_idx < len(controlnet_samples):
+                    ctrl = controlnet_samples[ctrl_idx]  # [1, N_img, 3840]
+                    # Add residual only to image token portion of unified sequence
+                    unified = mx.concatenate(
+                        [unified[:, :x_len] + ctrl, unified[:, x_len:]],
+                        axis=1,
+                    )
             unified = l(unified, unified_mask, unified_pos, temb, cos=cos, sin=sin)
 
-        return self.final_layer(unified[:, :x.shape[1], :], temb)
+        return self.final_layer(unified[:, :x_len, :], temb)

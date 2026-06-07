@@ -2,7 +2,7 @@
 
 LoRA adapter for flux2-klein-9b.
 
-Source: [https://civitai.com/models/2318844/klein-9b-body-weight-slider?modelVersionId=2608738](https://civitai.com/models/2318844/klein-9b-body-weight-slider?modelVersionId=2608738)
+Source: [Klein 9B Body Weight Slider](https://civitai.com/models/2318844/klein-9b-body-weight-slider?modelVersionId=2608738)
 
 ## Files
 

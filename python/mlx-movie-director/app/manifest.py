@@ -84,6 +84,16 @@ def collect_model_fingerprint(lora_path: str | None = None,
     return models
 
 
+def collect_model_fingerprint_controlnet(lora_path: str | None = None) -> dict:
+    """Collect fingerprints for the ControlNet pipeline (ZImage + ControlNet weights)."""
+    from app import config as cfg
+
+    models = collect_model_fingerprint(lora_path=lora_path)
+    ctrl_path = os.path.join(cfg.CONTROLNET_DIR, "model.safetensors")
+    models["controlnet"] = file_fingerprint(ctrl_path)
+    return models
+
+
 def collect_model_fingerprint_flux2(upscale_model: str | None = None) -> dict:
     """Collect fingerprints for Flux2 Klein 9B model files."""
     from app import config as cfg

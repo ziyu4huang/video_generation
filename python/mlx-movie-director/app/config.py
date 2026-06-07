@@ -62,6 +62,9 @@ LTX_TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "ltx-2.3-connec
 LTX_VAE_DIR          = os.path.join(MODELS_DIR, "vae",           "ltx-2.3-vae")
 LTX_AUDIO_DIR        = os.path.join(MODELS_DIR, "audio",         "ltx-2.3-audio")
 
+# Z-Image ControlNet (Union 2.0 — supports pose/depth/canny/hed/scribble)
+CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.0")
+
 # SeedVR2 text embeddings (loaded at inference, not converted)
 SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")
 SEEDVR2_POS_EMB = os.path.join(SEEDVR2_CUSTOM_NODES, "pos_emb.pt")

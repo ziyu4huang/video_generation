@@ -53,6 +53,72 @@ def add_common_generation_args(parser):
                         help="Starting seed for batch; seeds = seed_start, seed_start+1, ...")
 
 
+def resolve_lora_path(raw: str | None) -> str | None:
+    """Resolve a --lora-path value to an absolute .safetensors file path.
+
+    Accepts:
+      1. Full path to a .safetensors file  → used as-is
+      2. Path to a directory               → find the .safetensors inside
+      3. Short name (e.g. "klein-slider-bodyweight-50")
+         → search models/lora/ for a matching subdirectory
+      4. Partial name (e.g. "klein-slider")
+         → matches if exactly one lora dir starts with it
+
+    Returns None if raw is None. Exits with error if unresolvable.
+    """
+    if raw is None:
+        return None
+
+    # Already a full path to a file
+    if os.path.isfile(raw):
+        return os.path.abspath(raw)
+
+    lora_base = os.path.join(cfg.MODELS_DIR, "lora")
+
+    # Check if it's a path to a directory (absolute or relative)
+    if os.path.isdir(raw):
+        return _find_safetensors_in_dir(raw)
+
+    # Check models/lora/<raw> as a directory name
+    candidate = os.path.join(lora_base, raw)
+    if os.path.isdir(candidate):
+        return _find_safetensors_in_dir(candidate)
+
+    # Partial name match: find dirs that start with the given prefix
+    if os.path.isdir(lora_base):
+        matches = [
+            d for d in os.listdir(lora_base)
+            if os.path.isdir(os.path.join(lora_base, d)) and d.startswith(raw)
+        ]
+        if len(matches) == 1:
+            print(f"  LoRA resolved: {raw} → {matches[0]}")
+            return _find_safetensors_in_dir(os.path.join(lora_base, matches[0]))
+        elif len(matches) > 1:
+            print(f"ERROR: ambiguous LoRA name '{raw}' matches: {', '.join(matches)}",
+                  file=sys.stderr)
+            print(f"  Use a more specific name.", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"ERROR: cannot resolve LoRA '{raw}'", file=sys.stderr)
+    print(f"  Searched: file path, models/lora/{raw}, partial match in models/lora/",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def _find_safetensors_in_dir(directory: str) -> str:
+    """Find the single .safetensors file in a directory. Exit if 0 or >1."""
+    files = [f for f in os.listdir(directory) if f.endswith(".safetensors")]
+    if len(files) == 1:
+        return os.path.abspath(os.path.join(directory, files[0]))
+    if not files:
+        print(f"ERROR: no .safetensors file found in {directory}", file=sys.stderr)
+        sys.exit(1)
+    print(f"ERROR: multiple .safetensors files in {directory}: {', '.join(files)}",
+          file=sys.stderr)
+    print(f"  Use full path to specify which one.", file=sys.stderr)
+    sys.exit(1)
+
+
 def resolve_prompt(args) -> str:
     """Read prompt from --prompt or --prompt-file. Raises ValueError if neither set."""
     prompt = getattr(args, "prompt", None)
@@ -120,7 +186,12 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
     # Instantiate the selected pipeline
     if pipeline_type == "flux2-klein":
         from app.flux2_t2i_pipeline import Flux2KleinT2IPipeline
-        pipeline = Flux2KleinT2IPipeline()
+        lora_paths = [run_config.lora_path] if run_config.lora_path else None
+        lora_scales = [run_config.lora_scale] if lora_paths else None
+        pipeline = Flux2KleinT2IPipeline(
+            lora_paths=lora_paths,
+            lora_scales=lora_scales,
+        )
     else:
         pipeline = ZImagePipeline()
 

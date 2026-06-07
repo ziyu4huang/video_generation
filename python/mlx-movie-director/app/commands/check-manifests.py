@@ -123,6 +123,7 @@ MIN_SIZE_BYTES = {
     "lora":           10_000,        # 10 KB
     "tokenizer":      1_000,         # 1 KB
     "audio":          10_000,        # 10 KB
+    "controlnet":     100_000,       # 100 KB
 }
 
 # Weight file names that count as "present" (per category flexibility)
@@ -134,7 +135,7 @@ WEIGHT_FILENAMES = [
 ]
 
 # Categories where config.json is NOT strictly required
-CONFIG_OPTIONAL = {"lora", "tokenizer", "audio"}
+CONFIG_OPTIONAL = {"lora", "tokenizer", "audio", "controlnet"}
 
 # ── MLX conversion candidate detection ───────────────────────────────
 # Formats still in PyTorch/safetensors — candidates for MLX conversion
@@ -150,6 +151,7 @@ _MLX_TARGET_FORMAT = {
     "vae":            ("mlx-bf16",      1.00),   # VAEs need full precision
     "lora":           ("mlx-8bit",      0.50),   # LoRA precision-sensitive
     "audio":          ("mlx-4bit-gs32", 0.25),   # ~4x smaller
+    "controlnet":     ("mlx-4bit-gs32", 0.25),   # ~4x smaller
 }
 
 

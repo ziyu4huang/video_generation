@@ -468,6 +468,8 @@ def _render_angle_html(results: list, elevations: list, input_path: str,
   header .meta {{ color: var(--muted); font-size: 12px; }}
   header .hint {{ color: #555; font-size: 11px; margin-top: 4px; }}
   .grid-wrap {{ overflow-x: auto; padding: 16px 20px; }}
+  .grid-wrap th {{ cursor: grab; }}
+  .grid-wrap.panning, .grid-wrap.panning * {{ cursor: grabbing !important; }}
   table {{ border-collapse: separate; border-spacing: 6px; }}
   th {{ color: var(--muted); font-size: 11px; font-weight: 600; text-align: center;
         padding: 4px 8px; white-space: nowrap; }}
@@ -540,8 +542,17 @@ def _render_angle_html(results: list, elevations: list, input_path: str,
                  font-family: inherit; padding: 6px 10px; resize: none; }}
   #lb-comment::placeholder {{ color: #555; }}
   #bottom {{ position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2);
-             border-top: 1px solid var(--border); padding: 12px 20px; z-index: 200; }}
-  #bottom .row1 {{ display: flex; gap: 10px; align-items: center; }}
+             border-top: 1px solid var(--border); z-index: 200; }}
+  #ft-bar {{ display: flex; align-items: center; gap: 12px; padding: 7px 20px;
+             cursor: pointer; user-select: none; transition: background .15s; }}
+  #ft-bar:hover {{ background: var(--bg3); }}
+  #bottom.open #ft-bar {{ border-bottom: 1px solid var(--border); }}
+  #ft-label {{ font-size: 12px; font-weight: 600; color: var(--accent); }}
+  #ft-summary {{ font-size: 12px; color: var(--muted); }}
+  #ft-arrow {{ margin-left: auto; font-size: 11px; color: var(--muted); }}
+  #feedback-content {{ display: none; padding: 10px 20px 14px; }}
+  #bottom.open #feedback-content {{ display: block; }}
+  .row1 {{ display: flex; gap: 10px; align-items: center; }}
   #notes {{ flex: 1; height: 38px; background: var(--bg3); border: 1px solid var(--border);
             border-radius: var(--radius); color: var(--text); font-size: 12px;
             font-family: inherit; padding: 6px 10px; resize: none; }}
@@ -599,18 +610,25 @@ def _render_angle_html(results: list, elevations: list, input_path: str,
   </div>
 </div>
 <div id="bottom">
-  <div class="row1">
-    <span id="selected-info">0 selected</span>
-    <textarea id="notes" placeholder="Overall notes (optional)…"></textarea>
-    <button class="btn btn-primary" onclick="showExport('text')">Export Text</button>
-    <button class="btn btn-outline" onclick="showExport('json')">Export JSON</button>
-    <button class="btn btn-outline" onclick="clearAll()">Clear All</button>
+  <div id="ft-bar" onclick="toggleFeedback()">
+    <span id="ft-label">Feedback</span>
+    <span id="ft-summary">0 selected</span>
+    <span id="ft-arrow">▲</span>
   </div>
-  <div id="output-panel">
-    <textarea id="output-text" readonly></textarea>
-    <div class="copy-row">
-      <button class="btn btn-outline" onclick="copyOutput()">Copy</button>
-      <span class="copy-status" id="copy-status">Copied!</span>
+  <div id="feedback-content">
+    <div class="row1">
+      <span id="selected-info">0 selected</span>
+      <textarea id="notes" placeholder="Overall notes (optional)…"></textarea>
+      <button class="btn btn-primary" onclick="showExport('text')">Export Text</button>
+      <button class="btn btn-outline" onclick="showExport('json')">Export JSON</button>
+      <button class="btn btn-outline" onclick="clearAll()">Clear All</button>
+    </div>
+    <div id="output-panel">
+      <textarea id="output-text" readonly></textarea>
+      <div class="copy-row">
+        <button class="btn btn-outline" onclick="copyOutput()">Copy</button>
+        <span class="copy-status" id="copy-status">Copied!</span>
+      </div>
     </div>
   </div>
 </div>
@@ -799,6 +817,13 @@ function updateInfo() {{
   let info = nSel===0?'0 selected':nSel+' selected';
   if (nRated>0) info += ' · '+nRated+' rated';
   document.getElementById('selected-info').textContent = info;
+  document.getElementById('ft-summary').textContent = info;
+}}
+
+function toggleFeedback() {{
+  const bottom = document.getElementById('bottom');
+  bottom.classList.toggle('open');
+  document.getElementById('ft-arrow').textContent = bottom.classList.contains('open') ? '▼' : '▲';
 }}
 
 function clearAll() {{
@@ -902,6 +927,10 @@ function showExport(format) {{
   }}
   document.getElementById('output-text').value=output;
   document.getElementById('output-panel').classList.add('visible');
+  const bottom=document.getElementById('bottom');
+  if (!bottom.classList.contains('open')) {{
+    bottom.classList.add('open'); document.getElementById('ft-arrow').textContent='▼';
+  }}
 }}
 
 function copyOutput() {{
@@ -909,6 +938,23 @@ function copyOutput() {{
     const s=document.getElementById('copy-status'); s.classList.add('show'); setTimeout(()=>s.classList.remove('show'),2000);
   }});
 }}
+
+(function() {{
+  let drag=false, sx, sl;
+  const wrap = document.querySelector('.grid-wrap');
+  wrap.addEventListener('mousedown', e => {{
+    if (e.button!==0) return;
+    if (e.target.closest('.cell')) return;
+    drag=true; sx=e.clientX; sl=wrap.scrollLeft;
+    wrap.classList.add('panning'); e.preventDefault();
+  }});
+  document.addEventListener('mousemove', e => {{
+    if (!drag) return; wrap.scrollLeft = sl-(e.clientX-sx);
+  }});
+  document.addEventListener('mouseup', () => {{
+    if (!drag) return; drag=false; wrap.classList.remove('panning');
+  }});
+}})();
 
 buildGrid();
 </script>

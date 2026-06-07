@@ -80,6 +80,7 @@ class RunConfig:
     @classmethod
     def from_args(cls, args, command: str = "generate") -> "RunConfig":
         """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
+        from app.commands._shared import resolve_lora_path
         return cls(
             schema_version=SCHEMA_VERSION,
             command=command,
@@ -90,7 +91,7 @@ class RunConfig:
             height=getattr(args, "height", 960),
             steps=getattr(args, "steps", 9),
             seed=getattr(args, "seed", 42),
-            lora_path=getattr(args, "lora_path", None),
+            lora_path=resolve_lora_path(getattr(args, "lora_path", None)),
             lora_scale=getattr(args, "lora_scale", 1.0),
             input_image=getattr(args, "input_image", None),
             latent_upscale=getattr(args, "latent_upscale", 1.0),

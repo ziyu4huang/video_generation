@@ -57,6 +57,10 @@ def run_angle(args):
     steps = args.steps if args.steps is not None else _ANGLE_DEFAULT_STEPS
     seed = args.seed % (2 ** 32)
 
+    # Apply defaults for shared args (t2i sets these too, but angle may run alone)
+    width = args.width if args.width is not None else 640
+    height = args.height if args.height is not None else 960
+
     angle_text = _angle_to_text(args.azimuth, args.elevation)
     user_prompt = getattr(args, "prompt", None)
     if getattr(args, "prompt_file", None):
@@ -67,7 +71,7 @@ def run_angle(args):
     print(f"Input:  {args.input}")
     print(f"Angle:  azimuth={args.azimuth}°  elevation={args.elevation}°  → \"{angle_text}\"")
     print(f"Prompt: {prompt}")
-    print(f"Size:   {args.width}×{args.height}  steps={steps}  seed={seed}")
+    print(f"Size:   {width}×{height}  steps={steps}  seed={seed}")
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     base_name = f"image_angle_{time.strftime('%Y%m%d_%H%M%S')}"
@@ -82,8 +86,8 @@ def run_angle(args):
         "elevation": args.elevation,
         "angle_text": angle_text,
         "prompt": prompt,
-        "width": args.width,
-        "height": args.height,
+        "width": width,
+        "height": height,
         "steps": steps,
         "seed": seed,
         "variant": getattr(args, "variant", "9b"),
@@ -123,8 +127,8 @@ def run_angle(args):
                 seed=item_seed,
                 prompt=prompt,
                 reference_images=[args.input],
-                width=args.width,
-                height=args.height,
+                width=width,
+                height=height,
                 steps=steps,
             )
 
