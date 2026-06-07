@@ -194,10 +194,8 @@ class LTXVideoPipeline:
             stg_scale=stg_scale,
             image=image,
         )
-        if stage1_steps is not None:
-            kwargs["stage1_steps"] = stage1_steps
-        if stage2_steps is not None:
-            kwargs["stage2_steps"] = stage2_steps
+        kwargs["stage1_steps"] = stage1_steps
+        kwargs["stage2_steps"] = stage2_steps
         if audio_path is not None:
             kwargs["audio_path"] = audio_path
         if audio_stage1_only:

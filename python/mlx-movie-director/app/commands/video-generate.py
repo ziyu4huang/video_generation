@@ -52,10 +52,10 @@ def add_generate_args(parser):
                         help="Classifier-free guidance scale (default: 5.0)")
     parser.add_argument("--stg-scale", type=float, default=1.0, dest="stg_scale",
                         help="Spatial-temporal guidance scale (default: 1.0)")
-    parser.add_argument("--stage1-steps", type=int, default=None,
-                        help="Stage 1 denoising steps (default: pipeline default ~30)")
-    parser.add_argument("--stage2-steps", type=int, default=None,
-                        help="Stage 2 refinement steps (default: pipeline default ~3)")
+    parser.add_argument("--stage1-steps", type=int, default=12,
+                        help="Stage 1 denoising steps (default: 12)")
+    parser.add_argument("--stage2-steps", type=int, default=3,
+                        help="Stage 2 refinement steps (default: 3)")
 
     parser.add_argument("--low-ram", action="store_true", default=False,
                         help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
@@ -469,7 +469,7 @@ def _apply_prompt_defaults(args, defaults: dict) -> None:
     _ARGPARSE_DEFAULTS = {
         "frames": 97, "width": 704, "height": 480,
         "fps": 24.0, "cfg_scale": 5.0, "stg_scale": 1.0,
-        "stage1_steps": None, "stage2_steps": None,
+        "stage1_steps": 12, "stage2_steps": 3,
     }
     for prompt_key, value in defaults.items():
         if prompt_key in _ARGPARSE_DEFAULTS:
