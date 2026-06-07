@@ -86,9 +86,9 @@ def add_generate_args(parser):
                         help="Use stage 1 audio latent only (skip stage 2 audio refinement). "
                              "May improve audio quality — see upstream LTX-2 issue #126.")
 
-    parser.add_argument("--audio-volume", type=float, default=None, metavar="GAIN",
-                        help="Post-process audio volume multiplier (e.g. 50 for 50x boost). "
-                             "LTX-2.3 MLX audio is ~50x too quiet; use 50 to normalize.")
+    parser.add_argument("--audio-volume", type=float, default=50.0, metavar="GAIN",
+                        help="Post-process audio volume multiplier (default: 50). "
+                             "LTX-2.3 MLX audio is ~50x too quiet. Use 1 to disable.")
 
     parser.add_argument("--audio-cfg-scale", type=float, default=None, metavar="SCALE",
                         help="Audio CFG guidance scale (default: 7.0, upstream hardcoded). "
@@ -214,8 +214,9 @@ def _run_single(args, prompt: str) -> None:
         end_time = datetime.now(timezone.utc).isoformat()
 
         # --- Audio volume boost (LTX-2.3 MLX audio is ~50x too quiet) ---
+        # Skip for A2V mode: upstream pipeline uses original input audio at normal volume.
         audio_volume = getattr(args, "audio_volume", None)
-        if audio_volume is not None:
+        if audio_volume is not None and audio_volume != 1.0 and not audio_path:
             _boost_audio_volume(output_mp4, audio_volume)
 
         # --- Audio noise detection ---
@@ -326,13 +327,14 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                 image=args.input_image,
                 audio_path=args.audio,
                 audio_stage1_only=getattr(args, "audio_stage1_only", False),
+                audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
             )
 
             end_time = datetime.now(timezone.utc).isoformat()
 
             # --- Audio volume boost ---
             audio_volume = getattr(args, "audio_volume", None)
-            if audio_volume is not None:
+            if audio_volume is not None and audio_volume != 1.0 and not args.audio:
                 _boost_audio_volume(output_mp4, audio_volume)
 
             # --- Audio noise detection ---
@@ -404,7 +406,8 @@ def _boost_audio_volume(mp4_path: str, gain: float) -> None:
     """Post-process audio volume in-place using ffmpeg.
 
     LTX-2.3 MLX audio is ~50x too quiet (RMS ~0.002, peak ~0.014).
-    This applies a volume gain then re-encodes the MP4 with corrected audio.
+    This applies a volume gain with limiter then re-encodes the MP4 with
+    corrected audio.
 
     Args:
         mp4_path: Path to the MP4 file to modify in-place.
@@ -419,7 +422,7 @@ def _boost_audio_volume(mp4_path: str, gain: float) -> None:
     tmp_path = mp4_path + ".tmp.mp4"
     result = subprocess.run(
         [ffmpeg, "-y", "-i", mp4_path,
-         "-af", f"volume={gain}",
+         "-af", f"volume={gain},alimiter=limit=0.95",
          "-c:v", "copy",
          tmp_path],
         capture_output=True, timeout=60,
@@ -466,6 +469,7 @@ def _apply_prompt_defaults(args, defaults: dict) -> None:
     _ARGPARSE_DEFAULTS = {
         "frames": 97, "width": 704, "height": 480,
         "fps": 24.0, "cfg_scale": 5.0, "stg_scale": 1.0,
+        "stage1_steps": None, "stage2_steps": None,
     }
     for prompt_key, value in defaults.items():
         if prompt_key in _ARGPARSE_DEFAULTS:
