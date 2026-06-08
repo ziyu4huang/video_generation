@@ -69,6 +69,8 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .params td { padding: 1px 0; vertical-align: top; }
 .params td:first-child { color: var(--muted); width: 48%; padding-right: 6px; }
 .params td.diff { color: var(--gold); font-weight: 600; }
+.params .mode-row td { font-weight: 600; color: var(--text); }
+.params .mode-row td:first-child { color: var(--muted); font-weight: normal; }
 
 .timing { padding: 5px 12px; border-bottom: 1px solid var(--border);
           font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
@@ -289,10 +291,20 @@ function makeCard(t, i) {
   }
 
   // params (diff vs test[0])
+  const KEY_LABELS = {
+    mode: 'mode', cfg_scale: 'cfg', stg_scale: 'stg',
+    stage1_steps: 's1 steps', stage2_steps: 's2 steps',
+    seed: 'seed', width: 'w', height: 'h', frames: 'frames', fps: 'fps',
+    lora_scale: 'lora', denoise_strength: 'denoise',
+    low_ram: 'low-ram', distilled: 'distilled', hq: 'hq',
+    teacache: 'teacache', temporal_upscale: 'temporal↑', steps: 'steps',
+  };
   const ref = TESTS[0].params || {};
   const rows = Object.entries(t.params || {}).map(([k, v]) => {
     const isDiff = i > 0 && JSON.stringify(ref[k]) !== JSON.stringify(v);
-    return \`<tr><td>\${k}</td><td class="\${isDiff ? 'diff' : ''}">\${v}</td></tr>\`;
+    const isModeRow = k === 'mode';
+    const label = KEY_LABELS[k] || k.replace(/_/g, ' ');
+    return \`<tr\${isModeRow ? ' class="mode-row"' : ''}><td>\${label}</td><td class="\${isDiff ? 'diff' : ''}">\${v}</td></tr>\`;
   }).join('');
   card.appendChild(el('div', 'params', \`<table>\${rows}</table>\`));
 

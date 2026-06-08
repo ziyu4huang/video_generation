@@ -27,7 +27,10 @@ def add_angle_args(parser):
         "--input",
         metavar="IMAGE",
         default=None,
-        help="Reference image path (required for 'angle' sub-action)",
+        help="Reference image path. Required for 'angle' sub-action. "
+             "For T2I: provides visual anchor for image-conditioned generation — "
+             "use with same seed + different prompt to generate FLF2V keyframe pairs "
+             "with consistent background.",
     )
     parser.add_argument(
         "--azimuth",
@@ -112,6 +115,7 @@ def run_angle(args):
         model_path=getattr(args, "flux2_model_path", None),
         quantize=getattr(args, "quantize", None),
         variant=getattr(args, "variant", "9b"),
+        transformer_name=getattr(args, "transformer", "klein-9b"),
     )
 
     try:

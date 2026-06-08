@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 10
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -26,6 +26,7 @@ class RunConfig:
 
     # Pipeline selection
     pipeline: str = "zimage"            # "zimage" or "flux2-klein"
+    transformer: str = "klein-9b"       # Transformer instance dir under models/transformer/
 
     # Prompt
     prompt: str | None = None
@@ -39,8 +40,10 @@ class RunConfig:
     lora_path: str | None = None
     lora_scale: float = 1.0
 
-    # img2img / refine
-    input_image: str | None = None
+    # img2img / refine / FLF2V keyframe reference
+    input_image: str | None = None   # Reference image for: I2V conditioning (video),
+                                     # T2I visual anchor (image), FLF2V keyframe background
+                                     # consistency (use same seed + different prompt)
     latent_upscale: float = 1.0
     denoise_strength: float = 1.0
 
@@ -63,6 +66,22 @@ class RunConfig:
     audio: str | None = None
     stage1_steps: int | None = None
     stage2_steps: int | None = None
+    hq: bool = False
+    teacache: bool = False
+    teacache_thresh: float | None = None
+    enhance_prompt: bool = False
+
+    # FLF2V (First-Last Frame to Video / 首尾帧视频生成)
+    begin_image: str | None = None
+    end_image: str | None = None
+    begin_strength: float = 1.0
+    end_strength: float = 1.0
+
+    # Distilled mode (faster generation: 8 steps, CFG=1)
+    distilled: bool = False
+
+    # Temporal upscaling (F → 2F-1 frames after Stage 2, before VAE decode)
+    temporal_upscale: bool = False
 
     # Future: ControlNet / animate
     control_image: str | None = None
@@ -81,10 +100,11 @@ class RunConfig:
     def from_args(cls, args, command: str = "generate") -> "RunConfig":
         """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
         from app.commands._shared import resolve_lora_path
-        return cls(
+        rc = cls(
             schema_version=SCHEMA_VERSION,
             command=command,
             pipeline=getattr(args, "pipeline", "zimage"),
+            transformer=getattr(args, "transformer", "klein-9b"),
             prompt=getattr(args, "prompt", None),
             prompt_file=getattr(args, "prompt_file", None),
             width=getattr(args, "width", 640),
@@ -110,12 +130,27 @@ class RunConfig:
             audio=getattr(args, "audio", None),
             stage1_steps=getattr(args, "stage1_steps", None),
             stage2_steps=getattr(args, "stage2_steps", None),
+            hq=getattr(args, "hq", False),
+            teacache=getattr(args, "teacache", False),
+            teacache_thresh=getattr(args, "teacache_thresh", None),
+            enhance_prompt=getattr(args, "enhance_prompt", False),
+            begin_image=getattr(args, "begin_image", None),
+            end_image=getattr(args, "end_image", None),
+            begin_strength=getattr(args, "begin_strength", 1.0),
+            end_strength=getattr(args, "end_strength", 1.0),
+            distilled=getattr(args, "distilled", False),
+            temporal_upscale=getattr(args, "temporal_upscale", False),
             control_image=getattr(args, "control_image", None),
             control_type=getattr(args, "control_type", None),
             control_strength=getattr(args, "control_strength", None),
             variation_index=getattr(args, "variation_index", None),
             ab_params=getattr(args, "ab_params_json", None),
         )
+        # Inline prompt-file content so run.json is self-contained
+        if rc.prompt_file and not rc.prompt:
+            with open(rc.prompt_file, "r") as f:
+                rc.prompt = f.read().strip()
+        return rc
 
     @classmethod
     def from_json(cls, path: str) -> "RunConfig":
@@ -206,5 +241,35 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("ab_params", None)
         raw["schema_version"] = 6
         version = 6
+
+    if version == 6:
+        # v6 → v7: add HQ pipeline, TeaCache, prompt enhancement fields
+        raw.setdefault("hq", False)
+        raw.setdefault("teacache", False)
+        raw.setdefault("teacache_thresh", None)
+        raw.setdefault("enhance_prompt", False)
+        raw["schema_version"] = 7
+        version = 7
+
+    if version == 7:
+        # v7 → v8: add FLF2V (First-Last Frame to Video) fields
+        raw.setdefault("begin_image", None)
+        raw.setdefault("end_image", None)
+        raw.setdefault("begin_strength", 1.0)
+        raw.setdefault("end_strength", 1.0)
+        raw["schema_version"] = 8
+        version = 8
+
+    if version == 8:
+        # v8 → v9: add distilled mode flag
+        raw.setdefault("distilled", False)
+        raw["schema_version"] = 9
+        version = 9
+
+    if version == 9:
+        # v9 → v10: add temporal upscaling flag
+        raw.setdefault("temporal_upscale", False)
+        raw["schema_version"] = 10
+        version = 10
 
     return raw

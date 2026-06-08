@@ -22,8 +22,14 @@ COMPONENT_FILES = {
         "split_model.json",
         "quantize_config.json",
     ]),
+    "transformer-distilled": (cfg.LTX_DISTILLED_TRANSFORMER_DIR, [
+        "transformer-distilled-1.1.safetensors",
+        "split_model.json",
+        "quantize_config.json",
+    ]),
     "lora": (cfg.LTX_LORA_DIR, [
         "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
     ]),
     "text_encoder": (cfg.LTX_TEXT_ENCODER_DIR, [
         "connector.safetensors",
@@ -34,6 +40,11 @@ COMPONENT_FILES = {
         "vae_encoder.safetensors",
         "vae_decoder.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors",
+        "spatial_upscaler_x2_v1_1_config.json",
+        "spatial_upscaler_x1_5_v1_0.safetensors",
+        "spatial_upscaler_x1_5_v1_0_config.json",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "temporal_upscaler_x2_v1_0_config.json",
     ]),
     "audio": (cfg.LTX_AUDIO_DIR, [
         "audio_vae.safetensors",
@@ -47,6 +58,10 @@ OPTIONAL_FILES = {
     "config.json",
     "embedded_config.json",
     "spatial_upscaler_x2_v1_1.safetensors",
+    "spatial_upscaler_x1_5_v1_0.safetensors",
+    "spatial_upscaler_x1_5_v1_0_config.json",
+    "temporal_upscaler_x2_v1_0.safetensors",
+    "temporal_upscaler_x2_v1_0_config.json",
 }
 
 
@@ -74,7 +89,6 @@ def download_component(component: str, dest_dir: str, filenames: list[str],
                 repo_id=HF_REPO,
                 filename=fname,
                 local_dir=dest_dir,
-                local_dir_use_symlinks=False,
             )
             size_mb = os.path.getsize(dest_path) / 1024**2
             print(f" done ({size_mb:.1f} MB)")

@@ -56,6 +56,46 @@ The two-stage design separates **structure** from **detail**:
 2. **Audio entanglement**: Audio is generated jointly with video — it's not a separate pass. The audio latent emerges from the same transformer that produces video.
 3. **Quality**: Single-pass generation at full resolution with 30+ steps is extremely expensive. Two stages achieve similar quality in less total compute.
 
+### Two-Stage Resolution Math
+
+Understanding the exact dimension flow prevents unexpected output sizes and RoPE shape mismatches.
+
+**Concrete example** — `--width 704 --height 480 --frames 25`:
+
+| Stage | Operation | Latent shape | Pixel equivalent |
+|-------|-----------|-------------|-----------------|
+| Input | CLI target | — | 704 × 480 |
+| **Stage 1** | `half_h = height // 2 = 240`; `H_half = 240 // 32 = 7` | `(F=4, H=7, W=11)` | 352 × 224 |
+| **spatial_upscaler_x2** | `H_full = H_half * 2 = 14` | `(F=4, H=14, W=22)` | 704 × 448 |
+| **Stage 2** | Refine at upscaled dims | `(F=4, H=14, W=22)` | 704 × 448 |
+| VAE decode | `(F-1)*8+1 = 25` pixel frames | — | 704 × 448 |
+
+> **Output height ≠ requested height (448 ≠ 480)** because `height // 2 // 32 * 2 * 32 = 448`. The vendor derives Stage 2 dims from `H_half * 2` rather than from `compute_video_latent_shape(height)` to avoid RoPE shape mismatch.
+>
+> For exact dimension preservation, use heights **divisible by 64**: 448, 512, 576, 640, 704, 768, … The default 480 is NOT divisible by 64 (480/64 = 7.5).
+>
+> `--width 704 --height 448` is the nearest standard size that round-trips perfectly.
+
+**When does `spatial_upscaler_x2` run?**
+
+Exactly once, between Stage 1 and Stage 2 (`ti2vid_two_stages.py:464`):
+
+```python
+# After Stage 1 denoise loop completes:
+video_mlx = video_half.transpose(0,2,3,4,1)          # BCFHW → BFHWC
+video_denorm = vae_encoder.denormalize_latent(video_mlx)  # required: upsampler needs raw latent space
+video_denorm = video_denorm.transpose(0,4,1,2,3)      # BFHWC → BCFHW
+video_upscaled = self.upsampler(video_denorm)         # (B,128,F,H_half,W_half) → (B,128,F,H_half*2,W_half*2)
+video_up_mlx = video_upscaled.transpose(0,2,3,4,1)
+video_upscaled = vae_encoder.normalize_latent(video_up_mlx)  # renorm for Stage 2
+```
+
+The denorm/renorm sandwich is critical — the neural upsampler was trained on raw (un-normalized) latents. Without it, Stage 2 produces severe grid artifacts.
+
+**Temporal upscaler** (`--temporal-upscale`) runs *after* `generate_two_stage()` returns but *before* VAE decode — see [`vendor/ltx-2-mlx.README.md`](../vendor/ltx-2-mlx.README.md#temporal-upscaler2x-時間軸上採樣) for details.
+
+---
+
 ### The `audio_stage1_only` Option
 
 Stage 2's audio refinement sometimes degrades quality instead of improving it. The `--audio-stage1-only` flag captures the stage-1 audio latent before stage-2 overwrites it:
@@ -179,6 +219,26 @@ Transformer (48 blocks, joint audio+video attention)
 | `modality_scale` | 3.0 | 3.0 | Same |
 | `stg_blocks` | [28] | [28] | Block index for STG |
 | Token dimensions | 4096 (32 heads × 128) | 2048 (32 heads × 64) | Audio is half video dim |
+
+#### How cfg_scale Works
+
+`cfg_scale` controls **text prompt guidance only** — it does not affect spatial conditioning (I2V reference frames, FLF2V keyframes). The guider applies:
+
+```
+pred = cond + (cfg_scale - 1) * (cond - uncond_text)
+```
+
+- `cond` = conditioned prediction (includes text + any image/keyframe conditioning)
+- `uncond_text` = unconditioned prediction (no text)
+- The difference is scaled by `(cfg_scale - 1)` and added back
+
+**Higher cfg_scale** → model follows the text prompt more aggressively. **Lower cfg_scale** → softer text influence, more model-driven output.
+
+- For **T2V/I2V**: cfg_scale=5.0 (default) provides strong text adherence
+- For **FLF2V**: cfg_scale=3.0 — lower is better because keyframes already anchor the output; high CFG fights the natural interpolation path
+- For **distilled mode**: cfg_scale=1.0 (auto-set) — distilled model doesn't benefit from CFG
+
+Audio CFG is hardcoded at 7.0 and is not affected by `--cfg-scale`.
 | Audio tokens/sec | — | ~25 | `round(frames/fps * 25)` |
 
 ---
@@ -309,9 +369,9 @@ MLX speech is ~60% intelligible vs near-perfect in PyTorch. The root cause is **
 - Consecutive layer cosine similarity: 0.964–0.999 (healthy)
 - Connector output: video_embeds std=1.0, audio_embeds std=1.0
 
-The Acelogic fork's "Gemma RoPE fix" was needed because they wrote their own Gemma implementation from scratch. Our pipeline uses mlx-lm which handles this out of the box.
+The Acelogic fork's "Gemma RoPE fix" was needed because they wrote their own Gemma implementation from scratch. Our pipeline uses mlx-lm which handles this out of the box. ([See vendor/ltx-2-mlx-acelogic.README.md for full comparison](../vendor/ltx-2-mlx-acelogic.README.md))
 
-**Acelogic §7 confirmed:** "Exported ComfyUI text embeddings → fed to MLX pipeline → still no clear speech" — proves the text encoder is not the bottleneck.
+**Acelogic §7 confirmed** ([`vendor/ltx-2-mlx-acelogic/AUDIO_ISSUES.md`](../vendor/ltx-2-mlx-acelogic/AUDIO_ISSUES.md)): "Exported ComfyUI text embeddings → fed to MLX pipeline → still no clear speech" — proves the text encoder is not the bottleneck.
 
 **Remaining investigation areas:**
 - Duration-dependent amplitude (10s clips 5× quieter than 5s)
@@ -324,7 +384,18 @@ See [`docs/ltx-voice.md`](ltx-voice.md) §5 for full investigation details.
 
 ## Related Docs
 
+- [`docs/flf2v-ltx2.3.md`](flf2v-ltx2.3.md) — FLF2V design, dimension decision from reference images, benchmarks
 - [`docs/ltx-voice.md`](ltx-voice.md) — Full audio investigation, A/B tests, bug details
 - [`docs/models.md`](models.md) — Model directory layout and conversion
 - [`app/vendor_patches.py`](../app/vendor_patches.py) — All 6 monkey-patches with inline docs
 - [`app/ltx_pipeline.py`](../app/ltx_pipeline.py) — Pipeline wrapper (model loading, symlink assembly)
+- [`vendor/ltx-2-mlx.README.md`](../vendor/ltx-2-mlx.README.md) — Vendor submodule overview, pipeline matrix, temporal upscaler
+
+### Vendor Submodules
+
+| Submodule | Path | Purpose | README |
+|-----------|------|---------|--------|
+| **dgrauet/ltx-2-mlx** | [`vendor/ltx-2-mlx/`](../vendor/ltx-2-mlx/) | **Active** — imported by pipeline at runtime | [`vendor/ltx-2-mlx.README.md`](../vendor/ltx-2-mlx.README.md) |
+| dgrauet/ltx-2-mlx (reference) | [`vendor/ltx-2-mlx-dgrauet/`](../vendor/ltx-2-mlx-dgrauet/) | Read-only snapshot for comparison | [`vendor/ltx-2-mlx-dgrauet.README.md`](../vendor/ltx-2-mlx-dgrauet.README.md) |
+| **Acelogic/LTX-2-MLX** | [`vendor/ltx-2-mlx-acelogic/`](../vendor/ltx-2-mlx-acelogic/) | Reference — audio debugging, text encoder comparison | [`vendor/ltx-2-mlx-acelogic.README.md`](../vendor/ltx-2-mlx-acelogic.README.md) |
+| pcuenq/mflux | [`vendor/mflux/`](../vendor/mflux/) | Flux2 Klein / Z-Image pipelines | [`vendor/mflux.README.md`](../vendor/mflux.README.md) |

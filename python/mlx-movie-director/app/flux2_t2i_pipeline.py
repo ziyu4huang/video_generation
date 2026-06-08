@@ -46,6 +46,7 @@ class Flux2KleinT2IPipeline:
         model_path: str | None = None,
         quantize: int | None = None,
         variant: str = "9b",
+        transformer_name: str = "klein-9b",
         lora_paths: list[str] | None = None,
         lora_scales: list[float] | None = None,
     ):
@@ -56,6 +57,8 @@ class Flux2KleinT2IPipeline:
             quantize:   None / 4 / 8.  Not needed when local pre-quantized model exists.
                         8 is recommended for HF auto-download on Apple Silicon.
             variant:    "4b" or "9b" — selects Flux2 Klein architecture size.
+            transformer_name: Instance directory under models/transformer/ (default: klein-9b).
+                              Use to select a specific checkpoint variant, e.g. "klein-9b-dark-beast-bfs".
             lora_paths: Optional list of LoRA .safetensors file paths to apply.
             lora_scales: Optional list of scale factors (one per lora_path).
         """
@@ -64,8 +67,9 @@ class Flux2KleinT2IPipeline:
 
         if variant == "9b":
             model_config = ModelConfig.flux2_klein_9b()
+            transformer_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
             local_dirs = {
-                "transformer":  cfg.KLEIN_9B_TRANSFORMER_DIR,
+                "transformer":  transformer_dir,
                 "text_encoder": cfg.KLEIN_9B_TEXT_ENCODER_DIR,
                 "vae":          cfg.KLEIN_9B_VAE_DIR,
                 "tokenizer":    cfg.KLEIN_9B_TOKENIZER_DIR,
@@ -88,7 +92,7 @@ class Flux2KleinT2IPipeline:
                 os.symlink(src, os.path.join(assembly_dir, name))
             resolved_path = assembly_dir
             effective_quantize = None  # pre-quantized on disk
-            print(f"[Flux2KleinT2I] Using local pre-quantized INT8 ({variant})")
+            print(f"[Flux2KleinT2I] Using local pre-quantized INT8 ({transformer_name})")
         else:
             source = resolved_path or "HF auto-download"
             print(f"[Flux2KleinT2I] Loading Klein {variant.upper()} "

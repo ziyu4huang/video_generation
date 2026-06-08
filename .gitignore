@@ -56,3 +56,6 @@ patches/comfyui_data/
 
 # Playwright snapshots (top-level *.png)
 /*.png
+
+# Claude Code session files
+.claude/scheduled_tasks.lock

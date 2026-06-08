@@ -1,0 +1,22 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "singularity-omnicine-v1",
+  "type": "lora",
+  "arch": "ltx-2.3",
+  "format": "safetensors-bf16",
+  "description": "Singularity OmniCine V1 — quality enhancement LoRA: fixes anatomy, enables cinematic cuts, improves physics",
+  "source": "WarmBloodAban/Singularity-LTX-2.3_OmniCine_V1",
+  "compatible_with": [
+    "transformer/ltx-2.3-dev-q8"
+  ],
+  "size_bytes": 2695584680,
+  "created_at": "2026-06-08T11:59:46Z",
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "source_url": "https://huggingface.co/WarmBloodAban/Singularity-LTX-2.3_OmniCine_V1",
+  "trigger_words": [
+    "omnicine",
+    "singularity"
+  ]
+}

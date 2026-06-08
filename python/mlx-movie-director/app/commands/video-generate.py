@@ -1,4 +1,26 @@
-"""video-generate — LTX-2.3 22B video generation (T2V, I2V, A2V) on Apple Silicon.
+"""video-generate — LTX-2.3 22B video generation (T2V, I2V, A2V, FLF2V) on Apple Silicon.
+
+Modes:
+  T2V   — text-to-video (--prompt only)
+  I2V   — image-to-video (--input-image + --prompt)
+  A2V   — audio-to-video (--audio + --prompt)
+  FLF2V — first-last-frame interpolation (--begin-image + --end-image + --prompt)
+
+FLF2V keyframe generation best practice (proven across 6 experiments):
+  1. Generate begin frame: same seed, free generation
+  2. Generate end frame:   same seed, DIFFERENT prompt (pose/expression),
+                            --input <begin_frame> (background consistency)
+  3. Run FLF2V:            cfg_scale auto-set to 3.0 (not 5.0)
+
+CFG mechanism:
+  cfg_scale controls TEXT GUIDANCE ONLY. It does not affect keyframe enforcement.
+  Keyframes are preserved deterministically via denoise_mask=0.0 — lowering
+  cfg_scale never risks "not reaching the end frame", it only changes how
+  smoothly the model interpolates between keyframes.
+
+  - cfg_scale=5.0: aggressive text guidance → jump cuts (T2V/I2V default)
+  - cfg_scale=3.0: soft guidance → smooth interpolation (FLF2V optimal)
+  - cfg_scale=1.0: no text guidance → model-driven (distilled mode)
 
 Extracted from video.py as the "generate" sub-action module.
 Exports: add_generate_args(), run_generate().
@@ -33,9 +55,9 @@ def add_generate_args(parser):
                             help="Built-in test prompt (choices: %(choices)s)")
 
     parser.add_argument("--width", type=int, default=704,
-                        help="Video width — auto-adjusted to nearest multiple of 32 (default: 704)")
-    parser.add_argument("--height", type=int, default=480,
-                        help="Video height — auto-adjusted to nearest multiple of 32 (default: 480)")
+                        help="Video width — auto-adjusted to nearest multiple of 64 (default: 704)")
+    parser.add_argument("--height", type=int, default=448,
+                        help="Video height — auto-adjusted to nearest multiple of 64 (default: 448)")
     parser.add_argument("--frames", type=int, default=97,
                         help="Number of frames — auto-adjusted to nearest 8k+1 (default: 97)")
     parser.add_argument("--fps", type=float, default=24.0,
@@ -46,19 +68,58 @@ def add_generate_args(parser):
     parser.add_argument("--audio", type=str, default=None, metavar="PATH",
                         help="Audio file for A2V mode (.wav/.mp3, optional)")
 
+    # FLF2V (First-Last Frame to Video / 首尾帧视频生成)
+    flf2v_grp = parser.add_argument_group(
+        "FLF2V (First-Last Frame to Video)",
+        description=(
+            "Interpolate between begin/end keyframe images. Keyframes are enforced "
+            "deterministically via denoise_mask (not CFG) — the model always reaches "
+            "the end frame regardless of cfg_scale. "
+            "Best practice: generate keyframes with same seed + different prompt + --input "
+            "reference for background consistency. See module docstring for details."
+        ))
+    flf2v_grp.add_argument("--begin-image", type=str, default=None, metavar="PATH",
+                           help="Begin frame image for FLF2V mode (requires --end-image)")
+    flf2v_grp.add_argument("--end-image", type=str, default=None, metavar="PATH",
+                           help="End frame image for FLF2V mode (requires --begin-image)")
+    flf2v_grp.add_argument("--begin-strength", type=float, default=1.0,
+                           help="Begin frame conditioning strength 0-1 (default: 1.0). "
+                                "Controls how strictly the model matches the begin frame. "
+                                "Lower values allow more creative motion freedom.")
+    flf2v_grp.add_argument("--end-strength", type=float, default=1.0,
+                           help="End frame conditioning strength 0-1 (default: 1.0). "
+                                "Controls how strictly the model matches the end frame. "
+                                "Lower values allow more motion freedom near the end.")
+
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
     parser.add_argument("--cfg-scale", type=float, default=5.0, dest="cfg_scale",
-                        help="Classifier-free guidance scale (default: 5.0)")
+                        help="Text guidance scale. Controls how strongly the model follows "
+                             "the text prompt. Does NOT affect keyframe enforcement (FLF2V) "
+                             "or image conditioning (I2V) — those use a separate mechanism. "
+                             "Auto-set: 3.0 for FLF2V, 1.0 for --distilled. (default: 5.0)")
     parser.add_argument("--stg-scale", type=float, default=1.0, dest="stg_scale",
                         help="Spatial-temporal guidance scale (default: 1.0)")
-    parser.add_argument("--stage1-steps", type=int, default=6,
-                        help="Stage 1 denoising steps (default: 6)")
-    parser.add_argument("--stage2-steps", type=int, default=3,
+    parser.add_argument("--stage1-steps", type=int, default=None,
+                        help="Stage 1 denoising steps (default: 8 standard/distilled, "
+                             "15 for --hq, 20 for FLF2V). Use 30 for max quality — slower on MPS.")
+    parser.add_argument("--stage2-steps", type=int, default=None,
                         help="Stage 2 refinement steps (default: 3)")
 
     parser.add_argument("--low-ram", action="store_true", default=False,
                         help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
+    parser.add_argument("--hq", action="store_true", default=False,
+                        help="Use HQ pipeline with res_2s second-order sampler — higher quality, "
+                             "~2× slower per step. Default stage1_steps becomes 15.")
+    parser.add_argument("--distilled", action="store_true", default=False,
+                        help="Use distilled transformer (8 steps, CFG=1) — faster generation, "
+                             "no LoRA stage. Auto-sets stage1_steps=8, cfg_scale=1.0.")
+    parser.add_argument("--teacache", action="store_true", default=False,
+                        help="Enable TeaCache timestep-aware caching — ~1.46× speedup "
+                             "with minimal quality loss (vendor calibrated for LTX-2)")
+    parser.add_argument("--teacache-thresh", type=float, default=None, metavar="THRESH",
+                        help="TeaCache threshold override (lower=safer, higher=faster; "
+                             "default: 0.5 Euler, 1.0 HQ)")
     parser.add_argument("--video-model", type=str, default=None, metavar="PATH",
                         help=(
                             "Local flat model dir or HF repo ID "
@@ -69,6 +130,9 @@ def add_generate_args(parser):
                         help="Extract first frame as <base>.png after generation (uses ffmpeg)")
     parser.add_argument("--caption", action="store_true", default=False,
                         help="Extract first frame and run 'run.py caption' on it (implies --first-frame)")
+    parser.add_argument("--enhance-prompt", action="store_true", default=False,
+                        help="Use Gemma to expand terse prompts into detailed cinematographic "
+                             "descriptions before generation (~10-20s extra overhead)")
 
     parser.add_argument("--variations", type=int, default=1,
                         help="Number of variations for A/B testing (default: 1)")
@@ -94,6 +158,27 @@ def add_generate_args(parser):
                         help="Audio CFG guidance scale (default: 7.0, upstream hardcoded). "
                              "Try 1.0 to disable audio CFG, 3.0 for less aggressive guidance.")
 
+    parser.add_argument("--yes", "-y", action="store_true", default=False,
+                        help="Skip interactive confirmation prompts (non-interactive / scripting mode)")
+
+    parser.add_argument("--temporal-upscale", "--tu", action="store_true", default=False,
+                        dest="temporal_upscale",
+                        help="Apply 2x temporal upsampling after generation (F → 2F-1 frames, "
+                             "smoother motion). Requires temporal_upscaler_x2_v1_0.safetensors. "
+                             "Not compatible with --audio (A2V mode).")
+
+    parser.add_argument("--skip-gpu-lock", action="store_true", default=False,
+                        dest="skip_gpu_lock",
+                        help="Skip GPU lock check — run immediately even if another run.py is active.")
+
+    # LoRA (style/quality enhancement)
+    parser.add_argument("--lora-path", type=str, default=None, metavar="PATH",
+                        help="Style/quality LoRA for video generation (.safetensors). "
+                             "Accepts full path, directory, or short name "
+                             "(e.g. singularity-omnicine-v1, ltx-2-3-transition)")
+    parser.add_argument("--lora-scale", type=float, default=1.0,
+                        help="LoRA scale factor (default: 1.0)")
+
 
 # ---------------------------------------------------------------------------
 # Runtime estimation (empirical model from benchmarks)
@@ -102,24 +187,62 @@ def add_generate_args(parser):
 # Per-million-pixel linear model. Accurate for large/long generations
 # (the cases where estimates matter most). Overestimates small/short runs.
 # Stage 2 is ~2× slower per step than stage 1 (refinement at full res).
-_BENCH_S1_SLOPE = 0.237    # seconds per Mpixel per stage1 step
-_BENCH_S2_SLOPE = 0.495    # seconds per Mpixel per stage2 step
-_BENCH_DECODE = 0.251      # seconds per Mpixel for VAE decode + mux
-_BENCH_OVERHEAD = 7.4      # fixed overhead (text encode, model load, audio)
+# Default stage1_steps=8 (official distilled schedule; was 6 before v7).
+#
+# T2V/I2V (distilled pipeline):
+#   Calibrated from 1216×704×241 run: stage1=48.8s/step, stage2=102s/step,
+#   decode=51.8s. Linear model accurate to ~5% for long generations.
+#
+# FLF2V (dev transformer pipeline):
+#   Calibrated from 640×960×241 (148.1 Mpx) runs with stage1=16, stage2=3:
+#     Run 1: stage1 avg 42.4 s/it, stage2 avg 80.2 s/it, decode=39.4s → 967.5s
+#     Run 2: stage1 avg 44.8 s/it, stage2 avg 83.0 s/it, decode=40.6s → 1015.6s
+#   Dev transformer is ~28% slower per step than distilled (larger model,
+#   no distillation optimization). FLF2V default stage1_steps=20 (not 8).
+_BENCH_S1_SLOPE = 0.237          # seconds per Mpixel per stage1 step (distilled)
+_BENCH_S2_SLOPE = 0.495          # seconds per Mpixel per stage2 step (distilled)
+_BENCH_DECODE = 0.251            # seconds per Mpixel for VAE decode + mux
+_BENCH_OVERHEAD = 7.4            # fixed overhead (text encode, model load, audio)
+
+_BENCH_FLF2V_S1_SLOPE = 0.303   # seconds per Mpixel per stage1 step (dev transformer)
+_BENCH_FLF2V_S2_SLOPE = 0.561   # seconds per Mpixel per stage2 step (dev transformer)
+_BENCH_FLF2V_DECODE = 0.274     # seconds per Mpixel for VAE decode + mux
+_BENCH_FLF2V_OVERHEAD = 7.0     # fixed overhead (text encode + model load)
 
 
 def _estimate_runtime(args, variations: int = 1) -> float:
     """Estimate total generation time in seconds based on empirical benchmarks.
 
-    Calibrated from 1216×704×241 run: stage1=48.8s/step, stage2=102s/step,
-    decode=51.8s. Linear model accurate to ~5% for long generations.
+    Uses different benchmark constants for FLF2V (dev transformer) vs
+    T2V/I2V (distilled pipeline). FLF2V dev transformer is ~28% slower
+    per step but requires fewer default steps (20 vs 8 for distilled).
     """
     mpx = args.width * args.height * args.frames / 1_000_000
+    is_flf2v = bool(getattr(args, "begin_image", None))
 
-    s1_time = args.stage1_steps * _BENCH_S1_SLOPE * mpx
-    s2_time = args.stage2_steps * _BENCH_S2_SLOPE * mpx
-    decode = _BENCH_DECODE * mpx
-    single_run = s1_time + s2_time + decode + _BENCH_OVERHEAD
+    if is_flf2v:
+        s1_slope = _BENCH_FLF2V_S1_SLOPE
+        s2_slope = _BENCH_FLF2V_S2_SLOPE
+        decode_slope = _BENCH_FLF2V_DECODE
+        overhead = _BENCH_FLF2V_OVERHEAD
+    else:
+        s1_slope = _BENCH_S1_SLOPE
+        s2_slope = _BENCH_S2_SLOPE
+        decode_slope = _BENCH_DECODE
+        overhead = _BENCH_OVERHEAD
+
+    # HQ (res_2s) does 2 sub-evaluations per step, so ~2× slower per step
+    hq_mult = 2.0 if getattr(args, "hq", False) else 1.0
+
+    s1_time = args.stage1_steps * s1_slope * mpx * hq_mult
+    s2_time = args.stage2_steps * s2_slope * mpx
+    decode = decode_slope * mpx
+    single_run = s1_time + s2_time + decode + overhead
+
+    # TeaCache saves ~31% on stage 1 time (vendor calibrated: 1.46× speedup)
+    if getattr(args, "teacache", False):
+        teacache_savings = 0.31 * s1_time
+        single_run -= teacache_savings
 
     return single_run * variations
 
@@ -127,18 +250,18 @@ def _estimate_runtime(args, variations: int = 1) -> float:
 def _adjust_resolution(width: int, height: int) -> tuple[int, int]:
     """Auto-adjust width/height to nearest values valid for LTX-2.3.
 
-    Constraints: both dimensions must be divisible by 32.
-    Adjusts to the nearest valid value and prints what changed.
+    Constraints: both dimensions must be divisible by 64.
+    The two-stage pipeline uses floor(height/2/32), so only multiples of 64
+    survive Stage 1 → Stage 2 without a silent dimension change.
     """
-    aligned_w = round(width / 32) * 32
-    aligned_h = round(height / 32) * 32
-    # Enforce minimum of 32
-    aligned_w = max(32, aligned_w)
-    aligned_h = max(32, aligned_h)
+    aligned_w = round(width / 64) * 64
+    aligned_h = round(height / 64) * 64
+    aligned_w = max(64, aligned_w)
+    aligned_h = max(64, aligned_h)
 
     if aligned_w != width or aligned_h != height:
         print(f"[video] Resolution adjusted: {width}×{height} → {aligned_w}×{aligned_h} "
-              f"(must be divisible by 32)")
+              f"(must be divisible by 64)")
 
     return aligned_w, aligned_h
 
@@ -165,7 +288,7 @@ def _adjust_frames(frames: int) -> int:
 
 
 # Argparse defaults for detecting user overrides (must match add_generate_args)
-_ARGPARSE_DIM_DEFAULTS = {"width": 704, "height": 480}
+_ARGPARSE_DIM_DEFAULTS = {"width": 704, "height": 448}
 
 
 def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
@@ -201,24 +324,92 @@ def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
     # Auto-fit: keep the shorter dimension, adjust the other to match image ratio
     if width >= height:
         # Landscape: keep height, adjust width
-        new_w = round(height * img_ratio / 32) * 32
-        new_w = max(32, new_w)
+        new_w = round(height * img_ratio / 64) * 64
+        new_w = max(64, new_w)
         if new_w != width:
             print(f"[video] Auto-fit to image: {width}×{height} → {new_w}×{height} "
                   f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
         return new_w, height
     else:
         # Portrait: keep width, adjust height
-        new_h = round(width / img_ratio / 32) * 32
-        new_h = max(32, new_h)
+        new_h = round(width / img_ratio / 64) * 64
+        new_h = max(64, new_h)
         if new_h != height:
             print(f"[video] Auto-fit to image: {width}×{height} → {width}×{new_h} "
                   f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
         return width, new_h
 
 
+def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int) -> tuple[int, int]:
+    """Adjust video dimensions to match both begin/end images for FLF2V mode.
+
+    Strategy: compute the geometric mean of both image aspect ratios, then
+    auto-fit width/height to that average ratio. Warns if ratios differ
+    significantly.
+
+    Returns:
+        (width, height) — potentially adjusted.
+    """
+    import math
+
+    try:
+        from PIL import Image
+        begin_img = Image.open(begin_path)
+        end_img = Image.open(end_path)
+        begin_w, begin_h = begin_img.size
+        end_w, end_h = end_img.size
+        begin_img.close()
+        end_img.close()
+    except ImportError:
+        return width, height
+
+    begin_ratio = begin_w / begin_h
+    end_ratio = end_w / end_h
+
+    print(f"[video] Begin image: {os.path.basename(begin_path)} "
+          f"({begin_w}×{begin_h}, aspect {begin_ratio:.2f}:1)")
+    print(f"[video] End image:   {os.path.basename(end_path)} "
+          f"({end_w}×{end_h}, aspect {end_ratio:.2f}:1)")
+
+    ratio_diff = abs(begin_ratio - end_ratio) / max(begin_ratio, end_ratio)
+    if ratio_diff > 0.1:
+        print(f"[video] WARNING: begin/end image aspect ratios differ significantly "
+              f"({begin_ratio:.2f}:1 vs {end_ratio:.2f}:1). Using average.")
+
+    # Geometric mean of the two aspect ratios for balanced framing
+    avg_ratio = math.sqrt(begin_ratio * end_ratio)
+    video_ratio = width / height
+    ratio_diff = abs(avg_ratio - video_ratio) / max(avg_ratio, video_ratio)
+
+    if ratio_diff < 0.03:
+        print(f"[video] Video target: {width}×{height} — aspect match ✓")
+        return width, height
+
+    # Auto-fit: keep the shorter dimension, adjust the other
+    if width >= height:
+        new_w = round(height * avg_ratio / 64) * 64
+        new_w = max(64, new_w)
+        if new_w != width:
+            print(f"[video] Auto-fit to dual images: {width}×{height} → {new_w}×{height} "
+                  f"(avg aspect {avg_ratio:.2f}:1)")
+        return new_w, height
+    else:
+        new_h = round(width / avg_ratio / 64) * 64
+        new_h = max(64, new_h)
+        if new_h != height:
+            print(f"[video] Auto-fit to dual images: {width}×{height} → {width}×{new_h} "
+                  f"(avg aspect {avg_ratio:.2f}:1)")
+        return width, new_h
+
+
 def run_generate(args):
     """Entry point for video generation."""
+    from app.gpu_lock import GpuLock
+    with GpuLock(skip=getattr(args, "skip_gpu_lock", False)):
+        _run_generate_inner(args)
+
+
+def _run_generate_inner(args):
     # If --test-prompt selected, inject its prompt text and apply recommended defaults
     test_prompt_name = getattr(args, "test_prompt", None)
     if test_prompt_name:
@@ -232,14 +423,86 @@ def run_generate(args):
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # --- FLF2V mode validation ---
+    begin_image = getattr(args, "begin_image", None)
+    end_image = getattr(args, "end_image", None)
+
+    # --- Prompt enhancement (optional, uses Gemma to expand terse prompts) ---
+    if getattr(args, "enhance_prompt", False):
+        prompt = _enhance_prompt(prompt, image_path=begin_image or args.input_image)
+
+    if begin_image and not end_image:
+        print("ERROR: --begin-image requires --end-image", file=sys.stderr)
+        sys.exit(1)
+    if end_image and not begin_image:
+        print("ERROR: --end-image requires --begin-image", file=sys.stderr)
+        sys.exit(1)
+    if begin_image and args.input_image:
+        print("ERROR: --begin-image and --input-image are mutually exclusive",
+              file=sys.stderr)
+        sys.exit(1)
+    if begin_image and args.audio:
+        print("ERROR: FLF2V mode (--begin-image) does not support audio conditioning",
+              file=sys.stderr)
+        sys.exit(1)
+    if begin_image and not os.path.exists(begin_image):
+        print(f"ERROR: begin image not found: {begin_image}", file=sys.stderr)
+        sys.exit(1)
+    if end_image and not os.path.exists(end_image):
+        print(f"ERROR: end image not found: {end_image}", file=sys.stderr)
+        sys.exit(1)
+    if begin_image and getattr(args, "teacache", False):
+        print("[video] WARNING: --teacache is not supported in FLF2V mode — ignoring",
+              file=sys.stderr)
+        args.teacache = False
+
     # --- Auto-adjust resolution and frames for pipeline constraints ---
-    # Fit video dimensions to input image aspect ratio (I2V mode)
+    # Fit video dimensions to input image(s) aspect ratio
     image_path = args.input_image
-    if image_path and os.path.exists(image_path):
+    if begin_image:
+        args.width, args.height = _fit_to_dual_images(
+            begin_image, end_image, args.width, args.height)
+    elif image_path and os.path.exists(image_path):
         args.width, args.height = _fit_to_image(image_path, args.width, args.height)
 
     args.width, args.height = _adjust_resolution(args.width, args.height)
     args.frames = _adjust_frames(args.frames)
+
+    # --- HQ mode: default to 15 steps (res_2s second-order sampler) ---
+    hq = getattr(args, "hq", False)
+    if hq and args.stage1_steps is None:
+        args.stage1_steps = 15  # HQ optimal (res_2s second-order sampler)
+        print(f"[video] HQ mode: stage1_steps auto-set to 15 (res_2s sampler)")
+
+    # --- Distilled mode: auto-adjust defaults ---
+    distilled = getattr(args, "distilled", False)
+    if distilled:
+        if hq:
+            print("ERROR: --distilled and --hq are mutually exclusive", file=sys.stderr)
+            sys.exit(1)
+        args.cfg_scale = 1.0
+        args.stg_scale = 0.0
+        if args.stage1_steps is None:
+            args.stage1_steps = 8
+        if args.stage2_steps is None:
+            args.stage2_steps = 3
+        print(f"[video] Distilled mode: cfg_scale=1.0, stg_scale=0.0, "
+              f"stage1_steps={args.stage1_steps}, stage2_steps={args.stage2_steps}")
+
+    # --- FLF2V mode: dev transformer needs more steps, lower CFG ---
+    if begin_image:
+        if args.stage1_steps is None:
+            args.stage1_steps = 20
+            print("[video] FLF2V mode: stage1_steps auto-set to 20 (dev transformer)")
+        if args.cfg_scale == 5.0:  # 5.0 is argparse default for T2V/I2V
+            args.cfg_scale = 3.0
+            print("[video] FLF2V mode: cfg_scale auto-set to 3.0 (dev transformer)")
+
+    # --- Base defaults for T2V/I2V standard mode ---
+    if args.stage1_steps is None:
+        args.stage1_steps = 8
+    if args.stage2_steps is None:
+        args.stage2_steps = 3
 
     audio_path = args.audio
 
@@ -302,10 +565,63 @@ def run_generate(args):
         eta = _estimate_runtime(args, 1)
         print(f"[video] Estimated: {eta:.0f}s ({eta / 60:.1f} min)")
 
+    # --- FLF2V confirmation (interactive guard before expensive run) ---
+    if begin_image and not getattr(args, "yes", False):
+        print(f"\n[video] FLF2V: {os.path.basename(begin_image)} → "
+              f"{os.path.basename(end_image)}")
+        print(f"[video]   stage1_steps={args.stage1_steps}  "
+              f"cfg_scale={args.cfg_scale}  seed={args.seed}")
+        try:
+            confirm = input("[video] Proceed? [y/N] ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            confirm = ""
+        if confirm not in ("y", "yes"):
+            print("[video] Cancelled.")
+            sys.exit(0)
+
     if variations > 1:
         _run_variations(args, prompt, variations, ab_params)
     else:
         _run_single(args, prompt)
+
+
+def _ltx_pipeline_name(args) -> str:
+    """Return the canonical pipeline name for RunConfig based on active mode."""
+    if getattr(args, "begin_image", None):
+        return "ltx-flf2v"
+    if getattr(args, "distilled", False):
+        if getattr(args, "input_image", None):
+            return "ltx-distilled-i2v"
+        return "ltx-distilled"
+    if getattr(args, "audio", None):
+        return "ltx-a2v"
+    if getattr(args, "hq", False):
+        return "ltx-hq"
+    if getattr(args, "input_image", None):
+        return "ltx-i2v"
+    return "ltx-t2v"
+
+
+def _mode_label(args) -> str:
+    """Return a human-readable mode label for log messages and manifest."""
+    if getattr(args, "begin_image", None):
+        return "FLF2V"
+    distilled = getattr(args, "distilled", False)
+    audio = getattr(args, "audio", None)
+    image = getattr(args, "input_image", None)
+    if distilled and image:
+        return "Distilled-I2V"
+    if distilled and audio:
+        return "Distilled-A2V"
+    if distilled:
+        return "Distilled"
+    if audio:
+        return "A2V"
+    if getattr(args, "hq", False):
+        return "HQ"
+    if image:
+        return "I2V"
+    return "T2V"
 
 
 def _run_single(args, prompt: str) -> None:
@@ -313,6 +629,10 @@ def _run_single(args, prompt: str) -> None:
     frames = args.frames
     audio_path = args.audio
     image_path = args.input_image
+    begin_image = getattr(args, "begin_image", None)
+    end_image = getattr(args, "end_image", None)
+    hq = getattr(args, "hq", False)
+    distilled = getattr(args, "distilled", False)
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     base_name = generate_base_name()
@@ -321,15 +641,28 @@ def _run_single(args, prompt: str) -> None:
     run_file = base_name_path + ".run.json"
     manifest_file = base_name_path + ".manifest.json"
 
-    run_config = RunConfig.from_args(args, command="video")
+    args.pipeline = _ltx_pipeline_name(args)
+    run_config = RunConfig.from_args(args, command="video generate")
     run_config.to_json(run_file)
 
-    mode = "A2V" if audio_path else ("I2V" if image_path else "T2V")
+    mode = _mode_label(args)
+
     start_time = datetime.now(timezone.utc).isoformat()
 
+    flf2v_info = ""
+    if begin_image:
+        flf2v_info = (f"  begin_strength={getattr(args, 'begin_strength', 1.0)}"
+                      f"  end_strength={getattr(args, 'end_strength', 1.0)}")
     print(f"[video] Mode: {mode}  Resolution: {args.width}×{args.height}  "
           f"Frames: {frames}  FPS: {args.fps}")
-    print(f"[video] low-ram: {args.low_ram}  seed: {args.seed}")
+    temporal_upscale = getattr(args, "temporal_upscale", False)
+    print(f"[video] low-ram: {args.low_ram}  seed: {args.seed}"
+          f"{'  hq: True' if hq else ''}"
+          f"{'  teacache: True' if getattr(args, 'teacache', False) else ''}"
+          f"{'  temporal-upscale: True' if temporal_upscale else ''}"
+          f"{flf2v_info}")
+    if temporal_upscale and frames:
+        print(f"[video]   temporal-upscale: {frames} → {frames * 2 - 1} frames out")
 
     try:
         from app.ltx_pipeline import LTXVideoPipeline
@@ -337,25 +670,51 @@ def _run_single(args, prompt: str) -> None:
         pipeline = LTXVideoPipeline(
             model_dir=args.video_model,
             low_ram=args.low_ram,
+            hq=hq,
+            distilled=distilled,
+            temporal_upscale=temporal_upscale,
+            lora_path=getattr(args, "lora_path", None),
+            lora_scale=getattr(args, "lora_scale", 1.0),
         )
 
-        timings = pipeline.generate(
-            prompt=prompt,
-            output_path=output_mp4,
-            height=args.height,
-            width=args.width,
-            num_frames=frames,
-            frame_rate=args.fps,
-            seed=args.seed,
-            stage1_steps=args.stage1_steps,
-            stage2_steps=args.stage2_steps,
-            cfg_scale=args.cfg_scale,
-            stg_scale=args.stg_scale,
-            image=image_path,
-            audio_path=audio_path,
-            audio_stage1_only=getattr(args, "audio_stage1_only", False),
-            audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
-        )
+        if begin_image:
+            timings = pipeline.generate_flf2v(
+                prompt=prompt,
+                output_path=output_mp4,
+                begin_image=begin_image,
+                end_image=end_image,
+                height=args.height,
+                width=args.width,
+                num_frames=frames,
+                frame_rate=args.fps,
+                seed=args.seed,
+                stage1_steps=args.stage1_steps,
+                stage2_steps=args.stage2_steps,
+                cfg_scale=args.cfg_scale,
+                stg_scale=args.stg_scale,
+                begin_strength=getattr(args, "begin_strength", 1.0),
+                end_strength=getattr(args, "end_strength", 1.0),
+            )
+        else:
+            timings = pipeline.generate(
+                prompt=prompt,
+                output_path=output_mp4,
+                height=args.height,
+                width=args.width,
+                num_frames=frames,
+                frame_rate=args.fps,
+                seed=args.seed,
+                stage1_steps=args.stage1_steps,
+                stage2_steps=args.stage2_steps,
+                cfg_scale=args.cfg_scale,
+                stg_scale=args.stg_scale,
+                image=image_path,
+                audio_path=audio_path,
+                audio_stage1_only=getattr(args, "audio_stage1_only", False),
+                audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
+                enable_teacache=getattr(args, "teacache", False),
+                teacache_thresh=getattr(args, "teacache_thresh", None),
+            )
 
         end_time = datetime.now(timezone.utc).isoformat()
 
@@ -380,7 +739,7 @@ def _run_single(args, prompt: str) -> None:
             "fps": args.fps,
         }]
 
-        models = _collect_model_fingerprints(pipeline._model_dir)
+        models = _collect_model_fingerprints(pipeline._model_dir, args=args)
         manifest = Manifest.from_success(run_file, start_time, end_time, timings,
                                          output_files, models)
         manifest.to_json(manifest_file)
@@ -418,16 +777,24 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     base_name = generate_base_name()
 
-    mode = "A2V" if args.audio else ("I2V" if args.input_image else "T2V")
+    begin_image = getattr(args, "begin_image", None)
+    mode = _mode_label(args)
     print(f"[video] A/B Test: {variations} variations  Mode: {mode}  "
           f"Resolution: {args.width}×{args.height}  Frames: {args.frames}  FPS: {args.fps}")
 
     from app.ltx_pipeline import LTXVideoPipeline
 
+    hq = getattr(args, "hq", False)
+    distilled = getattr(args, "distilled", False)
+
     # Pipeline loaded once, reused across variations
     pipeline = LTXVideoPipeline(
         model_dir=args.video_model,
         low_ram=args.low_ram,
+        hq=hq,
+        distilled=distilled,
+        lora_path=getattr(args, "lora_path", None),
+        lora_scale=getattr(args, "lora_scale", 1.0),
     )
 
     allow_noise = getattr(args, "allow_noise", False)
@@ -446,7 +813,8 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
         var_args.variation_index = vi + 1
         var_args.ab_params_json = ab_params
 
-        run_config = RunConfig.from_args(var_args, command="video")
+        var_args.pipeline = _ltx_pipeline_name(var_args)
+        run_config = RunConfig.from_args(var_args, command="video generate")
         run_config.to_json(run_file)
 
         start_time = datetime.now(timezone.utc).isoformat()
@@ -458,23 +826,44 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
         print(f"{'=' * 60}")
 
         try:
-            timings = pipeline.generate(
-                prompt=prompt,
-                output_path=output_mp4,
-                height=args.height,
-                width=args.width,
-                num_frames=args.frames,
-                frame_rate=args.fps,
-                seed=var_args.seed,
-                stage1_steps=var_args.stage1_steps,
-                stage2_steps=var_args.stage2_steps,
-                cfg_scale=var_args.cfg_scale,
-                stg_scale=var_args.stg_scale,
-                image=args.input_image,
-                audio_path=args.audio,
-                audio_stage1_only=getattr(args, "audio_stage1_only", False),
-                audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
-            )
+            if begin_image:
+                timings = pipeline.generate_flf2v(
+                    prompt=prompt,
+                    output_path=output_mp4,
+                    begin_image=begin_image,
+                    end_image=getattr(args, "end_image", None),
+                    height=args.height,
+                    width=args.width,
+                    num_frames=args.frames,
+                    frame_rate=args.fps,
+                    seed=var_args.seed,
+                    stage1_steps=var_args.stage1_steps,
+                    stage2_steps=var_args.stage2_steps,
+                    cfg_scale=var_args.cfg_scale,
+                    stg_scale=var_args.stg_scale,
+                    begin_strength=getattr(var_args, "begin_strength", 1.0),
+                    end_strength=getattr(var_args, "end_strength", 1.0),
+                )
+            else:
+                timings = pipeline.generate(
+                    prompt=prompt,
+                    output_path=output_mp4,
+                    height=args.height,
+                    width=args.width,
+                    num_frames=args.frames,
+                    frame_rate=args.fps,
+                    seed=var_args.seed,
+                    stage1_steps=var_args.stage1_steps,
+                    stage2_steps=var_args.stage2_steps,
+                    cfg_scale=var_args.cfg_scale,
+                    stg_scale=var_args.stg_scale,
+                    image=args.input_image,
+                    audio_path=args.audio,
+                    audio_stage1_only=getattr(args, "audio_stage1_only", False),
+                    audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
+                    enable_teacache=getattr(args, "teacache", False),
+                    teacache_thresh=getattr(args, "teacache_thresh", None),
+                )
 
             end_time = datetime.now(timezone.utc).isoformat()
 
@@ -500,7 +889,7 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                 "fps": args.fps,
             }]
 
-            models = _collect_model_fingerprints(pipeline._model_dir)
+            models = _collect_model_fingerprints(pipeline._model_dir, args=var_args)
             manifest = Manifest.from_success(
                 run_file, start_time, end_time, timings, output_files, models)
             manifest.to_json(manifest_file)
@@ -600,6 +989,8 @@ def _override_args(args, variation_index: int, ab_params: dict | None):
             "stage1_steps": "stage1_steps",
             "stage2_steps": "stage2_steps",
             "seed": "seed",
+            "begin_strength": "begin_strength",
+            "end_strength": "end_strength",
         }
         dest = dest_map.get(key, key)
         setattr(var_args, dest, val)
@@ -608,12 +999,60 @@ def _override_args(args, variation_index: int, ab_params: dict | None):
     return var_args
 
 
+def _enhance_prompt(prompt: str, *, image_path: str | None = None) -> str:
+    """Enhance a terse prompt using Gemma into a detailed cinematographic description.
+
+    Uses the vendor's GemmaLanguageModel.enhance_t2v/enhance_i2v methods.
+    Loads Gemma, generates enhanced prompt, then frees Gemma before returning.
+    """
+    import time as _time
+    t0 = _time.time()
+    print(f"[video] Enhancing prompt ({len(prompt)} chars)…")
+
+    # Ensure vendor packages are importable
+    from app.ltx_pipeline import _VENDOR_BASE
+    for _pkg in ("packages/ltx-core-mlx",):
+        _src = os.path.join(_VENDOR_BASE, _pkg, "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+
+    from ltx_core_mlx.text_encoders.gemma.encoders.base_encoder import GemmaLanguageModel
+
+    # Determine model dir for Gemma (same as pipeline uses)
+    from app import config as _cfg
+    gemma_model_id = _cfg.LTX_TEXT_ENCODER_DIR
+
+    gemma = GemmaLanguageModel()
+    gemma.load(gemma_model_id)
+
+    mode = "i2v" if image_path else "t2v"
+    if mode == "i2v":
+        enhanced = gemma.enhance_i2v(prompt)
+    else:
+        enhanced = gemma.enhance_t2v(prompt)
+
+    # Free Gemma immediately — generation will load it again via the pipeline
+    del gemma
+    try:
+        import mlx.core as mx
+        mx.clear_cache()
+    except Exception:
+        pass
+
+    elapsed = _time.time() - t0
+    print(f"[video] Enhanced prompt ({len(enhanced)} chars, {elapsed:.1f}s):")
+    print(f"[video]   Original: {prompt[:100]}{'…' if len(prompt) > 100 else ''}")
+    print(f"[video]   Enhanced: {enhanced[:100]}{'…' if len(enhanced) > 100 else ''}")
+
+    return enhanced
+
+
 def _apply_prompt_defaults(args, defaults: dict) -> None:
     """Apply test-prompt recommended defaults for params not explicitly set by the user."""
     _ARGPARSE_DEFAULTS = {
-        "frames": 97, "width": 704, "height": 480,
+        "frames": 97, "width": 704, "height": 448,
         "fps": 24.0, "cfg_scale": 5.0, "stg_scale": 1.0,
-        "stage1_steps": 6, "stage2_steps": 3,
+        "stage1_steps": None, "stage2_steps": None,
     }
     for prompt_key, value in defaults.items():
         if prompt_key in _ARGPARSE_DEFAULTS:
@@ -646,13 +1085,39 @@ def _run_caption(png_path: str) -> None:
         print(f"[video] Caption skipped: {exc}", file=sys.stderr)
 
 
-def _collect_model_fingerprints(model_dir: str) -> dict:
-    """Fingerprint key weight files in the resolved model directory."""
-    key_files = [
-        "transformer-dev.safetensors",
-        "ltx-2.3-22b-distilled-lora-384.safetensors",
-        "connector.safetensors",
-    ]
+def _collect_model_fingerprints(model_dir: str, args=None) -> dict:
+    """Fingerprint only the weight files actually loaded for this run.
+
+    The flat model dir contains symlinks for both dev and distilled transformers.
+    Fingerprinting all existing files would incorrectly record models that were
+    not loaded. We select files based on the active pipeline mode.
+    """
+    distilled = args is not None and getattr(args, "distilled", False)
+    temporal_upscale = args is not None and getattr(args, "temporal_upscale", False)
+
+    if distilled:
+        # DistilledPipeline: distilled DiT for both stages, no LoRA swap
+        key_files = [
+            "transformer-distilled-1.1.safetensors",
+            "connector.safetensors",
+            "spatial_upscaler_x2_v1_1.safetensors",
+            "vae_encoder.safetensors",
+            "vae_decoder.safetensors",
+        ]
+    else:
+        # Dev pipeline (T2V, I2V, HQ, FLF2V): dev transformer + distilled LoRA for stage 2
+        key_files = [
+            "transformer-dev.safetensors",
+            "ltx-2.3-22b-distilled-lora-384.safetensors",
+            "connector.safetensors",
+            "spatial_upscaler_x2_v1_1.safetensors",
+            "vae_encoder.safetensors",
+            "vae_decoder.safetensors",
+        ]
+
+    if temporal_upscale:
+        key_files.append("temporal_upscaler_x2_v1_0.safetensors")
+
     models = {}
     for fname in key_files:
         fpath = os.path.join(model_dir, fname)

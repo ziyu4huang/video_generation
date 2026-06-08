@@ -697,6 +697,274 @@ def convert_klein_9b():
     return True
 
 
+def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-9b-dark-beast-bfs"):
+    """Convert a third-party Klein 9B checkpoint (Civitai .safetensors) to pre-quantized INT8.
+
+    Handles ComfyUI-native format safetensors (FP8 or BF16) by:
+    1. Loading the checkpoint and extracting transformer weights
+    2. Remapping ComfyUI keys (double_blocks/single_blocks) to HF diffusers format
+    3. Splitting fused QKV tensors into separate Q/K/V
+    4. Loading via mflux WeightLoader (applies Flux2WeightMapping) into Flux2Transformer
+    5. Quantizing with mlx.nn.quantize and saving sharded output
+
+    Usage:
+        convert.py --klein-9b-checkpoint /path/to/checkpoint.safetensors
+        convert.py --klein-9b-checkpoint checkpoint.safetensors --name my-variant
+    """
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from mflux.models.flux2.model.flux2_transformer.transformer import Flux2Transformer
+    from mflux.models.flux2.weights.flux2_weight_mapping import Flux2WeightMapping
+    from mflux.models.common.weights.mapping.weight_mapper import WeightMapper
+    from mflux.models.common.weights.loading.weight_definition import ComponentDefinition
+    from mflux.models.common.config.model_config import ModelConfig
+
+    checkpoint_path = os.path.abspath(checkpoint_path)
+    if not os.path.exists(checkpoint_path):
+        print(f"[klein-9b-checkpoint] ERROR: file not found: {checkpoint_path}", file=sys.stderr)
+        return False
+
+    # ── Step 1: Load checkpoint ────────────────────────────────────
+    print(f"[klein-9b-checkpoint] Loading {os.path.basename(checkpoint_path)}...")
+    print(f"[klein-9b-checkpoint] (Requires ~20 GB RAM for FP8 -> BF16 -> INT8)")
+    raw_weights = load_pt_file(checkpoint_path)
+    print(f"[klein-9b-checkpoint] Loaded {len(raw_weights)} tensors")
+
+    # ── Step 2: Remap ComfyUI keys to HF diffusers format ──────────
+    print("[klein-9b-checkpoint] Remapping ComfyUI keys to HF diffusers format...")
+    converted = {}
+
+    for src_key, tensor in tqdm(raw_weights.items()):
+        key = src_key
+        if key.startswith("model.diffusion_model."):
+            key = key[len("model.diffusion_model."):]
+
+        # Dequantize FP8 -> BF16
+        if isinstance(tensor, torch.Tensor):
+            if tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+                tensor = tensor.to(torch.bfloat16)
+            elif tensor.dtype == torch.float16:
+                tensor = tensor.to(torch.bfloat16)
+            elif tensor.dtype == torch.float32:
+                tensor = tensor.to(torch.bfloat16)
+        else:
+            continue
+
+        # ── Core embeddings and projections ────────────────────────
+        if key == "img_in.weight":
+            converted["x_embedder.weight"] = tensor
+        elif key == "txt_in.weight":
+            converted["context_embedder.weight"] = tensor
+        elif key == "time_in.in_layer.weight":
+            converted["time_guidance_embed.timestep_embedder.linear_1.weight"] = tensor
+        elif key == "time_in.out_layer.weight":
+            converted["time_guidance_embed.timestep_embedder.linear_2.weight"] = tensor
+        elif key == "single_stream_modulation.lin.weight":
+            converted["single_stream_modulation.linear.weight"] = tensor
+        elif key == "double_stream_modulation_img.lin.weight":
+            converted["double_stream_modulation_img.linear.weight"] = tensor
+        elif key == "double_stream_modulation_txt.lin.weight":
+            converted["double_stream_modulation_txt.linear.weight"] = tensor
+        elif key == "final_layer.linear.weight":
+            converted["proj_out.weight"] = tensor
+        elif key.startswith("final_layer.adaLN_modulation."):
+            converted["norm_out.linear.weight"] = tensor
+
+        # ── Double blocks -> Transformer blocks ────────────────────
+        elif key.startswith("double_blocks."):
+            parts = key.split(".", 2)
+            block_idx = parts[1]
+            rest = parts[2]
+
+            if rest == "img_attn.qkv.weight":
+                to_q, to_k, to_v = tensor.chunk(3, dim=0)
+                converted[f"transformer_blocks.{block_idx}.attn.to_q.weight"] = to_q
+                converted[f"transformer_blocks.{block_idx}.attn.to_k.weight"] = to_k
+                converted[f"transformer_blocks.{block_idx}.attn.to_v.weight"] = to_v
+            elif rest == "img_attn.proj.weight":
+                converted[f"transformer_blocks.{block_idx}.attn.to_out.0.weight"] = tensor
+            elif rest == "img_attn.norm.query_norm.scale":
+                converted[f"transformer_blocks.{block_idx}.attn.norm_q.weight"] = tensor
+            elif rest == "img_attn.norm.key_norm.scale":
+                converted[f"transformer_blocks.{block_idx}.attn.norm_k.weight"] = tensor
+            elif rest == "txt_attn.qkv.weight":
+                to_q, to_k, to_v = tensor.chunk(3, dim=0)
+                converted[f"transformer_blocks.{block_idx}.attn.add_q_proj.weight"] = to_q
+                converted[f"transformer_blocks.{block_idx}.attn.add_k_proj.weight"] = to_k
+                converted[f"transformer_blocks.{block_idx}.attn.add_v_proj.weight"] = to_v
+            elif rest == "txt_attn.proj.weight":
+                converted[f"transformer_blocks.{block_idx}.attn.to_add_out.weight"] = tensor
+            elif rest == "txt_attn.norm.query_norm.scale":
+                converted[f"transformer_blocks.{block_idx}.attn.norm_added_q.weight"] = tensor
+            elif rest == "txt_attn.norm.key_norm.scale":
+                converted[f"transformer_blocks.{block_idx}.attn.norm_added_k.weight"] = tensor
+            elif rest == "img_mlp.0.weight":
+                converted[f"transformer_blocks.{block_idx}.ff.linear_in.weight"] = tensor
+            elif rest == "img_mlp.2.weight":
+                converted[f"transformer_blocks.{block_idx}.ff.linear_out.weight"] = tensor
+            elif rest == "txt_mlp.0.weight":
+                converted[f"transformer_blocks.{block_idx}.ff_context.linear_in.weight"] = tensor
+            elif rest == "txt_mlp.2.weight":
+                converted[f"transformer_blocks.{block_idx}.ff_context.linear_out.weight"] = tensor
+
+        # ── Single blocks -> Single transformer blocks ─────────────
+        elif key.startswith("single_blocks."):
+            parts = key.split(".", 2)
+            block_idx = parts[1]
+            rest = parts[2]
+
+            if rest == "linear1.weight":
+                converted[f"single_transformer_blocks.{block_idx}.attn.to_qkv_mlp_proj.weight"] = tensor
+            elif rest == "linear2.weight":
+                converted[f"single_transformer_blocks.{block_idx}.attn.to_out.weight"] = tensor
+            elif rest == "norm.query_norm.scale":
+                converted[f"single_transformer_blocks.{block_idx}.attn.norm_q.weight"] = tensor
+            elif rest == "norm.key_norm.scale":
+                converted[f"single_transformer_blocks.{block_idx}.attn.norm_k.weight"] = tensor
+
+    del raw_weights
+    gc.collect()
+    print(f"[klein-9b-checkpoint] Remapped to {len(converted)} HF-format tensors")
+
+    # ── Step 3: Convert HF BF16 tensors to MLX + apply weight mapping
+    print("[klein-9b-checkpoint] Converting to MLX and applying Flux2WeightMapping...")
+    # Build raw HF weights dict as MLX arrays
+    hf_mlx = {}
+    for k, v in tqdm(converted.items()):
+        if isinstance(v, torch.Tensor):
+            hf_mlx[k] = mx.array(v.detach().cpu().float().numpy()).astype(mx.bfloat16)
+
+    del converted
+    gc.collect()
+
+    # Apply the Flux2 weight mapping (HF key names -> mflux MLX key names)
+    mapped = WeightMapper.apply_mapping(
+        hf_weights=hf_mlx,
+        mapping=Flux2WeightMapping.get_transformer_mapping(),
+    )
+    del hf_mlx
+    gc.collect()
+    print(f"[klein-9b-checkpoint] Mapped to {len(mapped) if isinstance(mapped, dict) else 'tree'} MLX weights")
+
+    # ── Step 4: Initialize model and load weights ──────────────────
+    print("[klein-9b-checkpoint] Initializing Flux2Transformer...")
+    model = Flux2Transformer(
+        patch_size=1,
+        in_channels=128,
+        out_channels=None,
+        num_layers=8,
+        num_single_layers=24,
+        attention_head_dim=128,
+        num_attention_heads=32,
+        joint_attention_dim=12288,
+        timestep_guidance_channels=256,
+        mlp_ratio=3.0,
+        axes_dims_rope=(32, 32, 32, 32),
+        rope_theta=2000,
+        guidance_embeds=False,
+    )
+
+    from mlx.utils import tree_flatten
+    flat = tree_flatten(mapped) if not isinstance(mapped, list) else mapped
+    print(f"[klein-9b-checkpoint] Loading {len(flat)} weights into model...")
+    model.load_weights(flat)
+    del mapped, flat
+    mx.eval(model.parameters())
+
+    # ── Step 5: Quantize to INT8 ───────────────────────────────────
+    print("[klein-9b-checkpoint] Quantizing to INT8 (group_size=64)...")
+    nn.quantize(model, bits=8, group_size=64)
+    mx.eval(model.parameters())
+
+    # ── Step 6: Save sharded output ────────────────────────────────
+    dst_dir = os.path.join(cfg.MODELS_DIR, "transformer", output_name)
+    if os.path.exists(dst_dir):
+        print(f"[klein-9b-checkpoint] Removing existing {dst_dir}...")
+        shutil.rmtree(dst_dir)
+
+    # Save to a temp dir, then move the transformer/ subdirectory up
+    save_tmp = tempfile.mkdtemp(prefix="klein9b_save_")
+    try:
+        from mflux.models.common.weights.saving.model_saver import ModelSaver
+
+        # Create a minimal wrapper with .transformer and .bits for ModelSaver
+        class _TransformerOnly(nn.Module):
+            def __init__(self, transformer, bits):
+                super().__init__()
+                self.transformer = transformer
+                self.bits = bits
+
+        wrapper = _TransformerOnly(model, 8)
+
+        # Minimal weight definition with just the transformer
+        from mflux.models.common.weights.loading.weight_definition import ComponentDefinition
+        class _TransformerOnlyDef:
+            @staticmethod
+            def get_components():
+                return [ComponentDefinition(
+                    name="transformer",
+                    hf_subdir="transformer",
+                    precision=None,
+                    mapping_getter=None,  # weights are already in MLX format
+                )]
+            @staticmethod
+            def get_tokenizers():
+                return []
+            @staticmethod
+            def quantization_predicate(path, module):
+                return hasattr(module, "to_quantized")
+
+        ModelSaver.save_model(
+            model=wrapper,
+            bits=8,
+            base_path=save_tmp,
+            weight_definition=_TransformerOnlyDef,
+        )
+
+        # Move transformer/ contents to dst_dir
+        src_transformer = os.path.join(save_tmp, "transformer")
+        shutil.move(src_transformer, dst_dir)
+
+    finally:
+        shutil.rmtree(save_tmp, ignore_errors=True)
+
+    total_size = sum(
+        os.path.getsize(os.path.join(dp, f))
+        for dp, _, fns in os.walk(dst_dir)
+        for f in fns
+    ) / (1024 * 1024)
+    print(f"[klein-9b-checkpoint] Transformer saved: {total_size:.0f} MB")
+
+    # Write config.json
+    klein_config = {
+        "_class_name": "Flux2Transformer2DModel",
+        "_diffusers_version": "0.37.0.dev0",
+        "attention_head_dim": 128,
+        "axes_dims_rope": [32, 32, 32, 32],
+        "eps": 1e-06,
+        "guidance_embeds": False,
+        "in_channels": 128,
+        "joint_attention_dim": 12288,
+        "mlp_ratio": 3.0,
+        "num_attention_heads": 32,
+        "num_layers": 8,
+        "num_single_layers": 24,
+        "out_channels": None,
+        "patch_size": 1,
+        "rope_theta": 2000,
+        "timestep_guidance_channels": 256,
+    }
+    with open(os.path.join(dst_dir, "config.json"), "w") as f:
+        json.dump(klein_config, f, indent=2)
+
+    print(f"[klein-9b-checkpoint] Done. Saved to {dst_dir}")
+    print(f"[klein-9b-checkpoint] Next: add manifest.json + README.md, then run check-manifests")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="mlx-movie-director: one-time model conversion and download",
@@ -715,6 +983,10 @@ Examples:
   Flux2 Klein 9B (profile generation):
     convert.py --klein-9b
 
+  Flux2 Klein 9B from third-party checkpoint (Civitai):
+    convert.py --klein-9b-checkpoint ~/Downloads/checkpoint.safetensors
+    convert.py --klein-9b-checkpoint checkpoint.safetensors --name my-variant
+
   Or all at once (Z-Image only):
     convert.py --all
         """,
@@ -728,6 +1000,10 @@ Examples:
     parser.add_argument("--seedvr2-vae", action="store_true", help="Convert SeedVR2 VAE (~500MB bf16)")
     parser.add_argument("--klein-9b", action="store_true",
                         help="Convert Flux2 Klein 9B from HF cache to pre-quantized INT8 (~32GB BF16 → ~16GB INT8)")
+    parser.add_argument("--klein-9b-checkpoint", type=str, metavar="PATH",
+                        help="Convert third-party Klein 9B checkpoint (Civitai .safetensors) to MLX INT8")
+    parser.add_argument("--name", type=str, default="klein-9b-dark-beast-bfs",
+                        help="Output instance name for --klein-9b-checkpoint (default: klein-9b-dark-beast-bfs)")
     parser.add_argument("--vae-mlx", action="store_true",
                         help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--seedvr2-vae-int8", action="store_true",
@@ -752,6 +1028,8 @@ Examples:
         convert_seedvr2_vae()
     if args.klein_9b:
         convert_klein_9b()
+    if args.klein_9b_checkpoint:
+        convert_klein_9b_checkpoint(args.klein_9b_checkpoint, args.name)
     if args.vae_mlx:
         convert_vae_to_mlx()
     if args.seedvr2_vae_int8:

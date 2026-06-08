@@ -2,6 +2,11 @@
 
 Project-level instructions for Claude Code sessions working on this ComfyUI setup.
 
+## Communication
+
+- **Conversation language**: 繁體中文 (zh_TW) — use zh_TW for discussion, explanations, and Q&A
+- **Written output**: English — all docs, code comments, commit messages, and file content in English
+
 ## Python — Always Use Project Venv
 
 **RULE: Every Python command in this repo MUST use the ComfyUI venv.**

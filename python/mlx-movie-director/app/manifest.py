@@ -59,6 +59,56 @@ def file_fingerprint(path: str, chunk_mb: int = 1) -> dict:
     }
 
 
+def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors") -> dict:
+    """Fingerprint a model directory that may be single-file or sharded.
+
+    Pre-quantized INT8 models (e.g. Klein 9B) use sharded safetensors
+    (0.safetensors, 1.safetensors, ... + model.safetensors.index.json)
+    instead of a single model.safetensors file.
+
+    Returns a dict with combined size, combined MD5 of all shard fingerprints,
+    and a list of individual shard fingerprints.
+    """
+    single = os.path.join(model_dir, basename)
+    if os.path.exists(single):
+        return file_fingerprint(single)
+
+    # Sharded: read index to discover shard files
+    index_path = os.path.join(model_dir, basename + ".index.json")
+    if not os.path.exists(index_path):
+        return {"path": single, "error": "file not found"}
+
+    # Collect unique shard filenames from the weight map
+    with open(index_path, "r") as f:
+        index_data = json.load(f)
+    shard_names = sorted(set(index_data.get("weight_map", {}).values()))
+
+    if not shard_names:
+        return {"path": single, "error": "no shards found in index"}
+
+    total_size = 0
+    combined_md5 = hashlib.md5()
+    shard_fingerprints = []
+
+    for shard_name in shard_names:
+        shard_path = os.path.join(model_dir, shard_name)
+        fp = file_fingerprint(shard_path)
+        if "error" in fp:
+            return {"path": shard_path, "error": fp["error"]}
+        total_size += fp["size_bytes"]
+        combined_md5.update(fp["md5_partial"].encode())
+        shard_fingerprints.append({"file": shard_name, "size_bytes": fp["size_bytes"]})
+
+    return {
+        "path": model_dir,
+        "realpath": os.path.realpath(model_dir),
+        "format": "sharded",
+        "total_size_bytes": total_size,
+        "shards": shard_fingerprints,
+        "md5_partial": combined_md5.hexdigest(),
+    }
+
+
 def collect_model_fingerprint(lora_path: str | None = None,
                               upscale_model: str | None = None) -> dict:
     """Collect fingerprints for all model files used by the pipeline."""
@@ -103,27 +153,29 @@ def collect_model_fingerprint_controlnet(lora_path: str | None = None) -> dict:
     return models
 
 
-def collect_model_fingerprint_flux2(upscale_model: str | None = None) -> dict:
+def collect_model_fingerprint_flux2(lora_path: str | None = None,
+                                     upscale_model: str | None = None) -> dict:
     """Collect fingerprints for Flux2 Klein 9B model files."""
     from app import config as cfg
 
     models = {}
 
-    # Transformer (Klein 9B INT8)
-    tf_path = os.path.join(cfg.KLEIN_9B_TRANSFORMER_DIR, "model.safetensors")
-    models["transformer"] = file_fingerprint(tf_path)
+    # Transformer (Klein 9B INT8 — sharded)
+    models["transformer"] = sharded_model_fingerprint(cfg.KLEIN_9B_TRANSFORMER_DIR)
 
-    # Text encoder (Qwen3 8B)
-    te_path = os.path.join(cfg.KLEIN_9B_TEXT_ENCODER_DIR, "model.safetensors")
-    models["text_encoder"] = file_fingerprint(te_path)
+    # Text encoder (Qwen3 8B — sharded)
+    models["text_encoder"] = sharded_model_fingerprint(cfg.KLEIN_9B_TEXT_ENCODER_DIR)
 
-    # VAE (Flux2 Klein)
-    vae_path = os.path.join(cfg.KLEIN_9B_VAE_DIR, "model.safetensors")
-    models["vae"] = file_fingerprint(vae_path)
+    # VAE (Flux2 Klein — sharded)
+    models["vae"] = sharded_model_fingerprint(cfg.KLEIN_9B_VAE_DIR)
 
     # Tokenizer (Qwen3 Klein)
     tok_path = os.path.join(cfg.KLEIN_9B_TOKENIZER_DIR, "tokenizer.json")
     models["tokenizer"] = file_fingerprint(tok_path)
+
+    # LoRA (optional)
+    if lora_path and os.path.exists(lora_path):
+        models["lora"] = file_fingerprint(lora_path)
 
     # Upscale model (optional)
     if upscale_model and os.path.exists(upscale_model):

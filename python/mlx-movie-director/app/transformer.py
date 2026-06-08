@@ -257,6 +257,7 @@ class ZImageTransformerMLX(nn.Module):
                 residual, cnet_ctx = controlnet_model.forward_noise_refiner(
                     ref_i, cnet_ctx, x_original, temb, cos_img, sin_img)
                 if residual is not None:
+                    print(f"  [DEBUG] cnet noise_refiner[{ref_i}]: residual_norm={float(mx.sum(mx.abs(residual * controlnet_strength))):.4f}")
                     x = x + residual * controlnet_strength
 
         for l in self.context_refiner:
@@ -289,6 +290,7 @@ class ZImageTransformerMLX(nn.Module):
                         residual, cnet_ctx = controlnet_model.control_layers[cnet_layer_idx](
                             cnet_ctx, main_img, temb, cos_c, sin_c)
                         cnet_layer_idx += 1
+                        print(f"  [DEBUG] cnet layer[{cnet_layer_idx-1}] at main[{i}]: residual_norm={float(mx.sum(mx.abs(residual * controlnet_strength))):.4f}")
                         # Inject residual into main model's image tokens
                         unified = mx.concatenate(
                             [unified[:, :x_len] + residual * controlnet_strength,

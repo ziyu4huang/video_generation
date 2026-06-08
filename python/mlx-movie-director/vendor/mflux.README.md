@@ -96,6 +96,70 @@ The `Flux2Klein` txt2img variant (`vendor/mflux/src/mflux/models/flux2/variants/
 
 **img2img mapping:** Z-Image uses `denoise_strength` (0–1, higher = more change). mflux uses `image_strength` (0–1, higher = closer to original). The mapping: `image_strength = 1.0 - denoise_strength`.
 
-**LoRA:** Not yet supported with flux2-klein pipeline. The `Flux2Klein` class accepts `lora_paths` in its constructor, so this can be added later.
+**LoRA:** Supported by all three pipeline wrappers (`Flux2KleinT2IPipeline`, `Flux2KleinPipeline`, `Flux2KleinControlnetPipeline`) via `lora_paths`/`lora_scales` constructor arguments. LoRA is applied at model init time (not generate time).
 
 **A/B test mode:** `run.py generate --prompt "..." --ab-test` runs both pipelines sequentially (ZImage first, then Klein) with explicit memory cleanup between them, and creates a side-by-side comparison PNG.
+
+### Reference Conditioning: Flux2KleinEdit (`Flux2KleinEdit`)
+
+Used by: `app/flux2_pipeline.py` (profile), `app/flux2_controlnet_pipeline.py` (controlnet)
+
+`Flux2KleinEdit` is the edit variant of the Flux2 Klein model that supports reference image conditioning. Unlike traditional ControlNet (which uses a separate model with interleaved injection), Flux2KleinEdit concatenates VAE-encoded reference image latents with noise latents in the transformer's input sequence.
+
+#### Architecture: Reference Conditioning Pipeline
+
+1. **VAE encode** each reference image → 4D latent tensor `[1, C, H_lat, W_lat]`
+2. **Ensure 4D** / **crop to even** spatial dimensions (patchify requires even H, W)
+3. **Batch norm normalize** using `vae.bn.running_mean / running_var`: `(encoded - mean) / sqrt(var + eps)`
+4. **Patchify** into `[1, C*4, H_lat//2, W_lat//2]` (2×2 spatial fold into channel dimension)
+5. **Pack** into packed latent format `[batch, seq_len, hidden_dim]`
+6. **Assign positional IDs** — each image gets a distinct `t_coord` (`t=10+10*i` for the i-th image), so the transformer treats repeated references as separate tokens
+7. **Concatenate** `[noise_latents, image_latents]` along the sequence dimension (axis 1)
+8. **Transformer forward pass** on the concatenated sequence
+9. **Slice** output to `[:noise_latents.shape[1]]` — only the noise prediction tokens are kept
+
+#### Pipeline Wrapper Inventory
+
+| Wrapper | mflux Variant | Command | Use Case |
+|---------|--------------|---------|----------|
+| `Flux2KleinT2IPipeline` | `Flux2Klein` (txt2img) | `image t2i --pipeline flux2-klein` | Text-to-image, optional img2img |
+| `Flux2KleinPipeline` | `Flux2KleinEdit` (edit) | `image profile` | Multi-view character sheets |
+| `Flux2KleinControlnetPipeline` | `Flux2KleinEdit` (edit) | `image controlnet --pipeline flux2-klein` | ControlNet-style reference conditioning |
+
+All three share the same model loading pattern:
+1. Explicit `model_path` → use directly
+2. Local pre-quantized INT8 components → symlink assembly into temp dir
+3. HF auto-download + on-the-fly quantization → fallback
+
+#### ControlNet Command: `--pipeline flux2-klein`
+
+```
+run.py image controlnet --input-image photo.png --prompt "..." --pipeline flux2-klein
+run.py image controlnet --input-image photo.png --prompt "..." --pipeline flux2-klein --skip-preprocess --ref-count 3
+```
+
+Unlike Z-Image ControlNet (dedicated ControlNet model + 33-channel interleaved injection), Flux2 Klein uses reference latent concatenation. Best preprocessing: `--skip-preprocess` (raw image) or `--remove-outlines`. Canny edge maps are not effective — Flux2KleinEdit is not trained to interpret edge maps as structural guidance.
+
+#### `ref_count` Parameter
+
+Controls how many times the reference image is repeated in the `image_paths` list passed to `Flux2KleinEdit.generate_image()`. Each repeat gets a distinct `t_coord` (10, 20, 30) so the transformer processes them as separate reference tokens. More repeats = stronger conditioning signal in the concatenated latent sequence.
+
+| Command | Default `ref_count` | Notes |
+|---------|-------------------|-------|
+| `image controlnet --pipeline flux2-klein` | 1 | Use 2-3 for stronger reference influence |
+| `image profile` | 3 | Multiple views benefit from stronger conditioning |
+
+#### `image_strength` Behavior
+
+The `image_strength` parameter has different effects depending on the mflux variant:
+
+- **Flux2Klein (txt2img):** Controls img2img denoising start step via `Config.init_time_step`. Higher value = start later in the denoising schedule = closer to original image. Mapping: `image_strength = 1.0 - denoise_strength`.
+- **Flux2KleinEdit (edit):** `image_strength` is effectively a **no-op**. The edit variant uses reference latent concatenation (not noise interpolation), so `image_strength` has no effect on the denoising loop. Reference conditioning strength is controlled by `ref_count` (number of repeated reference tokens in the concatenated sequence).
+
+In `Flux2KleinControlnetPipeline.generate()`, `image_strength` is always passed as `None` for this reason.
+
+#### `guidance=1.0` (Hardcoded)
+
+Flux2 Klein models are **distilled** from the full Flux.2 model and do not support classifier-free guidance (CFG). With `guidance=1.0`, the negative prompt encoding branch is skipped entirely (single forward pass per denoising step). Using `guidance > 1.0` would waste compute on an untrained unconditional branch with no quality improvement.
+
+> **Note on code structure:** The three pipeline wrappers share ~80% identical `__init__()` code (symlink assembly, model loading). A shared base class could collapse this boilerplate, but the duplication is manageable at 3 files and would add indirection for minimal savings. Revisit if a 4th variant is added.

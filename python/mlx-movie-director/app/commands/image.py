@@ -32,6 +32,7 @@ _angle = importlib.import_module("app.commands.image-angle")
 _review = importlib.import_module("app.commands.image-review")
 _profile = importlib.import_module("app.commands.image-profile")
 _controlnet = importlib.import_module("app.commands.image-controlnet")
+_faceswap = importlib.import_module("app.commands.image-faceswap")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -52,7 +53,8 @@ PARSER_META = {
         "  angle         — Flux2-Klein Kontext reframe from a different camera angle\n"
         "  review        — Image review (angle grid, generation, or manifest)\n"
         "  profile       — Multi-view character profile sheet (front / back / side)\n"
-        "  controlnet    — Z-Image ControlNet (native MLX, no ComfyUI required)\n\n"
+        "  controlnet    — ControlNet: Z-Image native or Flux2 Klein reference conditioning\n"
+        "  faceswap      — BFS face/head swap via Flux2 Klein + BFS LoRA\n\n"
         "Examples:\n"
         "  run.py image --prompt 'Moody portrait'\n"
         "  run.py image t2i --prompt '...' --pipeline flux2-klein\n"
@@ -68,6 +70,9 @@ PARSER_META = {
         "  run.py image controlnet\n"
         "  run.py image controlnet --input-image photo.png --prompt '背面拍摄...'\n"
         "  run.py image controlnet --controlnet-type pose --controlnet-strength 0.8\n"
+        "  run.py image controlnet --input-image photo.png --prompt '...' --pipeline flux2-klein\n"
+        "  run.py image faceswap --input body.png --face source.png\n"
+        "  run.py image faceswap --input body.png --face source.png --mode head\n"
         "\n"
         "─────────────────────────────────────────────────────────────────────\n"
         "Sample Prompts\n"
@@ -88,7 +93,7 @@ def add_args(parser):
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet",
+        help="t2i (default) | angle | review | profile | controlnet | faceswap",
     )
     # Secondary positional — only meaningful when action=review
     parser.add_argument(
@@ -114,6 +119,9 @@ def add_args(parser):
     # ControlNet-specific args: --input-image, --controlnet-type, --controlnet-strength, --scale, --server
     _controlnet.add_controlnet_args(parser)
 
+    # FaceSwap-specific args: --face, --mode, --lora
+    _faceswap.add_faceswap_args(parser)
+
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     add_common_generation_args(parser)
 
@@ -133,5 +141,7 @@ def run(args):
         _profile.run_profile(args)
     elif action == "controlnet":
         _controlnet.run_controlnet(args)
+    elif action == "faceswap":
+        _faceswap.run_faceswap(args)
     else:
         _t2i.run_t2i(args)

@@ -358,7 +358,7 @@ _PROFILE_DEFAULT_STEPS = 6
 def run_profile(args):
     """Execute multi-view character profile generation. Called by image.py dispatcher."""
     from PIL import Image
-    from app.manifest import Manifest, collect_model_fingerprint
+    from app.manifest import Manifest, collect_model_fingerprint, collect_model_fingerprint_flux2
 
     # Validate input image path if provided (--input is registered by image-angle.py)
     input_image = getattr(args, "input", None)
@@ -513,6 +513,7 @@ def run_profile(args):
             model_path=getattr(args, "flux2_model_path", None),
             quantize=getattr(args, "quantize", None),
             variant=args.variant,
+            transformer_name=getattr(args, "transformer", "klein-9b"),
         )
     else:
         from app.pipeline import ZImagePipeline
@@ -646,7 +647,12 @@ def run_profile(args):
             print(f"Strip: {strip_path}  ({strip.width}×{strip.height})")
 
         end_time = datetime.now(timezone.utc).isoformat()
-        models = collect_model_fingerprint(lora_path=getattr(args, "lora_path", None))
+        if use_flux2:
+            from app.commands._shared import resolve_lora_path
+            resolved_lora = resolve_lora_path(getattr(args, "lora_path", None))
+            models = collect_model_fingerprint_flux2(lora_path=resolved_lora)
+        else:
+            models = collect_model_fingerprint(lora_path=getattr(args, "lora_path", None))
         manifest = Manifest.from_success(
             run_file, start_time, end_time, all_timings, view_outputs, models
         )

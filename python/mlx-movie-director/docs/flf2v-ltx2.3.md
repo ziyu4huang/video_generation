@@ -1,6 +1,6 @@
 # FLF2V (First-Last Frame to Video) — LTX-2.3
 
-**Last updated:** 2026-06-08 (Experiment #5 — successful smooth transition ✅)
+**Last updated:** 2026-06-08 (CFG mechanism documentation added)
 
 ---
 
@@ -132,15 +132,17 @@ Even with `--input` reference, the different seed creates a noticeably different
 
 ### 4. cfg_scale=5.0 → "Forced Insertion" Jump Cuts ❌
 
-The CLI default for T2V/I2V is cfg_scale=5.0, but FLF2V needs **3.0**. High CFG causes the model to **strongly conform** to the end-frame conditioning, creating abrupt visual jumps ("forced insertion") instead of smooth interpolation.
+The CLI default for T2V/I2V is cfg_scale=5.0, but FLF2V needs **3.0**. High CFG causes the model to aggressively follow the text prompt during interpolation, creating abrupt visual jumps ("forced insertion") instead of smooth transitions.
+
+> **Important**: Lowering cfg_scale does **NOT** risk "not reaching the end frame." The end frame is guaranteed by the denoise mask system (see [Keyframe Enforcement vs Text Guidance](#keyframe-enforcement-vs-text-guidance-cfg) below). cfg_scale only controls *how* the model interpolates, not *whether* it arrives.
 
 **This is now auto-fixed** — the CLI automatically sets cfg_scale=3.0 for FLF2V mode.
 
-| cfg_scale | Effect | Use For |
-|-----------|--------|---------|
-| 5.0 | Strong guidance, tight adherence to conditioning | T2V, I2V (text-conditioned) |
-| **3.0** | **Softer guidance, smooth interpolation** | **FLF2V (keyframe interpolation)** |
-| 1.0 | No CFG guidance | Distilled mode |
+| cfg_scale | Interpolation Behavior | Still Reaches End Frame? | Use For |
+|-----------|----------------------|--------------------------|---------|
+| 5.0 | Aggressive text guidance → jarring jump cuts | ✅ Yes (but ugly path) | T2V, I2V |
+| **3.0** | **Soft guidance → smooth natural transition** | ✅ Yes | **FLF2V** |
+| 1.0 | No text guidance → model-driven interpolation | ✅ Yes (but may be incoherent) | Distilled mode |
 
 ### 5. Manually Matching Prompt Descriptions → Still Different ❌
 
@@ -252,6 +254,41 @@ Both keyframe images are encoded by the VAE and injected as **keyframe tokens** 
 The `KeyframeInterpolationPipeline` then runs two-stage denoising to fill in all intermediate frames, conditioned on:
 1. The two keyframe images (visual anchor)
 2. The text prompt (motion/speech direction)
+
+### Keyframe Enforcement vs Text Guidance (CFG)
+
+FLF2V uses **two orthogonal systems** that do not interact with each other:
+
+| System | What It Controls | Mechanism | Parameters |
+|--------|-----------------|-----------|------------|
+| **Keyframe conditioning** | Model arrives at begin/end frame | `denoise_mask = 0.0` — keyframe latents are **never denoised**, deterministically preserved every step | `begin_strength`, `end_strength` |
+| **Text guidance (CFG)** | How the model interpolates *between* keyframes | Scales `cond - uncond` text prediction | `cfg_scale` |
+
+**Keyframe guarantee — how it works:**
+
+Keyframe images are VAE-encoded and appended to the latent sequence as fixed tokens. During each denoising step, `apply_denoise_mask()` runs:
+
+```
+output = x0 * mask + clean * (1 - mask)
+```
+
+Since `mask = 0.0` for keyframe positions → `output = clean_latent` always. The keyframes are **locked in place** — no cfg_scale value can change this.
+
+**CFG formula (text guidance only):**
+
+```
+pred = cond + (cfg_scale - 1) * (cond - uncond_text)
+```
+
+This scales only the text prompt influence. It does NOT scale keyframe conditioning. The two systems are completely independent.
+
+**What this means for tuning:**
+
+- Lowering cfg_scale from 5.0 → 3.0 → 1.0 **never risks losing the end frame**
+- cfg_scale only changes the interpolation *path* (how natural/jarring the motion looks)
+- cfg_scale=5.0: model aggressively follows text prompt → abrupt jump cuts (but still arrives at end frame)
+- cfg_scale=3.0: soft text guidance → smooth natural transition ← **FLF2V sweet spot**
+- cfg_scale=1.0: no text guidance → model still reaches end frame, but interpolation may be incoherent (model ignores the prompt entirely)
 
 ### Two-Stage Denoising
 

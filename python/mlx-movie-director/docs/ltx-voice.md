@@ -108,7 +108,7 @@ Correct: 1000.0 / 1000.0 = 1.0  ← full cross-modal attention
 
 #### Acelogic text encoder fixes — NOT NEEDED for our pipeline ✅ VERIFIED (2026-06-07)
 
-The [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork (local: `/Users/huangziyu/proj/acelogic-ltx-2-mlx/`) fixed text encoder issues in their **custom native MLX Gemma 3 implementation**. However, our pipeline uses **mlx-lm** which already handles these correctly:
+The [Acelogic/LTX-2-MLX](https://github.com/Acelogic/LTX-2-MLX) fork ([local submodule](../vendor/ltx-2-mlx-acelogic/), see [`vendor/ltx-2-mlx-acelogic.README.md`](../vendor/ltx-2-mlx-acelogic.README.md)) fixed text encoder issues in their **custom native MLX Gemma 3 implementation**. However, our pipeline uses **mlx-lm** which already handles these correctly:
 
 | # | Fix | Acelogic needed? | Our pipeline? | Evidence |
 |---|-----|-----------------|---------------|----------|
@@ -245,7 +245,7 @@ repetitive speech"
 
 | Source | Key Finding |
 |--------|-------------|
-| [Acelogic/LTX-2-MLX AUDIO_ISSUES.md](https://github.com/Acelogic/LTX-2-MLX/blob/main/AUDIO_ISSUES.md) | Comprehensive MLX audio debugging log; confirmed av_ca bug, duration amplitude bug, numerical divergence |
+| [Acelogic/LTX-2-MLX AUDIO_ISSUES.md](https://github.com/Acelogic/LTX-2-MLX/blob/main/AUDIO_ISSUES.md) ([local](../vendor/ltx-2-mlx-acelogic/AUDIO_ISSUES.md)) | Comprehensive MLX audio debugging log; confirmed av_ca bug, duration amplitude bug, numerical divergence |
 | [dgrauet/ltx-2-mlx#37](https://github.com/dgrauet/ltx-2-mlx/issues/37) | Our upstream issue for av_ca_timestep_scale_multiplier fix |
 | [dgrauet/ltx-2-mlx#36](https://github.com/dgrauet/ltx-2-mlx/issues/36) | Upstream issue for _adjust_output_shape (off-by-3 frames) |
 | [Lightricks/LTX-2](https://github.com/Lightricks/LTX-2) | Official upstream; audio CFG=7.0 confirmed in constants |

@@ -38,6 +38,14 @@ for _pkg in ("packages/ltx-core-mlx", "packages/ltx-pipelines-mlx"):
 # Apply vendor monkey-patches before any vendor classes are instantiated.
 import app.vendor_patches  # noqa: F401
 
+# ---------------------------------------------------------------------------
+# MultiModalGuiderParams defaults (shared by generate() and generate_flf2v())
+# ---------------------------------------------------------------------------
+_GUIDER_RESCALE_SCALE = 0.7
+_GUIDER_MODALITY_SCALE = 3.0
+_GUIDER_STG_BLOCKS = [28]
+_FLF2V_AUDIO_CFG_SCALE = 7.0
+
 
 # ---------------------------------------------------------------------------
 # Component → file mapping  (all files live in a flat root for ltx-2-mlx)
@@ -49,8 +57,14 @@ _LTX_COMPONENT_FILES: dict[str, list[str]] = {
         "split_model.json",
         "quantize_config.json",
     ],
+    cfg.LTX_DISTILLED_TRANSFORMER_DIR: [
+        "transformer-distilled-1.1.safetensors",
+        "split_model.json",
+        "quantize_config.json",
+    ],
     cfg.LTX_LORA_DIR: [
         "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
     ],
     cfg.LTX_TEXT_ENCODER_DIR: [
         "connector.safetensors",
@@ -62,6 +76,10 @@ _LTX_COMPONENT_FILES: dict[str, list[str]] = {
         "vae_decoder.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors",
         "spatial_upscaler_x2_v1_1_config.json",
+        "spatial_upscaler_x1_5_v1_0.safetensors",
+        "spatial_upscaler_x1_5_v1_0_config.json",
+        "temporal_upscaler_x2_v1_0.safetensors",
+        "temporal_upscaler_x2_v1_0_config.json",
     ],
     cfg.LTX_AUDIO_DIR: [
         "audio_vae.safetensors",
@@ -78,12 +96,107 @@ _LTX_REQUIRED_FILES = [
     (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
 ]
 
+_LTX_DISTILLED_REQUIRED_FILES = [
+    (cfg.LTX_DISTILLED_TRANSFORMER_DIR, "transformer-distilled-1.1.safetensors"),
+    (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
+    (cfg.LTX_VAE_DIR,         "vae_encoder.safetensors"),
+    (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
+]
 
-def _local_components_ready() -> bool:
+
+def _local_components_ready(distilled: bool = False) -> bool:
+    files = _LTX_DISTILLED_REQUIRED_FILES if distilled else _LTX_REQUIRED_FILES
     return all(
         os.path.exists(os.path.join(d, f))
-        for d, f in _LTX_REQUIRED_FILES
+        for d, f in files
     )
+
+
+def _check_flat_dir(target_dir: str, required_files: list[tuple[str, str]]) -> bool:
+    """Check if a pre-built flat dir exists and has all required symlinks."""
+    if not os.path.isdir(target_dir):
+        return False
+    for _src_dir, fname in required_files:
+        link = os.path.join(target_dir, fname)
+        if not os.path.islink(link) or not os.path.exists(link):
+            return False
+    return True
+
+
+def _ensure_flat_dir(distilled: bool = False) -> str:
+    """Return a flat model dir, preferring pre-built symlinks over temp assembly.
+
+    Pre-built dirs live at models/ltx-mlx/dev/ or models/ltx-mlx/distilled/
+    and are created by scripts/setup_ltx_symlinks.py.  If not found or invalid,
+    falls back to on-the-fly temp assembly.
+    """
+    prebuilt = cfg.LTX_MLX_DISTILLED_DIR if distilled else cfg.LTX_MLX_DEV_DIR
+    required = _LTX_DISTILLED_REQUIRED_FILES if distilled else _LTX_REQUIRED_FILES
+    if _check_flat_dir(prebuilt, required):
+        print(f"[LTXVideoPipeline] Using pre-built flat dir: {prebuilt}")
+        return prebuilt
+    print(f"[LTXVideoPipeline] Pre-built dir not ready ({prebuilt}), assembling on-the-fly…")
+    return _assemble_flat_dir()
+
+
+# ---------------------------------------------------------------------------
+# Temporal upscale mixin
+# ---------------------------------------------------------------------------
+
+class _TemporalUpscaleMixin:
+    """Mixin: apply temporal x2 upsampling after Stage 2, before VAE decode.
+
+    Override generate_two_stage() via MRO so it works for both
+    TI2VidTwoStagesPipeline and KeyframeInterpolationPipeline (which inherits
+    from it). Result: F frames → 2F-1 frames in latent space.
+    """
+
+    _temporal_upsampler = None  # lazy-loaded per instance
+
+    def _load_temporal_upsampler(self):
+        from ltx_core_mlx.model.upsampler.model import LatentUpsampler
+        from ltx_core_mlx.loader.sft_loader import load_split_safetensors
+        import json
+
+        model_dir = str(self.model_dir)
+        name = "temporal_upscaler_x2_v1_0"
+        config_path = os.path.join(model_dir, f"{name}_config.json")
+        weights_path = os.path.join(model_dir, f"{name}.safetensors")
+
+        if os.path.exists(config_path):
+            config = json.loads(open(config_path).read()).get("config", {})
+            upsampler = LatentUpsampler.from_config(config)
+        else:
+            upsampler = LatentUpsampler(temporal_upsample=True, spatial_upsample=False)
+
+        if not os.path.exists(weights_path):
+            raise FileNotFoundError(
+                f"[TemporalUpscale] {name}.safetensors not found in {model_dir}. "
+                "Run: python app/ltx_downloader.py"
+            )
+        raw = load_split_safetensors(weights_path)
+        upsampler.load_weights(list(raw.items()))
+        return upsampler
+
+    def generate_two_stage(self, *args, **kwargs):
+        import mlx.core as mx
+
+        video_latent, audio_latent = super().generate_two_stage(*args, **kwargs)
+
+        if self._temporal_upsampler is None:
+            self._temporal_upsampler = self._load_temporal_upsampler()
+
+        # denorm (BCFHW → BFHWC) → temporal x2 → renorm (→ BCFHW)
+        video_mlx = video_latent.transpose(0, 2, 3, 4, 1)
+        video_denorm = self.vae_encoder.denormalize_latent(video_mlx)
+        video_denorm = video_denorm.transpose(0, 4, 1, 2, 3)
+
+        video_temporal = self._temporal_upsampler(video_denorm)  # F → 2F-1
+        mx.eval(video_temporal)
+
+        video_mlx2 = video_temporal.transpose(0, 2, 3, 4, 1)
+        video_renorm = self.vae_encoder.normalize_latent(video_mlx2)
+        return video_renorm.transpose(0, 4, 1, 2, 3), audio_latent
 
 
 def _assemble_flat_dir() -> str:
@@ -98,43 +211,68 @@ def _assemble_flat_dir() -> str:
         for fname in filenames:
             src = os.path.join(src_dir, fname)
             dst = os.path.join(tmp, fname)
-            if os.path.exists(src):
+            if os.path.exists(src) and not os.path.exists(dst):
                 os.symlink(src, dst)
     return tmp
 
 
 class LTXVideoPipeline:
-    """Thin wrapper around ltx-pipelines-mlx TI2VidTwoStagesPipeline / A2VidPipelineTwoStage.
+    """Thin wrapper around ltx-pipelines-mlx for LTX-2.3 22B video generation.
+
+    Model: ltx-2.3-dev-q8 (MLX INT8 — not FP8; see models/transformer/ltx-2.3-dev-q8/quantize_config.json).
+    All modes share transformer-dev.safetensors via _assemble_flat_dir() symlink assembly.
 
     Supports:
-      T2V  — text-to-video (default)
-      I2V  — image-to-video (pass image=path)
-      A2V  — audio-to-video (pass audio_path=path)
+      T2V       — text-to-video (TI2VidTwoStagesPipeline)
+      I2V       — image-to-video (same pipeline, pass image=path)
+      A2V       — audio-to-video (A2VidPipelineTwoStage, pass audio_path=path)
+      HQ        — higher-quality T2V/I2V (TI2VidTwoStagesHQPipeline, res_2s sampler; init with hq=True)
+      Distilled — fast T2V/I2V (DistilledPipeline, 8 steps CFG=1 no STG; init with distilled=True)
+      FLF2V     — first-last-frame interpolation (KeyframeInterpolationPipeline, call generate_flf2v();
+                  dev transformer required — distilled model hallucinates during interpolation)
     """
 
     def __init__(
         self,
         model_dir: str | None = None,
         low_ram: bool = False,
+        hq: bool = False,
+        distilled: bool = False,
+        temporal_upscale: bool = False,
+        lora_path: str | None = None,
+        lora_scale: float = 1.0,
     ):
         """
         Args:
-            model_dir:  Local flat directory or HuggingFace repo ID.
-                        None → auto-detect local components; fallback to HF auto-download.
-            low_ram:    Block-streaming mode — ~75% lower peak Metal RAM, slower per step.
+            model_dir:       Local flat directory or HuggingFace repo ID.
+                             None → auto-detect local components; fallback to HF auto-download.
+            low_ram:         Block-streaming mode — ~75% lower peak Metal RAM, slower per step.
+            hq:              Use HQ pipeline (res_2s second-order sampler) for higher quality.
+            distilled:       Use distilled transformer (8 steps, CFG=1) for faster generation.
+            temporal_upscale: After Stage 2, apply temporal x2 upsampling (F → 2F-1 frames).
+                             Requires temporal_upscaler_x2_v1_0.safetensors to be downloaded.
+            lora_path:       Optional user LoRA (.safetensors) for style/quality enhancement.
+                             Fused into the dev transformer at load time via vendor _pending_loras.
+            lora_scale:      LoRA fusion strength (default: 1.0).
         """
         self.low_ram = low_ram
+        self.hq = hq
+        self.distilled = distilled
+        self.temporal_upscale = temporal_upscale
+        self.lora_path = lora_path
+        self.lora_scale = lora_scale
         self._assembly_dir: str | None = None
         self._pipeline = None
-        self._pipeline_mode: str | None = None  # "t2v_i2v" or "a2v"
+        self._pipeline_mode: str | None = None  # "t2v_i2v", "a2v", "flf2v", "distilled"
 
         if model_dir:
             self._model_dir = model_dir
             print(f"[LTXVideoPipeline] Using explicit model_dir: {model_dir}")
-        elif _local_components_ready():
-            self._assembly_dir = _assemble_flat_dir()
+        elif _local_components_ready(distilled=distilled):
+            self._assembly_dir = _ensure_flat_dir(distilled=distilled)
             self._model_dir = self._assembly_dir
-            print("[LTXVideoPipeline] Using local pre-downloaded components (symlink assembly)")
+            mode_tag = " (distilled)" if distilled else ""
+            print(f"[LTXVideoPipeline] Using local pre-downloaded components{mode_tag}")
         else:
             self._model_dir = "dgrauet/ltx-2.3-mlx-q8"
             print(
@@ -142,14 +280,18 @@ class LTXVideoPipeline:
                 f"HF auto-download: {self._model_dir}"
             )
 
+    def _is_temp_dir(self) -> bool:
+        """True if _assembly_dir is a temp dir (should be cleaned up on close)."""
+        return bool(self._assembly_dir) and self._assembly_dir.startswith(tempfile.gettempdir())
+
     def __del__(self) -> None:
-        if self._assembly_dir and os.path.isdir(self._assembly_dir):
+        if self._is_temp_dir() and os.path.isdir(self._assembly_dir):
             shutil.rmtree(self._assembly_dir, ignore_errors=True)
 
     def close(self) -> None:
         """Explicit cleanup — call before creating a new pipeline to free memory."""
         self._pipeline = None
-        if self._assembly_dir and os.path.isdir(self._assembly_dir):
+        if self._is_temp_dir() and os.path.isdir(self._assembly_dir):
             shutil.rmtree(self._assembly_dir, ignore_errors=True)
             self._assembly_dir = None
 
@@ -170,14 +312,33 @@ class LTXVideoPipeline:
         audio_path: str | None = None,
         audio_stage1_only: bool = False,
         audio_cfg_scale: float | None = None,
+        enable_teacache: bool = False,
+        teacache_thresh: float | None = None,
     ) -> dict:
         """Generate a video and write to output_path.
+
+        cfg_scale controls TEXT guidance only (scales cond - uncond prediction).
+        It does not affect image conditioning (I2V) or keyframe enforcement (FLF2V).
+        Use 5.0 for T2V/I2V, 3.0 for FLF2V, 1.0 for distilled mode.
 
         Returns:
             dict with timing measurements (phase → seconds).
         """
-        mode = "a2v" if audio_path else "t2v_i2v"
+        # Distilled mode: auto-adjust defaults (8 steps, CFG=1, no STG)
+        if self.distilled:
+            if stage1_steps is None:
+                stage1_steps = 8
+            if stage2_steps is None:
+                stage2_steps = 3
+            cfg_scale = 1.0
+            stg_scale = 0.0
+
+        mode = "distilled" if self.distilled else ("a2v" if audio_path else "t2v_i2v")
         if self._pipeline is None or self._pipeline_mode != mode:
+            if self._pipeline is not None:
+                self._pipeline = None
+                import mlx.core as mx
+                mx.clear_cache()
             self._pipeline = self._build_pipeline(mode)
             self._pipeline_mode = mode
 
@@ -205,28 +366,228 @@ class LTXVideoPipeline:
             kwargs["audio_guider_params"] = MultiModalGuiderParams(
                 cfg_scale=audio_cfg_scale,
                 stg_scale=stg_scale,
-                rescale_scale=0.7,
-                modality_scale=3.0,
-                stg_blocks=[28],
+                rescale_scale=_GUIDER_RESCALE_SCALE,
+                modality_scale=_GUIDER_MODALITY_SCALE,
+                stg_blocks=_GUIDER_STG_BLOCKS,
             )
+        if enable_teacache:
+            kwargs["enable_teacache"] = True
+        if teacache_thresh is not None:
+            kwargs["teacache_thresh"] = teacache_thresh
 
         self._pipeline.generate_and_save(**kwargs)
         return {"generate_seconds": time.time() - t0}
 
-    def _build_pipeline(self, mode: str):
+    def generate_flf2v(
+        self,
+        prompt: str,
+        output_path: str,
+        begin_image: str,
+        end_image: str,
+        height: int = 480,
+        width: int = 704,
+        num_frames: int = 97,
+        frame_rate: float = 24.0,
+        seed: int = 42,
+        stage1_steps: int | None = None,
+        stage2_steps: int | None = None,
+        cfg_scale: float = 3.0,
+        stg_scale: float = 1.0,
+        begin_strength: float = 1.0,
+        end_strength: float = 1.0,
+    ) -> dict:
+        """Generate FLF2V video (First-Last Frame to Video / 首尾帧视频生成).
+
+        Uses the KeyframeInterpolationPipeline from the vendor with
+        both frames as appended keyframe tokens. Requires the dev
+        (non-distilled) transformer — the distilled model hallucinates
+        during interpolation.
+
+        CFG vs Keyframe Enforcement:
+            These are ORTHOGONAL mechanisms that do not interact:
+            - Keyframe enforcement: via denoise_mask=0.0 — keyframe latents are
+              deterministically preserved every step. The model ALWAYS reaches
+              the end frame regardless of cfg_scale.
+            - Text guidance (cfg_scale): scales (cond - uncond) text prediction.
+              Controls HOW the model interpolates, not WHETHER it arrives.
+            - cfg_scale=5.0 → aggressive text guidance → jump cuts (still reaches end)
+            - cfg_scale=3.0 → soft guidance → smooth transition (FLF2V sweet spot)
+            - cfg_scale=1.0 → no text guidance → model-driven (may be incoherent)
+
+        Keyframe generation best practice:
+            1. Generate begin frame: same seed, free generation
+            2. Generate end frame: same seed, DIFFERENT prompt (pose/expression),
+               --input <begin_frame> (pixel-level background consistency)
+            3. Run FLF2V with cfg_scale=3.0 (auto-set by CLI)
+
+        Args:
+            prompt: Text prompt describing the motion/transition.
+            output_path: Path to output .mp4 file.
+            begin_image: Path to the first frame image.
+            end_image: Path to the last frame image.
+            height: Video height (must be divisible by 32).
+            width: Video width (must be divisible by 32).
+            num_frames: Total frame count (must satisfy 8k+1).
+            frame_rate: Output frame rate.
+            seed: Random seed.
+            stage1_steps: Stage 1 denoising steps. Pass None to let the vendor default apply
+                (vendor uses ~20 for the dev model). The CLI auto-sets to 20 when not specified.
+            stage2_steps: Stage 2 refinement steps (default 3).
+            cfg_scale: Text guidance scale (default 3.0 for FLF2V). Only affects text prompt
+                influence on interpolation — does NOT affect keyframe enforcement.
+            stg_scale: STG (spatio-temporal guidance) scale.
+            begin_strength: Conditioning strength for begin frame (1.0=exact).
+                Controls denoise_mask: output = x0 * (1-strength) + clean * strength.
+            end_strength: Conditioning strength for end frame (1.0=exact,
+                lower for more motion freedom).
+
+        Returns:
+            dict with timing measurements.
+        """
+        mode = "flf2v"
+        if self._pipeline is None or self._pipeline_mode != mode:
+            if self._pipeline is not None:
+                self._pipeline = None
+                import mlx.core as mx
+                mx.clear_cache()
+            self._pipeline = self._build_flf2v_pipeline()
+            self._pipeline_mode = mode
+
+        from ltx_core_mlx.components.guiders import MultiModalGuiderParams
+
+        last_pixel_frame = num_frames - 1
+
+        video_gp = MultiModalGuiderParams(
+            cfg_scale=cfg_scale,
+            stg_scale=stg_scale,
+            rescale_scale=_GUIDER_RESCALE_SCALE,
+            modality_scale=_GUIDER_MODALITY_SCALE,
+            stg_blocks=_GUIDER_STG_BLOCKS,
+        )
+        audio_gp = MultiModalGuiderParams(
+            cfg_scale=_FLF2V_AUDIO_CFG_SCALE,
+            stg_scale=stg_scale,
+            rescale_scale=_GUIDER_RESCALE_SCALE,
+            modality_scale=_GUIDER_MODALITY_SCALE,
+            stg_blocks=_GUIDER_STG_BLOCKS,
+        )
+
         t0 = time.time()
-        if mode == "a2v":
-            from ltx_pipelines_mlx import A2VidPipelineTwoStage as Pipeline
-        else:
-            from ltx_pipelines_mlx import TI2VidTwoStagesPipeline as Pipeline
+        self._pipeline.generate_and_save(
+            prompt=prompt,
+            output_path=output_path,
+            keyframe_images=[begin_image, end_image],
+            keyframe_indices=[0, last_pixel_frame],
+            keyframe_strengths=[begin_strength, end_strength],
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            seed=seed,
+            stage1_steps=stage1_steps,
+            stage2_steps=stage2_steps,
+            cfg_scale=cfg_scale,
+            video_guider_params=video_gp,
+            audio_guider_params=audio_gp,
+        )
+        return {"generate_seconds": time.time() - t0}
+
+    def _build_flf2v_pipeline(self):
+        """Build a KeyframeInterpolationPipeline for FLF2V mode."""
+        from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
+
+        tu_tag = " +temporal-upscale" if self.temporal_upscale else ""
         print(
-            f"[LTXVideoPipeline] Loading {Pipeline.__name__} "
+            f"[LTXVideoPipeline] Loading KeyframeInterpolationPipeline{tu_tag} "
             f"(model_dir={self._model_dir!r}, low_ram={self.low_ram})…"
         )
-        pipeline = Pipeline(
+        t0 = time.time()
+        PipelineBase = KeyframeInterpolationPipeline
+        if self.temporal_upscale:
+            PipelineBase = type(
+                "TemporalKeyframeInterpolationPipeline",
+                (_TemporalUpscaleMixin, KeyframeInterpolationPipeline),
+                {},
+            )
+        pipeline = PipelineBase(
             model_dir=self._model_dir,
             low_memory=True,
             low_ram_streaming=self.low_ram,
+            dev_transformer="transformer-dev.safetensors",
+            distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
         )
+        self._apply_lora(pipeline)
+
+        print(f"[LTXVideoPipeline] Pipeline ready ({time.time() - t0:.1f}s)")
+        return pipeline
+
+    def _apply_lora(self, pipeline) -> None:
+        """Fuse user LoRA into pipeline via vendor _pending_loras mechanism."""
+        if not self.lora_path:
+            return
+        from app.commands._shared import resolve_lora_path
+        resolved = resolve_lora_path(self.lora_path)
+        print(f"[LTXVideoPipeline] User LoRA: {resolved} (scale={self.lora_scale})")
+        pipeline._pending_loras = [(resolved, self.lora_scale)]
+
+    def _build_pipeline(self, mode: str):
+        t0 = time.time()
+        if mode == "distilled":
+            from ltx_pipelines_mlx import DistilledPipeline as Pipeline
+            print(
+                f"[LTXVideoPipeline] Loading {Pipeline.__name__} "
+                f"(model_dir={self._model_dir!r}, low_ram={self.low_ram})…"
+            )
+            pipeline = Pipeline(
+                model_dir=self._model_dir,
+                low_memory=True,
+                low_ram_streaming=self.low_ram,
+            )
+        elif mode == "a2v":
+            from ltx_pipelines_mlx import A2VidPipelineTwoStage as Pipeline
+            print(
+                f"[LTXVideoPipeline] Loading {Pipeline.__name__} "
+                f"(model_dir={self._model_dir!r}, low_ram={self.low_ram})…"
+            )
+            pipeline = Pipeline(
+                model_dir=self._model_dir,
+                low_memory=True,
+                low_ram_streaming=self.low_ram,
+            )
+        elif self.hq:
+            from ltx_pipelines_mlx import TI2VidTwoStagesHQPipeline as Pipeline
+            tu_tag = " +temporal-upscale" if self.temporal_upscale else ""
+            hq_tag = f" (HQ res_2s){tu_tag}"
+            print(
+                f"[LTXVideoPipeline] Loading {Pipeline.__name__}{hq_tag} "
+                f"(model_dir={self._model_dir!r}, low_ram={self.low_ram})…"
+            )
+            PipelineClass = (
+                type("TemporalHQPipeline", (_TemporalUpscaleMixin, Pipeline), {})
+                if self.temporal_upscale else Pipeline
+            )
+            pipeline = PipelineClass(
+                model_dir=self._model_dir,
+                low_memory=True,
+                low_ram_streaming=self.low_ram,
+            )
+        else:
+            from ltx_pipelines_mlx import TI2VidTwoStagesPipeline as Pipeline
+            tu_tag = " +temporal-upscale" if self.temporal_upscale else ""
+            print(
+                f"[LTXVideoPipeline] Loading {Pipeline.__name__}{tu_tag} "
+                f"(model_dir={self._model_dir!r}, low_ram={self.low_ram})…"
+            )
+            PipelineClass = (
+                type("TemporalTI2VPipeline", (_TemporalUpscaleMixin, Pipeline), {})
+                if self.temporal_upscale else Pipeline
+            )
+            pipeline = PipelineClass(
+                model_dir=self._model_dir,
+                low_memory=True,
+                low_ram_streaming=self.low_ram,
+            )
+        self._apply_lora(pipeline)
+
         print(f"[LTXVideoPipeline] Pipeline ready ({time.time() - t0:.1f}s)")
         return pipeline

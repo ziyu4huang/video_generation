@@ -191,6 +191,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
         pipeline = Flux2KleinT2IPipeline(
             lora_paths=lora_paths,
             lora_scales=lora_scales,
+            transformer_name=getattr(run_config, "transformer", "klein-9b"),
         )
     else:
         pipeline = ZImagePipeline()
@@ -253,7 +254,8 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
 
         end_time = datetime.now(timezone.utc).isoformat()
         if pipeline_type == "flux2-klein":
-            models = collect_model_fingerprint_flux2(upscale_model=upscale_model)
+            models = collect_model_fingerprint_flux2(lora_path=run_config.lora_path,
+                                                      upscale_model=upscale_model)
         else:
             models = collect_model_fingerprint(
                 lora_path=run_config.lora_path,
@@ -399,7 +401,9 @@ def execute_ab_test(run_config) -> None:
             print(f"\n{'='*60}")
             print(f"A/B Test — Flux2 Klein (batch {i+1}/{count}, seed={seed})")
             print(f"{'='*60}")
-            pipeline_f = Flux2KleinT2IPipeline()
+            pipeline_f = Flux2KleinT2IPipeline(
+                transformer_name=getattr(run_config, "transformer", "klein-9b"),
+            )
             result_f = pipeline_f.generate(
                 prompt=prompt,
                 width=run_config.width,

@@ -6,11 +6,13 @@
   "format": "safetensors-bf16",
   "description": "LTX-2.3 video VAE encoder + decoder. From dgrauet/ltx-2.3-mlx-q8.",
   "source": "dgrauet/ltx-2.3-mlx-q8",
-  "pipeline": ["ltx-2.3"],
+  "pipeline": [
+    "ltx-2.3"
+  ],
   "compatible_with": [
     "transformer/ltx-2.3-dev-q8"
   ],
   "hf_repo": "dgrauet/ltx-2.3-mlx-q8",
-  "size_bytes": 2447979911,
+  "size_bytes": 3800052968,
   "created_at": "2026-06-07T00:00:00Z"
 }

@@ -6,12 +6,14 @@
   "format": "safetensors-bf16",
   "description": "LTX-2.3 22B Stage-2 distilled LoRA (384-step). From dgrauet/ltx-2.3-mlx-q8.",
   "source": "dgrauet/ltx-2.3-mlx-q8",
-  "pipeline": ["ltx-2.3"],
+  "pipeline": [
+    "ltx-2.3"
+  ],
   "compatible_with": [
     "transformer/ltx-2.3-dev-q8"
   ],
   "hf_repo": "dgrauet/ltx-2.3-mlx-q8",
   "hf_filename": "ltx-2.3-22b-distilled-lora-384.safetensors",
-  "size_bytes": 7605507256,
+  "size_bytes": 15211014512,
   "created_at": "2026-06-07T00:00:00Z"
 }

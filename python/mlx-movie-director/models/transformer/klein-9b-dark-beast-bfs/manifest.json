@@ -1,0 +1,18 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "klein-9b-dark-beast-bfs",
+  "type": "transformer",
+  "arch": "flux2-klein-9b",
+  "format": "mlx-8bit",
+  "description": "Dark Beast KLEIN 9b V2.0 BFS — face-swap specialized variant of Flux2 Klein 9B, converted from Civitai FP8 checkpoint to MLX INT8",
+  "pipeline": ["flux2-klein"],
+  "compatible_with": [
+    "text_encoder/qwen3-8b",
+    "tokenizer/qwen3-klein",
+    "vae/flux2-klein"
+  ],
+  "size_bytes": 9646067090,
+  "source": "civitai/NRDX/DBKleinV2BFS",
+  "source_url": "https://civitai.com/models/2242173/dark-beast-or?modelVersionId=2740209",
+  "created_at": "2026-06-08T00:00:00Z"
+}

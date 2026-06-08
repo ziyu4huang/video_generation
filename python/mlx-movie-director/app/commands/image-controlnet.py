@@ -36,12 +36,14 @@ _DEFAULT_REF_IMAGE = os.path.join(
 )
 _DEFAULT_PROMPT = "背面拍摄，高清摄影。一个coser少女，她cos的是雷姆。"
 
-# A/B test variations: (label, strength, blur_sigma_or_None, remove_outlines)
+# A/B test variations: (label, strength, blur_sigma_or_None, remove_outlines, skip_preprocess)
 _AB_VARIATIONS = [
-    ("A-raw",          1.0, None,  False),
-    ("B-blur5",        1.0, 5.0,   False),
-    ("C-remove-out",   1.0, None,  True),
-    ("D-remove+blur3", 1.0, 3.0,   True),
+    ("A-str06-canny",  0.6, None, False, False),  # Canny + strength 0.6
+    ("B-str06-raw",    0.6, None, False, True),   # Raw + strength 0.6
+    ("C-str06-blur5",  0.6, 5.0,  False, True),   # Blur(5) + strength 0.6
+    ("D-str08-canny",  0.8, None, False, False),  # Canny + strength 0.8
+    ("E-str08-raw",    0.8, None, False, True),   # Raw + strength 0.8
+    ("F-str08-blur5",  0.8, 5.0,  False, True),   # Blur(5) + strength 0.8
 ]
 
 
@@ -105,6 +107,19 @@ def add_controlnet_args(parser):
             "Opens manifest review HTML after completion."
         ),
     )
+    parser.add_argument(
+        "--cnet-active-steps", type=int, default=None, metavar="N",
+        help=(
+            "Only apply ControlNet for the first N denoising steps "
+            "(dual-sampler technique). Default: apply on all steps."
+        ),
+    )
+    # Flux2-Klein-specific options for ControlNet:
+    # --pipeline, --variant, --flux2-model-path, --quantize are already
+    # registered by add_t2i_args() in image-t2i.py (shared parser).
+    # --ref-count is already registered by add_profile_args() in image-profile.py.
+    # No additional args needed — controlnet reuses these shared flags.
+
     # --server argument kept for backward compat but ignored (no ComfyUI needed)
     parser.add_argument(
         "--server", type=str, default=None,
@@ -117,7 +132,10 @@ def add_controlnet_args(parser):
 # ---------------------------------------------------------------------------
 
 def run_controlnet(args):
-    """Execute native MLX ControlNet generation. Called by image.py dispatcher."""
+    """Execute ControlNet generation (Z-Image native or Flux2 Klein reference conditioning).
+
+    Called by image.py dispatcher.
+    """
     from PIL import Image
 
     prompt = getattr(args, "prompt", None) or _DEFAULT_PROMPT
@@ -128,9 +146,14 @@ def run_controlnet(args):
     blur_ref = getattr(args, "blur_ref", None)
     remove_outlines = getattr(args, "remove_outlines", False)
     scale = getattr(args, "scale", None)
-    steps = getattr(args, "steps", None) or 9
+    pipeline_type = getattr(args, "pipeline", "zimage")
     seed = getattr(args, "seed", 42)
     do_ab = getattr(args, "controlnet_ab_test", False)
+
+    # Default steps differ by pipeline
+    steps = getattr(args, "steps", None)
+    if steps is None:
+        steps = 4 if pipeline_type == "flux2-klein" else 9
 
     if not os.path.exists(ref_image_path):
         print(f"ERROR: Reference image not found: {ref_image_path}", file=sys.stderr)
@@ -152,6 +175,14 @@ def run_controlnet(args):
         out_w = (src_w // 16) * 16
         out_h = (src_h // 16) * 16
 
+    # ── Create Flux2 pipeline once (reused across A/B variations) ─────────────
+    flux2_pipeline = None
+    resolved_lora_path = None
+    if pipeline_type == "flux2-klein":
+        flux2_pipeline = _create_flux2_pipeline(args)
+        from app.commands._shared import resolve_lora_path
+        resolved_lora_path = resolve_lora_path(getattr(args, "lora_path", None))
+
     if do_ab:
         _run_ab_test(
             prompt=prompt,
@@ -162,6 +193,10 @@ def run_controlnet(args):
             out_h=out_h,
             steps=steps,
             seed=seed,
+            pipeline_type=pipeline_type,
+            flux2_pipeline=flux2_pipeline,
+            lora_path=resolved_lora_path,
+            args=args,
         )
         return
 
@@ -180,6 +215,7 @@ def run_controlnet(args):
         out_w=out_w,
         out_h=out_h,
         scale=scale,
+        pipeline_type=pipeline_type,
     )
     _write_json(run_file, run_meta)
 
@@ -194,19 +230,37 @@ def run_controlnet(args):
     last_timings = {}
 
     try:
-        pil_image = _execute_generation(
-            prompt=prompt,
-            ref_image_path=ref_image_path,
-            ctrl_type=ctrl_type,
-            strength=strength,
-            skip_preprocess=skip_preprocess,
-            blur_ref=blur_ref,
-            remove_outlines=remove_outlines,
-            out_w=out_w,
-            out_h=out_h,
-            steps=steps,
-            seed=seed,
-        )
+        if pipeline_type == "flux2-klein":
+            pil_image = _execute_generation_flux2(
+                prompt=prompt,
+                ref_image_path=ref_image_path,
+                ctrl_type=ctrl_type,
+                strength=strength,
+                skip_preprocess=skip_preprocess,
+                blur_ref=blur_ref,
+                remove_outlines=remove_outlines,
+                out_w=out_w,
+                out_h=out_h,
+                steps=steps,
+                seed=seed,
+                pipeline=flux2_pipeline,
+                args=args,
+            )
+        else:
+            pil_image = _execute_generation(
+                prompt=prompt,
+                ref_image_path=ref_image_path,
+                ctrl_type=ctrl_type,
+                strength=strength,
+                skip_preprocess=skip_preprocess,
+                blur_ref=blur_ref,
+                remove_outlines=remove_outlines,
+                out_w=out_w,
+                out_h=out_h,
+                steps=steps,
+                seed=seed,
+                cnet_active_steps=getattr(args, "cnet_active_steps", None),
+            )
 
         pil_image.save(out_path)
         print(f"Saved: {out_path}")
@@ -220,8 +274,11 @@ def run_controlnet(args):
             "height": pil_image.height,
         }]
 
-        from app.manifest import Manifest, collect_model_fingerprint_controlnet
-        models = collect_model_fingerprint_controlnet()
+        from app.manifest import Manifest, collect_model_fingerprint_controlnet, collect_model_fingerprint_flux2
+        if pipeline_type == "flux2-klein":
+            models = collect_model_fingerprint_flux2(lora_path=resolved_lora_path)
+        else:
+            models = collect_model_fingerprint_controlnet()
         manifest = Manifest.from_success(
             run_file, start_time, end_time, last_timings, output_files, models
         )
@@ -245,19 +302,22 @@ def run_controlnet(args):
 # ---------------------------------------------------------------------------
 
 def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
-                 out_w, out_h, steps, seed):
-    """Run 4 ControlNet variations and open manifest review HTML."""
-    from app.manifest import Manifest, collect_model_fingerprint_controlnet
+                 out_w, out_h, steps, seed, pipeline_type="zimage",
+                 flux2_pipeline=None, lora_path=None, args=None):
+    """Run ControlNet variations and open manifest review HTML."""
+    from app.manifest import Manifest, collect_model_fingerprint_controlnet, collect_model_fingerprint_flux2
 
     manifest_files = []
 
-    for label, strength, blur_ref, remove_outlines in _AB_VARIATIONS:
+    for label, strength, blur_ref, remove_outlines, skip_pp in _AB_VARIATIONS:
         print(f"\n{'=' * 60}")
         parts = [f"strength={strength}"]
         if blur_ref:
             parts.append(f"blur={blur_ref}")
         if remove_outlines:
             parts.append("remove-outlines")
+        if skip_pp:
+            parts.append("skip-preprocess")
         print(f"A/B Test — {label}  ({', '.join(parts)})")
         print(f"{'=' * 60}")
 
@@ -269,13 +329,14 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
             ref_image_path=ref_image_path,
             ctrl_type=ctrl_type,
             strength=strength,
-            skip_preprocess=skip_preprocess,
+            skip_preprocess=skip_pp,
             blur_ref=blur_ref,
             remove_outlines=remove_outlines,
             steps=steps,
             seed=seed,
             out_w=out_w,
             out_h=out_h,
+            pipeline_type=pipeline_type,
         )
         _write_json(run_file, run_meta)
         print(f"Run config : {run_file}")
@@ -284,19 +345,37 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
         last_timings = {}
 
         try:
-            pil_image = _execute_generation(
-                prompt=prompt,
-                ref_image_path=ref_image_path,
-                ctrl_type=ctrl_type,
-                strength=strength,
-                skip_preprocess=skip_preprocess,
-                blur_ref=blur_ref,
-                remove_outlines=remove_outlines,
-                out_w=out_w,
-                out_h=out_h,
-                steps=steps,
-                seed=seed,
-            )
+            if pipeline_type == "flux2-klein":
+                pil_image = _execute_generation_flux2(
+                    prompt=prompt,
+                    ref_image_path=ref_image_path,
+                    ctrl_type=ctrl_type,
+                    strength=strength,
+                    skip_preprocess=skip_pp,
+                    blur_ref=blur_ref,
+                    remove_outlines=remove_outlines,
+                    out_w=out_w,
+                    out_h=out_h,
+                    steps=steps,
+                    seed=seed,
+                    pipeline=flux2_pipeline,
+                    args=args,
+                )
+            else:
+                pil_image = _execute_generation(
+                    prompt=prompt,
+                    ref_image_path=ref_image_path,
+                    ctrl_type=ctrl_type,
+                    strength=strength,
+                    skip_preprocess=skip_pp,
+                    blur_ref=blur_ref,
+                    remove_outlines=remove_outlines,
+                    out_w=out_w,
+                    out_h=out_h,
+                    steps=steps,
+                    seed=seed,
+                    cnet_active_steps=getattr(args, "cnet_active_steps", None),
+                )
 
             pil_image.save(out_path)
             print(f"Saved: {out_path}")
@@ -310,7 +389,10 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
                 "height": pil_image.height,
             }]
 
-            models = collect_model_fingerprint_controlnet()
+            if pipeline_type == "flux2-klein":
+                models = collect_model_fingerprint_flux2(lora_path=lora_path)
+            else:
+                models = collect_model_fingerprint_controlnet()
             manifest = Manifest.from_success(
                 run_file, start_time, end_time, last_timings, output_files, models
             )
@@ -338,12 +420,35 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
 
 
 # ---------------------------------------------------------------------------
+# Flux2 Klein pipeline factory
+# ---------------------------------------------------------------------------
+
+def _create_flux2_pipeline(args):
+    """Create a Flux2KleinControlnetPipeline from CLI args (loaded once, reused)."""
+    from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline
+    from app.commands._shared import resolve_lora_path
+
+    lora_path = resolve_lora_path(getattr(args, "lora_path", None))
+    lora_paths = [lora_path] if lora_path else None
+    lora_scales = [getattr(args, "lora_scale", 1.0)] if lora_paths else None
+
+    return Flux2KleinControlnetPipeline(
+        model_path=getattr(args, "flux2_model_path", None),
+        quantize=getattr(args, "quantize", None),
+        variant=getattr(args, "variant", "9b"),
+        transformer_name=getattr(args, "transformer", "klein-9b"),
+        lora_paths=lora_paths,
+        lora_scales=lora_scales,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Core generation (shared by single run + A/B test)
 # ---------------------------------------------------------------------------
 
 def _execute_generation(prompt, ref_image_path, ctrl_type, strength,
                         skip_preprocess, blur_ref, remove_outlines,
-                        out_w, out_h, steps, seed) -> "Image.Image":
+                        out_w, out_h, steps, seed, cnet_active_steps=None) -> "Image.Image":
     """Run the full ControlNet pipeline. Returns PIL Image."""
     # ── Preprocess reference image ───────────────────────────────────────────
     ctrl_pil = _load_and_preprocess(
@@ -373,7 +478,42 @@ def _execute_generation(prompt, ref_image_path, ctrl_type, strength,
         seed=seed,
         ctrl_33ch=ctrl_33ch,
         strength=strength,
+        cnet_active_steps=cnet_active_steps,
     )
+
+
+def _execute_generation_flux2(prompt, ref_image_path, ctrl_type, strength,
+                               skip_preprocess, blur_ref, remove_outlines,
+                               out_w, out_h, steps, seed, pipeline, args=None) -> "Image.Image":
+    """Run Flux2 Klein reference conditioning pipeline. Returns PIL Image.
+
+    Uses Flux2KleinControlnetPipeline (reference latent concatenation) instead
+    of a dedicated ControlNet model.  The pipeline instance must be created
+    externally (by run_controlnet / _run_ab_test) so it is reused across
+    A/B variations instead of re-loading ~17 GB of weights each time.
+    """
+    # ── Preprocess reference image (reuse existing preprocessing) ──────────
+    ctrl_pil = _load_and_preprocess(
+        ref_image_path, ctrl_type, out_w, out_h, skip_preprocess,
+        blur_ref=blur_ref, remove_outlines=remove_outlines,
+    )
+
+    ref_count = getattr(args, "ref_count", 1) if args else 1
+
+    # ── Generate ───────────────────────────────────────────────────────────
+    print(f"[ControlNet/Flux2] Generating {out_w}×{out_h} "
+          f"(steps={steps}, seed={seed}, strength={strength}, ref_count={ref_count})")
+    result = pipeline.generate(
+        prompt=prompt,
+        control_image=ctrl_pil,
+        width=out_w,
+        height=out_h,
+        steps=steps,
+        seed=seed,
+        controlnet_strength=strength,
+        ref_count=ref_count,
+    )
+    return result.image
 
 
 # ---------------------------------------------------------------------------
@@ -391,11 +531,12 @@ def _make_output_paths(base_name):
 
 def _build_run_meta(prompt, ref_image_path, ctrl_type, strength,
                     skip_preprocess, blur_ref, remove_outlines, steps, seed,
-                    out_w, out_h, scale=None):
+                    out_w, out_h, scale=None, pipeline_type="zimage"):
     """Build run.json metadata dict."""
     return {
         "command": "image",
         "action": "controlnet",
+        "pipeline": pipeline_type,
         "input_image": ref_image_path,
         "controlnet_type": ctrl_type,
         "controlnet_strength": strength,
@@ -557,8 +698,14 @@ def _vae_encode(vae, pil_img: "Image.Image") -> mx.array:
 # Denoising loop with ControlNet injection (interleaved)
 # ---------------------------------------------------------------------------
 
-def _generate(prompt, out_w, out_h, steps, seed, ctrl_33ch, strength) -> "Image.Image":
-    """Run full denoising loop with interleaved ControlNet. Returns PIL Image."""
+def _generate(prompt, out_w, out_h, steps, seed, ctrl_33ch, strength,
+              cnet_active_steps=None) -> "Image.Image":
+    """Run full denoising loop with interleaved ControlNet. Returns PIL Image.
+
+    Args:
+        cnet_active_steps: If set, only apply ControlNet for the first N steps
+            (dual-sampler technique). None = apply on all steps.
+    """
     from PIL import Image
     from transformers import AutoTokenizer
     from app.pipeline import (
@@ -653,10 +800,11 @@ def _generate(prompt, out_w, out_h, steps, seed, ctrl_33ch, strength) -> "Image.
         t_curr = scheduler.timesteps[i]
         t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
 
-        # Re-embed control context for each step (ControlNet needs fresh context)
-        # Note: the control image doesn't change, so we reuse the embedded context
-        # But the noise latent changes, so we need to re-embed for each step
-        step_controlnet_context = controlnet.embed_control(ctrl_33ch)
+        # Reuse the pre-computed control context (identical input every step, no need to re-embed)
+        step_controlnet_context = controlnet_context
+
+        # Dual-sampler: only apply ControlNet for the first N steps
+        active_strength = strength if (cnet_active_steps is None or i < cnet_active_steps) else 0.0
 
         # Run main transformer with interleaved ControlNet
         B, C, H, W = latents.shape
@@ -665,7 +813,7 @@ def _generate(prompt, out_w, out_h, steps, seed, ctrl_33ch, strength) -> "Image.
                     cos_cached, sin_cached, cap_mask=None,
                     controlnet_model=controlnet,
                     controlnet_context=step_controlnet_context,
-                    controlnet_strength=strength)
+                    controlnet_strength=active_strength)
         noise_pred = -out.reshape(1, 1, H_tok, W_tok, 2, 2, C).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
 
         latents = scheduler.step(noise_pred, i, latents)

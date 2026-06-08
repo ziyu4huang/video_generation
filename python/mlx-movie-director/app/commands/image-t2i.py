@@ -34,6 +34,10 @@ def add_t2i_args(parser):
         help="Klein model variant (default: 9b; use 4b for lower memory)",
     )
     parser.add_argument(
+        "--transformer", default="klein-9b", metavar="NAME",
+        help="Transformer instance dir under models/transformer/ (default: klein-9b)",
+    )
+    parser.add_argument(
         "--flux2-model-path", default=None, metavar="PATH",
         help="Local Klein model path (HF dir layout). Omit to auto-download.",
     )
@@ -53,7 +57,7 @@ def run_t2i(args):
         args.width = 640
     if args.height is None:
         args.height = 960
-    run_config = RunConfig.from_args(args, command="image")
+    run_config = RunConfig.from_args(args, command="image generate")
     if getattr(args, "ab_test", False):
         execute_ab_test(run_config)
     else:

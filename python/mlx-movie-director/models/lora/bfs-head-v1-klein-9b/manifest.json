@@ -1,0 +1,15 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry.",
+  "name": "bfs-head-v1-klein-9b",
+  "type": "lora",
+  "arch": "flux2-klein-9b",
+  "description": "BFS (Best Face Swap) LoRA for Flux 2 Klein 9B — head/face swap via multi-image reference conditioning",
+  "source": "huggingface/Alissonerdx/BFS-Best-Face-Swap",
+  "source_url": "https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap",
+  "rank": 64,
+  "pipeline": ["flux2-klein", "flux2-klein-edit"],
+  "compatible_with": [
+    "transformer/klein-9b",
+    "transformer/klein-9b-dark-beast-bfs"
+  ]
+}

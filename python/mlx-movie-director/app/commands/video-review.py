@@ -250,15 +250,32 @@ def _load_test(manifest_path: str) -> dict:
 
     # Key params to display
     params = {}
-    for key in ["pipeline", "cfg_scale", "stg_scale", "steps", "stage1_steps", "stage2_steps",
+    for key in ["cfg_scale", "stg_scale", "steps", "stage1_steps", "stage2_steps",
                 "seed", "width", "height", "frames", "fps", "lora_scale",
-                "denoise_strength", "low_ram", "distilled", "hq"]:
+                "denoise_strength", "low_ram", "distilled", "hq",
+                "teacache", "teacache_thresh", "temporal_upscale"]:
         v = run.get(key)
         if v is not None:
             # skip False booleans — only show True flags
             if isinstance(v, bool) and not v:
                 continue
             params[key] = v
+
+    # Merge teacache_thresh into teacache value for compact display
+    if params.get("teacache") and params.get("teacache_thresh") is not None:
+        params["teacache"] = f"True (thresh={params.pop('teacache_thresh')})"
+    elif "teacache_thresh" in params and not params.get("teacache"):
+        del params["teacache_thresh"]
+
+    # Prepend mode (from manifest output_files, fallback to pipeline label)
+    mode_str = None
+    out_files = manifest.get("output_files") or []
+    if out_files and isinstance(out_files[0], dict):
+        mode_str = out_files[0].get("mode")
+    if not mode_str:
+        mode_str = _pipeline_display_label(run.get("pipeline", ""))
+    if mode_str:
+        params = {"mode": mode_str, **params}
 
     # Extract error info for failed tests
     error_info = manifest.get("error")

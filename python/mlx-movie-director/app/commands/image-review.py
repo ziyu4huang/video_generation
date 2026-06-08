@@ -168,6 +168,7 @@ def run_review_angle(args):
         model_path=getattr(args, "flux2_model_path", None),
         quantize=getattr(args, "quantize", None),
         variant=getattr(args, "variant", "9b"),
+        transformer_name=getattr(args, "transformer", "klein-9b"),
     )
 
     results = []

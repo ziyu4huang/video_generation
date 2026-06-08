@@ -56,11 +56,18 @@ KLEIN_9B_VAE_DIR          = os.path.join(MODELS_DIR, "vae", "flux2-klein")
 KLEIN_9B_TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer", "qwen3-klein")
 
 # LTX-2.3 22B video generation components (decomposed into standard model dirs)
-LTX_TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "ltx-2.3-dev-q8")
-LTX_LORA_DIR         = os.path.join(MODELS_DIR, "lora",          "ltx-2.3-distilled")
-LTX_TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "ltx-2.3-connector")
-LTX_VAE_DIR          = os.path.join(MODELS_DIR, "vae",           "ltx-2.3-vae")
-LTX_AUDIO_DIR        = os.path.join(MODELS_DIR, "audio",         "ltx-2.3-audio")
+LTX_TRANSFORMER_DIR          = os.path.join(MODELS_DIR, "transformer",   "ltx-2.3-dev-q8")
+LTX_DISTILLED_TRANSFORMER_DIR = os.path.join(MODELS_DIR, "transformer",  "ltx-2.3-distilled-q8")
+LTX_LORA_DIR                 = os.path.join(MODELS_DIR, "lora",          "ltx-2.3-distilled")
+LTX_TEXT_ENCODER_DIR         = os.path.join(MODELS_DIR, "text_encoder",  "ltx-2.3-connector")
+LTX_VAE_DIR                  = os.path.join(MODELS_DIR, "vae",           "ltx-2.3-vae")
+LTX_AUDIO_DIR                = os.path.join(MODELS_DIR, "audio",         "ltx-2.3-audio")
+
+# Pre-built flat symlink dirs (ltx-2-mlx expects all files in one flat directory)
+# Created by scripts/setup_ltx_symlinks.py — avoids on-the-fly temp assembly.
+LTX_MLX_DIR         = os.path.join(MODELS_DIR, "ltx-mlx")
+LTX_MLX_DEV_DIR     = os.path.join(LTX_MLX_DIR, "dev")
+LTX_MLX_DISTILLED_DIR = os.path.join(LTX_MLX_DIR, "distilled")
 
 # Z-Image ControlNet (Union 2.0 — supports pose/depth/canny/hed/scribble)
 CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.0")
