@@ -1,4 +1,4 @@
-"""image — unified image command: dispatcher for t2i, angle, review, profile, controlnet sub-actions.
+"""image — unified image command: dispatcher for t2i, angle, review, profile, controlnet, faceswap, sda-test, workflow sub-actions.
 
 Sub-actions (loaded from sibling modules via importlib):
   t2i (default)   — text-to-image    → app/commands/image-t2i.py
@@ -6,6 +6,10 @@ Sub-actions (loaded from sibling modules via importlib):
   review          — image review     → app/commands/image-review.py
   profile         — character sheet  → app/commands/image-profile.py
   controlnet      — Z-Image ControlNet (native MLX) → app/commands/image-controlnet.py
+  faceswap        — BFS face/head swap via Flux2 Klein + BFS LoRA → app/commands/image-faceswap.py
+  sda-test        — SDA LoKr A/B diversity test → app/commands/image-sda-test.py
+  quality         — No-reference image quality analysis + VAE A/B self-test → app/commands/image-quality.py
+  workflow        — Multi-stage: generate → face detail → post-process → upscale → app/commands/image-workflow.py
 
 'run.py generate' is an alias for this command (see run.py COMMAND_ALIASES).
 
@@ -19,6 +23,8 @@ Usage:
   run.py image controlnet
   run.py image controlnet --input-image photo.png --prompt '背面拍摄...'
   run.py image controlnet --controlnet-type pose --controlnet-strength 0.8
+  run.py image faceswap --input body.png --face source.png
+  run.py image faceswap --self-test
 """
 
 import importlib
@@ -33,6 +39,9 @@ _review = importlib.import_module("app.commands.image-review")
 _profile = importlib.import_module("app.commands.image-profile")
 _controlnet = importlib.import_module("app.commands.image-controlnet")
 _faceswap = importlib.import_module("app.commands.image-faceswap")
+_sda_test = importlib.import_module("app.commands.image-sda-test")
+_quality = importlib.import_module("app.commands.image-quality")
+_workflow = importlib.import_module("app.commands.image-workflow")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -45,7 +54,7 @@ if os.path.exists(_PROMPTS_FILE):
         _sample_prompts = _f.read().strip()
 
 PARSER_META = {
-    "help": "Image generation: T2I (default), angle, review, profile, or controlnet",
+    "help": "Image generation: T2I (default), angle, review, profile, controlnet, quality, or sda-test",
     "description": (
         "Unified image command. 'run.py generate' is an alias.\n\n"
         "Sub-actions:\n"
@@ -54,7 +63,9 @@ PARSER_META = {
         "  review        — Image review (angle grid, generation, or manifest)\n"
         "  profile       — Multi-view character profile sheet (front / back / side)\n"
         "  controlnet    — ControlNet: Z-Image native or Flux2 Klein reference conditioning\n"
-        "  faceswap      — BFS face/head swap via Flux2 Klein + BFS LoRA\n\n"
+        "  faceswap      — BFS face/head swap via Flux2 Klein + BFS LoRA\n"
+        "  quality       — No-reference image quality analysis + VAE A/B self-test\n"
+        "  sda-test      — SDA LoKr A/B test: baseline vs diversity adapter\n\n"
         "Examples:\n"
         "  run.py image --prompt 'Moody portrait'\n"
         "  run.py image t2i --prompt '...' --pipeline flux2-klein\n"
@@ -70,9 +81,12 @@ PARSER_META = {
         "  run.py image controlnet\n"
         "  run.py image controlnet --input-image photo.png --prompt '背面拍摄...'\n"
         "  run.py image controlnet --controlnet-type pose --controlnet-strength 0.8\n"
+        "  run.py image controlnet --self-test\n"
         "  run.py image controlnet --input-image photo.png --prompt '...' --pipeline flux2-klein\n"
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"
+        "  run.py image faceswap --self-test\n"
+        "  run.py image sda-test --prompt 'cinematic portrait' --seeds 42,123,777,999\n"
         "\n"
         "─────────────────────────────────────────────────────────────────────\n"
         "Sample Prompts\n"
@@ -93,7 +107,7 @@ def add_args(parser):
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | faceswap",
+        help="t2i (default) | angle | review | profile | controlnet | faceswap | quality | sda-test | workflow",
     )
     # Secondary positional — only meaningful when action=review
     parser.add_argument(
@@ -122,6 +136,15 @@ def add_args(parser):
     # FaceSwap-specific args: --face, --mode, --lora
     _faceswap.add_faceswap_args(parser)
 
+    # SDA-test-specific args: --seeds, --lora-scale
+    _sda_test.add_sda_test_args(parser)
+
+    # Quality-specific args: --quality-inputs, --self-test, --test-prompt, etc.
+    _quality.add_quality_args(parser)
+
+    # Workflow-specific args: --face-detail, --film-grain, --sharpening, --lut, etc.
+    _workflow.add_workflow_args(parser)
+
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     add_common_generation_args(parser)
 
@@ -143,5 +166,11 @@ def run(args):
         _controlnet.run_controlnet(args)
     elif action == "faceswap":
         _faceswap.run_faceswap(args)
+    elif action == "sda-test":
+        _sda_test.run_sda_test(args)
+    elif action == "quality":
+        _quality.run_quality(args)
+    elif action == "workflow":
+        _workflow.run_workflow(args)
     else:
         _t2i.run_t2i(args)

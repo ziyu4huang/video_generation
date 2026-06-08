@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vendor Dependencies — Metrics</title>
+<style>
+  :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --purple: #bc8cff; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); padding: 2rem; line-height: 1.6; }
+  .container { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h1 span { color: var(--accent); }
+  .subtitle { color: var(--muted); margin-bottom: 2rem; }
+  h2 { font-size: 1.1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 2rem 0 0.75rem; }
+
+  /* Overview cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; text-align: center; }
+  .card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+  .card .value.green { color: var(--green); }
+  .card .value.orange { color: var(--orange); }
+  .card .value.purple { color: var(--purple); }
+  .card .label { font-size: 0.8rem; color: var(--muted); margin-top: 0.25rem; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; background: var(--card); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+  th { background: #1c2129; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.75rem 1rem; text-align: left; }
+  td { padding: 0.6rem 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; }
+  tr:hover td { background: #1c2129; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85rem; }
+  td code { background: #1c2129; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.85em; color: var(--accent); }
+
+  /* Bar chart */
+  .bar-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+  .bar-label { width: 180px; font-size: 0.85rem; color: var(--muted); text-align: right; flex-shrink: 0; }
+  .bar-track { flex: 1; background: #1c2129; border-radius: 4px; height: 24px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 0.5rem; font-size: 0.75rem; color: #fff; font-weight: 600; transition: width 0.6s ease; }
+  .bar-fill.blue { background: linear-gradient(90deg, #1f6feb, #58a6ff); }
+  .bar-fill.green { background: linear-gradient(90deg, #238636, #3fb950); }
+  .bar-fill.orange { background: linear-gradient(90deg, #9e6a03, #d29922); }
+  .bar-fill.purple { background: linear-gradient(90deg, #8957e5, #bc8cff); }
+
+  footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.8rem; }
+  footer code { background: #1c2129; padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.85em; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>📦 Vendor <span>Dependencies</span></h1>
+  <p class="subtitle">Vendored MLX implementations for image and video generation, tracked as snapshots within this repository.</p>
+
+  <!-- Overview cards -->
+  <div class="cards">
+    <div class="card">
+      <div class="value">1,333</div>
+      <div class="label">Total Files</div>
+    </div>
+    <div class="card">
+      <div class="value green">80 MB</div>
+      <div class="label">Disk Size</div>
+    </div>
+    <div class="card">
+      <div class="value orange">1,114</div>
+      <div class="label">Python Files</div>
+    </div>
+    <div class="card">
+      <div class="value purple">117,444</div>
+      <div class="label">Real Code LOC</div>
+    </div>
+    <div class="card">
+      <div class="value">93,734</div>
+      <div class="label">Source LOC (excl. tests)</div>
+    </div>
+  </div>
+
+  <!-- Disk size bar chart -->
+  <h2>Disk Size by Project</h2>
+  <div class="bar-row">
+    <div class="bar-label"><code>mflux/</code></div>
+    <div class="bar-track"><div class="bar-fill blue" style="width:100%">61 MB</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx/</code></div>
+    <div class="bar-track"><div class="bar-fill green" style="width:11.5%">7.0 MB</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx-dgrauet/</code></div>
+    <div class="bar-track"><div class="bar-fill orange" style="width:11.5%">7.0 MB</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx-acelogic/</code></div>
+    <div class="bar-track"><div class="bar-fill purple" style="width:8.5%">5.2 MB</div></div>
+  </div>
+
+  <!-- LOC bar chart -->
+  <h2>Source vs Test LOC</h2>
+  <div class="bar-row">
+    <div class="bar-label"><code>mflux/</code></div>
+    <div class="bar-track"><div class="bar-fill blue" style="width:86.2%; background: linear-gradient(90deg, #1f6feb 86%, #3fb950 0)">36,181</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx/</code></div>
+    <div class="bar-track"><div class="bar-fill green" style="width:63.7%; background: linear-gradient(90deg, #238636 71.4%, #d29922 0)">19,077</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx-dgrauet/</code></div>
+    <div class="bar-track"><div class="bar-fill orange" style="width:63.7%; background: linear-gradient(90deg, #9e6a03 71.4%, #bc8cff 0)">19,077</div></div>
+  </div>
+  <div class="bar-row">
+    <div class="bar-label"><code>ltx-2-mlx-acelogic/</code></div>
+    <div class="bar-track"><div class="bar-fill purple" style="width:52.5%; background: linear-gradient(90deg, #8957e5 87.8%, #58a6ff 0)">19,399</div></div>
+  </div>
+
+  <!-- Projects table -->
+  <h2>Projects Breakdown</h2>
+  <table>
+    <thead>
+      <tr><th>Project</th><th>Description</th><th class="num">Files</th><th class="num">Disk</th><th class="num">.py</th><th class="num">Real LOC</th><th class="num">src</th><th class="num">test</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>mflux/</code></td><td>Flux image generation on MLX</td><td class="num">920</td><td class="num">61 MB</td><td class="num">678</td><td class="num">41,984</td><td class="num">36,181</td><td class="num">5,803</td></tr>
+      <tr><td><code>ltx-2-mlx/</code></td><td>LTX-2 video model (upstream)</td><td class="num">212</td><td class="num">7.0 MB</td><td class="num">178</td><td class="num">26,691</td><td class="num">19,077</td><td class="num">7,614</td></tr>
+      <tr><td><code>ltx-2-mlx-dgrauet/</code></td><td>LTX-2 video model (dgrauet fork)</td><td class="num">212</td><td class="num">7.0 MB</td><td class="num">178</td><td class="num">26,691</td><td class="num">19,077</td><td class="num">7,614</td></tr>
+      <tr><td><code>ltx-2-mlx-acelogic/</code></td><td>LTX-2 video model (acelogic fork)</td><td class="num">109</td><td class="num">5.2 MB</td><td class="num">80</td><td class="num">22,078</td><td class="num">19,399</td><td class="num">2,679</td></tr>
+    </tbody>
+  </table>
+
+  <!-- File types table -->
+  <h2>File Types</h2>
+  <table>
+    <thead>
+      <tr><th>Extension</th><th class="num">Count</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>.py</code></td><td class="num">1,114</td><td>Source + tests</td></tr>
+      <tr><td><code>.md</code></td><td class="num">59</td><td>Documentation</td></tr>
+      <tr><td><code>.png</code> / <code>.jpg</code> / <code>.jpeg</code></td><td class="num">85</td><td>Test assets &amp; examples</td></tr>
+      <tr><td><code>.toml</code></td><td class="num">13</td><td>Build configs</td></tr>
+      <tr><td><code>.json</code></td><td class="num">10</td><td>Configs &amp; fixtures</td></tr>
+      <tr><td><code>.yaml</code> / <code>.yml</code></td><td class="num">13</td><td>CI &amp; configs</td></tr>
+      <tr><td>Other</td><td class="num">39</td><td>mp4, txt, lock, pdf, etc.</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    Metrics measured 2025-06-08.
+    Rerun with <code>find vendor/ -name '*.py' -exec grep -cvE '^\s*(#|$)' {} + | awk -F: '{sum+=$2} END{print sum}'</code> to refresh.
+  </footer>
+
+</div>
+</body>
+</html>

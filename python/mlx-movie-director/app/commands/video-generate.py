@@ -127,7 +127,7 @@ def add_generate_args(parser):
                         ))
 
     parser.add_argument("--first-frame", action="store_true", default=False,
-                        help="Extract first frame as <base>.png after generation (uses ffmpeg)")
+                        help="Extract first frame to <base>.png via ffmpeg — useful as input for a follow-up I2V or FLF2V run")
     parser.add_argument("--caption", action="store_true", default=False,
                         help="Extract first frame and run 'run.py caption' on it (implies --first-frame)")
     parser.add_argument("--enhance-prompt", action="store_true", default=False,
@@ -144,7 +144,7 @@ def add_generate_args(parser):
                         ))
 
     parser.add_argument("--allow-noise", action="store_true", default=False,
-                        help="Suppress audio noise detection error (allow noisy audio)")
+                        help="Skip audio RMS noise check and proceed even if audio appears silent or clipped (A2V only)")
 
     parser.add_argument("--audio-stage1-only", action="store_true", default=False,
                         help="Use stage 1 audio latent only (skip stage 2 audio refinement). "
@@ -161,7 +161,7 @@ def add_generate_args(parser):
     parser.add_argument("--yes", "-y", action="store_true", default=False,
                         help="Skip interactive confirmation prompts (non-interactive / scripting mode)")
 
-    parser.add_argument("--temporal-upscale", "--tu", action="store_true", default=False,
+    parser.add_argument("--temporal-upscale", action="store_true", default=False,
                         dest="temporal_upscale",
                         help="Apply 2x temporal upsampling after generation (F → 2F-1 frames, "
                              "smoother motion). Requires temporal_upscaler_x2_v1_0.safetensors. "
@@ -169,7 +169,8 @@ def add_generate_args(parser):
 
     parser.add_argument("--skip-gpu-lock", action="store_true", default=False,
                         dest="skip_gpu_lock",
-                        help="Skip GPU lock check — run immediately even if another run.py is active.")
+                        help="Bypass the GPU mutex — run even when another generation is active. "
+                             "Use only for CPU-heavy tasks or intentional concurrent runs.")
 
     # LoRA (style/quality enhancement)
     parser.add_argument("--lora-path", type=str, default=None, metavar="PATH",

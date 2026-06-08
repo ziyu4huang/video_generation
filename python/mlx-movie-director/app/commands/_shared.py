@@ -22,35 +22,88 @@ DEFAULT_UPSCALE_MODEL = os.path.join(
 # Argparse helpers
 # ---------------------------------------------------------------------------
 
-def add_common_generation_args(parser):
-    """Register args shared by generate, refine, and video subcommands."""
-    prompt_grp = parser.add_mutually_exclusive_group()
-    prompt_grp.add_argument("--prompt", type=str, help="Text prompt")
-    prompt_grp.add_argument("--prompt-file", type=str,
-                            help="Path to a text file containing the prompt")
+def _arg_registered(parser, dest: str) -> bool:
+    """Check if an argument with the given dest is already registered on the parser."""
+    return any(getattr(a, 'dest', None) == dest for a in parser._actions)
 
-    parser.add_argument("--steps", type=int, default=None,
-                        help="Denoising steps (default: 9 for zimage, 4 for flux2-klein)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed (default: 42)")
-    parser.add_argument("--lora-path", type=str, default=None,
-                        help="Path to LoRA .safetensors file")
-    parser.add_argument("--lora-scale", type=float, default=1.0,
-                        help="LoRA scale factor (default: 1.0)")
+
+def _option_registered(parser, option: str) -> bool:
+    """Check if an option string (e.g. '--input') is already registered."""
+    return any(option in getattr(a, 'option_strings', []) for a in parser._actions)
+
+
+def add_common_generation_args(parser):
+    """Register args shared by generate, refine, and video subcommands.
+
+    Uses guards to avoid conflicts when sub-command modules register
+    overlapping args (--steps, --seed, --prompt, etc.) on the same parser.
+    """
+    if not _arg_registered(parser, "prompt"):
+        prompt_grp = parser.add_mutually_exclusive_group()
+        prompt_grp.add_argument("--prompt", type=str, help="Text prompt")
+        prompt_grp.add_argument("--prompt-file", type=str,
+                                help="Path to a text file containing the prompt")
+
+    if not _arg_registered(parser, "steps"):
+        parser.add_argument("--steps", type=int, default=None,
+                            help="Denoising steps (default: 9 for zimage, 4 for flux2-klein)")
+    if not _arg_registered(parser, "seed"):
+        parser.add_argument("--seed", type=int, default=42,
+                            help="Random seed (default: 42)")
+    if not _arg_registered(parser, "self_test"):
+        parser.add_argument("--self-test", action="store_true", default=False,
+                            dest="self_test",
+                            help="Run self-test: auto-generate test images and open review HTML")
+    if not _arg_registered(parser, "lora_path"):
+        parser.add_argument("--lora-path", type=str, default=None,
+                            help="LoRA weights: full path, dir, or short name "
+                                 "(e.g. 'klein-slider-anatomy') — auto-resolved from models/lora/")
+    if not _arg_registered(parser, "lora_scale"):
+        parser.add_argument("--lora-scale", type=float, default=1.0,
+                            help="LoRA conditioning strength 0–2 (default: 1.0; "
+                                 "try 0.7–0.9 to soften style influence)")
+    if not _arg_registered(parser, "vae_path"):
+        parser.add_argument("--vae-path", type=str, default=None,
+                            help="VAE weights: full dir path or short name "
+                                 "(e.g. 'ultraflux') — auto-resolved from models/vae/")
+
+    # img2img / I2I (unified with t2i via --input)
+    # NOTE: --input may already be registered by add_angle_args() with dest="input"
+    if not _option_registered(parser, "--input"):
+        parser.add_argument("--input", type=str, default=None, dest="input_image",
+                            help="Input image for I2I / img2img mode")
+    if not _arg_registered(parser, "denoise_strength"):
+        parser.add_argument("--denoise-strength", type=float, default=1.0,
+                            help="Denoise strength for I2I (0.0 = keep input, 1.0 = full redraw)")
+    if not _arg_registered(parser, "latent_upscale"):
+        parser.add_argument("--latent-upscale", type=float, default=1.0,
+                            help="Latent space upscale factor before denoising (default: 1.0)")
+
+    # Draft mode (quick preview)
+    if not _arg_registered(parser, "draft"):
+        parser.add_argument("--draft", action="store_true", default=False,
+                            help="Draft mode: fewer steps (4), smaller resolution (512x512)")
 
     # Post-process upscale
-    parser.add_argument("--upscale", action="store_true", default=False,
-                        help=f"ESRGAN 4× upscale after generation (default model: 4xNomosWebPhoto_RealPLKSR.pth)")
-    parser.add_argument("--upscale-model", type=str, default=None,
-                        help="Path to ESRGAN .pth model (overrides default)")
-    parser.add_argument("--upscale-method", choices=["esrgan", "seedvr2"], default="esrgan",
-                        help="Upscale method when --upscale is set (default: esrgan)")
+    if not _arg_registered(parser, "upscale"):
+        parser.add_argument("--upscale", action="store_true", default=False,
+                            help=f"ESRGAN 4× upscale after generation (default model: 4xNomosWebPhoto_RealPLKSR.pth)")
+    if not _arg_registered(parser, "upscale_model"):
+        parser.add_argument("--upscale-model", type=str, default=None,
+                            help="Path to ESRGAN .pth model (overrides default)")
+    if not _arg_registered(parser, "upscale_method"):
+        parser.add_argument("--upscale-method", choices=["esrgan", "seedvr2"], default="esrgan",
+                            help="Upscale method when --upscale is set (default: esrgan)")
 
     # Batch
-    parser.add_argument("--count", type=int, default=1,
-                        help="Number of images to generate (default: 1)")
-    parser.add_argument("--seed-start", type=int, default=None,
-                        help="Starting seed for batch; seeds = seed_start, seed_start+1, ...")
+    if not _arg_registered(parser, "count"):
+        parser.add_argument("--count", type=int, default=1,
+                            help="Number of outputs to generate (default: 1). "
+                                 "Use with --seed-start for distinct seeds per output.")
+    if not _arg_registered(parser, "seed_start"):
+        parser.add_argument("--seed-start", type=int, default=None,
+                            help="First seed for a batch run; overrides --seed. "
+                             "Output i uses seed seed_start+i.")
 
 
 def resolve_lora_path(raw: str | None) -> str | None:
@@ -101,6 +154,49 @@ def resolve_lora_path(raw: str | None) -> str | None:
 
     print(f"ERROR: cannot resolve LoRA '{raw}'", file=sys.stderr)
     print(f"  Searched: file path, models/lora/{raw}, partial match in models/lora/",
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def resolve_vae_path(raw: str | None) -> str | None:
+    """Resolve a --vae-path value to an absolute directory path.
+
+    Accepts:
+      1. Full path to a directory  → used as-is
+      2. Short name (e.g. "ultraflux")
+         → search models/vae/ for a matching subdirectory
+      3. Partial name prefix match
+
+    Returns None if raw is None. Exits with error if unresolvable.
+    """
+    if raw is None:
+        return None
+
+    if os.path.isdir(raw):
+        return os.path.abspath(raw)
+
+    vae_base = os.path.join(cfg.MODELS_DIR, "vae")
+
+    candidate = os.path.join(vae_base, raw)
+    if os.path.isdir(candidate):
+        return os.path.abspath(candidate)
+
+    if os.path.isdir(vae_base):
+        matches = [
+            d for d in os.listdir(vae_base)
+            if os.path.isdir(os.path.join(vae_base, d)) and d.startswith(raw)
+        ]
+        if len(matches) == 1:
+            print(f"  VAE resolved: {raw} → {matches[0]}")
+            return os.path.abspath(os.path.join(vae_base, matches[0]))
+        elif len(matches) > 1:
+            print(f"ERROR: ambiguous VAE name '{raw}' matches: {', '.join(matches)}",
+                  file=sys.stderr)
+            print(f"  Use a more specific name.", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"ERROR: cannot resolve VAE '{raw}'", file=sys.stderr)
+    print(f"  Searched: directory path, models/vae/{raw}, partial match in models/vae/",
           file=sys.stderr)
     sys.exit(1)
 
@@ -231,6 +327,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
                     upscale=run_config.upscale,
                     upscale_model=upscale_model,
                     upscale_method=run_config.upscale_method,
+                    vae_dir=run_config.vae_path,
                 )
 
             # ESRGAN post-processing (handled inside ZImagePipeline.generate()
@@ -305,7 +402,7 @@ def _apply_upscale(result, upscale_method: str, upscale_model: str):
 
 def _stitch_horizontal(images, gap: int = 0, labels=None, bg_color=(30, 30, 30)):
     """Stitch images horizontally with optional text labels."""
-    from PIL import ImageDraw, ImageFont
+    from PIL import Image, ImageDraw, ImageFont
     max_h = max(img.height for img in images)
     label_h = 36 if labels else 0
     total_w = sum(img.width for img in images) + gap * (len(images) - 1)

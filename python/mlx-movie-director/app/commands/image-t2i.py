@@ -22,11 +22,13 @@ def add_t2i_args(parser):
                         help="Image height in pixels (default: 960)")
     parser.add_argument(
         "--pipeline", choices=["zimage", "flux2-klein", "auto"], default="zimage",
-        help="Generation pipeline: zimage (default) or flux2-klein",
+        help="Pipeline: 'zimage' (Moody 12.6 DPO, ~14s/9steps) or "
+             "'flux2-klein' (Klein 9B, ~40s/4steps, better for consistent characters)",
     )
     parser.add_argument(
         "--ab-test", action="store_true", default=False,
-        help="Run both pipelines sequentially for A/B comparison",
+        help="Generate with both 'zimage' and 'flux2-klein' pipelines then "
+             "open manifest review for A/B comparison",
     )
     # Flux2-Klein model options (used by t2i with flux2-klein and by angle)
     parser.add_argument(
@@ -50,6 +52,16 @@ def add_t2i_args(parser):
 def run_t2i(args):
     """Execute T2I generation. Called by image.py dispatcher."""
     pipeline_type = getattr(args, "pipeline", "zimage")
+
+    # Draft mode overrides
+    if getattr(args, "draft", False):
+        args.steps = 4
+        if args.width is None:
+            args.width = 512
+        if args.height is None:
+            args.height = 512
+        print("  [Draft] Quick preview: 4 steps, 512x512")
+
     if args.steps is None:
         args.steps = _PIPELINE_DEFAULT_STEPS.get(pipeline_type, 9)
     # Apply t2i defaults for shared args (profile resolves its own)

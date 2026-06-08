@@ -1,11 +1,33 @@
-"""image-faceswap — BFS face/head swap sub-action for 'run.py image faceswap'.
+"""image-faceswap — BFS (Best Face Swap) via Flux2 Klein 9B + BFS LoRA.
 
-Uses Flux2 Klein 9B + BFS (Best Face Swap) LoRA with multi-image reference
-conditioning to swap faces or heads between two input images.
+Source: https://huggingface.co/Alissonerdx/BFS-Best-Face-Swap
 
-The technique works by loading Klein 9B with the BFS LoRA applied, then
-passing both images (body + face) as reference images to Flux2KleinEdit
-with a specific swap prompt.
+Technique
+  BFS works by loading Flux2 Klein 9B with a dedicated swap LoRA applied at
+  init time, then passing two reference images (body + face) to Flux2KleinEdit
+  with a specific swap prompt.  The model sees both images and generates a new
+  image that combines the body/pose from Image 1 with the face from Image 2.
+
+  LoRA is applied at model init (not generate time) because Klein's distilled
+  architecture fuses LoRA weights into the transformer during loading.  The BFS
+  LoRA was trained at rank-64 on Flux Klein 9B and modifies 144 attention layers.
+
+Memory management (--self-test mode)
+  The self-test mode runs three sequential phases, each loading a different model:
+    Phase 1: ZImagePipeline (~8 GB)  → body image  → unload + mx.clear_cache()
+    Phase 2: Flux2KleinT2IPipeline (~17 GB) → face image → unload + mx.clear_cache()
+    Phase 3: Flux2KleinPipeline + BFS LoRA (~17 GB) → faceswap result
+  Total peak memory ~17 GB (never exceeds single large model + overhead).
+
+Dimension matching
+  Source images are 640×960 (2:3 portrait).  The faceswap output defaults to
+  1024×1536 (same 2:3 ratio) to avoid stretching — mflux resizes reference
+  images to match output dimensions, so mismatched ratios cause distortion
+  (e.g., 640×960 source → 1024×1024 output makes the subject look "胖").
+
+Modes
+  face  — swap face only, keep original hairstyle and skin tone (default)
+  head  — swap full head including hair, keep body lighting/skin
 
 Imported by app.commands.image via importlib (hyphen in filename prevents
 regular import statements).
@@ -34,7 +56,13 @@ from app.manifest import (
 # Default BFS LoRA short name (resolves via models/lora/)
 _DEFAULT_LORA = "bfs-head-v1-klein-9b"
 
-# Prompts tuned from existing flux2-klein-face-head-swap workflow docs
+# ---------------------------------------------------------------------------
+# Swap prompts — instruct the model what to combine from each reference image
+# ---------------------------------------------------------------------------
+# Image 1 = body (target), Image 2 = face (source to swap in).
+# "face" mode preserves hairstyle and skin color of the body image,
+# "head" mode swaps the full head including hair.
+
 _FACE_SWAP_PROMPT = (
     "Referring to Images 1 and 2, replace the person's face in Image 1 "
     "with the face from Image 2, while keeping the natural hairstyle, "
@@ -51,7 +79,13 @@ _SWAP_PROMPTS = {
     "head": _HEAD_SWAP_PROMPT,
 }
 
-# Test prompts for --test mode (ZImage-generated source images)
+# ---------------------------------------------------------------------------
+# Test prompts for --test mode
+# ---------------------------------------------------------------------------
+# Body prompt uses ZImage pipeline (photorealistic Moody style).
+# Face prompt uses Flux2 Klein T2I (different style/pipeline for diversity).
+# Deliberately different ethnicity to make swap quality clearly visible.
+
 _TEST_BODY_PROMPT = (
     "Moody Photography, 18-year-old Japanese girl in school uniform, "
     "navy blue sailor top, white collar with red ribbon, plaid skirt, "
@@ -67,8 +101,17 @@ _TEST_FACE_PROMPT = (
 )
 
 
+# ---------------------------------------------------------------------------
+# CLI argument registration
+# ---------------------------------------------------------------------------
+
 def add_faceswap_args(parser):
-    """Register faceswap-specific arguments on an argparse parser."""
+    """Register faceswap-specific arguments on an argparse parser.
+
+    Note: ``--lora-scale`` is already registered by
+    ``add_common_generation_args()`` in ``_shared.py``, so it is not
+    duplicated here.
+    """
     parser.add_argument(
         "--face", type=str, default=None, metavar="IMAGE",
         help="Source face image path (the face to swap IN). Required.",
@@ -81,17 +124,28 @@ def add_faceswap_args(parser):
         "--lora", type=str, default=_DEFAULT_LORA, metavar="NAME",
         help=f"BFS LoRA name or path (default: {_DEFAULT_LORA})",
     )
-    parser.add_argument(
-        "--test", action="store_true", default=False,
-        help="Auto-generate body + face source images using ZImage, run faceswap, open review HTML",
-    )
-    # --lora-scale is already registered by add_common_generation_args()
+    # --self-test is registered in _shared.py (shared by controlnet, faceswap, quality)
 
+
+# ---------------------------------------------------------------------------
+# Source image generators (test mode only)
+# ---------------------------------------------------------------------------
 
 def _generate_body_zimage(prompt: str, seed: int, label: str, base: str):
-    """Generate body source image using ZImagePipeline.
+    """Generate body source image using ZImagePipeline (Moody V12.6 DPO).
 
-    Returns (image_path, manifest_path).
+    Uses 640×960 portrait (2:3 ratio) at 9 denoising steps.
+    After generation, the pipeline is fully unloaded to free ~8 GB VRAM
+    for the next phase.
+
+    Args:
+        prompt: Text prompt for generation.
+        seed:   RNG seed for reproducibility.
+        label:  Human-readable label for log messages (e.g., "body").
+        base:   Output filename prefix (without extension).
+
+    Returns:
+        Tuple of (image_path, manifest_path).
     """
     import mlx.core as mx
     from app.pipeline import ZImagePipeline
@@ -161,7 +215,22 @@ def _generate_body_zimage(prompt: str, seed: int, label: str, base: str):
 def _generate_face_flux2(prompt: str, seed: int, label: str, base: str):
     """Generate face source image using Flux2KleinT2IPipeline.
 
-    Returns (image_path, manifest_path).
+    Uses 640×960 portrait (2:3 ratio) at 4 denoising steps (distilled Klein).
+    After generation, the pipeline is fully unloaded to free ~17 GB VRAM
+    for the faceswap pipeline in the next phase.
+
+    Using Flux2 T2I (instead of ZImage) for the face source provides
+    stylistic diversity — Flux2 has a different rendering aesthetic than
+    ZImage, making the swap more challenging and the result easier to judge.
+
+    Args:
+        prompt: Text prompt for generation.
+        seed:   RNG seed for reproducibility.
+        label:  Human-readable label for log messages (e.g., "face").
+        base:   Output filename prefix (without extension).
+
+    Returns:
+        Tuple of (image_path, manifest_path).
     """
     import mlx.core as mx
     from app.flux2_t2i_pipeline import Flux2KleinT2IPipeline
@@ -228,10 +297,83 @@ def _generate_face_flux2(prompt: str, seed: int, label: str, base: str):
     return img_path, manifest_file
 
 
+# ---------------------------------------------------------------------------
+# Optional VLM scoring (test mode)
+# ---------------------------------------------------------------------------
+
+def _score_with_vlm(image_path: str, label: str) -> dict | None:
+    """Score an image using VLM (Qwen3-VL) via local API, if available.
+
+    Sends the image to the local OpenAI-compatible VLM server at
+    ``localhost:1234`` and requests quality scoring on 6 dimensions
+    (overall, detail, sharpness, composition, prompt_adherence, artifacts).
+
+    If the VLM server is not running, returns None silently.
+
+    Reuses ``_image_to_base64()`` and ``_call_vlm()`` from
+    ``app.commands.caption``.
+
+    Args:
+        image_path: Path to the image file.
+        label:      Human-readable label for log messages.
+
+    Returns:
+        Parsed score dict (e.g., ``{"overall": 8, "detail": 7, ...}``)
+        or None if the VLM server is unavailable.
+    """
+    import importlib
+    import re
+
+    import requests as http_requests
+
+    # Check if VLM server is reachable (quick HEAD request, 2s timeout)
+    try:
+        http_requests.head("http://localhost:1234/v1/models", timeout=2)
+    except Exception:
+        return None
+
+    # Lazy-import caption helpers (avoids import at module level)
+    _caption_mod = importlib.import_module("app.commands.caption")
+    _image_to_base64 = _caption_mod._image_to_base64
+    _call_vlm = _caption_mod._call_vlm
+    _score_prompt = _caption_mod._STYLE_PROMPTS["score"]
+
+    print(f"[VLM] Scoring {label}...", end=" ", flush=True)
+    try:
+        b64 = _image_to_base64(image_path)
+        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b",
+                        b64, _score_prompt)
+        # Strip Qwen3 <think/> blocks if present
+        raw = re.sub(r"<think.*?</think\s*>", "", raw, flags=re.DOTALL).strip()
+        scores = json.loads(raw)
+        print(f"overall={scores.get('overall', '?')}")
+        return scores
+    except Exception as exc:
+        print(f"failed ({exc})")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Core faceswap logic
+# ---------------------------------------------------------------------------
+
 def _run_faceswap_core(body_path, face_path, args):
     """Core faceswap logic shared between normal and test modes.
 
-    Returns (output_path, manifest_path).
+    Loads Flux2KleinPipeline with BFS LoRA applied, then generates the
+    swap result using both reference images.
+
+    Output dimensions default to 1024×1536 (2:3 portrait) to match the
+    typical source image aspect ratio.  mflux resizes reference images
+    to match output dimensions, so mismatched ratios cause distortion.
+
+    Args:
+        body_path: Path to the target body image (Image 1).
+        face_path: Path to the source face image (Image 2).
+        args:      Parsed CLI arguments (seed, steps, width, height, etc.).
+
+    Returns:
+        Tuple of (output_path, manifest_path).
     """
     from app.flux2_pipeline import Flux2KleinPipeline
 
@@ -242,7 +384,7 @@ def _run_faceswap_core(body_path, face_path, args):
     height = getattr(args, "height", None) or 1536  # 2:3 portrait to match source
     prompt = _SWAP_PROMPTS[mode]
 
-    # Resolve LoRA
+    # Resolve LoRA path from short name or absolute path
     lora_name = getattr(args, "lora", _DEFAULT_LORA)
     lora_path = resolve_lora_path(lora_name)
     lora_scale = getattr(args, "lora_scale", 1.0)
@@ -279,7 +421,9 @@ def _run_faceswap_core(body_path, face_path, args):
         json.dump(run_meta, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
-    # Load pipeline with LoRA
+    # Load pipeline with BFS LoRA fused into the transformer at init time.
+    # Klein's distilled architecture requires LoRA during loading — it cannot
+    # be applied post-hoc at generate time.
     transformer_name = getattr(args, "transformer", "klein-9b")
     pipeline = Flux2KleinPipeline(
         model_path=getattr(args, "flux2_model_path", None),
@@ -290,7 +434,7 @@ def _run_faceswap_core(body_path, face_path, args):
         lora_scales=[lora_scale],
     )
 
-    # Generate
+    # Generate swap result
     start_time = datetime.now(timezone.utc).isoformat()
     last_timings = {}
 
@@ -340,10 +484,22 @@ def _run_faceswap_core(body_path, face_path, args):
         sys.exit(1)
 
 
+# ---------------------------------------------------------------------------
+# Entry points
+# ---------------------------------------------------------------------------
+
 def run_faceswap(args):
-    """Execute BFS face/head swap. Called by image.py dispatcher."""
-    # ── Test mode: auto-generate sources + review HTML ─────────────────────
-    if getattr(args, "test", False):
+    """Execute BFS face/head swap.  Called by ``image.py`` dispatcher.
+
+    Two modes:
+      * **Normal**: requires ``--input`` (body) and ``--face`` (source).
+      * **Self-test** (``--self-test``): auto-generates both source images using
+        different pipelines (ZImage for body, Flux2 T2I for face), runs
+        the faceswap, optionally scores results with VLM, then opens an
+        interactive HTML review page.
+    """
+    # ── Self-test mode: auto-generate sources + review HTML ────────────────
+    if getattr(args, "self_test", False):
         _run_test_mode(args)
         return
 
@@ -370,7 +526,17 @@ def run_faceswap(args):
 
 
 def _run_test_mode(args):
-    """Generate test source images with ZImage, run faceswap, open review HTML."""
+    """Run the full faceswap test pipeline and open an HTML review.
+
+    Phase 1: ZImagePipeline → generate body image (Asian JK girl, seed=42)
+    Phase 2: Flux2KleinT2IPipeline → generate face image (European woman, seed=100)
+    Phase 3: Flux2KleinPipeline + BFS LoRA → faceswap result
+    Phase 4: Optional VLM quality scoring on all 3 images
+    Phase 5: Open interactive HTML review with labeled cards
+
+    Memory is managed by fully unloading each pipeline before loading the
+    next one.  Peak usage never exceeds ~17 GB (single large model).
+    """
     import importlib
     _review_mod = importlib.import_module("app.commands.image-review")
     _open_manifest_review = _review_mod._open_manifest_review
@@ -398,19 +564,50 @@ def _run_test_mode(args):
         base=f"fs-test-{ts}_face",
     )
 
-    # Phase 3: Run faceswap
+    # Phase 3: Run faceswap (loads Flux2 Klein Edit + BFS LoRA)
     print(f"\n{'='*60}")
     print(f"[Test] Running faceswap")
     print(f"{'='*60}")
 
     result_path, result_manifest = _run_faceswap_core(body_path, face_path, args)
 
-    # Phase 4: Open review HTML with all 3 results
+    # Phase 4: Optional VLM quality scoring (only if LM Studio is running)
+    print(f"\n{'='*60}")
+    print(f"[Test] VLM quality scoring (optional)")
+    print(f"{'='*60}")
+
+    images_to_score = [
+        (body_path, "body"),
+        (face_path, "face"),
+        (result_path, "result"),
+    ]
+    scores = {}
+    for img_path, lbl in images_to_score:
+        score = _score_with_vlm(img_path, lbl)
+        if score:
+            scores[lbl] = score
+
+    if scores:
+        print(f"[VLM] Scored {len(scores)}/3 images")
+    else:
+        print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
+
+    # Phase 5: Open review HTML with all 3 results
     print(f"\n{'='*60}")
     print(f"[Test] Generating review HTML")
     print(f"{'='*60}")
 
     manifest_files = [body_manifest, face_manifest, result_manifest]
-    labels = ["1-Body (ZImage)", "2-Face (Flux2 T2I)", "3-FaceSwap Result"]
+
+    # Include scores in labels when available
+    labels = []
+    for lbl, name in [("1-Body (ZImage)", "body"),
+                      ("2-Face (Flux2 T2I)", "face"),
+                      ("3-FaceSwap Result", "result")]:
+        if name in scores:
+            s = scores[name]
+            labels.append(f"{lbl} — score {s.get('overall', '?')}/10")
+        else:
+            labels.append(lbl)
 
     _open_manifest_review(manifest_files, labels=labels)

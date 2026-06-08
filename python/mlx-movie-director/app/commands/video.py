@@ -1,9 +1,10 @@
-"""video — unified video command: dispatcher for generate, review, and compare sub-actions.
+"""video — unified video command: dispatcher for generate, review, compare, and quality sub-actions.
 
 Sub-actions (loaded from sibling modules via importlib):
   generate (default)  — T2V/I2V/A2V video generation  → app/commands/video-generate.py
   review              — Review existing or auto-review  → app/commands/video-review.py
   compare             — Pipeline A/B compare flow       → app/commands/video-compare.py
+  quality             — No-ref quality analysis         → app/commands/video-quality.py
 
 Usage:
   run.py video --test-prompt rainy-street
@@ -12,6 +13,9 @@ Usage:
   run.py video review --inputs output/*.manifest.json
   run.py video compare --source-image ref.png --prompt "person walking"
   run.py video compare --pipelines i2v,distilled-i2v --source-image ref.png --prompt "..."
+  run.py video quality --quality-inputs output/video.mp4
+  run.py video quality --quality-inputs A.mp4 B.mp4 --quality-labels "Baseline,LoRA"
+  run.py video quality --self-test --test-prompt forest-hiker
 """
 
 import importlib
@@ -20,16 +24,18 @@ import importlib
 _generate = importlib.import_module("app.commands.video-generate")
 _review = importlib.import_module("app.commands.video-review")
 _compare = importlib.import_module("app.commands.video-compare")
+_quality = importlib.import_module("app.commands.video-quality")
 
 PARSER_META = {
-    "help": "LTX-2.3 video generation, review, and pipeline comparison",
+    "help": "LTX-2.3 video generation, review, comparison, and quality analysis",
     "description": (
         "Unified video command.\n\n"
         "Sub-actions:\n"
         "  generate (default) — T2V/I2V/A2V video generation\n"
         "  review generate    — Generate video + auto-launch A/B reviewer\n"
         "  review             — Review existing manifests\n"
-        "  compare            — Pipeline A/B: Z-Image → caption → multi-pipeline → review\n\n"
+        "  compare            — Pipeline A/B: Z-Image → caption → multi-pipeline → review\n"
+        "  quality            — No-reference quality analysis (noise, sharpness, artifacts)\n\n"
         "Examples:\n"
         "  run.py video --test-prompt rainy-street\n"
         "  run.py video generate --test-prompt rainy-street\n"
@@ -37,6 +43,8 @@ PARSER_META = {
         "  run.py video review --inputs output/*.manifest.json\n"
         "  run.py video compare --source-image ref.png --prompt 'person walking'\n"
         "  run.py video compare --pipelines i2v,distilled-i2v --list-pipelines\n"
+        "  run.py video quality --quality-inputs output/video.mp4\n"
+        "  run.py video quality --self-test --test-prompt forest-hiker\n"
     ),
 }
 
@@ -47,8 +55,8 @@ def add_args(parser):
         "action",
         nargs="?",
         default="generate",
-        choices=["generate", "review", "compare"],
-        help="Sub-action: 'generate' (default), 'review', or 'compare'",
+        choices=["generate", "review", "compare", "quality"],
+        help="Sub-action: 'generate' (default), 'review', 'compare', or 'quality'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -69,6 +77,9 @@ def add_args(parser):
     # Compare args: --source-image, --pipelines, --list-pipelines, etc.
     _compare.add_compare_args(parser)
 
+    # Quality args: --self-test, --sample-every, --json, --labels, --no-html
+    _quality.add_quality_args(parser)
+
 
 def run(args):
     action = getattr(args, "action", "generate") or "generate"
@@ -80,5 +91,7 @@ def run(args):
             _review.run_review_from_manifests(args)
     elif action == "compare":
         _compare.run_compare(args)
+    elif action == "quality":
+        _quality.run_quality(args)
     else:
         _generate.run_generate(args)

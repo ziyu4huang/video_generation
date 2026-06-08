@@ -37,7 +37,7 @@ _ADDITIONAL_DIM = 17            # mask(1*4) + inpaint(16*4) = 4 + 64 = 68 → 17
 _CONTROL_IN_CH = 33             # 16 + 1 + 16 = 33 channels
 _CONTROL_IN_DIM = _CONTROL_IN_CH * 4  # 132 = 33 * 4 (after patchification)
 _T_EMB_DIM = 256               # min(dim, 256) from main transformer
-_N_CONTROL_LAYERS = 15
+_N_CONTROL_LAYERS = 3   # Union 2.1 "broken" variant: only 3 control layers in safetensors
 _N_REFINERS = 2
 
 # Flux latent format constants (ZImage inherits Lumina2 → Flux latent format)
@@ -220,13 +220,13 @@ class ZImageControlnet(nn.Module):
             (residual_or_None, updated_control_context)
         """
         # Our model is "broken" — noise refiner after_proj weights are all zeros.
-        # ComfyUI redirects: layer_id=0 → control_layers[0], layer_id=1 → control_layers[1..14]
+        # ComfyUI redirects: layer_id=0 → control_layers[0], layer_id=1 → control_layers[1..N]
         if layer_id == 0:
             residual, ctx = self.control_layers[0](
                 control_context, main_hidden, temb, cos, sin)
             return residual, ctx
         else:
-            # Run all remaining control layers (1..14)
+            # Run all remaining control layers (1..N-1)
             # Only keep the FIRST residual (from layer 1)
             first_residual = None
             ctx = control_context

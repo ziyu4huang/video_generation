@@ -37,9 +37,11 @@ MODELS_DIR = os.path.join(PROJECT_DIR, "models")
 TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "zimage-moody-v126")
 TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "qwen3-4b")
 TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer",     "qwen3")
-VAE_DIR          = os.path.join(MODELS_DIR, "vae",           "flux-ae")
+VAE_DIR           = os.path.join(MODELS_DIR, "vae",           "flux-ae")
+ULTRAFLUX_VAE_DIR = os.path.join(MODELS_DIR, "vae",           "ultraflux-ae")
 
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
+LUT_DIR = os.path.join(MODELS_DIR, "lut")
 
 # SeedVR2 source models (for convert.py)
 SRC_SEEDVR2_DIT_7B = os.path.join(COMFY_MODELS, "SEEDVR2", "seedvr2_ema_7b_fp16.safetensors")
@@ -69,8 +71,8 @@ LTX_MLX_DIR         = os.path.join(MODELS_DIR, "ltx-mlx")
 LTX_MLX_DEV_DIR     = os.path.join(LTX_MLX_DIR, "dev")
 LTX_MLX_DISTILLED_DIR = os.path.join(LTX_MLX_DIR, "distilled")
 
-# Z-Image ControlNet (Union 2.0 — supports pose/depth/canny/hed/scribble)
-CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.0")
+# Z-Image ControlNet (Union 2.1 Lite — supports pose/depth/canny/hed/scribble/gray, 8-step distilled)
+CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.1")
 
 # SeedVR2 text embeddings (loaded at inference, not converted)
 SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")

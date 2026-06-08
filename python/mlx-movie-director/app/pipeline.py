@@ -17,13 +17,13 @@ from app.lora_utils import apply_lora
 from app import config as cfg
 
 
-def _vae_mlx_available() -> bool:
-    """Check if the MLX VAE weights exist at the configured VAE dir."""
-    return os.path.exists(os.path.join(cfg.VAE_DIR, "model.safetensors"))
+def _vae_mlx_available(vae_dir: str | None = None) -> bool:
+    """Check if the MLX VAE weights exist at the given (or default) VAE dir."""
+    return os.path.exists(os.path.join(vae_dir or cfg.VAE_DIR, "model.safetensors"))
 
 
-def _load_mlx_vae():
-    """Load the MLX-native ZImage VAE from models/vae/flux-ae/model.safetensors."""
+def _load_mlx_vae(vae_dir: str | None = None):
+    """Load the MLX-native ZImage VAE from the given (or default) VAE dir."""
     _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "vendor", "mflux", "src")
     if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
@@ -31,7 +31,7 @@ def _load_mlx_vae():
 
     from mflux.models.z_image.model.z_image_vae import VAE as ZImageVAE
     vae = ZImageVAE()
-    vae.load_weights(os.path.join(cfg.VAE_DIR, "model.safetensors"))
+    vae.load_weights(os.path.join(vae_dir or cfg.VAE_DIR, "model.safetensors"))
     mx.eval(vae.parameters())
     return vae
 
@@ -165,14 +165,23 @@ class ZImagePipeline:
         seed=42,
         lora_path=None,
         lora_scale=1.0,
+        lora_paths=None,
+        lora_scales=None,
         # img2img params
         input_image: Image.Image = None,
         latent_upscale: float = 1.0,
         denoise_strength: float = 1.0,
+        # seed variance
+        seed_variance: bool = False,
+        seed_variance_percent: float = 50.0,
+        seed_variance_strength: float = 20.0,
+        seed_variance_switchover: float = 20.0,
         # post-process
         upscale: bool = False,
         upscale_model: str = None,
         upscale_method: str = "esrgan",
+        # VAE override (None = use default cfg.VAE_DIR)
+        vae_dir: str | None = None,
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
@@ -202,9 +211,9 @@ class ZImagePipeline:
 
             img_np = np.array(input_image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
 
-            if _vae_mlx_available():
+            if _vae_mlx_available(vae_dir):
                 # MLX-native VAE encode
-                vae_mlx = _load_mlx_vae()
+                vae_mlx = _load_mlx_vae(vae_dir)
                 img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)  # (1, C, H, W)
                 encoded = vae_mlx.encode(img_mx)  # (1, C, 1, H_lat, W_lat)
                 clean_latent = encoded[:, :, 0, :, :]  # squeeze temporal dim → (1, C, H_lat, W_lat)
@@ -214,7 +223,7 @@ class ZImagePipeline:
                 import torch
                 from diffusers import AutoencoderKL
                 device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
-                vae_enc = AutoencoderKL.from_pretrained(cfg.VAE_DIR).to(device_pt)
+                vae_enc = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device_pt)
                 img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
                 with torch.no_grad():
                     enc = vae_enc.encode(img_pt).latent_dist.mean
@@ -293,6 +302,20 @@ class ZImagePipeline:
         timings["text_encoding_seconds"] = time.time() - t_start
         print(f"Done ({timings['text_encoding_seconds']:.2f}s)")
 
+        # Seed variance: create noisy embedding for early denoising steps
+        noisy_cap_feats = None
+        if seed_variance:
+            from app.seed_variance import SeedVarianceEnhancer
+            sv = SeedVarianceEnhancer(
+                randomize_percent=seed_variance_percent,
+                strength=seed_variance_strength,
+                switchover_percent=seed_variance_switchover,
+            )
+            noisy_cap_feats = sv.create_noisy_embedding(cap_feats_mx, seed=seed)
+            cutoff = int(steps * seed_variance_switchover / 100.0)
+            print(f"   Seed variance: {seed_variance_percent}% perturbed, "
+                  f"strength={seed_variance_strength}, switch at step {cutoff}/{steps}")
+
         # ----------------------------------------------------------------
         # [Phase 2] Transformer Loading (4-bit)
         # ----------------------------------------------------------------
@@ -314,14 +337,22 @@ class ZImagePipeline:
             model.load_weights(os.path.join(trans_path, "model.safetensors"))
 
         # ----------------------------------------------------------------
-        # [Phase 2.5] Apply LoRA
+        # [Phase 2.5] Apply LoRA (supports single or multiple)
         # ----------------------------------------------------------------
         lora_start = time.time()
-        if lora_path:
-            print(f"[Phase 2.5] Applying LoRA...", end=" ", flush=True)
-            model = apply_lora(model, lora_path, scale=lora_scale)
+        # Normalize: single lora_path → list form
+        _lora_list = lora_paths or ([lora_path] if lora_path else [])
+        _scale_list = lora_scales or ([lora_scale] if _lora_list else [])
+        if len(_lora_list) != len(_scale_list):
+            # Pad scales to match
+            _scale_list = _scale_list + [_scale_list[-1]] * (len(_lora_list) - len(_scale_list))
+        if _lora_list:
+            print(f"[Phase 2.5] Applying {len(_lora_list)} LoRA(s)...", end=" ", flush=True)
+            for lp, ls in zip(_lora_list, _scale_list):
+                print(f"\n   LoRA: {os.path.basename(lp)} scale={ls}", end=" ", flush=True)
+                model = apply_lora(model, lp, scale=ls)
             timings["lora_apply_seconds"] = time.time() - lora_start
-            print("Done")
+            print(f"\n   Done ({timings['lora_apply_seconds']:.2f}s)")
         else:
             timings["lora_apply_seconds"] = 0.0
 
@@ -403,13 +434,24 @@ class ZImagePipeline:
         denoise_start = time.time()
         step_times = []
 
+        # Pre-compute seed variance cutoff step
+        sv_cutoff = -1
+        if noisy_cap_feats is not None:
+            from app.seed_variance import SeedVarianceEnhancer
+            sv_cutoff = int(steps * seed_variance_switchover / 100.0)
+
         for i in range(start_step, steps):
             step_start = time.time()
 
             t_curr = scheduler.timesteps[i]
             t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
 
-            noise_pred = step_fn(latents, t_input, cap_feats_mx, img_pos, cap_pos, cos_cached, sin_cached)
+            # Seed variance: use noisy embedding for early steps, clean for later
+            feats = cap_feats_mx
+            if noisy_cap_feats is not None and i < sv_cutoff:
+                feats = noisy_cap_feats
+
+            noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
             latents = scheduler.step(noise_pred, i, latents)
             mx.eval(latents)
 
@@ -434,9 +476,9 @@ class ZImagePipeline:
             mx.clear_cache()
             gc.collect()
 
-        if _vae_mlx_available():
+        if _vae_mlx_available(vae_dir):
             # MLX-native VAE decode
-            vae_mlx = _load_mlx_vae()
+            vae_mlx = _load_mlx_vae(vae_dir)
             latents_mx = latents.astype(mx.bfloat16)
             decoded = vae_mlx.decode(latents_mx)  # (1, C, 1, H, W)
             if decoded.ndim == 5:
@@ -450,10 +492,9 @@ class ZImagePipeline:
             # PyTorch fallback
             import torch
             from diffusers import AutoencoderKL
-            vae_path = cfg.VAE_DIR
             device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-            vae = AutoencoderKL.from_pretrained(vae_path).to(device)
+            vae = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device)
             vae.enable_tiling()
 
             latents_pt = torch.from_numpy(np.array(latents.astype(mx.float32))).to(device)

@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -39,6 +39,7 @@ class RunConfig:
     seed: int = 42
     lora_path: str | None = None
     lora_scale: float = 1.0
+    vae_path: str | None = None
 
     # img2img / refine / FLF2V keyframe reference
     input_image: str | None = None   # Reference image for: I2V conditioning (video),
@@ -92,6 +93,15 @@ class RunConfig:
     variation_index: int | None = None      # 1-based index within an A/B test
     ab_params: dict | None = None           # the full ab-params JSON (for reference)
 
+    # Draft mode (quick preview: fewer steps, smaller resolution)
+    draft: bool = False
+
+    # Seed variance enhancer (perturb text embeddings in early denoising steps)
+    seed_variance: bool = False
+    seed_variance_percent: float = 50.0
+    seed_variance_strength: float = 20.0
+    seed_variance_switchover: float = 20.0
+
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
@@ -99,7 +109,7 @@ class RunConfig:
     @classmethod
     def from_args(cls, args, command: str = "generate") -> "RunConfig":
         """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
-        from app.commands._shared import resolve_lora_path
+        from app.commands._shared import resolve_lora_path, resolve_vae_path
         rc = cls(
             schema_version=SCHEMA_VERSION,
             command=command,
@@ -113,7 +123,8 @@ class RunConfig:
             seed=getattr(args, "seed", 42),
             lora_path=resolve_lora_path(getattr(args, "lora_path", None)),
             lora_scale=getattr(args, "lora_scale", 1.0),
-            input_image=getattr(args, "input_image", None),
+            vae_path=resolve_vae_path(getattr(args, "vae_path", None)),
+            input_image=getattr(args, "input_image", None) or getattr(args, "input", None),
             latent_upscale=getattr(args, "latent_upscale", 1.0),
             denoise_strength=getattr(args, "denoise_strength", 1.0),
             upscale=getattr(args, "upscale", False),
@@ -145,6 +156,11 @@ class RunConfig:
             control_strength=getattr(args, "control_strength", None),
             variation_index=getattr(args, "variation_index", None),
             ab_params=getattr(args, "ab_params_json", None),
+            draft=getattr(args, "draft", False),
+            seed_variance=getattr(args, "seed_variance", False),
+            seed_variance_percent=getattr(args, "seed_variance_percent", 50.0),
+            seed_variance_strength=getattr(args, "seed_variance_strength", 20.0),
+            seed_variance_switchover=getattr(args, "seed_variance_switchover", 20.0),
         )
         # Inline prompt-file content so run.json is self-contained
         if rc.prompt_file and not rc.prompt:
@@ -271,5 +287,16 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("temporal_upscale", False)
         raw["schema_version"] = 10
         version = 10
+
+    if version == 10:
+        # v10 → v11: add draft mode, vae_path, seed variance fields
+        raw.setdefault("draft", False)
+        raw.setdefault("vae_path", None)
+        raw.setdefault("seed_variance", False)
+        raw.setdefault("seed_variance_percent", 50.0)
+        raw.setdefault("seed_variance_strength", 20.0)
+        raw.setdefault("seed_variance_switchover", 20.0)
+        raw["schema_version"] = 11
+        version = 11
 
     return raw

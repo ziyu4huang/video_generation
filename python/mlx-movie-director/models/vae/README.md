@@ -7,14 +7,29 @@ VAE models for latent↔pixel space conversion. Used during image generation (Ph
 ```
 models/vae/
 ├── README.md                     ← this file
-├── flux-ae/                      ← Flux/Z-Image AutoencoderKL (PyTorch FP32)
+├── flux-ae/                      ← Flux/Z-Image AutoencoderKL (MLX BF16, converted)
 │   ├── config.json
-│   ├── diffusion_pytorch_model.safetensors
+│   ├── model.safetensors
 │   ├── manifest.json
 │   └── README.md
-└── seedvr2-vae/                  ← SeedVR2 3D VAE (MLX BF16)
+├── flux2-klein/                  ← Flux2 Klein 9B VAE (MLX INT8)
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── manifest.json
+│   └── README.md
+├── ltx-2.3-vae/                  ← LTX-2.3 video VAE (safetensors BF16)
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── manifest.json
+│   └── README.md
+├── seedvr2-vae/                  ← SeedVR2 3D VAE (MLX BF16)
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── manifest.json
+│   └── README.md
+└── ultraflux-ae/                 ← UltraFlux improved AutoencoderKL (PyTorch FP32)
     ├── config.json
-    ├── model.safetensors
+    ├── diffusion_pytorch_model.safetensors
     ├── manifest.json
     └── README.md
 ```
