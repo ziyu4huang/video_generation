@@ -22,7 +22,10 @@ Native MLX inference toolkit on Apple Silicon with three pipelines:
 | VAE decode via diffusers AutoencoderKL on MPS | Both | ✅ Working |
 | LoRA loading (zit_sda_v1) | Z-Image | ✅ Working |
 | ESRGAN / SeedVR2 upscale | Z-Image | ✅ Working |
-| HTML viewer output | Klein | ✅ `index.html` per run |
+| No-reference image quality analysis (7 metrics) | Z-Image | ✅ `run.py image quality` |
+| LoRA A/B review with quality metrics + voting | Z-Image | ✅ `run.py image --self-test sda` |
+| VAE A/B review with quality metrics | Z-Image | ✅ `run.py image --self-test ultraflux` |
+| HTML viewer output | Both | ✅ Self-contained HTML per run |
 | Speed: ~7s/step (INT8, 1024×1536) | Klein | ✅ Measured |
 | Speed: ~1.2 s/step, ~14s total for 9 steps | Z-Image | ✅ Measured |
 
@@ -128,6 +131,10 @@ Replay generates a **new** output with a fresh timestamp (original is preserved)
 | Command | Description |
 |---------|-------------|
 | `run.py generate` | Text-to-image, img2img, batch (Z-Image Turbo) |
+| `run.py image quality` | No-reference image quality analysis (7 metrics) |
+| `run.py image review lora` | LoRA A/B test with quality metrics + HTML voting |
+| `run.py image review vae` | VAE A/B comparison with quality metrics |
+| `run.py image --self-test <id>` | Named self-tests (sda, sda-fullbody, ultraflux, etc.) |
 | `run.py profile` | Multi-view character profile sheet (Flux2 Klein) |
 | `run.py video generate` | Text/image/audio-to-video with audio (LTX-2.3) |
 | `run.py video review` | A/B variation review gallery |

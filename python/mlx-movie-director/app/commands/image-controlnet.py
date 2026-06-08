@@ -487,6 +487,7 @@ def _execute_generation(prompt, ref_image_path, ctrl_type, strength,
 
     # Build 33-channel input: [ctrl_latent(16), mask(1), inpaint_latent(16)]
     ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
+    mx.eval(ctrl_33ch)  # Force materialize before VAE is freed (lazy tensor safety)
     del vae
     _gc()
     print(f"Done → control input {list(ctrl_33ch.shape)}")

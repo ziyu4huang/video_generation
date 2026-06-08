@@ -175,3 +175,141 @@ def _start_server(out_js: str):
         print(f"[quality] Log: {log_path}  (PID: {proc.pid})")
     else:
         print(f"[quality] Server started (PID: {proc.pid}), log: {log_path}")
+
+
+# ---------------------------------------------------------------------------
+# Metric trend validation (shared by image-quality and video-quality self-tests)
+# ---------------------------------------------------------------------------
+
+def validate_metric_trends(
+    results: list,
+    metrics_def: list,
+    labels: list,
+) -> list:
+    """Validate metric trends across ordered results (index 0 = lowest quality).
+
+    Args:
+        results: Ordered list of metric dicts. For image: results[i]["metrics"].
+                 For video: results[i]["per_frame"][key]["mean"].
+        metrics_def: List of (key, direction) tuples.
+                     direction: "higher" = better when higher, "lower" = better when lower.
+        labels: Human-readable labels for each result (same order).
+
+    Returns:
+        List of finding dicts:
+          {"metric": str, "direction": str, "expected": str, "trend": str,
+           "values": list[float], "violations": int, "pass": bool|str}
+    """
+    findings = []
+
+    for key, direction in metrics_def:
+        # Extract values — handle both image format and video format
+        values = []
+        for r in results:
+            if "metrics" in r:
+                # Image format: flat metrics dict
+                values.append(float(r["metrics"][key]))
+            elif "per_frame" in r:
+                # Video format: nested per_frame with stats
+                values.append(float(r["per_frame"][key]["mean"]))
+            else:
+                values.append(0.0)
+
+        # Compute consecutive differences
+        diffs = [values[i + 1] - values[i] for i in range(len(values) - 1)]
+
+        # Determine actual trend
+        if all(d > 0 for d in diffs):
+            trend = "increasing"
+        elif all(d < 0 for d in diffs):
+            trend = "decreasing"
+        else:
+            trend = "mixed"
+
+        # Count violations against expected direction
+        violations = 0
+        for d in diffs:
+            if direction == "higher" and d < 0:
+                violations += 1
+            elif direction == "lower" and d > 0:
+                violations += 1
+
+        # Pass determination
+        if violations == 0:
+            passed = True
+        elif violations == 1:
+            passed = "mostly"
+        else:
+            passed = False
+
+        expected = "increasing" if direction == "higher" else "decreasing"
+
+        findings.append({
+            "metric": key,
+            "direction": direction,
+            "expected": expected,
+            "trend": trend,
+            "values": values,
+            "violations": violations,
+            "pass": passed,
+        })
+
+    return findings
+
+
+def print_trend_validation(findings: list, labels: list):
+    """Pretty-print trend validation results to terminal.
+
+    Args:
+        findings: Output from validate_metric_trends().
+        labels: Labels for each variant.
+    """
+    print(f"\n[quality] {'═' * 10} Trend Validation {'═' * 10}")
+
+    col_metric = 24
+    label_width = max(len(str(l)) for l in labels) + 4
+
+    # Header
+    header = f"  {'Metric':<{col_metric}}"
+    for l in labels:
+        header += f" {str(l):>{label_width}}"
+    header += f"  {'Trend':>12}  {'Expected':>10}  {'Result':>8}"
+    print(header)
+    print(f"  {'─' * col_metric}  " + f"{'─' * (label_width + 1)} " * len(labels) + f"{'─' * 12}  {'─' * 10}  {'─' * 8}")
+
+    for f in findings:
+        row = f"  {f['metric']:<{col_metric}}"
+        for v in f["values"]:
+            if abs(v) < 10:
+                row += f" {v:>{label_width}.2f}"
+            else:
+                row += f" {v:>{label_width}.1f}"
+
+        row += f"  {f['trend']:>12}  {f['expected']:>10}"
+
+        if f["pass"] is True:
+            row += f"  {'✓ PASS':>8}"
+        elif f["pass"] == "mostly":
+            row += f"  {'~ OK':>8}"
+        else:
+            row += f"  {'✗ FAIL':>8}"
+
+        print(row)
+
+    # Summary
+    passed = sum(1 for f in findings if f["pass"] is True)
+    mostly = sum(1 for f in findings if f["pass"] == "mostly")
+    failed = sum(1 for f in findings if f["pass"] is False)
+    total = len(findings)
+
+    # Skip neutral metrics for summary
+    checked = [f for f in findings if f["direction"] != "neutral"]
+    checked_pass = sum(1 for f in checked if f["pass"] is True)
+    checked_total = len(checked)
+
+    print(f"\n  Summary: {checked_pass}/{checked_total} trends match expected direction", end="")
+    if mostly:
+        print(f"  ({mostly} mostly OK)", end="")
+    if failed:
+        print(f"  ({failed} FAILED)", end="")
+    print()

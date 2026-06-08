@@ -18,6 +18,7 @@ Named self-tests (--self-test <id>):
   ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE quality comparison
   zit-sda-v1 / sda            — SDA LoKr A/B: portrait prompt, quality metrics + voting
   zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body prompt, quality metrics + voting
+  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer, caption + quality review
   workflow-postprocess         — PostProcessChain on synthetic image (no model)
   workflow-basic               — Full pipeline at 4 steps / 512×512
   portrait-full                — A/B/C: base → detail+post → full+upscale
@@ -95,6 +96,7 @@ PARSER_META = {
         "  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE comparison\n"
         "  zit-sda-v1 / sda            — SDA LoKr A/B: portrait, quality + voting\n"
         "  zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body, quality + voting\n"
+        "  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer + caption review\n"
         "  portrait-full               — Workflow A/B/C: base → detail+post → full+upscale\n"
         "  grain-sweep                 — Workflow: film grain intensity sweep\n"
         "  face-detail-ab              — Workflow: face detailer denoise strength A/B\n"
@@ -125,6 +127,7 @@ PARSER_META = {
         "  run.py image i2i --input-image photo.jpg --denoise-strength 0.4 --prompt 'oil painting'\n"
         "  run.py image i2i --input-image photo.jpg --reference-image pose.jpg --denoise-strength 0.4\n"
         "  run.py image i2i --pipeline flux2-klein --input-image anime.png --lora-path my-lora --denoise-strength 0.6\n"
+        "  run.py image --self-test anime2real\n"
         "  run.py image i2i --self-test\n"
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"

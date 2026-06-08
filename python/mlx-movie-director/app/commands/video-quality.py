@@ -28,7 +28,7 @@ import cv2
 import numpy as np
 
 from app import config as cfg
-from app.quality_metrics import analyze_frame, generate_html_report
+from app.quality_metrics import analyze_frame, generate_html_report, validate_metric_trends, print_trend_validation
 from app.test_prompts_video import get_test_prompt
 
 _RUN_PY = os.path.normpath(
@@ -47,13 +47,17 @@ PARSER_META = {
         "Metrics: sharpness, edge density, contrast, noise (σ), SNR, blockiness, "
         "temporal flicker, frame consistency.\n\n"
         "Modes:\n"
-        "  analyze (default)  — Analyze existing video file(s)\n"
-        "  self-test          — Generate distilled + HQ videos, then compare\n\n"
+        "  analyze (default)       — Analyze existing video file(s)\n"
+        "  --self-test             — Generate distilled + HQ videos, then compare\n"
+        "  --self-test steps-sweep — Generate at 4/8/12/16 steps, validate quality trends\n"
+        "  --self-test degradation — Apply blur/noise/JPEG to existing video, validate metrics\n\n"
         "Examples:\n"
         "  run.py video quality --quality-inputs output/video.mp4\n"
         "  run.py video quality --quality-inputs A.mp4 B.mp4 --quality-labels 'Baseline,HQ'\n"
         "  run.py video quality --quality-inputs output/video.manifest.json\n"
         "  run.py video quality --self-test --test-prompt forest-hiker\n"
+        "  run.py video quality --self-test steps-sweep --test-prompt forest-hiker\n"
+        "  run.py video quality --self-test degradation --quality-inputs output/video.mp4\n"
     ),
 }
 
@@ -68,8 +72,11 @@ def add_quality_args(parser):
 
     # Self-test mode (uses shared --test-prompt and --seed from generate args)
     parser.add_argument(
-        "--self-test", action="store_true", default=False,
-        help="Auto-generate distilled + HQ videos with same prompt/seed, then compare. "
+        "--self-test", nargs="?", const=True, default=False,
+        dest="self_test",
+        help="Run self-test. Modes: default (distilled vs HQ), "
+             "steps-sweep (4/8/12/16 steps), degradation (synthetic). "
+             "Usage: --self-test [steps-sweep|degradation]. "
              "Use --test-prompt NAME to select the built-in prompt (default: forest-hiker) "
              "and --seed N to control generation (default: 42).",
     )
@@ -104,8 +111,19 @@ def add_quality_args(parser):
 
 def run_quality(args):
     """Dispatch to analyze or self-test mode."""
-    if getattr(args, "self_test", False):
-        _run_self_test(args)
+    self_test_val = getattr(args, "self_test", False)
+    if self_test_val:
+        mode = self_test_val if isinstance(self_test_val, str) else "default"
+        if mode == "default":
+            _run_self_test(args)
+        elif mode == "steps-sweep":
+            _run_steps_sweep(args)
+        elif mode == "degradation":
+            _run_degradation_test(args)
+        else:
+            print(f"ERROR: unknown self-test mode: {mode}", file=sys.stderr)
+            print("Available modes: default, steps-sweep, degradation", file=sys.stderr)
+            sys.exit(1)
     else:
         videos = getattr(args, "quality_inputs", [])
         if not videos:
@@ -284,6 +302,299 @@ def _run_self_test(args):
     if not getattr(args, "no_html", False):
         html_data = _prepare_html_data(report_data)
         generate_html_report(html_data, manifest_paths[0])
+
+
+# ---------------------------------------------------------------------------
+# Steps-sweep self-test (video)
+# ---------------------------------------------------------------------------
+
+_VIDEO_STEPS_SWEEP = [
+    {"label": "4 steps",  "stage1_steps": 4,  "cfg_scale": 3.0},
+    {"label": "8 steps",  "stage1_steps": 8,  "cfg_scale": 3.0},
+    {"label": "12 steps", "stage1_steps": 12, "cfg_scale": 3.0},
+    {"label": "16 steps", "stage1_steps": 16, "cfg_scale": 3.0},
+]
+
+
+def _run_steps_sweep(args):
+    """Generate same video at multiple step counts, analyze quality trend."""
+    tp_name = getattr(args, "test_prompt", None) or "forest-hiker"
+    seed = getattr(args, "seed", 42)
+    sample_every = getattr(args, "sample_every", 1)
+
+    tp = get_test_prompt(tp_name)
+    prompt = tp["prompt"]
+
+    print(f"[quality] ═══ Steps Sweep: {len(_VIDEO_STEPS_SWEEP)} variants ═══")
+    print(f"[quality] Prompt: {tp_name} (seed={seed})")
+    print(f"[quality] Steps: {', '.join(str(v['stage1_steps']) for v in _VIDEO_STEPS_SWEEP)}")
+    print(f"[quality] Prompt text: {prompt[:80]}…")
+
+    # Generate videos sequentially
+    manifest_paths = []
+    for i, pcfg in enumerate(_VIDEO_STEPS_SWEEP):
+        label = pcfg["label"]
+        print(f"\n[quality] Generating {i+1}/{len(_VIDEO_STEPS_SWEEP)}: {label}…")
+
+        before = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
+
+        cmd = [
+            sys.executable, _RUN_PY, "video", "generate",
+            "--prompt", prompt,
+            "--seed", str(seed),
+            "--stage1-steps", str(pcfg["stage1_steps"]),
+            "--cfg-scale", str(pcfg["cfg_scale"]),
+            "--skip-gpu-lock",
+            "--yes",
+        ]
+
+        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+
+        after = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
+        new_manifests = sorted(after - before, key=os.path.getmtime)
+
+        if result.returncode != 0 or not new_manifests:
+            print(f"[quality] [{label}] FAILED (returncode={result.returncode})", file=sys.stderr)
+            sys.exit(1)
+
+        manifest_paths.append(new_manifests[-1])
+        print(f"[quality] [{label}] OK — {os.path.basename(new_manifests[-1])}")
+
+    # Analyze all
+    results = []
+    labels = []
+    for mp, pcfg in zip(manifest_paths, _VIDEO_STEPS_SWEEP):
+        mp4 = _resolve_manifest_to_mp4(mp)
+        if not mp4:
+            print(f"ERROR: could not find video for {mp}", file=sys.stderr)
+            sys.exit(1)
+        label = pcfg["label"]
+        labels.append(label)
+        print(f"\n[quality] Analyzing {label}: {os.path.basename(mp4)}")
+        report = analyze_video(mp4, sample_every=sample_every)
+        report["label"] = label
+        results.append(report)
+        _print_single_report(report)
+
+    # Comparison
+    _print_comparison(results)
+
+    # Trend validation (spatial metrics)
+    spatial_metrics = [
+        ("sharpness",    "higher"),
+        ("edge_density", "higher"),
+        ("contrast",     "higher"),
+        ("noise_sigma",  "lower"),
+        ("snr_db",       "higher"),
+        ("blockiness",   "lower"),
+        ("saturation_std", "neutral"),
+    ]
+    findings = validate_metric_trends(results, spatial_metrics, labels)
+    print_trend_validation(findings, labels)
+
+    # Report data
+    report_data = {
+        "mode": "self-test",
+        "mediaType": "video",
+        "lang": getattr(args, "quality_lang", "en"),
+        "test_prompt": tp_name,
+        "prompt": prompt,
+        "seed": seed,
+        "videos": results,
+    }
+
+    json_path = getattr(args, "quality_json", None)
+    if json_path:
+        with open(json_path, "w") as f:
+            json.dump(report_data, f, indent=2, default=str)
+        print(f"\n[quality] JSON report: {json_path}")
+
+    # HTML report
+    if not getattr(args, "no_html", False):
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, manifest_paths[0])
+
+
+# ---------------------------------------------------------------------------
+# Degradation self-test (video — no MLX needed, pure OpenCV)
+# ---------------------------------------------------------------------------
+
+_VIDEO_DEGRADATION_VARIANTS = [
+    {"label": "Original",     "type": "original"},
+    {"label": "Blur σ=2",     "type": "blur",      "sigma": 2},
+    {"label": "Noise σ=25",   "type": "noise",     "sigma": 25},
+    {"label": "JPEG Q=5",     "type": "jpeg",      "quality": 5},
+    {"label": "JPEG Q=40",    "type": "jpeg",      "quality": 40},
+    {"label": "Downscale 2×", "type": "downscale", "factor": 2},
+]
+
+
+def _run_degradation_test(args):
+    """Apply known degradations to a video and validate metrics detect them."""
+    videos = getattr(args, "quality_inputs", [])
+    if not videos:
+        print("ERROR: --self-test degradation requires --quality-inputs <video>", file=sys.stderr)
+        print("Usage: run.py video quality --self-test degradation --quality-inputs video.mp4",
+              file=sys.stderr)
+        sys.exit(1)
+
+    src_path = videos[0]
+    resolved = src_path
+    if src_path.endswith(".manifest.json"):
+        resolved = _resolve_manifest_to_mp4(src_path)
+        if not resolved:
+            print(f"ERROR: could not find video for {src_path}", file=sys.stderr)
+            sys.exit(1)
+    elif not os.path.exists(src_path):
+        print(f"ERROR: file not found: {src_path}", file=sys.stderr)
+        sys.exit(1)
+
+    cap = cv2.VideoCapture(resolved)
+    if not cap.isOpened():
+        print(f"ERROR: cannot open video: {resolved}", file=sys.stderr)
+        sys.exit(1)
+
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+
+    print(f"[quality] ═══ Video Degradation Test ═══")
+    print(f"[quality] Source: {os.path.basename(resolved)} ({width}×{height}, {total_frames} frames)")
+    print(f"[quality] Variants: {len(_VIDEO_DEGRADATION_VARIANTS)}")
+
+    # Read all frames
+    frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(frame)
+    cap.release()
+
+    if not frames:
+        print("ERROR: no frames read from video", file=sys.stderr)
+        sys.exit(1)
+
+    # Generate degraded variants
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    from app.commands._shared import generate_base_name
+    base_name = generate_base_name()
+
+    rng = np.random.default_rng(42)
+    variant_paths = []
+    labels = []
+    results = []
+
+    for vcfg in _VIDEO_DEGRADATION_VARIANTS:
+        label = vcfg["label"]
+        vtype = vcfg["type"]
+        labels.append(label)
+
+        # Apply degradation to each frame
+        degraded_frames = []
+        for f in frames:
+            if vtype == "original":
+                degraded_frames.append(f)
+            elif vtype == "blur":
+                degraded_frames.append(cv2.GaussianBlur(f, (0, 0), vcfg["sigma"]))
+            elif vtype == "noise":
+                noise = rng.normal(0, vcfg["sigma"], f.shape)
+                degraded_frames.append(np.clip(f.astype(np.float64) + noise, 0, 255).astype(np.uint8))
+            elif vtype == "jpeg":
+                encode_param = [cv2.IMWRITE_JPEG_QUALITY, vcfg["quality"]]
+                _, encoded = cv2.imencode(".jpg", f, encode_param)
+                degraded_frames.append(cv2.imdecode(encoded, cv2.IMREAD_COLOR))
+            elif vtype == "downscale":
+                factor = vcfg["factor"]
+                small = cv2.resize(f, (width // factor, height // factor), interpolation=cv2.INTER_AREA)
+                degraded_frames.append(cv2.resize(small, (width, height), interpolation=cv2.INTER_CUBIC))
+
+        # Write to temp mp4
+        safe_label = label.lower().replace(" ", "_").replace("=", "").replace("×", "x")
+        out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_{safe_label}.mp4")
+        writer = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
+        for df in degraded_frames:
+            writer.write(df)
+        writer.release()
+        variant_paths.append(out_path)
+
+        # Analyze
+        sample_every = getattr(args, "sample_every", 1)
+        print(f"\n[quality] Analyzing {label}: {os.path.basename(out_path)}")
+        report = analyze_video(out_path, sample_every=sample_every)
+        report["label"] = label
+        results.append(report)
+        _print_single_report(report)
+
+    # Comparison
+    _print_comparison(results)
+
+    # Pairwise degradation checks (not trend validation — variants aren't ordered by quality)
+    print(f"\n[quality] {'─'*10} Degradation Checks {'─'*10}")
+    original = results[0]["per_frame"]
+    blur_m = results[1]["per_frame"]
+    noise_m = results[2]["per_frame"]
+    jpeg5 = results[3]["per_frame"]
+    jpeg40 = results[4]["per_frame"]
+    downscale = results[5]["per_frame"]
+
+    def _pf(metrics_dict, key):
+        return metrics_dict[key]["mean"]
+
+    checks = [
+        # Blur checks
+        ("Blur: sharpness < Original",
+         _pf(blur_m, "sharpness") < _pf(original, "sharpness")),
+        ("Blur: edge_density < Original",
+         _pf(blur_m, "edge_density") < _pf(original, "edge_density")),
+        # Noise checks
+        ("Noise: noise_sigma > Original",
+         _pf(noise_m, "noise_sigma") > _pf(original, "noise_sigma")),
+        ("Noise: snr_db < Original",
+         _pf(noise_m, "snr_db") < _pf(original, "snr_db")),
+        # JPEG checks — Q=5 should show stronger artifacts than Q=40
+        ("JPEG Q=5: blockiness > Original",
+         _pf(jpeg5, "blockiness") > _pf(original, "blockiness")),
+        ("JPEG Q=5: blockiness > JPEG Q=40",
+         _pf(jpeg5, "blockiness") > _pf(jpeg40, "blockiness")),
+        ("JPEG Q=5: sharpness < Original",
+         _pf(jpeg5, "sharpness") < _pf(original, "sharpness")),
+        # Downscale checks
+        ("Downscale: sharpness < Original",
+         _pf(downscale, "sharpness") < _pf(original, "sharpness")),
+        ("Downscale: edge_density < Original",
+         _pf(downscale, "edge_density") < _pf(original, "edge_density")),
+    ]
+
+    for desc, passed in checks:
+        status = "✓ PASS" if passed else "✗ FAIL"
+        print(f"  {desc:.<50} {status}")
+
+    total_checks = len(checks)
+    passed_checks = sum(1 for _, p in checks if p)
+    print(f"\n  Degradation checks: {passed_checks}/{total_checks} passed")
+
+    # Report data
+    report_data = {
+        "mode": "self-test",
+        "mediaType": "video",
+        "lang": getattr(args, "quality_lang", "en"),
+        "test_prompt": "degradation",
+        "videos": results,
+    }
+
+    json_path = getattr(args, "quality_json", None)
+    if json_path:
+        with open(json_path, "w") as f:
+            json.dump(report_data, f, indent=2, default=str)
+        print(f"\n[quality] JSON report: {json_path}")
+
+    # HTML report
+    if not getattr(args, "no_html", False):
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, variant_paths[0])
 
 
 # ---------------------------------------------------------------------------

@@ -215,3 +215,27 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
     content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
 
     return content
+
+
+# ---------------------------------------------------------------------------
+# Public helper — reusable by other commands (e.g., image-review self-tests)
+# ---------------------------------------------------------------------------
+
+def caption_image(image_path: str, style: str = "photography", lang: str = "en",
+                  api_url: str = _DEFAULT_API_URL, model: str = _DEFAULT_MODEL) -> str:
+    """Caption a single image and return the text. Reusable public API.
+
+    Args:
+        image_path: Path to image file.
+        style: Caption style key (default, photography, prompt, profile, style, score).
+        lang: Output language (en, zh_TW, zh_CN, ja).
+        api_url: VLM API base URL.
+        model: VLM model name.
+
+    Returns:
+        Caption text string.
+    """
+    prompt_text = _STYLE_PROMPTS.get(style, _STYLE_PROMPTS["default"])
+    prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
+    b64 = _image_to_base64(image_path)
+    return _call_vlm(api_url, model, b64, prompt_text)

@@ -56,6 +56,54 @@ _PROMPTS = {
         "width": 640,
         "height": 960,
     },
+    "anime-portrait": {
+        "prompt": (
+            "anime girl with long pink hair, big sparkling eyes, wearing a school uniform, "
+            "gentle smile, cel shading, anime art style, vibrant colors, simple background"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "street": {
+        "prompt": (
+            "street photography of a busy Tokyo crosswalk at night, neon signs reflected "
+            "on wet pavement, people with umbrellas, cinematic, ultra sharp"
+        ),
+        "width": 960,
+        "height": 640,
+    },
+    "food": {
+        "prompt": (
+            "food photography of a gourmet pasta dish, steam rising, fresh basil, "
+            "parmesan shavings, rustic wooden table, shallow depth of field, ultra detailed"
+        ),
+        "width": 960,
+        "height": 640,
+    },
+    "cyberpunk": {
+        "prompt": (
+            "cyberpunk woman with neon hair standing in a rain-soaked alley, holographic "
+            "advertisements, purple and teal color scheme, dramatic lighting, ultra sharp"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "animal": {
+        "prompt": (
+            "wildlife photography of a red fox in golden autumn forest, detailed fur texture, "
+            "soft bokeh background, natural lighting, ultra sharp focus"
+        ),
+        "width": 960,
+        "height": 640,
+    },
+    "interior": {
+        "prompt": (
+            "modern minimalist living room interior, clean white walls, natural light "
+            "through large windows, Scandinavian furniture, architectural photography, ultra sharp"
+        ),
+        "width": 960,
+        "height": 640,
+    },
 }
 
 _DEFAULT = "portrait"
@@ -392,6 +440,52 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=lora-sweep: LoRA across multiple prompt styles (general evaluator)
+    # -----------------------------------------------------------------------
+
+    "zit-sda-v1-sweep": {
+        "type": "lora-sweep",
+        "description": "SDA LoRA sweep: baseline vs SDA v1 across 8 diverse prompt styles",
+        "lora_scale": 1.0,
+        "seeds": [42, 777],
+        "steps": 9,
+        "test_prompts": [
+            "portrait", "landscape", "fullbody", "street",
+            "food", "cyberpunk", "animal", "interior",
+        ],
+        "variants": [
+            {"label": "Baseline", "lora_path": None},
+            {"label": "SDA v1",   "lora_path": "zit-sda-v1"},
+        ],
+    },
+
+    # -----------------------------------------------------------------------
+    # type=lora-i2i: T2I → I2I pipeline with LoRA (style transfer via img2img)
+    # -----------------------------------------------------------------------
+
+    "anime2real": {
+        "type": "lora-i2i",
+        "description": (
+            "anime2real LoRA: T2I anime baseline → I2I with anything2real LoRA — "
+            "anime-to-photorealistic style transfer, multi-seed comparison with "
+            "caption verification and HTML voting review"
+        ),
+        "test_prompt": "anime-portrait",
+        "i2i_prompt": (
+            "Preserve the subject's features and generate a high quality "
+            "realistic human photograph"
+        ),
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "width": 640,
+        "height": 960,
+        "seeds": [42, 123],
+        "denoise_strength": 0.6,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "lora_scale": 0.8,
+    },
+
+    # -----------------------------------------------------------------------
     # type=profile: Multi-view character profile with VLM view-angle verification
     # -----------------------------------------------------------------------
 
@@ -435,6 +529,58 @@ _ALL_TESTS = {
                 "label": "angle-en",
                 "prompts": None,
             },
+        ],
+    },
+
+    "profile-flux2-gen": {
+        "type": "profile",
+        "description": (
+            "ZImage T2I → Flux2-Klein 3-view profile — "
+            "generates reference portrait first, then profiles it with real reference conditioning. "
+            "Tests character consistency across views; VLM verifies each view angle."
+        ),
+        "views": ["front", "back", "side"],
+        "pipeline": "flux2-klein",
+        "generate_reference": True,
+        "test_prompt": "portrait",
+        "steps_ref": 9,
+        "steps": 6,
+        "seed": 42,
+        "ratio": "standing",
+    },
+
+    "profile-flux2-abc": {
+        "type": "profile",
+        "description": (
+            "Flux2-Klein A/B/C: v1-medium vs v2-ultrashort vs angle-EN — "
+            "all variants use the same generated reference portrait. VLM picks the best prompt style."
+        ),
+        "views": ["front", "back", "side"],
+        "pipeline": "flux2-klein",
+        "generate_reference": True,
+        "test_prompt": "portrait",
+        "steps_ref": 9,
+        "steps": 6,
+        "seed": 42,
+        "ratio": "standing",
+        "prompt_variants": [
+            {
+                "label": "v1-medium",
+                "prompts": {
+                    "front": "生成图中人物A-pose的正面图,人物站立，去除杂物，白色背景，完美的身体比例，头不要太大，保持人物服装一致性",
+                    "back":  "生成图中人物A-pose的背面图,人物站立，去除杂物，白色背景，完美的身体比例，头不要太大，保持人物服装一致性",
+                    "side":  "生成图中人物A-pose的侧面图,人物站立，去除杂物，白色背景，完美的身体比例，头不要太大，保持人物服装和人物的一致性",
+                },
+            },
+            {
+                "label": "v2-ultrashort",
+                "prompts": {
+                    "front": "生成图中角色全身的正视图，保持人物一致性。",
+                    "back":  "生成图中角色的后视图。保持人物一致性。",
+                    "side":  "生成图中角色的侧视图。",
+                },
+            },
+            {"label": "angle-en", "prompts": None},  # falls back to VIEW_PROMPTS_FLUX2
         ],
     },
 
@@ -496,6 +642,11 @@ _ALL_TESTS_ALIASES = {
     "sda-test":    "zit-sda-v1",
     "sda-fullbody":   "zit-sda-v1-fullbody",
     "sda-v1-fullbody": "zit-sda-v1-fullbody",
+    "sda-sweep":     "zit-sda-v1-sweep",
+    # LoRA I2I aliases
+    "anime-girl":     "anime2real",
+    "anime2real-lora": "anime2real",
+    "anything2real":  "anime2real",
     # Video aliases
     "rainy-street":  "video-rainy-street",
     "forest-hiker":  "video-forest-hiker",
@@ -504,6 +655,7 @@ _ALL_TESTS_ALIASES = {
     "profile-abc":      "profile-prompt-abc",
     "profile-ab":       "profile-prompt-abc",
     "profile-prompts":  "profile-prompt-abc",
+    "profile-flux2":    "profile-flux2-gen",
 }
 
 

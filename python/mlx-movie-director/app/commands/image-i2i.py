@@ -88,6 +88,12 @@ _I2I_SELF_TEST_VARIATIONS = [
     ("dn10-cnet-15st-a5",  1.0, 0.6, 5.0, 5,   15),     # Full redraw + dual-sampler
 ]
 
+# Debug variations — minimal set for fast turnaround when debugging ControlNet issues.
+# Use --self-test debug to run this instead of the full suite.
+_I2I_DEBUG_VARIATIONS = [
+    ("debug-dn10-cnet-15st", 1.0, 0.6, 5.0, None, 15),   # Pure T2I+ControlNet
+]
+
 
 # ---------------------------------------------------------------------------
 # CLI argument registration
@@ -198,6 +204,7 @@ def run_i2i(args):
         ctrl_latent = _vae_encode(vae, ref_pil)
         ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
         ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
+        mx.eval(ctrl_33ch)  # Force materialize before VAE is freed (lazy tensor safety)
         print(f"Done → control input {list(ctrl_33ch.shape)}")
 
     del vae
@@ -543,7 +550,8 @@ def _run_self_test(args):
         ctrl_latent = _vae_encode(vae, ref_pil)
         ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
         ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
-        print(f"Done → {list(ctrl_33ch.shape)}")
+        mx.eval(ctrl_33ch)  # Force materialize before VAE is freed
+        print(f"Done → {list(ctrl_33ch.shape)} (evaluated)")
 
     del vae
     _gc()
@@ -551,7 +559,15 @@ def _run_self_test(args):
     # ── Step 4: Generate variations ───────────────────────────────────────
     results = []
 
-    for label, dn_str, ctrl_str, blur_ref, cnet_active, tstps in _I2I_SELF_TEST_VARIATIONS:
+    # Select variations: --self-test debug for fast debug, otherwise full suite
+    st_val = getattr(args, "self_test", True)
+    if isinstance(st_val, str) and st_val == "debug":
+        variations = _I2I_DEBUG_VARIATIONS
+        print(f"\n[Self-Test] Using DEBUG variations ({len(variations)} tests)")
+    else:
+        variations = _I2I_SELF_TEST_VARIATIONS
+
+    for label, dn_str, ctrl_str, blur_ref, cnet_active, tstps in variations:
         # Skip ControlNet variations if no reference image
         if ctrl_str is not None and ctrl_33ch is None:
             print(f"\n[Self-Test] SKIP {label} (no ControlNet reference)")

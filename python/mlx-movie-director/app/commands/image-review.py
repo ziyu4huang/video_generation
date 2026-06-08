@@ -1544,6 +1544,10 @@ def run_review_selftest(args):
         _run_selftest_video(args, test_name, test_cfg)
     elif test_type == "profile":
         _run_selftest_profile(args, test_name, test_cfg)
+    elif test_type == "lora-i2i":
+        _run_lora_i2i_selftest(args, test_name, test_cfg)
+    elif test_type == "lora-sweep":
+        _run_lora_sweep(args, test_name, test_cfg)
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
@@ -1769,6 +1773,7 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
     import mlx.core as mx
     from datetime import datetime as _dt, timezone as _tz
     from app.pipeline import ZImagePipeline
+    from app.flux2_pipeline import Flux2KleinPipeline
     from app.manifest import Manifest, collect_model_fingerprint
     from app.test_prompts_image import get_test_prompt
     from app.commands.caption import _image_to_base64, _call_vlm, get_profile_verify_prompt
@@ -1794,6 +1799,29 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
     vlm_api_url = "http://localhost:1234/v1"
     vlm_model = "qwen/qwen3-vl-4b"
 
+    # For Flux2-Klein selftests: generate a reference portrait first (ZImage T2I → reference)
+    # so that the profile views have a real character to condition on.
+    generate_reference = test_cfg.get("generate_reference", False)
+    ref_image_path = None
+    if generate_reference and pipeline_type == "flux2-klein":
+        tp = get_test_prompt(test_cfg.get("test_prompt", "portrait"))
+        ref_steps = test_cfg.get("steps_ref", 9)
+        print(f"\n[selftest] Generating reference portrait ({tp['width']}×{tp['height']}, {ref_steps} steps)...")
+        ref_pipeline = ZImagePipeline()
+        ref_result = ref_pipeline.generate(
+            prompt=tp["prompt"],
+            width=tp["width"],
+            height=tp["height"],
+            steps=ref_steps,
+            seed=seed,
+        )
+        ref_image_path = os.path.join(cfg.OUTPUT_DIR, f"selftest_{test_name}_{ts}_reference.png")
+        ref_result.image.save(ref_image_path)
+        print(f"[selftest] Reference saved: {ref_image_path}")
+        del ref_pipeline
+        mx.clear_cache()
+        gc.collect()
+
     for variant in prompt_variants:
         var_label = variant["label"]
         custom_prompts = variant.get("prompts")
@@ -1801,25 +1829,40 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
         print(f"\n[selftest] ── Variant: {var_label} ──")
         print(f"[selftest] {width}×{height} | {steps} steps | views: {' '.join(views)}")
 
-        pipeline = ZImagePipeline()
+        if pipeline_type == "flux2-klein":
+            pipeline = Flux2KleinPipeline()
+        else:
+            pipeline = ZImagePipeline()
 
         for view in [v for v in _profile_mod.VIEW_ORDER if v in views]:
-            # Pick prompt: custom override or default VIEW_PROMPTS_FLUX2
+            # Pick prompt: custom override, then pipeline-appropriate default
             if custom_prompts is not None and custom_prompts.get(view):
                 prompt = custom_prompts[view]
-            else:
+            elif pipeline_type == "flux2-klein":
                 prompt = _profile_mod.VIEW_PROMPTS_FLUX2[view]
+            else:
+                prompt = _profile_mod.VIEW_PROMPTS[view]
 
             view_seed = seed % (2 ** 32)
             print(f"\n  [{view}] {prompt[:80]}...")
 
-            result = pipeline.generate(
-                prompt=prompt,
-                width=width,
-                height=height,
-                steps=steps,
-                seed=view_seed,
-            )
+            if pipeline_type == "flux2-klein" and ref_image_path:
+                result = pipeline.generate(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    steps=steps,
+                    seed=view_seed,
+                    reference_images=[ref_image_path],
+                )
+            else:
+                result = pipeline.generate(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    steps=steps,
+                    seed=view_seed,
+                )
 
             base_name = f"selftest_{test_name}_{ts}_{var_label}_{view}"
             out_path = os.path.join(cfg.OUTPUT_DIR, base_name + ".png")
@@ -2138,6 +2181,417 @@ function openLb(src){{
 </script>
 </body>
 </html>"""
+
+
+# ---------------------------------------------------------------------------
+# Mode 5b: LoRA I2I self-test (T2I → I2I pipeline with LoRA)
+# ---------------------------------------------------------------------------
+
+def _run_lora_i2i_selftest(args, test_name: str, test_cfg: dict):
+    """Run LoRA I2I self-test: T2I anime baseline → I2I with LoRA.
+
+    Generates paired images (anime baseline vs I2I+LoRA output) across seeds,
+    captions both via Qwen3-VL, then renders HTML review with voting.
+    """
+    import time as _time
+    from app.test_prompts_image import get_test_prompt
+    from app.commands._shared import resolve_lora_path, execute_generation
+    from app.run_config import RunConfig
+
+    # Resolve config
+    tp_name = test_cfg["test_prompt"]
+    tp = get_test_prompt(tp_name)
+    t2i_prompt = getattr(args, "prompt", None) or tp["prompt"]
+    i2i_prompt = test_cfg["i2i_prompt"]
+    width = test_cfg.get("width", tp["width"])
+    height = test_cfg.get("height", tp["height"])
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 4)
+    denoise_strength = test_cfg.get("denoise_strength", 0.6)
+    lora_path_raw = test_cfg.get("lora_path")
+    lora_path = resolve_lora_path(lora_path_raw) if lora_path_raw else None
+    lora_scale = test_cfg.get("lora_scale", 0.8)
+    pipeline_type = test_cfg.get("pipeline", "flux2-klein")
+    seeds = test_cfg.get("seeds", [42, 123])
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base_name = f"lora-i2i-{ts}"
+
+    label_a = "T2I Anime Baseline"
+    label_b = f"I2I + LoRA (dn={denoise_strength}, scale={lora_scale})"
+
+    print(f"\n{'='*60}")
+    print(f"LoRA I2I Self-Test — {test_name}")
+    print(f"{'='*60}")
+    print(f"  T2I prompt: {t2i_prompt[:80]}{'…' if len(t2i_prompt) > 80 else ''}")
+    print(f"  I2I prompt: {i2i_prompt[:80]}{'…' if len(i2i_prompt) > 80 else ''}")
+    print(f"  Pipeline:   {pipeline_type}")
+    print(f"  Seeds:      {seeds}")
+    print(f"  Steps:      {steps}")
+    print(f"  Size:       {width}×{height}")
+    print(f"  Denoise:    {denoise_strength}")
+    print(f"  LoRA:       {os.path.basename(lora_path) if lora_path else 'None'} (scale={lora_scale})")
+    print(f"  Pairs:      {len(seeds)} ({len(seeds)*2} images total)")
+    print()
+
+    pairs = []  # [{seed, paths: [str, str], timings: [float, float]}, ...]
+
+    for i, seed in enumerate(seeds, start=1):
+        print(f"\n--- Seed {seed} ({i}/{len(seeds)}) ---")
+
+        # --- A: T2I anime baseline (no LoRA) ---
+        print(f"  [A] Generating T2I baseline…")
+        t0 = _time.time()
+        args_a = _make_run_config_args(
+            prompt=t2i_prompt, width=width, height=height,
+            steps=steps, seed=seed, pipeline=pipeline_type,
+        )
+        rc_a = RunConfig.from_args(args_a, command="image t2i")
+        mf_a = execute_generation(rc_a, pipeline_type=pipeline_type)
+        elapsed_a = _time.time() - t0
+        # Find the output image
+        path_a = _find_output_image(mf_a)
+        print(f"  [A] Saved: {os.path.basename(path_a)} ({elapsed_a:.1f}s)")
+
+        # Unload model to free memory
+        import mlx.core as mx
+        mx.clear_cache()
+        import gc
+        gc.collect()
+
+        # --- B: I2I with LoRA ---
+        print(f"  [B] Generating I2I + LoRA…")
+        t0 = _time.time()
+        args_b = _make_run_config_args(
+            prompt=i2i_prompt, width=width, height=height,
+            steps=steps, seed=seed, pipeline=pipeline_type,
+            lora_path=lora_path, lora_scale=lora_scale,
+            input_image=path_a, denoise_strength=denoise_strength,
+        )
+        rc_b = RunConfig.from_args(args_b, command="image i2i")
+        rc_b.denoise_strength = denoise_strength
+        mf_b = execute_generation(rc_b, pipeline_type=pipeline_type)
+        elapsed_b = _time.time() - t0
+        path_b = _find_output_image(mf_b)
+        print(f"  [B] Saved: {os.path.basename(path_b)} ({elapsed_b:.1f}s)")
+
+        mx.clear_cache()
+        gc.collect()
+
+        pairs.append({
+            "seed": seed,
+            "paths": [path_a, path_b],
+            "timings": [round(elapsed_a, 1), round(elapsed_b, 1)],
+        })
+
+    # --- Caption both images via Qwen3-VL ---
+    print(f"\n{'─'*40}")
+    print(f"Caption Analysis")
+    print(f"{'─'*40}")
+    captions_by_pair = []
+    for i, p in enumerate(pairs):
+        print(f"\n  Seed {p['seed']} ({i+1}/{len(pairs)})")
+        cap_a = _caption_image(p["paths"][0], style="photography", lang="en")
+        cap_b = _caption_image(p["paths"][1], style="photography", lang="en")
+        print(f"  [A] {cap_a[:120]}{'…' if len(cap_a) > 120 else ''}")
+        print(f"  [B] {cap_b[:120]}{'…' if len(cap_b) > 120 else ''}")
+        captions_by_pair.append({"caption_a": cap_a, "caption_b": cap_b})
+
+    # --- Quality analysis (default on, opt-out via --no-quality) ---
+    metrics_by_pair = []
+    if not getattr(args, "no_quality", False):
+        _quality_mod = importlib.import_module("app.commands.image-quality")
+        print(f"\n{'─'*40}")
+        print(f"Quality Analysis")
+        print(f"{'─'*40}")
+        for i, p in enumerate(pairs):
+            print(f"\n  Seed {p['seed']} ({i+1}/{len(pairs)})")
+            report_a = _quality_mod.analyze_image(p["paths"][0])
+            report_b = _quality_mod.analyze_image(p["paths"][1])
+            report_a["label"] = label_a
+            report_b["label"] = label_b
+            _quality_mod._print_single_report(report_a)
+            _quality_mod._print_single_report(report_b)
+            metrics_by_pair.append({
+                "metrics_a": report_a["metrics"],
+                "metrics_b": report_b["metrics"],
+            })
+
+    # --- Generate HTML review ---
+    html_path = _render_lora_i2i_html(
+        output_dir=cfg.OUTPUT_DIR,
+        base_name=base_name,
+        test_name=test_name,
+        test_cfg=test_cfg,
+        t2i_prompt=t2i_prompt,
+        i2i_prompt=i2i_prompt,
+        steps=steps,
+        width=width,
+        height=height,
+        denoise_strength=denoise_strength,
+        lora_scale=lora_scale,
+        lora_path=lora_path,
+        label_a=label_a,
+        label_b=label_b,
+        pairs=pairs,
+        captions_by_pair=captions_by_pair,
+        metrics_by_pair=metrics_by_pair or None,
+        ts=ts,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"LoRA I2I Self-Test Complete")
+    print(f"{'='*60}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Images:      {len(pairs)*2} ({len(pairs)} pairs)")
+
+    import webbrowser
+    webbrowser.open(f"file://{os.path.abspath(html_path)}")
+    print(f"  Opened in browser")
+
+
+def _make_run_config_args(**kwargs):
+    """Create a simple namespace object for RunConfig.from_args()."""
+    import argparse
+    ns = argparse.Namespace()
+    for k, v in kwargs.items():
+        setattr(ns, k, v)
+    # Set defaults for fields RunConfig expects
+    for field in ("prompt_file", "vae_path",
+                   "seed_start",
+                   "upscale", "upscale_model", "upscale_method",
+                   "face_detail", "film_grain", "sharpening", "skin_contrast",
+                   "noise_clean", "latent_upscale", "draft", "control_image"):
+        if not hasattr(ns, field):
+            setattr(ns, field, None)
+    # String defaults (must not be None)
+    if not hasattr(ns, "transformer") or getattr(ns, "transformer") is None:
+        setattr(ns, "transformer", "klein-9b")
+    if not hasattr(ns, "variant") or getattr(ns, "variant") is None:
+        setattr(ns, "variant", "9b")
+    for field in ("lora_scale", "denoise_strength"):
+        if not hasattr(ns, field):
+            setattr(ns, field, 1.0)
+    if not hasattr(ns, "count"):
+        setattr(ns, "count", 1)
+    if not hasattr(ns, "seed"):
+        setattr(ns, "seed", 42)
+    if not hasattr(ns, "pipeline"):
+        setattr(ns, "pipeline", "flux2-klein")
+    return ns
+
+
+def _find_output_image(manifest_path: str) -> str:
+    """Read a manifest JSON and return the path to the first output image."""
+    import json as _json
+    with open(manifest_path) as f:
+        data = _json.load(f)
+    outputs = data.get("outputs", [])
+    if outputs:
+        return outputs[0]["path"]
+    # Fallback: look for .png with same base name
+    base = manifest_path.replace(".manifest.json", "")
+    for ext in (".png", ".jpg"):
+        candidate = base + ext
+        if os.path.exists(candidate):
+            return candidate
+    raise FileNotFoundError(f"No output image found for manifest {manifest_path}")
+
+
+def _caption_image(image_path: str, style: str = "photography", lang: str = "en") -> str:
+    """Caption an image using Qwen3-VL. Reusable wrapper around caption.caption_image()."""
+    try:
+        _caption_mod = importlib.import_module("app.commands.caption")
+        return _caption_mod.caption_image(image_path, style=style, lang=lang)
+    except Exception as e:
+        return f"(caption failed: {e})"
+
+
+def _render_lora_i2i_html(*, output_dir, base_name, test_name, test_cfg,
+                          t2i_prompt, i2i_prompt, steps, width, height,
+                          denoise_strength, lora_scale, lora_path,
+                          label_a, label_b, pairs, captions_by_pair,
+                          metrics_by_pair, ts):
+    """Generate bilingual HTML review for LoRA I2I self-test."""
+    import html as html_mod
+    import json as _json
+
+    lora_name = os.path.basename(os.path.dirname(lora_path)) if lora_path else "unknown"
+
+    # Build pair cards
+    pair_cards = []
+    for i, p in enumerate(pairs):
+        captions = captions_by_pair[i] if captions_by_pair else {}
+        cap_a = html_mod.escape(captions.get("caption_a", ""))
+        cap_b = html_mod.escape(captions.get("caption_b", ""))
+
+        metrics_html = ""
+        if metrics_by_pair:
+            m = metrics_by_pair[i]
+            metrics_html = _build_metrics_rows(
+                m["metrics_a"], m["metrics_b"], label_a, label_b
+            )
+
+        pair_cards.append({
+            "seed": p["seed"],
+            "img_a": os.path.basename(p["paths"][0]),
+            "img_b": os.path.basename(p["paths"][1]),
+            "timing_a": p["timings"][0],
+            "timing_b": p["timings"][1],
+            "cap_a": cap_a[:500],
+            "cap_b": cap_b[:500],
+            "metrics_html": metrics_html,
+        })
+
+    cards_json = _json.dumps(pair_cards, ensure_ascii=False)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRA I2I Review — {html_mod.escape(test_name)}</title>
+<style>
+  :root {{ --bg: #1a1a2e; --card: #16213e; --border: #0f3460; --accent: #e94560;
+           --text: #eee; --muted: #999; --success: #4ecca3; }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; padding-bottom: 80px; }}
+  .header {{ text-align: center; margin-bottom: 20px; }}
+  .header h1 {{ font-size: 1.6em; margin-bottom: 4px; }}
+  .header .subtitle {{ color: var(--muted); font-size: 0.9em; }}
+  .meta {{ background: var(--card); border-radius: 12px; padding: 12px 16px; margin-bottom: 20px; border: 1px solid var(--border); font-size: 0.82em; }}
+  .meta table {{ border-collapse: collapse; width: 100%; }}
+  .meta td {{ padding: 3px 8px; }}
+  .meta td:first-child {{ color: var(--muted); white-space: nowrap; }}
+  .grid {{ display: grid; grid-template-columns: 1fr; gap: 24px; }}
+  .pair {{ background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }}
+  .pair-title {{ font-weight: 700; font-size: 1.1em; margin-bottom: 12px; }}
+  .pair-images {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
+  .img-card {{ text-align: center; }}
+  .img-card img {{ max-width: 100%; border-radius: 8px; cursor: zoom-in; border: 2px solid var(--border); }}
+  .img-card img:hover {{ border-color: var(--accent); }}
+  .img-label {{ font-weight: 700; margin-bottom: 6px; font-size: 0.9em; }}
+  .img-label.a {{ color: var(--success); }}
+  .img-label.b {{ color: var(--accent); }}
+  .caption {{ font-size: 0.78em; color: #bbb; margin-top: 6px; text-align: left; line-height: 1.5;
+               background: rgba(255,255,255,0.04); padding: 8px; border-radius: 6px; max-height: 120px; overflow-y: auto; }}
+  .metrics {{ margin-top: 12px; font-size: 0.78em; }}
+  .metrics table {{ width: 100%; border-collapse: collapse; }}
+  .metrics th, .metrics td {{ padding: 4px 8px; text-align: center; }}
+  .metrics th {{ background: var(--border); }}
+  .metrics .win {{ color: var(--success); font-weight: 700; }}
+  .metrics .lose {{ color: var(--muted); }}
+  .vote-row {{ display: flex; gap: 8px; margin-top: 10px; justify-content: center; }}
+  .vote-btn {{ padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: transparent;
+               color: var(--muted); cursor: pointer; font-size: 0.85em; transition: all 0.2s; }}
+  .vote-btn:hover {{ border-color: var(--success); color: var(--success); }}
+  .vote-btn.selected {{ background: var(--success); color: #1a1a2e; border-color: var(--success); font-weight: 700; }}
+  .bottom-bar {{ position: fixed; bottom: 0; left: 0; right: 0; background: var(--card); border-top: 1px solid var(--border);
+                 padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }}
+  .btn {{ padding: 8px 20px; border-radius: 8px; border: none; font-size: 0.9em; cursor: pointer; font-weight: 600; }}
+  .btn-primary {{ background: var(--accent); color: #fff; }}
+  .btn-secondary {{ background: var(--border); color: var(--text); }}
+  .overlay {{ display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 200;
+              cursor: zoom-out; justify-content: center; align-items: center; }}
+  .overlay.show {{ display: flex; }}
+  .overlay img {{ max-width: 95vw; max-height: 95vh; object-fit: contain; border-radius: 8px; }}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎨 LoRA I2I Self-Test: {html_mod.escape(test_name)}</h1>
+  <p class="subtitle">T2I anime baseline → I2I with LoRA style transfer · Click images to zoom · Vote per pair</p>
+</div>
+
+<div class="meta">
+  <table>
+    <tr><td>Pipeline</td><td>{html_mod.escape(test_cfg.get('pipeline', 'flux2-klein'))}</td></tr>
+    <tr><td>LoRA</td><td>{html_mod.escape(lora_name)} (scale={lora_scale})</td></tr>
+    <tr><td>Denoise</td><td>{denoise_strength}</td></tr>
+    <tr><td>Steps / Size</td><td>{steps} / {width}×{height}</td></tr>
+    <tr><td>T2I Prompt</td><td>{html_mod.escape(t2i_prompt[:120])}{'…' if len(t2i_prompt) > 120 else ''}</td></tr>
+    <tr><td>I2I Prompt</td><td>{html_mod.escape(i2i_prompt[:120])}{'…' if len(i2i_prompt) > 120 else ''}</td></tr>
+    <tr><td>Seeds</td><td>{', '.join(str(s) for s in test_cfg.get('seeds', []))}</td></tr>
+  </table>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<div class="bottom-bar">
+  <span id="voteCount" style="font-size:0.85em;color:var(--muted);">0 votes cast</span>
+  <div>
+    <button class="btn btn-secondary" onclick="resetVotes()" style="margin-right:8px">Reset</button>
+    <button class="btn btn-primary" onclick="exportResults()">📋 Export JSON</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" onclick="this.classList.remove('show')">
+  <img id="overlayImg" src="">
+</div>
+
+<script>
+const CARDS = {cards_json};
+const votes = {{}};
+
+function render() {{
+  const grid = document.getElementById('grid');
+  grid.innerHTML = CARDS.map((c, i) => `
+    <div class="pair">
+      <div class="pair-title">Seed ${{c.seed}}</div>
+      <div class="pair-images">
+        <div class="img-card">
+          <div class="img-label a">[A] T2I Baseline (${{c.timing_a}}s)</div>
+          <img src="${{c.img_a}}" onclick="zoom('${{c.img_a}}')">
+          <div class="caption">${{c.cap_a}}</div>
+        </div>
+        <div class="img-card">
+          <div class="img-label b">[B] I2I + LoRA (${{c.timing_b}}s)</div>
+          <img src="${{c.img_b}}" onclick="zoom('${{c.img_b}}')">
+          <div class="caption">${{c.cap_b}}</div>
+        </div>
+      </div>
+      ${{c.metrics_html ? '<div class="metrics"><table><tr><th>Metric</th><th>[A] Baseline</th><th>[B] I2I+LoRA</th></tr>' + c.metrics_html + '</table></div>' : ''}}
+      <div class="vote-row">
+        <button class="vote-btn ${{votes[i]==='A'?'selected':''}}" onclick="vote(${{i}},'A')">✅ LoRA Effective</button>
+        <button class="vote-btn ${{votes[i]==='B'?'selected':''}}" onclick="vote(${{i}},'B')">❌ No Effect</button>
+        <button class="vote-btn ${{votes[i]==='skip'?'selected':''}}" onclick="vote(${{i}},'skip')">⏭️ Skip</button>
+      </div>
+    </div>
+  `).join('');
+  updateCount();
+}}
+
+function vote(idx, choice) {{ votes[idx] = choice; render(); }}
+function resetVotes() {{ Object.keys(votes).forEach(k => delete votes[k]); render(); }}
+function updateCount() {{ document.getElementById('voteCount').textContent = Object.keys(votes).length + ' votes cast'; }}
+function zoom(src) {{ document.getElementById('overlayImg').src = src; document.getElementById('overlay').classList.add('show'); }}
+
+function exportResults() {{
+  const results = CARDS.map((c, i) => ({{
+    seed: c.seed,
+    images: {{ baseline: c.img_a, lora_i2i: c.img_b }},
+    timings: {{ baseline: c.timing_a, lora_i2i: c.timing_b }},
+    vote: votes[i] || null,
+  }}));
+  const blob = new Blob([JSON.stringify(results, null, 2)], {{type: 'application/json'}});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'lora_i2i_review_' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}}
+
+render();
+</script>
+</body>
+</html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}_review.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    return html_path
 
 
 # ---------------------------------------------------------------------------

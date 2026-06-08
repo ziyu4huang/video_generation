@@ -34,6 +34,7 @@ RATIO_PRESETS = {
     "standing":  (1024, 1536),   # 2:3  ← recommended default
     "full-body": (896, 1792),    # 1:2
     "tall":      (864, 2016),    # ComfyUI original
+    "9:16":      (1088, 1920),   # CivitAI v2 format; 1088=68×16, 1920=120×16
 }
 DEFAULT_RATIO = "full-body"
 

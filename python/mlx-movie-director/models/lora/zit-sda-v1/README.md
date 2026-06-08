@@ -38,7 +38,7 @@ run.py image review lora --self-test zit-sda-v1 --no-quality
 
 Output: self-contained HTML with paired images, voting interface, per-seed collapsible quality tables, and aggregate quality comparison.
 
-### Quality Metrics (portrait, 4 seeds averaged, 2026-06-09)
+### Quality Results — Portrait (4 seeds, scale=1.0, 2026-06-09)
 
 | Metric | Baseline | SDA v1 | Δ | Winner |
 |--------|----------|--------|---|--------|
@@ -50,25 +50,43 @@ Output: self-contained HTML with paired images, voting interface, per-seed colla
 | Blockiness (8×8) | 10.3 | 9.95 | −3% | **SDA v1 ✓** |
 | Saturation σ | 42.9 | 41.6 | −3% | — |
 
-**Finding**: SDA v1 at scale=1.0 slightly reduces sharpness, edge density, and contrast vs baseline.
-It does reduce blockiness (fewer compression artifacts). The effect is subtle (~3–6%).
-Consider testing at lower scale (0.5–0.7) or with full-body prompts (`--self-test sda-fullbody`)
-to find scenarios where diversity adds value.
+### Quality Results — Full-body Fashion (4 seeds, scale=1.0, 2026-06-09)
+
+| Metric | Baseline | SDA v1 | Δ | Winner |
+|--------|----------|--------|---|--------|
+| Sharpness (Laplacian σ²) | 757.4 | 960.1 | **+27%** | **SDA v1 ✓** |
+| Edge density (Sobel) | 29.9 | 30.6 | +2% | **SDA v1 ✓** |
+| Contrast (luminance σ) | 60.1 | 53.9 | −10% | Baseline ✓ |
+| Noise (MAD σ) | 2.97 | 2.97 | 0% | Tie |
+| SNR (dB) | 35.9 | 35.5 | −1% | Baseline ✓ |
+| Blockiness (8×8) | 15.5 | 15.1 | −3% | **SDA v1 ✓** |
+| Saturation σ | 34.0 | 28.9 | −15% | — |
+
+### Cross-Prompt Finding
+
+SDA v1's effect **depends heavily on prompt type**:
+
+| Prompt | Sharpness | Edges | Blockiness | Overall |
+|--------|-----------|-------|------------|---------|
+| Portrait (close-up face) | Baseline wins (−6%) | Baseline wins (−4%) | SDA wins (−3%) | Slight degradation |
+| Full-body fashion | **SDA wins (+27%)** | **SDA wins (+2%)** | SDA wins (−3%) | Mixed but sharpness dominant |
+
+**Conclusion**: SDA v1 at scale=1.0 improves sharpness and edge detail significantly on full-body compositions (clothing, hands, posture) but slightly degrades close-up portraits. Blockiness reduction is consistent across both. Consider:
+- **Full-body / fashion**: SDA v1 recommended (sharpness +27%)
+- **Portrait / close-up**: Use lower scale (0.5–0.7) or skip SDA
+- **Both scenarios**: Blockiness improvement is universal
 
 ## Usage
 
 ```bash
-# Apply LoRA with default scale 1.0
 ./python/venv/bin/python python/mlx-movie-director/run.py \
-  --prompt "moody portrait photo" \
-  --lora-path python/mlx-movie-director/models/lora/zit-sda-v1/zit_sda_v1.safetensors
-
-# Adjust scale
-./python/venv/bin/python python/mlx-movie-director/run.py \
-  --prompt "moody portrait photo" \
+  --prompt "YOUR PROMPT" \
+  --width 640 --height 960 --steps 9 --seed 42 \
   --lora-path python/mlx-movie-director/models/lora/zit-sda-v1/zit_sda_v1.safetensors \
-  --lora-scale 0.8
+  --lora-scale 0.49
 ```
+
+> **Note**: moody-zimage-v7.5.json uses strength = **0.49** (not 1.0).
 
 ## Why no MLX conversion?
 
