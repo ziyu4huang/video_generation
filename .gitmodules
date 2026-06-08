@@ -13,3 +13,6 @@
 [submodule "python/mlx-movie-director/vendor/ltx-2-mlx-acelogic"]
 	path = python/mlx-movie-director/vendor/ltx-2-mlx-acelogic
 	url = https://github.com/Acelogic/LTX-2-MLX.git
+[submodule "assets"]
+	path = assets
+	url = git@github.com:ziyu4huang/video_generation_asset.git
