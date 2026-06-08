@@ -1,16 +1,36 @@
-"""image-quality — No-reference image quality analysis and VAE A/B self-test.
+"""image-quality — No-reference image quality analysis with self-test modes.
 
-Measures sharpness, edge density, contrast, noise, SNR, blockiness, and saturation
-using shared app.quality_metrics (pure OpenCV + NumPy). No AI models needed.
+Measures 7 no-reference metrics (sharpness, edge density, contrast, noise, SNR,
+blockiness, saturation) using shared app.quality_metrics (pure OpenCV + NumPy).
+No AI models needed.
 
 Sub-actions:
-  analyze (default) — Analyze one or more existing images
-  self-test         — Generate same image with default VAE vs UltraFlux VAE, then compare
+  analyze (default)       — Analyze one or more existing images
+  self-test vae           — Generate with default VAE vs UltraFlux VAE, compare metrics
+  self-test steps-sweep   — Generate at 4/8/14/20 steps, validate quality trends
+  self-test degradation   — Apply blur/noise/JPEG/downscale, validate metrics detect them
 
 Usage:
   run.py image quality --quality-inputs output/a.png
   run.py image quality --quality-inputs a.png b.png --quality-labels "Default,UltraFlux"
   run.py image quality --self-test --test-prompt portrait --seed 42
+  run.py image quality --self-test steps-sweep --test-prompt portrait
+  run.py image quality --self-test degradation --quality-inputs output/image.png
+
+Metric Limitations:
+  - Sharpness (Laplacian σ²) measures total HF energy. Noise inflates it massively.
+    Cross-check with noise_sigma/SNR before interpreting high sharpness as "good".
+  - JPEG blockiness is unreliable at high resolution (≥2MP).
+  - For JPEG quality assessment, prefer edge_density over sharpness.
+  - Degradation self-test uses pairwise checks (not monotonic trends) because
+    different degradation types aren't ordered by quality.
+
+Self-test modes:
+  vae          — Default VAE vs UltraFlux VAE (needs MLX + UltraFlux VAE)
+  steps-sweep  — 4/8/14/20 steps with trend validation (needs MLX)
+  degradation  — Synthetic Blur/Noise/JPEG/Downscale, 10 pairwise checks (no MLX needed)
+
+See docs/image-quality.md for full metric documentation and interpretation guide.
 
 Exports: add_quality_args(), run_quality()
 """
@@ -510,13 +530,13 @@ def _run_degradation_test(args):
          noise_m["noise_sigma"] > original["noise_sigma"]),
         ("Noise: snr_db < Original",
          noise_m["snr_db"] < original["snr_db"]),
-        # JPEG checks — Q=5 should show stronger artifacts than Q=40
-        ("JPEG Q=5: blockiness > Original",
-         jpeg5["blockiness"] > original["blockiness"]),
-        ("JPEG Q=5: blockiness > JPEG Q=40",
-         jpeg5["blockiness"] > jpeg40["blockiness"]),
+        # JPEG checks — Q=5 should show stronger degradation than Q=40
         ("JPEG Q=5: sharpness < Original",
          jpeg5["sharpness"] < original["sharpness"]),
+        ("JPEG Q=5: sharpness < JPEG Q=40",
+         jpeg5["sharpness"] < jpeg40["sharpness"]),
+        ("JPEG Q=5: edge_density < Original",
+         jpeg5["edge_density"] < original["edge_density"]),
         # Downscale checks
         ("Downscale: sharpness < Original",
          downscale["sharpness"] < original["sharpness"]),

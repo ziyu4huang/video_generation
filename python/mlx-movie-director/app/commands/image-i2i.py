@@ -70,28 +70,30 @@ _I2I_SELF_TEST_PROMPT = (
 # Self-test variations:
 #   (label, denoise_strength, ctrl_strength_or_None, blur_ref_or_None,
 #    cnet_active_steps_or_None, steps)
+# Note: blur_ref in ControlNet variations is display-only; actual preprocessing is
+# always Canny edges (skip=False in _run_self_test step 3b), which matches Union 2.1 training.
 _I2I_SELF_TEST_VARIATIONS = [
     # Row 1: Simple I2I — denoise_strength sweep (no ControlNet)
-    ("dn02-9st",           0.2, None,  None, None, 9),   # Light polish
-    ("dn04-9st",           0.4, None,  None, None, 9),   # Controlled restyle
-    ("dn06-9st",           0.6, None,  None, None, 9),   # Bold reinterpretation
-    ("dn08-9st",           0.8, None,  None, None, 9),   # Near-full redraw
+    ("dn02-9st",                0.2, None,  None, None, 9),   # Light polish
+    ("dn04-9st",                0.4, None,  None, None, 9),   # Controlled restyle
+    ("dn06-9st",                0.6, None,  None, None, 9),   # Bold reinterpretation
+    ("dn08-9st",                0.8, None,  None, None, 9),   # Near-full redraw
 
-    # Row 2: I2I + ControlNet — increasing denoise (source anchor weakens)
-    ("dn04-cnet-9st",      0.4, 0.6, 5.0, None, 9),     # Source anchor strong
-    ("dn06-cnet-9st",      0.6, 0.6, 5.0, None, 9),     # Source anchor moderate
-    ("dn08-cnet-9st",      0.8, 0.6, 5.0, None, 9),     # Source anchor weak
+    # Row 2: I2I + ControlNet (canny) — increasing denoise (source anchor weakens)
+    ("dn04-cnet-canny-9st",     0.4, 0.6, None, None, 9),     # Source anchor strong
+    ("dn06-cnet-canny-9st",     0.6, 0.6, None, None, 9),     # Source anchor moderate
+    ("dn08-cnet-canny-9st",     0.8, 0.6, None, None, 9),     # Source anchor weak
 
     # Row 3: Full redraw + ControlNet (smoking gun — verifies ControlNet itself works)
     # denoise=1.0 = pure noise, no source influence. If V-pose appears → CN works.
     # If no V-pose → ControlNet itself is broken.
-    ("dn10-cnet-15st-a5",  1.0, 0.6, 5.0, 5,   15),     # Full redraw + dual-sampler
+    ("dn10-cnet-canny-15st-a5", 1.0, 0.6, None, 5,   15),     # Full redraw + dual-sampler
 ]
 
 # Debug variations — minimal set for fast turnaround when debugging ControlNet issues.
 # Use --self-test debug to run this instead of the full suite.
 _I2I_DEBUG_VARIATIONS = [
-    ("debug-dn10-cnet-15st", 1.0, 0.6, 5.0, None, 15),   # Pure T2I+ControlNet
+    ("debug-dn10-cnet-canny-15st", 1.0, 0.6, None, None, 15),   # Pure T2I+ControlNet (canny)
 ]
 
 
@@ -336,7 +338,9 @@ def _generate(prompt, out_w, out_h, steps, seed, clean_latent, denoise_strength,
         print("[I2I] Embedding control context...", end=" ", flush=True)
         controlnet_context = controlnet.embed_control(ctrl_33ch)
         mx.eval(controlnet_context)
-        print(f"Done → {list(controlnet_context.shape)}")
+        ctx_max = float(mx.abs(controlnet_context).max())
+        ctx_nan = bool(mx.any(mx.isnan(controlnet_context)))
+        print(f"Done → {list(controlnet_context.shape)}  max={ctx_max:.3f} nan={ctx_nan}")
 
     # ── Phase 2: Text encoding ────────────────────────────────────────────
     print("[I2I] Text encoding...", end=" ", flush=True)
@@ -453,7 +457,10 @@ def _generate(prompt, out_w, out_h, steps, seed, clean_latent, denoise_strength,
 
         latents = scheduler.step(noise_pred, i, latents)
         mx.eval(latents)
-        print(f"   Step {i + 1}/{steps}: {time.time() - step_start:.2f}s")
+        lat_max = float(mx.abs(latents).max())
+        lat_nan = bool(mx.any(mx.isnan(latents)))
+        print(f"   Step {i + 1}/{steps}: {time.time() - step_start:.2f}s  "
+              f"lat_max={lat_max:.3f} nan={lat_nan}  cnet_str={active_strength:.2f}")
 
     # ── Phase 5: Decode ───────────────────────────────────────────────────
     print("[I2I] Decoding...", end=" ", flush=True)
@@ -541,17 +548,21 @@ def _run_self_test(args):
     print(f"Done → {list(clean_latent.shape)}")
 
     # ── Step 3b: Pre-encode ControlNet reference (for ControlNet variations) ──
+    # Union 2.1 was trained on preprocessed images (Canny, HED, Depth, Pose).
+    # Use skip=False (Canny edge detection) — raw blurred images are NOT a supported
+    # control type and produce garbage output.
     ctrl_33ch = None
     if ref_path:
-        print(f"[Self-Test] VAE encoding ControlNet reference...", end=" ", flush=True)
+        print(f"[Self-Test] VAE encoding ControlNet reference (canny)...", end=" ", flush=True)
         ref_pil = _load_and_preprocess(
-            ref_path, out_w, out_h, skip=True, blur_ref=5.0,
+            ref_path, out_w, out_h, skip=False, blur_ref=None,
         )
         ctrl_latent = _vae_encode(vae, ref_pil)
         ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
         ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
         mx.eval(ctrl_33ch)  # Force materialize before VAE is freed
-        print(f"Done → {list(ctrl_33ch.shape)} (evaluated)")
+        cnn_max = float(mx.abs(ctrl_33ch).max())
+        print(f"Done → {list(ctrl_33ch.shape)} max={cnn_max:.3f} (evaluated)")
 
     del vae
     _gc()

@@ -1,11 +1,24 @@
 """quality_metrics — shared no-reference quality analysis for images and video frames.
 
-Provides unified per-frame metric computation (7 metrics) and HTML report generation
-used by both `image quality` and `video quality` commands.
+Provides unified per-frame metric computation (7 metrics), HTML report generation,
+and metric trend validation used by both `image quality` and `video quality` commands.
 
 Exports:
-  analyze_frame(gray, bgr_frame) -> dict    — 7 no-reference metrics
-  generate_html_report(data, ref_path)       — HTML report + Bun server launch
+  analyze_frame(gray, bgr_frame) -> dict          — 7 no-reference metrics
+  generate_html_report(data, ref_path)             — HTML report + Bun server launch
+  validate_metric_trends(results, metrics_def, labels) -> list  — monotonic trend checks
+  print_trend_validation(findings, labels)         — pretty-print trend results
+
+Metric Limitations (validated via degradation self-test):
+  - Sharpness (Laplacian σ²) measures total HF energy, NOT just edge clarity.
+    Adding Gaussian noise DRAMATICALLY increases sharpness (noise adds HF energy).
+    Always cross-check with noise_sigma/SNR — high noise_sigma + high sharpness = noise.
+  - JPEG blockiness is unreliable at high resolution (≥2MP): JPEG smoothing can
+    *reduce* measured boundary differences at the 8px grid.
+  - JPEG sharpness is unreliable on video: JPEG ringing increases Laplacian variance.
+    Use edge_density for JPEG quality assessment instead.
+  - JPEG compression smooths HF noise, so heavily compressed images may show *lower*
+    noise_sigma than the original — this is correct behavior.
 """
 
 import json

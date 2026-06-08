@@ -1548,9 +1548,26 @@ def run_review_selftest(args):
         _run_lora_i2i_selftest(args, test_name, test_cfg)
     elif test_type == "lora-sweep":
         _run_lora_sweep(args, test_name, test_cfg)
+    elif test_type == "lora-ref":
+        _run_lora_ref_selftest(args, test_name, test_cfg)
+    elif test_type == "controlnet-i2i":
+        _run_selftest_controlnet_i2i(args, test_name, test_cfg)
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
+
+
+def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
+    """Run I2I + ControlNet self-test by delegating to image-i2i._run_self_test().
+
+    mode="debug" → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
+    mode="full"  → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
+    """
+    import importlib
+    _i2i = importlib.import_module("app.commands.image-i2i")
+    mode = test_cfg.get("mode", "debug")
+    args.self_test = mode
+    _i2i._run_self_test(args)
 
 
 def _run_selftest_nomodel(test_name: str, test_cfg: dict):
@@ -1594,7 +1611,6 @@ def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
     """Run WorkflowOrchestrator for each variation, then generate HTML review."""
     import gc
     import mlx.core as mx
-    from app.pipeline import ZImagePipeline
     from app.workflow import WorkflowOrchestrator
     from app.run_config import RunConfig
     from app.test_prompts_image import get_test_prompt
@@ -3189,3 +3205,840 @@ document.addEventListener('keydown', (e) => {{
     print(f"  HTML: {html_path} ({size_mb:.1f} MB)")
 
     return html_path
+
+
+# ---------------------------------------------------------------------------
+# LoRA Sweep — multi-prompt LoRA evaluator
+# ---------------------------------------------------------------------------
+
+def _run_lora_sweep(args, test_name: str, test_cfg: dict):
+    """Run a LoRA across multiple prompt styles, collect quality metrics per style."""
+    import time as _time
+    import mlx.core as mx
+    import gc
+
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_test_prompt
+    from app.commands._shared import resolve_lora_path
+
+    lora_scale = getattr(args, "lora_scale", 1.0) or test_cfg.get("lora_scale", 1.0)
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    seeds = test_cfg.get("seeds", [42, 777])
+    prompt_names = test_cfg.get("test_prompts", [])
+    variants = test_cfg["variants"]
+
+    if len(variants) != 2:
+        print(f"ERROR: lora-sweep expects exactly 2 variants, got {len(variants)}",
+              file=sys.stderr)
+        sys.exit(1)
+
+    lora_paths = []
+    for vcfg in variants:
+        raw = vcfg.get("lora_path")
+        lora_paths.append(resolve_lora_path(raw) if raw else None)
+
+    label_a = variants[0]["label"]
+    label_b = variants[1]["label"]
+
+    total_images = len(prompt_names) * len(seeds) * 2
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    base_name = f"lora-sweep-{ts}"
+
+    print(f"\n{'='*60}")
+    print(f"LoRA Sweep — {test_name}")
+    print(f"{'='*60}")
+    print(f"  Styles:     {len(prompt_names)} ({', '.join(prompt_names)})")
+    print(f"  Seeds:      {seeds}")
+    print(f"  Steps:      {steps}")
+    print(f"  LoRA scale: {lora_scale}")
+    print(f"  A:          {label_a} (lora={lora_paths[0] is not None})")
+    print(f"  B:          {label_b} (lora={os.path.basename(lora_paths[1]) if lora_paths[1] else 'None'})")
+    print(f"  Total:      {total_images} images ({len(prompt_names)} styles × {len(seeds)} seeds × 2)")
+    print()
+
+    pipeline = ZImagePipeline()
+    _quality_mod = importlib.import_module("app.commands.image-quality")
+
+    groups = []  # [{prompt_name, prompt_text, width, height, pairs, metrics_by_pair}, ...]
+    img_counter = 0
+
+    for gi, pname in enumerate(prompt_names, start=1):
+        tp = get_test_prompt(pname)
+        prompt = tp["prompt"]
+        width, height = tp["width"], tp["height"]
+
+        print(f"\n{'─'*50}")
+        print(f"  [{gi}/{len(prompt_names)}] Style: {pname} ({width}×{height})")
+        print(f"  Prompt: {prompt[:70]}{'…' if len(prompt) > 70 else ''}")
+        print(f"{'─'*50}")
+
+        pairs = []
+        for si, seed in enumerate(seeds, start=1):
+            pair_paths = []
+            pair_timings = []
+
+            for vi, (vcfg, lora_path) in enumerate(zip(variants, lora_paths)):
+                side = "A" if vi == 0 else "B"
+                label = vcfg["label"]
+                img_counter += 1
+                print(f"  [{side}] Seed {seed} ({img_counter}/{total_images}) Generating {label}…")
+                t0 = _time.time()
+                result = pipeline.generate(
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    steps=steps,
+                    seed=seed,
+                    lora_path=lora_path,
+                    lora_scale=lora_scale if lora_path else 1.0,
+                )
+                elapsed = _time.time() - t0
+                safe_label = label.lower().replace(" ", "_")
+                out_path = os.path.join(
+                    cfg.OUTPUT_DIR, f"{base_name}_{pname}_s{seed}_{safe_label}.png"
+                )
+                result.image.save(out_path)
+                print(f"  [{side}] Saved: {os.path.basename(out_path)} ({elapsed:.1f}s)")
+                pair_paths.append(out_path)
+                pair_timings.append(round(elapsed, 1))
+
+            pairs.append({
+                "seed": seed,
+                "paths": pair_paths,
+                "timings": pair_timings,
+            })
+
+        # Quality analysis for this prompt group
+        metrics_by_pair = []
+        if not getattr(args, "no_quality", False):
+            for i, p in enumerate(pairs):
+                print(f"  [quality] Seed {p['seed']} ({i+1}/{len(pairs)})")
+                report_a = _quality_mod.analyze_image(p["paths"][0])
+                report_b = _quality_mod.analyze_image(p["paths"][1])
+                metrics_by_pair.append({
+                    "metrics_a": report_a["metrics"],
+                    "metrics_b": report_b["metrics"],
+                })
+
+        # Aggregate for this group
+        agg_a = {}
+        agg_b = {}
+        if metrics_by_pair:
+            all_keys = list(metrics_by_pair[0]["metrics_a"].keys())
+            n = len(metrics_by_pair)
+            agg_a = {k: sum(m["metrics_a"][k] for m in metrics_by_pair) / n for k in all_keys}
+            agg_b = {k: sum(m["metrics_b"][k] for m in metrics_by_pair) / n for k in all_keys}
+
+        groups.append({
+            "prompt_name": pname,
+            "prompt_text": prompt,
+            "width": width,
+            "height": height,
+            "pairs": pairs,
+            "metrics_by_pair": metrics_by_pair,
+            "agg_a": agg_a,
+            "agg_b": agg_b,
+        })
+
+        # Brief per-style summary
+        if agg_a:
+            sharp_delta = ((agg_b["sharpness"] - agg_a["sharpness"]) / agg_a["sharpness"] * 100
+                           if agg_a["sharpness"] != 0 else 0)
+            print(f"  ── {pname} avg sharpness: {agg_a['sharpness']:.0f} vs {agg_b['sharpness']:.0f} ({sharp_delta:+.0f}%)")
+
+        # Free memory between groups
+        mx.clear_cache()
+        gc.collect()
+
+    # Render HTML
+    html_path = _render_lora_sweep_html(
+        output_dir=cfg.OUTPUT_DIR,
+        base_name=base_name,
+        test_name=test_name,
+        test_cfg=test_cfg,
+        groups=groups,
+        steps=steps,
+        lora_scale=lora_scale,
+        label_a=label_a,
+        label_b=label_b,
+        ts=ts,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"LoRA Sweep Complete")
+    print(f"{'='*60}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Images:      {total_images} ({len(prompt_names)} styles × {len(seeds)} seeds × 2)")
+
+    subprocess.Popen(["open", html_path])
+    print(f"  Opened in browser")
+
+
+def _render_lora_sweep_html(*, output_dir, base_name, test_name, test_cfg,
+                             groups, steps, lora_scale, label_a, label_b, ts) -> str:
+    """Render cross-prompt LoRA sweep HTML with summary table + per-style sections."""
+    import json, base64
+    from datetime import datetime
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    description = test_cfg.get("description", "")
+    total_images = sum(len(g["pairs"]) * 2 for g in groups)
+    total_pairs = sum(len(g["pairs"]) for g in groups)
+
+    # --- Cross-prompt summary table ---
+    summary_rows = []
+    wins_b = 0
+    wins_a = 0
+    ties = 0
+
+    metrics_defs = [
+        ("Sharpness",       "sharpness",     "higher"),
+        ("Edge density",    "edge_density",  "higher"),
+        ("Contrast",        "contrast",      "higher"),
+        ("Noise (MAD σ)",   "noise_sigma",   "lower"),
+        ("SNR (dB)",        "snr_db",        "higher"),
+        ("Blockiness",      "blockiness",    "lower"),
+        ("Saturation σ",    "saturation_std", "neutral"),
+    ]
+
+    for g in groups:
+        agg_a = g.get("agg_a", {})
+        agg_b = g.get("agg_b", {})
+        if not agg_a:
+            summary_rows.append(f"<tr><td>{g['prompt_name']}</td>"
+                                f"<td colspan='5' class='neutral'>no quality data</td></tr>")
+            continue
+
+        # Count wins across all 7 metrics
+        group_wins_b = 0
+        group_wins_a = 0
+        group_ties = 0
+        for _, key, direction in metrics_defs:
+            va, vb = agg_a[key], agg_b[key]
+            if direction == "higher":
+                if vb > va:
+                    group_wins_b += 1
+                elif va > vb:
+                    group_wins_a += 1
+                else:
+                    group_ties += 1
+            elif direction == "lower":
+                if vb < va:
+                    group_wins_b += 1
+                elif va < vb:
+                    group_wins_a += 1
+                else:
+                    group_ties += 1
+            else:
+                group_ties += 1
+
+        wins_b += group_wins_b
+        wins_a += group_wins_a
+        ties += group_ties
+
+        # Key metric deltas for summary
+        sharp_d = ((agg_b["sharpness"] - agg_a["sharpness"]) / agg_a["sharpness"] * 100
+                   if agg_a["sharpness"] != 0 else 0)
+        edge_d = ((agg_b["edge_density"] - agg_a["edge_density"]) / agg_a["edge_density"] * 100
+                  if agg_a["edge_density"] != 0 else 0)
+        block_d = ((agg_b["blockiness"] - agg_a["blockiness"]) / agg_a["blockiness"] * 100
+                   if agg_a["blockiness"] != 0 else 0)
+
+        def _delta_cell(delta, direction):
+            sign = "+" if delta > 0 else ""
+            dcls = "delta-pos" if (
+                (direction == "higher" and delta > 0) or
+                (direction == "lower" and delta < 0)
+            ) else "delta-neg"
+            return f'<span class="{dcls}">{sign}{delta:.0f}%</span>'
+
+        winner_label = label_b if group_wins_b > group_wins_a else (
+            label_a if group_wins_a > group_wins_b else "Tie")
+        winner_cls = "winner-b" if group_wins_b > group_wins_a else (
+            "winner-a" if group_wins_a > group_wins_b else "neutral")
+
+        summary_rows.append(
+            f"<tr>"
+            f"<td>{g['prompt_name']}</td>"
+            f"<td>{_delta_cell(sharp_d, 'higher')}</td>"
+            f"<td>{_delta_cell(edge_d, 'higher')}</td>"
+            f"<td>{_delta_cell(block_d, 'lower')}</td>"
+            f"<td>{group_wins_b}–{group_wins_a}–{group_ties}</td>"
+            f'<td class="{winner_cls}">{winner_label}</td>'
+            f"</tr>"
+        )
+
+    summary_table = "\n      ".join(summary_rows)
+
+    # --- Per-prompt sections ---
+    group_sections = []
+    for gi, g in enumerate(groups):
+        pairs_html = []
+        for pi, p in enumerate(g["pairs"]):
+            imgs = []
+            for path in p["paths"]:
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                imgs.append(f'<img src="data:image/png;base64,{b64}" '
+                           f'alt="seed-{p["seed"]}" loading="lazy" '
+                           f'onclick="this.classList.toggle(\'zoomed\')">')
+
+            timing_str = " | ".join(f"{'AB'[vi]}: {t:.1f}s" for vi, t in enumerate(p["timings"]))
+
+            # Per-seed quality mini-row
+            quality_row = ""
+            mp = g.get("metrics_by_pair", [])
+            if mp and pi < len(mp):
+                ma, mb = mp[pi]["metrics_a"], mp[pi]["metrics_b"]
+                sharp_d = ((mb["sharpness"] - ma["sharpness"]) / ma["sharpness"] * 100
+                          if ma["sharpness"] != 0 else 0)
+                edge_d = ((mb["edge_density"] - ma["edge_density"]) / ma["edge_density"] * 100
+                         if ma["edge_density"] != 0 else 0)
+                dcls = "delta-pos" if sharp_d > 0 else "delta-neg"
+                quality_row = (
+                    f'<div class="seed-quality">'
+                    f'Seed {p["seed"]}: '
+                    f'sharp {ma["sharpness"]:.0f} → {mb["sharpness"]:.0f} '
+                    f'<span class="{dcls}">({sharp_d:+.0f}%)</span>, '
+                    f'edge {ma["edge_density"]:.1f} → {mb["edge_density"]:.1f} '
+                    f'<span class="{"delta-pos" if edge_d > 0 else "delta-neg"}">({edge_d:+.0f}%)</span>'
+                    f'</div>'
+                )
+
+            pairs_html.append(f"""
+            <div class="pair">
+              <div class="pair-header">
+                <span class="pair-label">Seed {p["seed"]}</span>
+                <span class="pair-timing">{timing_str}</span>
+              </div>
+              <div class="pair-images">
+                <div class="img-cell"><div class="img-label">A — {label_a}</div>{imgs[0]}</div>
+                <div class="img-cell"><div class="img-label">B — {label_b}</div>{imgs[1]}</div>
+              </div>
+              {quality_row}
+            </div>""")
+
+        # Collapsible quality table for this prompt
+        quality_table = ""
+        mp = g.get("metrics_by_pair", [])
+        if mp and g.get("agg_a"):
+            agg_rows = _build_metrics_rows(g["agg_a"], g["agg_b"], label_a, label_b)
+            per_seed_tables = []
+            for pi2, m in enumerate(mp):
+                seed_val = g["pairs"][pi2]["seed"]
+                seed_rows = _build_metrics_rows(m["metrics_a"], m["metrics_b"], label_a, label_b)
+                per_seed_tables.append(
+                    f'<div class="seed-quality-detail">'
+                    f'<strong>Seed {seed_val}</strong>'
+                    f'<table class="quality-table"><thead><tr>'
+                    f'<th>Metric</th><th>A</th><th>B</th><th>Δ</th></tr>'
+                    f'</thead><tbody>{seed_rows}</tbody></table></div>'
+                )
+
+            quality_table = f"""
+            <details class="group-quality">
+              <summary>Quality Metrics — {g["prompt_name"]}</summary>
+              <h4>Average across {len(mp)} seed(s)</h4>
+              <table class="quality-table agg-quality">
+                <thead><tr><th>Metric</th><th>A</th><th>B</th><th>Δ</th></tr></thead>
+                <tbody>{agg_rows}</tbody>
+              </table>
+              <h4>Per-seed</h4>
+              {''.join(per_seed_tables)}
+            </details>"""
+
+        all_pairs = "\n".join(pairs_html)
+        group_sections.append(f"""
+        <div class="sweep-group" id="group-{gi}">
+          <h2 class="group-title" onclick="toggleGroup({gi})">
+            <span id="arrow-{gi}">▾</span> {g["prompt_name"].title()}
+            <span class="group-meta">{g["width"]}×{g["height"]} | {len(g["pairs"])} seed(s)</span>
+          </h2>
+          <div class="group-body" id="group-body-{gi}">
+            <div class="prompt-box">{g["prompt_text"]}</div>
+            {all_pairs}
+            {quality_table}
+          </div>
+        </div>""")
+
+    all_groups = "\n".join(group_sections)
+
+    # --- Quality data for JS export ---
+    quality_js_data = []
+    for g in groups:
+        quality_js_data.append({
+            "prompt_name": g["prompt_name"],
+            "metrics_by_pair": g.get("metrics_by_pair", []),
+        })
+    quality_js = json.dumps(quality_js_data)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRA Sweep — {test_name}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         margin: 0; padding: 20px; background: #1a1a2e; color: #e0e0e0; }}
+  header {{ text-align: center; padding: 20px; background: #16213e; border-radius: 12px; margin-bottom: 20px; }}
+  h1 {{ color: #e94560; margin: 0 0 8px 0; }}
+  h2 {{ color: #0f3460; margin: 0; cursor: pointer; padding: 12px 16px;
+       background: #16213e; border-radius: 8px; display: flex; align-items: center; gap: 8px; }}
+  h2:hover {{ background: #1a2744; }}
+  h3 {{ color: #e94560; margin: 16px 0 8px 0; }}
+  h4 {{ color: #a0a0c0; margin: 8px 0; }}
+  .desc {{ color: #a0a0c0; margin: 4px 0; }}
+  .meta {{ color: #707090; font-size: 0.85em; margin-top: 4px; }}
+  .prompt-box {{ background: #0f3460; padding: 10px 14px; border-radius: 6px;
+                margin: 10px 0; font-family: monospace; font-size: 0.85em; color: #c0c0d0;
+                border-left: 3px solid #e94560; }}
+  .params {{ display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }}
+  .param {{ background: #0f3460; padding: 4px 10px; border-radius: 4px; font-size: 0.85em; }}
+
+  .summary-section {{ background: #16213e; border-radius: 12px; padding: 16px; margin-bottom: 24px; }}
+  .summary-table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+  .summary-table th {{ text-align: left; padding: 8px 12px; border-bottom: 2px solid #0f3460;
+                      color: #a0a0c0; font-size: 0.85em; text-transform: uppercase; }}
+  .summary-table td {{ padding: 8px 12px; border-bottom: 1px solid #1a2744; }}
+  .summary-table tr:hover {{ background: #1a2744; }}
+  .winner-b {{ color: #4ecca3; font-weight: bold; }}
+  .winner-a {{ color: #e94560; font-weight: bold; }}
+  .neutral {{ color: #707090; }}
+
+  .winner-counts {{ display: flex; gap: 20px; justify-content: center; margin-top: 12px;
+                  padding: 10px; background: #0f3460; border-radius: 6px; }}
+  .winner-count {{ text-align: center; }}
+  .winner-count .count {{ font-size: 1.8em; font-weight: bold; }}
+  .winner-count .wlabel {{ font-size: 0.8em; color: #707090; }}
+  .count-b {{ color: #4ecca3; }}
+  .count-a {{ color: #e94560; }}
+  .count-tie {{ color: #707090; }}
+
+  .sweep-group {{ margin-bottom: 16px; }}
+  .group-title {{ user-select: none; }}
+  .group-meta {{ color: #707090; font-size: 0.75em; font-weight: normal; margin-left: auto; }}
+  .group-body {{ padding: 0 12px 12px 12px; }}
+
+  .pair {{ background: #16213e; border-radius: 8px; padding: 12px; margin: 8px 0; }}
+  .pair-header {{ display: flex; justify-content: space-between; margin-bottom: 8px;
+                 font-size: 0.85em; color: #707090; }}
+  .pair-images {{ display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }}
+  .img-cell {{ text-align: center; }}
+  .img-cell img {{ max-width: 320px; max-height: 320px; border-radius: 6px;
+                  cursor: pointer; transition: transform 0.2s; }}
+  .img-cell img.zoomed {{ transform: scale(2); z-index: 10; position: relative; }}
+  .img-label {{ font-size: 0.8em; color: #a0a0c0; margin-bottom: 4px; }}
+  .seed-quality {{ font-size: 0.8em; color: #a0a0c0; margin-top: 6px; padding: 4px 8px;
+                  background: #0f3460; border-radius: 4px; }}
+
+  details.group-quality {{ margin-top: 10px; }}
+  details.group-quality summary {{ cursor: pointer; color: #e94560; font-weight: bold;
+                                    padding: 8px; background: #0f3460; border-radius: 4px; }}
+  .quality-table {{ width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 0.85em; }}
+  .quality-table th {{ text-align: left; padding: 6px 10px; border-bottom: 1px solid #333; color: #a0a0c0; }}
+  .quality-table td {{ padding: 6px 10px; border-bottom: 1px solid #1a2744; }}
+  .win {{ color: #4ecca3; font-weight: bold; }}
+  .lose {{ color: #707090; }}
+  .delta-pos {{ color: #4ecca3; }}
+  .delta-neg {{ color: #e94560; }}
+  .winner-label {{ font-weight: bold; }}
+  .seed-quality-detail {{ margin: 6px 0; padding: 6px; background: #0f3460; border-radius: 4px; }}
+  .agg-quality {{ background: #1a2744; border-radius: 6px; }}
+
+  footer {{ text-align: center; padding: 16px; margin-top: 20px; }}
+  .export-btn {{ background: #0f3460; color: #e0e0e0; border: 1px solid #333;
+                padding: 10px 24px; border-radius: 6px; cursor: pointer; font-size: 1em; }}
+  .export-btn:hover {{ background: #1a2744; }}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LoRA Sweep — {test_name}</h1>
+  <div class="desc">{description}</div>
+  <div class="meta">Generated {now} | {len(groups)} styles × {total_pairs} pairs = {total_images} images | {ts}</div>
+  <div class="params">
+    <span class="param"><strong>{steps}</strong> steps</span>
+    <span class="param">LoRA scale: <strong>{lora_scale}</strong></span>
+    <span class="param">A: <strong>{label_a}</strong></span>
+    <span class="param">B: <strong>{label_b}</strong></span>
+  </div>
+</header>
+
+<div class="summary-section">
+  <h3>Cross-Prompt Summary</h3>
+  <table class="summary-table">
+    <thead>
+      <tr><th>Style</th><th>Sharpness Δ</th><th>Edges Δ</th><th>Blockiness Δ</th>
+          <th>Metric Wins (B–A–Tie)</th><th>Overall</th></tr>
+    </thead>
+    <tbody>
+      {summary_table}
+    </tbody>
+  </table>
+  <div class="winner-counts">
+    <div class="winner-count"><div class="count count-b">{wins_b}</div><div class="wlabel">{label_b} wins</div></div>
+    <div class="winner-count"><div class="count count-a">{wins_a}</div><div class="wlabel">{label_a} wins</div></div>
+    <div class="winner-count"><div class="count count-tie">{ties}</div><div class="wlabel">Ties</div></div>
+  </div>
+</div>
+
+{all_groups}
+
+<footer>
+  <button class="export-btn" onclick="exportResults()">Export Results (JSON)</button>
+</footer>
+
+<script>
+const GROUPS = {quality_js};
+const LABEL_A = "{label_a}";
+const LABEL_B = "{label_b}";
+
+function toggleGroup(gi) {{
+  const body = document.getElementById('group-body-' + gi);
+  const arrow = document.getElementById('arrow-' + gi);
+  if (body.style.display === 'none') {{
+    body.style.display = 'block';
+    arrow.textContent = '▾';
+  }} else {{
+    body.style.display = 'none';
+    arrow.textContent = '▸';
+  }}
+}}
+
+function exportResults() {{
+  const results = {{
+    test_name: "{test_name}",
+    lora_scale: {lora_scale},
+    steps: {steps},
+    groups: GROUPS.map((g) => ({{
+      prompt_name: g.prompt_name,
+      metrics_by_pair: g.metrics_by_pair,
+    }})),
+  }};
+  const blob = new Blob([JSON.stringify(results, null, 2)], {{type: 'application/json'}});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '{base_name}-results.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}}
+</script>
+</body>
+</html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    size_mb = os.path.getsize(html_path) / (1024 * 1024)
+    print(f"  HTML: {html_path} ({size_mb:.1f} MB)")
+
+    return html_path
+
+
+# ---------------------------------------------------------------------------
+# LoRA Ref — Flux2KleinEdit reference conditioning + LoRA (identity-preserving)
+# ---------------------------------------------------------------------------
+
+def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
+    """Run anime2real Ref+LoRA self-test across multiple anime prompts.
+
+    For each anime prompt x seed:
+      A. T2I anime baseline (no LoRA)
+      B. Ref+LoRA — Flux2KleinEdit reference conditioning + anime2real LoRA (NEW)
+      C. Old I2I+LoRA — I2I noise mixing with high denoise (OLD, for comparison)
+    """
+    import time as _time
+    import mlx.core as mx
+    import gc
+    from app.test_prompts_image import get_test_prompt
+    from app.commands._shared import resolve_lora_path, execute_generation
+
+    tp_names = test_cfg["test_prompts"]
+    seeds = test_cfg.get("seeds", [42])
+    width = test_cfg.get("width", 640)
+    height = test_cfg.get("height", 960)
+    ref_steps = test_cfg.get("ref_steps", 8)
+    i2i_steps = test_cfg.get("i2i_steps", 4)
+    lora_path_raw = test_cfg.get("lora_path")
+    lora_path = resolve_lora_path(lora_path_raw) if lora_path_raw else None
+    lora_scale = test_cfg.get("lora_scale", 1.0)
+    ref_count = test_cfg.get("ref_count", 1)
+    denoise_strength = test_cfg.get("denoise_strength", 0.6)
+    ref_prompt = test_cfg.get("ref_prompt", "A photorealistic portrait photograph")
+    i2i_prompt = test_cfg.get("i2i_prompt", "Preserve the subject's features")
+    pipeline_type = "flux2-klein"
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base_name = f"lora-ref-{ts}"
+
+    label_a = "T2I Anime Baseline"
+    label_b = f"Ref+LoRA (ref={ref_count}, {ref_steps}st, scale={lora_scale})"
+    label_c = f"I2I+LoRA (dn={denoise_strength}, {i2i_steps}st) [OLD]"
+
+    print(f"\n{'='*60}")
+    print(f" LoRA Ref Self-Test — {test_name}")
+    print(f"{'='*60}")
+    print(f"  Prompts:    {tp_names}")
+    print(f"  Seeds:      {seeds}")
+    print(f"  Ref params: ref_count={ref_count}, steps={ref_steps}, scale={lora_scale}")
+    print(f"  I2I params: denoise={denoise_strength}, steps={i2i_steps}")
+    print(f"  LoRA:       {os.path.basename(lora_path) if lora_path else 'None'}")
+    n = len(tp_names) * len(seeds)
+    print(f"  Triples:    {n} ({len(tp_names)} prompts x {len(seeds)} seeds)")
+    print()
+
+    triples = []
+
+    for tp_name in tp_names:
+        tp = get_test_prompt(tp_name)
+        anime_prompt = tp["prompt"]
+
+        for seed in seeds:
+            print(f"\n{'-'*50}")
+            print(f"  Prompt: {tp_name} | Seed: {seed}")
+            print(f"{'-'*50}")
+
+            # --- A: T2I anime baseline ---
+            print(f"  [A] T2I anime baseline...")
+            t0 = _time.time()
+            args_a = _make_run_config_args(
+                prompt=anime_prompt, width=width, height=height,
+                steps=i2i_steps, seed=seed, pipeline=pipeline_type,
+            )
+            rc_a = RunConfig.from_args(args_a, command="image t2i")
+            mf_a = execute_generation(rc_a, pipeline_type=pipeline_type)
+            path_a = _find_output_image(mf_a)
+            elapsed_a = _time.time() - t0
+            print(f"  [A] {os.path.basename(path_a)} ({elapsed_a:.1f}s)")
+            mx.clear_cache(); gc.collect()
+
+            # --- B: Ref+LoRA (NEW) ---
+            print(f"  [B] Ref+LoRA (reference conditioning)...")
+            t0 = _time.time()
+            from PIL import Image as _PILImage
+            from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline
+            pipeline_b = Flux2KleinControlnetPipeline(
+                lora_paths=[lora_path], lora_scales=[lora_scale],
+            )
+            # Load raw image (skip_preprocess=True equivalent — pass image directly)
+            ctrl_pil = _PILImage.open(path_a).convert("RGB").resize((width, height), _PILImage.LANCZOS)
+            result_b = pipeline_b.generate(
+                prompt=ref_prompt, control_image=ctrl_pil,
+                width=width, height=height, steps=ref_steps, seed=seed,
+                controlnet_strength=1.0, ref_count=ref_count,
+            )
+            path_b = os.path.join(cfg.OUTPUT_DIR, f"ref-lora_{tp_name}_s{seed}_{ref_steps}st.png")
+            result_b.image.save(path_b)
+            elapsed_b = _time.time() - t0
+            print(f"  [B] {os.path.basename(path_b)} ({elapsed_b:.1f}s)")
+            del pipeline_b; mx.clear_cache(); gc.collect()
+
+            # --- C: Old I2I+LoRA ---
+            print(f"  [C] I2I+LoRA (old approach, denoise={denoise_strength})...")
+            t0 = _time.time()
+            args_c = _make_run_config_args(
+                prompt=i2i_prompt, width=width, height=height,
+                steps=i2i_steps, seed=seed, pipeline=pipeline_type,
+                lora_path=lora_path, lora_scale=lora_scale,
+                input_image=path_a, denoise_strength=denoise_strength,
+            )
+            rc_c = RunConfig.from_args(args_c, command="image i2i")
+            rc_c.denoise_strength = denoise_strength
+            mf_c = execute_generation(rc_c, pipeline_type=pipeline_type)
+            path_c = _find_output_image(mf_c)
+            elapsed_c = _time.time() - t0
+            print(f"  [C] {os.path.basename(path_c)} ({elapsed_c:.1f}s)")
+            mx.clear_cache(); gc.collect()
+
+            triples.append({
+                "prompt_name": tp_name, "anime_prompt": anime_prompt, "seed": seed,
+                "paths": [path_a, path_b, path_c],
+                "timings": [round(elapsed_a, 1), round(elapsed_b, 1), round(elapsed_c, 1)],
+            })
+
+    # --- Captions ---
+    print(f"\n{'-'*40}\n Caption Analysis\n{'-'*40}")
+    captions = []
+    for i, t in enumerate(triples):
+        print(f"\n  {t['prompt_name']} / seed={t['seed']} ({i+1}/{len(triples)})")
+        cap_a = _caption_image(t["paths"][0], style="photography", lang="en")
+        cap_b = _caption_image(t["paths"][1], style="photography", lang="en")
+        cap_c = _caption_image(t["paths"][2], style="photography", lang="en")
+        print(f"    [A] {cap_a[:100]}...")
+        print(f"    [B] {cap_b[:100]}...")
+        print(f"    [C] {cap_c[:100]}...")
+        style_b = _caption_image(t["paths"][1], style="style", lang="en")
+        captions.append({"caption_a": cap_a, "caption_b": cap_b, "caption_c": cap_c, "style_b": style_b})
+
+    # --- Quality ---
+    metrics = []
+    if not getattr(args, "no_quality", False):
+        _qm = importlib.import_module("app.commands.image-quality")
+        print(f"\n{'-'*40}\n Quality Analysis\n{'-'*40}")
+        for i, t in enumerate(triples):
+            print(f"\n  {t['prompt_name']} / seed={t['seed']}")
+            r_a = _qm.analyze_image(t["paths"][0]); r_a["label"] = label_a
+            r_b = _qm.analyze_image(t["paths"][1]); r_b["label"] = label_b
+            r_c = _qm.analyze_image(t["paths"][2]); r_c["label"] = label_c
+            metrics.append({"metrics_a": r_a["metrics"], "metrics_b": r_b["metrics"], "metrics_c": r_c["metrics"]})
+
+    # --- HTML ---
+    html_path = _render_lora_ref_html(
+        output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
+        test_cfg=test_cfg, label_a=label_a, label_b=label_b, label_c=label_c,
+        triples=triples, captions=captions, metrics=metrics or None,
+        ref_steps=ref_steps, i2i_steps=i2i_steps, lora_scale=lora_scale,
+        ref_count=ref_count, denoise_strength=denoise_strength,
+        ref_prompt=ref_prompt, i2i_prompt=i2i_prompt, ts=ts,
+    )
+    print(f"\n{'='*60}\n LoRA Ref Self-Test Complete\n{'='*60}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Images:      {len(triples)*3} ({len(triples)} triples)")
+    import webbrowser
+    webbrowser.open(f"file://{os.path.abspath(html_path)}")
+    print(f"  Opened in browser")
+
+
+def _render_lora_ref_html(*, output_dir, base_name, test_name, test_cfg,
+                           label_a, label_b, label_c, triples, captions, metrics,
+                           ref_steps, i2i_steps, lora_scale, ref_count,
+                           denoise_strength, ref_prompt, i2i_prompt, ts):
+    import html as html_mod
+
+    cards = []
+    for i, t in enumerate(triples):
+        caps = captions[i] if captions else {}
+        ca = html_mod.escape(caps.get("caption_a", ""))
+        cb = html_mod.escape(caps.get("caption_b", ""))
+        cc = html_mod.escape(caps.get("caption_c", ""))
+        sb = html_mod.escape(caps.get("style_b", ""))
+        mh = ""
+        if metrics:
+            m = metrics[i]
+            mh = _build_metrics_rows_3(m["metrics_a"], m["metrics_b"], m["metrics_c"], label_a, label_b, label_c)
+        cards.append({"prompt_name": t["prompt_name"], "anime_prompt": html_mod.escape(t["anime_prompt"][:200]),
+            "seed": t["seed"], "img_a": os.path.basename(t["paths"][0]),
+            "img_b": os.path.basename(t["paths"][1]), "img_c": os.path.basename(t["paths"][2]),
+            "timing_a": t["timings"][0], "timing_b": t["timings"][1], "timing_c": t["timings"][2],
+            "cap_a": ca, "cap_b": cb, "cap_c": cc, "style_b": sb, "metrics_html": mh})
+
+    cj = json.dumps(cards, ensure_ascii=False)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Anime2Real Ref+LoRA Review</title>
+<style>
+:root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-serif;padding:20px;padding-bottom:80px}}
+.hd{{text-align:center;margin-bottom:20px}}.hd h1{{font-size:1.5em;margin-bottom:4px}}.hd p{{color:var(--muted);font-size:0.85em}}
+.hw{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px}}
+.hw h3{{color:var(--success);margin-bottom:8px}}.hw p{{font-size:0.82em;line-height:1.7;color:#ccc;margin-bottom:8px}}
+.hw .g2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}}
+.hw .ap{{background:rgba(255,255,255,0.03);border-radius:8px;padding:10px}}
+.hw .ap h4{{font-size:0.85em;margin-bottom:6px}}
+.hw .ap.gd h4{{color:var(--success)}}.hw .ap.bd h4{{color:var(--warn)}}
+.hw .ap ul{{padding-left:16px;font-size:0.78em;color:#bbb;line-height:1.6}}
+.tr{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px}}
+.th{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}}
+.th h3{{font-size:1em}}.th .mt2{{font-size:0.75em;color:var(--muted)}}
+.im{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}}
+.cl{{text-align:center}}
+.cl .lb{{font-size:0.78em;font-weight:700;margin-bottom:6px;padding:3px 8px;border-radius:4px;display:inline-block}}
+.cl .lb.a{{background:rgba(255,255,255,0.1)}}.cl .lb.b{{background:rgba(78,204,163,0.2);color:var(--success)}}.cl .lb.c{{background:rgba(240,165,0,0.2);color:var(--warn)}}
+.cl img{{width:100%;border-radius:8px;cursor:zoom-in}}.cl .tm{{font-size:0.7em;color:var(--muted);margin-top:4px}}
+.cp{{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;margin-top:8px;font-size:0.75em;color:#aaa;line-height:1.5;text-align:left;max-height:100px;overflow-y:auto}}
+.cp b{{color:var(--muted)}}
+.tbl{{width:100%;border-collapse:collapse;font-size:0.75em;margin-top:12px}}
+.tbl th,.tbl td{{padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06)}}
+.tbl th{{color:var(--muted);font-weight:600}}.tbl .best{{color:var(--success);font-weight:700}}
+.vr{{display:flex;gap:8px;margin-top:10px;justify-content:center;align-items:center}}
+.vb{{padding:6px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:0.8em}}
+.vb:hover{{border-color:var(--success);color:var(--success)}}
+.vb.sel{{background:var(--success);color:#1a1a2e;border-color:var(--success);font-weight:700}}
+.bb{{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;z-index:100}}
+.btn{{padding:8px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600}}
+.bp{{background:var(--accent);color:#fff}}.bs{{background:var(--border);color:var(--text)}}
+.ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;cursor:zoom-out;justify-content:center;align-items:center}}
+.ov.show{{display:flex}}.ov img{{max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px}}
+</style></head><body>
+<div class="hd"><h1>Anime to Realistic: Ref+LoRA vs I2I</h1>
+<p>Flux2KleinEdit reference conditioning preserves identity while converting anime to photorealistic</p></div>
+<div class="hw"><h3>How and Why It Works</h3>
+<p>The anime input is VAE-encoded into <b>reference latent tokens</b> and <b>concatenated</b> with noise latents (NOT mixed).
+The model sees the original character at every denoising step, preserving identity.
+The anime2real LoRA biases the transformer toward realistic output.</p>
+<div class="g2">
+<div class="ap gd"><h4>NEW: Ref+LoRA (Column B)</h4><ul>
+<li>Reference tokens preserve structure and identity</li><li>LoRA converts anime to realistic style</li>
+<li>No high-denoise requirement (starts from pure noise)</li><li>Output looks like a real cosplayer</li></ul></div>
+<div class="ap bd"><h4>OLD: I2I+LoRA (Column C)</h4><ul>
+<li>Mixes clean latent with noise: 80% noise at denoise=0.6</li>
+<li>LoRA needs high noise to activate, but noise destroys identity</li>
+<li>Output: completely different person</li><li>LoRA only works at denoise &gt;= 0.6</li></ul></div>
+</div></div>
+<div id="ct"></div>
+<div class="bb"><span id="vc" style="font-size:0.85em;color:var(--muted)">0 Ref+LoRA wins</span>
+<div><button class="btn bs" onclick="resetAll()" style="margin-right:8px">Reset</button>
+<button class="btn bp" onclick="exportJSON()">Export JSON</button></div></div>
+<div class="ov" id="ov" onclick="this.classList.remove('show')"><img id="oi" src=""></div>
+<script>
+const C={cj};const V={{}};
+function render(){{
+document.getElementById('ct').innerHTML=C.map((c,i)=>`<div class="tr">
+<div class="th"><h3>${{c.prompt_name}} <span style="font-size:0.75em;color:var(--muted)">(seed=${{c.seed}})</span></h3>
+<div class="mt2">${{c.anime_prompt}}</div></div>
+<div class="im">
+<div class="cl"><div class="lb a">A: Anime Baseline</div><img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
+<div class="tm">${{c.timing_a}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>
+<div class="cl"><div class="lb b">B: Ref+LoRA (NEW)</div><img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
+<div class="tm">${{c.timing_b}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_b.substring(0,300)}}${{c.cap_b.length>300?'...':''}}</div>
+<div class="cp" style="margin-top:4px"><b>Style:</b> ${{c.style_b}}</div></div>
+<div class="cl"><div class="lb c">C: I2I+LoRA (OLD)</div><img src="${{c.img_c}}" onclick="z('${{c.img_c}}')" loading="lazy">
+<div class="tm">${{c.timing_c}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_c.substring(0,300)}}${{c.cap_c.length>300?'...':''}}</div></div>
+</div>${{c.metrics_html||''}}
+<div class="vr"><span style="font-size:0.8em;color:var(--muted)">Winner:</span>
+<button class="vb ${{V[i]===\\"a\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"a\\")">A</button>
+<button class="vb ${{V[i]===\\"b\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"b\\")">B: Ref+LoRA</button>
+<button class="vb ${{V[i]===\\"c\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"c\\")">C</button>
+<button class="vb" onclick="v(${{i}},null)">Skip</button></div></div>`).join('');
+document.getElementById('vc').textContent=Object.values(V).filter(x=>x==='b').length+' Ref+LoRA wins';}}
+function v(i,c){{if(c)V[i]=c;else delete V[i];render();}}
+function z(s){{document.getElementById('oi').src=s;document.getElementById('ov').classList.add('show');}}
+function resetAll(){{Object.keys(V).forEach(k=>delete V[k]);render();}}
+function exportJSON(){{
+const r=C.map((c,i)=>({{prompt:c.prompt_name,seed:c.seed,anime_prompt:c.anime_prompt,
+images:{{baseline:c.img_a,ref_lora:c.img_b,i2i_lora:c.img_c}},
+timings:{{a:c.timing_a,b:c.timing_b,c:c.timing_c}},vote:V[i]||null}}));
+const b=new Blob([JSON.stringify({{test:"anime2real-ref",ts:"{ts}",results:r}},null,2)],{{type:'application/json'}});
+const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='anime2real-ref-votes.json';a.click();}}
+render();
+</script></body></html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}_review.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    print(f"  HTML: {html_path} ({os.path.getsize(html_path)/(1024*1024):.1f} MB)")
+    return html_path
+
+
+def _build_metrics_rows_3(m_a, m_b, m_c, label_a, label_b, label_c):
+    import html as html_mod
+    keys = list(m_a.keys()) if m_a else []
+    if not keys:
+        return ""
+    rows = ""
+    for k in keys:
+        va, vb, vc = m_a.get(k, 0), m_b.get(k, 0), m_c.get(k, 0)
+        mx2 = max(va, vb, vc)
+        rows += "<tr><td>" + html_mod.escape(k) + "</td>"
+        for v in [va, vb, vc]:
+            cls = ' class="best"' if v == mx2 else ""
+            rows += f"<td{cls}>{v:.3f}</td>"
+        rows += "</tr>\n"
+    return '<table class="tbl"><tr><th>Metric</th><th>A</th><th>B</th><th>C</th></tr>' + rows + '</table>'

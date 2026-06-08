@@ -182,6 +182,27 @@ def get_profile_verify_prompt(expected_view: str) -> str:
     )
 
 
+def get_controlnet_verify_prompt() -> str:
+    """Build a VLM prompt to verify a ControlNet output shows a V-pose (arms raised).
+
+    The returned prompt instructs the VLM to check arm position and return a JSON object
+    suitable for pass/fail verdict in the basic-controlnet self-test.
+    """
+    return (
+        "This image should show a person in a VICTORY V-POSE: both arms raised high above the head "
+        "forming a V-shape, similar to an athlete celebrating a win.\n\n"
+        "Evaluate and respond ONLY with a JSON object (no markdown, no explanation):\n"
+        '{"arms_raised": true/false, "v_pose": true/false, "both_arms_visible": true/false, '
+        '"score": 1-10, "issues": ["..."], "summary": "one sentence describing the actual pose"}\n\n'
+        "Criteria:\n"
+        "- arms_raised: Are both arms raised above shoulder height?\n"
+        "- v_pose: Do the raised arms form a V-shape (spread apart) above the head?\n"
+        "- both_arms_visible: Are both arms clearly visible in the image?\n"
+        "- score: How well does this match the expected V-pose? 1-10 (10=perfect V-pose).\n"
+        "Answer in English."
+    )
+
+
 def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
     """Call OpenAI-compatible chat completions API with image + text."""
     url = f"{api_url}/chat/completions"

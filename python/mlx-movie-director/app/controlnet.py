@@ -204,38 +204,25 @@ class ZImageControlnet(nn.Module):
 
     def forward_noise_refiner(self, layer_id, control_context, main_hidden,
                                temb, cos, sin):
-        """Run one noise refiner control block.
+        """Run one noise refiner control block (Union 2.1 proper mode).
 
-        For the 'broken' variant (our model): noise refiner after_proj weights are zero,
-        so we redirect to the control_layers instead.
+        Union 2.0 had a training typo where control_layers ran twice instead of
+        using control_noise_refiner. Union 2.1 fixed this and trained control_noise_refiner
+        properly for 11k additional steps. We use control_noise_refiner directly.
 
         Args:
             layer_id: 0 or 1 (noise refiner index)
             control_context: running control context [1, N, 3840]
-            main_hidden: main model's hidden state [1, N, 3840]
+            main_hidden: main model's original embedded hidden state [1, N, 3840]
             temb: time embedding [1, 256]
             cos/sin: RoPE [1, N, 1, 64]
 
         Returns:
-            (residual_or_None, updated_control_context)
+            (residual, updated_control_context)
         """
-        # Our model is "broken" — noise refiner after_proj weights are all zeros.
-        # ComfyUI redirects: layer_id=0 → control_layers[0], layer_id=1 → control_layers[1..N]
-        if layer_id == 0:
-            residual, ctx = self.control_layers[0](
-                control_context, main_hidden, temb, cos, sin)
-            return residual, ctx
-        else:
-            # Run all remaining control layers (1..N-1)
-            # Only keep the FIRST residual (from layer 1)
-            first_residual = None
-            ctx = control_context
-            for i in range(1, len(self.control_layers)):
-                residual, ctx = self.control_layers[i](
-                    ctx, main_hidden, temb, cos, sin)
-                if first_residual is None:
-                    first_residual = residual
-            return first_residual, ctx
+        residual, ctx = self.control_noise_refiner[layer_id](
+            control_context, main_hidden, temb, cos, sin)
+        return residual, ctx
 
 
 # ---------------------------------------------------------------------------

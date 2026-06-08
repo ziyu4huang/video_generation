@@ -1,18 +1,45 @@
-"""video-quality — No-reference video quality analysis using traditional signal processing.
+"""video-quality — No-reference video quality analysis with self-test modes.
 
-Measures noise, sharpness, compression artifacts, and temporal stability
-without any AI models. Uses shared app.quality_metrics for per-frame analysis.
+Measures 7 per-frame spatial metrics + 3 temporal metrics using shared
+app.quality_metrics (pure OpenCV + NumPy). No AI models needed.
+
+Spatial metrics (per-frame, shared with image quality):
+  sharpness, edge_density, contrast, noise_sigma, snr_db, blockiness, saturation_std
+
+Temporal metrics (video-only):
+  flicker_mean, flicker_max, consistency_ncc (frame-to-frame NCC)
 
 Sub-actions:
-  analyze (default) — Analyze one or more existing videos
-  self-test         — Generate distilled + HQ videos, then compare
+  analyze (default)       — Analyze one or more existing videos or manifest.json
+  self-test default       — Generate distilled (8 steps) vs HQ (15 steps), compare
+  self-test steps-sweep   — Generate at 4/8/12/16 stage1_steps, validate quality trends
+  self-test degradation   — Apply per-frame blur/noise/JPEG/downscale, validate metrics
 
 Usage:
   run.py video quality --quality-inputs video.mp4
   run.py video quality --quality-inputs A.mp4 B.mp4 --quality-labels "Baseline,LoRA"
   run.py video quality --quality-inputs video.manifest.json
   run.py video quality --self-test --test-prompt forest-hiker
-  run.py video quality --self-test --test-prompt beach-walk --seed 99
+  run.py video quality --self-test steps-sweep --test-prompt forest-hiker
+  run.py video quality --self-test degradation --quality-inputs output/video.mp4
+
+Metric Limitations:
+  - Sharpness (Laplacian σ²) measures total HF energy. Noise inflates it massively.
+    Cross-check with noise_sigma/SNR before interpreting high sharpness as "good".
+  - JPEG blockiness is unreliable at high resolution (≥2MP).
+  - JPEG sharpness is unreliable on video: ringing increases Laplacian variance.
+    Use edge_density for JPEG quality assessment instead.
+  - Temporal flicker measures per-frame absolute difference — scene cuts will
+    spike flicker values even in well-produced content.
+  - Degradation self-test uses pairwise checks (not monotonic trends) because
+    different degradation types aren't ordered by quality.
+
+Self-test modes:
+  default      — Distilled (8 steps, cfg=1.0) vs HQ (15 steps, cfg=5.0) (needs MLX + LTX-2.3)
+  steps-sweep  — 4/8/12/16 steps with cfg=3.0, trend validation (needs MLX + LTX-2.3)
+  degradation  — Synthetic Blur/Noise/JPEG/Downscale, 9 pairwise checks (no MLX needed)
+
+See docs/image-quality.md for full metric documentation and interpretation guide.
 
 Exports: add_quality_args(), run_quality()
 """
@@ -554,13 +581,14 @@ def _run_degradation_test(args):
          _pf(noise_m, "noise_sigma") > _pf(original, "noise_sigma")),
         ("Noise: snr_db < Original",
          _pf(noise_m, "snr_db") < _pf(original, "snr_db")),
-        # JPEG checks — Q=5 should show stronger artifacts than Q=40
-        ("JPEG Q=5: blockiness > Original",
-         _pf(jpeg5, "blockiness") > _pf(original, "blockiness")),
-        ("JPEG Q=5: blockiness > JPEG Q=40",
-         _pf(jpeg5, "blockiness") > _pf(jpeg40, "blockiness")),
-        ("JPEG Q=5: sharpness < Original",
-         _pf(jpeg5, "sharpness") < _pf(original, "sharpness")),
+        # JPEG checks — edge_density is more reliable than sharpness for JPEG
+        #   (JPEG ringing can increase Laplacian variance, making sharpness unreliable)
+        ("JPEG Q=5: edge_density < Original",
+         _pf(jpeg5, "edge_density") < _pf(original, "edge_density")),
+        ("JPEG Q=5: edge_density < JPEG Q=40",
+         _pf(jpeg5, "edge_density") < _pf(jpeg40, "edge_density")),
+        ("JPEG Q=5: noise_sigma < Original (JPEG smooths HF)",
+         _pf(jpeg5, "noise_sigma") < _pf(original, "noise_sigma")),
         # Downscale checks
         ("Downscale: sharpness < Original",
          _pf(downscale, "sharpness") < _pf(original, "sharpness")),

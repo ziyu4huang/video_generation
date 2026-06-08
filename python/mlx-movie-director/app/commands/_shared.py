@@ -159,6 +159,46 @@ def resolve_lora_path(raw: str | None) -> str | None:
     sys.exit(1)
 
 
+def list_available_loras(pipeline_filter=None):
+    """List available LoRAs from the model registry, optionally filtered by pipeline.
+
+    Args:
+        pipeline_filter: If set, only show LoRAs with this pipeline in their manifest.
+                         E.g. "zimage-turbo", "flux2-klein".
+    """
+    from app.model_registry import ModelRegistry
+
+    registry = ModelRegistry(cfg.MODELS_DIR)
+    lorals = registry.list("lora")
+
+    if not lorals:
+        print("No LoRAs found in models/lora/")
+        return
+
+    if pipeline_filter:
+        lorals = [l for l in lorals if pipeline_filter in l.get("pipeline", [])]
+        if not lorals:
+            print(f"No LoRAs found for pipeline '{pipeline_filter}'.")
+            print(f"Available pipelines: {', '.join(sorted(set(p for l in registry.list('lora') for p in l.get('pipeline', []))))}")
+            return
+
+    # Format table
+    print(f"\n{'Name':<35} {'Arch':<20} {'Pipeline':<20} {'Size':>10}  Description")
+    print(f"{'─'*35} {'─'*20} {'─'*20} {'─'*10}  {'─'*40}")
+    for l in lorals:
+        name = l.get("name", "?")
+        arch = l.get("arch", "?")
+        pipelines = ", ".join(l.get("pipeline", []))
+        size_mb = l.get("size_bytes", 0) / (1024 * 1024)
+        desc = l.get("description", "")
+        # Truncate long descriptions
+        if len(desc) > 60:
+            desc = desc[:57] + "..."
+        print(f"{name:<35} {arch:<20} {pipelines:<20} {size_mb:>8.1f}MB  {desc}")
+
+    print(f"\n{len(lorals)} LoRA(s) found" + (f" (pipeline={pipeline_filter})" if pipeline_filter else ""))
+
+
 def resolve_vae_path(raw: str | None) -> str | None:
     """Resolve a --vae-path value to an absolute directory path.
 

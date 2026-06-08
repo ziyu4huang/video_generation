@@ -11,6 +11,7 @@ Sub-actions (loaded from sibling modules via importlib):
   controlnet      — Z-Image ControlNet (native MLX) → app/commands/image-controlnet.py
   i2i             — Image-to-Image (+ optional ControlNet) → app/commands/image-i2i.py
   faceswap        — BFS face/head swap via Flux2 Klein + BFS LoRA → app/commands/image-faceswap.py
+  anime2real      — Anime→realistic style transfer (Flux2KleinEdit ref + LoRA) → app/commands/image-anime2real.py
   quality         — No-reference image quality analysis + VAE A/B self-test → app/commands/image-quality.py
   workflow        — Multi-stage: generate → face detail → post-process → upscale → app/commands/image-workflow.py
 
@@ -18,7 +19,9 @@ Named self-tests (--self-test <id>):
   ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE quality comparison
   zit-sda-v1 / sda            — SDA LoKr A/B: portrait prompt, quality metrics + voting
   zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body prompt, quality metrics + voting
+  zit-sda-v1-sweep / sda-sweep — SDA LoKr sweep: 8 diverse prompt styles, cross-prompt quality comparison
   anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer, caption + quality review
+  anime2real-ref               — anime2real Ref+LoRA: identity-preserving anime→real with multi-prompt HTML review
   workflow-postprocess         — PostProcessChain on synthetic image (no model)
   workflow-basic               — Full pipeline at 4 steps / 512×512
   portrait-full                — A/B/C: base → detail+post → full+upscale
@@ -63,6 +66,7 @@ _profile = importlib.import_module("app.commands.image-profile")
 _controlnet = importlib.import_module("app.commands.image-controlnet")
 _i2i = importlib.import_module("app.commands.image-i2i")
 _faceswap = importlib.import_module("app.commands.image-faceswap")
+_anime2real = importlib.import_module("app.commands.image-anime2real")
 _quality = importlib.import_module("app.commands.image-quality")
 _workflow = importlib.import_module("app.commands.image-workflow")
 
@@ -91,12 +95,14 @@ PARSER_META = {
         "  controlnet    — ControlNet: Z-Image native or Flux2 Klein reference conditioning\n"
         "  i2i           — Image-to-Image (Z-Image w/ ControlNet, or Flux2-Klein w/ LoRA)\n"
         "  faceswap      — BFS face/head swap via Flux2 Klein + BFS LoRA\n"
+        "  anime2real    — Anime→realistic with identity preservation (Flux2KleinEdit ref + LoRA)\n"
         "  quality       — No-reference image quality analysis + VAE A/B self-test\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE comparison\n"
         "  zit-sda-v1 / sda            — SDA LoKr A/B: portrait, quality + voting\n"
         "  zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body, quality + voting\n"
         "  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer + caption review\n"
+        "  anime2real-ref              — anime2real Ref+LoRA: identity-preserving multi-prompt review\n"
         "  portrait-full               — Workflow A/B/C: base → detail+post → full+upscale\n"
         "  grain-sweep                 — Workflow: film grain intensity sweep\n"
         "  face-detail-ab              — Workflow: face detailer denoise strength A/B\n"
@@ -111,6 +117,7 @@ PARSER_META = {
         "  run.py image review lora --self-test zit-sda-v1 --seeds 42,123 --lora-scale 0.7\n"
         "  run.py image review lora --self-test zit-sda-v1 --no-quality\n"
         "  run.py image --self-test sda-fullbody\n"
+        "  run.py image --self-test sda-sweep\n"
         "  run.py image angle --input output/portrait.png\n"
         "  run.py image angle --input photo.png --azimuth 270 --elevation -20\n"
         "  run.py image angle --input x.png --azimuth 180 --prompt 'cyberpunk outfit'\n"
@@ -127,7 +134,10 @@ PARSER_META = {
         "  run.py image i2i --input-image photo.jpg --denoise-strength 0.4 --prompt 'oil painting'\n"
         "  run.py image i2i --input-image photo.jpg --reference-image pose.jpg --denoise-strength 0.4\n"
         "  run.py image i2i --pipeline flux2-klein --input-image anime.png --lora-path my-lora --denoise-strength 0.6\n"
+        "  run.py image anime2real --input-image anime.png\n"
+        "  run.py image anime2real --input-image anime.png --steps 8 --lora-scale 1.0\n"
         "  run.py image --self-test anime2real\n"
+        "  run.py image --self-test anime2real-ref\n"
         "  run.py image i2i --self-test\n"
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"
@@ -155,7 +165,7 @@ def add_args(parser):
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | quality | workflow",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | anime2real | quality | workflow",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -187,6 +197,9 @@ def add_args(parser):
     # FaceSwap-specific args: --face, --mode, --lora
     _faceswap.add_faceswap_args(parser)
 
+    # Anime2Real-specific args: --ref-count, --lora-scale
+    _anime2real.add_anime2real_args(parser)
+
     # Quality-specific args: --quality-inputs, --self-test, --test-prompt, etc.
     _quality.add_quality_args(parser)
 
@@ -196,6 +209,16 @@ def add_args(parser):
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     add_common_generation_args(parser)
 
+    # LoRA discovery
+    parser.add_argument(
+        "--list-loras", action="store_true", default=False,
+        help="List available LoRAs (optionally filter with --lora-pipeline)",
+    )
+    parser.add_argument(
+        "--lora-pipeline", type=str, default=None,
+        help="Filter --list-loras by pipeline (e.g. zimage-turbo, flux2-klein)",
+    )
+
 
 # ---------------------------------------------------------------------------
 # Entry point
@@ -204,6 +227,12 @@ def add_args(parser):
 def run(args):
     action = getattr(args, "action", "t2i") or "t2i"
     self_test_val = getattr(args, "self_test", None)
+
+    # --list-loras: discover available LoRAs and exit
+    if getattr(args, "list_loras", False):
+        from app.commands._shared import list_available_loras
+        list_available_loras(pipeline_filter=getattr(args, "lora_pipeline", None))
+        return
 
     # Named self-test: route ALL --self-test values through the unified selftest dispatcher
     # in image-review.py, except for 'review' (which checks self_test internally) and
@@ -225,6 +254,8 @@ def run(args):
         _i2i.run_i2i(args)
     elif action == "faceswap":
         _faceswap.run_faceswap(args)
+    elif action == "anime2real":
+        _anime2real.run_anime2real(args)
     elif action == "quality":
         _quality.run_quality(args)
     elif action == "workflow":

@@ -64,6 +64,33 @@ _PROMPTS = {
         "width": 640,
         "height": 960,
     },
+    "anime-warrior": {
+        "prompt": (
+            "anime girl with silver hair and red eyes, wearing dark armor, holding a katana, "
+            "determined expression, standing in a misty battlefield, dramatic lighting, "
+            "anime art style, detailed illustration"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-magical": {
+        "prompt": (
+            "anime girl with twin-tail blonde hair, wearing a frilly magical girl outfit "
+            "with ribbons and lace, holding a star-tipped wand, sparkling magical effects, "
+            "pastel colors, cheerful expression, anime art style"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-cyberpunk": {
+        "prompt": (
+            "anime girl with short blue hair and cybernetic implants, wearing a neon jacket "
+            "over a crop top, futuristic city at night, holographic displays, "
+            "cyberpunk anime art style, cool expression, vibrant neon lighting"
+        ),
+        "width": 640,
+        "height": 960,
+    },
     "street": {
         "prompt": (
             "street photography of a busy Tokyo crosswalk at night, neon signs reflected "
@@ -486,6 +513,86 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=lora-ref: Flux2KleinEdit reference conditioning + LoRA (identity-preserving)
+    # -----------------------------------------------------------------------
+
+    "anime2real-ref": {
+        "type": "lora-ref",
+        "description": (
+            "anime2real Ref+LoRA: Flux2KleinEdit reference conditioning preserves identity "
+            "while anime2real LoRA converts anime→realistic. Tests across 4 diverse anime "
+            "prompts with caption + quality + HTML voting review. "
+            "Includes old I2I approach for comparison."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk"],
+        "seeds": [42],
+        "ref_steps": 8,         # steps for Ref+LoRA approach (8 = photographic)
+        "i2i_steps": 4,         # steps for old I2I approach
+        "width": 640,
+        "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "lora_scale": 1.0,
+        "ref_count": 1,
+        "denoise_strength": 0.6,  # for old I2I comparison
+        "ref_prompt": (
+            "A photorealistic portrait photograph of the same character, "
+            "detailed realistic skin texture, natural lighting, DSLR camera, "
+            "shallow depth of field, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+        "i2i_prompt": (
+            "Preserve the subject's features and generate a high quality "
+            "realistic human photograph"
+        ),
+    },
+
+    # -----------------------------------------------------------------------
+    # type=lora-ref: Cross-pipeline anime2real comparison (flux2-klein vs zimage)
+    # -----------------------------------------------------------------------
+
+    "anime2real-pipeline": {
+        "type": "lora-ref",
+        "description": (
+            "anime2real cross-pipeline: flux2-klein Ref+LoRA vs zimage I2I+LoRA. "
+            "4 columns: T2I baseline, flux2-klein Ref+LoRA, flux2-klein I2I+LoRA (old), "
+            "zimage I2I+jib-mix LoRA. Caption + quality + HTML voting review."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk"],
+        "seeds": [42],
+        "ref_steps": 8,
+        "i2i_steps": 4,
+        "width": 640,
+        "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "lora_scale": 1.0,
+        "ref_count": 1,
+        "denoise_strength": 0.6,
+        "ref_prompt": (
+            "A photorealistic portrait photograph of the same character, "
+            "detailed realistic skin texture, natural lighting, DSLR camera, "
+            "shallow depth of field, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+        "i2i_prompt": (
+            "Preserve the subject's features and generate a high quality "
+            "realistic human photograph"
+        ),
+        # Optional 4th column: pipeline comparison with zimage + jib-mix LoRA
+        "pipeline_compare": {
+            "pipeline": "zimage",
+            "lora_path": "jib-mix-realistic-z-image-lora",
+            "lora_scale": 0.8,
+            "denoise_strength": 0.4,
+            "steps": 9,
+            "prompt": (
+                "A photorealistic portrait photograph of the same character, "
+                "detailed realistic skin texture, natural lighting, DSLR camera, "
+                "keeping the original hair color, clothing, and all character features"
+            ),
+        },
+    },
+
+    # -----------------------------------------------------------------------
     # type=profile: Multi-view character profile with VLM view-angle verification
     # -----------------------------------------------------------------------
 
@@ -585,6 +692,16 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=controlnet-i2i: I2I + ControlNet verification
+    # -----------------------------------------------------------------------
+
+    "basic-controlnet": {
+        "type": "controlnet-i2i",
+        "description": "I2I + ControlNet (canny): verify V-pose transfer; denoise=1.0 is the smoking gun",
+        "mode": "debug",   # "debug" → 1 variation (~3 min); "full" → 8 variations (~25 min)
+    },
+
+    # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
 
@@ -647,6 +764,12 @@ _ALL_TESTS_ALIASES = {
     "anime-girl":     "anime2real",
     "anime2real-lora": "anime2real",
     "anything2real":  "anime2real",
+    # LoRA Ref aliases
+    "anime2real-v2":  "anime2real-ref",
+    "a2r-ref":        "anime2real-ref",
+    "ref-lora":       "anime2real-ref",
+    "anime2real-v3":  "anime2real-pipeline",
+    "a2r-pipe":       "anime2real-pipeline",
     # Video aliases
     "rainy-street":  "video-rainy-street",
     "forest-hiker":  "video-forest-hiker",

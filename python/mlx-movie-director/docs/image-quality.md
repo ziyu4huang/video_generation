@@ -123,3 +123,116 @@ The HTML is designed to be shareable — no external dependencies, works offline
 - **Blockiness** detects 8×8 DCT quantization artifacts common in JPEG compression and VAE decode.
 - **Saturation** is neutral — neither high nor low is inherently better. It depends on artistic intent.
 - When comparing two images, look for **consistent winners across metrics** — a single metric win may be noise.
+
+## Known Metric Limitations
+
+Validated via `--self-test degradation` on real generated outputs (10/10 image checks pass, 9/9 video checks pass).
+
+### Sharpness paradox with noise
+
+The "sharpness" metric (Laplacian variance σ²) measures **total high-frequency energy**, not just edge clarity. Adding Gaussian noise dramatically increases the value:
+
+| Variant | Sharpness | Why |
+|---------|-----------|-----|
+| Original | 279.0 | Clean edges |
+| Gaussian Noise σ=30 | **8035.7** | Noise adds massive HF energy |
+| Gaussian Blur σ=3 | 2.2 | Blur removes HF energy |
+
+**Implication**: A higher sharpness value does NOT always mean better quality. Always cross-check with noise_sigma and SNR. If noise_sigma is also high, the "sharpness" is noise, not detail.
+
+### JPEG blockiness unreliability at high resolution
+
+The blockiness metric measures mean absolute differences at 8-pixel grid boundaries. On high-resolution images (≥2 megapixels), JPEG compression artifacts are spread thin and may not increase measured blockiness:
+
+| Variant | Blockiness | Expected |
+|---------|-----------|----------|
+| Original (2084×1460) | 12.4 | — |
+| JPEG Q=5 | 11.4 | ↑ but actually ↓ |
+| JPEG Q=40 | 12.0 | ↑ but actually ↓ |
+
+**Why**: JPEG smooths the image, which can *reduce* boundary differences at the 8px grid. The metric works better at lower resolutions where compression artifacts are more concentrated.
+
+### JPEG sharpness unreliability on video
+
+On video frames, JPEG compression creates ringing artifacts near edges that increase Laplacian variance:
+
+| Variant | Sharpness | Edge density |
+|---------|-----------|--------------|
+| Original | 216.5 | 58.3 |
+| JPEG Q=5 | **372.1** ↑ | **55.6** ↓ |
+
+Sharpness increases (JPEG ringing) but edge density correctly decreases (detail loss). **For JPEG quality assessment, prefer edge_density over sharpness.**
+
+### Noise metric and JPEG
+
+JPEG compression smooths high-frequency noise, so heavily compressed images may show *lower* noise_sigma than the original. This is correct behavior — JPEG is removing noise along with detail.
+
+### Trend validation vs pairwise checks
+
+- **Steps-sweep** uses monotonic trend validation (4→8→14→20 steps should show quality ↑)
+- **Degradation** uses pairwise checks (Blur vs Original, Noise vs Original) — different degradation types aren't ordered by quality, so monotonic trends don't apply
+
+---
+
+## Self-Test Modes
+
+### Image Quality (`run.py image quality --self-test <mode>`)
+
+| Mode | Command | What it does | Needs MLX? |
+|------|---------|--------------|------------|
+| `vae` (default) | `--self-test` | Generate with Default VAE vs UltraFlux VAE, compare 7 metrics | Yes |
+| `steps-sweep` | `--self-test steps-sweep` | Generate at 4/8/14/20 steps, validate quality trends | Yes |
+| `degradation` | `--self-test degradation` | Apply Blur/Noise/JPEG/Downscale to existing image, validate metrics detect changes | No |
+
+```bash
+# VAE comparison (needs MLX + UltraFlux VAE installed)
+run.py image quality --self-test --test-prompt portrait --seed 42
+
+# Steps sweep — shows how quality improves with more denoising steps
+run.py image quality --self-test steps-sweep --test-prompt portrait --seed 42
+
+# Degradation test — fast, validates all metrics on synthetic degradations
+run.py image quality --self-test degradation --quality-inputs output/image.png
+```
+
+**Degradation test checks (10 total)**:
+1. Blur: sharpness < Original
+2. Blur: edge_density < Original
+3. Blur: contrast < Original
+4. Noise: noise_sigma > Original
+5. Noise: snr_db < Original
+6. JPEG Q=5: sharpness < Original
+7. JPEG Q=5: sharpness < JPEG Q=40
+8. JPEG Q=5: edge_density < Original
+9. Downscale: sharpness < Original
+10. Downscale: edge_density < Original
+
+### Video Quality (`run.py video quality --self-test <mode>`)
+
+| Mode | Command | What it does | Needs MLX? |
+|------|---------|--------------|------------|
+| `default` | `--self-test` | Generate Distilled vs HQ, compare 10 metrics | Yes |
+| `steps-sweep` | `--self-test steps-sweep` | Generate at 4/8/12/16 stage1_steps, validate quality trends | Yes |
+| `degradation` | `--self-test degradation` | Apply per-frame Blur/Noise/JPEG/Downscale, validate metrics | No |
+
+```bash
+# Default: Distilled (8 steps) vs HQ (15 steps)
+run.py video quality --self-test --test-prompt forest-hiker --seed 42
+
+# Steps sweep — 4 quality levels, same prompt/seed
+run.py video quality --self-test steps-sweep --test-prompt forest-hiker --seed 42
+
+# Degradation test — validates spatial + temporal metrics
+run.py video quality --self-test degradation --quality-inputs output/video.mp4
+```
+
+**Degradation test checks (9 total)**:
+1. Blur: sharpness < Original
+2. Blur: edge_density < Original
+3. Noise: noise_sigma > Original
+4. Noise: snr_db < Original
+5. JPEG Q=5: edge_density < Original
+6. JPEG Q=5: edge_density < JPEG Q=40
+7. JPEG Q=5: noise_sigma < Original (JPEG smooths HF)
+8. Downscale: sharpness < Original
+9. Downscale: edge_density < Original

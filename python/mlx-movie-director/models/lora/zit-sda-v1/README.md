@@ -29,6 +29,9 @@ run.py image --self-test sda
 # Full-body fashion photography prompt
 run.py image --self-test sda-fullbody
 
+# Multi-style sweep (8 prompt types)
+run.py image --self-test sda-sweep
+
 # With overrides
 run.py image review lora --self-test zit-sda-v1 --seeds 42,123 --lora-scale 0.7
 
@@ -62,19 +65,45 @@ Output: self-contained HTML with paired images, voting interface, per-seed colla
 | Blockiness (8×8) | 15.5 | 15.1 | −3% | **SDA v1 ✓** |
 | Saturation σ | 34.0 | 28.9 | −15% | — |
 
-### Cross-Prompt Finding
+### Cross-Prompt Sweep (8 styles × 2 seeds, scale=1.0, 2026-06-09)
 
-SDA v1's effect **depends heavily on prompt type**:
+Full sweep across diverse image styles to discover where SDA helps vs hurts:
 
-| Prompt | Sharpness | Edges | Blockiness | Overall |
-|--------|-----------|-------|------------|---------|
-| Portrait (close-up face) | Baseline wins (−6%) | Baseline wins (−4%) | SDA wins (−3%) | Slight degradation |
-| Full-body fashion | **SDA wins (+27%)** | **SDA wins (+2%)** | SDA wins (−3%) | Mixed but sharpness dominant |
+| Style | Baseline Sharpness | SDA v1 Sharpness | Δ | Winner |
+|-------|--------------------|------------------|---|--------|
+| **Street** (Tokyo night) | 1381 | 1743 | **+26%** | **SDA v1 ✓✓** |
+| **Landscape** (mountains) | 745 | 878 | **+18%** | **SDA v1 ✓✓** |
+| **Interior** (living room) | 736 | 857 | **+16%** | **SDA v1 ✓✓** |
+| **Full-body** (fashion) | 774 | 865 | **+12%** | **SDA v1 ✓** |
+| **Cyberpunk** (neon alley) | 360 | 388 | +8% | SDA v1 ✓ |
+| **Animal** (red fox) | 231 | 227 | −1% | Tie |
+| **Food** (pasta dish) | 388 | 367 | −5% | Baseline ✓ |
+| **Portrait** (close-up) | 118 | 108 | −8% | Baseline ✓✓ |
 
-**Conclusion**: SDA v1 at scale=1.0 improves sharpness and edge detail significantly on full-body compositions (clothing, hands, posture) but slightly degrades close-up portraits. Blockiness reduction is consistent across both. Consider:
-- **Full-body / fashion**: SDA v1 recommended (sharpness +27%)
-- **Portrait / close-up**: Use lower scale (0.5–0.7) or skip SDA
-- **Both scenarios**: Blockiness improvement is universal
+**Pattern**: SDA v1 sharpness gain correlates with **scene complexity** (more elements = more benefit):
+
+```
+High complexity scenes ────────────────────────► SDA wins big (+12% to +26%)
+  streets, landscapes, interiors, full-body
+
+Low complexity / close-up ─────────────────────► SDA degrades (−1% to −8%)
+  portraits, food, single-animal
+```
+
+### When to Use SDA v1
+
+| Scenario | Recommendation | Reason |
+|----------|---------------|--------|
+| Street / urban photography | **Use SDA v1** | +26% sharpness, complex multi-element scenes |
+| Landscape / nature | **Use SDA v1** | +18% sharpness, rich detail scenes |
+| Interior / architecture | **Use SDA v1** | +16% sharpness, geometric+material detail |
+| Full-body fashion | **Use SDA v1** | +12% sharpness, clothing/body detail |
+| Cyberpunk / neon | **Use SDA v1** | +8% sharpness, moderate benefit |
+| Wildlife / animal | Optional | Near-zero effect (−1%) |
+| Food / macro | **Skip SDA v1** | −5% sharpness on close-up subjects |
+| Portrait / close-up | **Skip SDA v1** | −8% sharpness on face detail |
+
+Blockiness reduction is **universal** (−3% across all styles). If blockiness is the primary concern, SDA v1 can be used even on portraits at reduced scale (0.5–0.7).
 
 ## Usage
 
