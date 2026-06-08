@@ -1,0 +1,22 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ltx-2.3-distilled-q8",
+  "type": "transformer",
+  "arch": "ltx-2.3",
+  "format": "mlx-int8",
+  "description": "LTX-2.3 22B distilled transformer v1.1 (8 steps, CFG=1), int8 MLX quantized. From dgrauet/ltx-2.3-mlx-q8. Use with --distilled flag for faster generation.",
+  "source": "dgrauet/ltx-2.3-mlx-q8",
+  "weight_file": "transformer-distilled-1.1.safetensors",
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "compatible_with": [
+    "text_encoder/ltx-2.3-connector",
+    "vae/ltx-2.3-vae",
+    "audio/ltx-2.3-audio"
+  ],
+  "hf_repo": "dgrauet/ltx-2.3-mlx-q8",
+  "hf_filename": "transformer-distilled-1.1.safetensors",
+  "size_bytes": 20597189549,
+  "created_at": "2026-06-08T00:00:00Z"
+}

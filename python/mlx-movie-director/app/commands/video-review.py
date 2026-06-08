@@ -250,11 +250,14 @@ def _load_test(manifest_path: str) -> dict:
 
     # Key params to display
     params = {}
-    for key in ["cfg_scale", "stg_scale", "steps", "stage1_steps", "stage2_steps",
+    for key in ["pipeline", "cfg_scale", "stg_scale", "steps", "stage1_steps", "stage2_steps",
                 "seed", "width", "height", "frames", "fps", "lora_scale",
-                "denoise_strength", "low_ram"]:
+                "denoise_strength", "low_ram", "distilled", "hq"]:
         v = run.get(key)
         if v is not None:
+            # skip False booleans — only show True flags
+            if isinstance(v, bool) and not v:
+                continue
             params[key] = v
 
     # Extract error info for failed tests
@@ -299,13 +302,19 @@ def _detect_model(tests: list[dict]) -> str:
 
 def _render_config_js(tests: list[dict], model: str, out_js: str) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elapsed_values = [t["elapsed"] for t in tests if t.get("elapsed") is not None]
+    elapsed_max = max(elapsed_values) if elapsed_values else None
+
     tests_data = [
         {
             "label": t["label"],
             "status": t["status"],
             "prompt": t["prompt"],
             "params": t["params"],
+            "pipelineLabel": _pipeline_display_label(t["params"].get("pipeline", "")),
+            "pipelineColor": _pipeline_color(t["params"].get("pipeline", "")),
             "elapsed": t["elapsed"],
+            "elapsedMax": elapsed_max,
             "memory_mb": t["memory_mb"],
             "mime": "video/mp4",
             "videoPath": t["video_file"] or "",
@@ -323,6 +332,40 @@ def _render_config_js(tests: list[dict], model: str, out_js: str) -> str:
         f"// Model: {model}  |  Generated: {now}\n"
         f"const CONFIG = {config_json};\n"
     )
+
+
+def _pipeline_display_label(pipeline: str) -> str:
+    """Convert pipeline string (e.g. 'ltx-distilled-i2v') to display label."""
+    mapping = {
+        "ltx-i2v": "I2V",
+        "ltx-t2v": "T2V",
+        "ltx-distilled": "Distilled-T2V",
+        "ltx-distilled-i2v": "Distilled-I2V",
+        "ltx-hq": "HQ-T2V",
+        "ltx-hq-i2v": "HQ-I2V",
+        "ltx-a2v": "A2V",
+        "ltx-flf2v": "FLF2V",
+        "ltx-one-stage": "One-Stage-T2V",
+        "ltx-one-stage-i2v": "One-Stage-I2V",
+    }
+    return mapping.get(pipeline, pipeline.replace("ltx-", "").upper() if pipeline else "")
+
+
+def _pipeline_color(pipeline: str) -> str:
+    """Return a CSS color name for the pipeline badge."""
+    if "distilled" in pipeline:
+        return "purple"
+    if "hq" in pipeline:
+        return "gold"
+    if "flf2v" in pipeline:
+        return "teal"
+    if "a2v" in pipeline:
+        return "green"
+    if "i2v" in pipeline:
+        return "blue"
+    if "one-stage" in pipeline:
+        return "orange"
+    return "gray"
 
 
 def _read_static() -> str:

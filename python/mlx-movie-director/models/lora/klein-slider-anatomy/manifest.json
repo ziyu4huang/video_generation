@@ -1,0 +1,18 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "klein-slider-anatomy",
+  "type": "lora",
+  "arch": "flux2-klein-9b",
+  "format": "safetensors-bf16",
+  "description": "LoRA adapter for flux2-klein-9b",
+  "source": "manual-import",
+  "compatible_with": [
+    "transformer/klein-9b"
+  ],
+  "size_bytes": 20738144,
+  "created_at": "2026-06-08T00:05:58Z",
+  "pipeline": [
+    "flux2-klein"
+  ],
+  "source_url": "https://civitai.com/models/2324991/klein-anatomy-quality-fixer?modelVersionId=2615554"
+}

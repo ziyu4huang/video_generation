@@ -1,0 +1,3 @@
+# Pre-built LTX flat symlink dirs — recreate with scripts/setup_ltx_symlinks.py
+/dev/
+/distilled/

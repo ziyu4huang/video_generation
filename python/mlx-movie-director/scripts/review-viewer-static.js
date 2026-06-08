@@ -83,6 +83,21 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
 .thumb-wrap img { width: 100%; display: block; max-height: 160px; object-fit: cover; cursor: zoom-in; }
 
+.pipeline-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600;
+                  border: 1px solid; white-space: nowrap; }
+.badge-blue   { border-color: #4a9eff; color: #4a9eff; background: rgba(74,158,255,.1); }
+.badge-purple { border-color: #9b59b6; color: #9b59b6; background: rgba(155,89,182,.1); }
+.badge-gold   { border-color: #f5c518; color: #f5c518; background: rgba(245,197,24,.08); }
+.badge-gray   { border-color: #666; color: #999; background: rgba(119,119,119,.1); }
+.badge-teal   { border-color: #1abc9c; color: #1abc9c; background: rgba(26,188,156,.1); }
+.badge-green  { border-color: #4caf50; color: #4caf50; background: rgba(76,175,80,.1); }
+.badge-orange { border-color: #ff9800; color: #ff9800; background: rgba(255,152,0,.1); }
+.speed-bar-wrap { padding: 3px 12px 5px; border-bottom: 1px solid var(--border); }
+.speed-bar-track { height: 3px; background: var(--bg3); border-radius: 2px; margin-bottom: 3px; }
+.speed-bar-fill { height: 100%; border-radius: 2px; }
+.speed-bar-meta { font-size: 10px; color: var(--muted); display: flex; justify-content: flex-end; }
+.speed-fastest { color: #4caf50; font-weight: 600; }
+
 .caption-box { padding: 6px 12px; border-bottom: 1px solid var(--border);
                font-size: 11px; color: #aaa; line-height: 1.4; }
 .cap-more { background: none; border: none; color: var(--accent); cursor: pointer;
@@ -224,6 +239,11 @@ function makeCard(t, i) {
   const hdr = el('div', 'card-header');
   hdr.innerHTML = \`<div class="label">\${t.label}</div>
     <div class="status-badge \${t.status}">\${t.status}</div>\`;
+  if (t.pipelineLabel) {
+    const badge = el('span', 'pipeline-badge badge-' + (t.pipelineColor || 'gray'));
+    badge.textContent = t.pipelineLabel;
+    hdr.appendChild(badge);
+  }
   const wb = el('button', 'winner-btn');
   wb.textContent = '★ Best';
   wb.onclick = () => toggleWinner(t.label, i);
@@ -281,6 +301,30 @@ function makeCard(t, i) {
   const mem = t.memory_mb != null ? (t.memory_mb / 1024).toFixed(1) + ' GB' : '—';
   card.appendChild(el('div', 'timing',
     \`<span>Time <b>\${elapsed}</b></span><span>Peak RAM <b>\${mem}</b></span>\`));
+
+  // speed bar (relative to slowest in this review session)
+  if (t.elapsed != null && t.elapsedMax != null && t.elapsedMax > 0) {
+    const pct = Math.max(4, Math.round(t.elapsed / t.elapsedMax * 100));
+    const elapsedVals = TESTS.map(x => x.elapsed).filter(v => v != null);
+    const minElapsed = Math.min(...elapsedVals);
+    let speedCls = '';
+    let speedTxt = '';
+    if (elapsedVals.length > 1) {
+      if (t.elapsed <= minElapsed * 1.05) {
+        speedTxt = '⚡ fastest';
+        speedCls = 'speed-fastest';
+      } else {
+        const mult = (t.elapsed / minElapsed).toFixed(1);
+        speedTxt = mult + '× slower';
+      }
+    }
+    const barColors = {blue:'#4a9eff', purple:'#9b59b6', gold:'#f5c518',
+                       teal:'#1abc9c', green:'#4caf50', orange:'#ff9800'};
+    const barColor = barColors[t.pipelineColor] || '#555';
+    const barEl = el('div', 'speed-bar-wrap');
+    barEl.innerHTML = \`<div class="speed-bar-track"><div class="speed-bar-fill" style="width:\${pct}%;background:\${barColor}"></div></div><div class="speed-bar-meta"><span class="\${speedCls}">\${speedTxt}</span></div>\`;
+    card.appendChild(barEl);
+  }
 
   // stars
   const rrow = el('div', 'rating-row');
