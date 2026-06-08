@@ -1,10 +1,9 @@
-"""Monkey-patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx).
+"""Monkey-patches for vendor submodules.
 
-Applies runtime fixes at import time so the vendor submodule stays clean
-at upstream HEAD.  Each patch function corresponds to a diff documented in
-patches/ltx-2-mlx/mlx-0.31.2-audio-fixes.patch.
+Applies runtime fixes at import time so the vendor submodules stay clean
+at upstream HEAD.
 
-Patches:
+Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
   1. UpSample1d.__call__   — MLX 0.31.2 .at[strided].add() Metal bug
   2. HannSincResampler      — same .at[strided].add() bug
   3. AudioVAEDecoder.decode — causal frame crop (T*4-3)
@@ -12,6 +11,10 @@ Patches:
                                + from_checkpoint_config classmethod
   5. _orchestration          — _load_transformer_config reads embedded_config.json
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
+
+Patches for vendor/mflux (upstream filipstrand/mflux):
+  7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
+  8. ImageUtil._numpy_to_pil — NaN/Inf guard before float→uint8 conversion
 """
 
 from __future__ import annotations
@@ -350,6 +353,109 @@ def _patch_ti2vid() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Patch 7 — Flux2KleinEdit._predict  (mflux: flux2_klein_edit.py)
+# ---------------------------------------------------------------------------
+
+
+def _patch_klein_edit_nan_guard() -> None:
+    """Add mx.nan_to_num() guard on transformer noise output.
+
+    When many reference images are concatenated into a long sequence, the
+    attention softmax can overflow and produce NaN/Inf in the noise
+    prediction.  This replaces NaN with 0.0 so downstream CFG arithmetic
+    doesn't propagate garbage.
+
+    Strategy: replace ``Flux2KleinEdit._predict`` entirely — the inner
+    ``predict()`` closure is identical to upstream except for two added
+    ``mx.nan_to_num()`` calls on the noise predictions.
+    """
+    import mlx.core as mx
+
+    from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
+    from mflux.utils import AppleSiliconUtil
+
+    @staticmethod
+    def _patched_predict(transformer):  # type: ignore[no-untyped-def]
+        def predict(
+            latents: mx.array,
+            image_latents: mx.array,
+            latent_ids: mx.array,
+            image_latent_ids: mx.array,
+            prompt_embeds: mx.array,
+            text_ids: mx.array,
+            negative_prompt_embeds: mx.array | None,
+            negative_text_ids: mx.array | None,
+            guidance: float,
+            timestep: mx.array,
+        ) -> mx.array:
+            hidden_states = mx.concatenate([latents, image_latents], axis=1)
+            img_ids = mx.concatenate([latent_ids, image_latent_ids], axis=1)
+
+            noise = transformer(
+                hidden_states=hidden_states,
+                encoder_hidden_states=prompt_embeds,
+                timestep=timestep,
+                img_ids=img_ids,
+                txt_ids=text_ids,
+                guidance=None,
+            )
+            noise = noise[:, : latents.shape[1]]
+            # Guard against NaN/Inf from attention overflow when reference
+            # image count is high (long concatenated sequence → softmax overflow)
+            noise = mx.nan_to_num(noise, nan=0.0)
+            if negative_prompt_embeds is not None and negative_text_ids is not None:
+                negative_noise = transformer(
+                    hidden_states=hidden_states,
+                    encoder_hidden_states=negative_prompt_embeds,
+                    timestep=timestep,
+                    img_ids=img_ids,
+                    txt_ids=negative_text_ids,
+                    guidance=None,
+                )
+                negative_noise = negative_noise[:, : latents.shape[1]]
+                negative_noise = mx.nan_to_num(negative_noise, nan=0.0)
+                noise = negative_noise + guidance * (noise - negative_noise)
+            return noise
+
+        if AppleSiliconUtil.is_m1_or_m2():
+            return predict
+        return mx.compile(predict)
+
+    Flux2KleinEdit._predict = _patched_predict
+
+
+# ---------------------------------------------------------------------------
+# Patch 8 — ImageUtil._numpy_to_pil  (mflux: image_util.py)
+# ---------------------------------------------------------------------------
+
+
+def _patch_image_util_nan_guard() -> None:
+    """Add NaN/Inf guard before float→uint8 conversion in _numpy_to_pil.
+
+    Without this, NaN values cause the final image to be black or garbled
+    when upstream model outputs contain numerical instabilities.
+    """
+    import numpy as np
+
+    from mflux.utils.image_util import ImageUtil
+
+    _orig_numpy_to_pil = ImageUtil._numpy_to_pil
+
+    @staticmethod
+    def _numpy_to_pil(images: np.ndarray):  # type: ignore[no-untyped-def]
+        images = np.nan_to_num(images, nan=0.0, posinf=1.0, neginf=0.0)
+        images = np.clip(images, 0.0, 1.0)
+        return _orig_numpy_to_pil(images)
+
+    ImageUtil._numpy_to_pil = _numpy_to_pil
+
+
+# ---------------------------------------------------------------------------
+# Apply all patches
+# ---------------------------------------------------------------------------
+
+
 def apply_all_patches() -> None:
     """Apply all vendor monkey-patches.  Called automatically at import time."""
     _patch_upsample1d()
@@ -358,7 +464,9 @@ def apply_all_patches() -> None:
     _patch_ltx_model_config()
     _patch_orchestration()
     _patch_ti2vid()
-    print("[vendor_patches] Applied 6 patches to vendor/ltx-2-mlx")
+    _patch_klein_edit_nan_guard()
+    _patch_image_util_nan_guard()
+    print("[vendor_patches] Applied 8 patches (6 ltx-2-mlx + 2 mflux)")
 
 
 apply_all_patches()
