@@ -39,6 +39,9 @@ Each model instance directory (`models/<category>/<instance>/`) contains two JSO
 | `convert_flag` | string | *(optional)* `convert.py` flag to re-create (e.g. `--transformer`) |
 | `weight_file` | string | *(optional)* Override weight filename (default: `model.safetensors`) |
 | `pipeline` | string[] | *(optional)* Pipeline names this model belongs to |
+| `trigger_words` | string[] | *(optional)* LoRA trigger words (e.g. `["style1", "style2"]`) |
+| `test_prompt` | string | *(optional)* LoRA reference test prompt |
+| `recommended_scale` | float | *(optional)* Recommended LoRA weight (e.g. `0.6`) |
 
 ### config.json — Model Architecture Config (Two Origins)
 

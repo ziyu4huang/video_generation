@@ -260,15 +260,18 @@ class LUTGrading:
         # Clamp upper index
         idx1 = np.minimum(idx + 1, size - 1)
 
-        # Trilinear interpolation: 8 corners of the cube
-        c000 = lut[idx[:, 0], idx[:, 1], idx[:, 2]]
-        c001 = lut[idx[:, 0], idx[:, 1], idx1[:, 2]]
-        c010 = lut[idx[:, 0], idx1[:, 1], idx[:, 2]]
-        c011 = lut[idx[:, 0], idx1[:, 1], idx1[:, 2]]
-        c100 = lut[idx1[:, 0], idx[:, 1], idx[:, 2]]
-        c101 = lut[idx1[:, 0], idx[:, 1], idx1[:, 2]]
-        c110 = lut[idx1[:, 0], idx1[:, 1], idx[:, 2]]
-        c111 = lut[idx1[:, 0], idx1[:, 1], idx1[:, 2]]
+        # Trilinear interpolation: 8 corners of the cube.
+        # .cube format: R changes fastest → reshaped array is indexed [B, G, R].
+        r, g, b = idx[:, 0], idx[:, 1], idx[:, 2]
+        r1, g1, b1 = idx1[:, 0], idx1[:, 1], idx1[:, 2]
+        c000 = lut[b,  g,  r ]
+        c001 = lut[b1, g,  r ]
+        c010 = lut[b,  g1, r ]
+        c011 = lut[b1, g1, r ]
+        c100 = lut[b,  g,  r1]
+        c101 = lut[b1, g,  r1]
+        c110 = lut[b,  g1, r1]
+        c111 = lut[b1, g1, r1]
 
         fx, fy, fz = frac[:, 0:1], frac[:, 1:2], frac[:, 2:3]
 

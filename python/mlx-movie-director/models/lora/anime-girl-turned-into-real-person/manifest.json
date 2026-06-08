@@ -1,0 +1,19 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "anime-girl-turned-into-real-person",
+  "type": "lora",
+  "arch": "flux2-klein-9b",
+  "format": "safetensors-bf16",
+  "description": "Anime Girl Turned into Real Person v2.0",
+  "source": "civitai/anime-girl-turned-into-real-person",
+  "compatible_with": [
+    "transformer/klein-9b"
+  ],
+  "size_bytes": 82866720,
+  "created_at": "2026-06-08T18:17:12Z",
+  "pipeline": [
+    "flux2-klein"
+  ],
+  "source_url": "https://civitai.com/models/2349471",
+  "test_prompt": "a photo of an anime girl turned into a real person"
+}

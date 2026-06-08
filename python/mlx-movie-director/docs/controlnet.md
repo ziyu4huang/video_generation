@@ -145,53 +145,59 @@ harsh lines into gradients that still convey pose/composition.
 
 Based on systematic A/B testing (2026-06-08) with the Z-Image Turbo pipeline:
 
-### Best Quality
+### Best Quality (⭐ Winner — 5/5/5/5)
 
 ```bash
---controlnet-strength 0.6 --skip-preprocess --blur-ref 5
+--controlnet-strength 0.6 --skip-preprocess --blur-ref 5 \
+  --steps 15 --cnet-active-steps 5
 ```
 
-Raw + blur(5) at strength 0.6 scored **5/5 overall quality**. The blur prevents
-the ControlNet from over-interpreting sharp features as separate limbs.
+Raw + blur(5) with dual-sampler (CN active for first 5 of 15 steps) scored
+**perfect 5/5 on all criteria**. The CN guides composition early, then the model
+refines freely — eliminating artifacts while maintaining strong pose fidelity.
 
 ### Fast + Safe
 
 ```bash
---controlnet-strength 0.4 --skip-preprocess
+--controlnet-strength 0.4 --skip-preprocess --steps 9
 ```
 
-Strength 0.4 with raw input provides decent ControlNet influence without
-risking multi-limb artifacts. No blur needed.
+Strength 0.4 with raw input provides 5/5 CN influence and 5/5 pose fidelity
+without risking multi-limb artifacts. No blur needed. Good for quick iterations.
 
 ### Canny (Stable)
 
 ```bash
---controlnet-strength 0.6  # or 1.0
+--controlnet-strength 0.6 --steps 9
 ```
 
-Canny is stable at any strength. Both 0.6 and 1.0 scored 4/4/4/4 across all
-criteria. Good when you only need pose/composition guidance.
+Canny is stable at moderate strength. Good when you only need pose/composition
+guidance without texture/color transfer.
 
 ### ⚠️ Avoid
 
 ```bash
---skip-preprocess --controlnet-strength 0.6  # WITHOUT --blur-ref
+--skip-preprocess --controlnet-strength 0.6  # WITHOUT --blur-ref → multi-limb
+--controlnet-strength 1.0 --controlnet-type canny  # Overcooks → "bad bad"
 ```
 
-Raw input at strength ≥0.6 **without blur** causes multi-limb artifacts ("太多隻手").
-The ControlNet over-injects and the model hallucinates extra limbs.
+Raw input at strength ≥0.6 **without blur** causes multi-limb artifacts.
+Canny at strength 1.0 scored 1/1/1/1 in testing.
 
-### A/B Test Summary
+### Self-Test Summary (2026-06-08, seed=42)
 
 | Config | CN Influence | Pose Match | Artifacts | Overall |
 |--------|:---:|:---:|:---:|:---:|
-| baseline (no CN) | 1 | 1 | 5 | 3 |
-| str=0.4 raw | 4 | 4 | 5 | 4 |
-| str=0.6 raw | 5 | 4 | 1 | 2 |
-| str=0.6 canny | 4 | 3 | 4 | 4 |
-| str=1.0 canny | 4 | 3 | 4 | 4 |
-| **str=0.6 raw+blur5** | **5** | **4** | **5** | **5** |
-| str=0.6 raw+blur10 | 4 | 3 | 4 | 4 |
+| baseline (no CN) | 0 | 0 | 0 | 0 |
+| str=0.2 raw 9st | 1 | 1 | 3 | 2 |
+| str=0.4 raw 9st | 5 | 5 | 4 | 4 |
+| str=0.6 raw 9st | 4 | 2 | 1 | 1 |
+| str=0.6 canny 9st | 3 | 3 | 1 | 2 |
+| str=1.0 canny 9st | 1 | 1 | 1 | 1 |
+| str=0.6 raw+blur5 9st | 4 | 4 | 2 | 2 |
+| str=0.6 raw+blur10 9st | 4 | 4 | 2 | 2 |
+| str=0.6 raw+blur5 15st | 5 | 5 | 2 | 2 |
+| **str=0.6 raw+blur5 15st act5** | **5** | **5** | **5** | **5** ✅ |
 
 ## Dual-Sampler Technique
 
@@ -208,8 +214,11 @@ python/venv/bin/python run.py image controlnet \
   --steps 15 --cnet-active-steps 5
 ```
 
-Note: In A/B testing, dual-sampler did not improve results when base strength
-was already in the artifact-prone range. Use with the recommended settings above.
+This was the **winning configuration** in self-test (5/5/5/5 all criteria). The
+dual-sampler technique is critical at 15 steps with raw input: without it, the
+extra steps amplify artifacts (score drops to 2/2). With `act=5`, the model gets
+5 steps of strong CN guidance for composition, then 10 steps of free refinement
+for clean detail.
 
 ## Self-Test Mode
 

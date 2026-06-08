@@ -152,6 +152,36 @@ def _image_to_base64(image_path: str, max_size: int = 1024) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+def get_profile_verify_prompt(expected_view: str) -> str:
+    """Build a VLM prompt to verify a generated profile view is the correct angle.
+
+    The returned prompt instructs the VLM to check four boolean criteria and score
+    the image, returning a JSON object suitable for _parse_caption_scores().
+
+    Args:
+        expected_view: "front", "back", or "side"
+    """
+    descriptions = {
+        "front": "front view (0°): character faces the viewer directly, face fully visible, no back of head",
+        "back":  "back view (180°): rear-facing, back of head visible, NO face, back of clothing visible",
+        "side":  "side view (90°): exactly sideways, face/head in profile, only one arm visible, body in silhouette",
+    }
+    desc = descriptions.get(expected_view, expected_view)
+    return (
+        f"This image should show the {desc} of a character in A-pose on a white/neutral background. "
+        "Full body from head to feet should be visible.\n\n"
+        "Evaluate and respond ONLY with a JSON object (no markdown, no explanation):\n"
+        '{"view_correct": true/false, "full_body": true/false, "apose": true/false, '
+        '"clean_bg": true/false, "score": 1-10, "issues": ["..."], "summary": "one sentence"}\n\n'
+        "Criteria:\n"
+        f"- view_correct: Is this actually a {expected_view} view as described above?\n"
+        "- full_body: Are feet/shoes visible at the bottom of the frame?\n"
+        "- apose: Are arms slightly away from the body (not pressed against it)?\n"
+        "- clean_bg: Is the background white or clean without clutter?\n"
+        "- score: Overall image quality 1-10."
+    )
+
+
 def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
     """Call OpenAI-compatible chat completions API with image + text."""
     url = f"{api_url}/chat/completions"

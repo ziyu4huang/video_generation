@@ -1,16 +1,20 @@
-"""image-review — 3-mode review sub-action for 'run.py image review'.
+"""image-review — multi-mode review sub-action for 'run.py image review'.
 
 Modes (dispatched by image.py):
   angle       — generate all camera-angle views from a reference image → HTML grid
   generation  — run T2I generation (optional A/B test) → HTML manifest review
   manifest    — render HTML review from existing .manifest.json files (default)
+  vae         — generate with multiple VAE variants, analyze quality, render HTML
+  lora        — LoRA A/B test: multi-seed paired comparison with HTML voting review
 
 Public API:
   add_review_args(parser)          — register all review CLI arguments
-  run_review(args, sub)            — dispatcher → angle / generation / manifest
+  run_review(args, sub)            — dispatcher → angle / generation / manifest / vae / lora
   run_review_angle(args)           — angle grid mode
   run_review_generation(args)      — T2I generation + manifest review
-  run_review_manifest(args)        — manifest HTML review (restored from review-image.py)
+  run_review_manifest(args)        — manifest HTML review
+  run_review_vae(args)             — VAE comparison: generate + quality + HTML
+  run_review_lora(args)            — LoRA A/B: baseline vs adapter, multi-seed HTML review
 """
 
 import copy
@@ -95,6 +99,23 @@ def add_review_args(parser):
         "--output", type=str, default=None, metavar="PATH",
         help="Manifest review: output HTML path (default: auto-named in output/)",
     )
+    parser.add_argument(
+        "--auto-score", action="store_true", default=False,
+        help=(
+            "Auto-generate VLM quality scores for images lacking .caption.json "
+            "(requires Qwen3-VL API at localhost:1234; silently skipped if unavailable)"
+        ),
+    )
+    # LoRA review args
+    parser.add_argument(
+        "--seeds", type=str, default=None,
+        help="LoRA review: comma-separated seed list (e.g. '42,123,777,999'; "
+             "default: from test config or '42,123,777,999')",
+    )
+    parser.add_argument(
+        "--no-quality", action="store_true", default=False,
+        help="LoRA review: skip image quality analysis (on by default; use this flag to opt-out)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -102,11 +123,24 @@ def add_review_args(parser):
 # ---------------------------------------------------------------------------
 
 def run_review(args, sub: str = "manifest"):
-    """Dispatch to angle / generation / manifest mode."""
+    """Dispatch to angle / generation / manifest / vae / selftest mode."""
+    # Any --self-test value on the review action routes to the unified dispatcher,
+    # unless the explicit sub-action is vae/angle/generation (which handle it themselves).
+    self_test = getattr(args, "self_test", None)
+    if isinstance(self_test, str) and sub not in ("vae", "angle", "generation"):
+        run_review_selftest(args)
+        return
+
     if sub == "angle":
         run_review_angle(args)
     elif sub == "generation":
         run_review_generation(args)
+    elif sub == "vae":
+        run_review_vae(args)
+    elif sub == "lora":
+        run_review_lora(args)
+    elif sub == "selftest":
+        run_review_selftest(args)
     else:
         run_review_manifest(args)
 
@@ -273,7 +307,8 @@ def run_review_manifest(args):
 
     labels = _make_labels(getattr(args, "labels", None), len(files))
     out_path = getattr(args, "output", None)
-    _open_manifest_review(files, labels=labels, output=out_path)
+    auto_score = getattr(args, "auto_score", False)
+    _open_manifest_review(files, labels=labels, output=out_path, auto_score=auto_score)
 
 
 # ---------------------------------------------------------------------------
@@ -281,8 +316,8 @@ def run_review_manifest(args):
 # ---------------------------------------------------------------------------
 
 def _open_manifest_review(manifest_paths: list, labels=None, output=None,
-                           auto_open: bool = True):
-    """Load manifests → render HTML → open in browser."""
+                           auto_open: bool = True, auto_score: bool = False):
+    """Load manifests → optionally auto-score → render HTML → open in browser."""
     tests = [_load_test(f) for f in manifest_paths]
     if isinstance(labels, list):
         for t, label in zip(tests, labels):
@@ -291,6 +326,16 @@ def _open_manifest_review(manifest_paths: list, labels=None, output=None,
         effective_labels = _make_labels(labels, len(tests))
         for t, label in zip(tests, effective_labels):
             t["label"] = label
+
+    # Auto-score images that lack a .caption.json
+    if auto_score:
+        for t in tests:
+            if t["caption"] is None and t["image_file"]:
+                scored = _auto_score_image(t["image_file"])
+                if scored:
+                    t["caption"] = scored
+                    # Re-parse scores immediately
+                    t["caption_scores"] = _parse_caption_scores(scored)
 
     model_name = _detect_model(tests)
     out_dir = cfg.OUTPUT_DIR
@@ -308,7 +353,8 @@ def _open_manifest_review(manifest_paths: list, labels=None, output=None,
     for t in tests:
         status = "✓" if t["status"] == "success" else "✗"
         img_name = os.path.basename(t["image_file"]) if t["image_file"] else "(no image)"
-        print(f"  [{t['label']}] {status}  {img_name}")
+        score_tag = f" score={t['caption_scores']['overall']}" if t.get("caption_scores") else ""
+        print(f"  [{t['label']}] {status}  {img_name}{score_tag}")
 
     if auto_open:
         subprocess.Popen(["open", output])
@@ -387,6 +433,8 @@ def _load_test(manifest_file: str) -> dict:
         except (json.JSONDecodeError, OSError):
             pass
 
+    caption_scores = _parse_caption_scores(caption_data)
+
     return {
         "run_file": run_file,
         "manifest_file": manifest_file,
@@ -395,10 +443,72 @@ def _load_test(manifest_file: str) -> dict:
         "image_file": image_file,
         "image_rel": image_rel,
         "caption": caption_data,
+        "caption_scores": caption_scores,
         "status": manifest_data.get("status", "unknown"),
         "elapsed": manifest_data.get("elapsed_seconds"),
         "memory_mb": manifest_data.get("memory_peak_mb"),
     }
+
+
+def _parse_caption_scores(caption_data: dict | None) -> dict | None:
+    """Extract structured score dict from caption data.
+
+    Handles two styles:
+      style="score"          — standard quality scoring (6 numeric dimensions)
+      style="profile-verify" — view-angle verification (4 booleans + score)
+    """
+    if not caption_data:
+        return None
+    style = caption_data.get("style")
+    if style == "score":
+        raw = caption_data.get("caption", "")
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict) and "overall" in parsed:
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+    elif style == "profile-verify":
+        raw = caption_data.get("caption", {})
+        if isinstance(raw, dict) and "view_correct" in raw:
+            return {
+                "overall": raw.get("score", 0),
+                "view_correct": raw.get("view_correct"),
+                "full_body": raw.get("full_body"),
+                "apose": raw.get("apose"),
+                "clean_bg": raw.get("clean_bg"),
+                "issues": raw.get("issues", []),
+                "summary": raw.get("summary", ""),
+                "_style": "profile-verify",
+            }
+    return None
+
+
+def _auto_score_image(image_file: str) -> dict | None:
+    """Call Qwen3-VL with style=score, save .caption.json, return data dict.
+
+    Silently skips if the VLM API is unavailable (connection refused / timeout).
+    """
+    try:
+        from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
+        print(f"  [auto-score] scoring {os.path.basename(image_file)}...", end=" ", flush=True)
+        b64 = _image_to_base64(image_file)
+        prompt = _STYLE_PROMPTS["score"] + "\n" + _LANG_INSTRUCTIONS["en"]
+        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt)
+        data = {
+            "image": image_file,
+            "style": "score",
+            "model": "qwen/qwen3-vl-4b",
+            "caption": raw,
+        }
+        caption_path = os.path.splitext(image_file)[0] + ".caption.json"
+        with open(caption_path, "w") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        print("done")
+        return data
+    except Exception as e:
+        print(f"skipped ({type(e).__name__})")
+        return None
 
 
 def _make_labels(labels_arg, n: int) -> list:
@@ -990,7 +1100,13 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
         timings = mf.get("timings", {})
         caption_text = ""
         if t["caption"]:
-            caption_text = t["caption"].get("caption", "")
+            raw_cap = t["caption"].get("caption", "")
+            # For score-style captions, show the summary line instead of raw JSON
+            scores = t.get("caption_scores")
+            if scores and isinstance(scores, dict):
+                caption_text = scores.get("summary", raw_cap)
+            else:
+                caption_text = raw_cap
 
         prompt_text = run.get("prompt") or ""
         if not prompt_text:
@@ -1016,6 +1132,7 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
             "memory_mb": t["memory_mb"],
             "timings": timings,
             "caption": caption_text,
+            "caption_scores": t.get("caption_scores"),
             "run_file": os.path.relpath(t["run_file"], out_dir),
             "manifest_file": (
                 os.path.relpath(t["manifest_file"], out_dir)
@@ -1101,6 +1218,21 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
                                cursor: pointer; user-select: none; }}
   .caption-section summary:hover {{ color: var(--text); }}
   .caption-section p {{ padding: 0 14px 10px; font-size: 12px; color: #aaa; line-height: 1.4; }}
+  .score-section {{ padding: 8px 14px; border-bottom: 1px solid var(--border); }}
+  .sc-title {{ font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+               letter-spacing: .05em; margin-bottom: 6px; }}
+  .sc-row {{ display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }}
+  .sc-lbl {{ font-size: 11px; color: var(--muted); width: 90px; flex-shrink: 0; }}
+  .sc-bar {{ flex: 1; height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }}
+  .sc-bar div {{ height: 100%; border-radius: 3px; transition: width .3s; }}
+  .sc-val {{ font-size: 11px; font-weight: 600; color: var(--text); width: 28px; text-align: right; }}
+  .sc-issues {{ font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; }}
+  .vc-section {{ padding: 8px 14px; border-bottom: 1px solid var(--border); }}
+  .vc-row {{ display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }}
+  .vc-badge {{ font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 3px; }}
+  .vc-ok  {{ background: #1b3a1b; color: #4caf50; }}
+  .vc-err {{ background: #3a1b1b; color: #f44336; }}
+  .vc-unk {{ background: #2a2a2a; color: #888; }}
   .params {{ padding: 10px 14px; border-bottom: 1px solid var(--border); }}
   .params table {{ width: 100%; border-collapse: collapse; }}
   .params td {{ padding: 2px 0; vertical-align: top; }}
@@ -1222,6 +1354,30 @@ function makeCard(t,i) {{
   card.appendChild(wrap);
   const pd=div('card-prompt'); pd.innerHTML='<span class="prompt-label">Prompt:</span> '+escapeHtml(t.prompt||'(no prompt)'); card.appendChild(pd);
   if (t.caption) {{ const det=document.createElement('details'); det.className='caption-section'; det.innerHTML=`<summary>VLM Caption</summary><p>${{escapeHtml(t.caption)}}</p>`; card.appendChild(det); }}
+  if (t.caption_scores && t.caption_scores.overall != null) {{
+    if (t.caption_scores._style === 'profile-verify') {{
+      const checks=[['view_correct','View angle'],['full_body','Full body'],['apose','A-pose'],['clean_bg','Clean BG']];
+      const badges=checks.map(([k,lbl])=>{{
+        const ok=t.caption_scores[k];
+        const icon=ok===true?'✓':ok===false?'✗':'?';
+        const cls=ok===true?'vc-ok':ok===false?'vc-err':'vc-unk';
+        return `<span class="vc-badge ${{cls}}">${{icon}} ${{lbl}}</span>`;
+      }}).join('');
+      const score=t.caption_scores.overall??'';
+      const scoreTag=score?`<span class="vc-badge" style="background:#1a2a3a;color:#4a9eff">Score: ${{score}}/10</span>`:'';
+      const issues=(t.caption_scores.issues||[]).join(' · ');
+      card.appendChild(div('vc-section',`<div class="vc-row">${{badges}}${{scoreTag}}</div>${{issues?`<p class="sc-issues">${{escapeHtml(issues)}}</p>`:''}}` ));
+    }} else {{
+      const dims=[['overall','Overall'],['detail','Detail'],['sharpness','Sharpness'],['composition','Composition'],['artifacts','Artifacts']];
+      const bars=dims.map(([k,lbl])=>{{
+        const v=t.caption_scores[k]??0; const pct=typeof v==='number'?v*10:0;
+        const col=v>=8?'var(--green)':v>=6?'var(--accent)':'var(--red)';
+        return `<div class="sc-row"><span class="sc-lbl">${{lbl}}</span><div class="sc-bar"><div style="width:${{pct}}%;background:${{col}}"></div></div><span class="sc-val">${{v}}/10</span></div>`;
+      }}).join('');
+      const issues=(t.caption_scores.issues||[]).join(' · ');
+      card.appendChild(div('score-section',`<div class="sc-title">VLM Score</div>${{bars}}${{issues?`<p class="sc-issues">${{escapeHtml(issues)}}</p>`:''}}` ));
+    }}
+  }}
   const ref=TESTS[0].params;
   const rows=Object.entries(t.params).map(([k,v])=>{{ const isDiff=i>0&&JSON.stringify(ref[k])!==JSON.stringify(v); return `<tr><td>${{k}}</td><td class="${{isDiff?'diff':''}}">${{v}}</td></tr>`; }}).join('');
   card.appendChild(div('params','<table>'+rows+'</table>'));
@@ -1333,3 +1489,1249 @@ loadState(); renderAll();
 </script>
 </body>
 </html>"""
+
+
+# ---------------------------------------------------------------------------
+# Mode 4: Unified self-test dispatcher
+# ---------------------------------------------------------------------------
+
+def run_review_selftest(args):
+    """Unified dispatcher for all named self-tests (--self-test <name>).
+
+    Routes to the correct runner based on test type in the registry.
+    Always ends with HTML review generation.
+
+    Usage:
+      run.py image review --self-test portrait-full
+      run.py image review --self-test ultraflux
+      run.py image review --self-test portrait-seeds
+      run.py image t2i --self-test portrait-full   (also routed here)
+    """
+    from app.test_prompts_image import get_test, list_test_names, _ALL_TESTS
+
+    test_name = getattr(args, "self_test", None)
+
+    # Special value "list" → print all available tests
+    if not test_name or test_name == "list":
+        print("[selftest] Available tests:")
+        print(f"  {'Name':<26} {'Type':<10} Description")
+        print(f"  {'─'*26} {'─'*10} {'─'*40}")
+        for name, tcfg in _ALL_TESTS.items():
+            print(f"  {name:<26} [{tcfg['type']:<8}] {tcfg['description']}")
+        return
+
+    try:
+        test_cfg = get_test(test_name)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    test_type = test_cfg["type"]
+    print(f"[selftest] ═══ {test_name} ({test_type}) ═══")
+    print(f"[selftest] {test_cfg['description']}")
+
+    if test_type == "nomodel":
+        _run_selftest_nomodel(test_name, test_cfg)
+    elif test_type == "vae":
+        run_review_vae(args)
+    elif test_type == "lora":
+        run_review_lora(args)
+    elif test_type == "workflow":
+        _run_selftest_workflow(args, test_name, test_cfg)
+    elif test_type == "t2i":
+        _run_selftest_t2i(args, test_name, test_cfg)
+    elif test_type == "video":
+        _run_selftest_video(args, test_name, test_cfg)
+    elif test_type == "profile":
+        _run_selftest_profile(args, test_name, test_cfg)
+    else:
+        print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
+        sys.exit(1)
+
+
+def _run_selftest_nomodel(test_name: str, test_cfg: dict):
+    """Run an in-process smoke test that requires no model loading."""
+    if test_name == "workflow-postprocess":
+        _selftest_postprocess_smoke()
+    else:
+        print(f"ERROR: no handler for nomodel test '{test_name}'", file=sys.stderr)
+        sys.exit(1)
+
+
+def _selftest_postprocess_smoke():
+    """Test PostProcessChain on a synthetic PIL image — no model, <1s."""
+    import numpy as np
+    from PIL import Image
+    from app.postprocess import PostProcessChain
+
+    print("[selftest] PostProcessChain smoke test...")
+    rng = np.random.default_rng(42)
+    arr = rng.integers(80, 200, (64, 64, 3), dtype=np.uint8)
+    img = Image.fromarray(arr)
+
+    # Test 1: chain applies and changes pixels
+    chain = PostProcessChain.from_config({"sharpening": 0.2, "film_grain": 0.02})
+    result, timings = chain.apply(img, seed=42)
+    assert result.size == img.size, "Output size must match input"
+    assert not np.array_equal(np.array(result), arr), "Pixels must change"
+
+    # Test 2: film_grain is last in order
+    chain2 = PostProcessChain.from_config({"sharpening": 0.1, "film_grain": 0.01})
+    assert [f.name for f in chain2.filters][-1] == "film_grain", "film_grain must be last"
+
+    # Test 3: timings keys match filter names
+    _, timings2 = chain2.apply(img, seed=0)
+    assert set(timings2.keys()) == {f.name for f in chain2.filters}
+
+    print("[selftest] PostProcessChain smoke test PASSED")
+
+
+def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
+    """Run WorkflowOrchestrator for each variation, then generate HTML review."""
+    import gc
+    import mlx.core as mx
+    from app.pipeline import ZImagePipeline
+    from app.workflow import WorkflowOrchestrator
+    from app.run_config import RunConfig
+    from app.test_prompts_image import get_test_prompt
+    from app import config as cfg
+
+    tp_name = test_cfg["test_prompt"]
+    seed = getattr(args, "seed", None) or test_cfg.get("seed", 42)
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+
+    tp = get_test_prompt(tp_name)
+    prompt = tp["prompt"]
+    width = tp["width"]
+    height = tp["height"]
+
+    variations = test_cfg["variations"]
+    print(f"[selftest] {len(variations)} variation(s) | {width}×{height} | {steps} steps | seed={seed}")
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    manifest_paths = []
+    labels = []
+
+    for i, var in enumerate(variations):
+        label = var.get("label", chr(65 + i))
+        labels.append(label)
+        print(f"\n[selftest] {'─'*50}")
+        print(f"[selftest] Running variation: {label}")
+
+        rc = RunConfig(
+            prompt=prompt,
+            width=width,
+            height=height,
+            steps=steps,
+            seed=seed,
+            face_detail=var.get("face_detail", False),
+            face_detail_denoise=var.get("face_detail_denoise", 0.15),
+            face_detail_steps=var.get("face_detail_steps", 9),
+            film_grain=var.get("film_grain", 0.0),
+            sharpening=var.get("sharpening", 0.0),
+            skin_contrast=var.get("skin_contrast", False),
+            noise_clean=var.get("noise_clean", False),
+            upscale=var.get("upscale", False),
+            upscale_method=var.get("upscale_method", "esrgan"),
+        )
+
+        safe_label = label.lower().replace(" ", "_").replace("-", "_")
+        run_name = f"selftest_{test_name}_{ts}_{safe_label}"
+        out_dir = os.path.join(cfg.OUTPUT_DIR, run_name)
+        os.makedirs(out_dir, exist_ok=True)
+
+        pipeline = ZImagePipeline()
+        orchestrator = WorkflowOrchestrator(pipeline, rc, output_dir=out_dir)
+        orchestrator.run()
+        del pipeline
+        mx.clear_cache()
+        gc.collect()
+
+        manifest_path = os.path.join(out_dir, f"{run_name}.manifest.json")
+        if os.path.exists(manifest_path):
+            manifest_paths.append(manifest_path)
+        else:
+            # Fallback: find any manifest in the dir
+            for f in sorted(os.listdir(out_dir)):
+                if f.endswith(".manifest.json"):
+                    manifest_paths.append(os.path.join(out_dir, f))
+                    break
+
+    if manifest_paths:
+        html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
+        _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
+    else:
+        print("[selftest] WARNING: no manifests found; skipping HTML review", file=sys.stderr)
+
+
+def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
+    """Generate T2I images across multiple seeds, then open HTML review."""
+    import gc
+    import mlx.core as mx
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_test_prompt
+    from app.commands._shared import execute_generation
+    from app import config as cfg
+
+    tp_name = test_cfg["test_prompt"]
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    seeds = test_cfg.get("seeds", [42])
+
+    tp = get_test_prompt(tp_name)
+    prompt = tp["prompt"]
+    width = tp["width"]
+    height = tp["height"]
+
+    print(f"[selftest] {len(seeds)} seed(s) | {width}×{height} | {steps} steps")
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    manifest_paths = []
+    labels = []
+
+    for seed in seeds:
+        label = f"seed={seed}"
+        labels.append(label)
+        print(f"\n[selftest] Generating seed={seed}...")
+
+        pipeline = ZImagePipeline()
+        result = pipeline.generate(
+            prompt=prompt,
+            width=width,
+            height=height,
+            steps=steps,
+            seed=seed,
+        )
+
+        base_name = f"selftest_{test_name}_{ts}_seed{seed}"
+        out_path = os.path.join(cfg.OUTPUT_DIR, base_name + ".png")
+        result.image.save(out_path)
+        print(f"[selftest] Saved: {out_path}")
+
+        # Write run.json + manifest.json
+        run_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".run.json")
+        manifest_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".manifest.json")
+        import json as _json
+        from datetime import datetime as _dt, timezone as _tz
+        from app.manifest import Manifest, collect_model_fingerprint
+        run_data = {
+            "command": "image",
+            "action": "review",
+            "prompt": prompt,
+            "width": width,
+            "height": height,
+            "steps": steps,
+            "seed": seed,
+            "pipeline": "zimage",
+        }
+        with open(run_file, "w") as f:
+            _json.dump(run_data, f, indent=2)
+        now = _dt.now(_tz.utc).isoformat()
+        mf = Manifest.from_success(
+            run_file=run_file,
+            start_time=now,
+            end_time=now,
+            timings=getattr(result, "timings", {}),
+            output_files=[{"path": out_path, "seed": seed,
+                           "width": width, "height": height}],
+            models=collect_model_fingerprint(),
+        )
+        mf.to_json(manifest_file)
+        manifest_paths.append(manifest_file)
+
+        del pipeline, result
+        mx.clear_cache()
+        gc.collect()
+
+    if manifest_paths:
+        html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
+        _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
+
+
+def _run_selftest_video(args, test_name: str, test_cfg: dict):
+    """Delegate to the video-generate pipeline, then open HTML review."""
+    _video_gen = importlib.import_module("app.commands.video-generate")
+
+    # Inject test_cfg params into args
+    for k in ("prompt", "width", "height", "seed", "steps"):
+        if k in test_cfg and not getattr(args, k, None):
+            setattr(args, k, test_cfg[k])
+    if "duration_frames" in test_cfg:
+        setattr(args, "frames", test_cfg["duration_frames"])
+
+    print(f"[selftest] Running video generation: {test_name}")
+    _video_gen.run_generate(args)
+
+
+def _run_selftest_profile(args, test_name: str, test_cfg: dict):
+    """Generate multi-view character profiles, run VLM view-angle verification, open HTML review."""
+    import gc
+    import json as _json
+    import mlx.core as mx
+    from datetime import datetime as _dt, timezone as _tz
+    from app.pipeline import ZImagePipeline
+    from app.manifest import Manifest, collect_model_fingerprint
+    from app.test_prompts_image import get_test_prompt
+    from app.commands.caption import _image_to_base64, _call_vlm, get_profile_verify_prompt
+    from app import config as cfg
+    _profile_mod = importlib.import_module("app.commands.image-profile")
+
+    views = test_cfg.get("views", ["front", "back", "side"])
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 6)
+    seed = test_cfg.get("seed", 42)
+    ratio_key = test_cfg.get("ratio", "standing")
+    width, height = _profile_mod.RATIO_PRESETS[ratio_key]
+    prompt_variants = test_cfg.get("prompt_variants", None)
+    pipeline_type = test_cfg.get("pipeline", "zimage")
+
+    # For tests without explicit prompt_variants, fall back to default view prompts
+    if prompt_variants is None:
+        prompt_variants = [{"label": "default", "prompts": None}]
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    manifest_paths = []
+    labels = []
+
+    vlm_api_url = "http://localhost:1234/v1"
+    vlm_model = "qwen/qwen3-vl-4b"
+
+    for variant in prompt_variants:
+        var_label = variant["label"]
+        custom_prompts = variant.get("prompts")
+
+        print(f"\n[selftest] ── Variant: {var_label} ──")
+        print(f"[selftest] {width}×{height} | {steps} steps | views: {' '.join(views)}")
+
+        pipeline = ZImagePipeline()
+
+        for view in [v for v in _profile_mod.VIEW_ORDER if v in views]:
+            # Pick prompt: custom override or default VIEW_PROMPTS_FLUX2
+            if custom_prompts is not None and custom_prompts.get(view):
+                prompt = custom_prompts[view]
+            else:
+                prompt = _profile_mod.VIEW_PROMPTS_FLUX2[view]
+
+            view_seed = seed % (2 ** 32)
+            print(f"\n  [{view}] {prompt[:80]}...")
+
+            result = pipeline.generate(
+                prompt=prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                seed=view_seed,
+            )
+
+            base_name = f"selftest_{test_name}_{ts}_{var_label}_{view}"
+            out_path = os.path.join(cfg.OUTPUT_DIR, base_name + ".png")
+            result.image.save(out_path)
+            print(f"  Saved: {out_path}")
+
+            # VLM view verification
+            print(f"  [view-verify] {view}...", end=" ", flush=True)
+            try:
+                b64 = _image_to_base64(out_path)
+                vp = get_profile_verify_prompt(view)
+                raw_verify = _call_vlm(vlm_api_url, vlm_model, b64, vp)
+                verify_result = _json.loads(raw_verify) if isinstance(raw_verify, str) else raw_verify
+                if isinstance(verify_result, dict) and "view_correct" in verify_result:
+                    ok_str = "✓" if verify_result.get("view_correct") else "✗"
+                    print(f"{ok_str} score={verify_result.get('score', '?')}")
+                    caption_data = {
+                        "image": out_path,
+                        "style": "profile-verify",
+                        "view": view,
+                        "model": vlm_model,
+                        "caption": verify_result,
+                    }
+                    with open(os.path.splitext(out_path)[0] + ".caption.json", "w") as _f:
+                        _json.dump(caption_data, _f, indent=2, ensure_ascii=False)
+                else:
+                    print("done (unrecognized format)")
+            except Exception as e:
+                print(f"skipped ({type(e).__name__})")
+
+            # Write run.json + manifest.json
+            run_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".run.json")
+            manifest_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".manifest.json")
+            run_data = {
+                "command": "image",
+                "action": "profile",
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "steps": steps,
+                "seed": view_seed,
+                "pipeline": pipeline_type,
+                "view": view,
+                "variant": var_label,
+            }
+            with open(run_file, "w") as _f:
+                _json.dump(run_data, _f, indent=2)
+            now = _dt.now(_tz.utc).isoformat()
+            mf = Manifest.from_success(
+                run_file=run_file,
+                start_time=now,
+                end_time=now,
+                timings=getattr(result, "timings", {}),
+                output_files=[{"path": out_path, "seed": view_seed,
+                               "width": width, "height": height}],
+                models=collect_model_fingerprint(),
+            )
+            mf.to_json(manifest_file)
+            manifest_paths.append(manifest_file)
+            labels.append(f"{var_label}/{view}")
+
+        del pipeline
+        mx.clear_cache()
+        gc.collect()
+
+    if manifest_paths:
+        html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
+        _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=False)
+
+
+# ---------------------------------------------------------------------------
+# Mode 5: VAE comparison review
+# ---------------------------------------------------------------------------
+
+def run_review_vae(args):
+    """Generate images with each VAE variant, analyze quality, and render HTML review."""
+    import base64
+    import gc
+    import mlx.core as mx
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_vae_test, get_test_prompt
+    from app.commands._shared import resolve_vae_path
+    _quality_mod = importlib.import_module("app.commands.image-quality")
+
+    test_name_raw = getattr(args, "self_test", None)
+    test_name = test_name_raw if isinstance(test_name_raw, str) else "ultraflux"
+
+    try:
+        test_cfg = get_vae_test(test_name)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    tp_name = test_cfg["test_prompt"]
+    seed = getattr(args, "seed", None) or test_cfg["seed"]
+    steps = getattr(args, "steps", None) or test_cfg["steps"]
+
+    tp = get_test_prompt(tp_name)
+    prompt = tp["prompt"]
+    width = tp["width"]
+    height = tp["height"]
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    base = f"vae-review-{ts}"
+
+    print(f"[review vae] ═══ VAE Review: {test_name} ═══")
+    print(f"[review vae] Prompt: {tp_name!r} | seed={seed} | {width}×{height} | {steps} steps")
+    print(f"[review vae] Variants: {', '.join(v['label'] for v in test_cfg['variants'])}")
+
+    image_paths = []
+    labels = []
+    timings_map = {}
+
+    for vcfg in test_cfg["variants"]:
+        label = vcfg["label"]
+        raw_vae = vcfg["vae_path"]
+        vae_dir = resolve_vae_path(raw_vae) if raw_vae else None
+        safe_label = label.lower().replace(" ", "_")
+        out_path = os.path.join(cfg.OUTPUT_DIR, f"{base}_{safe_label}.png")
+
+        print(f"\n[review vae] {'─'*50}")
+        print(f"[review vae] Generating: {label}")
+        if vae_dir:
+            print(f"[review vae] VAE:        {os.path.basename(vae_dir)}")
+        print(f"[review vae] {'─'*50}")
+
+        pipeline = ZImagePipeline()
+        result = pipeline.generate(
+            prompt=prompt,
+            width=width,
+            height=height,
+            steps=steps,
+            seed=seed,
+            vae_dir=vae_dir,
+        )
+        result.image.save(out_path)
+        print(f"[review vae] Saved: {out_path}")
+        image_paths.append(out_path)
+        labels.append(label)
+        timings_map[label] = getattr(result, "timings", {})
+
+        del pipeline, result
+        mx.clear_cache()
+        gc.collect()
+
+    # Analyze quality
+    metrics_list = []
+    for path, label in zip(image_paths, labels):
+        print(f"\n[review vae] Analyzing {label}: {os.path.basename(path)}")
+        report = _quality_mod.analyze_image(path)
+        report["label"] = label
+        report["timings"] = timings_map.get(label, {})
+        metrics_list.append(report)
+        _quality_mod._print_single_report(report)
+
+    _quality_mod._print_comparison(metrics_list)
+
+    # Render HTML
+    html_path = os.path.join(cfg.OUTPUT_DIR, f"{base}.html")
+    html = _render_vae_html(
+        test_name=test_name,
+        test_cfg=test_cfg,
+        image_paths=image_paths,
+        labels=labels,
+        metrics_list=metrics_list,
+        ts=ts,
+        tp_name=tp_name,
+        seed=seed,
+        steps=steps,
+        width=width,
+        height=height,
+        prompt=prompt,
+    )
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    print(f"\n[review vae] HTML generated:")
+    print(f"             {html_path}")
+    print(f"\n  open {html_path}")
+    subprocess.Popen(["open", html_path])
+
+
+def _render_vae_html(test_name, test_cfg, image_paths, labels, metrics_list,
+                     ts, tp_name, seed, steps, width, height, prompt) -> str:
+    """Render a self-contained HTML page for VAE comparison."""
+    import base64
+
+    # Embed images as base64
+    cards_html_parts = []
+    for path, label in zip(image_paths, labels):
+        with open(path, "rb") as f:
+            img_b64 = base64.b64encode(f.read()).decode()
+        fname = os.path.basename(path)
+        cards_html_parts.append(
+            f'<div class="img-card">'
+            f'<h3>{label}</h3>'
+            f'<img src="data:image/png;base64,{img_b64}" alt="{label}" '
+            f'onclick="openLb(this.src)"/>'
+            f'<div class="fname">{fname}</div>'
+            f'</div>'
+        )
+    cards_html = "\n    ".join(cards_html_parts)
+
+    # Quality metrics table
+    metrics_defs = [
+        ("Sharpness (Laplacian σ²)", "sharpness",     "higher"),
+        ("Edge density (Sobel mean)", "edge_density",  "higher"),
+        ("Contrast (luminance σ)",   "contrast",       "higher"),
+        ("Noise (MAD σ)",            "noise_mad",      "lower"),
+        ("Saturation σ",             "saturation_std", "—"),
+    ]
+
+    header_cols = "".join(f"<th>{l}</th>" for l in labels)
+
+    rows_html_parts = []
+    for metric_name, key, direction in metrics_defs:
+        values = [r["metrics"][key] for r in metrics_list]
+
+        if direction == "higher":
+            best_idx = int(max(range(len(values)), key=lambda i: values[i]))
+        elif direction == "lower":
+            best_idx = int(min(range(len(values)), key=lambda i: values[i]))
+        else:
+            best_idx = -1
+
+        row = f"<tr><td class='metric-name'>{metric_name}</td>"
+        for i, v in enumerate(values):
+            is_best = (best_idx >= 0 and i == best_idx)
+            cls = "win" if is_best else "lose"
+            fmt = f"{v:.1f}" if abs(v) >= 10 else f"{v:.2f}"
+            row += f'<td class="{cls}">{fmt}</td>'
+
+        if len(values) == 2 and direction in ("higher", "lower") and best_idx >= 0:
+            base_v, comp_v = values[0], values[1]
+            if base_v != 0:
+                delta = (comp_v - base_v) / base_v * 100
+                sign = "+" if delta > 0 else ""
+                dcls = "delta-pos" if delta > 0 else "delta-neg"
+                row += (f'<td><span class="{dcls}">{sign}{delta:.0f}%</span> '
+                        f'<span class="winner-label">{labels[best_idx]}</span> ✓</td>')
+            else:
+                row += f'<td><span class="winner-label">{labels[best_idx]}</span> ✓</td>'
+        else:
+            row += "<td>—</td>"
+
+        row += "</tr>"
+        rows_html_parts.append(row)
+
+    rows_html = "\n      ".join(rows_html_parts)
+
+    desc = test_cfg.get("description", "")
+    prompt_short = (prompt[:120] + "…") if len(prompt) > 120 else prompt
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VAE Review — {test_name}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:#181818;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:2rem;line-height:1.5}}
+h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
+h2{{color:#aaa;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin:1.5rem 0 .6rem}}
+.desc{{color:#666;font-size:.82rem;margin-bottom:.25rem}}
+.meta{{color:#555;font-size:.8rem;margin-bottom:.25rem}}
+.prompt{{color:#777;font-size:.8rem;font-style:italic;margin-bottom:1.5rem;border-left:2px solid #333;padding-left:.75rem}}
+.images{{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1.5rem}}
+.img-card{{flex:1;min-width:260px;background:#222;border-radius:8px;padding:1rem;border:1px solid #2e2e2e}}
+.img-card h3{{font-size:.88rem;color:#ccc;margin-bottom:.65rem;font-weight:500}}
+.img-card img{{width:100%;border-radius:4px;display:block;cursor:zoom-in;transition:opacity .15s}}
+.img-card img:hover{{opacity:.9}}
+.fname{{font-size:.7rem;color:#444;margin-top:.5rem}}
+table{{width:100%;border-collapse:collapse;background:#1e1e1e;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a}}
+th{{text-align:left;padding:.55rem 1rem;background:#242424;color:#666;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}}
+td{{padding:.5rem 1rem;border-bottom:1px solid #252525;font-size:.88rem}}
+tr:last-child td{{border-bottom:none}}
+.metric-name{{color:#999}}
+.win{{color:#6cbe6c;font-weight:600}}
+.lose{{color:#444}}
+.delta-pos{{color:#6cbe6c}}
+.delta-neg{{color:#c96;}}
+.winner-label{{color:#aae;font-size:.82rem}}
+.lb{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}}
+.lb.open{{display:flex}}
+.lb img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px}}
+</style>
+</head>
+<body>
+<h1>VAE Review — {test_name}</h1>
+<p class="desc">{desc}</p>
+<p class="meta">Test prompt: <b>{tp_name}</b> | Seed: <b>{seed}</b> | Steps: <b>{steps}</b> | {width}×{height} | {ts}</p>
+<p class="prompt">"{prompt_short}"</p>
+
+<h2>Generated Images</h2>
+<div class="images">
+    {cards_html}
+</div>
+
+<h2>Quality Metrics</h2>
+<table>
+<thead><tr><th>Metric</th>{header_cols}<th>Δ / Winner</th></tr></thead>
+<tbody>
+      {rows_html}
+</tbody>
+</table>
+
+<div class="lb" id="lb" onclick="this.classList.remove('open')">
+  <img id="lb-img" src="" alt=""/>
+</div>
+<script>
+function openLb(src){{
+  document.getElementById('lb-img').src=src;
+  document.getElementById('lb').classList.add('open');
+}}
+</script>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Mode 6: LoRA A/B comparison review
+# ---------------------------------------------------------------------------
+
+def run_review_lora(args):
+    """Generate paired images (baseline vs LoRA) across seeds, render HTML voting review."""
+    import time as _time
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_lora_test, get_test_prompt
+    from app.commands._shared import resolve_lora_path
+
+    test_name_raw = getattr(args, "self_test", None)
+    test_name = test_name_raw if isinstance(test_name_raw, str) else "zit-sda-v1"
+
+    try:
+        test_cfg = get_lora_test(test_name)
+    except ValueError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve config values, allowing CLI overrides
+    tp_name = test_cfg["test_prompt"]
+    tp = get_test_prompt(tp_name)
+    prompt = getattr(args, "prompt", None) or tp["prompt"]
+    width = getattr(args, "width", None) or tp["width"]
+    height = getattr(args, "height", None) or tp["height"]
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    lora_scale = getattr(args, "lora_scale", 1.0) or test_cfg.get("lora_scale", 1.0)
+
+    # Seeds: CLI --seeds overrides config
+    seeds_arg = getattr(args, "seeds", None)
+    if seeds_arg:
+        try:
+            seeds = [int(s.strip()) for s in seeds_arg.split(",") if s.strip()]
+        except ValueError:
+            print(f"ERROR: invalid --seeds format: {seeds_arg}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        seeds = test_cfg.get("seeds", [42, 123, 777, 999])
+
+    variants = test_cfg["variants"]
+    if len(variants) != 2:
+        print(f"ERROR: LoRA review expects exactly 2 variants, got {len(variants)}",
+              file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve LoRA paths for each variant
+    lora_paths = []
+    for vcfg in variants:
+        raw = vcfg.get("lora_path")
+        lora_paths.append(resolve_lora_path(raw) if raw else None)
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    base_name = f"lora-review-{ts}"
+
+    label_a = variants[0]["label"]
+    label_b = variants[1]["label"]
+
+    print(f"\n{'='*60}")
+    print(f"LoRA Review — {test_name}")
+    print(f"{'='*60}")
+    print(f"  Prompt:     {prompt[:80]}{'…' if len(prompt) > 80 else ''}")
+    print(f"  Seeds:      {seeds}")
+    print(f"  Steps:      {steps}")
+    print(f"  Size:       {width}×{height}")
+    print(f"  LoRA scale: {lora_scale}")
+    print(f"  A:          {label_a} (lora={lora_paths[0] is not None})")
+    print(f"  B:          {label_b} (lora={os.path.basename(lora_paths[1]) if lora_paths[1] else 'None'})")
+    print(f"  Pairs:      {len(seeds)} ({len(seeds)*2} images total)")
+    print()
+
+    # Load pipeline once — reuse across all seeds
+    pipeline = ZImagePipeline()
+
+    pairs = []  # [{seed, paths: [str, str], timings: [float, float]}, ...]
+
+    for i, seed in enumerate(seeds, start=1):
+        print(f"\n--- Seed {seed} ({i}/{len(seeds)}) ---")
+        pair_paths = []
+        pair_timings = []
+
+        for vi, (vcfg, lora_path) in enumerate(zip(variants, lora_paths)):
+            side = "A" if vi == 0 else "B"
+            label = vcfg["label"]
+            print(f"  [{side}] Generating {label}…")
+            t0 = _time.time()
+            result = pipeline.generate(
+                prompt=prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                seed=seed,
+                lora_path=lora_path,
+                lora_scale=lora_scale if lora_path else 1.0,
+            )
+            elapsed = _time.time() - t0
+            safe_label = label.lower().replace(" ", "_")
+            out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_s{seed}_{safe_label}.png")
+            result.image.save(out_path)
+            print(f"  [{side}] Saved: {os.path.basename(out_path)} ({elapsed:.1f}s)")
+            pair_paths.append(out_path)
+            pair_timings.append(round(elapsed, 1))
+
+        pairs.append({
+            "seed": seed,
+            "paths": pair_paths,
+            "timings": pair_timings,
+        })
+
+    # --- Quality analysis (default on, opt-out via --no-quality) ---
+    metrics_by_pair = []
+    if not getattr(args, "no_quality", False):
+        _quality_mod = importlib.import_module("app.commands.image-quality")
+        print(f"\n{'─'*40}")
+        print(f"Quality Analysis")
+        print(f"{'─'*40}")
+        for i, p in enumerate(pairs):
+            print(f"\n  Seed {p['seed']} ({i+1}/{len(pairs)})")
+            report_a = _quality_mod.analyze_image(p["paths"][0])
+            report_b = _quality_mod.analyze_image(p["paths"][1])
+            report_a["label"] = label_a
+            report_b["label"] = label_b
+            _quality_mod._print_single_report(report_a)
+            _quality_mod._print_single_report(report_b)
+            metrics_by_pair.append({
+                "metrics_a": report_a["metrics"],
+                "metrics_b": report_b["metrics"],
+            })
+
+        # Aggregate averages across seeds and print comparison
+        if metrics_by_pair:
+            all_keys = list(metrics_by_pair[0]["metrics_a"].keys())
+            agg_a = {k: sum(m["metrics_a"][k] for m in metrics_by_pair) / len(metrics_by_pair)
+                     for k in all_keys}
+            agg_b = {k: sum(m["metrics_b"][k] for m in metrics_by_pair) / len(metrics_by_pair)
+                     for k in all_keys}
+            agg_report_a = {"label": label_a, "metrics": agg_a, "resolution": [width, height]}
+            agg_report_b = {"label": label_b, "metrics": agg_b, "resolution": [width, height]}
+            print(f"\n  Average across {len(metrics_by_pair)} seeds:")
+            _quality_mod._print_comparison([agg_report_a, agg_report_b])
+
+    # Generate paired HTML review
+    html_path = _render_lora_html(
+        output_dir=cfg.OUTPUT_DIR,
+        base_name=base_name,
+        test_name=test_name,
+        test_cfg=test_cfg,
+        prompt=prompt,
+        steps=steps,
+        width=width,
+        height=height,
+        lora_scale=lora_scale,
+        label_a=label_a,
+        label_b=label_b,
+        pairs=pairs,
+        ts=ts,
+        metrics_by_pair=metrics_by_pair or None,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"LoRA Review Complete")
+    print(f"{'='*60}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Images:      {len(pairs)*2} ({len(pairs)} pairs)")
+
+    subprocess.Popen(["open", html_path])
+    print(f"  Opened in browser")
+
+
+def _build_metrics_rows(metrics_a, metrics_b, label_a, label_b):
+    """Build HTML table rows for A/B quality metric comparison."""
+    metrics_defs = [
+        ("Sharpness (Laplacian σ²)", "sharpness",     "higher"),
+        ("Edge density (Sobel mean)", "edge_density",  "higher"),
+        ("Contrast (luminance σ)",    "contrast",      "higher"),
+        ("Noise (MAD σ)",            "noise_sigma",    "lower"),
+        ("SNR (dB)",                 "snr_db",         "higher"),
+        ("Blockiness (8×8)",         "blockiness",     "lower"),
+        ("Saturation σ",             "saturation_std", "—"),
+    ]
+    rows = []
+    for metric_name, key, direction in metrics_defs:
+        va, vb = metrics_a[key], metrics_b[key]
+        values = [va, vb]
+
+        if direction == "higher":
+            best_idx = int(max(range(2), key=lambda i: values[i]))
+        elif direction == "lower":
+            best_idx = int(min(range(2), key=lambda i: values[i]))
+        else:
+            best_idx = -1
+
+        row = f"<tr><td class='metric-name'>{metric_name}</td>"
+        labels_local = [label_a, label_b]
+        for i, v in enumerate(values):
+            is_best = (best_idx >= 0 and i == best_idx)
+            cls = "win" if is_best else "lose"
+            fmt = f"{v:.1f}" if abs(v) >= 10 else f"{v:.2f}"
+            row += f'<td class="{cls}">{fmt}</td>'
+
+        if direction in ("higher", "lower") and best_idx >= 0:
+            base_v, comp_v = va, vb
+            if base_v != 0:
+                delta = (comp_v - base_v) / base_v * 100
+                sign = "+" if delta > 0 else ""
+                dcls = "delta-pos" if delta > 0 else "delta-neg"
+                row += (f'<td><span class="{dcls}">{sign}{delta:.0f}%</span> '
+                        f'<span class="winner-label">{labels_local[best_idx]}</span> ✓</td>')
+            else:
+                row += f'<td><span class="winner-label">{labels_local[best_idx]}</span> ✓</td>'
+        else:
+            row += "<td>—</td>"
+
+        row += "</tr>"
+        rows.append(row)
+    return "\n      ".join(rows)
+
+
+def _build_per_pair_quality(idx, metrics_by_pair, label_a, label_b):
+    """Build collapsible quality mini-table HTML for a single seed pair."""
+    mp = metrics_by_pair[idx]
+    rows = _build_metrics_rows(mp["metrics_a"], mp["metrics_b"], label_a, label_b)
+    return f"""<div class="pair-quality">
+          <button class="quality-toggle" onclick="toggleQuality({idx})" id="qtoggle-{idx}">▸ Quality Metrics</button>
+          <table class="quality-table" id="quality-{idx}" style="display:none">
+            <thead>
+              <tr><th>Metric</th><th>A</th><th>B</th><th>Δ</th></tr>
+            </thead>
+            <tbody>
+              {rows}
+            </tbody>
+          </table>
+        </div>"""
+
+
+def _render_lora_html(output_dir, base_name, test_name, test_cfg, prompt,
+                       steps, width, height, lora_scale,
+                       label_a, label_b, pairs, ts, metrics_by_pair=None) -> str:
+    """Render a self-contained HTML page for LoRA paired comparison with voting."""
+    import base64 as _b64
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    def _img_to_data_uri(path):
+        with open(path, "rb") as f:
+            return f"data:image/png;base64,{_b64.b64encode(f.read()).decode('ascii')}"
+
+    def _esc(s):
+        return (s.replace("&", "&amp;").replace("<", "&lt;")
+                 .replace(">", "&gt;").replace('"', "&quot;"))
+
+    # Build pair rows
+    pair_rows = []
+    for i, p in enumerate(pairs):
+        uri_a = _img_to_data_uri(p["paths"][0])
+        uri_b = _img_to_data_uri(p["paths"][1])
+        pair_rows.append(f"""
+        <div class="pair" id="pair-{i}">
+          <div class="pair-header">
+            <span class="pair-label">Seed {p['seed']}</span>
+            <span class="pair-timing">A: {p['timings'][0]}s | B: {p['timings'][1]}s</span>
+          </div>
+          <div class="pair-images">
+            <div class="img-cell" onclick="openLightbox({i}, 'a')">
+              <div class="img-badge badge-a">A — {_esc(label_a)}</div>
+              <img src="{uri_a}" alt="{_esc(label_a)} seed={p['seed']}" loading="lazy" />
+            </div>
+            <div class="img-cell" onclick="openLightbox({i}, 'b')">
+              <div class="img-badge badge-b">B — {_esc(label_b)}</div>
+              <img src="{uri_b}" alt="{_esc(label_b)} seed={p['seed']}" loading="lazy" />
+            </div>
+          </div>
+          {_build_per_pair_quality(i, metrics_by_pair, label_a, label_b) if metrics_by_pair and i < len(metrics_by_pair) else ''}
+          <div class="pair-vote">
+            <label class="vote-option">
+              <input type="radio" name="vote-{i}" value="A" onchange="updateSummary()" />
+              <span>Prefer A ({_esc(label_a)})</span>
+            </label>
+            <label class="vote-option">
+              <input type="radio" name="vote-{i}" value="B" onchange="updateSummary()" />
+              <span>Prefer B ({_esc(label_b)})</span>
+            </label>
+            <label class="vote-option">
+              <input type="radio" name="vote-{i}" value="tie" onchange="updateSummary()" />
+              <span>Tie</span>
+            </label>
+            <label class="vote-option">
+              <input type="radio" name="vote-{i}" value="skip" onchange="updateSummary()" />
+              <span>Skip</span>
+            </label>
+          </div>
+          <div class="pair-comment">
+            <input type="text" placeholder="Comment (optional)…"
+                   id="comment-{i}" class="comment-input" />
+          </div>
+        </div>
+        """)
+
+    # Precompute lightbox data URIs as JS arrays
+    all_a_uris = json.dumps([_img_to_data_uri(p["paths"][0]) for p in pairs])
+    all_b_uris = json.dumps([_img_to_data_uri(p["paths"][1]) for p in pairs])
+    all_seeds = json.dumps([p["seed"] for p in pairs])
+
+    pair_rows_html = "\n".join(pair_rows)
+    desc = test_cfg.get("description", "")
+
+    # Aggregate quality table HTML (average across all seeds)
+    agg_quality_html = ""
+    quality_json = "null"
+    if metrics_by_pair:
+        all_keys = list(metrics_by_pair[0]["metrics_a"].keys())
+        agg_a = {k: sum(m["metrics_a"][k] for m in metrics_by_pair) / len(metrics_by_pair)
+                 for k in all_keys}
+        agg_b = {k: sum(m["metrics_b"][k] for m in metrics_by_pair) / len(metrics_by_pair)
+                 for k in all_keys}
+        agg_rows = _build_metrics_rows(agg_a, agg_b, label_a, label_b)
+        agg_quality_html = f"""
+    <div class="agg-quality">
+      <h2>Average Quality <span class="agg-subtitle">across {len(metrics_by_pair)} seeds</span></h2>
+      <table class="quality-table">
+        <thead>
+          <tr><th>Metric</th><th>A — {_esc(label_a)}</th><th>B — {_esc(label_b)}</th><th>Δ / Winner</th></tr>
+        </thead>
+        <tbody>
+          {agg_rows}
+        </tbody>
+      </table>
+    </div>
+    """
+        quality_json = json.dumps(metrics_by_pair)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LoRA Review — {test_name}</title>
+<style>
+*, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
+:root {{
+  --bg: #0f0f0f; --bg2: #1a1a1a; --bg3: #242424;
+  --border: #333; --text: #e0e0e0; --muted: #777;
+  --accent: #4a9eff; --gold: #f5c518; --green: #4caf50;
+  --red: #f44336; --purple: #a855f7;
+  --radius: 8px;
+}}
+body {{ background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif;
+       font-size: 14px; line-height: 1.5; }}
+
+header {{ background: var(--bg2); border-bottom: 1px solid var(--border);
+          padding: 16px 24px; position: sticky; top: 0; z-index: 100; }}
+header h1 {{ font-size: 18px; font-weight: 600; color: var(--accent); }}
+header .desc {{ font-size: 11px; color: var(--muted); margin-top: 2px; }}
+header .meta {{ font-size: 11px; color: var(--muted); margin-top: 4px; }}
+.prompt-box {{ margin-top: 10px; background: var(--bg3); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 10px 14px; font-size: 13px; color: #bbb;
+              max-height: 80px; overflow-y: auto; line-height: 1.6; }}
+
+.params {{ display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }}
+.param {{ background: var(--bg3); border: 1px solid var(--border); border-radius: 12px;
+          padding: 3px 10px; font-size: 11px; color: var(--muted); }}
+.param strong {{ color: var(--text); }}
+
+#pairs {{ padding: 16px 24px; padding-bottom: 80px; }}
+
+.pair {{ background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+         margin-bottom: 16px; overflow: hidden; }}
+.pair-header {{ display: flex; justify-content: space-between; align-items: center;
+                padding: 8px 14px; background: var(--bg3); border-bottom: 1px solid var(--border); }}
+.pair-label {{ font-size: 15px; font-weight: 600; color: var(--accent); }}
+.pair-timing {{ font-size: 11px; color: var(--muted); }}
+
+.pair-images {{ display: grid; grid-template-columns: 1fr 1fr; gap: 0; }}
+.img-cell {{ cursor: zoom-in; position: relative; border-right: 1px solid var(--border); }}
+.img-cell:last-child {{ border-right: none; }}
+.img-cell img {{ width: 100%; height: auto; display: block; }}
+.img-badge {{ position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 600;
+              padding: 3px 10px; border-radius: 12px; z-index: 2; }}
+.badge-a {{ background: rgba(74,158,255,0.85); color: #fff; }}
+.badge-b {{ background: rgba(168,85,247,0.85); color: #fff; }}
+
+.pair-vote {{ display: flex; gap: 12px; padding: 10px 14px; flex-wrap: wrap;
+              border-top: 1px solid var(--border); background: var(--bg3); }}
+.vote-option {{ display: flex; align-items: center; gap: 5px; cursor: pointer;
+               font-size: 12px; color: var(--muted); transition: color .15s; }}
+.vote-option:hover {{ color: var(--text); }}
+.vote-option input[type="radio"] {{ accent-color: var(--accent); }}
+.vote-option input[type="radio"]:checked + span {{ color: var(--text); font-weight: 500; }}
+
+.pair-comment {{ padding: 8px 14px; border-top: 1px solid var(--border); }}
+.comment-input {{ width: 100%; background: var(--bg); border: 1px solid var(--border);
+                  border-radius: var(--radius); padding: 6px 10px; color: var(--text);
+                  font-size: 12px; outline: none; }}
+.comment-input:focus {{ border-color: var(--accent); }}
+.comment-input::placeholder {{ color: var(--muted); }}
+
+footer {{ position: fixed; bottom: 0; left: 0; right: 0; background: var(--bg2);
+          border-top: 1px solid var(--border); padding: 10px 24px; z-index: 100;
+          display: flex; align-items: center; gap: 16px; }}
+#summary {{ font-size: 13px; color: var(--muted); }}
+#summary strong {{ color: var(--gold); }}
+.export-btn {{ margin-left: auto; padding: 6px 16px; border-radius: var(--radius);
+               background: var(--accent); color: #fff; border: none; cursor: pointer;
+               font-size: 12px; font-weight: 600; transition: opacity .15s; }}
+.export-btn:hover {{ opacity: 0.85; }}
+
+/* Quality metrics */
+.agg-quality {{ padding: 16px 24px; }}
+.agg-quality h2 {{ font-size: 15px; color: var(--accent); margin-bottom: 10px; }}
+.agg-quality .agg-subtitle {{ font-size: 11px; color: var(--muted); font-weight: 400; }}
+.quality-table {{ width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }}
+.quality-table th {{ text-align: left; padding: 6px 10px; background: var(--bg3);
+                    border-bottom: 1px solid var(--border); color: var(--muted);
+                    font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }}
+.quality-table td {{ padding: 5px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); }}
+.quality-table .metric-name {{ color: var(--muted); font-size: 12px; }}
+.win {{ color: #6cbe6c; font-weight: 600; }}
+.lose {{ color: #555; }}
+.delta-pos {{ color: #6cbe6c; }}
+.delta-neg {{ color: #c96; }}
+.winner-label {{ color: #aae; font-size: .82rem; }}
+.pair-quality {{ border-top: 1px solid var(--border); padding: 6px 14px; }}
+.quality-toggle {{ background: none; border: 1px solid var(--border); color: var(--muted);
+                   font-size: 11px; padding: 3px 10px; border-radius: 12px; cursor: pointer;
+                   transition: color .15s, border-color .15s; }}
+.quality-toggle:hover {{ color: var(--text); border-color: var(--accent); }}
+
+/* Lightbox */
+#lightbox {{ display: none; position: fixed; inset: 0; z-index: 1000;
+             background: rgba(0,0,0,0.92); cursor: zoom-out;
+             align-items: center; justify-content: center; }}
+#lightbox.open {{ display: flex; }}
+#lightbox img {{ max-width: 95vw; max-height: 95vh; object-fit: contain;
+                border-radius: 4px; }}
+#lightbox .lb-label {{ position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+                       font-size: 14px; color: var(--text); background: rgba(0,0,0,0.7);
+                       padding: 6px 16px; border-radius: 20px; }}
+#lightbox .lb-nav {{ position: absolute; top: 50%; transform: translateY(-50%);
+                     font-size: 28px; color: #fff; background: rgba(0,0,0,0.5);
+                     width: 48px; height: 48px; border-radius: 50%; border: none;
+                     cursor: pointer; display: flex; align-items: center; justify-content: center; }}
+#lightbox .lb-prev {{ left: 16px; }}
+#lightbox .lb-next {{ right: 16px; }}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LoRA Review — {test_name}</h1>
+  <div class="desc">{_esc(desc)}</div>
+  <div class="meta">Generated {now} | {len(pairs)} seed pairs | {len(pairs)*2} images | {ts}</div>
+  <div class="prompt-box">{_esc(prompt)}</div>
+  <div class="params">
+    <span class="param"><strong>{steps}</strong> steps</span>
+    <span class="param"><strong>{width}×{height}</strong></span>
+    <span class="param">LoRA scale: <strong>{lora_scale}</strong></span>
+    <span class="param">A: <strong>{_esc(label_a)}</strong></span>
+    <span class="param">B: <strong>{_esc(label_b)}</strong></span>
+  </div>
+</header>
+
+{agg_quality_html}
+<div id="pairs">
+  {pair_rows_html}
+</div>
+
+<footer>
+  <div id="summary">Vote: 0/{len(pairs)} decided</div>
+  <button class="export-btn" onclick="exportResults()">Export Results</button>
+</footer>
+
+<div id="lightbox" onclick="closeLightbox(event)">
+  <div class="lb-label" id="lb-label"></div>
+  <button class="lb-nav lb-prev" onclick="lbNav(event,-1)">◀</button>
+  <img id="lb-img" src="" alt="Zoomed" />
+  <button class="lb-nav lb-next" onclick="lbNav(event,1)">▶</button>
+</div>
+
+<script>
+const IMGS_A = {all_a_uris};
+const IMGS_B = {all_b_uris};
+const SEEDS = {all_seeds};
+const LABEL_A = {json.dumps(label_a)};
+const LABEL_B = {json.dumps(label_b)};
+const QUALITY = {quality_json};
+let lbPair = 0, lbSide = 'a';
+
+function openLightbox(pairIdx, side) {{
+  lbPair = pairIdx; lbSide = side;
+  renderLightbox();
+  document.getElementById('lightbox').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}}
+function closeLightbox(e) {{
+  if (e.target.tagName === 'IMG' || e.target.tagName === 'BUTTON') return;
+  document.getElementById('lightbox').classList.remove('open');
+  document.body.style.overflow = '';
+}}
+function renderLightbox() {{
+  const srcs = lbSide === 'a' ? IMGS_A : IMGS_B;
+  document.getElementById('lb-img').src = srcs[lbPair];
+  const sideLabel = lbSide === 'a' ? 'A (' + LABEL_A + ')' : 'B (' + LABEL_B + ')';
+  document.getElementById('lb-label').textContent =
+    'Seed ' + SEEDS[lbPair] + ' — ' + sideLabel + ' (' + (lbPair+1) + '/' + SEEDS.length + ')';
+}}
+function lbNav(e, delta) {{
+  e.stopPropagation();
+  const arr = lbSide === 'a' ? IMGS_A : IMGS_B;
+  lbPair = (lbPair + delta + arr.length) % arr.length;
+  renderLightbox();
+}}
+
+function toggleQuality(idx) {{
+  const tbl = document.getElementById('quality-' + idx);
+  const btn = document.getElementById('qtoggle-' + idx);
+  if (!tbl) return;
+  const show = tbl.style.display === 'none';
+  tbl.style.display = show ? '' : 'none';
+  btn.textContent = show ? '▾ Quality Metrics' : '▸ Quality Metrics';
+}}
+
+// Vote summary
+function updateSummary() {{
+  const n = SEEDS.length;
+  let a=0, b=0, tie=0;
+  for (let i=0; i<n; i++) {{
+    const v = document.querySelector('input[name="vote-'+i+'"]:checked');
+    if (!v) continue;
+    if (v.value === 'A') a++;
+    else if (v.value === 'B') b++;
+    else if (v.value === 'tie') tie++;
+  }}
+  const decided = a + b + tie;
+  const el = document.getElementById('summary');
+  el.innerHTML = 'Vote: <strong>' + decided + '/' + n + '</strong> decided' +
+    (decided > 0 ? ' — A: ' + a + ' | B: ' + b + ' | Tie: ' + tie : '');
+}}
+
+function exportResults() {{
+  const n = SEEDS.length;
+  const results = {{
+    test_name: {json.dumps(test_name)},
+    prompt: {json.dumps(prompt)},
+    params: {{ steps: {steps}, width: {width}, height: {height}, lora_scale: {lora_scale} }},
+    variants: [
+      {{ label: LABEL_A }},
+      {{ label: LABEL_B }}
+    ],
+    generated_at: "{now}",
+    pairs: []
+  }};
+  for (let i=0; i<n; i++) {{
+    const v = document.querySelector('input[name="vote-'+i+'"]:checked');
+    const c = document.getElementById('comment-'+i);
+    results.pairs.push({{
+      seed: SEEDS[i],
+      vote: v ? v.value : null,
+      comment: c ? c.value.trim() : '',
+      quality: QUALITY ? QUALITY[i] || null : null
+    }});
+  }}
+  const out = JSON.stringify(results, null, 2);
+  navigator.clipboard.writeText(out).then(() => {{
+    const btn = document.querySelector('.export-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => {{ btn.textContent = 'Export Results'; }}, 1500);
+  }});
+}}
+
+// Keyboard: ESC close, arrows navigate, Tab toggle A/B
+document.addEventListener('keydown', (e) => {{
+  const lb = document.getElementById('lightbox');
+  if (!lb.classList.contains('open')) return;
+  if (e.key === 'Escape') {{ lb.classList.remove('open'); document.body.style.overflow = ''; }}
+  if (e.key === 'ArrowLeft') lbNav(e, -1);
+  if (e.key === 'ArrowRight') lbNav(e, 1);
+  if (e.key === 'Tab') {{
+    e.preventDefault();
+    lbSide = lbSide === 'a' ? 'b' : 'a';
+    renderLightbox();
+  }}
+}});
+</script>
+</body>
+</html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    size_mb = os.path.getsize(html_path) / (1024 * 1024)
+    print(f"  HTML: {html_path} ({size_mb:.1f} MB)")
+
+    return html_path

@@ -59,3 +59,4 @@ patches/comfyui_data/
 
 # Claude Code session files
 .claude/scheduled_tasks.lock
+.claude/scheduled_tasks.json

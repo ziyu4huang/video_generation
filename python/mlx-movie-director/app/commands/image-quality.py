@@ -1,7 +1,7 @@
 """image-quality — No-reference image quality analysis and VAE A/B self-test.
 
-Measures sharpness, edge density, and contrast using traditional signal processing
-(OpenCV + NumPy). No AI models needed for analysis.
+Measures sharpness, edge density, contrast, noise, SNR, blockiness, and saturation
+using shared app.quality_metrics (pure OpenCV + NumPy). No AI models needed.
 
 Sub-actions:
   analyze (default) — Analyze one or more existing images
@@ -25,6 +25,7 @@ import cv2
 import numpy as np
 
 from app import config as cfg
+from app.quality_metrics import analyze_frame, generate_html_report
 from app.test_prompts_image import get_test_prompt, list_test_prompt_names
 
 
@@ -33,10 +34,10 @@ from app.test_prompts_image import get_test_prompt, list_test_prompt_names
 # ---------------------------------------------------------------------------
 
 PARSER_META = {
-    "help": "No-reference image quality analysis (sharpness, edges, contrast)",
+    "help": "No-reference image quality analysis (sharpness, edges, contrast, noise, SNR)",
     "description": (
         "Analyze image quality using traditional signal processing metrics.\n\n"
-        "Metrics: sharpness (Laplacian σ²), edge density (Sobel), contrast (σ luminance).\n\n"
+        "Metrics: sharpness, edge density, contrast, noise (σ), SNR, blockiness, saturation.\n\n"
         "Modes:\n"
         "  analyze (default)  — Analyze existing image file(s)\n"
         "  self-test          — Generate with default VAE vs UltraFlux VAE, then compare\n\n"
@@ -71,6 +72,15 @@ def add_quality_args(parser):
     parser.add_argument(
         "--no-compare-png", action="store_true", default=False,
         help="Skip saving side-by-side comparison PNG",
+    )
+    parser.add_argument(
+        "--no-html", action="store_true", default=False,
+        help="Skip HTML report and browser auto-launch",
+    )
+    parser.add_argument(
+        "--quality-lang", type=str, default="en",
+        choices=["en", "zh_TW"],
+        help="HTML report language (default: en)",
     )
 
 
@@ -120,12 +130,24 @@ def _run_analyze(args, image_paths: list):
         if not getattr(args, "no_compare_png", False):
             _save_comparison_png(image_paths, labels, image_paths[0])
 
+    # Build report data
+    report_data = {
+        "mode": "compare" if len(results) > 1 else "single",
+        "mediaType": "image",
+        "lang": getattr(args, "quality_lang", "en"),
+        "images": results,
+    }
+
     json_path = getattr(args, "quality_json", None)
     if json_path:
-        report_data = {"mode": "compare" if len(results) > 1 else "single", "images": results}
         with open(json_path, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
         print(f"\n[quality] JSON report: {json_path}")
+
+    # HTML report
+    if not getattr(args, "no_html", False):
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, image_paths[0])
 
 
 # ---------------------------------------------------------------------------
@@ -215,23 +237,32 @@ def _run_self_test(args):
         compare_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_compare.png")
         _save_comparison_png(image_paths, labels, compare_path)
 
+    # Report data
+    report_data = {
+        "mode": "self-test",
+        "mediaType": "image",
+        "lang": getattr(args, "quality_lang", "en"),
+        "test_prompt": tp_name,
+        "prompt": prompt,
+        "seed": seed,
+        "images": results,
+    }
+
     # JSON
     json_path = getattr(args, "quality_json", None)
     if json_path:
-        report_data = {
-            "mode": "self-test",
-            "test_prompt": tp_name,
-            "prompt": prompt,
-            "seed": seed,
-            "images": results,
-        }
         with open(json_path, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
         print(f"\n[quality] JSON report: {json_path}")
 
+    # HTML report
+    if not getattr(args, "no_html", False):
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, image_paths[0])
+
 
 # ---------------------------------------------------------------------------
-# Core metrics
+# Core image analysis (uses shared analyze_frame)
 # ---------------------------------------------------------------------------
 
 def analyze_image(image_path: str) -> dict:
@@ -244,36 +275,49 @@ def analyze_image(image_path: str) -> dict:
     height, width = img_bgr.shape[:2]
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float64)
 
-    # 1. Sharpness — Laplacian variance
-    lap = cv2.Laplacian(gray, cv2.CV_64F)
-    sharpness = float(lap.var())
-
-    # 2. Edge density — Sobel magnitude mean
-    sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    edge_density = float(np.sqrt(sobel_x**2 + sobel_y**2).mean())
-
-    # 3. Contrast — luminance std dev
-    contrast = float(gray.std())
-
-    # 4. Color saturation std
-    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    saturation_std = float(np.std(hsv[:, :, 1]))
-
-    # 5. Noise estimate — MAD of Laplacian
-    mad = float(np.median(np.abs(lap - np.median(lap))) * 1.4826)
+    # Use shared per-frame analysis (7 metrics)
+    metrics = analyze_frame(gray, img_bgr)
 
     return {
         "image": os.path.abspath(image_path),
         "image_basename": os.path.basename(image_path),
         "resolution": [width, height],
-        "metrics": {
-            "sharpness": sharpness,
-            "edge_density": edge_density,
-            "contrast": contrast,
-            "saturation_std": saturation_std,
-            "noise_mad": mad,
-        },
+        "metrics": metrics,
+    }
+
+
+# ---------------------------------------------------------------------------
+# HTML data preparation
+# ---------------------------------------------------------------------------
+
+def _prepare_html_data(report_data: dict) -> dict:
+    """Prepare image data for HTML report — adapt to chart-compatible format."""
+    images = []
+    for img in report_data.get("images", []):
+        m = img.get("metrics", {})
+        w, h = img.get("resolution", [0, 0])
+        # Wrap into same shape as video per_frame_summary for chart compatibility
+        images.append({
+            "label": img.get("label", ""),
+            "image_basename": img.get("image_basename", ""),
+            "resolution": [w, h],
+            "frames_analyzed": 1,
+            "per_frame_summary": {
+                k: {"mean": v, "min": v, "max": v}
+                for k, v in m.items()
+            },
+            "per_frame_values": {},  # single frame — no arrays
+            "temporal_summary": {},  # no temporal for images
+        })
+
+    return {
+        "mode": report_data.get("mode", "single"),
+        "mediaType": "image",
+        "lang": report_data.get("lang", "en"),
+        "test_prompt": report_data.get("test_prompt"),
+        "seed": report_data.get("seed"),
+        "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "images": images,
     }
 
 
@@ -285,11 +329,13 @@ def _print_single_report(report: dict):
     m = report["metrics"]
     w, h = report["resolution"]
     print(f"  Resolution: {w}×{h}")
-    print(f"    Sharpness (Laplacian σ²) : {m['sharpness']:>10.1f}  ↑ better")
-    print(f"    Edge density (Sobel mean): {m['edge_density']:>10.2f}  ↑ better")
-    print(f"    Contrast (luminance σ)   : {m['contrast']:>10.2f}  ↑ better")
-    print(f"    Noise (MAD σ)            : {m['noise_mad']:>10.2f}  ↓ better")
-    print(f"    Saturation σ             : {m['saturation_std']:>10.2f}  —")
+    print(f"    Sharpness (Laplacian σ²)  : {m['sharpness']:>10.1f}  ↑ better")
+    print(f"    Edge density (Sobel)      : {m['edge_density']:>10.2f}  ↑ better")
+    print(f"    Contrast (luminance σ)    : {m['contrast']:>10.2f}  ↑ better")
+    print(f"    Noise (MAD σ)             : {m['noise_sigma']:>10.2f}  ↓ better")
+    print(f"    SNR (dB)                  : {m['snr_db']:>10.1f}  ↑ better")
+    print(f"    Blockiness (8×8)          : {m['blockiness']:>10.1f}  ↓ better")
+    print(f"    Saturation σ              : {m['saturation_std']:>10.2f}  —")
 
 
 def _print_comparison(results: list):
@@ -297,11 +343,13 @@ def _print_comparison(results: list):
     n = len(results)
 
     metrics_def = [
-        ("Sharpness",       "sharpness",     "higher"),
-        ("Edge density",    "edge_density",  "higher"),
-        ("Contrast",        "contrast",      "higher"),
-        ("Noise (MAD σ)",   "noise_mad",     "lower"),
-        ("Saturation σ",    "saturation_std","—"),
+        ("Sharpness",       "sharpness",      "higher"),
+        ("Edge density",    "edge_density",   "higher"),
+        ("Contrast",        "contrast",       "higher"),
+        ("Noise (MAD σ)",   "noise_sigma",    "lower"),
+        ("SNR (dB)",        "snr_db",         "higher"),
+        ("Blockiness",      "blockiness",     "lower"),
+        ("Saturation σ",    "saturation_std",  "neutral"),
     ]
 
     label_width = max(len(l) for l in labels) + 2

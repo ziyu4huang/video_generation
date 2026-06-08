@@ -249,6 +249,26 @@ def _build_view_prompt(view: str, base_prompt: str | None, pipeline_type: str = 
     return template
 
 
+def _vlm_verify_profile_view(image_path: str, expected_view: str,
+                              vlm_api_url: str, vlm_model: str) -> dict | None:
+    """Call Qwen3-VL to verify a generated view image is the correct angle.
+
+    Returns a dict with keys: view_correct, full_body, apose, clean_bg, score, issues, summary.
+    Returns None if VLM is unavailable or response cannot be parsed.
+    """
+    try:
+        from app.commands.caption import _image_to_base64, _call_vlm, get_profile_verify_prompt
+        b64 = _image_to_base64(image_path)
+        prompt = get_profile_verify_prompt(expected_view)
+        raw = _call_vlm(vlm_api_url, vlm_model, b64, prompt)
+        result = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(result, dict) and "view_correct" in result:
+            return result
+    except Exception as e:
+        print(f"skipped ({type(e).__name__})")
+    return None
+
+
 def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
     from PIL import Image as PILImage
     max_h = max(img.height for img in images)
@@ -261,6 +281,48 @@ def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
     return strip
 
 
+def _load_view_verify(view_path: str) -> dict | None:
+    """Load VLM view-verification result from .caption.json, or None."""
+    caption_path = os.path.splitext(view_path)[0] + ".caption.json"
+    if not os.path.exists(caption_path):
+        return None
+    try:
+        with open(caption_path) as f:
+            data = json.load(f)
+        if data.get("style") == "profile-verify":
+            caption = data.get("caption", {})
+            if isinstance(caption, dict) and "view_correct" in caption:
+                return caption
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _render_verify_badges(verify: dict) -> str:
+    """Return HTML badge row from a view-verify dict."""
+    import html as html_mod
+    checks = [
+        ("view_correct", "View angle"),
+        ("full_body",    "Full body"),
+        ("apose",        "A-pose"),
+        ("clean_bg",     "Clean BG"),
+    ]
+    badges = ""
+    for key, label in checks:
+        val = verify.get(key)
+        icon = "✓" if val is True else "✗" if val is False else "?"
+        cls = "vbadge-ok" if val is True else "vbadge-err" if val is False else "vbadge-unk"
+        badges += f'<span class="{cls}">{icon} {label}</span>'
+    score = verify.get("score")
+    if score is not None:
+        badges += f'<span class="vbadge-score">Score: {score}/10</span>'
+    summary = verify.get("summary", "")
+    if summary:
+        safe_sum = html_mod.escape(summary[:120])
+        badges += f'<div class="vsummary">{safe_sum}</div>'
+    return f'<div class="verify-row">{badges}</div>'
+
+
 def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | None, view_outputs: list):
     """Write a self-contained HTML file that shows all profile views left-to-right."""
     import html as html_mod
@@ -268,21 +330,24 @@ def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | 
     # Build card entries: reference (if any) + generated views
     cards = []
     if ref_path:
-        cards.append({"label": "Reference", "file": "reference.png"})
+        cards.append({"label": "Reference", "file": "reference.png", "verify": None})
     for vo in view_outputs:
         if vo.get("view") in ("html", "strip"):
             continue
         label = vo["view"].capitalize()
-        cards.append({"label": label, "file": os.path.basename(vo["path"])})
+        verify = _load_view_verify(vo["path"]) if "path" in vo else None
+        cards.append({"label": label, "file": os.path.basename(vo["path"]), "verify": verify})
 
     cards_html = ""
     for c in cards:
         safe_label = html_mod.escape(c["label"])
         safe_file = html_mod.escape(c["file"])
+        verify_html = _render_verify_badges(c["verify"]) if c.get("verify") else ""
         cards_html += (
             f'      <div class="card">\n'
             f'        <img src="{safe_file}" alt="{safe_label}">\n'
             f'        <div class="label">{safe_label}</div>\n'
+            f'        {verify_html}\n'
             f"      </div>\n"
         )
 
@@ -331,6 +396,32 @@ def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | 
     padding: 6px 12px;
     font-size: 13px;
     color: #888;
+    text-align: center;
+  }}
+  .verify-row {{
+    padding: 6px 10px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+    border-top: 1px solid #333;
+  }}
+  .vbadge-ok, .vbadge-err, .vbadge-unk, .vbadge-score {{
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+  }}
+  .vbadge-ok    {{ background: #1b3a1b; color: #4caf50; }}
+  .vbadge-err   {{ background: #3a1b1b; color: #f44336; }}
+  .vbadge-unk   {{ background: #2a2a2a; color: #888; }}
+  .vbadge-score {{ background: #1a2a3a; color: #4a9eff; }}
+  .vsummary {{
+    width: 100%;
+    font-size: 11px;
+    color: #999;
+    padding: 2px 4px;
+    font-style: italic;
     text-align: center;
   }}
 </style>
@@ -624,7 +715,32 @@ def run_profile(args):
                 "height": result.image.height,
             })
 
-        # Generate HTML viewer showing all images left-to-right
+        # VLM view-angle verification (saves .caption.json; runs before HTML so badges appear)
+        if getattr(args, "vlm", True):
+            vlm_api_url = getattr(args, "vlm_api_url", "http://localhost:1234/v1")
+            vlm_model = getattr(args, "vlm_model", "qwen/qwen3-vl-4b")
+            print()
+            for vo in view_outputs:
+                view = vo.get("view")
+                if view not in ("front", "back", "side"):
+                    continue
+                print(f"  [view-verify] {view}...", end=" ", flush=True)
+                result_v = _vlm_verify_profile_view(vo["path"], view, vlm_api_url, vlm_model)
+                if result_v:
+                    ok = "✓" if result_v.get("view_correct") else "✗"
+                    print(f"{ok} score={result_v.get('score', '?')}")
+                    caption_data = {
+                        "image": vo["path"],
+                        "style": "profile-verify",
+                        "view": view,
+                        "model": vlm_model,
+                        "caption": result_v,
+                    }
+                    caption_path = os.path.splitext(vo["path"])[0] + ".caption.json"
+                    with open(caption_path, "w") as _f:
+                        json.dump(caption_data, _f, indent=2, ensure_ascii=False)
+
+        # Generate HTML viewer showing all images left-to-right (after VLM so badges appear)
         html_path = os.path.join(out_dir, "index.html")
         _write_html_viewer(html_path, out_dir, ref_image, input_image, view_outputs)
         print(f"\nHTML: {html_path}")

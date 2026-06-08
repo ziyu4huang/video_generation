@@ -10,6 +10,7 @@ const I18N = {
   en: {
     // Page
     pageTitle: "Video Quality Analysis",
+    imagePageTitle: "Image Quality Analysis",
     selfTestTitle: "Quality Self-Test",
     seed: "Seed",
 
@@ -25,6 +26,7 @@ const I18N = {
 
     // Summary card
     frames: "frames",
+    frame: "frame",
 
     // Metrics guide — detailed per-metric help
     sharpness: {
@@ -33,8 +35,26 @@ const I18N = {
       directionLabel: "↑ higher is better",
       summary: "Measures image clarity and edge definition.",
       detail: "The Laplacian operator computes the second spatial derivative, detecting edges and fine details. The variance of the Laplacian across the frame reflects how many sharp edges exist. Higher values indicate sharper, more detailed images; low values suggest blurriness, defocus, or excessive smoothing.",
-      range: "Typical: 100–800 for generated video. Below 150 = blurry; above 500 = very sharp.",
+      range: "Typical: 100–800 for generated content. Below 150 = blurry; above 500 = very sharp.",
       method: "cv2.Laplacian(gray, cv2.CV_64F).var()",
+    },
+    edge_density: {
+      name: "Edge Density (Sobel)",
+      direction: "higher",
+      directionLabel: "↑ higher is better",
+      summary: "Measures average gradient magnitude — texture and edge richness.",
+      detail: "Uses Sobel operators to compute horizontal and vertical gradients, then takes the root-mean-square magnitude. Higher values indicate more defined edges and richer texture. Useful for detecting over-smoothing (low values) or noisy/grainy content (very high values).",
+      range: "Typical: 10–60. Below 15 = flat/smooth; above 40 = very textured.",
+      method: "sqrt(SobelX² + SobelY²).mean()",
+    },
+    contrast: {
+      name: "Contrast (Luminance σ)",
+      direction: "higher",
+      directionLabel: "↑ higher is better",
+      summary: "Measures overall brightness variation across the frame.",
+      detail: "Standard deviation of the grayscale pixel values. A high value indicates the image uses a wide range of brightness levels; low values suggest a flat or uniformly lit scene. Higher contrast generally looks more visually appealing, but extremely high values may indicate harsh lighting.",
+      range: "Typical: 40–80. Below 40 = flat; above 70 = high contrast.",
+      method: "std(grayscale pixel values)",
     },
     noise_sigma: {
       name: "Noise (MAD σ)",
@@ -63,7 +83,7 @@ const I18N = {
       range: "Typical: 15–40. Below 20 = imperceptible; above 35 = visible blocking.",
       method: "mean(|diff at 8px boundaries|) for H and V",
     },
-    color_sat_std: {
+    saturation_std: {
       name: "Color Saturation σ",
       direction: "neutral",
       directionLabel: "— contextual",
@@ -112,6 +132,7 @@ const I18N = {
   zh_TW: {
     // Page
     pageTitle: "影片品質分析",
+    imagePageTitle: "影像品質分析",
     selfTestTitle: "品質自我測試",
     seed: "種子",
 
@@ -127,6 +148,7 @@ const I18N = {
 
     // Summary card
     frames: "影格",
+    frame: "影格",
 
     // Metrics guide
     sharpness: {
@@ -137,6 +159,24 @@ const I18N = {
       detail: "Laplacian 算子透過計算二階空間導數來偵測邊緣與細節。其在整個畫面的變異數反映了銳利邊緣的數量。數值越高代表影像越銳利、細節越豐富；低數值表示影像模糊、失焦或過度平滑。",
       range: "典型範圍：100–800。低於 150 = 模糊；超過 500 = 非常銳利。",
       method: "cv2.Laplacian(gray, cv2.CV_64F).var()",
+    },
+    edge_density: {
+      name: "邊緣密度 (Sobel)",
+      direction: "higher",
+      directionLabel: "↑ 越高越好",
+      summary: "衡量平均梯度大小 — 紋理與邊緣豐富度。",
+      detail: "使用 Sobel 算子計算水平和垂直梯度，再取均方根大小。數值越高表示邊緣越清晰、紋理越豐富。適合偵測過度平滑（低數值）或雜訊/顆粒感（非常高數值）的內容。",
+      range: "典型範圍：10–60。低於 15 = 平坦/平滑；超過 40 = 紋理非常豐富。",
+      method: "sqrt(SobelX² + SobelY²).mean()",
+    },
+    contrast: {
+      name: "對比度 (亮度 σ)",
+      direction: "higher",
+      directionLabel: "↑ 越高越好",
+      summary: "衡量整體亮度變化程度。",
+      detail: "灰階像素值的標準差。高數值表示影像使用了較廣的亮度範圍；低數值表示平坦或均勻照明的場景。較高的對比度通常在視覺上更具吸引力，但過高可能表示過於強烈的照明。",
+      range: "典型範圍：40–80。低於 40 = 平淡；超過 70 = 高對比。",
+      method: "std(灰階像素值)",
     },
     noise_sigma: {
       name: "雜訊 (MAD σ)",
@@ -165,7 +205,7 @@ const I18N = {
       range: "典型範圍：15–40。低於 20 = 肉眼不可見；超過 35 = 可見的方塊效應。",
       method: "mean(|8px 邊界差異|) — 水平 + 垂直",
     },
-    color_sat_std: {
+    saturation_std: {
       name: "色彩飽和度 σ",
       direction: "neutral",
       directionLabel: "— 視情境而定",
@@ -213,10 +253,14 @@ const I18N = {
   },
 };
 
-// Metric key order (for guide section)
-const METRIC_KEYS = [
-  "sharpness", "noise_sigma", "snr_db", "blockiness",
-  "color_sat_std", "flicker_mean", "flicker_max", "consistency_ncc",
+// Metric key order — spatial metrics (shared image+video)
+const SPATIAL_METRIC_KEYS = [
+  "sharpness", "edge_density", "contrast", "noise_sigma",
+  "snr_db", "blockiness", "saturation_std",
+];
+// Temporal metrics (video-only)
+const TEMPORAL_METRIC_KEYS = [
+  "flicker_mean", "flicker_max", "consistency_ncc",
 ];
 
 // ---------------------------------------------------------------------------
@@ -224,108 +268,105 @@ const METRIC_KEYS = [
 // ---------------------------------------------------------------------------
 
 function renderHTML(config) {
-  const videos = config.videos || [];
+  const mediaType = config.mediaType || "video";
+  const isImage = mediaType === "image";
+  const items = isImage ? (config.images || []) : (config.videos || []);
   const mode = config.mode || "single";
   const generatedAt = config.generatedAt || "";
   const defaultLang = config.lang || "en";
-  const n = videos.length;
+  const n = items.length;
   const isCompare = n > 1;
+
+  // Determine metric keys based on media type
+  const allMetricKeys = isImage
+    ? SPATIAL_METRIC_KEYS
+    : [...SPATIAL_METRIC_KEYS, ...TEMPORAL_METRIC_KEYS];
 
   // Serialize i18n for client-side use
   const i18nJSON = JSON.stringify(I18N);
-  const metricKeysJSON = JSON.stringify(METRIC_KEYS);
+  const spatialKeysJSON = JSON.stringify(SPATIAL_METRIC_KEYS);
+  const temporalKeysJSON = JSON.stringify(TEMPORAL_METRIC_KEYS);
 
   // Chart colors
   const colors = ["#4a9eff", "#f5c518", "#4caf50", "#f44336", "#9c27b0", "#ff9800"];
 
   // Build comparison table rows
   let tableRows = "";
-  const allMetrics = [
-    { key: "sharpness", source: "per_frame" },
-    { key: "noise_sigma", source: "per_frame" },
-    { key: "snr_db", source: "per_frame" },
-    { key: "blockiness", source: "per_frame" },
-    { key: "color_sat_std", source: "per_frame" },
-    { key: "flicker_mean", source: "temporal" },
-    { key: "flicker_max", source: "temporal" },
-    { key: "consistency_ncc", source: "temporal" },
-  ];
+  for (const mKey of allMetricKeys) {
+    const dir = I18N.en[mKey]?.direction || "neutral";
+    const source = TEMPORAL_METRIC_KEYS.includes(mKey) ? "temporal" : "per_frame";
 
-  for (const m of allMetrics) {
-    const values = videos.map(v => {
-      if (m.source === "per_frame") return v.per_frame_summary[m.key]?.mean ?? 0;
-      return v.temporal_summary[m.key] ?? 0;
+    const values = items.map(v => {
+      if (source === "per_frame") return v.per_frame_summary[mKey]?.mean ?? 0;
+      return v.temporal_summary[mKey] ?? 0;
     });
-    // Direction from i18n
-    const dir = I18N.en[m.key]?.direction || "neutral";
+
     let winnerIdx = -1;
     if (dir === "higher") winnerIdx = values.indexOf(Math.max(...values));
     else if (dir === "lower") winnerIdx = values.indexOf(Math.min(...values));
 
-    tableRows += `<tr data-metric="${m.key}">`;
-    tableRows += `<td class="metric-name" data-i18n-metric-name="${m.key}"></td>`;
+    tableRows += `<tr data-metric="${mKey}">`;
+    tableRows += `<td class="metric-name" data-i18n-metric-name="${mKey}"></td>`;
     for (let i = 0; i < n; i++) {
       const isWin = i === winnerIdx && isCompare;
       const v = values[i];
-      const fmt = (m.key === "consistency_ncc") ? v.toFixed(3)
+      const fmt = (mKey === "consistency_ncc") ? v.toFixed(3)
                 : (Math.abs(v) < 10) ? v.toFixed(2) : v.toFixed(1);
       tableRows += `<td class="${isWin ? 'winner' : ''}">${fmt}</td>`;
     }
     if (isCompare) {
-      tableRows += `<td class="winner-badge" data-winner="${winnerIdx >= 0 ? videos[winnerIdx].label : ''}"></td>`;
+      tableRows += `<td class="winner-badge">${winnerIdx >= 0 ? items[winnerIdx].label + ' ✓' : '—'}</td>`;
     }
-    tableRows += `<td class="hint" data-i18n-metric-dir="${m.key}"></td>`;
+    tableRows += `<td class="hint" data-i18n-metric-dir="${mKey}"></td>`;
     tableRows += `</tr>`;
   }
 
-  // Build per-frame chart sections
-  const frameChartKeys = [
-    { key: "sharpness", yLabel: "Sharpness" },
-    { key: "noise_sigma", yLabel: "Noise σ" },
-    { key: "snr_db", yLabel: "SNR (dB)" },
-    { key: "blockiness", yLabel: "Blockiness" },
-    { key: "color_sat_std", yLabel: "Saturation σ" },
-  ];
-  let chartSections = "";
-  for (const { key } of frameChartKeys) {
-    chartSections += `
-    <div class="chart-card">
-      <h3><span data-i18n-metric-name="${key}"></span> <span class="dir-hint" data-i18n-metric-dir="${key}"></span></h3>
-      <canvas id="chart-${key}"></canvas>
-    </div>`;
-  }
-  // Flicker chart
-  chartSections += `
-    <div class="chart-card">
-      <h3><span data-i18n-metric-name="flicker_mean"></span> <span class="dir-hint" data-i18n-metric-dir="flicker_mean"></span></h3>
-      <canvas id="chart-flicker"></canvas>
-    </div>`;
-
-  // Summary cards (will be populated by JS for i18n)
+  // Build summary cards
   let summaryCards = "";
-  for (let vi = 0; vi < n; vi++) {
-    const v = videos[vi];
-    const pf = v.per_frame_summary;
-    const tp = v.temporal_summary;
+  for (const item of items) {
+    const pfs = item.per_frame_summary;
+    const ts = item.temporal_summary || {};
+    const frameLabel = isImage ? `<span data-i18n="frame"></span>` : `${item.frames_analyzed} <span data-i18n="frames"></span>`;
     summaryCards += `
     <div class="summary-card">
-      <div class="card-label">${v.label}</div>
-      <div class="card-file">${v.video_basename}</div>
-      <div class="card-info">${v.resolution[0]}×${v.resolution[1]} · ${v.frames_analyzed} <span data-i18n="frames"></span></div>
+      <div class="card-label">${item.label}</div>
+      <div class="card-file">${isImage ? (item.image_basename || '') : (item.video_basename || '')}</div>
+      <div class="card-info">${item.resolution[0]}×${item.resolution[1]} · ${frameLabel}</div>
       <div class="card-metrics">
-        <div><span class="metric-label" data-i18n-metric-name="sharpness"></span> <span class="metric-value">${pf.sharpness?.mean.toFixed(1) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="sharpness"></span></div>
-        <div><span class="metric-label" data-i18n-metric-name="noise_sigma"></span> <span class="metric-value">${pf.noise_sigma?.mean.toFixed(2) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="noise_sigma"></span></div>
-        <div><span class="metric-label" data-i18n-metric-name="snr_db"></span> <span class="metric-value">${pf.snr_db?.mean.toFixed(1) ?? '—'} dB</span> <span class="dir" data-i18n-metric-dir="snr_db"></span></div>
-        <div><span class="metric-label" data-i18n-metric-name="blockiness"></span> <span class="metric-value">${pf.blockiness?.mean.toFixed(1) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="blockiness"></span></div>
-        <div><span class="metric-label" data-i18n-metric-name="flicker_mean"></span> <span class="metric-value">${tp.flicker_mean?.toFixed(1) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="flicker_mean"></span></div>
-        <div><span class="metric-label" data-i18n-metric-name="consistency_ncc"></span> <span class="metric-value">${tp.consistency_ncc?.toFixed(3) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="consistency_ncc"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="sharpness"></span> <span class="metric-value">${pfs.sharpness?.mean.toFixed(1) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="sharpness"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="edge_density"></span> <span class="metric-value">${pfs.edge_density?.mean.toFixed(2) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="edge_density"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="contrast"></span> <span class="metric-value">${pfs.contrast?.mean.toFixed(2) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="contrast"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="noise_sigma"></span> <span class="metric-value">${pfs.noise_sigma?.mean.toFixed(2) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="noise_sigma"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="snr_db"></span> <span class="metric-value">${pfs.snr_db?.mean.toFixed(1) ?? '—'} dB</span> <span class="dir" data-i18n-metric-dir="snr_db"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="blockiness"></span> <span class="metric-value">${pfs.blockiness?.mean.toFixed(1) ?? '—'}</span> <span class="dir" data-i18n-metric-dir="blockiness"></span></div>
+        ${!isImage ? `<div><span class="metric-label" data-i18n-metric-name="flicker_mean"></span> <span class="metric-value">${(ts.flicker_mean ?? 0).toFixed(1)}</span> <span class="dir" data-i18n-metric-dir="flicker_mean"></span></div>
+        <div><span class="metric-label" data-i18n-metric-name="consistency_ncc"></span> <span class="metric-value">${(ts.consistency_ncc ?? 0).toFixed(3)}</span> <span class="dir" data-i18n-metric-dir="consistency_ncc"></span></div>` : ''}
       </div>
     </div>`;
   }
 
-  // Metrics guide section (populated by JS)
+  // Per-frame charts section (video only — images don't have frame arrays)
+  let chartSections = "";
+  let chartScripts = "";
+  if (!isImage) {
+    for (const key of SPATIAL_METRIC_KEYS) {
+      chartSections += `
+      <div class="chart-card">
+        <h3><span data-i18n-metric-name="${key}"></span> <span class="dir-hint" data-i18n-metric-dir="${key}"></span></h3>
+        <canvas id="chart-${key}"></canvas>
+      </div>`;
+    }
+    // Flicker chart
+    chartSections += `
+      <div class="chart-card">
+        <h3><span data-i18n-metric-name="flicker_mean"></span> <span class="dir-hint" data-i18n-metric-dir="flicker_mean"></span></h3>
+        <canvas id="chart-flicker"></canvas>
+      </div>`;
+  }
+
+  // Metrics guide section
   let guideCards = "";
-  for (const key of METRIC_KEYS) {
+  for (const key of allMetricKeys) {
     guideCards += `
     <div class="guide-card" data-guide-metric="${key}">
       <div class="guide-header" onclick="toggleGuideDetail('${key}')">
@@ -356,7 +397,7 @@ function renderHTML(config) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Video Quality Analysis</title>
+<title>Quality Analysis</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -447,7 +488,7 @@ td.winner { color: var(--gold); font-weight: 700; }
 <body>
 <header>
   <div>
-    <h1 data-i18n="pageTitle"></h1>
+    <h1 id="page-title"></h1>
     <div class="meta">${generatedAt}${mode === 'self-test' ? ` · <span data-i18n="seed"></span>: ${config.seed}` : ''}</div>
   </div>
   <div class="header-actions">
@@ -465,7 +506,7 @@ td.winner { color: var(--gold); font-weight: 700; }
   ${isCompare ? `
   <h2 class="section-title"><span data-i18n="comparison"></span></h2>
   <table>
-    <thead><tr><th data-i18n="metric"></th>${videos.map(v => `<th>${v.label}</th>`).join('')}<th data-i18n="winner"></th><th></th></tr></thead>
+    <thead><tr><th data-i18n="metric"></th>${items.map(v => `<th>${v.label}</th>`).join('')}<th data-i18n="winner"></th><th></th></tr></thead>
     <tbody>${tableRows}</tbody>
   </table>
   <div class="charts-grid">
@@ -476,10 +517,12 @@ td.winner { color: var(--gold); font-weight: 700; }
   </div>
   ` : ''}
 
+  ${!isImage ? `
   <h2 class="section-title"><span data-i18n="perFrame"></span></h2>
   <div class="charts-grid">
     ${chartSections}
   </div>
+  ` : ''}
 
   <div class="guide-section-wrap" id="guide-section">
     <h2 class="section-title"><span data-i18n="metricsGuide"></span></h2>
@@ -493,8 +536,13 @@ td.winner { color: var(--gold); font-weight: 700; }
 // ---- Config & i18n data ----
 const configData = ${JSON.stringify(config)};
 const I18N = ${i18nJSON};
-const METRIC_KEYS = ${metricKeysJSON};
+const SPATIAL_METRIC_KEYS = ${spatialKeysJSON};
+const TEMPORAL_METRIC_KEYS = ${temporalKeysJSON};
 const colors = ${JSON.stringify(colors)};
+
+const mediaType = configData.mediaType || "video";
+const isImage = mediaType === "image";
+const allMetricKeys = isImage ? SPATIAL_METRIC_KEYS : [...SPATIAL_METRIC_KEYS, ...TEMPORAL_METRIC_KEYS];
 
 let currentLang = "${defaultLang}";
 
@@ -504,6 +552,10 @@ function tm(key, field) { return I18N[currentLang][key]?.[field] || I18N.en[key]
 // ---- Apply i18n to all elements ----
 function applyI18n() {
   document.documentElement.lang = currentLang === "zh_TW" ? "zh-TW" : "en";
+
+  // Page title
+  const titleEl = document.getElementById("page-title");
+  if (titleEl) titleEl.textContent = isImage ? t("imagePageTitle") : t("pageTitle");
 
   // Simple text keys
   document.querySelectorAll("[data-i18n]").forEach(el => {
@@ -574,69 +626,73 @@ function toggleGuideDetail(key) {
 // ---- Initial i18n apply ----
 applyI18n();
 
-// ---- Charts ----
-const videos = configData.videos || [];
-const n = videos.length;
+// ---- Charts (video only) ----
+const items = configData.videos || configData.images || [];
+const n = items.length;
 
-// Per-frame charts
-const frameChartKeys = ["sharpness", "noise_sigma", "snr_db", "blockiness", "color_sat_std"];
-for (const key of frameChartKeys) {
-  const datasets = videos.map((v, i) => ({
-    label: v.label,
-    data: v.per_frame_values[key] || [],
-    borderColor: colors[i % colors.length],
-    backgroundColor: colors[i % colors.length] + "22",
-    borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3,
-  }));
-  const len = (videos[0]?.per_frame_values[key]?.length || 0);
-  new Chart(document.getElementById("chart-" + key), {
-    type: "line",
-    data: { labels: Array.from({length: len}, (_, i) => i), datasets },
-    options: {
-      responsive: true,
-      plugins: { legend: { labels: { color: "#e0e0e0" } } },
-      scales: {
-        x: { title: { display: true, text: "Frame", color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
-        y: { title: { display: true, text: tm(key, "name"), color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
+if (!isImage) {
+  // Per-frame charts
+  for (const key of SPATIAL_METRIC_KEYS) {
+    const datasets = items.map((v, i) => ({
+      label: v.label,
+      data: v.per_frame_values?.[key] || [],
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length] + "22",
+      borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3,
+    }));
+    const canvas = document.getElementById("chart-" + key);
+    if (!canvas) continue;
+    const len = (items[0]?.per_frame_values?.[key]?.length || 0);
+    new Chart(canvas, {
+      type: "line",
+      data: { labels: Array.from({length: len}, (_, i) => i), datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: { title: { display: true, text: "Frame", color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
+          y: { title: { display: true, text: tm(key, "name"), color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
+        },
       },
-    },
-  });
+    });
+  }
+
+  // Flicker chart
+  const flickerCanvas = document.getElementById("chart-flicker");
+  if (flickerCanvas) {
+    const flickerDatasets = items.map((v, i) => ({
+      label: v.label,
+      data: v.temporal_summary?.flicker_values || [],
+      borderColor: colors[i % colors.length],
+      borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3,
+    }));
+    const flickerLen = (items[0]?.temporal_summary?.flicker_values?.length || 0);
+    new Chart(flickerCanvas, {
+      type: "line",
+      data: { labels: Array.from({length: flickerLen}, (_, i) => i), datasets: flickerDatasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: "#e0e0e0" } } },
+        scales: {
+          x: { title: { display: true, text: "Frame pair", color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
+          y: { title: { display: true, text: tm("flicker_mean", "name"), color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
+        },
+      },
+    });
+  }
 }
 
-// Flicker chart
-const flickerDatasets = videos.map((v, i) => ({
-  label: v.label,
-  data: v.temporal_summary.flicker_values || [],
-  borderColor: colors[i % colors.length],
-  borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.3,
-}));
-const flickerLen = (videos[0]?.temporal_summary?.flicker_values?.length || 0);
-new Chart(document.getElementById("chart-flicker"), {
-  type: "line",
-  data: { labels: Array.from({length: flickerLen}, (_, i) => i), datasets: flickerDatasets },
-  options: {
-    responsive: true,
-    plugins: { legend: { labels: { color: "#e0e0e0" } } },
-    scales: {
-      x: { title: { display: true, text: "Frame pair", color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
-      y: { title: { display: true, text: tm("flicker_mean", "name"), color: "#777" }, ticks: { color: "#555" }, grid: { color: "#222" } },
-    },
-  },
-});
-
-// Comparison bar chart
+// Comparison bar chart (works for both image and video)
 if (n > 1) {
-  const allMetrics = [
-    ...frameChartKeys.map(k => ({ key: k, source: "per_frame" })),
-    { key: "flicker_mean", source: "temporal" },
-    { key: "flicker_max", source: "temporal" },
-    { key: "consistency_ncc", source: "temporal" },
-  ];
+  const allMetrics = allMetricKeys.map(k => ({
+    key: k,
+    source: TEMPORAL_METRIC_KEYS.includes(k) ? "temporal" : "per_frame",
+  }));
   const metricLabels = allMetrics.map(m => tm(m.key, "name"));
-  const barDatasets = videos.map((v, i) => {
+  const barDatasets = items.map((v, i) => {
     const vals = allMetrics.map(m => {
-      if (m.source === "per_frame") return v.per_frame_summary[m.key]?.mean ?? 0;
-      return v.temporal_summary[m.key] ?? 0;
+      if (m.source === "per_frame") return v.per_frame_summary?.[m.key]?.mean ?? 0;
+      return v.temporal_summary?.[m.key] ?? 0;
     });
     return {
       label: v.label,

@@ -87,6 +87,7 @@ OPTIONAL_FIELDS = {
     "weight_file":   str,   # Override weight filename (e.g. "transformer-dev.safetensors")
     "trigger_words": list,  # LoRA trigger words (e.g. ["style1", "style2"])
     "test_prompt":   str,   # LoRA reference test prompt
+    "recommended_scale": float,  # Recommended LoRA weight (0.0-2.0)
 }
 
 # Known pipeline names (warn on unknown)

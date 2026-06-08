@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -102,6 +102,18 @@ class RunConfig:
     seed_variance_strength: float = 20.0
     seed_variance_switchover: float = 20.0
 
+    # Workflow stage settings (multi-stage pipeline: generate → face detail → postprocess → upscale)
+    face_detail: bool = False
+    face_detail_denoise: float = 0.15
+    face_detail_steps: int = 9
+    face_detail_lora: str | None = None
+    film_grain: float = 0.0
+    sharpening: float = 0.0
+    lut_path: str | None = None
+    lut_strength: float = 0.3
+    skin_contrast: bool = False
+    noise_clean: bool = False
+
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
@@ -161,6 +173,16 @@ class RunConfig:
             seed_variance_percent=getattr(args, "seed_variance_percent", 50.0),
             seed_variance_strength=getattr(args, "seed_variance_strength", 20.0),
             seed_variance_switchover=getattr(args, "seed_variance_switchover", 20.0),
+            face_detail=getattr(args, "face_detail", False),
+            face_detail_denoise=getattr(args, "face_detail_denoise", 0.15),
+            face_detail_steps=getattr(args, "face_detail_steps", 9),
+            face_detail_lora=getattr(args, "face_detail_lora", None),
+            film_grain=getattr(args, "film_grain", 0.0),
+            sharpening=getattr(args, "sharpening", 0.0),
+            lut_path=getattr(args, "lut", None),
+            lut_strength=getattr(args, "lut_strength", 0.3),
+            skin_contrast=getattr(args, "skin_contrast", False),
+            noise_clean=getattr(args, "noise_clean", False),
         )
         # Inline prompt-file content so run.json is self-contained
         if rc.prompt_file and not rc.prompt:
@@ -298,5 +320,20 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("seed_variance_switchover", 20.0)
         raw["schema_version"] = 11
         version = 11
+
+    if version == 11:
+        # v11 → v12: add workflow stage settings (face detail, post-processing)
+        raw.setdefault("face_detail", False)
+        raw.setdefault("face_detail_denoise", 0.15)
+        raw.setdefault("face_detail_steps", 9)
+        raw.setdefault("face_detail_lora", None)
+        raw.setdefault("film_grain", 0.0)
+        raw.setdefault("sharpening", 0.0)
+        raw.setdefault("lut_path", None)
+        raw.setdefault("lut_strength", 0.3)
+        raw.setdefault("skin_contrast", False)
+        raw.setdefault("noise_clean", False)
+        raw["schema_version"] = 12
+        version = 12
 
     return raw

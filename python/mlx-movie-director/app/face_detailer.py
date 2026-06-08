@@ -37,9 +37,14 @@ def detect_faces(image: Image.Image, min_confidence: float = 0.5) -> list[Boundi
         min_confidence: Minimum detection confidence threshold
 
     Returns:
-        List of BoundingBox objects
+        List of BoundingBox objects (empty list if mediapipe unavailable)
     """
-    import mediapipe as mp
+    try:
+        import mediapipe as mp
+    except ImportError:
+        print("  [FaceDetailer] mediapipe not installed — skipping face detection")
+        print("    Install with: pip install mediapipe")
+        return []
 
     mp_detection = mp.solutions.face_detection
     img_np = np.array(image)

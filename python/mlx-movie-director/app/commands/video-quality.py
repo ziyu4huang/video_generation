@@ -1,7 +1,7 @@
 """video-quality — No-reference video quality analysis using traditional signal processing.
 
 Measures noise, sharpness, compression artifacts, and temporal stability
-without any AI models. Uses pure OpenCV + NumPy.
+without any AI models. Uses shared app.quality_metrics for per-frame analysis.
 
 Sub-actions:
   analyze (default) — Analyze one or more existing videos
@@ -20,25 +20,19 @@ Exports: add_quality_args(), run_quality()
 import glob
 import json
 import os
-import shutil
 import subprocess
 import sys
-import types
 from datetime import datetime, timezone
 
 import cv2
 import numpy as np
 
 from app import config as cfg
-from app.test_prompts_video import get_test_prompt, list_test_prompt_names
+from app.quality_metrics import analyze_frame, generate_html_report
+from app.test_prompts_video import get_test_prompt
 
 _RUN_PY = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "run.py")
-)
-
-_STATIC_TEMPLATE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "scripts", "quality-reporter-static.js",
 )
 
 
@@ -50,7 +44,8 @@ PARSER_META = {
     "help": "No-reference video quality analysis (noise, sharpness, artifacts)",
     "description": (
         "Analyze video quality using traditional signal processing metrics.\n\n"
-        "Metrics: sharpness, noise (σ), SNR, blockiness, temporal flicker.\n\n"
+        "Metrics: sharpness, edge density, contrast, noise (σ), SNR, blockiness, "
+        "temporal flicker, frame consistency.\n\n"
         "Modes:\n"
         "  analyze (default)  — Analyze existing video file(s)\n"
         "  self-test          — Generate distilled + HQ videos, then compare\n\n"
@@ -167,27 +162,25 @@ def _run_analyze(args, video_paths: list[str]):
     if len(results) > 1:
         _print_comparison(results)
 
+    # Build report data
+    report_data = {
+        "mode": "compare" if len(results) > 1 else "single",
+        "mediaType": "video",
+        "lang": getattr(args, "quality_lang", "en"),
+        "videos": results,
+    }
+
     # JSON report
     json_path = getattr(args, "quality_json", None)
     if json_path:
-        report_data = {
-            "mode": "compare" if len(results) > 1 else "single",
-            "lang": getattr(args, "quality_lang", "en"),
-            "videos": results,
-        }
         with open(json_path, "w") as f:
             json.dump(report_data, f, indent=2, default=str)
         print(f"\n[quality] JSON report: {json_path}")
-    else:
-        report_data = {
-            "mode": "compare" if len(results) > 1 else "single",
-            "lang": getattr(args, "quality_lang", "en"),
-            "videos": results,
-        }
 
     # HTML report
     if not getattr(args, "no_html", False):
-        _generate_html_report(report_data, resolved[0])
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, resolved[0])
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +265,7 @@ def _run_self_test(args):
     # Report data
     report_data = {
         "mode": "self-test",
+        "mediaType": "video",
         "lang": getattr(args, "quality_lang", "en"),
         "test_prompt": tp_name,
         "prompt": prompt,
@@ -288,11 +282,12 @@ def _run_self_test(args):
 
     # HTML report
     if not getattr(args, "no_html", False):
-        _generate_html_report(report_data, manifest_paths[0])
+        html_data = _prepare_html_data(report_data)
+        generate_html_report(html_data, manifest_paths[0])
 
 
 # ---------------------------------------------------------------------------
-# Core metrics
+# Core video analysis (per-frame via shared module + temporal metrics)
 # ---------------------------------------------------------------------------
 
 def analyze_video(video_path: str, sample_every: int = 1) -> dict:
@@ -311,12 +306,11 @@ def analyze_video(video_path: str, sample_every: int = 1) -> dict:
     if sample_every > 1:
         print(f"[quality]   Sampling every {sample_every} frames")
 
-    # Collect per-frame metrics
-    sharpness_list = []
-    noise_sigma_list = []
-    snr_db_list = []
-    blockiness_list = []
-    color_sat_std_list = []
+    # Accumulators for 7 per-frame metrics + temporal
+    per_frame_acc = {k: [] for k in (
+        "sharpness", "edge_density", "contrast", "noise_sigma",
+        "snr_db", "blockiness", "saturation_std",
+    )}
     flicker_list = []
     consistency_list = []
 
@@ -332,44 +326,16 @@ def analyze_video(video_path: str, sample_every: int = 1) -> dict:
         if frame_idx % sample_every == 0:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float64)
 
-            # 1. Sharpness — Laplacian variance
-            lap = cv2.Laplacian(gray, cv2.CV_64F)
-            sharpness = lap.var()
-            sharpness_list.append(sharpness)
+            # Shared per-frame metrics (7 metrics)
+            metrics = analyze_frame(gray, frame)
+            for k, v in metrics.items():
+                per_frame_acc[k].append(v)
 
-            # 2. Noise — MAD-based sigma estimation
-            mad = np.median(np.abs(lap - np.median(lap))) * 1.4826
-            noise_sigma_list.append(mad)
-
-            # 3. SNR (dB)
-            signal_mean = np.mean(gray)
-            noise_est = mad if mad > 0 else 0.01
-            snr = 20 * np.log10(signal_mean / noise_est) if signal_mean > 0 else 0
-            snr_db_list.append(snr)
-
-            # 4. Blockiness — 8×8 boundary artifacts
-            h8 = (height // 8) * 8
-            w8 = (width // 8) * 8
-            if h8 >= 16 and w8 >= 16:
-                blocks = gray[:h8, :w8].reshape(h8 // 8, 8, w8 // 8, 8)
-                horiz_diff = np.abs(np.diff(blocks, axis=2)).mean()
-                vert_diff = np.abs(np.diff(blocks, axis=1)).mean()
-                blockiness_list.append(horiz_diff + vert_diff)
-            else:
-                blockiness_list.append(0)
-
-            # 5. Color saturation std
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            color_sat_std_list.append(np.std(hsv[:, :, 1]))
-
-            # 6. Temporal metrics (need previous frame)
+            # Temporal metrics (video-only)
             if prev_gray is not None:
-                # Temporal flicker
-                flicker = np.abs(gray - prev_gray).mean()
+                flicker = float(np.abs(gray - prev_gray).mean())
                 flicker_list.append(flicker)
 
-                # Temporal consistency (NCC)
-                # Use a smaller region for matchTemplate (must be <= frame size)
                 result = cv2.matchTemplate(
                     gray.astype(np.float32),
                     prev_gray.astype(np.float32),
@@ -409,11 +375,7 @@ def analyze_video(video_path: str, sample_every: int = 1) -> dict:
         "fps": fps,
         "resolution": [width, height],
         "per_frame": {
-            "sharpness": {**_stats(sharpness_list), "values": sharpness_list},
-            "noise_sigma": {**_stats(noise_sigma_list), "values": noise_sigma_list},
-            "snr_db": {**_stats(snr_db_list), "values": snr_db_list},
-            "blockiness": {**_stats(blockiness_list), "values": blockiness_list},
-            "color_sat_std": {**_stats(color_sat_std_list), "values": color_sat_std_list},
+            k: {**_stats(v), "values": v} for k, v in per_frame_acc.items()
         },
         "temporal": {
             "flicker_mean": float(np.mean(flicker_list)) if flicker_list else 0,
@@ -426,131 +388,8 @@ def analyze_video(video_path: str, sample_every: int = 1) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Terminal output
+# HTML data preparation
 # ---------------------------------------------------------------------------
-
-def _print_single_report(report: dict):
-    """Print quality summary for a single video."""
-    pf = report["per_frame"]
-    tp = report["temporal"]
-
-    print(f"  Per-frame averages:")
-    print(f"    Sharpness (Laplacian σ²)  : {pf['sharpness']['mean']:>8.1f}  ↑ better")
-    print(f"    Noise (Laplacian MAD σ)   : {pf['noise_sigma']['mean']:>8.2f}  ↓ better")
-    print(f"    SNR (dB)                  : {pf['snr_db']['mean']:>8.1f}  ↑ better")
-    print(f"    Blockiness (8×8)          : {pf['blockiness']['mean']:>8.1f}  ↓ better")
-    print(f"    Color saturation σ        : {pf['color_sat_std']['mean']:>8.1f}  —")
-
-    print(f"  Temporal:")
-    print(f"    Flicker (mean)            : {tp['flicker_mean']:>8.1f}  ↓ better")
-    print(f"    Flicker (max)             : {tp['flicker_max']:>8.1f}  ↓ better")
-    print(f"    Frame consistency (NCC)   : {tp['consistency_ncc']:>8.3f}  ↑ better")
-
-
-def _print_comparison(results: list[dict]):
-    """Print side-by-side A/B comparison table."""
-    labels = [r.get("label", chr(65 + i)) for i, r in enumerate(results)]
-    n = len(results)
-
-    # Determine winners for each metric
-    metrics = [
-        ("Sharpness", "sharpness", "higher"),
-        ("Noise (MAD σ)", "noise_sigma", "lower"),
-        ("SNR (dB)", "snr_db", "higher"),
-        ("Blockiness", "blockiness", "lower"),
-        ("Flicker (mean)", "flicker_mean", "lower"),
-        ("Flicker (max)", "flicker_max", "lower"),
-        ("Consistency (NCC)", "consistency_ncc", "higher"),
-    ]
-
-    # Header
-    label_width = max(len(l) for l in labels) + 2
-    metric_col = 22
-    sep = "─" * metric_col + " " + ("─" * (label_width + 1)) * n + " " + "─" * 8
-
-    header = f"  {'Metric':<{metric_col}}"
-    for l in labels:
-        header += f" {l:>{label_width}}"
-    header += f" {'Winner':>8}"
-
-    print(f"\n[quality] {'═' * 10} Comparison {'═' * 10}")
-    print(header)
-    print(f"  {sep}")
-
-    for name, key, direction in metrics:
-        row = f"  {name:<{metric_col}}"
-        values = []
-        for r in results:
-            if key in r["per_frame"]:
-                v = r["per_frame"][key]["mean"]
-            else:
-                v = r["temporal"][key]
-            values.append(v)
-
-        # Format values
-        for v in values:
-            if abs(v) < 10:
-                row += f" {v:>{label_width}.2f}"
-            else:
-                row += f" {v:>{label_width}.1f}"
-
-        # Determine winner
-        if direction == "higher":
-            best_idx = values.index(max(values))
-        else:
-            best_idx = values.index(min(values))
-        winner = labels[best_idx]
-        row += f" {winner:>8} ✓"
-
-        print(row)
-
-    print()
-
-
-# ---------------------------------------------------------------------------
-# HTML report
-# ---------------------------------------------------------------------------
-
-def _generate_html_report(report_data: dict, reference_path: str):
-    """Generate and launch HTML quality report."""
-    if not os.path.exists(_STATIC_TEMPLATE):
-        print(f"[quality] HTML template not found: {_STATIC_TEMPLATE}", file=sys.stderr)
-        print("[quality] Skipping HTML report (run from project root)", file=sys.stderr)
-        return
-
-    out_dir = os.path.dirname(os.path.abspath(reference_path))
-    if out_dir.endswith(".manifest.json") or out_dir.endswith(".mp4"):
-        out_dir = os.path.dirname(out_dir)
-    os.makedirs(out_dir, exist_ok=True)
-
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    mode = report_data.get("mode", "single")
-    out_js = os.path.join(out_dir, f"quality-reporter-{mode}-{ts}.js")
-
-    # Strip raw per-frame arrays for HTML (keep summary stats only)
-    # HTML will inline the data for Chart.js
-    html_data = _prepare_html_data(report_data)
-
-    config_json = json.dumps(html_data, ensure_ascii=False, default=str)
-    config_js = (
-        f"// AUTO-GENERATED — regenerate with: run.py video quality ...\n"
-        f"// Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n"
-        f"const CONFIG = {config_json};\n"
-    )
-
-    with open(_STATIC_TEMPLATE, encoding="utf-8") as f:
-        static_js = f.read()
-
-    with open(out_js, "w", encoding="utf-8") as f:
-        f.write(config_js)
-        f.write("\n\n")
-        f.write(static_js)
-
-    print(f"[quality] HTML report: {out_js}")
-
-    # Launch Bun server
-    _start_server(out_js)
-
 
 def _prepare_html_data(report_data: dict) -> dict:
     """Prepare data for HTML report — keep summary + per-frame values for charts."""
@@ -586,6 +425,7 @@ def _prepare_html_data(report_data: dict) -> dict:
 
     return {
         "mode": report_data.get("mode", "single"),
+        "mediaType": "video",
         "lang": report_data.get("lang", "en"),
         "test_prompt": report_data.get("test_prompt"),
         "seed": report_data.get("seed"),
@@ -594,40 +434,90 @@ def _prepare_html_data(report_data: dict) -> dict:
     }
 
 
-def _start_server(out_js: str):
-    """Launch the Bun HTTP server and open browser."""
-    bun = shutil.which("bun")
-    if not bun:
-        print("[quality] bun not found — install from https://bun.sh", file=sys.stderr)
-        print(f"[quality] Run manually: bun run {out_js}", file=sys.stderr)
-        return
+# ---------------------------------------------------------------------------
+# Terminal output
+# ---------------------------------------------------------------------------
 
-    import tempfile
-    import time
+def _print_single_report(report: dict):
+    """Print quality summary for a single video."""
+    pf = report["per_frame"]
+    tp = report["temporal"]
 
-    log_fd, log_path = tempfile.mkstemp(prefix="quality-report-", suffix=".log")
-    os.close(log_fd)
-    proc = subprocess.Popen(
-        [bun, "run", out_js],
-        stdout=open(log_path, "w"),
-        stderr=subprocess.STDOUT,
-    )
-    url = None
-    for _ in range(50):
-        time.sleep(0.1)
-        with open(log_path) as f:
-            for line in f:
-                if "Serving at" in line:
-                    url = line.strip().split()[-1]
-                    break
-        if url:
-            break
-    if url:
-        subprocess.Popen(["open", url])
-        print(f"[quality] Opened {url}")
-        print(f"[quality] Log: {log_path}  (PID: {proc.pid})")
-    else:
-        print(f"[quality] Server started (PID: {proc.pid}), log: {log_path}")
+    print(f"  Per-frame averages:")
+    print(f"    Sharpness (Laplacian σ²)  : {pf['sharpness']['mean']:>8.1f}  ↑ better")
+    print(f"    Edge density (Sobel)      : {pf['edge_density']['mean']:>8.2f}  ↑ better")
+    print(f"    Contrast (luminance σ)    : {pf['contrast']['mean']:>8.2f}  ↑ better")
+    print(f"    Noise (MAD σ)             : {pf['noise_sigma']['mean']:>8.2f}  ↓ better")
+    print(f"    SNR (dB)                  : {pf['snr_db']['mean']:>8.1f}  ↑ better")
+    print(f"    Blockiness (8×8)          : {pf['blockiness']['mean']:>8.1f}  ↓ better")
+    print(f"    Color saturation σ        : {pf['saturation_std']['mean']:>8.1f}  —")
+
+    print(f"  Temporal:")
+    print(f"    Flicker (mean)            : {tp['flicker_mean']:>8.1f}  ↓ better")
+    print(f"    Flicker (max)             : {tp['flicker_max']:>8.1f}  ↓ better")
+    print(f"    Frame consistency (NCC)   : {tp['consistency_ncc']:>8.3f}  ↑ better")
+
+
+def _print_comparison(results: list[dict]):
+    """Print side-by-side A/B comparison table."""
+    labels = [r.get("label", chr(65 + i)) for i, r in enumerate(results)]
+    n = len(results)
+
+    # Determine winners for each metric
+    metrics = [
+        ("Sharpness",       "sharpness",      "per_frame", "higher"),
+        ("Edge density",    "edge_density",   "per_frame", "higher"),
+        ("Contrast",        "contrast",        "per_frame", "higher"),
+        ("Noise (MAD σ)",   "noise_sigma",    "per_frame", "lower"),
+        ("SNR (dB)",        "snr_db",          "per_frame", "higher"),
+        ("Blockiness",      "blockiness",      "per_frame", "lower"),
+        ("Flicker (mean)",  "flicker_mean",    "temporal",  "lower"),
+        ("Flicker (max)",   "flicker_max",     "temporal",  "lower"),
+        ("Consistency",     "consistency_ncc", "temporal",  "higher"),
+    ]
+
+    # Header
+    label_width = max(len(l) for l in labels) + 2
+    metric_col = 22
+    sep = "─" * metric_col + " " + ("─" * (label_width + 1)) * n + " " + "─" * 8
+
+    header = f"  {'Metric':<{metric_col}}"
+    for l in labels:
+        header += f" {l:>{label_width}}"
+    header += f" {'Winner':>8}"
+
+    print(f"\n[quality] {'═' * 10} Comparison {'═' * 10}")
+    print(header)
+    print(f"  {sep}")
+
+    for name, key, source, direction in metrics:
+        row = f"  {name:<{metric_col}}"
+        values = []
+        for r in results:
+            if source == "per_frame":
+                v = r["per_frame"][key]["mean"]
+            else:
+                v = r["temporal"][key]
+            values.append(v)
+
+        # Format values
+        for v in values:
+            if abs(v) < 10:
+                row += f" {v:>{label_width}.2f}"
+            else:
+                row += f" {v:>{label_width}.1f}"
+
+        # Determine winner
+        if direction == "higher":
+            best_idx = values.index(max(values))
+        else:
+            best_idx = values.index(min(values))
+        winner = labels[best_idx]
+        row += f" {winner:>8} ✓"
+
+        print(row)
+
+    print()
 
 
 # ---------------------------------------------------------------------------
