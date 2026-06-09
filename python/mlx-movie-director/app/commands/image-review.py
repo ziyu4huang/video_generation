@@ -3163,7 +3163,8 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
     source_seed = test_cfg.get("source_seed", 42)
     src_w = test_cfg.get("source_width", 1024)
     src_h = test_cfg.get("source_height", 1024)
-    feather = test_cfg.get("feather", 64)
+    feather = test_cfg.get("feather", 96)
+    overlap = test_cfg.get("overlap", 96)
     longest = test_cfg.get("longest", 1024)
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 4)
     configs = test_cfg.get("configs", [])
@@ -3174,7 +3175,7 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
 
     print(f"\n{'#'*60}")
     print(f" Flux2 Klein Outpaint Self-Test: {test_name}")
-    print(f" variants: {len(configs)} | steps: {steps} | feather: {feather}")
+    print(f" variants: {len(configs)} | steps: {steps} | feather: {feather} | overlap: {overlap}")
     print(f"{'#'*60}")
 
     # Phase 1: Generate a square source image (ZImage pipeline)
@@ -3211,7 +3212,7 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
                     pixels=c.get("pixels", 512), ratio=None, longest=longest,
                 )
             padded, mask = _exp.build_padded_and_mask(
-                source, sw, sh, left, top, cw, ch, feather,
+                source, sw, sh, left, top, cw, ch, feather, overlap=overlap,
             )
             print(f"\n[selftest] Variant '{label}': {mode} → canvas {cw}x{ch}")
             res = pipeline.expand(

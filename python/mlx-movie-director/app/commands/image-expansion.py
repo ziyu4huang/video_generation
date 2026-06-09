@@ -147,10 +147,17 @@ def build_padded_and_mask(
     source: Image.Image,
     sw: int, sh: int, left: int, top: int, canvas_w: int, canvas_h: int,
     feather: int,
+    overlap: int = 0,
 ) -> tuple[Image.Image, Image.Image]:
     """Build the edge-extended padded image and the feathered outpaint mask.
 
     Returns (padded_rgb, mask_L) both sized (canvas_w, canvas_h).
+
+    ``overlap`` extends the regeneration band INTO the original on every expanded
+    side, so the model paints across the seam and reconciles lighting/texture/
+    perspective there (instead of generating the margin in isolation, which leaves
+    a visible seam). The final composite then fades back to the bit-perfect
+    original across the feathered overlap band — the deep interior is untouched.
     """
     # Scale source to the target (sw, sh).
     src_resized = source.convert("RGB").resize((sw, sh), Image.LANCZOS)
@@ -167,13 +174,20 @@ def build_padded_and_mask(
     )
     padded_img = Image.fromarray(padded, mode="RGB")
 
-    # Mask: 255 (regenerate) in the padded margins, 0 (keep) over the source,
-    # then Gaussian-feather the boundary for a smooth transition.
-    mask = np.zeros((sh, sw), dtype=np.uint8)
-    mask_img_full = Image.fromarray(
-        np.pad(mask, ((top, bottom), (left, right)), mode="constant", constant_values=255),
-        mode="L",
-    )
+    # Mask: 255 (regenerate) over each margin PLUS an `overlap`-wide band inside
+    # the original on every EXPANDED side. Non-expanded sides (margin 0) touch the
+    # canvas edge with pure original → no seam there → nothing to regenerate.
+    # Then Gaussian-feather so the final composite tapers generated→original.
+    mask = np.zeros((canvas_h, canvas_w), dtype=np.float32)
+    if left > 0:
+        mask[:, : left + overlap] = 1.0
+    if right > 0:
+        mask[:, canvas_w - (right + overlap):] = 1.0
+    if top > 0:
+        mask[: top + overlap, :] = 1.0
+    if bottom > 0:
+        mask[canvas_h - (bottom + overlap):, :] = 1.0
+    mask_img_full = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
     if feather and feather > 0:
         mask_img_full = mask_img_full.filter(ImageFilter.GaussianBlur(radius=feather))
     return padded_img, mask_img_full
@@ -204,8 +218,14 @@ def add_expansion_args(parser):
              "Margins are computed automatically. Mutually exclusive with --expand.",
     )
     parser.add_argument(
-        "--expansion-feather", type=int, default=64, dest="expansion_feather",
-        help="Mask feathering in pixels for a smooth seam (default: 64).",
+        "--expansion-feather", type=int, default=96, dest="expansion_feather",
+        help="Mask feathering in pixels for a smooth seam (default: 96).",
+    )
+    parser.add_argument(
+        "--overlap", type=int, default=96,
+        help="Pixels to regenerate INTO the original on each expanded side, so the "
+             "model paints across the seam and reconciles lighting/texture (default: 96). "
+             "Larger = more seamless but edits more of the original near the edges.",
     )
     parser.add_argument(
         "--longest", type=int, default=1024,
@@ -265,7 +285,8 @@ def run_expansion(args):
             sys.exit(1)
 
     pixels = getattr(args, "pixels", 1024)
-    feather = getattr(args, "expansion_feather", 64)
+    feather = getattr(args, "expansion_feather", 96)
+    overlap = getattr(args, "overlap", 96)
     longest = getattr(args, "longest", 1024)
     ref_strength = getattr(args, "expansion_ref_strength", 1.0)
     steps = getattr(args, "steps", None) or 4
@@ -284,10 +305,10 @@ def run_expansion(args):
     print(f"\n[expansion] Source: {src_w}x{src_h} → scaled {sw}x{sh}")
     print(f"[expansion] Mode: {mode}  | canvas {canvas_w}x{canvas_h} "
           f"(margins L={left} T={top} R={canvas_w-sw-left} B={canvas_h-sh-top})")
-    print(f"[expansion] Feather: {feather}px  | steps: {steps}  | seed: {seed}")
+    print(f"[expansion] Feather: {feather}px  | overlap: {overlap}px  | steps: {steps}  | seed: {seed}")
 
     padded_img, mask_img = build_padded_and_mask(
-        source, sw, sh, left, top, canvas_w, canvas_h, feather,
+        source, sw, sh, left, top, canvas_w, canvas_h, feather, overlap=overlap,
     )
 
     # Output paths ----------------------------------------------------------

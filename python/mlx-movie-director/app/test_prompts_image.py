@@ -1135,9 +1135,9 @@ _ALL_TESTS = {
             "clean white background, soft studio lighting, photorealistic."
         ),
         "sam_prompt": "cake",
-        "ref_sam_prompt": "macaron tower",
+        "ref_sam_prompt": "plate",
         "sam_threshold": 0.3,
-        "feather": 15,
+        "feather": 20,
         "source_seed": 88,
         "reference_seed": 400,
         "source_width": 960,
@@ -1147,7 +1147,7 @@ _ALL_TESTS = {
         "blend": True,
         "blend_strength": 0.5,
         "preserve_aspect_ratio": True,
-        "mask_dilate": 30,
+        "mask_dilate": 15,
         "blend_prompt": (
             "Food photography, overhead shot of a white plate with a colorful "
             "macaron tower in pastel pink, green, and lavender, "
@@ -1174,8 +1174,9 @@ _ALL_TESTS = {
         "source_seed": 42,
         "source_width": 1024,
         "source_height": 1024,
-        "feather": 64,
-        "steps": 4,
+        "feather": 96,
+        "overlap": 96,
+        "steps": 8,
         "longest": 1024,
         "configs": [
             {
