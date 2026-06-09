@@ -28,6 +28,9 @@ Named self-tests (--self-test <id>):
   grain-sweep                  — Film grain intensity sweep
   face-detail-ab               — Face detailer denoise strength A/B
   landscape-post               — Post-processing chain on landscape
+  flf2v-kitchen-coffee / kitchen-coffee — FLF2V: man making coffee, standing→seated
+  flf2v-studio-turn / studio-turn — FLF2V: portrait head turn with smile
+  flf2v-landscape-dusk / landscape-dusk — FLF2V: meadow golden hour→dusk
 
 'run.py generate' is an alias for this command (see run.py COMMAND_ALIASES).
 
@@ -51,6 +54,8 @@ Usage:
   run.py image workflow --self-test grain-sweep
   run.py image workflow --self-test face-detail-ab
   run.py image workflow --self-test landscape-post
+  run.py image review --self-test kitchen-coffee
+  run.py image review --self-test flf2v-studio-turn
 """
 
 import importlib
@@ -87,10 +92,11 @@ PARSER_META = {
         "Sub-actions:\n"
         "  t2i (default) — text-to-image (zimage or flux2-klein pipeline)\n"
         "  angle         — Flux2-Klein Kontext reframe from a different camera angle\n"
-        "  review        — Image review (angle grid, generation, manifest, vae, or lora)\n"
+        "  review        — Image review (angle grid, generation, manifest, vae, lora, or anime2real)\n"
         "  review vae    — VAE A/B comparison: generate + quality metrics + HTML\n"
         "  review lora   — LoRA A/B test: baseline vs adapter, quality metrics + voting\n"
         "                  (quality on by default; --no-quality to skip)\n"
+        "  review anime2real — anime2real Ref+LoRA self-test with cross-pipeline HTML review\n"
         "  profile       — Multi-view character profile sheet (front / back / side)\n"
         "  controlnet    — ControlNet: Z-Image native or Flux2 Klein reference conditioning\n"
         "  i2i           — Image-to-Image (Z-Image w/ ControlNet, or Flux2-Klein w/ LoRA)\n"
@@ -103,6 +109,8 @@ PARSER_META = {
         "  zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body, quality + voting\n"
         "  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer + caption review\n"
         "  anime2real-ref              — anime2real Ref+LoRA: identity-preserving multi-prompt review\n"
+        "  anime2real-ab / a2r-ab      — A/B test: photorealistic vs 3D game vs semi-realistic\n"
+        "  anime2real-pipeline / -v3   — Cross-pipeline: flux2-klein Ref+LoRA vs zimage I2I+LoRA\n"
         "  portrait-full               — Workflow A/B/C: base → detail+post → full+upscale\n"
         "  grain-sweep                 — Workflow: film grain intensity sweep\n"
         "  face-detail-ab              — Workflow: face detailer denoise strength A/B\n"
@@ -138,6 +146,7 @@ PARSER_META = {
         "  run.py image anime2real --input-image anime.png --steps 8 --lora-scale 1.0\n"
         "  run.py image --self-test anime2real\n"
         "  run.py image --self-test anime2real-ref\n"
+        "  run.py image review anime2real --self-test anime2real-pipeline\n"
         "  run.py image i2i --self-test\n"
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"
@@ -173,7 +182,7 @@ def add_args(parser):
         nargs="?",
         default=None,
         metavar="SUB_ACTION",
-        help="For 'review': angle | generation | vae | lora | (omit = manifest review from --inputs/--last)",
+        help="For 'review': angle | generation | vae | lora | anime2real | (omit = manifest review from --inputs/--last)",
     )
 
     # T2I-specific args: --width, --height, --pipeline, --ab-test, --variant, etc.
@@ -235,9 +244,12 @@ def run(args):
         return
 
     # Named self-test: route ALL --self-test values through the unified selftest dispatcher
-    # in image-review.py, except for 'review' (which checks self_test internally) and
-    # 'quality' (which has its own traditional-metrics self-test).
-    if isinstance(self_test_val, str) and action not in ("review", "quality", "i2i"):
+    # in image-review.py, except for:
+    #   'review'   — checks self_test internally
+    #   'quality'  — has its own traditional-metrics self-test
+    #   'workflow'  — has its own dedicated self-test runner + HTML renderer
+    #   'i2i'      — handles self_test internally
+    if isinstance(self_test_val, str) and action not in ("review", "quality", "workflow", "i2i"):
         _review.run_review(args, sub="selftest")
         return
 

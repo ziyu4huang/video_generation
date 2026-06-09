@@ -13,6 +13,7 @@ Workflow:
 """
 
 import math
+import os
 import time
 from dataclasses import dataclass
 
@@ -29,8 +30,16 @@ class BoundingBox:
     y2: int
 
 
+def _get_face_detector_model_path() -> str:
+    """Resolve path to the mediapipe face detection TFLite model."""
+    import os
+    # Model stored in project models/ directory
+    base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "..", "models", "face_detection", "blaze_face_short_range.tflite")
+
+
 def detect_faces(image: Image.Image, min_confidence: float = 0.5) -> list[BoundingBox]:
-    """Detect faces using mediapipe.
+    """Detect faces using mediapipe Tasks API.
 
     Args:
         image: PIL Image (RGB)
@@ -41,31 +50,43 @@ def detect_faces(image: Image.Image, min_confidence: float = 0.5) -> list[Boundi
     """
     try:
         import mediapipe as mp
+        from mediapipe.tasks.python import vision
+        from mediapipe.tasks.python.core.base_options import BaseOptions
     except ImportError:
         print("  [FaceDetailer] mediapipe not installed — skipping face detection")
         print("    Install with: pip install mediapipe")
         return []
 
-    mp_detection = mp.solutions.face_detection
+    model_path = _get_face_detector_model_path()
+    if not os.path.exists(model_path):
+        print(f"  [FaceDetailer] Face detection model not found: {model_path}")
+        print("    Download from: https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite")
+        return []
+
     img_np = np.array(image)
     h, w = img_np.shape[:2]
 
-    boxes = []
-    with mp_detection.FaceDetection(
-        model_selection=1,  # 1 = full range (up to 5 meters)
-        min_detection_confidence=min_confidence
-    ) as detector:
-        results = detector.process(img_np)
-        if results.detections:
-            for det in results.detections:
-                bbox = det.location_data.relative_bounding_box
-                # Convert relative coords to absolute
-                x1 = max(0, int(bbox.xmin * w))
-                y1 = max(0, int(bbox.ymin * h))
-                x2 = min(w, int((bbox.xmin + bbox.width) * w))
-                y2 = min(h, int((bbox.ymin + bbox.height) * h))
-                if x2 > x1 and y2 > y1:
-                    boxes.append(BoundingBox(x1, y1, x2, y2))
+    options = vision.FaceDetectorOptions(
+        base_options=BaseOptions(model_asset_path=model_path),
+        min_detection_confidence=min_confidence,
+    )
+    detector = vision.FaceDetector.create_from_options(options)
+
+    try:
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_np)
+        result = detector.detect(mp_img)
+
+        boxes = []
+        for det in result.detections:
+            bb = det.bounding_box
+            x1 = max(0, bb.origin_x)
+            y1 = max(0, bb.origin_y)
+            x2 = min(w, bb.origin_x + bb.width)
+            y2 = min(h, bb.origin_y + bb.height)
+            if x2 > x1 and y2 > y1:
+                boxes.append(BoundingBox(x1, y1, x2, y2))
+    finally:
+        detector.close()
 
     return boxes
 

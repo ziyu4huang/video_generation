@@ -68,18 +68,23 @@ class Attention(nn.Module):
         if self.to_qkv is not None:
             return
 
-        if isinstance(self.to_q, nn.QuantizedLinear):
-            bits = self.to_q.bits
-            group_size = self.to_q.group_size
-            num_groups = self.to_q.scales.shape[1]
+        # Unwrap LoRA-wrapped layers (LoRALinearWrapper has .base_layer)
+        to_q = getattr(self.to_q, "base_layer", self.to_q)
+        to_k = getattr(self.to_k, "base_layer", self.to_k)
+        to_v = getattr(self.to_v, "base_layer", self.to_v)
+
+        if isinstance(to_q, nn.QuantizedLinear):
+            bits = to_q.bits
+            group_size = to_q.group_size
+            num_groups = to_q.scales.shape[1]
             input_dims = num_groups * group_size
-            output_dims = self.to_q.weight.shape[0]
+            output_dims = to_q.weight.shape[0]
 
-            has_bias = hasattr(self.to_q, "biases")
+            has_bias = hasattr(to_q, "biases")
 
-            fused_weight = mx.concatenate([self.to_q.weight, self.to_k.weight, self.to_v.weight], axis=0)
-            fused_scales = mx.concatenate([self.to_q.scales, self.to_k.scales, self.to_v.scales], axis=0)
-            fused_biases = mx.concatenate([self.to_q.biases, self.to_k.biases, self.to_v.biases], axis=0) if has_bias else None
+            fused_weight = mx.concatenate([to_q.weight, to_k.weight, to_v.weight], axis=0)
+            fused_scales = mx.concatenate([to_q.scales, to_k.scales, to_v.scales], axis=0)
+            fused_biases = mx.concatenate([to_q.biases, to_k.biases, to_v.biases], axis=0) if has_bias else None
 
             self.to_qkv = nn.QuantizedLinear(input_dims, output_dims * 3, bias=has_bias, bits=bits, group_size=group_size)
             self.to_qkv.weight = fused_weight
@@ -87,9 +92,9 @@ class Attention(nn.Module):
             if has_bias:
                 self.to_qkv.biases = fused_biases
         else:
-            w_q = self.to_q.weight
-            w_k = self.to_k.weight
-            w_v = self.to_v.weight
+            w_q = to_q.weight
+            w_k = to_k.weight
+            w_v = to_v.weight
 
             fused_weight = mx.concatenate([w_q, w_k, w_v], axis=1).T
 

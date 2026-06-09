@@ -75,9 +75,12 @@ class WorkflowOrchestrator:
             print(f"\n{'='*60}")
             print(f"[Stage 2/4] Face Detailer")
             print(f"{'='*60}")
+            image_before = current_image
             current_image, t2 = self._run_face_detailer(current_image, prompt)
-            stage_images["face_detail"] = current_image
-            stage_timings["face_detail"] = t2
+            # Only record if face detailer actually modified the image
+            if current_image is not image_before:
+                stage_images["face_detail"] = current_image
+                stage_timings["face_detail"] = t2
 
         # --- Stage 3: Post-Processing ---
         has_post = self._has_post_processing()
@@ -189,6 +192,14 @@ class WorkflowOrchestrator:
 
         timings = {}
         upscale_model = self.config.upscale_model or DEFAULT_UPSCALE_MODEL
+
+        # Validate model exists before proceeding
+        if self.config.upscale_method != "seedvr2" and not os.path.exists(upscale_model):
+            raise FileNotFoundError(
+                f"Upscale model not found: {upscale_model}\n"
+                f"  Download and place it in the expected path, or use --no-upscale."
+            )
+
         w0, h0 = image.size
         t0 = time.time()
 

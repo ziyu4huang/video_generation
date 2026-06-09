@@ -547,6 +547,33 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=lora-ref: Simple review — original anime vs anime2real result
+    # -----------------------------------------------------------------------
+
+    "anime2real-review": {
+        "type": "lora-ref",
+        "review_only": True,
+        "description": (
+            "anime2real review: original anime vs Ref+LoRA result side-by-side. "
+            "2 columns with 👍👎 feedback + text comments."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk"],
+        "seeds": [42],
+        "ref_steps": 8,
+        "ref_count": 1,
+        "width": 640,
+        "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "lora_scale": 1.0,
+        "ref_prompt": (
+            "A photorealistic portrait photograph of the same character, "
+            "detailed realistic skin texture, natural lighting, DSLR camera, "
+            "shallow depth of field, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+    },
+
+    # -----------------------------------------------------------------------
     # type=lora-ref: Cross-pipeline anime2real comparison (flux2-klein vs zimage)
     # -----------------------------------------------------------------------
 
@@ -590,6 +617,56 @@ _ALL_TESTS = {
                 "keeping the original hair color, clothing, and all character features"
             ),
         },
+    },
+
+    # -----------------------------------------------------------------------
+    # type=lora-ref: A/B test — photorealistic vs 3D game vs semi-realistic
+    # -----------------------------------------------------------------------
+
+    "anime2real-ab": {
+        "type": "lora-ref",
+        "description": (
+            "anime2real A/B test: photorealistic vs 3D game vs semi-realistic. "
+            "4 columns: anime baseline + 3 style variants. Vote to pick best default."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        # Column B: Photorealistic (current default)
+        "ref_prompt": (
+            "A photorealistic portrait photograph of the same character, detailed realistic "
+            "skin texture, natural lighting, DSLR camera, shallow depth of field, "
+            "keeping the original hair color, clothing, and all character features"
+        ),
+        "ref_steps": 8,
+        "lora_scale": 1.0,
+        # Additional style variants (columns C, D)
+        "style_variants": [
+            {
+                "label": "3D Game",
+                "ref_prompt": (
+                    "A high-quality 3D game character render of the same character, "
+                    "Unreal Engine 5, subsurface scattering skin, cinematic rim lighting, "
+                    "game asset style, keeping the original hair color, clothing, "
+                    "and all character features"
+                ),
+                "lora_scale": 0.7,
+                "ref_steps": 8,
+            },
+            {
+                "label": "Semi-Realistic",
+                "ref_prompt": (
+                    "A semi-realistic digital illustration of the same character, "
+                    "detailed but slightly stylized, smooth skin, soft ambient lighting, "
+                    "blend of realistic and stylized aesthetics, keeping the original "
+                    "hair color, clothing, and all character features"
+                ),
+                "lora_scale": 0.85,
+                "ref_steps": 6,
+            },
+        ],
     },
 
     # -----------------------------------------------------------------------
@@ -701,6 +778,12 @@ _ALL_TESTS = {
         "mode": "debug",   # "debug" → 1 variation (~3 min); "full" → 8 variations (~25 min)
     },
 
+    "cnet-sweep": {
+        "type": "controlnet-i2i",
+        "description": "cnet_active_steps + ctrl_strength sweep to eliminate double-body while keeping V-pose",
+        "mode": "cnet-sweep",   # 6 variations: act8/10/12, str0.4/0.8, 15-20 steps
+    },
+
     # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
@@ -731,6 +814,40 @@ _ALL_TESTS = {
         "duration_frames": 25,
         "seed": 42,
         "steps": 30,
+    },
+
+    # -----------------------------------------------------------------------
+    # type=flf2v: First-Last Frame to Video — 3-step pipeline self-test
+    # -----------------------------------------------------------------------
+    # Requires: begin/end keyframe generation (T2I) + FLF2V interpolation.
+    # Best practice: same seed for both keyframes, different prompts, cfg_scale=3.0.
+    # See app/test_prompts_flf2v.py for the full prompt definitions.
+
+    "flf2v-kitchen-coffee": {
+        "type": "flf2v",
+        "description": (
+            "Man makes coffee in kitchen: standing at counter → seated at table sipping. "
+            "Tests pose + location + expression change with character consistency."
+        ),
+        "flf2v_test": "kitchen-coffee",
+    },
+
+    "flf2v-studio-turn": {
+        "type": "flf2v",
+        "description": (
+            "Woman in studio: frontal portrait → subtle head turn with gentle smile. "
+            "Tests minimal motion, expression micro-change, character fidelity."
+        ),
+        "flf2v_test": "studio-turn",
+    },
+
+    "flf2v-landscape-dusk": {
+        "type": "flf2v",
+        "description": (
+            "Open meadow: golden hour → dusk. Tests FLF2V on non-character scenes "
+            "with lighting and time transition."
+        ),
+        "flf2v_test": "landscape-dusk",
     },
 }
 
@@ -770,9 +887,20 @@ _ALL_TESTS_ALIASES = {
     "ref-lora":       "anime2real-ref",
     "anime2real-v3":  "anime2real-pipeline",
     "a2r-pipe":       "anime2real-pipeline",
+    "a2r-review":     "anime2real-review",
+    "a2r-ab":         "anime2real-ab",
     # Video aliases
     "rainy-street":  "video-rainy-street",
     "forest-hiker":  "video-forest-hiker",
+    # FLF2V aliases
+    "kitchen-coffee":   "flf2v-kitchen-coffee",
+    "flf2v-kitchen":    "flf2v-kitchen-coffee",
+    "coffee":           "flf2v-kitchen-coffee",
+    "studio-turn":      "flf2v-studio-turn",
+    "flf2v-portrait":   "flf2v-studio-turn",
+    "landscape-dusk":   "flf2v-landscape-dusk",
+    "flf2v-landscape":  "flf2v-landscape-dusk",
+    "dusk":             "flf2v-landscape-dusk",
     # Profile aliases
     "profile":          "profile-zimage",
     "profile-abc":      "profile-prompt-abc",

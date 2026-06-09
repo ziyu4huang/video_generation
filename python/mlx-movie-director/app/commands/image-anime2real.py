@@ -41,12 +41,41 @@ from app import config as cfg
 # Default LoRA for anime-to-real style transfer
 _DEFAULT_LORA = "anime-girl-turned-into-real-person"
 
-# Default prompt for realistic conversion
-_DEFAULT_PROMPT = (
-    "A photorealistic portrait photograph of the same character, detailed realistic "
-    "skin texture, natural lighting, DSLR camera, shallow depth of field, "
-    "keeping the original hair color, clothing, and all character features"
-)
+# Realism style presets — prompt, lora_scale, steps
+_REALISM_STYLES = {
+    "photorealistic": {
+        "prompt": (
+            "A photorealistic portrait photograph of the same character, detailed realistic "
+            "skin texture, natural lighting, DSLR camera, shallow depth of field, "
+            "keeping the original hair color, clothing, and all character features"
+        ),
+        "lora_scale": 1.0,
+        "steps": 8,
+    },
+    "3d-game": {
+        "prompt": (
+            "A high-quality 3D game character render of the same character, "
+            "Unreal Engine 5, subsurface scattering skin, cinematic rim lighting, "
+            "game asset style, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+        "lora_scale": 0.7,
+        "steps": 8,
+    },
+    "semi-realistic": {
+        "prompt": (
+            "A semi-realistic digital illustration of the same character, "
+            "detailed but slightly stylized, smooth skin, soft ambient lighting, "
+            "blend of realistic and stylized aesthetics, keeping the original "
+            "hair color, clothing, and all character features"
+        ),
+        "lora_scale": 0.85,
+        "steps": 6,
+    },
+}
+
+# Default prompt for realistic conversion (backward compat)
+_DEFAULT_PROMPT = _REALISM_STYLES["photorealistic"]["prompt"]
 
 # Self-test: anime prompts for comprehensive evaluation
 _ANIME_TEST_PROMPTS = {
@@ -92,8 +121,15 @@ def add_anime2real_args(parser):
         )
     if not _arg_registered(parser, "lora_scale"):
         parser.add_argument(
-            "--lora-scale", type=float, default=1.0,
-            help="LoRA conditioning strength (default: 1.0)",
+            "--lora-scale", type=float, default=None,
+            help="LoRA conditioning strength (default: depends on --realism-style)",
+        )
+    if not _arg_registered(parser, "realism_style"):
+        parser.add_argument(
+            "--realism-style", type=str, default="photorealistic",
+            choices=list(_REALISM_STYLES.keys()),
+            help="Output realism style preset: photorealistic (default), 3d-game, semi-realistic. "
+                 "Sets prompt, lora_scale, and steps unless overridden by explicit flags.",
         )
 
 
@@ -121,13 +157,16 @@ def run_anime2real(args):
         print(f"ERROR: Input image not found: {input_image_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve parameters
-    prompt = getattr(args, "prompt", None) or _DEFAULT_PROMPT
-    steps = getattr(args, "steps", None) or 8  # 8 = photographic quality
+    # Resolve parameters — apply realism-style preset first, then allow overrides
+    realism_style = getattr(args, "realism_style", "photorealistic")
+    style_preset = _REALISM_STYLES.get(realism_style, _REALISM_STYLES["photorealistic"])
+
+    prompt = getattr(args, "prompt", None) or style_preset["prompt"]
+    steps = getattr(args, "steps", None) or style_preset["steps"]
     seed = getattr(args, "seed", 42)
     lora_path_raw = getattr(args, "lora_path", None) or _DEFAULT_LORA
     lora_path = resolve_lora_path(lora_path_raw)
-    lora_scale = getattr(args, "lora_scale", 1.0)
+    lora_scale = getattr(args, "lora_scale", None) or style_preset["lora_scale"]
     ref_count = getattr(args, "ref_count", 1)
 
     # Get output dimensions from input image

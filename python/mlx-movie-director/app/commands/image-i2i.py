@@ -67,33 +67,56 @@ _I2I_SELF_TEST_PROMPT = (
     "rich brushstrokes, museum quality painting."
 )
 
+# Full-body prompt for denoise=1.0 ControlNet-only variations.
+# "classical portraiture" fights V-pose ControlNet guidance; use a neutral full-body prompt
+# so the ControlNet signal is not suppressed by portrait crop bias in the text embedding.
+_I2I_CNET_FULLBODY_PROMPT = (
+    "A young woman, full body shot, standing, dynamic pose, high quality photography, "
+    "clean white background, ultra sharp focus."
+)
+
 # Self-test variations:
 #   (label, denoise_strength, ctrl_strength_or_None, blur_ref_or_None,
-#    cnet_active_steps_or_None, steps)
+#    cnet_active_steps_or_None, steps, prompt_override_or_None)
 # Note: blur_ref in ControlNet variations is display-only; actual preprocessing is
 # always Canny edges (skip=False in _run_self_test step 3b), which matches Union 2.1 training.
 _I2I_SELF_TEST_VARIATIONS = [
     # Row 1: Simple I2I — denoise_strength sweep (no ControlNet)
-    ("dn02-9st",                0.2, None,  None, None, 9),   # Light polish
-    ("dn04-9st",                0.4, None,  None, None, 9),   # Controlled restyle
-    ("dn06-9st",                0.6, None,  None, None, 9),   # Bold reinterpretation
-    ("dn08-9st",                0.8, None,  None, None, 9),   # Near-full redraw
+    ("dn02-9st",                0.2, None,  None, None, 9,  None),
+    ("dn04-9st",                0.4, None,  None, None, 9,  None),
+    ("dn06-9st",                0.6, None,  None, None, 9,  None),
+    ("dn08-9st",                0.8, None,  None, None, 9,  None),
 
     # Row 2: I2I + ControlNet (canny) — increasing denoise (source anchor weakens)
-    ("dn04-cnet-canny-9st",     0.4, 0.6, None, None, 9),     # Source anchor strong
-    ("dn06-cnet-canny-9st",     0.6, 0.6, None, None, 9),     # Source anchor moderate
-    ("dn08-cnet-canny-9st",     0.8, 0.6, None, None, 9),     # Source anchor weak
+    # denoise<1.0: source image anchors identity → portrait prompt OK
+    ("dn04-cnet-canny-9st",     0.4, 0.6, None, None, 9,  None),
+    ("dn06-cnet-canny-9st",     0.6, 0.6, None, None, 9,  None),
+    ("dn08-cnet-canny-9st",     0.8, 0.6, None, None, 9,  None),
 
     # Row 3: Full redraw + ControlNet (smoking gun — verifies ControlNet itself works)
-    # denoise=1.0 = pure noise, no source influence. If V-pose appears → CN works.
-    # If no V-pose → ControlNet itself is broken.
-    ("dn10-cnet-canny-15st-a5", 1.0, 0.6, None, 5,   15),     # Full redraw + dual-sampler
+    # denoise=1.0 = pure noise, no source influence. Must use full-body prompt or the text
+    # encoder's portrait-crop bias fights the V-pose ControlNet signal.
+    ("dn10-cnet-canny-15st-a5", 1.0, 0.6, None, 5, 15, _I2I_CNET_FULLBODY_PROMPT),
 ]
 
 # Debug variations — minimal set for fast turnaround when debugging ControlNet issues.
 # Use --self-test debug to run this instead of the full suite.
 _I2I_DEBUG_VARIATIONS = [
-    ("debug-dn10-cnet-canny-15st", 1.0, 0.6, None, None, 15),   # Pure T2I+ControlNet (canny)
+    ("debug-dn10-cnet-canny-15st", 1.0, 0.6, None, None, 15, _I2I_CNET_FULLBODY_PROMPT),
+]
+
+# ControlNet sweep — tune cnet_active_steps and ctrl_strength to eliminate double-body artifact
+# while keeping pose transfer. Triggered by mode="cnet-sweep" in _run_self_test().
+# Hypothesis: cnet_active=ALL (15/15 steps) over-constrains and causes ghost duplication;
+#             cutting off at step 8-12 should preserve pose but let anatomy converge cleanly.
+_I2I_CNET_SWEEP_VARIATIONS = [
+    # (label,                        dn,   ctrl, blur, cnet_act, steps, prompt)
+    ("cns-act08-str06-15st",         1.0,  0.6,  None, 8,        15,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns-act10-str06-15st",         1.0,  0.6,  None, 10,       15,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns-act12-str06-15st",         1.0,  0.6,  None, 12,       15,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns-actALL-str04-15st",        1.0,  0.4,  None, None,     15,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns-act08-str04-15st",         1.0,  0.4,  None, 8,        15,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns-act08-str08-20st",         1.0,  0.8,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT),
 ]
 
 
@@ -570,15 +593,22 @@ def _run_self_test(args):
     # ── Step 4: Generate variations ───────────────────────────────────────
     results = []
 
-    # Select variations: --self-test debug for fast debug, otherwise full suite
+    # Select variations based on --self-test / mode value
     st_val = getattr(args, "self_test", True)
     if isinstance(st_val, str) and st_val == "debug":
         variations = _I2I_DEBUG_VARIATIONS
         print(f"\n[Self-Test] Using DEBUG variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-sweep":
+        variations = _I2I_CNET_SWEEP_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-SWEEP variations ({len(variations)} tests)")
     else:
         variations = _I2I_SELF_TEST_VARIATIONS
 
-    for label, dn_str, ctrl_str, blur_ref, cnet_active, tstps in variations:
+    for var in variations:
+        label, dn_str, ctrl_str, blur_ref, cnet_active, tstps = var[:6]
+        prompt_override = var[6] if len(var) > 6 else None
+        prompt = prompt_override if prompt_override is not None else _I2I_SELF_TEST_PROMPT
+
         # Skip ControlNet variations if no reference image
         if ctrl_str is not None and ctrl_33ch is None:
             print(f"\n[Self-Test] SKIP {label} (no ControlNet reference)")
@@ -593,7 +623,7 @@ def _run_self_test(args):
         print(f"  Type: {mode_desc} (denoise={dn_str}, steps={tstps})")
 
         pil_image = _generate(
-            prompt=_I2I_SELF_TEST_PROMPT,
+            prompt=prompt,
             out_w=out_w,
             out_h=out_h,
             steps=tstps,

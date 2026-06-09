@@ -203,8 +203,89 @@ def get_controlnet_verify_prompt() -> str:
     )
 
 
+def _lmstudio_base(api_url: str) -> str:
+    """Derive LM Studio native API base from an OpenAI-compatible URL.
+
+    Example: "http://localhost:1234/v1" → "http://localhost:1234"
+    """
+    return api_url.rstrip("/").removesuffix("/v1")
+
+
+def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> bool:
+    """Ensure the given model is loaded in LM Studio via its native API.
+
+    Uses LM Studio native endpoints:
+      GET  /api/v1/models           — list currently loaded models
+      POST /api/v1/models/load      — trigger model load
+      (polls GET /api/v1/models until model appears or timeout)
+
+    Args:
+        api_url: OpenAI-compatible base URL (e.g., "http://localhost:1234/v1")
+        model_id: Model identifier string (e.g., "qwen/qwen3-vl-4b")
+        timeout: Seconds to wait for load to complete (default 180s)
+
+    Returns:
+        True if model is ready; False if LM Studio unavailable or load failed.
+    """
+    import time
+    base = _lmstudio_base(api_url)
+    lms_base = f"{base}/api/v1"
+
+    def _loaded_models():
+        try:
+            # Use OpenAI-compatible /v1/models — returns only loaded models
+            # with {"data": [{"id": "..."}]} format.
+            # Native /api/v1/models uses {"models": [...], "key": ...} — wrong format.
+            r = requests.get(f"{api_url}/models", timeout=5)
+            r.raise_for_status()
+            data = r.json()
+            return [m.get("id", "") for m in data.get("data", [])]
+        except Exception:
+            return None
+
+    # Check if already loaded
+    loaded = _loaded_models()
+    if loaded is None:
+        return False  # LM Studio not responding
+    if model_id in loaded:
+        return True
+
+    # Request load
+    print(f"[caption] Loading model {model_id} via LM Studio...", flush=True)
+    try:
+        r = requests.post(
+            f"{lms_base}/models/load",
+            json={"model": model_id},
+            timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        print(f"[caption] Load request failed: {e}")
+        return False
+
+    # Poll until loaded or timeout
+    deadline = time.time() + timeout
+    interval = 3
+    while time.time() < deadline:
+        time.sleep(interval)
+        loaded = _loaded_models()
+        if loaded is not None and model_id in loaded:
+            print(f"[caption] Model ready.")
+            return True
+        remaining = int(deadline - time.time())
+        print(f"[caption] Waiting for model load... ({remaining}s remaining)", end="\r", flush=True)
+        interval = min(interval + 1, 10)
+
+    print(f"\n[caption] Timed out waiting for model load ({timeout}s).")
+    return False
+
+
 def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
-    """Call OpenAI-compatible chat completions API with image + text."""
+    """Call OpenAI-compatible chat completions API with image + text.
+
+    Automatically tries to load the model via LM Studio native API if the first
+    request fails with a connection error or 5xx status (model not loaded).
+    """
     url = f"{api_url}/chat/completions"
     payload = {
         "model": model,
@@ -226,9 +307,19 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
         "stream": False,
     }
 
-    resp = requests.post(url, json=payload, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
+    def _do_request():
+        resp = requests.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json()
+
+    try:
+        data = _do_request()
+    except (requests.ConnectionError, requests.HTTPError) as first_err:
+        # Try to load the model via LM Studio native API, then retry once
+        if _lmstudio_ensure_model(api_url, model):
+            data = _do_request()  # raises if still failing
+        else:
+            raise first_err
 
     content = data["choices"][0]["message"]["content"]
 

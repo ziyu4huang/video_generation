@@ -247,7 +247,7 @@ def _run_named_self_test(args, test_name: str) -> None:
             wf_result = orchestrator.execute()
 
             # Save outputs
-            label_slug = label.lower().replace(" ", "-").replace("+", "p")
+            label_slug = label.lower().replace(" ", "-").replace("+", "-plus-")
             base_name = f"{test_dir_name}/{label_slug}"
             out_dir = WorkflowOrchestrator.save_outputs(wf_result, rc, base_name=base_name)
 

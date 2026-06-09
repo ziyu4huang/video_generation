@@ -6,10 +6,11 @@ Modes (dispatched by image.py):
   manifest    — render HTML review from existing .manifest.json files (default)
   vae         — generate with multiple VAE variants, analyze quality, render HTML
   lora        — LoRA A/B test: multi-seed paired comparison with HTML voting review
+  anime2real  — anime2real Ref+LoRA self-test with cross-pipeline HTML review
 
 Public API:
   add_review_args(parser)          — register all review CLI arguments
-  run_review(args, sub)            — dispatcher → angle / generation / manifest / vae / lora
+  run_review(args, sub)            — dispatcher → angle / generation / manifest / vae / lora / anime2real
   run_review_angle(args)           — angle grid mode
   run_review_generation(args)      — T2I generation + manifest review
   run_review_manifest(args)        — manifest HTML review
@@ -140,6 +141,8 @@ def run_review(args, sub: str = "manifest"):
     elif sub == "lora":
         run_review_lora(args)
     elif sub == "selftest":
+        run_review_selftest(args)
+    elif sub == "anime2real":
         run_review_selftest(args)
     else:
         run_review_manifest(args)
@@ -1552,6 +1555,8 @@ def run_review_selftest(args):
         _run_lora_ref_selftest(args, test_name, test_cfg)
     elif test_type == "controlnet-i2i":
         _run_selftest_controlnet_i2i(args, test_name, test_cfg)
+    elif test_type == "flf2v":
+        _run_selftest_flf2v(args, test_name, test_cfg)
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
@@ -1560,14 +1565,390 @@ def run_review_selftest(args):
 def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     """Run I2I + ControlNet self-test by delegating to image-i2i._run_self_test().
 
-    mode="debug" → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
-    mode="full"  → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
+    mode="debug"      → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
+    mode="cnet-sweep" → _I2I_CNET_SWEEP_VARIATIONS (6 variations, ~20 min)
+    mode="full"       → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
+    After generation: VLM-captions all outputs and generates interactive HTML review.
     """
     import importlib
+    import base64
+    import json as _json
+    from app import config as cfg
     _i2i = importlib.import_module("app.commands.image-i2i")
+    cap = importlib.import_module("app.commands.caption")
+
     mode = test_cfg.get("mode", "debug")
+    seed = getattr(args, "seed", 42)
     args.self_test = mode
     _i2i._run_self_test(args)
+
+    # --- Determine which images to review ---
+    if mode == "debug":
+        variations = _i2i._I2I_DEBUG_VARIATIONS
+    elif mode == "cnet-sweep":
+        variations = _i2i._I2I_CNET_SWEEP_VARIATIONS
+    else:
+        variations = _i2i._I2I_SELF_TEST_VARIATIONS
+
+    # Build image list: source + ref + all variation outputs
+    images = [
+        ("source",   f"i2i_selftest_source-s{seed}.png",   "SOURCE",    "Source image"),
+        ("ref_pose", f"i2i_selftest_ref-pose-s{seed + 1}.png", "REFERENCE", "Reference pose (V-pose)"),
+    ]
+    for var in variations:
+        label = var[0]
+        dn    = var[1]
+        ctrl  = var[2]
+        cnet  = var[4] if len(var) > 4 else None
+        steps = var[5] if len(var) > 5 else 9
+        param_str = f"denoise={dn}"
+        if ctrl is not None:
+            param_str += f" ctrl={ctrl}"
+        if cnet is not None:
+            param_str += f" cnet_act={cnet}"
+        else:
+            param_str += " cnet_act=ALL"
+        param_str += f" steps={steps}"
+        images.append((label, f"i2i_selftest_{label}-s{seed}.png", label, param_str))
+
+    # --- VLM caption all images ---
+    pose_prompt = (
+        "Describe this image. Focus on: "
+        "(1) person pose — arm position, leg position, overall body shape; "
+        "(2) quality issues — deformed hands, extra limbs, double body, anatomy errors, pixelation; "
+        "(3) overall quality score 1-10. "
+        "Be specific. Answer in English."
+    )
+
+    print(f"\n{'─' * 60}")
+    print("[review] VLM-captioning all outputs...")
+    results = []
+    for key, fname, label, params in images:
+        path = os.path.join(cfg.OUTPUT_DIR, fname)
+        if not os.path.exists(path):
+            results.append((key, fname, label, params, None, None))
+            continue
+        try:
+            b64_vlm = cap._image_to_base64(path)
+            caption = cap._call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64_vlm, pose_prompt)
+            img_data = base64.b64encode(open(path, "rb").read()).decode()
+            ext = "jpeg" if fname.endswith(".jpg") else "png"
+            img_src = f"data:image/{ext};base64,{img_data}"
+            results.append((key, fname, label, params, caption, img_src))
+            print(f"  [review] captioned: {label}")
+        except Exception as e:
+            results.append((key, fname, label, params, f"VLM error: {e}", None))
+            print(f"  [review] WARN: {label} — {e}")
+
+    # --- Generate interactive HTML review ---
+    out_html = os.path.join(cfg.OUTPUT_DIR, f"i2i_cnet_{mode}_review.html")
+    _generate_cnet_vlm_review_html(results, out_html, mode=mode, seed=seed)
+    print(f"\n[review] Saved: {out_html}")
+
+    # Simple VLM PASS/FAIL on the smoking-gun image (cnet_active=ALL, denoise=1.0)
+    if mode == "debug":
+        _vlm_verify_controlnet_pose(os.path.join(cfg.OUTPUT_DIR, f"i2i_selftest_debug-dn10-cnet-canny-15st-s{seed}.png"))
+
+    subprocess.Popen(["open", out_html])
+
+
+def _generate_cnet_vlm_review_html(results, output_path: str, mode: str = "debug", seed: int = 42):
+    """Generate a self-contained interactive HTML review with VLM captions and feedback buttons.
+
+    Each card includes:
+      - Inlined base64 image
+      - VLM-detected issue flags (auto-detected from caption text)
+      - Interactive issue toggles: 👥 Double body, ✋ Bad hands, 🔲 Pixelation, ✅ V-pose OK, etc.
+      - Verdict buttons: PASS / PARTIAL / FAIL
+      - Notes textarea
+      - localStorage auto-save and "Copy Feedback JSON" export
+    """
+    import html as _html
+
+    def _score_color(text):
+        import re
+        m = re.search(r"(\d+)/10", text or "")
+        if not m:
+            return "#888"
+        n = int(m.group(1))
+        if n >= 8:
+            return "#22c55e"
+        if n >= 5:
+            return "#f59e0b"
+        return "#ef4444"
+
+    def _auto_flags(caption):
+        if not caption:
+            return []
+        cl = caption.lower()
+        flags = []
+        if "double" in cl or "duplicate" in cl or "second" in cl or "ghost" in cl or "extra" in cl:
+            flags.append(("👥 Double body", "#7c3aed"))
+        if "deform" in cl or "fused" in cl or "melted" in cl or "smudg" in cl or "bad hand" in cl:
+            flags.append(("✋ Bad hands", "#dc2626"))
+        if "pixelat" in cl or "grainy" in cl:
+            flags.append(("🔲 Pixelation", "#ea580c"))
+        if "v-pose" in cl or "v shape" in cl or ("arms raised" in cl and "v" in cl):
+            flags.append(("✅ V-pose", "#16a34a"))
+        elif "arms raised" in cl or "arms high" in cl:
+            flags.append(("🎯 Arms up (partial)", "#2563eb"))
+        elif "arms hanging" in cl or "arms at" in cl or "arms relaxed" in cl or "arms down" in cl:
+            flags.append(("➡️ No pose transfer", "#6b7280"))
+        return flags
+
+    cards_html = ""
+    ids_js = []
+    for key, fname, label, params, caption, img_src in results:
+        is_ref = key in ("source", "ref_pose")
+        safe_key = key.replace("-", "_")
+        ids_js.append(f'"{safe_key}"')
+        auto_flags = _auto_flags(caption)
+        flags_html = " ".join(
+            f'<span class="flag" style="background:{c}">{t}</span>'
+            for t, c in auto_flags
+        )
+        caption_safe = _html.escape(caption or "Image not found").replace("\n", "<br>")
+        img_html = (
+            f'<img src="{img_src}" loading="lazy" onclick="zoom(this.src)">'
+            if img_src else '<div class="no-img">Image not found</div>'
+        )
+        card_cls = "card ref-card" if is_ref else "card"
+        cards_html += f"""
+<div class="{card_cls}" id="card-{safe_key}">
+  <div class="card-header">
+    <span class="card-label">{_html.escape(label)}</span>
+    <span class="card-params">{_html.escape(params)}</span>
+  </div>
+  <div class="img-wrap">{img_html}</div>
+  <div class="auto-flags">{flags_html}</div>
+  <div class="caption-box">
+    <div class="caption-text">{caption_safe}</div>
+  </div>
+  <div class="issue-strip">
+    <button class="issue-btn" data-id="{safe_key}" data-key="double_body">👥 Double body</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="bad_hands">✋ Bad hands</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="pixelation">🔲 Pixelation</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="v_pose_ok">✅ V-pose OK</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="partial_pose">🎯 Partial</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="no_pose">➡️ No pose</button>
+  </div>
+  <div class="verdict-row">
+    <button class="verdict-btn vpass"    data-id="{safe_key}" data-v="pass">PASS</button>
+    <button class="verdict-btn vpartial" data-id="{safe_key}" data-v="partial">PARTIAL</button>
+    <button class="verdict-btn vfail"    data-id="{safe_key}" data-v="fail">FAIL</button>
+  </div>
+  <textarea class="notes" data-id="{safe_key}" placeholder="Notes..." rows="2"
+            oninput="setNote(this.dataset.id, this.value)"></textarea>
+</div>"""
+
+    ids_js_str = "[" + ", ".join(ids_js) + "]"
+    storage_key = f"i2i_cnet_{mode}_feedback_v1"
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>I2I ControlNet {_html.escape(mode)} Review · seed={seed}</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        background:#0f172a;color:#e2e8f0;padding:20px}}
+  h1{{font-size:1.3rem;margin-bottom:4px;color:#f8fafc}}
+  .subtitle{{font-size:0.78rem;color:#64748b;margin-bottom:16px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}}
+  .card{{background:#1e293b;border-radius:10px;overflow:hidden;
+         border:1px solid #334155;display:flex;flex-direction:column}}
+  .ref-card{{border-color:#3b82f6}}
+  .card-header{{padding:9px 11px;background:#0f172a;border-bottom:1px solid #1e293b}}
+  .card-label{{font-weight:700;font-size:0.85rem;color:#f1f5f9;display:block}}
+  .card-params{{font-size:0.68rem;color:#64748b;font-family:monospace;display:block;margin-top:2px}}
+  .img-wrap{{background:#000;display:flex;align-items:center;justify-content:center}}
+  .img-wrap img{{width:100%;height:auto;display:block;max-height:380px;
+                 object-fit:contain;cursor:zoom-in}}
+  .no-img{{height:160px;display:flex;align-items:center;justify-content:center;
+            color:#475569;font-size:0.8rem}}
+  .auto-flags{{display:flex;flex-wrap:wrap;gap:4px;padding:6px 10px;
+               border-bottom:1px solid #1e293b;min-height:28px}}
+  .flag{{font-size:0.66rem;padding:2px 7px;border-radius:999px;color:#fff;font-weight:500}}
+  .caption-box{{padding:8px 11px;border-bottom:1px solid #1e293b}}
+  .caption-text{{font-size:0.70rem;color:#94a3b8;line-height:1.5;
+                 max-height:180px;overflow-y:auto}}
+  .caption-text::-webkit-scrollbar{{width:3px}}
+  .caption-text::-webkit-scrollbar-thumb{{background:#475569;border-radius:2px}}
+  .issue-strip{{display:flex;flex-wrap:wrap;gap:4px;padding:8px 10px;
+                border-bottom:1px solid #1e293b}}
+  .issue-btn{{font-size:0.68rem;padding:3px 8px;border-radius:999px;cursor:pointer;
+              border:1px solid #475569;background:#1e293b;color:#94a3b8;
+              transition:all .15s}}
+  .issue-btn.active{{background:#334155;color:#f1f5f9;border-color:#64748b}}
+  .verdict-row{{display:flex;gap:6px;padding:7px 10px;border-bottom:1px solid #1e293b}}
+  .verdict-btn{{flex:1;font-size:0.72rem;font-weight:700;padding:5px 4px;
+                border-radius:6px;cursor:pointer;border:none;
+                background:#1e293b;color:#64748b;transition:all .15s}}
+  .verdict-btn.active.vpass{{background:#16a34a;color:#fff}}
+  .verdict-btn.active.vpartial{{background:#d97706;color:#fff}}
+  .verdict-btn.active.vfail{{background:#dc2626;color:#fff}}
+  .verdict-btn:not(.active){{border:1px solid #334155}}
+  .notes{{width:100%;background:#0f172a;border:none;color:#94a3b8;
+          padding:7px 11px;font-size:0.70rem;font-family:inherit;
+          resize:vertical;outline:none}}
+  .notes:focus{{background:#1e293b;color:#e2e8f0}}
+  .bottom-bar{{position:sticky;bottom:0;background:#0f172a;border-top:1px solid #334155;
+               padding:10px 20px;display:flex;align-items:center;gap:12px;margin-top:20px}}
+  .bottom-bar button{{padding:7px 16px;border-radius:7px;cursor:pointer;
+                       font-size:0.8rem;font-weight:600;border:none}}
+  .btn-export{{background:#3b82f6;color:#fff}}
+  .btn-reset{{background:#334155;color:#94a3b8}}
+  .saved-hint{{font-size:0.70rem;color:#64748b}}
+  .overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);
+            z-index:100;align-items:center;justify-content:center;cursor:zoom-out}}
+  .overlay.show{{display:flex}}
+  .overlay img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:6px}}
+</style>
+</head>
+<body>
+<h1>I2I ControlNet Review — <code>{_html.escape(mode)}</code> mode · seed={seed}</h1>
+<p class="subtitle">Qwen3-VL-4B captions · click issue buttons to tag · feedback auto-saved</p>
+<div class="grid" id="grid">{cards_html}</div>
+<div class="bottom-bar">
+  <button class="btn-export" onclick="exportJSON()">Copy Feedback JSON</button>
+  <button class="btn-reset" onclick="resetAll()">Reset All</button>
+  <span class="saved-hint" id="saved-hint">Auto-saved to localStorage</span>
+</div>
+<div class="overlay" id="overlay" onclick="this.classList.remove('show')">
+  <img id="overlay-img" src="">
+</div>
+<script>
+const STORAGE_KEY = '{storage_key}';
+const IDS = {ids_js_str};
+let fb = {{}};
+
+function initFeedback() {{
+  IDS.forEach(id => fb[id] = {{issues: {{}}, verdict: null, notes: ''}});
+  try {{
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) {{ const saved = JSON.parse(s); IDS.forEach(id => {{ if (saved[id]) fb[id] = {{...fb[id], ...saved[id]}}; }}); }}
+  }} catch(e) {{}}
+  render();
+  // restore note textareas
+  document.querySelectorAll('.notes').forEach(ta => {{
+    const id = ta.dataset.id;
+    if (fb[id]) ta.value = fb[id].notes || '';
+  }});
+}}
+
+function save() {{
+  try {{ localStorage.setItem(STORAGE_KEY, JSON.stringify(fb)); }} catch(e) {{}}
+  const hint = document.getElementById('saved-hint');
+  hint.textContent = 'Saved ✓';
+  setTimeout(() => hint.textContent = 'Auto-saved to localStorage', 1200);
+}}
+
+function toggleIssue(id, key) {{
+  if (!fb[id]) fb[id] = {{issues: {{}}, verdict: null, notes: ''}};
+  fb[id].issues[key] = !fb[id].issues[key];
+  save(); render();
+}}
+
+function setVerdict(id, v) {{
+  if (!fb[id]) fb[id] = {{issues: {{}}, verdict: null, notes: ''}};
+  fb[id].verdict = fb[id].verdict === v ? null : v;
+  save(); render();
+}}
+
+function setNote(id, val) {{
+  if (!fb[id]) fb[id] = {{issues: {{}}, verdict: null, notes: ''}};
+  fb[id].notes = val;
+  save();
+}}
+
+function render() {{
+  IDS.forEach(id => {{
+    const state = fb[id] || {{}};
+    document.querySelectorAll(`.issue-btn[data-id="${{id}}"]`).forEach(btn => {{
+      btn.classList.toggle('active', !!(state.issues || {{}})[btn.dataset.key]);
+    }});
+    document.querySelectorAll(`.verdict-btn[data-id="${{id}}"]`).forEach(btn => {{
+      btn.classList.toggle('active', btn.dataset.v === state.verdict);
+    }});
+  }});
+}}
+
+function exportJSON() {{
+  const text = JSON.stringify(fb, null, 2);
+  navigator.clipboard.writeText(text).then(() => {{
+    const hint = document.getElementById('saved-hint');
+    hint.textContent = 'Copied to clipboard!';
+    setTimeout(() => hint.textContent = 'Auto-saved to localStorage', 2000);
+  }});
+}}
+
+function resetAll() {{
+  if (!confirm('Reset all feedback?')) return;
+  IDS.forEach(id => fb[id] = {{issues: {{}}, verdict: null, notes: ''}});
+  document.querySelectorAll('.notes').forEach(ta => ta.value = '');
+  localStorage.removeItem(STORAGE_KEY);
+  render();
+}}
+
+function zoom(src) {{
+  document.getElementById('overlay-img').src = src;
+  document.getElementById('overlay').classList.add('show');
+}}
+
+// wire up issue buttons and verdict buttons
+document.querySelectorAll('.issue-btn').forEach(btn => {{
+  btn.onclick = () => toggleIssue(btn.dataset.id, btn.dataset.key);
+}});
+document.querySelectorAll('.verdict-btn').forEach(btn => {{
+  btn.onclick = () => setVerdict(btn.dataset.id, btn.dataset.v);
+}});
+
+initFeedback();
+</script>
+</body>
+</html>"""
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+
+def _vlm_verify_controlnet_pose(image_path: str):
+    """Use Qwen3-VL to verify the ControlNet output shows a V-pose (arms raised).
+
+    Prints a PASS/FAIL verdict to stdout. Silently skips if VLM API is unavailable.
+    """
+    import json as _json
+    print(f"\n{'─' * 60}")
+    print(f"[verify] VLM pose check: {os.path.basename(image_path)}")
+    if not os.path.exists(image_path):
+        print(f"[verify] SKIP — image not found: {image_path}", file=sys.stderr)
+        return
+    try:
+        from app.commands.caption import _image_to_base64, _call_vlm, get_controlnet_verify_prompt
+        b64 = _image_to_base64(image_path)
+        prompt = get_controlnet_verify_prompt()
+        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt)
+        try:
+            result = _json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            result = {"summary": raw}
+        arms = result.get("arms_raised")
+        v_pose = result.get("v_pose")
+        score = result.get("score", "?")
+        summary = result.get("summary", "")
+        passed = bool(arms or v_pose)
+        verdict = "✓ PASS — ControlNet is working" if passed else "✗ FAIL — ControlNet not producing V-pose"
+        print(f"[verify] {verdict}")
+        print(f"[verify] arms_raised={arms}  v_pose={v_pose}  score={score}")
+        print(f"[verify] {summary}")
+        issues = result.get("issues", [])
+        if issues and not passed:
+            print(f"[verify] Issues: {issues}")
+    except Exception as e:
+        print(f"[verify] VLM unavailable ({e.__class__.__name__}: {e})")
+        print("[verify] Start LM Studio with Qwen3-VL to enable automatic pose verification")
 
 
 def _run_selftest_nomodel(test_name: str, test_cfg: dict):
@@ -1657,23 +2038,22 @@ def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
 
         safe_label = label.lower().replace(" ", "_").replace("-", "_")
         run_name = f"selftest_{test_name}_{ts}_{safe_label}"
-        out_dir = os.path.join(cfg.OUTPUT_DIR, run_name)
-        os.makedirs(out_dir, exist_ok=True)
 
-        pipeline = ZImagePipeline()
-        orchestrator = WorkflowOrchestrator(pipeline, rc, output_dir=out_dir)
-        orchestrator.run()
-        del pipeline
+        orchestrator = WorkflowOrchestrator(rc)
+        wf_result = orchestrator.execute()
+        out_dir = WorkflowOrchestrator.save_outputs(wf_result, rc, base_name=run_name)
+
         mx.clear_cache()
         gc.collect()
 
-        manifest_path = os.path.join(out_dir, f"{run_name}.manifest.json")
+        # Look for manifest or config.json in output dir
+        manifest_path = os.path.join(out_dir, "config.json")
         if os.path.exists(manifest_path):
             manifest_paths.append(manifest_path)
         else:
-            # Fallback: find any manifest in the dir
+            # Fallback: find any json in the dir
             for f in sorted(os.listdir(out_dir)):
-                if f.endswith(".manifest.json"):
+                if f.endswith(".json"):
                     manifest_paths.append(os.path.join(out_dir, f))
                     break
 
@@ -1947,6 +2327,477 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
     if manifest_paths:
         html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
         _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=False)
+
+
+# ---------------------------------------------------------------------------
+# FLF2V self-test handler (type="flf2v" in _ALL_TESTS)
+# ---------------------------------------------------------------------------
+
+def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
+    """Run a 3-step FLF2V self-test: T2I begin → T2I end (with reference) → FLF2V.
+
+    Best practice (from docs and proven across experiments):
+      1. Generate begin frame: same seed, free T2I generation
+      2. Generate end frame:   same seed, DIFFERENT prompt, input_image=<begin_frame>
+         for background consistency
+      3. Run FLF2V:            cfg_scale=3.0, stage1_steps=20 (auto-set by pipeline)
+
+    If the test config has a ``configs`` dict, step 3 runs once per config
+    (reusing the same begin/end keyframes), producing A/B comparison videos.
+
+    After generation, renders an HTML review with a 3-column layout:
+      begin frame | video player | end frame
+    """
+    import argparse as _argparse
+    import base64
+    import gc
+    import json as _json
+    import time as _time
+    import mlx.core as mx
+    from PIL import Image
+    from datetime import datetime as _dt, timezone as _tz
+    from app.pipeline import ZImagePipeline
+    from app.ltx_pipeline import LTXVideoPipeline
+    from app.manifest import Manifest, collect_model_fingerprint
+    from app.commands.caption import _image_to_base64
+    from app import config as _cfg
+    from app.test_prompts_flf2v import get_flf2v_test
+    _vid_gen = importlib.import_module("app.commands.video-generate")
+
+    # --- Resolve test config ---
+    flf2v_name = test_cfg["flf2v_test"]
+    ft = get_flf2v_test(flf2v_name)
+
+    seed = ft.get("seed", 42) % (2 ** 32)
+    width = ft.get("width", 704)
+    height = ft.get("height", 480)
+    t2i_steps = ft.get("t2i_steps", 9)
+    frames = ft.get("frames", 97)
+    fps = ft.get("fps", 24.0)
+    cfg_scale = ft.get("cfg_scale", 3.0)
+    stg_scale = ft.get("stg_scale", 1.0)
+
+    begin_prompt = ft["begin_prompt"]
+    end_prompt = ft["end_prompt"]
+    motion_prompt = ft["motion_prompt"]
+
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base = f"selftest_{test_name}_{ts}"
+    os.makedirs(_cfg.OUTPUT_DIR, exist_ok=True)
+
+    print(f"\n{'=' * 60}")
+    print(f"FLF2V Self-Test — {test_name}")
+    print(f"{'=' * 60}")
+    print(f"  Seed:        {seed}")
+    print(f"  Size:        {width}×{height}")
+    print(f"  Frames:      {frames} @ {fps}fps = {frames / fps:.1f}s")
+    print(f"  T2I steps:   {t2i_steps}")
+    print(f"  FLF2V cfg:   {cfg_scale}  stg_scale: {stg_scale}")
+    print(f"  Pipeline:    T2I begin → T2I end (ref) → FLF2V")
+    print()
+
+    timings = {}
+
+    # === STEP 1: Generate begin frame (free T2I, same seed) ===
+    print(f"[selftest] Step 1/3: Generating begin frame...")
+    print(f"  Prompt: {begin_prompt[:80]}...")
+    t0 = _time.time()
+
+    img_pipeline = ZImagePipeline()
+    begin_result = img_pipeline.generate(
+        prompt=begin_prompt,
+        width=width,
+        height=height,
+        steps=t2i_steps,
+        seed=seed,
+    )
+    begin_path = os.path.join(_cfg.OUTPUT_DIR, f"{base}_begin.png")
+    begin_result.image.save(begin_path)
+    timings["t2i_begin"] = _time.time() - t0
+    print(f"  Saved: {begin_path} ({timings['t2i_begin']:.1f}s)")
+
+    # === STEP 2: Generate end frame (same seed, different prompt,
+    #             input_image=begin for background consistency) ===
+    print(f"\n[selftest] Step 2/3: Generating end frame (reference=begin)...")
+    print(f"  Prompt: {end_prompt[:80]}...")
+    t0 = _time.time()
+
+    begin_pil = Image.open(begin_path).convert("RGB")
+    end_result = img_pipeline.generate(
+        prompt=end_prompt,
+        width=width,
+        height=height,
+        steps=t2i_steps,
+        seed=seed,
+        input_image=begin_pil,
+    )
+    end_path = os.path.join(_cfg.OUTPUT_DIR, f"{base}_end.png")
+    end_result.image.save(end_path)
+    timings["t2i_end"] = _time.time() - t0
+    print(f"  Saved: {end_path} ({timings['t2i_end']:.1f}s)")
+
+    # Free image pipeline to reclaim memory before loading video pipeline
+    del img_pipeline, begin_result, end_result, begin_pil
+    mx.clear_cache()
+    gc.collect()
+    print("[selftest] Image pipeline freed, memory cleared.")
+
+    # === STEP 3: Run FLF2V interpolation ===
+    # Auto-adjust resolution and frames for pipeline constraints
+    vid_width, vid_height = _vid_gen._adjust_resolution(width, height)
+    vid_frames = _vid_gen._adjust_frames(frames)
+
+    # Determine FLF2V configs (single run or A/B variations)
+    flf2v_configs = ft.get("configs", None)
+    if flf2v_configs is None:
+        flf2v_configs = {"default": {
+            "label": f"cfg={cfg_scale}, s1={ft.get('stage1_steps', 20)}",
+            "cfg_scale": cfg_scale,
+            "stg_scale": stg_scale,
+            "stage1_steps": ft.get("stage1_steps", 20),
+            "stage2_steps": ft.get("stage2_steps", 3),
+        }}
+
+    video_paths = []
+    config_labels = []
+    video_timings_list = []
+
+    video_pipeline = LTXVideoPipeline()
+
+    for config_key, config_vals in flf2v_configs.items():
+        config_label = config_vals.get("label", config_key)
+        config_labels.append(config_label)
+
+        s1 = config_vals.get("stage1_steps", ft.get("stage1_steps", 20))
+        s2 = config_vals.get("stage2_steps", ft.get("stage2_steps", 3))
+        c_cfg = config_vals.get("cfg_scale", cfg_scale)
+        c_stg = config_vals.get("stg_scale", stg_scale)
+
+        suffix = f"_{config_key}" if len(flf2v_configs) > 1 else ""
+        video_path = os.path.join(_cfg.OUTPUT_DIR, f"{base}{suffix}.mp4")
+        video_run_file = os.path.join(_cfg.OUTPUT_DIR, f"{base}{suffix}.run.json")
+        video_manifest_file = os.path.join(_cfg.OUTPUT_DIR, f"{base}{suffix}.manifest.json")
+
+        print(f"\n[selftest] Step 3/3: FLF2V interpolation [{config_label}]...")
+        print(f"  Motion:  {motion_prompt[:80]}...")
+        print(f"  Params:  stage1={s1}, stage2={s2}, cfg={c_cfg}, stg={c_stg}")
+        t0 = _time.time()
+
+        video_timings = video_pipeline.generate_flf2v(
+            prompt=motion_prompt,
+            output_path=video_path,
+            begin_image=begin_path,
+            end_image=end_path,
+            height=vid_height,
+            width=vid_width,
+            num_frames=vid_frames,
+            frame_rate=fps,
+            seed=seed,
+            stage1_steps=s1,
+            stage2_steps=s2,
+            cfg_scale=c_cfg,
+            stg_scale=c_stg,
+        )
+
+        elapsed = _time.time() - t0
+        timings[f"flf2v_{config_key}"] = elapsed
+        video_timings_list.append(video_timings)
+        video_paths.append(video_path)
+        print(f"  Saved: {video_path} ({elapsed:.1f}s)")
+
+        # Write video manifest
+        run_data = {
+            "command": "video",
+            "action": "generate",
+            "prompt": motion_prompt,
+            "width": vid_width,
+            "height": vid_height,
+            "frames": vid_frames,
+            "fps": fps,
+            "seed": seed,
+            "stage1_steps": s1,
+            "stage2_steps": s2,
+            "cfg_scale": c_cfg,
+            "stg_scale": c_stg,
+            "pipeline": "ltx-flf2v",
+            "begin_image": begin_path,
+            "end_image": end_path,
+        }
+        with open(video_run_file, "w") as _f:
+            _json.dump(run_data, _f, indent=2)
+
+        fp_args = _argparse.Namespace(distilled=False, temporal_upscale=False)
+        models = _vid_gen._collect_model_fingerprints(video_pipeline._model_dir, args=fp_args)
+        now = _dt.now(_tz.utc).isoformat()
+        mf = Manifest.from_success(
+            run_file=video_run_file,
+            start_time=now,
+            end_time=now,
+            timings=video_timings,
+            output_files=[{
+                "path": video_path,
+                "seed": seed,
+                "width": vid_width,
+                "height": vid_height,
+                "frames": vid_frames,
+                "fps": fps,
+                "size_bytes": os.path.getsize(video_path) if os.path.exists(video_path) else 0,
+            }],
+            models=models,
+        )
+        mf.to_json(video_manifest_file)
+
+    # Free video pipeline
+    del video_pipeline
+    mx.clear_cache()
+    gc.collect()
+
+    # === RENDER HTML REVIEW ===
+    html_path = _render_flf2v_html(
+        test_name=test_name,
+        test_cfg=ft,
+        begin_path=begin_path,
+        end_path=end_path,
+        video_paths=video_paths,
+        config_labels=config_labels,
+        timings=timings,
+        seed=seed,
+        width=vid_width,
+        height=vid_height,
+        frames=vid_frames,
+        fps=fps,
+        ts=ts,
+        output_dir=_cfg.OUTPUT_DIR,
+    )
+
+    total_time = sum(v for v in timings.values() if isinstance(v, (int, float)))
+    print(f"\n{'=' * 60}")
+    print(f"FLF2V Self-Test Complete — {test_name}")
+    print(f"{'=' * 60}")
+    print(f"  Begin frame: {begin_path}")
+    print(f"  End frame:   {end_path}")
+    for i, vp in enumerate(video_paths):
+        print(f"  Video:       {vp}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Timing:      T2I-begin {timings['t2i_begin']:.0f}s + "
+          f"T2I-end {timings['t2i_end']:.0f}s + "
+          f"FLF2V {sum(v for k, v in timings.items() if k.startswith('flf2v') and isinstance(v, (int, float))):.0f}s = "
+          f"{total_time:.0f}s total")
+
+    subprocess.Popen(["open", html_path])
+
+
+def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
+                        video_paths, config_labels, timings, seed, width, height,
+                        frames, fps, ts, output_dir) -> str:
+    """Render a self-contained HTML review page for FLF2V self-test results.
+
+    Layout: 3-column — begin frame | video player(s) | end frame.
+    For A/B configs, multiple video columns are shown side-by-side.
+    """
+    import base64
+    from app.commands.caption import _image_to_base64
+
+    begin_b64 = _image_to_base64(begin_path, max_size=512)
+    end_b64 = _image_to_base64(end_path, max_size=512)
+
+    # Embed videos as base64 data URIs
+    video_b64s = []
+    for vp in video_paths:
+        with open(vp, "rb") as _f:
+            video_b64s.append(base64.b64encode(_f.read()).decode("ascii"))
+
+    # Build video columns
+    video_columns_html = ""
+    for i, (v_b64, label) in enumerate(zip(video_b64s, config_labels)):
+        video_columns_html += f"""
+        <div class="video-col">
+            <h3>Video: {label}</h3>
+            <video controls autoplay loop muted playsinline width="100%">
+                <source src="data:video/mp4;base64,{v_b64}" type="video/mp4">
+            </video>
+        </div>"""
+
+    # Timing rows
+    timing_rows = ""
+    timing_keys = [
+        ("t2i_begin", "T2I Begin Frame"),
+        ("t2i_end", "T2I End Frame (ref)"),
+    ]
+    for key, label in timing_keys:
+        if key in timings:
+            timing_rows += f"<tr><td>{label}</td><td>{timings[key]:.1f}s</td></tr>\n"
+    for i, label in enumerate(config_labels):
+        flf2v_key = None
+        for k in timings:
+            if k.startswith("flf2v_") and timings[k] is not None:
+                # Match by index for multiple configs
+                flf2v_keys = [k2 for k2 in timings if k2.startswith("flf2v_") and isinstance(timings[k2], (int, float))]
+                if i < len(flf2v_keys):
+                    flf2v_key = flf2v_keys[i]
+                break
+        if flf2v_key and flf2v_key in timings:
+            timing_rows += f"<tr><td>FLF2V [{label}]</td><td>{timings[flf2v_key]:.1f}s</td></tr>\n"
+    total = sum(v for v in timings.values() if isinstance(v, (int, float)))
+    timing_rows += f'<tr class="total"><td><strong>Total</strong></td><td><strong>{total:.1f}s</strong></td></tr>\n'
+
+    # Compute FLF2V estimated minutes per run
+    est_min = total / 60
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLF2V Self-Test — {test_name}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         margin: 0; padding: 20px; background: #1a1a2e; color: #e0e0e0; }}
+  .container {{ max-width: 1400px; margin: 0 auto; }}
+  h1 {{ color: #e94560; border-bottom: 2px solid #e94560; padding-bottom: 8px; }}
+  h2 {{ color: #0f3460; background: #16213e; padding: 8px 12px; border-radius: 4px; }}
+  h3 {{ color: #a8d8ea; margin: 8px 0; }}
+  .meta {{ background: #16213e; padding: 12px 16px; border-radius: 6px; margin: 12px 0;
+           display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }}
+  .meta dt {{ color: #a8d8ea; font-size: 0.85em; }}
+  .meta dd {{ margin: 0 0 8px 0; font-weight: bold; }}
+  .keyframes {{ display: flex; gap: 12px; margin: 16px 0; align-items: flex-start; }}
+  .frame-col, .video-col {{ flex: 1; text-align: center; }}
+  .frame-col img, .video-col video {{
+      border: 2px solid #0f3460; border-radius: 6px; max-width: 100%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4); }}
+  .prompt {{ background: #16213e; padding: 12px 16px; border-radius: 6px;
+             margin: 12px 0; font-size: 0.9em; line-height: 1.5;
+             border-left: 4px solid #e94560; }}
+  .prompt strong {{ color: #e94560; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 12px 0; }}
+  th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }}
+  th {{ background: #16213e; color: #a8d8ea; }}
+  .total {{ border-top: 2px solid #e94560; }}
+  .rating {{ display: flex; gap: 4px; margin: 8px 0; }}
+  .rating .star {{ font-size: 24px; cursor: pointer; color: #555; transition: color 0.15s; }}
+  .rating .star:hover, .rating .star.active {{ color: #ffd700; }}
+  .comment {{ width: 100%; min-height: 60px; background: #16213e; color: #e0e0e0;
+              border: 1px solid #333; border-radius: 4px; padding: 8px; font-size: 0.9em;
+              resize: vertical; box-sizing: border-box; }}
+  .actions {{ margin: 16px 0; }}
+  .actions button {{ background: #e94560; color: white; border: none; padding: 8px 20px;
+                     border-radius: 4px; cursor: pointer; font-size: 0.95em; margin-right: 8px; }}
+  .actions button:hover {{ background: #c73652; }}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>FLF2V Self-Test — {test_name}</h1>
+
+  <div class="meta">
+    <div><dt>Description</dt><dd>{test_cfg.get('description', '')}</dd></div>
+    <div><dt>Seed</dt><dd>{seed}</dd></div>
+    <div><dt>Resolution</dt><dd>{width}×{height}</dd></div>
+    <div><dt>Frames</dt><dd>{frames} @ {fps}fps = {frames / fps:.1f}s</dd></div>
+    <div><dt>Cfg Scale</dt><dd>{test_cfg.get('cfg_scale', 3.0)}</dd></div>
+    <div><dt>T2I Steps</dt><dd>{test_cfg.get('t2i_steps', 9)}</dd></div>
+    <div><dt>Total Time</dt><dd>{est_min:.1f} min</dd></div>
+  </div>
+
+  <h2>Keyframes &amp; Video</h2>
+  <div class="keyframes">
+    <div class="frame-col">
+      <h3>Begin Frame (t=0)</h3>
+      <img src="data:image/png;base64,{begin_b64}" alt="Begin frame">
+    </div>
+    {video_columns_html}
+    <div class="frame-col">
+      <h3>End Frame (t={frames / fps:.1f}s)</h3>
+      <img src="data:image/png;base64,{end_b64}" alt="End frame">
+    </div>
+  </div>
+
+  <h2>Prompts</h2>
+  <div class="prompt"><strong>Begin:</strong> {test_cfg.get('begin_prompt', '')}</div>
+  <div class="prompt"><strong>End:</strong> {test_cfg.get('end_prompt', '')}</div>
+  <div class="prompt"><strong>Motion:</strong> {test_cfg.get('motion_prompt', '')}</div>
+
+  <h2>Timing</h2>
+  <table>
+    <tr><th>Step</th><th>Elapsed</th></tr>
+    {timing_rows}
+  </table>
+
+  <h2>Rating</h2>
+  <div class="rating" id="rating">
+    <span class="star" data-value="1">★</span>
+    <span class="star" data-value="2">★</span>
+    <span class="star" data-value="3">★</span>
+    <span class="star" data-value="4">★</span>
+    <span class="star" data-value="5">★</span>
+  </div>
+  <textarea class="comment" id="comment" placeholder="Comments on interpolation quality, character consistency, motion naturalness..."></textarea>
+
+  <div class="actions">
+    <button onclick="exportResults()">Export Results (JSON)</button>
+    <button onclick="copyResults()">Copy to Clipboard</button>
+  </div>
+</div>
+
+<script>
+// Star rating interaction
+document.querySelectorAll('.rating .star').forEach(star => {{
+    star.addEventListener('click', function() {{
+        document.querySelectorAll('.rating .star').forEach(s => s.classList.remove('active'));
+        const val = parseInt(this.dataset.value);
+        for (let i = 0; i < val; i++) {{
+            document.querySelectorAll('.rating .star')[i].classList.add('active');
+        }}
+    }});
+}});
+
+function getRating() {{
+    return document.querySelectorAll('.rating .star.active').length;
+}}
+
+function exportResults() {{
+    const data = {{
+        test_name: "{test_name}",
+        seed: {seed},
+        width: {width},
+        height: {height},
+        frames: {frames},
+        fps: {fps},
+        rating: getRating(),
+        comment: document.getElementById('comment').value,
+        timings: {json.dumps({k: v for k, v in timings.items() if isinstance(v, (int, float))})},
+        timestamp: new Date().toISOString(),
+    }};
+    const blob = new Blob([JSON.stringify(data, null, 2)], {{type: "application/json"}});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "flf2v_review_" + "{test_name}" + ".json";
+    a.click();
+    URL.revokeObjectURL(url);
+}}
+
+function copyResults() {{
+    const text = "FLF2V Self-Test: {test_name}\\n" +
+        "Rating: " + getRating() + "/5\\n" +
+        "Comment: " + document.getElementById('comment').value + "\\n" +
+        "Seed: {seed}, {width}x{height}, {frames}f@{fps}fps\\n" +
+        "Total: {total:.1f}s";
+    navigator.clipboard.writeText(text).then(() => {{
+        const btn = event.target;
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = "Copy to Clipboard", 2000);
+    }});
+}}
+</script>
+</body>
+</html>"""
+
+    html_path = os.path.join(output_dir, f"selftest-{test_name}-{ts}.html")
+    with open(html_path, "w") as _f:
+        _f.write(html)
+    return html_path
 
 
 # ---------------------------------------------------------------------------
@@ -3772,6 +4623,8 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     ref_prompt = test_cfg.get("ref_prompt", "A photorealistic portrait photograph")
     i2i_prompt = test_cfg.get("i2i_prompt", "Preserve the subject's features")
     pipeline_type = "flux2-klein"
+    review_only = test_cfg.get("review_only", False)
+    style_variants = test_cfg.get("style_variants", [])
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
@@ -3781,6 +4634,27 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     label_b = f"Ref+LoRA (ref={ref_count}, {ref_steps}st, scale={lora_scale})"
     label_c = f"I2I+LoRA (dn={denoise_strength}, {i2i_steps}st) [OLD]"
 
+    # Style variants override old I2I (C) and pipeline_compare (D)
+    if style_variants:
+        sv_labels = [sv.get("label", f"Variant {i+1}") for i, sv in enumerate(style_variants)]
+        if len(sv_labels) >= 1:
+            label_c = sv_labels[0]
+        if len(sv_labels) >= 2:
+            label_d = sv_labels[1]
+        else:
+            label_d = None
+    else:
+        # Optional 4th column: cross-pipeline comparison
+        pcfg = test_cfg.get("pipeline_compare")
+        label_d = None
+        if pcfg:
+            p_pipe = pcfg.get("pipeline", "zimage")
+            p_lora_raw = pcfg.get("lora_path", "")
+            p_dn = pcfg.get("denoise_strength", 0.4)
+            p_steps = pcfg.get("steps", 9)
+            p_lora_base = os.path.basename(p_lora_raw).split(".")[0] if p_lora_raw else "none"
+            label_d = f"{p_pipe}+{p_lora_base} (dn={p_dn}, {p_steps}st)"
+
     print(f"\n{'='*60}")
     print(f" LoRA Ref Self-Test — {test_name}")
     print(f"{'='*60}")
@@ -3789,8 +4663,11 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     print(f"  Ref params: ref_count={ref_count}, steps={ref_steps}, scale={lora_scale}")
     print(f"  I2I params: denoise={denoise_strength}, steps={i2i_steps}")
     print(f"  LoRA:       {os.path.basename(lora_path) if lora_path else 'None'}")
+    if label_d:
+        print(f"  Pipeline:   {label_d}")
     n = len(tp_names) * len(seeds)
-    print(f"  Triples:    {n} ({len(tp_names)} prompts x {len(seeds)} seeds)")
+    cols = 4 if label_d else 3
+    print(f"  Triples:    {n} ({len(tp_names)} prompts x {len(seeds)} seeds), {cols} columns")
     print()
 
     triples = []
@@ -3839,27 +4716,100 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             print(f"  [B] {os.path.basename(path_b)} ({elapsed_b:.1f}s)")
             del pipeline_b; mx.clear_cache(); gc.collect()
 
-            # --- C: Old I2I+LoRA ---
-            print(f"  [C] I2I+LoRA (old approach, denoise={denoise_strength})...")
-            t0 = _time.time()
-            args_c = _make_run_config_args(
-                prompt=i2i_prompt, width=width, height=height,
-                steps=i2i_steps, seed=seed, pipeline=pipeline_type,
-                lora_path=lora_path, lora_scale=lora_scale,
-                input_image=path_a, denoise_strength=denoise_strength,
-            )
-            rc_c = RunConfig.from_args(args_c, command="image i2i")
-            rc_c.denoise_strength = denoise_strength
-            mf_c = execute_generation(rc_c, pipeline_type=pipeline_type)
-            path_c = _find_output_image(mf_c)
-            elapsed_c = _time.time() - t0
-            print(f"  [C] {os.path.basename(path_c)} ({elapsed_c:.1f}s)")
-            mx.clear_cache(); gc.collect()
+            # --- C & D: Only generate if not review_only ---
+            path_c = None
+            elapsed_c = 0.0
+            path_d = None
+            elapsed_d = 0.0
+            if not review_only:
+                if style_variants:
+                    # --- Style variants: generate C (and D) using Ref+LoRA with variant params ---
+                    for si, sv in enumerate(style_variants):
+                        col_letter = chr(67 + si)  # C, D, ...
+                        sv_prompt = sv["ref_prompt"]
+                        sv_scale = sv.get("lora_scale", lora_scale)
+                        sv_steps = sv.get("ref_steps", ref_steps)
+                        sv_label = sv.get("label", f"Variant {si+1}")
+                        print(f"  [{col_letter}] {sv_label} (scale={sv_scale}, {sv_steps}st)...")
+                        t0 = _time.time()
+                        from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline as _FKCP
+                        pipeline_sv = _FKCP(
+                            lora_paths=[lora_path], lora_scales=[sv_scale],
+                        )
+                        result_sv = pipeline_sv.generate(
+                            prompt=sv_prompt, control_image=ctrl_pil,
+                            width=width, height=height, steps=sv_steps, seed=seed,
+                            controlnet_strength=1.0, ref_count=ref_count,
+                        )
+                        path_sv = os.path.join(cfg.OUTPUT_DIR,
+                            f"style_{sv_label.lower().replace(' ','-')}_{tp_name}_s{seed}_{sv_steps}st.png")
+                        result_sv.image.save(path_sv)
+                        elapsed_sv = _time.time() - t0
+                        print(f"  [{col_letter}] {os.path.basename(path_sv)} ({elapsed_sv:.1f}s)")
+                        del pipeline_sv; mx.clear_cache(); gc.collect()
+                        if si == 0:
+                            path_c = path_sv
+                            elapsed_c = elapsed_sv
+                        elif si == 1:
+                            path_d = path_sv
+                            elapsed_d = elapsed_sv
+                else:
+                    # --- C: Old I2I+LoRA ---
+                    print(f"  [C] I2I+LoRA (old approach, denoise={denoise_strength})...")
+                    t0 = _time.time()
+                    args_c = _make_run_config_args(
+                        prompt=i2i_prompt, width=width, height=height,
+                        steps=i2i_steps, seed=seed, pipeline=pipeline_type,
+                        lora_path=lora_path, lora_scale=lora_scale,
+                        input_image=path_a, denoise_strength=denoise_strength,
+                    )
+                    rc_c = RunConfig.from_args(args_c, command="image i2i")
+                    rc_c.denoise_strength = denoise_strength
+                    mf_c = execute_generation(rc_c, pipeline_type=pipeline_type)
+                    path_c = _find_output_image(mf_c)
+                    elapsed_c = _time.time() - t0
+                    print(f"  [C] {os.path.basename(path_c)} ({elapsed_c:.1f}s)")
+                    mx.clear_cache(); gc.collect()
+
+                    # --- D: Pipeline comparison (optional, e.g. zimage + jib-mix LoRA) ---
+                    pcfg = test_cfg.get("pipeline_compare")
+                    if pcfg:
+                        p_pipe = pcfg["pipeline"]
+                        p_lora = resolve_lora_path(pcfg["lora_path"])
+                        p_scale = pcfg.get("lora_scale", 0.8)
+                        p_dn = pcfg.get("denoise_strength", 0.4)
+                        p_steps = pcfg.get("steps", 9)
+                        p_prompt = pcfg.get("prompt", ref_prompt)
+                        print(f"  [D] {p_pipe} + {os.path.basename(p_lora)} (dn={p_dn}, {p_steps}st)...")
+                        t0 = _time.time()
+                        args_d = _make_run_config_args(
+                            prompt=p_prompt, width=width, height=height,
+                            steps=p_steps, seed=seed, pipeline=p_pipe,
+                            lora_path=p_lora, lora_scale=p_scale,
+                            input_image=path_a, denoise_strength=p_dn,
+                            latent_upscale=1.0,
+                        )
+                        rc_d = RunConfig.from_args(args_d, command="image i2i")
+                        rc_d.denoise_strength = p_dn
+                        mf_d = execute_generation(rc_d, pipeline_type=p_pipe)
+                        path_d = _find_output_image(mf_d)
+                        elapsed_d = _time.time() - t0
+                        print(f"  [D] {os.path.basename(path_d)} ({elapsed_d:.1f}s)")
+                        mx.clear_cache(); gc.collect()
+
+            paths = [path_a, path_b]
+            timings_list = [round(elapsed_a, 1), round(elapsed_b, 1)]
+            if path_c:
+                paths.append(path_c)
+                timings_list.append(round(elapsed_c, 1))
+            if path_d:
+                paths.append(path_d)
+                timings_list.append(round(elapsed_d, 1))
 
             triples.append({
                 "prompt_name": tp_name, "anime_prompt": anime_prompt, "seed": seed,
-                "paths": [path_a, path_b, path_c],
-                "timings": [round(elapsed_a, 1), round(elapsed_b, 1), round(elapsed_c, 1)],
+                "paths": paths,
+                "timings": timings_list,
             })
 
     # --- Captions ---
@@ -3869,12 +4819,19 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
         print(f"\n  {t['prompt_name']} / seed={t['seed']} ({i+1}/{len(triples)})")
         cap_a = _caption_image(t["paths"][0], style="photography", lang="en")
         cap_b = _caption_image(t["paths"][1], style="photography", lang="en")
-        cap_c = _caption_image(t["paths"][2], style="photography", lang="en")
         print(f"    [A] {cap_a[:100]}...")
         print(f"    [B] {cap_b[:100]}...")
-        print(f"    [C] {cap_c[:100]}...")
+        cap_dict = {"caption_a": cap_a, "caption_b": cap_b}
+        if len(t["paths"]) > 2:
+            cap_c = _caption_image(t["paths"][2], style="photography", lang="en")
+            print(f"    [C] {cap_c[:100]}...")
+            cap_dict["caption_c"] = cap_c
+        if len(t["paths"]) > 3:
+            print(f"    [D] {cap_d[:100]}...")
+            cap_dict["caption_d"] = cap_d
         style_b = _caption_image(t["paths"][1], style="style", lang="en")
-        captions.append({"caption_a": cap_a, "caption_b": cap_b, "caption_c": cap_c, "style_b": style_b})
+        cap_dict["style_b"] = style_b
+        captions.append(cap_dict)
 
     # --- Quality ---
     metrics = []
@@ -3885,31 +4842,202 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             print(f"\n  {t['prompt_name']} / seed={t['seed']}")
             r_a = _qm.analyze_image(t["paths"][0]); r_a["label"] = label_a
             r_b = _qm.analyze_image(t["paths"][1]); r_b["label"] = label_b
-            r_c = _qm.analyze_image(t["paths"][2]); r_c["label"] = label_c
-            metrics.append({"metrics_a": r_a["metrics"], "metrics_b": r_b["metrics"], "metrics_c": r_c["metrics"]})
+            m_dict = {"metrics_a": r_a["metrics"], "metrics_b": r_b["metrics"]}
+            if len(t["paths"]) > 2 and label_c:
+                r_c = _qm.analyze_image(t["paths"][2]); r_c["label"] = label_c
+                m_dict["metrics_c"] = r_c["metrics"]
+            if len(t["paths"]) > 3 and label_d:
+                r_d = _qm.analyze_image(t["paths"][3]); r_d["label"] = label_d
+                m_dict["metrics_d"] = r_d["metrics"]
+            metrics.append(m_dict)
 
     # --- HTML ---
     html_path = _render_lora_ref_html(
         output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
         test_cfg=test_cfg, label_a=label_a, label_b=label_b, label_c=label_c,
+        label_d=label_d,
         triples=triples, captions=captions, metrics=metrics or None,
         ref_steps=ref_steps, i2i_steps=i2i_steps, lora_scale=lora_scale,
         ref_count=ref_count, denoise_strength=denoise_strength,
         ref_prompt=ref_prompt, i2i_prompt=i2i_prompt, ts=ts,
+        review_only=review_only,
     )
+    total_images = sum(len(t["paths"]) for t in triples)
     print(f"\n{'='*60}\n LoRA Ref Self-Test Complete\n{'='*60}")
     print(f"  HTML review: {html_path}")
-    print(f"  Images:      {len(triples)*3} ({len(triples)} triples)")
+    print(f"  Images:      {total_images} ({len(triples)} rows)")
     import webbrowser
     webbrowser.open(f"file://{os.path.abspath(html_path)}")
     print(f"  Opened in browser")
 
 
+def _render_review_only_html(*, output_dir, base_name, test_name,
+                              triples, captions, metrics,
+                              label_a, label_b, ts):
+    """Render a simple 2-column review HTML: original vs anime2real result.
+
+    Each pair has 👍/👎 feedback + text comment.
+    """
+    import html as html_mod
+
+    cards = []
+    for i, t in enumerate(triples):
+        caps = captions[i] if captions else {}
+        ca = html_mod.escape(caps.get("caption_a", ""))
+        cb = html_mod.escape(caps.get("caption_b", ""))
+        mh = ""
+        if metrics:
+            m = metrics[i]
+            mh = _build_metrics_rows_n(
+                [m["metrics_a"], m["metrics_b"]],
+                [label_a, label_b],
+            )
+        cards.append({
+            "prompt_name": t["prompt_name"],
+            "anime_prompt": html_mod.escape(t["anime_prompt"][:200]),
+            "seed": t["seed"],
+            "img_a": os.path.basename(t["paths"][0]),
+            "img_b": os.path.basename(t["paths"][1]),
+            "timing_a": t["timings"][0],
+            "timing_b": t["timings"][1],
+            "cap_a": ca, "cap_b": cb,
+            "metrics_html": mh,
+        })
+
+    cj = json.dumps(cards, ensure_ascii=False)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>anime2real Review</title>
+<style>
+:root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-serif;padding:20px;padding-bottom:80px}}
+.hd{{text-align:center;margin-bottom:24px}}.hd h1{{font-size:1.6em;margin-bottom:6px}}.hd p{{color:var(--muted);font-size:0.85em}}
+.row{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}}
+.row-hd{{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}}
+.row-hd h3{{font-size:1.05em}}.row-hd .sub{{font-size:0.75em;color:var(--muted)}}
+.imgs{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px}}
+.col{{text-align:center}}
+.col .lb{{font-size:0.8em;font-weight:700;margin-bottom:8px;padding:4px 10px;border-radius:4px;display:inline-block}}
+.col .lb.orig{{background:rgba(255,255,255,0.1)}}.col .lb.result{{background:rgba(78,204,163,0.2);color:var(--success)}}
+.col img{{width:100%;border-radius:8px;cursor:zoom-in}}.col .tm{{font-size:0.7em;color:var(--muted);margin-top:4px}}
+.cp{{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;margin-top:8px;font-size:0.75em;color:#aaa;line-height:1.5;text-align:left;max-height:100px;overflow-y:auto}}
+.cp b{{color:var(--muted)}}
+.tbl{{width:100%;border-collapse:collapse;font-size:0.75em;margin-top:12px}}
+.tbl th,.tbl td{{padding:4px 8px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06)}}
+.tbl th{{color:var(--muted);font-weight:600}}.tbl .best{{color:var(--success);font-weight:700}}
+.fb{{display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06)}}
+.fb label{{font-size:0.8em;color:var(--muted)}}
+.fb button{{padding:8px 18px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:0.85em;transition:all 0.2s}}
+.fb button:hover{{border-color:var(--success);color:var(--success)}}
+.fb button.good.sel{{background:#4ecca3;color:#1a1a2e;border-color:#4ecca3;font-weight:700}}
+.fb button.bad.sel{{background:var(--warn);color:#1a1a2e;border-color:var(--warn);font-weight:700}}
+.fb textarea{{flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:0.8em;resize:vertical;min-height:40px;font-family:inherit}}
+.bb{{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;z-index:100}}
+.btn{{padding:8px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600}}
+.bp{{background:var(--accent);color:#fff}}.bs{{background:var(--border);color:var(--text)}}
+.ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;cursor:zoom-out;justify-content:center;align-items:center}}
+.ov.show{{display:flex}}.ov img{{max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px}}
+</style></head><body>
+<div class="hd"><h1>🎨 anime2real Review</h1>
+<p>Original anime vs Ref+LoRA realistic result — rate each conversion</p></div>
+<div id="ct"></div>
+<div class="bb">
+<span id="stats" style="font-size:0.85em;color:var(--muted)">0 reviewed</span>
+<div style="display:flex;gap:8px;align-items:center">
+<button class="btn bs" onclick="resetAll()">Reset</button>
+<button class="btn bp" onclick="copyFeedback()" title="Copy JSON to clipboard">📋 Copy JSON</button>
+<button class="btn bp" onclick="saveFeedback()" title="Save JSON file to disk">💾 Save File</button>
+<span id="copied" style="color:var(--success);font-size:0.8em;opacity:0;transition:opacity .3s">Copied!</span>
+</div>
+</div>
+<div class="ov" id="ov" onclick="this.classList.remove('show')"><img id="oi" src=""></div>
+<script>
+const C={cj};
+const FB={{}}; // {{index: {{good:bool, notes:str}}}}
+function render(){{
+const ct=document.getElementById('ct');
+ct.innerHTML=C.map((c,i)=>{{
+const fb=FB[i]||{{}};
+return `<div class="row">
+<div class="row-hd"><h3>${{c.prompt_name}} <span class="sub">(seed=${{c.seed}})</span></h3>
+<div class="sub">${{c.anime_prompt}}</div></div>
+<div class="imgs">
+<div class="col"><div class="lb orig">Original (Anime)</div>
+<img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
+<div class="tm">${{c.timing_a}}s</div>
+<div class="cp"><b>Caption:</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>
+<div class="col"><div class="lb result">Result (Realistic)</div>
+<img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
+<div class="tm">${{c.timing_b}}s</div>
+<div class="cp"><b>Caption:</b> ${{c.cap_b.substring(0,300)}}${{c.cap_b.length>300?'...':''}}</div></div>
+</div>${{c.metrics_html||''}}
+<div class="fb">
+<label>Feedback:</label>
+<button class="good ${{fb.good===true?'sel':''}}" onclick="vote(${{i}},true)">👍 Good</button>
+<button class="bad ${{fb.good===false?'sel':''}}" onclick="vote(${{i}},false)">👎 Bad</button>
+<textarea placeholder="Notes..." oninput="note(${{i}},this.value)">${{fb.notes||''}}</textarea>
+</div></div>`;
+}}).join('');
+document.getElementById('stats').textContent=Object.keys(FB).length+'/'+C.length+' reviewed';
+}}
+function vote(i,good){{FB[i]=FB[i]||{{}};FB[i].good=good;render();}}
+function note(i,txt){{FB[i]=FB[i]||{{}};FB[i].notes=txt;}}
+function z(s){{document.getElementById('oi').src=s;document.getElementById('ov').classList.add('show');}}
+function resetAll(){{Object.keys(FB).forEach(k=>delete FB[k]);render();}}
+function _buildFeedbackJSON(){{
+const r=C.map((c,i)=>({{
+prompt:c.prompt_name,seed:c.seed,
+original:c.img_a,result:c.img_b,
+timings:{{original:c.timing_a,result:c.timing_b}},
+caption_original:c.cap_a,caption_result:c.cap_b,
+feedback:FB[i]||{{}}
+}}));
+return JSON.stringify({{test:"{test_name}",ts:"{ts}",results:r}},null,2);
+}}
+function copyFeedback(){{
+const json=_buildFeedbackJSON();
+navigator.clipboard.writeText(json).then(()=>{{
+const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+}}).catch(()=>{{
+// Fallback: select a temporary textarea
+const ta=document.createElement('textarea');ta.value=json;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+}});
+}}
+function saveFeedback(){{
+const json=_buildFeedbackJSON();
+const b=new Blob([json],{{type:'application/json'}});
+const a=document.createElement('a');a.href=URL.createObjectURL(b);
+a.download='anime2real-feedback-{ts}.json';a.click();
+}}
+render();
+</script></body></html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    size_mb = os.path.getsize(html_path) / (1024 * 1024)
+    print(f"  HTML: {html_path} ({size_mb:.1f} MB)")
+    return html_path
+
+
 def _render_lora_ref_html(*, output_dir, base_name, test_name, test_cfg,
                            label_a, label_b, label_c, triples, captions, metrics,
                            ref_steps, i2i_steps, lora_scale, ref_count,
-                           denoise_strength, ref_prompt, i2i_prompt, ts):
+                           denoise_strength, ref_prompt, i2i_prompt, ts,
+                           label_d=None, review_only=False):
     import html as html_mod
+
+    # --- review_only: simple 2-column feedback HTML ---
+    if review_only:
+        return _render_review_only_html(
+            output_dir=output_dir, base_name=base_name, test_name=test_name,
+            triples=triples, captions=captions, metrics=metrics,
+            label_a=label_a, label_b=label_b, ts=ts,
+        )
+
+    has_d = label_d is not None
 
     cards = []
     for i, t in enumerate(triples):
@@ -3918,28 +5046,69 @@ def _render_lora_ref_html(*, output_dir, base_name, test_name, test_cfg,
         cb = html_mod.escape(caps.get("caption_b", ""))
         cc = html_mod.escape(caps.get("caption_c", ""))
         sb = html_mod.escape(caps.get("style_b", ""))
+        cd = html_mod.escape(caps.get("caption_d", "")) if has_d else ""
         mh = ""
         if metrics:
             m = metrics[i]
-            mh = _build_metrics_rows_3(m["metrics_a"], m["metrics_b"], m["metrics_c"], label_a, label_b, label_c)
-        cards.append({"prompt_name": t["prompt_name"], "anime_prompt": html_mod.escape(t["anime_prompt"][:200]),
-            "seed": t["seed"], "img_a": os.path.basename(t["paths"][0]),
-            "img_b": os.path.basename(t["paths"][1]), "img_c": os.path.basename(t["paths"][2]),
-            "timing_a": t["timings"][0], "timing_b": t["timings"][1], "timing_c": t["timings"][2],
-            "cap_a": ca, "cap_b": cb, "cap_c": cc, "style_b": sb, "metrics_html": mh})
+            if has_d and "metrics_d" in m:
+                mh = _build_metrics_rows_n(
+                    [m["metrics_a"], m["metrics_b"], m["metrics_c"], m["metrics_d"]],
+                    [label_a, label_b, label_c, label_d],
+                )
+            else:
+                mh = _build_metrics_rows_n(
+                    [m["metrics_a"], m["metrics_b"], m["metrics_c"]],
+                    [label_a, label_b, label_c],
+                )
+        card = {
+            "prompt_name": t["prompt_name"],
+            "anime_prompt": html_mod.escape(t["anime_prompt"][:200]),
+            "seed": t["seed"],
+            "img_a": os.path.basename(t["paths"][0]),
+            "img_b": os.path.basename(t["paths"][1]),
+            "img_c": os.path.basename(t["paths"][2]),
+            "timing_a": t["timings"][0],
+            "timing_b": t["timings"][1],
+            "timing_c": t["timings"][2],
+            "cap_a": ca, "cap_b": cb, "cap_c": cc,
+            "style_b": sb, "metrics_html": mh,
+            "has_d": has_d,
+        }
+        if has_d and len(t["paths"]) > 3:
+            card["img_d"] = os.path.basename(t["paths"][3])
+            card["timing_d"] = t["timings"][3]
+            card["cap_d"] = cd
+            card["label_d"] = label_d
+        cards.append(card)
 
     cj = json.dumps(cards, ensure_ascii=False)
 
-    html_content = f"""<!DOCTYPE html>
+    # Dynamic CSS grid columns
+    grid_cols = "1fr 1fr 1fr 1fr" if has_d else "1fr 1fr 1fr"
+    # How-it-works: extra panel for column D if present
+    panel_d_html = ""
+    if has_d:
+        panel_d_html = (
+            '<div class="ap" style="border-left:3px solid #6c5ce7">'
+            '<h4 style="color:#6c5ce7">Pipeline Compare (Column D)</h4><ul>'
+            '<li>ZImage pipeline I2I with jib-mix-realistic LoRA</li>'
+            '<li>Tests cross-pipeline anime→realistic conversion</li>'
+            '<li>Compares a different model architecture + LoRA combination</li>'
+            '</ul></div>'
+        )
+    how_grid = "1fr 1fr 1fr" if has_d else "1fr 1fr"
+
+    html_content = (
+        f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>Anime2Real Ref+LoRA Review</title>
 <style>
-:root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500}}
+:root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500;--pipe:#6c5ce7}}
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-serif;padding:20px;padding-bottom:80px}}
 .hd{{text-align:center;margin-bottom:20px}}.hd h1{{font-size:1.5em;margin-bottom:4px}}.hd p{{color:var(--muted);font-size:0.85em}}
 .hw{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px}}
 .hw h3{{color:var(--success);margin-bottom:8px}}.hw p{{font-size:0.82em;line-height:1.7;color:#ccc;margin-bottom:8px}}
-.hw .g2{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}}
+.hw .g2{{display:grid;grid-template-columns:{how_grid};gap:12px;margin-top:10px}}
 .hw .ap{{background:rgba(255,255,255,0.03);border-radius:8px;padding:10px}}
 .hw .ap h4{{font-size:0.85em;margin-bottom:6px}}
 .hw .ap.gd h4{{color:var(--success)}}.hw .ap.bd h4{{color:var(--warn)}}
@@ -3947,10 +5116,10 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-seri
 .tr{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:20px}}
 .th{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}}
 .th h3{{font-size:1em}}.th .mt2{{font-size:0.75em;color:var(--muted)}}
-.im{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px}}
+.im{{display:grid;grid-template-columns:{grid_cols};gap:12px;margin-bottom:12px}}
 .cl{{text-align:center}}
 .cl .lb{{font-size:0.78em;font-weight:700;margin-bottom:6px;padding:3px 8px;border-radius:4px;display:inline-block}}
-.cl .lb.a{{background:rgba(255,255,255,0.1)}}.cl .lb.b{{background:rgba(78,204,163,0.2);color:var(--success)}}.cl .lb.c{{background:rgba(240,165,0,0.2);color:var(--warn)}}
+.cl .lb.a{{background:rgba(255,255,255,0.1)}}.cl .lb.b{{background:rgba(78,204,163,0.2);color:var(--success)}}.cl .lb.c{{background:rgba(240,165,0,0.2);color:var(--warn)}}.cl .lb.d{{background:rgba(108,92,231,0.2);color:var(--pipe)}}
 .cl img{{width:100%;border-radius:8px;cursor:zoom-in}}.cl .tm{{font-size:0.7em;color:var(--muted);margin-top:4px}}
 .cp{{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;margin-top:8px;font-size:0.75em;color:#aaa;line-height:1.5;text-align:left;max-height:100px;overflow-y:auto}}
 .cp b{{color:var(--muted)}}
@@ -3981,6 +5150,7 @@ The anime2real LoRA biases the transformer toward realistic output.</p>
 <li>Mixes clean latent with noise: 80% noise at denoise=0.6</li>
 <li>LoRA needs high noise to activate, but noise destroys identity</li>
 <li>Output: completely different person</li><li>LoRA only works at denoise &gt;= 0.6</li></ul></div>
+{panel_d_html}
 </div></div>
 <div id="ct"></div>
 <div class="bb"><span id="vc" style="font-size:0.85em;color:var(--muted)">0 Ref+LoRA wins</span>
@@ -3990,35 +5160,66 @@ The anime2real LoRA biases the transformer toward realistic output.</p>
 <script>
 const C={cj};const V={{}};
 function render(){{
-document.getElementById('ct').innerHTML=C.map((c,i)=>`<div class="tr">
-<div class="th"><h3>${{c.prompt_name}} <span style="font-size:0.75em;color:var(--muted)">(seed=${{c.seed}})</span></h3>
-<div class="mt2">${{c.anime_prompt}}</div></div>
-<div class="im">
-<div class="cl"><div class="lb a">A: Anime Baseline</div><img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
-<div class="tm">${{c.timing_a}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>
-<div class="cl"><div class="lb b">B: Ref+LoRA (NEW)</div><img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
+document.getElementById('ct').innerHTML=C.map((c,i)=>{{
+let html=`<div class="tr"><div class="th"><h3>${{c.prompt_name}} <span style="font-size:0.75em;color:var(--muted)">(seed=${{c.seed}})</span></h3>
+<div class="mt2">${{c.anime_prompt}}</div></div><div class="im">`
++`<div class="cl"><div class="lb a">A: Anime Baseline</div><img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
+<div class="tm">${{c.timing_a}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>`
++`<div class="cl"><div class="lb b">B: Ref+LoRA (NEW)</div><img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
 <div class="tm">${{c.timing_b}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_b.substring(0,300)}}${{c.cap_b.length>300?'...':''}}</div>
-<div class="cp" style="margin-top:4px"><b>Style:</b> ${{c.style_b}}</div></div>
-<div class="cl"><div class="lb c">C: I2I+LoRA (OLD)</div><img src="${{c.img_c}}" onclick="z('${{c.img_c}}')" loading="lazy">
-<div class="tm">${{c.timing_c}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_c.substring(0,300)}}${{c.cap_c.length>300?'...':''}}</div></div>
-</div>${{c.metrics_html||''}}
+<div class="cp" style="margin-top:4px"><b>Style:</b> ${{c.style_b}}</div></div>`
++`<div class="cl"><div class="lb c">C: I2I+LoRA (OLD)</div><img src="${{c.img_c}}" onclick="z('${{c.img_c}}')" loading="lazy">
+<div class="tm">${{c.timing_c}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_c.substring(0,300)}}${{c.cap_c.length>300?'...':''}}</div></div>`"""
+    )
+
+    # Add column D dynamically
+    if has_d:
+        html_content += (
+            """`+(()=>{
+if(!c.has_d||!c.img_d)return '';
+return `<div class="cl"><div class="lb d">D: ${{c.label_d||'Pipeline'}}</div><img src="${{c.img_d}}" onclick="z('${{c.img_d}}')" loading="lazy">
+<div class="tm">${{c.timing_d}}s</div><div class="cp"><b>Caption:</b> ${{(c.cap_d||'').substring(0,300)}}${{(c.cap_d||'').length>300?'...':''}}</div></div>`;
+})()+`"""
+        )
+    html_content += (
+        """</div>${{c.metrics_html||''}}
 <div class="vr"><span style="font-size:0.8em;color:var(--muted)">Winner:</span>
-<button class="vb ${{V[i]===\\"a\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"a\\")">A</button>
-<button class="vb ${{V[i]===\\"b\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"b\\")">B: Ref+LoRA</button>
-<button class="vb ${{V[i]===\\"c\\"?\\"sel\\":\\""}}" onclick="v(${{i}},\\"c\\")">C</button>
-<button class="vb" onclick="v(${{i}},null)">Skip</button></div></div>`).join('');
+<button class="vb ${{V[i]===\\"a\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"a\\")">A</button>
+<button class="vb ${{V[i]===\\"b\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"b\\")">B: Ref+LoRA</button>
+<button class="vb ${{V[i]===\\"c\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"c\\")">C</button>"""
+    )
+    if has_d:
+        html_content += (
+            """<button class="vb ${{V[i]===\\"d\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"d\\")">D: Pipeline</button>"""
+        )
+    html_content += (
+        """<button class="vb" onclick="v(${{i}},null)">Skip</button></div></div>`;return html;}}).join('');
 document.getElementById('vc').textContent=Object.values(V).filter(x=>x==='b').length+' Ref+LoRA wins';}}
 function v(i,c){{if(c)V[i]=c;else delete V[i];render();}}
 function z(s){{document.getElementById('oi').src=s;document.getElementById('ov').classList.add('show');}}
 function resetAll(){{Object.keys(V).forEach(k=>delete V[k]);render();}}
 function exportJSON(){{
-const r=C.map((c,i)=>({{prompt:c.prompt_name,seed:c.seed,anime_prompt:c.anime_prompt,
-images:{{baseline:c.img_a,ref_lora:c.img_b,i2i_lora:c.img_c}},
-timings:{{a:c.timing_a,b:c.timing_b,c:c.timing_c}},vote:V[i]||null}}));
-const b=new Blob([JSON.stringify({{test:"anime2real-ref",ts:"{ts}",results:r}},null,2)],{{type:'application/json'}});
-const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='anime2real-ref-votes.json';a.click();}}
+const r=C.map((c,i)=>{{
+const imgs={{baseline:c.img_a,ref_lora:c.img_b,i2i_lora:c.img_c}};"""
+    )
+    if has_d:
+        html_content += (
+            """if(c.has_d&&c.img_d)imgs.pipeline=c.img_d;"""
+        )
+    html_content += (
+        f"""const tms={{a:c.timing_a,b:c.timing_b,c:c.timing_c}};"""
+    )
+    if has_d:
+        html_content += (
+            """if(c.has_d&&c.timing_d)tms.d=c.timing_d;"""
+        )
+    html_content += (
+        """return{{prompt:c.prompt_name,seed:c.seed,anime_prompt:c.anime_prompt,images:imgs,timings:tms,vote:V[i]||null}};}});"""
+        f"""const b=new Blob([JSON.stringify({{test:"{test_name}",ts:"{ts}",results:r}},null,2)],{{type:'application/json'}});"""
+        """const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='anime2real-votes.json';a.click();}}
 render();
 </script></body></html>"""
+    )
 
     html_path = os.path.join(output_dir, f"{base_name}_review.html")
     with open(html_path, "w", encoding="utf-8") as f:
@@ -4027,18 +5228,29 @@ render();
     return html_path
 
 
-def _build_metrics_rows_3(m_a, m_b, m_c, label_a, label_b, label_c):
+def _build_metrics_rows_n(metrics_list, labels):
+    """Build an HTML metrics comparison table for N columns."""
     import html as html_mod
-    keys = list(m_a.keys()) if m_a else []
+    if not metrics_list or not metrics_list[0]:
+        return ""
+    keys = list(metrics_list[0].keys())
     if not keys:
         return ""
+    col_idx = "ABCDEFGHIJ"
+    header = "<tr><th>Metric</th>" + "".join(f"<th>{html_mod.escape(l)}</th>" for l in labels) + "</tr>"
     rows = ""
     for k in keys:
-        va, vb, vc = m_a.get(k, 0), m_b.get(k, 0), m_c.get(k, 0)
-        mx2 = max(va, vb, vc)
-        rows += "<tr><td>" + html_mod.escape(k) + "</td>"
-        for v in [va, vb, vc]:
+        vals = [m.get(k, 0) for m in metrics_list]
+        mx2 = max(vals) if vals else 0
+        row = "<tr><td>" + html_mod.escape(k) + "</td>"
+        for v in vals:
             cls = ' class="best"' if v == mx2 else ""
-            rows += f"<td{cls}>{v:.3f}</td>"
-        rows += "</tr>\n"
-    return '<table class="tbl"><tr><th>Metric</th><th>A</th><th>B</th><th>C</th></tr>' + rows + '</table>'
+            row += f"<td{cls}>{v:.3f}</td>"
+        row += "</tr>\n"
+        rows += row
+    return '<table class="tbl">' + header + rows + '</table>'
+
+
+def _build_metrics_rows_3(m_a, m_b, m_c, label_a, label_b, label_c):
+    """Backward-compatible wrapper for 3-column metrics."""
+    return _build_metrics_rows_n([m_a, m_b, m_c], [label_a, label_b, label_c])
