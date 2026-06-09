@@ -1565,9 +1565,11 @@ def run_review_selftest(args):
 def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     """Run I2I + ControlNet self-test by delegating to image-i2i._run_self_test().
 
-    mode="debug"      → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
-    mode="cnet-sweep" → _I2I_CNET_SWEEP_VARIATIONS (6 variations, ~20 min)
-    mode="full"       → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
+    mode="debug"       → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
+    mode="cnet-sweep"  → _I2I_CNET_SWEEP_VARIATIONS (6 variations, ~20 min)
+    mode="cnet-sweep2" → _I2I_CNET_SWEEP2_VARIATIONS (4 variations, ~15 min)
+    mode="cnet-pose"   → _I2I_CNET_POSE_VARIATIONS (5 variations, ~20 min)
+    mode="full"        → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
     After generation: VLM-captions all outputs and generates interactive HTML review.
     """
     import importlib
@@ -1587,6 +1589,10 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
         variations = _i2i._I2I_DEBUG_VARIATIONS
     elif mode == "cnet-sweep":
         variations = _i2i._I2I_CNET_SWEEP_VARIATIONS
+    elif mode == "cnet-sweep2":
+        variations = _i2i._I2I_CNET_SWEEP2_VARIATIONS
+    elif mode == "cnet-pose":
+        variations = _i2i._I2I_CNET_POSE_VARIATIONS
     else:
         variations = _i2i._I2I_SELF_TEST_VARIATIONS
 
@@ -3488,7 +3494,7 @@ def run_review_lora(args):
     width = getattr(args, "width", None) or tp["width"]
     height = getattr(args, "height", None) or tp["height"]
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
-    lora_scale = getattr(args, "lora_scale", 1.0) or test_cfg.get("lora_scale", 1.0)
+    lora_scale = (getattr(args, "lora_scale", None) or 1.0) or test_cfg.get("lora_scale", 1.0)
 
     # Seeds: CLI --seeds overrides config
     seeds_arg = getattr(args, "seeds", None)
@@ -4072,7 +4078,7 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
     from app.test_prompts_image import get_test_prompt
     from app.commands._shared import resolve_lora_path
 
-    lora_scale = getattr(args, "lora_scale", 1.0) or test_cfg.get("lora_scale", 1.0)
+    lora_scale = (getattr(args, "lora_scale", None) or 1.0) or test_cfg.get("lora_scale", 1.0)
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
     seeds = test_cfg.get("seeds", [42, 777])
     prompt_names = test_cfg.get("test_prompts", [])

@@ -1,8 +1,13 @@
 """image-anime2real — Anime-to-realistic style transfer with identity preservation.
 
 Uses Flux2KleinEdit reference conditioning + anime2real LoRA to convert anime-style
-images to photorealistic output while preserving the original character's appearance
+images to realistic output while preserving the original character's appearance
 (hair color, clothing, facial features, pose).
+
+Default style: 3D Game (Unreal Engine 5 aesthetic).
+  A/B test result (2026-06-09): 3D Game won 3/4 votes vs photorealistic (0) and
+  semi-realistic (1). Users preferred the "3D game realistic" look over plain
+  photorealism. Use --realism-style to switch styles.
 
 How it works
   Unlike traditional I2I (which mixes clean latents with noise and loses identity at
@@ -13,16 +18,17 @@ How it works
   3. The model "sees" the original character at every denoising step
   4. The anime2real LoRA biases the transformer toward realistic output
 
-  Result: the output looks like a real cosplayer wearing the character's outfit,
-  preserving the original pink hair, school uniform, etc.
+  Result: the output looks like a high-fidelity 3D game character model of the
+  original anime character, preserving hair color, outfit, etc.
 
   This is far superior to the old I2I approach (denoise=0.6) which destroyed identity
   completely — different hair color, different clothing, different face.
 
-Verified best parameters
-  --steps 8         4 steps = semi-realistic "3D render"; 8 = photographic quality
-  --lora-scale 1.0  Full LoRA activation for maximum realism
-  --ref-count 1     1 reference copy sufficient (3 is 3x slower, similar result)
+Verified best parameters (3D Game default)
+  --realism-style 3d-game  Default; Unreal Engine 5 game character aesthetic
+  --steps 8                4 steps = too soft; 8 = crisp detail
+  --anime2real-lora-scale 0.7  Balanced for 3D game style (1.0 = too photorealistic)
+  --ref-count 1            1 reference copy sufficient (3 is 3x slower, similar result)
   --skip-preprocess (flag) Must use raw image, not canny/edge detection
 
 Public API:
@@ -55,9 +61,10 @@ _REALISM_STYLES = {
     "3d-game": {
         "prompt": (
             "A high-quality 3D game character render of the same character, "
-            "Unreal Engine 5, subsurface scattering skin, cinematic rim lighting, "
-            "game asset style, keeping the original hair color, clothing, "
-            "and all character features"
+            "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
+            "realistic iris detail and reflections, cinematic rim lighting, "
+            "realistic body proportions, game asset style, keeping the original "
+            "hair color, clothing, and all character features"
         ),
         "lora_scale": 0.7,
         "steps": 8,
@@ -74,8 +81,8 @@ _REALISM_STYLES = {
     },
 }
 
-# Default prompt for realistic conversion (backward compat)
-_DEFAULT_PROMPT = _REALISM_STYLES["photorealistic"]["prompt"]
+# Default prompt (matches --realism-style 3d-game)
+_DEFAULT_PROMPT = _REALISM_STYLES["3d-game"]["prompt"]
 
 # Self-test: anime prompts for comprehensive evaluation
 _ANIME_TEST_PROMPTS = {
@@ -113,22 +120,25 @@ _I2I_PROMPT = (
 def add_anime2real_args(parser):
     """Register anime2real-specific CLI arguments."""
     from app.commands._shared import _arg_registered
-    if not _arg_registered(parser, "ref_count"):
-        parser.add_argument(
-            "--ref-count", type=int, default=1, metavar="N",
-            help="Reference image repetition count for Flux2KleinEdit (1-4, default: 1). "
-                 "Higher = stronger structural guidance but slower.",
-        )
-    if not _arg_registered(parser, "lora_scale"):
-        parser.add_argument(
-            "--lora-scale", type=float, default=None,
-            help="LoRA conditioning strength (default: depends on --realism-style)",
-        )
+    # NOTE: --ref-count and --lora-scale are NOT used here because other modules
+    # (_shared.py, image-profile.py) register them with fixed defaults (3 and 1.0)
+    # that conflict with anime2real's verified-best values (1 and per-style).
+    # Anime2real uses dedicated params to avoid shared-default conflicts.
+    parser.add_argument(
+        "--anime2real-ref-count", type=int, default=1, metavar="N",
+        help="Reference count for anime2real Flux2KleinEdit (1-4, default: 1). "
+             "1 = fastest, sufficient quality. 3 = slower, marginally better.",
+    )
+    parser.add_argument(
+        "--anime2real-lora-scale", type=float, default=None,
+        help="LoRA scale override for anime2real. Default: depends on --realism-style "
+             "(3d-game=0.7, photorealistic=1.0, semi-realistic=0.85).",
+    )
     if not _arg_registered(parser, "realism_style"):
         parser.add_argument(
-            "--realism-style", type=str, default="photorealistic",
+            "--realism-style", type=str, default="3d-game",
             choices=list(_REALISM_STYLES.keys()),
-            help="Output realism style preset: photorealistic (default), 3d-game, semi-realistic. "
+            help="Output realism style preset: 3d-game (default), photorealistic, semi-realistic. "
                  "Sets prompt, lora_scale, and steps unless overridden by explicit flags.",
         )
 
@@ -157,17 +167,23 @@ def run_anime2real(args):
         print(f"ERROR: Input image not found: {input_image_path}", file=sys.stderr)
         sys.exit(1)
 
-    # Resolve parameters — apply realism-style preset first, then allow overrides
-    realism_style = getattr(args, "realism_style", "photorealistic")
-    style_preset = _REALISM_STYLES.get(realism_style, _REALISM_STYLES["photorealistic"])
+    # Resolve parameters — apply realism-style preset first, then allow overrides.
+    # lora_scale: uses dedicated --anime2real-lora-scale (default=None) to avoid
+    # conflicting with the shared --lora-scale (default=1.0).  When None, the
+    # per-style preset value is used (3d-game=0.7, photorealistic=1.0, etc.).
+    realism_style = getattr(args, "realism_style", "3d-game")
+    style_preset = _REALISM_STYLES.get(realism_style, _REALISM_STYLES["3d-game"])
 
     prompt = getattr(args, "prompt", None) or style_preset["prompt"]
     steps = getattr(args, "steps", None) or style_preset["steps"]
     seed = getattr(args, "seed", 42)
     lora_path_raw = getattr(args, "lora_path", None) or _DEFAULT_LORA
     lora_path = resolve_lora_path(lora_path_raw)
-    lora_scale = getattr(args, "lora_scale", None) or style_preset["lora_scale"]
-    ref_count = getattr(args, "ref_count", 1)
+
+    # Use dedicated --anime2real-lora-scale if provided, otherwise style preset.
+    lora_scale = getattr(args, "anime2real_lora_scale", None) or style_preset["lora_scale"]
+    # NOTE: uses --anime2real-ref-count (default=1), NOT shared --ref-count (default=3).
+    ref_count = getattr(args, "anime2real_ref_count", 1)
 
     # Get output dimensions from input image
     from PIL import Image

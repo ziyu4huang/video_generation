@@ -515,7 +515,7 @@ def run_profile(args):
         "height": height,
         "ratio": args.ratio,
         "lora_path": getattr(args, "lora_path", None),
-        "lora_scale": getattr(args, "lora_scale", 1.0),
+        "lora_scale": getattr(args, "lora_scale", None) or 1.0,
         "strip_gap": args.strip_gap,
         "no_strip": args.no_strip,
         "flux2_model_path": getattr(args, "flux2_model_path", None),
@@ -691,7 +691,7 @@ def run_profile(args):
                     steps=steps,
                     seed=view_seed,
                     lora_path=getattr(args, "lora_path", None),
-                    lora_scale=getattr(args, "lora_scale", 1.0),
+                    lora_scale=getattr(args, "lora_scale", None) or 1.0,
                     upscale=False,
                     upscale_model=None,
                 )

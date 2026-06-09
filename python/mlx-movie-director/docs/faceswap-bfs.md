@@ -61,16 +61,16 @@ python/venv/bin/python run.py image faceswap \
 ### Test mode — auto-generate sources + review
 
 ```bash
-python/venv/bin/python run.py image faceswap --test
+python/venv/bin/python run.py image faceswap --self-test
 ```
 
-Test mode runs 3 phases automatically:
+Self-test mode runs 3 phases automatically:
 
 | Phase | Pipeline | Purpose | ~Time |
 |-------|----------|---------|-------|
-| 1. Body image | ZImage (Moody V12.6) | Generate Asian JK girl portrait (seed=42) | ~50s |
-| 2. Face image | Flux2 Klein T2I | Generate European woman close-up (seed=100) | ~20s |
-| 3. Face swap | Flux2 Klein Edit + BFS LoRA | Combine body + face via swap prompt | ~160s |
+| 1. Body image | ZImage (Moody V12.6) | Generate Asian JK girl portrait (seed=42) | ~12s |
+| 2. Face image | Flux2 Klein T2I | Generate European woman close-up (seed=100) | ~5s |
+| 3. Face swap | Flux2 Klein Edit + BFS LoRA | Combine body + face via swap prompt | ~57s |
 
 If a VLM server (LM Studio with Qwen3-VL) is running at `localhost:1234`,
 each image is automatically scored on a 1–10 scale across 6 dimensions
@@ -89,7 +89,7 @@ cards showing body, face, and swap result side-by-side.
 | `--mode` | `face` | `face` = swap face only (keep hair), `head` = swap full head |
 | `--lora NAME` | `bfs-head-v1-klein-9b` | BFS LoRA name (from `models/lora/`) or absolute path |
 | `--lora-scale` | `1.0` | LoRA application strength |
-| `--test` | off | Auto-generate body + face, run swap, open review HTML |
+| `--self-test` | off | Auto-generate body + face, run swap, open review HTML |
 | `--seed` | `42` | RNG seed for reproducibility |
 | `--steps` | `4` | Denoising steps (4 is typical for distilled Klein) |
 | `--width` | `1024` | Output width |
@@ -137,6 +137,27 @@ Phase 3: Flux2KleinPipeline + BFS LoRA (~17 GB) → faceswap result
 Peak memory never exceeds ~17 GB (single large model + overhead).
 
 In normal mode, only Phase 3 runs (the user provides pre-made images).
+
+## Tips & Gotchas
+
+### LoRA scale
+Default `--lora-scale` is `1.0`. The BFS LoRA was trained at this scale.
+Lower values (0.7–0.9) soften the swap effect; higher values may produce
+artifacts. The `--lora-scale` argument is shared across all image subcommands
+and defaults to `1.0` — safe for faceswap.
+
+### Dimension matching
+Source images should have the **same aspect ratio** as the desired output.
+mflux stretches (not crops) reference images to fit output dimensions.
+Mismatched ratios cause visible distortion (e.g., portrait source → square
+output makes subjects look wide/chubby).
+
+### Self-test results (2026-06-09)
+Verified with VLM scoring:
+- Body (ZImage): 8/10
+- Face (Flux2 T2I): 9/10
+- **FaceSwap result: 8/10**
+- Total time: ~75 seconds
 
 ## Swap Prompts
 

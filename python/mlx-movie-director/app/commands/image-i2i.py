@@ -130,6 +130,22 @@ _I2I_CNET_SWEEP2_VARIATIONS = [
     ("cns2-act06-str10-20st",        1.0,  1.0,  None, 6,        20,   _I2I_CNET_FULLBODY_PROMPT),
 ]
 
+# Pose sweep — OpenPose skeleton conditioning (joint positions only, no clothing edges).
+# Root cause of clothing bleed: Canny captures garment silhouette → ControlNet copies appearance.
+# Fix: replace Canny with mediapipe OpenPose skeleton → pure pose signal, no clothing info.
+# Tuple has 8th field: preprocess_mode ("canny" | "openpose")
+_I2I_CNET_POSE_VARIATIONS = [
+    # (label,                        dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess)
+    # Full denoise baseline — same as best Canny result but with OpenPose (no clothing bleed)
+    ("pose-dn10-str08-act8-20st",    1.0,  0.8,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # Medium denoise — keep source identity (face/clothes), OpenPose guides only pose
+    ("pose-dn07-str10-all-20st",     0.7,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    ("pose-dn08-str10-all-20st",     0.8,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    ("pose-dn06-str10-all-20st",     0.6,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # Canny baseline for direct comparison
+    ("canny-dn10-str08-act8-20st",   1.0,  0.8,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+]
+
 
 # ---------------------------------------------------------------------------
 # CLI argument registration
@@ -573,38 +589,8 @@ def _run_self_test(args):
     else:
         print(f"\n[Self-Test] Reusing cached reference: {ref_path}")
 
-    # ── Step 3: VAE encode source image (once, reused by all variations) ──
-    print(f"\n[Self-Test] VAE encoding source image...", end=" ", flush=True)
-    vae = _load_vae()
-    source_pil = Image.open(source_path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
-    clean_latent = _vae_encode(vae, source_pil)
-    clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
-    print(f"Done → {list(clean_latent.shape)}")
-
-    # ── Step 3b: Pre-encode ControlNet reference (for ControlNet variations) ──
-    # Union 2.1 was trained on preprocessed images (Canny, HED, Depth, Pose).
-    # Use skip=False (Canny edge detection) — raw blurred images are NOT a supported
-    # control type and produce garbage output.
-    ctrl_33ch = None
-    if ref_path:
-        print(f"[Self-Test] VAE encoding ControlNet reference (canny)...", end=" ", flush=True)
-        ref_pil = _load_and_preprocess(
-            ref_path, out_w, out_h, skip=False, blur_ref=None,
-        )
-        ctrl_latent = _vae_encode(vae, ref_pil)
-        ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
-        ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
-        mx.eval(ctrl_33ch)  # Force materialize before VAE is freed
-        cnn_max = float(mx.abs(ctrl_33ch).max())
-        print(f"Done → {list(ctrl_33ch.shape)} max={cnn_max:.3f} (evaluated)")
-
-    del vae
-    _gc()
-
-    # ── Step 4: Generate variations ───────────────────────────────────────
+    # ── Step 3: Select variations early (needed to know which ctrl modes to encode) ──
     results = []
-
-    # Select variations based on --self-test / mode value
     st_val = getattr(args, "self_test", True)
     if isinstance(st_val, str) and st_val == "debug":
         variations = _I2I_DEBUG_VARIATIONS
@@ -615,16 +601,54 @@ def _run_self_test(args):
     elif isinstance(st_val, str) and st_val == "cnet-sweep2":
         variations = _I2I_CNET_SWEEP2_VARIATIONS
         print(f"\n[Self-Test] Using CNET-SWEEP2 variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-pose":
+        variations = _I2I_CNET_POSE_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-POSE variations ({len(variations)} tests)")
     else:
         variations = _I2I_SELF_TEST_VARIATIONS
+
+    # ── Step 4: VAE encode source + all needed ControlNet reference modes ──
+    print(f"\n[Self-Test] VAE encoding source image...", end=" ", flush=True)
+    vae = _load_vae()
+    source_pil = Image.open(source_path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    clean_latent = _vae_encode(vae, source_pil)
+    clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
+    print(f"Done → {list(clean_latent.shape)}")
+
+    # Encode ControlNet reference image for each preprocess mode needed by this variation set
+    ctrl_33ch_map: dict = {}
+    ctrl_33ch = None  # legacy default (canny)
+    if ref_path:
+        needed_modes = {v[7] if len(v) > 7 else "canny"
+                        for v in variations if v[2] is not None} or {"canny"}
+        for mode in sorted(needed_modes):
+            print(f"[Self-Test] VAE encoding ControlNet reference ({mode})...", end=" ", flush=True)
+            ref_pil = _load_and_preprocess(ref_path, out_w, out_h, skip=False,
+                                            blur_ref=None, preprocess_mode=mode)
+            ctrl_lat = _vae_encode(vae, ref_pil)
+            ctrl_lat = (ctrl_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
+            c33 = build_control_input_33ch(ctrl_lat, lambda img: _vae_encode(vae, img))
+            mx.eval(c33)
+            ctrl_33ch_map[mode] = c33
+            print(f"Done → {list(c33.shape)} max={float(mx.abs(c33).max()):.3f} (evaluated)")
+        ctrl_33ch = ctrl_33ch_map.get("canny")
+
+    del vae
+    _gc()
+
+    # ── Step 5: Generate variations ───────────────────────────────────────
 
     for var in variations:
         label, dn_str, ctrl_str, blur_ref, cnet_active, tstps = var[:6]
         prompt_override = var[6] if len(var) > 6 else None
+        preprocess_mode = var[7] if len(var) > 7 else "canny"
         prompt = prompt_override if prompt_override is not None else _I2I_SELF_TEST_PROMPT
 
+        # Pick the ctrl_33ch for this variation's preprocess mode
+        var_ctrl_33ch = ctrl_33ch_map.get(preprocess_mode, ctrl_33ch)
+
         # Skip ControlNet variations if no reference image
-        if ctrl_str is not None and ctrl_33ch is None:
+        if ctrl_str is not None and var_ctrl_33ch is None:
             print(f"\n[Self-Test] SKIP {label} (no ControlNet reference)")
             continue
 
@@ -632,27 +656,31 @@ def _run_self_test(args):
         print(f"[Self-Test] {label}")
         print(f"{'=' * 60}")
 
-        use_ctrl = ctrl_33ch if ctrl_str is not None else None
-        mode_desc = "I2I+ControlNet" if ctrl_str is not None else "I2I"
-        print(f"  Type: {mode_desc} (denoise={dn_str}, steps={tstps})")
-
-        pil_image = _generate(
-            prompt=prompt,
-            out_w=out_w,
-            out_h=out_h,
-            steps=tstps,
-            seed=seed,
-            clean_latent=clean_latent,
-            denoise_strength=dn_str,
-            ctrl_33ch=use_ctrl,
-            controlnet_strength=ctrl_str or 0.6,
-            cnet_active_steps=cnet_active,
-        )
-
         img_filename = f"i2i_selftest_{label}-s{seed}.png"
         out_p = os.path.join(cfg.OUTPUT_DIR, img_filename)
-        pil_image.save(out_p)
-        print(f"  Saved: {out_p}")
+
+        if os.path.exists(out_p):
+            print(f"  Reusing cached: {out_p}")
+        else:
+            use_ctrl = var_ctrl_33ch if ctrl_str is not None else None
+            mode_desc = f"I2I+ControlNet({preprocess_mode})" if ctrl_str is not None else "I2I"
+            print(f"  Type: {mode_desc} (denoise={dn_str}, steps={tstps})")
+
+            pil_image = _generate(
+                prompt=prompt,
+                out_w=out_w,
+                out_h=out_h,
+                steps=tstps,
+                seed=seed,
+                clean_latent=clean_latent,
+                denoise_strength=dn_str,
+                ctrl_33ch=use_ctrl,
+                controlnet_strength=ctrl_str or 0.6,
+                cnet_active_steps=cnet_active,
+            )
+
+            pil_image.save(out_p)
+            print(f"  Saved: {out_p}")
 
         params = {
             "denoise_strength": dn_str,
@@ -1234,8 +1262,12 @@ renderGrid();
 # ---------------------------------------------------------------------------
 
 def _load_and_preprocess(path: str, out_w: int, out_h: int,
-                          skip: bool, blur_ref: float | None = None) -> "Image.Image":
-    """Load and preprocess reference image for ControlNet."""
+                          skip: bool, blur_ref: float | None = None,
+                          preprocess_mode: str = "canny") -> "Image.Image":
+    """Load and preprocess reference image for ControlNet.
+
+    preprocess_mode: "canny" (default) or "openpose"
+    """
     from PIL import Image, ImageFilter
 
     img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
@@ -1246,7 +1278,8 @@ def _load_and_preprocess(path: str, out_w: int, out_h: int,
             print(f"[I2I] Reference blur sigma={blur_ref} applied")
         print(f"[I2I] Using raw reference image as control signal")
         return img
-    # Default: canny edge detection
+    if preprocess_mode == "openpose":
+        return _apply_openpose(img)
     return _apply_canny(img)
 
 
@@ -1262,6 +1295,120 @@ def _apply_canny(pil_img: "Image.Image") -> "Image.Image":
     edges = cv2.Canny(gray, threshold1=100, threshold2=200)
     edges_rgb = np.stack([edges] * 3, axis=-1)
     return Image.fromarray(edges_rgb)
+
+
+# MediaPipe → OpenPose 18-joint index mapping
+# mp indices: nose=0, l_eye=2, r_eye=5, l_ear=7, r_ear=8,
+#             l_shoulder=11, r_shoulder=12, l_elbow=13, r_elbow=14,
+#             l_wrist=15, r_wrist=16, l_hip=23, r_hip=24,
+#             l_knee=25, r_knee=26, l_ankle=27, r_ankle=28
+_OP_MP_MAP = [0, None, 12, 14, 16, 11, 13, 15, 24, 26, 28, 23, 25, 27, 5, 2, 8, 7]
+_OP_LIMBS = [
+    (1, 2), (1, 5), (2, 3), (3, 4), (5, 6), (6, 7),
+    (1, 8), (8, 9), (9, 10), (1, 11), (11, 12), (12, 13),
+    (1, 0), (0, 14), (14, 16), (0, 15), (15, 17),
+]
+_OP_COLORS = [
+    (255, 0, 0), (255, 85, 0), (255, 170, 0), (255, 255, 0),
+    (170, 255, 0), (85, 255, 0), (0, 255, 0), (0, 255, 85),
+    (0, 255, 170), (0, 255, 255), (0, 170, 255), (0, 85, 255),
+    (0, 0, 255), (85, 0, 255), (170, 0, 255), (255, 0, 255),
+    (255, 0, 170), (255, 0, 85),
+]
+
+
+_POSE_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+    "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task"
+)
+_POSE_MODEL_CACHE = os.path.join(os.path.expanduser("~"), ".cache",
+                                  "mlx-movie-director", "pose_landmarker.task")
+
+
+def _ensure_pose_model() -> str:
+    """Download mediapipe PoseLandmarker model if not cached. Returns local path."""
+    import urllib.request
+    if not os.path.exists(_POSE_MODEL_CACHE):
+        os.makedirs(os.path.dirname(_POSE_MODEL_CACHE), exist_ok=True)
+        print(f"[openpose] Downloading pose model...", end=" ", flush=True)
+        urllib.request.urlretrieve(_POSE_MODEL_URL, _POSE_MODEL_CACHE)
+        print("Done")
+    return _POSE_MODEL_CACHE
+
+
+def _apply_openpose(pil_img: "Image.Image") -> "Image.Image":
+    """Extract body skeleton via mediapipe Tasks API; render OpenPose-style on black bg.
+
+    Returns an RGB image with colored joints/limbs on black background.
+    Falls back to Canny if mediapipe or pose detection fails.
+    """
+    import numpy as np
+    from PIL import Image
+
+    W, H = pil_img.size
+    canvas = np.zeros((H, W, 3), dtype=np.uint8)
+
+    try:
+        import cv2
+        import mediapipe as mp
+        from mediapipe.tasks import python as _mp_py
+        from mediapipe.tasks.python import vision as _mp_vis
+
+        model_path = _ensure_pose_model()
+        base_opts = _mp_py.BaseOptions(model_asset_path=model_path)
+        opts = _mp_vis.PoseLandmarkerOptions(
+            base_options=base_opts,
+            running_mode=_mp_vis.RunningMode.IMAGE,
+            num_poses=1,
+            min_pose_detection_confidence=0.5,
+        )
+        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB,
+                          data=np.array(pil_img.convert("RGB")))
+
+        with _mp_vis.PoseLandmarker.create_from_options(opts) as detector:
+            result = detector.detect(mp_img)
+
+        if not result.pose_landmarks:
+            print("[openpose] No pose detected — falling back to Canny", flush=True)
+            return _apply_canny(pil_img)
+
+        lm = result.pose_landmarks[0]  # first (only) person
+
+        # Build OpenPose 18-joint pixel coordinates
+        joints = []
+        for i, mp_idx in enumerate(_OP_MP_MAP):
+            if mp_idx is None:
+                joints.append(None)  # neck placeholder
+            else:
+                l = lm[mp_idx]
+                if l.visibility < 0.3:
+                    joints.append(None)
+                else:
+                    joints.append((int(l.x * W), int(l.y * H)))
+
+        # Joint 1 = Neck = midpoint of L/R shoulders (mp 11, 12)
+        ls, rs = lm[11], lm[12]
+        if ls.visibility > 0.3 and rs.visibility > 0.3:
+            joints[1] = (int((ls.x + rs.x) / 2 * W), int((ls.y + rs.y) / 2 * H))
+
+        r = max(4, W // 80)
+
+        # Draw limbs behind joints
+        for a, b in _OP_LIMBS:
+            if joints[a] and joints[b]:
+                cv2.line(canvas, joints[a], joints[b],
+                         _OP_COLORS[a % len(_OP_COLORS)], thickness=max(2, r // 2))
+
+        # Draw joints on top
+        for i, pt in enumerate(joints):
+            if pt:
+                cv2.circle(canvas, pt, r, _OP_COLORS[i % len(_OP_COLORS)], thickness=-1)
+
+    except Exception as e:
+        print(f"[openpose] Error: {e} — falling back to Canny", flush=True)
+        return _apply_canny(pil_img)
+
+    return Image.fromarray(canvas)
 
 
 # ---------------------------------------------------------------------------

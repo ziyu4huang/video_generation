@@ -634,7 +634,7 @@ _ALL_TESTS = {
         "width": 640, "height": 960,
         "lora_path": "anime-girl-turned-into-real-person",
         "ref_count": 1,
-        # Column B: Photorealistic (current default)
+        # Column B: Photorealistic
         "ref_prompt": (
             "A photorealistic portrait photograph of the same character, detailed realistic "
             "skin texture, natural lighting, DSLR camera, shallow depth of field, "
@@ -648,9 +648,10 @@ _ALL_TESTS = {
                 "label": "3D Game",
                 "ref_prompt": (
                     "A high-quality 3D game character render of the same character, "
-                    "Unreal Engine 5, subsurface scattering skin, cinematic rim lighting, "
-                    "game asset style, keeping the original hair color, clothing, "
-                    "and all character features"
+                    "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
+                    "realistic iris detail and reflections, cinematic rim lighting, "
+                    "realistic body proportions, game asset style, keeping the original "
+                    "hair color, clothing, and all character features"
                 ),
                 "lora_scale": 0.7,
                 "ref_steps": 8,
@@ -788,6 +789,12 @@ _ALL_TESTS = {
         "type": "controlnet-i2i",
         "description": "ctrl_strength push (0.9-1.0) with fixed act=8 cutoff to achieve full V-pose",
         "mode": "cnet-sweep2",  # 4 variations: str0.9/1.0 x 20/25 steps, plus act6
+    },
+
+    "cnet-pose": {
+        "type": "controlnet-i2i",
+        "description": "OpenPose skeleton conditioning: pure pose signal, no clothing bleed",
+        "mode": "cnet-pose",    # 5 variations: openpose x medium/full denoise + canny baseline
     },
 
     # -----------------------------------------------------------------------

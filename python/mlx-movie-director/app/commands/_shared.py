@@ -60,6 +60,13 @@ def add_common_generation_args(parser):
                             help="LoRA weights: full path, dir, or short name "
                                  "(e.g. 'klein-slider-anatomy') — auto-resolved from models/lora/")
     if not _arg_registered(parser, "lora_scale"):
+        # CAUTION: Some subcommands (e.g. anime2real) register their own
+        # dedicated --lora-scale variant with default=None BEFORE this
+        # function runs.  When that happens, _arg_registered returns True
+        # and this block is skipped — the shared --lora-scale default=1.0
+        # is NOT applied.  Other commands must use
+        #   getattr(args, "lora_scale", None) or 1.0
+        # to safely handle the None case.
         parser.add_argument("--lora-scale", type=float, default=1.0,
                             help="LoRA conditioning strength 0–2 (default: 1.0; "
                                  "try 0.7–0.9 to soften style influence)")

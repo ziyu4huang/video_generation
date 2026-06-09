@@ -387,7 +387,7 @@ def _run_faceswap_core(body_path, face_path, args):
     # Resolve LoRA path from short name or absolute path
     lora_name = getattr(args, "lora", _DEFAULT_LORA)
     lora_path = resolve_lora_path(lora_name)
-    lora_scale = getattr(args, "lora_scale", 1.0)
+    lora_scale = getattr(args, "lora_scale", None) or 1.0
 
     print(f"[FaceSwap] Mode: {mode}")
     print(f"[FaceSwap] Body: {body_path}")

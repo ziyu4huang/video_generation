@@ -143,7 +143,7 @@ PARSER_META = {
         "  run.py image i2i --input-image photo.jpg --reference-image pose.jpg --denoise-strength 0.4\n"
         "  run.py image i2i --pipeline flux2-klein --input-image anime.png --lora-path my-lora --denoise-strength 0.6\n"
         "  run.py image anime2real --input-image anime.png\n"
-        "  run.py image anime2real --input-image anime.png --steps 8 --lora-scale 1.0\n"
+        "  run.py image anime2real --input-image anime.png --steps 8 --anime2real-lora-scale 1.0\n"
         "  run.py image --self-test anime2real\n"
         "  run.py image --self-test anime2real-ref\n"
         "  run.py image review anime2real --self-test anime2real-pipeline\n"
@@ -206,7 +206,7 @@ def add_args(parser):
     # FaceSwap-specific args: --face, --mode, --lora
     _faceswap.add_faceswap_args(parser)
 
-    # Anime2Real-specific args: --ref-count, --lora-scale
+    # Anime2Real-specific args: --anime2real-ref-count, --anime2real-lora-scale
     _anime2real.add_anime2real_args(parser)
 
     # Quality-specific args: --quality-inputs, --self-test, --test-prompt, etc.
@@ -216,6 +216,11 @@ def add_args(parser):
     _workflow.add_workflow_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
+    # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
+    # with different defaults before add_common_generation_args() runs.  The
+    # _arg_registered() guard in _shared.py skips already-registered args, so
+    # the first registration's default wins.  Run functions must handle None
+    # defaults defensively: `getattr(args, "lora_scale", None) or 1.0`.
     add_common_generation_args(parser)
 
     # LoRA discovery

@@ -452,7 +452,7 @@ def _create_flux2_pipeline(args):
 
     lora_path = resolve_lora_path(getattr(args, "lora_path", None))
     lora_paths = [lora_path] if lora_path else None
-    lora_scales = [getattr(args, "lora_scale", 1.0)] if lora_paths else None
+    lora_scales = [getattr(args, "lora_scale", None) or 1.0] if lora_paths else None
 
     return Flux2KleinControlnetPipeline(
         model_path=getattr(args, "flux2_model_path", None),
