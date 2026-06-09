@@ -4827,6 +4827,7 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             print(f"    [C] {cap_c[:100]}...")
             cap_dict["caption_c"] = cap_c
         if len(t["paths"]) > 3:
+            cap_d = _caption_image(t["paths"][3], style="photography", lang="en")
             print(f"    [D] {cap_d[:100]}...")
             cap_dict["caption_d"] = cap_d
         style_b = _caption_image(t["paths"][1], style="style", lang="en")
@@ -4852,16 +4853,30 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             metrics.append(m_dict)
 
     # --- HTML ---
-    html_path = _render_lora_ref_html(
-        output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
-        test_cfg=test_cfg, label_a=label_a, label_b=label_b, label_c=label_c,
-        label_d=label_d,
-        triples=triples, captions=captions, metrics=metrics or None,
-        ref_steps=ref_steps, i2i_steps=i2i_steps, lora_scale=lora_scale,
-        ref_count=ref_count, denoise_strength=denoise_strength,
-        ref_prompt=ref_prompt, i2i_prompt=i2i_prompt, ts=ts,
-        review_only=review_only,
-    )
+    if style_variants:
+        html_path = _render_style_ab_html(
+            output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
+            triples=triples, captions=captions, metrics=metrics or None,
+            label_a=label_a, label_b=label_b, label_c=label_c, label_d=label_d,
+            ts=ts, style_variants=style_variants,
+        )
+    elif review_only:
+        html_path = _render_review_only_html(
+            output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
+            triples=triples, captions=captions, metrics=metrics,
+            label_a=label_a, label_b=label_b, ts=ts,
+        )
+    else:
+        html_path = _render_lora_ref_html(
+            output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
+            test_cfg=test_cfg, label_a=label_a, label_b=label_b, label_c=label_c,
+            label_d=label_d,
+            triples=triples, captions=captions, metrics=metrics or None,
+            ref_steps=ref_steps, i2i_steps=i2i_steps, lora_scale=lora_scale,
+            ref_count=ref_count, denoise_strength=denoise_strength,
+            ref_prompt=ref_prompt, i2i_prompt=i2i_prompt, ts=ts,
+            review_only=False,
+        )
     total_images = sum(len(t["paths"]) for t in triples)
     print(f"\n{'='*60}\n LoRA Ref Self-Test Complete\n{'='*60}")
     print(f"  HTML review: {html_path}")
@@ -4870,10 +4885,160 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     webbrowser.open(f"file://{os.path.abspath(html_path)}")
     print(f"  Opened in browser")
 
+def _render_style_ab_html(*, output_dir, base_name, test_name,
+                           triples, captions, metrics,
+                           label_a, label_b, label_c, label_d,
+                           ts, style_variants):
+    """Render multi-column A/B style comparison HTML with voting.
 
-def _render_review_only_html(*, output_dir, base_name, test_name,
-                              triples, captions, metrics,
-                              label_a, label_b, ts):
+    Columns: A=anime baseline, B=default Ref+LoRA, C/D=style variants.
+    Each row has voting buttons (A/B/C/D) + text comment + Copy/Save export.
+    """
+    import html as html_mod
+
+    col_labels = [label_a, label_b, label_c]
+    if label_d:
+        col_labels.append(label_d)
+    n_cols = len(col_labels)
+
+    # Build per-row data as JSON
+    rows = []
+    for i, t in enumerate(triples):
+        caps = captions[i] if captions else {}
+        row = {
+            "prompt": t["prompt_name"],
+            "seed": t["seed"],
+            "images": [os.path.basename(p) for p in t["paths"]],
+            "timings": t["timings"],
+            "captions": [],
+        }
+        for ci in range(n_cols):
+            key = f"caption_{chr(97+ci)}"  # caption_a, caption_b, ...
+            row["captions"].append(caps.get(key, ""))
+        rows.append(row)
+
+    rows_json = json.dumps(rows, ensure_ascii=False)
+    labels_json = json.dumps(col_labels)
+    n_cols_json = json.dumps(n_cols)
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>Style A/B Test</title>
+<style>
+:root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500;--pipe:#6c5ce7}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-serif;padding:20px;padding-bottom:80px}}
+.hd{{text-align:center;margin-bottom:24px}}.hd h1{{font-size:1.6em;margin-bottom:6px}}.hd p{{color:var(--muted);font-size:0.85em}}
+.row{{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}}
+.row-hd{{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}}
+.row-hd h3{{font-size:1.05em}}.row-hd .sub{{font-size:0.75em;color:var(--muted)}}
+.imgs{{display:grid;grid-template-columns:repeat({n_cols},1fr);gap:12px;margin-bottom:14px}}
+.col{{text-align:center}}
+.col .lb{{font-size:0.75em;font-weight:700;margin-bottom:6px;padding:3px 8px;border-radius:4px;display:inline-block}}
+.col .lb.c0{{background:rgba(255,255,255,0.1)}}.col .lb.c1{{background:rgba(78,204,163,0.2);color:var(--success)}}
+.col .lb.c2{{background:rgba(240,165,0,0.2);color:var(--warn)}}.col .lb.c3{{background:rgba(108,92,231,0.2);color:var(--pipe)}}
+.col img{{width:100%;border-radius:8px;cursor:zoom-in}}.col .tm{{font-size:0.7em;color:var(--muted);margin-top:4px}}
+.cp{{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;margin-top:8px;font-size:0.72em;color:#aaa;line-height:1.5;text-align:left;max-height:80px;overflow-y:auto}}
+.vt{{display:flex;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06);align-items:center;flex-wrap:wrap}}
+.vt label{{font-size:0.8em;color:var(--muted)}}
+.vb{{padding:6px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:0.85em;transition:all 0.2s}}
+.vb:hover{{border-color:var(--success);color:var(--success)}}
+.vb.sel{{background:var(--success);color:#1a1a2e;border-color:var(--success);font-weight:700}}
+.nt{{flex:1;min-width:120px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:0.8em;resize:vertical;min-height:36px;font-family:inherit}}
+.bb{{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);padding:12px 24px;display:flex;justify-content:space-between;align-items:center;z-index:100}}
+.btn{{padding:8px 20px;border-radius:8px;border:none;cursor:pointer;font-weight:600}}
+.bp{{background:var(--accent);color:#fff}}.bs{{background:var(--border);color:var(--text)}}
+.ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;cursor:zoom-out;justify-content:center;align-items:center}}
+.ov.show{{display:flex}}.ov img{{max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px}}
+</style></head><body>
+<div class="hd"><h1>Style A/B Test</h1>
+<p>Compare realism styles — vote for the best result per prompt</p></div>
+<div id="ct"></div>
+<div class="bb">
+<span id="stats" style="font-size:0.85em;color:var(--muted)">0 voted</span>
+<div style="display:flex;gap:8px;align-items:center">
+<button class="btn bs" onclick="resetAll()">Reset</button>
+<button class="btn bp" onclick="copyFeedback()" title="Copy JSON to clipboard">📋 Copy JSON</button>
+<button class="btn bp" onclick="saveFeedback()" title="Save JSON file">💾 Save File</button>
+<span id="copied" style="color:var(--success);font-size:0.8em;opacity:0;transition:opacity .3s">Copied!</span>
+</div>
+</div>
+<div class="ov" id="ov" onclick="this.classList.remove('show')"><img id="oi" src=""></div>
+<script>
+const R={rows_json};
+const L={labels_json};
+const N={n_cols_json};
+const V={{}};  // {{index: 'a'|'b'|'c'|'d'}}
+const Nt={{}}; // {{index: notes}}
+function render(){{
+const ct=document.getElementById('ct');
+ct.innerHTML=R.map((r,i)=>{{
+const v=V[i]||'';
+const nt=Nt[i]||'';
+let cols='';
+for(let c=0;c<r.images.length;c++){{
+  const cap=r.captions[c]||'';
+  const cls='c'+c;
+  const tm=(r.timings[c]||0)+'s';
+  cols+=`<div class="col"><div class="lb ${{cls}}">${{L[c]||('Col '+c)}}</div>`
+    +`<img src="${{r.images[c]}}" onclick="z('${{r.images[c]}}')" loading="lazy">`
+    +`<div class="tm">${{tm}}</div>`
+    +`<div class="cp"><b>Caption:</b> ${{cap.substring(0,200)}}${{cap.length>200?'...':''}}</div></div>`;
+}}
+let btns='';
+const keys=['a','b','c','d'];
+for(let c=0;c<r.images.length;c++){{
+  const k=keys[c];
+  btns+=`<button class="vb ${{v===k?'sel':''}}" onclick="vote(${{i}},'${{k}}')">${{String.fromCharCode(65+c)}}: ${{L[c]}}</button>`;
+}}
+return `<div class="row"><div class="row-hd"><h3>${{r.prompt}} <span class="sub">(seed=${{r.seed}})</span></h3></div>`
++`<div class="imgs">${{cols}}</div>`
++`<div class="vt"><label>Best:</label>${{btns}}`
++`<textarea class="nt" placeholder="Notes..." oninput="note(${{i}},this.value)">${{nt}}</textarea></div></div>`;
+}}).join('');
+document.getElementById('stats').textContent=Object.keys(V).length+'/'+R.length+' voted';
+}}
+function vote(i,k){{if(V[i]===k)delete V[i];else V[i]=k;render();}}
+function note(i,txt){{Nt[i]=txt;}}
+function z(s){{document.getElementById('oi').src=s;document.getElementById('ov').classList.add('show');}}
+function resetAll(){{Object.keys(V).forEach(k=>delete V[k]);Object.keys(Nt).forEach(k=>delete Nt[k]);render();}}
+function _buildJSON(){{
+return JSON.stringify({{
+  test:"{test_name}",ts:"{ts}",
+  results:R.map((r,i)=>({{
+    prompt:r.prompt,seed:r.seed,
+    images:r.images,timings:r.timings,
+    captions:r.captions,
+    vote:V[i]||null,notes:Nt[i]||''
+  }}))
+}},null,2);
+}}
+function copyFeedback(){{
+const json=_buildJSON();
+navigator.clipboard.writeText(json).then(()=>{{
+  const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+}}).catch(()=>{{
+  const ta=document.createElement('textarea');ta.value=json;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+  const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+}});
+}}
+function saveFeedback(){{
+const json=_buildJSON();
+const b=new Blob([json],{{type:'application/json'}});
+const a=document.createElement('a');a.href=URL.createObjectURL(b);
+a.download='style-ab-feedback-{ts}.json';a.click();
+}}
+render();
+</script></body></html>"""
+
+    html_path = os.path.join(output_dir, f"{base_name}_ab.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    size_mb = os.path.getsize(html_path) / (1024 * 1024)
+    print(f"  HTML: {html_path} ({size_mb:.1f} MB)")
+    return html_path
+
+
+
     """Render a simple 2-column review HTML: original vs anime2real result.
 
     Each pair has 👍/👎 feedback + text comment.

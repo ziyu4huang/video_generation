@@ -119,6 +119,17 @@ _I2I_CNET_SWEEP_VARIATIONS = [
     ("cns-act08-str08-20st",         1.0,  0.8,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT),
 ]
 
+# Sweep 2 — push ctrl_strength higher (0.9-1.0) with fixed act=8 cutoff.
+# act08-str08-20st was PARTIAL (no issues); this sweep tries to force full V-pose
+# by increasing ControlNet strength while keeping the step-8 cutoff that prevents double-body.
+_I2I_CNET_SWEEP2_VARIATIONS = [
+    # (label,                        dn,   ctrl, blur, cnet_act, steps, prompt)
+    ("cns2-act08-str09-20st",        1.0,  0.9,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns2-act08-str10-20st",        1.0,  1.0,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns2-act08-str10-25st",        1.0,  1.0,  None, 8,        25,   _I2I_CNET_FULLBODY_PROMPT),
+    ("cns2-act06-str10-20st",        1.0,  1.0,  None, 6,        20,   _I2I_CNET_FULLBODY_PROMPT),
+]
+
 
 # ---------------------------------------------------------------------------
 # CLI argument registration
@@ -601,6 +612,9 @@ def _run_self_test(args):
     elif isinstance(st_val, str) and st_val == "cnet-sweep":
         variations = _I2I_CNET_SWEEP_VARIATIONS
         print(f"\n[Self-Test] Using CNET-SWEEP variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-sweep2":
+        variations = _I2I_CNET_SWEEP2_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-SWEEP2 variations ({len(variations)} tests)")
     else:
         variations = _I2I_SELF_TEST_VARIATIONS
 

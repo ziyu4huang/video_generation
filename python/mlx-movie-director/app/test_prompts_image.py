@@ -784,6 +784,12 @@ _ALL_TESTS = {
         "mode": "cnet-sweep",   # 6 variations: act8/10/12, str0.4/0.8, 15-20 steps
     },
 
+    "cnet-sweep2": {
+        "type": "controlnet-i2i",
+        "description": "ctrl_strength push (0.9-1.0) with fixed act=8 cutoff to achieve full V-pose",
+        "mode": "cnet-sweep2",  # 4 variations: str0.9/1.0 x 20/25 steps, plus act6
+    },
+
     # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
