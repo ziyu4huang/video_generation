@@ -1557,6 +1557,12 @@ def run_review_selftest(args):
         _run_selftest_controlnet_i2i(args, test_name, test_cfg)
     elif test_type == "flf2v":
         _run_selftest_flf2v(args, test_name, test_cfg)
+    elif test_type == "faceswap":
+        _run_selftest_faceswap(args, test_name, test_cfg)
+    elif test_type == "swap":
+        _run_selftest_swap(args, test_name, test_cfg)
+    elif test_type == "expansion":
+        _run_selftest_expansion(args, test_name, test_cfg)
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
@@ -1569,6 +1575,10 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     mode="cnet-sweep"  → _I2I_CNET_SWEEP_VARIATIONS (6 variations, ~20 min)
     mode="cnet-sweep2" → _I2I_CNET_SWEEP2_VARIATIONS (4 variations, ~15 min)
     mode="cnet-pose"   → _I2I_CNET_POSE_VARIATIONS (5 variations, ~20 min)
+    mode="cnet-pose2"  → _I2I_CNET_POSE2_VARIATIONS (4 variations, ~15 min)
+    mode="cnet-pose3"  → _I2I_CNET_POSE3_VARIATIONS (4 variations, ~18 min)
+    mode="cnet-pose4"  → _I2I_CNET_POSE4_VARIATIONS (4 variations, ~15 min)
+    mode="seed-sweep"  → _I2I_CNET_SEED_SWEEP_VARIATIONS (8 seeds, ~25 min)
     mode="full"        → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
     After generation: VLM-captions all outputs and generates interactive HTML review.
     """
@@ -1582,6 +1592,7 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     mode = test_cfg.get("mode", "debug")
     seed = getattr(args, "seed", 42)
     args.self_test = mode
+    args.skip_inner_html = True  # image-review generates a better HTML; skip the inner one
     _i2i._run_self_test(args)
 
     # --- Determine which images to review ---
@@ -1593,6 +1604,14 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
         variations = _i2i._I2I_CNET_SWEEP2_VARIATIONS
     elif mode == "cnet-pose":
         variations = _i2i._I2I_CNET_POSE_VARIATIONS
+    elif mode == "cnet-pose2":
+        variations = _i2i._I2I_CNET_POSE2_VARIATIONS
+    elif mode == "cnet-pose3":
+        variations = _i2i._I2I_CNET_POSE3_VARIATIONS
+    elif mode == "cnet-pose4":
+        variations = _i2i._I2I_CNET_POSE4_VARIATIONS
+    elif mode == "seed-sweep":
+        variations = _i2i._I2I_CNET_SEED_SWEEP_VARIATIONS
     else:
         variations = _i2i._I2I_SELF_TEST_VARIATIONS
 
@@ -1607,6 +1626,7 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
         ctrl  = var[2]
         cnet  = var[4] if len(var) > 4 else None
         steps = var[5] if len(var) > 5 else 9
+        var_seed = var[8] if len(var) > 8 else seed  # seed_override for seed-sweep mode
         param_str = f"denoise={dn}"
         if ctrl is not None:
             param_str += f" ctrl={ctrl}"
@@ -1614,8 +1634,8 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
             param_str += f" cnet_act={cnet}"
         else:
             param_str += " cnet_act=ALL"
-        param_str += f" steps={steps}"
-        images.append((label, f"i2i_selftest_{label}-s{seed}.png", label, param_str))
+        param_str += f" steps={steps} seed={var_seed}"
+        images.append((label, f"i2i_selftest_{label}-s{var_seed}.png", label, param_str))
 
     # --- VLM caption all images ---
     pose_prompt = (
@@ -1730,20 +1750,40 @@ def _generate_cnet_vlm_review_html(results, output_path: str, mode: str = "debug
   <div class="caption-box">
     <div class="caption-text">{caption_safe}</div>
   </div>
+  <div class="issue-strip-label">問題標記 / Issue tags <span class="tip">(可複選 / multi-select)</span></div>
   <div class="issue-strip">
-    <button class="issue-btn" data-id="{safe_key}" data-key="double_body">👥 Double body</button>
-    <button class="issue-btn" data-id="{safe_key}" data-key="bad_hands">✋ Bad hands</button>
-    <button class="issue-btn" data-id="{safe_key}" data-key="pixelation">🔲 Pixelation</button>
-    <button class="issue-btn" data-id="{safe_key}" data-key="v_pose_ok">✅ V-pose OK</button>
-    <button class="issue-btn" data-id="{safe_key}" data-key="partial_pose">🎯 Partial</button>
-    <button class="issue-btn" data-id="{safe_key}" data-key="no_pose">➡️ No pose</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="double_body"
+            title="幽靈重影：圖中出現多餘肢體或重複身體輪廓&#10;Ghost limbs or duplicate body contours in the image">
+      👥 幽靈重影 / Double body</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="bad_hands"
+            title="手部變形：手指融合、多指、模糊變形&#10;Fused fingers, extra digits, or deformed hands">
+      ✋ 手部變形 / Bad hands</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="pixelation"
+            title="像素化：圖像品質低，出現方塊或雜訊&#10;Low quality with blocky or noisy artifacts">
+      🔲 像素化 / Pixelation</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="v_pose_ok"
+            title="V字姿勢成功：雙臂完整舉起呈 V 形，接近參考圖姿勢&#10;Both arms fully raised in V-shape matching reference pose">
+      ✅ V字姿勢 / V-pose OK</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="partial_pose"
+            title="姿勢部分達成：手臂有上舉但未完成完整 V 形&#10;Arms partially raised but not fully completing the V-shape">
+      🎯 姿勢部分 / Partial pose</button>
+    <button class="issue-btn" data-id="{safe_key}" data-key="no_pose"
+            title="無姿勢轉移：輸出與源圖姿勢相同，ControlNet 無效&#10;Output retains source pose; ControlNet had no effect">
+      ➡️ 無姿勢 / No pose</button>
   </div>
+  <div class="verdict-label">整體評分 / Verdict</div>
   <div class="verdict-row">
-    <button class="verdict-btn vpass"    data-id="{safe_key}" data-v="pass">PASS</button>
-    <button class="verdict-btn vpartial" data-id="{safe_key}" data-v="partial">PARTIAL</button>
-    <button class="verdict-btn vfail"    data-id="{safe_key}" data-v="fail">FAIL</button>
+    <button class="verdict-btn vpass"    data-id="{safe_key}" data-v="pass"
+            title="通過：V字姿勢正確達成，外觀保留可接受&#10;Pass: V-pose achieved, identity acceptably preserved">
+      ✅ 通過 PASS</button>
+    <button class="verdict-btn vpartial" data-id="{safe_key}" data-v="partial"
+            title="部分：姿勢或外觀有問題但結果仍有參考價值&#10;Partial: some issues but result has value">
+      ⚠️ 部分 PARTIAL</button>
+    <button class="verdict-btn vfail"    data-id="{safe_key}" data-v="fail"
+            title="失敗：姿勢錯誤、外觀完全不符或圖像損壞&#10;Fail: wrong pose, broken identity, or corrupted image">
+      ❌ 失敗 FAIL</button>
   </div>
-  <textarea class="notes" data-id="{safe_key}" placeholder="Notes..." rows="2"
+  <textarea class="notes" data-id="{safe_key}" placeholder="備註 / Notes..." rows="2"
             oninput="setNote(this.dataset.id, this.value)"></textarea>
 </div>"""
 
@@ -1796,10 +1836,23 @@ def _generate_cnet_vlm_review_html(results, output_path: str, mode: str = "debug
   .verdict-btn.active.vpartial{{background:#d97706;color:#fff}}
   .verdict-btn.active.vfail{{background:#dc2626;color:#fff}}
   .verdict-btn:not(.active){{border:1px solid #334155}}
+  .issue-strip-label,.verdict-label{{font-size:0.62rem;color:#475569;
+    padding:4px 10px 0;font-weight:600;letter-spacing:.04em;text-transform:uppercase}}
+  .tip{{font-size:0.58rem;color:#334155;font-weight:400;text-transform:none;letter-spacing:0}}
   .notes{{width:100%;background:#0f172a;border:none;color:#94a3b8;
           padding:7px 11px;font-size:0.70rem;font-family:inherit;
           resize:vertical;outline:none}}
   .notes:focus{{background:#1e293b;color:#e2e8f0}}
+  .guide{{background:#1e293b;border:1px solid #334155;border-radius:8px;
+          padding:12px 16px;margin-bottom:16px;font-size:0.76rem;line-height:1.7}}
+  .guide summary{{cursor:pointer;font-weight:700;color:#94a3b8;font-size:0.78rem;
+                  list-style:none;user-select:none}}
+  .guide summary::before{{content:"▶ "}}
+  details[open] .guide summary::before{{content:"▼ "}}
+  .guide-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-top:10px}}
+  .guide-item{{display:flex;flex-direction:column;gap:2px}}
+  .guide-item .tag{{font-weight:700;color:#e2e8f0}}
+  .guide-item .desc{{color:#64748b;font-size:0.70rem}}
   .bottom-bar{{position:sticky;bottom:0;background:#0f172a;border-top:1px solid #334155;
                padding:10px 20px;display:flex;align-items:center;gap:12px;margin-top:20px}}
   .bottom-bar button{{padding:7px 16px;border-radius:7px;cursor:pointer;
@@ -1814,13 +1867,60 @@ def _generate_cnet_vlm_review_html(results, output_path: str, mode: str = "debug
 </style>
 </head>
 <body>
-<h1>I2I ControlNet Review — <code>{_html.escape(mode)}</code> mode · seed={seed}</h1>
-<p class="subtitle">Qwen3-VL-4B captions · click issue buttons to tag · feedback auto-saved</p>
+<h1>I2I ControlNet Review — <code>{_html.escape(mode)}</code> · seed={seed}</h1>
+<p class="subtitle">Qwen3-VL-4B captions · 點擊按鈕標記問題 · 自動儲存 / click to tag issues · auto-saved</p>
+<details>
+<div class="guide">
+  <summary>評分說明 / Rating Guide</summary>
+  <div class="guide-grid">
+    <div class="guide-item">
+      <span class="tag">🎯 目標 / Goal</span>
+      <span class="desc">源圖人物（亞洲女性，黑髮，白T恤，牛仔褲）做出 V 字勝利姿勢（雙臂高舉呈 V 形）。<br>Source person (Asian woman, black hair, white t-shirt, jeans) in V-pose (both arms raised).</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">👥 幽靈重影 / Double body</span>
+      <span class="desc">出現多餘肢體或重複身體輪廓。Extra ghost limbs or duplicate body outlines.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">✋ 手部變形 / Bad hands</span>
+      <span class="desc">手指融合、多指或嚴重變形。Fused, extra, or badly deformed fingers.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">🔲 像素化 / Pixelation</span>
+      <span class="desc">圖像出現方塊或雜訊。Blocky or noisy image artifacts.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">✅ V字姿勢 / V-pose OK</span>
+      <span class="desc">雙臂完整舉起呈 V 形。Both arms fully raised forming a V-shape.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">🎯 姿勢部分 / Partial pose</span>
+      <span class="desc">手臂有上舉但未完成完整 V 形。Arms partially raised, not full V-shape.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">➡️ 無姿勢 / No pose</span>
+      <span class="desc">輸出與源圖相同，ControlNet 無效。Output retains source pose unchanged.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">✅通過 / PASS</span>
+      <span class="desc">姿勢正確，外觀保留。Pose achieved, identity preserved.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">⚠️部分 / PARTIAL</span>
+      <span class="desc">有問題但仍有參考價值。Issues present but result has value.</span>
+    </div>
+    <div class="guide-item">
+      <span class="tag">❌失敗 / FAIL</span>
+      <span class="desc">姿勢錯誤或圖像損壞。Wrong pose or corrupted image.</span>
+    </div>
+  </div>
+</div>
+</details>
 <div class="grid" id="grid">{cards_html}</div>
 <div class="bottom-bar">
-  <button class="btn-export" onclick="exportJSON()">Copy Feedback JSON</button>
-  <button class="btn-reset" onclick="resetAll()">Reset All</button>
-  <span class="saved-hint" id="saved-hint">Auto-saved to localStorage</span>
+  <button class="btn-export" onclick="exportJSON()">📋 複製 JSON / Copy Feedback JSON</button>
+  <button class="btn-reset" onclick="resetAll()">🔄 重置 / Reset All</button>
+  <span class="saved-hint" id="saved-hint">自動儲存 / Auto-saved</span>
 </div>
 <div class="overlay" id="overlay" onclick="this.classList.remove('show')">
   <img id="overlay-img" src="">
@@ -2591,6 +2691,631 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
           f"{total_time:.0f}s total")
 
     subprocess.Popen(["open", html_path])
+
+
+def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
+    """Run a BFS faceswap self-test: generate body + face images, then swap.
+
+    Delegates to image-faceswap._generate_body_zimage(),
+    image-faceswap._generate_face_flux2(), and
+    image-faceswap._run_faceswap_core() for the actual pipeline work.
+
+    Test config fields (from _ALL_TESTS):
+        body_prompt  — prompt for body image (ZImage pipeline)
+        face_prompt  — prompt for face image (Flux2 T2I pipeline)
+        mode         — "head" or "face" (default: "head")
+        body_seed    — seed for body generation (default: 42)
+        face_seed    — seed for face generation (default: 100)
+    """
+    import importlib
+    import time as _time
+
+    _fs = importlib.import_module("app.commands.image-faceswap")
+
+    body_prompt = test_cfg["body_prompt"]
+    face_prompt = test_cfg["face_prompt"]
+    swap_mode = test_cfg.get("mode", "head")
+    body_seed = test_cfg.get("body_seed", 42)
+    face_seed = test_cfg.get("face_seed", 100)
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base_prefix = f"selftest_{test_name}_{ts}"
+
+    print(f"\n{'#'*60}")
+    print(f" FaceSwap Self-Test: {test_name}")
+    print(f" Mode: {swap_mode}")
+    print(f"{'#'*60}")
+
+    # Override mode for the swap (e.g. cross-gender requires "head")
+    args.mode = swap_mode
+
+    # Phase 1: Generate body image (ZImage pipeline)
+    body_path, body_manifest = _fs._generate_body_zimage(
+        prompt=body_prompt,
+        seed=body_seed,
+        label="body",
+        base=f"{base_prefix}_body",
+    )
+
+    # Phase 2: Generate face image (Flux2 T2I pipeline)
+    face_path, face_manifest = _fs._generate_face_flux2(
+        prompt=face_prompt,
+        seed=face_seed,
+        label="face",
+        base=f"{base_prefix}_face",
+    )
+
+    # Phase 3: Run faceswap (Flux2 Klein Edit + BFS LoRA)
+    print(f"\n{'='*60}")
+    print(f"[selftest] Running faceswap (mode={swap_mode})")
+    print(f"{'='*60}")
+
+    result_path, result_manifest = _fs._run_faceswap_core(
+        body_path, face_path, args
+    )
+
+    # Phase 4: Optional VLM quality scoring
+    print(f"\n{'='*60}")
+    print(f"[selftest] VLM quality scoring (optional)")
+    print(f"{'='*60}")
+
+    scores = {}
+    for img_path, lbl in [(body_path, "body"), (face_path, "face"),
+                           (result_path, "result")]:
+        score = _fs._score_with_vlm(img_path, lbl)
+        if score:
+            scores[lbl] = score
+
+    if scores:
+        print(f"[VLM] Scored {len(scores)}/3 images")
+    else:
+        print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
+
+    # Phase 5: Open HTML review with all 3 results
+    print(f"\n{'='*60}")
+    print(f"[selftest] Generating review HTML")
+    print(f"{'='*60}")
+
+    manifest_files = [body_manifest, face_manifest, result_manifest]
+
+    labels = []
+    for lbl, name in [
+        (f"1-Body (ZImage, {swap_mode} mode)", "body"),
+        (f"2-Face (Flux2 T2I)", "face"),
+        (f"3-FaceSwap Result ({swap_mode} mode)", "result"),
+    ]:
+        if name in scores:
+            s = scores[name]
+            labels.append(f"{lbl} — score {s.get('overall', '?')}/10")
+        else:
+            labels.append(lbl)
+
+    _open_manifest_review(manifest_files, labels=labels)
+
+
+def _run_selftest_swap(args, test_name: str, test_cfg: dict):
+    """Run a SAM3 text-prompted swap self-test.
+
+    Generates source + reference images via ZImagePipeline, runs SAM3
+    segmentation and compositing, then opens an HTML review.
+
+    Test config fields (from _ALL_TESTS):
+        source_prompt     — prompt for source image (ZImage pipeline)
+        reference_prompt  — prompt for reference image (ZImage pipeline)
+        sam_prompt        — SAM3 text prompt for segmentation
+        sam_threshold     — detection score threshold (default: 0.3)
+        feather           — mask edge feathering radius (default: 15)
+        source_seed       — seed for source generation (default: 42)
+        reference_seed    — seed for reference generation (default: 100)
+        source_width      — source image width (default: 640)
+        source_height     — source image height (default: 960)
+        reference_width   — reference image width (default: 640)
+        reference_height  — reference image height (default: 960)
+    """
+    import importlib
+    import time as _time
+
+    _swap = importlib.import_module("app.commands.image-swap")
+
+    source_prompt = test_cfg["source_prompt"]
+    reference_prompt = test_cfg["reference_prompt"]
+    sam_prompt = test_cfg["sam_prompt"]
+    sam_threshold = test_cfg.get("sam_threshold", 0.3)
+    feather = test_cfg.get("feather", 15)
+    source_seed = test_cfg.get("source_seed", 42)
+    reference_seed = test_cfg.get("reference_seed", 100)
+    source_w = test_cfg.get("source_width", 640)
+    source_h = test_cfg.get("source_height", 960)
+    ref_w = test_cfg.get("reference_width", 640)
+    ref_h = test_cfg.get("reference_height", 960)
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base_prefix = f"selftest_{test_name}_{ts}"
+
+    print(f"\n{'#'*60}")
+    print(f" SAM3 Swap Self-Test: {test_name}")
+    print(f" SAM prompt: '{sam_prompt}' (threshold={sam_threshold})")
+    print(f"{'#'*60}")
+
+    # Phase 1: Generate source image (ZImage pipeline)
+    source_path, source_manifest = _swap._generate_test_image(
+        prompt=source_prompt,
+        seed=source_seed,
+        label="source",
+        base=f"{base_prefix}_source",
+        width=source_w,
+        height=source_h,
+        write_manifest=True,
+    )
+
+    # Phase 2: Generate reference image (ZImage pipeline)
+    ref_path, ref_manifest = _swap._generate_test_image(
+        prompt=reference_prompt,
+        seed=reference_seed,
+        label="reference",
+        base=f"{base_prefix}_ref",
+        width=ref_w,
+        height=ref_h,
+        write_manifest=True,
+    )
+
+    # Phase 3: Run SAM3 swap pipeline
+    swap_mode = test_cfg.get("mode", "composite")
+    print(f"\n{'='*60}")
+    print(f"[selftest] Running SAM3 swap — mode={swap_mode} "
+          f"(prompt='{sam_prompt}', feather={feather})")
+    print(f"{'='*60}")
+
+    # Set swap args for _run_swap_core
+    args.sam_prompt = sam_prompt
+    args.ref_sam_prompt = test_cfg.get("ref_sam_prompt", None)
+    args.sam_threshold = sam_threshold
+    args.feather = feather
+    args.save_mask = True
+    args.seed = source_seed
+    args.steps = getattr(args, "steps", None) or 9
+
+    if swap_mode == "inpaint":
+        args.inpaint = True
+        args.inpaint_prompt = test_cfg.get("inpaint_prompt")
+        args.inpaint_strength = test_cfg.get("inpaint_strength", 0.7)
+        args.blend = False
+    else:
+        args.inpaint = False
+        args.blend = test_cfg.get("blend", False)
+        args.blend_strength = test_cfg.get("blend_strength", 0.4)
+        args.blend_prompt = test_cfg.get("blend_prompt", None)
+        args.preserve_aspect_ratio = test_cfg.get("preserve_aspect_ratio", False)
+        args.mask_dilate = test_cfg.get("mask_dilate", 0)
+
+    out = _swap._run_swap_core(source_path, ref_path, args)
+
+    # Phase 4: Write manifests for result images
+    mask_path = out.get("mask")
+    overlay_path = out.get("overlay")
+    inpaint_path = out.get("inpaint")
+    composite_path = out.get("composite")
+    blend_path = out.get("blend")
+    blend_manifest = None
+
+    from app.manifest import Manifest, collect_model_fingerprint
+
+    now_start = datetime.now(timezone.utc).isoformat()
+    now_end = datetime.now(timezone.utc).isoformat()
+    models = collect_model_fingerprint()
+    result_manifest = None
+
+    if swap_mode == "inpaint" and inpaint_path and os.path.exists(inpaint_path):
+        run_file = out.get("run")
+        manifest_file = out.get("manifest")
+
+        run_data = {
+            "command": "image",
+            "action": "swap-inpaint",
+            "sam_prompt": sam_prompt,
+            "sam_threshold": sam_threshold,
+            "feather": feather,
+            "inpaint_prompt": test_cfg.get("inpaint_prompt", ""),
+            "inpaint_strength": test_cfg.get("inpaint_strength", 0.7),
+            "source_image": source_path,
+            "reference_image": ref_path,
+            "pipeline": "sam3-inpaint",
+        }
+        with open(run_file, "w") as f:
+            json.dump(run_data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+
+        manifest = Manifest.from_success(
+            run_file, now_start, now_end, {},
+            [{
+                "path": inpaint_path,
+                "seed": source_seed,
+                "size_bytes": os.path.getsize(inpaint_path),
+                "width": source_w,
+                "height": source_h,
+            }],
+            models,
+        )
+        manifest.to_json(manifest_file)
+        result_manifest = manifest_file
+
+    elif composite_path and os.path.exists(composite_path):
+        run_file = out.get("run")
+        manifest_file = out.get("manifest")
+
+        run_data = {
+            "command": "image",
+            "action": "swap",
+            "sam_prompt": sam_prompt,
+            "sam_threshold": sam_threshold,
+            "feather": feather,
+            "source_image": source_path,
+            "reference_image": ref_path,
+            "pipeline": "sam3-composite",
+        }
+        if blend_path:
+            run_data["blend"] = True
+            run_data["blend_strength"] = test_cfg.get("blend_strength", 0.4)
+        with open(run_file, "w") as f:
+            json.dump(run_data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+
+        manifest = Manifest.from_success(
+            run_file, now_start, now_end, {},
+            [{
+                "path": composite_path,
+                "seed": source_seed,
+                "size_bytes": os.path.getsize(composite_path),
+                "width": source_w,
+                "height": source_h,
+            }],
+            models,
+        )
+        manifest.to_json(manifest_file)
+        result_manifest = manifest_file
+
+        # Separate manifest for blend result (shows as 4th review item)
+        if blend_path and os.path.exists(blend_path):
+            blend_base = blend_path.replace(".png", "")
+            blend_run_file = f"{blend_base}.run.json"
+            blend_manifest_file = f"{blend_base}.manifest.json"
+
+            blend_run_data = {
+                "command": "image",
+                "action": "swap-blend",
+                "sam_prompt": sam_prompt,
+                "feather": feather,
+                "composite_image": composite_path,
+                "blend_strength": test_cfg.get("blend_strength", 0.4),
+                "pipeline": "flux2-klein-i2i",
+            }
+            with open(blend_run_file, "w") as f:
+                json.dump(blend_run_data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+
+            b_manifest = Manifest.from_success(
+                blend_run_file, now_start, now_end, {},
+                [{
+                    "path": blend_path,
+                    "seed": source_seed,
+                    "size_bytes": os.path.getsize(blend_path),
+                    "width": source_w,
+                    "height": source_h,
+                }],
+                models,
+            )
+            b_manifest.to_json(blend_manifest_file)
+            blend_manifest = blend_manifest_file
+
+        # Separate manifest for final (mask-blended) result
+        final_path = out.get("final")
+        final_manifest = None
+        if final_path and os.path.exists(final_path):
+            final_base = final_path.replace(".png", "")
+            final_run_file = f"{final_base}.run.json"
+            final_manifest_file = f"{final_base}.manifest.json"
+
+            final_run_data = {
+                "command": "image",
+                "action": "swap-final",
+                "sam_prompt": sam_prompt,
+                "feather": feather,
+                "composite_image": composite_path,
+                "blend_strength": test_cfg.get("blend_strength", 0.4),
+                "preserve_aspect_ratio": test_cfg.get("preserve_aspect_ratio", False),
+                "pipeline": "sam3-composite-blend-maskblend",
+            }
+            with open(final_run_file, "w") as f:
+                json.dump(final_run_data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+
+            f_manifest = Manifest.from_success(
+                final_run_file, now_start, now_end, {},
+                [{
+                    "path": final_path,
+                    "seed": source_seed,
+                    "size_bytes": os.path.getsize(final_path),
+                    "width": source_w,
+                    "height": source_h,
+                }],
+                models,
+            )
+            f_manifest.to_json(final_manifest_file)
+            final_manifest = final_manifest_file
+
+    # Handle no-result case
+    if not result_manifest:
+        print(f"\n[selftest] No result generated — skipping review.")
+        print(f"  Source:      {source_path}")
+        print(f"  Reference:   {ref_path}")
+        if mask_path:
+            print(f"  Mask:        {mask_path}")
+        return
+
+    # Phase 5: Optional VLM quality scoring
+    print(f"\n{'='*60}")
+    print(f"[selftest] VLM quality scoring (optional)")
+    print(f"{'='*60}")
+
+    _fs = importlib.import_module("app.commands.image-faceswap")
+    scores = {}
+    images_to_score = [(source_path, "source"), (ref_path, "reference")]
+    if inpaint_path and os.path.exists(inpaint_path):
+        images_to_score.append((inpaint_path, "inpaint"))
+    if composite_path and os.path.exists(composite_path):
+        images_to_score.append((composite_path, "composite"))
+    if blend_path and os.path.exists(blend_path):
+        images_to_score.append((blend_path, "blend"))
+    final_path = out.get("final")
+    if final_path and os.path.exists(final_path):
+        images_to_score.append((final_path, "final"))
+    for img_path, lbl in images_to_score:
+        score = _fs._score_with_vlm(img_path, lbl)
+        if score:
+            scores[lbl] = score
+
+    if scores:
+        print(f"[VLM] Scored {len(scores)}/{len(images_to_score)} images")
+    else:
+        print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
+
+    # Phase 6: Open HTML review with all results
+    print(f"\n{'='*60}")
+    print(f"[selftest] Generating review HTML")
+    print(f"{'='*60}")
+
+    manifest_files = [source_manifest, ref_manifest]
+    if result_manifest:
+        manifest_files.append(result_manifest)
+    if blend_manifest:
+        manifest_files.append(blend_manifest)
+    if final_manifest:
+        manifest_files.append(final_manifest)
+
+    review_entries = [
+        (f"1-Source (ZImage)", "source"),
+        (f"2-Reference (ZImage)", "reference"),
+    ]
+    if swap_mode == "inpaint":
+        inpaint_strength = test_cfg.get("inpaint_strength", 0.7)
+        review_entries.append(
+            (f"3-Inpaint (Flux Klein I2I, strength={inpaint_strength})", "inpaint")
+        )
+    else:
+        review_entries.append(
+            (f"3-Composite (SAM3: '{sam_prompt}')", "composite")
+        )
+        if blend_path and os.path.exists(blend_path):
+            blend_strength = test_cfg.get("blend_strength", 0.4)
+            review_entries.append(
+                (f"4-Blend (Flux Klein I2I, strength={blend_strength})", "blend")
+            )
+        if final_path and os.path.exists(final_path):
+            review_entries.append(
+                (f"5-Final (mask-blended: source outside, I2I inside)", "final")
+            )
+
+    labels = []
+    for lbl, name in review_entries:
+        if name in scores:
+            s = scores[name]
+            labels.append(f"{lbl} — score {s.get('overall', '?')}/10")
+        else:
+            labels.append(lbl)
+
+    _open_manifest_review(manifest_files, labels=labels)
+
+
+def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
+    """Run a Flux2 Klein outpaint (image expansion) self-test.
+
+    Generates a square source image, then expands it across the configured
+    variants (directional --expand and/or --ratio) with a single shared model
+    load, VLM-scores each result, and opens a side-by-side HTML review.
+
+    Test config fields (from _ALL_TESTS):
+        source_prompt  — prompt for the source image
+        source_seed    — seed for source generation (default: 42)
+        source_width   — source width  (default: 1024)
+        source_height  — source height (default: 1024)
+        feather        — mask feather px (default: 64)
+        steps          — denoise steps (default: 4)
+        longest        — scale source longest side to (default: 1024)
+        configs        — list of {label, mode('expand'|'ratio'), dirs/pixels or
+                         ratio, seed, prompt}
+    """
+    import gc
+    import time as _time
+    import webbrowser
+
+    import mlx.core as mx
+    from PIL import Image
+
+    from app.flux2_outpaint_pipeline import Flux2OutpaintPipeline
+
+    _exp = importlib.import_module("app.commands.image-expansion")
+    _swap = importlib.import_module("app.commands.image-swap")
+    _fs = importlib.import_module("app.commands.image-faceswap")
+
+    source_prompt = test_cfg["source_prompt"]
+    source_seed = test_cfg.get("source_seed", 42)
+    src_w = test_cfg.get("source_width", 1024)
+    src_h = test_cfg.get("source_height", 1024)
+    feather = test_cfg.get("feather", 64)
+    longest = test_cfg.get("longest", 1024)
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 4)
+    configs = test_cfg.get("configs", [])
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base_prefix = f"selftest_{test_name}_{ts}"
+
+    print(f"\n{'#'*60}")
+    print(f" Flux2 Klein Outpaint Self-Test: {test_name}")
+    print(f" variants: {len(configs)} | steps: {steps} | feather: {feather}")
+    print(f"{'#'*60}")
+
+    # Phase 1: Generate a square source image (ZImage pipeline)
+    source_path = _swap._generate_test_image(
+        prompt=source_prompt,
+        seed=source_seed,
+        label="source",
+        base=f"{base_prefix}_source",
+        width=src_w,
+        height=src_h,
+    )
+    source = Image.open(source_path).convert("RGB")
+    src_ow, src_oh = source.size
+
+    # Phase 2: Load the outpaint pipeline ONCE, run all variants
+    print(f"\n{'='*60}")
+    print(f"[selftest] Loading Flux2 Klein outpaint pipeline (shared across variants)")
+    print(f"{'='*60}")
+    pipeline = Flux2OutpaintPipeline()
+    results = []  # list of (label, path, (cw, ch))
+    try:
+        for c in configs:
+            label = c.get("label", "variant")
+            mode = c.get("mode", "expand")
+            if mode == "ratio":
+                sw, sh, left, top, cw, ch = _exp.compute_canvas(
+                    src_ow, src_oh, expand_dirs=None, pixels=0,
+                    ratio=c["ratio"], longest=longest,
+                )
+            else:
+                dirs = {d.strip().lower() for d in c.get("dirs", "left,right").split(",")}
+                sw, sh, left, top, cw, ch = _exp.compute_canvas(
+                    src_ow, src_oh, expand_dirs=dirs,
+                    pixels=c.get("pixels", 512), ratio=None, longest=longest,
+                )
+            padded, mask = _exp.build_padded_and_mask(
+                source, sw, sh, left, top, cw, ch, feather,
+            )
+            print(f"\n[selftest] Variant '{label}': {mode} → canvas {cw}x{ch}")
+            res = pipeline.expand(
+                padded_image=padded,
+                mask_image=mask,
+                width=cw,
+                height=ch,
+                prompt=c.get("prompt", _exp._DEFAULT_PROMPT),
+                steps=steps,
+                seed=c.get("seed", source_seed),
+            )
+            out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_prefix}_{label}.png")
+            res.image.save(out_path)
+            print(f"  Saved: {out_path}")
+            results.append((label, out_path, (cw, ch)))
+    finally:
+        del pipeline
+        mx.clear_cache()
+        gc.collect()
+
+    if not results:
+        print(f"\n[selftest] No expansion variants produced — skipping review.")
+        return
+
+    # Phase 3: Optional VLM quality scoring
+    print(f"\n{'='*60}")
+    print(f"[selftest] VLM quality scoring (optional)")
+    print(f"{'='*60}")
+    scores = {}
+    s = _fs._score_with_vlm(source_path, "source")
+    if s:
+        scores["source"] = s
+    for label, path, _ in results:
+        s = _fs._score_with_vlm(path, label)
+        if s:
+            scores[label] = s
+    if scores:
+        print(f"[VLM] Scored {len(scores)} image(s)")
+    else:
+        print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
+
+    # Phase 4: Side-by-side HTML review
+    html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
+    _render_expansion_html(
+        html_path=html_path,
+        test_name=test_name,
+        description=test_cfg.get("description", ""),
+        source_path=source_path,
+        results=results,
+        scores=scores,
+    )
+    print(f"\n[selftest] Review HTML: {html_path}")
+    webbrowser.open(f"file://{os.path.abspath(html_path)}")
+
+
+def _render_expansion_html(*, html_path, test_name, description, source_path, results, scores):
+    """Write a simple side-by-side HTML review for an expansion self-test."""
+    import base64
+
+    def _img_b64(path):
+        with open(path, "rb") as f:
+            return "data:image/png;base64," + base64.b64encode(f.read()).decode()
+
+    def _score_card(label):
+        s = scores.get(label)
+        if not s:
+            return "<p class='noscore'>VLM score: n/a</p>"
+        dims = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+        cells = "".join(
+            f"<span class='dim'><b>{d}</b> {s.get(d, '?')}</span>" for d in dims if d in s
+        )
+        return f"<p class='score'>VLM overall <b>{s.get('overall', '?')}/10</b></p><div class='dims'>{cells}</div>"
+
+    cards = []
+    src_head = description.split("—")[0].strip() if "—" in description else "original"
+    cards.append(
+        f"<div class='card'><h3>Source ({src_head})</h3>"
+        f"<img src='{_img_b64(source_path)}'/>{_score_card('source')}</div>"
+    )
+    for label, path, (cw, ch) in results:
+        cards.append(
+            f"<div class='card'><h3>{label} <small>({cw}×{ch})</small></h3>"
+            f"<img src='{_img_b64(path)}'/>{_score_card(label)}</div>"
+        )
+
+    html = f"""<!doctype html><html><head><meta charset="utf-8"/>
+<title>Expansion self-test — {test_name}</title>
+<style>
+ body {{ font-family: -apple-system, sans-serif; background: #1a1a1a; color: #eee; margin: 24px; }}
+ h1 {{ font-size: 20px; }} p.desc {{ color: #aaa; max-width: 900px; }}
+ .row {{ display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }}
+ .card {{ background: #262626; border-radius: 10px; padding: 12px; max-width: 520px; }}
+ .card h3 {{ margin: 4px 0 8px; font-size: 15px; }} .card h3 small {{ color: #888; font-weight: normal; }}
+ .card img {{ max-width: 100%; border-radius: 6px; display: block; }}
+ .score {{ margin: 8px 0 4px; color: #6f6; }} .noscore {{ margin: 8px 0; color: #888; }}
+ .dims {{ display: flex; flex-wrap: wrap; gap: 8px; }} .dim {{ background:#333; padding:3px 8px; border-radius:4px; font-size:12px; }}
+</style></head><body>
+<h1>Flux2 Klein Outpaint — {test_name}</h1>
+<p class="desc">{description}</p>
+<div class="row">
+{''.join(cards)}
+</div></body></html>"""
+    with open(html_path, "w") as f:
+        f.write(html)
 
 
 def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
@@ -4638,28 +5363,29 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
 
     label_a = "T2I Anime Baseline"
     label_b = f"Ref+LoRA (ref={ref_count}, {ref_steps}st, scale={lora_scale})"
-    label_c = f"I2I+LoRA (dn={denoise_strength}, {i2i_steps}st) [OLD]"
 
-    # Style variants override old I2I (C) and pipeline_compare (D)
+    # Build dynamic column labels for extras (C, D, E, ...)
+    # Style variants take priority; otherwise fall back to old I2I (C) + pipeline_compare (D)
+    extra_labels = []
     if style_variants:
-        sv_labels = [sv.get("label", f"Variant {i+1}") for i, sv in enumerate(style_variants)]
-        if len(sv_labels) >= 1:
-            label_c = sv_labels[0]
-        if len(sv_labels) >= 2:
-            label_d = sv_labels[1]
-        else:
-            label_d = None
+        extra_labels = [sv.get("label", f"Variant {i+1}") for i, sv in enumerate(style_variants)]
     else:
-        # Optional 4th column: cross-pipeline comparison
+        extra_labels.append(f"I2I+LoRA (dn={denoise_strength}, {i2i_steps}st) [OLD]")
+        # Optional extra column: cross-pipeline comparison
         pcfg = test_cfg.get("pipeline_compare")
-        label_d = None
         if pcfg:
             p_pipe = pcfg.get("pipeline", "zimage")
             p_lora_raw = pcfg.get("lora_path", "")
             p_dn = pcfg.get("denoise_strength", 0.4)
             p_steps = pcfg.get("steps", 9)
             p_lora_base = os.path.basename(p_lora_raw).split(".")[0] if p_lora_raw else "none"
-            label_d = f"{p_pipe}+{p_lora_base} (dn={p_dn}, {p_steps}st)"
+            extra_labels.append(f"{p_pipe}+{p_lora_base} (dn={p_dn}, {p_steps}st)")
+
+    # Legacy compat: label_c / label_d for functions that expect them
+    label_c = extra_labels[0] if len(extra_labels) >= 1 else None
+    label_d = extra_labels[1] if len(extra_labels) >= 2 else None
+    # All column labels (including A, B)
+    col_labels_all = [label_a, label_b] + extra_labels
 
     print(f"\n{'='*60}")
     print(f" LoRA Ref Self-Test — {test_name}")
@@ -4711,10 +5437,12 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             )
             # Load raw image (skip_preprocess=True equivalent — pass image directly)
             ctrl_pil = _PILImage.open(path_a).convert("RGB").resize((width, height), _PILImage.LANCZOS)
+            base_ref_strength = test_cfg.get("ref_strength", 1.0)
             result_b = pipeline_b.generate(
                 prompt=ref_prompt, control_image=ctrl_pil,
                 width=width, height=height, steps=ref_steps, seed=seed,
                 controlnet_strength=1.0, ref_count=ref_count,
+                ref_strength=base_ref_strength,
             )
             path_b = os.path.join(cfg.OUTPUT_DIR, f"ref-lora_{tp_name}_s{seed}_{ref_steps}st.png")
             result_b.image.save(path_b)
@@ -4722,21 +5450,20 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
             print(f"  [B] {os.path.basename(path_b)} ({elapsed_b:.1f}s)")
             del pipeline_b; mx.clear_cache(); gc.collect()
 
-            # --- C & D: Only generate if not review_only ---
-            path_c = None
-            elapsed_c = 0.0
-            path_d = None
-            elapsed_d = 0.0
+            # --- C & D (& E...): Only generate if not review_only ---
+            extra_paths = []   # paths beyond B (C, D, E, ...)
+            extra_timings = []
             if not review_only:
                 if style_variants:
-                    # --- Style variants: generate C (and D) using Ref+LoRA with variant params ---
+                    # --- Style variants: generate C (and D, E...) using Ref+LoRA with variant params ---
                     for si, sv in enumerate(style_variants):
-                        col_letter = chr(67 + si)  # C, D, ...
-                        sv_prompt = sv["ref_prompt"]
+                        col_letter = chr(67 + si)  # C, D, E, ...
+                        sv_prompt = sv.get("ref_prompt", ref_prompt)
                         sv_scale = sv.get("lora_scale", lora_scale)
                         sv_steps = sv.get("ref_steps", ref_steps)
+                        sv_ref_strength = sv.get("ref_strength", base_ref_strength)
                         sv_label = sv.get("label", f"Variant {si+1}")
-                        print(f"  [{col_letter}] {sv_label} (scale={sv_scale}, {sv_steps}st)...")
+                        print(f"  [{col_letter}] {sv_label} (scale={sv_scale}, {sv_steps}st, ref_str={sv_ref_strength})...")
                         t0 = _time.time()
                         from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline as _FKCP
                         pipeline_sv = _FKCP(
@@ -4746,6 +5473,7 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
                             prompt=sv_prompt, control_image=ctrl_pil,
                             width=width, height=height, steps=sv_steps, seed=seed,
                             controlnet_strength=1.0, ref_count=ref_count,
+                            ref_strength=sv_ref_strength,
                         )
                         path_sv = os.path.join(cfg.OUTPUT_DIR,
                             f"style_{sv_label.lower().replace(' ','-')}_{tp_name}_s{seed}_{sv_steps}st.png")
@@ -4753,12 +5481,8 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
                         elapsed_sv = _time.time() - t0
                         print(f"  [{col_letter}] {os.path.basename(path_sv)} ({elapsed_sv:.1f}s)")
                         del pipeline_sv; mx.clear_cache(); gc.collect()
-                        if si == 0:
-                            path_c = path_sv
-                            elapsed_c = elapsed_sv
-                        elif si == 1:
-                            path_d = path_sv
-                            elapsed_d = elapsed_sv
+                        extra_paths.append(path_sv)
+                        extra_timings.append(round(elapsed_sv, 1))
                 else:
                     # --- C: Old I2I+LoRA ---
                     print(f"  [C] I2I+LoRA (old approach, denoise={denoise_strength})...")
@@ -4776,6 +5500,8 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
                     elapsed_c = _time.time() - t0
                     print(f"  [C] {os.path.basename(path_c)} ({elapsed_c:.1f}s)")
                     mx.clear_cache(); gc.collect()
+                    extra_paths.append(path_c)
+                    extra_timings.append(round(elapsed_c, 1))
 
                     # --- D: Pipeline comparison (optional, e.g. zimage + jib-mix LoRA) ---
                     pcfg = test_cfg.get("pipeline_compare")
@@ -4802,15 +5528,13 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
                         elapsed_d = _time.time() - t0
                         print(f"  [D] {os.path.basename(path_d)} ({elapsed_d:.1f}s)")
                         mx.clear_cache(); gc.collect()
+                        extra_paths.append(path_d)
+                        extra_timings.append(round(elapsed_d, 1))
 
             paths = [path_a, path_b]
             timings_list = [round(elapsed_a, 1), round(elapsed_b, 1)]
-            if path_c:
-                paths.append(path_c)
-                timings_list.append(round(elapsed_c, 1))
-            if path_d:
-                paths.append(path_d)
-                timings_list.append(round(elapsed_d, 1))
+            paths.extend(extra_paths)
+            timings_list.extend(extra_timings)
 
             triples.append({
                 "prompt_name": tp_name, "anime_prompt": anime_prompt, "seed": seed,
@@ -4823,19 +5547,12 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     captions = []
     for i, t in enumerate(triples):
         print(f"\n  {t['prompt_name']} / seed={t['seed']} ({i+1}/{len(triples)})")
-        cap_a = _caption_image(t["paths"][0], style="photography", lang="en")
-        cap_b = _caption_image(t["paths"][1], style="photography", lang="en")
-        print(f"    [A] {cap_a[:100]}...")
-        print(f"    [B] {cap_b[:100]}...")
-        cap_dict = {"caption_a": cap_a, "caption_b": cap_b}
-        if len(t["paths"]) > 2:
-            cap_c = _caption_image(t["paths"][2], style="photography", lang="en")
-            print(f"    [C] {cap_c[:100]}...")
-            cap_dict["caption_c"] = cap_c
-        if len(t["paths"]) > 3:
-            cap_d = _caption_image(t["paths"][3], style="photography", lang="en")
-            print(f"    [D] {cap_d[:100]}...")
-            cap_dict["caption_d"] = cap_d
+        cap_dict = {}
+        for ci, path in enumerate(t["paths"]):
+            col_letter = chr(65 + ci)  # A, B, C, ...
+            cap = _caption_image(path, style="photography", lang="en")
+            cap_dict[f"caption_{chr(97+ci)}"] = cap
+            print(f"    [{col_letter}] {cap[:100]}...")
         style_b = _caption_image(t["paths"][1], style="style", lang="en")
         cap_dict["style_b"] = style_b
         captions.append(cap_dict)
@@ -4847,15 +5564,11 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
         print(f"\n{'-'*40}\n Quality Analysis\n{'-'*40}")
         for i, t in enumerate(triples):
             print(f"\n  {t['prompt_name']} / seed={t['seed']}")
-            r_a = _qm.analyze_image(t["paths"][0]); r_a["label"] = label_a
-            r_b = _qm.analyze_image(t["paths"][1]); r_b["label"] = label_b
-            m_dict = {"metrics_a": r_a["metrics"], "metrics_b": r_b["metrics"]}
-            if len(t["paths"]) > 2 and label_c:
-                r_c = _qm.analyze_image(t["paths"][2]); r_c["label"] = label_c
-                m_dict["metrics_c"] = r_c["metrics"]
-            if len(t["paths"]) > 3 and label_d:
-                r_d = _qm.analyze_image(t["paths"][3]); r_d["label"] = label_d
-                m_dict["metrics_d"] = r_d["metrics"]
+            m_dict = {}
+            for ci, path in enumerate(t["paths"]):
+                r = _qm.analyze_image(path)
+                r["label"] = col_labels_all[ci] if ci < len(col_labels_all) else f"Col {ci}"
+                m_dict[f"metrics_{chr(97+ci)}"] = r["metrics"]
             metrics.append(m_dict)
 
     # --- HTML ---
@@ -4863,8 +5576,8 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
         html_path = _render_style_ab_html(
             output_dir=cfg.OUTPUT_DIR, base_name=base_name, test_name=test_name,
             triples=triples, captions=captions, metrics=metrics or None,
-            label_a=label_a, label_b=label_b, label_c=label_c, label_d=label_d,
-            ts=ts, style_variants=style_variants,
+            col_labels=col_labels_all,
+            ts=ts,
         )
     elif review_only:
         html_path = _render_review_only_html(
@@ -4893,18 +5606,15 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
 
 def _render_style_ab_html(*, output_dir, base_name, test_name,
                            triples, captions, metrics,
-                           label_a, label_b, label_c, label_d,
-                           ts, style_variants):
+                           col_labels,
+                           ts):
     """Render multi-column A/B style comparison HTML with voting.
 
-    Columns: A=anime baseline, B=default Ref+LoRA, C/D=style variants.
-    Each row has voting buttons (A/B/C/D) + text comment + Copy/Save export.
+    Columns: A=anime baseline, B=default Ref+LoRA, C/D/E...=style variants.
+    Each row has voting buttons + text comment + Copy/Save export.
     """
     import html as html_mod
 
-    col_labels = [label_a, label_b, label_c]
-    if label_d:
-        col_labels.append(label_d)
     n_cols = len(col_labels)
 
     # Build per-row data as JSON
@@ -4942,6 +5652,7 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-seri
 .col .lb{{font-size:0.75em;font-weight:700;margin-bottom:6px;padding:3px 8px;border-radius:4px;display:inline-block}}
 .col .lb.c0{{background:rgba(255,255,255,0.1)}}.col .lb.c1{{background:rgba(78,204,163,0.2);color:var(--success)}}
 .col .lb.c2{{background:rgba(240,165,0,0.2);color:var(--warn)}}.col .lb.c3{{background:rgba(108,92,231,0.2);color:var(--pipe)}}
+.col .lb.c4{{background:rgba(233,69,96,0.2);color:#e94560}}.col .lb.c5{{background:rgba(0,184,148,0.2);color:#00b894}}
 .col img{{width:100%;border-radius:8px;cursor:zoom-in}}.col .tm{{font-size:0.7em;color:var(--muted);margin-top:4px}}
 .cp{{background:rgba(255,255,255,0.03);border-radius:6px;padding:8px;margin-top:8px;font-size:0.72em;color:#aaa;line-height:1.5;text-align:left;max-height:80px;overflow-y:auto}}
 .vt{{display:flex;gap:10px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.06);align-items:center;flex-wrap:wrap}}
@@ -4991,10 +5702,9 @@ for(let c=0;c<r.images.length;c++){{
     +`<div class="cp"><b>Caption:</b> ${{cap.substring(0,200)}}${{cap.length>200?'...':''}}</div></div>`;
 }}
 let btns='';
-const keys=['a','b','c','d'];
 for(let c=0;c<r.images.length;c++){{
-  const k=keys[c];
-  btns+=`<button class="vb ${{v===k?'sel':''}}" onclick="vote(${{i}},'${{k}}')">${{String.fromCharCode(65+c)}}: ${{L[c]}}</button>`;
+  const k=String.fromCharCode(97+c);
+  btns+=`<button class="vb ${{v===k?'sel':''}}" onclick="vote(${{i}},'${{k}}')">${{String.fromCharCode(65+c)}}: ${{L[c]||('Col '+c)}}</button>`;
 }}
 return `<div class="row"><div class="row-hd"><h3>${{r.prompt}} <span class="sub">(seed=${{r.seed}})</span></h3></div>`
 +`<div class="imgs">${{cols}}</div>`

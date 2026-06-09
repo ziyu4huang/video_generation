@@ -29,6 +29,9 @@ Verified best parameters (3D Game default)
   --steps 8                4 steps = too soft; 8 = crisp detail
   --anime2real-lora-scale 0.7  Balanced for 3D game style (1.0 = too photorealistic)
   --ref-count 1            1 reference copy sufficient (3 is 3x slower, similar result)
+  --ref-strength 0.2       Weakest ref conditioning before identity loss;
+                           A/B test: 0.05 won 2/2 but causes hair color drift,
+                           0.2 is the safe default (identity preserved, good proportions)
   --skip-preprocess (flag) Must use raw image, not canny/edge detection
 
 Public API:
@@ -63,8 +66,8 @@ _REALISM_STYLES = {
             "A high-quality 3D game character render of the same character, "
             "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
             "realistic iris detail and reflections, cinematic rim lighting, "
-            "realistic body proportions, game asset style, keeping the original "
-            "hair color, clothing, and all character features"
+            "game asset style, keeping the original hair color, clothing, "
+            "and all character features"
         ),
         "lora_scale": 0.7,
         "steps": 8,
@@ -78,6 +81,14 @@ _REALISM_STYLES = {
         ),
         "lora_scale": 0.85,
         "steps": 6,
+    },
+    # CivitAI "Ultimate Anime-to-Realism Workflow" Chinese trigger phrase.
+    # Uses the exact prompt from the AIGC-Singularity workflow (model 2345939).
+    # LoRA at full strength (1.0) as per original workflow.
+    "civitai-chinese": {
+        "prompt": "转年轻的亚洲少女写实风格",
+        "lora_scale": 1.0,
+        "steps": 8,
     },
 }
 
@@ -134,6 +145,14 @@ def add_anime2real_args(parser):
         help="LoRA scale override for anime2real. Default: depends on --realism-style "
              "(3d-game=0.7, photorealistic=1.0, semi-realistic=0.85).",
     )
+    if not _arg_registered(parser, "ref_strength"):
+        parser.add_argument(
+            "--ref-strength", type=float, default=0.2,
+            help="Reference conditioning strength (0.0-1.0, default: 0.2). "
+                 "Lower values give the model more freedom to change body proportions "
+                 "at the cost of identity preservation. A/B test: 0.05 won 2/2 but "
+                 "causes hair color drift; 0.2 is the safe default.",
+        )
     if not _arg_registered(parser, "realism_style"):
         parser.add_argument(
             "--realism-style", type=str, default="3d-game",
@@ -184,6 +203,7 @@ def run_anime2real(args):
     lora_scale = getattr(args, "anime2real_lora_scale", None) or style_preset["lora_scale"]
     # NOTE: uses --anime2real-ref-count (default=1), NOT shared --ref-count (default=3).
     ref_count = getattr(args, "anime2real_ref_count", 1)
+    ref_strength = getattr(args, "ref_strength", 1.0)
 
     # Get output dimensions from input image
     from PIL import Image
@@ -195,7 +215,7 @@ def run_anime2real(args):
     # Create output directory
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_label = f"anime2real-{ts}_ref{ref_count}-{steps}st-s{seed}"
+    out_label = f"anime2real-{ts}_ref{ref_count}-str{ref_strength}-{steps}st-s{seed}"
     out_path = os.path.join(cfg.OUTPUT_DIR, f"{out_label}.png")
 
     print(f"\n{'═' * 60}")
@@ -207,6 +227,7 @@ def run_anime2real(args):
     print(f"  LoRA      : {os.path.basename(lora_path)} (scale={lora_scale})")
     print(f"  Steps/seed: {steps} / {seed}")
     print(f"  Ref count : {ref_count}")
+    print(f"  Ref str   : {ref_strength}")
     print(f"  Method    : Flux2KleinEdit reference conditioning + LoRA")
     print()
 
@@ -218,7 +239,7 @@ def run_anime2real(args):
     )
 
     # --- Generate with reference conditioning ---
-    print(f"[anime2real] Generating {out_w}×{out_h} (steps={steps}, ref_count={ref_count})...")
+    print(f"[anime2real] Generating {out_w}×{out_h} (steps={steps}, ref_count={ref_count}, ref_strength={ref_strength})...")
     from PIL import Image as _PILImage
     ctrl_pil = _PILImage.open(input_image_path).convert("RGB").resize((out_w, out_h), _PILImage.LANCZOS)
     t0 = time.time()
@@ -231,6 +252,7 @@ def run_anime2real(args):
         seed=seed,
         controlnet_strength=1.0,
         ref_count=ref_count,
+        ref_strength=ref_strength,
     )
     elapsed = time.time() - t0
 
@@ -250,6 +272,7 @@ def run_anime2real(args):
         "steps": steps,
         "seed": seed,
         "ref_count": ref_count,
+        "ref_strength": ref_strength,
         "output": out_path,
         "elapsed_seconds": round(elapsed, 1),
         "outputs": [{"path": out_path, "label": "anime2real"}],

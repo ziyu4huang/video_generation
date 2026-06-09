@@ -22,6 +22,8 @@ Named self-tests (--self-test <id>):
   zit-sda-v1-sweep / sda-sweep — SDA LoKr sweep: 8 diverse prompt styles, cross-prompt quality comparison
   anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer, caption + quality review
   anime2real-ref               — anime2real Ref+LoRA: identity-preserving anime→real with multi-prompt HTML review
+  faceswap-crossgender / crossgender — Woman body + man head swap (head mode), cross-gender BFS test
+  faceswap-crossgender-reverse / xgender-reverse — Man body + woman head swap (head mode)
   workflow-postprocess         — PostProcessChain on synthetic image (no model)
   workflow-basic               — Full pipeline at 4 steps / 512×512
   portrait-full                — A/B/C: base → detail+post → full+upscale
@@ -31,6 +33,10 @@ Named self-tests (--self-test <id>):
   flf2v-kitchen-coffee / kitchen-coffee — FLF2V: man making coffee, standing→seated
   flf2v-studio-turn / studio-turn — FLF2V: portrait head turn with smile
   flf2v-landscape-dusk / landscape-dusk — FLF2V: meadow golden hour→dusk
+  swap-face / face-swap-sam    — SAM3 face swap: JK girl + European woman composite
+  swap-outfit / outfit-swap-sam — SAM3 outfit swap: casual clothes + elegant dress
+  swap-object / object-swap-sam — SAM3 object swap: ramune bottle + coffee cup
+  swap-food / food-swap-sam    — SAM3 food swap: chocolate cake + macaron tower
 
 'run.py generate' is an alias for this command (see run.py COMMAND_ALIASES).
 
@@ -50,6 +56,8 @@ Usage:
   run.py image controlnet --controlnet-type pose --controlnet-strength 0.8
   run.py image faceswap --input body.png --face source.png
   run.py image faceswap --self-test
+  run.py image faceswap --self-test crossgender
+  run.py image --self-test faceswap-crossgender-reverse
   run.py image workflow --self-test portrait-full
   run.py image workflow --self-test grain-sweep
   run.py image workflow --self-test face-detail-ab
@@ -71,9 +79,11 @@ _profile = importlib.import_module("app.commands.image-profile")
 _controlnet = importlib.import_module("app.commands.image-controlnet")
 _i2i = importlib.import_module("app.commands.image-i2i")
 _faceswap = importlib.import_module("app.commands.image-faceswap")
+_swap = importlib.import_module("app.commands.image-swap")
 _anime2real = importlib.import_module("app.commands.image-anime2real")
 _quality = importlib.import_module("app.commands.image-quality")
 _workflow = importlib.import_module("app.commands.image-workflow")
+_expansion = importlib.import_module("app.commands.image-expansion")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -86,7 +96,7 @@ if os.path.exists(_PROMPTS_FILE):
         _sample_prompts = _f.read().strip()
 
 PARSER_META = {
-    "help": "Image generation: T2I (default), angle, review, profile, controlnet, i2i, quality, or workflow",
+    "help": "Image generation: T2I (default), angle, review, profile, controlnet, i2i, quality, workflow, or expansion",
     "description": (
         "Unified image command. 'run.py generate' is an alias.\n\n"
         "Sub-actions:\n"
@@ -101,8 +111,10 @@ PARSER_META = {
         "  controlnet    — ControlNet: Z-Image native or Flux2 Klein reference conditioning\n"
         "  i2i           — Image-to-Image (Z-Image w/ ControlNet, or Flux2-Klein w/ LoRA)\n"
         "  faceswap      — BFS face/head swap via Flux2 Klein + BFS LoRA\n"
+        "  swap          — SAM3 text-prompted swap (any region) + compositing\n"
         "  anime2real    — Anime→realistic with identity preservation (Flux2KleinEdit ref + LoRA)\n"
-        "  quality       — No-reference image quality analysis + VAE A/B self-test\n\n"
+        "  quality       — No-reference image quality analysis + VAE A/B self-test\n"
+        "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE comparison\n"
         "  zit-sda-v1 / sda            — SDA LoKr A/B: portrait, quality + voting\n"
@@ -110,11 +122,19 @@ PARSER_META = {
         "  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer + caption review\n"
         "  anime2real-ref              — anime2real Ref+LoRA: identity-preserving multi-prompt review\n"
         "  anime2real-ab / a2r-ab      — A/B test: photorealistic vs 3D game vs semi-realistic\n"
+        "  anime2real-ref-strength / a2r-str — Ref strength sweep: 1.0 vs 0.7 vs 0.5 vs 0.3\n"
         "  anime2real-pipeline / -v3   — Cross-pipeline: flux2-klein Ref+LoRA vs zimage I2I+LoRA\n"
+        "  faceswap-crossgender / crossgender — Woman body + man head (head mode), cross-gender BFS\n"
+        "  faceswap-crossgender-reverse / xgender-reverse — Man body + woman head (head mode)\n"
         "  portrait-full               — Workflow A/B/C: base → detail+post → full+upscale\n"
         "  grain-sweep                 — Workflow: film grain intensity sweep\n"
         "  face-detail-ab              — Workflow: face detailer denoise strength A/B\n"
-        "  landscape-post              — Workflow: post-processing chain on landscape\n\n"
+        "  landscape-post              — Workflow: post-processing chain on landscape\n"
+        "  swap-face / face-swap-sam    — SAM3 face swap: JK girl + European woman\n"
+        "  swap-outfit / outfit-swap-sam — SAM3 outfit swap: casual → elegant dress\n"
+        "  swap-object / object-swap-sam — SAM3 object swap: ramune → coffee cup\n"
+        "  swap-food / food-swap-sam    — SAM3 food swap: chocolate cake → macaron tower\n"
+        "  expansion / outpaint         — Flux2 Klein outpaint: square source → expand + side-by-side/VLM review\n\n"
         "Examples:\n"
         "  run.py image --prompt 'Moody portrait'\n"
         "  run.py image t2i --prompt '...' --pipeline flux2-klein\n"
@@ -151,9 +171,14 @@ PARSER_META = {
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"
         "  run.py image faceswap --self-test\n"
+        "  run.py image faceswap --self-test crossgender\n"
+        "  run.py image --self-test faceswap-crossgender-reverse\n"
         "  run.py image workflow --self-test portrait-full\n"
         "  run.py image workflow --self-test grain-sweep\n"
         "  run.py image workflow --self-test landscape-post\n"
+        "  run.py image expansion --input photo.png --expand left,right --pixels 768 --prompt '...'\n"
+        "  run.py image expansion --input photo.png --aspect 16:9 --upscale --upscale-method seedvr2\n"
+        "  run.py image --self-test expansion\n"
         "\n"
         "─────────────────────────────────────────────────────────────────────\n"
         "Sample Prompts\n"
@@ -174,7 +199,7 @@ def add_args(parser):
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | anime2real | quality | workflow",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -206,6 +231,9 @@ def add_args(parser):
     # FaceSwap-specific args: --face, --mode, --lora
     _faceswap.add_faceswap_args(parser)
 
+    # Swap-specific args: --reference, --sam-prompt, --sam-threshold, --feather, --blend
+    _swap.add_swap_args(parser)
+
     # Anime2Real-specific args: --anime2real-ref-count, --anime2real-lora-scale
     _anime2real.add_anime2real_args(parser)
 
@@ -214,6 +242,9 @@ def add_args(parser):
 
     # Workflow-specific args: --face-detail, --film-grain, --sharpening, --lut, etc.
     _workflow.add_workflow_args(parser)
+
+    # Expansion-specific args: --expand, --pixels, --ratio, --feather, --longest
+    _expansion.add_expansion_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -271,11 +302,15 @@ def run(args):
         _i2i.run_i2i(args)
     elif action == "faceswap":
         _faceswap.run_faceswap(args)
+    elif action == "swap":
+        _swap.run_swap(args)
     elif action == "anime2real":
         _anime2real.run_anime2real(args)
     elif action == "quality":
         _quality.run_quality(args)
     elif action == "workflow":
         _workflow.run_workflow(args)
+    elif action == "expansion":
+        _expansion.run_expansion(args)
     else:
         _t2i.run_t2i(args)

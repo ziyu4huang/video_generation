@@ -152,10 +152,11 @@ def list_test_prompt_names() -> list:
 # Unified self-test registry
 # ---------------------------------------------------------------------------
 # Each entry has a "type" field that determines which runner handles it:
-#   "vae"      → VAE variant generation + quality comparison
-#   "workflow" → WorkflowOrchestrator multi-stage variations
-#   "t2i"      → simple T2I A/B across seeds or params
-#   "video"    → LTX-2.3 T2V generation test
+#   "vae"       → VAE variant generation + quality comparison
+#   "workflow"  → WorkflowOrchestrator multi-stage variations
+#   "t2i"       → simple T2I A/B across seeds or params
+#   "video"     → LTX-2.3 T2V generation test
+#   "faceswap"  → BFS face/head swap with auto-generated body + face sources
 #
 # Adding a new test = one dict entry here, zero code changes elsewhere.
 
@@ -650,8 +651,8 @@ _ALL_TESTS = {
                     "A high-quality 3D game character render of the same character, "
                     "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
                     "realistic iris detail and reflections, cinematic rim lighting, "
-                    "realistic body proportions, game asset style, keeping the original "
-                    "hair color, clothing, and all character features"
+                    "game asset style, keeping the original hair color, clothing, "
+                    "and all character features"
                 ),
                 "lora_scale": 0.7,
                 "ref_steps": 8,
@@ -666,6 +667,89 @@ _ALL_TESTS = {
                 ),
                 "lora_scale": 0.85,
                 "ref_steps": 6,
+            },
+        ],
+    },
+
+    # -----------------------------------------------------------------------
+    # type=lora-ref: A/B test — ref_strength sweep for body proportion freedom
+    # -----------------------------------------------------------------------
+
+    "anime2real-ref-strength": {
+        "type": "lora-ref",
+        "description": (
+            "Ref strength v3: 0.2 vs 0.25 vs 0.15 vs 0.1 — "
+            "find exact identity-break floor between 0.2 (safe) and 0.1 (breaks)."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        # Column B: 3D Game at ref_strength=0.2 (current default, v2 safe minimum)
+        "ref_prompt": (
+            "A high-quality 3D game character render of the same character, "
+            "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
+            "realistic iris detail and reflections, cinematic rim lighting, "
+            "game asset style, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+        "ref_steps": 8,
+        "lora_scale": 0.7,
+        "ref_strength": 0.2,
+        # Columns C, D, E: test around the break point
+        "style_variants": [
+            {"label": "str=0.25", "ref_strength": 0.25},
+            {"label": "str=0.15", "ref_strength": 0.15},
+            {"label": "str=0.1", "ref_strength": 0.1},
+        ],
+    },
+
+    # -----------------------------------------------------------------------
+    # type=lora-ref: CivitAI workflow comparison — Chinese vs English prompt
+    # -----------------------------------------------------------------------
+
+    "anime2real-civitai-compare": {
+        "type": "lora-ref",
+        "description": (
+            "CivitAI workflow comparison: our best (3D Game, EN) vs their Chinese prompt "
+            "at various lora_scale/ref_strength combos."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        # Column B: our current best (3D Game English prompt, lora_scale=0.7, ref_strength=0.2)
+        "ref_prompt": (
+            "A high-quality 3D game character render of the same character, "
+            "Unreal Engine 5, subsurface scattering skin, natural-looking eyes with "
+            "realistic iris detail and reflections, cinematic rim lighting, "
+            "game asset style, keeping the original hair color, clothing, "
+            "and all character features"
+        ),
+        "ref_steps": 8,
+        "lora_scale": 0.7,
+        "ref_strength": 0.2,
+        # Columns C, D, E: CivitAI Chinese prompt at different param combos
+        "style_variants": [
+            {
+                "label": "civitai scale=1.0 str=1.0",
+                "ref_strength": 1.0,
+                "lora_scale": 1.0,
+                "ref_prompt": "转年轻的亚洲少女写实风格",
+            },
+            {
+                "label": "civitai scale=1.0 str=0.2",
+                "ref_strength": 0.2,
+                "lora_scale": 1.0,
+                "ref_prompt": "转年轻的亚洲少女写实风格",
+            },
+            {
+                "label": "civitai scale=0.7 str=0.2",
+                "ref_strength": 0.2,
+                "lora_scale": 0.7,
+                "ref_prompt": "转年轻的亚洲少女写实风格",
             },
         ],
     },
@@ -797,6 +881,30 @@ _ALL_TESTS = {
         "mode": "cnet-pose",    # 5 variations: openpose x medium/full denoise + canny baseline
     },
 
+    "cnet-pose2": {
+        "type": "controlnet-i2i",
+        "description": "OpenPose pose2: dn09 gap fill, act=8 cutoff for dn08/09, act=6 for dn10",
+        "mode": "cnet-pose2",   # 4 variations: tuned from cnet-pose feedback (dn08 partial/bad_hands, dn10 ghost)
+    },
+
+    "cnet-pose3": {
+        "type": "controlnet-i2i",
+        "description": "OpenPose pose3: ctrl_strength 1.5/2.0 boost, dn=0.95+act10, steps=30",
+        "mode": "cnet-pose3",   # 4 variations: amplify ctrl signal to overcome source latent bias at dn=0.9
+    },
+
+    "cnet-pose4": {
+        "type": "controlnet-i2i",
+        "description": "Blurred Canny: pre-blur ref before Canny to remove clothing texture edges",
+        "mode": "cnet-pose4",   # 4 variations: blur10/15/20 + str0.8/1.0; blurred Canny = pose edges only
+    },
+
+    "seed-sweep": {
+        "type": "controlnet-i2i",
+        "description": "Seed sweep: best pose2 params (dn09+openpose+ALL) across 8 seeds to find fuller V-pose",
+        "mode": "seed-sweep",   # 8 seeds: 42,43,100,200,300,500,1000,2025
+    },
+
     # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
@@ -862,6 +970,239 @@ _ALL_TESTS = {
         ),
         "flf2v_test": "landscape-dusk",
     },
+
+    # -----------------------------------------------------------------------
+    # type=faceswap: BFS face/head swap self-tests
+    # -----------------------------------------------------------------------
+    # 3-phase pipeline: ZImage body → Flux2 T2I face → Flux2 Klein Edit + BFS LoRA swap.
+    # Uses "head" mode for cross-gender swaps (full head replacement including hair).
+
+    "faceswap-crossgender": {
+        "type": "faceswap",
+        "description": (
+            "Cross-gender faceswap: woman body + man head (head mode) — "
+            "tests BFS swap quality with gender mismatch, full head replacement"
+        ),
+        "body_prompt": (
+            "Moody Photography, 25-year-old Japanese woman in elegant black evening dress, "
+            "off-shoulder neckline, standing in a dimly lit ballroom, warm chandelier light, "
+            "cool blue ambient from windows, half-body shot, looking at camera, "
+            "hands clasped in front, marble floor reflections."
+        ),
+        "face_prompt": (
+            "Moody Photography, close-up portrait of a 30-year-old European man, "
+            "short dark brown hair, clean-shaven, strong jawline, brown eyes, "
+            "confident direct gaze, warm golden hour side lighting, "
+            "shallow depth of field, film grain texture, neutral background."
+        ),
+        "mode": "head",
+        "body_seed": 42,
+        "face_seed": 200,
+    },
+
+    "faceswap-crossgender-reverse": {
+        "type": "faceswap",
+        "description": (
+            "Reverse cross-gender faceswap: man body + woman head (head mode) — "
+            "tests BFS swap quality with opposite gender mismatch"
+        ),
+        "body_prompt": (
+            "Moody Photography, 28-year-old European man in navy blue business suit, "
+            "white shirt, no tie, standing in a modern office lobby, "
+            "warm interior lighting from left, cool fluorescent from ceiling, "
+            "half-body shot from slightly below, looking at camera with neutral expression, "
+            "arms crossed."
+        ),
+        "face_prompt": (
+            "Moody Photography, close-up portrait of a 22-year-old East Asian woman, "
+            "long straight black hair, dark brown eyes, light makeup, "
+            "gentle smile, warm golden hour side lighting, "
+            "shallow depth of field, film grain texture, neutral background."
+        ),
+        "mode": "head",
+        "body_seed": 55,
+        "face_seed": 300,
+    },
+
+    # ── SAM3 Swap self-tests ──────────────────────────────────────────────
+    "swap-face": {
+        "type": "swap",
+        "description": (
+            "SAM3 face swap: replace JK girl's face with European woman — "
+            "tests face segmentation + composite quality"
+        ),
+        "source_prompt": (
+            "Moody Photography, 18-year-old Japanese girl in school uniform, "
+            "navy blue sailor top, white collar with red ribbon, plaid skirt, "
+            "kneeling at desk, warm lamp light from left, cool moonlight from window, "
+            "half-body shot from above, looking at camera with pensive expression, "
+            "hands resting on desk, textbooks and ramune bottle on desk."
+        ),
+        "reference_prompt": (
+            "Moody Photography, close-up portrait of a 22-year-old European woman, "
+            "shoulder-length wavy blonde hair, blue eyes, light freckles across nose, "
+            "confident direct gaze, warm golden hour side lighting, "
+            "shallow depth of field, film grain texture, neutral background."
+        ),
+        "sam_prompt": "woman's face",
+        "ref_sam_prompt": "woman's face",
+        "sam_threshold": 0.3,
+        "feather": 15,
+        "source_seed": 42,
+        "reference_seed": 100,
+        "blend": True,
+        "blend_strength": 0.35,
+    },
+    "swap-outfit": {
+        "type": "swap",
+        "description": (
+            "SAM3 outfit swap: replace casual clothes with elegant dress — "
+            "tests clothing segmentation + large mask composite"
+        ),
+        "source_prompt": (
+            "Fashion photography, young woman standing in a bright studio, "
+            "wearing casual blue jeans and a white t-shirt, arms at sides, "
+            "full body shot, neutral gray background, even studio lighting, "
+            "natural pose, photorealistic."
+        ),
+        "reference_prompt": (
+            "Fashion photography, close-up of an elegant floor-length red evening gown, "
+            "silk fabric with subtle shimmer, fitted bodice with off-shoulder neckline, "
+            "flowing skirt, detailed fabric texture, studio lighting, "
+            "displayed on mannequin, photorealistic."
+        ),
+        "sam_prompt": "clothing",
+        "ref_sam_prompt": "dress",
+        "sam_threshold": 0.25,
+        "feather": 20,
+        "source_seed": 55,
+        "reference_seed": 200,
+        "blend": True,
+        "blend_strength": 0.35,
+    },
+    "swap-object": {
+        "type": "swap",
+        "description": (
+            "SAM3 object swap: replace ramune bottle with coffee cup on a desk — "
+            "composite + Flux Klein I2I refinement (position-preserving)"
+        ),
+        "source_prompt": (
+            "Cozy desk scene, wooden desk surface with an open laptop, "
+            "stacked books, a ramune soda bottle with blue glass and marble, "
+            "warm desk lamp light, scattered pens and notebook, "
+            "overhead view, photorealistic, detailed."
+        ),
+        "reference_prompt": (
+            "Product photography, a ceramic coffee cup with latte art on a wooden saucer, "
+            "steam rising, warm lighting, shallow depth of field, "
+            "clean white background, photorealistic."
+        ),
+        "sam_prompt": "bottle",
+        "ref_sam_prompt": "coffee cup",
+        "sam_threshold": 0.25,
+        "feather": 15,
+        "source_seed": 77,
+        "reference_seed": 300,
+        "source_width": 960,
+        "source_height": 640,
+        "reference_width": 960,
+        "reference_height": 640,
+        "blend": True,
+        "blend_strength": 0.5,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 40,
+        "blend_prompt": (
+            "Cozy desk scene, wooden desk surface with an open laptop, "
+            "stacked books, a ceramic coffee cup with latte art on a wooden saucer, "
+            "steam rising from the cup, warm desk lamp light, scattered pens and notebook, "
+            "overhead view, photorealistic, detailed."
+        ),
+    },
+    "swap-food": {
+        "type": "swap",
+        "description": (
+            "SAM3 food swap: replace chocolate cake with macaron tower — "
+            "composite + Flux Klein I2I refinement (position-preserving)"
+        ),
+        "source_prompt": (
+            "Food photography, overhead shot of a white plate with a slice of chocolate "
+            "layer cake with ganache frosting, a fork beside it, dark wooden table, "
+            "scattered cocoa powder, warm ambient lighting, photorealistic."
+        ),
+        "reference_prompt": (
+            "Food photography, overhead shot of a white plate with a colorful "
+            "macaron tower in pastel pink, green, and lavender, "
+            "clean white background, soft studio lighting, photorealistic."
+        ),
+        "sam_prompt": "cake",
+        "ref_sam_prompt": "macaron tower",
+        "sam_threshold": 0.3,
+        "feather": 15,
+        "source_seed": 88,
+        "reference_seed": 400,
+        "source_width": 960,
+        "source_height": 640,
+        "reference_width": 960,
+        "reference_height": 640,
+        "blend": True,
+        "blend_strength": 0.5,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 30,
+        "blend_prompt": (
+            "Food photography, overhead shot of a white plate with a colorful "
+            "macaron tower in pastel pink, green, and lavender, "
+            "a fork beside it, dark wooden table, scattered cocoa powder, "
+            "warm ambient lighting, photorealistic."
+        ),
+    },
+
+    # ------------------------------------------------------------------
+    # Expansion / outpaint self-tests (Flux2 Klein latent-mask outpaint)
+    # ------------------------------------------------------------------
+    "expansion": {
+        "type": "expansion",
+        "description": (
+            "Flux2 Klein outpaint: generate a square source, then expand two ways "
+            "(directional widen + 16:9 aspect) — side-by-side + VLM seam/quality review"
+        ),
+        "source_prompt": (
+            "Moody Photography, a young woman in a red coat standing in a narrow "
+            "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+            "half-body shot, looking toward camera, cinematic, photorealistic, "
+            "shallow depth of field."
+        ),
+        "source_seed": 42,
+        "source_width": 1024,
+        "source_height": 1024,
+        "feather": 64,
+        "steps": 4,
+        "longest": 1024,
+        "configs": [
+            {
+                "label": "expand-left-right",
+                "mode": "expand",
+                "dirs": "left,right",
+                "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light consistent "
+                    "with the centre. Seamless, photorealistic, no visible seam."
+                ),
+            },
+            {
+                "label": "ratio-16x9",
+                "mode": "ratio",
+                "ratio": "16:9",
+                "seed": 42,
+                "prompt": (
+                    "Widen to a cinematic 16:9 frame: extend the alley, buildings, "
+                    "and atmospheric dusk lighting outward. Maintain the subject "
+                    "and style. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -902,6 +1243,7 @@ _ALL_TESTS_ALIASES = {
     "a2r-pipe":       "anime2real-pipeline",
     "a2r-review":     "anime2real-review",
     "a2r-ab":         "anime2real-ab",
+    "a2r-str":        "anime2real-ref-strength",
     # Video aliases
     "rainy-street":  "video-rainy-street",
     "forest-hiker":  "video-forest-hiker",
@@ -920,6 +1262,22 @@ _ALL_TESTS_ALIASES = {
     "profile-ab":       "profile-prompt-abc",
     "profile-prompts":  "profile-prompt-abc",
     "profile-flux2":    "profile-flux2-gen",
+    # Faceswap aliases
+    "crossgender":          "faceswap-crossgender",
+    "faceswap-xgender":     "faceswap-crossgender",
+    "xgender":              "faceswap-crossgender",
+    "crossgender-reverse":  "faceswap-crossgender-reverse",
+    "xgender-reverse":      "faceswap-crossgender-reverse",
+    # Swap aliases
+    "face-swap-sam":        "swap-face",
+    "outfit-swap-sam":      "swap-outfit",
+    "object-swap-sam":      "swap-object",
+    "food-swap-sam":        "swap-food",
+    # Expansion aliases
+    "outpaint":             "expansion",
+    "image-expansion":      "expansion",
+    "image-expand":         "expansion",
+    "expand":               "expansion",
 }
 
 

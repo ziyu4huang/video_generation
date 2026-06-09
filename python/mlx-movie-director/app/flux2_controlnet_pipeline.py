@@ -131,6 +131,7 @@ class Flux2KleinControlnetPipeline:
         seed: int = 42,
         controlnet_strength: float = 1.0,
         ref_count: int = 1,
+        ref_strength: float = 1.0,
     ) -> GenerationResult:
         """Generate one image using reference conditioning (ControlNet-style).
 
@@ -150,6 +151,12 @@ class Flux2KleinControlnetPipeline:
                                 concatenated latent sequence, increasing the model's
                                 attention to the reference. Default 1; profile command
                                 uses 3. This is the primary conditioning strength knob.
+            ref_strength:       Scalar multiplier applied to reference latents before
+                                concatenation with noise latents. 1.0 = full strength
+                                (default, full identity lock). Lower values (0.3-0.7)
+                                weaken conditioning, giving the model more freedom to
+                                deviate from the reference — useful for allowing body
+                                proportion changes while preserving style/identity.
 
         Returns:
             GenerationResult with .image (PIL.Image) and .timings ({}).
@@ -188,6 +195,7 @@ class Flux2KleinControlnetPipeline:
                 height=height,
                 num_inference_steps=steps,
                 guidance=1.0,  # Distilled Klein models do not support CFG.
+                ref_strength=ref_strength,
                                # guidance=1.0 skips negative prompt encoding
                                # (single forward pass per step). Using >1.0
                                # would waste compute on an untrained unconditional

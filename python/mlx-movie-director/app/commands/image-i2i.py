@@ -71,8 +71,9 @@ _I2I_SELF_TEST_PROMPT = (
 # "classical portraiture" fights V-pose ControlNet guidance; use a neutral full-body prompt
 # so the ControlNet signal is not suppressed by portrait crop bias in the text embedding.
 _I2I_CNET_FULLBODY_PROMPT = (
-    "A young woman, full body shot, standing, dynamic pose, high quality photography, "
-    "clean white background, ultra sharp focus."
+    "A single young Asian woman with black hair, full body shot, arms raised high in victory V-pose, "
+    "pure white background, studio photography, one person only, no other people, no crowd, "
+    "isolated figure, ultra sharp focus, high quality portrait photography."
 )
 
 # Self-test variations:
@@ -144,6 +145,73 @@ _I2I_CNET_POSE_VARIATIONS = [
     ("pose-dn06-str10-all-20st",     0.6,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
     # Canny baseline for direct comparison
     ("canny-dn10-str08-act8-20st",   1.0,  0.8,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+]
+
+# Pose sweep 2 — based on feedback from cnet-pose sweep:
+#   dn10+act8 → double_body (act=8 not enough), dn08+ALL → partial/bad_hands,
+#   dn07+ALL → fail (no pose), dn06+ALL → no_pose, canny+act8 → v_pose_ok but appearance bleed.
+# Hypothesis: medium denoise needs cutoff to prevent ghost; dn09 may be sweet spot.
+_I2I_CNET_POSE2_VARIATIONS = [
+    # (label,                         dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess)
+    # Fill gap between dn08 (partial) and dn10 (ghost) — no cutoff first
+    ("pose2-dn09-str10-all-20st",     0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # dn08 was partial (ALL steps) — add act=8 cutoff to prevent ghost
+    ("pose2-dn08-str10-act8-20st",    0.8,  1.0,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # dn09 + act=8 cutoff — combines the two above hypotheses
+    ("pose2-dn09-str10-act8-20st",    0.9,  1.0,  None, 8,        20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # dn10 but act=6 (earlier cutoff than act=8 which still had double_body)
+    ("pose2-dn10-str10-act6-20st",    1.0,  1.0,  None, 6,        20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+]
+
+# Pose sweep 3 — all pose2 variants are "partial_pose": ctrl_strength=1.0 cannot override the
+# source latent's "arms at sides" momentum at dn=0.8-0.9.
+# Hypotheses to test:
+#   A) Amplify ctrl_strength >1.0 (1.5, 2.0) — raw signal boost without changing denoise
+#   B) dn=0.95 + act=10 — between dn09 partial and dn10 ghost, longer ctrl window
+#   C) steps=30 at dn09 — more denoising time for ControlNet to shape the output
+_I2I_CNET_POSE3_VARIATIONS = [
+    # (label,                          dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess)
+    # A: boost ctrl_strength — does 1.5x push "partial" to full V-pose?
+    ("pose3-dn09-str15-all-20st",      0.9,  1.5,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # A: even stronger — 2.0x might finally overcome source latent bias
+    ("pose3-dn09-str20-all-20st",      0.9,  2.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # B: dn=0.95 with act=10 cutoff — narrow window between dn09 (partial) and dn10 (ghost)
+    ("pose3-dn095-str10-act10-20st",   0.95, 1.0,  None, 10,       20,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+    # C: more steps with same best params — 30 steps gives ctrl more guidance iterations
+    ("pose3-dn09-str10-30st",          0.9,  1.0,  None, None,     30,   _I2I_CNET_FULLBODY_PROMPT, "openpose"),
+]
+
+# Seed sweep — best params from pose2 (dn=0.9, ctrl=1.0, ALL steps, 20st, openpose)
+# run across 8 different seeds to find one where the stochastic sampling lands on a better V-pose.
+# 9th field = seed_override (overrides default seed=42 for this variation's generation).
+_I2I_CNET_SEED_SWEEP_VARIATIONS = [
+    # (label,                   dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess, seed)
+    ("seed-s42",                0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 42),
+    ("seed-s43",                0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43),
+    ("seed-s100",               0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 100),
+    ("seed-s200",               0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 200),
+    ("seed-s300",               0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 300),
+    ("seed-s500",               0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 500),
+    ("seed-s1000",              0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 1000),
+    ("seed-s2025",              0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 2025),
+]
+
+# Pose sweep 4 — Blurred Canny strategy.
+# Insight from pose3: ctrl_strength>1.0 → pixelation; OpenPose maxes at partial_pose.
+# Canny at dn=1.0+act8 achieved v_pose_ok (sweep1) but "too close to reference" (appearance bleed).
+# Root cause: Canny captures clothing texture edges → appearance info leaks into ControlNet signal.
+# Fix: apply Gaussian blur to reference BEFORE Canny to remove high-freq clothing detail.
+# After blur, Canny sees only gross body structure (V-shape arms, leg spread) — no fabric folds.
+# Bug fix: _load_and_preprocess() now applies blur before Canny (was skip-only before).
+# ctrl_33ch_map now keyed by (mode, blur_ref) to distinguish blurred variants.
+_I2I_CNET_POSE4_VARIATIONS = [
+    # (label,                              dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess)
+    # Progressive blur levels — find the sweet spot between pose retention and appearance removal
+    ("pose4-blur10-dn10-str08-act8-20st",  1.0,  0.8,  10,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+    ("pose4-blur15-dn10-str08-act8-20st",  1.0,  0.8,  15,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+    ("pose4-blur20-dn10-str08-act8-20st",  1.0,  0.8,  20,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+    # Higher ctrl_strength with medium blur — more pose signal without appearance bleed
+    ("pose4-blur15-dn10-str10-act8-20st",  1.0,  1.0,  15,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
 ]
 
 
@@ -531,6 +599,31 @@ def _generate(prompt, out_w, out_h, steps, seed, clean_latent, denoise_strength,
     return pil_image
 
 
+def _apply_sam_white(img: "Image.Image") -> "Image.Image":
+    """Remove background via SAM 3.1 (MLX-native) and composite on pure white."""
+    import numpy as np
+    from PIL import Image as _Image
+    from app.sam3_predictor import get_sam3_predictor, segment_image, feather_mask
+
+    predictor = get_sam3_predictor(threshold=0.3)
+    result = segment_image(predictor, img, "person")
+
+    if len(result.scores) == 0:
+        print("  [sam3] No person detected — keeping original")
+        return img
+
+    best_idx = int(np.argmax(result.scores))
+    mask = result.masks[best_idx]  # (H, W) binary uint8
+
+    alpha = feather_mask(mask, radius=8)  # float [0,1]
+    img_np = np.array(img.convert("RGB")).astype(np.float32)
+    white = np.full_like(img_np, 255.0)
+    for c in range(3):
+        img_np[:, :, c] = img_np[:, :, c] * alpha + white[:, :, c] * (1.0 - alpha)
+
+    return _Image.fromarray(img_np.astype(np.uint8))
+
+
 # ---------------------------------------------------------------------------
 # Self-test mode
 # ---------------------------------------------------------------------------
@@ -604,6 +697,18 @@ def _run_self_test(args):
     elif isinstance(st_val, str) and st_val == "cnet-pose":
         variations = _I2I_CNET_POSE_VARIATIONS
         print(f"\n[Self-Test] Using CNET-POSE variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-pose2":
+        variations = _I2I_CNET_POSE2_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-POSE2 variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-pose3":
+        variations = _I2I_CNET_POSE3_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-POSE3 variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "cnet-pose4":
+        variations = _I2I_CNET_POSE4_VARIATIONS
+        print(f"\n[Self-Test] Using CNET-POSE4 variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "seed-sweep":
+        variations = _I2I_CNET_SEED_SWEEP_VARIATIONS
+        print(f"\n[Self-Test] Using SEED-SWEEP variations ({len(variations)} tests)")
     else:
         variations = _I2I_SELF_TEST_VARIATIONS
 
@@ -615,23 +720,28 @@ def _run_self_test(args):
     clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
     print(f"Done → {list(clean_latent.shape)}")
 
-    # Encode ControlNet reference image for each preprocess mode needed by this variation set
+    # Encode ControlNet reference image for each unique (mode, blur_ref) combination.
+    # Key = (preprocess_mode, blur_ref) so blurred-Canny variants are encoded separately.
     ctrl_33ch_map: dict = {}
-    ctrl_33ch = None  # legacy default (canny)
+    ctrl_33ch = None  # legacy fallback (canny, no blur)
     if ref_path:
-        needed_modes = {v[7] if len(v) > 7 else "canny"
-                        for v in variations if v[2] is not None} or {"canny"}
-        for mode in sorted(needed_modes):
-            print(f"[Self-Test] VAE encoding ControlNet reference ({mode})...", end=" ", flush=True)
+        needed_keys = {
+            (v[7] if len(v) > 7 else "canny", v[3])
+            for v in variations if v[2] is not None
+        } or {("canny", None)}
+        for mode, blur in sorted(needed_keys):
+            blur_label = f"+blur{blur:.0f}" if blur is not None else ""
+            print(f"[Self-Test] VAE encoding ControlNet reference ({mode}{blur_label})...",
+                  end=" ", flush=True)
             ref_pil = _load_and_preprocess(ref_path, out_w, out_h, skip=False,
-                                            blur_ref=None, preprocess_mode=mode)
+                                            blur_ref=blur, preprocess_mode=mode)
             ctrl_lat = _vae_encode(vae, ref_pil)
             ctrl_lat = (ctrl_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
             c33 = build_control_input_33ch(ctrl_lat, lambda img: _vae_encode(vae, img))
             mx.eval(c33)
-            ctrl_33ch_map[mode] = c33
+            ctrl_33ch_map[(mode, blur)] = c33
             print(f"Done → {list(c33.shape)} max={float(mx.abs(c33).max()):.3f} (evaluated)")
-        ctrl_33ch = ctrl_33ch_map.get("canny")
+        ctrl_33ch = ctrl_33ch_map.get(("canny", None))
 
     del vae
     _gc()
@@ -642,10 +752,12 @@ def _run_self_test(args):
         label, dn_str, ctrl_str, blur_ref, cnet_active, tstps = var[:6]
         prompt_override = var[6] if len(var) > 6 else None
         preprocess_mode = var[7] if len(var) > 7 else "canny"
+        seed_override  = var[8] if len(var) > 8 else None
         prompt = prompt_override if prompt_override is not None else _I2I_SELF_TEST_PROMPT
+        gen_seed = seed_override if seed_override is not None else seed
 
-        # Pick the ctrl_33ch for this variation's preprocess mode
-        var_ctrl_33ch = ctrl_33ch_map.get(preprocess_mode, ctrl_33ch)
+        # Pick the ctrl_33ch for this variation's (mode, blur_ref) pair
+        var_ctrl_33ch = ctrl_33ch_map.get((preprocess_mode, blur_ref), ctrl_33ch)
 
         # Skip ControlNet variations if no reference image
         if ctrl_str is not None and var_ctrl_33ch is None:
@@ -656,7 +768,7 @@ def _run_self_test(args):
         print(f"[Self-Test] {label}")
         print(f"{'=' * 60}")
 
-        img_filename = f"i2i_selftest_{label}-s{seed}.png"
+        img_filename = f"i2i_selftest_{label}-s{gen_seed}.png"
         out_p = os.path.join(cfg.OUTPUT_DIR, img_filename)
 
         if os.path.exists(out_p):
@@ -671,13 +783,18 @@ def _run_self_test(args):
                 out_w=out_w,
                 out_h=out_h,
                 steps=tstps,
-                seed=seed,
+                seed=gen_seed,
                 clean_latent=clean_latent,
                 denoise_strength=dn_str,
                 ctrl_33ch=use_ctrl,
                 controlnet_strength=ctrl_str or 0.6,
                 cnet_active_steps=cnet_active,
             )
+
+            if ctrl_str is not None:
+                print("  [sam3] Removing background...", end=" ", flush=True)
+                pil_image = _apply_sam_white(pil_image)
+                print("Done")
 
             pil_image.save(out_p)
             print(f"  Saved: {out_p}")
@@ -714,21 +831,21 @@ def _run_self_test(args):
 
     # ── Step 5: Generate bilingual review HTML ─────────────────────────────
     print(f"\n{'=' * 60}")
-    print(f"[Self-Test] Generating review HTML")
-    print(f"{'=' * 60}")
-
-    html_path = os.path.join(cfg.OUTPUT_DIR, "i2i_selftest_review.html")
-    _generate_self_test_html(
-        html_path, results,
-        source_image=os.path.basename(source_path),
-        ref_image=os.path.basename(ref_path) if ref_path else None,
-    )
-    print(f"  Saved: {html_path}")
-
-    # ── Step 6: Open in browser ────────────────────────────────────────────
-    import webbrowser
-    webbrowser.open(f"file://{os.path.abspath(html_path)}")
-    print(f"  Opened in browser")
+    # ── Step 6: Simple HTML (skipped when called from image-review, which generates a better one) ──
+    if not getattr(args, "skip_inner_html", False):
+        print(f"\n{'=' * 60}")
+        print(f"[Self-Test] Generating review HTML")
+        print(f"{'=' * 60}")
+        html_path = os.path.join(cfg.OUTPUT_DIR, "i2i_selftest_review.html")
+        _generate_self_test_html(
+            html_path, results,
+            source_image=os.path.basename(source_path),
+            ref_image=os.path.basename(ref_path) if ref_path else None,
+        )
+        print(f"  Saved: {html_path}")
+        import webbrowser
+        webbrowser.open(f"file://{os.path.abspath(html_path)}")
+        print(f"  Opened in browser")
 
 
 def _generate_t2i(prompt, out_w, out_h, steps, seed):
@@ -1271,11 +1388,11 @@ def _load_and_preprocess(path: str, out_w: int, out_h: int,
     from PIL import Image, ImageFilter
 
     img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    if blur_ref is not None:
+        radius = max(1, int(blur_ref))
+        img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+        print(f"[I2I] Pre-process blur sigma={blur_ref} applied")
     if skip:
-        if blur_ref is not None:
-            radius = max(1, int(blur_ref))
-            img = img.filter(ImageFilter.GaussianBlur(radius=radius))
-            print(f"[I2I] Reference blur sigma={blur_ref} applied")
         print(f"[I2I] Using raw reference image as control signal")
         return img
     if preprocess_mode == "openpose":
@@ -1337,9 +1454,10 @@ def _ensure_pose_model() -> str:
 
 
 def _apply_openpose(pil_img: "Image.Image") -> "Image.Image":
-    """Extract body skeleton via mediapipe Tasks API; render OpenPose-style on black bg.
+    """Extract body skeleton via mediapipe Tasks API; render OpenPose-style on white bg.
 
-    Returns an RGB image with colored joints/limbs on black background.
+    White background aligns with "clean white background" text prompt so ControlNet
+    does not push the generation toward dark/complex backgrounds.
     Falls back to Canny if mediapipe or pose detection fails.
     """
     import numpy as np
