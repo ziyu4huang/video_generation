@@ -1,12 +1,18 @@
-"""image-anime2real — Anime-to-realistic style transfer with identity preservation.
+"""image-anime2real — Anime-to-semi-realistic style transfer with identity preservation.
 
 Uses Flux2KleinEdit reference conditioning + anime2real LoRA to convert anime-style
-images to realistic output while preserving the original character's appearance
-(hair color, clothing, facial features, pose).
+images to semi-realistic 3D-render style output while preserving the original
+character's appearance (hair color, clothing, facial features, pose).
+
+Output style: semi-realistic 3D game character render, NOT photorealistic.
+  VLM analysis confirms output is consistently described as "anime style" / "3D render"
+  rather than photographic. This is a fundamental limitation of the LoRA + reference
+  conditioning approach on Flux2 Klein 9B (MPS). No parameter tuning can fix this.
 
 Default style: CivitAI Chinese (转年轻的亚洲少女写实风格).
-  A/B test result (2026-06-10): Chinese prompt + lora_scale=1.0 + ref_strength=1.0
-  won 5/5 across all tested archetypes. Use --realism-style to switch styles.
+  These are the best available parameters — won 5/5 in focused A/B testing (v7).
+  Diversity test (v8, 10 prompts) confirmed the approach has fundamental limitations:
+  Ref+LoRA degrades sharpness by 5-59% vs T2I baseline. Not a parameter problem.
 
 Note on gender bias:
   The LoRA is trained on female anime characters (model name: anime-girl-turned-into-real-person).
@@ -20,13 +26,11 @@ How it works
   1. The anime input image is VAE-encoded into reference latent tokens
   2. These tokens are concatenated with the noise latents (not mixed)
   3. The model "sees" the original character at every denoising step
-  4. The anime2real LoRA biases the transformer toward realistic output
+  4. The anime2real LoRA biases the transformer toward a semi-realistic style
 
-  Result: the output looks like a high-fidelity 3D game character model of the
-  original anime character, preserving hair color, outfit, etc.
-
-  This is far superior to the old I2I approach (denoise=0.6) which destroyed identity
-  completely — different hair color, different clothing, different face.
+  Result: the output looks like a 3D game character model of the original anime
+  character, preserving hair color, outfit, etc. Good for identity-preserving
+  style shift, but NOT for true photorealistic conversion.
 
 Verified best parameters (CivitAI Chinese default)
   --realism-style civitai-chinese  Default; Chinese trigger phrase + lora_scale=1.0

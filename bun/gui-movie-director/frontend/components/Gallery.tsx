@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 
 interface GalleryImage {
   name: string;
@@ -9,7 +9,7 @@ interface GalleryImage {
 }
 
 interface GalleryProps {
-  onImageClick: (url: string) => void;
+  onImageClick: (url: string, manifest?: any) => void;
   key?: number; // for refresh
 }
 
@@ -29,31 +29,48 @@ function formatDate(iso: string): string {
   });
 }
 
+function getManifestSummary(manifest: any): string | null {
+  if (!manifest) return null;
+  const parts: string[] = [];
+  if (manifest.command) parts.push(manifest.command);
+  if (manifest.pipeline) parts.push(manifest.pipeline);
+  if (manifest.seed != null) parts.push(`seed:${manifest.seed}`);
+  return parts.join(" · ");
+}
+
 export function Gallery({ onImageClick }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 100;
+
+  const loadPage = useCallback(async (p: number, append: boolean) => {
+    try {
+      if (append) setLoadingMore(true); else setLoading(true);
+      const res = await fetch(`/api/gallery?page=${p}&limit=${PAGE_SIZE}`);
+      const data = await res.json();
+      if (append) {
+        setImages((prev) => [...prev, ...(data.images || [])]);
+      } else {
+        setImages(data.images || []);
+      }
+      setTotal(data.total || 0);
+      setPage(p);
+    } catch (err) {
+      console.error("Failed to load gallery:", err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetch("/api/gallery?limit=100")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) {
-          setImages(data.images || []);
-          setTotal(data.total || 0);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.error("Failed to load gallery:", err);
-          setLoading(false);
-        }
-      });
-    return () => { cancelled = true; };
-  }, []);
+    loadPage(1, false);
+  }, [loadPage]);
+
+  const hasMore = images.length < total;
 
   if (loading) {
     return (
@@ -85,7 +102,7 @@ export function Gallery({ onImageClick }: GalleryProps) {
           <div
             key={img.name}
             className="gallery-card"
-            onClick={() => onImageClick(img.url)}
+            onClick={() => onImageClick(img.url, img.manifest)}
           >
             <img src={img.url} alt={img.name} loading="lazy" />
             <div className="gallery-card-info">
@@ -93,10 +110,31 @@ export function Gallery({ onImageClick }: GalleryProps) {
               <div className="gallery-card-meta">
                 {formatSize(img.size)} · {formatDate(img.createdAt)}
               </div>
+              {getManifestSummary(img.manifest) && (
+                <div className="gallery-card-meta" style={{ color: "var(--accent)", marginTop: 2 }}>
+                  {getManifestSummary(img.manifest)}
+                </div>
+              )}
             </div>
           </div>
         ))}
       </div>
+
+      {hasMore && (
+        <div style={{ textAlign: "center", padding: "24px 0" }}>
+          <button
+            className="btn"
+            disabled={loadingMore}
+            onClick={() => loadPage(page + 1, true)}
+          >
+            {loadingMore ? (
+              <><span className="spinner" /> Loading...</>
+            ) : (
+              `Load more (${images.length}/${total})`
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

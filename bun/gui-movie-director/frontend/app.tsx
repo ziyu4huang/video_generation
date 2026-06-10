@@ -61,6 +61,7 @@ function App() {
   const [view, setView] = useState<View>({ type: "gallery" });
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewManifest, setPreviewManifest] = useState<Record<string, any> | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -159,7 +160,7 @@ function App() {
         {view.type === "gallery" && (
           <Gallery
             key={refreshKey}
-            onImageClick={(url) => setPreviewImage(url)}
+            onImageClick={(url: string, manifest?: any) => { setPreviewImage(url); setPreviewManifest(manifest || null); }}
           />
         )}
         {view.type === "command" && (
@@ -182,7 +183,8 @@ function App() {
       {previewImage && (
         <ImagePreview
           url={previewImage}
-          onClose={() => setPreviewImage(null)}
+          manifest={previewManifest}
+          onClose={() => { setPreviewImage(null); setPreviewManifest(null); }}
         />
       )}
     </>

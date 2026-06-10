@@ -1,9 +1,16 @@
 # mlx-movie-director — Anime2Real Style Transfer
 
-Convert anime-style images to realistic output while preserving the original
-character's identity (hair color, clothing, facial features, pose) using
+Convert anime-style images to **semi-realistic 3D-render style** while preserving
+the original character's identity (hair color, clothing, facial features, pose) using
 Flux2KleinEdit reference conditioning + anime2real LoRA — natively on
 Apple Silicon via MLX.
+
+> **⚠️ Honest assessment**: The output is a "3D game character render" style,
+> **not photorealistic**. VLM analysis confirms results are consistently described
+> as "anime-style" / "semi-realistic" rather than photographic. This is a fundamental
+> limitation of the LoRA + reference conditioning approach on Flux2 Klein 9B (MPS).
+> The CivitAI CN defaults documented below are the **best available parameters** —
+> no further tuning will produce photorealistic output.
 
 LoRA source: [JayZ2015/anime-girl-turned-into-real-person](https://civitai.com/models/2349471)
 (CivitAI model 2349471, ⭐5 stars, 160+ reviews).
@@ -30,10 +37,10 @@ LoRA source: [JayZ2015/anime-girl-turned-into-real-person](https://civitai.com/m
        │  (8 denoising steps) │
        └──────────┬───────────┘
                   ▼
-         ┌───────────────┐
-         │  Realistic     │
-         │  Output Image  │
-         └───────────────┘
+         ┌───────────────────┐
+         │  Semi-Realistic    │
+         │  3D-Render Output  │
+         └───────────────────┘
 ```
 
 Unlike traditional img2img (which mixes clean latents with noise and loses
@@ -43,10 +50,11 @@ conditioning:
 1. The anime input is VAE-encoded into reference latent tokens
 2. These tokens are **concatenated** with noise latents (not mixed)
 3. The model "sees" the original character at every denoising step
-4. The anime2real LoRA biases the transformer toward realistic output
+4. The anime2real LoRA biases the transformer toward a semi-realistic style
 
-Result: the output looks like a realistic version of the original anime
-character, preserving hair color, outfit, etc.
+Result: the output looks like a 3D-rendered version of the original anime
+character, preserving hair color, outfit, etc. Output resembles a high-quality
+game character asset rather than a photograph.
 
 ## Usage
 
@@ -87,14 +95,14 @@ python/venv/bin/python python/mlx-movie-director/run.py image anime2real \
 
 | Preset | Prompt | LoRA Scale | Steps | Notes |
 |--------|--------|------------|-------|-------|
-| **`civitai-chinese`** (default) | `转年轻的亚洲少女写实风格` | 1.0 | 8 | A/B winner 5/5 across all archetypes |
+| **`civitai-chinese`** (default) | `转年轻的亚洲少女写实风格` | 1.0 | 8 | Best params (v7 winner 5/5), still semi-realistic output |
 | `3d-game` | UE5 game character render… | 0.7 | 8 | Good for cute/colorful anime |
-| `photorealistic` | DSLR portrait photograph… | 1.0 | 8 | Plain photorealism |
+| `photorealistic` | DSLR portrait photograph… | 1.0 | 8 | Preset name is aspirational — output not truly photographic |
 | `semi-realistic` | Semi-realistic illustration… | 0.85 | 6 | Stylized balance |
 
 ## Verified Best Parameters
 
-Based on 7 rounds of A/B testing (2026-06-09 to 2026-06-10):
+Based on 8 rounds of A/B testing (2026-06-09 to 2026-06-10):
 
 | Round | Test | Winner | Key Finding |
 |-------|------|--------|-------------|
@@ -105,8 +113,13 @@ Based on 7 rounds of A/B testing (2026-06-09 to 2026-06-10):
 | v5 | CivitAI vs ours (2 prompts) | CN prompt (2/2) | Chinese trigger phrase wins |
 | v6 | 5 prompts × 5 configs | Mixed | Style depends on archetype |
 | **v7** | **5 prompts × 5 configs** | **C (5/5)** | **Pure CivitAI wins everything** |
+| **v8** | **10 diverse prompts × 3 cols** | **—** | **All poor — approach limitation confirmed** |
 
-### Final defaults (v7 winner):
+v8 diversity test metrics: Ref+LoRA degrades sharpness by 5–59% vs T2I baseline
+(8/10 prompts worse). VLM still describes output as "anime style" / "3D anime".
+The approach is fundamentally limited — not a parameter problem.
+
+### Final defaults (best available):
 
 ```
 --realism-style civitai-chinese  Chinese trigger phrase "转年轻的亚洲少女写实风格"
@@ -116,7 +129,19 @@ Based on 7 rounds of A/B testing (2026-06-09 to 2026-06-10):
 --anime2real-ref-count 1         Single reference copy
 ```
 
+These are the optimal parameters for this approach. No alternative settings produce
+better output — the limitation is the approach itself (LoRA + reference conditioning
+on Flux2 Klein 9B / MPS cannot bridge the anime→photorealistic gap).
+
 ## Tips
+
+### What to Expect
+- Output is **semi-realistic 3D game character style**, not photorealistic
+- Good for: identity-preserving style shift (anime → game render)
+- Poor for: true photorealistic conversion — the LoRA + ref conditioning approach
+  cannot achieve this regardless of parameter tuning
+- Best results come from **female anime portraits with simple backgrounds**
+- Male characters, chibi, dark palettes, non-human features: expect degraded results
 
 ### Hair Color Preservation
 - At `--ref-strength 1.0` (default), hair color is well-preserved for most
@@ -129,10 +154,10 @@ Based on 7 rounds of A/B testing (2026-06-09 to 2026-06-10):
 
 ### Style Selection by Anime Archetype
 - **Serious/dramatic** anime (portrait, warrior) → `civitai-chinese` (default)
-  produces the best realistic conversion.
+  produces the best semi-realistic conversion.
 - **Cute/colorful** anime (magical girl, idol, chibi) → consider `3d-game`
-  which preserves more of the cute aesthetic while still converting to
-  realistic. The user noted: "動漫迷要可愛風格，不要太過真實".
+  which preserves more of the cute aesthetic. The user noted:
+  "動漫迷要可愛風格，不要太過真實".
 
 ### Step Count
 - **4 steps**: Too soft, lacks detail. Fast but low quality.
@@ -248,6 +273,11 @@ The UI supports 🌐 EN/中文 language toggle (persisted in localStorage).
 
 ## Known Limitations
 
+- **Not photorealistic**: The approach produces semi-realistic 3D-render output,
+  not photographic quality. VLM captions consistently describe output as "anime
+  style" or "3D game character". This is a fundamental limitation — no parameter
+  tuning can fix it.
+
 - **Female LoRA bias**: The LoRA is trained on female anime characters
   (`anime-girl-turned-into-real-person`). The Chinese trigger phrase contains
   少女 (young girl). Male characters may be converted toward female output.
@@ -255,14 +285,17 @@ The UI supports 🌐 EN/中文 language toggle (persisted in localStorage).
   少女 (girl) vs 人 (person) prompt variants to distinguish prompt bias from
   LoRA weight bias.
 
+- **Sharpness degradation**: Ref+LoRA consistently produces lower sharpness than
+  the T2I anime baseline (5–59% degradation in diversity test across 10 prompts).
+
 - **Chibi/SD proportions**: Exaggerated head-to-body ratios may not convert
   well since the LoRA expects normal human proportions.
 
 - **Non-human features**: Cat ears, tails, and mechanical elements may be
-  removed or significantly altered during realistic conversion.
+  removed or significantly altered during conversion.
 
 - **Dark palettes**: Gothic/dark anime styles may lose atmosphere in
-  conversion since the LoRA biases toward standard realistic tones.
+  conversion since the LoRA biases toward standard tones.
 
 ## Related
 

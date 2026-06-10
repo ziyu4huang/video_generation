@@ -3031,6 +3031,17 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
         fps=fps,
         ts=ts,
         output_dir=_cfg.OUTPUT_DIR,
+        t2i_steps=t2i_steps,
+        t2i_pipeline=ft.get("t2i_pipeline", "zimage"),
+        flf2v_stage1=ft.get("stage1_steps", 20),
+        flf2v_stage2=ft.get("stage2_steps", 3),
+        cfg_scale=cfg_scale,
+        stg_scale=stg_scale,
+        manifest_files=[f for f in [
+            os.path.join(_cfg.OUTPUT_DIR, f"{base}_begin.manifest.json"),
+            os.path.join(_cfg.OUTPUT_DIR, f"{base}_end.manifest.json"),
+        ] + [os.path.join(_cfg.OUTPUT_DIR, f"{base}{('_' + ck) if len(flf2v_configs) > 1 else ''}.manifest.json")
+             for ck in flf2v_configs.keys()]],
     )
 
     total_time = sum(v for v in timings.values() if isinstance(v, (int, float)))
@@ -4431,11 +4442,16 @@ renderLang();
 
 def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
                         video_paths, config_labels, timings, seed, width, height,
-                        frames, fps, ts, output_dir) -> str:
+                        frames, fps, ts, output_dir,
+                        t2i_steps=9, t2i_pipeline="zimage",
+                        flf2v_stage1=20, flf2v_stage2=3,
+                        cfg_scale=3.0, stg_scale=1.0,
+                        manifest_files=None) -> str:
     """Render a self-contained HTML review page for FLF2V self-test results.
 
     Layout: 3-column — begin frame | video player(s) | end frame.
     For A/B configs, multiple video columns are shown side-by-side.
+    Includes per-step reproduction commands and clickable file paths.
     """
     import base64
     from app.commands.caption import _image_to_base64
@@ -4449,12 +4465,13 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
         with open(vp, "rb") as _f:
             video_b64s.append(base64.b64encode(_f.read()).decode("ascii"))
 
-    # Build video columns
+    # Build video columns with path badges
     video_columns_html = ""
-    for i, (v_b64, label) in enumerate(zip(video_b64s, config_labels)):
+    for i, (v_b64, label, vp) in enumerate(zip(video_b64s, config_labels, video_paths)):
         video_columns_html += f"""
         <div class="video-col">
             <h3>Video: {label}</h3>
+            <div class="path-badge" onclick="copyPath(this)" title="Click to copy path">{vp}</div>
             <video controls autoplay loop muted playsinline width="100%">
                 <source src="data:video/mp4;base64,{v_b64}" type="video/mp4">
             </video>
@@ -4462,29 +4479,71 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
 
     # Timing rows
     timing_rows = ""
-    timing_keys = [
-        ("t2i_begin", "T2I Begin Frame"),
-        ("t2i_end", "T2I End Frame (ref)"),
-    ]
-    for key, label in timing_keys:
+    for key, label in [("t2i_begin", "T2I Begin Frame"), ("t2i_end", "T2I End Frame (ref)")]:
         if key in timings:
             timing_rows += f"<tr><td>{label}</td><td>{timings[key]:.1f}s</td></tr>\n"
     for i, label in enumerate(config_labels):
-        flf2v_key = None
-        for k in timings:
-            if k.startswith("flf2v_") and timings[k] is not None:
-                # Match by index for multiple configs
-                flf2v_keys = [k2 for k2 in timings if k2.startswith("flf2v_") and isinstance(timings[k2], (int, float))]
-                if i < len(flf2v_keys):
-                    flf2v_key = flf2v_keys[i]
-                break
-        if flf2v_key and flf2v_key in timings:
-            timing_rows += f"<tr><td>FLF2V [{label}]</td><td>{timings[flf2v_key]:.1f}s</td></tr>\n"
+        flf2v_keys = [k2 for k2 in timings if k2.startswith("flf2v_") and isinstance(timings[k2], (int, float))]
+        if i < len(flf2v_keys):
+            timing_rows += f"<tr><td>FLF2V [{label}]</td><td>{timings[flf2v_keys[i]]:.1f}s</td></tr>\n"
     total = sum(v for v in timings.values() if isinstance(v, (int, float)))
     timing_rows += f'<tr class="total"><td><strong>Total</strong></td><td><strong>{total:.1f}s</strong></td></tr>\n'
-
-    # Compute FLF2V estimated minutes per run
     est_min = total / 60
+
+    # --- Reproduction commands ---
+    def _shesc(s):
+        """Escape a string for shell single-quote wrapping."""
+        return s.replace("'", "'\\''")
+
+    begin_prompt_esc = _shesc(test_cfg.get("begin_prompt", ""))
+    end_prompt_esc = _shesc(test_cfg.get("end_prompt", ""))
+    motion_prompt_esc = _shesc(test_cfg.get("motion_prompt", ""))
+
+    cmd_t2i_begin = (
+        f"run.py image --prompt '{begin_prompt_esc}' "
+        f"--seed {seed} --width {width} --height {height} --steps {t2i_steps}"
+    )
+    cmd_t2i_end = (
+        f"run.py image i2i --input-image '{begin_path}' "
+        f"--prompt '{end_prompt_esc}' "
+        f"--seed {seed} --width {width} --height {height} --steps {t2i_steps} --denoise-strength 1.0"
+    )
+    cmd_flf2v = (
+        f"run.py video --begin-image '{begin_path}' --end-image '{end_path}' "
+        f"--prompt '{motion_prompt_esc}' "
+        f"--seed {seed} --width {width} --height {height} --frames {frames} "
+        f"--cfg-scale {cfg_scale} --stg-scale {stg_scale} "
+        f"--stage1-steps {flf2v_stage1} --stage2-steps {flf2v_stage2}"
+    )
+
+    # --- Files table ---
+    all_files = []
+    for label, path in [("Begin Frame", begin_path), ("End Frame", end_path)]:
+        sz = os.path.getsize(path) if os.path.exists(path) else 0
+        all_files.append((label, sz, path))
+    for label, vp in zip(config_labels, video_paths):
+        sz = os.path.getsize(vp) if os.path.exists(vp) else 0
+        all_files.append((f"Video ({label})", sz, vp))
+    if manifest_files:
+        for mf in manifest_files:
+            if os.path.exists(mf):
+                sz = os.path.getsize(mf)
+                name = os.path.basename(mf).replace("selftest_", "").replace(f"_{ts}", "")
+                all_files.append((name, sz, mf))
+
+    files_rows = ""
+    for label, sz, path in all_files:
+        if sz >= 1024 * 1024:
+            sz_str = f"{sz / (1024 * 1024):.1f} MB"
+        else:
+            sz_str = f"{sz / 1024:.0f} KB"
+        files_rows += (
+            f'<tr><td>{label}</td><td>{sz_str}</td>'
+            f'<td><div class="path-badge" onclick="copyPath(this)" title="Click to copy path">'
+            f'{path}</div></td></tr>\n'
+        )
+
+    timings_json = json.dumps({k: v for k, v in timings.items() if isinstance(v, (int, float))})
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -4508,6 +4567,13 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
   .frame-col img, .video-col video {{
       border: 2px solid #0f3460; border-radius: 6px; max-width: 100%;
       box-shadow: 0 4px 12px rgba(0,0,0,0.4); }}
+  .path-badge {{
+      background: #0f3460; padding: 4px 8px; border-radius: 4px;
+      font-family: monospace; font-size: 0.75em; color: #a8d8ea;
+      cursor: pointer; word-break: break-all; margin: 4px 0 8px 0;
+      user-select: all; transition: background 0.15s; display: inline-block; }}
+  .path-badge:hover {{ background: #1a4a8a; }}
+  .path-badge:active {{ background: #2a5a9a; }}
   .prompt {{ background: #16213e; padding: 12px 16px; border-radius: 6px;
              margin: 12px 0; font-size: 0.9em; line-height: 1.5;
              border-left: 4px solid #e94560; }}
@@ -4516,6 +4582,19 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
   th, td {{ padding: 8px 12px; text-align: left; border-bottom: 1px solid #333; }}
   th {{ background: #16213e; color: #a8d8ea; }}
   .total {{ border-top: 2px solid #e94560; }}
+  details {{ margin: 8px 0; }}
+  summary {{ cursor: pointer; color: #a8d8ea; font-weight: bold; padding: 6px 0; }}
+  summary:hover {{ color: #e94560; }}
+  .cmd-block {{
+      background: #0a0a1a; border: 1px solid #333; border-radius: 4px;
+      padding: 10px 12px; margin: 6px 0; font-family: monospace; font-size: 0.82em;
+      color: #c0c0c0; white-space: pre-wrap; word-break: break-all;
+      position: relative; }}
+  .cmd-block .copy-btn {{
+      position: absolute; top: 4px; right: 4px;
+      background: #0f3460; color: #a8d8ea; border: none; padding: 2px 8px;
+      border-radius: 3px; cursor: pointer; font-size: 0.85em; }}
+  .cmd-block .copy-btn:hover {{ background: #1a4a8a; }}
   .rating {{ display: flex; gap: 4px; margin: 8px 0; }}
   .rating .star {{ font-size: 24px; cursor: pointer; color: #555; transition: color 0.15s; }}
   .rating .star:hover, .rating .star.active {{ color: #ffd700; }}
@@ -4537,8 +4616,9 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
     <div><dt>Seed</dt><dd>{seed}</dd></div>
     <div><dt>Resolution</dt><dd>{width}×{height}</dd></div>
     <div><dt>Frames</dt><dd>{frames} @ {fps}fps = {frames / fps:.1f}s</dd></div>
-    <div><dt>Cfg Scale</dt><dd>{test_cfg.get('cfg_scale', 3.0)}</dd></div>
-    <div><dt>T2I Steps</dt><dd>{test_cfg.get('t2i_steps', 9)}</dd></div>
+    <div><dt>Cfg Scale</dt><dd>{cfg_scale}</dd></div>
+    <div><dt>T2I Pipeline</dt><dd>{t2i_pipeline} ({t2i_steps} steps)</dd></div>
+    <div><dt>FLF2V Steps</dt><dd>s1={flf2v_stage1}, s2={flf2v_stage2}</dd></div>
     <div><dt>Total Time</dt><dd>{est_min:.1f} min</dd></div>
   </div>
 
@@ -4546,11 +4626,13 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
   <div class="keyframes">
     <div class="frame-col">
       <h3>Begin Frame (t=0)</h3>
+      <div class="path-badge" onclick="copyPath(this)" title="Click to copy path">{begin_path}</div>
       <img src="data:image/png;base64,{begin_b64}" alt="Begin frame">
     </div>
     {video_columns_html}
     <div class="frame-col">
       <h3>End Frame (t={frames / fps:.1f}s)</h3>
+      <div class="path-badge" onclick="copyPath(this)" title="Click to copy path">{end_path}</div>
       <img src="data:image/png;base64,{end_b64}" alt="End frame">
     </div>
   </div>
@@ -4559,6 +4641,26 @@ def _render_flf2v_html(*, test_name, test_cfg, begin_path, end_path,
   <div class="prompt"><strong>Begin:</strong> {test_cfg.get('begin_prompt', '')}</div>
   <div class="prompt"><strong>End:</strong> {test_cfg.get('end_prompt', '')}</div>
   <div class="prompt"><strong>Motion:</strong> {test_cfg.get('motion_prompt', '')}</div>
+
+  <h2>Reproduction</h2>
+  <details open>
+    <summary>Step 1 — T2I Begin Frame ({t2i_pipeline}, {t2i_steps} steps, seed={seed})</summary>
+    <div class="cmd-block" id="cmd-step1">{cmd_t2i_begin}<button class="copy-btn" onclick="copyCmd('cmd-step1')">📋 Copy</button></div>
+  </details>
+  <details open>
+    <summary>Step 2 — T2I End Frame (i2i with reference, denoise=1.0, seed={seed})</summary>
+    <div class="cmd-block" id="cmd-step2">{cmd_t2i_end}<button class="copy-btn" onclick="copyCmd('cmd-step2')">📋 Copy</button></div>
+  </details>
+  <details open>
+    <summary>Step 3 — FLF2V Interpolation (cfg={cfg_scale}, stage1={flf2v_stage1}, stage2={flf2v_stage2})</summary>
+    <div class="cmd-block" id="cmd-step3">{cmd_flf2v}<button class="copy-btn" onclick="copyCmd('cmd-step3')">📋 Copy</button></div>
+  </details>
+
+  <h2>Output Files</h2>
+  <table>
+    <tr><th>File</th><th>Size</th><th>Path</th></tr>
+    {files_rows}
+  </table>
 
   <h2>Timing</h2>
   <table>
@@ -4598,6 +4700,26 @@ function getRating() {{
     return document.querySelectorAll('.rating .star.active').length;
 }}
 
+function copyPath(el) {{
+    navigator.clipboard.writeText(el.textContent.trim()).then(() => {{
+        const orig = el.textContent;
+        el.textContent = "✓ Copied!";
+        setTimeout(() => el.textContent = orig, 1200);
+    }});
+}}
+
+function copyCmd(blockId) {{
+    const block = document.getElementById(blockId);
+    // Get text content minus the button text
+    const btn = block.querySelector('.copy-btn');
+    const text = block.textContent.replace(btn ? btn.textContent : '', '').trim();
+    navigator.clipboard.writeText(text).then(() => {{
+        const b = event.target;
+        b.textContent = "✓ Copied!";
+        setTimeout(() => b.textContent = "📋 Copy", 1200);
+    }});
+}}
+
 function exportResults() {{
     const data = {{
         test_name: "{test_name}",
@@ -4606,9 +4728,19 @@ function exportResults() {{
         height: {height},
         frames: {frames},
         fps: {fps},
+        cfg_scale: {cfg_scale},
+        t2i_steps: {t2i_steps},
+        t2i_pipeline: "{t2i_pipeline}",
+        flf2v_stage1: {flf2v_stage1},
+        flf2v_stage2: {flf2v_stage2},
         rating: getRating(),
         comment: document.getElementById('comment').value,
-        timings: {json.dumps({k: v for k, v in timings.items() if isinstance(v, (int, float))})},
+        timings: {timings_json},
+        files: {{
+            begin: "{begin_path}",
+            end: "{end_path}",
+            videos: {json.dumps(video_paths)},
+        }},
         timestamp: new Date().toISOString(),
     }};
     const blob = new Blob([JSON.stringify(data, null, 2)], {{type: "application/json"}});
@@ -4625,6 +4757,9 @@ function copyResults() {{
         "Rating: " + getRating() + "/5\\n" +
         "Comment: " + document.getElementById('comment').value + "\\n" +
         "Seed: {seed}, {width}x{height}, {frames}f@{fps}fps\\n" +
+        "Begin: {begin_path}\\n" +
+        "End: {end_path}\\n" +
+        "Video: {video_paths[0] if video_paths else 'N/A'}\\n" +
         "Total: {total:.1f}s";
     navigator.clipboard.writeText(text).then(() => {{
         const btn = event.target;
