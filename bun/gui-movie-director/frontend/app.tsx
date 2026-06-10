@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { createRoot } from "react-dom/client";
 import { Layout } from "./components/Layout";
 import { ConfigView } from "./components/ConfigView";
@@ -91,16 +91,36 @@ const VIEW_MAP: Record<string, React.ComponentType> = {
 
 function App() {
   const [view, setView] = useState<View>({ type: "gallery" });
+  const [mountedCommands, setMountedCommands] = useState<Set<string>>(new Set());
 
-  const ViewComponent = view.type === "command" ? VIEW_MAP[view.action] : null;
+  const handleViewChange = useCallback((v: View) => {
+    setView(v);
+    if (v.type === "command") {
+      setMountedCommands((prev) => {
+        if (prev.has(v.action)) return prev;
+        const next = new Set(prev);
+        next.add(v.action);
+        return next;
+      });
+    }
+  }, []);
 
   return (
-    <NavigationContext.Provider value={(v) => setView(v as View)}>
-      <Layout currentView={view} onViewChange={setView}>
+    <NavigationContext.Provider value={(v) => handleViewChange(v as View)}>
+      <Layout currentView={view} onViewChange={handleViewChange}>
         {view.type === "gallery" && <GalleryView />}
         {view.type === "config" && <ConfigView />}
         {view.type === "jobs" && <JobHistoryView />}
-        {view.type === "command" && (ViewComponent ? <ViewComponent /> : null)}
+        {[...mountedCommands].map((id) => {
+          const ViewComp = VIEW_MAP[id];
+          if (!ViewComp) return null;
+          const isActive = view.type === "command" && view.action === id;
+          return (
+            <div key={id} style={{ display: isActive ? undefined : "none" }}>
+              <ViewComp />
+            </div>
+          );
+        })}
       </Layout>
       <DomInspector />
     </NavigationContext.Provider>

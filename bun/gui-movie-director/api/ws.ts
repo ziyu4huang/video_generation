@@ -46,6 +46,14 @@ export const wsHandlers = {
   },
 };
 
+/** Broadcast a JSON message to all connected WebSocket clients */
+export function broadcastMessage(data: Record<string, unknown>) {
+  const msg = JSON.stringify(data);
+  for (const ws of connectedClients) {
+    try { ws.send(msg); } catch { /* ws closed */ }
+  }
+}
+
 // Subscribe to subprocess events and broadcast to WebSocket clients
 subprocessManager.onLog((jobId, line, stream) => {
   const message = JSON.stringify({ type: "log", jobId, line, stream });

@@ -23,5 +23,18 @@
     };
   </script>
   <script type="module" src="/frontend/bundle.js"></script>
+  <script>
+    // Dev HMR: auto-reload when bundle is rebuilt by the file watcher
+    (function() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      var ws = new WebSocket(proto + '//' + location.host + '/ws');
+      ws.onmessage = function(e) {
+        try {
+          var msg = JSON.parse(e.data);
+          if (msg.type === 'hmr-reload') location.reload();
+        } catch {}
+      };
+    })();
+  </script>
 </body>
 </html>

@@ -32,6 +32,15 @@ export function ConfigView() {
   const [testResult, setTestResult] = useState<VlmTestResult | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; version?: string; error?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{
+    ok: boolean;
+    total_models?: number;
+    total_disk_human?: string;
+    error_count?: number;
+    warning_count?: number;
+    error?: string;
+  } | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
@@ -62,6 +71,30 @@ export function ConfigView() {
     setSaved(false);
     setTestResult(null);
     if (key === "pythonPath") setVerifyResult(null);
+  };
+
+  const handleCheckModels = async () => {
+    setChecking(true);
+    setCheckResult(null);
+    try {
+      const res = await fetch("/api/model-check/run", { method: "POST" });
+      const data = await res.json();
+      if (data.ok && data.result?.summary) {
+        const s = data.result.summary;
+        setCheckResult({
+          ok: true,
+          total_models: s.total_models,
+          total_disk_human: s.total_disk_human,
+          error_count: s.error_count,
+          warning_count: s.warning_count,
+        });
+      } else {
+        setCheckResult({ ok: false, error: data.error || "Check failed" });
+      }
+    } catch (e: any) {
+      setCheckResult({ ok: false, error: e.message || "Network error" });
+    }
+    setChecking(false);
   };
 
   const handleVerifyPython = async () => {
@@ -131,6 +164,32 @@ export function ConfigView() {
                 placeholder={DEFAULTS.modelsDir}
               />
             </div>
+          </div>
+          <div className="form-row" style={{ alignItems: "center", gap: 12 }}>
+            <button
+              className="btn btn-secondary"
+              onClick={handleCheckModels}
+              disabled={checking}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {checking ? "⏳ Scanning…" : "📦 Check Models"}
+            </button>
+            {checkResult && (
+              <span className={`vlm-test-badge ${
+                !checkResult.ok ? "fail"
+                  : (checkResult.error_count ?? 0) > 0 ? "fail"
+                  : (checkResult.warning_count ?? 0) > 0 ? "warn"
+                  : "ok"
+              }`}>
+                {checkResult.ok
+                  ? (checkResult.error_count ?? 0) > 0
+                    ? `❌ ${checkResult.total_models} models, ${checkResult.total_disk_human} (${checkResult.error_count} errors)`
+                    : (checkResult.warning_count ?? 0) > 0
+                      ? `⚠️ ${checkResult.total_models} models, ${checkResult.total_disk_human} (${checkResult.warning_count} warnings)`
+                      : `✅ ${checkResult.total_models} models, ${checkResult.total_disk_human}`
+                  : `❌ ${checkResult.error}`}
+              </span>
+            )}
           </div>
         </div>
 

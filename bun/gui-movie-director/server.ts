@@ -1,7 +1,8 @@
-import { handleRequest } from "./api/routes";
-import { buildFrontendBundle } from "./api/routes";
-import { wsHandlers } from "./api/ws";
+import fs from "fs";
+import { handleRequest, buildFrontendBundle, rebuildFrontendBundle } from "./api/routes";
+import { wsHandlers, broadcastMessage } from "./api/ws";
 import { subprocessManager } from "./lib/subprocess";
+import { FRONTEND_DIR } from "./lib/paths";
 
 const PORT = 3099;
 
@@ -26,3 +27,30 @@ const server = Bun.serve({
 });
 
 console.log(`🎬 Movie Director UI: http://localhost:${server.port}`);
+
+// --- Dev: file watcher for hot reload ---
+let _rebuildTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastRebuildHash = 0;
+
+fs.watch(FRONTEND_DIR, { recursive: true }, (_event, filename) => {
+  if (!filename) return;
+  if (!/\.[tj]sx?$/.test(filename) && !filename.endsWith(".css")) return;
+
+  // Debounce: coalesce rapid saves within 200ms
+  if (_rebuildTimer) clearTimeout(_rebuildTimer);
+  _rebuildTimer = setTimeout(async () => {
+    const hash = Date.now();
+    if (hash - _lastRebuildHash < 250) return; // suppress duplicate
+    _lastRebuildHash = hash;
+
+    const changed = filename;
+    console.log(`🔄 ${changed} changed — rebuilding bundle…`);
+    const ok = await rebuildFrontendBundle();
+    if (ok) {
+      broadcastMessage({ type: "hmr-reload" });
+      console.log("✅ Bundle rebuilt — browser will reload");
+    } else {
+      console.log("❌ Bundle rebuild failed");
+    }
+  }, 200);
+});

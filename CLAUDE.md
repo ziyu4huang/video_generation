@@ -87,6 +87,45 @@ python/venv/bin/python run.py caption base.png --style style
 
 Output is a JSON file with `{image, style, model, caption}`. Requires LM Studio running locally.
 
+## Bun GUI Server (Movie Director UI)
+
+The web UI at `bun/gui-movie-director/` is a Bun + React SPA with live job management.
+
+### Always run in dev hot mode
+
+```bash
+cd bun/gui-movie-director && bun run dev
+```
+
+`bun run dev` = `bun run --watch server.ts` which:
+- Auto-restarts the **server** when backend files (`server.ts`, `api/*.ts`, `lib/*.ts`) change
+- Watches `frontend/` directory and **rebuilds the bundle** on `.tsx`/`.ts`/`.css` changes
+- Pushes `hmr-reload` via WebSocket → browser auto-refreshes
+
+**Do NOT use `bun run start`** — that has no file watching or HMR. Always use `bun run dev`.
+
+Server runs on **http://localhost:3099**. Kill existing instances with `lsof -ti :3099 | xargs kill`.
+
+### Architecture
+
+| Path | Role |
+|------|------|
+| `server.ts` | Entry — builds bundle, starts Bun.serve, starts file watcher |
+| `api/routes.ts` | All HTTP routes + frontend bundle build logic |
+| `api/ws.ts` | WebSocket handler (job logs, status, HMR reload) |
+| `api/model-check.ts` | Model inventory scan + cache API |
+| `frontend/app.tsx` | React SPA entry — COMMAND_GROUPS + VIEW_MAP |
+| `frontend/views/` | View components (generate/, transform/, edit/, analyze/, tools/, gallery/, jobs/) |
+| `frontend/styles.css` | Global CSS (dark theme, CSS variables) |
+| `lib/config.ts` | Server config (pythonPath, modelsDir, outputDir) |
+
+### Frontend conventions
+
+- Views live in `frontend/views/<group>/FooView.tsx`
+- Register in `app.tsx`: add to `COMMAND_GROUPS` array + `VIEW_MAP` record
+- CSS classes use lowercase-hyphen (e.g. `.mc-badge`, `.cmd-form`)
+- CSS variables: `--bg-surface`, `--accent`, `--success`, `--warning`, `--error`, etc.
+
 ## Key Directories
 
 ```
