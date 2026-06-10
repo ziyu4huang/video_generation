@@ -76,6 +76,16 @@ _I2I_CNET_FULLBODY_PROMPT = (
     "isolated figure, ultra sharp focus, high quality portrait photography."
 )
 
+# Clothing-anchored prompt: explicitly describes the source outfit to anchor clothing preservation.
+# Hypothesis: adding "white t-shirt, blue jeans" to the prompt gives the model a text prior
+# for clothing that competes with / anchors against the sampling drift at dn=0.9.
+_I2I_CNET_CLOTHING_PROMPT = (
+    "A single young Asian woman with straight black hair, wearing a simple white t-shirt and blue jeans, "
+    "full body shot, both arms raised high in a V-shape victory pose above head, "
+    "pure white background, studio photography, one person only, "
+    "isolated figure, ultra sharp focus, high quality portrait photography."
+)
+
 # Self-test variations:
 #   (label, denoise_strength, ctrl_strength_or_None, blur_ref_or_None,
 #    cnet_active_steps_or_None, steps, prompt_override_or_None)
@@ -212,6 +222,55 @@ _I2I_CNET_POSE4_VARIATIONS = [
     ("pose4-blur20-dn10-str08-act8-20st",  1.0,  0.8,  20,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
     # Higher ctrl_strength with medium blur — more pose signal without appearance bleed
     ("pose4-blur15-dn10-str10-act8-20st",  1.0,  1.0,  15,   8,        20,   _I2I_CNET_FULLBODY_PROMPT, "canny"),
+]
+
+
+# Dual-guidance sweep — use Union ControlNet inpaint channel as source-appearance anchor.
+# Hypothesis: putting source_latent in the inpaint_latent slot (mask > 0) constrains the
+# generation to stay close to source clothing/identity while OpenPose guides the pose.
+# Tuple has 10th field: inpaint_mask (0.0 = off, 1.0 = full anchor).
+# Using seed=43 (confirmed best V-pose + identity from seed sweep).
+_I2I_DUAL_GUIDANCE_VARIATIONS = [
+    # (label,              dn,   ctrl, blur, cnet_act, steps, prompt,                    preprocess, seed,  inpaint_mask)
+    ("dual-m00-s43",       0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,    0.0),  # baseline (same as seed-s43)
+    ("dual-m02-s43",       0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,    0.2),
+    ("dual-m05-s43",       0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,    0.5),
+    ("dual-m08-s43",       0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,    0.8),
+    ("dual-m10-s43",       0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,    1.0),
+]
+
+# Clothing-prompt sweep — test whether adding explicit clothing description to the prompt
+# improves clothing preservation at dn=0.9. Compared to baseline (seed-s43 / dual-m00-s43).
+# Also tests best seeds from seed sweep (s43, s200) with the clothing-anchored prompt.
+_I2I_CLOTHING_PROMPT_VARIATIONS = [
+    # (label,              dn,   ctrl, blur, cnet_act, steps, prompt,                      preprocess, seed)
+    ("cloth-s43",          0.9,  1.0,  None, None,     20,   _I2I_CNET_CLOTHING_PROMPT,   "openpose", 43),
+    ("cloth-s200",         0.9,  1.0,  None, None,     20,   _I2I_CNET_CLOTHING_PROMPT,   "openpose", 200),
+    ("cloth-s43-dn08",     0.8,  1.0,  None, None,     20,   _I2I_CNET_CLOTHING_PROMPT,   "openpose", 43),
+    ("cloth-s43-base",     0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT,   "openpose", 43),   # baseline for A/B
+]
+
+# Spatial arm mask sweep — torso/head anchored to source (mask=0, clothing preserved),
+# arm regions free for ControlNet V-pose (mask=1). Three padding sizes test the
+# arm bounding-box tightness/looseness tradeoff.
+# 11-field tuple: (label, dn, ctrl, blur, cnet_act, steps, prompt, preprocess, seed, inpaint_mask, arm_pad_frac)
+_I2I_SPATIAL_MASK_VARIATIONS = [
+    ("spatial-tight-s43",  0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT,  "openpose", 43,   0.0, 0.08),
+    ("spatial-med-s43",    0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT,  "openpose", 43,   0.0, 0.14),
+    ("spatial-loose-s43",  0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT,  "openpose", 43,   0.0, 0.20),
+    ("spatial-med-s200",   0.9,  1.0,  None, None,     20,   _I2I_CNET_FULLBODY_PROMPT,  "openpose", 200,  0.0, 0.14),
+]
+
+# 12-field tuple: adds arm_erase_frac at index 11.
+# arm_erase_frac > 0: paint source arms white before VAE-encoding inpaint_latent.
+# This removes the "arms at sides" anchor that conflicts with ControlNet V-pose guidance.
+# inpaint_mask=1.0 anchors the whole image to the arm-erased source:
+#   torso → white T-shirt preserved, arm regions → white background (neutral, ControlNet draws V-pose).
+_I2I_ARM_ERASE_VARIATIONS = [
+    ("arm-erase-r8-m1-s43",   0.9, 1.0, None, None, 20, _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,  1.0, 0.0, 0.08),
+    ("arm-erase-r12-m1-s43",  0.9, 1.0, None, None, 20, _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,  1.0, 0.0, 0.12),
+    ("arm-erase-r8-m07-s43",  0.9, 1.0, None, None, 20, _I2I_CNET_FULLBODY_PROMPT, "openpose", 43,  0.7, 0.0, 0.08),
+    ("arm-erase-r8-m1-s200",  0.9, 1.0, None, None, 20, _I2I_CNET_FULLBODY_PROMPT, "openpose", 200, 1.0, 0.0, 0.08),
 ]
 
 
@@ -615,7 +674,7 @@ def _apply_sam_white(img: "Image.Image") -> "Image.Image":
     best_idx = int(np.argmax(result.scores))
     mask = result.masks[best_idx]  # (H, W) binary uint8
 
-    alpha = feather_mask(mask, radius=8)  # float [0,1]
+    alpha = feather_mask(mask, radius=3)  # float [0,1]
     img_np = np.array(img.convert("RGB")).astype(np.float32)
     white = np.full_like(img_np, 255.0)
     for c in range(3):
@@ -709,6 +768,18 @@ def _run_self_test(args):
     elif isinstance(st_val, str) and st_val == "seed-sweep":
         variations = _I2I_CNET_SEED_SWEEP_VARIATIONS
         print(f"\n[Self-Test] Using SEED-SWEEP variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "dual-guidance":
+        variations = _I2I_DUAL_GUIDANCE_VARIATIONS
+        print(f"\n[Self-Test] Using DUAL-GUIDANCE variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "clothing-prompt":
+        variations = _I2I_CLOTHING_PROMPT_VARIATIONS
+        print(f"\n[Self-Test] Using CLOTHING-PROMPT variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "spatial-mask":
+        variations = _I2I_SPATIAL_MASK_VARIATIONS
+        print(f"\n[Self-Test] Using SPATIAL-MASK variations ({len(variations)} tests)")
+    elif isinstance(st_val, str) and st_val == "arm-erase":
+        variations = _I2I_ARM_ERASE_VARIATIONS
+        print(f"\n[Self-Test] Using ARM-ERASE variations ({len(variations)} tests)")
     else:
         variations = _I2I_SELF_TEST_VARIATIONS
 
@@ -720,28 +791,64 @@ def _run_self_test(args):
     clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
     print(f"Done → {list(clean_latent.shape)}")
 
-    # Encode ControlNet reference image for each unique (mode, blur_ref) combination.
-    # Key = (preprocess_mode, blur_ref) so blurred-Canny variants are encoded separately.
+    # Encode ControlNet reference image for each unique
+    # (mode, blur_ref, inpaint_mask, arm_pad_frac, arm_erase_frac) 5-tuple key.
+    # arm_pad_frac > 0: spatial bbox arm mask (source landmarks).
+    # arm_erase_frac > 0: paint source arms white before encoding inpaint_latent.
     ctrl_33ch_map: dict = {}
-    ctrl_33ch = None  # legacy fallback (canny, no blur)
+    ctrl_33ch = None  # legacy fallback (canny, no blur, no inpaint, no arm ops)
     if ref_path:
         needed_keys = {
-            (v[7] if len(v) > 7 else "canny", v[3])
+            (v[7] if len(v) > 7 else "canny",
+             v[3],
+             float(v[9]) if len(v) > 9 else 0.0,
+             float(v[10]) if len(v) > 10 else 0.0,
+             float(v[11]) if len(v) > 11 else 0.0)
             for v in variations if v[2] is not None
-        } or {("canny", None)}
-        for mode, blur in sorted(needed_keys):
+        } or {("canny", None, 0.0, 0.0, 0.0)}
+        # Pre-extract source landmarks once if any variation needs arm ops
+        src_landmarks = None
+        if any(k[3] > 0.0 or k[4] > 0.0 for k in needed_keys):
+            print("[Self-Test] Extracting source pose landmarks for arm ops...", end=" ", flush=True)
+            _, src_landmarks = _apply_openpose(source_pil, return_landmarks=True)
+            if src_landmarks is None:
+                print("FAILED (no pose detected) — arm-mask/arm-erase variations fall back to uniform mask=0")
+            else:
+                print("OK")
+        for mode, blur, inpaint_mask, arm_pad_frac, arm_erase_frac in sorted(needed_keys):
             blur_label = f"+blur{blur:.0f}" if blur is not None else ""
-            print(f"[Self-Test] VAE encoding ControlNet reference ({mode}{blur_label})...",
+            inpaint_label = f"+src{inpaint_mask:.1f}" if inpaint_mask > 0.0 else ""
+            arm_label = f"+arm{arm_pad_frac:.2f}" if arm_pad_frac > 0.0 else ""
+            erase_label = f"+erase{arm_erase_frac:.2f}" if arm_erase_frac > 0.0 else ""
+            print(f"[Self-Test] VAE encoding ControlNet reference ({mode}{blur_label}{inpaint_label}{arm_label}{erase_label})...",
                   end=" ", flush=True)
             ref_pil = _load_and_preprocess(ref_path, out_w, out_h, skip=False,
                                             blur_ref=blur, preprocess_mode=mode)
             ctrl_lat = _vae_encode(vae, ref_pil)
             ctrl_lat = (ctrl_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
-            c33 = build_control_input_33ch(ctrl_lat, lambda img: _vae_encode(vae, img))
+            if arm_erase_frac > 0.0 and src_landmarks is not None:
+                # Erase source arms → neutral white inpaint_latent in arm regions
+                erased_pil = _erase_arms_from_pil(source_pil, src_landmarks, arm_erase_frac)
+                erased_lat = _vae_encode(vae, erased_pil)
+                erased_lat = (erased_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
+                mx.eval(erased_lat)
+                c33 = build_control_input_33ch(ctrl_lat, inpaint_latent=erased_lat,
+                                               mask_value=inpaint_mask)
+            elif arm_pad_frac > 0.0 and src_landmarks is not None:
+                import numpy as _np
+                arm_mask_np = _build_arm_mask_latent(src_landmarks, out_w, out_h, arm_pad_frac)
+                arm_mask_mx = mx.array(arm_mask_np)
+                c33 = build_control_input_33ch(ctrl_lat, inpaint_latent=clean_latent,
+                                               mask_spatial=arm_mask_mx)
+            elif inpaint_mask > 0.0:
+                c33 = build_control_input_33ch(ctrl_lat, inpaint_latent=clean_latent,
+                                               mask_value=inpaint_mask)
+            else:
+                c33 = build_control_input_33ch(ctrl_lat, lambda img: _vae_encode(vae, img))
             mx.eval(c33)
-            ctrl_33ch_map[(mode, blur)] = c33
+            ctrl_33ch_map[(mode, blur, inpaint_mask, arm_pad_frac, arm_erase_frac)] = c33
             print(f"Done → {list(c33.shape)} max={float(mx.abs(c33).max()):.3f} (evaluated)")
-        ctrl_33ch = ctrl_33ch_map.get(("canny", None))
+        ctrl_33ch = ctrl_33ch_map.get(("canny", None, 0.0, 0.0, 0.0))
 
     del vae
     _gc()
@@ -753,11 +860,15 @@ def _run_self_test(args):
         prompt_override = var[6] if len(var) > 6 else None
         preprocess_mode = var[7] if len(var) > 7 else "canny"
         seed_override  = var[8] if len(var) > 8 else None
+        inpaint_mask   = float(var[9]) if len(var) > 9 else 0.0
+        arm_pad_frac   = float(var[10]) if len(var) > 10 else 0.0
+        arm_erase_frac = float(var[11]) if len(var) > 11 else 0.0
         prompt = prompt_override if prompt_override is not None else _I2I_SELF_TEST_PROMPT
         gen_seed = seed_override if seed_override is not None else seed
 
-        # Pick the ctrl_33ch for this variation's (mode, blur_ref) pair
-        var_ctrl_33ch = ctrl_33ch_map.get((preprocess_mode, blur_ref), ctrl_33ch)
+        # Pick the ctrl_33ch for this variation's 5-tuple key
+        var_ctrl_33ch = ctrl_33ch_map.get(
+            (preprocess_mode, blur_ref, inpaint_mask, arm_pad_frac, arm_erase_frac), ctrl_33ch)
 
         # Skip ControlNet variations if no reference image
         if ctrl_str is not None and var_ctrl_33ch is None:
@@ -1453,18 +1564,24 @@ def _ensure_pose_model() -> str:
     return _POSE_MODEL_CACHE
 
 
-def _apply_openpose(pil_img: "Image.Image") -> "Image.Image":
+def _apply_openpose(pil_img: "Image.Image", return_landmarks: bool = False):
     """Extract body skeleton via mediapipe Tasks API; render OpenPose-style on white bg.
 
     White background aligns with "clean white background" text prompt so ControlNet
     does not push the generation toward dark/complex backgrounds.
     Falls back to Canny if mediapipe or pose detection fails.
+
+    Args:
+        pil_img: Input image.
+        return_landmarks: If True, return (skeleton_pil, landmarks_list) tuple
+                          so caller can build spatial masks without running MediaPipe twice.
     """
     import numpy as np
     from PIL import Image
 
     W, H = pil_img.size
     canvas = np.zeros((H, W, 3), dtype=np.uint8)
+    lm_out = None
 
     try:
         import cv2
@@ -1488,9 +1605,12 @@ def _apply_openpose(pil_img: "Image.Image") -> "Image.Image":
 
         if not result.pose_landmarks:
             print("[openpose] No pose detected — falling back to Canny", flush=True)
+            if return_landmarks:
+                return _apply_canny(pil_img), None
             return _apply_canny(pil_img)
 
         lm = result.pose_landmarks[0]  # first (only) person
+        lm_out = lm
 
         # Build OpenPose 18-joint pixel coordinates
         joints = []
@@ -1524,9 +1644,106 @@ def _apply_openpose(pil_img: "Image.Image") -> "Image.Image":
 
     except Exception as e:
         print(f"[openpose] Error: {e} — falling back to Canny", flush=True)
+        if return_landmarks:
+            return _apply_canny(pil_img), None
         return _apply_canny(pil_img)
 
-    return Image.fromarray(canvas)
+    skeleton_pil = Image.fromarray(canvas)
+    if return_landmarks:
+        return skeleton_pil, lm_out
+    return skeleton_pil
+
+
+def _build_arm_mask_latent(landmarks, img_w: int, img_h: int,
+                            padding_frac: float = 0.14):
+    """Build spatial inpaint mask: 1.0=preserve source (torso/head), 0.0=free for ControlNet (arms).
+
+    Union ControlNet mask semantics: mask=1 means "use inpaint_latent here" (anchor/preserve),
+    mask=0 means "no inpaint guidance" (free generation, ControlNet guides pose).
+
+    So torso/head=1 preserves clothing from source; arm regions=0 lets ControlNet draw V-pose.
+
+    Args:
+        landmarks: MediaPipe Landmark list from result.pose_landmarks[0] of SOURCE image.
+                   Arm mask computed from source so its arm footprint is freed for new pose.
+        img_w, img_h: Source image pixel dimensions (e.g. 1024, 1024).
+        padding_frac: Arm bounding-box padding as fraction of latent dimension (default 0.14 ≈ 18px).
+
+    Returns:
+        numpy float32 [1, 1, H_lat, W_lat] mask in range [0, 1].
+    """
+    import numpy as np
+    from PIL import Image, ImageFilter
+
+    H_lat, W_lat = img_h // 8, img_w // 8   # 128 × 128 for 1024×1024
+    mask = np.ones((H_lat, W_lat), dtype=np.float32)   # default=1: preserve source everywhere
+    pad_x = max(2, int(padding_frac * W_lat))
+    pad_y = max(2, int(padding_frac * H_lat))
+
+    # Left arm: shoulder(11) → elbow(13) → wrist(15)
+    # Right arm: shoulder(12) → elbow(14) → wrist(16)
+    arm_lm_sets = [(11, 13, 15), (12, 14, 16)]
+    for sh_idx, el_idx, wr_idx in arm_lm_sets:
+        sh = landmarks[sh_idx]
+        el = landmarks[el_idx]
+        wr = landmarks[wr_idx]
+        visible = [l for l in [sh, el, wr] if l.visibility >= 0.2]
+        if len(visible) < 2:
+            continue
+        xs = [max(0, min(W_lat - 1, int(l.x * W_lat))) for l in visible]
+        ys = [max(0, min(H_lat - 1, int(l.y * H_lat))) for l in visible]
+        x1 = max(0, min(xs) - pad_x)
+        x2 = min(W_lat, max(xs) + pad_x)
+        y1 = max(0, min(ys) - pad_y)
+        y2 = min(H_lat, max(ys) + pad_y)
+        mask[y1:y2, x1:x2] = 0.0   # arm regions: free for ControlNet to draw V-pose
+        side = "L" if sh_idx == 11 else "R"
+        print(f"  [arm-mask] {side}_arm bbox lat=({x1},{y1},{x2},{y2})", flush=True)
+
+    # Soft feather at arm boundary to reduce seam artifacts at shoulder attachment
+    mask_pil = Image.fromarray((mask * 255).astype(np.uint8), mode="L")
+    mask_feathered = (np.array(mask_pil.filter(ImageFilter.GaussianBlur(radius=2)))
+                      .astype(np.float32) / 255.0)
+    return mask_feathered.reshape(1, 1, H_lat, W_lat)
+
+
+def _erase_arms_from_pil(source_pil, landmarks, radius_frac=0.08):
+    """Paint white over arm regions to neutralize arms-at-sides in the inpaint anchor.
+
+    When used as inpaint_latent with mask=1, the erased regions have white background
+    instead of arms, so ControlNet can draw V-pose arms without conflicting anchor.
+
+    Args:
+        source_pil: PIL Image (source person with arms at sides).
+        landmarks: MediaPipe Landmark list from result.pose_landmarks[0].
+        radius_frac: Brush radius as fraction of image min-dimension (default 0.08 ≈ 82px at 1024).
+
+    Returns:
+        PIL Image copy with arm regions painted white.
+    """
+    from PIL import ImageDraw
+
+    img = source_pil.copy()
+    draw = ImageDraw.Draw(img)
+    w, h = img.size
+    r = max(20, int(radius_frac * min(w, h)))
+
+    for sh_idx, el_idx, wr_idx in [(11, 13, 15), (12, 14, 16)]:
+        pts = []
+        for idx in [sh_idx, el_idx, wr_idx]:
+            lm = landmarks[idx]
+            if lm.visibility >= 0.2:
+                pts.append((int(lm.x * w), int(lm.y * h)))
+        if len(pts) < 2:
+            continue
+        for i in range(len(pts) - 1):
+            draw.line([pts[i], pts[i + 1]], fill=(255, 255, 255), width=2 * r)
+        for px, py in pts:
+            draw.ellipse([(px - r, py - r), (px + r, py + r)], fill=(255, 255, 255))
+        side = "L" if sh_idx == 11 else "R"
+        print(f"  [arm-erase] {side}_arm erased at {pts} radius={r}px", flush=True)
+
+    return img
 
 
 # ---------------------------------------------------------------------------

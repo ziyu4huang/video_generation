@@ -19,9 +19,11 @@ Public API:
 """
 
 import copy
+import html as _html
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -319,7 +321,8 @@ def run_review_manifest(args):
 # ---------------------------------------------------------------------------
 
 def _open_manifest_review(manifest_paths: list, labels=None, output=None,
-                           auto_open: bool = True, auto_score: bool = False):
+                           auto_open: bool = True, auto_score: bool = False,
+                           group_names: dict = None, group_params: dict = None):
     """Load manifests → optionally auto-score → render HTML → open in browser."""
     tests = [_load_test(f) for f in manifest_paths]
     if isinstance(labels, list):
@@ -347,7 +350,8 @@ def _open_manifest_review(manifest_paths: list, labels=None, output=None,
         output = os.path.join(out_dir, f"generation-review-{ts}.html")
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
 
-    html = _render_manifest_html(tests, model_name, out_dir)
+    html = _render_manifest_html(tests, model_name, out_dir,
+                                  group_names=group_names, group_params=group_params)
     with open(output, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -1083,7 +1087,8 @@ buildGrid();
 # HTML renderer: manifest cards (restored from review-image.py)
 # ---------------------------------------------------------------------------
 
-def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
+def _render_manifest_html(tests: list, model_name: str, out_dir: str,
+                          group_names: dict = None, group_params: dict = None) -> str:
     tests_js = []
     for t in tests:
         run = t["run"]
@@ -1145,10 +1150,20 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
 
     tests_json = json.dumps(tests_js, indent=2, ensure_ascii=False)
     model_json = json.dumps(model_name)
+    # Build group names map from labels like "A-1-Source|..."
+    _gn = group_names or {}
+    if not _gn:
+        for t in tests:
+            label = t["label"].split("|")[0]
+            m = re.match(r"^([A-Z])-", label)
+            if m and m.group(1) not in _gn:
+                _gn[m.group(1)] = f"Group {m.group(1)}"
+    groups_json = json.dumps(_gn, ensure_ascii=False)
+    gparams_json = json.dumps(group_params or {}, ensure_ascii=False)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1170,8 +1185,11 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
   header .prompt-box {{ margin-top: 10px; background: var(--bg3); border: 1px solid var(--border);
                         border-radius: var(--radius); padding: 10px 14px; font-size: 13px;
                         color: #ccc; max-height: 80px; overflow-y: auto; }}
-  #grid {{ display: flex; gap: var(--gap); padding: var(--gap) 20px;
-           overflow-x: auto; align-items: flex-start; }}
+  #grid {{ display: flex; flex-direction: column; gap: 20px; padding: var(--gap) 20px; }}
+  .group-header {{ font-size: 14px; font-weight: 600; color: var(--muted);
+                   padding: 6px 0; border-bottom: 1px solid var(--border); margin-bottom: 4px; }}
+  .group-header span {{ color: var(--accent); font-weight: 700; font-size: 16px; }}
+  .card-row {{ display: flex; gap: var(--gap); overflow-x: auto; align-items: flex-start; }}
   .card {{ flex: 0 0 360px; background: var(--bg2); border: 2px solid var(--border);
            border-radius: var(--radius); overflow: hidden; transition: border-color .2s; }}
   .card.winner {{ border-color: var(--gold); }}
@@ -1283,15 +1301,52 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
   .copy-row {{ display: flex; gap: 8px; margin-top: 8px; align-items: center; }}
   .copy-status {{ font-size: 12px; color: var(--green); opacity: 0; transition: opacity .3s; }}
   .copy-status.show {{ opacity: 1; }}
+  .header-row {{ display: flex; align-items: center; gap: 8px; }}
+  .lang-btn {{ padding: 2px 10px; border-radius: 4px;
+               background: var(--bg3); border: 1px solid var(--border);
+               color: var(--muted); cursor: pointer; font-size: 12px; }}
+  .lang-btn:hover {{ border-color: var(--accent); color: var(--accent); }}
+  .card-header {{ position: relative; }}
+  .card-header .label {{ cursor: pointer; white-space: nowrap; }}
+  .card-detail {{ display: none; background: var(--bg3); border: 1px solid var(--border);
+                  border-radius: var(--radius); padding: 8px 12px; position: absolute;
+                  top: 100%; left: 10px; z-index: 50; font-size: 12px; color: var(--muted);
+                  white-space: pre-line; max-width: 300px;
+                  box-shadow: 0 4px 12px rgba(0,0,0,.4); }}
+  .card-detail.show {{ display: block; }}
+  .score-badge {{ font-size: 11px; padding: 1px 6px; border-radius: 8px;
+                  background: rgba(74,158,255,.15); color: var(--accent); font-weight: 600; }}
+  .params-section {{ border-bottom: 1px solid var(--border); }}
+  .params-section summary {{ padding: 8px 14px; font-size: 12px; color: var(--muted);
+                              cursor: pointer; user-select: none; }}
+  .params-section summary:hover {{ color: var(--text); }}
+  #conclusion {{ background: var(--bg2); border: 2px solid var(--border);
+                 border-radius: var(--radius); padding: 20px; margin: 0 20px 20px; }}
+  .conclusion-title {{ font-size: 16px; font-weight: 700; color: var(--accent); margin-bottom: 12px; }}
+  .conclusion-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }}
+  .conclusion-box {{ background: var(--bg3); border-radius: var(--radius); padding: 12px 16px; }}
+  .conclusion-box h3 {{ font-size: 13px; color: var(--muted); margin-bottom: 8px; text-transform: uppercase;
+                         letter-spacing: .05em; }}
+  .conclusion-row {{ display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }}
+  .conclusion-row .lbl {{ color: var(--muted); }}
+  .conclusion-row .val {{ font-weight: 600; }}
+  .conclusion-row .val.best {{ color: var(--gold); }}
+  .recommended {{ border: 2px solid var(--gold); grid-column: 1 / -1; }}
+  .recommended h3 {{ color: var(--gold); }}
+  .conclusion-placeholder {{ color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }}
 </style>
 </head>
 <body>
 <header>
-  <h1>&#127912; Generation Review — {model_name}</h1>
-  <div class="meta">Generated {now} &nbsp;·&nbsp; <span id="test-count"></span> tests</div>
+  <div class="header-row">
+    <h1>&#127912; <span id="page-title"></span></h1>
+    <button class="lang-btn" id="lang-btn" onclick="toggleLang()">EN</button>
+  </div>
+  <div class="meta"><span id="meta-gen"></span> &nbsp;·&nbsp; <span id="test-count"></span></div>
   <div class="prompt-box" id="shared-prompt"></div>
 </header>
 <div id="grid"></div>
+<div id="conclusion"></div>
 <div id="lightbox">
   <div id="lb-header">
     <span class="lb-label" id="lb-label"></span>
@@ -1306,57 +1361,339 @@ def _render_manifest_html(tests: list, model_name: str, out_dir: str) -> str:
 </div>
 <div id="bottom">
   <div class="row1">
-    <textarea id="overall-notes" placeholder="Overall notes (optional) — appears in generated feedback…"></textarea>
+    <textarea id="overall-notes" placeholder=""></textarea>
     <div class="btn-group">
-      <button class="btn btn-primary" onclick="showOutput('plain')">Generate Feedback</button>
+      <button class="btn btn-primary" id="btn-feedback" onclick="showOutput('plain')"></button>
       <button class="btn btn-outline" onclick="showOutput('json')">JSON</button>
     </div>
   </div>
   <div id="output-panel">
     <div id="output-tabs">
-      <div class="tab active" onclick="switchTab('plain')">Plain Text</div>
-      <div class="tab" onclick="switchTab('json')">JSON</div>
+      <div class="tab active" id="tab-plain" onclick="switchTab('plain')"></div>
+      <div class="tab" id="tab-json" onclick="switchTab('json')">JSON</div>
     </div>
     <textarea id="output-text" readonly></textarea>
     <div class="copy-row">
-      <button class="btn btn-outline" onclick="copyOutput()">Copy</button>
-      <button class="btn btn-outline" onclick="downloadOutput()">Download</button>
-      <span class="copy-status" id="copy-status">Copied!</span>
+      <button class="btn btn-outline" id="btn-copy" onclick="copyOutput()"></button>
+      <button class="btn btn-outline" id="btn-download" onclick="downloadOutput()"></button>
+      <span class="copy-status" id="copy-status"></span>
     </div>
   </div>
 </div>
 <script>
 const TESTS = {tests_json};
 const MODEL = {model_json};
+const GROUP_NAMES = {groups_json};
+const GROUP_PARAMS = {gparams_json};
 const STORAGE_KEY = 'review_gen_' + MODEL + '_' + TESTS.map(t=>t.label).join('');
 let state = {{ ratings: {{}}, comments: {{}}, winner: null, notes: '' }};
 let currentTab = 'plain';
+const NOW = '{now}';
+
+// ── i18n ──────────────────────────────────────────────────────────────
+const LANG = {{
+  zh_TW: {{
+    pageTitle: '生成圖片審查',
+    generated: '生成於',
+    tests: '項測試',
+    prompt: '提示詞：',
+    noPrompt: '（無提示詞）',
+    vlmCaption: 'VLM 描述',
+    vlmScore: 'VLM 評分',
+    params: '參數',
+    pipeline: '管線',
+    time: '耗時',
+    peakRam: '峰值記憶體',
+    size: '尺寸',
+    best: '★ 最佳',
+    rating: ['','差','普通','良好','很好','完美'],
+    notesPrefix: '測試',
+    notesSuffix: '備註…',
+    overallNotes: '整體備註（選填）…',
+    generateFeedback: '產生回饋',
+    noImage: '無圖片',
+    overall: '整體',
+    detail: '細節',
+    sharpness: '銳利度',
+    composition: '構圖',
+    artifacts: '瑕疵',
+    test: '測試',
+    plainText: '純文字',
+    copy: '複製',
+    download: '下載',
+    copied: '已複製！',
+    scoreLabel: '分數',
+    conclusion: '結論分析',
+    stepAnalysis: '步驟分析',
+    categoryAnalysis: '分類分析',
+    paramAnalysis: '參數分析',
+    recommendedDefaults: '推薦預設值',
+    blendStrength: '融合強度',
+    maskDilate: '遮罩膨脹',
+    avgRating: '平均評分',
+    groups: '組',
+    skipMaskBlend: '建議跳過遮罩混合步驟',
+    keepMaskBlend: '建議保留遮罩混合步驟',
+    rateToSee: '請評分卡片以查看分析結果',
+  }},
+  en: {{
+    pageTitle: 'Generation Review',
+    generated: 'Generated',
+    tests: 'tests',
+    prompt: 'Prompt:',
+    noPrompt: '(no prompt)',
+    vlmCaption: 'VLM Caption',
+    vlmScore: 'VLM Score',
+    params: 'Parameters',
+    pipeline: 'Pipeline',
+    time: 'Time',
+    peakRam: 'Peak RAM',
+    size: 'Size',
+    best: '★ Best',
+    rating: ['','Poor','Fair','Good','Great','Perfect'],
+    notesPrefix: 'Notes for',
+    notesSuffix: '…',
+    overallNotes: 'Overall notes (optional)…',
+    generateFeedback: 'Generate Feedback',
+    noImage: 'No image file',
+    overall: 'Overall',
+    detail: 'Detail',
+    sharpness: 'Sharpness',
+    composition: 'Composition',
+    artifacts: 'Artifacts',
+    test: 'Test',
+    plainText: 'Plain Text',
+    copy: 'Copy',
+    download: 'Download',
+    copied: 'Copied!',
+    scoreLabel: 'Score',
+    conclusion: 'Conclusion',
+    stepAnalysis: 'Step Analysis',
+    categoryAnalysis: 'Category Analysis',
+    paramAnalysis: 'Parameter Analysis',
+    recommendedDefaults: 'Recommended Defaults',
+    blendStrength: 'Blend Strength',
+    maskDilate: 'Mask Dilate',
+    avgRating: 'Avg Rating',
+    groups: 'groups',
+    skipMaskBlend: 'Recommend skipping mask-blend step',
+    keepMaskBlend: 'Recommend keeping mask-blend step',
+    rateToSee: 'Rate cards to see analysis',
+  }},
+}};
+let currentLang = localStorage.getItem('review_lang') || 'zh_TW';
+function L(key) {{ return LANG[currentLang]?.[key] ?? LANG.en[key] ?? key; }}
+function toggleLang() {{
+  currentLang = currentLang === 'zh_TW' ? 'en' : 'zh_TW';
+  localStorage.setItem('review_lang', currentLang);
+  renderAll();
+}}
+
 function loadState() {{ try {{ const s=localStorage.getItem(STORAGE_KEY); if(s) state={{...state,...JSON.parse(s)}}; }} catch(e) {{}} }}
 function saveState() {{ try {{ localStorage.setItem(STORAGE_KEY,JSON.stringify(state)); }} catch(e) {{}} }}
 
+let _renderInit = false;
 function renderAll() {{
-  document.getElementById('test-count').textContent=TESTS.length;
-  const prompt=TESTS.map(t=>t.prompt).find(p=>p)||'(no prompt)';
+  document.getElementById('page-title').textContent = L('pageTitle') + ' — ' + MODEL;
+  document.getElementById('meta-gen').textContent = L('generated') + ' ' + NOW;
+  document.getElementById('test-count').textContent = TESTS.length + ' ' + L('tests');
+  document.getElementById('lang-btn').textContent = currentLang === 'zh_TW' ? 'EN' : '中文';
+  document.getElementById('overall-notes').placeholder = L('overallNotes');
+  document.getElementById('btn-feedback').textContent = L('generateFeedback');
+  document.getElementById('btn-copy').textContent = L('copy');
+  document.getElementById('btn-download').textContent = L('download');
+  document.getElementById('copy-status').textContent = L('copied');
+  const prompt=TESTS.map(t=>t.prompt).find(p=>p)||L('noPrompt');
   document.getElementById('shared-prompt').textContent=prompt;
   const grid=document.getElementById('grid'); grid.innerHTML='';
-  TESTS.forEach((t,i)=>grid.appendChild(makeCard(t,i)));
+  let currentGroup=null, rowEl=null;
+  TESTS.forEach((t,i)=>{{
+    const label=t.label.split('|')[0];
+    const m=label.match(/^([A-Z])-/);
+    const group=m?m[1]:null;
+    if (group!==currentGroup) {{
+      currentGroup=group;
+      const section=document.createElement('div');
+      if (group) {{
+        const hdr=document.createElement('div'); hdr.className='group-header';
+        const gname=GROUP_NAMES[group]||group;
+        hdr.innerHTML=`<span>${{group}}</span> — ${{gname}}`;
+        section.appendChild(hdr);
+      }}
+      rowEl=document.createElement('div'); rowEl.className='card-row';
+      section.appendChild(rowEl); grid.appendChild(section);
+    }}
+    rowEl.appendChild(makeCard(t,i));
+  }});
   document.getElementById('overall-notes').value=state.notes||'';
-  document.getElementById('overall-notes').addEventListener('input',e=>{{ state.notes=e.target.value; saveState(); }});
+  renderConclusion();
+  if (!_renderInit) {{
+    document.getElementById('overall-notes').addEventListener('input',e=>{{ state.notes=e.target.value; saveState(); }});
+    _renderInit = true;
+  }}
+}}
+
+function toggleDetail(i) {{
+  const el = document.getElementById('detail-'+i);
+  if (el) el.classList.toggle('show');
+}}
+
+function renderConclusion() {{
+  const el = document.getElementById('conclusion');
+  if (!GROUP_PARAMS || !Object.keys(GROUP_PARAMS).length) {{ el.innerHTML=''; return; }}
+
+  // Collect ratings by step type and category
+  const stepRatings = {{ composite: [], blend: [], final: [] }};
+  const catRatings = {{}};
+  const strengthRatings = {{}};
+  const dilateRatings = {{}};
+
+  TESTS.forEach((t,i) => {{
+    const rating = state.ratings[t.label] || 0;
+    if (!rating) return;
+    const label = t.label.split('|')[0];
+    const m = label.match(/^([A-Z])-(\d)-/);
+    if (!m) return;
+    const group = m[1], step = parseInt(m[2]);
+    const gp = GROUP_PARAMS[group];
+    if (!gp) return;
+
+    let stepName;
+    if (step === 3) stepName = 'composite';
+    else if (step === 4) stepName = 'blend';
+    else if (step === 5) stepName = 'final';
+    else return;
+
+    stepRatings[stepName].push(rating);
+
+    const cat = gp.category || 'other';
+    if (!catRatings[cat]) catRatings[cat] = {{ composite:[], blend:[], final:[] }};
+    catRatings[cat][stepName].push(rating);
+
+    if (stepName === 'blend') {{
+      const key = String(gp.blend_strength);
+      if (!strengthRatings[key]) strengthRatings[key] = [];
+      strengthRatings[key].push(rating);
+    }}
+    if (stepName === 'final') {{
+      const key = String(gp.mask_dilate);
+      if (!dilateRatings[key]) dilateRatings[key] = [];
+      dilateRatings[key].push(rating);
+    }}
+  }});
+
+  const totalRated = stepRatings.composite.length + stepRatings.blend.length + stepRatings.final.length;
+  if (totalRated === 0) {{
+    el.innerHTML = `<div class="conclusion-title">${{L('conclusion')}}</div><div class="conclusion-placeholder">${{L('rateToSee')}}</div>`;
+    return;
+  }}
+
+  const avg = arr => arr.length ? (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1) : '—';
+  const bestKey = obj => {{
+    let best=null, bestAvg=-1;
+    for (const [k,v] of Object.entries(obj)) {{
+      const a = v.length ? v.reduce((s,x)=>s+x,0)/v.length : 0;
+      if (a > bestAvg) {{ bestAvg=a; best=k; }}
+    }}
+    return {{ key: best, avg: bestAvg.toFixed(1), count: obj[best]?.length||0 }};
+  }};
+
+  // Step analysis rows
+  const steps = [
+    ['composite','Composite'],
+    ['blend','Blend (I2I)'],
+    ['final','Final (mask-blend)']
+  ];
+  const stepRows = steps.map(([k,name]) =>
+    `<div class="conclusion-row"><span class="lbl">${{name}}</span><span class="val">${{avg(stepRatings[k])}} / 5 (${{stepRatings[k].length}} ${{L('groups')}})</span></div>`
+  ).join('');
+
+  // Category analysis rows
+  const catNames = {{ face:'Face', object:'Object', food:'Food', outfit:'Outfit' }};
+  const catRows = Object.entries(catRatings).map(([cat, sr]) => {{
+    const best = ['composite','blend','final'].reduce((b,k) =>
+      (sr[k].length ? sr[k].reduce((s,x)=>s+x,0)/sr[k].length : 0) >
+      (sr[b].length ? sr[b].reduce((s,x)=>s+x,0)/sr[b].length : 0) ? k : b, 'blend');
+    return `<div class="conclusion-row"><span class="lbl">${{catNames[cat]||cat}}</span><span class="val">${{avg(sr.blend)}} blend / ${{avg(sr.final)}} final</span></div>`;
+  }}).join('');
+
+  // Parameter analysis
+  const bestStr = bestKey(strengthRatings);
+  const bestDil = bestKey(dilateRatings);
+  const strRows = Object.entries(strengthRatings)
+    .sort((a,b) => (b[1].reduce((s,x)=>s+x,0)/b[1].length) - (a[1].reduce((s,x)=>s+x,0)/a[1].length))
+    .map(([k,v]) => `<div class="conclusion-row"><span class="lbl">${{L('blendStrength')}} ${{k}}</span><span class="val${{k===bestStr.key?' best':''}}">${{avg(v)}} / 5 (${{v.length}})</span></div>`).join('');
+  const dilRows = Object.entries(dilateRatings)
+    .sort((a,b) => (b[1].reduce((s,x)=>s+x,0)/b[1].length) - (a[1].reduce((s,x)=>s+x,0)/a[1].length))
+    .map(([k,v]) => `<div class="conclusion-row"><span class="lbl">${{L('maskDilate')}} ${{k}}</span><span class="val${{k===bestDil.key?' best':''}}">${{avg(v)}} / 5 (${{v.length}})</span></div>`).join('');
+
+  // Mask-blend recommendation
+  const blendAvg = stepRatings.blend.length ? stepRatings.blend.reduce((s,x)=>s+x,0)/stepRatings.blend.length : 0;
+  const finalAvg = stepRatings.final.length ? stepRatings.final.reduce((s,x)=>s+x,0)/stepRatings.final.length : 0;
+  const maskVerdict = finalAvg >= blendAvg ? L('keepMaskBlend') : L('skipMaskBlend');
+
+  el.innerHTML = `
+    <div class="conclusion-title">${{L('conclusion')}}</div>
+    <div class="conclusion-grid">
+      <div class="conclusion-box">
+        <h3>${{L('stepAnalysis')}}</h3>
+        ${{stepRows}}
+      </div>
+      <div class="conclusion-box">
+        <h3>${{L('categoryAnalysis')}}</h3>
+        ${{catRows}}
+      </div>
+      <div class="conclusion-box">
+        <h3>${{L('paramAnalysis')}} — ${{L('blendStrength')}}</h3>
+        ${{strRows}}
+      </div>
+      <div class="conclusion-box">
+        <h3>${{L('paramAnalysis')}} — ${{L('maskDilate')}}</h3>
+        ${{dilRows}}
+      </div>
+      <div class="conclusion-box recommended">
+        <h3>★ ${{L('recommendedDefaults')}}</h3>
+        <div class="conclusion-row"><span class="lbl">${{L('blendStrength')}}</span><span class="val best">${{bestStr.key||'—'}} (${{bestStr.avg}}/5)</span></div>
+        <div class="conclusion-row"><span class="lbl">${{L('maskDilate')}}</span><span class="val best">${{bestDil.key||'—'}} (${{bestDil.avg}}/5)</span></div>
+        <div class="conclusion-row"><span class="lbl">Mask-blend</span><span class="val">${{maskVerdict}}</span></div>
+      </div>
+    </div>`;
 }}
 
 function makeCard(t,i) {{
   const card=document.createElement('div');
   card.className='card'+(state.winner===t.label?' winner':'');
   card.id='card-'+i;
-  card.appendChild(div('card-header',`<div class="label">${{t.label}}</div><div class="badge ${{t.status}}">${{t.status}}</div><button class="winner-btn" onclick="toggleWinner('${{t.label}}',${{i}})">★ Best</button>`));
+
+  // Split label: "short|detail" or just "short"
+  const parts=t.label.split('|');
+  const shortTitle=parts[0].trim();
+  const detailText=parts.length>1?parts.slice(1).join('|').trim():'';
+
+  // Score badge from caption_scores
+  let scoreHtml='';
+  if (t.caption_scores && t.caption_scores.overall != null) {{
+    scoreHtml=`<span class="score-badge">${{t.caption_scores.overall}}/10</span>`;
+  }}
+
+  card.appendChild(div('card-header',
+    `<div class="label" ${{detailText?`onclick="toggleDetail(${{i}})"`:''}} ${{detailText?'title="'+escapeHtml(detailText)+'"':''}}>${{escapeHtml(shortTitle)}}</div>${{scoreHtml}}<div class="badge ${{t.status}}">${{t.status}}</div><button class="winner-btn" onclick="toggleWinner('${{t.label}}',${{i}})">${{L('best')}}</button>`));
+
+  // Detail popup
+  if (detailText) {{
+    const detEl=div('card-detail',escapeHtml(detailText));
+    detEl.id='detail-'+i;
+    card.querySelector('.card-header').appendChild(detEl);
+  }}
+
   const wrap=document.createElement('div'); wrap.className='image-wrap';
   if (t.image) {{
-    const img=document.createElement('img'); img.src=t.image; img.alt='Test '+t.label; img.loading='lazy';
-    img.addEventListener('click',()=>openLightbox(t.image,t.label)); wrap.appendChild(img);
-  }} else {{ wrap.innerHTML='<div class="no-image">No image file</div>'; }}
+    const img=document.createElement('img'); img.src=t.image; img.alt=L('test')+' '+shortTitle; img.loading='lazy';
+    img.addEventListener('click',()=>openLightbox(t.image,shortTitle)); wrap.appendChild(img);
+  }} else {{ wrap.innerHTML='<div class="no-image">'+L('noImage')+'</div>'; }}
   card.appendChild(wrap);
-  const pd=div('card-prompt'); pd.innerHTML='<span class="prompt-label">Prompt:</span> '+escapeHtml(t.prompt||'(no prompt)'); card.appendChild(pd);
-  if (t.caption) {{ const det=document.createElement('details'); det.className='caption-section'; det.innerHTML=`<summary>VLM Caption</summary><p>${{escapeHtml(t.caption)}}</p>`; card.appendChild(det); }}
+  const pd=div('card-prompt'); pd.innerHTML='<span class="prompt-label">'+L('prompt')+'</span> '+escapeHtml(t.prompt||L('noPrompt')); card.appendChild(pd);
+  if (t.caption) {{ const det=document.createElement('details'); det.className='caption-section'; det.innerHTML=`<summary>${{L('vlmCaption')}}</summary><p>${{escapeHtml(t.caption)}}</p>`; card.appendChild(det); }}
   if (t.caption_scores && t.caption_scores.overall != null) {{
     if (t.caption_scores._style === 'profile-verify') {{
       const checks=[['view_correct','View angle'],['full_body','Full body'],['apose','A-pose'],['clean_bg','Clean BG']];
@@ -1367,29 +1704,32 @@ function makeCard(t,i) {{
         return `<span class="vc-badge ${{cls}}">${{icon}} ${{lbl}}</span>`;
       }}).join('');
       const score=t.caption_scores.overall??'';
-      const scoreTag=score?`<span class="vc-badge" style="background:#1a2a3a;color:#4a9eff">Score: ${{score}}/10</span>`:'';
+      const scoreTag=score?`<span class="vc-badge" style="background:#1a2a3a;color:#4a9eff">${{L('scoreLabel')}}: ${{score}}/10</span>`:'';
       const issues=(t.caption_scores.issues||[]).join(' · ');
       card.appendChild(div('vc-section',`<div class="vc-row">${{badges}}${{scoreTag}}</div>${{issues?`<p class="sc-issues">${{escapeHtml(issues)}}</p>`:''}}` ));
     }} else {{
-      const dims=[['overall','Overall'],['detail','Detail'],['sharpness','Sharpness'],['composition','Composition'],['artifacts','Artifacts']];
+      const dims=[['overall',L('overall')],['detail',L('detail')],['sharpness',L('sharpness')],['composition',L('composition')],['artifacts',L('artifacts')]];
       const bars=dims.map(([k,lbl])=>{{
         const v=t.caption_scores[k]??0; const pct=typeof v==='number'?v*10:0;
         const col=v>=8?'var(--green)':v>=6?'var(--accent)':'var(--red)';
         return `<div class="sc-row"><span class="sc-lbl">${{lbl}}</span><div class="sc-bar"><div style="width:${{pct}}%;background:${{col}}"></div></div><span class="sc-val">${{v}}/10</span></div>`;
       }}).join('');
       const issues=(t.caption_scores.issues||[]).join(' · ');
-      card.appendChild(div('score-section',`<div class="sc-title">VLM Score</div>${{bars}}${{issues?`<p class="sc-issues">${{escapeHtml(issues)}}</p>`:''}}` ));
+      card.appendChild(div('score-section',`<div class="sc-title">${{L('vlmScore')}}</div>${{bars}}${{issues?`<p class="sc-issues">${{escapeHtml(issues)}}</p>`:''}}` ));
     }}
   }}
+  // Collapsible params
   const ref=TESTS[0].params;
   const rows=Object.entries(t.params).map(([k,v])=>{{ const isDiff=i>0&&JSON.stringify(ref[k])!==JSON.stringify(v); return `<tr><td>${{k}}</td><td class="${{isDiff?'diff':''}}">${{v}}</td></tr>`; }}).join('');
-  card.appendChild(div('params','<table>'+rows+'</table>'));
+  const paramsDet=document.createElement('details'); paramsDet.className='params-section';
+  paramsDet.innerHTML=`<summary>${{L('params')}}</summary><div class="params"><table>${{rows}}</table></div>`;
+  card.appendChild(paramsDet);
   const elapsed=t.elapsed?t.elapsed.toFixed(1)+'s':'—';
   const mem=t.memory_mb?(t.memory_mb/1024).toFixed(1)+' GB':'—';
   const pipeline=(t.action||t.command||'').replace(/^(image|video)$/,t.params.pipeline||'$1');
-  const pipelineText=pipeline?`<span>Pipeline <b>${{pipeline}}</b></span>`:'';
-  const sizeText=t.params.out_width&&t.params.out_height?`<span>Size <b>${{t.params.out_width}}×${{t.params.out_height}}</b></span>`:'';
-  card.appendChild(div('timing',`${{pipelineText}}<span>Time <b>${{elapsed}}</b></span><span>Peak RAM <b>${{mem}}</b></span>${{sizeText}}`));
+  const pipelineText=pipeline?`<span>${{L('pipeline')}} <b>${{pipeline}}</b></span>`:'';
+  const sizeText=t.params.out_width&&t.params.out_height?`<span>${{L('size')}} <b>${{t.params.out_width}}×${{t.params.out_height}}</b></span>`:'';
+  card.appendChild(div('timing',`${{pipelineText}}<span>${{L('time')}} <b>${{elapsed}}</b></span><span>${{L('peakRam')}} <b>${{mem}}</b></span>${{sizeText}}`));
   const ratingRow=document.createElement('div'); ratingRow.className='rating-row';
   const stars=document.createElement('div'); stars.className='stars'; stars.id='stars-'+i;
   for (let s=1;s<=5;s++) {{
@@ -1399,7 +1739,7 @@ function makeCard(t,i) {{
   const rl=document.createElement('span'); rl.className='rating-label'; rl.id='rating-label-'+i; rl.textContent=ratingLabel(state.ratings[t.label]||0);
   ratingRow.append(stars,rl); card.appendChild(ratingRow);
   const cmtWrap=div('comment'); const cmt=document.createElement('textarea');
-  cmt.placeholder='Notes for test '+t.label+'…'; cmt.value=state.comments[t.label]||'';
+  cmt.placeholder=L('notesPrefix')+' '+shortTitle+' '+L('notesSuffix'); cmt.value=state.comments[t.label]||'';
   cmt.addEventListener('input',e=>{{ state.comments[t.label]=e.target.value; saveState(); }}); cmtWrap.appendChild(cmt); card.appendChild(cmtWrap);
   return card;
 }}
@@ -1408,7 +1748,7 @@ function escapeHtml(s) {{ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 
 let currentZoom=1;
 function openLightbox(src,label) {{
-  document.getElementById('lb-label').textContent='Test '+label;
+  document.getElementById('lb-label').textContent=L('test')+' '+label;
   const img=document.getElementById('lb-img'); img.src=src;
   img.onload=()=>setZoom(1);
   document.getElementById('lightbox').classList.add('open'); document.body.style.overflow='hidden';
@@ -1432,8 +1772,9 @@ function setRating(label,i,stars) {{
   state.ratings[label]=stars; saveState();
   document.getElementById('stars-'+i).querySelectorAll('.star').forEach((s,idx)=>s.classList.toggle('on',idx<stars));
   document.getElementById('rating-label-'+i).textContent=ratingLabel(stars);
+  renderConclusion();
 }}
-function ratingLabel(n) {{ return ['','Poor','Fair','Good','Great','Perfect'][n]||''; }}
+function ratingLabel(n) {{ return L('rating')[n]||''; }}
 function toggleWinner(label,i) {{
   state.winner=state.winner===label?null:label; saveState();
   document.querySelectorAll('.card').forEach((c,idx)=>c.classList.toggle('winner',TESTS[idx].label===state.winner));
@@ -1469,11 +1810,16 @@ function generateJSON() {{
     overall_notes:state.notes||'',recommended_params:state.winner?(TESTS.find(t=>t.label===state.winner)||{{}}).params||{{}}:{{}},
   }},null,2);
 }}
-function showOutput(tab) {{ currentTab=tab; document.getElementById('output-panel').classList.add('visible'); updateOutput(); }}
+function showOutput(tab) {{
+  currentTab=tab; document.getElementById('output-panel').classList.add('visible');
+  document.getElementById('tab-plain').textContent=L('plainText');
+  updateOutput();
+}}
 function switchTab(tab) {{
   currentTab=tab;
+  document.getElementById('tab-plain').textContent=L('plainText');
   document.querySelectorAll('.tab').forEach(el=>el.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(el=>{{ if (el.textContent.toLowerCase().includes(tab)) el.classList.add('active'); }});
+  document.querySelectorAll('.tab').forEach(el=>{{ if (el.id==='tab-'+tab) el.classList.add('active'); }});
   updateOutput();
 }}
 function updateOutput() {{ document.getElementById('output-text').value=currentTab==='json'?generateJSON():generatePlain(); }}
@@ -1561,6 +1907,8 @@ def run_review_selftest(args):
         _run_selftest_faceswap(args, test_name, test_cfg)
     elif test_type == "swap":
         _run_selftest_swap(args, test_name, test_cfg)
+    elif test_type == "swap-all":
+        _run_selftest_swap_all(args, test_name, test_cfg)
     elif test_type == "expansion":
         _run_selftest_expansion(args, test_name, test_cfg)
     else:
@@ -1578,8 +1926,9 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     mode="cnet-pose2"  → _I2I_CNET_POSE2_VARIATIONS (4 variations, ~15 min)
     mode="cnet-pose3"  → _I2I_CNET_POSE3_VARIATIONS (4 variations, ~18 min)
     mode="cnet-pose4"  → _I2I_CNET_POSE4_VARIATIONS (4 variations, ~15 min)
-    mode="seed-sweep"  → _I2I_CNET_SEED_SWEEP_VARIATIONS (8 seeds, ~25 min)
-    mode="full"        → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
+    mode="seed-sweep"    → _I2I_CNET_SEED_SWEEP_VARIATIONS (8 seeds, ~25 min)
+    mode="dual-guidance" → _I2I_DUAL_GUIDANCE_VARIATIONS (5 inpaint_mask variants, ~20 min)
+    mode="full"          → _I2I_SELF_TEST_VARIATIONS (8 variations, ~25 min)
     After generation: VLM-captions all outputs and generates interactive HTML review.
     """
     import importlib
@@ -1612,6 +1961,14 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
         variations = _i2i._I2I_CNET_POSE4_VARIATIONS
     elif mode == "seed-sweep":
         variations = _i2i._I2I_CNET_SEED_SWEEP_VARIATIONS
+    elif mode == "dual-guidance":
+        variations = _i2i._I2I_DUAL_GUIDANCE_VARIATIONS
+    elif mode == "clothing-prompt":
+        variations = _i2i._I2I_CLOTHING_PROMPT_VARIATIONS
+    elif mode == "spatial-mask":
+        variations = _i2i._I2I_SPATIAL_MASK_VARIATIONS
+    elif mode == "arm-erase":
+        variations = _i2i._I2I_ARM_ERASE_VARIATIONS
     else:
         variations = _i2i._I2I_SELF_TEST_VARIATIONS
 
@@ -2794,11 +3151,17 @@ def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
     _open_manifest_review(manifest_files, labels=labels)
 
 
-def _run_selftest_swap(args, test_name: str, test_cfg: dict):
+def _run_selftest_swap(args, test_name: str, test_cfg: dict,
+                       return_manifests: bool = False):
     """Run a SAM3 text-prompted swap self-test.
 
     Generates source + reference images via ZImagePipeline, runs SAM3
     segmentation and compositing, then opens an HTML review.
+
+    If ``return_manifests`` is True, skip HTML/caption generation and
+    return ``(manifest_files, labels, images_to_score)`` instead.  This
+    is used by ``_run_selftest_swap_all`` to collect results from multiple
+    swap tests into a single HTML review.
 
     Test config fields (from _ALL_TESTS):
         source_prompt     — prompt for source image (ZImage pipeline)
@@ -3081,7 +3444,28 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict):
     else:
         print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
 
-    # Phase 6: Open HTML review with all results
+    # Phase 6: Generate captions for each image (default style for description)
+    print(f"\n{'='*60}")
+    print(f"[selftest] Generating image captions")
+    print(f"{'='*60}")
+
+    from app.commands.caption import _image_to_base64, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, _call_vlm
+    for img_path, lbl in images_to_score:
+        base = img_path.rsplit('.', 1)[0]
+        caption_file = base + '.caption.json'
+        if not os.path.exists(caption_file):
+            try:
+                prompt_text = _STYLE_PROMPTS["default"] + "\n" + _LANG_INSTRUCTIONS["zh_TW"]
+                b64 = _image_to_base64(img_path)
+                caption_text = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt_text)
+                cap_data = {"image": img_path, "style": "default", "model": "qwen/qwen3-vl-4b", "caption": caption_text}
+                with open(caption_file, "w") as f:
+                    json.dump(cap_data, f, indent=2, ensure_ascii=False)
+                print(f"  [{lbl}] Caption saved: {caption_file}")
+            except Exception as e:
+                print(f"  [{lbl}] Caption failed: {e}")
+
+    # Phase 7: Open HTML review with all results
     print(f"\n{'='*60}")
     print(f"[selftest] Generating review HTML")
     print(f"{'='*60}")
@@ -3095,56 +3479,162 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict):
         manifest_files.append(final_manifest)
 
     review_entries = [
-        (f"1-Source (ZImage)", "source"),
-        (f"2-Reference (ZImage)", "reference"),
+        ("1-Source|ZImage T2I, seed=" + str(source_seed), "source"),
+        ("2-Reference|ZImage T2I, seed=" + str(reference_seed), "reference"),
     ]
     if swap_mode == "inpaint":
         inpaint_strength = test_cfg.get("inpaint_strength", 0.7)
         review_entries.append(
-            (f"3-Inpaint (Flux Klein I2I, strength={inpaint_strength})", "inpaint")
+            (f"3-Inpaint|Flux Klein I2I, strength={inpaint_strength}", "inpaint")
         )
     else:
         review_entries.append(
-            (f"3-Composite (SAM3: '{sam_prompt}')", "composite")
+            (f"3-Composite|SAM3: '{sam_prompt}'", "composite")
         )
         if blend_path and os.path.exists(blend_path):
             blend_strength = test_cfg.get("blend_strength", 0.4)
             review_entries.append(
-                (f"4-Blend (Flux Klein I2I, strength={blend_strength})", "blend")
+                (f"4-Blend|Flux Klein I2I, strength={blend_strength}", "blend")
             )
         if final_path and os.path.exists(final_path):
+            mask_dilate = test_cfg.get("mask_dilate", 0)
             review_entries.append(
-                (f"5-Final (mask-blended: source outside, I2I inside)", "final")
+                (f"5-Final|mask-blend, dilate={mask_dilate}", "final")
             )
 
-    labels = []
-    for lbl, name in review_entries:
-        if name in scores:
-            s = scores[name]
-            labels.append(f"{lbl} — score {s.get('overall', '?')}/10")
-        else:
-            labels.append(lbl)
+    # Labels: use short|detail format — score shown separately as badge by HTML
+    labels = [lbl for lbl, _ in review_entries]
+
+    if return_manifests:
+        return manifest_files, labels, images_to_score
 
     _open_manifest_review(manifest_files, labels=labels)
+
+
+def _run_selftest_swap_all(args, test_name: str, test_cfg: dict):
+    """Run ALL swap self-tests sequentially and combine into one HTML review.
+
+    Iterates through each sub-test in ``test_cfg["tests"]``, calls
+    ``_run_selftest_swap`` with ``return_manifests=True`` to collect
+    manifest files, then generates captions and opens a single HTML review.
+
+    Labels are prefixed with a group letter (A, B, C, …) so the user can
+    identify which sub-test each card belongs to.
+    """
+    from app.test_prompts_image import get_test
+    from app.commands.caption import (
+        _image_to_base64, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, _call_vlm,
+    )
+
+    sub_tests = test_cfg["tests"]
+    group_prefix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    all_manifests = []
+    all_labels = []
+    all_images = []  # (path, label) for caption generation
+    group_names = {}  # {"A": "swap-face", "B": "swap-face-2", ...}
+    group_params = {}  # {"A": {"blend_strength": 0.75, ...}, ...}
+
+    def _infer_category(name: str) -> str:
+        if "face" in name: return "face"
+        if "object" in name: return "object"
+        if "food" in name: return "food"
+        if "outfit" in name: return "outfit"
+        return "other"
+
+    print(f"\n{'#'*60}")
+    print(f" Swap-All: running {len(sub_tests)} swap tests")
+    print(f"{'#'*60}")
+
+    for gi, sub_name in enumerate(sub_tests):
+        sub_cfg = get_test(sub_name)
+        prefix = group_prefix[gi] if gi < len(group_prefix) else str(gi + 1)
+        group_names[prefix] = sub_name
+        group_params[prefix] = {
+            "blend_strength": sub_cfg.get("blend_strength", 0.75),
+            "mask_dilate": sub_cfg.get("mask_dilate", 40),
+            "feather": sub_cfg.get("feather", 15),
+            "sam_threshold": sub_cfg.get("sam_threshold", 0.3),
+            "category": _infer_category(sub_name),
+        }
+        print(f"\n{'═'*60}")
+        print(f" [{prefix}] {sub_name}")
+        print(f"{'═'*60}")
+
+        try:
+            result = _run_selftest_swap(
+                args, sub_name, sub_cfg, return_manifests=True,
+            )
+        except Exception as e:
+            print(f"  ERROR in {sub_name}: {e}")
+            continue
+
+        if result is None:
+            print(f"  No result for {sub_name} — skipping")
+            continue
+
+        manifests, labels, images_to_score = result
+        for m, l in zip(manifests, labels):
+            all_manifests.append(m)
+            all_labels.append(f"{prefix}-{l}")
+        all_images.extend(images_to_score)
+
+    if not all_manifests:
+        print("[swap-all] No manifests collected — nothing to review")
+        return
+
+    # Generate captions for all images
+    print(f"\n{'='*60}")
+    print(f"[swap-all] Generating captions ({len(all_images)} images)")
+    print(f"{'='*60}")
+    for img_path, lbl in all_images:
+        base = img_path.rsplit('.', 1)[0]
+        caption_file = base + '.caption.json'
+        if not os.path.exists(caption_file):
+            try:
+                prompt_text = _STYLE_PROMPTS["default"] + "\n" + _LANG_INSTRUCTIONS["zh_TW"]
+                b64 = _image_to_base64(img_path)
+                caption_text = _call_vlm(
+                    "http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt_text,
+                )
+                cap_data = {
+                    "image": img_path, "style": "default",
+                    "model": "qwen/qwen3-vl-4b", "caption": caption_text,
+                }
+                with open(caption_file, "w") as f:
+                    json.dump(cap_data, f, indent=2, ensure_ascii=False)
+                print(f"  [{lbl}] OK")
+            except Exception as e:
+                print(f"  [{lbl}] Caption failed: {e}")
+
+    # Open single HTML review with all results
+    print(f"\n{'='*60}")
+    print(f"[swap-all] Generating HTML review ({len(all_manifests)} cards)")
+    print(f"{'='*60}")
+    _open_manifest_review(all_manifests, labels=all_labels, group_names=group_names,
+                          group_params=group_params)
 
 
 def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
     """Run a Flux2 Klein outpaint (image expansion) self-test.
 
-    Generates a square source image, then expands it across the configured
-    variants (directional --expand and/or --ratio) with a single shared model
-    load, VLM-scores each result, and opens a side-by-side HTML review.
+    Generates one or more source images, expands each across the configured
+    variants with a single shared model load, VLM-scores results, and opens
+    a grouped HTML review.
 
     Test config fields (from _ALL_TESTS):
-        source_prompt  — prompt for the source image
+        sources        — (optional) list of {{source_prompt, source_seed, label}}
+                         If absent, falls back to top-level source_prompt/source_seed.
+        source_prompt  — prompt for the source image (single-source mode)
         source_seed    — seed for source generation (default: 42)
         source_width   — source width  (default: 1024)
         source_height  — source height (default: 1024)
-        feather        — mask feather px (default: 64)
-        steps          — denoise steps (default: 4)
+        feather        — mask feather px (default: 96)
+        overlap        — overlap px (default: 96)
+        steps          — denoise steps (default: 8)
         longest        — scale source longest side to (default: 1024)
-        configs        — list of {label, mode('expand'|'ratio'), dirs/pixels or
-                         ratio, seed, prompt}
+        configs        — list of {{label, mode('expand'|'ratio'), dirs/pixels or
+                         ratio, seed, prompt}}
     """
     import gc
     import time as _time
@@ -3159,81 +3649,145 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
     _swap = importlib.import_module("app.commands.image-swap")
     _fs = importlib.import_module("app.commands.image-faceswap")
 
-    source_prompt = test_cfg["source_prompt"]
-    source_seed = test_cfg.get("source_seed", 42)
-    src_w = test_cfg.get("source_width", 1024)
-    src_h = test_cfg.get("source_height", 1024)
+    # Resolve source list (multi-source or single backward-compat)
+    src_w_default = test_cfg.get("source_width", 1024)
+    src_h_default = test_cfg.get("source_height", 1024)
+    raw_sources = test_cfg.get("sources")
+    if raw_sources:
+        sources_cfg = []
+        for i, s in enumerate(raw_sources):
+            sources_cfg.append({
+                "prompt": s["source_prompt"],
+                "seed": s.get("source_seed", 42),
+                "label": s.get("label", f"src{i+1}"),
+                "width": s.get("source_width", src_w_default),
+                "height": s.get("source_height", src_h_default),
+            })
+    else:
+        sources_cfg = [{
+            "prompt": test_cfg["source_prompt"],
+            "seed": test_cfg.get("source_seed", 42),
+            "label": "source",
+            "width": src_w_default,
+            "height": src_h_default,
+        }]
+
+    src_w = src_w_default
+    src_h = src_h_default
     feather = test_cfg.get("feather", 96)
     overlap = test_cfg.get("overlap", 96)
     longest = test_cfg.get("longest", 1024)
-    steps = getattr(args, "steps", None) or test_cfg.get("steps", 4)
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 8)
     configs = test_cfg.get("configs", [])
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     ts = _time.strftime("%Y%m%d_%H%M%S")
     base_prefix = f"selftest_{test_name}_{ts}"
 
+    n_sources = len(sources_cfg)
     print(f"\n{'#'*60}")
     print(f" Flux2 Klein Outpaint Self-Test: {test_name}")
-    print(f" variants: {len(configs)} | steps: {steps} | feather: {feather} | overlap: {overlap}")
+    print(f" sources: {n_sources} | variants/source: {len(configs)} | "
+          f"steps: {steps} | feather: {feather} | overlap: {overlap}")
     print(f"{'#'*60}")
 
-    # Phase 1: Generate a square source image (ZImage pipeline)
-    source_path = _swap._generate_test_image(
-        prompt=source_prompt,
-        seed=source_seed,
-        label="source",
-        base=f"{base_prefix}_source",
-        width=src_w,
-        height=src_h,
-    )
-    source = Image.open(source_path).convert("RGB")
-    src_ow, src_oh = source.size
+    # Phase 1: Generate all source images
+    source_infos = []  # list of {path, label, prompt_snippet, image}
+    for si, sc in enumerate(sources_cfg):
+        src_label = sc["label"]
+        print(f"\n{'='*60}")
+        print(f"[selftest] Generating source {si+1}/{n_sources}: '{src_label}' (seed={sc['seed']})")
+        print(f"{'='*60}")
+        source_path = _swap._generate_test_image(
+            prompt=sc["prompt"],
+            seed=sc["seed"],
+            label=src_label,
+            base=f"{base_prefix}_{src_label}",
+            width=sc.get("width", src_w),
+            height=sc.get("height", src_h),
+        )
+        source = Image.open(source_path).convert("RGB")
+        snippet = sc["prompt"][:60] + "…" if len(sc["prompt"]) > 60 else sc["prompt"]
+        source_infos.append({
+            "path": source_path,
+            "label": src_label,
+            "prompt_snippet": snippet,
+            "image": source,
+        })
 
-    # Phase 2: Load the outpaint pipeline ONCE, run all variants
+    # Phase 2: Load the outpaint pipeline ONCE, expand all sources × all configs
     print(f"\n{'='*60}")
-    print(f"[selftest] Loading Flux2 Klein outpaint pipeline (shared across variants)")
+    print(f"[selftest] Loading Flux2 Klein outpaint pipeline (shared across all sources)")
     print(f"{'='*60}")
     pipeline = Flux2OutpaintPipeline()
-    results = []  # list of (label, path, (cw, ch))
+    # results_by_source: {src_label: [(label, path, (cw,ch), params)]}
+    results_by_source = {}
+    all_results = []  # flat list for VLM scoring
     try:
-        for c in configs:
-            label = c.get("label", "variant")
-            mode = c.get("mode", "expand")
-            if mode == "ratio":
-                sw, sh, left, top, cw, ch = _exp.compute_canvas(
-                    src_ow, src_oh, expand_dirs=None, pixels=0,
-                    ratio=c["ratio"], longest=longest,
+        for si, sinfo in enumerate(source_infos):
+            src_label = sinfo["label"]
+            source = sinfo["image"]
+            src_ow, src_oh = source.size
+            src_results = []
+            print(f"\n[selftest] --- Source '{src_label}' ({si+1}/{n_sources}) ---")
+            for c in configs:
+                clabel = c.get("label", "variant")
+                # Prefix with source label to avoid collisions
+                full_label = f"{src_label}/{clabel}"
+                mode = c.get("mode", "expand")
+                if mode == "ratio":
+                    sw, sh, left, top, cw, ch = _exp.compute_canvas(
+                        src_ow, src_oh, expand_dirs=None, pixels=0,
+                        ratio=c["ratio"], longest=longest,
+                    )
+                else:
+                    dirs = {d.strip().lower() for d in c.get("dirs", "left,right").split(",")}
+                    sw, sh, left, top, cw, ch = _exp.compute_canvas(
+                        src_ow, src_oh, expand_dirs=dirs,
+                        pixels=c.get("pixels", 512), ratio=None, longest=longest,
+                    )
+                c_feather = c.get("feather", feather)
+                c_overlap = c.get("overlap", overlap)
+                c_steps = c.get("steps", steps)
+                padded, mask = _exp.build_padded_and_mask(
+                    source, sw, sh, left, top, cw, ch, c_feather, overlap=c_overlap,
                 )
-            else:
-                dirs = {d.strip().lower() for d in c.get("dirs", "left,right").split(",")}
-                sw, sh, left, top, cw, ch = _exp.compute_canvas(
-                    src_ow, src_oh, expand_dirs=dirs,
-                    pixels=c.get("pixels", 512), ratio=None, longest=longest,
+                print(f"  Variant '{clabel}': {mode} → canvas {cw}x{ch} "
+                      f"(feather={c_feather} overlap={c_overlap} steps={c_steps})")
+                c_ref_str = c.get("ref_strength", test_cfg.get("ref_strength", 1.0))
+                res = pipeline.expand(
+                    padded_image=padded,
+                    mask_image=mask,
+                    width=cw,
+                    height=ch,
+                    prompt=c.get("prompt", _exp._DEFAULT_PROMPT),
+                    steps=c_steps,
+                    seed=c.get("seed", sources_cfg[si]["seed"]),
+                    ref_strength=c_ref_str,
                 )
-            padded, mask = _exp.build_padded_and_mask(
-                source, sw, sh, left, top, cw, ch, feather, overlap=overlap,
-            )
-            print(f"\n[selftest] Variant '{label}': {mode} → canvas {cw}x{ch}")
-            res = pipeline.expand(
-                padded_image=padded,
-                mask_image=mask,
-                width=cw,
-                height=ch,
-                prompt=c.get("prompt", _exp._DEFAULT_PROMPT),
-                steps=steps,
-                seed=c.get("seed", source_seed),
-            )
-            out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_prefix}_{label}.png")
-            res.image.save(out_path)
-            print(f"  Saved: {out_path}")
-            results.append((label, out_path, (cw, ch)))
+                safe_src = src_label.replace(" ", "_")
+                safe_cfg = clabel.replace(" ", "_")
+                out_path = os.path.join(cfg.OUTPUT_DIR,
+                                        f"{base_prefix}_{safe_src}_{safe_cfg}.png")
+                res.image.save(out_path)
+                print(f"  Saved: {out_path}")
+                item = (full_label, out_path, (cw, ch), {
+                    "feather": c_feather, "overlap": c_overlap, "steps": c_steps,
+                    "ref_strength": c_ref_str,
+                    "mode": mode,
+                    "dirs": c.get("dirs") if mode == "expand" else None,
+                    "ratio": c.get("ratio") if mode == "ratio" else None,
+                    "pixels": c.get("pixels") if mode == "expand" else None,
+                })
+                src_results.append(item)
+                all_results.append(item)
+            results_by_source[src_label] = src_results
     finally:
         del pipeline
         mx.clear_cache()
         gc.collect()
 
-    if not results:
+    if not all_results:
         print(f"\n[selftest] No expansion variants produced — skipping review.")
         return
 
@@ -3242,36 +3796,54 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
     print(f"[selftest] VLM quality scoring (optional)")
     print(f"{'='*60}")
     scores = {}
-    s = _fs._score_with_vlm(source_path, "source")
-    if s:
-        scores["source"] = s
-    for label, path, _ in results:
-        s = _fs._score_with_vlm(path, label)
+    for sinfo in source_infos:
+        s = _fs._score_with_vlm(sinfo["path"], sinfo["label"])
         if s:
-            scores[label] = s
+            scores[sinfo["label"]] = s
+    for full_label, path, _, _ in all_results:
+        s = _fs._score_with_vlm(path, full_label)
+        if s:
+            scores[full_label] = s
     if scores:
         print(f"[VLM] Scored {len(scores)} image(s)")
     else:
         print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
 
-    # Phase 4: Side-by-side HTML review
+    # Phase 4: Grouped HTML review
     html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
     _render_expansion_html(
         html_path=html_path,
         test_name=test_name,
         description=test_cfg.get("description", ""),
-        source_path=source_path,
-        results=results,
+        source_infos=[{"path": s["path"], "label": s["label"],
+                        "prompt_snippet": s["prompt_snippet"]}
+                      for s in source_infos],
+        results_by_source=results_by_source,
         scores=scores,
+        ts=ts,
     )
     print(f"\n[selftest] Review HTML: {html_path}")
     webbrowser.open(f"file://{os.path.abspath(html_path)}")
 
 
-def _render_expansion_html(*, html_path, test_name, description, source_path, results, scores):
-    """Write a simple side-by-side HTML review for an expansion self-test."""
-    import base64
+def _render_expansion_html(*, html_path, test_name, description, source_infos,
+                           results_by_source, scores, ts):
+    """Write an interactive HTML review for an expansion self-test.
 
+    Supports multiple source baselines — results are grouped by source with
+    per-source section headers.  Each variant has star ratings, issue tags,
+    verdict buttons, winner selection (for sweep tests), notes, localStorage
+    persistence, JSON export, and a summary section.
+
+    Args:
+        source_infos: list of {path, label, prompt_snippet} dicts
+        results_by_source: {src_label: [(label, path, (cw,ch), params), ...]}
+        scores: {label: {overall, detail, ...}} from VLM
+    """
+    import base64
+    import json as _json
+
+    # ---- helpers ----
     def _img_b64(path):
         with open(path, "rb") as f:
             return "data:image/png;base64," + base64.b64encode(f.read()).decode()
@@ -3286,36 +3858,442 @@ def _render_expansion_html(*, html_path, test_name, description, source_path, re
         )
         return f"<p class='score'>VLM overall <b>{s.get('overall', '?')}/10</b></p><div class='dims'>{cells}</div>"
 
-    cards = []
-    src_head = description.split("—")[0].strip() if "—" in description else "original"
-    cards.append(
-        f"<div class='card'><h3>Source ({src_head})</h3>"
-        f"<img src='{_img_b64(source_path)}'/>{_score_card('source')}</div>"
-    )
-    for label, path, (cw, ch) in results:
-        cards.append(
-            f"<div class='card'><h3>{label} <small>({cw}×{ch})</small></h3>"
-            f"<img src='{_img_b64(path)}'/>{_score_card(label)}</div>"
+    def _vid(label):
+        """Sanitise a label into a JS-safe id."""
+        return label.replace("-", "_").replace(" ", "_").replace("/", "_")
+
+    # ---- collect all results flat (for JS) ----
+    all_results = []
+    for src_label, items in results_by_source.items():
+        for item in items:
+            all_results.append((src_label, item))
+    is_sweep = len(all_results) > 1
+
+    ids = []
+    variants_js = []
+    for src_label, (label, path, (cw, ch), params) in all_results:
+        vid = _vid(label)
+        ids.append(vid)
+        variants_js.append({
+            "id": vid, "label": label, "src": src_label,
+            "path": os.path.basename(path),
+            "canvas": [cw, ch],
+            "params": params or {},
+            "vlm_score": scores.get(label),
+        })
+    ids_js = _json.dumps(ids)
+    variants_js_str = _json.dumps(variants_js)
+    sources_js_str = _json.dumps([{"label": s["label"], "snippet": s["prompt_snippet"]}
+                                  for s in source_infos])
+    storage_key = f"expansion_{test_name}_{ts}"
+
+    # ---- build HTML sections per source ----
+    ISSUE_DEFS = [
+        ("visible_seam", "🔗 Visible seam"),
+        ("blur_band", "🌫️ Blur band"),
+        ("color_mismatch", "🎨 Color mismatch"),
+        ("lighting", "💡 Lighting inconsistency"),
+        ("texture", "🧱 Texture discontinuity"),
+        ("seamless", "✅ Seamless"),
+    ]
+
+    sections_html = ""
+    for si, sinfo in enumerate(source_infos):
+        sl = sinfo["label"]
+        snippet = _html.escape(sinfo.get("prompt_snippet", ""))
+        # Source card
+        src_card = (
+            f"<div class='card src-card'>"
+            f"<div class='card-header'><span class='card-label'>Source: {_html.escape(sl)}</span>"
+            f"<span class='card-params'>{snippet}</span></div>"
+            f"<div class='img-wrap'><img src='{_img_b64(sinfo['path'])}' loading='lazy'"
+            f" onclick='zoom(this.src)'/></div>"
+            f"<div class='fb-zone'>{_score_card(sl)}</div>"
+            f"</div>"
+        )
+        # Variant cards for this source
+        src_items = results_by_source.get(sl, [])
+        var_cards = []
+        for item in src_items:
+            label, path, (cw, ch), params = item
+            vid = _vid(label)
+            # Display label: strip source prefix for cleaner UI
+            display = label.split("/", 1)[-1] if "/" in label else label
+            params_html = ""
+            if params:
+                pcells = "".join(
+                    f"<span class='dim'><b>{k}</b> {v}</span>" for k, v in params.items()
+                )
+                params_html = f"<div class='dims'>{pcells}</div>"
+            stars_html = "".join(
+                f"<span class='star' data-id='{vid}' data-value='{n}'"
+                f" onclick='setStars(\"{vid}\",{n})'>★</span>"
+                for n in range(1, 6)
+            )
+            issues_html = "".join(
+                f"<button class='issue-btn' data-id='{vid}' data-key='{key}'"
+                f" onclick='toggleIssue(\"{vid}\",\"{key}\")'>{txt}</button>"
+                for key, txt in ISSUE_DEFS
+            )
+            verdicts_html = (
+                f"<button class='verdict-btn vpass' data-id='{vid}' data-v='pass'"
+                f" onclick='setVerdict(\"{vid}\",\"pass\")'>PASS</button>"
+                f"<button class='verdict-btn vpartial' data-id='{vid}' data-v='partial'"
+                f" onclick='setVerdict(\"{vid}\",\"partial\")'>PARTIAL</button>"
+                f"<button class='verdict-btn vfail' data-id='{vid}' data-v='fail'"
+                f" onclick='setVerdict(\"{vid}\",\"fail\")'>FAIL</button>"
+            )
+            winner_html = ""
+            if is_sweep:
+                winner_html = (
+                    f"<div class='winner-row'>"
+                    f"<span class='winner-label'>Best variant?</span>"
+                    f"<button class='vb' data-id='{vid}' onclick='setWinner(\"{vid}\")'>"
+                    f"⭐ Pick</button></div>"
+                )
+            var_cards.append(
+                f"<div class='card' data-vid='{vid}'>"
+                f"<div class='card-header'>"
+                f"<span class='card-label'>{_html.escape(display)} <small>({cw}×{ch})</small></span>"
+                f"</div>"
+                f"<div class='img-wrap'><img src='{_img_b64(path)}' loading='lazy'"
+                f" onclick='zoom(this.src)'/></div>"
+                f"<div class='fb-zone'>"
+                f"{params_html}"
+                f"{_score_card(label)}"
+                f"<div class='section-label'>Seam Quality</div>"
+                f"<div class='seam-rating'>{stars_html}</div>"
+                f"<div class='section-label'>Issue Tags</div>"
+                f"<div class='issue-strip'>{issues_html}</div>"
+                f"<div class='section-label'>Verdict</div>"
+                f"<div class='verdict-row'>{verdicts_html}</div>"
+                f"{winner_html}"
+                f"<textarea class='notes' data-id='{vid}' placeholder='Notes…'"
+                f" oninput='setNote(\"{vid}\",this.value)'></textarea>"
+                f"</div></div>"
+            )
+
+        n_src = len(source_infos)
+        section_label = (f"Source {si+1}/{n_src}: {_html.escape(sl)}" if n_src > 1
+                         else _html.escape(sl))
+        sections_html += (
+            f"<div class='src-section'>"
+            f"<h2 class='src-title'>📂 {section_label}</h2>"
+            f"<div class='grid'>"
+            f"{src_card}{''.join(var_cards)}"
+            f"</div></div>"
         )
 
-    html = f"""<!doctype html><html><head><meta charset="utf-8"/>
+    # ---- assemble HTML ----
+    html = f"""<!doctype html>
+<html><head><meta charset="utf-8"/>
 <title>Expansion self-test — {test_name}</title>
 <style>
- body {{ font-family: -apple-system, sans-serif; background: #1a1a1a; color: #eee; margin: 24px; }}
- h1 {{ font-size: 20px; }} p.desc {{ color: #aaa; max-width: 900px; }}
- .row {{ display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }}
- .card {{ background: #262626; border-radius: 10px; padding: 12px; max-width: 520px; }}
- .card h3 {{ margin: 4px 0 8px; font-size: 15px; }} .card h3 small {{ color: #888; font-weight: normal; }}
- .card img {{ max-width: 100%; border-radius: 6px; display: block; }}
- .score {{ margin: 8px 0 4px; color: #6f6; }} .noscore {{ margin: 8px 0; color: #888; }}
- .dims {{ display: flex; flex-wrap: wrap; gap: 8px; }} .dim {{ background:#333; padding:3px 8px; border-radius:4px; font-size:12px; }}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:#0f172a;color:#e2e8f0;padding:20px}}
+h1{{font-size:1.3rem;margin-bottom:4px;color:#f8fafc}}
+.subtitle{{font-size:0.78rem;color:#64748b;margin-bottom:16px}}
+/* Source sections */
+.src-section{{margin-bottom:28px}}
+.src-title{{font-size:1rem;color:#94a3b8;margin-bottom:10px;padding-bottom:6px;
+            border-bottom:1px solid #334155}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;
+       align-items:start}}
+.card{{background:#1e293b;border-radius:10px;overflow:hidden;
+       border:1px solid #334155;display:flex;flex-direction:column}}
+.src-card{{border-color:#3b82f6}}
+.card-header{{padding:9px 11px;background:#0f172a;border-bottom:1px solid #1e293b}}
+.card-label{{font-weight:700;font-size:0.85rem;color:#f1f5f9;display:block}}
+.card-label small{{color:#64748b;font-weight:normal}}
+.card-params{{font-size:0.68rem;color:#64748b;font-family:monospace;display:block;margin-top:2px}}
+.img-wrap{{background:#000;display:flex;align-items:center;justify-content:center}}
+.img-wrap img{{width:100%;height:auto;display:block;max-height:380px;
+               object-fit:contain;cursor:zoom-in}}
+.fb-zone{{padding:6px 0}}
+.dims{{display:flex;flex-wrap:wrap;gap:6px;padding:4px 10px}}
+.dim{{background:#334155;padding:3px 8px;border-radius:4px;font-size:0.72rem;color:#94a3b8}}
+.score{{margin:2px 10px;color:#6f6;font-size:0.8rem}}
+.noscore{{margin:2px 10px;color:#475569;font-size:0.8rem}}
+.section-label{{font-size:0.62rem;color:#475569;padding:6px 10px 2px;
+  font-weight:600;letter-spacing:.04em;text-transform:uppercase}}
+/* Stars */
+.seam-rating{{display:flex;gap:2px;padding:4px 10px}}
+.star{{font-size:1.3rem;cursor:pointer;color:#334155;transition:color .15s;user-select:none}}
+.star.active{{color:#fbbf24}}
+.star:hover{{color:#fcd34d}}
+/* Issue tags */
+.issue-strip{{display:flex;flex-wrap:wrap;gap:4px;padding:4px 10px;
+              border-bottom:1px solid #1e293b}}
+.issue-btn{{font-size:0.68rem;padding:3px 8px;border-radius:999px;cursor:pointer;
+            border:1px solid #475569;background:#1e293b;color:#94a3b8;transition:all .15s}}
+.issue-btn.active{{background:#334155;color:#f1f5f9;border-color:#64748b}}
+/* Verdict */
+.verdict-row{{display:flex;gap:6px;padding:6px 10px;border-bottom:1px solid #1e293b}}
+.verdict-btn{{flex:1;font-size:0.72rem;font-weight:700;padding:5px 4px;
+              border-radius:6px;cursor:pointer;border:none;
+              background:#1e293b;color:#64748b;transition:all .15s}}
+.verdict-btn.active.vpass{{background:#16a34a;color:#fff}}
+.verdict-btn.active.vpartial{{background:#d97706;color:#fff}}
+.verdict-btn.active.vfail{{background:#dc2626;color:#fff}}
+.verdict-btn:not(.active){{border:1px solid #334155}}
+/* Winner */
+.winner-row{{display:flex;align-items:center;gap:8px;padding:6px 10px;
+             border-bottom:1px solid #1e293b}}
+.winner-label{{font-size:0.68rem;color:#475569;font-weight:600}}
+.vb{{font-size:0.72rem;padding:4px 12px;border-radius:6px;cursor:pointer;
+     border:1px solid #475569;background:#1e293b;color:#64748b;transition:all .15s}}
+.vb.sel{{background:#7c3aed;color:#fff;border-color:#7c3aed}}
+/* Notes */
+.notes{{width:100%;background:#0f172a;border:none;color:#94a3b8;
+        padding:7px 11px;font-size:0.70rem;font-family:inherit;
+        resize:vertical;outline:none;border-top:1px solid #1e293b}}
+.notes:focus{{background:#1e293b;color:#e2e8f0}}
+/* Summary */
+.summary{{background:#1e293b;border:1px solid #334155;border-radius:10px;
+          padding:16px 20px;margin-top:20px}}
+.summary h2{{font-size:0.9rem;margin-bottom:10px;color:#f1f5f9}}
+.summary-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+               gap:12px}}
+.summary-item{{display:flex;flex-direction:column;gap:2px}}
+.summary-item .val{{font-size:1.1rem;font-weight:700;color:#f8fafc}}
+.summary-item .lbl{{font-size:0.68rem;color:#64748b}}
+.summary-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.75rem}}
+.summary-table th{{text-align:left;color:#94a3b8;padding:4px 8px;
+                   border-bottom:1px solid #334155}}
+.summary-table td{{padding:4px 8px;color:#e2e8f0;border-bottom:1px solid #1e293b}}
+/* Bottom bar */
+.bottom-bar{{position:sticky;bottom:0;background:#0f172a;border-top:1px solid #334155;
+             padding:10px 20px;display:flex;align-items:center;gap:12px;margin-top:20px}}
+.bottom-bar button{{padding:7px 16px;border-radius:7px;cursor:pointer;
+                    font-size:0.8rem;font-weight:600;border:none}}
+.btn-export{{background:#3b82f6;color:#fff}}
+.btn-copy{{background:#334155;color:#94a3b8}}
+.btn-dl{{background:#334155;color:#94a3b8}}
+.btn-reset{{background:#334155;color:#94a3b8}}
+.saved-hint{{font-size:0.70rem;color:#64748b}}
+/* Overlay */
+.overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);
+          z-index:100;align-items:center;justify-content:center;cursor:zoom-out}}
+.overlay.show{{display:flex}}
+.overlay img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:6px}}
 </style></head><body>
-<h1>Flux2 Klein Outpaint — {test_name}</h1>
-<p class="desc">{description}</p>
-<div class="row">
-{''.join(cards)}
-</div></body></html>"""
-    with open(html_path, "w") as f:
+<h1>Flux2 Klein Outpaint — {_html.escape(test_name)}</h1>
+<p class="subtitle">{_html.escape(description)} · click stars/tags/verdict to review · auto-saved</p>
+{sections_html}
+<div class="summary" id="summary"></div>
+<div class="bottom-bar">
+  <button class="btn-export" onclick="exportJSON()">📋 Export JSON</button>
+  <button class="btn-copy" onclick="copyText()">📝 Copy Text</button>
+  <button class="btn-dl" onclick="downloadJSON()">💾 Download</button>
+  <button class="btn-reset" onclick="resetAll()">🔄 Reset</button>
+  <span class="saved-hint" id="saved-hint">Auto-saved</span>
+</div>
+<div class="overlay" id="overlay" onclick="this.classList.remove('show')">
+  <img id="overlay-img" src="">
+</div>
+<script>
+const STORAGE_KEY='{storage_key}';
+const IDS={ids_js};
+const VARIANTS={variants_js_str};
+const SOURCES={sources_js_str};
+const IS_SWEEP={str(is_sweep).lower()};
+let fb={{}};
+let winner=null;
+
+function initFeedback(){{
+  IDS.forEach(id=>fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}});
+  try{{
+    const s=localStorage.getItem(STORAGE_KEY);
+    if(s){{const saved=JSON.parse(s);
+      if(saved.fb)IDS.forEach(id=>{{if(saved.fb[id])fb[id]={{...fb[id],...saved.fb[id]}}}});
+      if(saved.winner)winner=saved.winner;
+    }}
+  }}catch(e){{}}
+  render();
+  document.querySelectorAll('.notes').forEach(ta=>{{
+    const id=ta.dataset.id;if(fb[id])ta.value=fb[id].notes||'';
+  }});
+}}
+
+function save(){{
+  try{{localStorage.setItem(STORAGE_KEY,JSON.stringify({{fb,winner}}));}}catch(e){{}}
+  const h=document.getElementById('saved-hint');h.textContent='Saved ✓';
+  setTimeout(()=>h.textContent='Auto-saved',1200);
+}}
+
+function setStars(id,n){{
+  if(!fb[id])fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}};
+  fb[id].stars=fb[id].stars===n?0:n;
+  save();render();updateSummary();
+}}
+
+function toggleIssue(id,key){{
+  if(!fb[id])fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}};
+  fb[id].issues[key]=!fb[id].issues[key];
+  save();render();updateSummary();
+}}
+
+function setVerdict(id,v){{
+  if(!fb[id])fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}};
+  fb[id].verdict=fb[id].verdict===v?null:v;
+  save();render();updateSummary();
+}}
+
+function setWinner(id){{
+  winner=winner===id?null:id;
+  save();render();updateSummary();
+}}
+
+function setNote(id,val){{
+  if(!fb[id])fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}};
+  fb[id].notes=val;
+  save();
+}}
+
+function render(){{
+  IDS.forEach(id=>{{
+    const s=fb[id]||{{}};
+    document.querySelectorAll(`.star[data-id="${{id}}"]`).forEach(star=>{{
+      star.classList.toggle('active',parseInt(star.dataset.value)<=s.stars);
+    }});
+    document.querySelectorAll(`.issue-btn[data-id="${{id}}"]`).forEach(btn=>{{
+      btn.classList.toggle('active',!!(s.issues||{{}})[btn.dataset.key]);
+    }});
+    document.querySelectorAll(`.verdict-btn[data-id="${{id}}"]`).forEach(btn=>{{
+      btn.classList.toggle('active',btn.dataset.v===s.verdict);
+    }});
+  }});
+  if(IS_SWEEP){{
+    document.querySelectorAll('.vb').forEach(btn=>{{
+      btn.classList.toggle('sel',btn.dataset.id===winner);
+    }});
+  }}
+}}
+
+function updateSummary(){{
+  let reviewed=0,totalStars=0,starCount=0;
+  const vCounts={{pass:0,partial:0,fail:0}};
+  const iCounts={{}};
+  IDS.forEach(id=>{{
+    const s=fb[id];
+    if(s.stars>0||s.verdict)reviewed++;
+    if(s.stars>0){{totalStars+=s.stars;starCount++;}}
+    if(s.verdict)vCounts[s.verdict]++;
+    Object.keys(s.issues||{{}}).forEach(k=>{{
+      if(s.issues[k])iCounts[k]=(iCounts[k]||0)+1;
+    }});
+  }});
+  const avgStars=starCount?(totalStars/starCount).toFixed(1):'—';
+  let h=`<h2>Summary</h2><div class="summary-grid">`;
+  h+=`<div class="summary-item"><span class="val">${{reviewed}}/${{IDS.length}}</span><span class="lbl">Variants reviewed</span></div>`;
+  h+=`<div class="summary-item"><span class="val">${{avgStars}}</span><span class="lbl">Avg seam rating</span></div>`;
+  h+=`<div class="summary-item"><span class="val">P${{vCounts.pass}} W${{vCounts.partial}} F${{vCounts.fail}}</span><span class="lbl">Verdicts</span></div>`;
+  if(IS_SWEEP&&winner)h+=`<div class="summary-item"><span class="val">⭐ ${{winner}}</span><span class="lbl">Winner</span></div>`;
+  const issueStr=Object.entries(iCounts).filter(e=>e[1]>0).map(([k,v])=>`${{k}}:${{v}}`).join(', ');
+  if(issueStr)h+=`<div class="summary-item"><span class="val">${{issueStr}}</span><span class="lbl">Issues</span></div>`;
+  h+=`</div>`;
+  // Per-source VLM vs Human table
+  if(IDS.length>0){{
+    h+=`<table class="summary-table"><tr><th>Source</th><th>Variant</th><th>VLM</th><th>Human ★</th><th>Verdict</th></tr>`;
+    IDS.forEach(id=>{{
+      const v=VARIANTS.find(x=>x.id===id);
+      const vlm=v&&v.vlm_score?v.vlm_score.overall:'—';
+      const s=fb[id]||{{}};
+      const display=v?v.label.split('/').pop():id;
+      h+=`<tr><td>${{v?v.src:'?'}}</td><td>${{display}}</td><td>${{vlm}}/10</td><td>${{s.stars||'—'}}</td><td>${{s.verdict||'—'}}</td></tr>`;
+    }});
+    h+=`</table>`;
+  }}
+  document.getElementById('summary').innerHTML=h;
+}}
+
+function _buildJSON(){{
+  const variants={{}};
+  VARIANTS.forEach(v=>{{
+    const s=fb[v.id]||{{}};
+    variants[v.label]={{
+      source:v.src,path:v.path,canvas:v.canvas,params:v.params,
+      vlm_score:v.vlm_score,
+      human_feedback:{{
+        stars:s.stars||0,
+        issues:Object.keys(s.issues||{{}}).filter(k=>s.issues[k]),
+        verdict:s.verdict||null,notes:s.notes||''
+      }}
+    }};
+  }});
+  return{{
+    test_name:'{test_name}',timestamp:'{ts}',
+    sources:SOURCES,
+    variants,winner,
+    summary:{{
+      total_variants:IDS.length,
+      reviewed:IDS.filter(id=>fb[id].stars>0||fb[id].verdict).length,
+      avg_stars:IDS.filter(id=>fb[id].stars>0).length?
+        (IDS.reduce((a,id)=>a+fb[id].stars,0)/IDS.filter(id=>fb[id].stars>0).length).toFixed(1):null,
+      verdict_counts:Object.fromEntries(
+        ['pass','partial','fail'].map(v=>[v,IDS.filter(id=>fb[id].verdict===v).length])
+      )
+    }}
+  }};
+}}
+
+function exportJSON(){{
+  navigator.clipboard.writeText(JSON.stringify(_buildJSON(),null,2)).then(()=>{{
+    const h=document.getElementById('saved-hint');h.textContent='Copied!';
+    setTimeout(()=>h.textContent='Auto-saved',2000);
+  }});
+}}
+
+function downloadJSON(){{
+  const b=new Blob([JSON.stringify(_buildJSON(),null,2)],{{type:'application/json'}});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);
+  a.download='{test_name}_feedback_{ts}.json';a.click();
+}}
+
+function copyText(){{
+  const d=_buildJSON();
+  const lines=[`Expansion: ${{d.test_name}} (${{d.timestamp}})`];
+  // Group by source
+  const bySrc={{}};
+  Object.entries(d.variants).forEach(([k,v])=>{{
+    const src=v.source||'?';if(!bySrc[src])bySrc[src]=[];
+    bySrc[src].push([k,v]);
+  }});
+  Object.entries(bySrc).forEach(([src,items])=>{{
+    lines.push(`  [${{src}}]`);
+    items.forEach(([k,v])=>{{
+      lines.push(`    ${{k.split('/').pop()}}: ★${{v.human_feedback.stars||'—'}} ${{v.human_feedback.verdict||''}} ${{v.human_feedback.issues.join(', ')||''}}`);
+      if(v.human_feedback.notes)lines.push(`      Notes: ${{v.human_feedback.notes}}`);
+    }});
+  }});
+  if(d.winner)lines.push(`  Winner: ${{d.winner}}`);
+  navigator.clipboard.writeText(lines.join('\\n')).then(()=>{{
+    const h=document.getElementById('saved-hint');h.textContent='Copied!';
+    setTimeout(()=>h.textContent='Auto-saved',2000);
+  }});
+}}
+
+function resetAll(){{
+  if(!confirm('Reset all feedback?'))return;
+  IDS.forEach(id=>fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}});
+  winner=null;
+  document.querySelectorAll('.notes').forEach(ta=>ta.value='');
+  localStorage.removeItem(STORAGE_KEY);
+  render();updateSummary();
+}}
+
+function zoom(src){{
+  document.getElementById('overlay-img').src=src;
+  document.getElementById('overlay').classList.add('show');
+}}
+
+initFeedback();
+updateSummary();
+</script>
+</body></html>"""
+
+    with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
 
 
@@ -5551,7 +6529,7 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
         cap_dict = {}
         for ci, path in enumerate(t["paths"]):
             col_letter = chr(65 + ci)  # A, B, C, ...
-            cap = _caption_image(path, style="photography", lang="en")
+            cap = _caption_image(path, style="compare", lang="en")
             cap_dict[f"caption_{chr(97+ci)}"] = cap
             print(f"    [{col_letter}] {cap[:100]}...")
         style_b = _caption_image(t["paths"][1], style="style", lang="en")
@@ -5640,6 +6618,12 @@ def _render_style_ab_html(*, output_dir, base_name, test_name,
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>Style A/B Test</title>
+<script>
+const LANG=localStorage.getItem('ab-lang')||'en';
+const T={{title:{{en:'Style A/B Test',zh:'風格 A/B 測試'}},subtitle:{{en:'Compare styles — vote for the best result per prompt',zh:'比較風格 — 為每個 prompt 投票選出最佳結果'}},best:{{en:'Best:',zh:'最佳：'}},notes:{{en:'Notes...',zh:'備註...'}},reset:{{en:'Reset',zh:'重設'}},copyJson:{{en:'📋 Copy JSON',zh:'📋 複製 JSON'}},saveFile:{{en:'💾 Save File',zh:'💾 儲存檔案'}},copied:{{en:'Copied!',zh:'已複製！'}},caption:{{en:'Caption:',zh:'描述：'}},voted:{{en:'voted',zh:'已投票'}},langBtn:{{en:'🌐 中文',zh:'🌐 EN'}}}};
+function t(k){{return T[k]?.[LANG]||T[k]?.en||k}}
+function toggleLang(){{localStorage.setItem('ab-lang',LANG==='zh'?'en':'zh');location.reload()}}
+</script>
 <style>
 :root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500;--pipe:#6c5ce7}}
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -5668,16 +6652,17 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-seri
 .ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;cursor:zoom-out;justify-content:center;align-items:center}}
 .ov.show{{display:flex}}.ov img{{max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px}}
 </style></head><body>
-<div class="hd"><h1>Style A/B Test</h1>
-<p>Compare realism styles — vote for the best result per prompt</p></div>
+<div class="hd"><h1 id="h-title"></h1>
+<p id="h-sub"></p></div>
 <div id="ct"></div>
 <div class="bb">
 <span id="stats" style="font-size:0.85em;color:var(--muted)">0 voted</span>
 <div style="display:flex;gap:8px;align-items:center">
-<button class="btn bs" onclick="resetAll()">Reset</button>
-<button class="btn bp" onclick="copyFeedback()" title="Copy JSON to clipboard">📋 Copy JSON</button>
-<button class="btn bp" onclick="saveFeedback()" title="Save JSON file">💾 Save File</button>
-<span id="copied" style="color:var(--success);font-size:0.8em;opacity:0;transition:opacity .3s">Copied!</span>
+<button class="btn bs" onclick="toggleLang()" id="btn-lang"></button>
+<button class="btn bs" onclick="resetAll()" id="btn-reset"></button>
+<button class="btn bp" onclick="copyFeedback()" title="Copy JSON to clipboard" id="btn-copy"></button>
+<button class="btn bp" onclick="saveFeedback()" title="Save JSON file" id="btn-save"></button>
+<span id="copied" style="color:var(--success);font-size:0.8em;opacity:0;transition:opacity .3s"></span>
 </div>
 </div>
 <div class="ov" id="ov" onclick="this.classList.remove('show')"><img id="oi" src=""></div>
@@ -5688,6 +6673,12 @@ const N={n_cols_json};
 const V={{}};  // {{index: 'a'|'b'|'c'|'d'}}
 const Nt={{}}; // {{index: notes}}
 function render(){{
+document.getElementById('h-title').textContent=t('title');
+document.getElementById('h-sub').textContent=t('subtitle');
+document.getElementById('btn-lang').textContent=t('langBtn');
+document.getElementById('btn-reset').textContent=t('reset');
+document.getElementById('btn-copy').textContent=t('copyJson');
+document.getElementById('btn-save').textContent=t('saveFile');
 const ct=document.getElementById('ct');
 ct.innerHTML=R.map((r,i)=>{{
 const v=V[i]||'';
@@ -5700,7 +6691,7 @@ for(let c=0;c<r.images.length;c++){{
   cols+=`<div class="col"><div class="lb ${{cls}}">${{L[c]||('Col '+c)}}</div>`
     +`<img src="${{r.images[c]}}" onclick="z('${{r.images[c]}}')" loading="lazy">`
     +`<div class="tm">${{tm}}</div>`
-    +`<div class="cp"><b>Caption:</b> ${{cap.substring(0,200)}}${{cap.length>200?'...':''}}</div></div>`;
+    +`<div class="cp"><b>${{t('caption')}}</b> ${{cap.substring(0,200)}}${{cap.length>200?'...':''}}</div></div>`;
 }}
 let btns='';
 for(let c=0;c<r.images.length;c++){{
@@ -5709,10 +6700,10 @@ for(let c=0;c<r.images.length;c++){{
 }}
 return `<div class="row"><div class="row-hd"><h3>${{r.prompt}} <span class="sub">(seed=${{r.seed}})</span></h3></div>`
 +`<div class="imgs">${{cols}}</div>`
-+`<div class="vt"><label>Best:</label>${{btns}}`
-+`<textarea class="nt" placeholder="Notes..." oninput="note(${{i}},this.value)">${{nt}}</textarea></div></div>`;
++`<div class="vt"><label>${{t('best')}}</label>${{btns}}`
++`<textarea class="nt" placeholder="${{t('notes')}}" oninput="note(${{i}},this.value)">${{nt}}</textarea></div></div>`;
 }}).join('');
-document.getElementById('stats').textContent=Object.keys(V).length+'/'+R.length+' voted';
+document.getElementById('stats').textContent=Object.keys(V).length+'/'+R.length+' '+t('voted');
 }}
 function vote(i,k){{if(V[i]===k)delete V[i];else V[i]=k;render();}}
 function note(i,txt){{Nt[i]=txt;}}
@@ -5732,10 +6723,10 @@ return JSON.stringify({{
 function copyFeedback(){{
 const json=_buildJSON();
 navigator.clipboard.writeText(json).then(()=>{{
-  const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+  const el=document.getElementById('copied');el.textContent=t('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
 }}).catch(()=>{{
   const ta=document.createElement('textarea');ta.value=json;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
-  const el=document.getElementById('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
+  const el=document.getElementById('copied');el.textContent=t('copied');el.style.opacity='1';setTimeout(()=>el.style.opacity='0',2000);
 }});
 }}
 function saveFeedback(){{
@@ -5983,6 +6974,12 @@ def _render_lora_ref_html(*, output_dir, base_name, test_name, test_cfg,
     html_content = (
         f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><title>Anime2Real Ref+LoRA Review</title>
+<script>
+const LANG=localStorage.getItem('ab-lang')||'en';
+const T={{title:{{en:'Anime to Realistic: Ref+LoRA vs I2I',zh:'動漫轉寫實：Ref+LoRA vs I2I'}},subtitle:{{en:'Flux2KleinEdit reference conditioning preserves identity while converting anime to photorealistic',zh:'Flux2KleinEdit 參考條件保留身份特徵，同時將動漫轉為寫實風格'}},howWorks:{{en:'How and Why It Works',zh:'原理說明'}},howDesc:{{en:'The anime input is VAE-encoded into <b>reference latent tokens</b> and <b>concatenated</b> with noise latents (NOT mixed). The model sees the original character at every denoising step, preserving identity. The anime2real LoRA biases the transformer toward realistic output.',zh:'動漫輸入經 VAE 編碼為<b>參考潛空間 token</b>，與噪聲潛空間<b>拼接</b>（非混合）。模型在每個去噪步驟都能看到原始角色，保留身份特徵。anime2real LoRA 引導 Transformer 產生寫實輸出。'}},newRef:{{en:'NEW: Ref+LoRA (Column B)',zh:'新方法：Ref+LoRA（B 欄）'}},oldI2I:{{en:'OLD: I2I+LoRA (Column C)',zh:'舊方法：I2I+LoRA（C 欄）'}},refLoraTips:{{en:'<li>Reference tokens preserve structure and identity</li><li>LoRA converts anime to realistic style</li><li>No high-denoise requirement (starts from pure noise)</li><li>Output looks like a real cosplayer</li>',zh:'<li>參考 token 保留結構與身份</li><li>LoRA 將動漫風格轉為寫實</li><li>不需要高去噪（從純噪聲開始）</li><li>輸出像真實的 Cosplayer</li>'}},i2iTips:{{en:'<li>Mixes clean latent with noise: 80% noise at denoise=0.6</li><li>LoRA needs high noise to activate, but noise destroys identity</li><li>Output: completely different person</li><li>LoRA only works at denoise &gt;= 0.6</li>',zh:'<li>將乾淨潛空間與噪聲混合：denoise=0.6 時 80% 為噪聲</li><li>LoRA 需要高噪聲才能啟動，但噪聲會破壞身份</li><li>輸出：完全不同的人</li><li>LoRA 只在 denoise ≥ 0.6 時有效</li>'}},colA:{{en:'A: Anime Baseline',zh:'A：動漫原圖'}},colB:{{en:'B: Ref+LoRA (NEW)',zh:'B：Ref+LoRA（新）'}},colC:{{en:'C: I2I+LoRA (OLD)',zh:'C：I2I+LoRA（舊）'}},colD:{{en:'D: Pipeline',zh:'D：Pipeline'}},caption:{{en:'Caption:',zh:'描述：'}},style:{{en:'Style:',zh:'風格：'}},winner:{{en:'Winner:',zh:'贏家：'}},skip:{{en:'Skip',zh:'跳過'}},reset:{{en:'Reset',zh:'重設'}},exportJson:{{en:'Export JSON',zh:'匯出 JSON'}},refWins:{{en:'Ref+LoRA wins',zh:'Ref+LoRA 勝'}},langBtn:{{en:'🌐 中文',zh:'🌐 EN'}}}};
+function t(k){{return T[k]?.[LANG]||T[k]?.en||k}}
+function toggleLang(){{localStorage.setItem('ab-lang',LANG==='zh'?'en':'zh');location.reload()}}
+</script>
 <style>
 :root{{--bg:#1a1a2e;--card:#16213e;--border:#0f3460;--accent:#e94560;--text:#eee;--muted:#999;--success:#4ecca3;--warn:#f0a500;--pipe:#6c5ce7}}
 *{{box-sizing:border-box;margin:0;padding:0}}
@@ -6018,65 +7015,70 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,sans-seri
 .ov{{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;cursor:zoom-out;justify-content:center;align-items:center}}
 .ov.show{{display:flex}}.ov img{{max-width:95vw;max-height:95vh;object-fit:contain;border-radius:8px}}
 </style></head><body>
-<div class="hd"><h1>Anime to Realistic: Ref+LoRA vs I2I</h1>
-<p>Flux2KleinEdit reference conditioning preserves identity while converting anime to photorealistic</p></div>
-<div class="hw"><h3>How and Why It Works</h3>
-<p>The anime input is VAE-encoded into <b>reference latent tokens</b> and <b>concatenated</b> with noise latents (NOT mixed).
-The model sees the original character at every denoising step, preserving identity.
-The anime2real LoRA biases the transformer toward realistic output.</p>
+<div class="hd"><h1 id="h-title"></h1>
+<p id="h-sub"></p></div>
+<div class="hw"><h3 id="h-how"></h3>
+<p id="h-howdesc"></p>
 <div class="g2">
-<div class="ap gd"><h4>NEW: Ref+LoRA (Column B)</h4><ul>
-<li>Reference tokens preserve structure and identity</li><li>LoRA converts anime to realistic style</li>
-<li>No high-denoise requirement (starts from pure noise)</li><li>Output looks like a real cosplayer</li></ul></div>
-<div class="ap bd"><h4>OLD: I2I+LoRA (Column C)</h4><ul>
-<li>Mixes clean latent with noise: 80% noise at denoise=0.6</li>
-<li>LoRA needs high noise to activate, but noise destroys identity</li>
-<li>Output: completely different person</li><li>LoRA only works at denoise &gt;= 0.6</li></ul></div>
+<div class="ap gd"><h4 id="h-newref"></h4><ul id="h-refips"></ul></div>
+<div class="ap bd"><h4 id="h-oldi2i"></h4><ul id="h-i2itips"></ul></div>
 {panel_d_html}
 </div></div>
 <div id="ct"></div>
 <div class="bb"><span id="vc" style="font-size:0.85em;color:var(--muted)">0 Ref+LoRA wins</span>
-<div><button class="btn bs" onclick="resetAll()" style="margin-right:8px">Reset</button>
-<button class="btn bp" onclick="exportJSON()">Export JSON</button></div></div>
+<div><button class="btn bs" onclick="toggleLang()" id="btn-lang2" style="margin-right:4px"></button>
+<button class="btn bs" onclick="resetAll()" id="btn-reset2" style="margin-right:8px">Reset</button>
+<button class="btn bp" onclick="exportJSON()" id="btn-export"></button></div></div>
 <div class="ov" id="ov" onclick="this.classList.remove('show')"><img id="oi" src=""></div>
 <script>
 const C={cj};const V={{}};
 function render(){{
+document.getElementById('h-title').textContent=t('title');
+document.getElementById('h-sub').textContent=t('subtitle');
+document.getElementById('h-how').textContent=t('howWorks');
+document.getElementById('h-howdesc').innerHTML=t('howDesc');
+document.getElementById('h-newref').textContent=t('newRef');
+document.getElementById('h-refips').innerHTML=t('refLoraTips');
+document.getElementById('h-oldi2i').textContent=t('oldI2I');
+document.getElementById('h-i2itips').innerHTML=t('i2iTips');
+document.getElementById('btn-lang2').textContent=t('langBtn');
+document.getElementById('btn-reset2').textContent=t('reset');
+document.getElementById('btn-export').textContent=t('exportJson');
 document.getElementById('ct').innerHTML=C.map((c,i)=>{{
 let html=`<div class="tr"><div class="th"><h3>${{c.prompt_name}} <span style="font-size:0.75em;color:var(--muted)">(seed=${{c.seed}})</span></h3>
 <div class="mt2">${{c.anime_prompt}}</div></div><div class="im">`
-+`<div class="cl"><div class="lb a">A: Anime Baseline</div><img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
-<div class="tm">${{c.timing_a}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>`
-+`<div class="cl"><div class="lb b">B: Ref+LoRA (NEW)</div><img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
-<div class="tm">${{c.timing_b}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_b.substring(0,300)}}${{c.cap_b.length>300?'...':''}}</div>
-<div class="cp" style="margin-top:4px"><b>Style:</b> ${{c.style_b}}</div></div>`
-+`<div class="cl"><div class="lb c">C: I2I+LoRA (OLD)</div><img src="${{c.img_c}}" onclick="z('${{c.img_c}}')" loading="lazy">
-<div class="tm">${{c.timing_c}}s</div><div class="cp"><b>Caption:</b> ${{c.cap_c.substring(0,300)}}${{c.cap_c.length>300?'...':''}}</div></div>`"""
++`<div class="cl"><div class="lb a">${{t('colA')}}</div><img src="${{c.img_a}}" onclick="z('${{c.img_a}}')" loading="lazy">
+<div class="tm">${{c.timing_a}}s</div><div class="cp"><b>${{t('caption')}}</b> ${{c.cap_a.substring(0,300)}}${{c.cap_a.length>300?'...':''}}</div></div>`
++`<div class="cl"><div class="lb b">${{t('colB')}}</div><img src="${{c.img_b}}" onclick="z('${{c.img_b}}')" loading="lazy">
+<div class="tm">${{c.timing_b}}s</div><div class="cp"><b>${{t('caption')}}</b> ${{c.cap_b.substring(0,300)}}${{c.cap_b.length>300?'...':''}}</div>
+<div class="cp" style="margin-top:4px"><b>${{t('style')}}</b> ${{c.style_b}}</div></div>`
++`<div class="cl"><div class="lb c">${{t('colC')}}</div><img src="${{c.img_c}}" onclick="z('${{c.img_c}}')" loading="lazy">
+<div class="tm">${{c.timing_c}}s</div><div class="cp"><b>${{t('caption')}}</b> ${{c.cap_c.substring(0,300)}}${{c.cap_c.length>300?'...':''}}</div></div>`"""
     )
 
     # Add column D dynamically
     if has_d:
         html_content += (
-            """`+(()=>{
+            f"""`+(()=>{{
 if(!c.has_d||!c.img_d)return '';
-return `<div class="cl"><div class="lb d">D: ${{c.label_d||'Pipeline'}}</div><img src="${{c.img_d}}" onclick="z('${{c.img_d}}')" loading="lazy">
-<div class="tm">${{c.timing_d}}s</div><div class="cp"><b>Caption:</b> ${{(c.cap_d||'').substring(0,300)}}${{(c.cap_d||'').length>300?'...':''}}</div></div>`;
-})()+`"""
+return `<div class="cl"><div class="lb d">${{t('colD')}}</div><img src="${{c.img_d}}" onclick="z('${{c.img_d}}')" loading="lazy">
+<div class="tm">${{c.timing_d}}s</div><div class="cp"><b>${{t('caption')}}</b> ${{(c.cap_d||'').substring(0,300)}}${{(c.cap_d||'').length>300?'...':''}}</div></div>`;
+}})()+`"""
         )
     html_content += (
-        """</div>${{c.metrics_html||''}}
-<div class="vr"><span style="font-size:0.8em;color:var(--muted)">Winner:</span>
+        f"""</div>${{c.metrics_html||''}}
+<div class="vr"><span style="font-size:0.8em;color:var(--muted)">${{t('winner')}}</span>
 <button class="vb ${{V[i]===\\"a\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"a\\")">A</button>
-<button class="vb ${{V[i]===\\"b\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"b\\")">B: Ref+LoRA</button>
+<button class="vb ${{V[i]===\\"b\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"b\\")">B</button>
 <button class="vb ${{V[i]===\\"c\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"c\\")">C</button>"""
     )
     if has_d:
         html_content += (
-            """<button class="vb ${{V[i]===\\"d\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"d\\")">D: Pipeline</button>"""
+            f"""<button class="vb ${{V[i]===\\"d\\"?\\"sel\\":\\"\\"}}" onclick="v(${{i}},\\"d\\")">D</button>"""
         )
     html_content += (
-        """<button class="vb" onclick="v(${{i}},null)">Skip</button></div></div>`;return html;}}).join('');
-document.getElementById('vc').textContent=Object.values(V).filter(x=>x==='b').length+' Ref+LoRA wins';}}
+        f"""<button class="vb" onclick="v(${{i}},null)">${{t('skip')}}</button></div></div>`;return html;}}).join('');
+document.getElementById('vc').textContent=Object.values(V).filter(x=>x==='b').length+' '+t('refWins');}}
 function v(i,c){{if(c)V[i]=c;else delete V[i];render();}}
 function z(s){{document.getElementById('oi').src=s;document.getElementById('ov').classList.add('show');}}
 function resetAll(){{Object.keys(V).forEach(k=>delete V[k]);render();}}
@@ -6096,9 +7098,9 @@ const imgs={{baseline:c.img_a,ref_lora:c.img_b,i2i_lora:c.img_c}};"""
             """if(c.has_d&&c.timing_d)tms.d=c.timing_d;"""
         )
     html_content += (
-        """return{{prompt:c.prompt_name,seed:c.seed,anime_prompt:c.anime_prompt,images:imgs,timings:tms,vote:V[i]||null}};}});"""
+        f"""return{{prompt:c.prompt_name,seed:c.seed,anime_prompt:c.anime_prompt,images:imgs,timings:tms,vote:V[i]||null}};}});"""
         f"""const b=new Blob([JSON.stringify({{test:"{test_name}",ts:"{ts}",results:r}},null,2)],{{type:'application/json'}});"""
-        """const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='anime2real-votes.json';a.click();}}
+        f"""const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='anime2real-votes.json';a.click();}}
 render();
 </script></body></html>"""
     )

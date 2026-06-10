@@ -52,6 +52,41 @@ All workflows run on **Apple Silicon (MPS backend)**. This constrains what works
 | 3 | LTX-2.3 Video Generation | `ltx2.3-singularity.json` | LTX-2.3 22B bf16 + Singularity LoRA |
 | 4 | Moody Zimage Photorealistic | `moody-zimage-v7.5.json` | Moody V12.6 DPO + SeedVR2 7B |
 
+## Image Caption (replaces MCP image analysis)
+
+Use `run.py caption` to analyze local images with a local VLM (Qwen3-VL 4B via LM Studio). **Prefer this over MCP-based image analysis tools** — MCP tools cannot read local file paths and will error.
+
+```bash
+# MUST use the project venv
+cd python/mlx-movie-director
+python/venv/bin/python run.py caption <IMAGE> [options]
+
+# Describe image (default style)
+python/venv/bin/python run.py caption output/base.png
+
+# Photography analysis (subject, lighting, camera angle, composition)
+python/venv/bin/python run.py caption base.png --style photography
+
+# Generate a T2I prompt from an image
+python/venv/bin/python run.py caption base.png --style prompt --lang en
+
+# Quality scoring (1-10 on 6 dimensions)
+python/venv/bin/python run.py caption base.png --style score --lang en
+
+# Art style analysis
+python/venv/bin/python run.py caption base.png --style style
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--style` | `default` | `default`, `photography`, `prompt`, `profile`, `style`, `score` |
+| `--lang` | `zh_TW` | `zh_TW`, `zh_CN`, `en`, `ja` |
+| `--model` | `qwen/qwen3-vl-4b` | OpenAI-compatible model name |
+| `--api-url` | `http://localhost:1234/v1` | VLM API base URL |
+| `--output` | `<image>.caption.json` | Output JSON path |
+
+Output is a JSON file with `{image, style, model, caption}`. Requires LM Studio running locally.
+
 ## Key Directories
 
 ```

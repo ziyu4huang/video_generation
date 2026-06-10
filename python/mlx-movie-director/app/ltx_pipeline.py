@@ -492,6 +492,85 @@ class LTXVideoPipeline:
         )
         return {"generate_seconds": time.time() - t0}
 
+    def generate_ic_lora(
+        self,
+        prompt: str,
+        output_path: str,
+        video_conditioning: list[tuple[str, float]],
+        ic_lora_paths: list[tuple[str, float]],
+        height: int = 480,
+        width: int = 704,
+        num_frames: int = 97,
+        frame_rate: float = 24.0,
+        seed: int = 42,
+        stage1_steps: int | None = None,
+        stage2_steps: int | None = None,
+        images: list | None = None,
+        conditioning_attention_strength: float = 1.0,
+    ) -> dict:
+        """Run IC-LoRA conditioned video generation (control conditioning or restoration).
+
+        Uses ICLoraPipeline from vendor: Stage 1 at half resolution with LoRA fused,
+        Stage 2 upscaled and refined without LoRA.
+
+        Args:
+            prompt: Text prompt describing the desired output.
+            output_path: Path to write the generated .mp4 file.
+            video_conditioning: List of (video_path, strength) for IC-LoRA reference frames.
+                For video restoration, pass the degraded input video as the conditioning.
+            ic_lora_paths: List of (lora_path, scale) tuples. Accepts local paths or
+                HuggingFace repo IDs (downloaded on first use).
+            height: Output height (must be multiple of 64 — Stage 1 runs at height//2).
+            width: Output width (must be multiple of 64 — Stage 1 runs at width//2).
+            num_frames: Frame count (must satisfy 8k+1: 9, 17, 25, …).
+            frame_rate: Output frame rate.
+            seed: Random seed.
+            stage1_steps: Stage 1 steps (default: vendor DISTILLED_SIGMAS length).
+            stage2_steps: Stage 2 steps (default: vendor STAGE_2_SIGMAS length).
+            images: Optional I2V conditioning list of (image_path, frame_index, strength).
+            conditioning_attention_strength: IC-LoRA attention weight in [0, 1].
+
+        Returns:
+            dict with {'generate_seconds': float}.
+        """
+        from ltx_pipelines_mlx.ic_lora import ICLoraPipeline
+
+        print(
+            f"[LTXVideoPipeline] Loading ICLoraPipeline "
+            f"(model_dir={self._model_dir!r}, low_ram={self.low_ram}, "
+            f"loras={[os.path.basename(p) for p, _ in ic_lora_paths]})…"
+        )
+
+        # ICLoraPipeline takes lora_paths at init — always create fresh (no mode caching)
+        if self._pipeline is not None:
+            self._pipeline = None
+            import mlx.core as mx
+            mx.clear_cache()
+
+        pipeline = ICLoraPipeline(
+            model_dir=self._model_dir,
+            lora_paths=ic_lora_paths,
+            low_memory=True,
+            low_ram_streaming=self.low_ram,
+        )
+
+        t0 = time.time()
+        pipeline.generate_and_save(
+            prompt=prompt,
+            output_path=output_path,
+            video_conditioning=video_conditioning,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            seed=seed,
+            stage1_steps=stage1_steps,
+            stage2_steps=stage2_steps,
+            images=images,
+            conditioning_attention_strength=conditioning_attention_strength,
+        )
+        return {"generate_seconds": time.time() - t0}
+
     def _build_flf2v_pipeline(self):
         """Build a KeyframeInterpolationPipeline for FLF2V mode."""
         from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline

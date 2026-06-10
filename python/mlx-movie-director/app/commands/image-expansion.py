@@ -10,7 +10,7 @@ Pipeline (latent-mask outpaint, see app/flux2_outpaint_pipeline.py):
   2. Pad the canvas (--expand directional, or --ratio target aspect) with
      edge-extension fill; build a feathered mask (white = regenerate margin,
      black = keep original).
-  3. Flux2 Klein 9B masked denoising (4 steps, euler, cfg=1) — original region
+  3. Flux2 Klein 9B masked denoising (8 steps default, euler, cfg=1) — original region
      latent re-injected each step, only margins denoise.
   4. (Optional --upscale) SeedVR2 super-resolution of the expanded result.
 
@@ -219,12 +219,13 @@ def add_expansion_args(parser):
     )
     parser.add_argument(
         "--expansion-feather", type=int, default=96, dest="expansion_feather",
-        help="Mask feathering in pixels for a smooth seam (default: 96).",
+        help="Mask feathering in pixels for a smooth seam (default: 96). "
+             "Keep ≤ overlap to avoid visible blur bands.",
     )
     parser.add_argument(
-        "--overlap", type=int, default=96,
+        "--overlap", type=int, default=128,
         help="Pixels to regenerate INTO the original on each expanded side, so the "
-             "model paints across the seam and reconciles lighting/texture (default: 96). "
+             "model paints across the seam and reconciles lighting/texture (default: 128). "
              "Larger = more seamless but edits more of the original near the edges.",
     )
     parser.add_argument(
@@ -286,10 +287,10 @@ def run_expansion(args):
 
     pixels = getattr(args, "pixels", 1024)
     feather = getattr(args, "expansion_feather", 96)
-    overlap = getattr(args, "overlap", 96)
+    overlap = getattr(args, "overlap", 128)
     longest = getattr(args, "longest", 1024)
     ref_strength = getattr(args, "expansion_ref_strength", 1.0)
-    steps = getattr(args, "steps", None) or 4
+    steps = getattr(args, "steps", None) or 8
     seed = getattr(args, "seed", 42)
     prompt = getattr(args, "prompt", None) or _DEFAULT_PROMPT
 

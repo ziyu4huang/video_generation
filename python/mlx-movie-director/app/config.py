@@ -71,6 +71,10 @@ LTX_MLX_DIR         = os.path.join(MODELS_DIR, "ltx-mlx")
 LTX_MLX_DEV_DIR     = os.path.join(LTX_MLX_DIR, "dev")
 LTX_MLX_DISTILLED_DIR = os.path.join(LTX_MLX_DIR, "distilled")
 
+# LTX-2.3 IC-LoRA restoration weights (download from Lightricks/CivitAI)
+LTX_RESTORE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-video-restoration-general-lora.safetensors")
+LTX_UPSCALE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-ic-video-upscale-general.safetensors")
+
 # Z-Image ControlNet (Union 2.1 Lite — supports pose/depth/canny/hed/scribble/gray, 8-step distilled)
 CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.1")
 

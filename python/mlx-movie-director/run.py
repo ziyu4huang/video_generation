@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Subcommand registry (order = display order in --help)
 # ---------------------------------------------------------------------------
 
-COMMAND_NAMES = ["t2i", "image", "refine", "upscale", "caption", "replay", "video", "animate", "import-lora-image", "check-model"]
+COMMAND_NAMES = ["t2i", "image", "refine", "upscale", "caption", "replay", "video", "animate", "import-lora-image", "import-workflow", "check-model"]
 
 # Commands that load a different module than their name implies.
 # "generate" is kept as a recognized subcommand for backward compat but

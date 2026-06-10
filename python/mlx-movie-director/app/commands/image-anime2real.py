@@ -4,10 +4,14 @@ Uses Flux2KleinEdit reference conditioning + anime2real LoRA to convert anime-st
 images to realistic output while preserving the original character's appearance
 (hair color, clothing, facial features, pose).
 
-Default style: 3D Game (Unreal Engine 5 aesthetic).
-  A/B test result (2026-06-09): 3D Game won 3/4 votes vs photorealistic (0) and
-  semi-realistic (1). Users preferred the "3D game realistic" look over plain
-  photorealism. Use --realism-style to switch styles.
+Default style: CivitAI Chinese (转年轻的亚洲少女写实风格).
+  A/B test result (2026-06-10): Chinese prompt + lora_scale=1.0 + ref_strength=1.0
+  won 5/5 across all tested archetypes. Use --realism-style to switch styles.
+
+Note on gender bias:
+  The LoRA is trained on female anime characters (model name: anime-girl-turned-into-real-person).
+  The Chinese trigger phrase contains 少女 (young girl). Male characters may be converted toward
+  female output. Use `--self-test anime2real-male-boundary` to evaluate this behavior.
 
 How it works
   Unlike traditional I2I (which mixes clean latents with noise and loses identity at
@@ -24,12 +28,12 @@ How it works
   This is far superior to the old I2I approach (denoise=0.6) which destroyed identity
   completely — different hair color, different clothing, different face.
 
-Verified best parameters (3D Game default)
-  --realism-style 3d-game  Default; Unreal Engine 5 game character aesthetic
+Verified best parameters (CivitAI Chinese default)
+  --realism-style civitai-chinese  Default; Chinese trigger phrase + lora_scale=1.0
   --steps 8                4 steps = too soft; 8 = crisp detail
-  --anime2real-lora-scale 0.7  Balanced for 3D game style (1.0 = too photorealistic)
+  --anime2real-lora-scale 1.0  Full strength (A/B test winner 5/5 with CN prompt)
   --ref-count 1            1 reference copy sufficient (3 is 3x slower, similar result)
-  --ref-strength 0.2       Weakest ref conditioning before identity loss;
+  --ref-strength 1.0       Full reference strength (A/B test winner 5/5);
                            A/B test: 0.05 won 2/2 but causes hair color drift,
                            0.2 is the safe default (identity preserved, good proportions)
   --skip-preprocess (flag) Must use raw image, not canny/edge detection
@@ -84,7 +88,7 @@ _REALISM_STYLES = {
     },
     # CivitAI "Ultimate Anime-to-Realism Workflow" Chinese trigger phrase.
     # Uses the exact prompt from the AIGC-Singularity workflow (model 2345939).
-    # LoRA at full strength (1.0) as per original workflow.
+    # Pure CivitAI params: Chinese prompt + lora_scale=1.0 (A/B test winner 5/5).
     "civitai-chinese": {
         "prompt": "转年轻的亚洲少女写实风格",
         "lora_scale": 1.0,
@@ -92,31 +96,11 @@ _REALISM_STYLES = {
     },
 }
 
-# Default prompt (matches --realism-style 3d-game)
-_DEFAULT_PROMPT = _REALISM_STYLES["3d-game"]["prompt"]
+# Default prompt (matches --realism-style civitai-chinese)
+_DEFAULT_PROMPT = _REALISM_STYLES["civitai-chinese"]["prompt"]
 
-# Self-test: anime prompts for comprehensive evaluation
-_ANIME_TEST_PROMPTS = {
-    "anime-portrait": (
-        "anime girl with long pink hair, big sparkling eyes, wearing a school uniform, "
-        "gentle smile, cel shading, anime art style, vibrant colors, simple background"
-    ),
-    "anime-warrior": (
-        "anime girl with silver hair and red eyes, wearing dark armor, holding a katana, "
-        "determined expression, standing in a misty battlefield, dramatic lighting, "
-        "anime art style, detailed illustration"
-    ),
-    "anime-magical": (
-        "anime girl with twin-tail blonde hair, wearing a frilly magical girl outfit "
-        "with ribbons and lace, holding a star-tipped wand, sparkling magical effects, "
-        "pastel colors, cheerful expression, anime art style"
-    ),
-    "anime-cyberpunk": (
-        "anime girl with short blue hair and cybernetic implants, wearing a neon jacket "
-        "over a crop top, futuristic city at night, holographic displays, "
-        "cyberpunk anime art style, cool expression, vibrant neon lighting"
-    ),
-}
+# NOTE: Self-test anime prompts are in test_prompts_image.py _PROMPTS dict.
+# This module does NOT duplicate them here — single source of truth.
 
 _I2I_PROMPT = (
     "Preserve the subject's features and generate a high quality "
@@ -147,15 +131,15 @@ def add_anime2real_args(parser):
     )
     if not _arg_registered(parser, "ref_strength"):
         parser.add_argument(
-            "--ref-strength", type=float, default=0.2,
-            help="Reference conditioning strength (0.0-1.0, default: 0.2). "
-                 "Lower values give the model more freedom to change body proportions "
-                 "at the cost of identity preservation. A/B test: 0.05 won 2/2 but "
-                 "causes hair color drift; 0.2 is the safe default.",
+            "--ref-strength", type=float, default=1.0,
+            help="Reference conditioning strength (0.0-1.0, default: 1.0). "
+                 "Controls how strongly the reference anime image conditions the output. "
+                 "1.0 = full strength (CivitAI default, A/B test winner 5/5). "
+                 "Lower values give the model more freedom but may cause identity drift.",
         )
     if not _arg_registered(parser, "realism_style"):
         parser.add_argument(
-            "--realism-style", type=str, default="3d-game",
+            "--realism-style", type=str, default="civitai-chinese",
             choices=list(_REALISM_STYLES.keys()),
             help="Output realism style preset: 3d-game (default), photorealistic, semi-realistic. "
                  "Sets prompt, lora_scale, and steps unless overridden by explicit flags.",

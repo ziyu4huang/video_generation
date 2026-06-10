@@ -91,6 +91,119 @@ _PROMPTS = {
         "width": 640,
         "height": 960,
     },
+    "anime-idol": {
+        "prompt": (
+            "anime girl with long wavy auburn hair, wearing a glittering idol costume "
+            "with feathered wings and star accessories, holding a microphone, "
+            "sparkling stage lights, confident smile, concert stage background, "
+            "anime art style, dynamic pose, vibrant colors"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    # --- anime2real diversity prompts (female, varied styles) ---
+    "anime-chibi": {
+        "prompt": (
+            "anime girl in chibi super-deformed style with oversized head, huge round "
+            "sparkling eyes, tiny body, pastel pink hair in twin pigtails, wearing a "
+            "frilly dress with a large ribbon bow, holding a heart-shaped balloon, "
+            "cute expression, pastel colors, chibi art style, simple white background"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-historic": {
+        "prompt": (
+            "anime girl with long straight black hair and bangs, wearing a traditional "
+            "red kimono with gold crane pattern, holding a folding fan, standing under "
+            "cherry blossom tree with petals falling, classic 90s anime art style, "
+            "soft watercolor tones, serene expression, detailed illustration"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-fantasy-fullbody": {
+        "prompt": (
+            "anime girl with gradient hair from white to light purple, wearing elaborate "
+            "fantasy armor with gold filigree and flowing cape, holding a crystal-tipped "
+            "staff, standing in an enchanted forest with glowing mushrooms and floating "
+            "particles, full body shot, detailed fantasy anime art style, dynamic pose"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-gothic": {
+        "prompt": (
+            "anime girl with long wavy midnight blue hair, wearing a black gothic lolita "
+            "dress with lace trim and corset, holding a black rose, pale skin, red eyes, "
+            "standing in a Victorian mansion doorway, candlelight, dark moody atmosphere, "
+            "gothic anime art style, mysterious half-smile"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-sideprofile": {
+        "prompt": (
+            "anime girl with long flowing red hair seen from side profile, wearing a "
+            "casual summer dress, looking out a window with soft sunlight streaming in, "
+            "wind blowing her hair, side view, wistful expression, soft natural lighting, "
+            "anime art style, semi-realistic rendering, gentle atmosphere"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    # --- anime2real boundary prompts (male — LoRA is female-trained) ---
+    "anime-male-swordsman": {
+        "prompt": (
+            "anime boy with messy dark green hair and sharp green eyes, wearing a dark "
+            "blue samurai outfit with a white haori jacket, holding a katana at rest, "
+            "serious determined expression, standing on a hilltop at sunset, wind blowing "
+            "his jacket, dramatic lighting, shounen anime art style, detailed illustration"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-male-scholar": {
+        "prompt": (
+            "anime boy with short neat brown hair and round glasses, wearing a school "
+            "uniform with a vest and tie, holding a book, sitting at a desk by a window, "
+            "afternoon golden light, gentle intellectual expression, soft realistic anime "
+            "art style, detailed eyes with glass reflections"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-male-cyberpunk": {
+        "prompt": (
+            "anime boy with short spiky white hair and a cybernetic eye implant, wearing "
+            "a black techwear jacket with LED strips over a dark turtleneck, standing in "
+            "a neon-lit rain-soaked alley at night, holographic screens, cyberpunk anime "
+            "art style, intense gaze, cool urban atmosphere"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    # --- anime2real edge case prompts (non-human features) ---
+    "anime-animal-ears": {
+        "prompt": (
+            "anime girl with long silver hair and fluffy white cat ears, wearing a casual "
+            "oversized sweater, cat tail visible, golden eyes with vertical slit pupils, "
+            "sitting on a couch with a cup of hot chocolate, warm cozy room, soft ambient "
+            "lighting, kemonomimi anime art style, gentle smile, relaxed pose"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anime-mecha-pilot": {
+        "prompt": (
+            "anime girl with short tomboyish orange hair, wearing a form-fitting pilot "
+            "plugsuit with glowing circuits, sitting in a mecha cockpit with holographic "
+            "displays and control sticks, serious focused expression, mechanical interior "
+            "with screens and levers, sci-fi anime art style, dramatic cockpit lighting"
+        ),
+        "width": 640,
+        "height": 960,
+    },
     "street": {
         "prompt": (
             "street photography of a busy Tokyo crosswalk at night, neon signs reflected "
@@ -715,7 +828,7 @@ _ALL_TESTS = {
             "CivitAI workflow comparison: our best (3D Game, EN) vs their Chinese prompt "
             "at various lora_scale/ref_strength combos."
         ),
-        "test_prompts": ["anime-portrait", "anime-warrior"],
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk", "anime-idol"],
         "seeds": [42],
         "width": 640, "height": 960,
         "lora_path": "anime-girl-turned-into-real-person",
@@ -752,6 +865,108 @@ _ALL_TESTS = {
                 "ref_prompt": "转年轻的亚洲少女写实风格",
             },
         ],
+    },
+
+    # -----------------------------------------------------------------------
+    # anime2real expanded tests: diversity, male boundary, steps sweep, edge cases
+    # -----------------------------------------------------------------------
+
+    "anime2real-diversity": {
+        "type": "lora-ref",
+        "description": (
+            "Diversity validation: CivitAI CN defaults (scale=1.0, str=1.0, 8 steps) "
+            "across 10 diverse anime archetypes. Validates that v7 defaults generalize."
+        ),
+        "test_prompts": [
+            "anime-portrait", "anime-warrior", "anime-magical", "anime-cyberpunk", "anime-idol",
+            "anime-chibi", "anime-historic", "anime-fantasy-fullbody",
+            "anime-gothic", "anime-sideprofile",
+        ],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        "ref_prompt": "转年轻的亚洲少女写实风格",
+        "ref_steps": 8,
+        "lora_scale": 1.0,
+        "ref_strength": 1.0,
+    },
+
+    "anime2real-male-boundary": {
+        "type": "lora-ref",
+        "description": (
+            "Male character boundary test: 3 male anime prompts x 3 ref_prompt variants "
+            "(CN girl prompt vs CN neutral vs EN photorealistic). "
+            "Documents the LoRA's gender limitations."
+        ),
+        "test_prompts": ["anime-male-swordsman", "anime-male-scholar", "anime-male-cyberpunk"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        "ref_prompt": "转年轻的亚洲少女写实风格",
+        "ref_steps": 8,
+        "lora_scale": 1.0,
+        "ref_strength": 1.0,
+        "style_variants": [
+            {
+                "label": "CN neutral (person)",
+                "ref_prompt": "转年轻的亚洲人写实风格",
+                "lora_scale": 1.0,
+                "ref_steps": 8,
+            },
+            {
+                "label": "EN photorealistic",
+                "ref_prompt": (
+                    "A photorealistic portrait photograph of the same character, "
+                    "detailed realistic skin texture, natural lighting, DSLR camera, "
+                    "shallow depth of field, keeping the original hair color, clothing, "
+                    "and all character features"
+                ),
+                "lora_scale": 1.0,
+                "ref_steps": 8,
+            },
+        ],
+    },
+
+    "anime2real-steps-sweep": {
+        "type": "lora-ref",
+        "description": (
+            "Step count sweep: 4/6/8/12 steps on CivitAI CN defaults. "
+            "Tests whether 8 steps is truly optimal or if 6 is sufficient."
+        ),
+        "test_prompts": ["anime-portrait", "anime-warrior", "anime-cyberpunk"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        "ref_prompt": "转年轻的亚洲少女写实风格",
+        "ref_steps": 8,
+        "lora_scale": 1.0,
+        "ref_strength": 1.0,
+        "style_variants": [
+            {"label": "4 steps", "ref_steps": 4},
+            {"label": "6 steps", "ref_steps": 6},
+            {"label": "12 steps", "ref_steps": 12},
+        ],
+    },
+
+    "anime2real-edge-cases": {
+        "type": "lora-ref",
+        "description": (
+            "Edge case test: animal ears (kemonomimi), mecha pilot (mechanical), "
+            "gothic (dark palette), chibi (exaggerated proportions). "
+            "Documents how the LoRA handles non-standard anime features."
+        ),
+        "test_prompts": ["anime-animal-ears", "anime-mecha-pilot", "anime-gothic", "anime-chibi"],
+        "seeds": [42],
+        "width": 640, "height": 960,
+        "lora_path": "anime-girl-turned-into-real-person",
+        "ref_count": 1,
+        "ref_prompt": "转年轻的亚洲少女写实风格",
+        "ref_steps": 8,
+        "lora_scale": 1.0,
+        "ref_strength": 1.0,
     },
 
     # -----------------------------------------------------------------------
@@ -905,6 +1120,29 @@ _ALL_TESTS = {
         "mode": "seed-sweep",   # 8 seeds: 42,43,100,200,300,500,1000,2025
     },
 
+    "dual-guidance": {
+        "type": "controlnet-i2i",
+        "description": "Dual-guidance: OpenPose pose + source inpaint anchor at varying mask strengths (seed=43)",
+        "mode": "dual-guidance",   # 5 variants: inpaint_mask = 0.0, 0.2, 0.5, 0.8, 1.0
+    },
+
+    "clothing-prompt": {
+        "type": "controlnet-i2i",
+        "description": "Clothing-prompt: explicit 'white t-shirt, blue jeans' in prompt — test clothing preservation at dn=0.9",
+        "mode": "clothing-prompt",   # 4 variants: cloth-s43, cloth-s200, cloth-s43-dn08, cloth-s43-base
+    },
+    "spatial-mask": {
+        "type": "controlnet-i2i",
+        "description": "Spatial arm mask: torso/head anchored to source (mask=0, clothing preserved), arm regions free for ControlNet V-pose (mask=1)",
+        "mode": "spatial-mask",   # 4 variants: tight/med/loose padding + s200
+    },
+
+    "arm-erase": {
+        "type": "controlnet-i2i",
+        "description": "Arm-erase: paint source arms white before VAE encoding inpaint_latent; uniform mask=1 preserves clothing while neutralizing arm-at-sides anchor conflict",
+        "mode": "arm-erase",      # 4 variants: radius 8/12, mask 1.0/0.7, seed 43/200
+    },
+
     # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
@@ -1044,14 +1282,24 @@ _ALL_TESTS = {
             "confident direct gaze, warm golden hour side lighting, "
             "shallow depth of field, film grain texture, neutral background."
         ),
-        "sam_prompt": "woman's face",
-        "ref_sam_prompt": "woman's face",
+        "sam_prompt": "head",
+        "ref_sam_prompt": "head",
         "sam_threshold": 0.3,
         "feather": 15,
         "source_seed": 42,
         "reference_seed": 100,
         "blend": True,
-        "blend_strength": 0.35,
+        "blend_strength": 0.75,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 40,
+        "blend_prompt": (
+            "Moody Photography, 22-year-old European woman with shoulder-length wavy "
+            "blonde hair, blue eyes, light freckles across nose, in school uniform, "
+            "navy blue sailor top, white collar with red ribbon, plaid skirt, "
+            "kneeling at desk, warm lamp light from left, cool moonlight from window, "
+            "half-body shot from above, looking at camera with confident expression, "
+            "hands resting on desk, textbooks and ramune bottle on desk."
+        ),
     },
     "swap-outfit": {
         "type": "swap",
@@ -1078,7 +1326,16 @@ _ALL_TESTS = {
         "source_seed": 55,
         "reference_seed": 200,
         "blend": True,
-        "blend_strength": 0.35,
+        "blend_strength": 0.5,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 30,
+        "blend_prompt": (
+            "Fashion photography, young woman standing in a bright studio, "
+            "wearing an elegant floor-length red evening gown, silk fabric, "
+            "fitted bodice with off-shoulder neckline, flowing skirt, "
+            "full body shot, neutral gray background, even studio lighting, "
+            "natural pose, photorealistic."
+        ),
     },
     "swap-object": {
         "type": "swap",
@@ -1145,15 +1402,149 @@ _ALL_TESTS = {
         "reference_width": 960,
         "reference_height": 640,
         "blend": True,
-        "blend_strength": 0.5,
+        "blend_strength": 0.65,
         "preserve_aspect_ratio": True,
-        "mask_dilate": 15,
+        "mask_dilate": 30,
         "blend_prompt": (
             "Food photography, overhead shot of a white plate with a colorful "
             "macaron tower in pastel pink, green, and lavender, "
             "a fork beside it, dark wooden table, scattered cocoa powder, "
             "warm ambient lighting, photorealistic."
         ),
+    },
+
+    # ------------------------------------------------------------------
+    # Swap variant tests — more examples per category for broader coverage
+    # ------------------------------------------------------------------
+
+    "swap-face-2": {
+        "type": "swap",
+        "description": (
+            "SAM3 face swap: replace Asian man with European man — "
+            "tests cross-gender same-race head swap"
+        ),
+        "source_prompt": (
+            "Moody Photography, 25-year-old Asian man in casual black t-shirt, "
+            "short black hair, sitting at a cafe table near a window, "
+            "afternoon golden light, coffee cup on table, "
+            "half-body shot, looking at camera with calm expression, "
+            "shallow depth of field, photorealistic."
+        ),
+        "reference_prompt": (
+            "Moody Photography, close-up portrait of a 28-year-old European man, "
+            "short brown hair, light stubble beard, strong jawline, "
+            "green eyes, direct confident gaze, "
+            "warm golden hour side lighting, film grain texture, "
+            "shallow depth of field, neutral background."
+        ),
+        "sam_prompt": "head",
+        "ref_sam_prompt": "head",
+        "sam_threshold": 0.3,
+        "feather": 15,
+        "source_seed": 150,
+        "reference_seed": 250,
+        "blend": True,
+        "blend_strength": 0.75,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 40,
+        "blend_prompt": (
+            "Moody Photography, 28-year-old European man with short brown hair, "
+            "light stubble beard, strong jawline, green eyes, in casual black t-shirt, "
+            "sitting at a cafe table near a window, afternoon golden light, "
+            "coffee cup on table, half-body shot, looking at camera with calm expression, "
+            "shallow depth of field, photorealistic."
+        ),
+    },
+
+    "swap-food-2": {
+        "type": "swap",
+        "description": (
+            "SAM3 food swap: replace donut with croissant — "
+            "tests small round→rectangular food swap"
+        ),
+        "source_prompt": (
+            "Food photography, overhead shot of a white plate with a glazed "
+            "chocolate donut with sprinkles, a cup of black coffee beside it, "
+            "marble countertop, scattered cocoa powder, "
+            "soft morning light, photorealistic."
+        ),
+        "reference_prompt": (
+            "Food photography, overhead shot of a white plate with a freshly baked "
+            "butter croissant, golden flaky layers, "
+            "clean white background, soft studio lighting, photorealistic."
+        ),
+        "sam_prompt": "donut",
+        "ref_sam_prompt": "croissant",
+        "sam_threshold": 0.3,
+        "feather": 15,
+        "source_seed": 300,
+        "reference_seed": 500,
+        "source_width": 960,
+        "source_height": 640,
+        "reference_width": 960,
+        "reference_height": 640,
+        "blend": True,
+        "blend_strength": 0.65,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 30,
+        "blend_prompt": (
+            "Food photography, overhead shot of a white plate with a freshly baked "
+            "butter croissant with golden flaky layers, "
+            "a cup of black coffee beside it, marble countertop, "
+            "scattered cocoa powder, soft morning light, photorealistic."
+        ),
+    },
+
+    "swap-object-2": {
+        "type": "swap",
+        "description": (
+            "SAM3 object swap: replace potted plant with desk lamp — "
+            "tests organic→geometric shape swap (extreme shape difference)"
+        ),
+        "source_prompt": (
+            "Cozy desk scene, wooden desk with an open sketchbook, colored pencils, "
+            "a small potted succulent plant in a terracotta pot placed in the center, "
+            "warm afternoon light from window, scattered eraser shavings, "
+            "overhead view, photorealistic, detailed."
+        ),
+        "reference_prompt": (
+            "Product photography, a vintage brass desk lamp with adjustable arm, "
+            "green metal shade, warm glowing bulb, "
+            "clean white background, studio lighting, photorealistic."
+        ),
+        "sam_prompt": "plant",
+        "ref_sam_prompt": "lamp",
+        "sam_threshold": 0.25,
+        "feather": 15,
+        "source_seed": 400,
+        "reference_seed": 600,
+        "source_width": 960,
+        "source_height": 640,
+        "reference_width": 960,
+        "reference_height": 640,
+        "blend": True,
+        "blend_strength": 0.8,
+        "preserve_aspect_ratio": True,
+        "mask_dilate": 50,
+        "blend_prompt": (
+            "Cozy desk scene, wooden desk with an open sketchbook, colored pencils, "
+            "a vintage brass desk lamp with adjustable arm and green metal shade, "
+            "warm glowing bulb, placed in the center of the desk, "
+            "warm afternoon light from window, scattered eraser shavings, "
+            "overhead view, photorealistic, detailed."
+        ),
+    },
+
+    # ── Swap meta-test ─────────────────────────────────────────────────
+    "swap-all": {
+        "type": "swap-all",
+        "description": "Run ALL swap self-tests sequentially, one HTML review",
+        "tests": [
+            "swap-face", "swap-face-2",
+            "swap-object", "swap-object-2",
+            "swap-food", "swap-food-2",
+            "swap-outfit",
+        ],
     },
 
     # ------------------------------------------------------------------
@@ -1175,7 +1566,7 @@ _ALL_TESTS = {
         "source_width": 1024,
         "source_height": 1024,
         "feather": 96,
-        "overlap": 96,
+        "overlap": 128,
         "steps": 8,
         "longest": 1024,
         "configs": [
@@ -1200,6 +1591,896 @@ _ALL_TESTS = {
                     "Widen to a cinematic 16:9 frame: extend the alley, buildings, "
                     "and atmospheric dusk lighting outward. Maintain the subject "
                     "and style. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    # A/B sweep: overlap × feather × steps — find optimal seam quality
+    "expansion-sweep": {
+        "type": "expansion",
+        "description": (
+            "Expansion A/B sweep: overlap × feather × steps. "
+            "Fixed source + expand left/right 512px — vary overlap (64/96/128), "
+            "feather (96/128), steps (8/12). VLM seam review."
+        ),
+        "source_prompt": (
+            "Moody Photography, a young woman in a red coat standing in a narrow "
+            "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+            "half-body shot, looking toward camera, cinematic, photorealistic, "
+            "shallow depth of field."
+        ),
+        "source_seed": 42,
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 96,
+        "steps": 8,
+        "configs": [
+            # Baseline (current best)
+            {
+                "label": "A-ov96-ft96-st8",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 96, "feather": 96, "steps": 8,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light. "
+                    "Seamless, photorealistic."
+                ),
+            },
+            # Wider overlap
+            {
+                "label": "B-ov128-ft96-st8",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 128, "feather": 96, "steps": 8,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light. "
+                    "Seamless, photorealistic."
+                ),
+            },
+            # Wider overlap + wider feather
+            {
+                "label": "C-ov128-ft128-st8",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 128, "feather": 128, "steps": 8,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light. "
+                    "Seamless, photorealistic."
+                ),
+            },
+            # More steps for detail
+            {
+                "label": "D-ov96-ft96-st12",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 96, "feather": 96, "steps": 12,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light. "
+                    "Seamless, photorealistic."
+                ),
+            },
+            # Best combo: wider overlap + more steps
+            {
+                "label": "E-ov128-ft128-st12",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 128, "feather": 128, "steps": 12,
+                "prompt": (
+                    "Extend the alley scene sideways: more cobblestone street, "
+                    "brick buildings, streetlamps and soft dusk light. "
+                    "Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    # Multi-source expansion: diverse scenes × shared configs → robust feedback
+    "expansion-multi": {
+        "type": "expansion",
+        "description": (
+            "Expansion multi-scene: 4 diverse sources × 2 expansion configs. "
+            "Review seam quality across landscapes, portraits, food, and abstract "
+            "scenes in one session."
+        ),
+        "sources": [
+            {
+                "label": "portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "landscape",
+                "source_prompt": (
+                    "Landscape photography, misty mountain lake at dawn, golden light "
+                    "reflecting on still water, pine trees silhouetted on the far shore, "
+                    "dramatic cloud formations, wide-angle view, photorealistic, 8k."
+                ),
+                "source_seed": 100,
+            },
+            {
+                "label": "food",
+                "source_prompt": (
+                    "Food photography, overhead shot of a white plate with a glazed "
+                    "chocolate donut with sprinkles, a cup of black coffee beside it, "
+                    "marble countertop, scattered cocoa powder, soft morning light, "
+                    "photorealistic."
+                ),
+                "source_seed": 300,
+            },
+            {
+                "label": "abstract",
+                "source_prompt": (
+                    "Abstract digital art, swirling liquid metal textures in silver and "
+                    "deep blue, organic flowing shapes with iridescent highlights, "
+                    "dark background, high contrast, detailed, 8k."
+                ),
+                "source_seed": 77,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "expand-LR",
+                "mode": "expand",
+                "dirs": "left,right",
+                "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Seamlessly extend the scene beyond the original frame. Maintain "
+                    "consistent lighting, color grading, perspective, and texture."
+                ),
+            },
+            {
+                "label": "ratio-16x9",
+                "mode": "ratio",
+                "ratio": "16:9",
+                "seed": 42,
+                "prompt": (
+                    "Widen to a cinematic frame, extending the scene naturally with "
+                    "consistent lighting and perspective. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    # ------------------------------------------------------------------
+    # Comprehensive expansion: directional + aspect + ref_strength + non-square
+    # 4 sources × 8 configs = 32 runs
+    # ------------------------------------------------------------------
+    "expansion-comprehensive": {
+        "type": "expansion",
+        "description": (
+            "Comprehensive expansion: 4 diverse sources (square, landscape, portrait, edge-subject) "
+            "× 8 configs (horizontal, vertical, all-4, single-dir, 16:9, 21:9, 9:16, ref_str=0.5). "
+            "Covers directional diversity, non-square sources, diverse aspect ratios, "
+            "and ref_strength variation in one review."
+        ),
+        "sources": [
+            {
+                "label": "portrait-sq",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+                "source_width": 1024,
+                "source_height": 1024,
+            },
+            {
+                "label": "landscape-hd",
+                "source_prompt": (
+                    "Landscape photography, misty mountain lake at dawn, golden light "
+                    "reflecting on still water, pine trees silhouetted on the far shore, "
+                    "dramatic cloud formations, wide-angle view, photorealistic, 8k."
+                ),
+                "source_seed": 100,
+                "source_width": 1280,
+                "source_height": 720,
+            },
+            {
+                "label": "portrait-tall",
+                "source_prompt": (
+                    "Fashion photography, full-body shot of a young woman in an elegant "
+                    "black evening gown, standing on a grand marble staircase, warm "
+                    "chandelier light, soft shadows, sharp details, photorealistic."
+                ),
+                "source_seed": 200,
+                "source_width": 640,
+                "source_height": 960,
+            },
+            {
+                "label": "edge-subject",
+                "source_prompt": (
+                    "Photograph of a cyclist leaning into a sharp right turn on a wet "
+                    "mountain road, subject positioned near the right edge of frame, "
+                    "green forest left side, dramatic motion blur on wheels, photorealistic."
+                ),
+                "source_seed": 300,
+                "source_width": 1024,
+                "source_height": 1024,
+            },
+        ],
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            # Directional diversity
+            {
+                "label": "expand-LR",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Seamlessly extend the scene horizontally. Maintain consistent "
+                    "lighting, color grading, perspective, and texture."
+                ),
+            },
+            {
+                "label": "expand-UD",
+                "mode": "expand", "dirs": "up,down", "pixels": 384,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene vertically upward and downward. Maintain consistent "
+                    "lighting, perspective, and atmosphere."
+                ),
+            },
+            {
+                "label": "expand-all4",
+                "mode": "expand", "dirs": "left,right,up,down", "pixels": 384,
+                "seed": 42,
+                "prompt": (
+                    "Expand the scene in all directions equally. Maintain consistent "
+                    "lighting, perspective, and texture throughout."
+                ),
+            },
+            {
+                "label": "expand-right",
+                "mode": "expand", "dirs": "right", "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene to the right. Continue the environment with "
+                    "consistent lighting and perspective."
+                ),
+            },
+            # Diverse target aspects
+            {
+                "label": "ratio-16x9",
+                "mode": "ratio", "ratio": "16:9",
+                "seed": 42,
+                "prompt": (
+                    "Widen to cinematic 16:9 frame. Extend naturally with consistent "
+                    "lighting and perspective. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ratio-21x9",
+                "mode": "ratio", "ratio": "21:9",
+                "seed": 42,
+                "prompt": (
+                    "Expand to ultrawide 21:9 cinematic frame. Extend the environment "
+                    "with consistent lighting, color, and depth."
+                ),
+            },
+            {
+                "label": "ratio-9x16",
+                "mode": "ratio", "ratio": "9:16",
+                "seed": 42,
+                "prompt": (
+                    "Convert to vertical 9:16 format. Extend upward and downward with "
+                    "consistent scene content, lighting, and perspective."
+                ),
+            },
+            # ref_strength exploration
+            {
+                "label": "ref-str-0.5",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 0.5,
+                "prompt": (
+                    "Extend the scene sideways with moderate creative freedom. Maintain "
+                    "overall coherence while allowing some content variation."
+                ),
+            },
+        ],
+    },
+
+    # ------------------------------------------------------------------
+    # Ref strength sweep: 2 sources × 5 strength values
+    # ------------------------------------------------------------------
+    "expansion-ref-strength": {
+        "type": "expansion",
+        "description": (
+            "Ref strength sweep: 1.0 (default) / 0.8 / 0.6 / 0.4 / 0.2 — "
+            "fixed expand left+right 512px on 2 diverse sources. "
+            "Finds the coherence-vs-creativity sweet spot."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "str-1.0",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 1.0,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "str-0.8",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 0.8,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "str-0.6",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 0.6,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "str-0.4",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 0.4,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "str-0.2",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "ref_strength": 0.2,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    # ------------------------------------------------------------------
+    # Edge-case content: stress-test seam quality on difficult boundaries
+    # 4 sources × 3 configs = 12 runs
+    # ------------------------------------------------------------------
+    "expansion-edge-cases": {
+        "type": "expansion",
+        "description": (
+            "Content edge-case expansion: subject at frame edge, repeating brick pattern, "
+            "tree silhouette against sunset, neon sign text — stress-tests seam quality "
+            "on the hardest possible content boundaries."
+        ),
+        "sources": [
+            {
+                "label": "subject-right-edge",
+                "source_prompt": (
+                    "Photograph of a skateboarder mid-air doing an ollie, subject "
+                    "positioned at the extreme right edge of the frame with only a sliver "
+                    "of background visible on the right, empty skatepark on the left, "
+                    "golden hour backlight, motion freeze, photorealistic."
+                ),
+                "source_seed": 600,
+            },
+            {
+                "label": "brick-pattern",
+                "source_prompt": (
+                    "Close-up photograph of an old red brick wall with uniform mortar "
+                    "lines, some bricks chipped and weathered, consistent repeating "
+                    "geometric pattern, sharp detail, architectural texture, photorealistic."
+                ),
+                "source_seed": 700,
+            },
+            {
+                "label": "silhouette-sunset",
+                "source_prompt": (
+                    "Photograph of a lone tree silhouette against a vivid orange and "
+                    "magenta sunset sky, extreme contrast between the completely black "
+                    "tree shape and bright saturated sky, water reflection below, "
+                    "photorealistic, dramatic."
+                ),
+                "source_seed": 800,
+            },
+            {
+                "label": "neon-sign",
+                "source_prompt": (
+                    "Night photography of a glowing neon sign reading 'OPEN' in bright "
+                    "pink and blue tubes, mounted on a dark brick wall, reflections on "
+                    "wet pavement below, sharp detail on letter edges, high contrast, "
+                    "photorealistic."
+                ),
+                "source_seed": 900,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "expand-right",
+                "mode": "expand", "dirs": "right", "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene to the right. Continue the environment naturally "
+                    "with consistent lighting and texture."
+                ),
+            },
+            {
+                "label": "expand-all4",
+                "mode": "expand", "dirs": "left,right,up,down", "pixels": 384,
+                "seed": 42,
+                "prompt": (
+                    "Expand the scene in all directions. Continue all patterns, textures, "
+                    "and environment consistently."
+                ),
+            },
+            {
+                "label": "ratio-16x9",
+                "mode": "ratio", "ratio": "16:9",
+                "seed": 42,
+                "prompt": (
+                    "Convert to 16:9 cinematic frame. Extend naturally with consistent "
+                    "lighting, color, and texture."
+                ),
+            },
+        ],
+    },
+
+    # ===================================================================
+    # Expansion parameter finetuning sweeps (single-variable isolation)
+    # ===================================================================
+
+    "expansion-overlap-sweep": {
+        "type": "expansion",
+        "description": (
+            "Overlap sweep: 32/64/96/128/160/192 — "
+            "fixed feather=96, steps=8, expand left+right 512px on 2 sources. "
+            "Finds the optimal re-injection width for seamless seams."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 96,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "ov32",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 32,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ov64",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 64,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ov96",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 96,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ov128",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 128,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ov160",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 160,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ov192",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 192,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    "expansion-feather-sweep": {
+        "type": "expansion",
+        "description": (
+            "Feather sweep: 0/32/64/96/128/192 — "
+            "fixed overlap=192, steps=8, expand left+right 512px on 2 sources. "
+            "Finds the optimal mask softness for seamless transitions. "
+            "overlap=192 ensures feather values up to 192 stay within the re-gen zone."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 192,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "ft0",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 0,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ft32",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 32,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ft64",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 64,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ft96",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 96,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ft128",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 128,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "ft192",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "feather": 192,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    "expansion-steps-sweep": {
+        "type": "expansion",
+        "description": (
+            "Steps sweep: 4/6/8/12/16 — "
+            "fixed overlap=128, feather=96, expand left+right 512px on 2 sources. "
+            "Finds the quality/speed sweet spot for denoising steps."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "st4",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "steps": 4,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "st6",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "steps": 6,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "st8",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "steps": 8,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "st12",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "steps": 12,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "st16",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "steps": 16,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    "expansion-pixels-sweep": {
+        "type": "expansion",
+        "description": (
+            "Pixels sweep: 256/384/512/768/1024 — "
+            "fixed overlap=128, feather=96, steps=8, expand left+right on 2 sources. "
+            "Finds the maximum safe expansion per pass before quality degrades."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "px256",
+                "mode": "expand", "dirs": "left,right", "pixels": 256,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "px384",
+                "mode": "expand", "dirs": "left,right", "pixels": 384,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "px512",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "px768",
+                "mode": "expand", "dirs": "left,right", "pixels": 768,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "px1024",
+                "mode": "expand", "dirs": "left,right", "pixels": 1024,
+                "seed": 42,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+        ],
+    },
+
+    "expansion-defaults-ab": {
+        "type": "expansion",
+        "description": (
+            "Expansion defaults A/B: current defaults vs proposed optimal set. "
+            "Run AFTER the individual sweeps to validate the final tuning. "
+            "Column A: overlap=128, feather=96, steps=8, pixels=512 (current). "
+            "Column B: TBD — fill in optimal values from sweep results."
+        ),
+        "sources": [
+            {
+                "label": "alley-portrait",
+                "source_prompt": (
+                    "Moody Photography, a young woman in a red coat standing in a narrow "
+                    "cobblestone alley at dusk, warm streetlamp glow, wet reflections, "
+                    "half-body shot, looking toward camera, cinematic, photorealistic, "
+                    "shallow depth of field."
+                ),
+                "source_seed": 42,
+            },
+            {
+                "label": "zen-garden",
+                "source_prompt": (
+                    "Photography of a Japanese zen garden in autumn, raked sand patterns, "
+                    "maple trees with red and gold leaves, stone pathway, morning mist, "
+                    "serene atmosphere, wide view, photorealistic, 8k."
+                ),
+                "source_seed": 150,
+            },
+        ],
+        "source_width": 1024,
+        "source_height": 1024,
+        "longest": 1024,
+        "feather": 96,
+        "overlap": 128,
+        "steps": 8,
+        "configs": [
+            {
+                "label": "A-current-defaults",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42, "overlap": 128, "feather": 96, "steps": 8,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
+                ),
+            },
+            {
+                "label": "B-proposed-optimal",
+                "mode": "expand", "dirs": "left,right", "pixels": 512,
+                "seed": 42,
+                # TODO: Fill in optimal values from sweep results
+                "overlap": 128, "feather": 96, "steps": 8,
+                "prompt": (
+                    "Extend the scene sideways. Maintain consistent lighting, "
+                    "color grading, perspective, and texture. Seamless, photorealistic."
                 ),
             },
         ],
@@ -1245,6 +2526,11 @@ _ALL_TESTS_ALIASES = {
     "a2r-review":     "anime2real-review",
     "a2r-ab":         "anime2real-ab",
     "a2r-str":        "anime2real-ref-strength",
+    # anime2real expanded test aliases
+    "a2r-diversity":  "anime2real-diversity",
+    "a2r-male":       "anime2real-male-boundary",
+    "a2r-steps":      "anime2real-steps-sweep",
+    "a2r-edges":      "anime2real-edge-cases",
     # Video aliases
     "rainy-street":  "video-rainy-street",
     "forest-hiker":  "video-forest-hiker",
@@ -1271,14 +2557,47 @@ _ALL_TESTS_ALIASES = {
     "xgender-reverse":      "faceswap-crossgender-reverse",
     # Swap aliases
     "face-swap-sam":        "swap-face",
+    "face-swap-sam-2":      "swap-face-2",
     "outfit-swap-sam":      "swap-outfit",
     "object-swap-sam":      "swap-object",
+    "object-swap-sam-2":    "swap-object-2",
     "food-swap-sam":        "swap-food",
+    "food-swap-sam-2":      "swap-food-2",
     # Expansion aliases
     "outpaint":             "expansion",
     "image-expansion":      "expansion",
     "image-expand":         "expansion",
     "expand":               "expansion",
+    "expansion-sweep":      "expansion-sweep",
+    "expand-sweep":         "expansion-sweep",
+    "sweep":                "expansion-sweep",
+    "expansion-multi":      "expansion-multi",
+    "expand-multi":         "expansion-multi",
+    "multi":                "expansion-multi",
+    # Comprehensive expansion aliases
+    "comprehensive":        "expansion-comprehensive",
+    "expand-full":          "expansion-comprehensive",
+    "expansion-full":       "expansion-comprehensive",
+    # Ref strength sweep aliases
+    "expansion-ref":        "expansion-ref-strength",
+    "expand-ref":           "expansion-ref-strength",
+    "ref-sweep":            "expansion-ref-strength",
+    # Edge cases aliases
+    "expansion-edges":      "expansion-edge-cases",
+    "expand-edges":         "expansion-edge-cases",
+    "edges":                "expansion-edge-cases",
+    # Parameter finetuning sweep aliases
+    "expand-overlap":        "expansion-overlap-sweep",
+    "overlap-sweep":         "expansion-overlap-sweep",
+    "expand-feather":        "expansion-feather-sweep",
+    "feather-sweep":         "expansion-feather-sweep",
+    "expand-steps":          "expansion-steps-sweep",
+    "steps-sweep":           "expansion-steps-sweep",
+    "expand-pixels":         "expansion-pixels-sweep",
+    "pixels-sweep":          "expansion-pixels-sweep",
+    # Defaults A/B validation
+    "expand-ab":             "expansion-defaults-ab",
+    "defaults-ab":           "expansion-defaults-ab",
 }
 
 

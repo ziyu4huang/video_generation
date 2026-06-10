@@ -66,6 +66,11 @@ _STYLE_PROMPTS = {
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}\n'
         "Each score is an integer 1-10."
     ),
+    "compare": (
+        "Describe this image in ONE short sentence (max 25 words). "
+        "Focus on: subject appearance (hair color, clothing), style (realistic/anime/3D), "
+        "and overall quality. Output only the sentence, nothing else."
+    ),
 }
 
 # Language instructions — appended to style prompt

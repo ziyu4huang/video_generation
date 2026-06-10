@@ -265,15 +265,23 @@ def patchify_latent(latent: mx.array) -> mx.array:
     return x
 
 
-def build_control_input_33ch(ctrl_latent: mx.array, vae_encode_fn) -> mx.array:
+def build_control_input_33ch(ctrl_latent: mx.array, vae_encode_fn=None,
+                              inpaint_latent: mx.array | None = None,
+                              mask_value: float = 0.0,
+                              mask_spatial=None) -> mx.array:
     """Build the 33-channel control input for the ControlNet embedder.
 
     Channels: [control_latent(16), mask(1), inpaint_latent(16)]
-    For non-inpaint use: mask = zeros, inpaint = VAE(gray image).
 
     Args:
-        ctrl_latent: [1, 16, H, W] VAE-encoded control image
-        vae_encode_fn: callable that takes a PIL Image and returns [1, 16, H, W] latent
+        ctrl_latent: [1, 16, H, W] VAE-encoded control image (Flux-normalized)
+        vae_encode_fn: callable PIL→[1,16,H,W] latent; used only when inpaint_latent is None
+        inpaint_latent: optional [1, 16, H, W] source-image latent for appearance anchor
+                        (already Flux-normalized). When provided, vae_encode_fn is unused.
+        mask_value: uniform mask fill value — 0.0 = no inpaint guidance (default),
+                    1.0 = full inpaint guidance. Ignored when mask_spatial is provided.
+        mask_spatial: optional [1, 1, H, W] mx.array spatial mask. If provided, used
+                      as-is instead of a uniform fill. 0=preserve source, 1=allow generation.
 
     Returns:
         [1, 33, H, W] concatenated control input
@@ -283,14 +291,19 @@ def build_control_input_33ch(ctrl_latent: mx.array, vae_encode_fn) -> mx.array:
 
     _, _, H, W = ctrl_latent.shape
 
-    # Create gray image and encode it for the inpaint channel
-    gray_img = Image.fromarray(
-        (np.ones((H * 8, W * 8, 3), dtype=np.uint8) * 127).astype("uint8")
-    )
-    inpaint_latent = vae_encode_fn(gray_img)  # [1, 16, H, W]
-    inpaint_latent = (inpaint_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
+    if inpaint_latent is None:
+        # Default: encode a neutral gray image for the inpaint channel
+        gray_img = Image.fromarray(
+            (np.ones((H * 8, W * 8, 3), dtype=np.uint8) * 127).astype("uint8")
+        )
+        inpaint_latent = vae_encode_fn(gray_img)  # [1, 16, H, W]
+        inpaint_latent = (inpaint_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
 
-    # Zero mask for non-inpaint mode
-    mask = mx.zeros((1, 1, H, W)).astype(ctrl_latent.dtype)
+    if mask_spatial is not None:
+        mask = mx.array(mask_spatial).astype(ctrl_latent.dtype)  # [1, 1, H, W]
+    elif mask_value == 0.0:
+        mask = mx.zeros((1, 1, H, W)).astype(ctrl_latent.dtype)
+    else:
+        mask = mx.full((1, 1, H, W), mask_value).astype(ctrl_latent.dtype)
 
     return mx.concatenate([ctrl_latent, mask, inpaint_latent], axis=1)  # [1, 33, H, W]
