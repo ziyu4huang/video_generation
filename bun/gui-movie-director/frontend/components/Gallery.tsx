@@ -6,10 +6,11 @@ interface GalleryImage {
   size: number;
   createdAt: string;
   manifest: any | null;
+  run: any | null;
 }
 
 interface GalleryProps {
-  onImageClick: (url: string, manifest?: any) => void;
+  onImageClick: (img: GalleryImage) => void;
   key?: number; // for refresh
 }
 
@@ -102,9 +103,11 @@ export function Gallery({ onImageClick }: GalleryProps) {
           <div
             key={img.name}
             className="gallery-card"
-            onClick={() => onImageClick(img.url, img.manifest)}
+            onClick={() => onImageClick(img)}
           >
-            <img src={img.url} alt={img.name} loading="lazy" />
+            <div className="gallery-card-image">
+              <img src={img.url} alt={img.name} loading="lazy" />
+            </div>
             <div className="gallery-card-info">
               <div className="gallery-card-name">{img.name}</div>
               <div className="gallery-card-meta">

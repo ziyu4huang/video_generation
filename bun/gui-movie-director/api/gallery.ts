@@ -10,6 +10,7 @@ interface ImageEntry {
   width?: number;
   height?: number;
   manifest?: Record<string, any> | null;
+  run?: Record<string, any> | null;
 }
 
 export async function handleGallery(req: Request): Promise<Response> {
@@ -35,8 +36,9 @@ export async function handleGallery(req: Request): Promise<Response> {
   const paged = entries.slice((page - 1) * limit, page * limit);
 
   const images: ImageEntry[] = paged.map((entry) => {
-    // Look for companion manifest
+    // Look for companion manifest and run JSON
     const base = entry.name.replace(/\.png$/, "");
+
     const manifestPath = path.join(OUTPUT_DIR, `${base}.manifest.json`);
     let manifest: Record<string, any> | null = null;
     if (fs.existsSync(manifestPath)) {
@@ -47,12 +49,23 @@ export async function handleGallery(req: Request): Promise<Response> {
       }
     }
 
+    const runPath = path.join(OUTPUT_DIR, `${base}.run.json`);
+    let run: Record<string, any> | null = null;
+    if (fs.existsSync(runPath)) {
+      try {
+        run = JSON.parse(fs.readFileSync(runPath, "utf-8"));
+      } catch {
+        // Ignore malformed run files
+      }
+    }
+
     return {
       name: entry.name,
       url: `/output/${entry.name}`,
       size: entry.size,
       createdAt: new Date(entry.mtime).toISOString(),
       manifest,
+      run,
     };
   });
 

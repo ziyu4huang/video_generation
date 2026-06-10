@@ -5,6 +5,7 @@ import { Gallery } from "./components/Gallery";
 import { CommandForm } from "./components/CommandForm";
 import { LogViewer } from "./components/LogViewer";
 import { ImagePreview } from "./components/ImagePreview";
+import { DomInspector } from "./components/DomInspector";
 
 // Available image commands grouped by category
 export const COMMAND_GROUPS = [
@@ -62,6 +63,7 @@ function App() {
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewManifest, setPreviewManifest] = useState<Record<string, any> | null>(null);
+  const [previewRun, setPreviewRun] = useState<Record<string, any> | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -160,7 +162,11 @@ function App() {
         {view.type === "gallery" && (
           <Gallery
             key={refreshKey}
-            onImageClick={(url: string, manifest?: any) => { setPreviewImage(url); setPreviewManifest(manifest || null); }}
+            onImageClick={(img: any) => {
+              setPreviewImage(img.url);
+              setPreviewManifest(img.manifest || null);
+              setPreviewRun(img.run || null);
+            }}
           />
         )}
         {view.type === "command" && (
@@ -184,9 +190,11 @@ function App() {
         <ImagePreview
           url={previewImage}
           manifest={previewManifest}
-          onClose={() => { setPreviewImage(null); setPreviewManifest(null); }}
+          run={previewRun}
+          onClose={() => { setPreviewImage(null); setPreviewManifest(null); setPreviewRun(null); }}
         />
       )}
+      <DomInspector />
     </>
   );
 }
