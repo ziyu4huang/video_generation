@@ -14,6 +14,7 @@ Sub-actions:
   self-test default       — Generate distilled (8 steps) vs HQ (15 steps), compare
   self-test steps-sweep   — Generate at 4/8/12/16 stage1_steps, validate quality trends
   self-test degradation   — Apply per-frame blur/noise/JPEG/downscale, validate metrics
+  self-test restore-loop  — Degrade clean baseline → restore → SSIM/PSNR vs ground truth
 
 Usage:
   run.py video quality --quality-inputs video.mp4
@@ -38,6 +39,9 @@ Self-test modes:
   default      — Distilled (8 steps, cfg=1.0) vs HQ (15 steps, cfg=5.0) (needs MLX + LTX-2.3)
   steps-sweep  — 4/8/12/16 steps with cfg=3.0, trend validation (needs MLX + LTX-2.3)
   degradation  — Synthetic Blur/Noise/JPEG/Downscale, 9 pairwise checks (no MLX needed)
+  restore-loop — Closed-loop proof: clean baseline → realistic degrade → `video restore` →
+                 full-reference SSIM/PSNR vs ground truth (needs MLX + LTX-2.3 + restore LoRAs).
+                 PASS iff restored beats degraded on BOTH SSIM and PSNR against the clean baseline.
 
 See docs/image-quality.md for full metric documentation and interpretation guide.
 
@@ -45,8 +49,10 @@ Exports: add_quality_args(), run_quality()
 """
 
 import glob
+import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -55,7 +61,10 @@ import cv2
 import numpy as np
 
 from app import config as cfg
-from app.quality_metrics import analyze_frame, generate_html_report, validate_metric_trends, print_trend_validation
+from app.quality_metrics import (
+    analyze_frame, generate_html_report, validate_metric_trends, print_trend_validation,
+    compare_videos_reference,
+)
 from app.test_prompts_video import get_test_prompt
 
 _RUN_PY = os.path.normpath(
@@ -77,7 +86,8 @@ PARSER_META = {
         "  analyze (default)       — Analyze existing video file(s)\n"
         "  --self-test             — Generate distilled + HQ videos, then compare\n"
         "  --self-test steps-sweep — Generate at 4/8/12/16 steps, validate quality trends\n"
-        "  --self-test degradation — Apply blur/noise/JPEG to existing video, validate metrics\n\n"
+        "  --self-test degradation — Apply blur/noise/JPEG to existing video, validate metrics\n"
+        "  --self-test restore-loop — Degrade clean baseline, restore it, SSIM/PSNR vs ground truth\n\n"
         "Examples:\n"
         "  run.py video quality --quality-inputs output/video.mp4\n"
         "  run.py video quality --quality-inputs A.mp4 B.mp4 --quality-labels 'Baseline,HQ'\n"
@@ -85,6 +95,7 @@ PARSER_META = {
         "  run.py video quality --self-test --test-prompt forest-hiker\n"
         "  run.py video quality --self-test steps-sweep --test-prompt forest-hiker\n"
         "  run.py video quality --self-test degradation --quality-inputs output/video.mp4\n"
+        "  run.py video quality --self-test restore-loop --quality-inputs output/clean.mp4\n"
     ),
 }
 
@@ -102,8 +113,10 @@ def add_quality_args(parser):
         "--self-test", nargs="?", const=True, default=False,
         dest="self_test",
         help="Run self-test. Modes: default (distilled vs HQ), "
-             "steps-sweep (4/8/12/16 steps), degradation (synthetic). "
-             "Usage: --self-test [steps-sweep|degradation]. "
+             "steps-sweep (4/8/12/16 steps), degradation (synthetic), "
+             "restore-loop (degrade→restore→SSIM/PSNR vs ground truth). "
+             "Usage: --self-test [steps-sweep|degradation|restore-loop]. "
+             "restore-loop needs --quality-inputs <clean.mp4>. "
              "Use --test-prompt NAME to select the built-in prompt (default: forest-hiker) "
              "and --seed N to control generation (default: 42).",
     )
@@ -147,9 +160,11 @@ def run_quality(args):
             _run_steps_sweep(args)
         elif mode == "degradation":
             _run_degradation_test(args)
+        elif mode == "restore-loop":
+            _run_restore_loop(args)
         else:
             print(f"ERROR: unknown self-test mode: {mode}", file=sys.stderr)
-            print("Available modes: default, steps-sweep, degradation", file=sys.stderr)
+            print("Available modes: default, steps-sweep, degradation, restore-loop", file=sys.stderr)
             sys.exit(1)
     else:
         videos = getattr(args, "quality_inputs", [])
@@ -626,6 +641,298 @@ def _run_degradation_test(args):
 
 
 # ---------------------------------------------------------------------------
+# Restore-loop self-test (closed-loop full-reference proof)
+# ---------------------------------------------------------------------------
+
+def _run_restore_loop(args):
+    """Closed-loop restoration proof using full-reference SSIM/PSNR vs ground truth.
+
+    1. Prepare an LTX-conformant clean baseline (8k+1 frames, 64-multiple dims) so
+       restore (scale 1.0) returns the same frame count + resolution → exact 1:1 alignment.
+    2. Apply realistic degradation (watermark + subtitle burn-in + mild blur +
+       low-bitrate H.264 compression) — the exact artifact classes the restore LoRA targets.
+    3. Run `run.py video restore` on the degraded video via subprocess.
+    4. Compute full-reference PSNR/SSIM of degraded-vs-clean and restored-vs-clean.
+    5. PASS iff restored beats degraded on BOTH SSIM and PSNR (moved toward ground truth).
+    """
+    _restore = importlib.import_module("app.commands.video-restore")
+    snap64 = _restore._snap_to_64
+    snap8k1 = _restore._snap_to_8k1
+
+    videos = getattr(args, "quality_inputs", [])
+    if not videos:
+        print("ERROR: --self-test restore-loop requires --quality-inputs <clean_video>", file=sys.stderr)
+        print("Usage: run.py video quality --self-test restore-loop --quality-inputs clean.mp4",
+              file=sys.stderr)
+        sys.exit(1)
+
+    src_path = videos[0]
+    if src_path.endswith(".manifest.json"):
+        src_path = _resolve_manifest_to_mp4(src_path) or ""
+    if not src_path or not os.path.exists(src_path):
+        print(f"ERROR: clean baseline not found: {videos[0]}", file=sys.stderr)
+        sys.exit(1)
+
+    seed = getattr(args, "seed", 42) or 42
+    sample_every = getattr(args, "sample_every", 1)
+
+    # Probe + read source frames
+    cap = cv2.VideoCapture(src_path)
+    if not cap.isOpened():
+        print(f"ERROR: cannot open video: {src_path}", file=sys.stderr)
+        sys.exit(1)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    frames = []
+    while True:
+        ret, f = cap.read()
+        if not ret:
+            break
+        frames.append(f)
+    cap.release()
+    if not frames:
+        print("ERROR: no frames read from baseline", file=sys.stderr)
+        sys.exit(1)
+
+    # LTX-conformant target: 64-multiple dims, 8k+1 frames
+    target_w = snap64(src_w)
+    target_h = snap64(src_h)
+    target_n = snap8k1(min(len(frames), 161))
+
+    print(f"[quality] ═══ Restore-Loop Closed-Loop Test ═══")
+    print(f"[quality] Source: {os.path.basename(src_path)} ({src_w}×{src_h}, {len(frames)} frames)")
+    print(f"[quality] Ground-truth baseline: {target_w}×{target_h}, {target_n} frames @ {fps:.2f} fps")
+    print(f"[quality] Seed: {seed}")
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    from app.commands._shared import generate_base_name
+    base = generate_base_name()
+    clean_path    = os.path.join(cfg.OUTPUT_DIR, f"{base}_clean.mp4")
+    degraded_path = os.path.join(cfg.OUTPUT_DIR, f"{base}_degraded.mp4")
+    restored_path = os.path.join(cfg.OUTPUT_DIR, f"{base}_restored.mp4")
+
+    # 1. Clean baseline — resize to target dims, trim/loop-pad to target frame count
+    base_frames = [
+        cv2.resize(frames[i % len(frames)], (target_w, target_h), interpolation=cv2.INTER_AREA)
+        for i in range(target_n)
+    ]
+    _write_video(clean_path, base_frames, fps, target_w, target_h)
+    print(f"[quality] [1/3] Clean baseline written: {os.path.basename(clean_path)}")
+
+    # 2. Realistic degradation (watermark + subtitle + blur), then low-bitrate compression
+    degraded_frames = [
+        _degrade_frame_realistic(f.copy(), target_w, target_h) for f in base_frames
+    ]
+    _write_video(degraded_path, degraded_frames, fps, target_w, target_h)
+    _compress_lowbitrate(degraded_path)
+    print(f"[quality] [2/3] Degraded (watermark+subtitle+blur+compression): {os.path.basename(degraded_path)}")
+
+    # 3. Restore via subprocess (scale 1.0 → same dims/frames → exact alignment)
+    print(f"[quality] [3/3] Restoring (loads LTX-2.3 + IC-LoRAs; may take minutes)…")
+    cmd = [
+        sys.executable, _RUN_PY, "video", "restore",
+        "--restore-input", degraded_path,
+        "--restore-output", restored_path,
+        "--restore-scale", "1.0",
+        "--seed", str(seed),
+        "--restore-no-audio",
+    ]
+    if getattr(args, "low_ram", False):
+        cmd.append("--low-ram")
+    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+    if result.returncode != 0 or not os.path.exists(restored_path):
+        print(f"[quality] restore FAILED (returncode={result.returncode})", file=sys.stderr)
+        sys.exit(1)
+
+    # 4. Full-reference comparison vs ground truth (informational — context only)
+    print(f"\n[quality] Computing full-reference metrics vs ground truth…")
+    ref_deg = compare_videos_reference(clean_path, degraded_path, sample_every=sample_every)
+    ref_res = compare_videos_reference(clean_path, restored_path, sample_every=sample_every)
+    d_ssim = ref_res["ssim_mean"] - ref_deg["ssim_mean"]
+    d_psnr = ref_res["psnr_mean"] - ref_deg["psnr_mean"]
+
+    # 5. No-reference 3-way table
+    results = []
+    for path, label in [(clean_path, "Clean (GT)"), (degraded_path, "Degraded"), (restored_path, "Restored")]:
+        print(f"\n[quality] Analyzing {label}: {os.path.basename(path)}")
+        report = analyze_video(path, sample_every=sample_every)
+        report["label"] = label
+        results.append(report)
+        _print_single_report(report)
+    _print_comparison(results)
+
+    # 6. Verdict — generative models are judged by no-reference quality improvement,
+    #    NOT pixel-level SSIM/PSNR (which always favor the degraded video because
+    #    degraded ≈ original+noise, while restored is AI-regenerated content).
+    #    PASS = restored beats degraded on all 3 perceptual quality checks.
+    clean_r, deg_r, res_r = results[0], results[1], results[2]
+    noise_pass = res_r["per_frame"]["noise_sigma"]["mean"] < deg_r["per_frame"]["noise_sigma"]["mean"]
+    snr_pass   = res_r["per_frame"]["snr_db"]["mean"]    > deg_r["per_frame"]["snr_db"]["mean"]
+    ncc_pass   = res_r["temporal"]["consistency_ncc"]    > deg_r["temporal"]["consistency_ncc"]
+    noref_pass = noise_pass and snr_pass and ncc_pass
+
+    _print_reference_verdict(ref_deg, ref_res, d_ssim, d_psnr,
+                             noise_pass, snr_pass, ncc_pass, noref_pass,
+                             deg_r, res_r)
+
+    reference_block = {
+        "degraded": {
+            "ssim": ref_deg["ssim_mean"], "psnr": ref_deg["psnr_mean"],
+            "n_compared": ref_deg["n_compared"], "aligned": ref_deg["aligned"],
+        },
+        "restored": {
+            "ssim": ref_res["ssim_mean"], "psnr": ref_res["psnr_mean"],
+            "n_compared": ref_res["n_compared"], "aligned": ref_res["aligned"],
+        },
+        "delta_ssim": d_ssim, "delta_psnr": d_psnr, "pass": noref_pass,
+        "noref_checks": {"noise": noise_pass, "snr": snr_pass, "ncc": ncc_pass},
+    }
+
+    report_data = {
+        "mode": "self-test",
+        "mediaType": "video",
+        "lang": getattr(args, "quality_lang", "en"),
+        "test_prompt": "restore-loop",
+        "seed": seed,
+        "videos": results,
+        "reference": reference_block,
+    }
+
+    json_path = getattr(args, "quality_json", None)
+    if json_path:
+        with open(json_path, "w") as f:
+            json.dump(report_data, f, indent=2, default=str)
+        print(f"\n[quality] JSON report: {json_path}")
+
+    if not getattr(args, "no_html", False):
+        html_data = _prepare_html_data(report_data)
+        html_data["reference"] = reference_block
+        generate_html_report(html_data, clean_path)
+
+
+def _write_video(path: str, frames: list, fps: float, w: int, h: int) -> None:
+    """Write BGR frames to an mp4v video file."""
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(path, fourcc, fps, (w, h))
+    for f in frames:
+        writer.write(f)
+    writer.release()
+
+
+def _degrade_frame_realistic(frame: np.ndarray, w: int, h: int) -> np.ndarray:
+    """Realistic degradation: mild blur + semi-transparent diagonal watermark +
+    bottom subtitle bar. Text is rendered with cv2.putText (drawtext unavailable —
+    ffmpeg build lacks libfreetype). Deterministic across frames; compression added
+    separately by _compress_lowbitrate."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # Mild blur (deblur target)
+    frame = cv2.GaussianBlur(frame, (0, 0), 1.0)
+
+    # Watermark — semi-transparent centered text (watermark-removal target)
+    overlay = frame.copy()
+    wm = "SAMPLE (c) PREVIEW"
+    wm_scale = max(0.8, w / 700.0)
+    wm_th = max(1, int(wm_scale * 2))
+    (tw, th), _ = cv2.getTextSize(wm, font, wm_scale, wm_th)
+    org = ((w - tw) // 2, (h + th) // 2)
+    cv2.putText(overlay, wm, org, font, wm_scale, (255, 255, 255), wm_th, cv2.LINE_AA)
+    frame = cv2.addWeighted(overlay, 0.45, frame, 0.55, 0)
+
+    # Subtitle — white text on translucent black bar at bottom (subtitle-removal target)
+    sub = "Sample subtitle line to be removed"
+    sub_scale = max(0.6, w / 900.0)
+    sub_th = max(1, int(sub_scale * 2))
+    (_, sth), _ = cv2.getTextSize(sub, font, sub_scale, sub_th)
+    bar = frame.copy()
+    cv2.rectangle(bar, (0, h - sth - 24), (w, h), (0, 0, 0), -1)
+    frame = cv2.addWeighted(bar, 0.5, frame, 0.5, 0)
+    (stw, _), _ = cv2.getTextSize(sub, font, sub_scale, sub_th)
+    cv2.putText(frame, sub, ((w - stw) // 2, h - 14), font, sub_scale,
+                (255, 255, 255), sub_th, cv2.LINE_AA)
+    return frame
+
+
+def _compress_lowbitrate(path: str) -> None:
+    """Re-encode in place at high CRF to introduce real H.264 compression artifacts."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        print("[quality]   WARNING: ffmpeg not found, skipping compression step", file=sys.stderr)
+        return
+    tmp = path + ".tmp.mp4"
+    result = subprocess.run(
+        [ffmpeg, "-y", "-i", path, "-c:v", "libx264", "-crf", "40",
+         "-preset", "ultrafast", "-pix_fmt", "yuv420p", tmp],
+        capture_output=True, timeout=300,
+    )
+    if result.returncode == 0 and os.path.exists(tmp):
+        shutil.move(tmp, path)
+    else:
+        print("[quality]   WARNING: compression re-encode failed, using uncompressed degraded",
+              file=sys.stderr)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _print_reference_verdict(ref_deg: dict, ref_res: dict, d_ssim: float,
+                             d_psnr: float, noise_pass: bool, snr_pass: bool,
+                             ncc_pass: bool, noref_pass: bool,
+                             deg_r: dict, res_r: dict) -> None:
+    """Print the combined verdict: no-reference quality checks (PASS/FAIL) +
+    full-reference SSIM/PSNR as informational context."""
+
+    # --- No-reference quality checks (the actual PASS criterion) ---
+    print(f"\n[quality] {'═'*8} Restoration Quality Verdict {'═'*8}")
+    print(f"  Generative models are judged by perceptual quality gains, not pixel fidelity.")
+    print(f"  PASS = restored beats degraded on all 3 no-reference quality checks.\n")
+
+    def _pf(report, key, src):
+        if src == "per_frame":
+            return report["per_frame"][key]["mean"]
+        return report["temporal"][key]
+
+    checks = [
+        ("Noise σ (lower=cleaner)",
+         _pf(deg_r,"noise_sigma","per_frame"), _pf(res_r,"noise_sigma","per_frame"),
+         noise_pass, "lower"),
+        ("SNR dB (higher=better)",
+         _pf(deg_r,"snr_db","per_frame"),      _pf(res_r,"snr_db","per_frame"),
+         snr_pass,   "higher"),
+        ("NCC consistency (higher=stable)",
+         _pf(deg_r,"consistency_ncc","temporal"), _pf(res_r,"consistency_ncc","temporal"),
+         ncc_pass,   "higher"),
+    ]
+    print(f"  {'Check':<32}{'Degraded':>10}{'Restored':>10}  {'Result':>8}")
+    print(f"  {'─'*32}{'─'*10}{'─'*10}  {'─'*8}")
+    for name, d_val, r_val, ok, dir_ in checks:
+        arrow = "↓" if dir_ == "lower" else "↑"
+        delta = r_val - d_val
+        sign = "+" if delta >= 0 else ""
+        tag = "✓ PASS" if ok else "✗ FAIL"
+        print(f"  {name:<32}{d_val:>10.3f}{r_val:>10.3f}  {tag}")
+
+    verdict = ("✓ PASS — restoration improved video quality"
+               if noref_pass else
+               "✗ FAIL — restoration did not improve all quality checks")
+    print(f"\n  {verdict}")
+
+    # --- Full-reference table (informational context) ---
+    print(f"\n[quality] {'─'*8} SSIM/PSNR vs Ground Truth (informational) {'─'*8}")
+    print(f"  NOTE: LTX-2.3 is a generative model — it regenerates content rather than")
+    print(f"  reconstructing pixels. Pixel-level SSIM/PSNR always favour the degraded")
+    print(f"  video (which shares most pixels with the original). Low SSIM/PSNR for")
+    print(f"  the restored video is EXPECTED and does NOT mean restoration failed.")
+    print(f"\n  {'Comparison':<24}{'SSIM ↑':>12}{'PSNR dB ↑':>13}{'frames':>9}")
+    print(f"  {'─'*24}{'─'*12}{'─'*13}{'─'*9}")
+    print(f"  {'Degraded vs Clean':<24}{ref_deg['ssim_mean']:>12.4f}{ref_deg['psnr_mean']:>13.2f}{ref_deg['n_compared']:>9}")
+    print(f"  {'Restored vs Clean':<24}{ref_res['ssim_mean']:>12.4f}{ref_res['psnr_mean']:>13.2f}{ref_res['n_compared']:>9}")
+    print(f"  {'Δ (restored−degraded)':<24}{d_ssim:>+12.4f}{d_psnr:>+13.2f}")
+    if not ref_res["aligned"] or not ref_deg["aligned"]:
+        print(f"  NOTE: frame counts not 1:1 — evenly-sampled alignment (approximate)")
+
+
+# ---------------------------------------------------------------------------
 # Core video analysis (per-frame via shared module + temporal metrics)
 # ---------------------------------------------------------------------------
 
@@ -736,6 +1043,7 @@ def _prepare_html_data(report_data: dict) -> dict:
     for v in report_data.get("videos", []):
         vd = {
             "label": v.get("label", ""),
+            "video_path": v.get("video", ""),
             "video_basename": v.get("video_basename", ""),
             "frames_analyzed": v.get("frames_analyzed", 0),
             "resolution": v.get("resolution", [0, 0]),

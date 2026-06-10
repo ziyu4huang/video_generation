@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { Layout } from "./components/Layout";
 import { Gallery } from "./components/Gallery";
@@ -62,17 +62,82 @@ function App() {
   const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimer = useRef<number | null>(null);
+
+  // WebSocket connection
+  useEffect(() => {
+    const connect = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      wsRef.current = ws;
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          if (msg.type === "log" && msg.line) {
+            setCurrentJob((prev) => {
+              if (!prev || prev.id !== msg.jobId) return prev;
+              return { ...prev, logs: [...prev.logs, msg.line] };
+            });
+          }
+
+          if (msg.type === "job_complete") {
+            setCurrentJob((prev) => {
+              if (!prev || prev.id !== msg.jobId) return prev;
+              return {
+                ...prev,
+                status: "completed",
+                outputFiles: msg.outputFiles || prev.outputFiles,
+                completedAt: new Date().toISOString(),
+              };
+            });
+            setRefreshKey((k) => k + 1);
+          }
+
+          if (msg.type === "job_failed") {
+            setCurrentJob((prev) => {
+              if (!prev || prev.id !== msg.jobId) return prev;
+              return {
+                ...prev,
+                status: "failed",
+                completedAt: new Date().toISOString(),
+              };
+            });
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      };
+
+      ws.onclose = () => {
+        reconnectTimer.current = window.setTimeout(connect, 2000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    };
+
+    connect();
+    return () => {
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, []);
+
+  // Subscribe to job when currentJob changes
+  useEffect(() => {
+    if (currentJob?.id && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "subscribe", jobId: currentJob.id }));
+    }
+  }, [currentJob?.id]);
 
   const handleJobStart = useCallback((job: JobInfo) => {
     setCurrentJob(job);
-  }, []);
-
-  const handleJobUpdate = useCallback((job: JobInfo) => {
-    setCurrentJob(job);
-    // Refresh gallery when job completes
-    if (job.status === "completed" || job.status === "failed") {
-      setRefreshKey((k) => k + 1);
-    }
   }, []);
 
   const handleCancelJob = useCallback(async () => {

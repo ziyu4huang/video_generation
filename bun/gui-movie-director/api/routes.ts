@@ -9,8 +9,36 @@ import { handleWebSocketUpgrade } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
-const APP_JS = { "Content-Type": "application/javascript; charset=utf-8" };
-const APP_JSON = { "Content-Type": "application/json; charset=utf-8" };
+
+// Pre-built frontend bundle (built at server startup)
+let _bundle: Response | null = null;
+
+export async function buildFrontendBundle(): Promise<void> {
+  const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
+  try {
+    const result = await Bun.build({
+      entrypoints: [entryPoint],
+      outdir: "/tmp/gui-movie-director-build",
+      target: "browser",
+      minify: false,
+      splitting: false,
+      sourcemap: "external",
+      define: { "process.env.NODE_ENV": JSON.stringify("development") },
+      external: [],
+    });
+    if (result.success && result.outputs.length > 0) {
+      const blob = result.outputs[0];
+      _bundle = new Response(blob, {
+        headers: { "Content-Type": "application/javascript; charset=utf-8" },
+      });
+      console.log(`📦 Frontend bundled: ${Math.round(blob.size / 1024)}KB`);
+    } else {
+      console.error("Bundle errors:", result.logs);
+    }
+  } catch (err) {
+    console.error("Bundle failed:", err);
+  }
+}
 
 export async function handleRequest(req: Request, server: any): Promise<Response | undefined> {
   const url = new URL(req.url);
@@ -19,7 +47,7 @@ export async function handleRequest(req: Request, server: any): Promise<Response
   // WebSocket upgrade
   if (pathname === "/ws") {
     const upgraded = handleWebSocketUpgrade(req, server);
-    if (upgraded) return undefined; // WebSocket took over
+    if (upgraded) return undefined;
     return new Response("WebSocket upgrade failed", { status: 500 });
   }
 
@@ -34,31 +62,20 @@ export async function handleRequest(req: Request, server: any): Promise<Response
     return handleGalleryImage(req, filename);
   }
 
-  // Frontend static files
-  if (pathname === "/" || pathname === "/index.html") {
-    return serveFile(path.join(FRONTEND_DIR, "index.html"), TEXT_HTML);
+  // Frontend bundle JS
+  if (pathname === "/frontend/bundle.js") {
+    if (_bundle) return _bundle.clone();
+    return new Response("Bundle not ready", { status: 503 });
   }
+
+  // CSS
   if (pathname === "/frontend/styles.css") {
     return serveFile(path.join(FRONTEND_DIR, "styles.css"), TEXT_CSS);
   }
-  if (pathname.startsWith("/frontend/")) {
-    const relPath = pathname.slice("/frontend/".length);
-    const filePath = path.join(FRONTEND_DIR, relPath);
-    if (fs.existsSync(filePath)) {
-      // Determine content type
-      if (filePath.endsWith(".tsx") || filePath.endsWith(".ts") || filePath.endsWith(".js")) {
-        return serveFile(filePath, APP_JS);
-      }
-      if (filePath.endsWith(".css")) {
-        return serveFile(filePath, TEXT_CSS);
-      }
-      if (filePath.endsWith(".html")) {
-        return serveFile(filePath, TEXT_HTML);
-      }
-      // Default: serve as-is
-      const file = Bun.file(filePath);
-      return new Response(file);
-    }
+
+  // HTML shell — serves index.html for all non-API, non-static routes (SPA)
+  if (pathname === "/" || pathname === "/index.html" || !pathname.startsWith("/api/")) {
+    return serveFile(path.join(FRONTEND_DIR, "index.html"), TEXT_HTML);
   }
 
   return new Response("Not found", { status: 404 });

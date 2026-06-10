@@ -5,18 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Movie Director</title>
   <link rel="stylesheet" href="/frontend/styles.css">
-  <script type="importmap">
-  {
-    "imports": {
-      "react": "https://esm.sh/react@19.1.0",
-      "react-dom/client": "https://esm.sh/react-dom@19.1.0/client",
-      "react/jsx-runtime": "https://esm.sh/react@19.1.0/jsx-runtime"
-    }
-  }
-  </script>
 </head>
 <body>
   <div id="root"></div>
-  <script type="module" src="/frontend/app.tsx"></script>
+  <div id="js-error" style="color:red;padding:20px;display:none;white-space:pre-wrap;font-family:monospace"></div>
+  <script>
+    window.onerror = function(msg, url, line, col, err) {
+      var el = document.getElementById('js-error');
+      el.style.display = 'block';
+      el.textContent = 'ERROR: ' + msg + '\n' + url + ':' + line + ':' + col;
+      if (err && err.stack) el.textContent += '\n' + err.stack;
+    };
+    window.onunhandledrejection = function(e) {
+      var el = document.getElementById('js-error');
+      el.style.display = 'block';
+      el.textContent = 'UNHANDLED: ' + (e.reason && e.reason.stack || e.reason);
+    };
+  </script>
+  <script type="module" src="/frontend/bundle.js"></script>
 </body>
 </html>

@@ -26,14 +26,17 @@ from app import config as cfg
 # Ensure ltx-2-mlx sub-packages are importable (vendored submodule at vendor/ltx-2-mlx/)
 # ---------------------------------------------------------------------------
 
-_VENDOR_BASE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "vendor", "ltx-2-mlx",
-)
+_APP_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_VENDOR_BASE = os.path.join(_APP_DIR, "vendor", "ltx-2-mlx")
 for _pkg in ("packages/ltx-core-mlx", "packages/ltx-pipelines-mlx"):
     _src = os.path.join(_VENDOR_BASE, _pkg, "src")
     if os.path.isdir(_src) and _src not in sys.path:
         sys.path.insert(0, _src)
+
+# mflux vendor package (needed by vendor_patches + pipeline.py)
+_mflux_src = os.path.join(_APP_DIR, "vendor", "mflux", "src")
+if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+    sys.path.insert(0, _mflux_src)
 
 # Apply vendor monkey-patches before any vendor classes are instantiated.
 import app.vendor_patches  # noqa: F401

@@ -3904,7 +3904,7 @@ def _render_expansion_html(*, html_path, test_name, description, source_infos,
         # Source card
         src_card = (
             f"<div class='card src-card'>"
-            f"<div class='card-header'><span class='card-label'>Source: {_html.escape(sl)}</span>"
+            f"<div class='card-header'><span class='card-label'><span data-i18n='source'>Source</span>: {_html.escape(sl)}</span>"
             f"<span class='card-params'>{snippet}</span></div>"
             f"<div class='img-wrap'><img src='{_img_b64(sinfo['path'])}' loading='lazy'"
             f" onclick='zoom(this.src)'/></div>"
@@ -3947,9 +3947,9 @@ def _render_expansion_html(*, html_path, test_name, description, source_infos,
             if is_sweep:
                 winner_html = (
                     f"<div class='winner-row'>"
-                    f"<span class='winner-label'>Best variant?</span>"
+                    f"<span class='winner-label' data-i18n='bestVariant'>Best variant?</span>"
                     f"<button class='vb' data-id='{vid}' onclick='setWinner(\"{vid}\")'>"
-                    f"⭐ Pick</button></div>"
+                    f"<span data-i18n='pick'>⭐ Pick</span></button></div>"
                 )
             var_cards.append(
                 f"<div class='card' data-vid='{vid}'>"
@@ -3961,14 +3961,14 @@ def _render_expansion_html(*, html_path, test_name, description, source_infos,
                 f"<div class='fb-zone'>"
                 f"{params_html}"
                 f"{_score_card(label)}"
-                f"<div class='section-label'>Seam Quality</div>"
+                f"<div class='section-label' data-i18n='seamQuality'>Seam Quality</div>"
                 f"<div class='seam-rating'>{stars_html}</div>"
-                f"<div class='section-label'>Issue Tags</div>"
+                f"<div class='section-label' data-i18n='issueTags'>Issue Tags</div>"
                 f"<div class='issue-strip'>{issues_html}</div>"
-                f"<div class='section-label'>Verdict</div>"
+                f"<div class='section-label' data-i18n='verdict'>Verdict</div>"
                 f"<div class='verdict-row'>{verdicts_html}</div>"
                 f"{winner_html}"
-                f"<textarea class='notes' data-id='{vid}' placeholder='Notes…'"
+                f"<textarea class='notes' data-id='{vid}' data-i18n-ph='notes' placeholder='Notes…'"
                 f" oninput='setNote(\"{vid}\",this.value)'></textarea>"
                 f"</div></div>"
             )
@@ -4078,21 +4078,152 @@ h1{{font-size:1.3rem;margin-bottom:4px;color:#f8fafc}}
 .overlay.show{{display:flex}}
 .overlay img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:6px}}
 </style></head><body>
-<h1>Flux2 Klein Outpaint — {_html.escape(test_name)}</h1>
-<p class="subtitle">{_html.escape(description)} · click stars/tags/verdict to review · auto-saved</p>
+<h1 id="page-title">Flux2 Klein Outpaint — {_html.escape(test_name)}</h1>
+<p class="subtitle">{_html.escape(description)} · <span data-i18n="subtitle">click stars/tags/verdict to review · auto-saved</span></p>
 {sections_html}
 <div class="summary" id="summary"></div>
 <div class="bottom-bar">
-  <button class="btn-export" onclick="exportJSON()">📋 Export JSON</button>
-  <button class="btn-copy" onclick="copyText()">📝 Copy Text</button>
-  <button class="btn-dl" onclick="downloadJSON()">💾 Download</button>
-  <button class="btn-reset" onclick="resetAll()">🔄 Reset</button>
+  <button class="btn-export" id="btn-export" onclick="exportJSON()">📋 Export JSON</button>
+  <button class="btn-copy" id="btn-copy" onclick="copyText()">📝 Copy Text</button>
+  <button class="btn-dl" id="btn-dl" onclick="downloadJSON()">💾 Download</button>
+  <button class="btn-reset" id="btn-reset" onclick="resetAll()">🔄 Reset</button>
+  <button class="btn-lang" id="btn-lang" onclick="toggleLang()" style="margin-left:auto;background:#7c3aed;color:#fff">EN</button>
   <span class="saved-hint" id="saved-hint">Auto-saved</span>
 </div>
 <div class="overlay" id="overlay" onclick="this.classList.remove('show')">
   <img id="overlay-img" src="">
 </div>
 <script>
+// ── i18n ──────────────────────────────────────────────────────────────
+const LANG={{
+  zh_TW: {{
+    subtitle: '點擊星級/標籤/判定進行審查 · 自動儲存',
+    source: '來源',
+    seamQuality: '接縫品質',
+    issueTags: '問題標籤',
+    verdict: '判定',
+    bestVariant: '最佳變體？',
+    pick: '⭐ 選擇',
+    notes: '備註…',
+    summary: '摘要',
+    variantsReviewed: '已審查變體',
+    avgSeamRating: '平均接縫評分',
+    verdicts: '判定',
+    winner: '勝出者',
+    issues: '問題',
+    exportJSON: '📋 匯出 JSON',
+    copyText: '📝 複製文字',
+    download: '💾 下載',
+    reset: '🔄 重置',
+    autoSaved: '自動儲存',
+    saved: '已儲存 ✓',
+    copied: '已複製！',
+    resetConfirm: '重置所有回饋？',
+    visible_seam: '🔗 可見接縫',
+    blur_band: '🌫️ 模糊帶',
+    color_mismatch: '🎨 顏色不匹配',
+    lighting: '💡 光照不一致',
+    texture: '🧱 紋理不連續',
+    seamless: '✅ 無縫',
+    pass: '通過',
+    partial: '部分',
+    fail: '失敗',
+    sourceCol: '來源',
+    variantCol: '變體',
+    humanStar: '人工 ★',
+    expansionLabel: '擴展',
+    notesLabel: '備註',
+    winnerLabel: '勝出',
+    vlmScore: 'VLM 評分',
+    vlmOverall: 'VLM 整體',
+    noScore: 'VLM 評分：無',
+  }},
+  en: {{
+    subtitle: 'click stars/tags/verdict to review · auto-saved',
+    source: 'Source',
+    seamQuality: 'Seam Quality',
+    issueTags: 'Issue Tags',
+    verdict: 'Verdict',
+    bestVariant: 'Best variant?',
+    pick: '⭐ Pick',
+    notes: 'Notes…',
+    summary: 'Summary',
+    variantsReviewed: 'Variants reviewed',
+    avgSeamRating: 'Avg seam rating',
+    verdicts: 'Verdicts',
+    winner: 'Winner',
+    issues: 'Issues',
+    exportJSON: '📋 Export JSON',
+    copyText: '📝 Copy Text',
+    download: '💾 Download',
+    reset: '🔄 Reset',
+    autoSaved: 'Auto-saved',
+    saved: 'Saved ✓',
+    copied: 'Copied!',
+    resetConfirm: 'Reset all feedback?',
+    visible_seam: '🔗 Visible seam',
+    blur_band: '🌫️ Blur band',
+    color_mismatch: '🎨 Color mismatch',
+    lighting: '💡 Lighting inconsistency',
+    texture: '🧱 Texture discontinuity',
+    seamless: '✅ Seamless',
+    pass: 'PASS',
+    partial: 'PARTIAL',
+    fail: 'FAIL',
+    sourceCol: 'Source',
+    variantCol: 'Variant',
+    humanStar: 'Human ★',
+    expansionLabel: 'Expansion',
+    notesLabel: 'Notes',
+    winnerLabel: 'Winner',
+    vlmScore: 'VLM score',
+    vlmOverall: 'VLM overall',
+    noScore: 'VLM score: n/a',
+  }},
+}};
+let currentLang = localStorage.getItem('expansion_lang') || 'zh_TW';
+function L(key) {{ return LANG[currentLang]?.[key] ?? LANG.en[key] ?? key; }}
+function toggleLang() {{
+  currentLang = currentLang === 'zh_TW' ? 'en' : 'zh_TW';
+  localStorage.setItem('expansion_lang', currentLang);
+  renderLang();
+}}
+function renderLang() {{
+  document.getElementById('btn-lang').textContent = currentLang === 'zh_TW' ? 'EN' : '中文';
+  // data-i18n elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {{
+    const key = el.getAttribute('data-i18n');
+    if (LANG[currentLang]?.[key]) el.textContent = LANG[currentLang][key];
+    else if (LANG.en[key]) el.textContent = LANG.en[key];
+  }});
+  // data-i18n-ph elements (placeholder)
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {{
+    const key = el.getAttribute('data-i18n-ph');
+    if (LANG[currentLang]?.[key]) el.placeholder = LANG[currentLang][key];
+    else if (LANG.en[key]) el.placeholder = LANG.en[key];
+  }});
+  // Issue buttons (use data-key)
+  document.querySelectorAll('.issue-btn').forEach(btn => {{
+    const key = btn.dataset.key;
+    if (LANG[currentLang]?.[key]) btn.textContent = LANG[currentLang][key];
+    else if (LANG.en[key]) btn.textContent = LANG.en[key];
+  }});
+  // Verdict buttons (use data-v)
+  document.querySelectorAll('.verdict-btn').forEach(btn => {{
+    const v = btn.dataset.v;
+    if (LANG[currentLang]?.[v]) btn.textContent = LANG[currentLang][v];
+    else if (LANG.en[v]) btn.textContent = LANG.en[v];
+  }});
+  // Bottom bar buttons
+  document.getElementById('btn-export').textContent = L('exportJSON');
+  document.getElementById('btn-copy').textContent = L('copyText');
+  document.getElementById('btn-dl').textContent = L('download');
+  document.getElementById('btn-reset').textContent = L('reset');
+  // Re-render summary
+  updateSummary();
+}}
+// ── End i18n ──────────────────────────────────────────────────────────
+
 const STORAGE_KEY='{storage_key}';
 const IDS={ids_js};
 const VARIANTS={variants_js_str};
@@ -4118,8 +4249,8 @@ function initFeedback(){{
 
 function save(){{
   try{{localStorage.setItem(STORAGE_KEY,JSON.stringify({{fb,winner}}));}}catch(e){{}}
-  const h=document.getElementById('saved-hint');h.textContent='Saved ✓';
-  setTimeout(()=>h.textContent='Auto-saved',1200);
+  const h=document.getElementById('saved-hint');h.textContent=L('saved');
+  setTimeout(()=>h.textContent=L('autoSaved'),1200);
 }}
 
 function setStars(id,n){{
@@ -4185,17 +4316,17 @@ function updateSummary(){{
     }});
   }});
   const avgStars=starCount?(totalStars/starCount).toFixed(1):'—';
-  let h=`<h2>Summary</h2><div class="summary-grid">`;
-  h+=`<div class="summary-item"><span class="val">${{reviewed}}/${{IDS.length}}</span><span class="lbl">Variants reviewed</span></div>`;
-  h+=`<div class="summary-item"><span class="val">${{avgStars}}</span><span class="lbl">Avg seam rating</span></div>`;
-  h+=`<div class="summary-item"><span class="val">P${{vCounts.pass}} W${{vCounts.partial}} F${{vCounts.fail}}</span><span class="lbl">Verdicts</span></div>`;
-  if(IS_SWEEP&&winner)h+=`<div class="summary-item"><span class="val">⭐ ${{winner}}</span><span class="lbl">Winner</span></div>`;
+  let h=`<h2>${{L('summary')}}</h2><div class="summary-grid">`;
+  h+=`<div class="summary-item"><span class="val">${{reviewed}}/${{IDS.length}}</span><span class="lbl">${{L('variantsReviewed')}}</span></div>`;
+  h+=`<div class="summary-item"><span class="val">${{avgStars}}</span><span class="lbl">${{L('avgSeamRating')}}</span></div>`;
+  h+=`<div class="summary-item"><span class="val">P${{vCounts.pass}} W${{vCounts.partial}} F${{vCounts.fail}}</span><span class="lbl">${{L('verdicts')}}</span></div>`;
+  if(IS_SWEEP&&winner)h+=`<div class="summary-item"><span class="val">⭐ ${{winner}}</span><span class="lbl">${{L('winner')}}</span></div>`;
   const issueStr=Object.entries(iCounts).filter(e=>e[1]>0).map(([k,v])=>`${{k}}:${{v}}`).join(', ');
-  if(issueStr)h+=`<div class="summary-item"><span class="val">${{issueStr}}</span><span class="lbl">Issues</span></div>`;
+  if(issueStr)h+=`<div class="summary-item"><span class="val">${{issueStr}}</span><span class="lbl">${{L('issues')}}</span></div>`;
   h+=`</div>`;
   // Per-source VLM vs Human table
   if(IDS.length>0){{
-    h+=`<table class="summary-table"><tr><th>Source</th><th>Variant</th><th>VLM</th><th>Human ★</th><th>Verdict</th></tr>`;
+    h+=`<table class="summary-table"><tr><th>${{L('sourceCol')}}</th><th>${{L('variantCol')}}</th><th>VLM</th><th>${{L('humanStar')}}</th><th>${{L('verdict')}}</th></tr>`;
     IDS.forEach(id=>{{
       const v=VARIANTS.find(x=>x.id===id);
       const vlm=v&&v.vlm_score?v.vlm_score.overall:'—';
@@ -4240,8 +4371,8 @@ function _buildJSON(){{
 
 function exportJSON(){{
   navigator.clipboard.writeText(JSON.stringify(_buildJSON(),null,2)).then(()=>{{
-    const h=document.getElementById('saved-hint');h.textContent='Copied!';
-    setTimeout(()=>h.textContent='Auto-saved',2000);
+    const h=document.getElementById('saved-hint');h.textContent=L('copied');
+    setTimeout(()=>h.textContent=L('autoSaved'),2000);
   }});
 }}
 
@@ -4253,7 +4384,7 @@ function downloadJSON(){{
 
 function copyText(){{
   const d=_buildJSON();
-  const lines=[`Expansion: ${{d.test_name}} (${{d.timestamp}})`];
+  const lines=[`${{L('expansionLabel')}}: ${{d.test_name}} (${{d.timestamp}})`];
   // Group by source
   const bySrc={{}};
   Object.entries(d.variants).forEach(([k,v])=>{{
@@ -4264,18 +4395,18 @@ function copyText(){{
     lines.push(`  [${{src}}]`);
     items.forEach(([k,v])=>{{
       lines.push(`    ${{k.split('/').pop()}}: ★${{v.human_feedback.stars||'—'}} ${{v.human_feedback.verdict||''}} ${{v.human_feedback.issues.join(', ')||''}}`);
-      if(v.human_feedback.notes)lines.push(`      Notes: ${{v.human_feedback.notes}}`);
+      if(v.human_feedback.notes)lines.push(`      ${{L('notesLabel')}}: ${{v.human_feedback.notes}}`);
     }});
   }});
-  if(d.winner)lines.push(`  Winner: ${{d.winner}}`);
+  if(d.winner)lines.push(`  ${{L('winnerLabel')}}: ${{d.winner}}`);
   navigator.clipboard.writeText(lines.join('\\n')).then(()=>{{
-    const h=document.getElementById('saved-hint');h.textContent='Copied!';
-    setTimeout(()=>h.textContent='Auto-saved',2000);
+    const h=document.getElementById('saved-hint');h.textContent=L('copied');
+    setTimeout(()=>h.textContent=L('autoSaved'),2000);
   }});
 }}
 
 function resetAll(){{
-  if(!confirm('Reset all feedback?'))return;
+  if(!confirm(L('resetConfirm')))return;
   IDS.forEach(id=>fb[id]={{stars:0,issues:{{}},verdict:null,notes:''}});
   winner=null;
   document.querySelectorAll('.notes').forEach(ta=>ta.value='');
@@ -4290,6 +4421,7 @@ function zoom(src){{
 
 initFeedback();
 updateSummary();
+renderLang();
 </script>
 </body></html>"""
 

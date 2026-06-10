@@ -345,6 +345,51 @@ function renderHTML(config) {
     </div>`;
   }
 
+  // Video preview grid (comparison mode, video only)
+  let videoPreview = "";
+  if (!isImage && isCompare) {
+    videoPreview = `
+  <h2 class="section-title">Video Preview</h2>
+  <p class="video-sync-hint">All videos are synchronised — play/pause/seek one to control all.</p>
+  <div class="video-grid">
+    ${items.map((item, idx) => `
+    <div class="video-card">
+      <div class="video-label" style="color:${colors[idx % colors.length]}">${item.label}</div>
+      <div class="video-file">${item.video_basename || ''}</div>
+      <video id="vid-${idx}" controls loop muted playsinline preload="metadata"
+             src="/videos/${encodeURIComponent(item.video_basename || '')}">
+      </video>
+    </div>`).join('')}
+  </div>`;
+  }
+
+  // Full-reference verdict table (restore-loop mode — SSIM/PSNR vs ground truth)
+  let referenceSection = "";
+  const ref = config.reference;
+  if (ref && ref.degraded && ref.restored) {
+    const passed = !!ref.pass;
+    const fmt = (x, d) => (typeof x === "number" ? x.toFixed(d) : "—");
+    const dSsim = ref.delta_ssim, dPsnr = ref.delta_psnr;
+    const sign = (x) => (typeof x === "number" && x >= 0 ? "+" : "");
+    referenceSection = `
+  <h2 class="section-title">Full-Reference Fidelity vs Ground Truth</h2>
+  <p class="video-sync-hint">SSIM &amp; PSNR show pixel-level distance from the clean baseline (informational).
+     LTX-2.3 is a generative model — restored pixels differ from the original even when quality improves.
+     <strong>Verdict is based on no-reference quality checks</strong> (noise ↓, SNR ↑, NCC ↑), not SSIM/PSNR.</p>
+  <table class="ref-table">
+    <thead><tr><th>Comparison</th><th>SSIM ↑</th><th>PSNR (dB) ↑</th><th>frames</th></tr></thead>
+    <tbody>
+      <tr><td>Degraded vs Clean</td><td>${fmt(ref.degraded.ssim,4)}</td><td>${fmt(ref.degraded.psnr,2)}</td><td>${ref.degraded.n_compared ?? "—"}</td></tr>
+      <tr><td>Restored vs Clean</td><td>${fmt(ref.restored.ssim,4)}</td><td>${fmt(ref.restored.psnr,2)}</td><td>${ref.restored.n_compared ?? "—"}</td></tr>
+      <tr class="ref-delta"><td>Δ (restored − degraded)</td><td>${sign(dSsim)}${fmt(dSsim,4)}</td><td>${sign(dPsnr)}${fmt(dPsnr,2)}</td><td></td></tr>
+    </tbody>
+  </table>
+  <div class="ref-verdict ${passed ? 'ref-pass' : 'ref-fail'}">
+    ${passed ? '✓ PASS — restore moved the video toward ground truth'
+             : '✗ FAIL — restore did not improve fidelity on both metrics'}
+  </div>`;
+  }
+
   // Per-frame charts section (video only — images don't have frame arrays)
   let chartSections = "";
   let chartScripts = "";
@@ -483,6 +528,34 @@ td.winner { color: var(--gold); font-weight: 700; }
 .guide-detail .guide-section div { font-size: 12px; color: #bbb; line-height: 1.5; }
 .guide-detail code { font-size: 11px; color: var(--gold); background: var(--bg3);
                      padding: 2px 6px; border-radius: 3px; font-family: 'SF Mono', Menlo, monospace; }
+
+/* Video preview grid */
+.video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+              gap: 16px; margin-bottom: 24px; }
+.video-card { background: var(--bg2); border: 1px solid var(--border);
+              border-radius: var(--radius); padding: 12px; }
+.video-card .video-label { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.video-card .video-file { font-size: 11px; color: var(--muted); margin-bottom: 8px;
+                          word-break: break-all; }
+.video-card video { width: 100%; border-radius: 4px; display: block;
+                    background: #000; max-height: 280px; }
+.video-sync-hint { font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+
+/* Full-reference verdict table */
+.ref-table { width: 100%; border-collapse: collapse; margin-bottom: 12px;
+             background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
+.ref-table th, .ref-table td { padding: 8px 14px; text-align: right; font-size: 13px;
+             border-bottom: 1px solid var(--border); }
+.ref-table th:first-child, .ref-table td:first-child { text-align: left; }
+.ref-table th { color: var(--muted); font-weight: 600; text-transform: uppercase;
+             font-size: 11px; letter-spacing: 0.5px; }
+.ref-table tr.ref-delta td { font-weight: 700; color: var(--gold); border-bottom: none; }
+.ref-verdict { font-size: 15px; font-weight: 700; padding: 12px 16px; border-radius: var(--radius);
+             margin-bottom: 24px; }
+.ref-verdict.ref-pass { background: rgba(46,160,67,0.15); color: #3fb950;
+             border: 1px solid rgba(46,160,67,0.4); }
+.ref-verdict.ref-fail { background: rgba(248,81,73,0.15); color: #f85149;
+             border: 1px solid rgba(248,81,73,0.4); }
 </style>
 </head>
 <body>
@@ -502,6 +575,10 @@ td.winner { color: var(--gold); font-weight: 700; }
   <div class="summary-row">
     ${summaryCards}
   </div>
+
+  ${videoPreview}
+
+  ${referenceSection}
 
   ${isCompare ? `
   <h2 class="section-title"><span data-i18n="comparison"></span></h2>
@@ -715,6 +792,18 @@ if (n > 1) {
     },
   });
 }
+
+// Sync video playback — play/pause/seek one controls all
+(function syncVideos() {
+  const vids = Array.from(document.querySelectorAll(".video-card video"));
+  if (vids.length < 2) return;
+  let syncing = false;
+  vids.forEach(src => {
+    src.addEventListener("play", () => { if (syncing) return; syncing = true; vids.forEach(v => { if (v !== src) v.play(); }); syncing = false; });
+    src.addEventListener("pause", () => { if (syncing) return; syncing = true; vids.forEach(v => { if (v !== src) v.pause(); }); syncing = false; });
+    src.addEventListener("seeked", () => { if (syncing) return; syncing = true; vids.forEach(v => { if (v !== src) v.currentTime = src.currentTime; }); syncing = false; });
+  });
+})();
 </script>
 </body>
 </html>`;
@@ -733,6 +822,15 @@ const server = Bun.serve({
       return new Response(html, {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
+    }
+    // Serve video files for the preview grid
+    if (url.pathname.startsWith("/videos/")) {
+      const basename = decodeURIComponent(url.pathname.slice("/videos/".length));
+      const videos = CONFIG.videos || [];
+      const found = videos.find(v => v.video_basename === basename && v.video_path);
+      if (found) {
+        return new Response(Bun.file(found.video_path));
+      }
     }
     return new Response("Not found", { status: 404 });
   },

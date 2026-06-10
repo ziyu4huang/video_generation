@@ -25,6 +25,16 @@ import sys
 import tempfile
 import time
 
+# Ensure ltx-2-mlx vendor packages are importable (same setup as ltx_pipeline.py)
+_VENDOR_BASE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "vendor", "ltx-2-mlx",
+)
+for _pkg in ("packages/ltx-core-mlx", "packages/ltx-pipelines-mlx"):
+    _src = os.path.join(_VENDOR_BASE, _pkg, "src")
+    if os.path.isdir(_src) and _src not in sys.path:
+        sys.path.insert(0, _src)
+
 from app import config as cfg
 
 _DEFAULT_POSITIVE_PROMPT = (

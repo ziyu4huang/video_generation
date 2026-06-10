@@ -374,7 +374,7 @@ def _patch_klein_edit_nan_guard() -> None:
     import mlx.core as mx
 
     from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
-    from mflux.utils import AppleSiliconUtil
+    from mflux.utils.apple_silicon import AppleSiliconUtil
 
     @staticmethod
     def _patched_predict(transformer):  # type: ignore[no-untyped-def]

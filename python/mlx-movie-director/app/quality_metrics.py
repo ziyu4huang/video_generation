@@ -112,6 +112,110 @@ def _compute_blockiness(gray: np.ndarray, height: int, width: int) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Reference-based metrics (PSNR + SSIM) — require a ground-truth reference
+# ---------------------------------------------------------------------------
+
+def compute_frame_reference(ref_bgr: np.ndarray, test_bgr: np.ndarray) -> dict:
+    """Compute full-reference PSNR + SSIM of test_bgr against ref_bgr.
+
+    Unlike analyze_frame (no-reference), these metrics measure fidelity to a
+    known ground truth. test_bgr is resized to ref dimensions if they differ.
+
+    Args:
+        ref_bgr: ground-truth BGR uint8 frame.
+        test_bgr: BGR uint8 frame to score against the reference.
+
+    Returns:
+        {"psnr": float (dB, higher=closer), "ssim": float in [-1, 1], higher=closer}
+    """
+    if test_bgr.shape[:2] != ref_bgr.shape[:2]:
+        test_bgr = cv2.resize(
+            test_bgr, (ref_bgr.shape[1], ref_bgr.shape[0]),
+            interpolation=cv2.INTER_CUBIC,
+        )
+
+    psnr = float(cv2.PSNR(ref_bgr, test_bgr))
+    if not np.isfinite(psnr):
+        psnr = 100.0  # identical frames → cap (cv2.PSNR returns inf)
+
+    ref_g = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2GRAY)
+    test_g = cv2.cvtColor(test_bgr, cv2.COLOR_BGR2GRAY)
+    from skimage.metrics import structural_similarity
+    ssim = float(structural_similarity(ref_g, test_g, data_range=255))
+
+    return {"psnr": psnr, "ssim": ssim}
+
+
+def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 1) -> dict:
+    """Frame-by-frame full-reference comparison of test_path against ref_path.
+
+    Frame alignment: if both videos have the same frame count, pairs are 1:1.
+    Otherwise K = min(N_ref, N_test) indices are evenly sampled from each and a
+    warning is printed (approximate — exact alignment needs matching counts).
+
+    Args:
+        ref_path: ground-truth video path.
+        test_path: video to score against the reference.
+        sample_every: analyze every Nth aligned pair (1 = all).
+
+    Returns:
+        {"psnr_mean", "ssim_mean", "psnr_values", "ssim_values",
+         "n_compared", "aligned" (bool — True if counts matched 1:1)}
+    """
+    ref_frames = _read_all_frames(ref_path)
+    test_frames = _read_all_frames(test_path)
+    if not ref_frames or not test_frames:
+        raise ValueError(f"cannot read frames: ref={len(ref_frames)} test={len(test_frames)}")
+
+    n_ref, n_test = len(ref_frames), len(test_frames)
+    aligned = n_ref == n_test
+    if aligned:
+        ref_idx = list(range(n_ref))
+        test_idx = list(range(n_test))
+    else:
+        k = min(n_ref, n_test)
+        print(
+            f"[quality]   WARNING: frame count mismatch (ref={n_ref}, test={n_test}); "
+            f"evenly sampling {k} pairs. For exact alignment use an 8k+1-frame baseline.",
+            file=__import__('sys').stderr,
+        )
+        ref_idx = [round(i * (n_ref - 1) / (k - 1)) for i in range(k)] if k > 1 else [0]
+        test_idx = [round(i * (n_test - 1) / (k - 1)) for i in range(k)] if k > 1 else [0]
+
+    psnr_values, ssim_values = [], []
+    for j, (ri, ti) in enumerate(zip(ref_idx, test_idx)):
+        if j % sample_every != 0:
+            continue
+        m = compute_frame_reference(ref_frames[ri], test_frames[ti])
+        psnr_values.append(m["psnr"])
+        ssim_values.append(m["ssim"])
+
+    return {
+        "psnr_mean": float(np.mean(psnr_values)) if psnr_values else 0.0,
+        "ssim_mean": float(np.mean(ssim_values)) if ssim_values else 0.0,
+        "psnr_values": psnr_values,
+        "ssim_values": ssim_values,
+        "n_compared": len(psnr_values),
+        "aligned": aligned,
+    }
+
+
+def _read_all_frames(video_path: str) -> list:
+    """Read all BGR frames from a video into a list."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
+    frames = []
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(frame)
+    cap.release()
+    return frames
+
+
+# ---------------------------------------------------------------------------
 # HTML report generation (shared by image-quality and video-quality)
 # ---------------------------------------------------------------------------
 
