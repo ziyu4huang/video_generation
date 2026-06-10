@@ -1,14 +1,18 @@
 import React from "react";
-import { COMMAND_GROUPS, ALL_COMMANDS, type JobInfo } from "../app";
+import { COMMAND_GROUPS } from "../app";
+import { useJobs } from "../hooks/useJobs";
 
 interface LayoutProps {
   currentView: { type: string; action?: string };
   onViewChange: (view: any) => void;
-  currentJob: JobInfo | null;
   children: React.ReactNode;
 }
 
-export function Layout({ currentView, onViewChange, currentJob, children }: LayoutProps) {
+export function Layout({ currentView, onViewChange, children }: LayoutProps) {
+  const { jobs } = useJobs();
+  const runningJob = jobs.find((j) => j.status === "running") ?? null;
+  const failedCount = jobs.filter((j) => j.status === "failed").length;
+
   return (
     <div className="app-layout">
       <aside className="sidebar">
@@ -21,6 +25,23 @@ export function Layout({ currentView, onViewChange, currentJob, children }: Layo
             onClick={() => onViewChange({ type: "gallery" })}
           >
             📷 Gallery
+          </div>
+          <div
+            className={`sidebar-item ${currentView.type === "config" ? "active" : ""}`}
+            onClick={() => onViewChange({ type: "config" })}
+          >
+            ⚙️ Config
+          </div>
+          <div
+            className={`sidebar-item ${currentView.type === "jobs" ? "active" : ""}`}
+            onClick={() => onViewChange({ type: "jobs" })}
+          >
+            📋 Jobs
+            {failedCount > 0 && (
+              <span style={{ marginLeft: "auto", color: "var(--error)", fontSize: 11, fontWeight: 600 }}>
+                {failedCount} failed
+              </span>
+            )}
           </div>
         </div>
 
@@ -42,11 +63,11 @@ export function Layout({ currentView, onViewChange, currentJob, children }: Layo
         ))}
 
         {/* Job status at bottom */}
-        {currentJob && (
+        {runningJob && (
           <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
             <div className="status-badge running">
               <span className="status-dot" />
-              {currentJob.command}
+              {runningJob.command}
             </div>
           </div>
         )}

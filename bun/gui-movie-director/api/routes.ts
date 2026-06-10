@@ -5,15 +5,18 @@ import { handleGallery, handleGalleryImage } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleDeleteJob } from "./jobs";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
+import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
+import { handleVlmTest } from "./vlm";
+import { handleModelCheckRun, handleModelCheckCache } from "./model-check";
 import { handleWebSocketUpgrade } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
 
-// Pre-built frontend bundle (built at server startup)
+// Pre-built frontend bundle (built at server startup, rebuilt on file change in dev)
 let _bundle: Response | null = null;
 
-export async function buildFrontendBundle(): Promise<void> {
+async function _doBuild(silent?: boolean): Promise<boolean> {
   const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
   try {
     const result = await Bun.build({
@@ -31,13 +34,24 @@ export async function buildFrontendBundle(): Promise<void> {
       _bundle = new Response(blob, {
         headers: { "Content-Type": "application/javascript; charset=utf-8" },
       });
-      console.log(`📦 Frontend bundled: ${Math.round(blob.size / 1024)}KB`);
+      if (!silent) console.log(`📦 Frontend bundled: ${Math.round(blob.size / 1024)}KB`);
+      return true;
     } else {
       console.error("Bundle errors:", result.logs);
+      return false;
     }
   } catch (err) {
     console.error("Bundle failed:", err);
+    return false;
   }
+}
+
+export async function buildFrontendBundle(): Promise<void> {
+  await _doBuild();
+}
+
+export async function rebuildFrontendBundle(): Promise<boolean> {
+  return _doBuild(true);
 }
 
 export async function handleRequest(req: Request, server: any): Promise<Response | undefined> {
@@ -125,6 +139,30 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
   if (pathname === "/api/models/vaes" && method === "GET") {
     return handleListVaes(req);
+  }
+
+  // Config
+  if (pathname === "/api/config" && method === "GET") {
+    return handleGetConfig(req);
+  }
+  if (pathname === "/api/config" && method === "PUT") {
+    return handlePutConfig(req);
+  }
+  if (pathname === "/api/config/verify-python" && method === "POST") {
+    return handleVerifyPython(req);
+  }
+
+  // VLM test
+  if (pathname === "/api/vlm/test" && method === "GET") {
+    return handleVlmTest(req);
+  }
+
+  // Model check
+  if (pathname === "/api/model-check/run" && method === "POST") {
+    return handleModelCheckRun(req);
+  }
+  if (pathname === "/api/model-check/cache" && method === "GET") {
+    return handleModelCheckCache(req);
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });

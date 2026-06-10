@@ -1,0 +1,41 @@
+import { loadConfig, saveConfig } from "../lib/config";
+
+export async function handleGetConfig(_req: Request): Promise<Response> {
+  const config = loadConfig();
+  return Response.json(config);
+}
+
+export async function handlePutConfig(req: Request): Promise<Response> {
+  try {
+    const body = await req.json();
+    saveConfig(body);
+    return Response.json({ ok: true, config: loadConfig() });
+  } catch (err) {
+    return Response.json({ error: "Invalid config" }, { status: 400 });
+  }
+}
+
+export async function handleVerifyPython(req: Request): Promise<Response> {
+  let body: { pythonPath?: string };
+  try { body = await req.json(); } catch { return Response.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
+
+  const bin = body.pythonPath?.trim();
+  if (!bin) return Response.json({ ok: false, error: "pythonPath is required" }, { status: 400 });
+
+  try {
+    const proc = Bun.spawnSync([bin, "-c", "import mlx.core as mx; import sys; print(sys.version.split()[0])"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (proc.exitCode === 0) {
+      const version = new TextDecoder().decode(proc.stdout).trim();
+      return Response.json({ ok: true, version });
+    } else {
+      const err = new TextDecoder().decode(proc.stderr).trim();
+      const short = err.split("\n").pop() ?? err;
+      return Response.json({ ok: false, error: short });
+    }
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message });
+  }
+}

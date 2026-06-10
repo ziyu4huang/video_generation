@@ -202,6 +202,8 @@ CONFIG_SCHEMAS = {
 def add_args(parser):
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Show passing checks too")
+    parser.add_argument("--json", action="store_true",
+                        help="Output structured JSON to stdout and save to output/model-check.json")
     parser.add_argument("--html", action="store_true",
                         help="Generate interactive HTML report in output/")
     parser.add_argument("--open", action="store_true",
@@ -341,8 +343,375 @@ def _validate_config(label, config_path, category, errors, warnings):
 
 
 # ---------------------------------------------------------------------------
+# Data collection (shared by JSON and console/HTML paths)
+# ---------------------------------------------------------------------------
+
+def _collect_models_data(models_dir: str) -> dict:
+    """Scan models directory and return all validation data.
+
+    Returns dict with keys: errors, warnings, notices, passed,
+    models_data, total_disk_bytes, category_disk_bytes, model_disk_sizes,
+    conversion_candidates, orphan_dirs, manifests.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    notices: list[str] = []
+    passed: list[str] = []
+
+    all_instances: set[tuple[str, str]] = set()
+    all_instance_ids: set[str] = set()
+    manifests: list[tuple[str, str, str]] = []
+
+    for category, instance, mf_path in _find_manifests(models_dir):
+        all_instances.add((category, instance))
+        all_instance_ids.add(f"{category}/{instance}")
+        manifests.append((category, instance, mf_path))
+
+    # Orphan detection
+    orphan_dirs: list[tuple[str, str]] = []
+    for category, instance in _find_orphans(models_dir):
+        warnings.append(
+            f"{category}/{instance}: directory exists but has no manifest.json"
+        )
+        orphan_dirs.append((category, instance))
+
+    seen_names: dict[str, tuple[str, str]] = {}
+    conversion_candidates: list[tuple] = []
+    total_disk_bytes = 0
+    category_disk_bytes: dict[str, list] = {}
+    model_disk_sizes: list[tuple[str, int]] = []
+    models_data: list[dict] = []
+
+    for category, instance, mf_path in manifests:
+        inst_dir = os.path.dirname(mf_path)
+        label = f"{category}/{instance}"
+
+        # Load JSON
+        try:
+            with open(mf_path) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            errors.append(f"{label}: manifest.json parse error: {e}")
+            continue
+
+        # 1. Required fields — presence and type
+        for field, expected_type in REQUIRED_FIELDS.items():
+            if field not in data:
+                errors.append(f"{label}: missing required field '{field}'")
+            elif not isinstance(data[field], expected_type):
+                errors.append(
+                    f"{label}: field '{field}' expected {expected_type.__name__}, "
+                    f"got {type(data[field]).__name__}"
+                )
+
+        # 1b. Optional fields — type check if present
+        for field, expected_type in OPTIONAL_FIELDS.items():
+            if field in data and not isinstance(data[field], expected_type):
+                warnings.append(
+                    f"{label}: optional field '{field}' expected "
+                    f"{expected_type.__name__}, got {type(data[field]).__name__}"
+                )
+
+        # 2. name == directory name
+        if "name" in data and data["name"] != instance:
+            errors.append(
+                f"{label}: 'name' is '{data['name']}' but directory is '{instance}'"
+            )
+
+        # 3. type == parent category directory
+        if "type" in data and data["type"] != category:
+            errors.append(
+                f"{label}: 'type' is '{data['type']}' but category directory is '{category}'"
+            )
+
+        # 4. Duplicate name across manifests
+        if "name" in data:
+            name = data["name"]
+            if name in seen_names:
+                prev = seen_names[name]
+                errors.append(
+                    f"{label}: duplicate 'name' \"{name}\" "
+                    f"(already used by {prev[0]}/{prev[1]})"
+                )
+            else:
+                seen_names[name] = (category, instance)
+
+        # 5. created_at — ISO-8601 format
+        if "created_at" in data and isinstance(data["created_at"], str):
+            raw = data["created_at"]
+            try:
+                normalized = raw.rstrip("Z")
+                datetime.fromisoformat(normalized)
+            except (ValueError, TypeError):
+                errors.append(
+                    f"{label}: 'created_at' is not valid ISO-8601: \"{raw}\""
+                )
+
+        # 6. format — known enum
+        if "format" in data and isinstance(data["format"], str):
+            if data["format"] not in KNOWN_FORMATS:
+                warnings.append(
+                    f"{label}: 'format' \"{data['format']}\" not in known set "
+                    f"({', '.join(sorted(KNOWN_FORMATS))})"
+                )
+
+        # 7. size_bytes — positive + sanity bounds
+        if "size_bytes" in data and isinstance(data["size_bytes"], int):
+            sb = data["size_bytes"]
+            if sb <= 0:
+                errors.append(f"{label}: 'size_bytes' must be positive, got {sb}")
+            else:
+                threshold = MIN_SIZE_BYTES.get(category, 0)
+                if sb < threshold:
+                    warnings.append(
+                        f"{label}: 'size_bytes' ({sb}) is below minimum "
+                        f"threshold for '{category}' ({threshold})"
+                    )
+
+        # 8. Self-reference in compatible_with
+        if "compatible_with" in data and isinstance(data["compatible_with"], list):
+            own_id = f"{category}/{instance}"
+            for ref in data["compatible_with"]:
+                if ref == own_id:
+                    warnings.append(
+                        f"{label}: 'compatible_with' contains self-reference "
+                        f"\"{ref}\""
+                    )
+
+        # 9. compatible_with references must resolve
+        if "compatible_with" in data and isinstance(data["compatible_with"], list):
+            for ref in data["compatible_with"]:
+                if ref not in all_instance_ids:
+                    warnings.append(
+                        f"{label}: 'compatible_with' reference '{ref}' "
+                        f"not found (expected category/name format)"
+                    )
+
+        # 9b. pipeline — validate against known set
+        if "pipeline" in data and isinstance(data["pipeline"], list):
+            for p in data["pipeline"]:
+                if p not in KNOWN_PIPELINES:
+                    warnings.append(
+                        f"{label}: 'pipeline' \"{p}\" not in known set "
+                        f"({', '.join(sorted(KNOWN_PIPELINES))})"
+                    )
+
+        # 10. size_bytes vs actual weight file(s)
+        declared_weight = data.get("weight_file")
+        weight_file = _has_weight_file(inst_dir, declared=declared_weight)
+        if "size_bytes" in data and weight_file:
+            actual = _total_safetensors_size(inst_dir)
+            if actual == 0:
+                try:
+                    actual = os.path.getsize(os.path.join(inst_dir, weight_file))
+                except OSError:
+                    actual = 0
+            expected = data["size_bytes"]
+            if actual != expected:
+                warnings.append(
+                    f"{label}: size_bytes={expected} but actual total is {actual} bytes"
+                )
+
+        # 11. README.md must exist
+        if not os.path.exists(os.path.join(inst_dir, "README.md")):
+            errors.append(f"{label}: missing README.md")
+
+        # 12. At least one weight file must exist
+        downloading_flag = os.path.exists(os.path.join(inst_dir, ".downloading"))
+        disabled_flag = os.path.exists(os.path.join(inst_dir, ".disabled"))
+        if not weight_file:
+            if downloading_flag:
+                notices.append(f"{label}: download in progress (.downloading) — weight files not yet available")
+            elif disabled_flag:
+                notices.append(f"{label}: model disabled (.disabled) — skipped")
+            else:
+                errors.append(f"{label}: no weight file found (expected one of {WEIGHT_FILENAMES} or *.safetensors)")
+
+        # 13. config.json required + schema validation
+        config_path = os.path.join(inst_dir, "config.json")
+        if category not in CONFIG_OPTIONAL:
+            if not os.path.exists(config_path):
+                warnings.append(f"{label}: missing config.json (recommended for {category})")
+            else:
+                _validate_config(label, config_path, category, errors, warnings)
+
+        # 14. tmp/ folder notice
+        tmp_dir = os.path.join(inst_dir, "tmp")
+        if os.path.isdir(tmp_dir):
+            tmp_size = _dir_size(tmp_dir)
+            tmp_files = os.listdir(tmp_dir)
+            notices.append(
+                f"{label}: tmp/ folder exists ({len(tmp_files)} files, "
+                f"{tmp_size:,} bytes) — safe to delete to save space"
+            )
+
+        # 15. MLX conversion candidate detection
+        fmt = data.get("format", "")
+        if fmt in NON_MLX_FORMATS:
+            target_info = _MLX_TARGET_FORMAT.get(category)
+            if target_info:
+                target_fmt, ratio = target_info
+                size_bytes_val = data.get("size_bytes", 0)
+                est_size = int(size_bytes_val * ratio) if size_bytes_val else 0
+                convert_flag = data.get("convert_flag", "")
+                conversion_candidates.append(
+                    (label, fmt, size_bytes_val, target_fmt, est_size, convert_flag)
+                )
+
+        passed.append(label)
+
+        # 16. Accumulate disk usage
+        disk_bytes = 0
+        if not downloading_flag and not disabled_flag:
+            sz = _dir_size(inst_dir)
+            disk_bytes = sz
+            total_disk_bytes += sz
+            cat_entry = category_disk_bytes.setdefault(category, [0, 0])
+            cat_entry[0] += sz
+            cat_entry[1] += 1
+            model_disk_sizes.append((label, sz))
+
+        # 17. Collect per-model data dict
+        models_data.append({
+            "label": label,
+            "category": category,
+            "manifest": dict(data),
+            "disk_bytes": disk_bytes,
+            "weight_file": weight_file,
+            "has_readme": os.path.exists(os.path.join(inst_dir, "README.md")),
+            "has_config": os.path.exists(os.path.join(inst_dir, "config.json")),
+            "downloading": downloading_flag,
+            "disabled": disabled_flag,
+        })
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "notices": notices,
+        "passed": passed,
+        "models_data": models_data,
+        "total_disk_bytes": total_disk_bytes,
+        "category_disk_bytes": category_disk_bytes,
+        "model_disk_sizes": model_disk_sizes,
+        "conversion_candidates": conversion_candidates,
+        "orphan_dirs": orphan_dirs,
+        "manifests": manifests,
+    }
+
+
+def _build_json_result(collected: dict, models_dir: str) -> dict:
+    """Build the structured JSON result from collected data."""
+    _enrich_with_validation(
+        collected["models_data"],
+        collected["errors"],
+        collected["warnings"],
+        collected["notices"],
+    )
+
+    # Disk usage by category (sorted by size descending)
+    sorted_cats = sorted(
+        collected["category_disk_bytes"].items(),
+        key=lambda x: x[1][0],
+        reverse=True,
+    )
+    disk_by_category = [
+        {"category": c, "bytes": v[0], "count": v[1], "human": _fmt_bytes(v[0])}
+        for c, v in sorted_cats
+    ]
+
+    # Top models by disk size
+    sorted_models = sorted(collected["model_disk_sizes"], key=lambda x: x[1], reverse=True)
+    top_models = [
+        {"label": lbl, "bytes": sz, "human": _fmt_bytes(sz)}
+        for lbl, sz in sorted_models[:10]
+    ]
+
+    # Conversion candidates with savings
+    conv_candidates = []
+    for label, fmt, size_bytes, target_fmt, est_size, convert_flag in collected["conversion_candidates"]:
+        savings = size_bytes - est_size
+        conv_candidates.append({
+            "label": label,
+            "format": fmt,
+            "size_bytes": size_bytes,
+            "size_human": _fmt_bytes(size_bytes),
+            "target_format": target_fmt,
+            "est_size": est_size,
+            "est_size_human": _fmt_bytes(est_size),
+            "savings_bytes": savings,
+            "savings_human": _fmt_bytes(savings),
+            "convert_flag": convert_flag,
+        })
+
+    # Orphans
+    orphans = [
+        {"category": cat, "instance": inst}
+        for cat, inst in collected["orphan_dirs"]
+    ]
+
+    # Models with enriched validation
+    models = []
+    for m in collected["models_data"]:
+        models.append({
+            "label": m["label"],
+            "category": m["category"],
+            "manifest": m["manifest"],
+            "disk_bytes": m["disk_bytes"],
+            "disk_human": _fmt_bytes(m["disk_bytes"]) if m["disk_bytes"] else "",
+            "weight_file": m["weight_file"],
+            "has_readme": m["has_readme"],
+            "has_config": m["has_config"],
+            "downloading": m["downloading"],
+            "disabled": m["disabled"],
+            "validation": m.get("validation", {"errors": [], "warnings": [], "notices": []}),
+            "status": m.get("status", "ok"),
+        })
+
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "models_dir": models_dir,
+        "summary": {
+            "total_models": len(collected["models_data"]),
+            "total_disk_bytes": collected["total_disk_bytes"],
+            "total_disk_human": _fmt_bytes(collected["total_disk_bytes"]),
+            "error_count": len(collected["errors"]),
+            "warning_count": len(collected["warnings"]),
+            "notice_count": len(collected["notices"]),
+            "conversion_candidate_count": len(collected["conversion_candidates"]),
+            "orphan_count": len(collected["orphan_dirs"]),
+        },
+        "disk_usage": {
+            "by_category": disk_by_category,
+            "top_models": top_models,
+        },
+        "models": models,
+        "conversion_candidates": conv_candidates,
+        "orphans": orphans,
+    }
+
+
+# ---------------------------------------------------------------------------
 # HTML report renderer
 # ---------------------------------------------------------------------------
+
+def _enrich_with_validation(models_data: list[dict], errors: list[str],
+                            warnings: list[str], notices: list[str]) -> None:
+    """Attach per-model validation status to models_data in-place."""
+    known_labels = {m["label"] for m in models_data}
+    err_map = _extract_per_model(errors, known_labels)
+    warn_map = _extract_per_model(warnings, known_labels)
+    note_map = _extract_per_model(notices, known_labels)
+    for m in models_data:
+        lbl = m["label"]
+        m["validation"] = {
+            "errors": err_map.get(lbl, []),
+            "warnings": warn_map.get(lbl, []),
+            "notices": note_map.get(lbl, []),
+        }
+        has_err = bool(m["validation"]["errors"])
+        has_warn = bool(m["validation"]["warnings"])
+        m["status"] = "error" if has_err else ("warning" if has_warn else "ok")
+
 
 def _extract_per_model(messages: list[str], known_labels: set[str]) -> dict[str, list[str]]:
     """Group flat 'label: message' list into {label: [messages]} dict."""
@@ -790,254 +1159,31 @@ document.addEventListener('DOMContentLoaded', init);
 
 def run(args):
     models_dir = cfg.MODELS_DIR
-    errors = []
-    warnings = []
-    notices = []
-    passed = []
+    collected = _collect_models_data(models_dir)
 
-    # Collect all known (category, instance) pairs for cross-ref validation
-    all_instances = set()
-    all_instance_ids = set()   # "category/name" strings for compatible_with validation
-    manifests = []
+    errors = collected["errors"]
+    warnings = collected["warnings"]
+    notices = collected["notices"]
+    passed = collected["passed"]
+    models_html_data = collected["models_data"]
+    total_disk_bytes = collected["total_disk_bytes"]
+    category_disk_bytes = collected["category_disk_bytes"]
+    model_disk_sizes = collected["model_disk_sizes"]
+    conversion_candidates = collected["conversion_candidates"]
+    orphan_dirs = collected["orphan_dirs"]
+    manifests = collected["manifests"]
 
-    for category, instance, mf_path in _find_manifests(models_dir):
-        all_instances.add((category, instance))
-        all_instance_ids.add(f"{category}/{instance}")
-        manifests.append((category, instance, mf_path))
+    # ── JSON output (short-circuit) ──────────────────────────────
+    if getattr(args, 'json', False):
+        result = _build_json_result(collected, models_dir)
+        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+        cache_path = os.path.join(cfg.OUTPUT_DIR, "model-check.json")
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, default=str, indent=2)
+        print(json.dumps(result, ensure_ascii=False, default=str))
+        sys.exit(1 if errors else 0)
 
-    # ── Orphan detection ──────────────────────────────────────────
-    for category, instance in _find_orphans(models_dir):
-        warnings.append(
-            f"{category}/{instance}: directory exists but has no manifest.json"
-        )
-
-    # ── Duplicate name tracking ───────────────────────────────────
-    seen_names = {}  # name -> (category, instance)
-
-    # ── MLX conversion candidates ──────────────────────────────────
-    conversion_candidates = []  # (label, format, size_bytes, target_format, est_size, convert_flag)
-
-    # ── Disk usage accumulation ───────────────────────────────────
-    total_disk_bytes = 0
-    category_disk_bytes = {}   # category -> [total_bytes, count]
-    model_disk_sizes = []      # [(label, bytes), ...]
-
-    # ── HTML report data ──────────────────────────────────────────
-    models_html_data = []      # per-model detail dicts for HTML
-    orphan_dirs = []           # [(category, instance), ...]
-    for category, instance in _find_orphans(models_dir):
-        orphan_dirs.append((category, instance))
-
-    # ── Validate each manifest ────────────────────────────────────
-    for category, instance, mf_path in manifests:
-        inst_dir = os.path.dirname(mf_path)
-        label = f"{category}/{instance}"
-
-        # Load JSON
-        try:
-            with open(mf_path) as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            errors.append(f"{label}: manifest.json parse error: {e}")
-            continue
-
-        # 1. Required fields — presence and type
-        for field, expected_type in REQUIRED_FIELDS.items():
-            if field not in data:
-                errors.append(f"{label}: missing required field '{field}'")
-            elif not isinstance(data[field], expected_type):
-                errors.append(
-                    f"{label}: field '{field}' expected {expected_type.__name__}, "
-                    f"got {type(data[field]).__name__}"
-                )
-
-        # 1b. Optional fields — type check if present
-        for field, expected_type in OPTIONAL_FIELDS.items():
-            if field in data and not isinstance(data[field], expected_type):
-                warnings.append(
-                    f"{label}: optional field '{field}' expected "
-                    f"{expected_type.__name__}, got {type(data[field]).__name__}"
-                )
-
-        # 2. name == directory name
-        if "name" in data and data["name"] != instance:
-            errors.append(
-                f"{label}: 'name' is '{data['name']}' but directory is '{instance}'"
-            )
-
-        # 3. type == parent category directory
-        if "type" in data and data["type"] != category:
-            errors.append(
-                f"{label}: 'type' is '{data['type']}' but category directory is '{category}'"
-            )
-
-        # 4. Duplicate name across manifests
-        if "name" in data:
-            name = data["name"]
-            if name in seen_names:
-                prev = seen_names[name]
-                errors.append(
-                    f"{label}: duplicate 'name' \"{name}\" "
-                    f"(already used by {prev[0]}/{prev[1]})"
-                )
-            else:
-                seen_names[name] = (category, instance)
-
-        # 5. created_at — ISO-8601 format
-        if "created_at" in data and isinstance(data["created_at"], str):
-            raw = data["created_at"]
-            try:
-                # Strip trailing 'Z' for fromisoformat compat (Python 3.11+)
-                # but also handle it manually for older Pythons
-                normalized = raw.rstrip("Z")
-                datetime.fromisoformat(normalized)
-            except (ValueError, TypeError):
-                errors.append(
-                    f"{label}: 'created_at' is not valid ISO-8601: \"{raw}\""
-                )
-
-        # 6. format — known enum
-        if "format" in data and isinstance(data["format"], str):
-            if data["format"] not in KNOWN_FORMATS:
-                warnings.append(
-                    f"{label}: 'format' \"{data['format']}\" not in known set "
-                    f"({', '.join(sorted(KNOWN_FORMATS))})"
-                )
-
-        # 7. size_bytes — positive + sanity bounds
-        if "size_bytes" in data and isinstance(data["size_bytes"], int):
-            sb = data["size_bytes"]
-            if sb <= 0:
-                errors.append(f"{label}: 'size_bytes' must be positive, got {sb}")
-            else:
-                threshold = MIN_SIZE_BYTES.get(category, 0)
-                if sb < threshold:
-                    warnings.append(
-                        f"{label}: 'size_bytes' ({sb}) is below minimum "
-                        f"threshold for '{category}' ({threshold})"
-                    )
-
-        # 8. Self-reference in compatible_with (category/name format)
-        if "compatible_with" in data and isinstance(data["compatible_with"], list):
-            own_id = f"{category}/{instance}"
-            for ref in data["compatible_with"]:
-                if ref == own_id:
-                    warnings.append(
-                        f"{label}: 'compatible_with' contains self-reference "
-                        f"\"{ref}\""
-                    )
-
-        # 9. compatible_with references must resolve to category/name of existing manifests
-        if "compatible_with" in data and isinstance(data["compatible_with"], list):
-            for ref in data["compatible_with"]:
-                if ref not in all_instance_ids:
-                    warnings.append(
-                        f"{label}: 'compatible_with' reference '{ref}' "
-                        f"not found (expected category/name format)"
-                    )
-
-        # 9b. pipeline — validate against known set
-        if "pipeline" in data and isinstance(data["pipeline"], list):
-            for p in data["pipeline"]:
-                if p not in KNOWN_PIPELINES:
-                    warnings.append(
-                        f"{label}: 'pipeline' \"{p}\" not in known set "
-                        f"({', '.join(sorted(KNOWN_PIPELINES))})"
-                    )
-
-        # 10. size_bytes vs actual weight file(s)
-        # Sum all *.safetensors to handle multi-file models (vae, audio, sharded).
-        # Fall back to the single detected weight file for non-safetensors formats
-        # (e.g. tokenizer dirs where weight_file is tokenizer.json).
-        declared_weight = data.get("weight_file")
-        weight_file = _has_weight_file(inst_dir, declared=declared_weight)
-        if "size_bytes" in data and weight_file:
-            actual = _total_safetensors_size(inst_dir)
-            if actual == 0:
-                try:
-                    actual = os.path.getsize(os.path.join(inst_dir, weight_file))
-                except OSError:
-                    actual = 0
-            expected = data["size_bytes"]
-            if actual != expected:
-                warnings.append(
-                    f"{label}: size_bytes={expected} but actual total is {actual} bytes"
-                )
-
-        # 11. README.md must exist
-        if not os.path.exists(os.path.join(inst_dir, "README.md")):
-            errors.append(f"{label}: missing README.md")
-
-        # 12. At least one weight file must exist (skip if .downloading or .disabled flag present)
-        downloading_flag = os.path.exists(os.path.join(inst_dir, ".downloading"))
-        disabled_flag    = os.path.exists(os.path.join(inst_dir, ".disabled"))
-        if not weight_file:
-            if downloading_flag:
-                notices.append(f"{label}: download in progress (.downloading) — weight files not yet available")
-            elif disabled_flag:
-                notices.append(f"{label}: model disabled (.disabled) — skipped")
-            else:
-                errors.append(f"{label}: no weight file found (expected one of {WEIGHT_FILENAMES} or *.safetensors)")
-
-        # 13. config.json required (except for lora, tokenizer) + schema validation
-        config_path = os.path.join(inst_dir, "config.json")
-        if category not in CONFIG_OPTIONAL:
-            if not os.path.exists(config_path):
-                warnings.append(f"{label}: missing config.json (recommended for {category})")
-            else:
-                # Validate config.json schema
-                _validate_config(label, config_path, category, errors, warnings)
-
-        # 14. tmp/ folder notice
-        tmp_dir = os.path.join(inst_dir, "tmp")
-        if os.path.isdir(tmp_dir):
-            tmp_size = _dir_size(tmp_dir)
-            tmp_files = os.listdir(tmp_dir)
-            notices.append(
-                f"{label}: tmp/ folder exists ({len(tmp_files)} files, "
-                f"{tmp_size:,} bytes) — safe to delete to save space"
-            )
-
-        # 15. MLX conversion candidate detection
-        fmt = data.get("format", "")
-        if fmt in NON_MLX_FORMATS:
-            target_info = _MLX_TARGET_FORMAT.get(category)
-            if target_info:
-                target_fmt, ratio = target_info
-                size_bytes = data.get("size_bytes", 0)
-                est_size = int(size_bytes * ratio) if size_bytes else 0
-                convert_flag = data.get("convert_flag", "")
-                conversion_candidates.append(
-                    (label, fmt, size_bytes, target_fmt, est_size, convert_flag)
-                )
-
-        passed.append(label)
-
-        # 16. Accumulate disk usage (skip incomplete/disabled models)
-        disk_bytes = 0
-        if not downloading_flag and not disabled_flag:
-            sz = _dir_size(inst_dir)
-            disk_bytes = sz
-            total_disk_bytes += sz
-            cat_entry = category_disk_bytes.setdefault(category, [0, 0])
-            cat_entry[0] += sz
-            cat_entry[1] += 1
-            model_disk_sizes.append((label, sz))
-
-        # 17. Collect HTML report data
-        models_html_data.append({
-            "label": label,
-            "category": category,
-            "manifest": dict(data),
-            "disk_bytes": disk_bytes,
-            "weight_file": weight_file,
-            "has_readme": os.path.exists(os.path.join(inst_dir, "README.md")),
-            "has_config": os.path.exists(os.path.join(inst_dir, "config.json")),
-            "downloading": downloading_flag,
-            "disabled": disabled_flag,
-        })
-
-    # ── Report ────────────────────────────────────────────────────
+    # ── Console report ────────────────────────────────────────────
     print(f"Models directory: {models_dir}")
     print(f"Manifests found:  {len(manifests)}")
     print()
@@ -1112,10 +1258,9 @@ def run(args):
 
     # ── HTML report ────────────────────────────────────────────────
     if getattr(args, 'html', False) or getattr(args, 'open', False):
-        from datetime import datetime as _dt
         import subprocess
 
-        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
         output = os.path.join(cfg.OUTPUT_DIR, f"model-report-{ts}.html")
         html = _render_html_report(

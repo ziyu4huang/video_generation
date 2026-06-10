@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
-import { PYTHON_BIN, RUN_PY } from "./paths";
+import { RUN_PY } from "./paths";
+import { loadConfig } from "./config";
+import { saveJobs, loadJobs } from "./jobstore";
 
 export interface Job {
   id: string;
@@ -12,6 +14,7 @@ export interface Job {
   pid?: number;
   outputFiles: string[];
   manifestPath?: string;
+  runPath?: string;
   logs: string[];
 }
 
@@ -32,6 +35,25 @@ export class SubprocessManager {
 
   private broadcastStatus(job: Job) {
     for (const fn of this.statusListeners) fn(job);
+    this.persistJobs();
+  }
+
+  private persistJobs() {
+    saveJobs(Array.from(this.jobs.values()));
+  }
+
+  loadAndRestoreJobs(): void {
+    const saved = loadJobs();
+    const now = new Date().toISOString();
+    for (const job of saved) {
+      if (job.status === "running") {
+        job.status = "failed";
+        job.completedAt = now;
+        job.logs.push("[interrupted: server restarted]");
+      }
+      this.jobs.set(job.id, job);
+    }
+    this.persistJobs();
   }
 
   spawn(action: string, cliArgs: string[]): string {
@@ -49,8 +71,9 @@ export class SubprocessManager {
     };
 
     this.jobs.set(id, job);
+    this.persistJobs();
 
-    const proc = Bun.spawn([PYTHON_BIN, ...fullArgs], {
+    const proc = Bun.spawn([loadConfig().pythonPath, ...fullArgs], {
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env },
@@ -72,15 +95,15 @@ export class SubprocessManager {
             job.logs.push(line);
             this.broadcastLog(id, line, stream);
 
-            // Parse structured output
-            if (line.startsWith("Saved:")) {
-              const path = line.slice(6).trim();
-              job.outputFiles.push(path);
-            }
-            if (line.startsWith("Manifest:") || line.includes("Manifest:")) {
-              const match = line.match(/Manifest:\s*(\S+)/);
-              if (match) job.manifestPath = match[1];
-            }
+            // Parse structured output (all command variants: image, video, workflow)
+            const savedMatch = /Saved:\s+(.+)/.exec(line);
+            if (savedMatch) job.outputFiles.push(savedMatch[1].trim());
+
+            const manifestMatch = /Manifest:\s+(.+)/.exec(line);
+            if (manifestMatch) job.manifestPath = manifestMatch[1].trim();
+
+            const runMatch = /Run(?:\s+config)?:\s+(.+)/.exec(line);
+            if (runMatch) job.runPath = runMatch[1].trim();
           }
         }
       } catch {

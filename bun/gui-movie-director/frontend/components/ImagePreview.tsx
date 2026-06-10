@@ -293,7 +293,7 @@ function RunViewer({ data }: { data: Record<string, any> }) {
       )}
       {Object.keys(extras).length > 0 && (
         <Section title="Details">
-          <JsonViewer data={extras} defaultOpen={1} />
+          <JsonViewer data={extras} defaultOpen={1} hideNull />
         </Section>
       )}
     </div>
@@ -410,7 +410,18 @@ export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps)
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const [tab, setTab] = useState<Tab>(hasRun ? "run" : "manifest");
+  const [showRaw, setShowRaw] = useState(false);
+  const [rawCopied, setRawCopied] = useState(false);
   const data = tab === "run" ? run : manifest;
+
+  const handleCopyRaw = async () => {
+    if (!data) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      setRawCopied(true);
+      setTimeout(() => setRawCopied(false), 1500);
+    } catch { /* ignore */ }
+  };
 
   return (
     <div className="image-preview-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -422,20 +433,27 @@ export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps)
           <div className="image-preview-panel-tabs">
             <button
               className={`image-preview-tab ${tab === "run" ? "active" : ""} ${!hasRun ? "disabled" : ""}`}
-              onClick={() => hasRun && setTab("run")}
+              onClick={() => { setTab("run"); setShowRaw(false); }}
               disabled={!hasRun}
             >
               run.json
             </button>
             <button
               className={`image-preview-tab ${tab === "manifest" ? "active" : ""} ${!hasManifest ? "disabled" : ""}`}
-              onClick={() => hasManifest && setTab("manifest")}
+              onClick={() => { setTab("manifest"); setShowRaw(false); }}
               disabled={!hasManifest}
             >
               manifest.json
             </button>
           </div>
-          <button className="image-preview-panel-close" onClick={onClose}>✕</button>
+          <div className="image-preview-panel-actions">
+            <button
+              className="image-preview-raw-btn"
+              onClick={() => setShowRaw(true)}
+              disabled={!data}
+            >📋 Raw</button>
+            <button className="image-preview-panel-close" onClick={onClose}>✕</button>
+          </div>
         </div>
         <div className="image-preview-panel-body">
           {data ? (
@@ -447,6 +465,22 @@ export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps)
             </div>
           )}
         </div>
+        {showRaw && data && (
+          <div className="mf-raw-modal-backdrop" onClick={() => setShowRaw(false)}>
+            <div className="mf-raw-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="mf-raw-modal-header">
+                <span className="mf-raw-modal-title">{tab}.json</span>
+                <div className="mf-raw-modal-actions">
+                  <button className="mf-raw-copy-btn" onClick={handleCopyRaw}>
+                    {rawCopied ? "✓ Copied" : "📋 Copy"}
+                  </button>
+                  <button className="mf-raw-close-btn" onClick={() => setShowRaw(false)}>✕</button>
+                </div>
+              </div>
+              <pre className="mf-raw-content">{JSON.stringify(data, null, 2)}</pre>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

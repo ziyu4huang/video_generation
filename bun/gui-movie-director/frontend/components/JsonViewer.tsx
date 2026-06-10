@@ -118,9 +118,10 @@ interface JsonValueProps {
   depth?: number;
   defaultOpen?: number;
   keyHint?: string;
+  hideNull?: boolean;
 }
 
-function JsonArray({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
+function JsonArray({ value, depth = 0, defaultOpen = 2, hideNull }: JsonValueProps) {
   const arr = value as unknown[];
   const [open, setOpen] = useState(depth < defaultOpen);
 
@@ -138,7 +139,7 @@ function JsonArray({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
               <div key={i} className="jv-row">
                 <span className="jv-index">{i}</span>
                 <span className="jv-colon">:</span>
-                <JsonValue value={item} depth={depth + 1} defaultOpen={defaultOpen} />
+                <JsonValue value={item} depth={depth + 1} defaultOpen={defaultOpen} hideNull={hideNull} />
               </div>
             ))}
           </div>
@@ -149,10 +150,18 @@ function JsonArray({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
   );
 }
 
-function JsonObject({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
+function JsonObject({ value, depth = 0, defaultOpen = 2, hideNull }: JsonValueProps) {
   const obj = value as Record<string, unknown>;
   const [open, setOpen] = useState(depth < defaultOpen);
+  const [showAll, setShowAll] = useState(false);
   const keys = sortKeys(Object.keys(obj));
+
+  const hiddenKeys = hideNull && !showAll
+    ? keys.filter((k) => obj[k] === null || obj[k] === undefined)
+    : [];
+  const visibleKeys = hideNull && !showAll
+    ? keys.filter((k) => obj[k] !== null && obj[k] !== undefined)
+    : keys;
 
   return (
     <div className="jv-collapsible">
@@ -164,13 +173,18 @@ function JsonObject({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
       {open && (
         <>
           <div className="jv-indent">
-            {keys.map((key) => (
+            {visibleKeys.map((key) => (
               <div key={key} className="jv-row">
                 <span className="jv-key">{key}</span>
                 <span className="jv-colon">:</span>
-                <JsonValue value={obj[key]} depth={depth + 1} defaultOpen={defaultOpen} keyHint={key} />
+                <JsonValue value={obj[key]} depth={depth + 1} defaultOpen={defaultOpen} keyHint={key} hideNull={hideNull} />
               </div>
             ))}
+            {hiddenKeys.length > 0 && (
+              <div className="jv-show-all" onClick={() => setShowAll(!showAll)}>
+                {showAll ? "▾ Hide null values" : `▸ Show all (${hiddenKeys.length} null)`}
+              </div>
+            )}
           </div>
           <span className="jv-bracket">{"}"}</span>
         </>
@@ -179,13 +193,13 @@ function JsonObject({ value, depth = 0, defaultOpen = 2 }: JsonValueProps) {
   );
 }
 
-export function JsonValue({ value, depth = 0, defaultOpen = 2, keyHint }: JsonValueProps) {
+export function JsonValue({ value, depth = 0, defaultOpen = 2, keyHint, hideNull }: JsonValueProps) {
   if (value === null || value === undefined) return renderNull();
   if (typeof value === "boolean") return renderBool(value);
   if (typeof value === "number") return renderNumber(value, keyHint);
   if (typeof value === "string") return renderString(value, keyHint);
-  if (Array.isArray(value)) return <JsonArray value={value} depth={depth} defaultOpen={defaultOpen} />;
-  if (typeof value === "object") return <JsonObject value={value} depth={depth} defaultOpen={defaultOpen} />;
+  if (Array.isArray(value)) return <JsonArray value={value} depth={depth} defaultOpen={defaultOpen} hideNull={hideNull} />;
+  if (typeof value === "object") return <JsonObject value={value} depth={depth} defaultOpen={defaultOpen} hideNull={hideNull} />;
   return <span className="jv-string">{String(value)}</span>;
 }
 
@@ -193,13 +207,14 @@ interface JsonViewerProps {
   data: unknown;
   title?: string;
   defaultOpen?: number;
+  hideNull?: boolean;
 }
 
-export function JsonViewer({ data, title, defaultOpen = 2 }: JsonViewerProps) {
+export function JsonViewer({ data, title, defaultOpen = 2, hideNull }: JsonViewerProps) {
   return (
     <div className="json-viewer">
       {title && <div className="jv-title">{title}</div>}
-      <JsonValue value={data} depth={0} defaultOpen={defaultOpen} />
+      <JsonValue value={data} depth={0} defaultOpen={defaultOpen} hideNull={hideNull} />
     </div>
   );
 }

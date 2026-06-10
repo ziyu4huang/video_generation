@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { JobInfo } from "../app";
 
 interface WsMessage {
   type: string;
@@ -13,9 +12,11 @@ interface WsMessage {
 export function useWebSocket() {
   const [logs, setLogs] = useState<string[]>([]);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
+  const [outputFiles, setOutputFiles] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
+  const pendingSubscribe = useRef<string | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -28,11 +29,14 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       setConnected(true);
+      if (pendingSubscribe.current) {
+        ws.send(JSON.stringify({ type: "subscribe", jobId: pendingSubscribe.current }));
+        pendingSubscribe.current = null;
+      }
     };
 
     ws.onclose = () => {
       setConnected(false);
-      // Reconnect after 2s
       reconnectTimer.current = window.setTimeout(connect, 2000);
     };
 
@@ -50,6 +54,7 @@ export function useWebSocket() {
 
         if (msg.type === "job_complete") {
           setJobStatus("completed");
+          if (msg.outputFiles) setOutputFiles(msg.outputFiles);
         }
 
         if (msg.type === "job_failed") {
@@ -62,11 +67,14 @@ export function useWebSocket() {
   }, []);
 
   const subscribe = useCallback((jobId: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "subscribe", jobId }));
-    }
     setLogs([]);
     setJobStatus(null);
+    setOutputFiles([]);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "subscribe", jobId }));
+    } else {
+      pendingSubscribe.current = jobId;
+    }
   }, []);
 
   const unsubscribe = useCallback(() => {
@@ -83,5 +91,5 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { logs, jobStatus, connected, subscribe, unsubscribe };
+  return { logs, jobStatus, outputFiles, connected, subscribe, unsubscribe };
 }

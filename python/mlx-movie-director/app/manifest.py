@@ -124,9 +124,8 @@ def collect_model_fingerprint(lora_path: str | None = None,
     te_path = os.path.join(cfg.TEXT_ENCODER_DIR, "model.safetensors")
     models["text_encoder"] = file_fingerprint(te_path)
 
-    # VAE
-    vae_path = os.path.join(cfg.VAE_DIR, "diffusion_pytorch_model.safetensors")
-    models["vae"] = file_fingerprint(vae_path)
+    # VAE (may be single model.safetensors or sharded)
+    models["vae"] = sharded_model_fingerprint(cfg.VAE_DIR)
 
     # Tokenizer
     tok_path = os.path.join(cfg.TOKENIZER_DIR, "tokenizer.json")

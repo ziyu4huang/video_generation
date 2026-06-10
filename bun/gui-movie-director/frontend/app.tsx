@@ -1,13 +1,31 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Layout } from "./components/Layout";
-import { Gallery } from "./components/Gallery";
-import { CommandForm } from "./components/CommandForm";
-import { LogViewer } from "./components/LogViewer";
-import { ImagePreview } from "./components/ImagePreview";
+import { ConfigView } from "./components/ConfigView";
 import { DomInspector } from "./components/DomInspector";
+import { NavigationContext } from "./context/NavigationContext";
+// gallery
+import { GalleryView } from "./views/gallery/GalleryView";
+// generate
+import { T2iView } from "./views/generate/T2iView";
+import { WorkflowView } from "./views/generate/WorkflowView";
+// transform
+import { I2iView } from "./views/transform/I2iView";
+import { Anime2realView } from "./views/transform/Anime2realView";
+import { ExpansionView } from "./views/transform/ExpansionView";
+// edit
+import { FaceswapView } from "./views/edit/FaceswapView";
+import { SwapView } from "./views/edit/SwapView";
+import { ControlnetView } from "./views/edit/ControlnetView";
+import { AngleView } from "./views/edit/AngleView";
+// analyze
+import { ProfileView } from "./views/analyze/ProfileView";
+import { QualityView } from "./views/analyze/QualityView";
+// tools
+import { ModelCheckView } from "./views/tools/ModelCheckView";
+// jobs
+import { JobHistoryView } from "./views/jobs/JobHistoryView";
 
-// Available image commands grouped by category
 export const COMMAND_GROUPS = [
   {
     label: "Generate",
@@ -40,162 +58,52 @@ export const COMMAND_GROUPS = [
       { id: "quality", label: "Quality", icon: "📊" },
     ],
   },
+  {
+    label: "Tools",
+    commands: [
+      { id: "model-check", label: "Model Check", icon: "📦" },
+    ],
+  },
 ];
 
 export const ALL_COMMANDS = COMMAND_GROUPS.flatMap((g) => g.commands);
 
 type View =
   | { type: "gallery" }
+  | { type: "config" }
+  | { type: "jobs" }
   | { type: "command"; action: string };
 
-export interface JobInfo {
-  id: string;
-  command: string;
-  status: "running" | "completed" | "failed";
-  startedAt: string;
-  completedAt?: string;
-  outputFiles: string[];
-  logs: string[];
-}
+const VIEW_MAP: Record<string, React.ComponentType> = {
+  t2i: T2iView,
+  workflow: WorkflowView,
+  i2i: I2iView,
+  anime2real: Anime2realView,
+  expansion: ExpansionView,
+  faceswap: FaceswapView,
+  swap: SwapView,
+  controlnet: ControlnetView,
+  angle: AngleView,
+  profile: ProfileView,
+  quality: QualityView,
+  "model-check": ModelCheckView,
+};
 
 function App() {
   const [view, setView] = useState<View>({ type: "gallery" });
-  const [currentJob, setCurrentJob] = useState<JobInfo | null>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [previewManifest, setPreviewManifest] = useState<Record<string, any> | null>(null);
-  const [previewRun, setPreviewRun] = useState<Record<string, any> | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<number | null>(null);
 
-  // WebSocket connection
-  useEffect(() => {
-    const connect = () => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
-
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          if (msg.type === "log" && msg.line) {
-            setCurrentJob((prev) => {
-              if (!prev || prev.id !== msg.jobId) return prev;
-              return { ...prev, logs: [...prev.logs, msg.line] };
-            });
-          }
-
-          if (msg.type === "job_complete") {
-            setCurrentJob((prev) => {
-              if (!prev || prev.id !== msg.jobId) return prev;
-              return {
-                ...prev,
-                status: "completed",
-                outputFiles: msg.outputFiles || prev.outputFiles,
-                completedAt: new Date().toISOString(),
-              };
-            });
-            setRefreshKey((k) => k + 1);
-          }
-
-          if (msg.type === "job_failed") {
-            setCurrentJob((prev) => {
-              if (!prev || prev.id !== msg.jobId) return prev;
-              return {
-                ...prev,
-                status: "failed",
-                completedAt: new Date().toISOString(),
-              };
-            });
-          }
-        } catch {
-          // Ignore malformed messages
-        }
-      };
-
-      ws.onclose = () => {
-        reconnectTimer.current = window.setTimeout(connect, 2000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-    };
-
-    connect();
-    return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      wsRef.current?.close();
-    };
-  }, []);
-
-  // Subscribe to job when currentJob changes
-  useEffect(() => {
-    if (currentJob?.id && wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: "subscribe", jobId: currentJob.id }));
-    }
-  }, [currentJob?.id]);
-
-  const handleJobStart = useCallback((job: JobInfo) => {
-    setCurrentJob(job);
-  }, []);
-
-  const handleCancelJob = useCallback(async () => {
-    if (!currentJob) return;
-    try {
-      await fetch(`/api/jobs/${currentJob.id}`, { method: "DELETE" });
-    } catch (err) {
-      console.error("Failed to cancel job:", err);
-    }
-  }, [currentJob]);
+  const ViewComponent = view.type === "command" ? VIEW_MAP[view.action] : null;
 
   return (
-    <>
-      <Layout
-        currentView={view}
-        onViewChange={setView}
-        currentJob={currentJob}
-      >
-        {view.type === "gallery" && (
-          <Gallery
-            key={refreshKey}
-            onImageClick={(img: any) => {
-              setPreviewImage(img.url);
-              setPreviewManifest(img.manifest || null);
-              setPreviewRun(img.run || null);
-            }}
-          />
-        )}
-        {view.type === "command" && (
-          <>
-            <CommandForm
-              action={view.action}
-              onJobStart={handleJobStart}
-              loading={currentJob?.status === "running"}
-            />
-            {(currentJob?.logs?.length || 0) > 0 && (
-              <LogViewer
-                logs={currentJob?.logs || []}
-                status={currentJob?.status}
-                onCancel={currentJob?.status === "running" ? handleCancelJob : undefined}
-              />
-            )}
-          </>
-        )}
+    <NavigationContext.Provider value={(v) => setView(v as View)}>
+      <Layout currentView={view} onViewChange={setView}>
+        {view.type === "gallery" && <GalleryView />}
+        {view.type === "config" && <ConfigView />}
+        {view.type === "jobs" && <JobHistoryView />}
+        {view.type === "command" && (ViewComponent ? <ViewComponent /> : null)}
       </Layout>
-      {previewImage && (
-        <ImagePreview
-          url={previewImage}
-          manifest={previewManifest}
-          run={previewRun}
-          onClose={() => { setPreviewImage(null); setPreviewManifest(null); setPreviewRun(null); }}
-        />
-      )}
       <DomInspector />
-    </>
+    </NavigationContext.Provider>
   );
 }
 

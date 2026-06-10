@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 
 interface LogViewerProps {
   logs: string[];
@@ -16,6 +16,13 @@ function classifyLine(line: string): string {
 
 export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(logs.join("\n"));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -34,8 +41,15 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
             {status}
           </span>
         )}
+        <button
+          className="btn btn-secondary"
+          onClick={handleCopy}
+          style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
         {onCancel && (
-          <button className="btn btn-danger" onClick={onCancel} style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}>
+          <button className="btn btn-danger" onClick={onCancel} style={{ fontSize: 12, padding: "4px 12px" }}>
             Cancel
           </button>
         )}

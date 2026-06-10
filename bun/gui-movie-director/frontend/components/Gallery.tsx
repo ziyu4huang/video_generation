@@ -1,42 +1,10 @@
 import React, { useEffect, useState, useCallback } from "react";
-
-interface GalleryImage {
-  name: string;
-  url: string;
-  size: number;
-  createdAt: string;
-  manifest: any | null;
-  run: any | null;
-}
+import type { GalleryImage } from "../types";
+import { GalleryCard } from "./GalleryCard";
 
 interface GalleryProps {
   onImageClick: (img: GalleryImage) => void;
   key?: number; // for refresh
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function getManifestSummary(manifest: any): string | null {
-  if (!manifest) return null;
-  const parts: string[] = [];
-  if (manifest.command) parts.push(manifest.command);
-  if (manifest.pipeline) parts.push(manifest.pipeline);
-  if (manifest.seed != null) parts.push(`seed:${manifest.seed}`);
-  return parts.join(" · ");
 }
 
 export function Gallery({ onImageClick }: GalleryProps) {
@@ -100,26 +68,7 @@ export function Gallery({ onImageClick }: GalleryProps) {
       <h2>Gallery ({total} images)</h2>
       <div className="gallery-grid">
         {images.map((img) => (
-          <div
-            key={img.name}
-            className="gallery-card"
-            onClick={() => onImageClick(img)}
-          >
-            <div className="gallery-card-image">
-              <img src={img.url} alt={img.name} loading="lazy" />
-            </div>
-            <div className="gallery-card-info">
-              <div className="gallery-card-name">{img.name}</div>
-              <div className="gallery-card-meta">
-                {formatSize(img.size)} · {formatDate(img.createdAt)}
-              </div>
-              {getManifestSummary(img.manifest) && (
-                <div className="gallery-card-meta" style={{ color: "var(--accent)", marginTop: 2 }}>
-                  {getManifestSummary(img.manifest)}
-                </div>
-              )}
-            </div>
-          </div>
+          <GalleryCard key={img.name} img={img} onClick={() => onImageClick(img)} />
         ))}
       </div>
 

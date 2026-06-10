@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { JobInfo } from "../app";
+import type { JobInfo } from "../types";
 
 export function useJobs() {
   const [jobs, setJobs] = useState<JobInfo[]>([]);
@@ -17,7 +17,21 @@ export function useJobs() {
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, 5000);
-    return () => clearInterval(interval);
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "job_complete" || msg.type === "job_failed") refresh();
+      } catch { /* ignore */ }
+    };
+    ws.onerror = () => ws.close();
+
+    return () => {
+      clearInterval(interval);
+      ws.close();
+    };
   }, [refresh]);
 
   return { jobs, refresh };

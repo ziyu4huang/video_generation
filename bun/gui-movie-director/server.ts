@@ -1,11 +1,13 @@
 import { handleRequest } from "./api/routes";
 import { buildFrontendBundle } from "./api/routes";
 import { wsHandlers } from "./api/ws";
+import { subprocessManager } from "./lib/subprocess";
 
 const PORT = 3099;
 
 // Build frontend bundle before starting server
 await buildFrontendBundle();
+subprocessManager.loadAndRestoreJobs();
 
 const server = Bun.serve({
   port: PORT,

@@ -1,134 +1,209 @@
-# video_generation
+# Movie Director
 
-ComfyUI on Apple Silicon (MPS) — image generation with **Flux 2 Klein 9B** (FP8/bf16), photorealistic pipeline with **Moody Zimage**, and video generation with **LTX-2.3**.
+A web-based GUI for AI-powered image generation and editing on Apple Silicon.
 
-## Quick start
+Built with **Bun** + **React** on the frontend, **Python** + **MLX/PyTorch** on the backend. All inference runs locally on your Mac's GPU.
+
+---
+
+## What It Does
+
+12 AI image commands organized into 5 categories, with a real-time web interface:
+
+| Category | Commands | What it does |
+|----------|----------|-------------|
+| **Generate** | Text → Image, Workflow | Create images from text prompts using ZImage Turbo or Flux2 Klein 9B |
+| **Transform** | Image → Image, Anime → Real, Expansion | Modify existing images: style transfer, anime conversion, outpainting |
+| **Edit** | Face Swap, Region Swap, ControlNet, Camera Angle | Surgical edits: swap faces/regions, edge/pose control, change viewpoint |
+| **Analyze** | Character Profile, Quality | Generate multi-view character sheets, score image quality via VLM |
+| **Tools** | Model Check | Validate model integrity and availability |
+
+Every command shows a dynamic form, streams real-time logs via WebSocket, and saves results to a browsable gallery with full metadata.
+
+---
+
+## Quick Start
+
+### 1. Install Bun
 
 ```bash
-./run.sh                    # start ComfyUI → http://127.0.0.1:8188
-./run.sh --fix-nodes        # re-clone/patch missing custom nodes, then exit
-./run.sh --skip-restore     # skip node restore check (faster startup)
-./run.sh --port 8189        # pass-through args go directly to ComfyUI
+curl -fsSL https://bun.sh/install | bash
 ```
 
-## Project structure
+### 2. Install frontend dependencies
 
-```
-video_generation/
-├── run.sh                              # entry point
-├── ComfyUI/                            # submodule (patches auto-applied)
-├── comfyui_data/
-│   ├── models/                         # ~90 GB, gitignored
-│   ├── custom_nodes/                   # gitignored, auto-restored by reinstall.sh
-│   ├── user/default/workflows/         # committed JSON workflows
-│   └── output/                         # gitignored
-├── patches/
-│   ├── comfyui/*.patch                 # MPS fp8 safety + quantized module fix
-│   └── custom_nodes/
-│       ├── reinstall.sh                # clone 18 nodes at pinned commits
-│       └── fp8-mps-metal-init.patch    # Metal GPU FP8 kernel
-└── scripts/
-    └── install_stubs.sh                # triton + decord stubs (unavailable on macOS)
+```bash
+cd bun/gui-movie-director
+bun install
 ```
 
-## Workflows
+### 3. Set up Python environment
 
-| Workflow | File | Models |
-|---|---|---|
-| Character Sheet (bf16) | `flux2-klein9b-character-profile.json` | Klein 9B bf16 |
-| Character Sheet (fp8) | `flux2-klein9b-character-profile-fp8.json` | Klein 9B fp8 |
-| Image Expansion | `flux2-klein-image-expansion.json` | Klein 9B bf16 + SeedVR2 7B |
-| Face/Head Swap | `flux2-klein-face-head-swap.json` | Klein 9B bf16 |
-| Anime → Real | `anime2real.json` | Klein 9B bf16 + anything2real LoRA |
-| LTX-2.3 Video | `ltx2.3-singularity.json` | LTX-2.3 22B bf16 + Singularity LoRA |
-| Moody Zimage | `moody-zimage-v7.5.json` | Moody V12.6 DPO + SeedVR2 7B |
+```bash
+cd ../..                          # back to repo root
+python3.13 -m venv python/venv
+python/venv/bin/pip install -r python/mlx-movie-director/requirements.txt
+```
 
-## Flux 2 Klein 9B — FP8 on Apple Silicon
+### 4. Start the app
 
-FP8 models normally fail on MPS (`ValueError: Invalid scaling configuration`) because PyTorch MPS has no native Float8 support. This setup makes FP8 work via two components:
+```bash
+cd bun/gui-movie-director
+bun run dev
+```
 
-1. **`run.sh` flag**: `--supports-fp8-compute` tells ComfyUI to load the FP8 model (stores weights as `uint8` on MPS — same bit pattern, valid dtype)
-2. **`fp8-mps-metal` custom node**: patches `comfy_kitchen.scaled_mm_v2` to route MPS+FP8 matrix multiply ops through Metal GPU kernels instead of the broken CUDA path
+Open **http://localhost:3099** in your browser.
 
-Result: `flux-2-klein-9b-fp8.safetensors` loads and runs correctly on M-series Macs. The bf16 variant works without any patches but is ~2× larger on disk (17 GB vs 9 GB).
+### 5. Verify setup
 
-## Custom node management
+- Click **Config** in the sidebar
+- Click **Verify** next to the Python path — should show `mlx.core OK`
+- (Optional) If you have [LM Studio](https://lmstudio.ai/) running with Qwen3-VL 4B, click **Test Connection** under VLM
 
-18 git-based nodes are pinned at specific commits in `patches/custom_nodes/reinstall.sh` and auto-cloned on startup. 6 nodes are Manager-installed (not auto-restorable):
+### 6. Generate your first image
 
-| Auto-restored (reinstall.sh) | Manager-installed |
-|---|---|
-| ComfyUI_Comfyroll_CustomNodes | ComfyUI-Manager |
-| ComfyUI_essentials | ComfyUI-Easy-Use |
-| ComfyUI_LayerStyle | ComfyUI-KJNodes |
-| comfyui_memory_cleanup | cg-use-everywhere |
-| ComfyUI_RH_LLM_API | ComfyUI-RMBG |
-| ComfyUI_UltimateSDUpscale | Comfyui-Resolution-Master |
-| ComfyUI-AutoCropFaces | |
-| ComfyUI-Custom-Scripts | |
-| ComfyUI-GGUF | |
-| ComfyUI-Impact-Pack / Subpack | |
-| Comfyui-PainterFluxImageEdit | |
-| ComfyUI-qwenmultiangle | |
-| ComfyUI-ReservedVRAM | |
-| ComfyUI-SeedVR2_VideoUpscaler | |
-| ComfyUI-VideoHelperSuite | |
-| fp8-mps-metal | |
-| rgthree-comfy | |
+- Click **Text → Image** in the sidebar
+- Type a prompt, e.g. `A moody cinematic portrait of a woman in rain`
+- Click **Generate**
+- Watch real-time logs stream in, then see the result appear in the Gallery
 
-## PyTorch / MPS environment
+---
 
-| Package | Version | Note |
-|---|---|---|
-| torch | 2.12.0 | macOS arm64, MPS backend |
-| torchvision | 0.27.0 | paired with torch 2.12.0 |
-| attention_mode | `sdpa` | only stable option on MPS |
+## Commands
 
-**Do not install `sageattention` or `flash-attn`** — both require CUDA to build and have no MPS backend. The `⚠️ SeedVR2 optimizations` startup warning can be ignored.
+### Generate
 
-**Do not install `mps-flash-attn`** — it forces torch downgrade to <2.12 (breaks torchvision 0.27.0), and SeedVR2 calls the official `flash_attn` API, not `mps_flash_attn`, so it remains `Flash Attention ❌` regardless.
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| **Text → Image** | Generate images from text prompts | Pipeline (ZImage Turbo / Flux2 Klein 9B), size, steps, seed, LoRA scale, draft mode, ESRGAN 4× upscale |
+| **Workflow** | Multi-stage pipeline: generate → face detail → film grain → sharpen → upscale | Same as T2I plus face detailer, film grain, sharpening, ESRGAN upscale |
 
-## Apple Silicon compatibility notes
+### Transform
 
-- **FP8**: works via `fp8-mps-metal` patch + `--supports-fp8-compute` (see above)
-- **Triton / decord**: stubs installed by `scripts/install_stubs.sh`; real packages unavailable on macOS
-- **Face DetailerForEach**: bypassed in all workflows — MPS VAE attention hits INT_MAX on large face crops
-- **SeedVR2**: `cache_model=False`, `offload_device=none`, `attention_mode=sdpa`
-- **PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0** + **PYTORCH_ENABLE_MPS_FALLBACK=1** set in `run.sh`
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| **Image → Image** | Modify an existing image using text guidance + optional ControlNet reference | Denoise strength, ControlNet strength, pipeline |
+| **Anime → Real** | Convert anime artwork to photorealistic style | Realism style (4 presets), LoRA scale, reference strength, reference count |
+| **Expansion** | Outpainting — extend image borders with AI-generated content | Direction or aspect-ratio mode, pixels per direction, feather, overlap |
 
-## Models reference
+### Edit
 
-### Flux 2 Klein 9B
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| **Face Swap** | Swap a face or head from one image onto another body | Head vs face mode, seed |
+| **Region Swap** | Use SAM3 text-prompted segmentation to swap regions between images | SAM prompt (text-based), threshold, feather, blend |
+| **ControlNet** | Generate images guided by edge/pose/depth maps | Canny, OpenPose, Depth, HED, Scribble, Gray; strength, blur, remove outlines |
+| **Camera Angle** | Change the viewing angle of an existing image | Azimuth (−180 to 180), elevation (−90 to 90), prompt |
 
-| File | Size |
-|---|---|
-| `diffusion_models/flux-2-klein-9b-bf16.safetensors` | 17 GB |
-| `diffusion_models/flux-2-klein-9b-fp8.safetensors` | 9 GB |
-| `text_encoders/qwen_3_8b_fp8mixed.safetensors` | 8.2 GB |
-| `vae/flux2-vae.safetensors` | 320 MB |
-| `loras/anything2real_v1_f2k.safetensors` | 100 MB |
+### Analyze
 
-### Moody Zimage
+| Command | Description | Key Options |
+|---------|-------------|-------------|
+| **Character Profile** | Generate multi-view character sheets (front/back/side) | Views, standing/sitting pose, reference count |
+| **Quality** | Score images on quality dimensions using a VLM | Multiple images, requires LM Studio + Qwen3-VL 4B |
 
-| File | Size |
-|---|---|
-| `diffusion_models/moody-porn-v12.6_00001_.safetensors` | 12.3 GB |
-| `text_encoders/qwen_3_4b.safetensors` | 8.0 GB |
-| `vae/ae.safetensors` | 335 MB |
-| `loras/zit_sda_v1.safetensors` | 170 MB |
-| `SEEDVR2/seedvr2_ema_7b_fp16.safetensors` | 16.5 GB |
-| `SEEDVR2/ema_vae_fp16.safetensors` | 501 MB |
-| `upscale_models/4xNomosWebPhoto_RealPLKSR.pth` | 30 MB |
-| `upscale_models/1xSkinContrast-SuperUltraCompact.pth` | 181 KB |
+### Tools
 
-### LTX-2.3 Video
+| Command | Description |
+|---------|-------------|
+| **Model Check** | Validate model file integrity and availability |
 
-| File | Size |
-|---|---|
-| `diffusion_models/ltx-2.3-22b-distilled-1.1_transformer_only_bf16.safetensors` | 39 GB |
-| `text_encoders/gemma_3_12B_it_fp8_e4m3fn.safetensors` | 12 GB |
-| `text_encoders/ltx-2.3_text_projection_bf16.safetensors` | 2.2 GB |
-| `vae/LTX23_video_vae_bf16.safetensors` | 1.4 GB |
-| `vae/LTX23_audio_vae_bf16.safetensors` | 340 MB |
-| `latent_upscale_models/ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors` | 1.0 GB |
-| `loras/Singularity-LTX-2.3_OmniCine_V1.safetensors` | 2.5 GB |
+---
+
+## How It Works
+
+```
+Browser (React SPA, :3099)
+  │
+  │  REST API  /api/run  /api/gallery  /api/jobs  ...
+  │  WebSocket /ws  — real-time job logs + status
+  │
+Bun Server (server.ts)
+  │
+  │  subprocess spawn
+  │  python/venv/bin/python run.py image <action> [args]
+  │
+Python Backend (mlx-movie-director)
+  │
+  │  MLX / PyTorch MPS
+  │
+Apple Silicon GPU
+```
+
+- **Frontend**: React 19 SPA bundled in-memory by Bun at startup — no separate build step
+- **Backend**: Bun server spawns a Python subprocess for each job, streams stdout/stderr back via WebSocket
+- **Gallery**: Output images served from `python/mlx-movie-director/output/` with sidecar manifest and run config metadata
+
+---
+
+## Configuration
+
+Click **Config** in the sidebar, or edit `bun/gui-movie-director/config.json`:
+
+```json
+{
+  "outputDir": "python/mlx-movie-director/output",
+  "modelsDir": "python/mlx-movie-director/models",
+  "vlmApiUrl": "http://localhost:1234/v1",
+  "vlmModel": "qwen/qwen3-vl-4b"
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `outputDir` | `python/mlx-movie-director/output` | Where generated images are saved |
+| `modelsDir` | `python/mlx-movie-director/models` | Where model weights are stored |
+| `vlmApiUrl` | `http://localhost:1234/v1` | LM Studio API for VLM features (Quality, Caption) |
+| `vlmModel` | `qwen/qwen3-vl-4b` | Model name in LM Studio |
+| `pythonPath` | `python/venv/bin/python` | Absolute path to the Python binary |
+
+---
+
+## Requirements
+
+| Requirement | Details |
+|-------------|---------|
+| **Hardware** | Apple Silicon Mac (M1/M2/M3/M4) — uses MPS GPU backend |
+| **Bun** | v1.0+ runtime for the frontend server |
+| **Python** | 3.13 venv at `python/venv/` with MLX, PyTorch, Transformers |
+| **Model Weights** | ~30 GB minimum for image generation (varies by pipeline) |
+| **LM Studio** | Optional — needed for Quality Analysis and Caption features |
+
+---
+
+## Project Structure
+
+```
+bun/gui-movie-director/          # Frontend + Bun server
+  server.ts                      # Entry point — Bun.serve on port 3099
+  config.json                    # Runtime configuration
+  api/                           # REST API routes + WebSocket handler
+  lib/                           # Subprocess manager, config, schemas, paths
+  frontend/                      # React 19 SPA
+    app.tsx                      # Root component, command group definitions
+    schemas/index.ts             # Form schemas for all 12 commands
+    components/                  # Layout, CommandForm, Gallery, LogViewer, ...
+    views/                       # Per-command views (generate/, transform/, edit/, analyze/)
+
+python/mlx-movie-director/       # Python backend
+  run.py                         # CLI entry point (subcommands: t2i, image, upscale, ...)
+  app/commands/                  # Command modules (image-t2i, image-faceswap, ...)
+  output/                        # Generated images + metadata (gitignored)
+  models/                        # Model weights (gitignored)
+```
+
+---
+
+## Development
+
+```bash
+# Watch mode (auto-restarts Bun server on file changes)
+cd bun/gui-movie-director && bun run dev
+
+# Production mode
+cd bun/gui-movie-director && bun run start
+```
+
+The frontend is bundled in-memory by Bun at server startup — no separate build step. Edit `frontend/` files and the server will hot-reload in dev mode.
+
+For ComfyUI setup, model management, FP8 patches, and Apple Silicon compatibility notes, see [CLAUDE.md](CLAUDE.md).
