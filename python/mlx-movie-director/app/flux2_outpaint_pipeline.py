@@ -148,7 +148,6 @@ class Flux2OutpaintModel:
             height=config.height,
             width=config.width,
             batch_size=latents.shape[0],
-            ref_strength=ref_strength,
         )
 
         # Align mask dtype/spatial layout with the generation latents

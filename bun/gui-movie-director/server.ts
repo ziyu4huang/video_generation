@@ -1,11 +1,22 @@
 import { handleRequest } from "./api/routes";
+import { wsHandlers } from "./api/ws";
 
 const PORT = 3099;
 
 const server = Bun.serve({
   port: PORT,
   async fetch(req, server) {
-    return handleRequest(req, server);
+    const result = await handleRequest(req, server);
+    // If undefined, WebSocket upgrade was handled
+    if (result === undefined) {
+      return new Response("WebSocket", { status: 101 });
+    }
+    return result;
+  },
+  websocket: {
+    open: wsHandlers.open,
+    message: wsHandlers.message,
+    close: wsHandlers.close,
   },
 });
 

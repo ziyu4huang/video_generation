@@ -154,7 +154,15 @@ Controls how many times the reference image is repeated in the `image_paths` lis
 The `image_strength` parameter has different effects depending on the mflux variant:
 
 - **Flux2Klein (txt2img):** Controls img2img denoising start step via `Config.init_time_step`. Higher value = start later in the denoising schedule = closer to original image. Mapping: `image_strength = 1.0 - denoise_strength`.
-- **Flux2KleinEdit (edit):** `image_strength` is effectively a **no-op**. The edit variant uses reference latent concatenation (not noise interpolation), so `image_strength` has no effect on the denoising loop. Reference conditioning strength is controlled by `ref_count` (number of repeated reference tokens in the concatenated sequence).
+- **Flux2KleinEdit (edit):** `image_strength` is effectively a **no-op**. The edit variant uses reference latent concatenation (not noise interpolation), so `image_strength` has no effect on the denoising loop. Reference conditioning strength is controlled by `ref_count` (number of repeated reference tokens in the concatenated sequence) and `ref_strength` (scales packed reference latents).
+
+#### `ref_strength` Parameter (Monkey Patch)
+
+Added via `app/vendor_patches.py` Patch 9. Upstream `Flux2KleinEdit` has no way to scale reference latents. The monkey patch adds a `ref_strength` parameter (default 1.0) that multiplies packed reference latents, allowing finer control over reference influence.
+
+- `ref_strength=1.0` — default, no scaling
+- `ref_strength=0.5` — weaker reference influence
+- `ref_strength=1.5` — stronger reference influence
 
 In `Flux2KleinControlnetPipeline.generate()`, `image_strength` is always passed as `None` for this reason.
 

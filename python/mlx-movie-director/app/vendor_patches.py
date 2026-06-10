@@ -15,6 +15,7 @@ Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
 Patches for vendor/mflux (upstream filipstrand/mflux):
   7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
   8. ImageUtil._numpy_to_pil — NaN/Inf guard before float→uint8 conversion
+  9. Flux2KleinEdit + helpers — ref_strength param for reference image conditioning
 """
 
 from __future__ import annotations
@@ -452,6 +453,48 @@ def _patch_image_util_nan_guard() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Patch 9 — Flux2KleinEdit ref_strength  (mflux: flux2_klein_edit.py + helpers)
+# ---------------------------------------------------------------------------
+
+
+def _patch_klein_edit_ref_strength() -> None:
+    """Add ref_strength parameter to Flux2KleinEdit reference image conditioning.
+
+    Upstream ``generate_image()`` and ``prepare_reference_image_conditioning()``
+    have no way to scale reference latents.  This patch adds a ``ref_strength``
+    parameter (default 1.0) that multiplies packed reference latents, allowing
+    finer control over how strongly reference images influence generation.
+
+    Strategy: wrap both methods to accept and forward ``ref_strength``.
+    """
+    from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
+    from mflux.models.flux2.variants.edit.flux2_klein_edit_helpers import (
+        _Flux2KleinEditHelpers,
+    )
+
+    _orig_generate_image = Flux2KleinEdit.generate_image
+    _orig_prepare_ref = _Flux2KleinEditHelpers.prepare_reference_image_conditioning
+
+    def generate_image(self, *args, ref_strength: float = 1.0, **kwargs):  # type: ignore[no-untyped-def]
+        return _orig_generate_image(self, *args, ref_strength=ref_strength, **kwargs)
+
+    @staticmethod
+    def prepare_reference_image_conditioning(  # type: ignore[no-untyped-def]
+        *, ref_strength: float = 1.0, **kwargs,
+    ):
+        image_latents, image_latent_ids = _orig_prepare_ref(**kwargs)
+        if image_latents is not None and ref_strength != 1.0:
+            import mlx.core as mx
+
+            image_latents = image_latents * ref_strength
+            mx.eval(image_latents)
+        return image_latents, image_latent_ids
+
+    Flux2KleinEdit.generate_image = generate_image
+    _Flux2KleinEditHelpers.prepare_reference_image_conditioning = prepare_reference_image_conditioning
+
+
+# ---------------------------------------------------------------------------
 # Apply all patches
 # ---------------------------------------------------------------------------
 
@@ -466,7 +509,8 @@ def apply_all_patches() -> None:
     _patch_ti2vid()
     _patch_klein_edit_nan_guard()
     _patch_image_util_nan_guard()
-    print("[vendor_patches] Applied 8 patches (6 ltx-2-mlx + 2 mflux)")
+    _patch_klein_edit_ref_strength()
+    print("[vendor_patches] Applied 9 patches (6 ltx-2-mlx + 3 mflux)")
 
 
 apply_all_patches()
