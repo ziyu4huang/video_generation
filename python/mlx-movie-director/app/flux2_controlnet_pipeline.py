@@ -33,6 +33,9 @@ _MFLUX_SRC = os.path.join(
 if os.path.isdir(_MFLUX_SRC) and _MFLUX_SRC not in sys.path:
     sys.path.insert(0, _MFLUX_SRC)
 
+# Apply vendor monkey-patches AFTER mflux is on sys.path
+import app.vendor_patches  # noqa: F401
+
 
 class Flux2KleinControlnetPipeline:
     """Flux2 Klein reference-image conditioning wrapper for ControlNet-style generation.
@@ -195,7 +198,6 @@ class Flux2KleinControlnetPipeline:
                 height=height,
                 num_inference_steps=steps,
                 guidance=1.0,  # Distilled Klein models do not support CFG.
-                ref_strength=ref_strength,
                                # guidance=1.0 skips negative prompt encoding
                                # (single forward pass per step). Using >1.0
                                # would waste compute on an untrained unconditional

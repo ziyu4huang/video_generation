@@ -70,7 +70,10 @@ def run_t2i(args):
     if args.height is None:
         args.height = 960
     run_config = RunConfig.from_args(args, command="image generate")
+    json_summary = getattr(args, "json_summary", False)
+
     if getattr(args, "ab_test", False):
-        execute_ab_test(run_config)
+        execute_ab_test(run_config, json_summary=json_summary)
     else:
-        execute_generation(run_config, pipeline_type=pipeline_type)
+        execute_generation(run_config, pipeline_type=pipeline_type,
+                           json_summary=json_summary)

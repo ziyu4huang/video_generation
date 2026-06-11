@@ -84,6 +84,7 @@ _anime2real = importlib.import_module("app.commands.image-anime2real")
 _quality = importlib.import_module("app.commands.image-quality")
 _workflow = importlib.import_module("app.commands.image-workflow")
 _expansion = importlib.import_module("app.commands.image-expansion")
+_purify = importlib.import_module("app.commands.image-purify")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -96,7 +97,7 @@ if os.path.exists(_PROMPTS_FILE):
         _sample_prompts = _f.read().strip()
 
 PARSER_META = {
-    "help": "Image generation: T2I (default), angle, review, profile, controlnet, i2i, quality, workflow, or expansion",
+    "help": "Image generation: T2I (default), angle, review, profile, controlnet, i2i, quality, workflow, expansion, or purify",
     "description": (
         "Unified image command. 'run.py generate' is an alias.\n\n"
         "Sub-actions:\n"
@@ -114,7 +115,8 @@ PARSER_META = {
         "  swap          — SAM3 text-prompted swap (any region) + compositing\n"
         "  anime2real    — Anime→realistic with identity preservation (Flux2KleinEdit ref + LoRA)\n"
         "  quality       — No-reference image quality analysis + VAE A/B self-test\n"
-        "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n\n"
+        "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n"
+"  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE comparison\n"
         "  zit-sda-v1 / sda            — SDA LoKr A/B: portrait, quality + voting\n"
@@ -189,6 +191,11 @@ PARSER_META = {
         "  run.py image expansion --input photo.png --expand left,right --pixels 768 --prompt '...'\n"
         "  run.py image expansion --input photo.png --aspect 16:9 --upscale --upscale-method seedvr2\n"
         "  run.py image --self-test expansion\n"
+        "  run.py image purify output/photo.png\n"
+        "  run.py image purify output/photo.png --purify-mode redraw --resolution 2x\n"
+        "  run.py image purify output/photo.png --purify-mode purify --resolution same\n"
+        "  run.py image purify output/photo.png --softness-override 0.95 --resolution same\n"
+        "  run.py image purify photo.png --purify-mode enhance --resolution 2160 --film-grain 0.02 --sharpening 0.1\n"
         "\n"
         "─────────────────────────────────────────────────────────────────────\n"
         "Sample Prompts\n"
@@ -209,7 +216,7 @@ def add_args(parser):
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -255,6 +262,9 @@ def add_args(parser):
 
     # Expansion-specific args: --expand, --pixels, --ratio, --feather, --longest
     _expansion.add_expansion_args(parser)
+
+    # Purify-specific args: --mode, --resolution, --softness-override, --film-grain, --sharpening
+    _purify.add_purify_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -322,5 +332,7 @@ def run(args):
         _workflow.run_workflow(args)
     elif action == "expansion":
         _expansion.run_expansion(args)
+    elif action == "purify":
+        _purify.run_purify(args)
     else:
         _t2i.run_t2i(args)

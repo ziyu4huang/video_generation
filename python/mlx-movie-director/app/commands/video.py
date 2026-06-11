@@ -1,4 +1,4 @@
-"""video — unified video command: dispatcher for generate, review, compare, quality, and restore sub-actions.
+"""video — unified video command: dispatcher for generate, review, compare, quality, restore, and vbvr sub-actions.
 
 Sub-actions (loaded from sibling modules via importlib):
   generate (default)  — T2V/I2V/A2V video generation  → app/commands/video-generate.py
@@ -7,6 +7,8 @@ Sub-actions (loaded from sibling modules via importlib):
   quality             — No-ref quality analysis         → app/commands/video-quality.py
   restore             — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)
                         → app/commands/video-restore.py
+  vbvr                — I2V generation with VBVR reasoning LoRA
+                        → app/commands/video-vbvr.py
 
 Usage:
   run.py video --test-prompt rainy-street
@@ -20,6 +22,8 @@ Usage:
   run.py video quality --self-test --test-prompt forest-hiker
   run.py video restore --restore-input degraded.mp4 --low-ram
   run.py video restore --restore-input degraded.mp4 --output restored.mp4 --frames 49
+  run.py video vbvr --input-image base.jpg --prompt "person opens a door and walks through"
+  run.py video vbvr --prompt "ball bounces off wall" --frames 49
 """
 
 import importlib
@@ -30,9 +34,11 @@ _review = importlib.import_module("app.commands.video-review")
 _compare = importlib.import_module("app.commands.video-compare")
 _quality = importlib.import_module("app.commands.video-quality")
 _restore = importlib.import_module("app.commands.video-restore")
+_vbvr = importlib.import_module("app.commands.video-vbvr")
+_relay = importlib.import_module("app.commands.video-relay")
 
 PARSER_META = {
-    "help": "LTX-2.3 video generation, review, comparison, quality analysis, and restoration",
+    "help": "LTX-2.3 video generation, review, comparison, quality analysis, restoration, and VBVR",
     "description": (
         "Unified video command.\n\n"
         "Sub-actions:\n"
@@ -41,7 +47,9 @@ PARSER_META = {
         "  review             — Review existing manifests\n"
         "  compare            — Pipeline A/B: Z-Image → caption → multi-pipeline → review\n"
         "  quality            — No-reference quality analysis (noise, sharpness, artifacts)\n"
-        "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n\n"
+        "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n"
+        "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
+        "  relay              — Multi-segment Prompt-Relay short film + custom audio\n\n"
         "Examples:\n"
         "  run.py video --test-prompt rainy-street\n"
         "  run.py video generate --test-prompt rainy-street\n"
@@ -53,6 +61,10 @@ PARSER_META = {
         "  run.py video quality --self-test --test-prompt forest-hiker\n"
         "  run.py video restore --restore-input degraded.mp4 --low-ram\n"
         "  run.py video restore --restore-input degraded.mp4 --output restored.mp4 --frames 49\n"
+        "  run.py video vbvr --input-image base.jpg --prompt 'person opens a door'\n"
+        "  run.py video vbvr --prompt 'ball bounces off wall' --frames 49\n"
+        "  run.py video relay --relay-prompt-file prompts.txt --relay-first-image base.jpg\n"
+        "  run.py video relay --relay-prompt-file prompts.txt --relay-audio music.mp3 --low-ram\n"
     ),
 }
 
@@ -63,8 +75,8 @@ def add_args(parser):
         "action",
         nargs="?",
         default="generate",
-        choices=["generate", "review", "compare", "quality", "restore"],
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', or 'restore'",
+        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay"],
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', or 'relay'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -91,10 +103,20 @@ def add_args(parser):
     # Restore args: --input, --output, --seed, --frames, --restoration-lora, etc.
     _restore.add_restore_args(parser)
 
+    # VBVR args: --vbvr-prompt, --vbvr-input-image, --vbvr-lora, etc.
+    _vbvr.add_vbvr_args(parser)
+
+    # Relay args: --relay-prompt-file, --relay-audio, --relay-first-image, etc.
+    _relay.add_relay_args(parser)
+
 
 def run(args):
     action = getattr(args, "action", "generate") or "generate"
-    if action == "restore":
+    if action == "relay":
+        _relay.run_relay(args)
+    elif action == "vbvr":
+        _vbvr.run_vbvr(args)
+    elif action == "restore":
         _restore.run_restore(args)
     elif action == "review":
         review_action = getattr(args, "review_action", None)

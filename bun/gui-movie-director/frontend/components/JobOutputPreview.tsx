@@ -53,6 +53,8 @@ export function JobOutputPreview({ job, onViewInGallery }: Props) {
           url={preview.url}
           manifest={preview.manifest}
           run={preview.run}
+          manifestPath={preview.manifestPath}
+          runPath={preview.runPath}
           onClose={() => setPreview(null)}
         />
       )}

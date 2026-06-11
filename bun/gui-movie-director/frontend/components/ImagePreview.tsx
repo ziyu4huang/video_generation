@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 
 type Tab = "run" | "manifest";
 
@@ -428,6 +428,12 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
   );
 }
 
+// --- Media type detection ---
+
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
+}
+
 // --- Main component ---
 
 export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClose }: ImagePreviewProps) {
@@ -439,6 +445,60 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClos
   const [pathCopied, setPathCopied] = useState(false);
   const data = tab === "run" ? run : manifest;
   const activePath = tab === "run" ? runPath : manifestPath;
+
+  // Zoom / pan state
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+  const didDrag = useRef(false);
+
+  // Reset zoom/pan when url changes
+  useEffect(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, [url]);
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (zoom <= 1 || e.button !== 0) return;
+    e.preventDefault();
+    didDrag.current = false;
+    dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+    setIsPanning(true);
+  }, [zoom, pan]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPanning) return;
+    const dx = e.clientX - dragStart.current.x;
+    const dy = e.clientY - dragStart.current.y;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag.current = true;
+    setPan({ x: dragStart.current.panX + dx, y: dragStart.current.panY + dy });
+  }, [isPanning]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const handleDoubleClick = useCallback(() => {
+    resetView();
+  }, [resetView]);
+
+  // Close overlay only if not zoomed and not dragging
+  const handleOverlayClick = useCallback((e: React.MouseEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (zoom !== 1 || isPanning || didDrag.current) {
+      didDrag.current = false;
+      return;
+    }
+    onClose();
+  }, [zoom, onClose]);
+
+  const cursorClass = zoom > 1 ? (isPanning ? "panning" : "zoomed") : "";
 
   const handleCopyRaw = async () => {
     if (!data) return;
@@ -458,10 +518,50 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClos
     } catch { /* ignore */ }
   };
 
+  const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
+
   return (
-    <div className="image-preview-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="image-preview-content">
-        <img src={url} alt="Preview" />
+    <div className="image-preview-overlay" onClick={handleOverlayClick}>
+      <div
+        className={`image-preview-content ${cursorClass}`}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+      >
+        {isVideoUrl(url) ? (
+          <video
+            src={url}
+            controls
+            loop
+            autoPlay
+            className="preview-media"
+            style={{ transform }}
+          />
+        ) : (
+          <img
+            src={url}
+            alt="Preview"
+            className="preview-media"
+            style={{ transform }}
+          />
+        )}
+        <div className="zoom-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+          {[1, 2, 4].map((level) => (
+            <button
+              key={level}
+              className={`zoom-btn ${zoom === level ? "active" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setZoom(level);
+                if (level === 1) setPan({ x: 0, y: 0 });
+              }}
+            >
+              {level}×
+            </button>
+          ))}
+        </div>
       </div>
       <div className="image-preview-panel" onClick={(e) => e.stopPropagation()}>
         <div className="image-preview-panel-header">

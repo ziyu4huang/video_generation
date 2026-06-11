@@ -1,37 +1,39 @@
-// t2i-run-and-review — Dynamic T2I generation + VLM quality scoring
+// mlx-movie-director-run-and-review-image-t2i — Dynamic T2I generation + VLM quality scoring
 //
 // Runs run.py t2i (or replay previous run configs) and auto-scores each output
-// image with run.py caption --style score. Uses absolute paths resolved at
-// runtime via git rev-parse to avoid CWD drift in workflow agents.
+// image with run.py caption --style score/review. Uses --json-summary to get
+// machine-readable output paths instead of fragile find -newer markers.
 //
 // Usage:
-//   Workflow({ name: 't2i-run-and-review' })
+//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i' })
 //     → self-test (default: run.py t2i --self-test)
 //
-//   Workflow({ name: 't2i-run-and-review', args: "A moody portrait in soft lighting" })
+//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: "A moody portrait in soft lighting" })
 //     → single T2I with prompt string
 //
-//   Workflow({ name: 't2i-run-and-review', args: { prompt: "...", pipeline: "flux2-klein", steps: 4, seed: 100 } })
+//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: { prompt: "...", pipeline: "flux2-klein", steps: 4, seed: 100 } })
 //     → T2I with full config object
 //
-//   Workflow({ name: 't2i-run-and-review', args: ["output_20260610_194901.run.json"] })
+//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: ["output_20260610_194901.run.json"] })
 //     → replay one or more previous run.json files (relative to output/ or absolute)
 //
-//   Workflow({ name: 't2i-run-and-review', args: [{prompt: "A"}, {prompt: "B", seed: 100}] })
+//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: [{prompt: "A"}, {prompt: "B", seed: 100}] })
 //     → multiple T2I configs in parallel
 //
 // Supported args config object fields (all optional except prompt):
 //   prompt, pipeline ("zimage"|"flux2-klein"), steps, seed, width, height,
-//   lora_path, lora_scale, draft, upscale, count, seed_start
+//   lora_path, lora_scale, draft, upscale, count, seed_start,
+//   variant ("4b"|"9b"), ab_test, quantize, transformer, flux2_model_path
 
 export const meta = {
-  name: "t2i-run-and-review",
-  description: "Run T2I generation via mlx-movie-director run.py and auto-score output quality via VLM caption --style score",
+  name: "mlx-movie-director-run-and-review-image-t2i",
+  description: "Run T2I generation via mlx-movie-director run.py and auto-score output quality via VLM caption --style score/review",
   whenToUse: "Test T2I output quality: default self-test, or pass a prompt/config/run.json array. Scores each output image with local VLM (LM Studio required for scoring).",
   phases: [
     { title: "Resolve", detail: "Detect absolute project root via git rev-parse — eliminates CWD drift" },
-    { title: "Generate", detail: "Execute T2I or replay command(s) in parallel, locate output PNGs" },
-    { title: "Review", detail: "Score each output PNG via run.py caption --style score (requires LM Studio)" },
+    { title: "Generate", detail: "Execute T2I with --json-summary and parse output paths from stdout" },
+    { title: "VLM Check", detail: "Verify LM Studio is running before caption phase" },
+    { title: "Review", detail: "Score each output PNG via run.py caption --style score/review (requires LM Studio)" },
     { title: "Report", detail: "Summarize quality scores and improvement recommendations" },
   ],
 }
@@ -124,17 +126,17 @@ runSpecs.forEach((s, i) => log(`  [${i}] type=${s.type}${s.prompt ? ` prompt="${
 function buildCommand(spec) {
   if (spec.type === "self-test") {
     const idFlag = spec.id ? ` ${spec.id}` : ""
-    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag}`
+    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag} --json-summary`
   }
 
   if (spec.type === "replay") {
-    return `${PYTHON} ${RUN_PY} replay '${spec.path}'`
+    return `${PYTHON} ${RUN_PY} replay '${spec.path}' --json-summary`
   }
 
   if (spec.type === "t2i") {
     // Single-quote escape for the prompt so shell handles special chars safely
     const safePrompt = (spec.prompt || "").replace(/'/g, "'\\''")
-    let cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${safePrompt}'`
+    let cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${safePrompt}' --json-summary`
     if (spec.pipeline)           cmd += ` --pipeline ${spec.pipeline}`
     if (spec.steps != null)      cmd += ` --steps ${spec.steps}`
     if (spec.seed != null)       cmd += ` --seed ${spec.seed}`
@@ -146,6 +148,11 @@ function buildCommand(spec) {
     if (spec.upscale)            cmd += ` --upscale`
     if (spec.count != null)      cmd += ` --count ${spec.count}`
     if (spec.seed_start != null) cmd += ` --seed-start ${spec.seed_start}`
+    if (spec.variant)            cmd += ` --variant ${spec.variant}`
+    if (spec.ab_test)            cmd += ` --ab-test`
+    if (spec.quantize != null)   cmd += ` --quantize ${spec.quantize}`
+    if (spec.transformer)        cmd += ` --transformer ${spec.transformer}`
+    if (spec.flux2_model_path)   cmd += ` --flux2-model-path '${spec.flux2_model_path}'`
     return cmd
   }
 
@@ -158,11 +165,19 @@ const GEN_SCHEMA = {
   type: "object",
   properties: {
     status:      { type: "string", enum: ["success", "error"] },
-    outputPngs:  { type: "array", items: { type: "string" }, description: "Absolute paths of newly generated PNG files" },
+    outputPngs:  { type: "array", items: { type: "string" }, description: "Absolute paths of generated PNG files (from JSON_SUMMARY)" },
     runJsonPath: { type: "string", description: "Absolute path to the .run.json file, empty string if not found" },
     error:       { type: "string", description: "Error message, empty string on success" },
   },
   required: ["status", "outputPngs"],
+}
+
+const VLM_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    available: { type: "boolean", description: "Whether LM Studio VLM is reachable" },
+  },
+  required: ["available"],
 }
 
 const CAPTION_SCHEMA = {
@@ -180,17 +195,18 @@ const CAPTION_SCHEMA = {
     issues:           { type: "array", items: { type: "string" } },
     strengths:        { type: "array", items: { type: "string" } },
     summary:          { type: "string" },
+    style:            { type: "string" },
+    model:            { type: "string" },
     error:            { type: "string", description: "Error message, empty string on success" },
   },
   required: ["imagePath"],
 }
 
-// ── Phases 1 + 2: Generate → Review (pipeline — Review starts per-item as soon as Generate finishes) ──
+// ── Phase 1: Generate (pipeline — each spec runs independently) ───────────────
 
-const allResults = await pipeline(
+const genResults = await pipeline(
   runSpecs,
 
-  // ── Stage 1: Generate ────────────────────────────────────────────────────
   async (spec, _orig, idx) => {
     const cmd = buildCommand(spec)
     if (!cmd) {
@@ -198,110 +214,126 @@ const allResults = await pipeline(
     }
 
     return agent(
-      `Execute a T2I generation command and return the list of newly created PNG output files.
+      `Execute a T2I generation command and extract the output paths from the JSON_SUMMARY line.
 
 COMMAND:
 ${cmd}
 
 STEPS — execute in order:
 
-1. Drop a timestamp marker so we can find new files after the run:
-   Bash("touch /tmp/t2i_wf_marker_${idx}")
-
-2. Run the generation command. This may take 5–15 minutes — use a 10-minute timeout:
+1. Run the generation command. This may take 5–15 minutes — use a 10-minute timeout:
    Bash("${cmd} 2>&1", timeout=600000)
 
-   Capture the full output. If the exit code is non-zero or output contains
-   "Error" / "Traceback", set status="error" in your return value.
+   Capture the full stdout/stderr output.
 
-3. Find newly created PNG files (created after the marker):
-   Bash("find '${OUT_DIR}' -name '*.png' -newer /tmp/t2i_wf_marker_${idx} -type f 2>/dev/null | sort")
+2. Parse the JSON_SUMMARY line from stdout. It looks like:
+   JSON_SUMMARY:{"status":"success","run_json":"...","manifest_json":"...","outputs":["/path/to/img.png"]}
 
-4. Find newly created .run.json (if any):
-   Bash("find '${OUT_DIR}' -name '*.run.json' -newer /tmp/t2i_wf_marker_${idx} -type f 2>/dev/null | sort | tail -1")
+   Extract the JSON after "JSON_SUMMARY:" prefix.
 
-5. Clean up the marker file:
-   Bash("rm -f /tmp/t2i_wf_marker_${idx}")
+3. If no JSON_SUMMARY line found (older run.py without --json-summary support), fall back:
+   - Search stdout for lines starting with "Saved: " to find output PNG paths
+   - Search stdout for lines starting with "Run config: " to find the run.json path
+
+4. If the command exit code is non-zero or stdout contains "Error" / "Traceback",
+   set status="error".
 
 Return JSON:
 {
   "status": "success" or "error",
   "outputPngs": ["/abs/path/img.png", ...],
-  "runJsonPath": "/abs/path/img.run.json",
+  "runJsonPath": "/abs/path/img.run.json" or "",
   "error": ""
-}
-
-If the command succeeded but no PNGs were found (e.g. self-test only produced HTML),
-still return status="success" with empty outputPngs array and note it in the error field.`,
+}`,
       { label: `generate-${idx}-${spec.type}`, phase: "Generate", schema: GEN_SCHEMA },
     )
   },
+)
 
-  // ── Stage 2: Caption each PNG ────────────────────────────────────────────
-  async (genResult, originalSpec, idx) => {
-    if (!genResult || !genResult.outputPngs || genResult.outputPngs.length === 0) {
-      log(`[${idx}] No PNGs to caption (gen status=${genResult?.status || "null"}).`)
-      return {
-        spec: originalSpec,
-        genResult: genResult || { status: "error", outputPngs: [], runJsonPath: "", error: "null result from generate stage" },
-        captions: [],
-      }
+// ── Phase 2: VLM pre-flight check ────────────────────────────────────────────
+
+phase("VLM Check")
+
+const vlmCheck = await agent(
+  `Check if LM Studio VLM is running at http://localhost:1234.
+
+Run: Bash("curl -sf http://localhost:1234/v1/models -o /dev/null -w '%{http_code}'")
+
+Return { "available": true } if HTTP 200, { "available": false } otherwise.
+IMPORTANT: Return ONLY the JSON object.`,
+  { label: "vlm-check", phase: "VLM Check", model: "haiku", schema: VLM_CHECK_SCHEMA },
+)
+
+const vlmAvailable = vlmCheck?.available === true
+
+if (vlmAvailable) {
+  log("VLM available — proceeding with Review phase.")
+} else {
+  log("VLM UNAVAILABLE — LM Studio not running at localhost:1234. Skipping Review phase.")
+  log("Start LM Studio with a VLM model (e.g. qwen3-vl-4b) to enable scoring.")
+}
+
+// ── Phase 3: Review — Caption each PNG ───────────────────────────────────────
+
+phase("Review")
+
+const allResults = genResults.map((genResult, idx) => {
+  const originalSpec = runSpecs[idx]
+  if (!genResult || !genResult.outputPngs || genResult.outputPngs.length === 0) {
+    log(`[${idx}] No PNGs to caption (gen status=${genResult?.status || "null"}).`)
+    return {
+      spec: originalSpec,
+      genResult: genResult || { status: "error", outputPngs: [], runJsonPath: "", error: "null result from generate stage" },
+      captions: [],
     }
+  }
+  return { spec: originalSpec, genResult }
+})
 
-    // Read original prompt from run.json for review-style caption
-    let originalPrompt = null
-    if (genResult.runJsonPath) {
-      try {
-        const readResult = await agent(
-          `Read the run.json file at: ${genResult.runJsonPath}
-Extract the "prompt" field value. Return ONLY the prompt text string, nothing else.
-If the file has no "prompt" field, return "NO_PROMPT".`,
-          { label: `read-prompt-${idx}`, phase: "Review", model: "haiku" },
-        )
-        if (readResult && readResult !== "NO_PROMPT") {
-          originalPrompt = readResult.trim()
-          log(`[${idx}] Original prompt: "${originalPrompt.slice(0, 80)}..."`)
-        }
-      } catch (e) {
-        log(`[${idx}] Could not read run.json prompt: ${e}`)
-      }
-    }
+if (!vlmAvailable) {
+  // Skip Review — fill empty captions
+  allResults.forEach(r => { r.captions = [] })
+} else {
+  // Caption each genResult's PNGs (merged read-prompt + caption agent)
+  const captionedResults = await pipeline(
+    allResults.filter(r => r.genResult?.outputPngs?.length > 0),
+    async (item, _orig, idx) => {
+      const { genResult } = item
 
-    log(`[${idx}] Captioning ${genResult.outputPngs.length} PNG(s)...`)
+      log(`[${idx}] Captioning ${genResult.outputPngs.length} PNG(s)...`)
 
-    const captions = await parallel(
-      genResult.outputPngs.map((pngPath, pngIdx) => () => {
-        const captionFile = `${pngPath}.caption.json`
+      const captions = await parallel(
+        genResult.outputPngs.map((pngPath, pngIdx) => () => {
+          const captionFile = `${pngPath}.caption.json`
 
-        // Build caption command: use "review" style if we have the original prompt
-        let captionCmd
-        if (originalPrompt) {
-          const safePrompt = originalPrompt.replace(/'/g, "'\\''")
-          captionCmd = `${PYTHON} ${RUN_PY} caption '${pngPath}' --style review --prompt '${safePrompt}' --lang en`
-        } else {
-          captionCmd = `${PYTHON} ${RUN_PY} caption '${pngPath}' --style score --lang en`
-        }
-
-        return agent(
-          `Score the image quality of a T2I output using the VLM caption tool.
+          return agent(
+            `Score the image quality of a T2I output using the VLM caption tool.
 
 IMAGE PATH: ${pngPath}
-${originalPrompt ? `ORIGINAL PROMPT: ${originalPrompt}` : "(no original prompt available — using score mode)"}
+RUN.JSON: ${genResult.runJsonPath || "(none)"}
 
 STEPS:
 
-1. Run the caption command (requires LM Studio at http://localhost:1234):
-   Bash("${captionCmd}")
+1. If a run.json path is available, read it to extract the original prompt:
+   Bash("cat '${genResult.runJsonPath}'")
+   Extract the "prompt" field value. If missing or file not found, use null.
+
+2. Choose the caption style based on whether we have the original prompt:
+   - If prompt found: use --style review --prompt '<safe_prompt>'
+   - If no prompt: use --style score
+
+3. Run the caption command (requires LM Studio at http://localhost:1234):
+   Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style <review|score> [--prompt '<prompt>'] --lang en")
 
    If this fails with a connection error (e.g. "Connection refused"), set:
      error = "VLM unavailable — LM Studio not running at localhost:1234"
    and return with all score fields absent.
 
-2. If successful, the command writes output to: ${captionFile}
+4. If successful, the command writes output to: ${captionFile}
    Read that file:
    Bash("cat '${captionFile}'")
 
-3. Parse the outer JSON. The "caption" field is a nested JSON STRING — parse it again.
+5. Parse the outer JSON. The "caption" field is a nested JSON STRING — parse it again.
    Example structure:
    {
      "image": "...", "style": "review", "model": "...",
@@ -324,22 +356,30 @@ Return flat JSON:
   "issues": ["..."],
   "strengths": ["..."],
   "summary": "one sentence",
+  "style": "<the style used>",
+  "model": "<the VLM model name>",
   "error": ""
 }`,
-          { label: `caption-${idx}-${pngIdx}`, phase: "Review", schema: CAPTION_SCHEMA },
-        )
-      }),
-    )
+            { label: `caption-${idx}-${pngIdx}`, phase: "Review", schema: CAPTION_SCHEMA },
+          )
+        }),
+      )
 
-    return {
-      spec: originalSpec,
-      genResult,
-      captions: captions.filter(Boolean),
+      item.captions = captions.filter(Boolean)
+      return item
+    },
+  )
+
+  // Merge captioned results back into allResults
+  captionedResults.forEach((captioned, i) => {
+    if (captioned) {
+      const idx = allResults.findIndex(r => r.genResult === captioned.genResult)
+      if (idx >= 0) allResults[idx] = captioned
     }
-  },
-)
+  })
+}
 
-// ── Phase 3: Report ──────────────────────────────────────────────────────────
+// ── Phase 4: Report ──────────────────────────────────────────────────────────
 
 phase("Report")
 

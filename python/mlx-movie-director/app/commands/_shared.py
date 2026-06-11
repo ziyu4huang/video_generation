@@ -113,6 +113,13 @@ def add_common_generation_args(parser):
                             help="First seed for a batch run; overrides --seed. "
                              "Output i uses seed seed_start+i.")
 
+    # Machine-readable output for automation / CI
+    if not _arg_registered(parser, "json_summary"):
+        parser.add_argument("--json-summary", action="store_true", default=False,
+                            dest="json_summary",
+                            help="Print a JSON summary line to stdout after generation "
+                                 "(for workflow integration)")
+
 
 def resolve_lora_path(raw: str | None) -> str | None:
     """Resolve a --lora-path value to an absolute .safetensors file path.
@@ -293,8 +300,18 @@ def generate_base_name() -> str:
 # Generation execution (shared by generate, refine, replay)
 # ---------------------------------------------------------------------------
 
-def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
-    """Run pipeline.generate() for all batch items, save images, write manifest."""
+def execute_generation(run_config, pipeline_type: str = "zimage",
+                       json_summary: bool = False) -> str:
+    """Run pipeline.generate() for all batch items, save images, write manifest.
+
+    Returns manifest_file path on success.  Exits with code 1 on error.
+
+    When json_summary is True, prints a JSON_SUMMARY:{...} line to stdout
+    for automation workflows (e.g. Claude Code workflow integration).
+    The summary contains: status, run_json, manifest_json, outputs.
+    """
+    import json as _json
+
     from app.pipeline import ZImagePipeline
     from app.manifest import Manifest, collect_model_fingerprint, collect_model_fingerprint_flux2
     from PIL import Image
@@ -341,6 +358,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
         pipeline = ZImagePipeline()
 
     all_outputs = []
+    output_paths = []
     last_timings = {}
 
     try:
@@ -388,6 +406,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
             result.image.save(out_path)
             print(f"Saved: {out_path}")
 
+            output_paths.append(out_path)
             all_outputs.append({
                 "path": out_path,
                 "seed": seed,
@@ -412,6 +431,16 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
         print(f"Run config: {run_file}")
         print(f"Manifest:   {manifest_file}")
 
+        if json_summary:
+            summary = _json.dumps({
+                "status": "success",
+                "run_json": run_file,
+                "manifest_json": manifest_file,
+                "outputs": output_paths,
+            })
+            print(f"JSON_SUMMARY:{summary}")
+        return manifest_file
+
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()
         models = {}
@@ -421,8 +450,17 @@ def execute_generation(run_config, pipeline_type: str = "zimage") -> None:
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         print(f"Manifest (error): {manifest_file}", file=sys.stderr)
         traceback.print_exc()
+
+        if json_summary:
+            summary = _json.dumps({
+                "status": "error",
+                "run_json": run_file,
+                "manifest_json": manifest_file,
+                "outputs": output_paths,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(f"JSON_SUMMARY:{summary}")
         sys.exit(1)
-    return manifest_file
 
 
 # ---------------------------------------------------------------------------
@@ -469,9 +507,14 @@ def _stitch_horizontal(images, gap: int = 0, labels=None, bg_color=(30, 30, 30))
     return strip
 
 
-def execute_ab_test(run_config) -> None:
-    """Run both zimage and flux2-klein pipelines for A/B comparison."""
+def execute_ab_test(run_config, json_summary: bool = False) -> str:
+    """Run both zimage and flux2-klein pipelines for A/B comparison.
+
+    Returns manifest_file path on success.  Exits with code 1 on error.
+    When json_summary is True, prints JSON_SUMMARY:{...} line to stdout.
+    """
     import gc
+    import json as _json
     import mlx.core as mx
     from app.pipeline import ZImagePipeline
     from app.flux2_t2i_pipeline import Flux2KleinT2IPipeline
@@ -599,6 +642,17 @@ def execute_ab_test(run_config) -> None:
         print(f"\nRun config: {run_file}")
         print(f"Manifest:   {manifest_file}")
 
+        output_paths = [o["path"] for o in all_outputs]
+        if json_summary:
+            summary = _json.dumps({
+                "status": "success",
+                "run_json": run_file,
+                "manifest_json": manifest_file,
+                "outputs": output_paths,
+            })
+            print(f"JSON_SUMMARY:{summary}")
+        return manifest_file
+
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()
         manifest = Manifest.from_error(run_file, start_time, end_time,
@@ -606,8 +660,18 @@ def execute_ab_test(run_config) -> None:
         manifest.to_json(manifest_file)
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()
+
+        output_paths = [o["path"] for o in all_outputs]
+        if json_summary:
+            summary = _json.dumps({
+                "status": "error",
+                "run_json": run_file,
+                "manifest_json": manifest_file,
+                "outputs": output_paths,
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(f"JSON_SUMMARY:{summary}")
         sys.exit(1)
-    return manifest_file
 
 
 # ---------------------------------------------------------------------------
