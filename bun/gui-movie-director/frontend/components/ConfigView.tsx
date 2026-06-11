@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 
 interface ConfigData {
-  outputDir: string;
+  outputDir: string | string[];
   modelsDir: string;
   vlmApiUrl: string;
   vlmModel: string;
@@ -9,12 +9,21 @@ interface ConfigData {
 }
 
 const DEFAULTS: ConfigData = {
-  outputDir: "python/mlx-movie-director/output",
+  outputDir: "python/mlx-movie-director/output, comfyui_data/output",
   modelsDir: "python/mlx-movie-director/models",
   vlmApiUrl: "http://localhost:1234/v1",
   vlmModel: "qwen/qwen3-vl-4b",
   pythonPath: "",
 };
+
+function outputDirDisplay(v: string | string[]): string {
+  return Array.isArray(v) ? v.join(", ") : v;
+}
+
+function parseOutputDir(s: string): string | string[] {
+  const parts = s.split(",").map((p) => p.trim()).filter(Boolean);
+  return parts.length === 1 ? parts[0] : parts;
+}
 
 interface VlmTestResult {
   ok: boolean;
@@ -104,7 +113,7 @@ export function ConfigView() {
     setSaving(false);
   };
 
-  const update = (key: keyof ConfigData, value: string) => {
+  const update = (key: keyof ConfigData, value: string | string[]) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
     setTestResult(null);
@@ -236,9 +245,9 @@ export function ConfigView() {
               <label>Output Directory</label>
               <input
                 type="text"
-                value={config.outputDir}
-                onChange={(e) => update("outputDir", e.target.value)}
-                placeholder={DEFAULTS.outputDir}
+                value={outputDirDisplay(config.outputDir)}
+                onChange={(e) => update("outputDir", parseOutputDir(e.target.value))}
+                placeholder={outputDirDisplay(DEFAULTS.outputDir)}
               />
             </div>
           </div>

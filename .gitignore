@@ -57,6 +57,9 @@ patches/comfyui_data/
 # Playwright snapshots (top-level *.png)
 /*.png
 
+# GUI server runtime state
+bun/gui-movie-director/data/jobs.json
+
 # Claude Code session files
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks.json

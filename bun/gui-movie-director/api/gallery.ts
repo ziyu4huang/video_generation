@@ -61,12 +61,15 @@ export async function handleGallery(req: Request): Promise<Response> {
   // Collect media entries from ALL output directories
   type RawEntry = { name: string; dir: string; fullPath: string; mtime: number; size: number };
   const allEntries: RawEntry[] = [];
+  // Cache dir listings for thumbnail lookups in the inner map (one read per dir, not per video)
+  const dirFileCache = new Map<string, Set<string>>();
 
   for (const dir of OUTPUT_DIRS) {
     if (!fs.existsSync(dir)) continue;
-    const fileIndex = buildFileIndex(dir);
+    const allFiles = fs.readdirSync(dir);
+    dirFileCache.set(dir, new Set(allFiles));
 
-    const entries = fs.readdirSync(dir)
+    const entries = allFiles
       .filter((f) => {
         const ext = path.extname(f).toLowerCase();
         if (!MEDIA_EXTENSIONS.has(ext)) return false;
@@ -110,16 +113,17 @@ export async function handleGallery(req: Request): Promise<Response> {
     }
 
     // Thumbnail: for videos, look for companion relay PNG or regular PNG
+    const dirIdx = OUTPUT_DIRS.indexOf(entry.dir);
     let thumbnailUrl: string | null = null;
     if (mediaType === "video") {
-      const fileIndex = buildFileIndex(entry.dir);
+      const fileIndex = dirFileCache.get(entry.dir) ?? new Set<string>();
       const candidates = [
         `${base}_relay.png`,   // output_20260611_193630_seg01_relay.png
         `${base}.png`,         // output_20260611_192957.png
       ];
       for (const c of candidates) {
         if (fileIndex.has(c)) {
-          thumbnailUrl = `/output/${c}`;
+          thumbnailUrl = `/output/${dirIdx}/${c}`;
           break;
         }
       }
@@ -127,7 +131,7 @@ export async function handleGallery(req: Request): Promise<Response> {
 
     return {
       name: entry.name,
-      url: `/output/${entry.name}`,
+      url: `/output/${dirIdx}/${entry.name}`,
       size: entry.size,
       createdAt: new Date(entry.mtime).toISOString(),
       mediaType,
@@ -144,15 +148,17 @@ export async function handleGallery(req: Request): Promise<Response> {
 
 export async function handleGalleryImage(req: Request, filename: string): Promise<Response> {
   const decoded = decodeURIComponent(filename);
-  // Search all output directories for the file
-  for (const dir of OUTPUT_DIRS) {
-    const filePath = path.normalize(path.join(dir, decoded));
-    // Path traversal protection
+  // Support dir-indexed format "0/file.png" (new) and plain "file.png" (legacy)
+  const slashIdx = decoded.indexOf("/");
+  const dirIdx = slashIdx !== -1 ? parseInt(decoded.slice(0, slashIdx), 10) : NaN;
+  const validDirIdx = !isNaN(dirIdx) && dirIdx >= 0 && dirIdx < OUTPUT_DIRS.length;
+  const name = validDirIdx ? decoded.slice(slashIdx + 1) : decoded;
+  const dirsToSearch = validDirIdx ? [OUTPUT_DIRS[dirIdx]] : OUTPUT_DIRS;
+
+  for (const dir of dirsToSearch) {
+    const filePath = path.normalize(path.join(dir, name));
     if (!filePath.startsWith(path.resolve(dir))) continue;
-    if (fs.existsSync(filePath)) {
-      const file = Bun.file(filePath);
-      return new Response(file);
-    }
+    if (fs.existsSync(filePath)) return new Response(Bun.file(filePath));
   }
   return new Response("Not found", { status: 404 });
 }

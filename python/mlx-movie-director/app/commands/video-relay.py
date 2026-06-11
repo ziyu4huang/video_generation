@@ -48,6 +48,71 @@ from app.manifest import Manifest
 from app.run_config import RunConfig
 
 
+# ---------------------------------------------------------------------------
+# Variant definitions — built-in pipeline configs for relay A/B comparison
+# ---------------------------------------------------------------------------
+
+_RELAY_VARIANTS = {
+    "distilled": {
+        "distilled": True, "lora_path": None, "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled (baseline)",
+    },
+    "distilled+vbvr-licon": {
+        "distilled": True, "lora_path": "vbvr-licon-ltx2.3", "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled + VBVR (LiconStudio)",
+    },
+    "distilled+vbvr-siraxe": {
+        "distilled": True, "lora_path": "vbvr-ltx2.3", "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled + VBVR (siraxe)",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Prompt presets — named prompt sets with recommended defaults
+# ---------------------------------------------------------------------------
+
+_RELAY_PRESETS = {
+    "wuxia": {
+        "prompts": [
+            (
+                "Style: cinematic realism. Shot on 35mm film with shallow depth of field. "
+                "A lone warrior in weathered black hanfu stands perfectly still at the heart of "
+                "a crowded ancient Chinese marketplace at dusk. Red paper lanterns cast warm amber "
+                "pools of light across wet cobblestones. Silk banners drift in a faint evening "
+                "breeze. Steam rises from a nearby clay noodle pot. The warrior's eyes move slowly "
+                "across the crowd — sharp, calculating, unhurried. Dust motes drift through shafts "
+                "of fading gold light between canvas awnings."
+            ),
+            (
+                "Style: cinematic realism. Shot on 35mm film, motion blur on fast action. "
+                "With a sharp metallic ring the warrior's silver blade clears its scabbard and "
+                "catches the last copper light of dusk. He lunges forward into the crowd — black "
+                "robes billowing, feet barely grazing the cobblestones. Bystanders scatter and "
+                "shout. He vaults over a wooden market cart, ceramic jars exploding on impact. "
+                "A dark-cloaked figure sprints between stalls ahead. A hanging red lantern swings "
+                "violently in his wake."
+            ),
+            (
+                "Style: cinematic realism. Wide establishing shot transitioning to medium close-up. "
+                "The warrior lands in perfect silence on curved grey clay roof tiles, arms extended "
+                "briefly for balance. Ten thousand lantern lights glimmer through evening haze across "
+                "the ancient city below. A cool wind lifts the hem of his black robes and loosens "
+                "strands of his hair. He lowers his sword slowly, chest rising and falling. Temple "
+                "bells toll in the far distance. The sky fades from deep crimson at the horizon to "
+                "indigo directly above."
+            ),
+        ],
+        "width": 704,
+        "height": 448,
+        "duration": 4.0,  # 97 frames @ 24fps — meaningful quality evaluation
+    },
+}
+
+
 PARSER_META = {
     "help": "Multi-segment Prompt-Relay video generation with custom audio",
     "description": (
@@ -159,6 +224,23 @@ def add_relay_args(parser):
              "No prompts or images required. Pass --relay-audio to also test audio mux.",
     )
 
+    # Variant A/B comparison
+    grp.add_argument(
+        "--relay-variant", type=str, default=None, dest="relay_variant",
+        metavar="VARIANT[,VARIANT,...]",
+        help="Run relay once per variant for A/B comparison. "
+             "Comma-separated variant names. Each variant runs independently with "
+             "its own pipeline config. Outputs get variant-suffixed filenames.\n"
+             f"Options: {', '.join(_RELAY_VARIANTS.keys())}",
+    )
+    grp.add_argument(
+        "--relay-preset", type=str, default=None, dest="relay_preset",
+        metavar="PRESET",
+        help="Named prompt preset (overrides --relay-prompts / --relay-prompt-file "
+             "and applies recommended resolution/duration defaults).\n"
+             f"Options: {', '.join(_RELAY_PRESETS.keys())}",
+    )
+
 
 # ---------------------------------------------------------------------------
 # ffmpeg helpers
@@ -192,6 +274,16 @@ def _extract_last_frame(video_path: str, png_path: str) -> bool:
         )
         return result2.returncode == 0 and os.path.exists(png_path)
     return True
+
+
+def _extract_first_frame_relay(video_path: str, png_path: str) -> bool:
+    """Extract the first video frame to png_path using ffmpeg."""
+    ffmpeg = _require_ffmpeg()
+    result = subprocess.run(
+        [ffmpeg, "-y", "-i", video_path, "-vframes", "1", png_path],
+        capture_output=True, timeout=30,
+    )
+    return result.returncode == 0 and os.path.exists(png_path)
 
 
 def _concat_videos(video_paths: list, output_path: str) -> None:
@@ -284,12 +376,14 @@ def _generate_tts_say(text: str, voice: str, rate: int, output_path: str) -> Non
     """macOS say → AIFF → AAC via ffmpeg."""
     aiff_path = output_path.rsplit(".", 1)[0] + ".aiff"
     subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", aiff_path, text], check=True)
-    subprocess.run(
-        [_require_ffmpeg(), "-y", "-i", aiff_path, "-c:a", "aac", output_path],
-        capture_output=True, check=True,
-    )
-    if os.path.exists(aiff_path):
-        os.unlink(aiff_path)
+    try:
+        subprocess.run(
+            [_require_ffmpeg(), "-y", "-i", aiff_path, "-c:a", "aac", output_path],
+            capture_output=True, check=True,
+        )
+    finally:
+        if os.path.exists(aiff_path):
+            os.unlink(aiff_path)
 
 
 def _generate_tts_edge(text: str, voice: str, rate_offset: int, output_path: str) -> None:
@@ -414,12 +508,13 @@ def _resolve_segment_images(args, n_segments: int) -> list:
 def run_relay(args):
     """Entry point for video relay sub-action."""
     from app.gpu_lock import GpuLock
-    if getattr(args, "relay_self_test", False):
-        with GpuLock(skip=False):
-            _run_relay_self_test(args)
-        return
     with GpuLock(skip=False):
-        _run_relay_inner(args)
+        if getattr(args, "relay_variant", None):
+            _run_relay_variants(args)
+        elif getattr(args, "relay_self_test", False):
+            _run_relay_self_test(args)
+        else:
+            _run_relay_inner(args)
 
 
 _SELF_TEST_PROMPTS = [
@@ -470,7 +565,7 @@ def _run_relay_self_test(args):
         low_ram=getattr(args, "low_ram", False),
         hq=False,
         distilled=True,               # distilled dir has transformer-distilled-1.1.safetensors
-        lora_path=None,
+        lora_path=getattr(args, "lora_path", None),
         lora_scale=1.0,
         video_model=None,             # use default distilled dir
         teacache=False,
@@ -550,6 +645,142 @@ def _run_relay_self_test(args):
     else:
         print(f"\n[relay-self-test] FAIL: {failed}/{total} checks failed", file=sys.stderr)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Variant A/B comparison
+# ---------------------------------------------------------------------------
+
+def _run_relay_variants(args):
+    """Run relay once per variant for A/B comparison.
+
+    Each variant defines its own pipeline config (distilled, lora_path, cfg_scale, etc.).
+    Prompts come from --relay-preset, --relay-prompts, or --relay-prompt-file.
+    Outputs are suffixed with the variant name for easy comparison.
+    """
+    import copy
+    import gc
+
+    # Resolve variant names
+    variant_names = [v.strip() for v in args.relay_variant.split(",") if v.strip()]
+    unknown = [v for v in variant_names if v not in _RELAY_VARIANTS]
+    if unknown:
+        print(f"ERROR: unknown variant(s): {', '.join(unknown)}", file=sys.stderr)
+        print(f"  Available: {', '.join(_RELAY_VARIANTS.keys())}", file=sys.stderr)
+        sys.exit(1)
+
+    # Load prompts — preset takes priority, then relay args
+    preset_name = getattr(args, "relay_preset", None)
+    preset = None
+    if preset_name:
+        if preset_name not in _RELAY_PRESETS:
+            print(f"ERROR: unknown preset '{preset_name}'", file=sys.stderr)
+            print(f"  Available: {', '.join(_RELAY_PRESETS.keys())}", file=sys.stderr)
+            sys.exit(1)
+        preset = _RELAY_PRESETS[preset_name]
+        prompts = preset["prompts"]
+        print(f"[relay-variant] Preset: {preset_name} ({len(prompts)} prompts)")
+    else:
+        prompts = _load_prompts(args)
+
+    n_variants = len(variant_names)
+    print(f"[relay-variant] ═══ Relay Variant A/B Test ═══")
+    print(f"[relay-variant] {n_variants} variant(s) × {len(prompts)} segment(s)")
+
+    results = []
+    manifest_files = []
+
+    for vi, vname in enumerate(variant_names):
+        vcfg = _RELAY_VARIANTS[vname]
+        label = vcfg["label"]
+        print(f"\n{'═' * 60}")
+        print(f"[relay-variant] Variant {vi+1}/{n_variants}: {vname}")
+        print(f"[relay-variant]   {label}")
+        print(f"[relay-variant]   distilled={vcfg['distilled']}  "
+              f"lora={vcfg.get('lora_path') or 'none'}  "
+              f"cfg={vcfg['cfg_scale']}  stg={vcfg['stg_scale']}")
+        print(f"{'═' * 60}")
+
+        # Build args copy with variant overrides
+        # Start from a shallow copy of the original args namespace
+        v_args = copy.copy(args)
+
+        # Override with variant config
+        v_args.distilled = vcfg["distilled"]
+        v_args.lora_path = vcfg.get("lora_path")
+        v_args.lora_scale = vcfg.get("lora_scale", 1.0)
+        v_args.cfg_scale = vcfg["cfg_scale"]
+        v_args.stg_scale = vcfg["stg_scale"]
+
+        # Apply preset overrides for resolution/duration
+        if preset:
+            v_args.relay_prompts = list(prompts)
+            v_args.relay_prompt_file = None
+            v_args.width = preset.get("width", getattr(args, "width", 704))
+            v_args.height = preset.get("height", getattr(args, "height", 448))
+            v_args.relay_duration = preset.get("duration", getattr(args, "relay_duration", 8.0))
+        else:
+            # Ensure prompts are set on args
+            if not getattr(v_args, "relay_prompts", None) and not getattr(v_args, "relay_prompt_file", None):
+                v_args.relay_prompts = list(prompts)
+                v_args.relay_prompt_file = None
+
+        # Suffix output with variant name
+        v_args.relay_variant_suffix = vname
+        # Clear variant flag to prevent recursion
+        v_args.relay_variant = None
+
+        t0 = datetime.now(timezone.utc)
+        try:
+            _run_relay_inner(v_args)
+            elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
+            results.append({"variant": vname, "label": label, "status": "ok", "elapsed": elapsed})
+            # Collect manifest path for reviewer
+            mf = getattr(v_args, "_last_manifest_file", None)
+            if mf and os.path.exists(mf):
+                manifest_files.append(mf)
+        except SystemExit as e:
+            elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
+            results.append({"variant": vname, "label": label, "status": f"exit({e.code})",
+                            "elapsed": elapsed})
+        except Exception as exc:
+            elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
+            results.append({"variant": vname, "label": label, "status": f"error: {exc}",
+                            "elapsed": elapsed})
+
+        # Free GPU memory between variants
+        if vi < n_variants - 1:
+            print(f"\n[relay-variant] Freeing GPU memory…")
+            gc.collect()
+            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except ImportError:
+                pass
+
+    # Summary table
+    print(f"\n{'═' * 60}")
+    print(f"[relay-variant] Variant Comparison Summary")
+    print(f"{'═' * 60}")
+    print(f"  {'Variant':<30} {'Status':<10} {'Time':>8}")
+    print(f"  {'─' * 30} {'─' * 10} {'─' * 8}")
+    for r in results:
+        status_tag = "✓" if r["status"] == "ok" else "✗"
+        mins = r["elapsed"] / 60
+        print(f"  {r['variant']:<30} {status_tag + ' ' + r['status']:<10} {mins:>6.1f} min")
+    print(f"{'═' * 60}")
+
+    # Auto-launch HTML video reviewer for side-by-side comparison
+    if manifest_files:
+        print(f"\n[relay-variant] Launching video reviewer ({len(manifest_files)} manifests)…")
+        import importlib
+        _review_mod = importlib.import_module("app.commands.video-review")
+        review_args = types.SimpleNamespace(
+            labels=",".join(r["label"] for r in results if r["status"] == "ok"),
+            output=None,
+            no_open=False,
+        )
+        _review_mod._launch_review(review_args, manifest_files)
 
 
 def _run_relay_inner(args):
@@ -634,6 +865,10 @@ def _run_relay_inner(args):
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     base_name = generate_base_name()
+    # Append variant suffix when running in A/B comparison mode
+    variant_suffix = getattr(args, "relay_variant_suffix", None)
+    if variant_suffix:
+        base_name = f"{base_name}_{variant_suffix}"
     base_path = os.path.join(cfg.OUTPUT_DIR, base_name)
 
     # Inject attrs expected by RunConfig.from_args
@@ -788,6 +1023,16 @@ def _run_relay_inner(args):
         print(f"[relay] Peak RAM:    {peak_gb:.1f} GB")
         print(f"[relay] Segments:    {n} × {relay_duration:.0f}s = "
               f"{relay_duration * n:.0f}s total")
+
+        # Extract first-frame thumbnail for video reviewer
+        thumb_path = base_path + ".png"
+        if _extract_first_frame_relay(relay_mp4, thumb_path):
+            print(f"[relay] Thumbnail:   {thumb_path}")
+
+        # Record paths on args for variant comparison to collect
+        args._last_manifest_file = manifest_file
+        args._last_relay_mp4 = relay_mp4
+        args._last_thumb_path = thumb_path
 
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()
