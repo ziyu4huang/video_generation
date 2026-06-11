@@ -1,12 +1,14 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { LogViewer } from "../../components/LogViewer";
 import { JobOutputPreview } from "../../components/JobOutputPreview";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
 import { useCommandView } from "../../hooks/useCommandView";
+import { useSchemaDefaults } from "../../hooks/useSchemaDefaults";
 import { useNavigation } from "../../context/NavigationContext";
 
-const DEFAULTS: Record<string, any> = {
+// Static fallback defaults
+const FALLBACK_DEFAULTS: Record<string, any> = {
   seed: 42,
   restore_scale: 1.0,
   restore_cond_strength: 1.0,
@@ -18,9 +20,24 @@ export function VideoRestoreView() {
   const command = "video restore";
   const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
   const navigate = useNavigation();
-  const [state, setState] = useState<Record<string, any>>({ ...DEFAULTS });
+  const serverDefaults = useSchemaDefaults("video-restore");
+  const [state, setState] = useState<Record<string, any>>({ ...FALLBACK_DEFAULTS });
+  const userModifiedRef = useRef<Set<string>>(new Set());
+
+  // Apply server defaults once they load, skipping user-touched fields
+  useEffect(() => {
+    if (!serverDefaults) return;
+    setState((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(serverDefaults)) {
+        if (!userModifiedRef.current.has(k)) next[k] = v;
+      }
+      return next;
+    });
+  }, [serverDefaults]);
 
   const setField = (key: string, value: any) => {
+    userModifiedRef.current.add(key);
     setState((prev) => ({ ...prev, [key]: value }));
   };
 

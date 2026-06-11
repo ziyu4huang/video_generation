@@ -22,8 +22,8 @@
 //
 // Supported args config object fields (all optional except prompt):
 //   prompt, pipeline ("zimage"|"flux2-klein"), steps, seed, width, height,
-//   lora_path, lora_scale, draft, upscale, count, seed_start,
-//   variant ("4b"|"9b"), ab_test, quantize, transformer, flux2_model_path
+//   lora_path, lora_scale, draft, upscale, upscale_method ("esrgan"|"seedvr2"),
+//   count, seed_start, variant ("4b"|"9b"), ab_test, quantize, transformer, flux2_model_path
 
 export const meta = {
   name: "mlx-movie-director-run-and-review-image-t2i",
@@ -99,17 +99,31 @@ function normalizeItem(item) {
   return null
 }
 
+// Resolve args — handles string-serialized JSON arrays (Workflow tool may stringify)
+let resolvedArgs = args
+if (typeof resolvedArgs === "string") {
+  try {
+    const parsed = JSON.parse(resolvedArgs)
+    if (Array.isArray(parsed) || (typeof parsed === "object" && parsed !== null)) {
+      resolvedArgs = parsed
+      log(`Parsed string args as ${Array.isArray(parsed) ? `array[${parsed.length}]` : "object"}`)
+    }
+  } catch {
+    // Not JSON — treat as a plain prompt string
+  }
+}
+
 let runSpecs = []
 
-if (!args) {
+if (!resolvedArgs) {
   runSpecs = [{ type: "self-test", id: null }]
-} else if (typeof args === "string") {
-  const norm = normalizeItem(args)
+} else if (typeof resolvedArgs === "string") {
+  const norm = normalizeItem(resolvedArgs)
   runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
-} else if (Array.isArray(args)) {
-  runSpecs = args.map(normalizeItem).filter(Boolean)
-} else if (typeof args === "object") {
-  const norm = normalizeItem(args)
+} else if (Array.isArray(resolvedArgs)) {
+  runSpecs = resolvedArgs.map(normalizeItem).filter(Boolean)
+} else if (typeof resolvedArgs === "object") {
+  const norm = normalizeItem(resolvedArgs)
   runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
 }
 
@@ -146,6 +160,7 @@ function buildCommand(spec) {
     if (spec.lora_scale != null) cmd += ` --lora-scale ${spec.lora_scale}`
     if (spec.draft)              cmd += ` --draft`
     if (spec.upscale)            cmd += ` --upscale`
+    if (spec.upscale_method)     cmd += ` --upscale-method ${spec.upscale_method}`
     if (spec.count != null)      cmd += ` --count ${spec.count}`
     if (spec.seed_start != null) cmd += ` --seed-start ${spec.seed_start}`
     if (spec.variant)            cmd += ` --variant ${spec.variant}`

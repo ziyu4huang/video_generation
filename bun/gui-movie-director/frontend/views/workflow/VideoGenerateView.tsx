@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { LogViewer } from "../../components/LogViewer";
 import { JobOutputPreview } from "../../components/JobOutputPreview";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
 import { useCommandView } from "../../hooks/useCommandView";
+import { useSchemaDefaults } from "../../hooks/useSchemaDefaults";
 import { useNavigation } from "../../context/NavigationContext";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -17,7 +18,8 @@ const MODE_OPTIONS: { value: VideoMode; label: string; desc: string }[] = [
   { value: "flf2v", label: "FLF2V", desc: "First-Last Frame" },
 ];
 
-const DEFAULTS: Record<string, any> = {
+// Static fallback defaults (used before server defaults load)
+const FALLBACK_DEFAULTS: Record<string, any> = {
   width: 704,
   height: 448,
   frames: 97,
@@ -36,19 +38,35 @@ export function VideoGenerateView() {
   const command = "video generate";
   const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
   const navigate = useNavigation();
+  const serverDefaults = useSchemaDefaults("video-generate");
   const [mode, setMode] = useState<VideoMode>("t2v");
-  const [state, setState] = useState<Record<string, any>>({ ...DEFAULTS });
+  const [state, setState] = useState<Record<string, any>>({ ...FALLBACK_DEFAULTS });
+  // Track fields the user has manually edited — never overwrite these
+  const userModifiedRef = useRef<Set<string>>(new Set());
+
+  // Apply server defaults once they load, skipping user-touched fields
+  useEffect(() => {
+    if (!serverDefaults) return;
+    setState((prev) => {
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(serverDefaults)) {
+        if (!userModifiedRef.current.has(k)) next[k] = v;
+      }
+      return next;
+    });
+  }, [serverDefaults]);
 
   const setField = (key: string, value: any) => {
+    userModifiedRef.current.add(key);
     setState((prev) => ({ ...prev, [key]: value }));
   };
 
   // Quality preset mutual exclusion: hq, distilled, teacache are exclusive
   const handleQualityToggle = (key: string, value: boolean) => {
+    userModifiedRef.current.add(key);
     setState((prev) => {
       const next = { ...prev };
       if (value) {
-        // Enable this one, disable the others
         next.hq = key === "hq";
         next.distilled = key === "distilled";
         next.teacache = key === "teacache";

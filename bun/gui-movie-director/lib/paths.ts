@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import { loadConfig, REPO_DIR } from "./config";
 
@@ -9,7 +10,15 @@ export const RUN_PY = path.join(
 // Dynamic paths — resolved from config at import time
 const cfg = loadConfig();
 
-export const OUTPUT_DIR = path.resolve(REPO_DIR, cfg.outputDir);
+// Normalize outputDir to always be an array of absolute paths
+function resolveOutputDirs(raw: string | string[]): string[] {
+  const dirs = Array.isArray(raw) ? raw : [raw];
+  return dirs.map((d) => path.resolve(REPO_DIR, d));
+}
+
+export const OUTPUT_DIRS = resolveOutputDirs(cfg.outputDir);
+/** @deprecated Use OUTPUT_DIRS for multi-directory support */
+export const OUTPUT_DIR = OUTPUT_DIRS[0];
 export const MODELS_DIR = path.resolve(REPO_DIR, cfg.modelsDir);
 export const UPLOAD_DIR = path.join(OUTPUT_DIR, "uploads");
 export const FRONTEND_DIR = path.join(REPO_DIR, "bun", "gui-movie-director", "frontend");

@@ -13,6 +13,8 @@ export interface GalleryImage {
   url: string;
   size: number;
   createdAt: string;
+  mediaType?: "image" | "video";
+  thumbnailUrl?: string | null;
   manifest: Record<string, any> | null;
   run: Record<string, any> | null;
   manifestPath?: string | null;

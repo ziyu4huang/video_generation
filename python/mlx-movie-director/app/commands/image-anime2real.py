@@ -191,7 +191,7 @@ def run_anime2real(args):
     lora_scale = getattr(args, "anime2real_lora_scale", None) or style_preset["lora_scale"]
     # NOTE: uses --anime2real-ref-count (default=1), NOT shared --ref-count (default=3).
     ref_count = getattr(args, "anime2real_ref_count", 1)
-    ref_strength = getattr(args, "ref_strength", 1.0)
+    ref_strength = getattr(args, "ref_strength", None) or 1.0
 
     # Get output dimensions from input image
     from PIL import Image

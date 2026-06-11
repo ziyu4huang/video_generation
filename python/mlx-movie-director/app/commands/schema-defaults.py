@@ -100,4 +100,33 @@ def _build():
             "sam_threshold": 0.3,
             "feather": 10,
         },
+
+        # ─── Video ─────────────────────────────────────────────────────
+        "video-generate": {
+            "width": 704,
+            "height": 448,
+            "frames": 97,
+            "fps": 24.0,
+            "seed": 42,
+            "cfg_scale": 5.0,
+            "stg_scale": 1.0,
+            "begin_strength": 1.0,
+            "end_strength": 1.0,
+            "lora_scale": 1.0,
+            "low_ram": False,
+            "hq": False,
+            "distilled": False,
+            "teacache": False,
+            "temporal_upscale": False,
+            "enhance_prompt": False,
+        },
+        "video-restore": {
+            "seed": 42,
+            "restore_scale": 1.0,
+            "restore_cond_strength": 1.0,
+            "restoration_scale": 1.0,
+            "upscale_scale": 1.0,
+            "no_upscale_lora": False,
+            "restore_no_audio": False,
+        },
     }

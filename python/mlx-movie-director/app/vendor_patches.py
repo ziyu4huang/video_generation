@@ -465,7 +465,9 @@ def _patch_klein_edit_ref_strength() -> None:
     parameter (default 1.0) that multiplies packed reference latents, allowing
     finer control over how strongly reference images influence generation.
 
-    Strategy: wrap both methods to accept and forward ``ref_strength``.
+    Strategy: wrap ``generate_image`` to capture ``ref_strength`` into a
+    closure variable; wrap ``prepare_reference_image_conditioning`` to read
+    from that variable.  The original methods are NOT aware of ``ref_strength``.
     """
     from mflux.models.flux2.variants.edit.flux2_klein_edit import Flux2KleinEdit
     from mflux.models.flux2.variants.edit.flux2_klein_edit_helpers import (
@@ -475,15 +477,20 @@ def _patch_klein_edit_ref_strength() -> None:
     _orig_generate_image = Flux2KleinEdit.generate_image
     _orig_prepare_ref = _Flux2KleinEditHelpers.prepare_reference_image_conditioning
 
+    # Mutable holder so the two wrappers share state.  Single-threaded only.
+    _current_ref_strength = [1.0]
+
     def generate_image(self, *args, ref_strength: float = 1.0, **kwargs):  # type: ignore[no-untyped-def]
-        return _orig_generate_image(self, *args, ref_strength=ref_strength, **kwargs)
+        _current_ref_strength[0] = ref_strength
+        return _orig_generate_image(self, *args, **kwargs)
 
     @staticmethod
     def prepare_reference_image_conditioning(  # type: ignore[no-untyped-def]
-        *, ref_strength: float = 1.0, **kwargs,
+        **kwargs,
     ):
+        ref_strength = _current_ref_strength[0]
         image_latents, image_latent_ids = _orig_prepare_ref(**kwargs)
-        if image_latents is not None and ref_strength != 1.0:
+        if image_latents is not None and ref_strength not in (1.0, None):
             import mlx.core as mx
 
             image_latents = image_latents * ref_strength

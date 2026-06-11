@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import type { GalleryImage } from "../types";
 
 export function formatSize(bytes: number): string {
@@ -28,15 +28,44 @@ export function getManifestSummary(manifest: any): string | null {
 
 export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean }) {
   const summary = getManifestSummary(img.manifest);
+  const isVideo = img.mediaType === "video";
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const handleVideoEnter = () => {
+    videoRef.current?.play().catch(() => { /* ignore autoplay rejection */ });
+  };
+
+  const handleVideoLeave = () => {
+    const v = videoRef.current;
+    if (v) { v.pause(); v.currentTime = 0; }
+  };
+
   return (
     <div
-      className={`gallery-card${highlighted ? " gallery-card-highlighted" : ""}`}
+      className={`gallery-card${highlighted ? " gallery-card-highlighted" : ""}${isVideo ? " gallery-card-video" : ""}`}
       data-image-name={img.name}
       onClick={onClick}
       style={{ cursor: onClick ? "pointer" : undefined }}
     >
       <div className="gallery-card-image">
-        <img src={img.url} alt={img.name} loading="lazy" />
+        {isVideo ? (
+          <>
+            <video
+              ref={videoRef}
+              src={img.url}
+              poster={img.thumbnailUrl || undefined}
+              preload="none"
+              muted
+              loop
+              playsInline
+              onMouseEnter={handleVideoEnter}
+              onMouseLeave={handleVideoLeave}
+            />
+            <span className="gallery-card-play-badge">▶</span>
+          </>
+        ) : (
+          <img src={img.url} alt={img.name} loading="lazy" />
+        )}
       </div>
       <div className="gallery-card-info">
         <div className="gallery-card-name">{img.name}</div>

@@ -95,12 +95,62 @@ def add_relay_args(parser):
     # Timing
     grp.add_argument("--relay-duration", type=float, default=8.0, metavar="SECS",
                      help="Duration per segment in seconds (default: 8.0). "
-                          "Frame count auto-calculated from fps × duration and snapped to 8k+1.")
+                          "Frame count auto-calculated from fps × duration and snapped to 8k+1. "
+                          "With --distilled, Stage 1 runs at half-resolution (2x spatial upscale built in). "
+                          "Optimal distilled resolutions: 704×448 (fast), 896×512, 1280×768 (near-HD).")
 
     # Output path (optional override)
     grp.add_argument("--relay-output", type=str, default=None, metavar="PATH",
                      help="Explicit output path for the final relay MP4 "
                           "(default: output/<timestamp>_relay.mp4)")
+
+    # Audio mode
+    grp.add_argument(
+        "--relay-audio-mode",
+        choices=["replace", "mix", "keep"],
+        default="replace",
+        dest="relay_audio_mode",
+        help="How custom --relay-audio interacts with model-generated audio. "
+             "'replace' (default): custom audio replaces model audio entirely. "
+             "'mix': blend model audio + custom audio (amix, narration dominant). "
+             "'keep': ignore --relay-audio, keep only model-generated audio.",
+    )
+
+    # TTS generation
+    grp.add_argument(
+        "--relay-tts-engine",
+        choices=["say", "edge-tts"],
+        default="say",
+        dest="relay_tts_engine",
+        help="TTS engine for --relay-tts-text. 'say' = macOS built-in. "
+             "'edge-tts' = Microsoft neural TTS (much more natural, requires internet).",
+    )
+    grp.add_argument(
+        "--relay-tts-voice",
+        default=None,
+        dest="relay_tts_voice",
+        metavar="VOICE",
+        help="Voice name. say default: 'Meijia'. "
+             "edge-tts default: 'zh-TW-HsiaoChenNeural'. "
+             "edge-tts zh-TW options: HsiaoChenNeural, YunJheNeural, HsiaoYuNeural.",
+    )
+    grp.add_argument(
+        "--relay-tts-text",
+        default=None,
+        dest="relay_tts_text",
+        metavar="TEXT",
+        help="Narration text to synthesize and use as relay audio. "
+             "Use with --relay-tts-engine and --relay-tts-voice. "
+             "Ignored if --relay-audio is also set.",
+    )
+    grp.add_argument(
+        "--relay-tts-rate",
+        type=int,
+        default=None,
+        dest="relay_tts_rate",
+        help="Speech rate. For 'say': words/min (default 145). "
+             "For 'edge-tts': percentage offset, e.g. -10 for slower (default 0).",
+    )
 
     # Self-test
     grp.add_argument(
@@ -169,13 +219,31 @@ def _concat_videos(video_paths: list, output_path: str) -> None:
             os.unlink(list_path)
 
 
-def _mux_audio_track(video_path: str, audio_path: str, output_path: str) -> None:
-    """Overlay an audio track on the video (stream copy for video, re-encode audio to AAC)."""
+def _mux_audio_track(video_path: str, audio_path: str, output_path: str,
+                     mode: str = "replace") -> None:
+    """Overlay or mix an audio track on the video.
+
+    mode='replace': custom audio replaces model audio entirely (-map 1:a:0)
+    mode='mix': blend model audio + custom audio via amix (narration dominant at 0.6/0.4)
+    """
     ffmpeg = _require_ffmpeg()
     tmp_path = output_path + ".audio_tmp.mp4"
 
-    result = subprocess.run(
-        [
+    if mode == "mix":
+        cmd = [
+            ffmpeg, "-y",
+            "-i", video_path,
+            "-i", audio_path,
+            "-filter_complex", "[0:a][1:a]amix=inputs=2:duration=first:weights=0.4 0.6[aout]",
+            "-map", "0:v:0",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            tmp_path,
+        ]
+    else:  # replace
+        cmd = [
             ffmpeg, "-y",
             "-i", video_path,
             "-i", audio_path,
@@ -185,9 +253,9 @@ def _mux_audio_track(video_path: str, audio_path: str, output_path: str) -> None
             "-map", "1:a:0",
             "-shortest",
             tmp_path,
-        ],
-        capture_output=True, timeout=300,
-    )
+        ]
+
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
     if result.returncode != 0:
         stderr = result.stderr.decode(errors="replace")
         print(f"[relay] WARNING: audio mux failed — output has no audio.\n{stderr}",
@@ -196,18 +264,77 @@ def _mux_audio_track(video_path: str, audio_path: str, output_path: str) -> None
         return
 
     os.replace(tmp_path, output_path)
-    print(f"[relay] Audio overlaid: {os.path.basename(audio_path)}")
+    print(f"[relay] Audio overlaid ({mode}): {os.path.basename(audio_path)}")
+
+
+# ---------------------------------------------------------------------------
+# TTS helpers
+# ---------------------------------------------------------------------------
+
+def _generate_tts_audio(text: str, engine: str, voice: str | None,
+                        rate: int | None, output_path: str) -> None:
+    """Synthesize narration text to output_path (AAC) using the chosen TTS engine."""
+    if engine == "edge-tts":
+        _generate_tts_edge(text, voice or "zh-TW-HsiaoChenNeural", rate or 0, output_path)
+    else:
+        _generate_tts_say(text, voice or "Meijia", rate or 145, output_path)
+
+
+def _generate_tts_say(text: str, voice: str, rate: int, output_path: str) -> None:
+    """macOS say → AIFF → AAC via ffmpeg."""
+    aiff_path = output_path.rsplit(".", 1)[0] + ".aiff"
+    subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", aiff_path, text], check=True)
+    subprocess.run(
+        [_require_ffmpeg(), "-y", "-i", aiff_path, "-c:a", "aac", output_path],
+        capture_output=True, check=True,
+    )
+    if os.path.exists(aiff_path):
+        os.unlink(aiff_path)
+
+
+def _generate_tts_edge(text: str, voice: str, rate_offset: int, output_path: str) -> None:
+    """Microsoft neural TTS via edge-tts → MP3 file."""
+    import asyncio
+    try:
+        import edge_tts
+    except ImportError:
+        print("ERROR: edge-tts not installed. Run: pip install edge-tts", file=sys.stderr)
+        sys.exit(1)
+
+    rate_str = f"{rate_offset:+d}%" if rate_offset != 0 else "+0%"
+
+    async def _run():
+        communicate = edge_tts.Communicate(text, voice, rate=rate_str)
+        await communicate.save(output_path)
+
+    asyncio.run(_run())
 
 
 # ---------------------------------------------------------------------------
 # Resolution / frame helpers (same logic as video-generate.py)
 # ---------------------------------------------------------------------------
 
-def _adjust_resolution(width: int, height: int) -> tuple:
+def _adjust_resolution(width: int, height: int, distilled: bool = False) -> tuple:
+    """Snap resolution to multiples of 64 (required by VAE).
+
+    When distilled=True, the pipeline runs Stage 1 at width//2 × height//2 and applies
+    a 2x spatial upscaler to reach the target resolution. Multiples of 64 ensure Stage 1
+    dims are multiples of 32, which the VAE encoder requires.
+
+    Recommended distilled+spatial-upscale resolutions (Stage1 → Final):
+      352×224 → 704×448   (default, fast)
+      448×256 → 896×512   (medium, good quality)
+      480×288 → 960×576   (larger, ~1.5x slower)
+      640×384 → 1280×768  (near-HD, ~3x slower)
+    """
     aligned_w = max(64, round(width / 64) * 64)
     aligned_h = max(64, round(height / 64) * 64)
     if aligned_w != width or aligned_h != height:
         print(f"[relay] Resolution adjusted: {width}×{height} → {aligned_w}×{aligned_h}")
+    if distilled:
+        s1_w, s1_h = aligned_w // 2, aligned_h // 2
+        print(f"[relay] Distilled 2x spatial upscale: "
+              f"Stage 1 at {s1_w}×{s1_h} → Stage 2 at {aligned_w}×{aligned_h}")
     return aligned_w, aligned_h
 
 
@@ -433,7 +560,8 @@ def _run_relay_inner(args):
     # Resolution + frame count
     width = getattr(args, "width", 704)
     height = getattr(args, "height", 448)
-    width, height = _adjust_resolution(width, height)
+    distilled = getattr(args, "distilled", False)
+    width, height = _adjust_resolution(width, height, distilled=distilled)
 
     fps = getattr(args, "fps", 24.0)
     relay_duration = getattr(args, "relay_duration", 8.0)
@@ -464,6 +592,21 @@ def _run_relay_inner(args):
 
     segment_images = _resolve_segment_images(args, n)
     relay_audio = getattr(args, "relay_audio", None)
+    audio_mode = getattr(args, "relay_audio_mode", "replace")
+
+    # Auto-generate TTS narration if --relay-tts-text provided and no --relay-audio
+    tts_text = getattr(args, "relay_tts_text", None)
+    if tts_text and not relay_audio:
+        tts_engine = getattr(args, "relay_tts_engine", "say")
+        tts_voice = getattr(args, "relay_tts_voice", None)
+        tts_rate = getattr(args, "relay_tts_rate", None)
+        ext = "mp3" if tts_engine == "edge-tts" else "aac"
+        tts_out = os.path.join(tempfile.gettempdir(), f"relay_tts_auto.{ext}")
+        print(f"[relay] Generating TTS narration (engine={tts_engine}, "
+              f"voice={tts_voice or 'default'})…")
+        _generate_tts_audio(tts_text, tts_engine, tts_voice, tts_rate, tts_out)
+        relay_audio = tts_out
+        print(f"[relay] TTS audio: {tts_out}")
 
     # Validate audio file
     if relay_audio and not os.path.exists(relay_audio):
@@ -538,7 +681,7 @@ def _run_relay_inner(args):
             model_dir=getattr(args, "video_model", None),
             low_ram=low_ram,
             hq=hq,
-            distilled=getattr(args, "distilled", False),
+            distilled=distilled,
             temporal_upscale=False,
             lora_path=lora_path,
             lora_scale=lora_scale,
@@ -611,10 +754,12 @@ def _run_relay_inner(args):
         relay_size = os.path.getsize(relay_mp4)
         print(f"[relay] Concatenated: {relay_mp4} ({relay_size / 1_048_576:.1f} MB)")
 
-        # Overlay audio track
-        if relay_audio:
-            print(f"[relay] Overlaying audio: {relay_audio}")
-            _mux_audio_track(relay_mp4, relay_audio, relay_mp4)
+        # Overlay / mix audio track
+        if audio_mode != "keep" and relay_audio:
+            print(f"[relay] Overlaying audio ({audio_mode}): {relay_audio}")
+            _mux_audio_track(relay_mp4, relay_audio, relay_mp4, mode=audio_mode)
+        elif audio_mode == "keep":
+            print("[relay] Audio mode: keep (model-generated audio preserved)")
 
         end_time = datetime.now(timezone.utc).isoformat()
 

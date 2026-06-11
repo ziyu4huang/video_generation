@@ -8,7 +8,7 @@ export const GUI_DIR_ABS = GUI_DIR;
 const CONFIG_PATH = path.join(GUI_DIR, "config.json");
 
 export interface AppConfig {
-  outputDir: string;   // relative to repo root
+  outputDir: string | string[];   // relative to repo root (single dir or array)
   modelsDir: string;   // relative to repo root
   vlmApiUrl: string;
   vlmModel: string;
@@ -16,7 +16,7 @@ export interface AppConfig {
 }
 
 const DEFAULTS: AppConfig = {
-  outputDir: "python/mlx-movie-director/output",
+  outputDir: ["python/mlx-movie-director/output", "comfyui_data/output"],
   modelsDir: "python/mlx-movie-director/models",
   vlmApiUrl: "http://localhost:1234/v1",
   vlmModel: "qwen/qwen3-vl-4b",

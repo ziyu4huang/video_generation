@@ -14,12 +14,12 @@ Resolution can be:
   2160   — target shortest-side pixels
 
 Examples:
-  run.py image purify output/photo.png
-  run.py image purify output/photo.png --purify-mode redraw --resolution 2x
-  run.py image purify output/photo.png --purify-mode purify --resolution same
-  run.py image purify output/photo.png --softness-override 0.95 --resolution same
-  run.py image purify output/photo.png --purify-mode enhance --resolution 2160
-  run.py image purify output/photo.png --purify-mode enhance --resolution 2x --film-grain 0.02 --sharpening 0.1
+  run.py image purify --input-image output/photo.png
+  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x
+  run.py image purify --input-image output/photo.png --purify-mode purify --resolution same
+  run.py image purify --input-image output/photo.png --softness-override 0.95 --resolution same
+  run.py image purify --input-image output/photo.png --purify-mode enhance --resolution 2160
+  run.py image purify --input-image photo.png --purify-mode enhance --resolution 2x --film-grain 0.02 --sharpening 0.1
 """
 
 import os
@@ -53,12 +53,11 @@ def add_purify_args(parser):
     Uses _arg_registered guards to avoid conflicts with other image
     subcommands that share the same parser (e.g. faceswap --mode,
     workflow --film-grain, _shared --seed).
+
+    Note: No positional IMAGE arg — the image dispatcher already has
+    `action` and `sub_action` positionals, so a third positional would
+    conflict. Use --input-image instead.
     """
-    # Input image — positional shorthand (same pattern as upscale.py)
-    parser.add_argument(
-        "image", nargs="?", default=None, metavar="IMAGE",
-        help="Input image path (positional shorthand for --input-image)",
-    )
 
     # Mode preset (--purify-mode to avoid conflict with faceswap --mode)
     parser.add_argument(
@@ -146,9 +145,9 @@ def run_purify(args) -> None:
     from app.seedvr2.pipeline import SeedVR2Upscaler
 
     # Resolve input path
-    input_path = getattr(args, "image", None) or getattr(args, "input_image", None)
+    input_path = getattr(args, "input_image", None)
     if not input_path:
-        print("ERROR: provide an image path (positional) or --input-image PATH", file=sys.stderr)
+        print("ERROR: provide --input-image PATH", file=sys.stderr)
         sys.exit(1)
 
     if not os.path.exists(input_path):
