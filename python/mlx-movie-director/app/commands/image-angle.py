@@ -137,7 +137,12 @@ def run_angle(args):
             )
 
             if args.upscale and upscale_model:
-                result = _apply_upscale(result, upscale_method, upscale_model)
+                result = _apply_upscale(
+                    result, upscale_method, upscale_model,
+                    upscale_resolution=getattr(args, "upscale_resolution", "2x"),
+                    upscale_softness=getattr(args, "upscale_softness", 0.5),
+                    seed=item_seed,
+                )
 
             suffix = f"_s{item_seed}" if count > 1 else ""
             out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}{suffix}.png")

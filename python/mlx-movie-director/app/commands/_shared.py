@@ -399,7 +399,12 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
             # ESRGAN post-processing (handled inside ZImagePipeline.generate()
             # for zimage; applied separately for flux2-klein)
             if pipeline_type == "flux2-klein" and run_config.upscale and upscale_model:
-                result = _apply_upscale(result, run_config.upscale_method, upscale_model)
+                result = _apply_upscale(
+                    result, run_config.upscale_method, upscale_model,
+                    upscale_resolution=getattr(run_config, "upscale_resolution", "2x"),
+                    upscale_softness=getattr(run_config, "upscale_softness", 0.5),
+                    seed=seed,
+                )
 
             suffix = f"_s{seed}" if count > 1 else ""
             out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}{suffix}.png")
@@ -467,15 +472,31 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
 # Upscale helper (shared between pipeline dispatch and standalone)
 # ---------------------------------------------------------------------------
 
-def _apply_upscale(result, upscale_method: str, upscale_model: str):
+def _apply_upscale(result, upscale_method: str, upscale_model: str,
+                   upscale_resolution: str = "2x", upscale_softness: float = 0.5,
+                   seed: int = 42):
     """Apply post-generation upscaling to a GenerationResult."""
     from app.pipeline_types import GenerationResult as GR
     from app.pipeline import ZImagePipeline
 
     if upscale_method == "seedvr2":
-        from app.seedvr2_pipeline import SeedVR2Pipeline
-        pipeline_s = SeedVR2Pipeline()
-        upscaled = pipeline_s.upscale(result.image)
+        from app.seedvr2.pipeline import SeedVR2Upscaler
+        res_str = str(upscale_resolution)
+        if res_str.lower().endswith("x"):
+            resolution = float(res_str.lower().rstrip("x"))
+        else:
+            resolution = int(res_str)
+        upscaler = SeedVR2Upscaler(model_size="7b")
+        try:
+            upscaled = upscaler.upscale(
+                image=result.image, resolution=resolution,
+                softness=upscale_softness, seed=seed,
+            )
+        finally:
+            try:
+                upscaler.unload()
+            except Exception:
+                pass
         return GR(image=upscaled, timings=result.timings)
     else:
         upscaled = ZImagePipeline.upscale_esrgan(result.image, upscale_model)
@@ -602,7 +623,12 @@ def execute_ab_test(run_config, json_summary: bool = False) -> str:
                 denoise_strength=run_config.denoise_strength,
             )
             if run_config.upscale and upscale_model:
-                result_f = _apply_upscale(result_f, run_config.upscale_method, upscale_model)
+                result_f = _apply_upscale(
+                    result_f, run_config.upscale_method, upscale_model,
+                    upscale_resolution=getattr(run_config, "upscale_resolution", "2x"),
+                    upscale_softness=getattr(run_config, "upscale_softness", 0.5),
+                    seed=seed,
+                )
             fimg_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_klein{suffix}.png")
             result_f.image.save(fimg_path)
             print(f"Saved Klein: {fimg_path}")

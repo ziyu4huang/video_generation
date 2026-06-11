@@ -1,12 +1,12 @@
 import fs from "fs";
 import path from "path";
 import { loadConfig, REPO_DIR } from "../lib/config";
-import { RUN_PY } from "../lib/paths";
+import { RUN_PY, MLX_OUTPUT_DIR } from "../lib/paths";
 
 export async function handleModelCheckRun(_req: Request): Promise<Response> {
   const cfg = loadConfig();
   const pythonBin = cfg.pythonPath?.trim() || path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
-  const outputDir = path.resolve(REPO_DIR, cfg.outputDir);
+  const outputDir = MLX_OUTPUT_DIR;
 
   try {
     const proc = Bun.spawnSync(
@@ -48,8 +48,7 @@ export async function handleModelCheckRun(_req: Request): Promise<Response> {
 }
 
 export async function handleModelCheckCache(_req: Request): Promise<Response> {
-  const cfg = loadConfig();
-  const outputDir = path.resolve(REPO_DIR, cfg.outputDir);
+  const outputDir = MLX_OUTPUT_DIR;
   const cachePath = path.join(outputDir, "model-check.json");
 
   if (!fs.existsSync(cachePath)) {

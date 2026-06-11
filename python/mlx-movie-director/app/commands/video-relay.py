@@ -108,7 +108,7 @@ _RELAY_PRESETS = {
         ],
         "width": 704,
         "height": 448,
-        "duration": 4.0,  # 97 frames @ 24fps — meaningful quality evaluation
+        "duration": 8.0,  # 193 frames @ 24fps — long enough for quality judgment
     },
 }
 
