@@ -56,13 +56,14 @@ export class SubprocessManager {
     this.persistJobs();
   }
 
-  spawn(action: string, cliArgs: string[]): string {
+  spawn(command: string, cliArgs: string[]): string {
     const id = randomUUID();
-    const fullArgs = [RUN_PY, "image", action, ...cliArgs];
+    const parts = command.split(" ");
+    const fullArgs = [RUN_PY, ...parts, ...cliArgs];
 
     const job: Job = {
       id,
-      command: `image ${action}`,
+      command,
       args: fullArgs,
       status: "running",
       startedAt: new Date().toISOString(),

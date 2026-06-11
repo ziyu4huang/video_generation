@@ -164,7 +164,7 @@ def run_anime2real(args):
     from app.commands._shared import resolve_lora_path
     from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline
 
-    input_image_path = getattr(args, "input_image", None)
+    input_image_path = getattr(args, "input_image", None) or getattr(args, "input", None)
     if not input_image_path:
         print("ERROR: --input-image is required for anime2real mode.", file=sys.stderr)
         print("  Usage: run.py image anime2real --input-image anime.png", file=sys.stderr)

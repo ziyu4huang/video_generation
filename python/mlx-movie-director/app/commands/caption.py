@@ -71,6 +71,31 @@ _STYLE_PROMPTS = {
         "Focus on: subject appearance (hair color, clothing), style (realistic/anime/3D), "
         "and overall quality. Output only the sentence, nothing else."
     ),
+    "review": (
+        "You are a professional image quality evaluator reviewing a TEXT-TO-IMAGE output.\n\n"
+        "ORIGINAL PROMPT given to the generator:\n"
+        "---\n"
+        "{prompt}\n"
+        "---\n\n"
+        "Evaluate how faithfully the generated image matches the ORIGINAL PROMPT above, "
+        "AND score general image quality.\n\n"
+        "Score these dimensions (1-10):\n"
+        "1. overall — overall image quality and aesthetic appeal\n"
+        "2. detail — level of fine detail (textures, fabric, skin, hair)\n"
+        "3. sharpness — image sharpness and clarity across the frame\n"
+        "4. composition — framing, rule of thirds, visual balance\n"
+        "5. prompt_adherence — how faithfully the image matches the ORIGINAL PROMPT\n"
+        "6. artifacts — absence of rendering artifacts (INVERTED: 10 = no artifacts)\n\n"
+        "Also list:\n"
+        "- captured: elements from the prompt that are clearly present in the image\n"
+        "- missed: elements from the prompt that are absent or wrong\n\n"
+        'Respond with ONLY a JSON object (no markdown fences):\n'
+        '{{"overall": N, "detail": N, "sharpness": N, "composition": N, '
+        '"prompt_adherence": N, "artifacts": N, '
+        '"captured": ["..."], "missed": ["..."], '
+        '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}}\n'
+        "Each score is an integer 1-10."
+    ),
 }
 
 # Language instructions — appended to style prompt
@@ -100,6 +125,8 @@ def add_args(parser):
                         help="Caption style (default: default)")
     parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
                         help="Output language (default: zh_TW)")
+    parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
+                        help="Original T2I prompt (used by 'review' style for adherence evaluation)")
 
 
 def run(args):
@@ -120,7 +147,14 @@ def run(args):
 
     style = args.style
     lang = args.lang
-    prompt_text = _STYLE_PROMPTS[style] + "\n" + _LANG_INSTRUCTIONS[lang]
+
+    prompt_text = _STYLE_PROMPTS[style]
+    if style == "review":
+        if not args.prompt:
+            print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
+            sys.exit(1)
+        prompt_text = prompt_text.format(prompt=args.prompt)
+    prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
 
     # 1. Encode image to base64
     print(f"Captioning {input_path} (style={style}, lang={lang})...", end=" ", flush=True)
@@ -339,20 +373,24 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
 # ---------------------------------------------------------------------------
 
 def caption_image(image_path: str, style: str = "photography", lang: str = "en",
-                  api_url: str = _DEFAULT_API_URL, model: str = _DEFAULT_MODEL) -> str:
+                  api_url: str = _DEFAULT_API_URL, model: str = _DEFAULT_MODEL,
+                  prompt: str | None = None) -> str:
     """Caption a single image and return the text. Reusable public API.
 
     Args:
         image_path: Path to image file.
-        style: Caption style key (default, photography, prompt, profile, style, score).
+        style: Caption style key (default, photography, prompt, profile, style, score, review).
         lang: Output language (en, zh_TW, zh_CN, ja).
         api_url: VLM API base URL.
         model: VLM model name.
+        prompt: Original T2I prompt (required for 'review' style).
 
     Returns:
         Caption text string.
     """
     prompt_text = _STYLE_PROMPTS.get(style, _STYLE_PROMPTS["default"])
+    if style == "review" and prompt:
+        prompt_text = prompt_text.format(prompt=prompt)
     prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
     b64 = _image_to_base64(image_path)
     return _call_vlm(api_url, model, b64, prompt_text)

@@ -10,6 +10,7 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const uploadFile = async (file: File) => {
     setUploading(true);
@@ -20,6 +21,7 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
       const data = await res.json();
       if (data.path) {
         onChange(data.path);
+        if (data.url) setPreviewUrl(data.url);
       } else {
         alert(data.error || "Upload failed");
       }
@@ -80,7 +82,7 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
           <div style={{ fontSize: 12, color: "var(--success)", marginBottom: 4 }}>✓ {filename}</div>
           {value && (
             <img
-              src={`/output/${value.split("/").pop()}`}
+              src={previewUrl || `/output/${value.split("/").pop()}`}
               alt="Preview"
               style={{ maxWidth: 200, maxHeight: 150, borderRadius: 4, border: "1px solid var(--border)" }}
             />

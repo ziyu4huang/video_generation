@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { JsonViewer } from "./JsonViewer";
 
 type Tab = "run" | "manifest";
 
@@ -7,6 +6,8 @@ interface ImagePreviewProps {
   url: string;
   manifest?: Record<string, any> | null;
   run?: Record<string, any> | null;
+  manifestPath?: string | null;
+  runPath?: string | null;
   onClose: () => void;
 }
 
@@ -211,6 +212,44 @@ function PromptBlock({ prompt }: { prompt: string }) {
   return <div className="mf-prompt">{prompt}</div>;
 }
 
+function ParamValue({ value }: { value: unknown }): React.ReactElement {
+  if (value === null || value === undefined) return <span className="jv-null">null</span>;
+  if (typeof value === "boolean") return <span className="jv-bool">{String(value)}</span>;
+  if (typeof value === "number") return <span className="jv-num">{value}</span>;
+  if (typeof value === "string") {
+    if (value.startsWith("/") && value.length > 60) {
+      return <span className="jv-path" title={value}>{shortPath(value, 2)}</span>;
+    }
+    if (value.startsWith("http")) {
+      return <a className="jv-url" href={value} target="_blank" rel="noopener noreferrer">{value}</a>;
+    }
+    return <span className="jv-string">{value}</span>;
+  }
+  if (Array.isArray(value)) {
+    return (
+      <span className="mf-param-nested">
+        [{value.map((item, i) => <span key={i} className="mf-param-array-item"><ParamValue value={item} />{i < value.length - 1 ? ", " : ""}</span>)}]
+      </span>
+    );
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const entries = Object.entries(obj);
+    return (
+      <span className="mf-param-nested">
+        {"{"}
+        {entries.map(([k, v], i) => (
+          <span key={k} className="mf-param-obj-entry">
+            <span className="jv-key">{k}</span>: <ParamValue value={v} />{i < entries.length - 1 ? ", " : ""}
+          </span>
+        ))}
+        {"}"}
+      </span>
+    );
+  }
+  return <span className="jv-string">{String(value)}</span>;
+}
+
 function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] }) {
   const entries = keys
     ? keys.filter((k) => data[k] !== undefined && data[k] !== null).map((k) => [k, data[k]])
@@ -218,27 +257,12 @@ function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] 
 
   return (
     <div className="mf-param-grid">
-      {entries.map(([key, val]) => {
-        let display: string;
-        if (typeof val === "number") display = String(val);
-        else if (typeof val === "boolean") display = val ? "yes" : "no";
-        else if (typeof val === "string") {
-          // Shorten paths
-          if (val.startsWith("/") && val.length > 60) {
-            display = shortPath(val, 2);
-          } else {
-            display = val;
-          }
-        } else {
-          display = JSON.stringify(val);
-        }
-        return (
-          <div key={key} className="mf-param-row">
-            <span className="mf-param-key">{key.replace(/_/g, " ")}</span>
-            <span className="mf-param-val" title={typeof val === "string" ? val : undefined}>{display}</span>
-          </div>
-        );
-      })}
+      {entries.map(([key, val]) => (
+        <div key={key} className="mf-param-row">
+          <span className="mf-param-key">{key.replace(/_/g, " ")}</span>
+          <ParamValue value={val} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -293,7 +317,7 @@ function RunViewer({ data }: { data: Record<string, any> }) {
       )}
       {Object.keys(extras).length > 0 && (
         <Section title="Details">
-          <JsonViewer data={extras} defaultOpen={1} hideNull />
+          <ParamGrid data={extras} />
         </Section>
       )}
     </div>
@@ -355,7 +379,7 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
         )}
         {Object.keys(extras).length > 0 && (
           <Section title="Details">
-            <JsonViewer data={extras} defaultOpen={1} />
+            <ParamGrid data={extras} />
           </Section>
         )}
       </div>
@@ -397,7 +421,7 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
       </Section>
       {Object.keys(extras).length > 0 && (
         <Section title="Details">
-          <JsonViewer data={extras} defaultOpen={1} />
+          <ParamGrid data={extras} />
         </Section>
       )}
     </div>
@@ -406,13 +430,15 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
 
 // --- Main component ---
 
-export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps) {
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClose }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const [tab, setTab] = useState<Tab>(hasRun ? "run" : "manifest");
   const [showRaw, setShowRaw] = useState(false);
   const [rawCopied, setRawCopied] = useState(false);
+  const [pathCopied, setPathCopied] = useState(false);
   const data = tab === "run" ? run : manifest;
+  const activePath = tab === "run" ? runPath : manifestPath;
 
   const handleCopyRaw = async () => {
     if (!data) return;
@@ -420,6 +446,15 @@ export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps)
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
       setRawCopied(true);
       setTimeout(() => setRawCopied(false), 1500);
+    } catch { /* ignore */ }
+  };
+
+  const handleCopyPath = async () => {
+    if (!activePath) return;
+    try {
+      await navigator.clipboard.writeText(activePath);
+      setPathCopied(true);
+      setTimeout(() => setPathCopied(false), 1500);
     } catch { /* ignore */ }
   };
 
@@ -452,6 +487,12 @@ export function ImagePreview({ url, manifest, run, onClose }: ImagePreviewProps)
               onClick={() => setShowRaw(true)}
               disabled={!data}
             >📋 Raw</button>
+            <button
+              className="image-preview-raw-btn"
+              onClick={handleCopyPath}
+              disabled={!activePath}
+              title={activePath || "No JSON file"}
+            >{pathCopied ? "✓ Copied" : "📁 Path"}</button>
             <button className="image-preview-panel-close" onClick={onClose}>✕</button>
           </div>
         </div>

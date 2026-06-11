@@ -2,12 +2,13 @@ import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
 import { handleGallery, handleGalleryImage } from "./gallery";
-import { handleRunJob, handleListJobs, handleGetJob, handleDeleteJob } from "./jobs";
+import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob } from "./jobs";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleVlmTest } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache } from "./model-check";
+import { handleGetSchemaDefaults } from "./schema-defaults";
 import { handleWebSocketUpgrade } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
@@ -32,7 +33,10 @@ async function _doBuild(silent?: boolean): Promise<boolean> {
     if (result.success && result.outputs.length > 0) {
       const blob = result.outputs[0];
       _bundle = new Response(blob, {
-        headers: { "Content-Type": "application/javascript; charset=utf-8" },
+        headers: {
+          "Content-Type": "application/javascript; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
       });
       if (!silent) console.log(`📦 Frontend bundled: ${Math.round(blob.size / 1024)}KB`);
       return true;
@@ -119,6 +123,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   if (pathname === "/api/jobs" && method === "GET") {
     return handleListJobs(req);
   }
+  if (pathname === "/api/jobs/last" && method === "GET") {
+    return handleGetLastJob(req);
+  }
   if (pathname.startsWith("/api/jobs/") && method === "GET") {
     const id = pathname.slice("/api/jobs/".length);
     return handleGetJob(req, id);
@@ -163,6 +170,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
   if (pathname === "/api/model-check/cache" && method === "GET") {
     return handleModelCheckCache(req);
+  }
+
+  // Schema defaults
+  if (pathname === "/api/schema-defaults" && method === "GET") {
+    return handleGetSchemaDefaults(req);
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });

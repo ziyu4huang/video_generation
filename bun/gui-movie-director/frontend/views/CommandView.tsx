@@ -6,18 +6,24 @@ import { useCommandView } from "../hooks/useCommandView";
 import { useNavigation } from "../context/NavigationContext";
 import type { CommandSchema } from "../schemas/types";
 
-export function createCommandView(schema: CommandSchema) {
+export function createCommandView(schema: CommandSchema, commandPrefix?: string) {
   return function CommandViewInstance() {
-    const { job, loading, handleJobStart, handleCancel } = useCommandView();
+    const command = `${commandPrefix ?? "image"} ${schema.action}`;
+    const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
     const navigate = useNavigation();
 
     return (
       <>
-        <CommandForm schema={schema} onJobStart={handleJobStart} loading={loading} />
+        <CommandForm schema={schema} onJobStart={handleJobStart} loading={loading} commandPrefix={commandPrefix} />
         {job?.status === "completed" && (
           <JobOutputPreview
             job={job}
-            onViewInGallery={() => navigate({ type: "gallery" })}
+            onViewInGallery={() => {
+              const names = (job.outputFiles ?? [])
+                .map((f: string) => f.split("/").pop())
+                .filter(Boolean) as string[];
+              navigate({ type: "gallery", highlight: names });
+            }}
           />
         )}
         {(job?.logs?.length ?? 0) > 0 && (

@@ -26,11 +26,12 @@ export function getManifestSummary(manifest: any): string | null {
   return parts.join(" · ") || null;
 }
 
-export function GalleryCard({ img, onClick }: { img: GalleryImage; onClick?: () => void }) {
+export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean }) {
   const summary = getManifestSummary(img.manifest);
   return (
     <div
-      className="gallery-card"
+      className={`gallery-card${highlighted ? " gallery-card-highlighted" : ""}`}
+      data-image-name={img.name}
       onClick={onClick}
       style={{ cursor: onClick ? "pointer" : undefined }}
     >

@@ -6,7 +6,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  let body: { action?: string; params?: Record<string, any> };
+  let body: { action?: string; command?: string; params?: Record<string, any> };
   try {
     body = await req.json();
   } catch {
@@ -17,6 +17,9 @@ export async function handleRunJob(req: Request): Promise<Response> {
   if (!action || !params) {
     return Response.json({ error: "Missing 'action' or 'params'" }, { status: 400 });
   }
+
+  // Full command string, defaults to "image <action>" for backward compatibility
+  const command = body.command ?? `image ${action}`;
 
   // Validate required params
   const errors = validateParams(action, params);
@@ -33,7 +36,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   }
 
   // Spawn subprocess
-  const jobId = subprocessManager.spawn(action, cliArgs);
+  const jobId = subprocessManager.spawn(command, cliArgs);
   const job = subprocessManager.getJob(jobId);
 
   return Response.json({
@@ -54,6 +57,16 @@ export async function handleGetJob(req: Request, id: string): Promise<Response> 
     return Response.json({ error: "Job not found" }, { status: 404 });
   }
   return Response.json({ job });
+}
+
+export async function handleGetLastJob(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const command = url.searchParams.get("command");
+  const jobs = subprocessManager.listJobs();
+  const last = command
+    ? jobs.find((j) => j.command === command && j.status !== "running") ?? null
+    : null;
+  return Response.json({ job: last });
 }
 
 export async function handleDeleteJob(req: Request, id: string): Promise<Response> {

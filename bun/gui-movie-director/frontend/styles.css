@@ -129,6 +129,17 @@ body {
   border-color: var(--accent);
 }
 
+.gallery-card-highlighted {
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 16px rgba(74, 158, 255, 0.3);
+  animation: highlight-pulse 1.5s ease-out;
+}
+
+@keyframes highlight-pulse {
+  0% { box-shadow: 0 0 24px rgba(74, 158, 255, 0.5); }
+  100% { box-shadow: 0 0 8px rgba(74, 158, 255, 0.15); }
+}
+
 .gallery-card img {
   width: 100%;
   aspect-ratio: 3/4;
@@ -1255,6 +1266,47 @@ body {
   word-break: break-all;
 }
 
+/* Model check result panel (ConfigView) */
+.mc-result-panel {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mc-result-header {
+  display: flex;
+  align-items: center;
+  gap: 12;
+  flex-wrap: wrap;
+}
+
+.mc-result-time {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 12px;
+}
+
+.mc-report-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.mc-report-link:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
 /* === Model Check View === */
 .mc-badge {
   display: inline-flex;
@@ -1267,3 +1319,33 @@ body {
   min-width: 120px;
 }
 // hot-reload-test-1781134588
+
+/* === Mode Tab Bar (Video views) === */
+.mode-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.mode-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--font-sans);
+}
+.mode-tab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.mode-tab.active {
+  color: var(--accent);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}

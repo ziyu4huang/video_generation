@@ -15,4 +15,6 @@ export interface GalleryImage {
   createdAt: string;
   manifest: Record<string, any> | null;
   run: Record<string, any> | null;
+  manifestPath?: string | null;
+  runPath?: string | null;
 }

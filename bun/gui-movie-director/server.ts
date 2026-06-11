@@ -3,12 +3,14 @@ import { handleRequest, buildFrontendBundle, rebuildFrontendBundle } from "./api
 import { wsHandlers, broadcastMessage } from "./api/ws";
 import { subprocessManager } from "./lib/subprocess";
 import { FRONTEND_DIR } from "./lib/paths";
+import { fetchSchemaDefaults } from "./api/schema-defaults";
 
 const PORT = 3099;
 
 // Build frontend bundle before starting server
 await buildFrontendBundle();
 subprocessManager.loadAndRestoreJobs();
+await fetchSchemaDefaults();
 
 const server = Bun.serve({
   port: PORT,

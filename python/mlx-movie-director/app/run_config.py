@@ -184,6 +184,11 @@ class RunConfig:
             skin_contrast=getattr(args, "skin_contrast", False),
             noise_clean=getattr(args, "noise_clean", False),
         )
+        # Clear transformer for pipelines that don't use it (zimage has its own
+        # hardcoded model; "klein-9b" would be misleading in the serialized config)
+        if rc.pipeline not in ("flux2-klein", "flux2-klein-edit"):
+            rc.transformer = None
+
         # Inline prompt-file content so run.json is self-contained
         if rc.prompt_file and not rc.prompt:
             with open(rc.prompt_file, "r") as f:

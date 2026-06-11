@@ -1,16 +1,27 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useWebSocket } from "./useWebSocket";
 import type { JobInfo } from "../types";
 
-export function useCommandView() {
+export function useCommandView(command?: string) {
   const [job, setJob] = useState<JobInfo | null>(null);
   const { logs, jobStatus, outputFiles, subscribe } = useWebSocket();
 
+  // Restore last completed/failed job on mount so results survive page reload
+  useEffect(() => {
+    if (!command) return;
+    fetch(`/api/jobs/last?command=${encodeURIComponent(command)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.job) setJob(data.job);
+      })
+      .catch(() => {});
+  }, [command]);
+
   const handleJobStart = useCallback(
-    ({ jobId, command }: { jobId: string; command: string }) => {
+    ({ jobId, command: cmd }: { jobId: string; command: string }) => {
       setJob({
         id: jobId,
-        command,
+        command: cmd,
         status: "running",
         startedAt: new Date().toISOString(),
         outputFiles: [],
@@ -34,7 +45,7 @@ export function useCommandView() {
     ? {
         ...job,
         status: (jobStatus as JobInfo["status"]) ?? job.status,
-        logs,
+        logs: logs.length > 0 ? logs : job.logs,
         outputFiles: outputFiles.length > 0 ? outputFiles : job.outputFiles,
         completedAt:
           jobStatus === "completed" || jobStatus === "failed"

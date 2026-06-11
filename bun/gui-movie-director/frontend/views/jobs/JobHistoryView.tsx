@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useJobs } from "../../hooks/useJobs";
+import { useNavigation } from "../../context/NavigationContext";
 import type { JobInfo } from "../../types";
 
 function relativeTime(iso: string): string {
@@ -21,6 +22,7 @@ interface JobRowProps {
 
 function JobRow({ job, expanded, onToggle }: JobRowProps) {
   const isFailed = job.status === "failed";
+  const navigate = useNavigation();
   return (
     <div
       style={{
@@ -49,6 +51,11 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
         <span style={{ flex: 1, fontSize: 13, color: "var(--text-bright)" }}>
           {job.command}
         </span>
+        {job.outputFiles.length > 0 && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+            🖼 {job.outputFiles.length}
+          </span>
+        )}
         <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {relativeTime(job.startedAt)}
         </span>
@@ -59,6 +66,35 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
 
       {expanded && (
         <div style={{ padding: "0 14px 12px" }}>
+          {job.outputFiles.length > 0 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+              {job.outputFiles.map((fp) => {
+                const name = fp.split("/").pop()!;
+                return (
+                  <img
+                    key={name}
+                    src={`/output/${name}`}
+                    onClick={(e) => { e.stopPropagation(); navigate({ type: "gallery" }); }}
+                    alt={name}
+                    style={{
+                      width: 48,
+                      height: 48,
+                      objectFit: "cover",
+                      borderRadius: "var(--radius)",
+                      cursor: "pointer",
+                      border: "1px solid var(--border)",
+                    }}
+                  />
+                );
+              })}
+              <span
+                onClick={(e) => { e.stopPropagation(); navigate({ type: "gallery" }); }}
+                style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer" }}
+              >
+                View in Gallery →
+              </span>
+            </div>
+          )}
           {job.logs.length === 0 ? (
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>No logs captured.</span>
           ) : (

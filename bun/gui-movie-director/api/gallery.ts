@@ -11,6 +11,8 @@ interface ImageEntry {
   height?: number;
   manifest?: Record<string, any> | null;
   run?: Record<string, any> | null;
+  manifestPath?: string | null;
+  runPath?: string | null;
 }
 
 export async function handleGallery(req: Request): Promise<Response> {
@@ -66,6 +68,8 @@ export async function handleGallery(req: Request): Promise<Response> {
       createdAt: new Date(entry.mtime).toISOString(),
       manifest,
       run,
+      manifestPath: manifest ? manifestPath : null,
+      runPath: run ? runPath : null,
     };
   });
 
@@ -73,7 +77,12 @@ export async function handleGallery(req: Request): Promise<Response> {
 }
 
 export async function handleGalleryImage(req: Request, filename: string): Promise<Response> {
-  const filePath = path.join(OUTPUT_DIR, path.basename(filename));
+  const decoded = decodeURIComponent(filename);
+  const filePath = path.normalize(path.join(OUTPUT_DIR, decoded));
+  // Path traversal protection
+  if (!filePath.startsWith(path.resolve(OUTPUT_DIR))) {
+    return new Response("Forbidden", { status: 403 });
+  }
   if (!fs.existsSync(filePath)) {
     return new Response("Not found", { status: 404 });
   }

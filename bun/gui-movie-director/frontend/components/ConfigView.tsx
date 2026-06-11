@@ -23,6 +23,29 @@ interface VlmTestResult {
   modelLoaded?: boolean;
 }
 
+interface ModelCheckResult {
+  ok: boolean;
+  total_models?: number;
+  total_disk_human?: string;
+  error_count?: number;
+  warning_count?: number;
+  notice_count?: number;
+  htmlUrl?: string | null;
+  timestamp?: string;
+  error?: string;
+}
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export function ConfigView() {
   const [config, setConfig] = useState<ConfigData>(DEFAULTS);
   const [loading, setLoading] = useState(true);
@@ -33,20 +56,35 @@ export function ConfigView() {
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; version?: string; error?: string } | null>(null);
   const [checking, setChecking] = useState(false);
-  const [checkResult, setCheckResult] = useState<{
-    ok: boolean;
-    total_models?: number;
-    total_disk_human?: string;
-    error_count?: number;
-    warning_count?: number;
-    error?: string;
-  } | null>(null);
+  const [checkResult, setCheckResult] = useState<ModelCheckResult | null>(null);
 
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
       .then((data) => { setConfig({ ...DEFAULTS, ...data }); setLoading(false); })
       .catch(() => setLoading(false));
+  }, []);
+
+  // Load cached model check result on mount
+  useEffect(() => {
+    fetch("/api/model-check/cache")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.result?.summary) {
+          const s = data.result.summary;
+          setCheckResult({
+            ok: true,
+            total_models: s.total_models,
+            total_disk_human: s.total_disk_human,
+            error_count: s.error_count,
+            warning_count: s.warning_count,
+            notice_count: s.notice_count,
+            htmlUrl: data.htmlUrl ?? null,
+            timestamp: data.result.timestamp,
+          });
+        }
+      })
+      .catch(() => { /* no cache yet */ });
   }, []);
 
   const handleSave = async () => {
@@ -87,6 +125,9 @@ export function ConfigView() {
           total_disk_human: s.total_disk_human,
           error_count: s.error_count,
           warning_count: s.warning_count,
+          notice_count: s.notice_count,
+          htmlUrl: data.htmlUrl,
+          timestamp: data.result.timestamp,
         });
       } else {
         setCheckResult({ ok: false, error: data.error || "Check failed" });
@@ -132,6 +173,53 @@ export function ConfigView() {
     setTesting(false);
   };
 
+  // Build model check summary line
+  const renderCheckSummary = () => {
+    if (!checkResult) return null;
+    const r = checkResult;
+    const parts: string[] = [];
+    const statusClass = !r.ok ? "fail"
+      : (r.error_count ?? 0) > 0 ? "fail"
+      : (r.warning_count ?? 0) > 0 ? "warn"
+      : "ok";
+
+    if (r.ok) {
+      const icon = (r.error_count ?? 0) > 0 ? "❌"
+        : (r.warning_count ?? 0) > 0 ? "⚠️" : "✅";
+      parts.push(`${icon} ${r.total_models} models · ${r.total_disk_human}`);
+      if ((r.error_count ?? 0) > 0) parts.push(`${r.error_count} errors`);
+      if ((r.warning_count ?? 0) > 0) parts.push(`${r.warning_count} warnings`);
+      if ((r.notice_count ?? 0) > 0) parts.push(`${r.notice_count} notices`);
+    } else {
+      parts.push(`❌ ${r.error}`);
+    }
+
+    return (
+      <div className="mc-result-panel">
+        <div className="mc-result-header">
+          <span className={`vlm-test-badge ${statusClass}`}>
+            {parts.join(" · ")}
+          </span>
+          {r.timestamp && (
+            <span className="mc-result-time">
+              Last checked: {relativeTime(r.timestamp)}
+            </span>
+          )}
+        </div>
+        {r.ok && r.htmlUrl && (
+          <a
+            className="mc-report-link"
+            href={r.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            📄 View Full Report
+          </a>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return <div className="empty-state"><div className="spinner" style={{ width: 32, height: 32 }} /></div>;
   }
@@ -174,23 +262,9 @@ export function ConfigView() {
             >
               {checking ? "⏳ Scanning…" : "📦 Check Models"}
             </button>
-            {checkResult && (
-              <span className={`vlm-test-badge ${
-                !checkResult.ok ? "fail"
-                  : (checkResult.error_count ?? 0) > 0 ? "fail"
-                  : (checkResult.warning_count ?? 0) > 0 ? "warn"
-                  : "ok"
-              }`}>
-                {checkResult.ok
-                  ? (checkResult.error_count ?? 0) > 0
-                    ? `❌ ${checkResult.total_models} models, ${checkResult.total_disk_human} (${checkResult.error_count} errors)`
-                    : (checkResult.warning_count ?? 0) > 0
-                      ? `⚠️ ${checkResult.total_models} models, ${checkResult.total_disk_human} (${checkResult.warning_count} warnings)`
-                      : `✅ ${checkResult.total_models} models, ${checkResult.total_disk_human}`
-                  : `❌ ${checkResult.error}`}
-              </span>
-            )}
+            {checking && <div className="spinner" style={{ width: 18, height: 18 }} />}
           </div>
+          {renderCheckSummary()}
         </div>
 
         <div className="form-section">

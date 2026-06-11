@@ -8,7 +8,10 @@ import { NavigationContext } from "./context/NavigationContext";
 import { GalleryView } from "./views/gallery/GalleryView";
 // generate
 import { T2iView } from "./views/generate/T2iView";
-import { WorkflowView } from "./views/generate/WorkflowView";
+// workflow
+import { ImagePipelineView } from "./views/workflow/ImagePipelineView";
+import { VideoGenerateView } from "./views/workflow/VideoGenerateView";
+import { VideoRestoreView } from "./views/workflow/VideoRestoreView";
 // transform
 import { I2iView } from "./views/transform/I2iView";
 import { Anime2realView } from "./views/transform/Anime2realView";
@@ -31,7 +34,14 @@ export const COMMAND_GROUPS = [
     label: "Generate",
     commands: [
       { id: "t2i", label: "Text → Image", icon: "🎨" },
-      { id: "workflow", label: "Workflow", icon: "🔄" },
+    ],
+  },
+  {
+    label: "Workflow",
+    commands: [
+      { id: "img-workflow", label: "Image Pipeline", icon: "🖼️" },
+      { id: "vid-generate", label: "Video Generate", icon: "🎬" },
+      { id: "vid-restore", label: "Video Restore", icon: "🔧" },
     ],
   },
   {
@@ -69,14 +79,16 @@ export const COMMAND_GROUPS = [
 export const ALL_COMMANDS = COMMAND_GROUPS.flatMap((g) => g.commands);
 
 type View =
-  | { type: "gallery" }
+  | { type: "gallery"; highlight?: string[] }
   | { type: "config" }
   | { type: "jobs" }
   | { type: "command"; action: string };
 
 const VIEW_MAP: Record<string, React.ComponentType> = {
   t2i: T2iView,
-  workflow: WorkflowView,
+  "img-workflow": ImagePipelineView,
+  "vid-generate": VideoGenerateView,
+  "vid-restore": VideoRestoreView,
   i2i: I2iView,
   anime2real: Anime2realView,
   expansion: ExpansionView,
@@ -105,10 +117,23 @@ function App() {
     }
   }, []);
 
+  const handleHighlightConsumed = useCallback(() => {
+    setView((prev) =>
+      prev.type === "gallery" && prev.highlight
+        ? { type: "gallery" }
+        : prev
+    );
+  }, []);
+
   return (
     <NavigationContext.Provider value={(v) => handleViewChange(v as View)}>
       <Layout currentView={view} onViewChange={handleViewChange}>
-        {view.type === "gallery" && <GalleryView />}
+        {view.type === "gallery" && (
+          <GalleryView
+            highlight={view.highlight}
+            onHighlightConsumed={handleHighlightConsumed}
+          />
+        )}
         {view.type === "config" && <ConfigView />}
         {view.type === "jobs" && <JobHistoryView />}
         {[...mountedCommands].map((id) => {

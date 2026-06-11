@@ -1,19 +1,24 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import type { GalleryImage } from "../types";
 import { GalleryCard } from "./GalleryCard";
 
 interface GalleryProps {
   onImageClick: (img: GalleryImage) => void;
+  highlight?: string[];
+  onImagesReady?: (images: GalleryImage[]) => void;
   key?: number; // for refresh
 }
 
-export function Gallery({ onImageClick }: GalleryProps) {
+export function Gallery({ onImageClick, highlight, onImagesReady }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 100;
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  const highlightSet = highlight ? new Set(highlight) : null;
 
   const loadPage = useCallback(async (p: number, append: boolean) => {
     try {
@@ -38,6 +43,26 @@ export function Gallery({ onImageClick }: GalleryProps) {
   useEffect(() => {
     loadPage(1, false);
   }, [loadPage]);
+
+  // After images load with highlight, notify parent and scroll to first match
+  useEffect(() => {
+    if (images.length === 0 || loading) return;
+    if (!highlight?.length) return;
+
+    onImagesReady?.(images);
+
+    // Scroll to first highlighted card
+    if (gridRef.current) {
+      const cards = gridRef.current.querySelectorAll("[data-image-name]");
+      for (const card of cards) {
+        const name = card.getAttribute("data-image-name");
+        if (name && highlight.includes(name)) {
+          card.scrollIntoView({ behavior: "smooth", block: "center" });
+          break;
+        }
+      }
+    }
+  }, [images, loading, highlight, onImagesReady]);
 
   const hasMore = images.length < total;
 
@@ -66,9 +91,14 @@ export function Gallery({ onImageClick }: GalleryProps) {
   return (
     <div>
       <h2>Gallery ({total} images)</h2>
-      <div className="gallery-grid">
+      <div className="gallery-grid" ref={gridRef}>
         {images.map((img) => (
-          <GalleryCard key={img.name} img={img} onClick={() => onImageClick(img)} />
+          <GalleryCard
+            key={img.name}
+            img={img}
+            onClick={() => onImageClick(img)}
+            highlighted={highlightSet?.has(img.name) ?? false}
+          />
         ))}
       </div>
 
