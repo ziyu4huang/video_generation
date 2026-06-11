@@ -43,7 +43,7 @@ import types
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name, resolve_lora_path
+from app.commands._shared import generate_base_name, resolve_lora_path, RELAY_FINAL_MODE
 from app.manifest import Manifest
 from app.run_config import RunConfig
 
@@ -620,20 +620,7 @@ def run_relay(args):
             _run_relay_inner(args)
 
 
-_SELF_TEST_PROMPTS = [
-    (
-        "Style: cinematic realism. A glass of water sits on the edge of a wooden table in a "
-        "sunlit kitchen. A cat leaps up onto the table, its paw catching the glass. The glass "
-        "tips in slow motion, water spilling in an arc through the air, catching sunlight. The "
-        "glass shatters on the tile floor, shards scattering in every direction."
-    ),
-    (
-        "Style: cinematic realism. Water pools across the white tile floor. The cat freezes, "
-        "one paw raised, staring at the broken glass. It backs away carefully, tail puffing out. "
-        "A person rushes in from the next room, bare feet stopping just short of the water, "
-        "arms flailing for balance."
-    ),
-]
+_SELF_TEST_PROMPTS = _RELAY_PRESETS["physics"]["prompts"][:2]
 
 
 def _run_relay_self_test(args):
@@ -1103,7 +1090,7 @@ def _run_relay_inner(args):
 
         output_files = segment_outputs + [{
             "path": relay_mp4,
-            "mode": "relay-final",
+            "mode": RELAY_FINAL_MODE,
             "segments": n,
             "size_bytes": relay_size,
             "width": width,

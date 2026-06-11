@@ -1,6 +1,7 @@
+import path from "path";
 import { randomUUID } from "crypto";
 import { RUN_PY } from "./paths";
-import { loadConfig } from "./config";
+import { loadConfig, REPO_DIR } from "./config";
 import { saveJobs, loadJobs } from "./jobstore";
 
 export interface Job {
@@ -74,7 +75,10 @@ export class SubprocessManager {
     this.jobs.set(id, job);
     this.persistJobs();
 
-    const proc = Bun.spawn([loadConfig().pythonPath, ...fullArgs], {
+    const pythonBin =
+      loadConfig().pythonPath?.trim() ||
+      path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
+    const proc = Bun.spawn([pythonBin, ...fullArgs], {
       stdout: "pipe",
       stderr: "pipe",
       env: { ...process.env },

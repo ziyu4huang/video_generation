@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 
 interface ConfigData {
@@ -45,6 +45,21 @@ interface ModelCheckResult {
   error?: string;
 }
 
+function parseCheckResult(data: any): ModelCheckResult | null {
+  if (!data.ok || !data.result?.summary) return null;
+  const s = data.result.summary;
+  return {
+    ok: true,
+    total_models: s.total_models,
+    total_disk_human: s.total_disk_human,
+    error_count: s.error_count,
+    warning_count: s.warning_count,
+    notice_count: s.notice_count,
+    htmlUrl: data.htmlUrl ?? null,
+    timestamp: data.result.timestamp,
+  };
+}
+
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const s = Math.floor(diffMs / 1000);
@@ -85,19 +100,8 @@ export function ConfigView() {
     fetch("/api/model-check/cache")
       .then((r) => r.json())
       .then((data) => {
-        if (data.ok && data.result?.summary) {
-          const s = data.result.summary;
-          setCheckResult({
-            ok: true,
-            total_models: s.total_models,
-            total_disk_human: s.total_disk_human,
-            error_count: s.error_count,
-            warning_count: s.warning_count,
-            notice_count: s.notice_count,
-            htmlUrl: data.htmlUrl ?? null,
-            timestamp: data.result.timestamp,
-          });
-        }
+        const parsed = parseCheckResult(data);
+        if (parsed) setCheckResult(parsed);
       })
       .catch(() => { /* no cache yet */ });
   }, []);
@@ -108,21 +112,9 @@ export function ConfigView() {
       fetch("/api/model-check/cache")
         .then((r) => r.json())
         .then((data) => {
-          if (data.ok && data.result?.summary) {
-            const s = data.result.summary;
-            setCheckResult({
-              ok: true,
-              total_models: s.total_models,
-              total_disk_human: s.total_disk_human,
-              error_count: s.error_count,
-              warning_count: s.warning_count,
-              notice_count: s.notice_count,
-              htmlUrl: data.htmlUrl ?? null,
-              timestamp: data.result.timestamp,
-            });
-          } else {
-            setCheckResult({ ok: false, error: "Scan failed — no result cached" });
-          }
+          const parsed = parseCheckResult(data);
+          if (parsed) setCheckResult(parsed);
+          else setCheckResult({ ok: false, error: "Scan failed — no result cached" });
         })
         .catch((e: any) => {
           setCheckResult({ ok: false, error: e.message || "Failed to fetch result" });
@@ -263,8 +255,11 @@ export function ConfigView() {
     );
   };
 
-  // Filter log lines: skip the massive JSON blob (starts with '{')
-  const visibleLogs = logs.filter((l) => !l.startsWith("{"));
+  // Skip stdout lines that are the JSON blob; keep all stderr lines
+  const visibleLogs = useMemo(
+    () => logs.filter((l) => l.stream !== "stdout" || !l.line.startsWith("{")),
+    [logs]
+  );
 
   if (loading) {
     return <div className="empty-state"><div className="spinner" style={{ width: 32, height: 32 }} /></div>;
@@ -321,8 +316,8 @@ export function ConfigView() {
           </div>
           {showLogs && visibleLogs.length > 0 && (
             <div className="mc-log-panel" ref={logPanelRef}>
-              {visibleLogs.map((line, i) => (
-                <div key={i} className="mc-log-line">{line}</div>
+              {visibleLogs.map((l, i) => (
+                <div key={i} className="mc-log-line">{l.line}</div>
               ))}
             </div>
           )}

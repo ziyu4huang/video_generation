@@ -17,6 +17,8 @@ DEFAULT_UPSCALE_MODEL = os.path.join(
     "4xNomosWebPhoto_RealPLKSR.pth"
 )
 
+RELAY_FINAL_MODE = "relay-final"
+
 
 # ---------------------------------------------------------------------------
 # Argparse helpers

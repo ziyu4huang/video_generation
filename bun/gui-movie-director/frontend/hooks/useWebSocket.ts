@@ -9,8 +9,13 @@ interface WsMessage {
   outputFiles?: string[];
 }
 
+export interface LogEntry {
+  line: string;
+  stream: "stdout" | "stderr";
+}
+
 export function useWebSocket() {
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [outputFiles, setOutputFiles] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
@@ -37,6 +42,8 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setConnected(false);
+      // Unblock any waiting UI if a job was in progress
+      setJobStatus((prev) => (prev === "completed" || prev === "failed" ? prev : "failed"));
       reconnectTimer.current = window.setTimeout(connect, 2000);
     };
 
@@ -49,7 +56,7 @@ export function useWebSocket() {
         const msg: WsMessage = JSON.parse(event.data);
 
         if (msg.type === "log" && msg.line) {
-          setLogs((prev) => [...prev, msg.line!]);
+          setLogs((prev) => [...prev, { line: msg.line!, stream: msg.stream ?? "stdout" }]);
         }
 
         if (msg.type === "job_complete") {

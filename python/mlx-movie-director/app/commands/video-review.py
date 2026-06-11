@@ -12,6 +12,7 @@ import sys
 from datetime import datetime, timezone
 
 from app import config as cfg
+from app.commands._shared import RELAY_FINAL_MODE
 
 _STATIC_TEMPLATE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -221,7 +222,7 @@ def _load_test(manifest_path: str) -> dict:
     for of in (manifest.get("output_files") or []):
         p = of.get("path", "")
         if p.endswith(".mp4") and os.path.exists(p):
-            if of.get("mode") == "relay-final":
+            if of.get("mode") == RELAY_FINAL_MODE:
                 video_file = p
                 break  # prefer the full relay concat
             elif video_file is None:

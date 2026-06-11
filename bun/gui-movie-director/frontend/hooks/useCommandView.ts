@@ -45,7 +45,7 @@ export function useCommandView(command?: string) {
     ? {
         ...job,
         status: (jobStatus as JobInfo["status"]) ?? job.status,
-        logs: logs.length > 0 ? logs : job.logs,
+        logs: logs.length > 0 ? logs.map((e) => e.line) : job.logs,
         outputFiles: outputFiles.length > 0 ? outputFiles : job.outputFiles,
         completedAt:
           jobStatus === "completed" || jobStatus === "failed"
