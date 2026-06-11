@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY, MLX_OUTPUT_DIR } from "../lib/paths";
+import { subprocessManager } from "../lib/subprocess";
 
 export async function handleModelCheckRun(_req: Request): Promise<Response> {
   const cfg = loadConfig();
@@ -74,5 +75,15 @@ export async function handleModelCheckCache(_req: Request): Promise<Response> {
     return Response.json({ ok: true, result, htmlUrl });
   } catch (e: any) {
     return Response.json({ ok: false, error: "Failed to read cache: " + (e.message || String(e)) });
+  }
+}
+
+/** Async model check — returns job ID for WebSocket streaming. */
+export function handleModelCheckScan(_req: Request): Response {
+  try {
+    const jobId = subprocessManager.spawn("check-model", ["--json", "--html"]);
+    return Response.json({ ok: true, jobId });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e.message || "Failed to start scan" });
   }
 }

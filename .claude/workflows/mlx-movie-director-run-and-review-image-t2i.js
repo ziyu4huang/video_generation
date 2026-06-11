@@ -1,40 +1,53 @@
-// mlx-movie-director-run-and-review-image-t2i — Dynamic T2I generation + VLM quality scoring
+// mlx-movie-director-run-and-review-image-t2i — Iterative T2I generation + VLM review
 //
-// Runs run.py t2i (or replay previous run configs) and auto-scores each output
-// image with run.py caption --style score/review. Uses --json-summary to get
-// machine-readable output paths instead of fragile find -newer markers.
+// An iterative loop for GPU-limited Apple Silicon:
+//   1. Generation iteration — run.py t2i (sequentially, one model process at a time),
+//      auto-score each output with run.py caption --style review.
+//   2. Finalize — aggregate an explicit list of accumulated caption JSONs into ONE
+//      interactive review HTML for a human.
+//   3. Feedback — the human exports feedback (best image + comments) from that HTML,
+//      which is fed back into the next generation iteration.
 //
-// Usage:
-//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i' })
-//     → self-test (default: run.py t2i --self-test)
+// Two modes (selected by args):
 //
-//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: "A moody portrait in soft lighting" })
-//     → single T2I with prompt string
+//   GENERATION (default) — generate + caption. Returns captionFiles[] to accumulate.
+//     Workflow({ name: "mlx-movie-director-run-and-review-image-t2i" })
+//       → self-test (default: run.py t2i --self-test)
+//     Workflow({ name: "...", args: "A moody portrait in soft lighting" })
+//       → single T2I with prompt string
+//     Workflow({ name: "...", args: { prompt: "...", pipeline: "flux2-klein", steps: 4, seed: 100 } })
+//       → T2I with full config object
+//     Workflow({ name: "...", args: { runs: [{prompt:"A",seed:1}, {prompt:"A",seed:2}], feedback: "review_feedback.json" } })
+//       → multi-spec generation + ingest prior human feedback (iteration N>1)
+//     Workflow({ name: "...", args: ["output_20260610_194901.run.json"] })
+//       → replay one or more previous run.json files (relative to output/ or absolute)
+//     Workflow({ name: "...", args: [{prompt: "A"}, {prompt: "B", seed: 100}] })
+//       → multiple T2I configs (generated sequentially — GPU-safe)
 //
-//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: { prompt: "...", pipeline: "flux2-klein", steps: 4, seed: 100 } })
-//     → T2I with full config object
+//   FINALIZE — skip generation; build the human-review HTML from explicit caption JSONs.
+//     Workflow({ name: "...", args: { finalize: ["a.caption.json", "b.caption.json"] } })
+//     Workflow({ name: "...", args: { finalize: ["a.caption.json", "b.caption.json"], htmlOutput: "output/review.html" } })
 //
-//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: ["output_20260610_194901.run.json"] })
-//     → replay one or more previous run.json files (relative to output/ or absolute)
+// Supported gen config fields (all optional except prompt): prompt, pipeline
+// ("zimage"|"flux2-klein"), steps, seed, width, height, lora_path, lora_scale, draft,
+// upscale, upscale_method ("esrgan"|"seedvr2"), count, seed_start, variant ("4b"|"9b"),
+// ab_test, quantize, transformer, flux2_model_path.
 //
-//   Workflow({ name: 'mlx-movie-director-run-and-review-image-t2i', args: [{prompt: "A"}, {prompt: "B", seed: 100}] })
-//     → multiple T2I configs in parallel
-//
-// Supported args config object fields (all optional except prompt):
-//   prompt, pipeline ("zimage"|"flux2-klein"), steps, seed, width, height,
-//   lora_path, lora_scale, draft, upscale, upscale_method ("esrgan"|"seedvr2"),
-//   count, seed_start, variant ("4b"|"9b"), ab_test, quantize, transformer, flux2_model_path
+// NOTE: caption.py writes <image>.caption.json (extension stripped), so paths returned
+// in captionFiles are the real on-disk caption JSON paths — collect them and pass to finalize.
 
 export const meta = {
   name: "mlx-movie-director-run-and-review-image-t2i",
-  description: "Run T2I generation via mlx-movie-director run.py and auto-score output quality via VLM caption --style score/review",
-  whenToUse: "Test T2I output quality: default self-test, or pass a prompt/config/run.json array. Scores each output image with local VLM (LM Studio required for scoring).",
+  description: "Iterative T2I generation + VLM review: generate/caption sequentially, finalize an interactive review HTML, ingest human feedback for the next iteration",
+  whenToUse: "Test T2I output quality iteratively under GPU limits: generate runs return captionFiles to accumulate; finalize builds the human-review HTML; feedback drives the next run.",
   phases: [
     { title: "Resolve", detail: "Detect absolute project root via git rev-parse — eliminates CWD drift" },
-    { title: "Generate", detail: "Execute T2I with --json-summary and parse output paths from stdout" },
+    { title: "Feedback", detail: "Optional — read exported human-feedback JSON and emit keep/change guidance for this iteration" },
+    { title: "Generate", detail: "Execute T2I sequentially (one model process at a time, GPU-safe) with --json-summary" },
     { title: "VLM Check", detail: "Verify LM Studio is running before caption phase" },
-    { title: "Review", detail: "Score each output PNG via run.py caption --style score/review (requires LM Studio)" },
+    { title: "Review", detail: "Score each output PNG via run.py caption --style review (requires LM Studio)" },
     { title: "Report", detail: "Summarize quality scores and improvement recommendations" },
+    { title: "Review HTML", detail: "Finalize mode — build interactive review HTML from explicit caption JSONs via run.py caption --review-html" },
   ],
 }
 
@@ -74,10 +87,15 @@ log(`  PYTHON:  ${PYTHON}`)
 log(`  RUN_PY:  ${RUN_PY}`)
 log(`  OUT_DIR: ${OUT_DIR}`)
 
-// ── Args normalization (pure JS — no agent needed) ───────────────────────────
+// ── Helpers (pure JS — no agent needed) ──────────────────────────────────────
 
 function resolveJsonPath(p) {
   return p.startsWith("/") ? p : `${OUT_DIR}/${p}`
+}
+
+// caption.py strips the image extension (os.path.splitext) → img.png writes img.caption.json
+function captionPathFor(pngPath) {
+  return pngPath.replace(/\.[^.\/]+$/, "") + ".caption.json"
 }
 
 function normalizeItem(item) {
@@ -99,7 +117,9 @@ function normalizeItem(item) {
   return null
 }
 
-// Resolve args — handles string-serialized JSON arrays (Workflow tool may stringify)
+// ── Args normalization + mode detection ──────────────────────────────────────
+
+// Resolve args — handles string-serialized JSON (Workflow tool may stringify)
 let resolvedArgs = args
 if (typeof resolvedArgs === "string") {
   try {
@@ -113,27 +133,54 @@ if (typeof resolvedArgs === "string") {
   }
 }
 
+// Two modes:
+//   finalize: { finalize: "<path>" | ["<paths>"], htmlOutput?: "<path>" }
+//             → skip generation; build the human-review HTML from explicit caption JSONs.
+//   gen (default): generate + caption; optionally ingest prior human feedback.
+const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
+
+let mode = "gen"
+let feedbackPath = ""
+let htmlOutput = ""
+let finalizeFiles = []
 let runSpecs = []
 
-if (!resolvedArgs) {
-  runSpecs = [{ type: "self-test", id: null }]
-} else if (typeof resolvedArgs === "string") {
-  const norm = normalizeItem(resolvedArgs)
-  runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
-} else if (Array.isArray(resolvedArgs)) {
-  runSpecs = resolvedArgs.map(normalizeItem).filter(Boolean)
-} else if (typeof resolvedArgs === "object") {
-  const norm = normalizeItem(resolvedArgs)
-  runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
+if (isObj(resolvedArgs) && resolvedArgs.finalize != null) {
+  mode = "finalize"
+  const f = resolvedArgs.finalize
+  finalizeFiles = (Array.isArray(f) ? f : [f]).filter((s) => typeof s === "string" && s.length > 0)
+  htmlOutput = typeof resolvedArgs.htmlOutput === "string" ? resolvedArgs.htmlOutput : ""
+} else {
+  // Generation mode — pull optional iteration-level feedback, then resolve run specs
+  if (isObj(resolvedArgs) && typeof resolvedArgs.feedback === "string") {
+    feedbackPath = resolvedArgs.feedback
+  }
+  if (isObj(resolvedArgs) && Array.isArray(resolvedArgs.runs)) {
+    runSpecs = resolvedArgs.runs.map(normalizeItem).filter(Boolean) // {runs:[...], feedback?} wrapper
+  } else if (!resolvedArgs) {
+    runSpecs = [{ type: "self-test", id: null }]
+  } else if (typeof resolvedArgs === "string") {
+    const norm = normalizeItem(resolvedArgs)
+    runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
+  } else if (Array.isArray(resolvedArgs)) {
+    runSpecs = resolvedArgs.map(normalizeItem).filter(Boolean)
+  } else if (isObj(resolvedArgs)) {
+    const norm = normalizeItem(resolvedArgs)
+    runSpecs = norm ? [norm] : [{ type: "self-test", id: null }]
+  }
+  if (runSpecs.length === 0) {
+    log("WARNING: No valid run specs from args — falling back to self-test.")
+    runSpecs = [{ type: "self-test", id: null }]
+  }
 }
 
-if (runSpecs.length === 0) {
-  log("WARNING: No valid run specs from args — falling back to self-test.")
-  runSpecs = [{ type: "self-test", id: null }]
+if (mode === "finalize") {
+  log(`MODE: finalize — ${finalizeFiles.length} caption JSON(s) to aggregate`)
+  finalizeFiles.forEach((p, i) => log(`  [${i}] ${p}`))
+} else {
+  log(`MODE: generation — ${runSpecs.length} spec(s)${feedbackPath ? ` | feedback: ${feedbackPath}` : " | no feedback (first iteration)"}`)
+  runSpecs.forEach((s, i) => log(`  [${i}] type=${s.type}${s.prompt ? ` prompt="${s.prompt.slice(0, 60)}..."` : ""}${s.path ? ` path=${s.path}` : ""}${s.id ? ` id=${s.id}` : ""}`))
 }
-
-log(`Run specs: ${runSpecs.length} item(s)`)
-runSpecs.forEach((s, i) => log(`  [${i}] type=${s.type}${s.prompt ? ` prompt="${s.prompt.slice(0, 60)}..."` : ""}${s.path ? ` path=${s.path}` : ""}${s.id ? ` id=${s.id}` : ""}`))
 
 // ── Shell command builder (pure JS) ─────────────────────────────────────────
 
@@ -217,18 +264,147 @@ const CAPTION_SCHEMA = {
   required: ["imagePath"],
 }
 
-// ── Phase 1: Generate (pipeline — each spec runs independently) ───────────────
+const FEEDBACK_SCHEMA = {
+  type: "object",
+  properties: {
+    bestFilename: { type: "string", description: "Filename the human marked best, empty string if none" },
+    guidance:     { type: "string", description: "Concise keep/change guidance for the next iteration" },
+    perImage:     { type: "array", items: { type: "object", properties: { filename: { type: "string" }, comment: { type: "string" } } } },
+    error:        { type: "string" },
+  },
+  required: ["guidance"],
+}
 
-const genResults = await pipeline(
-  runSpecs,
+const HTML_SCHEMA = {
+  type: "object",
+  properties: {
+    htmlPath:   { type: "string", description: "Absolute path to generated review HTML, empty string on failure" },
+    imageCount: { type: "number", description: "Number of images included in the HTML" },
+    error:      { type: "string" },
+  },
+  required: ["htmlPath"],
+}
 
-  async (spec, _orig, idx) => {
-    const cmd = buildCommand(spec)
-    if (!cmd) {
-      return { status: "error", outputPngs: [], runJsonPath: "", error: `Cannot build command for spec: ${JSON.stringify(spec)}` }
-    }
+// ════════════════════════════════════════════════════════════════════════════
+// FINALIZE MODE — build the human-review HTML from explicit caption JSONs
+// ════════════════════════════════════════════════════════════════════════════
 
-    return agent(
+if (mode === "finalize") {
+  phase("Review HTML")
+
+  const resolvedFiles = finalizeFiles.map(resolveJsonPath)
+  if (resolvedFiles.length === 0) {
+    log("ERROR: finalize mode received no caption JSON paths.")
+    return { reviewHtml: "", imageCount: 0, captionFiles: [], error: "no files" }
+  }
+
+  const filesArg = resolvedFiles.map((p) => `"${p}"`).join(" ")
+  const outputFlag = htmlOutput ? ` --html-output "${resolveJsonPath(htmlOutput)}"` : ""
+  const cmd = `${PYTHON} ${RUN_PY} caption --review-html ${filesArg}${outputFlag}`
+
+  log(`Building review HTML from ${resolvedFiles.length} caption JSON(s)...`)
+
+  const htmlResult = await agent(
+    `Build the interactive review HTML from accumulated caption JSON files.
+
+COMMAND:
+${cmd}
+
+STEPS:
+1. Run: Bash("${cmd} 2>&1", timeout=120000)
+2. Parse stdout for a line like:
+   Review HTML: /abs/path/review_YYYYMMDD_HHMMSS.html
+   Extract the absolute path after "Review HTML: ".
+3. If the command errors (e.g. a caption file is missing) or no "Review HTML:" line is found,
+   set error to the relevant stderr/stdout excerpt.
+
+Return JSON:
+{
+  "htmlPath": "/abs/path/review.html" or "",
+  "imageCount": ${resolvedFiles.length},
+  "error": ""
+}`,
+    { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+  )
+
+  const reviewHtml = htmlResult?.htmlPath || ""
+  log(htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : `Review HTML: ${reviewHtml}`)
+
+  return {
+    reviewHtml,
+    imageCount: htmlResult?.imageCount ?? resolvedFiles.length,
+    captionFiles: resolvedFiles,
+    error: htmlResult?.error || "",
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// GENERATION MODE
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Phase 1: Feedback (optional — drives this iteration from prior human review) ──
+
+let feedbackGuidance = ""
+
+if (feedbackPath) {
+  phase("Feedback")
+  const feedbackAbs = resolveJsonPath(feedbackPath)
+  log(`Reading prior feedback: ${feedbackAbs}`)
+
+  const feedbackResult = await agent(
+    `Read a human-feedback JSON exported from a prior review HTML and turn it into guidance for the NEXT T2I iteration.
+
+FEEDBACK FILE: ${feedbackAbs}
+
+STEPS:
+1. Read the file: Bash("cat '${feedbackAbs}'")
+   Structure: { timestamp, best_image: <index|null>, images: [{ index, filename, comment }] }
+   Each entry's "filename" identifies which previously-generated image the comment refers to.
+
+2. Filenames correspond to prior output PNGs under ${OUT_DIR}. For images that have a comment,
+   you MAY best-effort recall what prompt produced them by reading the sibling caption JSON:
+   Bash("cat '${OUT_DIR}/<filename-without-extension>.caption.json'")   (skip silently if missing)
+
+3. Synthesize concise GUIDANCE for this next iteration:
+   - BEST: which image (filename) the human picked as best, and why (infer from its scores/comments).
+   - KEEP: prompt choices / elements to preserve.
+   - CHANGE: concrete suggestions — prompt wording, seed, steps, upscale on/off, pipeline —
+     derived from the comments and any score weaknesses.
+
+Return JSON:
+{
+  "bestFilename": "<filename or empty>",
+  "guidance": "<3-6 concise bullet lines as one string>",
+  "perImage": [{ "filename": "...", "comment": "..." }],
+  "error": ""
+}`,
+    { label: "feedback", phase: "Feedback", schema: FEEDBACK_SCHEMA },
+  )
+
+  feedbackGuidance = feedbackResult?.guidance || ""
+  if (feedbackResult?.bestFilename) log(`  Human's best: ${feedbackResult.bestFilename}`)
+  log(`  Guidance:\n${feedbackGuidance.split("\n").map((l) => "    " + l).join("\n")}`)
+} else {
+  log("No feedback for this iteration (first iteration) — skipping Feedback phase.")
+}
+
+// ── Phase 2: Generate (sequential — one model process at a time, GPU-safe) ───
+
+phase("Generate")
+
+const genResults = []
+for (let idx = 0; idx < runSpecs.length; idx++) {
+  const spec = runSpecs[idx]
+  const cmd = buildCommand(spec)
+  if (!cmd) {
+    log(`[${idx}] Cannot build command for spec — skipping.`)
+    genResults.push({ status: "error", outputPngs: [], runJsonPath: "", error: `Cannot build command for spec: ${JSON.stringify(spec)}` })
+    continue
+  }
+  log(`[${idx}/${runSpecs.length}] Generating (${spec.type}) — sequential, one model process at a time (GPU-safe)...`)
+
+  try {
+    const res = await agent(
       `Execute a T2I generation command and extract the output paths from the JSON_SUMMARY line.
 
 COMMAND:
@@ -262,10 +438,14 @@ Return JSON:
 }`,
       { label: `generate-${idx}-${spec.type}`, phase: "Generate", schema: GEN_SCHEMA },
     )
-  },
-)
+    genResults.push(res)
+  } catch (e) {
+    log(`[${idx}] Generation agent failed: ${e?.message || e}`)
+    genResults.push(null)
+  }
+}
 
-// ── Phase 2: VLM pre-flight check ────────────────────────────────────────────
+// ── Phase 3: VLM pre-flight check ────────────────────────────────────────────
 
 phase("VLM Check")
 
@@ -288,7 +468,7 @@ if (vlmAvailable) {
   log("Start LM Studio with a VLM model (e.g. qwen3-vl-4b) to enable scoring.")
 }
 
-// ── Phase 3: Review — Caption each PNG ───────────────────────────────────────
+// ── Phase 4: Review — Caption each PNG ───────────────────────────────────────
 
 phase("Review")
 
@@ -307,11 +487,11 @@ const allResults = genResults.map((genResult, idx) => {
 
 if (!vlmAvailable) {
   // Skip Review — fill empty captions
-  allResults.forEach(r => { r.captions = [] })
+  allResults.forEach((r) => { r.captions = [] })
 } else {
   // Caption each genResult's PNGs (merged read-prompt + caption agent)
   const captionedResults = await pipeline(
-    allResults.filter(r => r.genResult?.outputPngs?.length > 0),
+    allResults.filter((r) => r.genResult?.outputPngs?.length > 0),
     async (item, _orig, idx) => {
       const { genResult } = item
 
@@ -319,7 +499,7 @@ if (!vlmAvailable) {
 
       const captions = await parallel(
         genResult.outputPngs.map((pngPath, pngIdx) => () => {
-          const captionFile = `${pngPath}.caption.json`
+          const captionFile = captionPathFor(pngPath)
 
           return agent(
             `Score the image quality of a T2I output using the VLM caption tool.
@@ -354,6 +534,8 @@ STEPS:
      "image": "...", "style": "review", "model": "...",
      "caption": "{\\"overall\\": 7, \\"detail\\": 8, \\"captured\\": [...], ... }"
    }
+   The caption string MAY be wrapped in markdown fences (triple-backtick json blocks) or prose —
+   strip fences and extract the first {...} block before parsing.
    After double-parsing, extract: overall, detail, sharpness, composition,
    prompt_adherence, artifacts, captured[], missed[], issues[], strengths[], summary.
 
@@ -388,21 +570,30 @@ Return flat JSON:
   // Merge captioned results back into allResults
   captionedResults.forEach((captioned, i) => {
     if (captioned) {
-      const idx = allResults.findIndex(r => r.genResult === captioned.genResult)
+      const idx = allResults.findIndex((r) => r.genResult === captioned.genResult)
       if (idx >= 0) allResults[idx] = captioned
     }
   })
 }
 
-// ── Phase 4: Report ──────────────────────────────────────────────────────────
+// ── Phase 5: Report ──────────────────────────────────────────────────────────
 
 phase("Report")
 
 const validResults = allResults.filter(Boolean)
 const totalPngs    = validResults.reduce((n, r) => n + (r.genResult?.outputPngs?.length || 0), 0)
-const totalCapped  = validResults.reduce((n, r) => n + (r.captions?.filter(c => c.overall != null).length || 0), 0)
+const totalCapped  = validResults.reduce((n, r) => n + (r.captions?.filter((c) => c.overall != null).length || 0), 0)
 
 log(`Summary: ${validResults.length}/${runSpecs.length} specs ran | ${totalPngs} PNG(s) generated | ${totalCapped} scored`)
+
+// Collect caption JSON paths produced this iteration (for the user to accumulate → finalize)
+const captionFiles = [...new Set(
+  validResults.flatMap((r) => (r.captions || []).map((c) => (c.imagePath ? captionPathFor(c.imagePath) : null))).filter(Boolean),
+)]
+
+const feedbackSection = feedbackGuidance
+  ? `## Prior Iteration Feedback (guidance applied to this run)\n${feedbackGuidance}\n`
+  : ""
 
 const reportResult = await agent(
   `Generate a concise quality report for this T2I workflow run.
@@ -410,6 +601,7 @@ const reportResult = await agent(
 ## Run Configuration (${runSpecs.length} spec(s))
 ${JSON.stringify(runSpecs, null, 2)}
 
+${feedbackSection}
 ## Results (${validResults.length} result(s))
 ${JSON.stringify(validResults, null, 2)}
 
@@ -429,6 +621,7 @@ For Captured/Missed columns: list the top 2–3 items, comma-separated. If not a
 
 **5. Recommendations** — 2–3 specific, actionable suggestions for improving future T2I quality
    (e.g. prompt wording changes based on missed elements, parameter tuning, pipeline choice).
+   If prior feedback guidance was provided above, explicitly address whether this run followed it.
 
 **6. Errors** — if any generation failed or LM Studio was unavailable, briefly note it.
 
@@ -438,9 +631,15 @@ Keep the report concise. Use markdown.`,
 
 log("=== T2I Run-and-Review Complete ===")
 log(reportResult || "(no report)")
+if (captionFiles.length > 0) {
+  log(`Caption JSONs produced this iteration (pass these to {finalize:[...]} when ready to build the review HTML):`)
+  captionFiles.forEach((p) => log(`  ${p}`))
+}
 
 return {
-  specs:   runSpecs,
-  runs:    validResults,
-  report:  reportResult,
+  specs:           runSpecs,
+  runs:            validResults,
+  report:          reportResult,
+  feedbackGuidance,
+  captionFiles,
 }

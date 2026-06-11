@@ -1394,6 +1394,26 @@ body {
   border-color: var(--accent);
 }
 
+/* Model check streaming log panel */
+.mc-log-panel {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.mc-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* === Model Check View === */
 .mc-badge {
   display: inline-flex;

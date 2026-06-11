@@ -534,7 +534,7 @@ def generate_review_html(caption_json_paths: list[str], output_path: str | None 
         )
 
         cards_html += f"""
-        <div class="img-card" data-idx="{i}">
+        <div class="img-card" data-idx="{i}" data-filename="{html.escape(item['filename'])}">
           <div class="card-header">
             <h3>{html.escape(item['filename'])}</h3>
             <label class="pick-label"><input type="radio" name="best" value="{i}"/> Best</label>
@@ -668,8 +668,9 @@ function exportFeedback() {{
   }};
   document.querySelectorAll('.img-card').forEach(function(card) {{
     var idx = card.dataset.idx;
+    var fname = card.dataset.filename || '';
     var comment = card.querySelector('.comment-box').value;
-    data.images.push({{ index: parseInt(idx), comment: comment }});
+    data.images.push({{ index: parseInt(idx), filename: fname, comment: comment }});
   }});
   var blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
   var url = URL.createObjectURL(blob);

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useWebSocket } from "../hooks/useWebSocket";
 
 interface ConfigData {
   outputDir: string | string[];
@@ -67,6 +68,11 @@ export function ConfigView() {
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<ModelCheckResult | null>(null);
 
+  // WebSocket streaming for async model check
+  const { logs, jobStatus, subscribe } = useWebSocket();
+  const logPanelRef = useRef<HTMLDivElement>(null);
+  const [showLogs, setShowLogs] = useState(false);
+
   useEffect(() => {
     fetch("/api/config")
       .then((r) => r.json())
@@ -96,6 +102,42 @@ export function ConfigView() {
       .catch(() => { /* no cache yet */ });
   }, []);
 
+  // When async model check job completes, fetch cached result
+  useEffect(() => {
+    if (jobStatus === "completed" || jobStatus === "failed") {
+      fetch("/api/model-check/cache")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.ok && data.result?.summary) {
+            const s = data.result.summary;
+            setCheckResult({
+              ok: true,
+              total_models: s.total_models,
+              total_disk_human: s.total_disk_human,
+              error_count: s.error_count,
+              warning_count: s.warning_count,
+              notice_count: s.notice_count,
+              htmlUrl: data.htmlUrl ?? null,
+              timestamp: data.result.timestamp,
+            });
+          } else {
+            setCheckResult({ ok: false, error: "Scan failed — no result cached" });
+          }
+        })
+        .catch((e: any) => {
+          setCheckResult({ ok: false, error: e.message || "Failed to fetch result" });
+        })
+        .finally(() => setChecking(false));
+    }
+  }, [jobStatus]);
+
+  // Auto-scroll log panel
+  useEffect(() => {
+    if (logPanelRef.current) {
+      logPanelRef.current.scrollTop = logPanelRef.current.scrollHeight;
+    }
+  }, [logs]);
+
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
@@ -123,28 +165,20 @@ export function ConfigView() {
   const handleCheckModels = async () => {
     setChecking(true);
     setCheckResult(null);
+    setShowLogs(true);
     try {
-      const res = await fetch("/api/model-check/run", { method: "POST" });
+      const res = await fetch("/api/model-check/scan", { method: "POST" });
       const data = await res.json();
-      if (data.ok && data.result?.summary) {
-        const s = data.result.summary;
-        setCheckResult({
-          ok: true,
-          total_models: s.total_models,
-          total_disk_human: s.total_disk_human,
-          error_count: s.error_count,
-          warning_count: s.warning_count,
-          notice_count: s.notice_count,
-          htmlUrl: data.htmlUrl,
-          timestamp: data.result.timestamp,
-        });
+      if (data.ok && data.jobId) {
+        subscribe(data.jobId);
       } else {
-        setCheckResult({ ok: false, error: data.error || "Check failed" });
+        setCheckResult({ ok: false, error: data.error || "Scan failed" });
+        setChecking(false);
       }
     } catch (e: any) {
       setCheckResult({ ok: false, error: e.message || "Network error" });
+      setChecking(false);
     }
-    setChecking(false);
   };
 
   const handleVerifyPython = async () => {
@@ -229,6 +263,9 @@ export function ConfigView() {
     );
   };
 
+  // Filter log lines: skip the massive JSON blob (starts with '{')
+  const visibleLogs = logs.filter((l) => !l.startsWith("{"));
+
   if (loading) {
     return <div className="empty-state"><div className="spinner" style={{ width: 32, height: 32 }} /></div>;
   }
@@ -272,7 +309,23 @@ export function ConfigView() {
               {checking ? "⏳ Scanning…" : "📦 Check Models"}
             </button>
             {checking && <div className="spinner" style={{ width: 18, height: 18 }} />}
+            {visibleLogs.length > 0 && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowLogs(!showLogs)}
+                style={{ whiteSpace: "nowrap", fontSize: 12, padding: "4px 10px" }}
+              >
+                {showLogs ? "▸ Hide Log" : `▾ Show Log (${visibleLogs.length})`}
+              </button>
+            )}
           </div>
+          {showLogs && visibleLogs.length > 0 && (
+            <div className="mc-log-panel" ref={logPanelRef}>
+              {visibleLogs.map((line, i) => (
+                <div key={i} className="mc-log-line">{line}</div>
+              ))}
+            </div>
+          )}
           {renderCheckSummary()}
         </div>
 

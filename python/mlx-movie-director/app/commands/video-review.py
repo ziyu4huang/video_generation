@@ -216,13 +216,16 @@ def _load_test(manifest_path: str) -> dict:
         if not isinstance(run, dict):
             run = {}
 
-    # Find video file
+    # Find video file — prefer relay-final over individual segments
     video_file = None
     for of in (manifest.get("output_files") or []):
         p = of.get("path", "")
         if p.endswith(".mp4") and os.path.exists(p):
-            video_file = p
-            break
+            if of.get("mode") == "relay-final":
+                video_file = p
+                break  # prefer the full relay concat
+            elif video_file is None:
+                video_file = p  # fallback to first mp4
     if not video_file:
         mp4 = base + ".mp4"
         if os.path.exists(mp4):

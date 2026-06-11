@@ -382,6 +382,9 @@ def _collect_models_data(models_dir: str) -> dict:
     model_disk_sizes: list[tuple[str, int]] = []
     models_data: list[dict] = []
 
+    # Progress: announce scan start
+    print(f"📂 Scanning {len(manifests)} manifests in {models_dir}...", file=sys.stderr)
+
     for category, instance, mf_path in manifests:
         inst_dir = os.path.dirname(mf_path)
         label = f"{category}/{instance}"
@@ -583,6 +586,14 @@ def _collect_models_data(models_dir: str) -> dict:
             "downloading": downloading_flag,
             "disabled": disabled_flag,
         })
+
+        # Progress: per-model status
+        fmt = data.get("format", "?")
+        status_icon = "⏳" if downloading_flag else "🚫" if disabled_flag else "✓"
+        print(f"  {status_icon} {label} — {_fmt_bytes(disk_bytes)} ({fmt})", file=sys.stderr)
+
+    # Progress: scan summary
+    print(f"📊 Done: {len(models_data)} models · {_fmt_bytes(total_disk_bytes)}", file=sys.stderr)
 
     return {
         "errors": errors,
@@ -1271,6 +1282,7 @@ def run(args):
         with open(output, "w", encoding="utf-8") as f:
             f.write(html)
         print(f"\n📄 HTML report: {output}")
+        print(f"📄 Report: {output}", file=sys.stderr)
         if getattr(args, 'open', False):
             subprocess.Popen(["open", output])
 

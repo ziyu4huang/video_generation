@@ -7,7 +7,7 @@ import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleVlmTest } from "./vlm";
-import { handleModelCheckRun, handleModelCheckCache } from "./model-check";
+import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetSchemaDefaults } from "./schema-defaults";
 import { handleWebSocketUpgrade } from "./ws";
 
@@ -167,6 +167,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // Model check
   if (pathname === "/api/model-check/run" && method === "POST") {
     return handleModelCheckRun(req);
+  }
+  if (pathname === "/api/model-check/scan" && method === "POST") {
+    return handleModelCheckScan(req);
   }
   if (pathname === "/api/model-check/cache" && method === "GET") {
     return handleModelCheckCache(req);

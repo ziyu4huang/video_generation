@@ -72,6 +72,34 @@ _RELAY_VARIANTS = {
 
 
 # ---------------------------------------------------------------------------
+# Human A/B review scores — updated after each review session.
+# Format: preset → { date, params, winner, scores: { variant → { stars, notes } } }
+# ---------------------------------------------------------------------------
+
+_RELAY_REVIEWS = {
+    "kitchen": {
+        "date": "2026-06-11",
+        "params": "704×448, 193fr, 8s/seg × 3, distilled, cfg=1, stg=0",
+        "winner": "distilled+vbvr-siraxe",
+        "scores": {
+            "distilled": {
+                "stars": 1,
+                "notes": "看起來像兩顆球 畫面會閃動跳動不太合理 物體會變換來變換去缺乏一致性",
+            },
+            "distilled+vbvr-licon": {
+                "stars": 2,
+                "notes": "雞蛋殼打敲開來比較真實 但還是會還原雞蛋的樣子",
+            },
+            "distilled+vbvr-siraxe": {
+                "stars": 3,
+                "notes": "後面做菜的部分比較合理 雖然還是有散光 但最後面做成一道餐的樣子比較合理",
+            },
+        },
+    },
+}
+
+
+# ---------------------------------------------------------------------------
 # Prompt presets — named prompt sets with recommended defaults
 # ---------------------------------------------------------------------------
 
@@ -109,6 +137,81 @@ _RELAY_PRESETS = {
         "width": 704,
         "height": 448,
         "duration": 8.0,  # 193 frames @ 24fps — long enough for quality judgment
+    },
+    "physics": {
+        "prompts": [
+            (
+                "Style: cinematic realism. A glass of water sits on the edge of a wooden table "
+                "in a sunlit kitchen. A cat leaps up onto the table, its paw catching the glass. "
+                "The glass tips in slow motion, water spilling in an arc through the air, catching "
+                "sunlight. The glass shatters on the tile floor, shards scattering in every direction."
+            ),
+            (
+                "Style: cinematic realism. Water pools across the white tile floor, running between "
+                "the cracks. The cat freezes, one paw raised, staring down at the broken glass. It "
+                "backs away carefully, tail puffing out. A person rushes in from the next room, bare "
+                "feet stopping just short of the water, arms flailing for balance."
+            ),
+            (
+                "Style: cinematic realism. The person kneels and carefully picks up the largest glass "
+                "shards one by one, wrapping them in a cloth. They mop the water with a towel, wringing "
+                "it into a bucket. The cat watches from the safety of a nearby chair, licking its paw. "
+                "Sunlight shifts across the now-dry floor as dust motes drift in the warm air."
+            ),
+        ],
+        "width": 704,
+        "height": 448,
+        "duration": 8.0,
+    },
+    "kitchen": {
+        "prompts": [
+            (
+                "Style: cinematic realism. Shot on 35mm film with shallow depth of field. A chef's "
+                "hands crack two eggs into a stainless steel bowl, yolks intact. Whisk flashes, beating "
+                "eggs into a frothy yellow mixture. Butter sizzles in a cast iron pan, bubbling and "
+                "browning at the edges. The chef pours the egg mixture in one smooth motion."
+            ),
+            (
+                "Style: cinematic realism. The omelette sets, edges curling up golden brown. The chef "
+                "tilts the pan, slides a spatula underneath, and flips it in a single practiced motion. "
+                "Grated cheese scatters across the surface, melting into long strings. Fresh herbs are "
+                "chopped rapidly with a rocking knife motion on a wooden cutting board."
+            ),
+            (
+                "Style: cinematic realism. The omelette folds onto itself, cheese oozing from the seam. "
+                "It slides onto a white plate with a gentle shake of the pan. A garnish of microgreens "
+                "lands on top, followed by a drizzle of olive oil from a small pitcher. Steam rises "
+                "from the plate in the warm kitchen light, camera slowly pulling back."
+            ),
+        ],
+        "width": 704,
+        "height": 448,
+        "duration": 8.0,
+    },
+    "street": {
+        "prompts": [
+            (
+                "Style: cinematic realism. A busy Tokyo crosswalk at night. Hundreds of people stream "
+                "across in both directions, umbrellas glistening under neon reflections on wet asphalt. "
+                "A tourist in a bright yellow raincoat stands still amid the flowing crowd, looking up "
+                "at enormous LED billboards. Rain drops catch the colored light as they fall."
+            ),
+            (
+                "Style: cinematic realism. The camera follows the tourist pushing through the crowd into "
+                "a narrow alley. Steam rises from a ramen stall, the vendor ladling broth into ceramic "
+                "bowls. Neon kanji signs reflect in puddles. The tourist stops at the stall, sitting on "
+                "a red plastic stool, rain dripping from their hood."
+            ),
+            (
+                "Style: cinematic realism. Close-up of chopsticks lifting noodles from the bowl, broth "
+                "dripping back. The tourist slurps noodles, steam fogging their glasses. Behind them, "
+                "the alley blurs with passing figures and swinging lanterns. A cat sits on a stack of "
+                "crates, watching. The neon glow pulses softly against the wet walls."
+            ),
+        ],
+        "width": 704,
+        "height": 448,
+        "duration": 8.0,
     },
 }
 
@@ -519,16 +622,16 @@ def run_relay(args):
 
 _SELF_TEST_PROMPTS = [
     (
-        "Style: cinematic realism. "
-        "A person stands at the edge of a calm mountain lake at dawn, mist rising from the "
-        "water surface, soft golden light falling on the still surface. Distant birds call "
-        "faintly. Ripples spread slowly outward from a stone dropped near the shore."
+        "Style: cinematic realism. A glass of water sits on the edge of a wooden table in a "
+        "sunlit kitchen. A cat leaps up onto the table, its paw catching the glass. The glass "
+        "tips in slow motion, water spilling in an arc through the air, catching sunlight. The "
+        "glass shatters on the tile floor, shards scattering in every direction."
     ),
     (
-        "Style: cinematic realism. "
-        "The same person steps forward along the gravel bank of the lake, footsteps crunching "
-        "softly, arms swinging at their sides. Morning birdsong echoes across the water. "
-        "The mist begins to thin as sunlight intensifies, casting long shadows on the ground."
+        "Style: cinematic realism. Water pools across the white tile floor. The cat freezes, "
+        "one paw raised, staring at the broken glass. It backs away carefully, tail puffing out. "
+        "A person rushes in from the next room, bare feet stopping just short of the water, "
+        "arms flailing for balance."
     ),
 ]
 
