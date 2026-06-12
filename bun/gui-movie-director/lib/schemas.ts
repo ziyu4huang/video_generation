@@ -14,6 +14,7 @@ import { quality } from "./schemas/quality";
 import { workflow } from "./schemas/workflow";
 import { videoGenerate } from "./schemas/video-generate";
 import { videoRestore } from "./schemas/video-restore";
+import { videoRelay } from "./schemas/video-relay";
 import { imageRestore } from "./schemas/image-restore";
 
 export type { FieldType, FieldSchema, CommandSchema } from "./schemas/shared";
@@ -31,6 +32,7 @@ export const COMMAND_SCHEMAS: Record<string, import("./schemas/shared").CommandS
   quality,
   workflow,
   "video-generate": videoGenerate,
+  "video-relay": videoRelay,
   "video-restore": videoRestore,
   restore: imageRestore,
 };

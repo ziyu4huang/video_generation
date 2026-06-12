@@ -1488,6 +1488,20 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   min-width: 120px;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  color: var(--text);
+  transition: all 0.15s;
+}
+.mc-badge:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+.mc-badge.active {
+  background: var(--accent);
+  color: var(--text-bright);
+  border-color: var(--accent);
 }
 // hot-reload-test-1781134588
 

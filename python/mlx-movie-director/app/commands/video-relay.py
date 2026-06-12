@@ -739,8 +739,8 @@ def _run_relay_self_test(args):
         seed=42,
         low_ram=getattr(args, "low_ram", False),
         hq=False,
-        distilled=True,               # distilled dir has transformer-distilled-1.1.safetensors
-        lora_path=getattr(args, "lora_path", None),
+        distilled=True,               # best overall: distilled+vbvr-siraxe
+        lora_path=getattr(args, "lora_path", "vbvr-ltx2.3"),  # default to siraxe (3★ both presets)
         lora_scale=1.0,
         video_model=None,             # use default distilled dir
         teacache=False,

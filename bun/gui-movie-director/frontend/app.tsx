@@ -12,6 +12,7 @@ import { T2iView } from "./views/generate/T2iView";
 import { ImagePipelineView } from "./views/workflow/ImagePipelineView";
 import { VideoGenerateView } from "./views/workflow/VideoGenerateView";
 import { VideoRestoreView } from "./views/workflow/VideoRestoreView";
+import { VideoRelayView } from "./views/workflow/VideoRelayView";
 // transform
 import { I2iView } from "./views/transform/I2iView";
 import { ImageRestoreView } from "./views/transform/ImageRestoreView";
@@ -42,6 +43,7 @@ export const COMMAND_GROUPS = [
     commands: [
       { id: "img-workflow", label: "Image Pipeline", icon: "🖼️" },
       { id: "vid-generate", label: "Video Generate", icon: "🎬" },
+      { id: "vid-relay", label: "Video Relay", icon: "🔄" },
       { id: "vid-restore", label: "Video Restore", icon: "🔧" },
     ],
   },
@@ -90,6 +92,7 @@ const VIEW_MAP: Record<string, React.ComponentType> = {
   t2i: T2iView,
   "img-workflow": ImagePipelineView,
   "vid-generate": VideoGenerateView,
+  "vid-relay": VideoRelayView,
   "vid-restore": VideoRestoreView,
   i2i: I2iView,
   "img-restore": ImageRestoreView,

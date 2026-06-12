@@ -39,6 +39,15 @@ export function buildCliArgs(action: string, params: Record<string, any>): strin
       if (typeof value === "string" && value.trim() !== "") {
         args.push(field.cliFlag, value.trim());
       }
+    } else if (field.type === "multiselect") {
+      // Array of strings → repeated --flag value1 --flag value2
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (typeof item === "string" && item.trim() !== "") {
+            args.push(field.cliFlag, item.trim());
+          }
+        }
+      }
     }
   }
 

@@ -166,6 +166,21 @@ def _build():
             "restore_no_audio": False,
             "self_tests": self_tests.get("video-restore", []),
         },
+        "video-relay": {
+            "width": 704,
+            "height": 448,
+            "fps": 24.0,
+            "seed": 42,
+            "cfg_scale": 1.0,
+            "stg_scale": 0.0,
+            "stage1_steps": 8,
+            "stage2_steps": 3,
+            "lora_scale": 1.0,
+            "distilled": True,
+            "low_ram": False,
+            "lora_path": "vbvr-ltx2.3",   # best overall: 3★ kitchen + 3★ physics
+            "relay_duration": 8.0,
+        },
     }
 
 
