@@ -1,3 +1,4 @@
+import type { Server } from "bun";
 import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
@@ -69,7 +70,7 @@ export async function rebuildFrontendBundle(): Promise<boolean> {
   return _doBuild(true);
 }
 
-export async function handleRequest(req: Request, server: any): Promise<Response | undefined> {
+export async function handleRequest(req: Request, server: Server): Promise<Response | undefined> {
   const url = new URL(req.url);
   const { pathname } = url;
 

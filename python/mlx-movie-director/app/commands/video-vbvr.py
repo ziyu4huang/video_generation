@@ -224,9 +224,7 @@ def _fit_to_image(image_path: str, width: int, height: int,
 
 def run_vbvr(args):
     """Entry point for video vbvr sub-action."""
-    from app.gpu_lock import GpuLock
-    with GpuLock(skip=False):
-        _run_vbvr_inner(args)
+    _run_vbvr_inner(args)
 
 
 def _run_vbvr_inner(args):

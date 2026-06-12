@@ -174,11 +174,6 @@ def add_generate_args(parser):
                              "smoother motion). Requires temporal_upscaler_x2_v1_0.safetensors. "
                              "Not compatible with --audio (A2V mode).")
 
-    parser.add_argument("--skip-gpu-lock", action="store_true", default=False,
-                        dest="skip_gpu_lock",
-                        help="Bypass the GPU mutex — run even when another generation is active. "
-                             "Use only for CPU-heavy tasks or intentional concurrent runs.")
-
     # LoRA (style/quality enhancement)
     parser.add_argument("--lora-path", type=str, default=None, metavar="PATH",
                         help="Style/quality LoRA for video generation (.safetensors). "
@@ -412,9 +407,7 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
 
 def run_generate(args):
     """Entry point for video generation."""
-    from app.gpu_lock import GpuLock
-    with GpuLock(skip=getattr(args, "skip_gpu_lock", False)):
-        _run_generate_inner(args)
+    _run_generate_inner(args)
 
 
 def _run_generate_inner(args):

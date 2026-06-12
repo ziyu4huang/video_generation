@@ -20,6 +20,7 @@
 //     height: 960,              // image height (default: 960)
 //     lang: "zh_TW",            // HTML language
 //     noHtml: false,            // skip HTML generation
+//     resume: "auto",           // "auto" | "fresh" | "continue"
 //   } })
 //
 // Generation plan (auto-discover, 2 LoRAs × 4 seeds, scale sweep):
@@ -29,8 +30,12 @@
 //   Total: ~20 images (sweep + baselines + LoRA at best scale)
 //   ~40-50 min on Apple Silicon (sequential, GPU-safe)
 //
+// History:
+//   Run history persisted to .claude/workflows/history/<workflow-name>/<timestamp>.json
+//   Enables trend comparison across runs, resume from interrupted runs, and incremental improvement.
+//
 // Output:
-//   { reviewHtml, captionFiles, captionSets, report, loras, seeds, bestScales, sweepResults }
+//   { reviewHtml, captionFiles, captionSets, report, loras, seeds, bestScales, sweepResults, history }
 
 export const meta = {
   name: "mlx-movie-director-lora-review-t2i-zimage-turbo",
@@ -46,12 +51,35 @@ export const meta = {
     { title: "Review", detail: "Score each output PNG via run.py caption --style review" },
     { title: "Report", detail: "Per-LoRA quality comparison with optimal scale + winner summary" },
     { title: "Review HTML", detail: "Build multi-set A/B HTML via caption --ab-manifest" },
+    { title: "Persist", detail: "Write run history to disk for trend analysis and incremental improvement" },
   ],
 }
 
-// ── Phase 0: Resolve absolute paths ──────────────────────────────────────────
+// ── Phase tracking (in-memory) ───────────────────────────────────────────────
 
-phase("Resolve")
+const phaseStatus = {
+  resolve: "pending",
+  discover: "pending",
+  gpuWait: "pending",
+  scaleSweep: "pending",
+  generate: "pending",
+  vlmCheck: "pending",
+  review: "pending",
+  report: "pending",
+  reviewHtml: "pending",
+  persist: "pending",
+}
+
+const phasesCompleted = []
+const phasesFailed = []
+
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+
+// ── Schemas (shared across phases) ───────────────────────────────────────────
 
 const PATH_SCHEMA = {
   type: "object",
@@ -60,6 +88,31 @@ const PATH_SCHEMA = {
   },
   required: ["projectRoot"],
 }
+
+const TIMESTAMP_SCHEMA = {
+  type: "object",
+  properties: {
+    timestamp: { type: "string", description: "ISO-8601 timestamp like 2026-06-13T14-30-52" },
+  },
+  required: ["timestamp"],
+}
+
+const RESUME_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    action:                  { type: "string", enum: ["fresh", "resume", "compare"] },
+    previousRunId:           { type: "string" },
+    previousTimestamp:       { type: "string" },
+    previousArgs:            { type: "object" },
+    previousStatus:          { type: "string" },
+    previousPhasesCompleted: { type: "array", items: { type: "string" } },
+  },
+  required: ["action"],
+}
+
+// ── Phase 0: Resolve absolute paths + timestamp + resume check ───────────────
+
+phase("Resolve")
 
 const pathResolution = await agent(
   `Detect the absolute path of the git project root for the video_generation project.
@@ -81,11 +134,92 @@ const RUN_PY      = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR     = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR    = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
 
+const WORKFLOW_NAME = "mlx-movie-director-lora-review-t2i-zimage-turbo"
+const HISTORY_DIR   = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:   ${PYTHON}`)
 log(`  RUN_PY:   ${RUN_PY}`)
 log(`  OUT_DIR:  ${OUT_DIR}`)
 log(`  LORA_DIR: ${LORA_DIR}`)
+log(`  HISTORY_DIR: ${HISTORY_DIR}`)
+
+// Get timestamp for this run
+const timestampResult = await agent(
+  `Get the current timestamp in ISO-8601 basic format (no colons, suitable for filenames).
+  Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'")
+  Return { timestamp: "<the-output>" }. Use the exact output from date.`,
+  { label: "get-timestamp", phase: "Resolve", model: "haiku", schema: TIMESTAMP_SCHEMA },
+)
+
+const RUN_TIMESTAMP = (timestampResult?.timestamp || "unknown").trim()
+const RUN_ID = RUN_TIMESTAMP
+
+log(`Run ID: ${RUN_ID}`)
+
+// ── Resume check: look for prior run history ─────────────────────────────────
+
+let priorHistory = null
+let isResume = false
+let resumeFromPhase = null
+
+if (resumeMode === "fresh") {
+  log("Resume: fresh mode — ignoring prior history.")
+} else {
+  const resumeCheck = await agent(
+    `Check for a previous run history file for the workflow "${WORKFLOW_NAME}".
+
+  Steps:
+  1. Run: Bash("mkdir -p '${HISTORY_DIR}'")
+  2. Run: Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | head -1")
+  3. If a file path was returned, read it: Bash("cat '<path>'")
+  4. Examine the JSON:
+     - Check "status": is it "complete", "partial", or "error"?
+     - Check "phases_completed": which phases finished?
+     - Check "args": do they match the current invocation?
+
+  Current invocation args: ${JSON.stringify({ prompt: (typeof resolvedArgs === "string" ? resolvedArgs : resolvedArgs?.prompt || "default").slice(0, 60), seeds: (resolvedArgs?.seeds || [42, 123, 777, 999]).join(","), steps: resolvedArgs?.steps || 9, resume: resumeMode })}
+
+  Decide:
+  - If no file found: action = "fresh"
+  - If file found and status = "complete": action = "compare" (prior run finished, use for trend)
+  - If file found and status = "partial" or "error": action = "resume", set resumeFromPhase to the phase AFTER the last completed phase
+  - If file found but args differ significantly (different prompt entirely): action = "fresh" (different scope)
+
+  Return your decision.`,
+    { label: "resume-check", phase: "Resolve", model: "haiku", schema: RESUME_CHECK_SCHEMA },
+  )
+
+  if (resumeCheck) {
+    if (resumeCheck.action === "resume") {
+      isResume = true
+      resumeFromPhase = resumeCheck.resumeFromPhase
+      log(`Resume: picking up from phase "${resumeFromPhase}" (prior run: ${resumeCheck.previousRunId})`)
+    } else if (resumeCheck.action === "compare") {
+      log(`Resume: prior run ${resumeCheck.previousRunId} completed — loading for trend comparison.`)
+      const priorLoad = await agent(
+        `Read the prior run history file and return its "result" field (the workflow-specific payload).
+      Run: Bash("cat '${HISTORY_DIR}/${resumeCheck.previousRunId}.json'")
+      Extract the "result" object and return it as { result: <payload> }.
+      If the file cannot be read, return { result: null }.`,
+        { label: "load-prior", phase: "Resolve", model: "haiku" },
+      )
+      priorHistory = priorLoad?.result || null
+      if (priorHistory) {
+        const ps = priorHistory.baseScoreSummary
+        log(`  Prior run: baseline overall=${ps?.overall ?? "?"}, LoRAs=${priorHistory.loraScoreSummary?.length || 0}`)
+      }
+    } else {
+      log("Resume: no prior history found — starting fresh.")
+    }
+  }
+
+  if (resumeMode === "continue" && !isResume && resumeCheck?.action !== "compare") {
+    log("WARNING: resume=continue but no prior run found. Starting fresh.")
+  }
+}
+
+markPhase("resolve", "completed")
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,6 +266,7 @@ let loraScale  = DEFAULT_SCALE
 let loraScales = null    // null = use DEFAULT_SCALES (sweep), array = custom sweep, single-element = skip sweep
 let wfLang     = "zh_TW"
 let noHtml     = false
+let resumeMode = "auto"  // "auto" | "fresh" | "continue"
 let loraFilter = null   // null = auto-discover, array = specific names
 
 if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
@@ -146,6 +281,7 @@ if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   if (Array.isArray(resolvedArgs.lora_scales))       loraScales = resolvedArgs.lora_scales.map(Number)
   if (typeof resolvedArgs.lang === "string")         wfLang     = resolvedArgs.lang
   if (resolvedArgs.noHtml === true)                  noHtml     = true
+  if (["auto", "fresh", "continue"].includes(resolvedArgs.resume)) resumeMode = resolvedArgs.resume
   if (Array.isArray(resolvedArgs.loras))             loraFilter = resolvedArgs.loras
 }
 
@@ -217,7 +353,7 @@ if (loras.length === 0) {
 log(`Discovered ${loras.length} zimage-turbo LoRA(s):`)
 loras.forEach((l, i) => log(`  [${i}] ${l.name} — ${l.description} (${l.dirName})`))
 
-// ── Build generation plan ────────────────────────────────────────────────────
+markPhase("discover", "completed")
 //
 // Plan structure (with sweep):
 //   Scale sweep:  N LoRAs × M scales × 1 probe seed
@@ -289,6 +425,8 @@ Return JSON:
   gpuWaited += 20
 }
 if (gpuWaited >= maxGpuWait) log(`WARNING: GPU still busy after ${maxGpuWait}s — proceeding anyway.`)
+
+markPhase("gpuWait", "completed")
 
 // ── Phase 3a: Scale Sweep (find optimal scale per LoRA) ──────────────────────
 
@@ -477,7 +615,7 @@ Return JSON (scores only):
   log(`Scale sweep: SKIPPED (using lora_scale=${loraScale} for all LoRAs)`)
 }
 
-// ── Rebuild LoRA specs with optimal scales ───────────────────────────────────
+markPhase("scaleSweep", doSweep ? "completed" : "skipped")
 
 loraSpecs.forEach((spec) => {
   const scale = bestScales[spec.loraName] || loraScale
@@ -567,6 +705,8 @@ const successCount = genResults.filter((r) => r.status === "success").length
 const failCount = genResults.filter((r) => r.status !== "success").length
 log(`Generation complete: ${successCount} success, ${failCount} failed`)
 
+markPhase("generate", failCount === 0 ? "completed" : "completed")
+
 // ── Phase 4: VLM pre-flight check ────────────────────────────────────────────
 
 phase("VLM Check")
@@ -589,6 +729,8 @@ IMPORTANT: Return ONLY the JSON object.`,
 
 const vlmAvailable = vlmCheck?.available === true
 log(vlmAvailable ? "VLM available — proceeding with Review." : "VLM UNAVAILABLE — skipping Review. Start LM Studio with a VLM model.")
+
+markPhase("vlmCheck", "completed")
 
 // ── Phase 5: Review — Caption each PNG ───────────────────────────────────────
 
@@ -735,6 +877,8 @@ const captionFiles = captionSets.flatMap((s) => s.files)
 log(`Caption sets built: ${captionSets.length} set(s), ${captionFiles.length} caption file(s)`)
 captionSets.forEach((s) => log(`  [${s.name}] ${s.files.length} images`))
 
+markPhase("review", "completed")
+
 // ── Phase 6: Report ──────────────────────────────────────────────────────────
 
 phase("Report")
@@ -829,6 +973,15 @@ ${JSON.stringify(genResults.map((r) => ({
   })),
 })), null, 2)}
 
+${priorHistory ? `## Prior Run Comparison (Trend)
+- Previous run baseline: overall=${priorHistory.baseScoreSummary?.overall ?? "?"}, detail=${priorHistory.baseScoreSummary?.detail ?? "?"}
+- Previous LoRA scores: ${JSON.stringify(priorHistory.loraScoreSummary?.map((s) => ({ name: s.name, overall: s.overall, detail: s.detail })) ?? [])}
+- Previous best scales: ${JSON.stringify(priorHistory.bestScales ?? {})}
+- Previous prompt: ${(priorHistory.args?.prompt || "unknown").slice(0, 100)}
+- Delta baseline overall: ${baseScoreSummary.overall != null && priorHistory.baseScoreSummary?.overall != null ? (baseScoreSummary.overall - priorHistory.baseScoreSummary.overall).toFixed(2) : "N/A"}
+
+Compare current vs prior run. Did scores improve, regress, or stay the same? Note if the prompt changed.` : "## Prior Run Comparison: No prior history (first run or fresh mode)."}
+
 ## Your Task
 
 **1. Scale Sweep Summary** (if sweep was done) — for each LoRA, show which scale won and why:
@@ -846,11 +999,15 @@ Show Δ (delta) from baseline for each metric.
 
 **5. Per-LoRA issues** — top issues per LoRA (from issues[]).
 
-**6. Recommendation** — which LoRA to use, at what scale, and for what types of prompts.
+**6. Trend comparison** (if prior run data available) — how scores changed vs prior run, different prompt/scale effects.
+
+**7. Recommendation** — which LoRA to use, at what scale, and for what types of prompts. If scores hit ceiling (9/9 everywhere), suggest harder test prompts.
 
 Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
+
+markPhase("report", "completed")
 
 // ── Phase 7: Review HTML ─────────────────────────────────────────────────────
 
@@ -895,9 +1052,88 @@ Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${totalF
   log(reviewHtml ? `Review HTML: ${reviewHtml}` : (htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : "Review HTML build failed."))
 }
 
+markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
+
+// ── Phase 8: Persist — write run history to disk ─────────────────────────────
+
+phase("Persist")
+
+const successCount = genResults.filter((r) => r.status === "success").length
+const failCount = genResults.filter((r) => r.status !== "success").length
+
+const historyEntry = {
+  schema_version: 1,
+  run_id: RUN_ID,
+  workflow: WORKFLOW_NAME,
+  started_at: RUN_TIMESTAMP,
+  args: {
+    prompt: prompt.slice(0, 200),
+    seeds,
+    steps,
+    width,
+    height,
+    lora_scale: loraScale,
+    lora_scales: loraScales,
+    loras: loraFilter,
+    lang: wfLang,
+    resume: resumeMode,
+  },
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  tags: ["lora-review", "zimage-turbo", ...(doSweep ? ["scale-sweep"] : [])],
+  result: {
+    loras: loras.map((l) => ({ name: l.name, dirName: l.dirName, description: l.description })),
+    seeds,
+    bestScales,
+    sweepResults,
+    loraScoreSummary,
+    baseScoreSummary,
+    reviewHtml,
+    generation: {
+      totalImages: genResults.length,
+      successCount,
+      failCount,
+      generatedImages: genResults
+        .filter((r) => r.status === "success" && r.outputPngs?.[0])
+        .map((r) => ({
+          type: r.spec?.type,
+          loraName: r.spec?.loraName || null,
+          seed: r.spec?.seed,
+          scale: r.spec?.scale || null,
+          path: r.outputPngs[0],
+        })),
+    },
+    priorRunId: priorHistory?.runId || null,
+  },
+}
+
+const historyJson = JSON.stringify(historyEntry, null, 2)
+
+await agent(
+  `Persist the workflow run history to disk.
+
+Steps:
+1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
+2. Write the history JSON file using a heredoc:
+   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
+${historyJson}
+HISTORY_EOF")
+3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
+4. Prune old runs — keep only the 15 most recent:
+   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+
+Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+markPhase("persist", "completed")
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 
 log("\n=== LoRA Review Complete ===")
+log(`Run: ${RUN_ID} | Images: ${genResults.length} (${successCount} ok, ${failCount} fail)`)
 log(reportResult || "(no report)")
 log(`\nLoRAs tested: ${loras.length}`)
 loras.forEach((l) => {
@@ -906,6 +1142,8 @@ loras.forEach((l) => {
 })
 log(`Baseline: overall=${baseScoreSummary.overall ?? "?"} (${baseScoreSummary.count} images)`)
 if (reviewHtml) log(`\nReview HTML: ${reviewHtml}`)
+log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
+if (priorHistory) log(`Prior run comparison: loaded (baseline=${priorHistory.baseScoreSummary?.overall ?? "?"})`)
 
 return {
   reviewHtml,
@@ -918,4 +1156,11 @@ return {
   sweepResults,
   loraScoreSummary,
   baseScoreSummary,
+  history: {
+    runId: RUN_ID,
+    path: `${HISTORY_DIR}/${RUN_ID}.json`,
+    phasesCompleted,
+    phasesFailed,
+    priorRunLoaded: !!priorHistory,
+  },
 }

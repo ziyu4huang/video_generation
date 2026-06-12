@@ -24,6 +24,7 @@ type StatusListener = (job: Job) => void;
 
 export class SubprocessManager {
   private jobs = new Map<string, Job>();
+  private finalizers = new Map<string, (status: "completed" | "failed", exitCode: number) => void>();
   private logListeners = new Set<LogListener>();
   private statusListeners = new Set<StatusListener>();
 
@@ -87,7 +88,7 @@ export class SubprocessManager {
     job.pid = proc.pid;
 
     // Drain stdout
-    const readStream = async (stream: "stdout" | "stderr", reader: any) => {
+    const readStream = async (stream: "stdout" | "stderr", reader: ReadableStreamDefaultReader<Uint8Array>) => {
       const textDecoder = new TextDecoder();
       try {
         while (true) {
@@ -119,18 +120,25 @@ export class SubprocessManager {
     const stdoutDone = readStream("stdout", proc.stdout.getReader());
     const stderrDone = readStream("stderr", proc.stderr.getReader());
 
+    // Guard against double-finalization (killJob vs proc.exited race)
+    let finalized = false;
+    const finalize = (status: "completed" | "failed", exitCode: number) => {
+      if (finalized) return;
+      finalized = true;
+      this.finalizers.delete(id);
+      job.status = status;
+      job.exitCode = exitCode;
+      job.completedAt = new Date().toISOString();
+      this.broadcastStatus(job);
+    };
+    this.finalizers.set(id, finalize);
+
     // Wait for exit, then drain remaining stream output before finalizing status
     proc.exited.then(async (code) => {
       await Promise.all([stdoutDone, stderrDone]);
-      job.status = code === 0 ? "completed" : "failed";
-      job.exitCode = code;
-      job.completedAt = new Date().toISOString();
-      this.broadcastStatus(job);
+      finalize(code === 0 ? "completed" : "failed", code);
     }).catch(() => {
-      job.status = "failed";
-      job.exitCode = -1;
-      job.completedAt = new Date().toISOString();
-      this.broadcastStatus(job);
+      finalize("failed", -1);
     });
 
     return id;
@@ -151,11 +159,16 @@ export class SubprocessManager {
     if (!job || job.status !== "running") return false;
     try {
       process.kill(job.pid!, "SIGTERM");
-      job.status = "failed";
-      job.exitCode = -1;
-      job.completedAt = new Date().toISOString();
       job.logs.push("[cancelled by user]");
-      this.broadcastStatus(job);
+      const finalize = this.finalizers.get(id);
+      if (finalize) {
+        finalize("failed", -1);
+      } else {
+        job.status = "failed";
+        job.exitCode = -1;
+        job.completedAt = new Date().toISOString();
+        this.broadcastStatus(job);
+      }
       return true;
     } catch {
       return false;

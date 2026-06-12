@@ -1,17 +1,22 @@
+import type { Server, ServerWebSocket } from "bun";
 import { subprocessManager, type Job } from "../lib/subprocess";
 
-const connectedClients = new Set<any>();
+interface WsData {
+  subscribedJobId: string | null;
+}
 
-export function handleWebSocketUpgrade(req: Request, server: any): boolean {
+const connectedClients = new Set<ServerWebSocket<WsData>>();
+
+export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
   const url = new URL(req.url);
   if (url.pathname !== "/ws") return false;
 
-  const success = server.upgrade(req, { data: { subscribedJobId: null as string | null } });
+  const success = server.upgrade(req, { data: { subscribedJobId: null } });
   return success;
 }
 
 export const wsHandlers = {
-  open(ws: any) {
+  open(ws: ServerWebSocket<WsData>) {
     connectedClients.add(ws);
     // Send currently running jobs' buffered logs
     const jobs = subprocessManager.listJobs().filter((j) => j.status === "running");
@@ -27,7 +32,7 @@ export const wsHandlers = {
     }
   },
 
-  message(ws: any, msg: string | Buffer) {
+  message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
     try {
       const data = JSON.parse(typeof msg === "string" ? msg : msg.toString());
       if (data.type === "subscribe" && data.jobId) {
@@ -41,7 +46,7 @@ export const wsHandlers = {
     }
   },
 
-  close(ws: any) {
+  close(ws: ServerWebSocket<WsData>) {
     connectedClients.delete(ws);
   },
 };

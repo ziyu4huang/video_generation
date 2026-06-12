@@ -69,6 +69,15 @@ def _inject_default_subcommand() -> None:
 # Parser factory
 # ---------------------------------------------------------------------------
 
+# Global arguments inherited by all subcommands
+_global_parser = argparse.ArgumentParser(add_help=False)
+_global_parser.add_argument(
+    "--force", "--skip-gpu-lock",
+    action="store_true", default=False, dest="force_gpu",
+    help="Bypass GPU busy detection — run even when another GPU-heavy process is active",
+)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run.py",
@@ -94,12 +103,29 @@ def build_parser() -> argparse.ArgumentParser:
         sub = subparsers.add_parser(
             name,
             formatter_class=argparse.RawDescriptionHelpFormatter,
+            parents=[_global_parser],
             **mod.PARSER_META,
         )
         mod.add_args(sub)
         sub.set_defaults(func=mod.run)
 
     return parser
+
+
+# ---------------------------------------------------------------------------
+# GPU-guarded dispatch
+# ---------------------------------------------------------------------------
+
+def _run_with_gpu_guard(args) -> None:
+    """Acquire GPU lock if the command is GPU-heavy, then dispatch."""
+    from app.gpu_monitor import GpuLock, is_gpu_heavy_command
+
+    force = getattr(args, "force_gpu", False)
+    if is_gpu_heavy_command(args) and not force:
+        with GpuLock():
+            args.func(args)
+    else:
+        args.func(args)
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +136,7 @@ def main() -> None:
     _inject_default_subcommand()
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    _run_with_gpu_guard(args)
 
 
 if __name__ == "__main__":

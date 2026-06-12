@@ -695,14 +695,12 @@ def _resolve_segment_images(args, n_segments: int) -> list:
 
 def run_relay(args):
     """Entry point for video relay sub-action."""
-    from app.gpu_lock import GpuLock
-    with GpuLock(skip=False):
-        if getattr(args, "relay_variant", None):
-            _run_relay_variants(args)
-        elif getattr(args, "relay_self_test", False):
-            _run_relay_self_test(args)
-        else:
-            _run_relay_inner(args)
+    if getattr(args, "relay_variant", None):
+        _run_relay_variants(args)
+    elif getattr(args, "relay_self_test", False):
+        _run_relay_self_test(args)
+    else:
+        _run_relay_inner(args)
 
 
 _SELF_TEST_PROMPTS = _RELAY_PRESETS["physics"]["prompts"][:2]

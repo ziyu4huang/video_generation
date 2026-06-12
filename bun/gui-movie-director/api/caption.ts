@@ -25,6 +25,14 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'image' path" }, { status: 400 });
   }
 
+  // Resolve to absolute path and confine to allowed directories
+  const resolvedImage = path.resolve(image);
+  const allowedDirs = [...OUTPUT_DIRS, REPO_DIR];
+  const isAllowed = allowedDirs.some((d) => resolvedImage.startsWith(d + path.sep) || resolvedImage === d);
+  if (!isAllowed) {
+    return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
+  }
+
   const cfg = loadConfig();
   const args = [
     path.resolve(import.meta.dir, "../../python/mlx-movie-director/run.py"),
