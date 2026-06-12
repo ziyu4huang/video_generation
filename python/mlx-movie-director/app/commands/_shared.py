@@ -4,7 +4,9 @@ import os
 import sys
 import time
 import traceback
+from contextlib import contextmanager
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from app import config as cfg
 
@@ -18,6 +20,130 @@ DEFAULT_UPSCALE_MODEL = os.path.join(
 )
 
 RELAY_FINAL_MODE = "relay-final"
+
+
+# ---------------------------------------------------------------------------
+# Output naming (defined early — used by make_output_paths below)
+# ---------------------------------------------------------------------------
+
+def generate_base_name() -> str:
+    return f"output_{time.strftime('%Y%m%d_%H%M%S')}"
+
+
+# ---------------------------------------------------------------------------
+# Output path helpers
+# ---------------------------------------------------------------------------
+
+class OutputPaths(NamedTuple):
+    base_name: str       # "output_20260613_143022"
+    run_file: str        # ".../output_XXXX.run.json"
+    manifest_file: str   # ".../output_XXXX.manifest.json"
+    output_file: str     # ".../output_XXXX<suffix><ext>"
+
+
+def make_output_paths(suffix: str = "", ext: str = ".png") -> OutputPaths:
+    """Build a consistent set of output paths from a single timestamp base name."""
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    base = generate_base_name()
+    d = cfg.OUTPUT_DIR
+    return OutputPaths(
+        base_name=base,
+        run_file=os.path.join(d, f"{base}.run.json"),
+        manifest_file=os.path.join(d, f"{base}.manifest.json"),
+        output_file=os.path.join(d, f"{base}{suffix}{ext}"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Draft mode + batch seed helpers
+# ---------------------------------------------------------------------------
+
+def apply_draft_overrides(args) -> None:
+    """Apply draft mode presets (4 steps, 512×512) when --draft is set."""
+    if not getattr(args, "draft", False):
+        return
+    args.steps = 4
+    if getattr(args, "width", None) is None:
+        args.width = 512
+    if getattr(args, "height", None) is None:
+        args.height = 512
+    print("  [Draft] Quick preview: 4 steps, 512x512")
+
+
+def seed_sequence(args_or_config) -> list:
+    """Return a list of seeds for a batch run.
+
+    Works with both argparse Namespace and RunConfig objects (same attribute names).
+    """
+    count = max(1, getattr(args_or_config, "count", 1) or 1)
+    seed = getattr(args_or_config, "seed", None)
+    seed_start = getattr(args_or_config, "seed_start", None)
+    if seed_start is not None:
+        return [seed_start + i for i in range(count)]
+    return [seed] * count
+
+
+# ---------------------------------------------------------------------------
+# Run session context manager
+# ---------------------------------------------------------------------------
+
+@contextmanager
+def run_session(paths: OutputPaths, run_config, json_summary: bool = False):
+    """Write run.json, record timing, write manifest on success/error.
+
+    Yields a mutable dict (ctx) the caller fills with generation results:
+      ctx["timings"]  — dict of phase timings from GenerationResult
+      ctx["outputs"]  — list of {path, seed, size_bytes, width, height, ...}
+      ctx["models"]   — model fingerprint dict from collect_model_fingerprint*()
+
+    On exception: writes an error manifest and sys.exit(1).
+    On success:   writes a success manifest and prints the summary lines.
+    """
+    import json as _json
+    from app.manifest import Manifest
+
+    run_config.to_json(paths.run_file)
+    start = datetime.now(timezone.utc).isoformat()
+    ctx: dict = {"timings": {}, "outputs": [], "models": {}}
+    try:
+        yield ctx
+    except Exception as exc:
+        end = datetime.now(timezone.utc).isoformat()
+        manifest = Manifest.from_error(
+            paths.run_file, start, end,
+            ctx.get("timings", {}), exc, ctx.get("models", {}),
+        )
+        manifest.to_json(paths.manifest_file)
+        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
+        print(f"Manifest (error): {paths.manifest_file}", file=sys.stderr)
+        traceback.print_exc()
+        if json_summary:
+            summary = _json.dumps({
+                "status": "error",
+                "run_json": paths.run_file,
+                "manifest_json": paths.manifest_file,
+                "outputs": [o["path"] for o in ctx.get("outputs", [])],
+                "error": f"{type(exc).__name__}: {exc}",
+            })
+            print(f"JSON_SUMMARY:{summary}")
+        sys.exit(1)
+    else:
+        end = datetime.now(timezone.utc).isoformat()
+        manifest = Manifest.from_success(
+            paths.run_file, start, end,
+            ctx["timings"], ctx["outputs"], ctx["models"],
+        )
+        manifest.to_json(paths.manifest_file)
+        print(f"Run config: {paths.run_file}")
+        print(f"Manifest:   {paths.manifest_file}")
+        if json_summary:
+            summary = _json.dumps({
+                "status": "success",
+                "run_json": paths.run_file,
+                "manifest_json": paths.manifest_file,
+                "outputs": [o["path"] for o in ctx["outputs"]],
+            })
+            print(f"JSON_SUMMARY:{summary}")
 
 
 # ---------------------------------------------------------------------------
@@ -291,14 +417,6 @@ def resolve_upscale_model(run_config) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Output naming
-# ---------------------------------------------------------------------------
-
-def generate_base_name() -> str:
-    return f"output_{time.strftime('%Y%m%d_%H%M%S')}"
-
-
-# ---------------------------------------------------------------------------
 # Generation execution (shared by generate, refine, replay)
 # ---------------------------------------------------------------------------
 
@@ -318,13 +436,12 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
     from app.manifest import Manifest, collect_model_fingerprint, collect_model_fingerprint_flux2
     from PIL import Image
 
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-
     # Single base name shared by .run.json, .manifest.json, and .png files.
     # Batch images get a _s{seed} suffix but keep the same timestamp base.
-    base_name = generate_base_name()
-    run_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.run.json")
-    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.manifest.json")
+    paths = make_output_paths()
+    run_file = paths.run_file
+    manifest_file = paths.manifest_file
+    base_name = paths.base_name
 
     run_config.to_json(run_file)
 
@@ -338,7 +455,8 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
     if not prompt:
         raise ValueError("No prompt provided.")
 
-    count = max(1, run_config.count)
+    seeds = seed_sequence(run_config)
+    count = len(seeds)
     upscale_model = resolve_upscale_model(run_config)
 
     # Load input image for img2img (once, reused across batch)
@@ -364,9 +482,7 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
     last_timings = {}
 
     try:
-        for i in range(count):
-            seed = (run_config.seed_start + i) if run_config.seed_start is not None else run_config.seed
-
+        for i, seed in enumerate(seeds):
             if count > 1:
                 print(f"\n=== Batch {i + 1}/{count} (seed={seed}) ===")
 
@@ -545,10 +661,10 @@ def execute_ab_test(run_config, json_summary: bool = False) -> str:
     from app.pipeline_types import GenerationResult
     from PIL import Image
 
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    base_name = generate_base_name()
-    run_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.run.json")
-    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.manifest.json")
+    paths = make_output_paths()
+    run_file = paths.run_file
+    manifest_file = paths.manifest_file
+    base_name = paths.base_name
 
     run_config.to_json(run_file)
     start_time = datetime.now(timezone.utc).isoformat()
@@ -565,13 +681,13 @@ def execute_ab_test(run_config, json_summary: bool = False) -> str:
     if run_config.input_image:
         input_image = Image.open(run_config.input_image).convert("RGB")
 
-    count = max(1, run_config.count)
+    seeds = seed_sequence(run_config)
+    count = len(seeds)
     all_outputs = []
     all_timings = {}
 
     try:
-        for i in range(count):
-            seed = (run_config.seed_start + i) if run_config.seed_start is not None else run_config.seed
+        for i, seed in enumerate(seeds):
             suffix = f"_s{seed}" if count > 1 else ""
 
             # --- Pass 1: ZImage ---
@@ -737,3 +853,33 @@ def execute_upscale(input_path: str, model_path: str, output_path: str | None) -
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     upscaled.save(output_path)
     print(f"Saved: {output_path}")
+
+
+# ---------------------------------------------------------------------------
+# Subprocess helper — auto-propagates --force to prevent GPU lock deadlock
+# ---------------------------------------------------------------------------
+
+def build_run_py_cmd(*args, force=None) -> list[str]:
+    """Build a subprocess command invoking run.py.
+
+    Automatically appends --force when the current process was started with
+    --force (prevents GPU lock deadlock in child processes). All subprocess
+    calls to run.py should use this helper instead of building cmd lists by hand.
+
+    Args:
+        *args: Positional arguments for run.py (e.g. "video", "generate", "--prompt", "test").
+        force: Override force behavior. None = auto-detect from sys.argv,
+               True = always append --force, False = never append.
+
+    Returns:
+        Command list suitable for subprocess.run().
+    """
+    run_py = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "run.py")
+    )
+    cmd = [sys.executable, run_py] + list(args)
+    if force is None:
+        force = "--force" in sys.argv or "--skip-gpu-lock" in sys.argv
+    if force:
+        cmd.append("--force")
+    return cmd

@@ -8,7 +8,7 @@ Public API:
   run_t2i(args)         — execute T2I generation
 """
 
-from app.commands._shared import execute_generation, execute_ab_test
+from app.commands._shared import execute_generation, execute_ab_test, apply_draft_overrides
 from app.run_config import RunConfig
 
 _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4}
@@ -53,14 +53,7 @@ def run_t2i(args):
     """Execute T2I generation. Called by image.py dispatcher."""
     pipeline_type = getattr(args, "pipeline", "zimage")
 
-    # Draft mode overrides
-    if getattr(args, "draft", False):
-        args.steps = 4
-        if args.width is None:
-            args.width = 512
-        if args.height is None:
-            args.height = 512
-        print("  [Draft] Quick preview: 4 steps, 512x512")
+    apply_draft_overrides(args)
 
     if args.steps is None:
         args.steps = _PIPELINE_DEFAULT_STEPS.get(pipeline_type, 9)

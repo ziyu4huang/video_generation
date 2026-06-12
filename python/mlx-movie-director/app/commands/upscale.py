@@ -1,6 +1,7 @@
 """upscale — standalone image upscale: ESRGAN (pixel) or SeedVR2 (AI diffusion)."""
 
 from app.commands._shared import DEFAULT_UPSCALE_MODEL, execute_upscale
+from app.io_utils import require_file
 
 PARSER_META = {
     "help": "Image upscale: ESRGAN (fast pixel) or SeedVR2 (AI diffusion)",
@@ -44,12 +45,10 @@ def add_args(parser):
 
 
 def run(args):
-    input_path = args.image or args.input_image
-    if not input_path:
-        import sys
-        print("ERROR: provide an image path (positional) or --input-image PATH", file=sys.stderr)
-        sys.exit(1)
-
+    input_path = require_file(
+        args.image or args.input_image,
+        "input image (positional arg or --input-image)",
+    )
     method = args.method
 
     if method == "esrgan":
@@ -62,13 +61,8 @@ def run(args):
 def _run_seedvr2(input_path: str, args) -> None:
     """Run SeedVR2 AI upscale."""
     import os
-    import sys
-    from PIL import Image
+    from app.io_utils import load_image_rgb
     from app.seedvr2.pipeline import SeedVR2Upscaler
-
-    if not os.path.exists(input_path):
-        print(f"ERROR: input image not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
 
     # Parse resolution: "2160" → int, "2x" → float
     res_str = args.resolution
@@ -81,7 +75,7 @@ def _run_seedvr2(input_path: str, args) -> None:
             print(f"ERROR: invalid resolution '{res_str}'. Use pixels (e.g. 2160) or scale (e.g. 2x)", file=sys.stderr)
             sys.exit(1)
 
-    image = Image.open(input_path).convert("RGB")
+    image = load_image_rgb(input_path)
     w0, h0 = image.size
     print(f"SeedVR2 upscale: {input_path} ({w0}×{h0}) → resolution={resolution}, softness={args.softness}, seed={args.seed}")
 
