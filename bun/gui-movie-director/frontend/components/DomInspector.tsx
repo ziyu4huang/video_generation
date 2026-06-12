@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import s from "./DomInspector.module.css";
 import { inspectElement } from "../utils/inspectElement";
 import { getReactInfo } from "../utils/getReactInfo";
 import { getSourcePath } from "../utils/getSourcePath";
@@ -105,7 +106,7 @@ export function DomInspector() {
     <div ref={inspectorRef} style={{ all: "initial" }}>
       {/* Toggle button */}
       <button
-        className={`inspector-toggle ${isActive ? "active" : ""}`}
+        className={`${s.inspectorToggle} ${isActive ? s.active : ""}`}
         onClick={toggleActive}
         title={isActive ? "Exit inspect mode (Esc)" : "Inspect element"}
       >
@@ -115,7 +116,7 @@ export function DomInspector() {
       {/* Hover highlight overlay */}
       {isActive && hoveredRect && (
         <div
-          className="inspector-highlight"
+          className={s.inspectorHighlight}
           style={{
             top: hoveredRect.top,
             left: hoveredRect.left,
@@ -127,18 +128,18 @@ export function DomInspector() {
 
       {/* Detail modal */}
       {selectedData && (
-        <div className="inspector-modal-backdrop" onClick={dismissModal}>
-          <div className="inspector-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="inspector-modal-header">
+        <div className={s.inspectorModalBackdrop} onClick={dismissModal}>
+          <div className={s.inspectorModal} onClick={(e) => e.stopPropagation()}>
+            <div className={s.inspectorModalHeader}>
               <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-bright)" }}>
                 Element Inspector
               </span>
-              <button className="inspector-modal-close" onClick={dismissModal}>✕</button>
+              <button className={s.inspectorModalClose} onClick={dismissModal}>✕</button>
             </div>
-            <pre className="inspector-modal-json">
+            <pre className={s.inspectorModalJson}>
               {JSON.stringify(selectedData, null, 2)}
             </pre>
-            <div className="inspector-modal-actions">
+            <div className={s.inspectorModalActions}>
               <button className="btn btn-primary" onClick={handleCopy} style={{ fontSize: 12 }}>
                 {copied ? "✓ Copied!" : "Copy to Clipboard"}
               </button>

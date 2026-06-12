@@ -1,0 +1,12 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+  "model_type": "ltx-transformer",
+  "num_layers": 48,
+  "video_dim": 4096,
+  "video_num_heads": 32,
+  "video_head_dim": 128,
+  "audio_dim": 2048,
+  "audio_num_heads": 32,
+  "audio_head_dim": 64,
+  "quantization": "int8"
+}

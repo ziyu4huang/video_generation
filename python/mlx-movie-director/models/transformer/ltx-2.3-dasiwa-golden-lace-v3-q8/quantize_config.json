@@ -1,0 +1,7 @@
+{
+  "quantization": {
+    "bits": 8,
+    "group_size": 64,
+    "only_transformer_blocks": true
+  }
+}

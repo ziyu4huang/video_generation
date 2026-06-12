@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { loadConfig } from "../lib/config";
+import { loadConfig, REPO_DIR } from "../lib/config";
+import { OUTPUT_DIRS } from "../lib/paths";
 
 /**
  * Run caption (VLM analysis) on an image via `run.py caption`.
@@ -87,8 +88,16 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'image' query param" }, { status: 400 });
   }
 
+  // Resolve to absolute path and confine to allowed directories
+  const resolvedImage = path.resolve(imagePath);
+  const allowedDirs = [...OUTPUT_DIRS, REPO_DIR];
+  const isAllowed = allowedDirs.some((d) => resolvedImage.startsWith(d + path.sep) || resolvedImage === d);
+  if (!isAllowed) {
+    return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
+  }
+
   // Derive caption path: image.png → image.caption.json
-  const base = imagePath.replace(/\.[^.]+$/, "");
+  const base = resolvedImage.replace(/\.[^.]+$/, "");
   const captionPath = `${base}.caption.json`;
 
   if (!fs.existsSync(captionPath)) {

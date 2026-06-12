@@ -106,9 +106,32 @@ _LTX_DISTILLED_REQUIRED_FILES = [
     (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
 ]
 
+# DaSiWa dev-architecture finetune: its own transformer + the same shared
+# connector/VAE the dev path uses. (Distilled-LoRA is shared too but only
+# needed at Stage 2 of the two-stage pipelines, which resolve it from the
+# flat dir by filename.)
+_LTX_DASIWA_REQUIRED_FILES = [
+    (cfg.LTX_DASIWA_TRANSFORMER_DIR, "transformer-dev.safetensors"),
+    (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
+    (cfg.LTX_VAE_DIR,         "vae_encoder.safetensors"),
+    (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
+]
 
-def _local_components_ready(distilled: bool = False) -> bool:
-    files = _LTX_DISTILLED_REQUIRED_FILES if distilled else _LTX_REQUIRED_FILES
+# transformer variant → (source-existence check list, pre-built flat dir)
+_LTX_REQUIRED_BY_TRANSFORMER: dict[str, list[tuple[str, str]]] = {
+    "dev": _LTX_REQUIRED_FILES,
+    "distilled": _LTX_DISTILLED_REQUIRED_FILES,
+    "dasiwa": _LTX_DASIWA_REQUIRED_FILES,
+}
+_LTX_PREBUILT_DIR: dict[str, str] = {
+    "dev": cfg.LTX_MLX_DEV_DIR,
+    "distilled": cfg.LTX_MLX_DISTILLED_DIR,
+    "dasiwa": cfg.LTX_MLX_DASIWA_DIR,
+}
+
+
+def _local_components_ready(transformer: str = "dev") -> bool:
+    files = _LTX_REQUIRED_BY_TRANSFORMER.get(transformer, _LTX_REQUIRED_FILES)
     return all(
         os.path.exists(os.path.join(d, f))
         for d, f in files
@@ -126,15 +149,15 @@ def _check_flat_dir(target_dir: str, required_files: list[tuple[str, str]]) -> b
     return True
 
 
-def _ensure_flat_dir(distilled: bool = False) -> str:
+def _ensure_flat_dir(transformer: str = "dev") -> str:
     """Return a flat model dir, preferring pre-built symlinks over temp assembly.
 
-    Pre-built dirs live at models/ltx-mlx/dev/ or models/ltx-mlx/distilled/
-    and are created by scripts/setup_ltx_symlinks.py.  If not found or invalid,
+    Pre-built dirs live at models/ltx-mlx/{dev,distilled,dasiwa}/ and are
+    created by scripts/setup_ltx_symlinks.py.  If not found or invalid,
     falls back to on-the-fly temp assembly.
     """
-    prebuilt = cfg.LTX_MLX_DISTILLED_DIR if distilled else cfg.LTX_MLX_DEV_DIR
-    required = _LTX_DISTILLED_REQUIRED_FILES if distilled else _LTX_REQUIRED_FILES
+    prebuilt = _LTX_PREBUILT_DIR.get(transformer, cfg.LTX_MLX_DEV_DIR)
+    required = _LTX_REQUIRED_BY_TRANSFORMER.get(transformer, _LTX_REQUIRED_FILES)
     if _check_flat_dir(prebuilt, required):
         print(f"[LTXVideoPipeline] Using pre-built flat dir: {prebuilt}")
         return prebuilt
@@ -241,6 +264,7 @@ class LTXVideoPipeline:
         low_ram: bool = False,
         hq: bool = False,
         distilled: bool = False,
+        transformer: str | None = None,
         temporal_upscale: bool = False,
         lora_path: str | None = None,
         lora_scale: float = 1.0,
@@ -258,6 +282,30 @@ class LTXVideoPipeline:
                              Fused into the dev transformer at load time via vendor _pending_loras.
             lora_scale:      LoRA fusion strength (default: 1.0).
         """
+        # Resolve transformer variant: --transformer wins, else fall back to
+        # the --distilled flag. dasiwa is a dev-architecture finetune, so it
+        # rides the dev pipeline branch (self.distilled stays False).
+        if transformer is None:
+            transformer = "distilled" if distilled else "dev"
+        if transformer not in ("dev", "distilled", "dasiwa"):
+            raise ValueError(
+                f"LTXVideoPipeline: transformer must be dev/distilled/dasiwa, got {transformer!r}"
+            )
+        self.transformer = transformer
+        distilled = transformer == "distilled"
+        # The two-stage stage-1→stage-2 swap (used at LoRA strength 1.0 in
+        # low_ram mode) needs a pre-fused transformer-distilled*.safetensors in
+        # the flat dir. Neither the dev flat dir nor third-party dev finetunes
+        # (dasiwa) ship that file — only the distilled flat dir does. So pin the
+        # strength just off 1.0 to force bind-time LoRA fusion instead, which
+        # streams the dev/finetune weights + fuses the distilled LoRA at each
+        # bind. (Vendor docs: strengths in [0.8, 1.2] are visually
+        # indistinguishable from the strength-1.0 swap.) `distilled` uses the
+        # separate DistilledPipeline and never consumes this value.
+        self._distilled_lora_strength = (
+            0.999 if transformer in ("dev", "dasiwa") else 1.0
+        )
+
         self.low_ram = low_ram
         self.hq = hq
         self.distilled = distilled
@@ -271,12 +319,24 @@ class LTXVideoPipeline:
         if model_dir:
             self._model_dir = model_dir
             print(f"[LTXVideoPipeline] Using explicit model_dir: {model_dir}")
-        elif _local_components_ready(distilled=distilled):
-            self._assembly_dir = _ensure_flat_dir(distilled=distilled)
+        elif _local_components_ready(transformer=transformer):
+            self._assembly_dir = _ensure_flat_dir(transformer=transformer)
             self._model_dir = self._assembly_dir
-            mode_tag = " (distilled)" if distilled else ""
+            mode_tag = " (distilled)" if distilled else (
+                f" ({transformer})" if transformer != "dev" else ""
+            )
             print(f"[LTXVideoPipeline] Using local pre-downloaded components{mode_tag}")
         else:
+            if transformer == "dasiwa":
+                # Don't silently fall back to the HF dev repo — that would
+                # generate with the wrong (non-DaSiWa) weights.
+                raise FileNotFoundError(
+                    f"[LTXVideoPipeline] DaSiWa transformer not found at "
+                    f"{cfg.LTX_DASIWA_TRANSFORMER_DIR}.\n"
+                    f"  Convert it first:\n"
+                    f"    python/venv/bin/python convert.py --ltx-checkpoint <dasiwa.safetensors>\n"
+                    f"    python/venv/bin/python scripts/setup_ltx_symlinks.py --force"
+                )
             self._model_dir = "dgrauet/ltx-2.3-mlx-q8"
             print(
                 f"[LTXVideoPipeline] Local components not found — "
@@ -597,6 +657,7 @@ class LTXVideoPipeline:
             low_ram_streaming=self.low_ram,
             dev_transformer="transformer-dev.safetensors",
             distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
+            distilled_lora_strength=self._distilled_lora_strength,
         )
         self._apply_lora(pipeline)
 
@@ -635,6 +696,7 @@ class LTXVideoPipeline:
                 model_dir=self._model_dir,
                 low_memory=True,
                 low_ram_streaming=self.low_ram,
+                distilled_lora_strength=self._distilled_lora_strength,
             )
         elif self.hq:
             from ltx_pipelines_mlx import TI2VidTwoStagesHQPipeline as Pipeline
@@ -652,6 +714,7 @@ class LTXVideoPipeline:
                 model_dir=self._model_dir,
                 low_memory=True,
                 low_ram_streaming=self.low_ram,
+                distilled_lora_strength=self._distilled_lora_strength,
             )
         else:
             from ltx_pipelines_mlx import TI2VidTwoStagesPipeline as Pipeline
@@ -668,6 +731,7 @@ class LTXVideoPipeline:
                 model_dir=self._model_dir,
                 low_memory=True,
                 low_ram_streaming=self.low_ram,
+                distilled_lora_strength=self._distilled_lora_strength,
             )
         self._apply_lora(pipeline)
 

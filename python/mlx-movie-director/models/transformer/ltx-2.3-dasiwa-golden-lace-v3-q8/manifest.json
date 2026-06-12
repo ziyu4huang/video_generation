@@ -1,0 +1,21 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py --ltx-checkpoint. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ltx-2.3-dasiwa-golden-lace-v3-q8",
+  "type": "transformer",
+  "arch": "ltx-2.3",
+  "format": "mlx-int8",
+  "description": "DaSiWa LTX-2.3 finetune, int8 MLX. Converted from DasiwaLTX23_goldenLaceV3.safetensors via convert.py --ltx-checkpoint.",
+  "source": "civitai:2543443@2967331",
+  "weight_file": "transformer-dev.safetensors",
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "compatible_with": [
+    "text_encoder/ltx-2.3-connector",
+    "vae/ltx-2.3-vae",
+    "lora/ltx-2.3-distilled",
+    "audio/ltx-2.3-audio"
+  ],
+  "size_bytes": 20587725515,
+  "created_at": "2026-06-12T00:00:00Z"
+}

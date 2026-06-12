@@ -18,6 +18,7 @@ const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
 
 // Pre-built frontend bundle (built at server startup, rebuilt on file change in dev)
 let _bundle: Response | null = null;
+let _bundleCss: Response | null = null;
 
 async function _doBuild(silent?: boolean): Promise<boolean> {
   const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
@@ -33,14 +34,22 @@ async function _doBuild(silent?: boolean): Promise<boolean> {
       external: [],
     });
     if (result.success && result.outputs.length > 0) {
-      const blob = result.outputs[0];
-      _bundle = new Response(blob, {
-        headers: {
-          "Content-Type": "application/javascript; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      });
-      if (!silent) console.log(`📦 Frontend bundled: ${Math.round(blob.size / 1024)}KB`);
+      let jsSize = 0;
+      let cssSize = 0;
+      for (const output of result.outputs) {
+        if (output.path.endsWith(".css")) {
+          _bundleCss = new Response(output, {
+            headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" },
+          });
+          cssSize = output.size;
+        } else if (output.path.endsWith(".js")) {
+          _bundle = new Response(output, {
+            headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" },
+          });
+          jsSize = output.size;
+        }
+      }
+      if (!silent) console.log(`📦 Frontend bundled: JS ${Math.round(jsSize / 1024)}KB${cssSize ? ` + CSS ${Math.round(cssSize / 1024)}KB` : ""}`);
       return true;
     } else {
       console.error("Bundle errors:", result.logs);
@@ -88,7 +97,13 @@ export async function handleRequest(req: Request, server: any): Promise<Response
     return new Response("Bundle not ready", { status: 503 });
   }
 
-  // CSS
+  // Frontend bundle CSS (from Bun.build — includes global.css + CSS module outputs)
+  if (pathname === "/frontend/bundle.css") {
+    if (_bundleCss) return _bundleCss.clone();
+    return new Response("", { status: 200, headers: TEXT_CSS });
+  }
+
+  // Legacy CSS (kept for backwards compatibility during transition)
   if (pathname === "/frontend/styles.css") {
     return serveFile(path.join(FRONTEND_DIR, "styles.css"), TEXT_CSS);
   }

@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from "react";
+import s from "./LogViewer.module.css";
 
 interface LogViewerProps {
   logs: string[];
@@ -56,12 +57,12 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
           </button>
         )}
       </div>
-      <div className="log-viewer" ref={containerRef}>
+      <div className={s.logViewer} ref={containerRef}>
         {logs.length === 0 ? (
-          <span className="log-placeholder">Waiting for output...</span>
+          <span className={s.logPlaceholder}>Waiting for output...</span>
         ) : (
           logs.map((line, i) => (
-            <div key={i} className={`log-line ${classifyLine(line)}`}>
+            <div key={i} className={`${s.logLine} ${s[classifyLine(line)] ?? ""}`}>
               {line}
             </div>
           ))

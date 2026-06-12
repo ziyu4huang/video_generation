@@ -965,6 +965,228 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
     return True
 
 
+def convert_ltx_checkpoint(checkpoint_path: str, output_name: str = "ltx-2.3-dasiwa-golden-lace-v3-q8"):
+    """Convert a third-party LTX-2.3 transformer checkpoint (Civitai .safetensors) to MLX int8.
+
+    Produces the same on-disk format as models/transformer/ltx-2.3-dev-q8/
+    (keys prefixed ``transformer.``, transformer_blocks linears int8-quantized
+    with group_size=64, everything else bf16) so it drops into the existing
+    LTX-2.3 pipeline as an alternative transformer.
+
+    Much simpler than the Klein checkpoint converter because LTX-2.3 uses
+    separate to_q/to_k/to_v projections (no fused QKV to split) and the MLX
+    model keys are reached by pure string substitution from the ComfyUI names.
+    The key remap reuses the vendor's parity-tested
+    ``LTXV_LORA_COMFY_RENAMING_MAP`` (ltx_core_mlx.loader.sd_ops).
+
+    Source may be a full ComfyUI export (transformer + VAE + audio + vocoder) —
+    only the ``model.diffusion_model.*`` transformer keys are extracted. FP8
+    linears (ComfyUI ``float8_e4m3fn`` per-tensor: weight + ``weight_scale``
+    scalar + ``comfy_quant`` JSON) are dequantized as ``weight.float() * scale``;
+    BF16/F32 tensors pass through. Everything is stored as bf16 before MLX
+    int8 quantization.
+
+    Usage:
+        convert.py --ltx-checkpoint DasiwaLTX23_goldenLaceV3.safetensors
+        convert.py --ltx-checkpoint ckpt.safetensors --name my-ltx-variant-q8
+    """
+    import safetensors
+    from mlx.utils import tree_flatten
+
+    # Make vendored packages importable and apply runtime patches (mirrors
+    # ltx_pipeline.py — vendor_patches needs mflux on path before import).
+    _app_dir = os.path.dirname(os.path.abspath(__file__))
+    _vendor = os.path.join(_app_dir, "vendor")
+    for _pkg in (
+        "ltx-2-mlx/packages/ltx-core-mlx/src",
+        "ltx-2-mlx/packages/ltx-pipelines-mlx/src",
+        "mflux/src",
+    ):
+        _src = os.path.join(_vendor, _pkg)
+        if os.path.isdir(_src) and _src not in sys.path:
+            sys.path.insert(0, _src)
+    import app.vendor_patches  # noqa: F401
+    from ltx_core_mlx.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
+    from ltx_core_mlx.model.transformer.model import LTXModel, LTXModelConfig
+
+    checkpoint_path = os.path.abspath(checkpoint_path)
+    if not os.path.exists(checkpoint_path):
+        print(f"[ltx-checkpoint] ERROR: file not found: {checkpoint_path}", file=sys.stderr)
+        return False
+
+    dst_dir = os.path.join(cfg.MODELS_DIR, "transformer", output_name)
+
+    # Instantiate the target model once — its parameter tree defines which
+    # source keys to keep. This drops ComfyUI's bundled connector weights
+    # (audio/video_embeddings_connector.*) and any non-transformer tensors,
+    # which are separate components in the MLX app.
+    print("[ltx-checkpoint] Initializing LTXModel (48L, 4096/2048)…")
+    model = LTXModel(LTXModelConfig())  # defaults match LTX-2.3 22B
+    model_keys = set(dict(tree_flatten(model.parameters())).keys())
+    print(f"[ltx-checkpoint] Model expects {len(model_keys)} parameters")
+
+    # ── Step 1: stream source, remap ComfyUI→MLX keys, dequant → bf16 MLX ──
+    # The DaSiWa checkpoint is the FULL model (transformer + vae + audio_vae +
+    # vocoder + text_embedding_projection); keep only the transformer
+    # (model.diffusion_model.*) AND only keys present in the LTXModel tree.
+    # ComfyUI FP8 stores each quantized linear as <key>.weight (float8_e4m3fn)
+    # + <key>.weight_scale (per-tensor scalar) + <key>.comfy_quant (JSON blob).
+    # Dequant = weight.float() * scale.
+    remap = LTXV_LORA_COMFY_RENAMING_MAP
+    mlx_weights: list = []
+    dropped_extra = 0
+    _FP8 = (torch.float8_e4m3fn, torch.float8_e5m2)
+    print(f"[ltx-checkpoint] Streaming {os.path.basename(checkpoint_path)} "
+          f"(~29GB, requires ~40GB free RAM)…")
+    with safetensors.safe_open(checkpoint_path, framework="pt") as f:
+        all_keys = set(f.keys())
+        for src_key in tqdm(list(f.keys()), desc="[ltx-checkpoint] remap+dequant"):
+            if not src_key.startswith("model.diffusion_model."):
+                continue  # skip vae/audio_vae/vocoder/text_embedding_projection
+            if src_key.endswith(".comfy_quant") or src_key.endswith(".weight_scale"):
+                continue  # ComfyUI FP8 metadata siblings, not model params
+            new_key = remap.apply_to_key(src_key.removeprefix("model.diffusion_model."))
+            if new_key is None or new_key not in model_keys:
+                dropped_extra += 1  # connector weights, etc. — separate component
+                continue
+            tensor = f.get_tensor(src_key)
+            if not isinstance(tensor, torch.Tensor):
+                continue
+            if tensor.dtype in _FP8:
+                scale_key = src_key + "_scale"
+                if scale_key in all_keys:
+                    scale = f.get_tensor(scale_key)
+                    tensor = (tensor.to(torch.float32) * scale).to(torch.bfloat16)
+                else:
+                    print(f"[ltx-checkpoint] WARNING: FP8 tensor {src_key} has no "
+                          f"scale sibling; using raw fp8 values")
+                    tensor = tensor.to(torch.float32)
+            arr = mx.array(tensor.detach().cpu().float().numpy()).astype(mx.bfloat16)
+            mlx_weights.append((new_key, arr))
+    print(f"[ltx-checkpoint] Kept {len(mlx_weights)} tensors "
+          f"(dropped {dropped_extra} non-model keys: connector / FP8 metadata)")
+
+    # ── Step 2: completeness check (key parity) ───────────────────────────
+    mapped_keys = {k for k, _ in mlx_weights}
+    missing = model_keys - mapped_keys  # model needs, source lacks
+    if missing:
+        print(f"[ltx-checkpoint] WARNING: {len(missing)} model keys missing from source "
+              f"(sample: {sorted(missing)[:5]}) — generation may be wrong")
+    else:
+        print(f"[ltx-checkpoint] Key parity OK ({len(model_keys)}/{len(model_keys)} "
+              f"keys present)")
+
+    # ── Step 3: load weights + quantize transformer_blocks linears ────────
+    print("[ltx-checkpoint] Loading weights into LTXModel…")
+    model.load_weights(mlx_weights, strict=False)
+    del mlx_weights
+    gc.collect()
+    mx.eval(model.parameters())
+
+    print("[ltx-checkpoint] Quantizing transformer_blocks linears to int8 (group_size=64)…")
+    nn.quantize(
+        model,
+        group_size=64,
+        bits=8,
+        class_predicate=lambda path, mod: isinstance(mod, nn.Linear) and "transformer_blocks" in path,
+    )
+    mx.eval(model.parameters())
+
+    # ── Step 4: save with `transformer.` prefix (matches transformer-dev.safetensors)
+    if os.path.exists(dst_dir):
+        print(f"[ltx-checkpoint] Removing existing {dst_dir}…")
+        shutil.rmtree(dst_dir)
+    os.makedirs(dst_dir, exist_ok=True)
+
+    save_tmp = tempfile.mkdtemp(prefix="ltx_save_")
+    try:
+        flat = {f"transformer.{k}": v for k, v in tree_flatten(model.parameters())}
+        del model
+        gc.collect()
+        # Named transformer-dev.safetensors because DaSiWa is a dev-architecture
+        # finetune and the two-stage pipelines resolve the transformer by that
+        # slot name. The directory name (ltx-2.3-dasiwa-…-q8) identifies it.
+        out_file = os.path.join(save_tmp, "transformer-dev.safetensors")
+        print(f"[ltx-checkpoint] Saving {len(flat)} tensors to transformer-dev.safetensors…")
+        mx.save_safetensors(out_file, flat)
+        del flat
+        gc.collect()
+        shutil.move(out_file, os.path.join(dst_dir, "transformer-dev.safetensors"))
+
+        # Copy quantize_config.json + split_model.json verbatim from the dev dir
+        # (same quantization scheme + same component layout).
+        for aux in ("quantize_config.json", "split_model.json"):
+            src_aux = os.path.join(cfg.LTX_TRANSFORMER_DIR, aux)
+            if os.path.exists(src_aux):
+                shutil.copy2(src_aux, os.path.join(dst_dir, aux))
+
+        # config.json — corrected audio dims (2048/32/64), see
+        # text_encoder/ltx-2.3-connector/embedded_config.json (the dev dir's
+        # config.json has stale 1536/16 audio dims).
+        ltx_config = {
+            "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+            "model_type": "ltx-transformer",
+            "num_layers": 48,
+            "video_dim": 4096,
+            "video_num_heads": 32,
+            "video_head_dim": 128,
+            "audio_dim": 2048,
+            "audio_num_heads": 32,
+            "audio_head_dim": 64,
+            "quantization": "int8",
+        }
+        with open(os.path.join(dst_dir, "config.json"), "w") as fp:
+            json.dump(ltx_config, fp, indent=2)
+
+        # manifest.json + README.md (auto-generated so check-model passes
+        # without manual edits). Schema mirrors models/transformer/ltx-2.3-dev-q8.
+        weight_path = os.path.join(dst_dir, "transformer-dev.safetensors")
+        size_bytes = os.path.getsize(weight_path)
+        from datetime import datetime, timezone
+        manifest = {
+            "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py --ltx-checkpoint. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+            "name": output_name,
+            "type": "transformer",
+            "arch": "ltx-2.3",
+            "format": "mlx-int8",
+            "description": (f"DaSiWa LTX-2.3 finetune, int8 MLX. Converted from "
+                           f"{os.path.basename(checkpoint_path)} via convert.py --ltx-checkpoint."),
+            "source": "civitai:2543443@2967331",
+            "weight_file": "transformer-dev.safetensors",
+            "pipeline": ["ltx-2.3"],
+            "compatible_with": [
+                "text_encoder/ltx-2.3-connector",
+                "vae/ltx-2.3-vae",
+                "lora/ltx-2.3-distilled",
+                "audio/ltx-2.3-audio",
+            ],
+            "size_bytes": size_bytes,
+            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z"),
+        }
+        with open(os.path.join(dst_dir, "manifest.json"), "w") as fp:
+            json.dump(manifest, fp, indent=2)
+        with open(os.path.join(dst_dir, "README.md"), "w") as fp:
+            fp.write(
+                f"# {output_name}\n\n"
+                f"DaSiWa LTX-2.3 'Golden Lace v3' transformer, MLX int8.\n\n"
+                f"- **Source**: Civitai [2543443/2967331](https://civitai.com/models/2543443) "
+                f"(baseModel LTXV 2.3, FP8/BF16 safetensors)\n"
+                f"- **Converted**: `convert.py --ltx-checkpoint {os.path.basename(checkpoint_path)}`\n"
+                f"- **Weight file**: `transformer-dev.safetensors` "
+                f"(named for the dev-architecture slot; this dir IS the DaSiWa finetune)\n"
+                f"- **Size**: {size_bytes / 1e9:.1f} GB\n"
+                f"- **Quantization**: int8, group_size=64, transformer_blocks linears only\n\n"
+                f"Use via `run.py video generate --transformer dasiwa`.\n"
+            )
+    finally:
+        shutil.rmtree(save_tmp, ignore_errors=True)
+
+    total_mb = os.path.getsize(os.path.join(dst_dir, "transformer-dev.safetensors")) / (1024 * 1024)
+    print(f"[ltx-checkpoint] Done. Saved {total_mb:.0f} MB to {dst_dir}")
+    print(f"[ltx-checkpoint] Next: run scripts/setup_ltx_symlinks.py --force, then run.py check-model")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="mlx-movie-director: one-time model conversion and download",
@@ -987,6 +1209,10 @@ Examples:
     convert.py --klein-9b-checkpoint ~/Downloads/checkpoint.safetensors
     convert.py --klein-9b-checkpoint checkpoint.safetensors --name my-variant
 
+  LTX-2.3 transformer from third-party checkpoint (Civitai DaSiWa, etc.):
+    convert.py --ltx-checkpoint DasiwaLTX23_goldenLaceV3.safetensors
+    convert.py --ltx-checkpoint ckpt.safetensors --name my-ltx-variant-q8
+
   Or all at once (Z-Image only):
     convert.py --all
         """,
@@ -1002,8 +1228,12 @@ Examples:
                         help="Convert Flux2 Klein 9B from HF cache to pre-quantized INT8 (~32GB BF16 → ~16GB INT8)")
     parser.add_argument("--klein-9b-checkpoint", type=str, metavar="PATH",
                         help="Convert third-party Klein 9B checkpoint (Civitai .safetensors) to MLX INT8")
-    parser.add_argument("--name", type=str, default="klein-9b-dark-beast-bfs",
-                        help="Output instance name for --klein-9b-checkpoint (default: klein-9b-dark-beast-bfs)")
+    parser.add_argument("--ltx-checkpoint", type=str, metavar="PATH",
+                        help="Convert third-party LTX-2.3 transformer checkpoint (Civitai .safetensors) "
+                             "to MLX int8. Reuses the vendor key-remap; handles FP8/BF16 sources.")
+    parser.add_argument("--name", type=str, default=None,
+                        help="Output instance name for --klein-9b-checkpoint / --ltx-checkpoint "
+                             "(defaults: klein-9b-dark-beast-bfs / ltx-2.3-dasiwa-golden-lace-v3-q8)")
     parser.add_argument("--vae-mlx", action="store_true",
                         help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--seedvr2-vae-int8", action="store_true",
@@ -1029,7 +1259,9 @@ Examples:
     if args.klein_9b:
         convert_klein_9b()
     if args.klein_9b_checkpoint:
-        convert_klein_9b_checkpoint(args.klein_9b_checkpoint, args.name)
+        convert_klein_9b_checkpoint(args.klein_9b_checkpoint, args.name or "klein-9b-dark-beast-bfs")
+    if args.ltx_checkpoint:
+        convert_ltx_checkpoint(args.ltx_checkpoint, args.name or "ltx-2.3-dasiwa-golden-lace-v3-q8")
     if args.vae_mlx:
         convert_vae_to_mlx()
     if args.seedvr2_vae_int8:

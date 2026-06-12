@@ -116,11 +116,12 @@ export class SubprocessManager {
       }
     };
 
-    readStream("stdout", proc.stdout.getReader());
-    readStream("stderr", proc.stderr.getReader());
+    const stdoutDone = readStream("stdout", proc.stdout.getReader());
+    const stderrDone = readStream("stderr", proc.stderr.getReader());
 
-    // Wait for exit
-    proc.exited.then((code) => {
+    // Wait for exit, then drain remaining stream output before finalizing status
+    proc.exited.then(async (code) => {
+      await Promise.all([stdoutDone, stderrDone]);
       job.status = code === 0 ? "completed" : "failed";
       job.exitCode = code;
       job.completedAt = new Date().toISOString();

@@ -1503,7 +1503,6 @@ body {
   color: var(--text-bright);
   border-color: var(--accent);
 }
-// hot-reload-test-1781134588
 
 /* === Mode Tab Bar (Video views) === */
 .mode-tab-bar {

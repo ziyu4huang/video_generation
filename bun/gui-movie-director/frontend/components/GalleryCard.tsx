@@ -1,7 +1,10 @@
 import React, { useRef } from "react";
+import s from "./GalleryCard.module.css";
 import type { GalleryImage } from "../types";
 import { formatSize, formatDate } from "../utils/format";
 import { parseCaptionScores } from "./CaptionScoreBar";
+
+export type ViewMode = "s" | "m" | "l" | "list";
 
 export function getManifestSummary(manifest: any): string | null {
   if (!manifest) return null;
@@ -12,7 +15,7 @@ export function getManifestSummary(manifest: any): string | null {
   return parts.join(" · ") || null;
 }
 
-export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean }) {
+export function GalleryCard({ img, onClick, highlighted, viewMode = "m" }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode }) {
   const summary = getManifestSummary(img.manifest);
   const isVideo = img.mediaType === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -33,14 +36,29 @@ export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; 
     if (v) { v.pause(); v.currentTime = 0; }
   };
 
+  if (viewMode === "list") {
+    return (
+      <div
+        className={`${s.galleryCardList}${highlighted ? " " + s.galleryCardHighlighted : ""}`}
+        data-image-name={img.name}
+        onClick={onClick}
+        style={{ cursor: onClick ? "pointer" : undefined }}
+      >
+        <img src={img.url} alt={img.name} loading="lazy" className={s.galleryCardListThumb} />
+        <span className={s.galleryCardListName}>{img.name}</span>
+        <span className={s.galleryCardListMeta}>{formatSize(img.size)} · {formatDate(img.createdAt)}</span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`gallery-card${highlighted ? " gallery-card-highlighted" : ""}${isVideo ? " gallery-card-video" : ""}`}
+      className={`${s.galleryCard}${highlighted ? " " + s.galleryCardHighlighted : ""}${isVideo ? " " + s.galleryCardVideo : ""}${viewMode === "s" ? " " + s.galleryCardSmall : ""}`}
       data-image-name={img.name}
       onClick={onClick}
       style={{ cursor: onClick ? "pointer" : undefined }}
     >
-      <div className="gallery-card-image">
+      <div className={s.galleryCardImage}>
         {isVideo ? (
           <>
             <video
@@ -54,7 +72,7 @@ export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; 
               onMouseEnter={handleVideoEnter}
               onMouseLeave={handleVideoLeave}
             />
-            <span className="gallery-card-play-badge">▶</span>
+            <span className={s.galleryCardPlayBadge}>▶</span>
           </>
         ) : (
           <img src={img.url} alt={img.name} loading="lazy" />
@@ -76,13 +94,13 @@ export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; 
           </span>
         )}
       </div>
-      <div className="gallery-card-info">
-        <div className="gallery-card-name">{img.name}</div>
-        <div className="gallery-card-meta">
+      <div className={s.galleryCardInfo}>
+        <div className={s.galleryCardName}>{img.name}</div>
+        <div className={s.galleryCardMeta}>
           {formatSize(img.size)} · {formatDate(img.createdAt)}
         </div>
         {summary && (
-          <div className="gallery-card-meta" style={{ color: "var(--accent)", marginTop: 2 }}>
+          <div className={s.galleryCardMeta} style={{ color: "var(--accent)", marginTop: 2 }}>
             {summary}
           </div>
         )}

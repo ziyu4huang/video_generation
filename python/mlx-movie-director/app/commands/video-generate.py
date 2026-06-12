@@ -113,7 +113,14 @@ def add_generate_args(parser):
                              "~2× slower per step. Default stage1_steps becomes 15.")
     parser.add_argument("--distilled", action="store_true", default=False,
                         help="Use distilled transformer (8 steps, CFG=1) — faster generation, "
-                             "no LoRA stage. Auto-sets stage1_steps=8, cfg_scale=1.0.")
+                             "no LoRA stage. Auto-sets stage1_steps=8, cfg_scale=1.0. "
+                             "Equivalent to --transformer distilled.")
+    parser.add_argument("--transformer", type=str, default=None,
+                        choices=["dev", "distilled", "dasiwa"],
+                        help="Transformer variant to load (default: dev, or distilled if "
+                             "--distilled). 'dasiwa' = a DaSiWa dev-architecture finetune "
+                             "(converted via convert.py --ltx-checkpoint); behaves like dev "
+                             "(CFG/STG on) but loads models/ltx-mlx/dasiwa/.")
     parser.add_argument("--teacache", action="store_true", default=False,
                         help="Enable TeaCache timestep-aware caching — ~1.46× speedup "
                              "with minimal quality loss (vendor calibrated for LTX-2)")
@@ -475,8 +482,21 @@ def _run_generate_inner(args):
         args.stage1_steps = 15  # HQ optimal (res_2s second-order sampler)
         print(f"[video] HQ mode: stage1_steps auto-set to 15 (res_2s sampler)")
 
+    # --- Transformer selection: --transformer generalizes --distilled ---
+    # --transformer (if given) wins; otherwise fall back to the --distilled flag.
+    # dasiwa is a dev-architecture finetune → behaves like dev (CFG/STG on); only
+    # the loaded weights differ. Drive the existing distilled-mode logic from the
+    # resolved value so both flag styles work.
+    transformer = getattr(args, "transformer", None) or (
+        "distilled" if getattr(args, "distilled", False) else "dev"
+    )
+    args.transformer = transformer
+    args.distilled = transformer == "distilled"
+    distilled = args.distilled
+    if transformer == "dasiwa":
+        print("[video] Transformer: dasiwa (DaSiWa dev-architecture finetune — CFG/STG on)")
+
     # --- Distilled mode: auto-adjust defaults ---
-    distilled = getattr(args, "distilled", False)
     if distilled:
         if hq:
             print("ERROR: --distilled and --hq are mutually exclusive", file=sys.stderr)
@@ -588,19 +608,22 @@ def _run_generate_inner(args):
 
 def _ltx_pipeline_name(args) -> str:
     """Return the canonical pipeline name for RunConfig based on active mode."""
+    transformer = getattr(args, "transformer", None) or (
+        "distilled" if getattr(args, "distilled", False) else "dev"
+    )
     if getattr(args, "begin_image", None):
-        return "ltx-flf2v"
-    if getattr(args, "distilled", False):
+        return "ltx-dasiwa-flf2v" if transformer == "dasiwa" else "ltx-flf2v"
+    if transformer == "distilled":
         if getattr(args, "input_image", None):
             return "ltx-distilled-i2v"
         return "ltx-distilled"
     if getattr(args, "audio", None):
-        return "ltx-a2v"
+        return "ltx-dasiwa-a2v" if transformer == "dasiwa" else "ltx-a2v"
     if getattr(args, "hq", False):
-        return "ltx-hq"
+        return "ltx-dasiwa-hq" if transformer == "dasiwa" else "ltx-hq"
     if getattr(args, "input_image", None):
-        return "ltx-i2v"
-    return "ltx-t2v"
+        return "ltx-dasiwa-i2v" if transformer == "dasiwa" else "ltx-i2v"
+    return "ltx-dasiwa" if transformer == "dasiwa" else "ltx-t2v"
 
 
 def _mode_label(args) -> str:
@@ -673,6 +696,7 @@ def _run_single(args, prompt: str) -> None:
             low_ram=args.low_ram,
             hq=hq,
             distilled=distilled,
+            transformer=getattr(args, "transformer", None),
             temporal_upscale=temporal_upscale,
             lora_path=getattr(args, "lora_path", None),
             lora_scale=getattr(args, "lora_scale", 1.0),
@@ -794,6 +818,7 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
         low_ram=args.low_ram,
         hq=hq,
         distilled=distilled,
+        transformer=getattr(args, "transformer", None),
         lora_path=getattr(args, "lora_path", None),
         lora_scale=getattr(args, "lora_scale", 1.0),
     )

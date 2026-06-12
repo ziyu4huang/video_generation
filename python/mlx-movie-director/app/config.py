@@ -71,6 +71,13 @@ LTX_MLX_DIR         = os.path.join(MODELS_DIR, "ltx-mlx")
 LTX_MLX_DEV_DIR     = os.path.join(LTX_MLX_DIR, "dev")
 LTX_MLX_DISTILLED_DIR = os.path.join(LTX_MLX_DIR, "distilled")
 
+# DaSiWa LTX-2.3 finetune (e.g. Golden Lace v3) — dev-architecture, converted to
+# MLX int8 by convert.py --ltx-checkpoint. Shares the base text encoder / VAE /
+# audio / distilled-LoRA; only the transformer differs. Presented as
+# transformer-dev.safetensors in its flat dir (same slot as dev).
+LTX_DASIWA_TRANSFORMER_DIR = os.path.join(MODELS_DIR, "transformer", "ltx-2.3-dasiwa-golden-lace-v3-q8")
+LTX_MLX_DASIWA_DIR         = os.path.join(LTX_MLX_DIR, "dasiwa")
+
 # LTX-2.3 IC-LoRA restoration weights (download from Lightricks/CivitAI)
 LTX_RESTORE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-video-restoration-general.safetensors")
 LTX_UPSCALE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-ic-video-upscale-general.safetensors")

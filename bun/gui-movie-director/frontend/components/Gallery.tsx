@@ -1,6 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import type { GalleryImage } from "../types";
 import { GalleryCard } from "./GalleryCard";
+import type { ViewMode } from "./GalleryCard";
+
+const GRID_COLS: Record<ViewMode, string> = {
+  s:    "repeat(auto-fill, minmax(80px, 1fr))",
+  m:    "repeat(auto-fill, minmax(140px, 1fr))",
+  l:    "repeat(auto-fill, minmax(200px, 1fr))",
+  list: "1fr",
+};
 
 interface GalleryProps {
   onImageClick: (img: GalleryImage) => void;
@@ -15,8 +23,16 @@ export function Gallery({ onImageClick, highlight, onImagesReady }: GalleryProps
   const [loadingMore, setLoadingMore] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (localStorage.getItem("gallery-view-mode") as ViewMode) ?? "m"
+  );
   const PAGE_SIZE = 100;
   const gridRef = useRef<HTMLDivElement>(null);
+
+  const handleViewMode = (m: ViewMode) => {
+    setViewMode(m);
+    localStorage.setItem("gallery-view-mode", m);
+  };
 
   const highlightSet = highlight ? new Set(highlight) : null;
 
@@ -90,14 +106,33 @@ export function Gallery({ onImageClick, highlight, onImagesReady }: GalleryProps
 
   return (
     <div>
-      <h2>Gallery ({total} images)</h2>
-      <div className="gallery-grid" ref={gridRef}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h2 style={{ margin: 0 }}>Gallery ({total} images)</h2>
+        <div style={{ display: "flex", gap: 4 }}>
+          {(["s", "m", "l", "list"] as ViewMode[]).map((m) => (
+            <button
+              key={m}
+              className={`btn btn-sm${viewMode === m ? " active" : ""}`}
+              onClick={() => handleViewMode(m)}
+              style={{ minWidth: 32 }}
+            >
+              {m === "list" ? "≡" : m.toUpperCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
+        className="gallery-grid"
+        style={{ display: "grid", gridTemplateColumns: GRID_COLS[viewMode], gap: viewMode === "list" ? 2 : 16 }}
+        ref={gridRef}
+      >
         {images.map((img) => (
           <GalleryCard
             key={img.name}
             img={img}
             onClick={() => onImageClick(img)}
             highlighted={highlightSet?.has(img.name) ?? false}
+            viewMode={viewMode}
           />
         ))}
       </div>

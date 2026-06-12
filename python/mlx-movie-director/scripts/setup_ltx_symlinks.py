@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """setup_ltx_symlinks — create pre-built flat symlink dirs for LTX-2.3.
 
-Creates two directories under models/ltx-mlx/:
+Creates directories under models/ltx-mlx/:
   - dev/        for the dev transformer (T2V, I2V, A2V, HQ, FLF2V)
   - distilled/  for the distilled transformer (fast 8-step generation)
+  - dasiwa/     for a DaSiWa dev-architecture finetune (shares base VAE/
+                text-encoder/audio/distilled-LoRA; only the transformer differs)
 
 Each contains relative symlinks pointing to the real files in
 models/{type}/{name}/.  ltx-2-mlx expects all files in a single flat
 directory — these pre-built dirs avoid on-the-fly temp assembly.
 
 Usage:
-    python scripts/setup_ltx_symlinks.py          # create both
+    python scripts/setup_ltx_symlinks.py          # create all
     python scripts/setup_ltx_symlinks.py --check   # verify existing
     python scripts/setup_ltx_symlinks.py --force   # recreate from scratch
 """
@@ -87,6 +89,39 @@ _COMPONENT_FILES = {
             "vocoder.safetensors",
         ],
     },
+    "dasiwa": {
+        # DaSiWa dev-architecture finetune: its transformer (saved as
+        # transformer-dev.safetensors by convert.py --ltx-checkpoint) + the
+        # SAME shared components as dev.
+        cfg.LTX_DASIWA_TRANSFORMER_DIR: [
+            "transformer-dev.safetensors",
+            "split_model.json",
+            "quantize_config.json",
+        ],
+        cfg.LTX_LORA_DIR: [
+            "ltx-2.3-22b-distilled-lora-384.safetensors",
+            "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+        ],
+        cfg.LTX_TEXT_ENCODER_DIR: [
+            "connector.safetensors",
+            "config.json",
+            "embedded_config.json",
+        ],
+        cfg.LTX_VAE_DIR: [
+            "vae_encoder.safetensors",
+            "vae_decoder.safetensors",
+            "spatial_upscaler_x2_v1_1.safetensors",
+            "spatial_upscaler_x2_v1_1_config.json",
+            "spatial_upscaler_x1_5_v1_0.safetensors",
+            "spatial_upscaler_x1_5_v1_0_config.json",
+            "temporal_upscaler_x2_v1_0.safetensors",
+            "temporal_upscaler_x2_v1_0_config.json",
+        ],
+        cfg.LTX_AUDIO_DIR: [
+            "audio_vae.safetensors",
+            "vocoder.safetensors",
+        ],
+    },
 }
 
 # Required files that must exist (vs optional upscalers/configs)
@@ -100,6 +135,13 @@ _REQUIRED = {
     },
     "distilled": {
         cfg.LTX_DISTILLED_TRANSFORMER_DIR: "transformer-distilled-1.1.safetensors",
+        cfg.LTX_TEXT_ENCODER_DIR: "connector.safetensors",
+        cfg.LTX_VAE_DIR: "vae_encoder.safetensors",
+        cfg.LTX_VAE_DIR: "vae_decoder.safetensors",
+    },
+    "dasiwa": {
+        cfg.LTX_DASIWA_TRANSFORMER_DIR: "transformer-dev.safetensors",
+        cfg.LTX_LORA_DIR: "ltx-2.3-22b-distilled-lora-384.safetensors",
         cfg.LTX_TEXT_ENCODER_DIR: "connector.safetensors",
         cfg.LTX_VAE_DIR: "vae_encoder.safetensors",
         cfg.LTX_VAE_DIR: "vae_decoder.safetensors",
@@ -121,11 +163,19 @@ _REQUIRED_LIST = {
         (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
         (cfg.LTX_VAE_DIR, "vae_decoder.safetensors"),
     ],
+    "dasiwa": [
+        (cfg.LTX_DASIWA_TRANSFORMER_DIR, "transformer-dev.safetensors"),
+        (cfg.LTX_LORA_DIR, "ltx-2.3-22b-distilled-lora-384.safetensors"),
+        (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
+        (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
+        (cfg.LTX_VAE_DIR, "vae_decoder.safetensors"),
+    ],
 }
 
 TARGET_DIRS = {
     "dev": cfg.LTX_MLX_DEV_DIR,
     "distilled": cfg.LTX_MLX_DISTILLED_DIR,
+    "dasiwa": cfg.LTX_MLX_DASIWA_DIR,
 }
 
 
@@ -215,13 +265,13 @@ def main():
 
     if args.check:
         print("Checking pre-built LTX symlink dirs:")
-        for v in ("dev", "distilled"):
+        for v in ("dev", "distilled", "dasiwa"):
             check_variant(v)
         return
 
     print("Setting up pre-built LTX symlink dirs:")
     results = {}
-    for v in ("dev", "distilled"):
+    for v in ("dev", "distilled", "dasiwa"):
         results[v] = setup_variant(v, force=args.force)
 
     if not all(results.values()):

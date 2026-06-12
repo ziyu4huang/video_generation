@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import type { ViewDescriptor } from "../registry";
 import { relativeTime, formatBytes } from "../../utils/format";
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -527,3 +528,8 @@ export function ModelCheckView() {
     </div>
   );
 }
+
+export const modelCheckDescriptor: ViewDescriptor = {
+  id: "model-check", group: "Tools", label: "Model Check", icon: "📦",
+  component: ModelCheckView,
+};
