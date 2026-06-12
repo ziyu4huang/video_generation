@@ -1,0 +1,110 @@
+.jsonViewer {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.jvTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 12px;
+}
+
+.jvRow {
+  display: flex;
+  gap: 8px;
+  padding: 1px 0;
+  align-items: baseline;
+}
+
+.jvKey {
+  color: #7ec8e3;
+  font-weight: 500;
+  min-width: 120px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.jvColon {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.jvIndex {
+  color: var(--text-dim);
+  font-size: 11px;
+  min-width: 24px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.jvIndent {
+  padding-left: 20px;
+}
+
+.jvCollapsible {
+  display: flex;
+  flex-direction: column;
+}
+
+.jvToggle {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 0;
+}
+
+.jvToggle:hover {
+  color: var(--text);
+}
+
+.jvBracket {
+  color: var(--text-dim);
+}
+
+.jvCount {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin-left: 2px;
+}
+
+.jvNull { color: #c792ea; font-style: italic; }
+.jvBool { color: #c3e88d; }
+.jvNum { color: #f78c6c; }
+.jvString { color: var(--text); word-break: break-word; }
+.jvUrl { color: var(--accent); text-decoration: none; word-break: break-all; }
+.jvUrl:hover { text-decoration: underline; }
+.jvPath { color: #ffcb6b; word-break: break-all; font-size: 11px; }
+
+.jvStringTruncated {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.jvStringTruncated:hover {
+  color: var(--text);
+}
+
+.jvStringLong {
+  cursor: pointer;
+  display: block;
+  white-space: pre-wrap;
+}
+
+.jvShowAll {
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 0;
+  margin-top: 2px;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.jvShowAll:hover {
+  color: var(--accent);
+}

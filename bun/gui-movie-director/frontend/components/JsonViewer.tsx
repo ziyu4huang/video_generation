@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { formatBytes } from "../utils/format";
+import s from "./JsonViewer.module.css";
 
 // Recursive JSON value renderer with collapsible objects/arrays
 
@@ -55,50 +56,49 @@ function sortKeys(keys: string[]): string[] {
 // --- Primitive renderers ---
 
 function renderNull() {
-  return <span className="jv-null">null</span>;
+  return <span className={s.jvNull}>null</span>;
 }
 
 function renderBool(v: boolean) {
-  return <span className="jv-bool">{String(v)}</span>;
+  return <span className={s.jvBool}>{String(v)}</span>;
 }
 
 function renderNumber(v: number, key?: string) {
-  // Format byte sizes as human-readable
   if (key && isSizeKey(key)) {
-    return <span className="jv-num" title={`${v} bytes`}>{formatBytes(v)}</span>;
+    return <span className={s.jvNum} title={`${v} bytes`}>{formatBytes(v)}</span>;
   }
-  return <span className="jv-num">{v}</span>;
+  return <span className={s.jvNum}>{v}</span>;
 }
 
 function renderString(v: string, key?: string) {
   if (isUrl(v)) {
     return (
-      <a className="jv-url" href={v} target="_blank" rel="noopener noreferrer">
+      <a className={s.jvUrl} href={v} target="_blank" rel="noopener noreferrer">
         {v}
       </a>
     );
   }
   if (isPath(v)) {
     const short = (key && isPathKey(key) && v.length > 60) ? shortenPath(v) : v;
-    return <span className="jv-path" title={v}>{short}</span>;
+    return <span className={s.jvPath} title={v}>{short}</span>;
   }
   if (isLong(v)) {
     return <LongString value={v} />;
   }
-  return <span className="jv-string">{v}</span>;
+  return <span className={s.jvString}>{v}</span>;
 }
 
 function LongString({ value }: { value: string }) {
   const [expanded, setExpanded] = useState(false);
   if (expanded) {
     return (
-      <span className="jv-string jv-string-long" onClick={() => setExpanded(false)}>
+      <span className={`${s.jvString} ${s.jvStringLong}`} onClick={() => setExpanded(false)}>
         {value}
       </span>
     );
   }
   return (
-    <span className="jv-string jv-string-truncated" onClick={() => setExpanded(true)}>
+    <span className={`${s.jvString} ${s.jvStringTruncated}`} onClick={() => setExpanded(true)}>
       {value.slice(0, 100)}…
     </span>
   );
@@ -119,24 +119,24 @@ function JsonArray({ value, depth = 0, defaultOpen = 2, hideNull }: JsonValuePro
   const [open, setOpen] = useState(depth < defaultOpen);
 
   return (
-    <div className="jv-collapsible">
-      <span className="jv-toggle" onClick={() => setOpen(!open)}>
-        {open ? "▾" : "▸"} <span className="jv-bracket">[</span>
-        <span className="jv-count">{arr.length}</span>
-        {!open && <span className="jv-bracket">]</span>}
+    <div className={s.jvCollapsible}>
+      <span className={s.jvToggle} onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} <span className={s.jvBracket}>[</span>
+        <span className={s.jvCount}>{arr.length}</span>
+        {!open && <span className={s.jvBracket}>]</span>}
       </span>
       {open && (
         <>
-          <div className="jv-indent">
+          <div className={s.jvIndent}>
             {arr.map((item, i) => (
-              <div key={i} className="jv-row">
-                <span className="jv-index">{i}</span>
-                <span className="jv-colon">:</span>
+              <div key={i} className={s.jvRow}>
+                <span className={s.jvIndex}>{i}</span>
+                <span className={s.jvColon}>:</span>
                 <JsonValue value={item} depth={depth + 1} defaultOpen={defaultOpen} hideNull={hideNull} />
               </div>
             ))}
           </div>
-          <span className="jv-bracket">]</span>
+          <span className={s.jvBracket}>]</span>
         </>
       )}
     </div>
@@ -157,29 +157,29 @@ function JsonObject({ value, depth = 0, defaultOpen = 2, hideNull }: JsonValuePr
     : keys;
 
   return (
-    <div className="jv-collapsible">
-      <span className="jv-toggle" onClick={() => setOpen(!open)}>
-        {open ? "▾" : "▸"} <span className="jv-bracket">{"{"}</span>
-        <span className="jv-count">{keys.length}</span>
-        {!open && <span className="jv-bracket">{"}"}</span>}
+    <div className={s.jvCollapsible}>
+      <span className={s.jvToggle} onClick={() => setOpen(!open)}>
+        {open ? "▾" : "▸"} <span className={s.jvBracket}>{"{"}</span>
+        <span className={s.jvCount}>{keys.length}</span>
+        {!open && <span className={s.jvBracket}>{"}"}</span>}
       </span>
       {open && (
         <>
-          <div className="jv-indent">
+          <div className={s.jvIndent}>
             {visibleKeys.map((key) => (
-              <div key={key} className="jv-row">
-                <span className="jv-key">{key}</span>
-                <span className="jv-colon">:</span>
+              <div key={key} className={s.jvRow}>
+                <span className={s.jvKey}>{key}</span>
+                <span className={s.jvColon}>:</span>
                 <JsonValue value={obj[key]} depth={depth + 1} defaultOpen={defaultOpen} keyHint={key} hideNull={hideNull} />
               </div>
             ))}
             {hiddenKeys.length > 0 && (
-              <div className="jv-show-all" onClick={() => setShowAll(!showAll)}>
+              <div className={s.jvShowAll} onClick={() => setShowAll(!showAll)}>
                 {showAll ? "▾ Hide null values" : `▸ Show all (${hiddenKeys.length} null)`}
               </div>
             )}
           </div>
-          <span className="jv-bracket">{"}"}</span>
+          <span className={s.jvBracket}>{"}"}</span>
         </>
       )}
     </div>
@@ -193,7 +193,7 @@ export function JsonValue({ value, depth = 0, defaultOpen = 2, keyHint, hideNull
   if (typeof value === "string") return renderString(value, keyHint);
   if (Array.isArray(value)) return <JsonArray value={value} depth={depth} defaultOpen={defaultOpen} hideNull={hideNull} />;
   if (typeof value === "object") return <JsonObject value={value} depth={depth} defaultOpen={defaultOpen} hideNull={hideNull} />;
-  return <span className="jv-string">{String(value)}</span>;
+  return <span className={s.jvString}>{String(value)}</span>;
 }
 
 interface JsonViewerProps {
@@ -205,8 +205,8 @@ interface JsonViewerProps {
 
 export function JsonViewer({ data, title, defaultOpen = 2, hideNull }: JsonViewerProps) {
   return (
-    <div className="json-viewer">
-      {title && <div className="jv-title">{title}</div>}
+    <div className={s.jsonViewer}>
+      {title && <div className={s.jvTitle}>{title}</div>}
       <JsonValue value={data} depth={0} defaultOpen={defaultOpen} hideNull={hideNull} />
     </div>
   );

@@ -1,0 +1,58 @@
+.mcResultPanel {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.mcResultHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mcResultTime {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-left: 12px;
+}
+
+.mcReportLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.mcReportLink:hover {
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
+.mcLogPanel {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.mcLogLine {
+  white-space: pre-wrap;
+  word-break: break-all;
+}

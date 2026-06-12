@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import { formatBytes, basename } from "../utils/format";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
+import s from "./ImagePreview.module.css";
 
 type Tab = "run" | "manifest" | "scores";
 
@@ -27,9 +28,9 @@ function shortPath(p: string, segments: number = 2): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mf-section">
-      <div className="mf-section-title">{title}</div>
-      <div className="mf-section-body">{children}</div>
+    <div className={s.mfSection}>
+      <div className={s.mfSectionTitle}>{title}</div>
+      <div className={s.mfSectionBody}>{children}</div>
     </div>
   );
 }
@@ -41,13 +42,13 @@ function StatusBadge({ status, elapsed, memoryPeakMb }: {
 }) {
   const ok = status === "success";
   return (
-    <div className="mf-status-row">
-      <span className={`mf-status-badge ${ok ? "success" : "failed"}`}>
-        <span className="mf-status-dot" />
+    <div className={s.mfStatusRow}>
+      <span className={`${s.mfStatusBadge} ${ok ? s.mfStatusBadgeSuccess : s.mfStatusBadgeFailed}`}>
+        <span className={s.mfStatusDot} />
         {status}
       </span>
-      {elapsed != null && <span className="mf-status-meta">{elapsed.toFixed(1)}s</span>}
-      {memoryPeakMb != null && <span className="mf-status-meta">{formatBytes(memoryPeakMb * 1024 * 1024)}</span>}
+      {elapsed != null && <span className={s.mfStatusMeta}>{elapsed.toFixed(1)}s</span>}
+      {memoryPeakMb != null && <span className={s.mfStatusMeta}>{formatBytes(memoryPeakMb * 1024 * 1024)}</span>}
     </div>
   );
 }
@@ -63,7 +64,7 @@ function CopyButton({ text }: { text: string }) {
     } catch { /* ignore */ }
   };
   return (
-    <button className="mf-copy-btn" onClick={handleCopy}>
+    <button className={s.mfCopyBtn} onClick={handleCopy}>
       {copied ? "✓ Copied" : "📋 Copy"}
     </button>
   );
@@ -71,56 +72,56 @@ function CopyButton({ text }: { text: string }) {
 
 function ModelDetail({ name, info, onClose }: { name: string; info: Record<string, any>; onClose: () => void }) {
   return (
-    <div className="mf-model-detail-backdrop" onClick={onClose}>
-      <div className="mf-model-detail" onClick={(e) => e.stopPropagation()}>
-        <div className="mf-model-detail-header">
-          <span className="mf-model-detail-name">{name}</span>
-          <button className="mf-model-detail-close" onClick={onClose}>✕</button>
+    <div className={s.mfModelDetailBackdrop} onClick={onClose}>
+      <div className={s.mfModelDetail} onClick={(e) => e.stopPropagation()}>
+        <div className={s.mfModelDetailHeader}>
+          <span className={s.mfModelDetailName}>{name}</span>
+          <button className={s.mfModelDetailClose} onClick={onClose}>✕</button>
         </div>
-        <div className="mf-model-detail-body">
+        <div className={s.mfModelDetailBody}>
           {info.path && (
-            <div className="mf-detail-row">
-              <span className="mf-detail-label">path</span>
-              <div className="mf-detail-path-row">
-                <span className="mf-detail-value mono">{info.path}</span>
+            <div className={s.mfDetailRow}>
+              <span className={s.mfDetailLabel}>path</span>
+              <div className={s.mfDetailPathRow}>
+                <span className={`${s.mfDetailValue} ${s.mfDetailValueMono}`}>{info.path}</span>
                 <CopyButton text={info.path} />
               </div>
             </div>
           )}
           {info.realpath && info.realpath !== info.path && (
-            <div className="mf-detail-row">
-              <span className="mf-detail-label">real path</span>
-              <div className="mf-detail-path-row">
-                <span className="mf-detail-value mono">{info.realpath}</span>
+            <div className={s.mfDetailRow}>
+              <span className={s.mfDetailLabel}>real path</span>
+              <div className={s.mfDetailPathRow}>
+                <span className={`${s.mfDetailValue} ${s.mfDetailValueMono}`}>{info.realpath}</span>
                 <CopyButton text={info.realpath} />
               </div>
             </div>
           )}
           {info.size_bytes != null && (
-            <div className="mf-detail-row">
-              <span className="mf-detail-label">size</span>
-              <span className="mf-detail-value">{formatBytes(info.size_bytes)} <span className="mf-detail-dim">({info.size_bytes.toLocaleString()} bytes)</span></span>
+            <div className={s.mfDetailRow}>
+              <span className={s.mfDetailLabel}>size</span>
+              <span className={s.mfDetailValue}>{formatBytes(info.size_bytes)} <span className={s.mfDetailDim}>({info.size_bytes.toLocaleString()} bytes)</span></span>
             </div>
           )}
           {info.md5_partial && (
-            <div className="mf-detail-row">
-              <span className="mf-detail-label">md5</span>
-              <span className="mf-detail-value mono">{info.md5_partial}</span>
+            <div className={s.mfDetailRow}>
+              <span className={s.mfDetailLabel}>md5</span>
+              <span className={`${s.mfDetailValue} ${s.mfDetailValueMono}`}>{info.md5_partial}</span>
             </div>
           )}
           {info.error && (
-            <div className="mf-detail-row">
-              <span className="mf-detail-label">error</span>
-              <span className="mf-detail-value err">{info.error}</span>
+            <div className={s.mfDetailRow}>
+              <span className={s.mfDetailLabel}>error</span>
+              <span className={`${s.mfDetailValue} ${s.mfDetailValueErr}`}>{info.error}</span>
             </div>
           )}
           {/* Show any extra keys */}
           {Object.entries(info)
             .filter(([k]) => !["path", "realpath", "size_bytes", "md5_partial", "error"].includes(k))
             .map(([k, v]) => (
-              <div key={k} className="mf-detail-row">
-                <span className="mf-detail-label">{k}</span>
-                <span className="mf-detail-value">{String(v)}</span>
+              <div key={k} className={s.mfDetailRow}>
+                <span className={s.mfDetailLabel}>{k}</span>
+                <span className={s.mfDetailValue}>{String(v)}</span>
               </div>
             ))}
         </div>
@@ -133,23 +134,23 @@ function ModelTable({ models }: { models: Record<string, any> }) {
   const [selected, setSelected] = useState<{ name: string; info: any } | null>(null);
 
   return (
-    <div className="mf-model-table">
+    <div className={s.mfModelTable}>
       {Object.entries(models).map(([name, info]: [string, any]) => {
         const hasError = !!info.error;
         return (
           <div
             key={name}
-            className={`mf-model-row ${hasError ? "error" : ""}`}
+            className={`${s.mfModelRow}${hasError ? " " + s.mfModelRowError : ""}`}
             onClick={() => setSelected({ name, info })}
           >
-            <span className="mf-model-name">{name}</span>
-            <span className="mf-model-size">
+            <span className={s.mfModelName}>{name}</span>
+            <span className={s.mfModelSize}>
               {info.size_bytes ? formatBytes(info.size_bytes) : "—"}
             </span>
-            <span className={`mf-model-status ${hasError ? "err" : "ok"}`}>
+            <span className={`${s.mfModelStatus} ${hasError ? s.mfModelStatusErr : s.mfModelStatusOk}`}>
               {hasError ? info.error : "✓"}
             </span>
-            <span className="mf-model-expand">▸</span>
+            <span className={s.mfModelExpand}>▸</span>
           </div>
         );
       })}
@@ -169,27 +170,27 @@ function TimingsList({ timings }: { timings: Record<string, any> }) {
   const entries = Object.entries(timings).filter(([k]) => k !== "denoising_step_times");
 
   return (
-    <div className="mf-timings">
+    <div className={s.mfTimings}>
       {entries.map(([key, val]) => {
         const label = key.replace(/_seconds$/, "").replace(/_/g, " ");
         return (
-          <div key={key} className="mf-timing-row">
-            <span className="mf-timing-label">{label}</span>
-            <span className="mf-timing-value">{typeof val === "number" ? `${val.toFixed(2)}s` : String(val)}</span>
+          <div key={key} className={s.mfTimingRow}>
+            <span className={s.mfTimingLabel}>{label}</span>
+            <span className={s.mfTimingValue}>{typeof val === "number" ? `${val.toFixed(2)}s` : String(val)}</span>
           </div>
         );
       })}
       {timings.denoising_step_times && (
-        <div className="mf-timing-steps">
-          <span className="mf-timing-toggle" onClick={() => setStepsOpen(!stepsOpen)}>
+        <div className={s.mfTimingSteps}>
+          <span className={s.mfTimingToggle} onClick={() => setStepsOpen(!stepsOpen)}>
             {stepsOpen ? "▾" : "▸"} {timings.denoising_step_times.length} denoising steps
           </span>
           {stepsOpen && (
-            <div className="mf-timing-step-list">
+            <div className={s.mfTimingStepList}>
               {timings.denoising_step_times.map((t: number, i: number) => (
-                <div key={i} className="mf-timing-row indent">
-                  <span className="mf-timing-label">step {i}</span>
-                  <span className="mf-timing-value">{t.toFixed(2)}s</span>
+                <div key={i} className={`${s.mfTimingRow} ${s.mfTimingRowIndent}`}>
+                  <span className={s.mfTimingLabel}>step {i}</span>
+                  <span className={s.mfTimingValue}>{t.toFixed(2)}s</span>
                 </div>
               ))}
             </div>
@@ -201,26 +202,26 @@ function TimingsList({ timings }: { timings: Record<string, any> }) {
 }
 
 function PromptBlock({ prompt }: { prompt: string }) {
-  return <div className="mf-prompt">{prompt}</div>;
+  return <div className={s.mfPrompt}>{prompt}</div>;
 }
 
 function ParamValue({ value }: { value: unknown }): React.ReactElement {
-  if (value === null || value === undefined) return <span className="jv-null">null</span>;
-  if (typeof value === "boolean") return <span className="jv-bool">{String(value)}</span>;
-  if (typeof value === "number") return <span className="jv-num">{value}</span>;
+  if (value === null || value === undefined) return <span className={s.jvNull}>null</span>;
+  if (typeof value === "boolean") return <span className={s.jvBool}>{String(value)}</span>;
+  if (typeof value === "number") return <span className={s.jvNum}>{value}</span>;
   if (typeof value === "string") {
     if (value.startsWith("/") && value.length > 60) {
-      return <span className="jv-path" title={value}>{shortPath(value, 2)}</span>;
+      return <span className={s.jvPath} title={value}>{shortPath(value, 2)}</span>;
     }
     if (value.startsWith("http")) {
-      return <a className="jv-url" href={value} target="_blank" rel="noopener noreferrer">{value}</a>;
+      return <a className={s.jvUrl} href={value} target="_blank" rel="noopener noreferrer">{value}</a>;
     }
-    return <span className="jv-string">{value}</span>;
+    return <span className={s.jvString}>{value}</span>;
   }
   if (Array.isArray(value)) {
     return (
-      <span className="mf-param-nested">
-        [{value.map((item, i) => <span key={i} className="mf-param-array-item"><ParamValue value={item} />{i < value.length - 1 ? ", " : ""}</span>)}]
+      <span>
+        [{value.map((item, i) => <span key={i}><ParamValue value={item} />{i < value.length - 1 ? ", " : ""}</span>)}]
       </span>
     );
   }
@@ -228,18 +229,18 @@ function ParamValue({ value }: { value: unknown }): React.ReactElement {
     const obj = value as Record<string, unknown>;
     const entries = Object.entries(obj);
     return (
-      <span className="mf-param-nested">
+      <span>
         {"{"}
         {entries.map(([k, v], i) => (
-          <span key={k} className="mf-param-obj-entry">
-            <span className="jv-key">{k}</span>: <ParamValue value={v} />{i < entries.length - 1 ? ", " : ""}
+          <span key={k}>
+            <span className={s.jvKey}>{k}</span>: <ParamValue value={v} />{i < entries.length - 1 ? ", " : ""}
           </span>
         ))}
         {"}"}
       </span>
     );
   }
-  return <span className="jv-string">{String(value)}</span>;
+  return <span className={s.jvString}>{String(value)}</span>;
 }
 
 function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] }) {
@@ -248,10 +249,10 @@ function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] 
     : Object.entries(data).filter(([, v]) => v !== null && v !== undefined);
 
   return (
-    <div className="mf-param-grid">
+    <div className={s.mfParamGrid}>
       {entries.map(([key, val]) => (
-        <div key={key} className="mf-param-row">
-          <span className="mf-param-key">{key.replace(/_/g, " ")}</span>
+        <div key={key} className={s.mfParamRow}>
+          <span className={s.mfParamKey}>{key.replace(/_/g, " ")}</span>
           <ParamValue value={val} />
         </div>
       ))}
@@ -291,10 +292,10 @@ function RunViewer({ data }: { data: Record<string, any> }) {
   });
 
   return (
-    <div className="manifest-viewer">
+    <div className={s.manifestViewer}>
       {cmdParts.length > 0 && (
         <Section title="Command">
-          <div className="mf-command-line">{cmdParts.join(" · ")}</div>
+          <div className={s.mfCommandLine}>{cmdParts.join(" · ")}</div>
         </Section>
       )}
       {hasPrompt && (
@@ -339,7 +340,7 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
     });
 
     return (
-      <div className="manifest-viewer">
+      <div className={s.manifestViewer}>
         <Section title="Status">
           <StatusBadge
             status={data.status || "unknown"}
@@ -360,11 +361,11 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
         {data.output_files && data.output_files.length > 0 && (
           <Section title="Output">
             {data.output_files.map((f: any, i: number) => (
-              <div key={i} className="mf-output-row">
-                {f.width && f.height && <span className="mf-output-meta">{f.width}×{f.height}</span>}
-                {f.size_bytes && <span className="mf-output-meta">{formatBytes(f.size_bytes)}</span>}
-                {f.seed != null && <span className="mf-output-meta">seed {f.seed}</span>}
-                {f.label && <span className="mf-output-label">{f.label}</span>}
+              <div key={i} className={s.mfOutputRow}>
+                {f.width && f.height && <span className={s.mfOutputMeta}>{f.width}×{f.height}</span>}
+                {f.size_bytes && <span className={s.mfOutputMeta}>{formatBytes(f.size_bytes)}</span>}
+                {f.seed != null && <span className={s.mfOutputMeta}>seed {f.seed}</span>}
+                {f.label && <span className={s.mfOutputLabel}>{f.label}</span>}
               </div>
             ))}
           </Section>
@@ -395,10 +396,10 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
   });
 
   return (
-    <div className="manifest-viewer">
+    <div className={s.manifestViewer}>
       {(data.command || data.method) && (
         <Section title="Command">
-          <div className="mf-command-line">
+          <div className={s.mfCommandLine}>
             {[data.command, data.method].filter(Boolean).join(" · ")}
           </div>
         </Section>
@@ -514,7 +515,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     onClose();
   }, [zoom, onClose]);
 
-  const cursorClass = zoom > 1 ? (isPanning ? "panning" : "zoomed") : "";
+  const cursorMod = zoom > 1 ? (isPanning ? s.imagePreviewContentPanning : s.imagePreviewContentZoomed) : "";
 
   const handleCopyRaw = async () => {
     if (!data) return;
@@ -537,9 +538,9 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
   return (
-    <div className="image-preview-overlay" onClick={handleOverlayClick}>
+    <div className={s.imagePreviewOverlay} onClick={handleOverlayClick}>
       <div
-        className={`image-preview-content ${cursorClass}`}
+        className={`${s.imagePreviewContent}${cursorMod ? " " + cursorMod : ""}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -552,22 +553,22 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
             controls
             loop
             autoPlay
-            className="preview-media"
+            className={s.previewMedia}
             style={{ transform }}
           />
         ) : (
           <img
             src={url}
             alt="Preview"
-            className="preview-media"
+            className={s.previewMedia}
             style={{ transform }}
           />
         )}
-        <div className="zoom-toolbar" onMouseDown={(e) => e.stopPropagation()}>
+        <div className={s.zoomToolbar} onMouseDown={(e) => e.stopPropagation()}>
           {[1, 2, 4].map((level) => (
             <button
               key={level}
-              className={`zoom-btn ${zoom === level ? "active" : ""}`}
+              className={`${s.zoomBtn}${zoom === level ? " " + s.zoomBtnActive : ""}`}
               onClick={(e) => {
                 e.stopPropagation();
                 setZoom(level);
@@ -579,47 +580,47 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
           ))}
         </div>
       </div>
-      <div className="image-preview-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="image-preview-panel-header">
-          <div className="image-preview-panel-tabs">
+      <div className={s.imagePreviewPanel} onClick={(e) => e.stopPropagation()}>
+        <div className={s.imagePreviewPanelHeader}>
+          <div className={s.imagePreviewPanelTabs}>
             <button
-              className={`image-preview-tab ${tab === "run" ? "active" : ""} ${!hasRun ? "disabled" : ""}`}
+              className={`${s.imagePreviewTab}${tab === "run" ? " " + s.imagePreviewTabActive : ""}${!hasRun ? " " + s.imagePreviewTabDisabled : ""}`}
               onClick={() => { setTab("run"); setShowRaw(false); }}
               disabled={!hasRun}
             >
               run.json
             </button>
             <button
-              className={`image-preview-tab ${tab === "manifest" ? "active" : ""} ${!hasManifest ? "disabled" : ""}`}
+              className={`${s.imagePreviewTab}${tab === "manifest" ? " " + s.imagePreviewTabActive : ""}${!hasManifest ? " " + s.imagePreviewTabDisabled : ""}`}
               onClick={() => { setTab("manifest"); setShowRaw(false); }}
               disabled={!hasManifest}
             >
               manifest.json
             </button>
             <button
-              className={`image-preview-tab ${tab === "scores" ? "active" : ""} ${!hasCaption ? "disabled" : ""}`}
+              className={`${s.imagePreviewTab}${tab === "scores" ? " " + s.imagePreviewTabActive : ""}${!hasCaption ? " " + s.imagePreviewTabDisabled : ""}`}
               onClick={() => { setTab("scores"); setShowRaw(false); }}
               disabled={!hasCaption}
             >
               Scores
             </button>
           </div>
-          <div className="image-preview-panel-actions">
+          <div className={s.imagePreviewPanelActions}>
             <button
-              className="image-preview-raw-btn"
+              className={s.imagePreviewRawBtn}
               onClick={() => setShowRaw(true)}
               disabled={!data}
             >📋 Raw</button>
             <button
-              className="image-preview-raw-btn"
+              className={s.imagePreviewRawBtn}
               onClick={handleCopyPath}
               disabled={!activePath}
               title={activePath || "No JSON file"}
             >{pathCopied ? "✓ Copied" : "📁 Path"}</button>
-            <button className="image-preview-panel-close" onClick={onClose}>✕</button>
+            <button className={s.imagePreviewPanelClose} onClick={onClose}>✕</button>
           </div>
         </div>
-        <div className="image-preview-panel-body">
+        <div className={s.imagePreviewPanelBody}>
           {tab === "scores" && caption ? (
             <ScoresViewer caption={caption} />
           ) : data ? (
@@ -632,18 +633,18 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
           )}
         </div>
         {showRaw && data && (
-          <div className="mf-raw-modal-backdrop" onClick={() => setShowRaw(false)}>
-            <div className="mf-raw-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="mf-raw-modal-header">
-                <span className="mf-raw-modal-title">{tab}.json</span>
-                <div className="mf-raw-modal-actions">
-                  <button className="mf-raw-copy-btn" onClick={handleCopyRaw}>
+          <div className={s.mfRawModalBackdrop} onClick={() => setShowRaw(false)}>
+            <div className={s.mfRawModal} onClick={(e) => e.stopPropagation()}>
+              <div className={s.mfRawModalHeader}>
+                <span className={s.mfRawModalTitle}>{tab}.json</span>
+                <div className={s.mfRawModalActions}>
+                  <button className={s.mfRawCopyBtn} onClick={handleCopyRaw}>
                     {rawCopied ? "✓ Copied" : "📋 Copy"}
                   </button>
-                  <button className="mf-raw-close-btn" onClick={() => setShowRaw(false)}>✕</button>
+                  <button className={s.mfRawCloseBtn} onClick={() => setShowRaw(false)}>✕</button>
                 </div>
               </div>
-              <pre className="mf-raw-content">{JSON.stringify(data, null, 2)}</pre>
+              <pre className={s.mfRawContent}>{JSON.stringify(data, null, 2)}</pre>
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { relativeTime } from "../utils/format";
+import s from "./ConfigView.module.css";
 
 interface ConfigData {
   outputDir: string | string[];
@@ -220,20 +221,20 @@ export function ConfigView() {
     }
 
     return (
-      <div className="mc-result-panel">
-        <div className="mc-result-header">
+      <div className={s.mcResultPanel}>
+        <div className={s.mcResultHeader}>
           <span className={`vlm-test-badge ${statusClass}`}>
             {parts.join(" · ")}
           </span>
           {r.timestamp && (
-            <span className="mc-result-time">
+            <span className={s.mcResultTime}>
               Last checked: {relativeTime(r.timestamp)}
             </span>
           )}
         </div>
         {r.ok && r.htmlUrl && (
           <a
-            className="mc-report-link"
+            className={s.mcReportLink}
             href={r.htmlUrl}
             target="_blank"
             rel="noopener noreferrer"
@@ -305,9 +306,9 @@ export function ConfigView() {
             )}
           </div>
           {showLogs && visibleLogs.length > 0 && (
-            <div className="mc-log-panel" ref={logPanelRef}>
+            <div className={s.mcLogPanel} ref={logPanelRef}>
               {visibleLogs.map((l, i) => (
-                <div key={i} className="mc-log-line">{l.line}</div>
+                <div key={i} className={s.mcLogLine}>{l.line}</div>
               ))}
             </div>
           )}
