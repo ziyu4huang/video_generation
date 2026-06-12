@@ -41,6 +41,8 @@ if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
 # Apply vendor monkey-patches before any vendor classes are instantiated.
 import app.vendor_patches  # noqa: F401
 
+from app.ltx_variants import COMMON_COMPONENTS, LTX_VARIANTS, get_variant
+
 # ---------------------------------------------------------------------------
 # MultiModalGuiderParams defaults (shared by generate() and generate_flf2v())
 # ---------------------------------------------------------------------------
@@ -51,87 +53,22 @@ _FLF2V_AUDIO_CFG_SCALE = 7.0
 
 
 # ---------------------------------------------------------------------------
-# Component → file mapping  (all files live in a flat root for ltx-2-mlx)
+# Component → file mapping for on-the-fly temp-dir assembly (fallback when a
+# pre-built flat dir isn't ready). Derived from the variant registry so it stays
+# in sync with app/ltx_variants.py. Per-variant required-file checks and
+# pre-built-dir resolution live on the LTXVariant itself (see get_variant()).
 # ---------------------------------------------------------------------------
-
+_dev = LTX_VARIANTS["dev"]
+_dis = LTX_VARIANTS["distilled"]
 _LTX_COMPONENT_FILES: dict[str, list[str]] = {
-    cfg.LTX_TRANSFORMER_DIR: [
-        "transformer-dev.safetensors",
-        "split_model.json",
-        "quantize_config.json",
-    ],
-    cfg.LTX_DISTILLED_TRANSFORMER_DIR: [
-        "transformer-distilled-1.1.safetensors",
-        "split_model.json",
-        "quantize_config.json",
-    ],
-    cfg.LTX_LORA_DIR: [
-        "ltx-2.3-22b-distilled-lora-384.safetensors",
-        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
-    ],
-    cfg.LTX_TEXT_ENCODER_DIR: [
-        "connector.safetensors",
-        "config.json",
-        "embedded_config.json",  # Transformer architecture config (av_ca_timestep_scale_multiplier)
-    ],
-    cfg.LTX_VAE_DIR: [
-        "vae_encoder.safetensors",
-        "vae_decoder.safetensors",
-        "spatial_upscaler_x2_v1_1.safetensors",
-        "spatial_upscaler_x2_v1_1_config.json",
-        "spatial_upscaler_x1_5_v1_0.safetensors",
-        "spatial_upscaler_x1_5_v1_0_config.json",
-        "temporal_upscaler_x2_v1_0.safetensors",
-        "temporal_upscaler_x2_v1_0_config.json",
-    ],
-    cfg.LTX_AUDIO_DIR: [
-        "audio_vae.safetensors",
-        "vocoder.safetensors",
-    ],
-}
-
-# Required files whose absence means local components aren't ready
-_LTX_REQUIRED_FILES = [
-    (cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors"),
-    (cfg.LTX_LORA_DIR,        "ltx-2.3-22b-distilled-lora-384.safetensors"),
-    (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_encoder.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
-]
-
-_LTX_DISTILLED_REQUIRED_FILES = [
-    (cfg.LTX_DISTILLED_TRANSFORMER_DIR, "transformer-distilled-1.1.safetensors"),
-    (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_encoder.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
-]
-
-# DaSiWa dev-architecture finetune: its own transformer + the same shared
-# connector/VAE the dev path uses. (Distilled-LoRA is shared too but only
-# needed at Stage 2 of the two-stage pipelines, which resolve it from the
-# flat dir by filename.)
-_LTX_DASIWA_REQUIRED_FILES = [
-    (cfg.LTX_DASIWA_TRANSFORMER_DIR, "transformer-dev.safetensors"),
-    (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_encoder.safetensors"),
-    (cfg.LTX_VAE_DIR,         "vae_decoder.safetensors"),
-]
-
-# transformer variant → (source-existence check list, pre-built flat dir)
-_LTX_REQUIRED_BY_TRANSFORMER: dict[str, list[tuple[str, str]]] = {
-    "dev": _LTX_REQUIRED_FILES,
-    "distilled": _LTX_DISTILLED_REQUIRED_FILES,
-    "dasiwa": _LTX_DASIWA_REQUIRED_FILES,
-}
-_LTX_PREBUILT_DIR: dict[str, str] = {
-    "dev": cfg.LTX_MLX_DEV_DIR,
-    "distilled": cfg.LTX_MLX_DISTILLED_DIR,
-    "dasiwa": cfg.LTX_MLX_DASIWA_DIR,
+    **COMMON_COMPONENTS,
+    _dev.transformer_dir: [_dev.transformer_file, "split_model.json", "quantize_config.json"],
+    _dis.transformer_dir: [_dis.transformer_file, "split_model.json", "quantize_config.json"],
 }
 
 
 def _local_components_ready(transformer: str = "dev") -> bool:
-    files = _LTX_REQUIRED_BY_TRANSFORMER.get(transformer, _LTX_REQUIRED_FILES)
+    files = get_variant(transformer).required_files
     return all(
         os.path.exists(os.path.join(d, f))
         for d, f in files
@@ -156,8 +93,9 @@ def _ensure_flat_dir(transformer: str = "dev") -> str:
     created by scripts/setup_ltx_symlinks.py.  If not found or invalid,
     falls back to on-the-fly temp assembly.
     """
-    prebuilt = _LTX_PREBUILT_DIR.get(transformer, cfg.LTX_MLX_DEV_DIR)
-    required = _LTX_REQUIRED_BY_TRANSFORMER.get(transformer, _LTX_REQUIRED_FILES)
+    variant = get_variant(transformer)
+    prebuilt = variant.flat_dir
+    required = variant.required_files
     if _check_flat_dir(prebuilt, required):
         print(f"[LTXVideoPipeline] Using pre-built flat dir: {prebuilt}")
         return prebuilt
@@ -282,29 +220,16 @@ class LTXVideoPipeline:
                              Fused into the dev transformer at load time via vendor _pending_loras.
             lora_scale:      LoRA fusion strength (default: 1.0).
         """
-        # Resolve transformer variant: --transformer wins, else fall back to
-        # the --distilled flag. dasiwa is a dev-architecture finetune, so it
-        # rides the dev pipeline branch (self.distilled stays False).
-        if transformer is None:
-            transformer = "distilled" if distilled else "dev"
-        if transformer not in ("dev", "distilled", "dasiwa"):
-            raise ValueError(
-                f"LTXVideoPipeline: transformer must be dev/distilled/dasiwa, got {transformer!r}"
-            )
-        self.transformer = transformer
-        distilled = transformer == "distilled"
-        # The two-stage stage-1→stage-2 swap (used at LoRA strength 1.0 in
-        # low_ram mode) needs a pre-fused transformer-distilled*.safetensors in
-        # the flat dir. Neither the dev flat dir nor third-party dev finetunes
-        # (dasiwa) ship that file — only the distilled flat dir does. So pin the
-        # strength just off 1.0 to force bind-time LoRA fusion instead, which
-        # streams the dev/finetune weights + fuses the distilled LoRA at each
-        # bind. (Vendor docs: strengths in [0.8, 1.2] are visually
-        # indistinguishable from the strength-1.0 swap.) `distilled` uses the
-        # separate DistilledPipeline and never consumes this value.
-        self._distilled_lora_strength = (
-            0.999 if transformer in ("dev", "dasiwa") else 1.0
-        )
+        # Resolve transformer variant via the registry (app/ltx_variants.py):
+        # --transformer wins, else fall back to the --distilled flag. The variant
+        # carries the pipeline branch (is_distilled) and the distilled-LoRA
+        # fusion strength (bind-time 0.999 for dev/dasiwa, which ship no
+        # pre-fused distilled file; 1.0 for distilled's separate DistilledPipeline).
+        variant = get_variant(transformer, distilled)
+        self.transformer = variant.key
+        distilled = variant.is_distilled
+        self._variant = variant
+        self._distilled_lora_strength = variant.distilled_lora_strength
 
         self.low_ram = low_ram
         self.hq = hq
@@ -655,7 +580,7 @@ class LTXVideoPipeline:
             model_dir=self._model_dir,
             low_memory=True,
             low_ram_streaming=self.low_ram,
-            dev_transformer="transformer-dev.safetensors",
+            dev_transformer=self._variant.transformer_file,
             distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
             distilled_lora_strength=self._distilled_lora_strength,
         )

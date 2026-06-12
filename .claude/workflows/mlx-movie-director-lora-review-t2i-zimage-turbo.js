@@ -1058,8 +1058,7 @@ markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
 
 phase("Persist")
 
-const successCount = genResults.filter((r) => r.status === "success").length
-const failCount = genResults.filter((r) => r.status !== "success").length
+// Reuse successCount/failCount from Generate phase (already defined)
 
 const historyEntry = {
   schema_version: 1,

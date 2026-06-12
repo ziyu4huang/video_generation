@@ -1054,7 +1054,7 @@ def _run_relay_inner(args):
                       ("enhance_prompt", False), ("variations", 1),
                       ("ab_params", None), ("yes", False),
                       ("first_frame", False), ("caption", False),
-                      ("skip_gpu_lock", False), ("video_model", None),
+                      ("skip_gpu_lock", False), ("video_model", None),  # noqa: keep for RunConfig compat
                       ("prompt", prompts[0]), ("prompt_file", None),
                       ("input_image", segment_images[0]),
                       ("lora_path", lora_path), ("lora_scale", lora_scale)]:

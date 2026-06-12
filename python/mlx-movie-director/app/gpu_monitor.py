@@ -9,12 +9,15 @@ Provides:
   - GpuStatus  — detection result dataclass
   - detect_gpu_busy() — run the tier chain
   - is_gpu_heavy_command() — classify a parsed argparse Namespace
-  - GpuLock    — context manager that blocks until GPU is free
+  - GpuLock    — context manager with flock mutex that blocks until GPU is free
 """
 
+import fcntl
 import json
 import os
 import subprocess
+import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 
@@ -38,6 +41,10 @@ class GpuStatus:
 # ---------------------------------------------------------------------------
 
 _MACMON_WARNED = False
+
+# Lock file for flock-based mutex
+_LOCK_DIR = os.path.join(tempfile.gettempdir(), "mlx-movie-director")
+_LOCK_FILE = os.path.join(_LOCK_DIR, "gpu.lock")
 
 
 def _detect_macmon(threshold: float) -> GpuStatus | None:
@@ -132,7 +139,8 @@ def _detect_psutil(threshold: float) -> GpuStatus | None:
 
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-    except Exception:
+    except Exception as exc:
+        print(f"[gpu-monitor] psutil scan error: {exc}", file=sys.stderr)
         return None
 
     busy = len(blocking_pids) > 0
@@ -348,38 +356,71 @@ def _is_replay_gpu_heavy(args) -> bool:
 # ---------------------------------------------------------------------------
 
 class GpuLock:
-    """Block until the GPU is free, then proceed.
+    """Acquire an exclusive flock, blocking until GPU is free.
 
-    Uses multi-tier detection (macmon -> psutil -> runpy).
-    Prints agent-friendly structured output when GPU is busy.
+    Uses fcntl.flock() for true mutual exclusion (no race condition).
+    Falls back to multi-tier detection (macmon -> psutil -> runpy) for
+    advisory diagnostics when the lock is held by another process.
+
+    The lock file lives in /tmp/mlx-movie-director/gpu.lock and is
+    automatically released when the process exits (kernel cleanup).
 
     Args:
-        skip:  If True, skip detection entirely (programmatic bypass).
-        force: If True, skip detection (user --force override).
-        poll_interval: Seconds between retries when GPU is busy.
+        skip:  If True, skip lock entirely (programmatic bypass).
+        force: If True, skip lock (user --force override).
+        poll_interval: Seconds between retries when lock is held.
         threshold: GPU utilization threshold (0.0-1.0) for macmon.
+        max_wait: Maximum seconds to wait before giving up (default: 3600).
     """
 
     def __init__(self, skip: bool = False, force: bool = False,
-                 poll_interval: int = 10, threshold: float = 0.5):
+                 poll_interval: int = 10, threshold: float = 0.5,
+                 max_wait: int = 3600):
         self.skip = skip
         self.force = force
         self.poll_interval = poll_interval
         self.threshold = threshold
+        self.max_wait = max_wait
+        self._lock_fd = None
 
     def __enter__(self):
         if self.skip or self.force:
             return self
 
+        os.makedirs(_LOCK_DIR, exist_ok=True)
+        self._lock_fd = open(_LOCK_FILE, "w")
+        deadline = time.time() + self.max_wait
+
         while True:
-            status = detect_gpu_busy(self.threshold)
-            if not status.busy:
-                _print_available(status)
+            # 1. Try non-blocking flock
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _print_available(detect_gpu_busy(self.threshold))
                 return self
+            except (IOError, OSError):
+                pass
+
+            # 2. Check timeout
+            if time.time() >= deadline:
+                status = detect_gpu_busy(self.threshold)
+                self._lock_fd.close()
+                self._lock_fd = None
+                _print_timeout(status, self.max_wait)
+                sys.exit(1)
+
+            # 3. Report busy + sleep
+            status = detect_gpu_busy(self.threshold)
             _print_busy(status)
             time.sleep(self.poll_interval)
 
     def __exit__(self, *_):
+        if self._lock_fd:
+            try:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+                self._lock_fd.close()
+            except (IOError, OSError):
+                pass
+            self._lock_fd = None
         return False
 
 
@@ -424,3 +465,33 @@ def _print_busy(status: GpuStatus) -> None:
         "recommendation": "wait for blocking process, or use --force to override",
     })
     print(f"GPU_BUSY:{busy_json}", flush=True)
+
+
+def _print_timeout(status: GpuStatus, max_wait: int) -> None:
+    """Print timeout error when GPU lock could not be acquired."""
+    print(f"[gpu-monitor] TIMEOUT — waited {max_wait}s but GPU is still busy",
+          file=sys.stderr, flush=True)
+    if status.utilization >= 0:
+        print(f"[gpu-monitor]   Last reading: utilization={status.utilization:.0%} "
+              f"({status.source})", file=sys.stderr, flush=True)
+    elif status.details:
+        print(f"[gpu-monitor]   {status.details} ({status.source})",
+              file=sys.stderr, flush=True)
+    for pid, cmd in zip(status.blocking_pids, status.blocking_commands):
+        short = cmd[:70] + "..." if len(cmd) > 70 else cmd
+        print(f"[gpu-monitor]   Blocking: PID {pid} ({short})",
+              file=sys.stderr, flush=True)
+    print("[gpu-monitor]   Recommendation: wait for the blocking process or use --force",
+          file=sys.stderr, flush=True)
+
+    # Machine-parseable
+    timeout_json = json.dumps({
+        "status": "timeout",
+        "max_wait": max_wait,
+        "utilization": round(status.utilization, 3),
+        "source": status.source,
+        "blocking_pids": status.blocking_pids,
+        "blocking_commands": status.blocking_commands[:5],
+        "recommendation": "wait for blocking process, or use --force to override",
+    })
+    print(f"GPU_BUSY:{timeout_json}", file=sys.stderr, flush=True)

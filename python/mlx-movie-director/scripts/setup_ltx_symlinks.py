@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """setup_ltx_symlinks — create pre-built flat symlink dirs for LTX-2.3.
 
-Creates directories under models/ltx-mlx/:
-  - dev/        for the dev transformer (T2V, I2V, A2V, HQ, FLF2V)
-  - distilled/  for the distilled transformer (fast 8-step generation)
-  - dasiwa/     for a DaSiWa dev-architecture finetune (shares base VAE/
-                text-encoder/audio/distilled-LoRA; only the transformer differs)
+Creates one directory per transformer variant under models/ltx-mlx/:
+  - dev/        dev transformer (T2V, I2V, A2V, HQ, FLF2V)
+  - distilled/  distilled transformer (fast 8-step generation)
+  - dasiwa/     DaSiWa dev-architecture finetune (shares base VAE/text-encoder/
+                audio/distilled-LoRA; only the transformer differs)
 
 Each contains relative symlinks pointing to the real files in
 models/{type}/{name}/.  ltx-2-mlx expects all files in a single flat
 directory — these pre-built dirs avoid on-the-fly temp assembly.
+
+The per-variant config (transformer dir/file, flat dir, shared components)
+lives in app/ltx_variants.py — this script is now a thin loop over the
+variant registry, so adding a variant needs no change here.
 
 Usage:
     python scripts/setup_ltx_symlinks.py          # create all
@@ -21,162 +25,26 @@ import os
 import sys
 import argparse
 
-# Add project root so we can import config
+# Add project root so we can import config / the variant registry
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
-from app import config as cfg
+from app.ltx_variants import LTX_VARIANTS, get_variant
 
-# Same mapping as ltx_pipeline.py — source_dir → filenames
-_COMPONENT_FILES = {
-    "dev": {
-        cfg.LTX_TRANSFORMER_DIR: [
-            "transformer-dev.safetensors",
-            "split_model.json",
-            "quantize_config.json",
-        ],
-        cfg.LTX_LORA_DIR: [
-            "ltx-2.3-22b-distilled-lora-384.safetensors",
-            "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
-        ],
-        cfg.LTX_TEXT_ENCODER_DIR: [
-            "connector.safetensors",
-            "config.json",
-            "embedded_config.json",
-        ],
-        cfg.LTX_VAE_DIR: [
-            "vae_encoder.safetensors",
-            "vae_decoder.safetensors",
-            "spatial_upscaler_x2_v1_1.safetensors",
-            "spatial_upscaler_x2_v1_1_config.json",
-            "spatial_upscaler_x1_5_v1_0.safetensors",
-            "spatial_upscaler_x1_5_v1_0_config.json",
-            "temporal_upscaler_x2_v1_0.safetensors",
-            "temporal_upscaler_x2_v1_0_config.json",
-        ],
-        cfg.LTX_AUDIO_DIR: [
-            "audio_vae.safetensors",
-            "vocoder.safetensors",
-        ],
-    },
-    "distilled": {
-        cfg.LTX_DISTILLED_TRANSFORMER_DIR: [
-            "transformer-distilled-1.1.safetensors",
-            "split_model.json",
-            "quantize_config.json",
-        ],
-        cfg.LTX_LORA_DIR: [
-            "ltx-2.3-22b-distilled-lora-384.safetensors",
-            "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
-        ],
-        cfg.LTX_TEXT_ENCODER_DIR: [
-            "connector.safetensors",
-            "config.json",
-            "embedded_config.json",
-        ],
-        cfg.LTX_VAE_DIR: [
-            "vae_encoder.safetensors",
-            "vae_decoder.safetensors",
-            "spatial_upscaler_x2_v1_1.safetensors",
-            "spatial_upscaler_x2_v1_1_config.json",
-            "spatial_upscaler_x1_5_v1_0.safetensors",
-            "spatial_upscaler_x1_5_v1_0_config.json",
-            "temporal_upscaler_x2_v1_0.safetensors",
-            "temporal_upscaler_x2_v1_0_config.json",
-        ],
-        cfg.LTX_AUDIO_DIR: [
-            "audio_vae.safetensors",
-            "vocoder.safetensors",
-        ],
-    },
-    "dasiwa": {
-        # DaSiWa dev-architecture finetune: its transformer (saved as
-        # transformer-dev.safetensors by convert.py --ltx-checkpoint) + the
-        # SAME shared components as dev.
-        cfg.LTX_DASIWA_TRANSFORMER_DIR: [
-            "transformer-dev.safetensors",
-            "split_model.json",
-            "quantize_config.json",
-        ],
-        cfg.LTX_LORA_DIR: [
-            "ltx-2.3-22b-distilled-lora-384.safetensors",
-            "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
-        ],
-        cfg.LTX_TEXT_ENCODER_DIR: [
-            "connector.safetensors",
-            "config.json",
-            "embedded_config.json",
-        ],
-        cfg.LTX_VAE_DIR: [
-            "vae_encoder.safetensors",
-            "vae_decoder.safetensors",
-            "spatial_upscaler_x2_v1_1.safetensors",
-            "spatial_upscaler_x2_v1_1_config.json",
-            "spatial_upscaler_x1_5_v1_0.safetensors",
-            "spatial_upscaler_x1_5_v1_0_config.json",
-            "temporal_upscaler_x2_v1_0.safetensors",
-            "temporal_upscaler_x2_v1_0_config.json",
-        ],
-        cfg.LTX_AUDIO_DIR: [
-            "audio_vae.safetensors",
-            "vocoder.safetensors",
-        ],
-    },
-}
 
-# Required files that must exist (vs optional upscalers/configs)
-_REQUIRED = {
-    "dev": {
-        cfg.LTX_TRANSFORMER_DIR: "transformer-dev.safetensors",
-        cfg.LTX_LORA_DIR: "ltx-2.3-22b-distilled-lora-384.safetensors",
-        cfg.LTX_TEXT_ENCODER_DIR: "connector.safetensors",
-        cfg.LTX_VAE_DIR: "vae_encoder.safetensors",
-        cfg.LTX_VAE_DIR: "vae_decoder.safetensors",
-    },
-    "distilled": {
-        cfg.LTX_DISTILLED_TRANSFORMER_DIR: "transformer-distilled-1.1.safetensors",
-        cfg.LTX_TEXT_ENCODER_DIR: "connector.safetensors",
-        cfg.LTX_VAE_DIR: "vae_encoder.safetensors",
-        cfg.LTX_VAE_DIR: "vae_decoder.safetensors",
-    },
-    "dasiwa": {
-        cfg.LTX_DASIWA_TRANSFORMER_DIR: "transformer-dev.safetensors",
-        cfg.LTX_LORA_DIR: "ltx-2.3-22b-distilled-lora-384.safetensors",
-        cfg.LTX_TEXT_ENCODER_DIR: "connector.safetensors",
-        cfg.LTX_VAE_DIR: "vae_encoder.safetensors",
-        cfg.LTX_VAE_DIR: "vae_decoder.safetensors",
-    },
-}
+def _component_files(variant: str) -> dict[str, list[str]]:
+    """{source_dir: [filenames]} to symlink for this variant."""
+    return get_variant(variant).component_files()
 
-# Note: _REQUIRED has duplicate keys for VAE_DIR. Fix by using list of tuples.
-_REQUIRED_LIST = {
-    "dev": [
-        (cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors"),
-        (cfg.LTX_LORA_DIR, "ltx-2.3-22b-distilled-lora-384.safetensors"),
-        (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_decoder.safetensors"),
-    ],
-    "distilled": [
-        (cfg.LTX_DISTILLED_TRANSFORMER_DIR, "transformer-distilled-1.1.safetensors"),
-        (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_decoder.safetensors"),
-    ],
-    "dasiwa": [
-        (cfg.LTX_DASIWA_TRANSFORMER_DIR, "transformer-dev.safetensors"),
-        (cfg.LTX_LORA_DIR, "ltx-2.3-22b-distilled-lora-384.safetensors"),
-        (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
-        (cfg.LTX_VAE_DIR, "vae_decoder.safetensors"),
-    ],
-}
 
-TARGET_DIRS = {
-    "dev": cfg.LTX_MLX_DEV_DIR,
-    "distilled": cfg.LTX_MLX_DISTILLED_DIR,
-    "dasiwa": cfg.LTX_MLX_DASIWA_DIR,
-}
+def _required_list(variant: str) -> list[tuple[str, str]]:
+    """Required source files (existence gate before symlinking)."""
+    return get_variant(variant).required_files
+
+
+def _target_dir(variant: str) -> str:
+    """Pre-built flat dir for this variant."""
+    return get_variant(variant).flat_dir
 
 
 def _relative_symlink(src: str, dst: str) -> None:
@@ -190,15 +58,16 @@ def _relative_symlink(src: str, dst: str) -> None:
 
 
 def setup_variant(variant: str, force: bool = False) -> bool:
-    """Create symlinks for one variant (dev or distilled)."""
-    target = TARGET_DIRS[variant]
-    components = _COMPONENT_FILES[variant]
+    """Create symlinks for one variant."""
+    target = _target_dir(variant)
+    components = _component_files(variant)
 
     # Check required source files exist
-    missing = []
-    for src_dir, fname in _REQUIRED_LIST[variant]:
-        if not os.path.exists(os.path.join(src_dir, fname)):
-            missing.append(os.path.join(src_dir, fname))
+    missing = [
+        os.path.join(src_dir, fname)
+        for src_dir, fname in _required_list(variant)
+        if not os.path.exists(os.path.join(src_dir, fname))
+    ]
     if missing:
         print(f"  ⚠️  Skipping {variant}/ — missing required files:")
         for m in missing:
@@ -233,13 +102,13 @@ def setup_variant(variant: str, force: bool = False) -> bool:
 
 def check_variant(variant: str) -> bool:
     """Verify existing symlinks for one variant."""
-    target = TARGET_DIRS[variant]
+    target = _target_dir(variant)
     if not os.path.isdir(target):
         print(f"  ❌ {variant}/ — directory does not exist")
         return False
 
     all_ok = True
-    for src_dir, fname in _REQUIRED_LIST[variant]:
+    for src_dir, fname in _required_list(variant):
         link = os.path.join(target, fname)
         if not os.path.islink(link):
             print(f"  ❌ {variant}/ — {fname} is not a symlink")
@@ -260,19 +129,20 @@ def main():
     parser.add_argument("--force", action="store_true", help="Recreate symlinks from scratch")
     args = parser.parse_args()
 
+    from app import config as cfg
     print(f"Models dir: {cfg.MODELS_DIR}")
     print()
 
+    variants = list(LTX_VARIANTS.keys())
+
     if args.check:
         print("Checking pre-built LTX symlink dirs:")
-        for v in ("dev", "distilled", "dasiwa"):
+        for v in variants:
             check_variant(v)
         return
 
     print("Setting up pre-built LTX symlink dirs:")
-    results = {}
-    for v in ("dev", "distilled", "dasiwa"):
-        results[v] = setup_variant(v, force=args.force)
+    results = {v: setup_variant(v, force=args.force) for v in variants}
 
     if not all(results.values()):
         print()

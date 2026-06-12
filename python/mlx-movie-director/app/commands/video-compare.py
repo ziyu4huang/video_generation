@@ -18,6 +18,7 @@ import sys
 import types
 
 from app import config as cfg
+from app.commands._shared import build_run_py_cmd
 
 _RUN_PY = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "run.py")
@@ -134,8 +135,13 @@ def add_compare_args(parser):
         help="Skip auto-captioning; use --prompt as-is",
     )
     parser.add_argument(
-        "--caption-style", choices=["default", "prompt", "photography"], default="prompt",
-        help="Caption style when auto-captioning (default: prompt)",
+        "--caption-style",
+        choices=["default", "photography", "prompt", "profile", "style",
+                 "score", "compare", "review"],
+        default=None,
+        help="Caption style for auto-captioning / --caption. Shared across the `video` "
+             "sub-actions (generate defaults to 'default', compare to 'prompt' when unset). "
+             "'review' yields structured scores for the comparison HTML.",
     )
 
     # Pipeline selection
@@ -297,12 +303,12 @@ def _get_or_generate_image(args, video_prompt_raw: str | None, selected) -> str 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     before_pngs = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "output_*.png")))
 
-    cmd = [sys.executable, _RUN_PY, "image", "t2i",
+    cmd = build_run_py_cmd("image", "t2i",
            "--prompt", img_prompt,
            "--pipeline", "zimage",
            "--seed", str(getattr(args, "seed", 42)),
            "--width", str(getattr(args, "image_width", 640)),
-           "--height", str(getattr(args, "image_height", 960))]
+           "--height", str(getattr(args, "image_height", 960)))
     steps = getattr(args, "image_steps", None)
     if steps:
         cmd += ["--steps", str(steps)]
@@ -335,9 +341,9 @@ def _get_or_caption_prompt(args, image_path: str | None, video_prompt_raw: str |
     if image_path:
         print(f"[compare] Step 2/4: Auto-captioning reference image")
         caption_path = os.path.splitext(image_path)[0] + ".caption.json"
-        style = getattr(args, "caption_style", "prompt")
-        cmd = [sys.executable, _RUN_PY, "caption", image_path,
-               "--style", style, "--lang", "en"]
+        style = getattr(args, "caption_style", None) or "prompt"
+        cmd = build_run_py_cmd("caption", image_path,
+               "--style", style, "--lang", "en")
         result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
         if result.returncode == 0 and os.path.exists(caption_path):
             try:
@@ -368,8 +374,8 @@ def _run_pipeline_subprocess(
 
     before = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
 
-    cmd = [
-        sys.executable, _RUN_PY, "video", "generate",
+    cmd = build_run_py_cmd(
+        "video", "generate",
         "--prompt", prompt,
         "--frames", str(getattr(args, "frames", 49)),
         "--stage1-steps", str(stage1_steps),
@@ -380,9 +386,8 @@ def _run_pipeline_subprocess(
         "--stg-scale", str(pcfg["stg_scale"]),
         "--first-frame",
         "--caption",
-        "--skip-gpu-lock",
         "--yes",
-    ] + pcfg["flags"]
+    ) + pcfg["flags"]
 
     if needs_image:
         cmd += ["--input-image", image_path]

@@ -61,6 +61,7 @@ import cv2
 import numpy as np
 
 from app import config as cfg
+from app.commands._shared import build_run_py_cmd
 from app.quality_metrics import (
     analyze_frame, generate_html_report, validate_metric_trends, print_trend_validation,
     compare_videos_reference,
@@ -284,15 +285,14 @@ def _run_self_test(args):
 
         before = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
 
-        cmd = [
-            sys.executable, _RUN_PY, "video", "generate",
+        cmd = build_run_py_cmd(
+            "video", "generate",
             "--prompt", prompt,
             "--seed", str(seed),
             "--stage1-steps", str(pcfg["stage1_steps"]),
             "--cfg-scale", str(pcfg["cfg_scale"]),
-            "--skip-gpu-lock",
             "--yes",
-        ] + pcfg["flags"]
+        ) + pcfg["flags"]
 
         result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
 
@@ -380,15 +380,14 @@ def _run_steps_sweep(args):
 
         before = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
 
-        cmd = [
-            sys.executable, _RUN_PY, "video", "generate",
+        cmd = build_run_py_cmd(
+            "video", "generate",
             "--prompt", prompt,
             "--seed", str(seed),
             "--stage1-steps", str(pcfg["stage1_steps"]),
             "--cfg-scale", str(pcfg["cfg_scale"]),
-            "--skip-gpu-lock",
             "--yes",
-        ]
+        )
 
         result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
 
@@ -730,14 +729,14 @@ def _run_restore_loop(args):
 
     # 3. Restore via subprocess (scale 1.0 → same dims/frames → exact alignment)
     print(f"[quality] [3/3] Restoring (loads LTX-2.3 + IC-LoRAs; may take minutes)…")
-    cmd = [
-        sys.executable, _RUN_PY, "video", "restore",
+    cmd = build_run_py_cmd(
+        "video", "restore",
         "--restore-input", degraded_path,
         "--restore-output", restored_path,
         "--restore-scale", "1.0",
         "--seed", str(seed),
         "--restore-no-audio",
-    ]
+    )
     if getattr(args, "low_ram", False):
         cmd.append("--low-ram")
     result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))

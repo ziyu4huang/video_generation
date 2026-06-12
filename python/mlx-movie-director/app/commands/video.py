@@ -65,6 +65,14 @@ PARSER_META = {
         "  run.py video vbvr --prompt 'ball bounces off wall' --frames 49\n"
         "  run.py video relay --relay-prompt-file prompts.txt --relay-first-image base.jpg\n"
         "  run.py video relay --relay-prompt-file prompts.txt --relay-audio music.mp3 --low-ram\n"
+        "\n"
+        "Voice / speech tips (audio is generated from the SAME prompt; intelligible-with-effort\n"
+        "ceiling on MLX — see docs/ltx-voice.md):\n"
+        "  - For SPEECH use --stage1-steps 16 --stage2-steps 3 (8 steps = audio noise);\n"
+        "    49-57 frames speak clearest (longer clips get quieter).\n"
+        "  - Keep the prompt <100 tokens, close-up framing, with quoted dialog + 'speaking'\n"
+        "    + a voice descriptor. NO negations ('no human ears' -> use 'fluffy cat ears');\n"
+        "    drop text-rendering asks (e.g. burning text) — unrenderable and competes with speech.\n"
     ),
 }
 

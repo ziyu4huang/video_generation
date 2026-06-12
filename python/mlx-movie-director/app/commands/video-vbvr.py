@@ -28,7 +28,7 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name, resolve_prompt, resolve_lora_path
+from app.commands._shared import _arg_registered, generate_base_name, resolve_prompt, resolve_lora_path
 from app.manifest import Manifest
 from app.run_config import RunConfig
 
@@ -89,12 +89,13 @@ def _find_vbvr_lora() -> str | None:
 
 def add_vbvr_args(parser):
     """Register video-vbvr arguments."""
-    # Prompt (same pattern as video-generate)
-    prompt_grp = parser.add_mutually_exclusive_group()
-    prompt_grp.add_argument("--vbvr-prompt", type=str, dest="prompt",
-                            help="Text prompt for VBVR generation")
-    prompt_grp.add_argument("--vbvr-prompt-file", type=str, dest="prompt_file",
-                            help="Path to a .txt file containing the prompt")
+    # Prompt — skip when generate's --prompt is already registered (same parser)
+    if not _arg_registered(parser, "prompt"):
+        prompt_grp = parser.add_mutually_exclusive_group()
+        prompt_grp.add_argument("--vbvr-prompt", type=str, dest="prompt",
+                                help="Text prompt for VBVR generation")
+        prompt_grp.add_argument("--vbvr-prompt-file", type=str, dest="prompt_file",
+                                help="Path to a .txt file containing the prompt")
 
     # Input image (I2V conditioning — recommended but optional)
     parser.add_argument("--vbvr-input-image", type=str, default=None, dest="input_image",

@@ -1,6 +1,6 @@
 # LTX-2.3 Voice/Audio Generation — Investigation & Findings
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-13 (voice-prompt case study added)
 **Status:** Lip sync ✅ fixed. Audio amplitude workaround ✅ (`--audio-volume 50`). Root cause confirmed: MLX transformer numerical divergence. New: `--audio-cfg-scale` flag added.
 
 ---
@@ -320,3 +320,71 @@ The camera opens in [setting]. [Ambient sounds described].
 [Character] [action], [voice description]. "[Dialog line]."
 [Response/ambient sounds]. [Character] [continues action]. "[Next dialog line]."
 ```
+
+---
+
+## Case Study: Optimizing a Complex Scene Prompt for Voice (2026-06-13)
+
+A "cat-girl blacksmith casting fire magic" prompt produced acceptable visuals but
+garbled speech. Diagnosing it surfaced the recurring traps when a scene prompt is
+not structured for voice.
+
+### The original prompt (speech-hostile)
+```
+anime-style, high quality. A beautiful woman with cat ears (no human ears, only cat ears),
+a cat tail, and golden eyes with slit pupils stands inside a forge. ... pointing at the viewer
+with black leather gloves, using her hands to cast fire magic ... Her voice is gentle, slightly
+cute and high-pitched ... saying "Time to create!". Fiery particles ... forming a slightly
+burning text "LTX23" ... magical sparks crackles gently as they fade.
+```
+Why speech suffered:
+- **~130 tokens** (guidance: <100; short prompts speak more clearly)
+- **Full/mid-body scene** (forge, pointing, gloves, particles) → no close-up → weak lip-sync conditioning
+- **Negation** "(no human ears, only cat ears)" → model latches onto "human ears" as a cue
+- **Dialog buried** after a wall of visual description
+- **"LTX23" burning text** — diffusion video models can't render specific text, and the demand competes with speech generation
+
+### Anti-pattern → fix
+| Anti-pattern | Fix |
+|---|---|
+| Long (>100 tok), many subjects | One subject, close-up, <100 tokens |
+| Full-body / busy scene | Close-up or medium close-up, face visible |
+| Negation ("no human ears") | Positive assertion ("fluffy cat ears") |
+| Dialog at the end | Scene first, then dialog near the front |
+| Asks to render specific text | Drop it (unrenderable + hurts speech) |
+| No voice cue | Explicit "speaking" + voice descriptor + quoted line |
+
+### Voice-optimized rewrites
+**A — voice priority (close-up):**
+```
+Close-up of a young woman's face, warm firelight glowing on her skin, soft crackling of a
+forge fire in the background. She has golden cat-like eyes and fluffy cat ears, and looks
+directly at the camera, smiling. Speaking in a gentle, clear, slightly high voice, she says,
+"Time to create!"
+```
+**B — balanced (keeps magic, drops text):**
+```
+In a firelit forge, embers drifting, fire crackling softly. A young woman with golden cat eyes
+and fluffy cat ears smiles at the camera, raising a hand as a small flame dances from her
+fingertip. Speaking warmly and clearly, she says, "Time to create!" Medium close-up, her face
+and the flame visible.
+```
+
+### Voice ≠ video-quality sweep
+A parameter sweep optimized for **video** (8/20/30 steps, long prompt, 97 frames) is the
+wrong tool for speech:
+- **Steps**: speech is best at **stage1=16, stage2=3** (5/5). **8 steps = pure noise** for
+  audio (1/5, unusable). 30 oversmooths (3/5). The video-optimal step count is NOT the
+  voice-optimal one.
+- **Duration**: 49-57 frames (~2-2.4s) speak loudest/clearest; longer clips get quieter
+  (~5x quieter at 10s).
+- Run a **separate voice sweep** (16 steps, 57 frames, voice-structured prompt) rather than
+  reading audio off a video-quality sweep.
+
+### Ceiling reminder
+Even with all of the above, MLX speech tops out around **~60% intelligible** (48-layer DiT
+bf16 numerical divergence — the confirmed root cause; text encoder/connector ruled out via
+ComfyUI-embedding export). Short, well-structured utterances like "Time to create!" are the
+realistic best case. The guidance is also surfaced in `run.py video --help` (Voice/speech tips)
+and the `--stage1-steps` help text.
+
