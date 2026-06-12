@@ -29,7 +29,9 @@ import mlx.nn as nn
 import numpy as np
 
 from app import config as cfg
+from app.commands._shared import make_output_paths, run_session
 from app.controlnet import load_controlnet, build_control_input_33ch, _FLUX_SHIFT_FACTOR, _FLUX_SCALE_FACTOR
+from app.io_utils import load_image_rgb, require_file
 
 _DEFAULT_REF_IMAGE = os.path.join(
     cfg.OUTPUT_DIR, "Z-image+Controlnet+V2.1-ref-image.png"
@@ -161,10 +163,7 @@ def run_controlnet(args):
     if steps is None:
         steps = 4 if pipeline_type == "flux2-klein" else 9
 
-    if not os.path.exists(ref_image_path):
-        print(f"ERROR: Reference image not found: {ref_image_path}", file=sys.stderr)
-        print("  Pass --input-image PATH to specify a reference image.", file=sys.stderr)
-        sys.exit(1)
+    require_file(ref_image_path, "reference image (--input-image)")
 
     # ── Determine output dimensions ──────────────────────────────────────────
     with Image.open(ref_image_path) as img:
@@ -223,7 +222,7 @@ def run_controlnet(args):
         out_label += f"-active{cnet_active_steps}"
     out_label += f"-s{seed}"
 
-    run_file, manifest_file, out_path = _make_output_paths(out_label)
+    paths = make_output_paths(suffix=f"_{out_label}")
     run_meta = _build_run_meta(
         prompt=prompt,
         ref_image_path=ref_image_path,
@@ -239,19 +238,16 @@ def run_controlnet(args):
         scale=scale,
         pipeline_type=pipeline_type,
     )
-    _write_json(run_file, run_meta)
+    _write_json(paths.run_file, run_meta)
 
     print(f"  Ref image : {ref_image_path} ({src_w}×{src_h})")
     print(f"  Output    : {out_w}×{out_h}")
     print(f"  Prompt    : {prompt}")
     print(f"  ControlNet: {ctrl_type} (strength={strength})")
     print(f"  Steps/seed: {steps} / {seed}")
-    print(f"Run config : {run_file}")
 
-    start_time = datetime.now(timezone.utc).isoformat()
-    last_timings = {}
-
-    try:
+    json_summary = getattr(args, "json_summary", False)
+    with run_session(paths, json_summary=json_summary) as ctx:
         if pipeline_type == "flux2-klein":
             pil_image = _execute_generation_flux2(
                 prompt=prompt,
@@ -284,39 +280,24 @@ def run_controlnet(args):
                 cnet_active_steps=getattr(args, "cnet_active_steps", None),
             )
 
-        pil_image.save(out_path)
-        print(f"Saved: {out_path}")
+        pil_image.save(paths.output_file)
+        print(f"Saved: {paths.output_file}")
 
-        end_time = datetime.now(timezone.utc).isoformat()
-        output_files = [{
-            "path": out_path,
+        from app.manifest import collect_model_fingerprint_controlnet, collect_model_fingerprint_flux2
+        ctx["outputs"] = [{
+            "path": paths.output_file,
             "seed": seed,
-            "size_bytes": os.path.getsize(out_path),
+            "size_bytes": os.path.getsize(paths.output_file),
             "width": pil_image.width,
             "height": pil_image.height,
         }]
-
-        from app.manifest import Manifest, collect_model_fingerprint_controlnet, collect_model_fingerprint_flux2
-        if pipeline_type == "flux2-klein":
-            models = collect_model_fingerprint_flux2(lora_path=resolved_lora_path)
-        else:
-            models = collect_model_fingerprint_controlnet()
-        manifest = Manifest.from_success(
-            run_file, start_time, end_time, last_timings, output_files, models
+        ctx["models"] = (
+            collect_model_fingerprint_flux2(lora_path=resolved_lora_path)
+            if pipeline_type == "flux2-klein"
+            else collect_model_fingerprint_controlnet()
         )
-        manifest.to_json(manifest_file)
-        print(f"Manifest:   {manifest_file}")
 
-    except Exception as exc:
-        end_time = datetime.now(timezone.utc).isoformat()
-        from app.manifest import Manifest
-        manifest = Manifest.from_error(run_file, start_time, end_time, last_timings, exc, {})
-        manifest.to_json(manifest_file)
-        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
-        traceback.print_exc()
-        sys.exit(1)
-
-    return [out_path]
+    return [paths.output_file]
 
 
 # ---------------------------------------------------------------------------
@@ -343,9 +324,10 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
         print(f"A/B Test — {label}  ({', '.join(parts)})")
         print(f"{'=' * 60}")
 
-        run_file, manifest_file, out_path = _make_output_paths(
-            f"controlnet_{label}"
-        )
+        ab_paths = make_output_paths(suffix=f"_controlnet_{label}")
+        run_file = ab_paths.run_file
+        manifest_file = ab_paths.manifest_file
+        out_path = ab_paths.output_file
         run_meta = _build_run_meta(
             prompt=prompt,
             ref_image_path=ref_image_path,
@@ -543,14 +525,6 @@ def _execute_generation_flux2(prompt, ref_image_path, ctrl_type, strength,
 # Output path / metadata helpers
 # ---------------------------------------------------------------------------
 
-def _make_output_paths(base_name):
-    """Return (run_file, manifest_file, output_png) for a given base name."""
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    run_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.run.json")
-    manifest_file = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.manifest.json")
-    out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}.png")
-    return run_file, manifest_file, out_path
-
 
 def _build_run_meta(prompt, ref_image_path, ctrl_type, strength,
                     skip_preprocess, blur_ref, remove_outlines, steps, seed,
@@ -591,7 +565,7 @@ def _load_and_preprocess(path: str, ctrl_type: str, out_w: int, out_h: int,
                           remove_outlines: bool = False) -> "Image.Image":
     """Load and preprocess reference image. Returns PIL Image resized to (out_w, out_h)."""
     from PIL import Image
-    img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    img = load_image_rgb(path).resize((out_w, out_h), Image.LANCZOS)
     if skip:
         if remove_outlines:
             print(f"[ControlNet] Removing outlines via inpainting...")

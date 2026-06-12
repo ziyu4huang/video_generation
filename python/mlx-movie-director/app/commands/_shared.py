@@ -88,7 +88,7 @@ def seed_sequence(args_or_config) -> list:
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def run_session(paths: OutputPaths, run_config, json_summary: bool = False):
+def run_session(paths: OutputPaths, run_config=None, json_summary: bool = False):
     """Write run.json, record timing, write manifest on success/error.
 
     Yields a mutable dict (ctx) the caller fills with generation results:
@@ -96,13 +96,17 @@ def run_session(paths: OutputPaths, run_config, json_summary: bool = False):
       ctx["outputs"]  — list of {path, seed, size_bytes, width, height, ...}
       ctx["models"]   — model fingerprint dict from collect_model_fingerprint*()
 
+    If run_config is None, the caller is responsible for writing run.json to
+    paths.run_file before entering the context manager.
+
     On exception: writes an error manifest and sys.exit(1).
     On success:   writes a success manifest and prints the summary lines.
     """
     import json as _json
     from app.manifest import Manifest
 
-    run_config.to_json(paths.run_file)
+    if run_config is not None:
+        run_config.to_json(paths.run_file)
     start = datetime.now(timezone.utc).isoformat()
     ctx: dict = {"timings": {}, "outputs": [], "models": {}}
     try:

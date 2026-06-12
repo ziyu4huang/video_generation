@@ -28,6 +28,7 @@ import numpy as np
 
 from app import config as cfg
 from app.commands._shared import _arg_registered, _option_registered
+from app.io_utils import load_image_rgb, require_file
 from app.controlnet import (
     load_controlnet, build_control_input_33ch,
     _FLUX_SHIFT_FACTOR, _FLUX_SCALE_FACTOR,
@@ -334,15 +335,7 @@ def run_i2i(args):
     steps = getattr(args, "steps", 9)
     cnet_active_steps = getattr(args, "cnet_active_steps", None)
 
-    if not input_image_path:
-        print("ERROR: --input-image is required for I2I mode.", file=sys.stderr)
-        print("  Usage: run.py image i2i --input-image photo.jpg --prompt '...' --denoise-strength 0.4",
-              file=sys.stderr)
-        sys.exit(1)
-
-    if not os.path.exists(input_image_path):
-        print(f"ERROR: Input image not found: {input_image_path}", file=sys.stderr)
-        sys.exit(1)
+    require_file(input_image_path, "input image (--input-image)")
 
     # ── Determine output dimensions from source image ──────────────────────
     with Image.open(input_image_path) as img:
@@ -360,7 +353,7 @@ def run_i2i(args):
 
     # ── VAE encode source image → clean_latent ────────────────────────────
     print(f"[I2I] Loading source image: {input_image_path}")
-    source_img = Image.open(input_image_path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    source_img = load_image_rgb(input_image_path).resize((out_w, out_h), Image.LANCZOS)
     vae = _load_vae()
     print("[I2I] VAE encoding source image...", end=" ", flush=True)
     clean_latent = _vae_encode(vae, source_img)

@@ -160,14 +160,11 @@ def run(args):
         print(f"Review HTML: {html_path}")
         return
 
-    input_path = args.image or args.input_image
-    if not input_path:
-        print("ERROR: provide an image path (positional) or --input-image PATH", file=sys.stderr)
-        sys.exit(1)
-
-    if not os.path.exists(input_path):
-        print(f"ERROR: input image not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
+    from app.io_utils import require_file
+    input_path = require_file(
+        args.image or args.input_image,
+        "input image (positional arg or --input-image)",
+    )
 
     # Derive default output path: image.png → image.caption.json
     output_path = args.output
@@ -516,11 +513,25 @@ def _load_review_item(path: str) -> dict:
         data = json.load(f)
     caption_raw = _extract_caption_json(data.get("caption", "{}"))
     img_path = data.get("image", "")
+    # If a sibling video (.mp4) shares the first-frame PNG's basename, embed it
+    # as a playable <video> (video A/B review). Pure-image reviews have no mp4
+    # → video_src "" → card renders the usual <img>. Resolve relative to the
+    # caption JSON's dir first (robust to CWD), then the image path itself.
+    video_path = ""
+    if img_path:
+        stem = os.path.splitext(os.path.basename(img_path))[0]
+        caption_dir = os.path.dirname(os.path.abspath(path))
+        for cand in (os.path.join(caption_dir, stem + ".mp4"),
+                     os.path.splitext(img_path)[0] + ".mp4"):
+            if cand and os.path.exists(cand):
+                video_path = cand
+                break
     return {
         "caption_path": path,
         "image_path": img_path,
         "filename": os.path.basename(img_path) if img_path else os.path.basename(path),
         "image_src": os.path.basename(img_path) if img_path else "",
+        "video_src": os.path.basename(video_path) if video_path else "",
         "style": data.get("style", ""),
         "model": data.get("model", ""),
         "scores": {
@@ -573,6 +584,19 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
         f'<p class="summary"><b>VLM:</b> <i>{html.escape(item["summary"])}</i></p>'
         if item["summary"] else ""
     )
+    # Media: embed a playable <video> (poster = the captioned first frame) when a
+    # sibling mp4 exists (video A/B review); otherwise the usual zoomable <img>.
+    if item.get("video_src"):
+        media_html = (
+            f'<video class="card-video" controls preload="none" playsinline '
+            f'poster="{html.escape(item["image_src"])}" '
+            f'src="{html.escape(item["video_src"])}"></video>'
+        )
+    else:
+        media_html = (
+            f'<img src="{html.escape(item["image_src"])}" '
+            f'alt="{html.escape(item["filename"])}" onclick="openLb(this.src)"/>'
+        )
     return f"""
         <div class="img-card" data-set="{gi}" data-idx="{li}"
              data-variant="{html.escape(variant_label)}" data-filename="{html.escape(item['filename'])}">
@@ -582,7 +606,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
           </div>
           {variant_html}
           <div class="img-wrap">
-            <img src="{html.escape(item['image_src'])}" alt="{html.escape(item['filename'])}" onclick="openLb(this.src)"/>
+            {media_html}
           </div>
           <div class="scores">{bars_html}</div>
           <div class="tags-row">
@@ -745,6 +769,7 @@ def generate_review_html(caption_json_paths: list[str] | None = None,
             )
 
     first_model = rendered[0]["items"][0].get("model", "")
+    title = mf.get("title") or "A/B Review"
 
     # Build per-set sections (guide + VLM recommendation + cards + table)
     sets_html = ""
@@ -784,7 +809,7 @@ def generate_review_html(caption_json_paths: list[str] | None = None,
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>T2I A/B Review — {ts}</title>
+<title>{html.escape(title)} — {ts}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#181818;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:2rem 2rem 5rem;line-height:1.5}}
@@ -809,6 +834,7 @@ h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
 .img-wrap{{margin-bottom:.8rem}}
 .img-card img{{width:100%;border-radius:4px;display:block;cursor:zoom-in;transition:opacity .15s;background:#111}}
 .img-card img:hover{{opacity:.9}}
+.img-card video.card-video{{width:100%;border-radius:4px;display:block;background:#111;max-height:70vh}}
 .scores{{margin-bottom:.7rem}}
 .score-row{{display:flex;align-items:center;gap:8px;margin-bottom:4px}}
 .score-label{{width:90px;font-size:.75rem;color:#999;text-align:right}}
@@ -848,7 +874,7 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 </style>
 </head>
 <body>
-<h1>T2I A/B Review</h1>
+<h1>{html.escape(title)}</h1>
 <p class="meta">Generated {ts} &middot; {total_items} {T['meta_across']} {len(rendered)} {T['meta_sets']} &middot; VLM: {html.escape(str(first_model))}</p>
 
 {sets_html}

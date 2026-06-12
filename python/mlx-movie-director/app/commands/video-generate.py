@@ -34,7 +34,8 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name, resolve_prompt
+from app.commands._shared import generate_base_name, make_output_paths, resolve_prompt, run_session
+from app.ltx_variants import get_variant
 from app.manifest import Manifest, file_fingerprint
 from app.run_config import RunConfig
 from app.test_prompts_video import get_test_prompt, list_test_prompt_names
@@ -102,7 +103,9 @@ def add_generate_args(parser):
                         help="Spatial-temporal guidance scale (default: 1.0)")
     parser.add_argument("--stage1-steps", type=int, default=None,
                         help="Stage 1 denoising steps (default: 8 standard/distilled, "
-                             "15 for --hq, 20 for FLF2V). Use 30 for max quality — slower on MPS.")
+                             "15 for --hq, 20 for FLF2V). Use 30 for max quality — slower on MPS. "
+                             "For VOICE/speech quality use 16 (8 steps produces audio noise); "
+                             "see docs/ltx-voice.md.")
     parser.add_argument("--stage2-steps", type=int, default=None,
                         help="Stage 2 refinement steps (default: 3)")
 
@@ -137,6 +140,11 @@ def add_generate_args(parser):
                         help="Extract first frame to <base>.png via ffmpeg — useful as input for a follow-up I2V or FLF2V run")
     parser.add_argument("--caption", action="store_true", default=False,
                         help="Extract first frame and run 'run.py caption' on it (implies --first-frame)")
+    # NOTE: --caption-style is defined in video-compare.add_compare_args() and
+    # shared across the flat `video` parser (generate/compare/etc. all add to
+    # one parser in video.add_args). Both consumers apply their own fallback
+    # default (generate -> "default", compare -> "prompt"). 'review' yields the
+    # structured scores the comparison HTML consumes.
     parser.add_argument("--enhance-prompt", action="store_true", default=False,
                         help="Use Gemma to expand terse prompts into detailed cinematographic "
                              "descriptions before generation (~10-20s extra overhead)")
@@ -239,6 +247,17 @@ def _estimate_runtime(args, variations: int = 1) -> float:
 
     s1_time = args.stage1_steps * s1_slope * mpx * hq_mult
     s2_time = args.stage2_steps * s2_slope * mpx
+
+    # Dev/dasiwa transformer is ~28% slower per step than distilled; the T2V/I2V
+    # slopes above are distilled-calibrated, so scale them for dev-architecture
+    # variants. (The FLF2V slopes are already dev-calibrated, so no scaling there.)
+    if not is_flf2v:
+        bench_mult = get_variant(
+            getattr(args, "transformer", None), getattr(args, "distilled", False)
+        ).bench_mult
+        s1_time *= bench_mult
+        s2_time *= bench_mult
+
     decode = decode_slope * mpx
     single_run = s1_time + s2_time + decode + overhead
 
@@ -475,14 +494,14 @@ def _run_generate_inner(args):
         args.stage1_steps = 15  # HQ optimal (res_2s second-order sampler)
         print(f"[video] HQ mode: stage1_steps auto-set to 15 (res_2s sampler)")
 
-    # --- Transformer selection: --transformer generalizes --distilled ---
+    # --- Transformer selection: resolve via the variant registry. ---
     # --transformer (if given) wins; otherwise fall back to the --distilled flag.
     # dasiwa is a dev-architecture finetune → behaves like dev (CFG/STG on); only
     # the loaded weights differ. Drive the existing distilled-mode logic from the
     # resolved value so both flag styles work.
-    transformer = getattr(args, "transformer", None) or (
-        "distilled" if getattr(args, "distilled", False) else "dev"
-    )
+    transformer = get_variant(
+        getattr(args, "transformer", None), getattr(args, "distilled", False)
+    ).key
     args.transformer = transformer
     args.distilled = transformer == "distilled"
     distilled = args.distilled
@@ -601,9 +620,9 @@ def _run_generate_inner(args):
 
 def _ltx_pipeline_name(args) -> str:
     """Return the canonical pipeline name for RunConfig based on active mode."""
-    transformer = getattr(args, "transformer", None) or (
-        "distilled" if getattr(args, "distilled", False) else "dev"
-    )
+    transformer = get_variant(
+        getattr(args, "transformer", None), getattr(args, "distilled", False)
+    ).key
     if getattr(args, "begin_image", None):
         return "ltx-dasiwa-flf2v" if transformer == "dasiwa" else "ltx-flf2v"
     if transformer == "distilled":
@@ -651,20 +670,12 @@ def _run_single(args, prompt: str) -> None:
     hq = getattr(args, "hq", False)
     distilled = getattr(args, "distilled", False)
 
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-    base_name = generate_base_name()
-    base_name_path = os.path.join(cfg.OUTPUT_DIR, base_name)
-    output_mp4 = base_name_path + ".mp4"
-    run_file = base_name_path + ".run.json"
-    manifest_file = base_name_path + ".manifest.json"
-
     args.pipeline = _ltx_pipeline_name(args)
     run_config = RunConfig.from_args(args, command="video generate")
-    run_config.to_json(run_file)
+    paths = make_output_paths(ext=".mp4")
+    output_mp4 = paths.output_file
 
     mode = _mode_label(args)
-
-    start_time = datetime.now(timezone.utc).isoformat()
 
     flf2v_info = ""
     if begin_image:
@@ -681,7 +692,8 @@ def _run_single(args, prompt: str) -> None:
     if temporal_upscale and frames:
         print(f"[video]   temporal-upscale: {frames} → {frames * 2 - 1} frames out")
 
-    try:
+    json_summary = getattr(args, "json_summary", False)
+    with run_session(paths, run_config, json_summary=json_summary) as ctx:
         from app.ltx_pipeline import LTXVideoPipeline
 
         pipeline = LTXVideoPipeline(
@@ -734,8 +746,6 @@ def _run_single(args, prompt: str) -> None:
                 teacache_thresh=getattr(args, "teacache_thresh", None),
             )
 
-        end_time = datetime.now(timezone.utc).isoformat()
-
         # --- Audio volume boost (LTX-2.3 MLX audio is ~50x too quiet) ---
         # Skip for A2V mode: upstream pipeline uses original input audio at normal volume.
         audio_volume = getattr(args, "audio_volume", None)
@@ -746,7 +756,8 @@ def _run_single(args, prompt: str) -> None:
         allow_noise = getattr(args, "allow_noise", False)
         _check_audio_noise(output_mp4, allow_noise=allow_noise)
 
-        output_files = [{
+        ctx["timings"] = timings
+        ctx["outputs"] = [{
             "path": output_mp4,
             "mode": mode,
             "seed": args.seed,
@@ -756,36 +767,19 @@ def _run_single(args, prompt: str) -> None:
             "frames": frames,
             "fps": args.fps,
         }]
-
-        models = _collect_model_fingerprints(pipeline._model_dir, args=args)
-        manifest = Manifest.from_success(run_file, start_time, end_time, timings,
-                                         output_files, models)
-        manifest.to_json(manifest_file)
-
-        peak_gb = manifest.memory_peak_mb / 1024
+        ctx["models"] = _collect_model_fingerprints(pipeline._model_dir, args=args)
         print(f"[video] Saved:    {output_mp4}")
-        print(f"[video] Run:      {run_file}")
-        print(f"[video] Manifest: {manifest_file}")
-        print(f"[video] Peak RAM: {peak_gb:.1f} GB")
 
         # Optional first-frame extraction + caption
         if args.first_frame or args.caption:
-            png_path = base_name_path + ".png"
+            png_path = os.path.splitext(output_mp4)[0] + ".png"
             if _extract_first_frame(output_mp4, png_path):
                 print(f"[video] Frame:    {png_path}")
                 if args.caption:
-                    _run_caption(png_path)
+                    _run_caption(png_path, getattr(args, "caption_style", None) or "default", prompt)
             else:
                 print("[video] WARNING: first-frame extraction failed (ffmpeg not found?)",
                       file=sys.stderr)
-
-    except Exception as exc:
-        end_time = datetime.now(timezone.utc).isoformat()
-        manifest = Manifest.from_error(run_file, start_time, end_time, {}, exc, {})
-        manifest.to_json(manifest_file)
-        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
-        traceback.print_exc()
-        sys.exit(1)
 
 
 def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) -> None:
@@ -923,7 +917,7 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
             png_path = var_base_path + ".png"
             if _extract_first_frame(output_mp4, png_path):
                 print(f"[video] Frame:    {png_path}")
-                _run_caption(png_path)
+                _run_caption(png_path, getattr(args, "caption_style", None) or "default", prompt)
             else:
                 print("[video] WARNING: first-frame extraction failed",
                       file=sys.stderr)
@@ -1092,14 +1086,23 @@ def _extract_first_frame(video_path: str, png_path: str) -> bool:
     return result.returncode == 0 and os.path.exists(png_path)
 
 
-def _run_caption(png_path: str) -> None:
-    """Call run.py caption on the given PNG (fire-and-wait, non-fatal on failure)."""
-    run_py = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))), "run.py")
-    python = sys.executable
+def _run_caption(png_path: str, style: str = "default", prompt: str = "") -> None:
+    """Call run.py caption on the given PNG (fire-and-wait, non-fatal on failure).
+
+    ``style`` selects the caption style (e.g. 'review' for structured scores used
+    by the comparison HTML, 'default' for a plain description). ``prompt`` is the
+    generation prompt — required by the 'review' style (it scores prompt
+    adherence) and harmless for others.
+    """
+    from app.commands._shared import build_run_py_cmd
+    extra = []
+    if style and style != "default":
+        extra += ["--style", style]
+    if prompt:
+        extra += ["--prompt", prompt]
     try:
-        print(f"[video] Captioning {os.path.basename(png_path)}…")
-        subprocess.run([python, run_py, "caption", png_path], timeout=180)
+        print(f"[video] Captioning {os.path.basename(png_path)} (style={style})…")
+        subprocess.run(build_run_py_cmd("caption", png_path, *extra), timeout=180)
     except Exception as exc:
         print(f"[video] Caption skipped: {exc}", file=sys.stderr)
 
