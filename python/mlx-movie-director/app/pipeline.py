@@ -282,7 +282,7 @@ class ZImagePipeline:
         messages = [{"role": "user", "content": prompt}]
         try:
             prompt_fmt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        except:
+        except Exception:
             prompt_fmt = prompt
 
         inputs = tokenizer(prompt_fmt, padding="max_length", max_length=512, truncation=True, return_tensors="np")

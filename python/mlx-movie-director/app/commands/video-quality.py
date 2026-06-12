@@ -294,7 +294,11 @@ def _run_self_test(args):
             "--yes",
         ) + pcfg["flags"]
 
-        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+        try:
+            result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
+        except subprocess.TimeoutExpired:
+            print(f"[quality] [{label}] FAILED (timed out after 2 hours)", file=sys.stderr)
+            sys.exit(1)
 
         after = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
         new_manifests = sorted(after - before, key=os.path.getmtime)
@@ -389,7 +393,11 @@ def _run_steps_sweep(args):
             "--yes",
         )
 
-        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+        try:
+            result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
+        except subprocess.TimeoutExpired:
+            print(f"[quality] [{label}] FAILED (timed out after 2 hours)", file=sys.stderr)
+            sys.exit(1)
 
         after = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
         new_manifests = sorted(after - before, key=os.path.getmtime)
@@ -739,7 +747,11 @@ def _run_restore_loop(args):
     )
     if getattr(args, "low_ram", False):
         cmd.append("--low-ram")
-    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+    try:
+        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
+    except subprocess.TimeoutExpired:
+        print("[quality] restore FAILED (timed out after 2 hours)", file=sys.stderr)
+        sys.exit(1)
     if result.returncode != 0 or not os.path.exists(restored_path):
         print(f"[quality] restore FAILED (returncode={result.returncode})", file=sys.stderr)
         sys.exit(1)

@@ -129,7 +129,7 @@ def get_module_by_name(model, module_name):
                 obj = getattr(obj, part) if hasattr(obj, part) else None
 
             if obj is None: return None
-        except:
+        except (AttributeError, IndexError, KeyError, TypeError):
             return None
     return obj
 

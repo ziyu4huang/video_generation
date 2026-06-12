@@ -289,6 +289,34 @@ const RESTORE_SCHEMA = {
   required: ["restored", "method"],
 }
 
+const BASELINE_SCHEMA = {
+  type: "object",
+  properties: {
+    smokePassed:  { type: "number", description: "Number of argparse smoke commands that passed" },
+    smokeFailed:  { type: "number", description: "Number that failed (pre-existing)" },
+    smokeFailures: { type: "array", items: { type: "string" }, description: "Commands that failed" },
+    pytestResult: { type: "string", enum: ["pass", "fail", "error"] },
+    pytestPassed: { type: "number" },
+    pytestFailed: { type: "number" },
+    pytestFailNames: { type: "array", items: { type: "string" }, description: "Names of pre-existing failing tests" },
+  },
+  required: ["smokePassed", "smokeFailed", "pytestResult"],
+}
+
+// Safe-fix classifier: findings that can be fixed with near-zero regression risk.
+// These are changes that narrow exception handling, remove dead code, or add annotations —
+// none of which alter runtime control flow for valid inputs.
+const SAFE_FIX_PATTERNS = [
+  (f) => f.title && /dead code/i.test(f.title),                        // unreachable code deletion
+  (f) => f.description && /bare except/i.test(f.description),          // narrow except clause
+  (f) => f.suggestedFix && /except\s*\(/i.test(f.suggestedFix) && !/dest/.test(f.suggestedFix),  // except narrowing
+  (f) => f.dimension === "type-safety" && f.severity !== "high",       // type annotations (no runtime effect)
+]
+
+function isSafeFix(f) {
+  return SAFE_FIX_PATTERNS.some((pat) => pat(f))
+}
+
 const RESUME_CHECK_SCHEMA = {
   type: "object",
   properties: {
@@ -859,6 +887,8 @@ let fixResults = { fixes: [], filesChanged: [] }
 let reVerifyFindings = []
 let smokeTestResults = null
 let restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
+let baselineTestResults = null   // pre-existing test failures captured BEFORE any fixes
+let safeFixResults = { fixes: [], filesChanged: [] }  // results from the safe-fix pass
 
 if (doFix && verifiedFindings.length > 0) {
   phase("Checkpoint")
@@ -890,45 +920,84 @@ if (doFix && verifiedFindings.length > 0) {
   markPhase("checkpoint", "completed")
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // Phase 5: Resolve Fix — apply verified fixes
+  // Phase 4.5: Baseline — capture pre-existing test failures BEFORE fixes
+  // ══════════════════════════════════════════════════════════════════════════════
+
+  const baselineSmokeCommands = ["--help", ...SMOKE_COMMANDS.map((c) => `${c} --help`), ...SMOKE_ALIASES.map((c) => `${c} --help`)]
+
+  baselineTestResults = await agent(
+    `Capture the BASELINE test state BEFORE any code fixes are applied. This tells us which tests ALREADY fail so we don't false-restore on pre-existing failures.
+
+Run these two test suites and record results:
+
+1. Argparse smoke tests — run each command and check exit code:
+${baselineSmokeCommands.map((cmd) => `Bash("${VENV_PYTHON} ${PYTHON_DIR}/run.py ${cmd} 2>&1; echo EXIT_CODE=$?")`).join("\n")}
+
+Count how many pass vs fail. For failures, note the command name.
+
+2. Pytest:
+Bash("${VENV_PYTHON} -m pytest ${PYTHON_DIR}/app/tests/ -q 2>&1; echo EXIT_CODE=$?")
+Record: how many passed, how many failed, and the NAMES of any failing tests.
+
+Return structured baseline results.`,
+    { label: "baseline-tests", phase: "Checkpoint", model: "haiku", schema: BASELINE_SCHEMA },
+  )
+
+  log(`Baseline: smoke ${baselineTestResults?.smokePassed || "?"} passed / ${baselineTestResults?.smokeFailed || 0} pre-existing failures, pytest=${baselineTestResults?.pytestResult || "unknown"} (${baselineTestResults?.pytestPassed || "?"} passed, ${baselineTestResults?.pytestFailed || 0} pre-existing failures)`)
+  if (baselineTestResults?.pytestFailNames?.length > 0) {
+    log(`  Pre-existing pytest failures: ${baselineTestResults.pytestFailNames.join(", ")}`)
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Phase 5a: Resolve Fix — SAFE fixes first (dead code, except narrowing, types)
   // ══════════════════════════════════════════════════════════════════════════════
 
   phase("Resolve Fix")
 
-  // Determine which findings to fix based on effort config
-  let findingsToFix = verifiedFindings
+  // Classify findings into safe vs risky
+  const safeFindings = verifiedFindings.filter((f) => isSafeFix(f))
+  const riskyFindings = verifiedFindings.filter((f) => !isSafeFix(f))
+
+  // Determine risky findings by effort config
+  let riskyToFix = riskyFindings
   if (config.fix === "high-critical") {
-    findingsToFix = verifiedFindings.filter((f) => f.severity === "critical" || f.severity === "high")
+    riskyToFix = riskyFindings.filter((f) => f.severity === "critical" || f.severity === "high")
   } else if (config.fix === "skip") {
-    findingsToFix = []
+    riskyToFix = []
   }
 
-  if (findingsToFix.length === 0) {
-    log(`No findings to fix (${config.fix} filter removed all candidates).`)
+  // All safe findings are fixed regardless of effort level
+  const safeToFix = safeFindings
+  const allToFix = [...safeToFix, ...riskyToFix]
+
+  log(`Fix plan: ${safeToFix.length} safe + ${riskyToFix.length} risky = ${allToFix.length} total findings to fix`)
+
+  if (allToFix.length === 0) {
+    log(`No findings to fix.`)
   } else {
-    // Group findings by file (bottom-to-top order within each file)
-    const grouped = {}
-    findingsToFix.forEach((f) => {
-      if (!grouped[f.file]) grouped[f.file] = []
-      grouped[f.file].push(f)
-    })
+    // Helper: apply a batch of findings and return results
+    async function applyFixBatch(findings, passLabel) {
+      if (findings.length === 0) return { fixes: [], filesChanged: [] }
 
-    // Sort findings within each file by line number descending (bottom-to-top)
-    Object.values(grouped).forEach((arr) => {
-      arr.sort((a, b) => (b.line || 0) - (a.line || 0))
-    })
+      // Group findings by file (bottom-to-top order within each file)
+      const grouped = {}
+      findings.forEach((f) => {
+        if (!grouped[f.file]) grouped[f.file] = []
+        grouped[f.file].push(f)
+      })
+      Object.values(grouped).forEach((arr) => {
+        arr.sort((a, b) => (b.line || 0) - (a.line || 0))
+      })
 
-    const filesWithFixes = Object.keys(grouped)
-    log(`Fixing ${findingsToFix.length} finding(s) across ${filesWithFixes.length} file(s)...`)
+      const filesWithFixes = Object.keys(grouped)
+      log(`[${passLabel}] Fixing ${findings.length} finding(s) across ${filesWithFixes.length} file(s)...`)
 
-    // Apply fixes per file (sequential to avoid conflicts within a file)
-    const fileFixResults = await pipeline(
-      filesWithFixes,
-      (file) => {
-        const fileFindings = grouped[file]
-
-        return agent(
-          `You are a code fixer. Apply the following verified findings to the codebase.
+      const fileFixResults = await pipeline(
+        filesWithFixes,
+        (file) => {
+          const fileFindings = grouped[file]
+          return agent(
+            `You are a code fixer. Apply the following verified findings to the codebase.
 
 RULES:
 1. Read the file FIRST before editing: Bash("cat '${PYTHON_DIR}/${file}'")
@@ -948,28 +1017,46 @@ For each finding:
 - If the edit fails (old_string not found): status="failed", note the issue
 
 Return structured results.`,
-          { label: `fix-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", model: "sonnet", schema: FIX_RESULT_SCHEMA },
-        )
-      },
-    )
+            { label: `fix-${passLabel}-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", model: "sonnet", schema: FIX_RESULT_SCHEMA },
+          )
+        },
+      )
 
-    // Collect fix results
-    fileFixResults.filter(Boolean).forEach((r) => {
-      fixResults.fixes.push(...(r.fixes || []))
-      fixResults.filesChanged.push(...(r.filesChanged || []))
-    })
-    fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
+      const batchResults = { fixes: [], filesChanged: [] }
+      fileFixResults.filter(Boolean).forEach((r) => {
+        batchResults.fixes.push(...(r.fixes || []))
+        batchResults.filesChanged.push(...(r.filesChanged || []))
+      })
+      batchResults.filesChanged = [...new Set(batchResults.filesChanged)]
+
+      const applied = batchResults.fixes.filter((f) => f.status === "applied").length
+      const skipped = batchResults.fixes.filter((f) => f.status === "skipped").length
+      const failed = batchResults.fixes.filter((f) => f.status === "failed").length
+      log(`[${passLabel}] Results: ${applied} applied, ${skipped} skipped, ${failed} failed`)
+      batchResults.fixes.forEach((f) => {
+        log(`  ${f.status === "applied" ? "✓" : f.status === "skipped" ? "⊘" : "✗"} ${f.findingId}: ${f.change || f.error || ""}`)
+      })
+
+      return batchResults
+    }
+
+    // ── Pass 1: Safe fixes ──────────────────────────────────────────────────
+    safeFixResults = await applyFixBatch(safeToFix, "safe")
+
+    // ── Pass 2: Risky fixes ─────────────────────────────────────────────────
+    let riskyFixResults = { fixes: [], filesChanged: [] }
+    if (riskyToFix.length > 0) {
+      riskyFixResults = await applyFixBatch(riskyToFix, "risky")
+    }
+
+    // Merge results
+    fixResults = {
+      fixes: [...safeFixResults.fixes, ...riskyFixResults.fixes],
+      filesChanged: [...new Set([...safeFixResults.filesChanged, ...riskyFixResults.filesChanged])],
+    }
 
     // Track touched files
     fixResults.filesChanged.forEach((f) => filesTouched.add(`python/mlx-movie-director/${f}`))
-
-    const applied = fixResults.fixes.filter((f) => f.status === "applied").length
-    const skipped = fixResults.fixes.filter((f) => f.status === "skipped").length
-    const failed = fixResults.fixes.filter((f) => f.status === "failed").length
-    log(`Fix results: ${applied} applied, ${skipped} skipped, ${failed} failed, ${fixResults.filesChanged.length} file(s) changed`)
-    fixResults.fixes.forEach((f) => {
-      log(`  ${f.status === "applied" ? "✓" : f.status === "skipped" ? "⊘" : "✗"} ${f.findingId}: ${f.change || f.error || ""}`)
-    })
 
     // ══════════════════════════════════════════════════════════════════════════════
     // Phase 6: Re-verify — argparse smoke tests + pytest + code review
@@ -987,24 +1074,47 @@ Return structured results.`,
       // Build the argparse smoke test commands
       const smokeCommands = ["--help", ...SMOKE_COMMANDS.map((c) => `${c} --help`), ...SMOKE_ALIASES.map((c) => `${c} --help`)]
 
+      // Build baseline context so re-verify can distinguish pre-existing from new failures
+      const baselineCtx = baselineTestResults
+        ? `
+IMPORTANT — BASELINE COMPARISON (pre-existing failures BEFORE fixes were applied):
+- Smoke tests: ${baselineTestResults.smokePassed || 0} passed, ${baselineTestResults.smokeFailed || 0} pre-existing failures
+  Pre-existing smoke failures: ${JSON.stringify(baselineTestResults.smokeFailures || [])}
+- Pytest: ${baselineTestResults.pytestResult || "unknown"} (${baselineTestResults.pytestPassed || "?"} passed, ${baselineTestResults.pytestFailed || 0} pre-existing failures)
+  Pre-existing failing tests: ${JSON.stringify(baselineTestResults.pytestFailNames || [])}
+
+ONLY report NEW regressions (failures NOT in the baseline above).
+If a test was ALREADY failing before fixes, do NOT report it as a regression — it is pre-existing.`
+        : "\nNOTE: No baseline was captured. Report ALL failures."
+
       const reVerifyResult = await agent(
-        `Re-verify the Python codebase after applying code review fixes. Run THREE levels of verification:
+        `Re-verify the Python codebase after applying code review fixes. Run THREE levels of verification.
+${baselineCtx}
+
+CRITICAL DEFINITION — what counts as a REGRESSION:
+- A regression is a test that PASSED before the fix and FAILS after the fix.
+- Exit code 0 = PASS. Do NOT report passes.
+- "182 passed, 0 failed" = all pass. Do NOT report this as a regression.
+- A finding title containing "PASS" or "verified" or "OK" is NOT a regression.
+- ONLY report actual failures: non-zero exit code, FAILED test, ImportError, SyntaxError, AssertionError.
+- If ALL tests pass and ALL smoke commands succeed, return findings: [] (empty array).
 
 LEVEL 1 — Argparse smoke tests (catches the exact class of bug: ArgumentError: conflicting option string):
-Run each of these commands and check the exit code. If any exit non-zero or print "ArgumentError" to stderr, that is a CRITICAL regression.
+Run each of these commands and check the exit code. ONLY report a regression if the exit code is NON-ZERO or stderr contains "ArgumentError".
 
 Commands (run each one separately):
 ${smokeCommands.map((cmd) => `Bash("${VENV_PYTHON} ${PYTHON_DIR}/run.py ${cmd} 2>&1; echo EXIT_CODE=$?")`).join("\n")}
 
 Count: ${smokeCommands.length} total (1 main --help + ${SMOKE_COMMANDS.length} commands + ${SMOKE_ALIASES.length} aliases).
-For each failed command, capture the stderr output.
+For each FAILED command (exit != 0), capture the stderr output.
 
 LEVEL 2 — Pytest (functional regression testing):
 Bash("${VENV_PYTHON} -m pytest ${PYTHON_DIR}/app/tests/ -x -q 2>&1; echo EXIT_CODE=$?")
-If any test FAILS or ERRORs, report each as a regression.
+ONLY report individual test FAILURES or ERRORs — not the overall pass summary.
 
 LEVEL 3 — Quick code review on changed files:
 Read each changed file and look for syntax errors, broken imports, or logic regressions introduced by edits.
+Do NOT report "fix verified" or "looks correct" as a finding — those are passes.
 
 Changed files:
 ${reVerifyFiles.map((f) => `- ${f}`).join("\n")}
@@ -1012,18 +1122,34 @@ ${reVerifyFiles.map((f) => `- ${f}`).join("\n")}
 ORIGINAL APPLIED FIXES (for context):
 ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied"), null, 2)}
 
-Return ALL regressions found across all 3 levels as structured findings with the "source" field indicating which level caught it.`,
+Return ONLY actual failures as findings with the "source" field. If everything passes, return { findings: [], smokeTestResults: { ... } }.`,
         { label: "re-verify", phase: "Re-verify", model: "sonnet", schema: REVERIFY_SCHEMA },
       )
 
       reVerifyFindings = (reVerifyResult?.findings || []).filter(Boolean)
       smokeTestResults = reVerifyResult?.smokeTestResults || null
 
+      // Defensive filter: remove false regressions where the title contains PASS/OK/verified/success
+      // The re-verify agent sometimes reports pass results as findings
+      const PASS_INDICATORS = /\b(PASS|OK|verified|success|exit\s*0|no\s+error|correct)\b/i
+      reVerifyFindings = reVerifyFindings.filter((f) => {
+        const title = (f.title || "").toLowerCase()
+        const desc = (f.description || "").toLowerCase()
+        // Keep if it clearly describes a failure
+        const hasFailure = /\b(fail|error|crash|exception|importerror|assertion|broken|traceback|exit_code=[^0])\b/.test(title + " " + desc)
+        // Remove if it only describes a pass
+        const onlyPass = PASS_INDICATORS.test(f.title || "") && !hasFailure
+        if (onlyPass) {
+          log(`  ↳ Filtered false regression: "${f.title}" (PASS reported as finding)`)
+        }
+        return !onlyPass
+      })
+
       if (reVerifyFindings.length > 0) {
-        log(`WARNING: ${reVerifyFindings.length} regression(s) detected after fixes!`)
+        log(`WARNING: ${reVerifyFindings.length} NEW regression(s) detected after fixes (baseline-filtered)!`)
         reVerifyFindings.forEach((f) => log(`  ⚠ [${f.source}] ${f.title} (${f.file || "N/A"}:${f.line || "?"})`))
       } else {
-        log("Re-verify: no regressions detected ✓")
+        log("Re-verify: no NEW regressions detected (baseline-filtered) ✓")
       }
       if (smokeTestResults) {
         log(`  Smoke: ${smokeTestResults.commandsPassed || 0}/${(smokeTestResults.commandsPassed || 0) + (smokeTestResults.commandsFailed || 0)} commands passed, pytest=${smokeTestResults.pytestResult || "unknown"}`)
@@ -1033,9 +1159,10 @@ Return ALL regressions found across all 3 levels as structured findings with the
     }
 
     // ══════════════════════════════════════════════════════════════════════════════
-    // Phase 7: Restore — conditional rollback if regressions detected
+    // Phase 7: Restore — selective rollback for NEW regressions only
     // ══════════════════════════════════════════════════════════════════════════════
 
+    // Only consider NEW regressions (already baseline-filtered by re-verify)
     const hasCriticalRegression = reVerifyFindings.some((f) => f.severity === "critical")
     const hasArgparseCrash = reVerifyFindings.some((f) => f.source === "argparse-smoke")
     const hasPytestFailure = reVerifyFindings.some((f) => f.source === "pytest" && f.severity !== "low")
@@ -1045,42 +1172,54 @@ Return ALL regressions found across all 3 levels as structured findings with the
       phase("Restore")
 
       const restoreReason = hasArgparseCrash ? "argparse-crash" : hasCriticalRegression ? "critical-regression" : hasPytestFailure ? "pytest-failure" : "multiple-regressions"
-      log(`RESTORE: ${restoreReason} — ${reVerifyFindings.length} regression(s) detected. Rolling back fixes...`)
+
+      // ── Selective restore: only revert files that caused NEW regressions ──
+      // Determine which files to revert vs keep
+      const regressionFiles = new Set(
+        reVerifyFindings
+          .filter((f) => f.file)
+          .map((f) => f.file.replace(/^.*mlx-movie-director\//, ""))
+      )
+      // If regression file is unknown, revert all risky fix files but keep safe fix files
+      const filesToRevert = regressionFiles.size > 0
+        ? [...regressionFiles]
+        : riskyFixResults?.filesChanged || fixResults.filesChanged
+      const filesKept = fixResults.filesChanged.filter((f) => !filesToRevert.includes(f))
+
+      log(`RESTORE: ${restoreReason} — ${reVerifyFindings.length} NEW regression(s) (baseline-filtered)`)
+      log(`  Selective: reverting ${filesToRevert.length} file(s), keeping ${filesKept.length} safe fix file(s)`)
 
       const stashRef = checkpointResult?.stashRef || ""
       const stashCreated = checkpointResult?.stashCreated || false
 
+      // Use selective checkout for specific files instead of stash-pop (which reverts everything)
       restoreResult = await agent(
-        `A code review fix introduced regressions. Restore the pre-fix state.
+        `Selective restore: revert ONLY the files that caused new regressions, preserving safe fixes.
+
+Files to REVERT (caused regressions):
+${filesToRevert.map((f) => `- python/mlx-movie-director/${f}`).join("\n")}
+
+Files to KEEP (safe fixes, no regressions):
+${filesKept.map((f) => `- python/mlx-movie-director/${f}`).join("\n")}
 
 Stash ref from checkpoint: ${stashRef || "none"}
 Stash was created: ${stashCreated}
-Files that were changed: ${fixResults.filesChanged.join(", ")}
 
-STEPS:
-${stashCreated ? `
-1. Restore from stash:
-   Bash("cd '${PROJECT_ROOT}' && git stash pop ${stashRef}")
-   If pop fails (conflict), use the safe fallback:
-   Bash("cd '${PROJECT_ROOT}' && git checkout ${stashRef} -- 'python/mlx-movie-director/'")
-   Then drop the stash:
-   Bash("cd '${PROJECT_ROOT}' && git stash drop ${stashRef}")
-` : `
-1. No stash was created (tree was clean before fixes).
-   Restore individual files using git checkout:
-   ${fixResults.filesChanged.map((f) => `Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'python/mlx-movie-director/${f}'")`).join("\n   ")}
-`}
+STRATEGY — selective file restore:
+1. For each file to REVERT, restore from git HEAD:
+   ${filesToRevert.map((f) => `Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'python/mlx-movie-director/${f}'")`).join("\n   ")}
+2. If stash was created, drop it (we already cherry-picked what to keep):
+   ${stashCreated ? `Bash("cd '${PROJECT_ROOT}' && git stash drop ${stashRef}")` : "No stash to drop."}
+3. Verify: Bash("cd '${PROJECT_ROOT}' && git status --short 'python/mlx-movie-director/'")
+   Only the KEPT files should show as modified.
 
-After restore:
-2. Verify files are restored: Bash("cd '${PROJECT_ROOT}' && git status --short 'python/mlx-movie-director/'")
-
-Return { restored: bool, method: "stash-pop"|"checkout"|"none", filesReverted: [...] }.`,
-        { label: "restore", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
+Return { restored: bool, method: "checkout"|"stash-pop"|"none", filesReverted: [...] }.`,
+        { label: "restore-selective", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
       )
 
       if (restoreResult?.restored) {
-        log(`Restore: SUCCESS — ${restoreResult.filesReverted?.length || 0} file(s) reverted via ${restoreResult.method}`)
-        restoreResult = { triggered: true, reason: restoreReason, stashRestored: stashCreated, filesReverted: restoreResult.filesReverted || [], method: restoreResult.method }
+        log(`Restore: SUCCESS — selective revert of ${restoreResult.filesReverted?.length || 0} file(s), ${filesKept.length} safe fix(es) preserved`)
+        restoreResult = { triggered: true, reason: restoreReason, stashRestored: false, filesReverted: restoreResult.filesReverted || [], method: restoreResult.method, filesKept }
       } else {
         log(`Restore: FAILED — could not revert changes. Manual review needed.`)
         restoreResult = { triggered: true, reason: restoreReason, stashRestored: false, filesReverted: [] }
@@ -1092,6 +1231,7 @@ Return { restored: bool, method: "stash-pop"|"checkout"|"none", filesReverted: [
       restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
       markPhase("restore", "skipped")
     } else {
+      log("All fixes verified — no restore needed ✓")
       markPhase("restore", "skipped")
     }
   }
@@ -1162,12 +1302,15 @@ const historyEntry = {
           failed: failedCount,
           filesChanged: fixResults.filesChanged,
           regressions: reVerifyFindings.length,
+          safeFixes: { applied: safeFixResults.fixes.filter((f) => f.status === "applied").length, filesChanged: safeFixResults.filesChanged },
           items: fixResults.fixes,
         }
       : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
+    baseline: baselineTestResults,
     reverify: {
       smokeTests: smokeTestResults,
       regressions: reVerifyFindings.length,
+      baselineFiltered: true,
     },
     restore: restoreResult,
     git: {
@@ -1238,14 +1381,15 @@ ${JSON.stringify(verifiedFindings, null, 2)}
 - Confidence threshold: ${confidenceThreshold}%
 
 ${doFix ? `## Fix Results
-- Applied: ${appliedCount}
+- Applied: ${appliedCount} (safe: ${safeFixResults.fixes.filter((f) => f.status === "applied").length}, risky: ${appliedCount - safeFixResults.fixes.filter((f) => f.status === "applied").length})
 - Skipped: ${skippedCount}
 - Failed: ${failedCount}
 - Files changed: ${fixResults.filesChanged.join(", ") || "none"}
+${baselineTestResults ? `- Baseline: smoke ${baselineTestResults.smokePassed}/${baselineTestResults.smokePassed + baselineTestResults.smokeFailed} pass, pytest=${baselineTestResults.pytestResult} (${baselineTestResults.pytestFailed || 0} pre-existing failures)` : ""}
 ${smokeTestResults ? `- Argparse smoke: ${smokeTestResults.commandsPassed || 0}/${(smokeTestResults.commandsPassed || 0) + (smokeTestResults.commandsFailed || 0)} commands passed` : ""}
 ${smokeTestResults ? `- Pytest: ${smokeTestResults.pytestResult || "unknown"}` : ""}
-${reVerifyFindings.length > 0 ? `- Regressions: ${reVerifyFindings.length}` : "- Regressions: none"}
-${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.filesReverted?.length || 0} file(s) reverted` : ""}
+${reVerifyFindings.length > 0 ? `- NEW regressions (baseline-filtered): ${reVerifyFindings.length}` : "- Regressions: none (baseline-filtered)"}
+${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.filesReverted?.length || 0} file(s) reverted, ${restoreResult.filesKept?.length || 0} safe fix(es) preserved` : "- Restore: not needed"}
 ` : "## Fix Phase: SKIPPED (review-only mode)"}
 ${priorRunContext}
 
@@ -1259,7 +1403,7 @@ ${priorRunContext}
 
 **4. Top 5 findings** — the most important issues to address, with file:line and one-line fix description.
 
-**5. Fix summary** — what was fixed, what was skipped and why. If restore was triggered, explain what happened.
+**5. Fix summary** — what was fixed (safe vs risky), what was skipped and why. If restore was triggered, explain selective restore (which files reverted, which preserved). Include baseline comparison if available.
 
 **6. Trend comparison** (if prior run data available) — how findings changed vs prior run, improvement areas, new issues.
 
@@ -1280,10 +1424,12 @@ log(`Dimensions: ${dimensions.join(", ")} | Effort: ${effort}`)
 log(`Adversarial: ${allVerdicts.length} verdicts (${allVerdicts.filter((v) => v.upheld).length} upheld)`)
 if (suppressedFromPrior.length > 0) log(`Incremental: ${suppressedFromPrior.length} suppressed from prior run`)
 if (doFix) {
-  log(`Fixes: ${appliedCount} applied, ${skippedCount} skipped, ${failedCount} failed across ${fixResults.filesChanged.length} file(s)`)
+  const safeApplied = safeFixResults.fixes.filter((f) => f.status === "applied").length
+  log(`Fixes: ${appliedCount} applied (safe: ${safeApplied}, risky: ${appliedCount - safeApplied}), ${skippedCount} skipped, ${failedCount} failed across ${fixResults.filesChanged.length} file(s)`)
+  if (baselineTestResults) log(`Baseline: pytest=${baselineTestResults.pytestResult} (${baselineTestResults.pytestFailed || 0} pre-existing failures filtered)`)
   if (smokeTestResults) log(`Smoke: ${smokeTestResults.commandsPassed || 0} passed, ${smokeTestResults.commandsFailed || 0} failed | Pytest: ${smokeTestResults.pytestResult || "unknown"}`)
-  if (reVerifyFindings.length > 0) log(`Regressions: ${reVerifyFindings.length}`)
-  if (restoreResult.triggered) log(`RESTORE: ${restoreResult.reason} — ${restoreResult.filesReverted?.length || 0} file(s) reverted`)
+  if (reVerifyFindings.length > 0) log(`NEW regressions (baseline-filtered): ${reVerifyFindings.length}`)
+  if (restoreResult.triggered) log(`RESTORE: ${restoreResult.reason} — ${restoreResult.filesReverted?.length || 0} reverted, ${restoreResult.filesKept?.length || 0} preserved`)
 }
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 log(reportResult || "(no report)")

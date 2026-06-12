@@ -18,17 +18,7 @@ import mlx.core as mx
 from PIL import Image
 
 from app import config as cfg
-from app.pipeline_types import GenerationResult
-
-
-@dataclass
-class WorkflowResult:
-    """Output of the full workflow."""
-    final_image: Image.Image
-    stage_images: dict  # stage_name → PIL Image
-    stage_timings: dict  # stage_name → timings dict
-    total_seconds: float
-    output_dir: str | None = None  # Set after saving
+from app.pipeline_types import GenerationResult, WorkflowResult
 
 
 class WorkflowOrchestrator:
