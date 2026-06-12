@@ -1,18 +1,9 @@
 import React, { useState } from "react";
 import { useJobs } from "../../hooks/useJobs";
 import { useNavigation } from "../../context/NavigationContext";
+import { LogViewer } from "../../components/LogViewer";
 import type { JobInfo } from "../../types";
-
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diffMs / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
+import { relativeTime } from "../../utils/format";
 
 interface JobRowProps {
   job: JobInfo;
@@ -98,46 +89,7 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
           {job.logs.length === 0 ? (
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>No logs captured.</span>
           ) : (
-            <>
-              <div
-                style={{
-                  background: "var(--bg)",
-                  borderRadius: "var(--radius)",
-                  padding: "10px 12px",
-                  maxHeight: 360,
-                  overflowY: "auto",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 12,
-                  lineHeight: 1.6,
-                  marginBottom: 8,
-                }}
-              >
-                {job.logs.map((line, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      color: line.includes("ERROR") || line.includes("Traceback") || line.includes("Error")
-                        ? "var(--error)"
-                        : "var(--text)",
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-all",
-                    }}
-                  >
-                    {line}
-                  </div>
-                ))}
-              </div>
-              <button
-                className="btn btn-secondary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(job.logs.join("\n"));
-                }}
-                style={{ fontSize: 12, padding: "4px 12px" }}
-              >
-                Copy
-              </button>
-            </>
+            <LogViewer logs={job.logs} status={job.status} />
           )}
         </div>
       )}

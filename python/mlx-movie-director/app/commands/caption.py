@@ -130,12 +130,26 @@ def add_args(parser):
                         help="Original T2I prompt (used by 'review' style for adherence evaluation)")
     parser.add_argument("--review-html", type=str, nargs="+", metavar="JSON",
                         help="Generate feedback HTML from caption JSON files (exits after HTML generation)")
+    parser.add_argument("--ab-manifest", type=str, default=None, metavar="PATH",
+                        help="Generate a MULTI-SET A/B review HTML from a manifest JSON "
+                        "({sets:[{name, prompt?, variants?:[{label}], files:[caption_jsons]}]}). "
+                        "Exits after HTML generation. Produces one <section> per set.")
     parser.add_argument("--html-output", type=str, default=None, metavar="PATH",
-                        help="Output path for --review-html (default: output/review_<timestamp>.html)")
+                        help="Output path for --review-html/--ab-manifest (default: "
+                        "output/review_<timestamp>.html next to the images)")
 
 
 def run(args):
-    # --review-html mode: generate feedback HTML from caption JSON files
+    # --ab-manifest mode: build a MULTI-SET A/B review HTML from a manifest JSON
+    if getattr(args, "ab_manifest", None):
+        html_path = generate_review_html(
+            manifest_path=args.ab_manifest,
+            output_path=getattr(args, "html_output", None),
+        )
+        print(f"Review HTML: {html_path}")
+        return
+
+    # --review-html mode: generate feedback HTML from caption JSON files (flat, single set)
     if getattr(args, "review_html", None):
         if getattr(args, "image", None) or getattr(args, "input_image", None):
             print("WARNING: --image is ignored when --review-html is used", file=sys.stderr)
@@ -444,127 +458,195 @@ def _extract_caption_json(raw) -> dict:
         return {}
 
 
-def generate_review_html(caption_json_paths: list[str], output_path: str | None = None) -> str:
-    """Generate a self-contained feedback HTML from caption JSON files.
+_SCORE_KEYS = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+_SCORE_LABELS = ["Overall", "Detail", "Sharpness", "Composition", "Adherence", "Artifacts"]
 
-    Args:
-        caption_json_paths: Paths to .caption.json files produced by --style score/review.
-        output_path: Where to write the HTML. Default: output/review_<timestamp>.html.
+# Chrome-string localization for the review HTML (VLM caption CONTENT is unaffected —
+# it is whatever run.py caption --style produced). Selected by the manifest's top-level `lang`.
+_REVIEW_I18N = {
+    "en": {
+        "best": "Best", "export": "Export Feedback JSON", "exported": "Feedback exported!",
+        "captured": "Captured", "missed": "Missed", "compare": "Score Comparison",
+        "strengths": "Strengths & Issues", "str_label": "Strengths", "issues_label": "Issues",
+        "comment_ph": "Your comments...", "prompt_label": "Prompt", "guide_label": "What to compare",
+        "reco_label": "VLM suggests", "none": "—", "close_hint": "click outside to close",
+        "meta_across": "image(s) across", "meta_sets": "set(s)", "dimension": "Dimension",
+        "tiebreak": " (by detail/sharpness)",
+        "img_count": lambda n: f"{n} image{'s' if n != 1 else ''}",
+    },
+    "zh_TW": {
+        "best": "最佳", "export": "匯出回饋 JSON", "exported": "已匯出回饋！",
+        "captured": "命中", "missed": "遺漏", "compare": "分數比較",
+        "strengths": "優點與問題", "str_label": "優點", "issues_label": "問題",
+        "comment_ph": "你的評論...", "prompt_label": "提示詞", "guide_label": "評判重點",
+        "reco_label": "VLM 建議", "none": "—", "close_hint": "點圖外關閉",
+        "meta_across": "張圖片，共", "meta_sets": "組", "dimension": "指標",
+        "tiebreak": "（依細節/銳利度）",
+        "img_count": lambda n: f"{n} 張圖片",
+    },
+}
 
-    Returns:
-        Absolute path to the generated HTML file.
+
+def _resolve_review_path(p: str, base_dir: str = "") -> str:
+    """Resolve a caption-JSON path that may be relative.
+
+    Tries the path as-is, then relative to base_dir (the manifest's directory),
+    then basename-in-base_dir. Returns the first that exists; falls back to the
+    original guess so the loader can emit a clear 'not found' warning.
     """
-    import datetime
+    if not p:
+        return ""
+    cands = [p]
+    if not os.path.isabs(p) and base_dir:
+        cands.append(os.path.join(base_dir, p))
+        cands.append(os.path.join(base_dir, os.path.basename(p)))
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    return cands[0]
 
-    items = []
-    for path in caption_json_paths:
-        with open(path) as f:
-            data = json.load(f)
-        # Parse nested caption JSON string (VLM may wrap in markdown fences / prose)
-        caption_raw = _extract_caption_json(data.get("caption", "{}"))
-        # Embed image as base64
-        img_path = data.get("image", "")
-        img_b64 = ""
-        if img_path and os.path.exists(img_path):
-            img_b64 = _image_to_base64(img_path, max_size=1024)
-        items.append({
-            "image_path": img_path,
-            "filename": os.path.basename(img_path),
-            "img_b64": img_b64,
-            "style": data.get("style", ""),
-            "model": data.get("model", ""),
-            "scores": {
-                "overall": caption_raw.get("overall", 0),
-                "detail": caption_raw.get("detail", 0),
-                "sharpness": caption_raw.get("sharpness", 0),
-                "composition": caption_raw.get("composition", 0),
-                "prompt_adherence": caption_raw.get("prompt_adherence", 0),
-                "artifacts": caption_raw.get("artifacts", 0),
-            },
-            "captured": caption_raw.get("captured", []),
-            "missed": caption_raw.get("missed", []),
-            "issues": caption_raw.get("issues", []),
-            "strengths": caption_raw.get("strengths", []),
-            "summary": caption_raw.get("summary", ""),
-        })
 
-    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+def _load_review_item(path: str) -> dict:
+    """Load one caption JSON into a flat display item.
 
-    # Default output path
-    if not output_path:
-        ts_file = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = os.path.join(
-            os.path.dirname(caption_json_paths[0]) if caption_json_paths else ".",
-            f"review_{ts_file}.html",
+    The image is referenced by RELATIVE filename (basename) so the browser
+    resolves it next to the HTML file — no base64, no CWD dependency.
+    """
+    with open(path) as f:
+        data = json.load(f)
+    caption_raw = _extract_caption_json(data.get("caption", "{}"))
+    img_path = data.get("image", "")
+    return {
+        "caption_path": path,
+        "image_path": img_path,
+        "filename": os.path.basename(img_path) if img_path else os.path.basename(path),
+        "image_src": os.path.basename(img_path) if img_path else "",
+        "style": data.get("style", ""),
+        "model": data.get("model", ""),
+        "scores": {
+            "overall": caption_raw.get("overall", 0),
+            "detail": caption_raw.get("detail", 0),
+            "sharpness": caption_raw.get("sharpness", 0),
+            "composition": caption_raw.get("composition", 0),
+            "prompt_adherence": caption_raw.get("prompt_adherence", 0),
+            "artifacts": caption_raw.get("artifacts", 0),
+        },
+        "captured": caption_raw.get("captured", []),
+        "missed": caption_raw.get("missed", []),
+        "issues": caption_raw.get("issues", []),
+        "strengths": caption_raw.get("strengths", []),
+        "summary": caption_raw.get("summary", ""),
+    }
+
+
+def _score_bars_html(item: dict) -> str:
+    bars = ""
+    for key, label in zip(_SCORE_KEYS, _SCORE_LABELS):
+        val = item["scores"].get(key, 0)
+        pct = val * 10  # 1-10 → 10-100%
+        color = "#4caf50" if val >= 8 else "#ff9800" if val >= 5 else "#f44336"
+        bars += (
+            f'<div class="score-row">'
+            f'<span class="score-label">{label}</span>'
+            f'<div class="score-bar-bg"><div class="score-bar-fill" style="width:{pct}%;background:{color}"></div></div>'
+            f'<span class="score-val">{val}</span>'
+            f'</div>'
         )
+    return bars
 
-    # Build score table header
-    score_keys = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
-    score_labels = ["Overall", "Detail", "Sharpness", "Composition", "Adherence", "Artifacts"]
 
-    # Build image cards HTML
-    cards_html = ""
-    for i, item in enumerate(items):
-        # Score bars
-        bars_html = ""
-        for key, label in zip(score_keys, score_labels):
-            val = item["scores"].get(key, 0)
-            pct = val * 10  # 1-10 → 10-100%
-            color = "#4caf50" if val >= 8 else "#ff9800" if val >= 5 else "#f44336"
-            bars_html += (
-                f'<div class="score-row">'
-                f'<span class="score-label">{label}</span>'
-                f'<div class="score-bar-bg"><div class="score-bar-fill" style="width:{pct}%;background:{color}"></div></div>'
-                f'<span class="score-val">{val}</span>'
-                f'</div>'
-            )
-
-        # Captured / missed tags
-        captured_html = "".join(
-            f'<span class="tag captured">{html.escape(str(c))}</span>' for c in item["captured"]
-        )
-        missed_html = "".join(
-            f'<span class="tag missed">{html.escape(str(m))}</span>' for m in item["missed"]
-        )
-        issues_html = "".join(
-            f'<li>{html.escape(str(iss))}</li>' for iss in item["issues"]
-        )
-        strengths_html = "".join(
-            f'<li>{html.escape(str(s))}</li>' for s in item["strengths"]
-        )
-
-        cards_html += f"""
-        <div class="img-card" data-idx="{i}" data-filename="{html.escape(item['filename'])}">
+def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) -> str:
+    bars_html = _score_bars_html(item)
+    captured_html = "".join(
+        f'<span class="tag captured">{html.escape(str(c))}</span>' for c in item["captured"]
+    )
+    missed_html = "".join(
+        f'<span class="tag missed">{html.escape(str(m))}</span>' for m in item["missed"]
+    )
+    issues_html = "".join(f'<li>{html.escape(str(s))}</li>' for s in item["issues"])
+    strengths_html = "".join(f'<li>{html.escape(str(s))}</li>' for s in item["strengths"])
+    variant_html = (
+        f'<div class="variant"><b>{html.escape(variant_label)}</b></div>'
+        if variant_label else ""
+    )
+    summary_html = (
+        f'<p class="summary"><b>VLM:</b> <i>{html.escape(item["summary"])}</i></p>'
+        if item["summary"] else ""
+    )
+    return f"""
+        <div class="img-card" data-set="{gi}" data-idx="{li}"
+             data-variant="{html.escape(variant_label)}" data-filename="{html.escape(item['filename'])}">
           <div class="card-header">
             <h3>{html.escape(item['filename'])}</h3>
-            <label class="pick-label"><input type="radio" name="best" value="{i}"/> Best</label>
+            <label class="pick-label"><input type="radio" name="best_set{gi}" value="{li}"/> {T['best']}</label>
           </div>
+          {variant_html}
           <div class="img-wrap">
-            <img src="data:image/png;base64,{item['img_b64']}" alt="{html.escape(item['filename'])}" onclick="openLb(this.src)"/>
+            <img src="{html.escape(item['image_src'])}" alt="{html.escape(item['filename'])}" onclick="openLb(this.src)"/>
           </div>
           <div class="scores">{bars_html}</div>
           <div class="tags-row">
-            <div class="tags captured-list"><b>Captured:</b> {captured_html or '—'}</div>
-            <div class="tags missed-list"><b>Missed:</b> {missed_html or '—'}</div>
+            <div class="tags captured-list"><b>{T['captured']}:</b> {captured_html or T['none']}</div>
+            <div class="tags missed-list"><b>{T['missed']}:</b> {missed_html or T['none']}</div>
           </div>
+          {summary_html}
           <details class="details-section">
-            <summary>Strengths & Issues</summary>
+            <summary>{T['strengths']}</summary>
             <div class="details-inner">
-              <b>Strengths:</b><ul>{strengths_html or '<li>—</li>'}</ul>
-              <b>Issues:</b><ul>{issues_html or '<li>None</li>'}</ul>
-              <p class="summary"><i>{html.escape(item['summary'])}</i></p>
+              <b>{T['str_label']}:</b><ul>{strengths_html or f"<li>{T['none']}</li>"}</ul>
+              <b>{T['issues_label']}:</b><ul>{issues_html or f"<li>{T['none']}</li>"}</ul>
             </div>
           </details>
-          <textarea class="comment-box" data-idx="{i}" placeholder="Your comments..."></textarea>
+          <textarea class="comment-box" data-set="{gi}" data-idx="{li}" placeholder="{T['comment_ph']}"></textarea>
         </div>
         """
 
-    # Score comparison table
-    table_header = "<th>Dimension</th>" + "".join(
-        f'<th>{html.escape(item["filename"])}</th>' for item in items
+
+def _build_recommendation_html(group: dict, T: dict) -> str:
+    """Per-set VLM recommendation: winner by overall, tiebreak detail+sharpness+artifacts.
+    When overalls tie, append a note so a detail/sharpness win (e.g. SeedVR2) is self-explaining.
+    Returns '' if fewer than 2 items or no score difference at all."""
+    items = group["items"]
+    if len(items) < 2:
+        return ""
+    variants = group.get("variants") or []
+
+    def label(i):
+        if i < len(variants) and variants[i]:
+            return variants[i].get("label", "") or items[i]["filename"]
+        return items[i]["filename"]
+
+    def overall(it):
+        return it["scores"].get("overall", 0)
+
+    def detsum(it):
+        s = it["scores"]
+        return s.get("detail", 0) + s.get("sharpness", 0) + s.get("artifacts", 0)
+
+    order = sorted(range(len(items)), key=lambda i: (overall(items[i]), detsum(items[i])), reverse=True)
+    top, second = items[order[0]], items[order[1]]
+    if overall(top) == overall(second) and detsum(top) == detsum(second):
+        return ""  # no measurable difference
+    winner = order[0]
+    note = T["tiebreak"] if overall(top) == overall(second) else ""
+    scores_str = "  ·  ".join(
+        f"{html.escape(label(i))}: overall {overall(items[i])}" for i in order
     )
-    table_rows = ""
-    for key, label in zip(score_keys, score_labels):
+    return (
+        f'<div class="set-recommendation"><b>{T['reco_label']}:</b> '
+        f'{html.escape(label(winner))}{note}<span class="reco-scores">  —  {scores_str}</span></div>'
+    )
+
+
+def _build_group_table_html(group: dict, T: dict) -> str:
+    items = group["items"]
+    variants = group.get("variants") or []
+    header = f"<th>{T['dimension']}</th>" + "".join(
+        f'<th>{html.escape((variants[i].get("label") if i < len(variants) and variants[i] else "") or items[i]["filename"])}</th>'
+        for i in range(len(items))
+    )
+    rows = ""
+    for key, label in zip(_SCORE_KEYS, _SCORE_LABELS):
         vals = [item["scores"].get(key, 0) for item in items]
         best_val = max(vals) if vals else 0
         row = f"<tr><td class='metric-name'>{label}</td>"
@@ -572,28 +654,160 @@ def generate_review_html(caption_json_paths: list[str], output_path: str | None 
             cls = "win" if v == best_val and best_val > 0 else ""
             row += f'<td class="{cls}">{v}</td>'
         row += "</tr>"
-        table_rows += row
+        rows += row
+    return f'<table><thead><tr>{header}</tr></thead><tbody>{rows}</tbody></table>'
 
-    # Full HTML
+
+def generate_review_html(caption_json_paths: list[str] | None = None,
+                         output_path: str | None = None,
+                         groups: list | None = None,
+                         manifest_path: str | None = None,
+                         lang: str | None = None) -> str:
+    """Generate a multi-set A/B review HTML from caption JSON files.
+
+    Images are referenced by RELATIVE filename and the HTML is written next to
+    them, so the browser loads them from disk (no base64, no CWD dependency).
+
+    Args:
+        caption_json_paths: Flat list → wrapped into one implicit set "Comparison"
+            (backwards-compatible with --review-html).
+        output_path: Where to write the HTML. Default: review_<ts>.html in the
+            same folder as the images (so relative <img src> resolves).
+        groups: List of {name, prompt?, guide?, variants?:[{label}], files:[caption_jsons]}.
+        manifest_path: Path to a JSON {lang?, sets:[...]} → loaded into groups.
+        lang: Chrome language ("en" | "zh_TW"). Manifest `lang` overrides; default "en".
+
+    Returns:
+        Absolute path to the generated HTML file.
+    """
+    import datetime
+
+    # Resolve groups: manifest → explicit groups → flat list wrapped as one set
+    base_dir = ""
+    mf = {}
+    if manifest_path:
+        manifest_path = os.path.abspath(manifest_path)
+        base_dir = os.path.dirname(manifest_path)
+        with open(manifest_path) as f:
+            mf = json.load(f)
+        groups = mf.get("sets", [])
+    elif groups is None:
+        groups = [{"name": "Comparison", "files": caption_json_paths or []}]
+        if caption_json_paths:
+            base_dir = os.path.dirname(os.path.abspath(caption_json_paths[0]))
+
+    # Resolve chrome language (VLM caption CONTENT is unaffected — it is whatever
+    # run.py caption --style produced). kwarg > manifest > "en".
+    resolved_lang = lang or mf.get("lang") or "en"
+    T = _REVIEW_I18N.get(resolved_lang, _REVIEW_I18N["en"])
+
+    # Load items per group, resolving relative file paths
+    rendered = []
+    for gi, g in enumerate(groups):
+        items = []
+        for fp in (g.get("files") or []):
+            resolved = _resolve_review_path(fp, base_dir)
+            if not resolved or not os.path.exists(resolved):
+                print(f"WARNING: caption JSON not found, skipping: {fp}", file=sys.stderr)
+                continue
+            try:
+                items.append(_load_review_item(resolved))
+            except Exception as e:
+                print(f"WARNING: could not load caption JSON {fp}: {e}", file=sys.stderr)
+        if not items:
+            continue
+        rendered.append({
+            "name": g.get("name") or f"Set {gi + 1}",
+            "prompt": g.get("prompt", "") or "",
+            "guide": g.get("guide", "") or "",
+            "variants": g.get("variants") or [],
+            "items": items,
+        })
+
+    total_items = sum(len(g["items"]) for g in rendered)
+    if total_items == 0:
+        raise ValueError("No valid caption JSON items to render")
+
+    # Default output path = the images' folder (so relative <img src> resolves)
+    default_dir = os.path.dirname(os.path.abspath(rendered[0]["items"][0]["caption_path"]))
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    if not output_path:
+        ts_file = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(default_dir, f"review_{ts_file}.html")
+    else:
+        output_path = os.path.abspath(output_path)
+        if os.path.abspath(os.path.dirname(output_path)) != os.path.abspath(default_dir):
+            print(
+                f"WARNING: --html-output directory differs from the images' folder "
+                f"({default_dir}). Relative <img src> links will break — write the "
+                f"HTML next to the images.",
+                file=sys.stderr,
+            )
+
+    first_model = rendered[0]["items"][0].get("model", "")
+
+    # Build per-set sections (guide + VLM recommendation + cards + table)
+    sets_html = ""
+    for gi, group in enumerate(rendered):
+        variants = group["variants"]
+        cards = ""
+        for li, item in enumerate(group["items"]):
+            vlabel = ""
+            if li < len(variants) and variants[li]:
+                vlabel = variants[li].get("label", "") or ""
+            cards += _build_card_html(gi, li, item, vlabel, T)
+        n = len(group["items"])
+        prompt_html = (
+            f'<p class="set-prompt"><b>{T["prompt_label"]}:</b> {html.escape(group["prompt"])}</p>'
+            if group["prompt"] else ""
+        )
+        guide_html = (
+            f'<div class="set-guide"><b>{T["guide_label"]}:</b> {html.escape(group["guide"])}</div>'
+            if group.get("guide") else ""
+        )
+        reco_html = _build_recommendation_html(group, T)
+        sets_html += f"""
+    <section class="set" data-set="{gi}">
+      <h2 class="set-title"><span class="set-name">{html.escape(group['name'])}</span>
+        <span class="set-count">({T['img_count'](n)})</span></h2>
+      {reco_html}
+      {prompt_html}
+      {guide_html}
+      <div class="set-images">{cards}</div>
+      <h3 class="tbl-title">{T['compare']}</h3>
+      {_build_group_table_html(group, T)}
+    </section>
+    """
+
     html_content = f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{resolved_lang}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>T2I A/B Review — {ts}</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#181818;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:2rem;line-height:1.5}}
+body{{background:#181818;color:#ddd;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:2rem 2rem 5rem;line-height:1.5}}
 h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
 .meta{{color:#555;font-size:.8rem;margin-bottom:1.5rem}}
-.images{{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:2rem}}
+.set{{background:#1c1c1c;border:1px solid #2a2a2a;border-radius:10px;padding:1.2rem;margin-bottom:1.5rem}}
+.set-title{{color:#fff;font-size:1.05rem;margin-bottom:.6rem;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}}
+.set-name{{font-weight:600}}
+.set-count{{color:#666;font-size:.78rem;font-weight:400}}
+.set-recommendation{{background:#11271a;border-left:3px solid #6cbe6c;padding:.5rem .75rem;border-radius:0 4px 4px 0;font-size:.82rem;color:#9be0a6;margin-bottom:.75rem}}
+.set-recommendation .reco-scores{{color:#777;font-size:.76rem}}
+.set-prompt{{background:#161616;border-left:3px solid #4a9eff;padding:.5rem .75rem;border-radius:0 4px 4px 0;font-size:.8rem;color:#bbb;margin-bottom:.75rem;word-break:break-word}}
+.set-guide{{background:#2a2410;border-left:3px solid #e0a800;padding:.5rem .75rem;border-radius:0 4px 4px 0;font-size:.8rem;color:#e8c873;margin-bottom:.75rem}}
+.set-images{{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem}}
+.tbl-title{{color:#888;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;margin:.8rem 0 .4rem}}
 .img-card{{flex:1;min-width:300px;max-width:600px;background:#222;border-radius:8px;padding:1rem;border:1px solid #2e2e2e}}
-.card-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:.65rem}}
-.card-header h3{{font-size:.85rem;color:#ccc;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.pick-label{{font-size:.82rem;color:#888;cursor:pointer}}
+.card-header{{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:.5rem}}
+.card-header h3{{font-size:.8rem;color:#ccc;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.variant{{font-size:.78rem;color:#4a9eff;margin-bottom:.5rem}}
+.pick-label{{font-size:.82rem;color:#888;cursor:pointer;white-space:nowrap}}
 .pick-label input{{margin-right:4px}}
 .img-wrap{{margin-bottom:.8rem}}
-.img-card img{{width:100%;border-radius:4px;display:block;cursor:zoom-in;transition:opacity .15s}}
+.img-card img{{width:100%;border-radius:4px;display:block;cursor:zoom-in;transition:opacity .15s;background:#111}}
 .img-card img:hover{{opacity:.9}}
 .scores{{margin-bottom:.7rem}}
 .score-row{{display:flex;align-items:center;gap:8px;margin-bottom:4px}}
@@ -606,71 +820,114 @@ h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
 .tag{{display:inline-block;padding:2px 8px;border-radius:4px;margin:2px;font-size:.72rem}}
 .tag.captured{{background:#1b4332;color:#6cbe6c}}
 .tag.missed{{background:#4a1c1c;color:#e07070}}
+.summary{{color:#bbb;font-size:.8rem;margin:.6rem 0;padding:.4rem .6rem;background:#1a1a1a;border-radius:4px}}
 .details-section{{margin-bottom:.5rem}}
-.details-section summary{{cursor:pointer;color:#888;font-size:.8rem;padding:4px 0}}
+.details-section summary{{cursor:pointer;color:#888;font-size:.78rem;padding:4px 0}}
 .details-inner{{padding:.5rem 0;font-size:.8rem;color:#aaa}}
 .details-inner ul{{padding-left:1.2rem;margin:4px 0}}
-.summary{{color:#999;font-style:italic;margin-top:6px}}
 .comment-box{{width:100%;min-height:48px;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#ddd;padding:8px;font-size:.82rem;resize:vertical;margin-top:.5rem;font-family:inherit}}
 .comment-box:focus{{border-color:#4a9eff;outline:none}}
-table{{width:100%;border-collapse:collapse;background:#1e1e1e;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a;margin-bottom:1.5rem}}
-th{{text-align:center;padding:.55rem 1rem;background:#242424;color:#666;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}}
-td{{text-align:center;padding:.5rem 1rem;border-bottom:1px solid #252525;font-size:.88rem}}
+table{{width:100%;border-collapse:collapse;background:#1e1e1e;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a}}
+th{{text-align:center;padding:.5rem .8rem;background:#242424;color:#666;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}}
+td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-size:.85rem}}
 .metric-name{{text-align:left;color:#999}}
 .win{{color:#6cbe6c;font-weight:600}}
 .bottom-bar{{position:fixed;bottom:0;left:0;right:0;background:#222;border-top:1px solid #333;padding:.75rem 2rem;display:flex;gap:1rem;align-items:center;z-index:100}}
 .bottom-bar button{{background:#4a9eff;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.85rem}}
 .bottom-bar button:hover{{background:#3a8eef}}
 .bottom-bar .status{{color:#888;font-size:.82rem}}
-.lb{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:999;align-items:center;justify-content:center;cursor:zoom-out}}
+.lb{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.94);z-index:999;flex-direction:column}}
 .lb.open{{display:flex}}
-.lb img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px}}
-h2{{color:#aaa;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin:1.5rem 0 .6rem}}
+.lb-bar{{display:flex;gap:6px;align-items:center;padding:10px 16px;background:#111;border-bottom:1px solid #222;flex:none}}
+.lb-bar button{{background:#333;color:#ddd;border:none;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:.85rem}}
+.lb-bar button.active{{background:#4a9eff;color:#fff}}
+.lb-bar .lb-close{{margin-left:auto;background:#4a1c1c;color:#e07070;font-size:1rem;line-height:1}}
+.lb-hint{{color:#666;font-size:.76rem}}
+.lb-viewport{{flex:1;overflow:auto;display:flex;align-items:safe center;justify-content:safe center;cursor:zoom-out}}
+#lb-img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px;cursor:default}}
 </style>
 </head>
 <body>
 <h1>T2I A/B Review</h1>
-<p class="meta">Generated {ts} &middot; {len(items)} image(s) &middot; VLM: {html.escape(str(items[0]['model'])) if items else 'N/A'}</p>
+<p class="meta">Generated {ts} &middot; {total_items} {T['meta_across']} {len(rendered)} {T['meta_sets']} &middot; VLM: {html.escape(str(first_model))}</p>
 
-<h2>Images</h2>
-<div class="images">
-{cards_html}
-</div>
+{sets_html}
 
-<h2>Score Comparison</h2>
-<table>
-<thead><tr>{table_header}</tr></thead>
-<tbody>{table_rows}</tbody>
-</table>
-
-<div class="lb" id="lb" onclick="this.classList.remove('open')">
-  <img id="lb-img" src="" alt=""/>
+<div class="lb" id="lb">
+  <div class="lb-bar">
+    <button data-z="1" class="active">1&times;</button>
+    <button data-z="2">2&times;</button>
+    <button data-z="4">4&times;</button>
+    <span class="lb-hint">{T['close_hint']}</span>
+    <button class="lb-close" onclick="closeLb()">&times;</button>
+  </div>
+  <div class="lb-viewport" id="lb-vp" onclick="closeLb()">
+    <img id="lb-img" src="" alt="" onclick="event.stopPropagation()"/>
+  </div>
 </div>
 
 <div class="bottom-bar">
-  <button onclick="exportFeedback()">Export Feedback JSON</button>
+  <button onclick="exportFeedback()">{T['export']}</button>
   <span class="status" id="status"></span>
 </div>
 
 <script>
-function openLb(src) {{
-  var lb = document.getElementById('lb');
-  document.getElementById('lb-img').src = src;
-  lb.classList.add('open');
+function setZoom(n) {{
+  var img = document.getElementById('lb-img');
+  document.querySelectorAll('.lb-bar button[data-z]').forEach(function(b) {{
+    b.classList.toggle('active', b.dataset.z === String(n));
+  }});
+  if (n === 1) {{
+    img.style.width = ''; img.style.height = '';
+    img.style.maxWidth = '90vw'; img.style.maxHeight = '90vh';
+  }} else {{
+    img.style.maxWidth = 'none'; img.style.maxHeight = 'none';
+    img.style.width = (img.naturalWidth * n) + 'px';
+    img.style.height = 'auto';
+  }}
 }}
+function openLb(src) {{
+  var img = document.getElementById('lb-img');
+  img.src = src;
+  document.getElementById('lb').classList.add('open');
+  setZoom(1);
+  document.getElementById('lb-vp').scrollTo(0, 0);
+}}
+function closeLb() {{
+  document.getElementById('lb').classList.remove('open');
+}}
+document.querySelectorAll('.lb-bar button[data-z]').forEach(function(b) {{
+  b.addEventListener('click', function() {{ setZoom(parseInt(b.dataset.z)); }});
+}});
+document.addEventListener('keydown', function(e) {{ if (e.key === 'Escape') closeLb(); }});
 
 function exportFeedback() {{
-  var best = document.querySelector('input[name="best"]:checked');
-  var data = {{
-    timestamp: new Date().toISOString(),
-    best_image: best ? best.value : null,
-    images: []
-  }};
-  document.querySelectorAll('.img-card').forEach(function(card) {{
-    var idx = card.dataset.idx;
-    var fname = card.dataset.filename || '';
-    var comment = card.querySelector('.comment-box').value;
-    data.images.push({{ index: parseInt(idx), filename: fname, comment: comment }});
+  var data = {{ timestamp: new Date().toISOString(), sets: [] }};
+  document.querySelectorAll('section.set').forEach(function(set) {{
+    var gi = set.dataset.set;
+    var nameEl = set.querySelector('.set-name');
+    var promptEl = set.querySelector('.set-prompt');
+    var promptText = '';
+    if (promptEl) {{
+      // strip the localized "<label>:" prefix (works for "Prompt:" and "提示詞:")
+      promptText = (promptEl.textContent || '').replace(/^\\s*[^:]*:\\s*/, '').trim();
+    }}
+    var best = set.querySelector('input[name="best_set' + gi + '"]:checked');
+    var images = [];
+    set.querySelectorAll('.img-card').forEach(function(card) {{
+      images.push({{
+        index: parseInt(card.dataset.idx),
+        filename: card.dataset.filename || '',
+        variant: card.dataset.variant || '',
+        comment: card.querySelector('.comment-box').value
+      }});
+    }});
+    data.sets.push({{
+      name: nameEl ? nameEl.textContent.trim() : '',
+      prompt: promptText,
+      best_image: best ? parseInt(best.value) : null,
+      images: images
+    }});
   }});
   var blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
   var url = URL.createObjectURL(blob);
@@ -679,7 +936,7 @@ function exportFeedback() {{
   a.download = 'review_feedback.json';
   a.click();
   URL.revokeObjectURL(url);
-  document.getElementById('status').textContent = 'Feedback exported!';
+  document.getElementById('status').textContent = '{T['exported']}';
   setTimeout(function() {{ document.getElementById('status').textContent = ''; }}, 3000);
 }}
 </script>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { relativeTime, formatBytes } from "../../utils/format";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -76,19 +77,6 @@ interface ModelCheckResult {
   models: ModelEntry[];
   conversion_candidates: ConversionCandidate[];
   orphans: OrphanEntry[];
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diffMs / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────
@@ -290,7 +278,7 @@ function ConversionSection({ candidates }: { candidates: ConversionCandidate[] }
           padding: "8px 12px", background: "var(--bg-surface)", border: `1px solid var(--success)`,
           borderRadius: "var(--radius)", fontSize: 12, color: "var(--success)", fontWeight: 600,
         }}>
-          Total potential savings: ~{_fmtBytes(totalSavings)}
+          Total potential savings: ~{formatBytes(totalSavings)}
         </div>
       </div>
     </div>
@@ -316,13 +304,6 @@ function OrphanSection({ orphans }: { orphans: OrphanEntry[] }) {
       </div>
     </div>
   );
-}
-
-function _fmtBytes(n: number): string {
-  if (n >= 1e9) return (n / 1e9).toFixed(1) + " GB";
-  if (n >= 1e6) return (n / 1e6).toFixed(0) + " MB";
-  if (n >= 1e3) return (n / 1e3).toFixed(0) + " KB";
-  return n + " B";
 }
 
 // ── Main View ──────────────────────────────────────────────────────────

@@ -1,0 +1,19 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry.",
+  "name": "vbvr-licon-96k",
+  "type": "lora",
+  "arch": "ltx-2.3",
+  "format": "safetensors-bf16",
+  "file": "Ltx2.3-Licon-VBVR-I2V-96000-R32.safetensors",
+  "description": "LiconStudio VBVR LoRA for LTX-2.3 — Stage 1 foundation checkpoint (96K training steps). LoRA rank 32, trained on 96K VBVR general videos with lr=1e-4 cosine schedule.",
+  "source": "huggingface/LiconStudio",
+  "source_url": "https://huggingface.co/LiconStudio/Ltx2.3-VBVR-lora-I2V",
+  "compatible_with": ["transformer/ltx-2.3-dev-q8", "transformer/ltx-2.3-distilled"],
+  "pipeline": ["ltx-2.3"],
+  "size_bytes": 553480896,
+  "created_at": "2026-06-12T00:00:00Z",
+  "trigger_words": [],
+  "test_prompt": "a person opens a door and walks through into a bright room",
+  "recommended_scale": 1.0,
+  "notes": "ComfyUI key format: diffusion_model.transformer_blocks.N.attn1.to_k.lora_A.weight. 2496 keys. Stage 1 of 3-stage training — lowest quality, good for ablation."
+}

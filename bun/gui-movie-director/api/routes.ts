@@ -9,6 +9,8 @@ import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleVlmTest } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetSchemaDefaults } from "./schema-defaults";
+import { handleRunSelfTest } from "./selftest";
+import { handleCaptionRun, handleCaptionGet } from "./caption";
 import { handleWebSocketUpgrade } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
@@ -178,6 +180,19 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // Schema defaults
   if (pathname === "/api/schema-defaults" && method === "GET") {
     return handleGetSchemaDefaults(req);
+  }
+
+  // Self-test
+  if (pathname === "/api/selftest" && method === "POST") {
+    return handleRunSelfTest(req);
+  }
+
+  // Caption
+  if (pathname === "/api/caption/run" && method === "POST") {
+    return handleCaptionRun(req);
+  }
+  if (pathname === "/api/caption" && method === "GET") {
+    return handleCaptionGet(req);
   }
 
   return Response.json({ error: "Not found" }, { status: 404 });

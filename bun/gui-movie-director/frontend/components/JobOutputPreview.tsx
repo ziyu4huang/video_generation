@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { GalleryCard } from "./GalleryCard";
 import { ImagePreview } from "./ImagePreview";
+import { ReviewButton } from "./ReviewButton";
 import type { GalleryImage, JobInfo } from "../types";
 
 interface Props {
@@ -55,6 +56,8 @@ export function JobOutputPreview({ job, onViewInGallery }: Props) {
           run={preview.run}
           manifestPath={preview.manifestPath}
           runPath={preview.runPath}
+          caption={preview.caption}
+          captionPath={preview.captionPath}
           onClose={() => setPreview(null)}
         />
       )}

@@ -15,6 +15,8 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   const [previewRun, setPreviewRun] = useState<Record<string, any> | null>(null);
   const [previewManifestPath, setPreviewManifestPath] = useState<string | null>(null);
   const [previewRunPath, setPreviewRunPath] = useState<string | null>(null);
+  const [previewCaption, setPreviewCaption] = useState<Record<string, any> | null>(null);
+  const [previewCaptionPath, setPreviewCaptionPath] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -67,6 +69,8 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     setPreviewRun(img.run);
     setPreviewManifestPath(img.manifestPath ?? null);
     setPreviewRunPath(img.runPath ?? null);
+    setPreviewCaption(img.caption ?? null);
+    setPreviewCaptionPath(img.captionPath ?? null);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -75,6 +79,8 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     setPreviewRun(null);
     setPreviewManifestPath(null);
     setPreviewRunPath(null);
+    setPreviewCaption(null);
+    setPreviewCaptionPath(null);
   }, []);
 
   const handleImagesReady = useCallback((images: GalleryImage[]) => {
@@ -105,6 +111,8 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
           run={previewRun}
           manifestPath={previewManifestPath}
           runPath={previewRunPath}
+          caption={previewCaption}
+          captionPath={previewCaptionPath}
           onClose={handleClose}
         />
       )}

@@ -1,21 +1,7 @@
 import React, { useRef } from "react";
 import type { GalleryImage } from "../types";
-
-export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-export function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+import { formatSize, formatDate } from "../utils/format";
+import { parseCaptionScores } from "./CaptionScoreBar";
 
 export function getManifestSummary(manifest: any): string | null {
   if (!manifest) return null;
@@ -30,6 +16,13 @@ export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; 
   const summary = getManifestSummary(img.manifest);
   const isVideo = img.mediaType === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Derive average caption score for badge
+  const captionScores = img.caption ? parseCaptionScores(img.caption.caption) : null;
+  const avgScore = captionScores
+    ? ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+        .reduce((s, k) => s + (captionScores[k] || 0), 0) / 6
+    : null;
 
   const handleVideoEnter = () => {
     videoRef.current?.play().catch(() => { /* ignore autoplay rejection */ });
@@ -65,6 +58,22 @@ export function GalleryCard({ img, onClick, highlighted }: { img: GalleryImage; 
           </>
         ) : (
           <img src={img.url} alt={img.name} loading="lazy" />
+        )}
+        {avgScore !== null && (
+          <span style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            background: avgScore >= 8 ? "rgba(76,175,80,0.9)" : avgScore >= 5 ? "rgba(255,152,0,0.9)" : "rgba(244,67,54,0.9)",
+            color: "#fff",
+            fontSize: 11,
+            fontWeight: 700,
+            padding: "2px 6px",
+            borderRadius: 4,
+            lineHeight: 1,
+          }}>
+            {avgScore.toFixed(1)}
+          </span>
         )}
       </div>
       <div className="gallery-card-info">

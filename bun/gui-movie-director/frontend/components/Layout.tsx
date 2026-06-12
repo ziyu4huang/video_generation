@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { COMMAND_GROUPS } from "../app";
 import { useJobs } from "../hooks/useJobs";
 
@@ -12,6 +12,31 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
   const { jobs } = useJobs();
   const runningJob = jobs.find((j) => j.status === "running") ?? null;
   const failedCount = jobs.filter((j) => j.status === "failed").length;
+
+  // Lightweight WebSocket connection monitor (separate from useWebSocket singleton)
+  const [wsConnected, setWsConnected] = useState(true);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    let ws: WebSocket | null = null;
+    let timer: number | null = null;
+
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => { setWsConnected(true); if (timer) { clearTimeout(timer); timer = null; } };
+      ws.onclose = () => {
+        setWsConnected(false);
+        timer = window.setTimeout(connect, 5000);
+      };
+    };
+    connect();
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      ws?.close();
+    };
+  }, []);
 
   return (
     <div className="app-layout">
@@ -38,7 +63,7 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
           >
             📋 Jobs
             {failedCount > 0 && (
-              <span style={{ marginLeft: "auto", color: "var(--error)", fontSize: 11, fontWeight: 600 }}>
+              <span className="sidebar-failed-count">
                 {failedCount} failed
               </span>
             )}
@@ -62,9 +87,15 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
           </div>
         ))}
 
-        {/* Job status at bottom */}
+        {/* Connection status */}
+        <div className="sidebar-conn-status">
+          <span className={`conn-dot ${wsConnected ? "ok" : "err"}`} />
+          <span>{wsConnected ? "Connected" : "Disconnected"}</span>
+        </div>
+
+        {/* Running job status */}
         {runningJob && (
-          <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
+          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>
             <div className="status-badge running">
               <span className="status-dot" />
               {runningJob.command}

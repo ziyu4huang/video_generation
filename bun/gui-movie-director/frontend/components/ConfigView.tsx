@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { relativeTime } from "../utils/format";
 
 interface ConfigData {
   outputDir: string | string[];
@@ -58,17 +59,6 @@ function parseCheckResult(data: any): ModelCheckResult | null {
     htmlUrl: data.htmlUrl ?? null,
     timestamp: data.result.timestamp,
   };
-}
-
-function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diffMs / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
 }
 
 export function ConfigView() {

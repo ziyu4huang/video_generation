@@ -1,7 +1,8 @@
-"""schema-defaults — Export command schema defaults as JSON for GUI sync.
+"""schema-defaults — Export command schema defaults + self-test metadata as JSON for GUI sync.
 
-Prints a JSON object mapping each GUI action to its effective default values.
-No model loading, no generation — safe to call at server startup.
+Prints a JSON object mapping each GUI action to its effective default values
+and available self-test names. No model loading, no generation — safe to call
+at server startup.
 
 Usage:
   run.py schema-defaults
@@ -13,7 +14,7 @@ import sys
 
 PARSER_META = {
     "help": "Output command schema defaults as JSON (for GUI sync)",
-    "description": "Print action defaults as JSON. No model loading.",
+    "description": "Print action defaults + self-test names as JSON. No model loading.",
 }
 
 
@@ -26,10 +27,34 @@ def run(args):
     sys.stdout.write("\n")
 
 
+# Mapping from test type → GUI action name
+_TEST_TYPE_TO_ACTION = {
+    "t2i": "t2i",
+    "vae": "t2i",
+    "lora": "t2i",
+    "lora-sweep": "t2i",
+    "workflow": "workflow",
+    "lora-i2i": "i2i",
+    "controlnet-i2i": "i2i",
+    "lora-ref": "anime2real",
+    "faceswap": "faceswap",
+    "swap": "swap",
+    "swap-all": "swap",
+    "profile": "profile",
+    "expansion": "expansion",
+    "video": "video-generate",
+    "flf2v": "video-generate",
+    "nomodel": "workflow",
+}
+
+
 def _build():
     # Load pipeline step defaults from image-t2i without importing mlx
     _t2i = importlib.import_module("app.commands.image-t2i")
     pipeline_steps = dict(_t2i._PIPELINE_DEFAULT_STEPS)
+
+    # Build self-test metadata grouped by GUI action
+    self_tests = _build_self_tests()
 
     return {
         "t2i": {
@@ -42,6 +67,7 @@ def _build():
             "draft": False,
             "upscale": False,
             "pipeline_steps": pipeline_steps,
+            "self_tests": self_tests.get("t2i", []),
         },
         "i2i": {
             "pipeline": "zimage",
@@ -49,6 +75,7 @@ def _build():
             "controlnet_strength": 1.0,
             "seed": 42,
             "pipeline_steps": pipeline_steps,
+            "self_tests": self_tests.get("i2i", []),
         },
         "workflow": {
             "pipeline": "zimage",
@@ -59,6 +86,7 @@ def _build():
             "film_grain": 0.0,
             "sharpening": 0.0,
             "upscale": False,
+            "self_tests": self_tests.get("workflow", []),
         },
         "anime2real": {
             "realism_style": "civitai-chinese",
@@ -66,16 +94,19 @@ def _build():
             "anime2real_ref_count": 1,
             "steps": 8,
             "seed": 42,
+            "self_tests": self_tests.get("anime2real", []),
         },
         "controlnet": {
             "controlnet_type": "canny",
             "controlnet_strength": 1.0,
             "seed": 42,
             "pipeline_steps": pipeline_steps,
+            "self_tests": self_tests.get("controlnet", []),
         },
         "faceswap": {
             "mode": "head",
             "seed": 42,
+            "self_tests": self_tests.get("faceswap", []),
         },
         "expansion": {
             "pixels": 1024,
@@ -84,10 +115,12 @@ def _build():
             "longest": 1024,
             "expansion_ref_strength": 1.0,
             "seed": 42,
+            "self_tests": self_tests.get("expansion", []),
         },
         "angle": {
             "azimuth": 90,
             "elevation": 0,
+            "self_tests": self_tests.get("angle", []),
         },
         "profile": {
             "views": "front,back,side",
@@ -95,10 +128,12 @@ def _build():
             "ref_count": 3,
             "seed": 42,
             "pipeline_steps": pipeline_steps,
+            "self_tests": self_tests.get("profile", []),
         },
         "swap": {
             "sam_threshold": 0.3,
             "feather": 10,
+            "self_tests": self_tests.get("swap", []),
         },
 
         # ─── Video ─────────────────────────────────────────────────────
@@ -119,6 +154,7 @@ def _build():
             "teacache": False,
             "temporal_upscale": False,
             "enhance_prompt": False,
+            "self_tests": self_tests.get("video-generate", []),
         },
         "video-restore": {
             "seed": 42,
@@ -128,5 +164,29 @@ def _build():
             "upscale_scale": 1.0,
             "no_upscale_lora": False,
             "restore_no_audio": False,
+            "self_tests": self_tests.get("video-restore", []),
         },
     }
+
+
+def _build_self_tests():
+    """Import test registry and group tests by GUI action.
+
+    Returns dict: { action: [{"name": str, "desc": str}, ...] }
+    """
+    try:
+        mod = importlib.import_module("app.test_prompts_image")
+        all_tests = getattr(mod, "_ALL_TESTS", {})
+    except Exception:
+        return {}
+
+    result = {}
+    for name, cfg in all_tests.items():
+        test_type = cfg.get("type", "")
+        action = _TEST_TYPE_TO_ACTION.get(test_type)
+        if not action:
+            continue
+        entry = {"name": name, "desc": cfg.get("description", name)}
+        result.setdefault(action, []).append(entry)
+
+    return result

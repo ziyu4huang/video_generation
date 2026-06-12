@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 
+export type SelfTestEntry = { name: string; desc: string };
+
 type ActionDefaults = Record<string, any> & {
   pipeline_steps?: Record<string, number>;
+  self_tests?: SelfTestEntry[];
 };
 
 // Module-level singleton: entire SPA makes at most one HTTP request

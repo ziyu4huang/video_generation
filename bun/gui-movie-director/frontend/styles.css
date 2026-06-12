@@ -94,6 +94,42 @@ body {
   border-left-color: var(--accent);
 }
 
+.sidebar-failed-count {
+  margin-left: auto;
+  color: var(--error);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-conn-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+}
+
+.conn-dot.err {
+  background: var(--error);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 /* === Main Content === */
 .main-content {
   flex: 1;
@@ -397,11 +433,39 @@ body {
 .log-line.saved { color: var(--success); }
 .log-line.batch { color: var(--accent); }
 .log-line.error { color: var(--error); font-weight: 600; }
+.log-line.warning { color: var(--warning); }
+.log-line.progress { color: var(--text-dim); font-style: italic; }
 
 .log-placeholder {
   color: var(--text-dim);
   font-style: italic;
 }
+
+/* === Inline Error Banner === */
+.inline-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(239, 83, 80, 0.1);
+  border: 1px solid var(--error);
+  border-radius: var(--radius);
+  color: var(--error);
+  font-size: 13px;
+  margin-top: 8px;
+}
+.inline-error-dismiss {
+  background: none;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  margin-left: auto;
+  font-size: 16px;
+  opacity: 0.7;
+  padding: 0;
+  line-height: 1;
+}
+.inline-error-dismiss:hover { opacity: 1; }
 
 /* === File Upload === */
 .file-upload {

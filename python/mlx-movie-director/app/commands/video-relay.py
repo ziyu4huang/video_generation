@@ -68,6 +68,52 @@ _RELAY_VARIANTS = {
         "cfg_scale": 1.0, "stg_scale": 0.0,
         "label": "Distilled + VBVR (siraxe)",
     },
+    "dev2stg": {
+        "distilled": False, "lora_path": None, "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage (dev+distill-lora)",
+    },
+    "dev2stg+vbvr-licon": {
+        "distilled": False, "lora_path": "vbvr-licon-ltx2.3", "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage + VBVR (LiconStudio)",
+    },
+    "dev2stg+vbvr-siraxe": {
+        "distilled": False, "lora_path": "vbvr-ltx2.3", "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage + VBVR (siraxe)",
+    },
+    # LiconStudio step-by-step checkpoints (96K / 240K / 390K training steps)
+    "distilled+vbvr-licon-96k": {
+        "distilled": True, "lora_path": "vbvr-licon-96k", "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled + VBVR Licon 96K",
+    },
+    "distilled+vbvr-licon-240k": {
+        "distilled": True, "lora_path": "vbvr-licon-240k", "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled + VBVR Licon 240K",
+    },
+    "distilled+vbvr-licon-390k": {
+        "distilled": True, "lora_path": "vbvr-licon-390k", "lora_scale": 1.0,
+        "cfg_scale": 1.0, "stg_scale": 0.0,
+        "label": "Distilled + VBVR Licon 390K (best)",
+    },
+    "dev2stg+vbvr-licon-96k": {
+        "distilled": False, "lora_path": "vbvr-licon-96k", "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage + VBVR Licon 96K",
+    },
+    "dev2stg+vbvr-licon-240k": {
+        "distilled": False, "lora_path": "vbvr-licon-240k", "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage + VBVR Licon 240K",
+    },
+    "dev2stg+vbvr-licon-390k": {
+        "distilled": False, "lora_path": "vbvr-licon-390k", "lora_scale": 1.0,
+        "cfg_scale": 5.0, "stg_scale": 1.0,
+        "label": "Dev 2-Stage + VBVR Licon 390K (best)",
+    },
 }
 
 
@@ -94,6 +140,45 @@ _RELAY_REVIEWS = {
                 "stars": 3,
                 "notes": "後面做菜的部分比較合理 雖然還是有散光 但最後面做成一道餐的樣子比較合理",
             },
+        },
+    },
+    "physics": {
+        "date": "2026-06-12",
+        "params": "704×448, 193fr, 8s/seg × 3, distilled, cfg=1, stg=0",
+        "winner": "distilled",
+        "scores": {
+            "distilled": {
+                "stars": 3,
+                "notes": "",
+            },
+            "distilled+vbvr-licon": {
+                "stars": 2,
+                "notes": "切換到最後玻璃的破碎的形狀跟位置有不一致",
+            },
+            "distilled+vbvr-siraxe": {
+                "stars": 3,
+                "notes": "看不出來跟baseline有何差異",
+            },
+        },
+    },
+    "kitchen-dev2stg": {
+        "date": "2026-06-12",
+        "params": "704×448, 193fr, 8s/seg × 3, dev2stg, cfg=5, stg=1",
+        "winner": "dev2stg+vbvr-licon",
+        "scores": {
+            "dev2stg": {"stars": 1, "notes": "非常差錯誤非常多"},
+            "dev2stg+vbvr-licon": {"stars": 3, "notes": ""},
+            "dev2stg+vbvr-siraxe": {"stars": 2, "notes": ""},
+        },
+    },
+    "physics-dev2stg": {
+        "date": "2026-06-12",
+        "params": "704×448, 193fr, 8s/seg × 3, dev2stg, cfg=5, stg=1",
+        "winner": "dev2stg",
+        "scores": {
+            "dev2stg": {"stars": 3, "notes": ""},
+            "dev2stg+vbvr-licon": {"stars": 2, "notes": ""},
+            "dev2stg+vbvr-siraxe": {"stars": 3, "notes": ""},
         },
     },
 }

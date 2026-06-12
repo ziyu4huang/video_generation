@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { formatBytes, basename } from "../utils/format";
+import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
 
-type Tab = "run" | "manifest";
+type Tab = "run" | "manifest" | "scores";
 
 interface ImagePreviewProps {
   url: string;
@@ -8,22 +10,12 @@ interface ImagePreviewProps {
   run?: Record<string, any> | null;
   manifestPath?: string | null;
   runPath?: string | null;
+  caption?: Record<string, any> | null;
+  captionPath?: string | null;
   onClose: () => void;
 }
 
 // --- Shared helpers ---
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function basename(p: string): string {
-  const parts = p.split("/");
-  return parts[parts.length - 1] || p;
-}
 
 function shortPath(p: string, segments: number = 2): string {
   const parts = p.split("/");
@@ -434,17 +426,41 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
 }
 
+function ScoresViewer({ caption }: { caption: Record<string, any> }) {
+  const scores = parseCaptionScores(caption.caption);
+  if (!scores) {
+    return (
+      <div style={{ padding: 16, color: "var(--text-dim)", fontSize: 13 }}>
+        No scores available. Raw caption: {String(caption.caption).slice(0, 200)}
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: 16 }}>
+      <CaptionScoreBar
+        scores={scores}
+        issues={scores.issues}
+        strengths={scores.strengths}
+        captured={scores.captured}
+        missed={scores.missed}
+        summary={scores.summary}
+      />
+    </div>
+  );
+}
+
 // --- Main component ---
 
-export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClose }: ImagePreviewProps) {
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
-  const [tab, setTab] = useState<Tab>(hasRun ? "run" : "manifest");
+  const hasCaption = !!caption;
+  const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "scores");
   const [showRaw, setShowRaw] = useState(false);
   const [rawCopied, setRawCopied] = useState(false);
   const [pathCopied, setPathCopied] = useState(false);
   const data = tab === "run" ? run : manifest;
-  const activePath = tab === "run" ? runPath : manifestPath;
+  const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : captionPath;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -580,6 +596,13 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClos
             >
               manifest.json
             </button>
+            <button
+              className={`image-preview-tab ${tab === "scores" ? "active" : ""} ${!hasCaption ? "disabled" : ""}`}
+              onClick={() => { setTab("scores"); setShowRaw(false); }}
+              disabled={!hasCaption}
+            >
+              Scores
+            </button>
           </div>
           <div className="image-preview-panel-actions">
             <button
@@ -597,7 +620,9 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, onClos
           </div>
         </div>
         <div className="image-preview-panel-body">
-          {data ? (
+          {tab === "scores" && caption ? (
+            <ScoresViewer caption={caption} />
+          ) : data ? (
             tab === "run" ? <RunViewer data={data} /> : <ManifestViewer data={data} />
           ) : (
             <div className="empty-state">

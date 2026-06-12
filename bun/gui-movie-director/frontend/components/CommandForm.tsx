@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import type { CommandSchema, FieldDef } from "../schemas/types";
 import { TextField, NumberField, RangeField, SelectField, ToggleField } from "./FieldComponents";
 import { FileUpload } from "./FileUpload";
-import { useSchemaDefaults } from "../hooks/useSchemaDefaults";
+import { InlineError } from "./InlineError";
+import { useDefaultState } from "../hooks/useDefaultState";
 
 interface CommandFormProps {
   schema: CommandSchema;
@@ -59,43 +60,12 @@ function groupIntoRows(fields: FieldDef[], state: Record<string, any>): FieldDef
 }
 
 export function CommandForm({ schema, onJobStart, loading, commandPrefix }: CommandFormProps) {
-  const serverDefaults = useSchemaDefaults(schema.action);
-  const [state, setState] = useState<Record<string, any>>(() => buildDefaults(schema.sections));
-  // Track fields the user has manually edited — these are never overwritten by server defaults
-  const userModifiedRef = useRef<Set<string>>(new Set());
-
-  // Apply server defaults once they load, skipping fields the user already touched
-  useEffect(() => {
-    if (!serverDefaults) return;
-    setState((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(serverDefaults)) {
-        if (k === "pipeline_steps") continue;
-        if (!userModifiedRef.current.has(k)) next[k] = v;
-      }
-      if (serverDefaults.pipeline_steps && !userModifiedRef.current.has("steps")) {
-        const ps = serverDefaults.pipeline_steps[next.pipeline ?? "zimage"];
-        if (ps !== undefined) next.steps = ps;
-      }
-      return next;
-    });
-  }, [serverDefaults]); // userModifiedRef is a ref — intentionally excluded from deps
-
-  const setField = (key: string, value: any) => {
-    userModifiedRef.current.add(key);
-    setState((prev) => {
-      const next = { ...prev, [key]: value };
-      // When pipeline changes, auto-update steps if the user hasn't manually set it
-      if (key === "pipeline" && serverDefaults?.pipeline_steps && !userModifiedRef.current.has("steps")) {
-        const ps = serverDefaults.pipeline_steps[value];
-        if (ps !== undefined) next.steps = ps;
-      }
-      return next;
-    });
-  };
+  const { state, setField } = useDefaultState(schema.action, buildDefaults(schema.sections));
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       const params = schema.buildParams ? schema.buildParams(state) : { ...state };
       const prefix = commandPrefix ?? "image";
@@ -109,10 +79,10 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
       if (data.jobId) {
         onJobStart({ jobId: data.jobId, command });
       } else if (data.error) {
-        alert(data.error);
+        setError(data.error);
       }
     } catch (err) {
-      alert(`Failed to start job: ${err}`);
+      setError(`Failed to start job: ${err}`);
     }
   };
 
@@ -269,6 +239,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
           )}
         </button>
       </div>
+      <InlineError message={error} onDismiss={() => setError(null)} />
     </form>
   );
 }

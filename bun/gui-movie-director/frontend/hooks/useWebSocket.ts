@@ -21,6 +21,7 @@ export function useWebSocket() {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
+  const reconnectDelay = useRef(1000);
   const pendingSubscribe = useRef<string | null>(null);
 
   const connect = useCallback(() => {
@@ -34,6 +35,7 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       setConnected(true);
+      reconnectDelay.current = 1000; // Reset backoff on successful connect
       if (pendingSubscribe.current) {
         ws.send(JSON.stringify({ type: "subscribe", jobId: pendingSubscribe.current }));
         pendingSubscribe.current = null;
@@ -42,9 +44,11 @@ export function useWebSocket() {
 
     ws.onclose = () => {
       setConnected(false);
-      // Unblock any waiting UI if a job was in progress
-      setJobStatus((prev) => (prev === "completed" || prev === "failed" ? prev : "failed"));
-      reconnectTimer.current = window.setTimeout(connect, 2000);
+      // Don't overwrite terminal states — only reset if no definitive result yet
+      setJobStatus((prev) => (prev === "completed" || prev === "failed" ? prev : null));
+      // Exponential backoff: 1s → 2s → 4s → ... → 30s cap
+      reconnectTimer.current = window.setTimeout(connect, reconnectDelay.current);
+      reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
     };
 
     ws.onerror = () => {

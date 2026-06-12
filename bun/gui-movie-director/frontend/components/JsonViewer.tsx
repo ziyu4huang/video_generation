@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { formatBytes } from "../utils/format";
 
 // Recursive JSON value renderer with collapsible objects/arrays
 
@@ -12,14 +13,6 @@ function isPath(s: string): boolean {
 
 function isLong(s: string): boolean {
   return s.length > 120;
-}
-
-// Format byte values to human-readable
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 // Check if key name suggests a byte size field

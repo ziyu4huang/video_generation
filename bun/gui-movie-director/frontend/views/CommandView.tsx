@@ -2,6 +2,7 @@ import React from "react";
 import { LogViewer } from "../components/LogViewer";
 import { CommandForm } from "../components/CommandForm";
 import { JobOutputPreview } from "../components/JobOutputPreview";
+import { SelfTestButton } from "../components/SelfTestButton";
 import { useCommandView } from "../hooks/useCommandView";
 import { useNavigation } from "../context/NavigationContext";
 import type { CommandSchema } from "../schemas/types";
@@ -15,6 +16,9 @@ export function createCommandView(schema: CommandSchema, commandPrefix?: string)
     return (
       <>
         <CommandForm schema={schema} onJobStart={handleJobStart} loading={loading} commandPrefix={commandPrefix} />
+        <div className="btn-row" style={{ marginTop: -4 }}>
+          <SelfTestButton action={schema.action} onJobStart={handleJobStart} />
+        </div>
         {job?.status === "completed" && (
           <JobOutputPreview
             job={job}

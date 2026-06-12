@@ -85,6 +85,7 @@ _quality = importlib.import_module("app.commands.image-quality")
 _workflow = importlib.import_module("app.commands.image-workflow")
 _expansion = importlib.import_module("app.commands.image-expansion")
 _purify = importlib.import_module("app.commands.image-purify")
+_restore = importlib.import_module("app.commands.image-restore")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -266,6 +267,9 @@ def add_args(parser):
     # Purify-specific args: --mode, --resolution, --softness-override, --film-grain, --sharpening
     _purify.add_purify_args(parser)
 
+    # Restore-specific args: none (reuses i2i + common args)
+    _restore.add_restore_args(parser)
+
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
     # with different defaults before add_common_generation_args() runs.  The
@@ -334,5 +338,7 @@ def run(args):
         _expansion.run_expansion(args)
     elif action == "purify":
         _purify.run_purify(args)
+    elif action == "restore":
+        _restore.run_restore(args)
     else:
         _t2i.run_t2i(args)

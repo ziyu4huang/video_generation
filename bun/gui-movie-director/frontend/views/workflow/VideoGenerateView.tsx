@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import { LogViewer } from "../../components/LogViewer";
 import { JobOutputPreview } from "../../components/JobOutputPreview";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
+import { InlineError } from "../../components/InlineError";
+import { SelfTestButton } from "../../components/SelfTestButton";
 import { useCommandView } from "../../hooks/useCommandView";
-import { useSchemaDefaults } from "../../hooks/useSchemaDefaults";
+import { useDefaultState } from "../../hooks/useDefaultState";
 import { useNavigation } from "../../context/NavigationContext";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -38,28 +40,9 @@ export function VideoGenerateView() {
   const command = "video generate";
   const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
   const navigate = useNavigation();
-  const serverDefaults = useSchemaDefaults("video-generate");
+  const { state, setField } = useDefaultState("video-generate", FALLBACK_DEFAULTS);
   const [mode, setMode] = useState<VideoMode>("t2v");
-  const [state, setState] = useState<Record<string, any>>({ ...FALLBACK_DEFAULTS });
-  // Track fields the user has manually edited — never overwrite these
-  const userModifiedRef = useRef<Set<string>>(new Set());
-
-  // Apply server defaults once they load, skipping user-touched fields
-  useEffect(() => {
-    if (!serverDefaults) return;
-    setState((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(serverDefaults)) {
-        if (!userModifiedRef.current.has(k)) next[k] = v;
-      }
-      return next;
-    });
-  }, [serverDefaults]);
-
-  const setField = (key: string, value: any) => {
-    userModifiedRef.current.add(key);
-    setState((prev) => ({ ...prev, [key]: value }));
-  };
+  const [error, setError] = useState<string | null>(null);
 
   // Quality preset mutual exclusion: hq, distilled, teacache are exclusive
   const handleQualityToggle = (key: string, value: boolean) => {
@@ -87,6 +70,7 @@ export function VideoGenerateView() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       const params: Record<string, any> = {};
 
@@ -136,10 +120,10 @@ export function VideoGenerateView() {
       if (data.jobId) {
         handleJobStart({ jobId: data.jobId, command: "video generate" });
       } else if (data.error) {
-        alert(data.error);
+        setError(data.error);
       }
     } catch (err) {
-      alert(`Failed to start job: ${err}`);
+      setError(`Failed to start job: ${err}`);
     }
   };
 
@@ -277,7 +261,9 @@ export function VideoGenerateView() {
               "Generate Video"
             )}
           </button>
+          <SelfTestButton action="video-generate" onJobStart={handleJobStart} />
         </div>
+        <InlineError message={error} onDismiss={() => setError(null)} />
       </form>
 
       {/* Job output */}

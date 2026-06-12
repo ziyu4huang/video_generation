@@ -24,9 +24,25 @@
 //     Workflow({ name: "...", args: [{prompt: "A"}, {prompt: "B", seed: 100}] })
 //       → multiple T2I configs (generated sequentially — GPU-safe)
 //
+//   MULTI-SET A/B GENERATION — NAMED comparison sets, all bundled into ONE review HTML.
+//   Each set compares ONE variable across 2+ variants (sequential — GPU-safe). Gen mode now
+//   AUTO-BUILDS the review HTML at the end (one <section> per set); no separate finalize needed.
+//     Workflow({ name: "...", args: { sets: [
+//       { name: "SeedVR2 off/on", prompt: "...", variants: [
+//           { pipeline:"zimage", steps:9, seed:100 },
+//           { pipeline:"zimage", steps:9, seed:100, upscale:true, upscale_method:"seedvr2" } ] },
+//       { name: "Steps 6 vs 9",   prompt: "...", variants: [ {steps:6}, {steps:9} ] }
+//     ], feedback: "review_feedback.json" } })
+//       → generates every variant, captions each, writes output/ab_manifest.json, builds ONE
+//         multi-set review HTML, returns { reviewHtml, captionSets, captionFiles, report }.
+//       → optional variant.label overrides the auto-derived label; set.prompt is shared by its
+//         variants (and used as the caption --prompt). { noHtml:true } skips HTML building.
+//
 //   FINALIZE — skip generation; build the human-review HTML from explicit caption JSONs.
 //     Workflow({ name: "...", args: { finalize: ["a.caption.json", "b.caption.json"] } })
-//     Workflow({ name: "...", args: { finalize: ["a.caption.json", "b.caption.json"], htmlOutput: "output/review.html" } })
+//         → flat single-set HTML (--review-html)
+//     Workflow({ name: "...", args: { finalize: [{ name:"off/on", files:["a.caption.json","b.caption.json"], variants:[{label:"A"},{label:"B"}] }] } })
+//         → multi-set grouped HTML (--ab-manifest)
 //
 // Supported gen config fields (all optional except prompt): prompt, pipeline
 // ("zimage"|"flux2-klein"), steps, seed, width, height, lora_path, lora_scale, draft,
@@ -47,7 +63,7 @@ export const meta = {
     { title: "VLM Check", detail: "Verify LM Studio is running before caption phase" },
     { title: "Review", detail: "Score each output PNG via run.py caption --style review (requires LM Studio)" },
     { title: "Report", detail: "Summarize quality scores and improvement recommendations" },
-    { title: "Review HTML", detail: "Finalize mode — build interactive review HTML from explicit caption JSONs via run.py caption --review-html" },
+    { title: "Review HTML", detail: "Auto-build after gen (or finalize) — multi-set A/B HTML via caption --ab-manifest" },
   ],
 }
 
@@ -98,6 +114,50 @@ function captionPathFor(pngPath) {
   return pngPath.replace(/\.[^.\/]+$/, "") + ".caption.json"
 }
 
+function baseName(p) {
+  const i = p.lastIndexOf("/")
+  return i >= 0 ? p.slice(i + 1) : p
+}
+
+// Human-readable label for what differs in an A/B variant config (e.g. "zimage · steps=9 · upscale=seedvr2 · seed=100")
+function variantLabelFor(c) {
+  const parts = []
+  if (c.pipeline) parts.push(c.pipeline)
+  if (c.steps != null) parts.push(`steps=${c.steps}`)
+  parts.push(c.upscale ? `upscale=${c.upscale_method || "on"}` : "upscale=off")
+  if (c.seed != null) parts.push(`seed=${c.seed}`)
+  return parts.join(" · ") || "variant"
+}
+
+// Per-set "what to compare" guide, derived from the set NAME (clean / user-authored).
+// Variant labels are a noisy signal — variantLabelFor always emits "upscale=…", so we only
+// consult them (with that token stripped) when the name is generic. set.guide always wins.
+function guideFor(set, lang) {
+  if (typeof set.guide === "string" && set.guide.trim()) return set.guide
+  const zh = lang === "zh_TW"
+  const categorize = (text) => {
+    const t = (text || "").toLowerCase()
+    if (/(seedvr|esrgan|放大)/.test(t)) return "upscale"          // NOT bare "upscale" (=off default)
+    if (/(step|步數)/.test(t)) return "steps"
+    if (/(zimage|flux|klein|pipeline|管線)/.test(t)) return "pipeline"
+    return ""
+  }
+  const TXT = {
+    upscale:  zh ? "比較細節：毛孔、髮絲、布料紋理。用 2×/4× 放大看邊緣銳利度；放大器應讓細節更銳利。"
+                 : "Compare fine detail: skin pores, hair, fabric texture. Use 2×/4× zoom on edges; the upscaler should sharpen detail.",
+    steps:    zh ? "比較整體品質；較少步數是否明顯變糊或失去細節。"
+                 : "Compare overall quality; does fewer steps visibly blur or lose detail?",
+    pipeline: zh ? "比較風格、寫實度、膚色與光影。" : "Compare style, realism, skin tone and lighting.",
+  }
+  const fallback = zh ? "比較整體畫質與對 prompt 的忠實度。" : "Compare overall quality and prompt adherence."
+  let cat = categorize(set.name)
+  if (!cat) {
+    const labels = (set.variants || []).map((v) => (v && v.label) || "").join(" ").replace(/upscale=off/gi, "")
+    cat = categorize(labels)
+  }
+  return cat ? TXT[cat] : fallback
+}
+
 function normalizeItem(item) {
   if (!item) return null
   if (typeof item === "string") {
@@ -144,18 +204,43 @@ let feedbackPath = ""
 let htmlOutput = ""
 let finalizeFiles = []
 let runSpecs = []
+let setsConfig = null        // [{name, prompt, variants:[config]}] — multi-set A/B
+let jobMeta = []             // aligned with runSpecs: {setIdx, setName, setPrompt, variantIdx, variantLabel}
 
 if (isObj(resolvedArgs) && resolvedArgs.finalize != null) {
   mode = "finalize"
   const f = resolvedArgs.finalize
-  finalizeFiles = (Array.isArray(f) ? f : [f]).filter((s) => typeof s === "string" && s.length > 0)
+  finalizeFiles = Array.isArray(f) ? f : [f]   // keep objects (grouped sets) AND strings (flat)
   htmlOutput = typeof resolvedArgs.htmlOutput === "string" ? resolvedArgs.htmlOutput : ""
 } else {
   // Generation mode — pull optional iteration-level feedback, then resolve run specs
   if (isObj(resolvedArgs) && typeof resolvedArgs.feedback === "string") {
     feedbackPath = resolvedArgs.feedback
   }
-  if (isObj(resolvedArgs) && Array.isArray(resolvedArgs.runs)) {
+  if (isObj(resolvedArgs) && Array.isArray(resolvedArgs.sets)) {
+    // Multi-set A/B: expand each set's variants into sequential jobs, tracking grouping
+    setsConfig = resolvedArgs.sets
+    runSpecs = []
+    jobMeta = []
+    setsConfig.forEach((s, si) => {
+      const setName = s.name || `Set ${si + 1}`
+      const setPrompt = s.prompt || ""
+      ;(s.variants || []).forEach((v, vi) => {
+        const cfg = { ...v }
+        if (!cfg.prompt) cfg.prompt = setPrompt
+        const norm = normalizeItem(cfg)
+        if (!norm) return
+        runSpecs.push(norm)
+        jobMeta.push({
+          setIdx: si,
+          setName,
+          setPrompt,
+          variantIdx: vi,
+          variantLabel: typeof v.label === "string" && v.label ? v.label : variantLabelFor(v),
+        })
+      })
+    })
+  } else if (isObj(resolvedArgs) && Array.isArray(resolvedArgs.runs)) {
     runSpecs = resolvedArgs.runs.map(normalizeItem).filter(Boolean) // {runs:[...], feedback?} wrapper
   } else if (!resolvedArgs) {
     runSpecs = [{ type: "self-test", id: null }]
@@ -175,11 +260,32 @@ if (isObj(resolvedArgs) && resolvedArgs.finalize != null) {
 }
 
 if (mode === "finalize") {
-  log(`MODE: finalize — ${finalizeFiles.length} caption JSON(s) to aggregate`)
-  finalizeFiles.forEach((p, i) => log(`  [${i}] ${p}`))
+  const grouped = finalizeFiles.length > 0 && typeof finalizeFiles[0] === "object"
+  log(`MODE: finalize — ${grouped ? `${finalizeFiles.length} set(s)` : `${finalizeFiles.length} caption JSON(s)`} to aggregate`)
+  finalizeFiles.forEach((p, i) => log(`  [${i}] ${typeof p === "object" ? `${p.name || "set"}: ${JSON.stringify(p.files || [])}` : p}`))
 } else {
-  log(`MODE: generation — ${runSpecs.length} spec(s)${feedbackPath ? ` | feedback: ${feedbackPath}` : " | no feedback (first iteration)"}`)
-  runSpecs.forEach((s, i) => log(`  [${i}] type=${s.type}${s.prompt ? ` prompt="${s.prompt.slice(0, 60)}..."` : ""}${s.path ? ` path=${s.path}` : ""}${s.id ? ` id=${s.id}` : ""}`))
+  log(`MODE: generation — ${setsConfig ? `${setsConfig.length} set(s), ${runSpecs.length} variant(s)` : `${runSpecs.length} spec(s)`}${feedbackPath ? ` | feedback: ${feedbackPath}` : " | no feedback (first iteration)"}`)
+  runSpecs.forEach((s, i) => {
+    const meta = jobMeta[i] ? ` [${jobMeta[i].setName} / ${jobMeta[i].variantLabel}]` : ""
+    log(`  [${i}] type=${s.type}${s.prompt ? ` prompt="${s.prompt.slice(0, 60)}..."` : ""}${s.path ? ` path=${s.path}` : ""}${s.id ? ` id=${s.id}` : ""}${meta}`)
+  })
+}
+
+// Chrome language for the review HTML (zh_TW default; args.lang overrides).
+// VLM caption CONTENT is unaffected (controlled by run.py caption --lang).
+const wfLang = (isObj(resolvedArgs) && typeof resolvedArgs.lang === "string")
+  ? resolvedArgs.lang : "zh_TW"
+
+// GPU-gate config: before the Generate (GPU-requiring) phase, wait if another run.py
+// generation is already using the Apple-Silicon GPU. Review/caption is NOT gated (LM Studio
+// serves over HTTP on its own resources).
+const gpuWaitOn = !(isObj(resolvedArgs) && resolvedArgs.gpuWait === false)
+const maxGpuWait = (isObj(resolvedArgs) && typeof resolvedArgs.maxGpuWait === "number")
+  ? resolvedArgs.maxGpuWait : 1800
+const GPU_PROBE_SCHEMA = {
+  type: "object",
+  properties: { busy: { type: "boolean" }, pids: { type: "string" } },
+  required: ["busy"],
 }
 
 // ── Shell command builder (pure JS) ─────────────────────────────────────────
@@ -267,9 +373,14 @@ const CAPTION_SCHEMA = {
 const FEEDBACK_SCHEMA = {
   type: "object",
   properties: {
-    bestFilename: { type: "string", description: "Filename the human marked best, empty string if none" },
-    guidance:     { type: "string", description: "Concise keep/change guidance for the next iteration" },
-    perImage:     { type: "array", items: { type: "object", properties: { filename: { type: "string" }, comment: { type: "string" } } } },
+    bestFilename: { type: "string", description: "Overall best filename (or first set's best); empty if none" },
+    guidance:     { type: "string", description: "Concise keep/change guidance for the next iteration (per-set if grouped)" },
+    sets: { type: "array", description: "Per-set feedback (grouped format)",
+      items: { type: "object", properties: {
+        name: { type: "string" }, bestFilename: { type: "string" }, guidance: { type: "string" },
+        perImage: { type: "array", items: { type: "object", properties: { filename: { type: "string" }, variant: { type: "string" }, comment: { type: "string" } } } },
+      } } },
+    perImage:     { type: "array", description: "Flat fallback (legacy format)", items: { type: "object", properties: { filename: { type: "string" }, comment: { type: "string" } } } },
     error:        { type: "string" },
   },
   required: ["guidance"],
@@ -292,7 +403,50 @@ const HTML_SCHEMA = {
 if (mode === "finalize") {
   phase("Review HTML")
 
-  const resolvedFiles = finalizeFiles.map(resolveJsonPath)
+  const first = finalizeFiles[0]
+  const grouped = first && typeof first === "object"
+
+  // ── Grouped finalize: {finalize: [{name, files:[...], variants?:[{label}], prompt?}]} ──
+  if (grouped) {
+    const sets = finalizeFiles.map((s, si) => ({
+      name: s.name || `Set ${si + 1}`,
+      prompt: s.prompt || "",
+      guide: guideFor(s, wfLang),
+      variants: s.variants || [],
+      files: (s.files || []).map(resolveJsonPath),
+    }))
+    const manifestJson = JSON.stringify({ lang: wfLang, sets }, null, 2)
+    const totalFiles = sets.reduce((n, s) => n + s.files.length, 0)
+    log(`Building MULTI-SET review HTML — ${sets.length} set(s), ${totalFiles} image(s), lang=${wfLang}...`)
+
+    const htmlResult = await agent(
+      `Write a multi-set A/B review manifest JSON to disk, then build the review HTML.
+
+MANIFEST CONTENT (write VERBATIM — exactly this JSON, no changes):
+${manifestJson}
+
+STEPS:
+1. Write the manifest verbatim to ${OUT_DIR}/ab_manifest.json. A quoted heredoc is safest
+   (it disables shell expansion). Verify by reading it back:
+   Bash("cat > '${OUT_DIR}/ab_manifest.json' <<'MANIFEST_EOF'\n${manifestJson}\nMANIFEST_EOF")
+   then Bash("cat '${OUT_DIR}/ab_manifest.json'") to confirm it matches.
+2. Build the HTML:
+   Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${OUT_DIR}/ab_manifest.json' 2>&1", timeout=120000)
+3. Parse stdout for a line: Review HTML: /abs/path/review_*.html
+   Extract the absolute path after "Review HTML: ".
+4. On error or missing line, set error to the stderr/stdout excerpt.
+
+Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${totalFiles}, "error": "" }`,
+      { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+    )
+
+    const reviewHtml = htmlResult?.htmlPath || ""
+    log(htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : `Review HTML: ${reviewHtml}`)
+    return { reviewHtml, imageCount: htmlResult?.imageCount ?? totalFiles, captionSets: sets, error: htmlResult?.error || "" }
+  }
+
+  // ── Flat finalize (legacy): {finalize: ["a.caption.json", "b.caption.json"]} ──
+  const resolvedFiles = finalizeFiles.filter((s) => typeof s === "string" && s.length > 0).map(resolveJsonPath)
   if (resolvedFiles.length === 0) {
     log("ERROR: finalize mode received no caption JSON paths.")
     return { reviewHtml: "", imageCount: 0, captionFiles: [], error: "no files" }
@@ -302,7 +456,7 @@ if (mode === "finalize") {
   const outputFlag = htmlOutput ? ` --html-output "${resolveJsonPath(htmlOutput)}"` : ""
   const cmd = `${PYTHON} ${RUN_PY} caption --review-html ${filesArg}${outputFlag}`
 
-  log(`Building review HTML from ${resolvedFiles.length} caption JSON(s)...`)
+  log(`Building flat review HTML from ${resolvedFiles.length} caption JSON(s)...`)
 
   const htmlResult = await agent(
     `Build the interactive review HTML from accumulated caption JSON files.
@@ -356,25 +510,31 @@ if (feedbackPath) {
 
 FEEDBACK FILE: ${feedbackAbs}
 
+The file may be in one of two formats — handle BOTH:
+- GROUPED (new, multi-set): { timestamp, sets: [{ name, prompt, best_image: <local idx|null>, images: [{ index, filename, variant, comment }] }] }
+- FLAT (legacy, single-set): { timestamp, best_image: <idx|null>, images: [{ index, filename, comment }] }
+
 STEPS:
 1. Read the file: Bash("cat '${feedbackAbs}'")
-   Structure: { timestamp, best_image: <index|null>, images: [{ index, filename, comment }] }
-   Each entry's "filename" identifies which previously-generated image the comment refers to.
+   Detect format: if it has a top-level "sets" array → grouped; else flat.
+   Each image entry's "filename" identifies which previously-generated image the comment refers to.
 
-2. Filenames correspond to prior output PNGs under ${OUT_DIR}. For images that have a comment,
-   you MAY best-effort recall what prompt produced them by reading the sibling caption JSON:
+2. For images that have a comment, you MAY best-effort recall what produced them by reading the
+   sibling caption JSON (it holds the VLM scores + the prior prompt):
    Bash("cat '${OUT_DIR}/<filename-without-extension>.caption.json'")   (skip silently if missing)
 
 3. Synthesize concise GUIDANCE for this next iteration:
-   - BEST: which image (filename) the human picked as best, and why (infer from its scores/comments).
-   - KEEP: prompt choices / elements to preserve.
-   - CHANGE: concrete suggestions — prompt wording, seed, steps, upscale on/off, pipeline —
-     derived from the comments and any score weaknesses.
+   - GROUPED: address EACH set — which variant (label/filename) the human picked as best, why
+     (infer from comments + caption scores), and what to KEEP / CHANGE for that set's variable.
+   - FLAT: best image overall + keep/change.
+   - KEEP: prompt elements to preserve. CHANGE: concrete suggestions — prompt wording, seed,
+     steps, upscale on/off + method, pipeline — derived from comments and score weaknesses.
 
 Return JSON:
 {
-  "bestFilename": "<filename or empty>",
-  "guidance": "<3-6 concise bullet lines as one string>",
+  "bestFilename": "<overall best filename, or first set's best; empty if none>",
+  "guidance": "<concise bullet lines as one string; PER-SET if grouped (label each set)>",
+  "sets": [{ "name": "...", "bestFilename": "...", "guidance": "...", "perImage": [{ "filename": "...", "variant": "...", "comment": "..." }] }],
   "perImage": [{ "filename": "...", "comment": "..." }],
   "error": ""
 }`,
@@ -388,17 +548,55 @@ Return JSON:
   log("No feedback for this iteration (first iteration) — skipping Feedback phase.")
 }
 
+// ── Phase 1.5: GPU gate — wait if another run.py generation is already using the GPU ──
+// Generate is the GPU-requiring phase (Review/caption uses LM Studio over HTTP — not gated).
+if (mode !== "finalize" && gpuWaitOn) {
+  phase("GPU Wait")
+  log("GPU check before Generate (GPU-requiring phase)...")
+  let gpudWaited = 0
+  while (gpudWaited < maxGpuWait) {
+    const probe = await agent(
+      `Check whether any run.py generation process is currently running (using the GPU).
+
+Run: Bash("pgrep -f 'run\\\\.py' || true")
+
+Return JSON:
+{ "busy": <true if pgrep printed any PID, else false>, "pids": "<the raw pgrep output>" }
+NOTE: pgrep matches process command-lines; this detection command is "pgrep ..." so it will
+NOT match itself. Only real run.py invocations match.`,
+      { label: "gpu-probe", phase: "GPU Wait", model: "haiku", schema: GPU_PROBE_SCHEMA },
+    )
+    if (!probe?.busy) {
+      log(gpudWaited > 0 ? `GPU free after waiting ${gpudWaited}s — proceeding to Generate.` : "GPU free — proceeding to Generate.")
+      break
+    }
+    log(`GPU busy — another run.py is running (${(probe?.pids || "").trim().replace(/\\n/g, " ")}). Waiting 20s before recheck...`)
+    await agent(`Sleep to let the GPU free up. Run: Bash("sleep 20"). Return { "ok": true }.`,
+      { label: "gpu-sleep", phase: "GPU Wait", model: "haiku", schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } })
+    gpudWaited += 20
+  }
+  if (gpudWaited >= maxGpuWait) log(`WARNING: GPU still busy after ${maxGpuWait}s wait budget — proceeding anyway.`)
+} else if (mode !== "finalize") {
+  log(`GPU gate SKIPPED (gpuWait:false). Generate is the GPU-requiring phase.`)
+}
+
 // ── Phase 2: Generate (sequential — one model process at a time, GPU-safe) ───
 
 phase("Generate")
 
 const genResults = []
+const genCache = {}   // cmd → result; identical A/B variant configs are generated ONCE (GPU-safe dedup)
 for (let idx = 0; idx < runSpecs.length; idx++) {
   const spec = runSpecs[idx]
   const cmd = buildCommand(spec)
   if (!cmd) {
     log(`[${idx}] Cannot build command for spec — skipping.`)
     genResults.push({ status: "error", outputPngs: [], runJsonPath: "", error: `Cannot build command for spec: ${JSON.stringify(spec)}` })
+    continue
+  }
+  if (genCache[cmd]) {
+    log(`[${idx}/${runSpecs.length}] Identical config to an earlier variant — reusing its generation (GPU-safe skip).`)
+    genResults.push({ ...genCache[cmd] })   // distinct object so the Review phase can merge per-idx
     continue
   }
   log(`[${idx}/${runSpecs.length}] Generating (${spec.type}) — sequential, one model process at a time (GPU-safe)...`)
@@ -439,6 +637,7 @@ Return JSON:
       { label: `generate-${idx}-${spec.type}`, phase: "Generate", schema: GEN_SCHEMA },
     )
     genResults.push(res)
+    if (res?.status === "success") genCache[cmd] = res
   } catch (e) {
     log(`[${idx}] Generation agent failed: ${e?.message || e}`)
     genResults.push(null)
@@ -586,13 +785,32 @@ const totalCapped  = validResults.reduce((n, r) => n + (r.captions?.filter((c) =
 
 log(`Summary: ${validResults.length}/${runSpecs.length} specs ran | ${totalPngs} PNG(s) generated | ${totalCapped} scored`)
 
-// Collect caption JSON paths produced this iteration (for the user to accumulate → finalize)
-const captionFiles = [...new Set(
-  validResults.flatMap((r) => (r.captions || []).map((c) => (c.imagePath ? captionPathFor(c.imagePath) : null))).filter(Boolean),
-)]
+// Collect caption JSON paths + group them into A/B sets (aligned with jobMeta)
+const captionFiles = []
+const captionSetsMap = {}
+validResults.forEach((r, idx) => {
+  const meta = jobMeta[idx] || {
+    setIdx: 0, setName: "Comparison",
+    setPrompt: (runSpecs[idx] && runSpecs[idx].prompt) || "", variantIdx: idx, variantLabel: "",
+  }
+  ;(r.captions || []).forEach((c) => {
+    if (!c.imagePath) return
+    const capPath = captionPathFor(c.imagePath)
+    captionFiles.push(capPath)
+    if (!captionSetsMap[meta.setIdx]) {
+      captionSetsMap[meta.setIdx] = { name: meta.setName, prompt: meta.setPrompt, variants: [], files: [] }
+    }
+    captionSetsMap[meta.setIdx].files.push(capPath)
+    captionSetsMap[meta.setIdx].variants.push({ label: meta.variantLabel })
+  })
+})
+const captionSets = Object.keys(captionSetsMap).sort((a, b) => Number(a) - Number(b)).map((k) => captionSetsMap[k])
 
 const feedbackSection = feedbackGuidance
   ? `## Prior Iteration Feedback (guidance applied to this run)\n${feedbackGuidance}\n`
+  : ""
+const setsSection = setsConfig
+  ? `## A/B Sets (${captionSets.length})\nEach set compares ONE variable across 2+ variants; variant labels show what differs.\n${JSON.stringify(captionSets, null, 2)}\n`
   : ""
 
 const reportResult = await agent(
@@ -601,7 +819,7 @@ const reportResult = await agent(
 ## Run Configuration (${runSpecs.length} spec(s))
 ${JSON.stringify(runSpecs, null, 2)}
 
-${feedbackSection}
+${feedbackSection}${setsSection}
 ## Results (${validResults.length} result(s))
 ${JSON.stringify(validResults, null, 2)}
 
@@ -622,6 +840,7 @@ For Captured/Missed columns: list the top 2–3 items, comma-separated. If not a
 **5. Recommendations** — 2–3 specific, actionable suggestions for improving future T2I quality
    (e.g. prompt wording changes based on missed elements, parameter tuning, pipeline choice).
    If prior feedback guidance was provided above, explicitly address whether this run followed it.
+   If A/B sets are present above, give a PER-SET verdict (which variant won each comparison and why).
 
 **6. Errors** — if any generation failed or LM Studio was unavailable, briefly note it.
 
@@ -629,12 +848,44 @@ Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
 
+// ── Phase 6: Review HTML (auto-build — ONE HTML with all sets, for human feedback) ──
+let reviewHtml = ""
+const noHtml = isObj(resolvedArgs) && resolvedArgs.noHtml === true
+if (captionFiles.length > 0 && !noHtml) {
+  phase("Review HTML")
+  const setsWithGuide = captionSets.map((s) => ({ ...s, guide: guideFor(s, wfLang) }))
+  const manifestJson = JSON.stringify({ lang: wfLang, sets: setsWithGuide }, null, 2)
+  log(`Building review HTML — ${captionSets.length} set(s), ${captionFiles.length} image(s), lang=${wfLang}...`)
+  const htmlResult = await agent(
+    `Write a multi-set A/B review manifest JSON to disk, then build the review HTML.
+
+MANIFEST CONTENT (write VERBATIM — exactly this JSON, no changes):
+${manifestJson}
+
+STEPS:
+1. Write the manifest verbatim to ${OUT_DIR}/ab_manifest.json (a quoted heredoc disables shell
+   expansion). Verify by reading it back:
+   Bash("cat > '${OUT_DIR}/ab_manifest.json' <<'MANIFEST_EOF'\n${manifestJson}\nMANIFEST_EOF")
+   then Bash("cat '${OUT_DIR}/ab_manifest.json'") to confirm it matches.
+2. Build the HTML:
+   Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${OUT_DIR}/ab_manifest.json' 2>&1", timeout=120000)
+3. Parse stdout for: Review HTML: /abs/path/review_*.html — extract the absolute path.
+4. On error or missing line, set error to the excerpt.
+
+Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captionFiles.length}, "error": "" }`,
+    { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+  )
+  reviewHtml = htmlResult?.htmlPath || ""
+  log(reviewHtml ? `Review HTML: ${reviewHtml}` : (htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : "Review HTML build failed."))
+}
+
 log("=== T2I Run-and-Review Complete ===")
 log(reportResult || "(no report)")
-if (captionFiles.length > 0) {
-  log(`Caption JSONs produced this iteration (pass these to {finalize:[...]} when ready to build the review HTML):`)
-  captionFiles.forEach((p) => log(`  ${p}`))
+if (captionSets.length > 0) {
+  log(`Caption JSONs produced this iteration (${captionSets.length} set(s)):`)
+  captionSets.forEach((s) => log(`  [${s.name}] ${s.files.join(", ")}`))
 }
+if (reviewHtml) log(`Review HTML ready for human feedback: ${reviewHtml}`)
 
 return {
   specs:           runSpecs,
@@ -642,4 +893,6 @@ return {
   report:          reportResult,
   feedbackGuidance,
   captionFiles,
+  captionSets,
+  reviewHtml,
 }

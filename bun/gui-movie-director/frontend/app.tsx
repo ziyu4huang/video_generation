@@ -14,6 +14,7 @@ import { VideoGenerateView } from "./views/workflow/VideoGenerateView";
 import { VideoRestoreView } from "./views/workflow/VideoRestoreView";
 // transform
 import { I2iView } from "./views/transform/I2iView";
+import { ImageRestoreView } from "./views/transform/ImageRestoreView";
 import { Anime2realView } from "./views/transform/Anime2realView";
 import { ExpansionView } from "./views/transform/ExpansionView";
 // edit
@@ -48,6 +49,7 @@ export const COMMAND_GROUPS = [
     label: "Transform",
     commands: [
       { id: "i2i", label: "Image → Image", icon: "🖼️" },
+      { id: "img-restore", label: "Image Restore", icon: "✨" },
       { id: "anime2real", label: "Anime → Real", icon: "🎭" },
       { id: "expansion", label: "Expansion", icon: "↔️" },
     ],
@@ -90,6 +92,7 @@ const VIEW_MAP: Record<string, React.ComponentType> = {
   "vid-generate": VideoGenerateView,
   "vid-restore": VideoRestoreView,
   i2i: I2iView,
+  "img-restore": ImageRestoreView,
   anime2real: Anime2realView,
   expansion: ExpansionView,
   faceswap: FaceswapView,

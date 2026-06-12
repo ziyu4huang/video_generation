@@ -7,10 +7,12 @@ interface LogViewerProps {
 }
 
 function classifyLine(line: string): string {
-  if (line.startsWith("Saved:") || line.includes("Saved:")) return "saved";
-  if (line.startsWith("ERROR:") || line.includes("ERROR:")) return "error";
+  if (line.includes("Saved:") || line.includes("Saved ")) return "saved";
+  if (line.includes("ERROR:") || line.includes("Traceback") || line.includes("Error:")) return "error";
+  if (line.includes("WARNING:") || line.includes("WARN:") || line.includes("⚠️")) return "warning";
   if (line.startsWith("===") || line.includes("=== Batch")) return "batch";
   if (line.includes("[stderr]")) return "stderr";
+  if (/\d+%\s/.test(line) || /\[\d+\/\d+\]/.test(line)) return "progress";
   return "stdout";
 }
 

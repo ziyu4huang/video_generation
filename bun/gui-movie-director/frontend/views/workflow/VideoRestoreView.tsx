@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState } from "react";
 import { LogViewer } from "../../components/LogViewer";
 import { JobOutputPreview } from "../../components/JobOutputPreview";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
+import { InlineError } from "../../components/InlineError";
+import { SelfTestButton } from "../../components/SelfTestButton";
 import { useCommandView } from "../../hooks/useCommandView";
-import { useSchemaDefaults } from "../../hooks/useSchemaDefaults";
+import { useDefaultState } from "../../hooks/useDefaultState";
 import { useNavigation } from "../../context/NavigationContext";
 
 // Static fallback defaults
@@ -20,31 +22,14 @@ export function VideoRestoreView() {
   const command = "video restore";
   const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
   const navigate = useNavigation();
-  const serverDefaults = useSchemaDefaults("video-restore");
-  const [state, setState] = useState<Record<string, any>>({ ...FALLBACK_DEFAULTS });
-  const userModifiedRef = useRef<Set<string>>(new Set());
-
-  // Apply server defaults once they load, skipping user-touched fields
-  useEffect(() => {
-    if (!serverDefaults) return;
-    setState((prev) => {
-      const next = { ...prev };
-      for (const [k, v] of Object.entries(serverDefaults)) {
-        if (!userModifiedRef.current.has(k)) next[k] = v;
-      }
-      return next;
-    });
-  }, [serverDefaults]);
-
-  const setField = (key: string, value: any) => {
-    userModifiedRef.current.add(key);
-    setState((prev) => ({ ...prev, [key]: value }));
-  };
+  const { state, setField } = useDefaultState("video-restore", FALLBACK_DEFAULTS);
+  const [error, setError] = useState<string | null>(null);
 
   const isDisabled = (): boolean => !state.restore_input_flag;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     try {
       const params: Record<string, any> = {};
 
@@ -79,10 +64,10 @@ export function VideoRestoreView() {
       if (data.jobId) {
         handleJobStart({ jobId: data.jobId, command: "video restore" });
       } else if (data.error) {
-        alert(data.error);
+        setError(data.error);
       }
     } catch (err) {
-      alert(`Failed to start job: ${err}`);
+      setError(`Failed to start job: ${err}`);
     }
   };
 
@@ -156,7 +141,9 @@ export function VideoRestoreView() {
               "Restore Video"
             )}
           </button>
+          <SelfTestButton action="video-restore" onJobStart={handleJobStart} />
         </div>
+        <InlineError message={error} onDismiss={() => setError(null)} />
       </form>
 
       {/* Job output */}

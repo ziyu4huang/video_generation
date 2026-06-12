@@ -18,13 +18,15 @@ interface ImageEntry {
   run?: Record<string, any> | null;
   manifestPath?: string | null;
   runPath?: string | null;
+  caption?: Record<string, any> | null;
+  captionPath?: string | null;
 }
 
 /**
  * Try progressively shorter base names to find companion manifest/run JSON.
  * Handles: base, base_seg01, base_relay, base_seg01_relay patterns.
  */
-function findCompanionJson(dir: string, base: string, suffix: ".manifest.json" | ".run.json"): string | null {
+function findCompanionJson(dir: string, base: string, suffix: ".manifest.json" | ".run.json" | ".caption.json"): string | null {
   const candidates = [
     base,                              // full base: output_20260611_193630_seg01
     base.replace(/_relay$/, ""),       // strip _relay
@@ -129,6 +131,13 @@ export async function handleGallery(req: Request): Promise<Response> {
       }
     }
 
+    // Caption lookup
+    const captionPath = findCompanionJson(entry.dir, base, ".caption.json");
+    let caption: Record<string, any> | null = null;
+    if (captionPath) {
+      try { caption = JSON.parse(fs.readFileSync(captionPath, "utf-8")); } catch { /* ignore */ }
+    }
+
     return {
       name: entry.name,
       url: `/output/${dirIdx}/${entry.name}`,
@@ -140,6 +149,8 @@ export async function handleGallery(req: Request): Promise<Response> {
       run,
       manifestPath: manifest ? manifestPath : null,
       runPath: run ? runPath : null,
+      caption,
+      captionPath: caption ? captionPath : null,
     };
   });
 
