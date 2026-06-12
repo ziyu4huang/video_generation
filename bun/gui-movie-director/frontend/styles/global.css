@@ -297,6 +297,17 @@ body {
   opacity: 0.9;
 }
 
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .btn-row {
   display: flex;
   gap: 8px;
