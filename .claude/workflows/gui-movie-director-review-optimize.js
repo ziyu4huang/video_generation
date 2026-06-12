@@ -1,16 +1,21 @@
-// Bun GUI Review & Optimize — Multi-dimensional code review + adversarial verify + auto-fix
+// GUI Movie Director Review & Optimize — Multi-dimensional code review + adversarial verify + auto-fix
 //
-// A dynamic workflow that reviews the Bun GUI Movie Director app for bugs, type safety,
+// A dynamic workflow that reviews the GUI Movie Director Bun app for bugs, type safety,
 // error handling, code quality, and security issues — then optionally applies verified fixes.
 //
-// Unlike read-only review workflows, this one includes a Resolve Fix phase that actually
-// edits the codebase, then re-verifies the changed files to catch regressions.
+// Features:
+//   - Multi-dimensional parallel review (correctness, type-safety, error-handling, code-quality, security)
+//   - Adversarial verification to filter false positives
+//   - Git stash checkpoint + automatic restore on regression detection
+//   - Run history persistence for trend analysis and incremental improvement
+//   - Resume from interrupted runs (skip completed phases)
+//   - Cross-run finding deduplication (suppress previously-upheld findings)
 //
 // Modes (selected by args):
 //
 //   FULL REVIEW (default):
-//     Workflow({ name: "bun-gui-review-optimize" })
-//       → full review, medium effort, fix=true
+//     Workflow({ name: "gui-movie-director-review-optimize" })
+//       → full review, medium effort, fix=true, resume=auto
 //
 //   TARGETED:
 //     Workflow({ name: "...", args: { files: ["api/ws.ts", "lib/subprocess.ts"] } })
@@ -22,26 +27,34 @@
 //
 //   REVIEW-ONLY (no edits):
 //     Workflow({ name: "...", args: { fix: false } })
-//       → skip Resolve Fix phase entirely
+//       → skip Checkpoint, Resolve Fix, Re-verify, and Restore phases
 //
 //   DEEP:
 //     Workflow({ name: "...", args: { effort: "high" } })
 //       → lower confidence threshold, all dimensions, full adversarial + re-verify
 //
+//   FRESH (ignore prior history):
+//     Workflow({ name: "...", args: { resume: "fresh" } })
+//       → ignore any prior run history, start from scratch
+//
 // Dimensions: correctness, type-safety, error-handling, code-quality, security
 // Effort levels: low (fast, high confidence), medium (default), high (exhaustive)
 
 export const meta = {
-  name: "bun-gui-review-optimize",
-  description: "Multi-dimensional code review + adversarial verification + auto-fix for the Bun GUI Movie Director app",
-  whenToUse: "Before committing to bun/gui-movie-director/, after adding new views/APIs, or periodic code health review",
+  name: "gui-movie-director-review-optimize",
+  description: "Multi-dimensional code review + adversarial verification + auto-fix for the GUI Movie Director Bun app",
+  whenToUse: "Before committing to gui-movie-director/, after adding new views/APIs, or periodic code health review",
   phases: [
-    { title: "Resolve", detail: "Detect absolute project root, normalize args, derive paths" },
-    { title: "Scan", detail: "File inventory, line counts, layer classification" },
-    { title: "Review", detail: "Parallel agents: correctness, type safety, error handling, code quality, security" },
+    { title: "Resolve",            detail: "Detect project root, normalize args, check for prior run to resume" },
+    { title: "Scan",               detail: "File inventory, line counts, layer classification" },
+    { title: "Review",             detail: "Parallel agents: correctness, type safety, error handling, code quality, security" },
     { title: "Adversarial Verify", detail: "Skeptical agents refute findings, filter false positives" },
-    { title: "Resolve Fix", detail: "Apply verified fixes to codebase, re-verify changed files" },
-    { title: "Report", detail: "Synthesize prioritized findings with fix status" },
+    { title: "Checkpoint",         detail: "Git stash backup before applying fixes (enables rollback)" },
+    { title: "Resolve Fix",        detail: "Apply verified fixes to codebase" },
+    { title: "Re-verify",          detail: "Quick correctness + type-safety check on changed files" },
+    { title: "Restore",            detail: "Conditional: rollback fixes if re-verify detects regressions" },
+    { title: "Persist",            detail: "Write run history to disk for trend analysis and incremental improvement" },
+    { title: "Report",             detail: "Synthesize prioritized findings with fix status and prior-run comparison" },
   ],
 }
 
@@ -64,12 +77,14 @@ let targetFiles = null          // null = all files; array of relative paths = t
 let focus = null                // null = all dimensions; string = single dimension
 let doFix = true                // true = apply fixes; false = review-only
 let effort = "medium"           // "low" | "medium" | "high"
+let resumeMode = "auto"         // "auto" | "fresh" | "continue"
 
 if (isObj(resolvedArgs)) {
   if (Array.isArray(resolvedArgs.files)) targetFiles = resolvedArgs.files
   if (typeof resolvedArgs.focus === "string") focus = resolvedArgs.focus
   if (resolvedArgs.fix === false) doFix = false
   if (["low", "medium", "high"].includes(resolvedArgs.effort)) effort = resolvedArgs.effort
+  if (["auto", "fresh", "continue"].includes(resolvedArgs.resume)) resumeMode = resolvedArgs.resume
 }
 
 const VALID_DIMENSIONS = ["correctness", "type-safety", "error-handling", "code-quality", "security"]
@@ -115,7 +130,32 @@ const dimensions = focus
 
 const config = EFFORT_CONFIG[effort]
 
-log(`Config: effort=${effort}, dimensions=${dimensions.join(",")}, fix=${doFix}, focus=${focus || "all"}`)
+log(`Config: effort=${effort}, dimensions=${dimensions.join(",")}, fix=${doFix}, focus=${focus || "all"}, resume=${resumeMode}`)
+
+// ── Phase tracking (in-memory) ──────────────────────────────────────────────
+
+const phaseStatus = {
+  resolve: "pending",
+  scan: "pending",
+  review: "pending",
+  adversarialVerify: "pending",
+  checkpoint: "pending",
+  resolveFix: "pending",
+  reVerify: "pending",
+  restore: "pending",
+  persist: "pending",
+  report: "pending",
+}
+
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -125,6 +165,14 @@ const PATH_SCHEMA = {
     projectRoot: { type: "string", description: "Absolute path to the git project root" },
   },
   required: ["projectRoot"],
+}
+
+const TIMESTAMP_SCHEMA = {
+  type: "object",
+  properties: {
+    timestamp: { type: "string", description: "ISO-8601 timestamp like 2026-06-13T14-30-52" },
+  },
+  required: ["timestamp"],
 }
 
 const SCAN_SCHEMA = {
@@ -157,7 +205,7 @@ const REVIEW_FINDING_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          id:           { type: "string", description: "Unique ID: dimension-severity-N" },
+          id:           { type: "string", description: "Stable ID: {dimension}-{fileBasename}-{line}" },
           dimension:    { type: "string", enum: VALID_DIMENSIONS },
           severity:     { type: "string", enum: ["critical", "high", "medium", "low", "info"] },
           confidence:   { type: "number", description: "0-100 confidence score" },
@@ -217,6 +265,41 @@ const FIX_RESULT_SCHEMA = {
   required: ["fixes", "filesChanged"],
 }
 
+const CHECKPOINT_SCHEMA = {
+  type: "object",
+  properties: {
+    stashCreated: { type: "boolean" },
+    stashRef:     { type: "string" },
+    headSha:      { type: "string" },
+    dirtyBefore:  { type: "array", items: { type: "string" } },
+  },
+  required: ["stashCreated", "headSha"],
+}
+
+const RESTORE_SCHEMA = {
+  type: "object",
+  properties: {
+    restored:      { type: "boolean" },
+    method:        { type: "string", enum: ["stash-pop", "checkout", "none"] },
+    filesReverted: { type: "array", items: { type: "string" } },
+  },
+  required: ["restored", "method"],
+}
+
+const RESUME_CHECK_SCHEMA = {
+  type: "object",
+  properties: {
+    action:            { type: "string", enum: ["fresh", "resume", "compare"] },
+    previousRunId:     { type: "string" },
+    previousTimestamp: { type: "string" },
+    resumeFromPhase:   { type: "string" },
+    previousArgs:      { type: "object" },
+    previousStatus:    { type: "string" },
+    previousPhasesCompleted: { type: "array", items: { type: "string" } },
+  },
+  required: ["action"],
+}
+
 const REPORT_SCHEMA = {
   type: "object",
   properties: {
@@ -226,12 +309,13 @@ const REPORT_SCHEMA = {
     topFindings:     { type: "array", items: { type: "object" } },
     fixSummary:      { type: "object" },
     recommendations: { type: "array", items: { type: "string" } },
+    trendComparison: { type: "string" },
   },
   required: ["summary", "byDimension", "bySeverity", "topFindings"],
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Phase 0: Resolve — absolute paths
+// Phase 0: Resolve — absolute paths + timestamp + resume check
 // ══════════════════════════════════════════════════════════════════════════════
 
 phase("Resolve")
@@ -251,26 +335,124 @@ if (!PROJECT_ROOT) {
   log("ERROR: Could not resolve project root. Absolute paths unavailable — CWD drift may cause failures.")
 }
 
+const WORKFLOW_NAME = "gui-movie-director-review-optimize"
 const GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
+const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  GUI_DIR: ${GUI_DIR}`)
+log(`  HISTORY_DIR: ${HISTORY_DIR}`)
+
+// Get timestamp for this run
+const timestampResult = await agent(
+  `Get the current timestamp in ISO-8601 basic format (no colons, suitable for filenames).
+
+  Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'")
+
+  Return { timestamp: "<the-output>" }. Use the exact output from date.`,
+  { label: "get-timestamp", phase: "Resolve", model: "haiku", schema: TIMESTAMP_SCHEMA },
+)
+
+const RUN_TIMESTAMP = (timestampResult?.timestamp || "unknown").trim()
+const RUN_ID = RUN_TIMESTAMP
+
+// ── Resume check: look for prior run history ─────────────────────────────────
+
+let priorHistory = null
+let isResume = false
+let resumeFromPhase = null
+
+if (resumeMode === "fresh") {
+  log("Resume: fresh mode — ignoring prior history.")
+} else {
+  const resumeCheck = await agent(
+    `Check for a previous run history file for the workflow "${WORKFLOW_NAME}".
+
+  Steps:
+  1. Run: Bash("mkdir -p '${HISTORY_DIR}'")
+  2. Run: Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | head -1")
+  3. If a file path was returned, read it: Bash("cat '<path>'")
+  4. Examine the JSON:
+     - Check "status": is it "complete", "partial", or "error"?
+     - Check "phases_completed": which phases finished?
+     - Check "args": do they match the current invocation?
+     - Check "phases_failed": did any phases fail?
+
+  Current invocation args: ${JSON.stringify({ files: targetFiles, focus, fix: doFix, effort, resume: resumeMode })}
+
+  Decide:
+  - If no file found: action = "fresh"
+  - If file found and status = "complete": action = "compare" (prior run finished, use for trend)
+  - If file found and status = "partial" or "error": action = "resume", set resumeFromPhase to the phase AFTER the last completed phase
+  - If file found but args differ significantly: action = "fresh" (different scope)
+
+  Return your decision.`,
+    { label: "resume-check", phase: "Resolve", model: "haiku", schema: RESUME_CHECK_SCHEMA },
+  )
+
+  if (resumeCheck) {
+    if (resumeCheck.action === "resume") {
+      isResume = true
+      resumeFromPhase = resumeCheck.resumeFromPhase
+      log(`Resume: picking up from phase "${resumeFromPhase}" (prior run: ${resumeCheck.previousRunId})`)
+    } else if (resumeCheck.action === "compare") {
+      log(`Resume: prior run ${resumeCheck.previousRunId} completed — loading for trend comparison.`)
+      // Load the full prior history for dedup
+      const priorLoad = await agent(
+        `Read the prior run history file and return its "result" field (the workflow-specific payload).
+
+      Run: Bash("cat '${HISTORY_DIR}/${resumeCheck.previousRunId}.json'")
+      Extract the "result" object and return it as { result: <payload> }.
+      If the file cannot be read, return { result: null }.`,
+        { label: "load-prior", phase: "Resolve", model: "haiku" },
+      )
+      priorHistory = priorLoad?.result || null
+      if (priorHistory) {
+        log(`  Prior run: ${priorHistory.findings?.total || 0} raw findings, ${priorHistory.findings?.verified || 0} verified, ${priorHistory.fixes?.applied || 0} fixes applied`)
+      }
+    } else {
+      log("Resume: no prior history found — starting fresh.")
+    }
+  }
+
+  // "continue" mode requires a prior run to exist
+  if (resumeMode === "continue" && !isResume && resumeCheck?.action !== "compare") {
+    log("WARNING: resume=continue but no prior run found. Starting fresh.")
+  }
+}
+
+markPhase("resolve", "completed")
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 1: Scan — file inventory
 // ══════════════════════════════════════════════════════════════════════════════
 
-phase("Scan")
+let fileList = []
+let totalFiles = 0
+let totalLines = 0
+let layers = { server: 0, api: 0, lib: 0, frontend: 0 }
 
-// Build the file list for the scan agent
-const scanScope = targetFiles
-  ? `Only scan these specific files (relative to ${GUI_DIR}):\n${targetFiles.map((f) => `- ${f}`).join("\n")}`
-  : effort === "low"
-    ? `First run: Bash("cd '${GUI_DIR}' && git diff --name-only HEAD~5 -- 'api/' 'lib/' 'server.ts'")\nOnly inventory the changed files from that output. If no git diff output, fall back to all .ts/.tsx files.`
-    : `Scan ALL .ts and .tsx files under ${GUI_DIR} (excluding node_modules and .playwright-cli).`
+// Skip scan if resuming and prior scan covers the same scope
+const shouldSkipScan = isResume && resumeFromPhase && phasesCompleted.includes("Resolve") && !resumeFromPhase.includes("Scan")
 
-const scanResult = await agent(
-  `Inventory TypeScript source files in the Bun GUI Movie Director app.
+if (shouldSkipScan && priorHistory?.scan) {
+  log("RESUME: Skipping Scan phase (prior scan available)")
+  fileList = priorHistory.scan.fileList || []
+  totalFiles = priorHistory.scan.totalFiles || 0
+  totalLines = priorHistory.scan.totalLines || 0
+  layers = priorHistory.scan.layers || layers
+} else {
+  phase("Scan")
+
+  // Build the file list for the scan agent
+  const scanScope = targetFiles
+    ? `Only scan these specific files (relative to ${GUI_DIR}):\n${targetFiles.map((f) => `- ${f}`).join("\n")}`
+    : effort === "low"
+      ? `First run: Bash("cd '${GUI_DIR}' && git diff --name-only HEAD~5 -- 'api/' 'lib/' 'server.ts'")\nOnly inventory the changed files from that output. If no git diff output, fall back to all .ts/.tsx files.`
+      : `Scan ALL .ts and .tsx files under ${GUI_DIR} (excluding node_modules and .playwright-cli).`
+
+  const scanResult = await agent(
+    `Inventory TypeScript source files in the Bun GUI Movie Director app.
 
   ${scanScope}
 
@@ -285,15 +467,18 @@ const scanResult = await agent(
   4. Skip node_modules, .playwright-cli, and .d.ts files
 
   Return the complete file inventory as structured JSON.`,
-  { label: "scan-files", phase: "Scan", model: "haiku", schema: SCAN_SCHEMA },
-)
+    { label: "scan-files", phase: "Scan", model: "haiku", schema: SCAN_SCHEMA },
+  )
 
-const fileList = (scanResult?.files || []).filter(Boolean)
-const totalFiles = scanResult?.totalFiles || fileList.length
-const totalLines = scanResult?.totalLines || fileList.reduce((n, f) => n + (f.lines || 0), 0)
+  fileList = (scanResult?.files || []).filter(Boolean)
+  totalFiles = scanResult?.totalFiles || fileList.length
+  totalLines = scanResult?.totalLines || fileList.reduce((n, f) => n + (f.lines || 0), 0)
 
-const layers = { server: 0, api: 0, lib: 0, frontend: 0 }
-fileList.forEach((f) => { if (layers[f.layer] != null) layers[f.layer]++ })
+  fileList.forEach((f) => { if (layers[f.layer] != null) layers[f.layer]++ })
+
+  // Track all scanned files
+  fileList.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f.path}`))
+}
 
 log(`Scan: ${totalFiles} files, ${totalLines} lines — server=${layers.server} api=${layers.api} lib=${layers.lib} frontend=${layers.frontend}`)
 
@@ -305,9 +490,25 @@ if (fileList.length === 0) {
 // Build file list string for review agent prompts
 const fileListing = fileList.map((f) => `- ${f.absPath} (${f.lines} lines, ${f.layer})`).join("\n")
 
+markPhase("scan", "completed")
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 2: Review — multi-dimensional parallel agents
 // ══════════════════════════════════════════════════════════════════════════════
+
+// Build set of prior upheld finding keys for incremental dedup
+const priorUpheldKeys = new Set()
+let suppressedCount = 0
+if (priorHistory?.findings?.items) {
+  priorHistory.findings.items.forEach((f) => {
+    if (f.file && f.line && f.dimension) {
+      priorUpheldKeys.add(`${f.file}:${f.line}:${f.dimension}`)
+    }
+  })
+  if (priorUpheldKeys.size > 0) {
+    log(`Incremental: ${priorUpheldKeys.size} prior upheld finding key(s) loaded for dedup`)
+  }
+}
 
 phase("Review")
 
@@ -331,6 +532,8 @@ ${effort === "high" ? "Also check subtle edge cases, boundary conditions, error 
 
 For each finding:
 - Provide EXACT file path (relative to ${GUI_DIR}), line number, and a short code snippet
+- Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber} (e.g. correctness-subprocess.ts-88)
+  If multiple findings on the same line: append a letter (correctness-subprocess.ts-88b)
 - Rate confidence 0-100 (how certain this is a real bug)
 - Rate severity: critical (crash/data-loss), high (broken feature), medium (degraded UX), low (cosmetic), info (style)
 - Provide a concrete suggestedFix (actual code or clear description)
@@ -353,6 +556,7 @@ EFFORT: ${effort}
 ${effort === "low" ? "Only report findings with confidence >= 80." : ""}
 
 For each finding provide exact file, line, code snippet, confidence (0-100), severity, and a suggested fix.
+Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "error-handling": `Review these TypeScript source files for ERROR HANDLING gaps.
@@ -372,6 +576,7 @@ EFFORT: ${effort}
 ${effort === "low" ? "Only report findings with confidence >= 80." : ""}
 
 For each finding provide exact file, line, code snippet, confidence (0-100), severity, and a suggested fix.
+Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "code-quality": `Review these TypeScript source files for CODE QUALITY improvements.
@@ -394,6 +599,7 @@ EFFORT: ${effort}
 ${effort === "low" ? "Only report findings with confidence >= 80." : ""}
 
 For each finding provide exact file, line, code snippet, confidence (0-100), severity, and a suggested fix.
+Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   security: `Review these TypeScript source files for SECURITY vulnerabilities in this Bun HTTP server app.
@@ -415,6 +621,7 @@ EFFORT: ${effort}
 ${effort === "low" ? "Only report findings with confidence >= 80." : ""}
 
 For each finding provide exact file, line, code snippet, confidence (0-100), severity, and a suggested fix.
+Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 }
 
@@ -442,35 +649,59 @@ reviewResults.forEach((r, i) => {
 })
 
 log(`Review complete: ${allFindings.length} finding(s) across ${dimensions.length} dimension(s)`)
+
+// ── Incremental dedup: suppress findings already upheld in prior run ─────────
+const newFindings = []
+const suppressedFromPrior = []
+
 allFindings.forEach((f) => {
+  const key = `${f.file}:${f.line}:${f.dimension}`
+  if (priorUpheldKeys.has(key)) {
+    suppressedFromPrior.push(f)
+  } else {
+    newFindings.push(f)
+  }
+})
+
+if (suppressedFromPrior.length > 0) {
+  log(`Incremental: ${suppressedFromPrior.length} finding(s) suppressed (previously upheld in prior run)`)
+  suppressedFromPrior.forEach((f) => {
+    log(`  ⊘ ${f.id}: ${f.title} (${f.file}:${f.line || "?"})`)
+  })
+}
+
+// Use newFindings for all downstream processing
+const activeFindings = newFindings
+
+activeFindings.forEach((f) => {
   log(`  [${f.severity}] ${f.dimension}: ${f.title} (${f.file}:${f.line || "?"}) [${f.confidence}%]`)
 })
 
-if (allFindings.length === 0) {
+if (activeFindings.length === 0 && suppressedFromPrior.length === 0) {
   log("No findings — codebase looks clean!")
-  return {
-    scan: { totalFiles, totalLines, layers, targetScope: targetFiles ? "targeted" : "full" },
-    findings: { total: 0, verified: 0, filtered: 0, byDimension: {}, bySeverity: {}, items: [] },
-    adversarial: { totalVerdicts: 0, upheld: 0, rejected: 0 },
-    fixes: doFix ? { applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 } : { mode: "review-only" },
-    report: "No findings — codebase passed all review dimensions.",
-  }
+  markPhase("review", "completed")
+  // Fall through to Persist + Report
+} else if (activeFindings.length === 0) {
+  log(`All ${suppressedFromPrior.length} findings were suppressed from prior run. No new issues found.`)
+  markPhase("review", "completed")
 }
+
+markPhase("review", "completed")
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 3: Adversarial Verify — skeptical agents refute findings
 // ══════════════════════════════════════════════════════════════════════════════
 
 // Determine which findings to adversarially verify
-let findingsToVerify = allFindings
+let findingsToVerify = activeFindings
 if (config.adversarial === "skip") {
   log("Adversarial verify: SKIPPED (low effort)")
   findingsToVerify = []
 } else if (config.adversarial === "high-critical") {
-  findingsToVerify = allFindings.filter((f) => f.severity === "critical" || f.severity === "high")
-  log(`Adversarial verify: ${findingsToVerify.length}/${allFindings.length} findings (high/critical only)`)
+  findingsToVerify = activeFindings.filter((f) => f.severity === "critical" || f.severity === "high")
+  log(`Adversarial verify: ${findingsToVerify.length}/${activeFindings.length} findings (high/critical only)`)
 } else {
-  log(`Adversarial verify: all ${allFindings.length} findings`)
+  log(`Adversarial verify: all ${activeFindings.length} findings`)
 }
 
 let allVerdicts = []
@@ -529,19 +760,19 @@ allVerdicts.forEach((v) => { verdictMap[v.findingId] = v })
 
 // Filter findings: upheld by adversarial AND meets confidence threshold
 const confidenceThreshold = config.confidenceThreshold
-const verifiedFindings = allFindings.filter((f) => {
+const verifiedFindings = activeFindings.filter((f) => {
   const verdict = verdictMap[f.id]
   const upheld = !verdict || verdict.upheld !== false   // keep if no verdict or upheld
   const confidence = f.confidence || 0
   return upheld && confidence >= confidenceThreshold
 })
 
-const rejected = allFindings.length - verifiedFindings.length
-log(`Filter: ${verifiedFindings.length}/${allFindings.length} findings survived (adversarial + confidence ≥ ${confidenceThreshold}%)`)
+const rejected = activeFindings.length - verifiedFindings.length
+log(`Filter: ${verifiedFindings.length}/${activeFindings.length} findings survived (adversarial + confidence ≥ ${confidenceThreshold}%)`)
 if (rejected > 0) {
   log(`  Rejected: ${rejected} (false positives or low confidence)`)
   // Log rejected findings briefly
-  allFindings.filter((f) => !verifiedFindings.includes(f)).forEach((f) => {
+  activeFindings.filter((f) => !verifiedFindings.includes(f)).forEach((f) => {
     const v = verdictMap[f.id]
     log(`    ✗ ${f.id}: ${v ? v.reason : `confidence ${f.confidence}% < ${confidenceThreshold}%`}`)
   })
@@ -556,14 +787,50 @@ verifiedFindings.forEach((f) => {
   bySeverity[f.severity] = (bySeverity[f.severity] || 0) + 1
 })
 
+markPhase("adversarialVerify", "completed")
+
 // ══════════════════════════════════════════════════════════════════════════════
-// Phase 4: Resolve Fix — apply verified fixes
+// Phase 4: Checkpoint — git stash backup before fixes
 // ══════════════════════════════════════════════════════════════════════════════
 
+let checkpointResult = { stashCreated: false, stashRef: "", headSha: "", dirtyBefore: [] }
 let fixResults = { fixes: [], filesChanged: [] }
 let reVerifyFindings = []
+let restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
 
 if (doFix && verifiedFindings.length > 0) {
+  phase("Checkpoint")
+
+  checkpointResult = await agent(
+    `Create a git stash backup before applying code review fixes. This enables rollback if fixes cause regressions.
+
+  Steps:
+  1. Run: Bash("cd '${PROJECT_ROOT}' && git rev-parse HEAD")
+     Capture the HEAD SHA.
+  2. Run: Bash("cd '${PROJECT_ROOT}' && git status --short 'bun/gui-movie-director/'")
+     Capture the list of dirty files (if any).
+  3. Run: Bash("cd '${PROJECT_ROOT}' && git stash push -m 'gui-movie-director-review-checkpoint-${RUN_ID}' -- 'bun/gui-movie-director/'")
+     If output contains "No local changes to save": stashCreated=false (tree was clean).
+     Otherwise: stashCreated=true.
+  4. Run: Bash("cd '${PROJECT_ROOT}' && git stash list | head -1")
+     If stash was created, capture the stash ref (e.g. "stash@{0}").
+
+  Return the checkpoint info.`,
+    { label: "checkpoint", phase: "Checkpoint", model: "haiku", schema: CHECKPOINT_SCHEMA },
+  )
+
+  if (checkpointResult?.stashCreated) {
+    log(`Checkpoint: stash created (${checkpointResult.stashRef}, HEAD=${(checkpointResult.headSha || "").slice(0, 8)})`)
+  } else {
+    log(`Checkpoint: tree was clean, no stash needed (HEAD=${(checkpointResult.headSha || "").slice(0, 8)})`)
+  }
+
+  markPhase("checkpoint", "completed")
+
+  // ══════════════════════════════════════════════════════════════════════════════
+  // Phase 5: Resolve Fix — apply verified fixes
+  // ══════════════════════════════════════════════════════════════════════════════
+
   phase("Resolve Fix")
 
   // Determine which findings to fix based on effort config
@@ -631,6 +898,9 @@ Return structured results.`,
     })
     fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
 
+    // Track touched files
+    fixResults.filesChanged.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f}`))
+
     const applied = fixResults.fixes.filter((f) => f.status === "applied").length
     const skipped = fixResults.fixes.filter((f) => f.status === "skipped").length
     const failed = fixResults.fixes.filter((f) => f.status === "failed").length
@@ -639,7 +909,10 @@ Return structured results.`,
       log(`  ${f.status === "applied" ? "✓" : f.status === "skipped" ? "⊘" : "✗"} ${f.findingId}: ${f.change || f.error || ""}`)
     })
 
-    // Re-verify changed files (lite correctness + type-safety scan)
+    // ══════════════════════════════════════════════════════════════════════════════
+    // Phase 6: Re-verify — quick scan of changed files
+    // ══════════════════════════════════════════════════════════════════════════════
+
     if (config.reVerify !== "skip" && fixResults.filesChanged.length > 0) {
       phase("Re-verify")
 
@@ -674,33 +947,203 @@ If you find any regressions, report them. If the files look clean, return an emp
       } else {
         log("Re-verify: no regressions detected ✓")
       }
+
+      markPhase("reVerify", "completed")
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════
+    // Phase 7: Restore — conditional rollback if regressions detected
+    // ══════════════════════════════════════════════════════════════════════════════
+
+    const hasCriticalRegression = reVerifyFindings.some((f) => f.severity === "critical")
+    const hasMultipleRegressions = reVerifyFindings.length > 2
+
+    if (reVerifyFindings.length > 0 && (hasCriticalRegression || hasMultipleRegressions)) {
+      phase("Restore")
+
+      const restoreReason = hasCriticalRegression ? "critical-regression" : "multiple-regressions"
+      log(`RESTORE: ${restoreReason} — ${reVerifyFindings.length} regression(s) detected. Rolling back fixes...`)
+
+      const stashRef = checkpointResult?.stashRef || ""
+      const stashCreated = checkpointResult?.stashCreated || false
+
+      restoreResult = await agent(
+        `A code review fix introduced regressions. Restore the pre-fix state.
+
+Stash ref from checkpoint: ${stashRef || "none"}
+Stash was created: ${stashCreated}
+Files that were changed: ${fixResults.filesChanged.join(", ")}
+
+STEPS:
+${stashCreated ? `
+1. Restore from stash:
+   Bash("cd '${PROJECT_ROOT}' && git stash pop ${stashRef}")
+   If pop fails (conflict), use the safe fallback:
+   Bash("cd '${PROJECT_ROOT}' && git checkout ${stashRef} -- 'bun/gui-movie-director/'")
+   Then drop the stash:
+   Bash("cd '${PROJECT_ROOT}' && git stash drop ${stashRef}")
+` : `
+1. No stash was created (tree was clean before fixes).
+   Restore individual files using git checkout:
+   ${fixResults.filesChanged.map((f) => `Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun/gui-movie-director/${f}'")`).join("\n   ")}
+`}
+
+After restore:
+2. Verify files are restored: Bash("cd '${PROJECT_ROOT}' && git status --short 'bun/gui-movie-director/'")
+
+Return { restored: bool, method: "stash-pop"|"checkout"|"none", filesReverted: [...] }.`,
+        { label: "restore", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
+      )
+
+      if (restoreResult?.restored) {
+        log(`Restore: SUCCESS — ${restoreResult.filesReverted?.length || 0} file(s) reverted via ${restoreResult.method}`)
+        restoreResult = { triggered: true, reason: restoreReason, stashRestored: stashCreated, filesReverted: restoreResult.filesReverted || [], method: restoreResult.method }
+      } else {
+        log(`Restore: FAILED — could not revert changes. Manual review needed.`)
+        restoreResult = { triggered: true, reason: restoreReason, stashRestored: false, filesReverted: [] }
+      }
+
+      markPhase("restore", restoreResult.triggered && restoreResult.filesReverted?.length > 0 ? "completed" : "failed")
+    } else if (reVerifyFindings.length > 0) {
+      log(`Restore: skipped — ${reVerifyFindings.length} non-critical regression(s) (below threshold)`)
+      restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
+      markPhase("restore", "skipped")
+    } else {
+      markPhase("restore", "skipped")
     }
   }
+
+  markPhase("resolveFix", "completed")
 } else if (!doFix) {
-  log("Review-only mode — skipping Resolve Fix phase.")
+  log("Review-only mode — skipping Checkpoint, Resolve Fix, Re-verify, and Restore phases.")
+  markPhase("checkpoint", "skipped")
+  markPhase("resolveFix", "skipped")
+  markPhase("reVerify", "skipped")
+  markPhase("restore", "skipped")
 } else {
   log("No verified findings to fix.")
+  markPhase("checkpoint", "skipped")
+  markPhase("resolveFix", "skipped")
+  markPhase("reVerify", "skipped")
+  markPhase("restore", "skipped")
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Phase 5: Report — synthesize prioritized findings
+// Phase 8: Persist — write run history to disk
 // ══════════════════════════════════════════════════════════════════════════════
 
-phase("Report")
+phase("Persist")
 
 const appliedCount = fixResults.fixes.filter((f) => f.status === "applied").length
 const skippedCount = fixResults.fixes.filter((f) => f.status === "skipped").length
 const failedCount  = fixResults.fixes.filter((f) => f.status === "failed").length
 
+// Build the history envelope
+const historyEntry = {
+  schema_version: 1,
+  run_id: RUN_ID,
+  workflow: WORKFLOW_NAME,
+  started_at: RUN_TIMESTAMP,
+  args: { files: targetFiles, focus, fix: doFix, effort, resume: resumeMode },
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: "complete",
+  files_touched: [...filesTouched],
+  tags: ["code-review", ...dimensions],
+  result: {
+    scan: {
+      totalFiles,
+      totalLines,
+      layers,
+      targetScope: targetFiles ? "targeted" : "full",
+    },
+    findings: {
+      total: allFindings.length + suppressedFromPrior.length,
+      verified: verifiedFindings.length,
+      filtered: verifiedFindings.length,
+      newFindings: activeFindings.length,
+      suppressedFromPrior: suppressedFromPrior.length,
+      byDimension,
+      bySeverity,
+      items: verifiedFindings,
+    },
+    adversarial: {
+      totalVerdicts: allVerdicts.length,
+      upheld: allVerdicts.filter((v) => v.upheld).length,
+      rejected: allVerdicts.filter((v) => !v.upheld).length,
+    },
+    fixes: doFix
+      ? {
+          applied: appliedCount,
+          skipped: skippedCount,
+          failed: failedCount,
+          filesChanged: fixResults.filesChanged,
+          regressions: reVerifyFindings.length,
+          items: fixResults.fixes,
+        }
+      : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
+    restore: restoreResult,
+    git: {
+      headBefore: checkpointResult?.headSha || "",
+      stashRef: checkpointResult?.stashRef || "",
+      dirtyFilesBefore: checkpointResult?.dirtyBefore || [],
+    },
+  },
+}
+
+// Write history via agent (scripts can't use fs directly)
+const historyJson = JSON.stringify(historyEntry, null, 2)
+// Escape any backticks in the JSON for the heredoc
+const historyJsonEscaped = historyJson.replace(/`/g, "\\`")
+
+await agent(
+  `Persist the workflow run history to disk.
+
+Steps:
+1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
+2. Write the history JSON file using a heredoc:
+   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
+${historyJson}
+HISTORY_EOF")
+3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
+4. Prune old runs — keep only the 15 most recent:
+   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+
+Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+markPhase("persist", "completed")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Phase 9: Report — synthesize prioritized findings with prior-run comparison
+// ══════════════════════════════════════════════════════════════════════════════
+
+phase("Report")
+
+// Build prior-run comparison context
+const priorRunContext = priorHistory
+  ? `
+## Prior Run Comparison
+- Previous run: ${RUN_ID !== priorHistory.runId ? "available" : "same run"}
+- Previous findings: ${priorHistory.findings?.total || 0} raw, ${priorHistory.findings?.verified || 0} verified
+- Previous fixes: ${priorHistory.fixes?.applied || 0} applied
+- Delta (raw findings): ${allFindings.length - (priorHistory.findings?.total || 0)} (+/-)
+- New findings this run: ${activeFindings.length}
+- Suppressed (unchanged from prior): ${suppressedFromPrior.length}
+`
+  : "\n## Prior Run Comparison: No prior history available (first run or fresh mode).\n"
+
 const reportResult = await agent(
-  `Generate a concise code review report for the Bun GUI Movie Director app.
+  `Generate a concise code review report for the GUI Movie Director Bun app.
 
 ## Scan Summary
 - Files reviewed: ${totalFiles} (${totalLines} lines)
 - Layers: server=${layers.server}, api=${layers.api}, lib=${layers.lib}, frontend=${layers.frontend}
 - Effort: ${effort}, Dimensions: ${dimensions.join(", ")}
 
-## All Findings (${allFindings.length} raw → ${verifiedFindings.length} verified)
+## All Findings (${allFindings.length + suppressedFromPrior.length} raw → ${verifiedFindings.length} verified, ${suppressedFromPrior.length} suppressed from prior)
 ${JSON.stringify(verifiedFindings, null, 2)}
 
 ## Adversarial Verification
@@ -715,7 +1158,9 @@ ${doFix ? `## Fix Results
 - Failed: ${failedCount}
 - Files changed: ${fixResults.filesChanged.join(", ") || "none"}
 ${reVerifyFindings.length > 0 ? `- Regressions: ${reVerifyFindings.length}` : "- Regressions: none"}
+${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.filesReverted?.length || 0} file(s) reverted` : ""}
 ` : "## Fix Phase: SKIPPED (review-only mode)"}
+${priorRunContext}
 
 ## Your Task
 
@@ -727,28 +1172,36 @@ ${reVerifyFindings.length > 0 ? `- Regressions: ${reVerifyFindings.length}` : "-
 
 **4. Top 5 findings** — the most important issues to address, with file:line and one-line fix description.
 
-**5. Fix summary** — what was fixed, what was skipped and why.
+**5. Fix summary** — what was fixed, what was skipped and why. If restore was triggered, explain what happened.
 
-**6. Recommendations** — 3-5 specific, actionable next steps (e.g. "Add input validation to handleRunJob", "Replace any types in ws.ts with concrete WebSocket interfaces").
+**6. Trend comparison** (if prior run data available) — how findings changed vs prior run, improvement areas, new issues.
+
+**7. Recommendations** — 3-5 specific, actionable next steps.
 
 Keep the report concise and actionable. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
 
+markPhase("report", "completed")
+
 // ── Final output ─────────────────────────────────────────────────────────────
 
 log("")
-log("=== Bun GUI Review & Optimize Complete ===")
-log(`Files: ${totalFiles} (${totalLines} lines) | Findings: ${allFindings.length} raw → ${verifiedFindings.length} verified`)
+log("=== GUI Movie Director Review & Optimize Complete ===")
+log(`Run: ${RUN_ID} | Files: ${totalFiles} (${totalLines} lines) | Findings: ${allFindings.length + suppressedFromPrior.length} raw → ${verifiedFindings.length} verified`)
 log(`Dimensions: ${dimensions.join(", ")} | Effort: ${effort}`)
 log(`Adversarial: ${allVerdicts.length} verdicts (${allVerdicts.filter((v) => v.upheld).length} upheld)`)
+if (suppressedFromPrior.length > 0) log(`Incremental: ${suppressedFromPrior.length} suppressed from prior run`)
 if (doFix) {
   log(`Fixes: ${appliedCount} applied, ${skippedCount} skipped, ${failedCount} failed across ${fixResults.filesChanged.length} file(s)`)
   if (reVerifyFindings.length > 0) log(`Regressions: ${reVerifyFindings.length}`)
+  if (restoreResult.triggered) log(`RESTORE: ${restoreResult.reason} — ${restoreResult.filesReverted?.length || 0} file(s) reverted`)
 }
+log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 log(reportResult || "(no report)")
 
 return {
+  runId: RUN_ID,
   scan: {
     totalFiles,
     totalLines,
@@ -756,9 +1209,11 @@ return {
     targetScope: targetFiles ? "targeted" : "full",
   },
   findings: {
-    total: allFindings.length,
+    total: allFindings.length + suppressedFromPrior.length,
     verified: verifiedFindings.length,
     filtered: verifiedFindings.length,
+    newFindings: activeFindings.length,
+    suppressedFromPrior: suppressedFromPrior.length,
     byDimension,
     bySeverity,
     items: verifiedFindings,
@@ -775,7 +1230,15 @@ return {
         failed: failedCount,
         filesChanged: fixResults.filesChanged,
         regressions: reVerifyFindings.length,
+        items: fixResults.fixes,
       }
     : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
+  restore: restoreResult,
+  history: {
+    runId: RUN_ID,
+    path: `${HISTORY_DIR}/${RUN_ID}.json`,
+    phasesCompleted,
+    phasesFailed,
+  },
   report: reportResult,
 }

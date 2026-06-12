@@ -63,4 +63,7 @@ bun/gui-movie-director/data/jobs.json
 # Claude Code session files
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks.json
+
+# Claude Code workflow history (machine-specific run data)
+.claude/workflows/history/
 node_modules/

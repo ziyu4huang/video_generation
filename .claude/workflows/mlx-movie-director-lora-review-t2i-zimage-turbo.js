@@ -697,13 +697,14 @@ Return flat JSON:
 // Baseline images are shared across all sets.
 
 const captionSets = loras.map((lora) => {
-  const setName = `Baseline vs ${lora.name}`
+  const scale = bestScales[lora.name] || loraScale
+  const setName = `Baseline vs ${lora.name} (scale=${scale})`
   const zh = wfLang === "zh_TW"
   const guide = zh
-    ? `比較 Baseline（無 LoRA）與 ${lora.name} 的整體畫質、寫實度與細節。LoRA 是否改善了圖像品質？`
-    : `Compare Baseline (no LoRA) vs ${lora.name}. Does the LoRA improve overall quality, realism, and detail?`
+    ? `比較 Baseline（無 LoRA）與 ${lora.name} (scale=${scale}) 的整體畫質、寫實度與細節。LoRA 是否改善了圖像品質？`
+    : `Compare Baseline (no LoRA) vs ${lora.name} (scale=${scale}). Does the LoRA improve overall quality, realism, and detail?`
 
-  const variantLabels = ["Baseline", lora.name]
+  const variantLabels = ["Baseline", `${lora.name} (s=${scale})`]
   const files = []
 
   // Add baseline captions for this set
@@ -901,7 +902,7 @@ log(reportResult || "(no report)")
 log(`\nLoRAs tested: ${loras.length}`)
 loras.forEach((l) => {
   const summary = loraScoreSummary.find((s) => s.name === l.name)
-  log(`  ${l.name}: overall=${summary?.overall ?? "?"} (${summary?.count ?? 0} images)`)
+  log(`  ${l.name}: scale=${bestScales[l.name]} overall=${summary?.overall ?? "?"} (${summary?.count ?? 0} images)`)
 })
 log(`Baseline: overall=${baseScoreSummary.overall ?? "?"} (${baseScoreSummary.count} images)`)
 if (reviewHtml) log(`\nReview HTML: ${reviewHtml}`)
@@ -913,6 +914,8 @@ return {
   report: reportResult,
   loras,
   seeds,
+  bestScales,
+  sweepResults,
   loraScoreSummary,
   baseScoreSummary,
 }
