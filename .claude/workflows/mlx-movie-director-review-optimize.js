@@ -517,6 +517,22 @@ const priorPatternsCtx = priorReflection?.patterns
       ? `\n\n## FALSE POSITIVE PATTERNS TO AVOID (do NOT flag these):\n` +
         priorReflection.false_positives.map((p) => `- ${p}`).join("\n")
       : "") +
+    (priorReflection.recurring_findings?.length
+      ? `\n\n## RECURRING FINDINGS (appeared in 2+ prior runs — CHECK FIRST, high priority):\n` +
+        priorReflection.recurring_findings
+          .map((r) => `- [${r.dimension}] ${r.file}: "${r.title_fragment}" (${r.seen_in_runs} runs, last fix: ${r.last_fix_status || "none"})`)
+          .join("\n")
+      : "") +
+    (priorReflection.dimension_calibration
+      ? (() => {
+          const nonOk = Object.entries(priorReflection.dimension_calibration)
+            .filter(([, v]) => v.action !== "ok")
+          return nonOk.length
+            ? `\n\n## DIMENSION CALIBRATION ALERTS:\n` +
+              nonOk.map(([dim, v]) => `- ${dim}: fp_rate=${v.avg_fp_rate?.toFixed(2)} → ${v.action}`).join("\n")
+            : ""
+        })()
+      : "") +
     "\n"
   : ""
 
@@ -918,7 +934,7 @@ if (rejected > 0) {
   })
 }
 
-// ── Pure JS: compute stats ──────────────────────────────────────────────────
+// ── Pure JS: compute stats + collect rejected findings ──────────────────────
 
 const byDimension = {}
 const bySeverity = {}
@@ -926,6 +942,25 @@ verifiedFindings.forEach((f) => {
   byDimension[f.dimension] = (byDimension[f.dimension] || 0) + 1
   bySeverity[f.severity] = (bySeverity[f.severity] || 0) + 1
 })
+
+const rejectedFindings = activeFindings
+  .filter((f) => !verifiedFindings.includes(f))
+  .map((f) => {
+    const v = verdictMap[f.id]
+    return {
+      id: f.id,
+      dimension: f.dimension,
+      file: f.file,
+      line: f.line,
+      title: f.title,
+      rejection_reason: v ? v.reason : `low confidence (${f.confidence}%)`,
+      confidence: f.confidence,
+    }
+  })
+
+const rejectedByDimension = rejectedFindings.reduce((acc, f) => {
+  acc[f.dimension] = (acc[f.dimension] || 0) + 1; return acc
+}, {})
 
 markPhase("adversarialVerify", "completed")
 
@@ -1368,6 +1403,8 @@ const historyEntry = {
       byDimension,
       bySeverity,
       items: verifiedFindings,
+      rejected: rejectedFindings,
+      rejected_by_dimension: rejectedByDimension,
     },
     adversarial: {
       totalVerdicts: allVerdicts.length,
@@ -1453,6 +1490,47 @@ const REFLECT_SCHEMA = {
         required: ["pattern", "keyword", "dimension"],
       },
     },
+    recurring_findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title_fragment:  { type: "string" },
+          file:            { type: "string" },
+          dimension:       { type: "string" },
+          seen_in_runs:    { type: "number" },
+          last_fix_status: { type: "string" },
+        },
+        required: ["title_fragment", "file", "dimension", "seen_in_runs"],
+      },
+      description: "Findings that appear in 2+ history runs — prioritize in next review",
+    },
+    dimension_calibration: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        properties: {
+          avg_fp_rate: { type: "number" },
+          avg_per_run: { type: "number" },
+          action:      { type: "string" },
+        },
+        required: ["avg_fp_rate", "action"],
+      },
+      description: "Per-dimension FP rate — action: ok | increase_threshold | reduce_effort",
+    },
+    unstable_fixes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title_fragment: { type: "string" },
+          file:           { type: "string" },
+          note:           { type: "string" },
+        },
+        required: ["title_fragment", "file"],
+      },
+      description: "Fixes that were applied but the finding recurred, or fix repeatedly failed",
+    },
     runs_analyzed: { type: "number" },
     updated_at:    { type: "string" },
   },
@@ -1465,24 +1543,45 @@ const reflectResult = await agent(
 Step 1 — List history files (exclude reflection.json):
 Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -10")
 
-Step 2 — Read each history file and extract:
-For CONFIRMED patterns: findings that appear in the "fixes.items" with status="applied" (these were real bugs we fixed)
-For FALSE POSITIVE patterns: findings where adversarial verdict upheld=false across multiple runs
+Step 2 — Read each history file and extract findings.items[], findings.rejected[], fixes.items[]:
+For CONFIRMED patterns: findings in fixes.items[] with status="applied" (real bugs we fixed)
 For TRENDING issues: dimensions with many medium/high findings across runs
+
+Step 2b — Analyze rejected findings across runs:
+For each run's result.findings.rejected[] (array of {id, dimension, file, title, rejection_reason}):
+- Group by dimension to compute per-dimension rejection count
+- Findings with similar title appearing in rejected[] across ≥2 runs → add to false_positives
+- avg_fp_rate per dimension = sum(rejected_by_dimension[dim]) / sum(byDimension[dim] + rejected_by_dimension[dim]) across runs
+Note: older history files may not have rejected[] — skip gracefully for those
+
+Step 2c — Identify recurring_findings:
+A finding is "recurring" if a similar (file + title_fragment match) appears in findings.items[]
+across ≥2 separate runs.
+For each recurring finding, check fixes.items[] to see if it was ever status="applied" — if yes
+and it still appears in a later run → flag it as unstable_fix.
+
+Step 2d — Build dimension_calibration:
+For each dimension seen across runs:
+- avg_fp_rate > 0.5 → action = "increase_threshold"
+- avg_fp_rate < 0.1 AND avg_per_run < 3 → action = "reduce_effort"
+- otherwise → action = "ok"
 
 Step 3 — Include THIS run's data:
 - Applied fixes this run: ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied").map((f) => ({ id: f.findingId, change: f.change })))}
-- Sample verified findings: ${JSON.stringify(verifiedFindings.slice(0, 10).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
+- Rejected this run: ${JSON.stringify(rejectedFindings.slice(0, 8).map((f) => ({ dim: f.dimension, title: f.title.slice(0, 60), reason: f.rejection_reason.slice(0, 80) })))}
+- Sample verified findings: ${JSON.stringify(verifiedFindings.slice(0, 8).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
 
 Build output:
-- patterns: { "correctness": ["<1 sentence actionable checker>", ...max 5], "import-hygiene": [...], ... }
+- patterns: { "correctness": ["<1 sentence actionable checker>", ...max 5], ... }
   CRITICAL: Patterns must be SPECIFIC to this codebase. Examples:
-  "correctness": ["getattr(args, 'seed', 42) returns None when args.seed=None — use explicit if-None check for all getattr with numeric defaults"]
-  "import-hygiene": ["Check every file using sys.stderr/sys.exit/sys.argv has top-level 'import sys'"]
-  "error-handling": ["Image.open() without 'with' statement leaks file handles — all Image.open calls need context managers"]
-- false_positives: patterns that recur in review but are always rejected, e.g. "Python 3.12+ nested f-string quotes are valid in Python 3.13.13"
-- confirmed_patterns: findings confirmed across ≥2 runs OR successfully fixed, with keyword for matching
-  keyword should be a short string found in the finding's description field
+  "correctness": ["getattr(args, 'seed', 42) returns None when args.seed=None — use explicit if-None check"]
+  "import-hygiene": ["Check every file using sys.stderr/sys.exit has top-level 'import sys'"]
+  "error-handling": ["Image.open() without 'with' statement leaks file handles"]
+- false_positives: patterns recurring in review but always rejected
+- confirmed_patterns: findings confirmed across ≥2 runs OR fixed, with keyword for matching
+- recurring_findings: findings appearing in ≥2 runs (by file+title similarity)
+- dimension_calibration: per-dimension {avg_fp_rate, avg_per_run, action}
+- unstable_fixes: fixes applied but finding recurred or fix repeatedly failed/skipped
 - runs_analyzed: how many history files you read
 - updated_at: "${RUN_TIMESTAMP}"
 

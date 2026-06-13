@@ -186,9 +186,11 @@ class RunConfig:
             skin_contrast=getattr(args, "skin_contrast", False),
             noise_clean=getattr(args, "noise_clean", False),
         )
-        # Clear transformer for pipelines that don't use it (zimage has its own
-        # hardcoded model; "klein-9b" would be misleading in the serialized config)
-        if rc.pipeline not in ("flux2-klein", "flux2-klein-edit"):
+        # Clear the flux2-klein default when using zimage without an explicit
+        # --transformer override (avoid serializing a misleading "klein-9b" name).
+        # ZImagePipeline now supports --transformer for selecting alternative
+        # ZImage Turbo checkpoints (e.g. ernie-redmix-redzit15).
+        if rc.pipeline == "zimage" and rc.transformer == "klein-9b":
             rc.transformer = None
 
         # Inline prompt-file content so run.json is self-contained

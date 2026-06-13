@@ -250,6 +250,14 @@ const loraBaselineCtx = loraReflection?.score_baselines
       ? `\n\n## REGRESSION ALERTS — check these LoRAs:\n` +
         loraReflection.regression_alerts.map((a) => `- ⚠️ ${a}`).join("\n")
       : "") +
+    (loraReflection.ceiling_prone_loras?.length
+      ? `\n\n## CEILING-PRONE LoRAs (always ≥8.5 — scores not meaningful, use challenge prompts):\n` +
+        loraReflection.ceiling_prone_loras.map((n) => `- ${n}`).join("\n")
+      : "") +
+    (loraReflection.worst_prompt_adherence_loras?.length
+      ? `\n\n## LOW PROMPT ADHERENCE LoRAs (prompt_adherence < 6.0 — prompts are ignored):\n` +
+        loraReflection.worst_prompt_adherence_loras.map((n) => `- ${n}`).join("\n")
+      : "") +
     "\n"
   : ""
 
@@ -1207,6 +1215,21 @@ const LORA_REFLECT_SCHEMA = {
       },
     },
     prompt_patterns: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+    ceiling_prone_loras: {
+      type: "array",
+      items: { type: "string" },
+      description: "LoRA names that scored >= 8.5 in every run — use harder prompts",
+    },
+    worst_prompt_adherence_loras: {
+      type: "array",
+      items: { type: "string" },
+      description: "LoRA names with prompt_adherence < 6.0 in majority of runs",
+    },
+    best_prompt_strategy: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      description: "Per LoRA category: which prompt strategy produced best score differentiation",
+    },
     runs_analyzed: { type: "number" },
     updated_at: { type: "string" },
   },
@@ -1220,7 +1243,10 @@ const reflectResult = await agent(
 3. For each LoRA across runs, compute rolling average: overall, detail, sharpness, prompt_adherence. Count runs.
 4. Flag regression_alerts: any LoRA where current run overall dropped > 0.5 vs prior average.
 5. Identify confirmed_best_settings: LoRAs whose optimal scale was consistent across ≥2 runs.
-6. Return with updated_at = "${RUN_TIMESTAMP}".`,
+6. ceiling_prone_loras: any LoRA with overall >= 8.5 in ALL runs it appeared in.
+7. worst_prompt_adherence_loras: any LoRA with prompt_adherence < 6.0 in ≥ 2 runs.
+8. best_prompt_strategy: per category, which prompt type (test_prompt/challenge/default) gave best score differentiation?
+9. Return with updated_at = "${RUN_TIMESTAMP}".`,
   { label: "synthesize-lora-reflection", phase: "Persist", model: "haiku", schema: LORA_REFLECT_SCHEMA },
 )
 

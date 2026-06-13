@@ -405,6 +405,14 @@ const loraBaselineCtx = loraReflection?.score_baselines
       ? `\n\n## REGRESSION ALERTS — check these LoRAs:\n` +
         loraReflection.regression_alerts.map((a) => `- ⚠️ ${a}`).join("\n")
       : "") +
+    (loraReflection.ceiling_prone_loras?.length
+      ? `\n\n## CEILING-PRONE LoRAs (always ≥8.5 — scores not meaningful, use challenge prompts):\n` +
+        loraReflection.ceiling_prone_loras.map((n) => `- ${n}`).join("\n")
+      : "") +
+    (loraReflection.worst_prompt_adherence_loras?.length
+      ? `\n\n## LOW PROMPT ADHERENCE LoRAs (prompt_adherence < 6.0 — prompts are ignored):\n` +
+        loraReflection.worst_prompt_adherence_loras.map((n) => `- ${n}`).join("\n")
+      : "") +
     "\n"
   : ""
 
@@ -1679,6 +1687,21 @@ const LORA_REFLECT_SCHEMA = {
       },
     },
     prompt_patterns: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+    ceiling_prone_loras: {
+      type: "array",
+      items: { type: "string" },
+      description: "LoRA names that scored >= 8.5 in every run — scores not meaningful, use harder prompts",
+    },
+    worst_prompt_adherence_loras: {
+      type: "array",
+      items: { type: "string" },
+      description: "LoRA names with prompt_adherence < 6.0 in majority of runs",
+    },
+    best_prompt_strategy: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      description: "Per LoRA category: which prompt strategy produced best score differentiation (test_prompt|challenge|default)",
+    },
     runs_analyzed: { type: "number" },
     updated_at: { type: "string" },
   },
@@ -1693,7 +1716,10 @@ const reflectResult = await agent(
 4. Flag regression_alerts: any LoRA where current run overall dropped > 0.5 vs its prior average.
 5. Identify confirmed_best_settings: LoRAs whose optimal scale was consistent across ≥2 runs.
 6. Extract prompt_patterns: group effective prompts by category (style, slider, anime2real).
-7. Return the synthesized reflection object with updated_at = "${RUN_TIMESTAMP}".`,
+7. ceiling_prone_loras: any LoRA with overall >= 8.5 in ALL runs it appeared in (ceiling effect).
+8. worst_prompt_adherence_loras: any LoRA with prompt_adherence < 6.0 in ≥ 2 runs.
+9. best_prompt_strategy: per category (style/slider/anime2real), which prompt type (test_prompt/challenge/default) produced the highest score spread or differentiation across runs?
+10. Return the synthesized reflection object with updated_at = "${RUN_TIMESTAMP}".`,
   { label: "synthesize-lora-reflection", phase: "Persist", model: "haiku", schema: LORA_REFLECT_SCHEMA },
 )
 
