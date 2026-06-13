@@ -3,18 +3,29 @@
   "name": "ernie-redmix-redzit15-lora",
   "type": "lora",
   "arch": "zimage-turbo",
-  "format": "safetensors-fp16",
+  "format": "mlx-int8",
   "description": "LoRA adapter for zimage-turbo",
   "source": "manual-import",
   "compatible_with": [
     "transformer/zimage-moody-v126"
   ],
-  "size_bytes": 702631800,
-  "created_at": "2026-06-13T00:29:52Z",
+  "size_bytes": 351441787,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "zimage-turbo"
   ],
   "trigger_words": [
     "ernie redmix"
-  ]
+  ],
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 702631800
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "ernie-redmix-redzit15_lora_fp16.int8.safetensors"
 }

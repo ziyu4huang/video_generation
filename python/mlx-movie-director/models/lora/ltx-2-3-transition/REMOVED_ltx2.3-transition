@@ -1,0 +1,10 @@
+{
+  "removed_at": "2026-06-13T23:00:00Z",
+  "reason": "Replaced by int8 quantized version (ltx2.3-transition.int8.safetensors)",
+  "original_format": "safetensors-bf16",
+  "original_files": [
+    "ltx2.3-transition.safetensors"
+  ],
+  "original_size_bytes": 390229424,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name ltx-2-3-transition"
+}

@@ -3,14 +3,14 @@
   "name": "klein-slider-bodyweight-50",
   "type": "lora",
   "arch": "flux2-klein-9b",
-  "format": "safetensors-bf16",
+  "format": "mlx-int8",
   "description": "LoRA adapter for flux2-klein-9b",
   "source": "manual-import",
   "compatible_with": [
     "transformer/klein-9b"
   ],
-  "size_bytes": 20738152,
-  "created_at": "2026-06-07T06:50:37Z",
+  "size_bytes": 10411142,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "flux2-klein"
   ],
@@ -18,5 +18,16 @@
   "trigger_words": [
     "slider",
     "bodyweight"
-  ]
+  ],
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 20738152
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "klein_slider_bodyweight_50.int8.safetensors"
 }

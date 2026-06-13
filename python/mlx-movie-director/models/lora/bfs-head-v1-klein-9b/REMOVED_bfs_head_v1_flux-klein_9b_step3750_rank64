@@ -1,0 +1,10 @@
+{
+  "removed_at": "2026-06-13T23:00:00Z",
+  "reason": "Replaced by int8 quantized version (bfs_head_v1_flux-klein_9b_step3750_rank64.int8.safetensors)",
+  "original_format": "safetensors-bf16",
+  "original_files": [
+    "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors"
+  ],
+  "original_size_bytes": 331379568,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name bfs-head-v1-klein-9b"
+}

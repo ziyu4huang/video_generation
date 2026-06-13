@@ -3,17 +3,28 @@
   "name": "anime-girl-turned-into-real-person",
   "type": "lora",
   "arch": "flux2-klein-9b",
-  "format": "safetensors-bf16",
+  "format": "mlx-int8",
   "description": "Anime Girl Turned into Real Person v2.0",
   "source": "civitai/anime-girl-turned-into-real-person",
   "compatible_with": [
     "transformer/klein-9b"
   ],
-  "size_bytes": 82866720,
-  "created_at": "2026-06-08T18:17:12Z",
+  "size_bytes": 41476152,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "flux2-klein"
   ],
   "source_url": "https://civitai.com/models/2349471",
-  "test_prompt": "a photo of an anime girl turned into a real person"
+  "test_prompt": "a photo of an anime girl turned into a real person",
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 82866720
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "anything2real_v1_f2k.int8.safetensors"
 }

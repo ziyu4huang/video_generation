@@ -3,15 +3,30 @@
   "name": "vbvr-ltx2.3",
   "type": "lora",
   "arch": "ltx-2.3",
-  "format": "safetensors-bf16",
-  "description": "VBVR (Video Benchmark for Video Reasoning) LoRA — improves temporal consistency, multi-object interactions, complex sequential actions, and causal/physics reasoning for LTX-2.3",
+  "format": "mlx-int8",
+  "description": "VBVR (Video Benchmark for Video Reasoning) LoRA \u2014 improves temporal consistency, multi-object interactions, complex sequential actions, and causal/physics reasoning for LTX-2.3",
   "source": "huggingface/siraxe",
   "source_url": "https://huggingface.co/siraxe/VBVR-LTX2.3-diffsynth_comfyui",
-  "compatible_with": ["transformer/ltx-2.3-dev-q8"],
-  "pipeline": ["ltx-2.3"],
-  "size_bytes": 427888616,
-  "created_at": "2026-06-11T10:09:00Z",
+  "compatible_with": [
+    "transformer/ltx-2.3-dev-q8"
+  ],
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "size_bytes": 214607595,
+  "created_at": "2026-06-13T21:19:28Z",
   "trigger_words": [],
   "test_prompt": "a person opens a door and walks through into a bright room",
-  "recommended_scale": 1.0
+  "recommended_scale": 1.0,
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 428169096
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "Video-Reason_VBVR-LTX2.3-diffsynth_comfyui.int8.safetensors"
 }

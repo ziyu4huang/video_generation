@@ -3,16 +3,33 @@
   "name": "vbvr-licon-ltx2.3",
   "type": "lora",
   "arch": "ltx-2.3",
-  "format": "safetensors-bf16",
+  "format": "mlx-int8",
   "file": "VBVR-official-comfyui.safetensors",
-  "description": "LiconStudio VBVR LoRA for LTX-2.3 — improves complex prompt following, motion dynamics, and temporal consistency. Trained on full VBVR dataset (~1M videos). ComfyUI format, compatible with MLX pipeline LTXV_LORA_COMFY_RENAMING_MAP.",
+  "description": "LiconStudio VBVR LoRA for LTX-2.3 \u2014 improves complex prompt following, motion dynamics, and temporal consistency. Trained on full VBVR dataset (~1M videos). ComfyUI format, compatible with MLX pipeline LTXV_LORA_COMFY_RENAMING_MAP.",
   "source": "huggingface/LiconStudio",
   "source_url": "https://huggingface.co/LiconStudio/Ltx2.3-VBVR-lora-I2V",
-  "compatible_with": ["transformer/ltx-2.3-dev-q8", "transformer/ltx-2.3-distilled"],
-  "pipeline": ["ltx-2.3"],
-  "created_at": "2026-06-11T00:00:00Z",
+  "compatible_with": [
+    "transformer/ltx-2.3-dev-q8",
+    "transformer/ltx-2.3-distilled-q8"
+  ],
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "size_bytes": 214570449,
+  "created_at": "2026-06-13T21:19:28Z",
   "trigger_words": [],
   "test_prompt": "a person opens a door and walks through into a bright room",
   "recommended_scale": 1.0,
-  "notes": "Key format: diffusion_model.transformer_blocks.N.attn1.to_k.lora_A.weight (no .default. segment). This matches LTXV_LORA_COMFY_RENAMING_MAP directly. 2304 keys, 408MB. siraxe variant has .lora_A.default.weight which does NOT match the renaming map."
+  "notes": "Key format: diffusion_model.transformer_blocks.N.attn1.to_k.lora_A.weight (no .default. segment). This matches LTXV_LORA_COMFY_RENAMING_MAP directly. 2304 keys, 408MB. siraxe variant has .lora_A.default.weight which does NOT match the renaming map.",
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 428150664
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "VBVR-official-comfyui.int8.safetensors"
 }

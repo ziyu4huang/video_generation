@@ -124,15 +124,16 @@ def diagnose(prompt: str, max_length: int = 256) -> None:
     mx.clear_cache()
 
     from ltx_core_mlx.text_encoders.gemma.feature_extractor import GemmaFeaturesExtractorV2
-    from ltx_core_mlx.utils.weights import load_split_safetensors
+    from ltx_core_mlx.utils.weights import apply_quantization, load_split_safetensors
 
     # Load connector weights (same as pipeline: load_split_safetensors with prefix)
     connector_path = os.path.join(cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors")
     connector_weights = load_split_safetensors(connector_path, prefix="connector.")
     print(f"  Loaded connector weights: {len(connector_weights)} tensors")
 
-    # Build connector module and load weights
+    # Build connector module, quantize structure if needed, then load weights
     feature_extractor = GemmaFeaturesExtractorV2()
+    apply_quantization(feature_extractor.connector, connector_weights)
     feature_extractor.connector.load_weights(list(connector_weights.items()))
     mx.eval(feature_extractor.parameters())
     print(f"  Connector initialized")

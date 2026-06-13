@@ -1,0 +1,10 @@
+{
+  "removed_at": "2026-06-13T23:00:00Z",
+  "reason": "Replaced by int8 quantized version (Video-Reason_VBVR-LTX2.3-diffsynth_comfyui.int8.safetensors)",
+  "original_format": "safetensors-bf16",
+  "original_files": [
+    "Video-Reason_VBVR-LTX2.3-diffsynth_comfyui.safetensors"
+  ],
+  "original_size_bytes": 428169096,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name vbvr-ltx2.3"
+}

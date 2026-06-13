@@ -1,0 +1,10 @@
+{
+  "removed_at": "2026-06-13T23:00:00Z",
+  "reason": "Replaced by int8 quantized version (anything2real_v1_f2k.int8.safetensors)",
+  "original_format": "safetensors-bf16",
+  "original_files": [
+    "anything2real_v1_f2k.safetensors"
+  ],
+  "original_size_bytes": 82866720,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name anime-girl-turned-into-real-person"
+}

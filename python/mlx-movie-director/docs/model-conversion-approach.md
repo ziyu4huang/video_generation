@@ -115,3 +115,34 @@ For each model conversion, ensure:
 - `models--Tongyi-MAI--Z-Image-Turbo/` (160 MB) — tokenizer/VAE source
 - `comfyui_data/models/loras/zit_sda_v1.safetensors` (162 MB) — LoRA still used at runtime
 - `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` (28 MB) — ESRGAN still used
+
+---
+
+## Pipeline Gaps
+
+### ltx-2.3-connector: Runtime loading missing `nn.quantize()`
+
+The `ltx-2.3-connector` was converted from BF16 (6.3 GB) to 4-bit GS32 (1.9 GB) via `convert.py --ltx-connector`. Quality was A/B validated (cosine sim 1.0 video, 0.996 audio).
+
+**Problem:** The runtime loading code at `vendor/ltx-pipelines-mlx/utils/blocks.py:97-101` calls `load_weights()` directly on a plain `TextEncoderConnector` without first calling `nn.quantize()` / `apply_quantization()`. With pre-quantized 4-bit weights (keys include `.scales`, `.biases`), this will fail with `ValueError`.
+
+**Fix:** Apply the same two-step pattern used by the DiT transformer loader:
+
+```python
+# Before (broken):
+connector_weights = load_split_safetensors(path, prefix="connector.")
+self._feature_extractor.connector.load_weights(list(connector_weights.items()))
+
+# After (fixed):
+connector_weights = load_split_safetensors(path, prefix="connector.")
+apply_quantization(self._feature_extractor.connector, connector_weights)
+self._feature_extractor.connector.load_weights(list(connector_weights.items()))
+```
+
+The `apply_quantization()` call (from `ltx_core_mlx.utils.weights`) auto-detects quantized layers by checking for `.scales` keys in the weight dict and calls `nn.quantize()` on those layers. If the weights are BF16 (no `.scales`), `apply_quantization()` is a no-op — so the fix is backward-compatible.
+
+**Status:** ✅ Fixed across all loading sites:
+- `blocks.py:97-101` — runtime pipeline loader ✅
+- `model_loader.py:232-234` — trainer loader ✅
+- `test_generate_real_prompt.py:78-81` — test loader ✅
+- `diagnose_text_encoder.py:130-137` — diagnostic script ✅

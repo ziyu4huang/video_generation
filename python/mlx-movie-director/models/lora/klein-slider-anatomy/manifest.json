@@ -3,18 +3,31 @@
   "name": "klein-slider-anatomy",
   "type": "lora",
   "arch": "flux2-klein-9b",
-  "format": "safetensors-bf16",
-  "description": "Klein Anatomy Quality Fixer — slider LoRA for fixing anatomy/pose problems",
-  "trigger_words": ["anatomyfix"],
+  "format": "mlx-int8",
+  "description": "Klein Anatomy Quality Fixer \u2014 slider LoRA for fixing anatomy/pose problems",
+  "trigger_words": [
+    "anatomyfix"
+  ],
   "test_prompt": "full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus",
   "source": "manual-import",
   "compatible_with": [
     "transformer/klein-9b"
   ],
-  "size_bytes": 20738144,
-  "created_at": "2026-06-08T00:05:58Z",
+  "size_bytes": 10411142,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "flux2-klein"
   ],
-  "source_url": "https://civitai.com/models/2324991/klein-anatomy-quality-fixer?modelVersionId=2615554"
+  "source_url": "https://civitai.com/models/2324991/klein-anatomy-quality-fixer?modelVersionId=2615554",
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 20738144
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "klein_slider_anatomy.int8.safetensors"
 }

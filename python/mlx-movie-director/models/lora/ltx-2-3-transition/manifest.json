@@ -3,14 +3,14 @@
   "name": "ltx-2-3-transition",
   "type": "lora",
   "arch": "ltx-2.3",
-  "format": "safetensors-bf16",
+  "format": "mlx-int8",
   "description": "Smooth scene/style transition LoRA for LTX-2.3",
   "source": "joyfox/LTX-2.3-Transition-LORA",
   "compatible_with": [
     "transformer/ltx-2.3-dev-q8"
   ],
-  "size_bytes": 390229424,
-  "created_at": "2026-06-08T11:56:09Z",
+  "size_bytes": 195352219,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "ltx-2.3"
   ],
@@ -18,5 +18,16 @@
   "trigger_words": [
     "transition",
     "smooth transition"
-  ]
+  ],
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 390229424
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "ltx2.3-transition.int8.safetensors"
 }

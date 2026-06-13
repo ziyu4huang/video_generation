@@ -3,17 +3,28 @@
   "name": "highresolutionflux2-kelien-9b",
   "type": "lora",
   "arch": "flux2-klein-9b",
-  "format": "safetensors-bf16",
+  "format": "mlx-int8",
   "description": "LoRA adapter for flux2-klein-9b",
   "source": "manual-import",
   "compatible_with": [
     "transformer/klein-9b"
   ],
-  "size_bytes": 82866736,
-  "created_at": "2026-06-07T08:29:10Z",
+  "size_bytes": 41476152,
+  "created_at": "2026-06-13T21:19:26Z",
   "pipeline": [
     "flux2-klein"
   ],
   "source_url": "https://civitai.com/models/2436859/high-resolution?modelVersionId=2760799",
-  "test_prompt": "a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd"
+  "test_prompt": "a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd",
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 82866736
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "HighResolutionFlux2-Kelien-9B.int8.safetensors"
 }

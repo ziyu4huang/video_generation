@@ -3,14 +3,14 @@
   "name": "singularity-omnicine-v1",
   "type": "lora",
   "arch": "ltx-2.3",
-  "format": "safetensors-bf16",
-  "description": "Singularity OmniCine V1 — quality enhancement LoRA: fixes anatomy, enables cinematic cuts, improves physics",
+  "format": "mlx-int8",
+  "description": "Singularity OmniCine V1 \u2014 quality enhancement LoRA: fixes anatomy, enables cinematic cuts, improves physics",
   "source": "WarmBloodAban/Singularity-LTX-2.3_OmniCine_V1",
   "compatible_with": [
     "transformer/ltx-2.3-dev-q8"
   ],
-  "size_bytes": 2695584680,
-  "created_at": "2026-06-08T11:59:46Z",
+  "size_bytes": 1348506844,
+  "created_at": "2026-06-13T21:19:27Z",
   "pipeline": [
     "ltx-2.3"
   ],
@@ -18,5 +18,16 @@
   "trigger_words": [
     "omnicine",
     "singularity"
-  ]
+  ],
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 2695584680
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "weight_file": "Singularity-LTX-2.3_OmniCine_V1.int8.safetensors"
 }
