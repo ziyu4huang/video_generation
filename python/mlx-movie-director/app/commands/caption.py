@@ -7,7 +7,9 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
+import time
 from typing import Any
 
 import requests
@@ -128,6 +130,9 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Caption style (default: default)")
     parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
                         help="Output language (default: zh_TW)")
+    parser.add_argument("--no-auto-load", action="store_true",
+                        help="Don't auto-load the VLM in LM Studio before captioning "
+                        "(assume the model is already loaded)")
     parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
                         help="Original T2I prompt (used by 'review' style for adherence evaluation)")
     parser.add_argument("--review-html", type=str, nargs="+", metavar="JSON",
@@ -190,7 +195,8 @@ def run(args: argparse.Namespace) -> None:
     b64 = _image_to_base64(input_path)
 
     # 2. Call VLM API
-    caption = _call_vlm(args.api_url, args.model, b64, prompt_text)
+    caption = _call_vlm(args.api_url, args.model, b64, prompt_text,
+                        auto_load=not getattr(args, "no_auto_load", False))
 
     # 3. Save JSON
     result = {
@@ -279,80 +285,167 @@ def _lmstudio_base(api_url: str) -> str:
     return api_url.rstrip("/").removesuffix("/v1")
 
 
-def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> bool:
-    """Ensure the given model is loaded in LM Studio via its native API.
+def _lmstudio_home() -> str:
+    """Resolve the LM Studio home directory (where .internal/ lives)."""
+    return os.environ.get("LMSTUDIO_HOME") or os.path.expanduser("~/.lmstudio")
 
-    Uses LM Studio native endpoints:
-      GET  /api/v1/models           — list currently loaded models
-      POST /api/v1/models/load      — trigger model load
-      (polls GET /api/v1/models until model appears or timeout)
+
+def _lmstudio_default_config_path(model_id: str) -> str:
+    """Path to LM Studio's per-model default load-config JSON.
+
+    e.g. model_id="qwen/qwen3-vl-4b" ->
+         ~/.lmstudio/.internal/user-concrete-model-default-config/qwen/qwen3-vl-4b.json
+    """
+    return os.path.join(
+        _lmstudio_home(), ".internal", "user-concrete-model-default-config",
+        f"{model_id}.json",
+    )
+
+
+def _disable_kv_cache_quant(model_id: str) -> bool:
+    """Disable MLX KV-cache quantization in LM Studio's per-model default config.
+
+    The MLX vision path (mlx-vlm) cannot load a VLM with KV-cache quantization
+    enabled — it raises "The mlx-vlm batched vision path does not support KV
+    cache quantization yet" and every headless load (REST /api/v1/models/load
+    AND the `lms load` CLI) fails. LM Studio stores this default per-model; the
+    REST load endpoint accepts only {"model"} and exposes no flag to turn it off,
+    so the only programmatic fix is to edit this stored config. This flips the
+    stored default to enabled=false so subsequent loads succeed.
+
+    Idempotent and safe: a no-op (returns False) if the file is missing, the
+    field is absent, or already disabled. Backs up the original before writing.
+
+    Returns True if a change was made (caller should retry the load).
+    """
+    cfg_path = _lmstudio_default_config_path(model_id)
+    if not os.path.exists(cfg_path):
+        return False
+    try:
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[caption] Could not read LM Studio model config ({cfg_path}): {e}",
+              file=sys.stderr)
+        return False
+
+    fields = cfg.get("load", {}).get("fields", [])
+    kv_field = next(
+        (f for f in fields if f.get("key") == "llm.load.mlx.kvCacheQuantization"), None
+    )
+    if kv_field is None:
+        return False
+    if not kv_field.get("value", {}).get("enabled", False):
+        return False  # already disabled
+
+    backup = f"{cfg_path}.bak.{int(time.time())}"
+    try:
+        shutil.copy2(cfg_path, backup)
+        kv_field["value"]["enabled"] = False
+        with open(cfg_path, "w") as f:
+            json.dump(cfg, f, indent=4)
+    except OSError as e:
+        print(f"[caption] Could not write LM Studio model config: {e}", file=sys.stderr)
+        return False
+
+    print(
+        f"[caption] Disabled KV-cache quantization for {model_id} in LM Studio "
+        f"(backup: {backup}). This fixes the mlx-vlm VLM load failure.",
+        flush=True,
+    )
+    return True
+
+
+def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> bool:
+    """Ensure the given model is loaded in LM Studio.
+
+    Checks the native /api/v1/models endpoint for actual load state; if not
+    loaded, POSTs /api/v1/models/load. If that load fails, attempts to auto-fix
+    the most common MLX-VLM failure (KV-cache quantization) and retries once.
 
     Args:
         api_url: OpenAI-compatible base URL (e.g., "http://localhost:1234/v1")
         model_id: Model identifier string (e.g., "qwen/qwen3-vl-4b")
-        timeout: Seconds to wait for load to complete (default 180s)
+        timeout: Seconds to wait for a single load attempt (default 180s)
 
     Returns:
-        True if model is ready; False if LM Studio unavailable or load failed.
+        True if the model is loaded (or becomes loaded); False if LM Studio is
+        unavailable or the load genuinely fails.
     """
-    import time
     base = _lmstudio_base(api_url)
     lms_base = f"{base}/api/v1"
 
     def _loaded_models():
+        """Return the set of currently-loaded model keys, or None if unreachable.
+
+        Uses the NATIVE /api/v1/models endpoint: each model carries a
+        `loaded_instances` list (non-empty iff loaded). The OpenAI /v1/models
+        endpoint lists ALL indexed models regardless of load state, so it cannot
+        distinguish loaded from unloaded.
+        """
         try:
-            # Use OpenAI-compatible /v1/models — returns only loaded models
-            # with {"data": [{"id": "..."}]} format.
-            # Native /api/v1/models uses {"models": [...], "key": ...} — wrong format.
-            r = requests.get(f"{api_url}/models", timeout=5)
+            r = requests.get(f"{lms_base}/models", timeout=5)
             r.raise_for_status()
             data = r.json()
-            return [m.get("id", "") for m in data.get("data", [])]
+            return {
+                m.get("key", "") for m in data.get("models", [])
+                if m.get("loaded_instances")
+            }
         except Exception:
             return None
 
-    # Check if already loaded
+    def _load_once() -> bool:
+        """POST the load endpoint; returns True if the model reports loaded."""
+        try:
+            r = requests.post(
+                f"{lms_base}/models/load",
+                json={"model": model_id},
+                timeout=timeout,
+            )
+            if r.status_code == 200:
+                body = r.json()
+                # Successful load: {"status": "loaded", "instance_id": ...}
+                if body.get("status") == "loaded" or body.get("instance_id"):
+                    return True
+                err = body.get("error")
+                if err:
+                    print(f"[caption] LM Studio load error: {err.get('type')}: "
+                          f"{err.get('message', '')}", file=sys.stderr)
+            else:
+                print(f"[caption] LM Studio load HTTP {r.status_code}: "
+                      f"{r.text[:200]}", file=sys.stderr)
+        except requests.RequestException as e:
+            print(f"[caption] LM Studio load request failed: {e}", file=sys.stderr)
+        return False
+
     loaded = _loaded_models()
     if loaded is None:
         return False  # LM Studio not responding
     if model_id in loaded:
         return True
 
-    # Request load
     print(f"[caption] Loading model {model_id} via LM Studio...", flush=True)
-    try:
-        r = requests.post(
-            f"{lms_base}/models/load",
-            json={"model": model_id},
-            timeout=15,
-        )
-        r.raise_for_status()
-    except Exception as e:
-        print(f"[caption] Load request failed: {e}")
-        return False
+    if _load_once():
+        return True
 
-    # Poll until loaded or timeout
-    deadline = time.time() + timeout
-    interval = 3
-    while time.time() < deadline:
-        time.sleep(interval)
-        loaded = _loaded_models()
-        if loaded is not None and model_id in loaded:
-            print(f"[caption] Model ready.")
+    # Load failed — the most common cause for MLX VLMs is KV-cache quantization.
+    # Auto-fix it (idempotent) and retry once.
+    if _disable_kv_cache_quant(model_id):
+        print("[caption] Retrying load after KV-cache fix...", flush=True)
+        if _load_once():
             return True
-        remaining = int(deadline - time.time())
-        print(f"[caption] Waiting for model load... ({remaining}s remaining)", end="\r", flush=True)
-        interval = min(interval + 1, 10)
 
-    print(f"\n[caption] Timed out waiting for model load ({timeout}s).")
     return False
 
 
-def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
+def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
+              auto_load: bool = True) -> str:
     """Call OpenAI-compatible chat completions API with image + text.
 
-    Automatically tries to load the model via LM Studio native API if the first
-    request fails with a connection error or 5xx status (model not loaded).
+    When auto_load is True (default), ensures the model is loaded in LM Studio
+    before the first request — proactively, not only on failure. As a fallback,
+    also retries once via _lmstudio_ensure_model if the first request fails with
+    a connection error or HTTP error (model not loaded).
     """
     url = f"{api_url}/chat/completions"
     payload = {
@@ -380,10 +473,13 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
         resp.raise_for_status()
         return resp.json()
 
+    if auto_load:
+        _lmstudio_ensure_model(api_url, model)
+
     try:
         data = _do_request()
     except (requests.ConnectionError, requests.HTTPError) as first_err:
-        # Try to load the model via LM Studio native API, then retry once
+        # Reactive fallback: ensure the model is loaded, then retry once.
         if _lmstudio_ensure_model(api_url, model):
             data = _do_request()  # raises if still failing
         else:
@@ -403,7 +499,7 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str) -> str:
 
 def caption_image(image_path: str, style: str = "photography", lang: str = "en",
                   api_url: str = _DEFAULT_API_URL, model: str = _DEFAULT_MODEL,
-                  prompt: str | None = None) -> str:
+                  prompt: str | None = None, auto_load: bool = True) -> str:
     """Caption a single image and return the text. Reusable public API.
 
     Args:
@@ -413,6 +509,7 @@ def caption_image(image_path: str, style: str = "photography", lang: str = "en",
         api_url: VLM API base URL.
         model: VLM model name.
         prompt: Original T2I prompt (required for 'review' style).
+        auto_load: If True, ensure the VLM is loaded in LM Studio first.
 
     Returns:
         Caption text string.
@@ -422,7 +519,7 @@ def caption_image(image_path: str, style: str = "photography", lang: str = "en",
         prompt_text = prompt_text.format(prompt=prompt)
     prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
     b64 = _image_to_base64(image_path)
-    return _call_vlm(api_url, model, b64, prompt_text)
+    return _call_vlm(api_url, model, b64, prompt_text, auto_load=auto_load)
 
 
 # ---------------------------------------------------------------------------
