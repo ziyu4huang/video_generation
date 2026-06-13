@@ -622,6 +622,13 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               disabled={!activePath}
               title={activePath || "No JSON file"}
             >📁 Path</button>
+            <a
+              href={url}
+              download={url.split("/").pop()}
+              className={s.imagePreviewRawBtn}
+              title="Download"
+              onClick={(e) => e.stopPropagation()}
+            >↓ Save</a>
             <button className={s.imagePreviewPanelClose} onClick={onClose}>✕</button>
           </div>
         </div>

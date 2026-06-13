@@ -98,6 +98,11 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
           <span>{wsConnected ? "Connected" : "Disconnected"}</span>
         </div>
 
+        {/* Keyboard hint */}
+        <div className="sidebar-kbd-hint">
+          <kbd>⌘K</kbd> command palette
+        </div>
+
         {/* Running job status */}
         {runningJob && (
           <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)" }}>

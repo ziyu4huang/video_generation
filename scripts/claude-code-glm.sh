@@ -28,17 +28,19 @@
 #
 # CUSTOMIZATION:
 # Override these environment variables if needed:
-#   Z_AI_MODEL_DEFAULT="glm-5-turbo"   # Default model to use
-#   Z_AI_MODEL_ALTERNATIVE="glm-4.5v" # Alternative model
-#   Z_AI_MODE="ZAI"                  # API mode
+#   Z_AI_MODEL_DEFAULT="glm-5.2[1m]"   # Sonnet-tier model (also the main ANTHROPIC_MODEL)
+#   Z_AI_MODEL_OPUS="glm-5.2[1m]"      # Opus-tier model
+#   Z_AI_MODEL_AIR="glm-4.5-air"       # Haiku-tier model (fast/cheap)
+#   Z_AI_MODE="ZAI"                    # API mode
 ########################################
 
 # Default values (only set if not already defined)
+# The [1m] suffix on a GLM model id routes to its 1M-token context-window variant.
 : "${Z_AI_MODE:="ZAI"}"
-: "${Z_AI_MODEL_OPUS:="glm-5.1"}"
-: "${Z_AI_MODEL_DEFAULT:="glm-5.1"}"
+: "${Z_AI_MODEL_OPUS:="glm-5.2[1m]"}"
+: "${Z_AI_MODEL_DEFAULT:="glm-5.2[1m]"}"
 : "${Z_AI_MODEL_AIR:="glm-4.5-air"}"
-: "${Z_AI_MODEL_ALTERNATIVE:="glm-5.1"}"
+: "${Z_AI_MODEL_ALTERNATIVE:="glm-5.2[1m]"}"
 
 glm()
 {
@@ -59,6 +61,8 @@ glm()
     export ANTHROPIC_DEFAULT_HAIKU_MODEL="${Z_AI_MODEL_AIR}"
     export ANTHROPIC_DEFAULT_SONNET_MODEL="${Z_AI_MODEL_DEFAULT}"
     export ANTHROPIC_DEFAULT_OPUS_MODEL="${Z_AI_MODEL_OPUS}"
+    # Auto-compact near the 1M context window (matches glm-5.2[1m])
+    export CLAUDE_CODE_AUTO_COMPACT_WINDOW="1000000"
     echo "Using model: ${ANTHROPIC_MODEL}"
     export API_TIMEOUT_MS=30000000
     export BASH_DEFAULT_TIMEOUT_MS=3000000

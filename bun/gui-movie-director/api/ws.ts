@@ -71,6 +71,10 @@ subprocessManager.onLog((jobId, line, stream) => {
 });
 
 subprocessManager.onStatus((job) => {
+  // Invalidate gallery search index so next search rebuilds with new outputs
+  if (job.status === "completed") {
+    import("../lib/gallery-index").then((m) => m.invalidateIndex()).catch(() => {});
+  }
   const message = JSON.stringify({
     type: job.status === "completed" ? "job_complete" : "job_failed",
     jobId: job.id,

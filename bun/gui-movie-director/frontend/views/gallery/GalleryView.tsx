@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Gallery } from "../../components/Gallery";
+import { GallerySearchBar } from "../../components/GallerySearchBar";
+import type { GalleryTypeFilter } from "../../components/Gallery";
 import { ImagePreview } from "../../components/ImagePreview";
 import type { GalleryImage } from "../../types";
 
@@ -12,6 +14,8 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   const [refreshKey, setRefreshKey] = useState(0);
   const [previewImage, setPreviewImage] = useState<GalleryImage | null>(null);
   const [allImages, setAllImages] = useState<GalleryImage[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<GalleryTypeFilter>("all");
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -102,11 +106,20 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
 
   return (
     <>
+      <GallerySearchBar
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
+        resultCount={searchQuery ? allImages.length : null}
+      />
       <Gallery
         key={refreshKey}
         onImageClick={handleImageClick}
         highlight={highlightConsumedRef.current ? undefined : highlight}
         onImagesReady={handleImagesReady}
+        searchQuery={searchQuery}
+        typeFilter={typeFilter}
       />
       {previewImage && (
         <ImagePreview

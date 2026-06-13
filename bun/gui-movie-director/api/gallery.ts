@@ -56,15 +56,11 @@ function buildFileIndex(dir: string): Set<string> {
   try { return new Set(fs.readdirSync(dir)); } catch { return new Set(); }
 }
 
-export async function handleGallery(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const page = parseInt(url.searchParams.get("page") || "1", 10);
-  const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+// Shared: scan raw filesystem entries across all output dirs
+type RawEntry = { name: string; dir: string; fullPath: string; mtime: number; size: number };
 
-  // Collect media entries from ALL output directories
-  type RawEntry = { name: string; dir: string; fullPath: string; mtime: number; size: number };
-  const allEntries: RawEntry[] = [];
-  // Cache dir listings for thumbnail lookups in the inner map (one read per dir, not per video)
+function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<string>> } {
+  const entries: RawEntry[] = [];
   const dirFileCache = new Map<string, Set<string>>();
 
   for (const dir of OUTPUT_DIRS) {
@@ -72,11 +68,10 @@ export async function handleGallery(req: Request): Promise<Response> {
     const allFiles = fs.readdirSync(dir);
     dirFileCache.set(dir, new Set(allFiles));
 
-    const entries = allFiles
+    const dirEntries = allFiles
       .filter((f) => {
         const ext = path.extname(f).toLowerCase();
         if (!MEDIA_EXTENSIONS.has(ext)) return false;
-        // Skip relay PNGs — they're companion thumbnails for video segments
         if (ext === ".png" && f.endsWith("_relay.png")) return false;
         return true;
       })
@@ -89,55 +84,34 @@ export async function handleGallery(req: Request): Promise<Response> {
       })
       .filter((e): e is RawEntry => e !== null);
 
-    allEntries.push(...entries);
+    entries.push(...dirEntries);
   }
 
-  // Sort all entries by mtime descending (newest first)
-  allEntries.sort((a, b) => b.mtime - a.mtime);
+  entries.sort((a, b) => b.mtime - a.mtime);
+  return { entries, dirFileCache };
+}
 
-  const total = allEntries.length;
-  const paged = allEntries.slice((page - 1) * limit, page * limit);
-
-  const images: ImageEntry[] = paged.map((entry) => {
+function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>): ImageEntry {
     const base = entry.name.replace(/\.[^.]+$/, "");
     const mediaType = getMediaType(entry.name);
 
-    // Manifest / run lookup with progressive base-name stripping
     const manifestPath = findCompanionJson(entry.dir, base, ".manifest.json");
-    let manifest: Record<string, any> | null = null;
-    if (manifestPath) {
-      manifest = readJsonFile(manifestPath);
-    }
+    const manifest = manifestPath ? readJsonFile(manifestPath) : null;
 
     const runPath = findCompanionJson(entry.dir, base, ".run.json");
-    let run: Record<string, any> | null = null;
-    if (runPath) {
-      run = readJsonFile(runPath);
-    }
+    const run = runPath ? readJsonFile(runPath) : null;
 
-    // Thumbnail: for videos, look for companion relay PNG or regular PNG
     const dirIdx = OUTPUT_DIRS.indexOf(entry.dir);
     let thumbnailUrl: string | null = null;
     if (mediaType === "video") {
       const fileIndex = dirFileCache.get(entry.dir) ?? new Set<string>();
-      const candidates = [
-        `${base}_relay.png`,   // output_20260611_193630_seg01_relay.png
-        `${base}.png`,         // output_20260611_192957.png
-      ];
-      for (const c of candidates) {
-        if (fileIndex.has(c)) {
-          thumbnailUrl = `/output/${dirIdx}/${c}`;
-          break;
-        }
+      for (const c of [`${base}_relay.png`, `${base}.png`]) {
+        if (fileIndex.has(c)) { thumbnailUrl = `/output/${dirIdx}/${c}`; break; }
       }
     }
 
-    // Caption lookup
     const captionPath = findCompanionJson(entry.dir, base, ".caption.json");
-    let caption: Record<string, any> | null = null;
-    if (captionPath) {
-      caption = readJsonFile(captionPath);
-    }
+    const caption = captionPath ? readJsonFile(captionPath) : null;
 
     return {
       name: entry.name,
@@ -153,7 +127,41 @@ export async function handleGallery(req: Request): Promise<Response> {
       caption,
       captionPath: caption ? captionPath : null,
     };
-  });
+}
+
+// Scan all images without pagination — used by the search index builder
+export function scanAllImages(): ImageEntry[] {
+  const { entries, dirFileCache } = scanRawEntries();
+  return entries.map((e) => buildImageEntry(e, dirFileCache));
+}
+
+export async function handleGallerySearch(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") ?? "").trim();
+  const typeFilter = url.searchParams.get("type") ?? undefined;
+
+  if (!q) return Response.json({ images: [], total: 0 });
+
+  const { isIndexed, buildIndex, searchImages } = await import("../lib/gallery-index");
+  if (!isIndexed()) {
+    buildIndex(scanAllImages());
+  }
+
+  const images = searchImages(q, typeFilter);
+  return Response.json({ images, total: images.length });
+}
+
+export async function handleGallery(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const page = parseInt(url.searchParams.get("page") || "1", 10);
+  const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+
+  const { entries, dirFileCache } = scanRawEntries();
+
+  const total = entries.length;
+  const paged = entries.slice((page - 1) * limit, page * limit);
+
+  const images: ImageEntry[] = paged.map((entry) => buildImageEntry(entry, dirFileCache));
 
   return Response.json({ images, total, page, limit });
 }

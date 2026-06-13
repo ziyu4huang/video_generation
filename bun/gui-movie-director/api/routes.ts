@@ -2,7 +2,7 @@ import type { Server } from "bun";
 import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
-import { handleGallery, handleGalleryImage } from "./gallery";
+import { handleGallery, handleGalleryImage, handleGallerySearch } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
@@ -130,6 +130,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   const method = req.method;
 
   // Gallery
+  if (pathname === "/api/gallery/search" && method === "GET") {
+    return handleGallerySearch(req);
+  }
   if (pathname === "/api/gallery" && method === "GET") {
     return handleGallery(req);
   }

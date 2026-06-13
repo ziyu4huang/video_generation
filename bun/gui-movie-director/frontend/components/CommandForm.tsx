@@ -5,6 +5,7 @@ import { FileUpload } from "./FileUpload";
 import { InlineError } from "./InlineError";
 import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
+import { useFieldHistory } from "../hooks/useFieldHistory";
 
 interface CommandFormProps {
   schema: CommandSchema;
@@ -64,6 +65,20 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
   const { state, setField } = useDefaultState(schema.action, buildDefaults(schema.sections));
   const [error, setError] = useState<string | null>(null);
 
+  // Collect prompt fields for history tracking
+  const promptFields = schema.sections.flatMap((s) =>
+    s.fields.filter((f) => f.type === "prompt" || f.type === "text")
+  );
+  const promptHistories = promptFields.map((f) => ({
+    field: f,
+    // Each hook call must be unconditional — we use the field key as stable id
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    ...useFieldHistory(schema.action, f.key),
+  }));
+
+  const getHistory = (fieldKey: string) =>
+    promptHistories.find((h) => h.field.key === fieldKey) ?? null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -78,6 +93,11 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
       });
       const data = await res.json();
       if (data.jobId) {
+        // Save prompt/text field values to history
+        for (const { field, push } of promptHistories) {
+          const val = state[field.key];
+          if (typeof val === "string" && val.trim()) push(val);
+        }
         onJobStart({ jobId: data.jobId, command });
       } else if (data.error) {
         setError(data.error);
@@ -89,7 +109,8 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
 
   const renderField = (field: FieldDef) => {
     switch (field.type) {
-      case "prompt":
+      case "prompt": {
+        const hist = getHistory(field.key);
         return (
           <TextField
             key={field.key}
@@ -99,9 +120,13 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
             placeholder={field.placeholder}
             multiline
             required={field.required}
+            historyId={`hist-${schema.action}-${field.key}`}
+            history={hist?.history}
           />
         );
-      case "text":
+      }
+      case "text": {
+        const hist = getHistory(field.key);
         return (
           <TextField
             key={field.key}
@@ -110,8 +135,11 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
             onChange={(v) => setField(field.key, v)}
             placeholder={field.placeholder}
             multiline={field.multiline}
+            historyId={`hist-${schema.action}-${field.key}`}
+            history={hist?.history}
           />
         );
+      }
       case "number":
         return (
           <NumberField

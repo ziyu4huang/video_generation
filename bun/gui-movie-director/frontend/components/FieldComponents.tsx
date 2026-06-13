@@ -9,12 +9,19 @@ interface TextFieldProps {
   placeholder?: string;
   multiline?: boolean;
   required?: boolean;
+  historyId?: string;
+  history?: string[];
 }
 
-export function TextField({ label, value, onChange, placeholder, multiline, required }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, multiline, required, historyId, history }: TextFieldProps) {
   return (
     <div className="form-group">
       <label>{label}{required && " *"}</label>
+      {historyId && history && history.length > 0 && (
+        <datalist id={historyId}>
+          {history.map((v, i) => <option key={i} value={v} />)}
+        </datalist>
+      )}
       {multiline ? (
         <textarea
           value={value}
@@ -27,6 +34,7 @@ export function TextField({ label, value, onChange, placeholder, multiline, requ
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          list={historyId && history?.length ? historyId : undefined}
         />
       )}
     </div>

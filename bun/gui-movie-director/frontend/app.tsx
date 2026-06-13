@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import "./styles/global.css";
 import { createRoot } from "react-dom/client";
 import { Router, useLocation } from "wouter";
@@ -9,6 +9,7 @@ import * as Tooltip from "@radix-ui/react-tooltip";
 import { Layout } from "./components/Layout";
 import { ConfigView } from "./components/ConfigView";
 import { DomInspector } from "./components/DomInspector";
+import { CommandPalette } from "./components/CommandPalette";
 import { NavigationContext } from "./context/NavigationContext";
 import { GalleryView } from "./views/gallery/GalleryView";
 import { JobHistoryView } from "./views/jobs/JobHistoryView";
@@ -44,11 +45,17 @@ function initialMounted(): Set<string> {
   return m ? new Set([m[1]]) : new Set();
 }
 
+// Flat list of all commands for CommandPalette
+const FLAT_COMMANDS = COMMAND_GROUPS.flatMap((g) =>
+  g.commands.map((c) => ({ ...c, group: g.label }))
+);
+
 function App() {
   // useLocation() resolves to useHashLocation inside <Router hook={useHashLocation}>
   const [location, setLocation] = useLocation();
   const [mountedCommands, setMountedCommands] = useState<Set<string>>(initialMounted);
   const [highlight, setHighlight] = useState<string[] | undefined>();
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const currentView = parseLocation(location);
 
@@ -77,8 +84,26 @@ function App() {
 
   const handleHighlightConsumed = useCallback(() => setHighlight(undefined), []);
 
+  // Cmd+K / Ctrl+K opens command palette
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
   return (
     <NavigationContext.Provider value={handleNavigate}>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={FLAT_COMMANDS}
+        onSelect={handleViewChange}
+      />
       <Layout currentView={currentView} onViewChange={handleViewChange}>
         {(currentView.type === "gallery") && (
           <GalleryView

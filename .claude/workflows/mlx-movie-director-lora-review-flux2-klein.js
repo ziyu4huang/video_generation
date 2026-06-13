@@ -1110,6 +1110,9 @@ For EACH task append a scores object to scores[] IN TASK ORDER:
 { "imagePath": "<pngPath>", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "error": "" }
 
 Each task is INDEPENDENT — if one fails, set its error and continue with the rest.
+If a caption command's output contains "Failed to load model" or "400 Client Error", the VLM is
+under memory pressure: run Bash("sleep 15"), then re-run that SAME caption command ONCE. If it
+still fails, set that task's error="VLM load failed" and continue to the next task.
 
 Return JSON: { "scores": [ {...}, ... ] } in task order.`,
         { label: `sweep-cap-${loraName}`, phase: "Scale Sweep", schema: BATCH_SWEEP_CAP_SCHEMA },
@@ -1423,6 +1426,9 @@ For EACH task append a caption object to captions[] IN TASK ORDER:
 { "imagePath": "<pngPath>", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "review", "model": "...", "error": "" }
 
 If a connection error occurs for a task, set its error = "VLM unavailable" and continue with the rest. Each task is INDEPENDENT.
+If a caption command's output contains "Failed to load model" or "400 Client Error", the VLM is
+under memory pressure: run Bash("sleep 15"), then re-run that SAME caption command ONCE. If it
+still fails, set that task's error="VLM load failed" and continue to the next task.
 
 Return JSON: { "captions": [ {...}, ... ] } in task order.`,
         { label: `caption-${gLabel}`, phase: "Review", schema: BATCH_CAP_SCHEMA },

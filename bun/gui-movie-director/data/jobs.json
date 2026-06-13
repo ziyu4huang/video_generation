@@ -1,5 +1,39 @@
 [
   {
+    "id": "0962a39e-d2ad-4a85-b7e1-1ff150631f67",
+    "command": "image restore",
+    "args": [
+      "/Users/huangziyu/proj/video_generation/python/mlx-movie-director/run.py",
+      "image",
+      "restore",
+      "--input",
+      "/Users/huangziyu/proj/video_generation/python/mlx-movie-director/output/uploads/upload_1781387048134_toc9n4.png",
+      "--denoise-strength",
+      "0.35",
+      "--pipeline",
+      "zimage",
+      "--seed",
+      "42"
+    ],
+    "status": "failed",
+    "startedAt": "2026-06-13T21:44:15.724Z",
+    "outputFiles": [],
+    "logs": [
+      {
+        "text": "[interrupted: server restarted]",
+        "stream": "stdout"
+      }
+    ],
+    "action": "restore",
+    "params": {
+      "input_image": "/Users/huangziyu/proj/video_generation/python/mlx-movie-director/output/uploads/upload_1781387048134_toc9n4.png",
+      "denoise_strength": 0.35,
+      "pipeline": "zimage",
+      "seed": 42
+    },
+    "completedAt": "2026-06-13T21:44:18.620Z"
+  },
+  {
     "id": "b5c8ce34-883b-4f81-8930-f9703ce65f7e",
     "command": "image i2i",
     "args": [
