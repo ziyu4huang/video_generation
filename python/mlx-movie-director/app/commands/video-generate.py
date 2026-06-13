@@ -34,7 +34,9 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name, make_output_paths, resolve_prompt, run_session
+from app.commands._shared import (generate_base_name, make_output_paths,
+                                   normalize_self_test, resolve_prompt,
+                                   run_session, _option_registered)
 from app.ltx_variants import get_variant
 from app.manifest import Manifest, file_fingerprint
 from app.run_config import RunConfig
@@ -189,6 +191,14 @@ def add_generate_args(parser):
                              "(e.g. singularity-omnicine-v1, ltx-2-3-transition)")
     parser.add_argument("--lora-scale", type=float, default=1.0,
                         help="LoRA scale factor (default: 1.0)")
+
+    # Self-test flag (shared pattern from _shared.py, registered with guard)
+    if not _option_registered(parser, "--self-test"):
+        parser.add_argument("--self-test", nargs="*", default=None,
+                            dest="self_test", metavar="TEST_ID",
+                            help="Run self-test: bare --self-test runs all video test prompts, "
+                                 "--self-test NAME runs one, or multiple names for a batch "
+                                 "(e.g. --self-test beach-walk rainy-street)")
 
 
 # ---------------------------------------------------------------------------
@@ -429,7 +439,63 @@ def run_generate(args):
     _run_generate_inner(args)
 
 
+def _run_generate_self_test(args, st):
+    """Run self-test: generate video(s) for each named test prompt.
+
+    Args:
+        args: Parsed CLI args (seed, etc. are respected).
+        st: True (all tests), str (single test), or list (multiple tests).
+    """
+    from app.test_prompts_video import get_test_prompt, list_test_prompt_names
+
+    # Resolve which prompts to run
+    if st is True:
+        names = list_test_prompt_names()
+    elif isinstance(st, str):
+        names = [st]
+    elif isinstance(st, list):
+        names = st
+    else:
+        print(f"[self-test] ERROR: unexpected self_test type: {type(st)}")
+        return
+
+    print(f"[self-test] Running {len(names)} video test(s): {', '.join(names)}")
+    results = []
+    for name in names:
+        try:
+            tp = get_test_prompt(name)
+        except KeyError:
+            print(f"  [SKIP] Unknown test prompt: {name!r}")
+            continue
+
+        # Clone args and inject test prompt
+        import copy
+        test_args = copy.copy(args)
+        test_args.test_prompt = name
+        test_args.prompt = tp["prompt"]
+        defaults = tp.get("defaults", {})
+        for k, v in defaults.items():
+            # Only set if the arg exists and wasn't explicitly given
+            if hasattr(test_args, k) and getattr(args, k, None) is None:
+                setattr(test_args, k, v)
+
+        print(f"\n  {'='*56}")
+        print(f"  [{name}] {tp.get('description', '')}")
+        print(f"  {'='*56}")
+        _run_generate_inner(test_args)
+        results.append(name)
+
+    print(f"\n[self-test] Done: {len(results)}/{len(names)} tests completed")
+
+
 def _run_generate_inner(args):
+    # --self-test mode: run all (or named) video test prompts
+    normalize_self_test(args)
+    st = getattr(args, "self_test", None)
+    if st is not None:
+        _run_generate_self_test(args, st)
+        return
+
     # If --test-prompt selected, inject its prompt text and apply recommended defaults
     test_prompt_name = getattr(args, "test_prompt", None)
     if test_prompt_name:

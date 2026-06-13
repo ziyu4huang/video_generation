@@ -408,7 +408,7 @@ def add_relay_args(parser):
     # Self-test
     grp.add_argument(
         "--relay-self-test", action="store_true", default=False, dest="relay_self_test",
-        help="Run a 2-segment relay self-test (T2V → last-frame → I2V → concat). "
+        help="[deprecated: use --self-test] Run a 2-segment relay self-test. "
              "No prompts or images required. Pass --relay-audio to also test audio mux.",
     )
 

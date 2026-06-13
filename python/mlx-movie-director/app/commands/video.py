@@ -107,6 +107,8 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     _compare.add_compare_args(parser)
 
     # Quality args: --self-test, --sample-every, --json, --labels, --no-html
+    # Quality args: --self-test, --sample-every, --json, --labels, --no-html
+    # --self-test is registered via add_common_generation_args() above
     _quality.add_quality_args(parser)
 
     # Restore args: --input, --output, --seed, --frames, --restoration-lora, etc.
@@ -120,6 +122,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
 
 def run(args: "argparse.Namespace") -> None:
+    # Normalize --self-test (shared nargs="*" → legacy scalar/bool form)
+    from app.commands._shared import normalize_self_test
+    normalize_self_test(args)
+
     action = getattr(args, "action", "generate") or "generate"
     if action == "relay":
         _relay.run_relay(args)

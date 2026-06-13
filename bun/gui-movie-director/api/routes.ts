@@ -10,9 +10,10 @@ import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleVlmTest } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetSchemaDefaults } from "./schema-defaults";
+import { handleGetCliSchema } from "./schema";
 import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
 import { handleCaptionRun, handleCaptionGet } from "./caption";
-import { handleWebSocketUpgrade } from "./ws";
+import { handleWebSocketUpgrade, broadcastMessage } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
@@ -54,6 +55,15 @@ async function _doBuild(silent?: boolean): Promise<boolean> {
       return true;
     } else {
       console.error("Bundle errors:", result.logs);
+      const errors = result.logs
+        .filter((l) => l.level === "error")
+        .map((l) => ({
+          message: l.message,
+          file: (l as any).position?.file ?? "",
+          line: (l as any).position?.line ?? 0,
+          col: (l as any).position?.column ?? 0,
+        }));
+      if (errors.length) broadcastMessage({ type: "hmr-error", errors });
       return false;
     }
   } catch (err) {
@@ -121,8 +131,7 @@ function serveFile(filePath: string, headers: Record<string, string>): Response 
   if (!fs.existsSync(filePath)) {
     return new Response("Not found", { status: 404, headers });
   }
-  const content = fs.readFileSync(filePath);
-  return new Response(content, { headers });
+  return new Response(Bun.file(filePath), { headers });
 }
 
 async function handleApi(req: Request, url: URL): Promise<Response> {
@@ -202,6 +211,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // Schema defaults
   if (pathname === "/api/schema-defaults" && method === "GET") {
     return handleGetSchemaDefaults(req);
+  }
+
+  // Full CLI contract from run.py (single source of truth for accepted flags)
+  if (pathname === "/api/cli-schema" && method === "GET") {
+    return handleGetCliSchema(req);
   }
 
   // Self-test

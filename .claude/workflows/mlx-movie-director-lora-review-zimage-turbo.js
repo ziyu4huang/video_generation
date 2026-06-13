@@ -1,11 +1,11 @@
-// mlx-movie-director-lora-review-t2i-zimage-turbo — LoRA A/B review for zimage-turbo
+// mlx-movie-director-lora-review-zimage-turbo — LoRA A/B review for zimage-turbo
 //
 // Auto-discovers all zimage-turbo LoRAs, generates baseline vs LoRA pairs across
 // multiple seeds, captions each via VLM, then builds ONE interactive review HTML
 // for human feedback.
 //
 // Usage:
-//   Workflow({ name: "mlx-movie-director-lora-review-t2i-zimage-turbo" })
+//   Workflow({ name: "mlx-movie-director-lora-review-zimage-turbo" })
 //     → auto-discover all zimage-turbo LoRAs, portrait prompt, 4 seeds
 //   Workflow({ name: "...", args: "A moody portrait in soft lighting" })
 //     → custom prompt with auto-discovered LoRAs
@@ -38,7 +38,7 @@
 //   { reviewHtml, captionFiles, captionSets, report, loras, seeds, bestScales, sweepResults, history }
 
 export const meta = {
-  name: "mlx-movie-director-lora-review-t2i-zimage-turbo",
+  name: "mlx-movie-director-lora-review-zimage-turbo",
   description: "LoRA A/B review: auto-discover zimage-turbo LoRAs, generate baseline vs LoRA pairs, caption, build interactive comparison HTML",
   whenToUse: "Compare all zimage-turbo LoRAs against baseline in one run. Generates paired images per seed, VLM-scores each, and produces a multi-set review HTML for human feedback.",
   phases: [
@@ -134,7 +134,7 @@ const RUN_PY      = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR     = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR    = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
 
-const WORKFLOW_NAME  = "mlx-movie-director-lora-review-t2i-zimage-turbo"
+const WORKFLOW_NAME  = "mlx-movie-director-lora-review-zimage-turbo"
 const HISTORY_DIR    = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE     = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`

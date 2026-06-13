@@ -109,18 +109,9 @@ def add_quality_args(parser):
         help="Video file(s) or manifest.json(s) to analyze",
     )
 
-    # Self-test mode (uses shared --test-prompt and --seed from generate args)
-    parser.add_argument(
-        "--self-test", nargs="?", const=True, default=False,
-        dest="self_test",
-        help="Run self-test. Modes: default (distilled vs HQ), "
-             "steps-sweep (4/8/12/16 steps), degradation (synthetic), "
-             "restore-loop (degrade→restore→SSIM/PSNR vs ground truth). "
-             "Usage: --self-test [steps-sweep|degradation|restore-loop]. "
-             "restore-loop needs --quality-inputs <clean.mp4>. "
-             "Use --test-prompt NAME to select the built-in prompt (default: forest-hiker) "
-             "and --seed N to control generation (default: 42).",
-    )
+    # --self-test is registered via add_common_generation_args() in video.py
+    # Quality-specific modes: steps-sweep, degradation, restore-loop
+    # Usage: --self-test [steps-sweep|degradation|restore-loop] --test-prompt NAME
 
     # Analysis options
     parser.add_argument(

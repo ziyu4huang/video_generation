@@ -48,6 +48,7 @@ export function buildIndex(images: any[]): void {
   });
   insertAll(images);
   _indexed = true;
+  db.exec("INSERT INTO images_fts(images_fts) VALUES('optimize')");
 }
 
 export function searchImages(q: string, type?: string): any[] {

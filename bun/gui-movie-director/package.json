@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch server.ts",
+    "dev:debug": "bun --inspect-wait run --watch server.ts",
     "start": "bun run server.ts",
     "test": "bun test",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "check:schema": "bun run scripts/check-schema.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.16",

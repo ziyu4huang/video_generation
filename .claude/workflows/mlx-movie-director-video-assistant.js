@@ -1,4 +1,4 @@
-// MLX Movie Director — Sub-command Video Assistant
+// MLX Movie Director — Video Assistant
 //
 // Action-oriented workflow: downloads, organizes, and validates the 5 LTX-2.3
 // model components needed by `run.py video` (T2V / I2V / A2V).
@@ -14,10 +14,10 @@
 //   Report     → dual self-reflection: token usage + domain risks + TODO list
 //
 // Usage:
-//   /mlx-movie-director-sub-command-video-assistant
+//   /mlx-movie-director-video-assistant
 
 export const meta = {
-  name: "mlx-movie-director-sub-command-video-assistant",
+  name: "mlx-movie-director-video-assistant",
   description: "Download, organize, and validate LTX-2.3 video model components for run.py video",
   whenToUse: "Before first `run.py video` run, or after pulling new model versions. Safe to re-run — idempotent.",
   phases: [

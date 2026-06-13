@@ -3,7 +3,6 @@ import path from "path";
 import { OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 
-const MEDIA_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".mp4", ".mov", ".webm", ".m4v"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 
 interface ImageEntry {
@@ -51,13 +50,10 @@ function getMediaType(filename: string): "image" | "video" {
   return VIDEO_EXTENSIONS.has(ext) ? "video" : "image";
 }
 
-/** Build a name→url map for companion lookups (thumbnails, manifest, etc.) */
-function buildFileIndex(dir: string): Set<string> {
-  try { return new Set(fs.readdirSync(dir)); } catch { return new Set(); }
-}
-
 // Shared: scan raw filesystem entries across all output dirs
 type RawEntry = { name: string; dir: string; fullPath: string; mtime: number; size: number };
+
+const MEDIA_GLOB = new Bun.Glob("*.{png,jpg,jpeg,mp4,mov,webm,m4v}");
 
 function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<string>> } {
   const entries: RawEntry[] = [];
@@ -65,16 +61,14 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
 
   for (const dir of OUTPUT_DIRS) {
     if (!fs.existsSync(dir)) continue;
+    // dirFileCache needs all files (for thumbnail lookup), media scan uses Glob
     const allFiles = fs.readdirSync(dir);
     dirFileCache.set(dir, new Set(allFiles));
 
-    const dirEntries = allFiles
-      .filter((f) => {
-        const ext = path.extname(f).toLowerCase();
-        if (!MEDIA_EXTENSIONS.has(ext)) return false;
-        if (ext === ".png" && f.endsWith("_relay.png")) return false;
-        return true;
-      })
+    const mediaFiles = [...MEDIA_GLOB.scanSync({ cwd: dir, onlyFiles: true })]
+      .filter((f) => !f.endsWith("_relay.png"));
+
+    const dirEntries = mediaFiles
       .map((f) => {
         const fullPath = path.join(dir, f);
         try {
@@ -178,7 +172,41 @@ export async function handleGalleryImage(req: Request, filename: string): Promis
   for (const dir of dirsToSearch) {
     const filePath = path.normalize(path.join(dir, name));
     if (!filePath.startsWith(path.resolve(dir))) continue;
-    if (fs.existsSync(filePath)) return new Response(Bun.file(filePath));
+    if (!fs.existsSync(filePath)) continue;
+
+    const stat = fs.statSync(filePath);
+    const etag = `"${Bun.hash(`${stat.mtimeMs}:${stat.size}`).toString(16)}"`;
+
+    if (req.headers.get("If-None-Match") === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+
+    const rangeHeader = req.headers.get("Range");
+    if (rangeHeader) {
+      const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+      if (m) {
+        const totalSize = stat.size;
+        const start = m[1] ? parseInt(m[1], 10) : 0;
+        const end = m[2] ? Math.min(parseInt(m[2], 10), totalSize - 1) : totalSize - 1;
+        if (start > end || start >= totalSize) {
+          return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${totalSize}` } });
+        }
+        return new Response(Bun.file(filePath).slice(start, end + 1), {
+          status: 206,
+          headers: {
+            "Content-Range": `bytes ${start}-${end}/${totalSize}`,
+            "Content-Length": String(end - start + 1),
+            "Accept-Ranges": "bytes",
+            ETag: etag,
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+    }
+
+    return new Response(Bun.file(filePath), {
+      headers: { ETag: etag, "Cache-Control": "no-cache", "Accept-Ranges": "bytes" },
+    });
   }
   return new Response("Not found", { status: 404 });
 }

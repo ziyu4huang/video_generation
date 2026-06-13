@@ -10,6 +10,7 @@ import { Layout } from "./components/Layout";
 import { ConfigView } from "./components/ConfigView";
 import { DomInspector } from "./components/DomInspector";
 import { CommandPalette } from "./components/CommandPalette";
+import { HmrErrorOverlay } from "./components/HmrErrorOverlay";
 import { NavigationContext } from "./context/NavigationContext";
 import { GalleryView } from "./views/gallery/GalleryView";
 import { JobHistoryView } from "./views/jobs/JobHistoryView";
@@ -104,6 +105,7 @@ function App() {
         commands={FLAT_COMMANDS}
         onSelect={handleViewChange}
       />
+      <HmrErrorOverlay />
       <Layout currentView={currentView} onViewChange={handleViewChange}>
         {(currentView.type === "gallery") && (
           <GalleryView

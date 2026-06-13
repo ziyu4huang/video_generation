@@ -32,9 +32,10 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === "job_complete") {
+          if (msg.type === "job_complete" || msg.type === "gallery-updated") {
             if (refreshTimer.current) clearTimeout(refreshTimer.current);
-            refreshTimer.current = window.setTimeout(() => setRefreshKey((k) => k + 1), 800);
+            const delay = msg.type === "gallery-updated" ? 300 : 800;
+            refreshTimer.current = window.setTimeout(() => setRefreshKey((k) => k + 1), delay);
           }
         } catch {
           // Ignore malformed messages

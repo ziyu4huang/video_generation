@@ -183,7 +183,7 @@ Read the actual file and check line accuracy. Default to refuted=true if uncerta
 const upheld = verifiedFindings.filter(v => v.upheld)
 ```
 
-Full pattern: see `review/mlx-movie-director-review-optimize.js`.
+Full pattern: see `mlx-movie-director-review-optimize.js`.
 
 ## Schema Conventions
 

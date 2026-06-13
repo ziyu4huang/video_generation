@@ -1,5 +1,5 @@
 export const meta = {
-  name: 'bun-command-self-improve',
+  name: 'gui-movie-director-schema-self-improve',
   description: 'Autonomous test coverage improvement for gui-movie-director command schemas via propose→test→adopt/revert loop',
   whenToUse: 'Improve unit test coverage for bun/gui-movie-director command schemas, iterating until coverage plateaus',
   phases: [
@@ -25,7 +25,7 @@ const TARGET     = A.target || null                // optional: focus on one sch
 
 const GUI_DIR      = '/Users/huangziyu/proj/video_generation/bun/gui-movie-director'
 const SCHEMAS_DIR  = `${GUI_DIR}/schemas`
-const HISTORY_DIR  = '/Users/huangziyu/proj/video_generation/.claude/workflows/history/bun-command-self-improve'
+const HISTORY_DIR  = '/Users/huangziyu/proj/video_generation/.claude/workflows/history/gui-movie-director-schema-self-improve'
 const JSONL_PATH   = `${HISTORY_DIR}/iterations.jsonl`
 const REFLECT_PATH = `${HISTORY_DIR}/reflection.json`
 const INDEX_PATH   = '/Users/huangziyu/proj/video_generation/.claude/workflows/history/_index.json'
@@ -344,7 +344,7 @@ After writing, confirm: { "written": true }`,
 await agent(
   `Append or update the cross-workflow index at ${INDEX_PATH}.
 Read the file if it exists (JSON array), add/update an entry:
-{ "workflow": "bun-command-self-improve", "runId": "${runId}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)} }
+{ "workflow": "gui-movie-director-schema-self-improve", "runId": "${runId}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)} }
 Keep only the 50 most recent entries. Write back.
 Return: { "done": true }`,
   { label: 'update-index', phase: 'Persist',
