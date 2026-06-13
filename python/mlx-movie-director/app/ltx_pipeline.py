@@ -128,7 +128,8 @@ class _TemporalUpscaleMixin:
         weights_path = os.path.join(model_dir, f"{name}.safetensors")
 
         if os.path.exists(config_path):
-            config = json.loads(open(config_path).read()).get("config", {})
+            with open(config_path) as f:
+                config = json.load(f).get("config", {})
             upsampler = LatentUpsampler.from_config(config)
         else:
             upsampler = LatentUpsampler(temporal_upsample=True, spatial_upsample=False)

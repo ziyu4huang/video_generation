@@ -244,9 +244,10 @@ class SeedVR2Upscaler:
 
     def unload(self) -> None:
         """Free all loaded models from memory."""
-        del self.transformer, self.vae, self.txt_pos
-        self.transformer = None
-        self.vae = None
-        self.txt_pos = None
+        for attr in ('transformer', 'vae', 'txt_pos'):
+            obj = getattr(self, attr, None)
+            if obj is not None:
+                del obj
+            setattr(self, attr, None)
         mx.clear_cache()
         gc.collect()

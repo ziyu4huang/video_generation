@@ -116,7 +116,7 @@ _I2I_PROMPT = (
 # CLI argument registration
 # ---------------------------------------------------------------------------
 
-def add_anime2real_args(parser):
+def add_anime2real_args(parser: "argparse.ArgumentParser") -> None:
     """Register anime2real-specific CLI arguments."""
     from app.commands._shared import _arg_registered
     # NOTE: --ref-count and --lora-scale are NOT used here because other modules
@@ -154,7 +154,7 @@ def add_anime2real_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_anime2real(args):
+def run_anime2real(args: "argparse.Namespace") -> None:
     """Execute anime-to-realistic style transfer.
 
     Uses Flux2KleinEdit reference conditioning + anime2real LoRA.

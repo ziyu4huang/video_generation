@@ -61,7 +61,7 @@ def add_purify_args(parser):
 
     # Mode preset (--purify-mode to avoid conflict with faceswap --mode)
     parser.add_argument(
-        "--purify-mode", dest="mode", choices=list(MODE_PRESETS.keys()), default="enhance",
+        "--purify-mode", dest="purify_mode", choices=list(MODE_PRESETS.keys()), default="enhance",
         help=f"Purify mode preset (default: enhance). "
              f"purify=softness {MODE_PRESETS['purify']}, "
              f"enhance=softness {MODE_PRESETS['enhance']}, "
@@ -155,7 +155,7 @@ def run_purify(args) -> None:
         sys.exit(1)
 
     # Determine softness: override > mode preset
-    mode = getattr(args, "mode", "enhance") or "enhance"
+    mode = getattr(args, "purify_mode", "enhance") or "enhance"
     softness = args.softness_override if args.softness_override is not None else MODE_PRESETS[mode]
 
     # Parse resolution

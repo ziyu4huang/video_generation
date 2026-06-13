@@ -1,8 +1,9 @@
-import mlx.core as mx
-import mlx.nn as nn
+import math
 import os
 import re
-import math
+
+import mlx.core as mx
+import mlx.nn as nn
 from safetensors import safe_open
 
 
@@ -112,7 +113,7 @@ class LoRALinearWrapper(nn.Module):
         return base_out + lora_out.astype(dtype)
 
 
-def get_module_by_name(model, module_name):
+def get_module_by_name(model: nn.Module, module_name: str) -> nn.Module | None:
     parts = module_name.split('.')
     obj = model
     for part in parts:
@@ -134,7 +135,7 @@ def get_module_by_name(model, module_name):
     return obj
 
 
-def set_module_by_name(model, module_name, new_module):
+def set_module_by_name(model: nn.Module, module_name: str, new_module: nn.Module) -> None:
     parts = module_name.split('.')
     parent = model
     for part in parts[:-1]:
@@ -187,7 +188,7 @@ def convert_unet_key_to_mlx(key):
     return new_key
 
 
-def apply_lora(model, lora_path, scale=1.0):
+def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> nn.Module:
     if not os.path.exists(lora_path):
         print(f"LoRA file not found: {lora_path}")
         return model

@@ -8,6 +8,7 @@ import sys
 import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -193,18 +194,19 @@ class Manifest:
     end_time: str           # ISO 8601
     elapsed_seconds: float
     memory_peak_mb: float
-    timings: dict           # phase-level breakdown from GenerationResult
-    models: dict            # model fingerprints: {name: {path, size_bytes, md5_partial}}
-    output_files: list | None   # [{path, seed, size_bytes, width, height}] or None
-    error: dict | None          # {type, message, traceback} or None
+    timings: dict[str, Any]           # phase-level breakdown from GenerationResult
+    models: dict[str, Any]            # model fingerprints: {name: {path, size_bytes, md5_partial}}
+    output_files: list[dict[str, Any]] | None   # [{path, seed, size_bytes, width, height}] or None
+    error: dict[str, str | None] | None          # {type, message, traceback} or None
 
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_success(cls, run_file, start_time, end_time, timings,
-                     output_files, models):
+    def from_success(cls, run_file: str, start_time: str, end_time: str,
+                     timings: dict[str, Any], output_files: list[dict[str, Any]] | None,
+                     models: dict[str, Any]) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,
@@ -220,8 +222,9 @@ class Manifest:
         )
 
     @classmethod
-    def from_error(cls, run_file, start_time, end_time, timings,
-                   exception, models):
+    def from_error(cls, run_file: str, start_time: str, end_time: str,
+                   timings: dict[str, Any], exception: Exception,
+                   models: dict[str, Any]) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,

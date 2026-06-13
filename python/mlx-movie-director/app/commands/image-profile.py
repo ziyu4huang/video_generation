@@ -143,6 +143,15 @@ def add_profile_args(parser):
     --variant, --flux2-model-path, --lora-path, --lora-scale) are registered
     by image-t2i.py and _shared.py — profile applies its own defaults at runtime.
     """
+    # Register --seed with default=None so profile can distinguish "user did not
+    # pass --seed" from "user passed --seed 42".  The _arg_registered() guard in
+    # add_common_generation_args() will skip the shared default=42 registration.
+    if not any(getattr(a, 'dest', None) == "seed" for a in parser._actions):
+        parser.add_argument(
+            "--seed", type=int, default=None,
+            help="Random seed (default: profile-specific fixed seed)",
+        )
+
     parser.add_argument(
         "--views", nargs="+", default=["front", "back", "side"],
         choices=["front", "back", "side"], metavar="VIEW",
@@ -471,9 +480,8 @@ def run_profile(args):
     pipeline_type = "flux2-klein" if use_flux2 else "zimage"
 
     steps = args.steps if args.steps is not None else _PROFILE_DEFAULT_STEPS
-    seed = getattr(args, "seed", _PROFILE_DEFAULT_SEED)
-    # If seed is still the t2i default (42), use profile default instead
-    if seed == 42:
+    seed = getattr(args, "seed", None)
+    if seed is None:
         seed = _PROFILE_DEFAULT_SEED
 
     # Resolve dimensions: explicit --width/--height override --ratio preset

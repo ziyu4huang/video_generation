@@ -8,6 +8,7 @@ Public API:
   run_angle(args)         — execute angle-view reframe
 """
 
+import argparse
 import json
 import os
 import sys
@@ -21,7 +22,7 @@ from app.commands._shared import DEFAULT_UPSCALE_MODEL, _apply_upscale
 _ANGLE_DEFAULT_STEPS = 6
 
 
-def add_angle_args(parser):
+def add_angle_args(parser: "argparse.ArgumentParser") -> None:
     """Register angle-specific arguments on an argparse parser."""
     parser.add_argument(
         "--input",
@@ -48,7 +49,7 @@ def add_angle_args(parser):
     )
 
 
-def run_angle(args):
+def run_angle(args: "argparse.Namespace") -> None:
     """Execute angle-view reframe. Called by image.py dispatcher."""
     if not args.input:
         print("ERROR: 'image angle' requires --input IMAGE_PATH", file=sys.stderr)

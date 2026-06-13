@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""build_voice_review — ASR + audio-metric review HTML from a runs log.
+"""build_voice_review — ASR + rich voice-quality review HTML from a runs log.
 
-Scores VOICE quality per cell two ways:
-  1. ASR (mlx-whisper) transcribes the audio, then we score similarity to the
-     expected spoken phrase (default "Time to create"). This is the real
-     intelligibility metric — Phase 0 proved spectral flatness alone cannot
-     measure it (the forge ambience floor swamps it).
-  2. Spectral flatness / ZCR / RMS via app.audio_noise_detect.is_audio_noise —
-     a secondary "is it white noise" sanity check (NOT an intelligibility rank).
+Scores VOICE quality per cell three ways:
+  1. ASR (mlx-whisper) transcribes the audio; we score similarity to the
+     expected spoken phrase (default "Time to create") AND a true word-error
+     rate (WER). This is the gold intelligibility metric — Phase 0 proved
+     spectral flatness alone cannot measure it (the forge ambience floor swamps
+     it).
+  2. Rich voice metrics (app.voice_metrics.analyze_voice): SNR, speech activity,
+     pitch F0 mean / std / semitone-spread (naturalness), dynamic range, onset
+     rate, spectral centroid. These capture *quality/naturalness* on clips that
+     all pass ASR at ~100%.
+  3. Spectral flatness / ZCR / RMS (app.audio_noise_detect.is_audio_noise) — a
+     secondary "is it white noise" sanity check.
 
-Renders a playable <video> (audio) + the heard transcript + a match badge +
-flatness per cell. Bilingual chrome (en / zh_TW). Auto-falls back to
-flatness-only if mlx_whisper is not installed (pass --no-asr to force).
+A composite ``voice_score`` (0-100, documented weights + bounds) ranks cells so
+the best config is identifiable at a glance; the top cell gets a ★ BEST badge.
+Renders a playable <video> (audio) + the heard transcript + a match badge + all
+metrics per cell. Bilingual chrome (en / zh_TW). Auto-falls back to flatness-only
+if mlx_whisper is not installed (pass --no-asr to force).
 
 Reads a runs log — one line per cell, pipe-separated:
     <mp4_path>|<label>|<transformer>|<steps>|<cfg>|<tag>[|<group>]
@@ -35,6 +42,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_DIR)
 
 from app.audio_noise_detect import is_audio_noise  # noqa: E402
+from app.voice_metrics import analyze_voice  # noqa: E402
 
 DEFAULT_TARGET = "Time to create"
 DEFAULT_ASR_MODEL = "mlx-community/whisper-small-mlx"
@@ -47,57 +55,65 @@ DEFAULT_ASR_MODEL = "mlx-community/whisper-small-mlx"
 _I18N = {
     "en": {
         "guide": (
-            "Each card plays the clip's audio. <b>match%</b> = how close the "
-            "ASR transcript is to &ldquo;{target}&rdquo; (the intended line) &mdash; "
-            "this is the real voice-intelligibility metric. "
-            "&ge;70 clear, 40&ndash;69 partial, &lt;40 garbled. "
-            "Spectral flatness is a secondary noise check (low = structured sound, "
-            "not a speech-quality rank)."
+            "Each card plays the clip's audio. <b>match%</b> = how close the ASR "
+            "transcript is to &ldquo;{target}&rdquo; (the intended line) &mdash; the "
+            "real intelligibility metric. <b>voice</b> is a composite score "
+            "(ASR&nbsp;40% · SNR&nbsp;20% · pitch-spread&nbsp;15% · "
+            "brightness&nbsp;15% · dynamic-range&nbsp;10%) that ranks overall voice "
+            "quality; the top cell is tagged ★&nbsp;BEST. Spectral flatness is a "
+            "secondary noise check (low = structured sound, not a speech-quality rank)."
         ),
         "col_cell": "cell", "col_transformer": "transformer", "col_steps": "steps",
         "col_prompt": "prompt", "col_heard": "ASR heard", "col_match": "match",
-        "col_flatness": "flatness",
+        "col_voice": "voice", "col_flatness": "flatness",
         "heard_label": "heard", "asr_failed": "(ASR failed)",
         "grade_clear": "clear", "grade_partial": "partial", "grade_garbled": "garbled",
-        "noise": "NOISE", "speech": "SPEECH",
+        "noise": "NOISE", "speech": "SPEECH", "best": "★ BEST",
         "tag_opt": "optimized", "tag_orig": "original",
-        "group_default_suffix": " (sorted by steps)",
+        "group_default_suffix": " (sorted by voice score)",
         "title_default": "Voice review",
         "groups": {
             "primary": "Primary A/B — dasiwa vs dev @ 16 steps",
             "step": "Step control — 8 vs 16 steps (optimized prompt)",
             "prompt": "Prompt control — optimized vs original @ 16 steps",
             "baseline": "Baseline — original prompt, 8 steps",
+            "cfg": "Audio-CFG axis — --audio-cfg-scale {default, 3.0, 5.0}",
+            "stage1only": "Stage1-only axis — --audio-stage1-only",
+            "tune": "dasiwa audio-knob tune — --audio-cfg-scale {default,3,5} × --audio-stage1-only {off,on}",
         },
     },
     "zh_TW": {
         "guide": (
             "每張卡片可播放該片段聲音。<b>吻合度</b> = ASR 轉錄結果與目標台詞「{target}」的相似度"
-            " &mdash; 這才是真正的語音可懂度指標。"
-            "&ge;70 清楚、40&ndash;69 部分可懂、&lt;40 模糊難辨。"
+            " &mdash; 真正的語音可懂度指標。<b>voice</b> 為綜合分數"
+            "（ASR&nbsp;40% · SNR&nbsp;20% · 音高離散&nbsp;15% · "
+            "亮度&nbsp;15% · 動態範圍&nbsp;10%），排名整體語音品質；最高者標 ★&nbsp;BEST。"
             "頻譜平坦度僅為次要的噪音檢查（低＝有結構的聲音，非語音品質排名）。"
         ),
         "col_cell": "片段", "col_transformer": "轉換器", "col_steps": "步數",
         "col_prompt": "提示詞", "col_heard": "ASR 聽到", "col_match": "吻合度",
-        "col_flatness": "平坦度",
+        "col_voice": "語音分", "col_flatness": "平坦度",
         "heard_label": "聽到", "asr_failed": "（ASR 失敗）",
         "grade_clear": "清楚", "grade_partial": "部分", "grade_garbled": "模糊",
-        "noise": "噪音", "speech": "語音",
+        "noise": "噪音", "speech": "語音", "best": "★ 最佳",
         "tag_opt": "優化版", "tag_orig": "原始版",
-        "group_default_suffix": "（依步數排序）",
+        "group_default_suffix": "（依語音分排序）",
         "title_default": "語音評測",
         "groups": {
             "primary": "主要 A/B — dasiwa vs dev @ 16 步",
             "step": "步數對照 — 8 vs 16 步（優化提示詞）",
             "prompt": "提示詞對照 — 優化 vs 原始 @ 16 步",
             "baseline": "基線 — 原始提示詞，8 步",
+            "cfg": "Audio-CFG 軸 — --audio-cfg-scale {預設, 3.0, 5.0}",
+            "stage1only": "Stage1-only 軸 — --audio-stage1-only",
+            "tune": "dasiwa 音訊旋鈕調校 — --audio-cfg-scale {預設,3,5} × --audio-stage1-only {關,開}",
         },
     },
 }
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Text / scoring helpers
 # ---------------------------------------------------------------------------
 
 def _normalize_text(s: str) -> str:
@@ -119,6 +135,23 @@ def _similarity(transcript: str, target: str) -> tuple[float, str]:
     return ratio * 100.0, word_hits
 
 
+def _wer(transcript: str, target: str) -> tuple[float, int, int]:
+    """(wer in [0,1], ref_word_count, hyp_word_count) via Levenshtein over words."""
+    ref = _normalize_text(target).split()
+    hyp = _normalize_text(transcript).split()
+    if not ref:
+        return 0.0, 0, len(hyp)
+    if not hyp:
+        return 1.0, len(ref), 0
+    prev = list(range(len(hyp) + 1))
+    for i, r in enumerate(ref, 1):
+        cur = [i]
+        for j, h in enumerate(hyp, 1):
+            cur.append(min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + (0 if r == h else 1)))
+        prev = cur
+    return prev[-1] / len(ref), len(ref), len(hyp)
+
+
 def _grade(sim: float | None, L: dict) -> tuple[str, str]:
     """(css class, localized label) for a match score."""
     if sim is None:
@@ -129,6 +162,36 @@ def _grade(sim: float | None, L: dict) -> tuple[str, str]:
         return "warn", L["grade_partial"]
     return "noise", L["grade_garbled"]
 
+
+# --- composite voice score ----------------------------------------------------
+# Heuristic weights + bounds, calibrated from a Phase-0 pass over existing clips.
+# Raw metrics are always shown next to the score so the ranking is auditable.
+#
+# Phase-0 finding: `--audio-volume 50` + alimiter normalizes loudness, so
+# `speech_activity` saturates to ~1.0 for every clip (it only differentiates on
+# the un-boosted latent). It is shown but NOT in the composite; spectral
+# centroid (brightness/articulation) differentiates instead.
+_VS_W = {"asr": 0.40, "snr": 0.20, "f0": 0.15, "centroid": 0.15, "dr": 0.10}
+
+
+def _clip01(x: float) -> float:
+    return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+
+
+def _voice_score(c: dict) -> float:
+    asr = (c.get("similarity") or 0.0) / 100.0
+    snr = _clip01((c.get("snr_db", 0.0) - 3.0) / 15.0)        # 3 dB→0, 18+ dB→1
+    f0 = _clip01(c.get("f0_st_std", 0.0) / 3.0)               # >=3 st = fully natural
+    cen = _clip01((c.get("spectral_centroid_hz", 0.0) - 800.0) / 2000.0)  # brighter→1
+    dr = _clip01((c.get("dynamic_range_db", 0.0) - 6.0) / 12.0)
+    w = _VS_W
+    return 100.0 * (w["asr"] * asr + w["snr"] * snr + w["f0"] * f0
+                    + w["centroid"] * cen + w["dr"] * dr)
+
+
+# ---------------------------------------------------------------------------
+# Run loading + per-cell scoring
+# ---------------------------------------------------------------------------
 
 def _extract_first_frame(mp4: str, png: str) -> bool:
     if os.path.exists(png):
@@ -159,9 +222,23 @@ def _score_audio(cells: list[dict]) -> None:
     """Attach flatness/zcr/rms + is_noise + first-frame poster (in place)."""
     for c in cells:
         is_noise, m = is_audio_noise(c["mp4"])
-        c["is_noise"], c["flatness"], c["zcr"], c["rms"] = is_noise, m["spectral_flatness"], m["zcr"], m["rms"]
+        c["is_noise"], c["flatness"], c["zcr"], c["rms"] = (
+            is_noise, m["spectral_flatness"], m["zcr"], m["rms"])
         png = os.path.splitext(c["mp4"])[0] + ".png"
         c["png"] = os.path.basename(png) if _extract_first_frame(c["mp4"], png) else ""
+
+
+def _score_voice(cells: list[dict]) -> None:
+    """Attach rich voice-quality metrics (app.voice_metrics) in place."""
+    for c in cells:
+        try:
+            vm = analyze_voice(c["mp4"])
+        except Exception as e:  # never let a metric failure abort the whole review
+            print(f"  ⚠️  voice metrics failed for {c['label']}: {e}", file=sys.stderr)
+            vm = {}
+        for k in ("snr_db", "speech_activity", "f0_mean", "f0_std", "f0_st_std",
+                  "dynamic_range_db", "onset_rate", "spectral_centroid_hz", "duration_s"):
+            c[k] = float(vm.get(k, 0.0))
 
 
 def _score_asr(cells: list[dict], model: str, target: str, use_asr: bool) -> bool:
@@ -189,24 +266,27 @@ def _score_asr(cells: list[dict], model: str, target: str, use_asr: bool) -> boo
     return True
 
 
+def _finalize(cells: list[dict], target: str) -> None:
+    """Attach WER, word count, composite voice_score, and the BEST flag."""
+    for c in cells:
+        wer, ref_n, hyp_n = _wer(c.get("transcript", ""), target)
+        c["wer"], c["word_count"] = wer, hyp_n
+        c["voice_score"] = round(_voice_score(c), 1)
+    if cells:
+        best = max(cells, key=lambda c: c["voice_score"])
+        best["_best"] = True
+
+
 def _grouped(cells: list[dict]) -> list[tuple[str, list[dict]]]:
     use_group = any(c.get("group") for c in cells)
     buckets: dict[str, list[dict]] = {}
     for c in cells:
         buckets.setdefault(c["group"] if use_group else c["transformer"], []).append(c)
 
-    def step_key(c: dict) -> tuple:
-        try:
-            s = int(c["steps"])
-        except ValueError:
-            s = 9999
-        try:
-            cf = float(c["cfg"])
-        except ValueError:
-            cf = 0.0
-        return (s, cf)
+    def voice_key(c: dict) -> tuple:
+        return (c.get("voice_score", 0.0),)
 
-    return [(k, sorted(v, key=step_key)) for k, v in buckets.items()]
+    return [(k, sorted(v, key=voice_key, reverse=True)) for k, v in buckets.items()]
 
 
 # ---------------------------------------------------------------------------
@@ -215,16 +295,17 @@ def _grouped(cells: list[dict]) -> list[tuple[str, list[dict]]]:
 
 _STYLE = """
 :root { --bg:#0f1115; --surface:#171a21; --accent:#6ea8fe; --ok:#3dd68c;
-        --warn:#f0a04b; --err:#ff6b6b; --txt:#e6e6e6; --mut:#8b93a7; }
+        --warn:#f0a04b; --err:#ff6b6b; --gold:#ffd166; --txt:#e6e6e6; --mut:#8b93a7; }
 * { box-sizing:border-box; }
 body { background:var(--bg); color:var(--txt); font:14px/1.5 -apple-system,
       BlinkMacSystemFont, 'Segoe UI', sans-serif; margin:0; padding:24px; }
 h1 { font-size:20px; margin:0 0 4px; }
 h2 { font-size:15px; color:var(--accent); margin:28px 0 10px;
      border-bottom:1px solid #2a2f3a; padding-bottom:6px; }
-.guide { color:var(--mut); max-width:860px; margin:0 0 8px; font-size:13px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px; }
+.guide { color:var(--mut); max-width:880px; margin:0 0 8px; font-size:13px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:14px; }
 .card { background:var(--surface); border:1px solid #262b36; border-radius:10px; padding:12px; }
+.card.best { border-color:var(--gold); box-shadow:0 0 0 1px var(--gold) inset; }
 .card video { width:100%; border-radius:6px; background:#000; display:block; }
 .card-meta { display:flex; justify-content:space-between; align-items:center;
              margin-bottom:8px; gap:8px; }
@@ -240,45 +321,54 @@ h2 { font-size:15px; color:var(--accent); margin:28px 0 10px;
 .badge.noise { background:rgba(255,107,107,.15); color:var(--err); }
 .badge.speech { background:rgba(61,214,140,.15); color:var(--ok); }
 .badge.warn { background:rgba(240,160,75,.15); color:var(--warn); }
+.badge.best { background:rgba(255,209,102,.18); color:var(--gold); }
+.voice-score { font-size:12px; font-weight:700; padding:2px 9px; border-radius:10px;
+               background:rgba(110,168,254,.16); color:var(--accent); }
 .mval b { color:var(--txt); }
-table { border-collapse:collapse; width:100%; max-width:920px; margin:18px 0; font-size:13px; }
+table { border-collapse:collapse; width:100%; max-width:1040px; margin:18px 0; font-size:13px; }
 th,td { text-align:left; padding:5px 8px; border-bottom:1px solid #232833; }
 th { color:var(--accent); font-weight:600; }
 td.num { font-variant-numeric:tabular-nums; }
-td.heard-cell { color:var(--txt); font-style:italic; max-width:280px; }
+td.heard-cell { color:var(--txt); font-style:italic; max-width:240px; }
+tr.best td { color:var(--gold); }
 """
 
 
+def _fmt(x, fmt=".1f") -> str:
+    try:
+        return format(float(x), fmt)
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _verdict_table_html(cells: list[dict], L: dict, has_asr: bool) -> str:
+    rows = sorted(cells, key=lambda c: c.get("voice_score", 0.0), reverse=True)
+    head = (f"<th>{L['col_cell']}</th><th>{L['col_transformer']}</th>"
+            f"<th>{L['col_steps']}</th><th>{L['col_prompt']}</th>")
     if has_asr:
-        rows = sorted(cells, key=lambda c: (c["similarity"] if c["similarity"] is not None else -1), reverse=True)
-        head = (f"<th>{L['col_cell']}</th><th>{L['col_transformer']}</th>"
-                f"<th>{L['col_steps']}</th><th>{L['col_prompt']}</th>"
-                f"<th>{L['col_heard']}</th><th>{L['col_match']}</th>")
-        body = []
-        for c in rows:
-            gcls, glabel = _grade(c["similarity"], L)
-            tag = L["tag_opt"] if c["tag"] == "opt" else (L["tag_orig"] if c["tag"] == "orig" else c["tag"])
-            match = f"{c['similarity']:.0f}% · {c['word_hits']}" if c["similarity"] is not None else "—"
-            body.append(
-                f"<tr><td>{html.escape(c['label'])}</td><td>{html.escape(c['transformer'])}</td>"
-                f"<td class='num'>{html.escape(c['steps'])}</td><td>{html.escape(tag)}</td>"
-                f"<td class='heard-cell'>{html.escape(c['transcript']) or '—'}</td>"
-                f"<td><span class='badge {gcls}'>{match}</span></td></tr>"
-            )
-    else:
-        rows = sorted(cells, key=lambda c: c["flatness"])
-        head = (f"<th>{L['col_cell']}</th><th>{L['col_transformer']}</th>"
-                f"<th>{L['col_steps']}</th><th>{L['col_prompt']}</th>"
-                f"<th>{L['col_flatness']}</th><th>ZCR</th>")
-        body = []
-        for c in rows:
-            tag = L["tag_opt"] if c["tag"] == "opt" else (L["tag_orig"] if c["tag"] == "orig" else c["tag"])
-            body.append(
-                f"<tr><td>{html.escape(c['label'])}</td><td>{html.escape(c['transformer'])}</td>"
-                f"<td class='num'>{html.escape(c['steps'])}</td><td>{html.escape(tag)}</td>"
-                f"<td class='num'>{c['flatness']:.3f}</td><td class='num'>{c['zcr']:.3f}</td></tr>"
-            )
+        head += f"<th>{L['col_heard']}</th><th>{L['col_match']}</th>"
+    head += (f"<th>{L['col_voice']}</th><th>SNR</th><th>F0σ(st)</th>"
+             f"<th>centroid</th><th>{L['col_flatness']}</th>")
+    body = []
+    for c in rows:
+        tag = L["tag_opt"] if c["tag"] == "opt" else (L["tag_orig"] if c["tag"] == "orig" else c["tag"])
+        bcls = "best" if c.get("_best") else ""
+        match = (f"{c['similarity']:.0f}% · {c['word_hits']}"
+                 if has_asr and c["similarity"] is not None else "—")
+        heard_cell = (f"<td class='heard-cell'>{html.escape(c['transcript']) or '—'}</td>"
+                      f"<td><span class='badge {_grade(c['similarity'], L)[0]}'>{match}</span></td>"
+                      ) if has_asr else ""
+        body.append(
+            f"<tr class='{bcls}'><td>{html.escape(c['label'])}</td>"
+            f"<td>{html.escape(c['transformer'])}</td>"
+            f"<td class='num'>{html.escape(c['steps'])}</td><td>{html.escape(tag)}</td>"
+            f"{heard_cell}"
+            f"<td class='num'><b>{_fmt(c.get('voice_score'), '.0f')}</b></td>"
+            f"<td class='num'>{_fmt(c.get('snr_db'))}</td>"
+            f"<td class='num'>{_fmt(c.get('f0_st_std'), '.2f')}</td>"
+            f"<td class='num'>{_fmt(c.get('spectral_centroid_hz'), '.0f')}</td>"
+            f"<td class='num'>{_fmt(c.get('flatness'), '.3f')}</td></tr>"
+        )
     return f"<table><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table>"
 
 
@@ -288,11 +378,14 @@ def _card_html(c: dict, L: dict, has_asr: bool) -> str:
     src = html.escape(os.path.basename(c["mp4"]))
     ncls = "noise" if c["is_noise"] else "speech"
     nverdict = L["noise"] if c["is_noise"] else L["speech"]
+    best_cls = " best" if c.get("_best") else ""
+    best_badge = f'<span class="badge best">{L["best"]}</span>' if c.get("_best") else ""
 
     heard = ""
     if has_asr:
         gcls, glabel = _grade(c["similarity"], L)
-        match = f"{c['similarity']:.0f}% · {c['word_hits']}" if c["similarity"] is not None else L["asr_failed"]
+        match = (f"{c['similarity']:.0f}% · {c['word_hits']}"
+                 if c["similarity"] is not None else L["asr_failed"])
         heard = (
             f'<div class="heard"><span class="mut">{L["heard_label"]}:</span> '
             f'<span class="quote">{html.escape(c["transcript"]) or "—"}</span> '
@@ -300,21 +393,28 @@ def _card_html(c: dict, L: dict, has_asr: bool) -> str:
         )
 
     return (
-        f'<div class="card">'
+        f'<div class="card{best_cls}">'
         f'<div class="card-meta"><span class="label">{html.escape(c["label"])}</span>'
         f'<span class="tag">{html.escape(tag or c["transformer"])}</span></div>'
         f'<video controls preload="none" playsinline{poster} src="{src}"></video>'
         f'{heard}'
         f'<div class="metrics">'
+        f'{best_badge}'
+        f'<span class="voice-score">{L["col_voice"]} {_fmt(c.get("voice_score"), ".0f")}</span>'
         f'<span class="badge {ncls}">{nverdict}</span>'
-        f'<span class="mval">{L["col_flatness"]} <b>{c["flatness"]:.3f}</b></span>'
-        f'<span class="mval">ZCR <b>{c["zcr"]:.3f}</b></span>'
-        f'<span class="mval">RMS <b>{c["rms"]:.5f}</b></span>'
+        f'<span class="mval">SNR <b>{_fmt(c.get("snr_db"))}</b></span>'
+        f'<span class="mval">F0 <b>{_fmt(c.get("f0_mean"), ".0f")}</b>Hz</span>'
+        f'<span class="mval">F0σ <b>{_fmt(c.get("f0_st_std"), ".2f")}</b>st</span>'
+        f'<span class="mval">centroid <b>{_fmt(c.get("spectral_centroid_hz"), ".0f")}</b></span>'
+        f'<span class="mval">DR <b>{_fmt(c.get("dynamic_range_db"), ".1f")}</b>dB</span>'
+        f'<span class="mval">onset <b>{_fmt(c.get("onset_rate"), ".1f")}</b>/s</span>'
+        f'<span class="mval">{L["col_flatness"]} <b>{_fmt(c.get("flatness"), ".3f")}</b></span>'
         f'</div></div>'
     )
 
 
-def _build_html(cells: list[dict], lang: str, title: str, target: str, out_path: str, has_asr: bool) -> str:
+def _build_html(cells: list[dict], lang: str, title: str, target: str,
+                out_path: str, has_asr: bool) -> str:
     L = _I18N[lang]
     guide = L["guide"].format(target=html.escape(target))
     parts = [
@@ -340,18 +440,22 @@ def _build_html(cells: list[dict], lang: str, title: str, target: str, out_path:
 
 
 def _print_verdict(cells: list[dict], target: str, has_asr: bool) -> None:
+    print(f"\n=== Voice verdict (target: {target!r}) — sorted by voice score ===")
+    hdr = (f"{'cell':<22}{'tf':<9}{'st':<5}{'tag':<6}"
+           f"{'voice':<7}{'snr':<7}{'f0st':<7}{'cent':<8}{'flat':<7}")
     if has_asr:
-        print(f"\n=== Voice verdict (target phrase: {target!r}) — sorted by match% ===")
-        print(f"{'cell':<20}{'tf':<8}{'st':<5}{'tag':<6}{'match':<8}{'hits':<6}heard")
-        for c in sorted(cells, key=lambda c: (c["similarity"] if c["similarity"] is not None else -1), reverse=True):
+        hdr += f"{'match':<7}{'wer':<6}heard"
+    print(hdr)
+    for c in sorted(cells, key=lambda c: c.get("voice_score", 0.0), reverse=True):
+        line = (f"{c['label']:<22}{c['transformer']:<9}{c['steps']:<5}{c['tag']:<6}"
+                f"{c.get('voice_score', 0):<7.0f}{c.get('snr_db', 0):<7.1f}"
+                f"{c.get('f0_st_std', 0):<7.2f}{c.get('spectral_centroid_hz', 0):<8.0f}"
+                f"{c.get('flatness', 0):<7.3f}")
+        if has_asr:
             s = f"{c['similarity']:.0f}%" if c["similarity"] is not None else "—"
-            print(f"{c['label']:<20}{c['transformer']:<8}{c['steps']:<5}{c['tag']:<6}{s:<8}{c['word_hits']:<6}{c['transcript']!r}")
-    else:
-        print("\n=== Voice verdict (flatness-only; lower = more speech-like) ===")
-        print(f"{'cell':<22}{'transformer':<12}{'steps':<7}{'tag':<8}{'flatness':<10}{'zcr':<9}verdict")
-        for c in sorted(cells, key=lambda c: c["flatness"]):
-            print(f"{c['label']:<22}{c['transformer']:<12}{c['steps']:<7}{c['tag']:<8}"
-                  f"{c['flatness']:<10.3f}{c['zcr']:<9.3f}{'NOISE' if c['is_noise'] else 'speech'}")
+            line += f"{s:<7}{c['wer']:<6.2f}{c['transcript']!r}"
+        mark = "  ★ BEST" if c.get("_best") else ""
+        print(line + mark)
 
 
 def main() -> None:
@@ -376,7 +480,9 @@ def main() -> None:
     print(f"Loaded {len(cells)} cells from {args.runs}")
 
     _score_audio(cells)
+    _score_voice(cells)
     has_asr = _score_asr(cells, args.asr_model, args.target, use_asr=not args.no_asr)
+    _finalize(cells, args.target)
     _print_verdict(cells, args.target, has_asr)
 
     base = os.path.splitext(os.path.basename(args.runs))[0].lstrip(".")
@@ -388,7 +494,9 @@ def main() -> None:
     for lang, title, out_path in (("en", title_en, out_en), ("zh_TW", title_zh, out_zh)):
         print(f"  📄 [{lang}] {_build_html(cells, lang, title, args.target, out_path, has_asr)}")
 
-    print(f"\nDone. {len(cells)} cells · open {out_en} (or _zh.html) to listen.")
+    best = max(cells, key=lambda c: c.get("voice_score", 0.0))
+    print(f"\nDone. {len(cells)} cells · best voice_score = {best['label']} "
+          f"({best['voice_score']:.0f}) · open {out_en} (or _zh.html) to listen.")
 
 
 if __name__ == "__main__":

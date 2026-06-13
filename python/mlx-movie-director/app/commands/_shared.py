@@ -1,5 +1,6 @@
 """Shared helpers for command modules — avoids circular imports with run.py."""
 
+import argparse
 import os
 import sys
 import time
@@ -58,7 +59,7 @@ def make_output_paths(suffix: str = "", ext: str = ".png") -> OutputPaths:
 # Draft mode + batch seed helpers
 # ---------------------------------------------------------------------------
 
-def apply_draft_overrides(args) -> None:
+def apply_draft_overrides(args: argparse.Namespace) -> None:
     """Apply draft mode presets (4 steps, 512×512) when --draft is set."""
     if not getattr(args, "draft", False):
         return
@@ -70,7 +71,7 @@ def apply_draft_overrides(args) -> None:
     print("  [Draft] Quick preview: 4 steps, 512x512")
 
 
-def seed_sequence(args_or_config) -> list:
+def seed_sequence(args_or_config: argparse.Namespace | object) -> list[int]:
     """Return a list of seeds for a batch run.
 
     Works with both argparse Namespace and RunConfig objects (same attribute names).
@@ -88,7 +89,7 @@ def seed_sequence(args_or_config) -> list:
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def run_session(paths: OutputPaths, run_config=None, json_summary: bool = False):
+def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_summary: bool = False):
     """Write run.json, record timing, write manifest on success/error.
 
     Yields a mutable dict (ctx) the caller fills with generation results:
@@ -154,17 +155,17 @@ def run_session(paths: OutputPaths, run_config=None, json_summary: bool = False)
 # Argparse helpers
 # ---------------------------------------------------------------------------
 
-def _arg_registered(parser, dest: str) -> bool:
+def _arg_registered(parser: argparse.ArgumentParser, dest: str) -> bool:
     """Check if an argument with the given dest is already registered on the parser."""
     return any(getattr(a, 'dest', None) == dest for a in parser._actions)
 
 
-def _option_registered(parser, option: str) -> bool:
+def _option_registered(parser: argparse.ArgumentParser, option: str) -> bool:
     """Check if an option string (e.g. '--input') is already registered."""
     return any(option in getattr(a, 'option_strings', []) for a in parser._actions)
 
 
-def add_common_generation_args(parser):
+def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
     """Register args shared by generate, refine, and video subcommands.
 
     Uses guards to avoid conflicts when sub-command modules register
@@ -305,7 +306,7 @@ def resolve_lora_path(raw: str | None) -> str | None:
     sys.exit(1)
 
 
-def list_available_loras(pipeline_filter=None):
+def list_available_loras(pipeline_filter: str | None = None) -> None:
     """List available LoRAs from the model registry, optionally filtered by pipeline.
 
     Args:
@@ -402,7 +403,7 @@ def _find_safetensors_in_dir(directory: str) -> str:
     sys.exit(1)
 
 
-def resolve_prompt(args) -> str:
+def resolve_prompt(args: argparse.Namespace) -> str:
     """Read prompt from --prompt or --prompt-file. Raises ValueError if neither set."""
     prompt = getattr(args, "prompt", None)
     prompt_file = getattr(args, "prompt_file", None)
@@ -414,7 +415,7 @@ def resolve_prompt(args) -> str:
     return prompt
 
 
-def resolve_upscale_model(run_config) -> str | None:
+def resolve_upscale_model(run_config: "RunConfig") -> str | None:
     if not run_config.upscale:
         return None
     return run_config.upscale_model or DEFAULT_UPSCALE_MODEL
@@ -424,7 +425,7 @@ def resolve_upscale_model(run_config) -> str | None:
 # Generation execution (shared by generate, refine, replay)
 # ---------------------------------------------------------------------------
 
-def execute_generation(run_config, pipeline_type: str = "zimage",
+def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                        json_summary: bool = False) -> str:
     """Run pipeline.generate() for all batch items, save images, write manifest.
 
@@ -594,9 +595,9 @@ def execute_generation(run_config, pipeline_type: str = "zimage",
 # Upscale helper (shared between pipeline dispatch and standalone)
 # ---------------------------------------------------------------------------
 
-def _apply_upscale(result, upscale_method: str, upscale_model: str,
+def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_model: str,
                    upscale_resolution: str = "2x", upscale_softness: float = 0.5,
-                   seed: int = 42):
+                   seed: int = 42) -> "GenerationResult":
     """Apply post-generation upscaling to a GenerationResult."""
     from app.pipeline_types import GenerationResult as GR
     from app.pipeline import ZImagePipeline
@@ -629,7 +630,7 @@ def _apply_upscale(result, upscale_method: str, upscale_model: str,
 # A/B test: run both pipelines sequentially for comparison
 # ---------------------------------------------------------------------------
 
-def _stitch_horizontal(images, gap: int = 0, labels=None, bg_color=(30, 30, 30)):
+def _stitch_horizontal(images: list, gap: int = 0, labels: list[str] | None = None, bg_color: tuple[int, int, int] = (30, 30, 30)) -> "Image.Image":
     """Stitch images horizontally with optional text labels."""
     from PIL import Image, ImageDraw, ImageFont
     max_h = max(img.height for img in images)
@@ -650,7 +651,7 @@ def _stitch_horizontal(images, gap: int = 0, labels=None, bg_color=(30, 30, 30))
     return strip
 
 
-def execute_ab_test(run_config, json_summary: bool = False) -> str:
+def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
     """Run both zimage and flux2-klein pipelines for A/B comparison.
 
     Returns manifest_file path on success.  Exits with code 1 on error.
@@ -863,7 +864,7 @@ def execute_upscale(input_path: str, model_path: str, output_path: str | None) -
 # Subprocess helper — auto-propagates --force to prevent GPU lock deadlock
 # ---------------------------------------------------------------------------
 
-def build_run_py_cmd(*args, force=None) -> list[str]:
+def build_run_py_cmd(*args: str, force: bool | None = None) -> list[str]:
     """Build a subprocess command invoking run.py.
 
     Automatically appends --force when the current process was started with

@@ -10,6 +10,7 @@ under each type and reads their manifests, allowing multiple instances per type
 
 import json
 import os
+from typing import Any
 
 
 class ModelNotFoundError(FileNotFoundError):
@@ -24,7 +25,7 @@ class ModelRegistry:
     # Public API
     # ------------------------------------------------------------------
 
-    def list(self, model_type: str) -> list[dict]:
+    def list(self, model_type: str) -> list[dict[str, Any]]:
         """Return all manifests for a given type, sorted by name."""
         type_dir = os.path.join(self.models_dir, model_type)
         if not os.path.isdir(type_dir):
@@ -42,7 +43,7 @@ class ModelRegistry:
                     pass
         return results
 
-    def find(self, model_type: str, *, name: str = None, arch: str = None) -> str:
+    def find(self, model_type: str, *, name: str | None = None, arch: str | None = None) -> str:
         """Return the directory path of the first model matching name or arch.
 
         Raises ModelNotFoundError if nothing matches.

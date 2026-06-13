@@ -1,9 +1,12 @@
 """check-manifests — validate all model manifests under models/."""
 
+import argparse
 import json
 import os
 import sys
+from collections.abc import Iterator
 from datetime import datetime
+from typing import Any
 
 from app import config as cfg
 
@@ -199,7 +202,7 @@ CONFIG_SCHEMAS = {
 }
 
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Show passing checks too")
     parser.add_argument("--json", action="store_true",
@@ -210,7 +213,7 @@ def add_args(parser):
                         help="Auto-open HTML report in browser (implies --html)")
 
 
-def _find_manifests(models_dir: str):
+def _find_manifests(models_dir: str) -> Iterator[tuple[str, str, str]]:
     """Yield (category, instance, manifest_path) for every manifest.json."""
     for category in sorted(os.listdir(models_dir)):
         cat_dir = os.path.join(models_dir, category)
@@ -227,7 +230,7 @@ def _find_manifests(models_dir: str):
 _SKIP_DIRS = {".cache", "__pycache__", ".git", "tmp"}
 
 
-def _find_orphans(models_dir: str):
+def _find_orphans(models_dir: str) -> Iterator[tuple[str, str]]:
     """Yield (category, instance) for dirs without manifest.json."""
     for category in sorted(os.listdir(models_dir)):
         cat_dir = os.path.join(models_dir, category)
@@ -293,7 +296,8 @@ def _total_safetensors_size(inst_dir: str) -> int:
     return total
 
 
-def _validate_config(label, config_path, category, errors, warnings):
+def _validate_config(label: str, config_path: str, category: str,
+                    errors: list[str], warnings: list[str]) -> None:
     """Validate config.json against the per-category schema."""
     try:
         with open(config_path) as f:
@@ -376,9 +380,9 @@ def _collect_models_data(models_dir: str) -> dict:
         orphan_dirs.append((category, instance))
 
     seen_names: dict[str, tuple[str, str]] = {}
-    conversion_candidates: list[tuple] = []
+    conversion_candidates: list[tuple[str, str, int, str, int, str]] = []
     total_disk_bytes = 0
-    category_disk_bytes: dict[str, list] = {}
+    category_disk_bytes: dict[str, list[int]] = {}
     model_disk_sizes: list[tuple[str, int]] = []
     models_data: list[dict] = []
 
@@ -735,11 +739,11 @@ def _extract_per_model(messages: list[str], known_labels: set[str]) -> dict[str,
 
 
 def _render_html_report(
-    models_data: list[dict],
+    models_data: list[dict[str, Any]],
     total_disk_bytes: int,
-    category_disk_bytes: dict,
-    conversion_candidates: list[tuple],
-    orphan_dirs: list[tuple],
+    category_disk_bytes: dict[str, list[int]],
+    conversion_candidates: list[tuple[str, str, int, str, int, str]],
+    orphan_dirs: list[tuple[str, str]],
     errors: list[str],
     warnings: list[str],
     notices: list[str],
@@ -1168,7 +1172,7 @@ document.addEventListener('DOMContentLoaded', init);
 </html>"""
 
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     models_dir = cfg.MODELS_DIR
     collected = _collect_models_data(models_dir)
 

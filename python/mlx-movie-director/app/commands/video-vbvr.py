@@ -98,56 +98,72 @@ def add_vbvr_args(parser):
                                 help="Path to a .txt file containing the prompt")
 
     # Input image (I2V conditioning — recommended but optional)
-    parser.add_argument("--vbvr-input-image", type=str, default=None, dest="input_image",
-                        metavar="PATH",
-                        help="Reference image for I2V conditioning (recommended)")
+    if not _arg_registered(parser, "input_image"):
+        parser.add_argument("--vbvr-input-image", type=str, default=None, dest="input_image",
+                            metavar="PATH",
+                            help="Reference image for I2V conditioning (recommended)")
 
     # VBVR-specific LoRA override (auto-detected if not specified)
     parser.add_argument("--vbvr-lora", type=str, default=None, metavar="PATH",
                         help="Explicit path to VBVR .safetensors LoRA "
                              "(auto-detected from models/lora/vbvr* if not set)")
-    parser.add_argument("--vbvr-lora-scale", type=float, default=1.0, dest="lora_scale",
-                        help="VBVR LoRA scale factor (default: 1.0)")
+    if not _arg_registered(parser, "lora_scale"):
+        parser.add_argument("--vbvr-lora-scale", type=float, default=1.0, dest="lora_scale",
+                            help="VBVR LoRA scale factor (default: 1.0)")
 
     # Resolution and timing
-    parser.add_argument("--vbvr-width", type=int, default=704, dest="width",
-                        help="Video width — auto-adjusted to nearest 64× (default: 704)")
-    parser.add_argument("--vbvr-height", type=int, default=448, dest="height",
-                        help="Video height — auto-adjusted to nearest 64× (default: 448)")
-    parser.add_argument("--vbvr-frames", type=int, default=97, dest="frames",
-                        help="Number of frames — auto-adjusted to nearest 8k+1 (default: 97)")
-    parser.add_argument("--vbvr-fps", type=float, default=24.0, dest="fps",
-                        help="Output frame rate (default: 24.0)")
+    if not _arg_registered(parser, "width"):
+        parser.add_argument("--vbvr-width", type=int, default=704, dest="width",
+                            help="Video width — auto-adjusted to nearest 64× (default: 704)")
+    if not _arg_registered(parser, "height"):
+        parser.add_argument("--vbvr-height", type=int, default=448, dest="height",
+                            help="Video height — auto-adjusted to nearest 64× (default: 448)")
+    if not _arg_registered(parser, "frames"):
+        parser.add_argument("--vbvr-frames", type=int, default=97, dest="frames",
+                            help="Number of frames — auto-adjusted to nearest 8k+1 (default: 97)")
+    if not _arg_registered(parser, "fps"):
+        parser.add_argument("--vbvr-fps", type=float, default=24.0, dest="fps",
+                            help="Output frame rate (default: 24.0)")
 
     # Sampling
-    parser.add_argument("--vbvr-seed", type=int, default=42, dest="seed",
-                        help="Random seed (default: 42)")
-    parser.add_argument("--vbvr-cfg-scale", type=float, default=5.0, dest="cfg_scale",
-                        help="Text guidance scale (default: 5.0)")
-    parser.add_argument("--vbvr-stg-scale", type=float, default=1.0, dest="stg_scale",
-                        help="Spatial-temporal guidance scale (default: 1.0)")
-    parser.add_argument("--vbvr-stage1-steps", type=int, default=None, dest="stage1_steps",
-                        help="Stage 1 denoising steps (default: 8)")
-    parser.add_argument("--vbvr-stage2-steps", type=int, default=None, dest="stage2_steps",
-                        help="Stage 2 refinement steps (default: 3)")
+    if not _arg_registered(parser, "seed"):
+        parser.add_argument("--vbvr-seed", type=int, default=42, dest="seed",
+                            help="Random seed (default: 42)")
+    if not _arg_registered(parser, "cfg_scale"):
+        parser.add_argument("--vbvr-cfg-scale", type=float, default=5.0, dest="cfg_scale",
+                            help="Text guidance scale (default: 5.0)")
+    if not _arg_registered(parser, "stg_scale"):
+        parser.add_argument("--vbvr-stg-scale", type=float, default=1.0, dest="stg_scale",
+                            help="Spatial-temporal guidance scale (default: 1.0)")
+    if not _arg_registered(parser, "stage1_steps"):
+        parser.add_argument("--vbvr-stage1-steps", type=int, default=None, dest="stage1_steps",
+                            help="Stage 1 denoising steps (default: 8)")
+    if not _arg_registered(parser, "stage2_steps"):
+        parser.add_argument("--vbvr-stage2-steps", type=int, default=None, dest="stage2_steps",
+                            help="Stage 2 refinement steps (default: 3)")
 
     # Performance
-    parser.add_argument("--vbvr-low-ram", action="store_true", default=False, dest="low_ram",
-                        help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
-    parser.add_argument("--vbvr-hq", action="store_true", default=False, dest="hq",
-                        help="HQ pipeline (res_2s sampler) — higher quality, ~2× slower")
-    parser.add_argument("--vbvr-teacache", action="store_true", default=False, dest="teacache",
-                        help="Enable TeaCache — ~1.46× speedup with minimal quality loss")
+    if not _arg_registered(parser, "low_ram"):
+        parser.add_argument("--vbvr-low-ram", action="store_true", default=False, dest="low_ram",
+                            help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
+    if not _arg_registered(parser, "hq"):
+        parser.add_argument("--vbvr-hq", action="store_true", default=False, dest="hq",
+                            help="HQ pipeline (res_2s sampler) — higher quality, ~2× slower")
+    if not _arg_registered(parser, "teacache"):
+        parser.add_argument("--vbvr-teacache", action="store_true", default=False, dest="teacache",
+                            help="Enable TeaCache — ~1.46× speedup with minimal quality loss")
 
     # Model directory (advanced)
-    parser.add_argument("--vbvr-model", type=str, default=None, dest="video_model",
-                        metavar="PATH",
-                        help="Local flat model dir or HF repo ID (default: auto-detect)")
+    if not _arg_registered(parser, "video_model"):
+        parser.add_argument("--vbvr-model", type=str, default=None, dest="video_model",
+                            metavar="PATH",
+                            help="Local flat model dir or HF repo ID (default: auto-detect)")
 
     # Extras
-    parser.add_argument("--vbvr-first-frame", action="store_true", default=False,
-                        dest="first_frame",
-                        help="Extract first frame to <base>.png after generation")
+    if not _arg_registered(parser, "first_frame"):
+        parser.add_argument("--vbvr-first-frame", action="store_true", default=False,
+                            dest="first_frame",
+                            help="Extract first frame to <base>.png after generation")
 
 
 # ---------------------------------------------------------------------------

@@ -37,6 +37,7 @@ Public API:
   run_faceswap(args)         — execute face swap generation
 """
 
+import argparse
 import gc
 import json
 import os
@@ -44,6 +45,7 @@ import sys
 import time
 import traceback
 from datetime import datetime, timezone
+from typing import Any
 
 from app import config as cfg
 from app.commands._shared import resolve_lora_path, generate_base_name
@@ -105,7 +107,7 @@ _TEST_FACE_PROMPT = (
 # CLI argument registration
 # ---------------------------------------------------------------------------
 
-def add_faceswap_args(parser):
+def add_faceswap_args(parser: argparse.ArgumentParser) -> None:
     """Register faceswap-specific arguments on an argparse parser.
 
     Note: ``--lora-scale`` is already registered by
@@ -301,7 +303,7 @@ def _generate_face_flux2(prompt: str, seed: int, label: str, base: str):
 # Optional VLM scoring (test mode)
 # ---------------------------------------------------------------------------
 
-def _score_with_vlm(image_path: str, label: str) -> dict | None:
+def _score_with_vlm(image_path: str, label: str) -> dict[str, Any] | None:
     """Score an image using VLM (Qwen3-VL) via local API, if available.
 
     Sends the image to the local OpenAI-compatible VLM server at
@@ -357,7 +359,7 @@ def _score_with_vlm(image_path: str, label: str) -> dict | None:
 # Core faceswap logic
 # ---------------------------------------------------------------------------
 
-def _run_faceswap_core(body_path, face_path, args):
+def _run_faceswap_core(body_path: str, face_path: str, args: argparse.Namespace) -> tuple[str, str]:
     """Core faceswap logic shared between normal and test modes.
 
     Loads Flux2KleinPipeline with BFS LoRA applied, then generates the
@@ -387,7 +389,9 @@ def _run_faceswap_core(body_path, face_path, args):
     # Resolve LoRA path from short name or absolute path
     lora_name = getattr(args, "lora", _DEFAULT_LORA)
     lora_path = resolve_lora_path(lora_name)
-    lora_scale = getattr(args, "lora_scale", None) or 1.0
+    lora_scale = getattr(args, "lora_scale", None)
+    if lora_scale is None:
+        lora_scale = 1.0
 
     print(f"[FaceSwap] Mode: {mode}")
     print(f"[FaceSwap] Body: {body_path}")
@@ -488,7 +492,7 @@ def _run_faceswap_core(body_path, face_path, args):
 # Entry points
 # ---------------------------------------------------------------------------
 
-def run_faceswap(args):
+def run_faceswap(args: argparse.Namespace) -> None:
     """Execute BFS face/head swap.  Called by ``image.py`` dispatcher.
 
     Two modes:

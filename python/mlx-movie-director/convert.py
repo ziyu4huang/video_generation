@@ -9,32 +9,34 @@ Usage:
     ./python/venv/bin/python python/mlx-movie-director/convert.py --vae
 """
 
-import sys
-import os
-import json
 import argparse
 import gc
+import json
+import os
 import shutil
+import sys
 import tempfile
 
+# Ensure local `app` package is importable regardless of CWD.
+# Must precede third-party and local imports that depend on it.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import torch
 import numpy as np
+import torch
+
 import mlx.core as mx
 import mlx.nn as nn
+from mlx import nn as _nn
+from mlx.utils import tree_flatten
 from safetensors.torch import load_file as load_pt_file
 from tqdm import tqdm
 
-from mlx import nn as _nn
-from mlx.utils import tree_flatten
-
-from app.transformer import ZImageTransformerMLX
-from app.text_encoder import TextEncoderMLX
+from app import config as cfg
 from app.seedvr2.transformer import SeedVR2Transformer
 from app.seedvr2.vae import SeedVR2VAE
 from app.seedvr2.weight_mapping import get_transformer_remapping, get_conv3d_weight_keys
-from app import config as cfg
+from app.text_encoder import TextEncoderMLX
+from app.transformer import ZImageTransformerMLX
 
 
 # === Transformer key remapping (from convert_comfy.py) ===

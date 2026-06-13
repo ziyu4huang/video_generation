@@ -99,7 +99,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name in list(COMMAND_NAMES) + list(COMMAND_ALIASES):
         module_name = COMMAND_ALIASES.get(name, name)
-        mod = importlib.import_module(f"app.commands.{module_name}")
+        try:
+            mod = importlib.import_module(f"app.commands.{module_name}")
+        except ImportError as e:
+            print(f"WARNING: skipping broken command module '{module_name}': {e}", file=sys.stderr)
+            continue
         sub = subparsers.add_parser(
             name,
             formatter_class=argparse.RawDescriptionHelpFormatter,

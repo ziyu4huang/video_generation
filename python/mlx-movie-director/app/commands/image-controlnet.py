@@ -23,6 +23,7 @@ import sys
 import time
 import traceback
 from datetime import datetime, timezone
+from typing import Any
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -53,7 +54,7 @@ _AB_VARIATIONS = [
 # CLI argument registration
 # ---------------------------------------------------------------------------
 
-def add_controlnet_args(parser):
+def add_controlnet_args(parser: argparse.ArgumentParser) -> None:
     """Register ControlNet-specific arguments (prompt/steps/seed come from common args)."""
     parser.add_argument(
         "--input-image", type=str, default=None, metavar="PATH",
@@ -134,7 +135,7 @@ def add_controlnet_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_controlnet(args):
+def run_controlnet(args: argparse.Namespace) -> None:
     """Execute ControlNet generation (Z-Image native or Flux2 Klein reference conditioning).
 
     Called by image.py dispatcher.
@@ -304,9 +305,10 @@ def run_controlnet(args):
 # A/B test runner
 # ---------------------------------------------------------------------------
 
-def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
-                 out_w, out_h, steps, seed, pipeline_type="zimage",
-                 flux2_pipeline=None, lora_path=None, args=None):
+def _run_ab_test(prompt: str, ref_image_path: str, ctrl_type: str, skip_preprocess: bool,
+                 out_w: int, out_h: int, steps: int, seed: int, pipeline_type: str = "zimage",
+                 flux2_pipeline: Any = None, lora_path: str | None = None,
+                 args: argparse.Namespace | None = None) -> None:
     """Run ControlNet variations and open manifest review HTML."""
     from app.manifest import Manifest, collect_model_fingerprint_controlnet, collect_model_fingerprint_flux2
 
@@ -427,7 +429,7 @@ def _run_ab_test(prompt, ref_image_path, ctrl_type, skip_preprocess,
 # Flux2 Klein pipeline factory
 # ---------------------------------------------------------------------------
 
-def _create_flux2_pipeline(args):
+def _create_flux2_pipeline(args: argparse.Namespace) -> "Flux2KleinControlnetPipeline":
     """Create a Flux2KleinControlnetPipeline from CLI args (loaded once, reused)."""
     from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline
     from app.commands._shared import resolve_lora_path

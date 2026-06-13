@@ -15,6 +15,7 @@ Public API:
   run_i2i(args)         — execute I2I generation
 """
 
+import argparse
 import gc
 import json
 import os
@@ -279,7 +280,7 @@ _I2I_ARM_ERASE_VARIATIONS = [
 # CLI argument registration
 # ---------------------------------------------------------------------------
 
-def add_i2i_args(parser):
+def add_i2i_args(parser: argparse.ArgumentParser) -> None:
     """Register I2I-specific arguments."""
     # --input-image is already registered by add_controlnet_args() with dest="input_image"
     # We reuse it for I2I source image.
@@ -306,7 +307,7 @@ def add_i2i_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_i2i(args):
+def run_i2i(args: argparse.Namespace) -> None:
     """Execute I2I generation. Called by image.py dispatcher."""
     # Self-test mode (Z-Image only for now)
     if getattr(args, "self_test", False):
@@ -680,7 +681,7 @@ def _apply_sam_white(img: "Image.Image") -> "Image.Image":
 # Self-test mode
 # ---------------------------------------------------------------------------
 
-def _run_self_test(args):
+def _run_self_test(args: argparse.Namespace) -> None:
     """Run I2I self-test: generate source + variations, open bilingual review HTML.
 
     Steps:
@@ -788,7 +789,7 @@ def _run_self_test(args):
     # (mode, blur_ref, inpaint_mask, arm_pad_frac, arm_erase_frac) 5-tuple key.
     # arm_pad_frac > 0: spatial bbox arm mask (source landmarks).
     # arm_erase_frac > 0: paint source arms white before encoding inpaint_latent.
-    ctrl_33ch_map: dict = {}
+    ctrl_33ch_map: dict[tuple[str, float | None, float, float, float], mx.array] = {}
     ctrl_33ch = None  # legacy fallback (canny, no blur, no inpaint, no arm ops)
     if ref_path:
         needed_keys = {
@@ -906,7 +907,7 @@ def _run_self_test(args):
         params = {
             "denoise_strength": dn_str,
             "steps": tstps,
-            "seed": seed,
+            "seed": gen_seed,
         }
         run_config = {
             "command": "image",
@@ -914,7 +915,7 @@ def _run_self_test(args):
             "pipeline": "zimage",
             "denoise_strength": dn_str,
             "steps": tstps,
-            "seed": seed,
+            "seed": gen_seed,
         }
         if ctrl_str is not None:
             params["controlnet_strength"] = ctrl_str

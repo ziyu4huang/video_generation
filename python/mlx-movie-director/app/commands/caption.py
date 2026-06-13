@@ -1,5 +1,6 @@
 """caption — generate image description using Qwen3-VL via local OpenAI-compatible API."""
 
+import argparse
 import base64
 import html
 import io
@@ -7,6 +8,7 @@ import json
 import os
 import re
 import sys
+from typing import Any
 
 import requests
 from PIL import Image
@@ -111,7 +113,7 @@ _DEFAULT_API_URL = "http://localhost:1234/v1"
 _DEFAULT_MODEL = "qwen/qwen3-vl-4b"
 
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("image", nargs="?", default=None, metavar="IMAGE",
                         help="Input image path (positional shorthand for --input-image)")
     parser.add_argument("--input-image", type=str, default=None, metavar="PATH",
@@ -139,7 +141,7 @@ def add_args(parser):
                         "output/review_<timestamp>.html next to the images)")
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     # --ab-manifest mode: build a MULTI-SET A/B review HTML from a manifest JSON
     if getattr(args, "ab_manifest", None):
         html_path = generate_review_html(
@@ -427,7 +429,7 @@ def caption_image(image_path: str, style: str = "photography", lang: str = "en",
 # Review HTML generation
 # ---------------------------------------------------------------------------
 
-def _extract_caption_json(raw) -> dict:
+def _extract_caption_json(raw: dict | str | Any) -> dict:
     """Parse the nested caption field into a dict, tolerating markdown fences/prose.
 
     _call_vlm does not set response_format=json_object, so the VLM often wraps
@@ -684,7 +686,7 @@ def _build_group_table_html(group: dict, T: dict) -> str:
 
 def generate_review_html(caption_json_paths: list[str] | None = None,
                          output_path: str | None = None,
-                         groups: list | None = None,
+                         groups: list[dict[str, Any]] | None = None,
                          manifest_path: str | None = None,
                          lang: str | None = None) -> str:
     """Generate a multi-set A/B review HTML from caption JSON files.

@@ -197,7 +197,7 @@ def build_padded_and_mask(
 # Argument registration
 # ---------------------------------------------------------------------------
 
-def add_expansion_args(parser):
+def add_expansion_args(parser: "argparse.ArgumentParser") -> None:
     """Register expansion-specific arguments.
 
     Common args (--input→input_image, --prompt, --steps, --seed, --lora-path,
@@ -256,7 +256,7 @@ def add_expansion_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_expansion(args):
+def run_expansion(args: "argparse.Namespace") -> dict[str, str] | None:
     """Execute image expansion (outpainting). Called by image.py dispatcher."""
     import mlx.core as mx
 
@@ -320,12 +320,13 @@ def run_expansion(args):
     from app.flux2_outpaint_pipeline import Flux2OutpaintPipeline
 
     lora_path = resolve_lora_path(getattr(args, "lora_path", None))
-    lora_scale = getattr(args, "lora_scale", 1.0) or 1.0
+    _lora_scale_raw = getattr(args, "lora_scale", None)
+    lora_scale = 1.0 if _lora_scale_raw is None else _lora_scale_raw
 
     print(f"\n[expansion] Loading Flux2 Klein outpaint pipeline...")
     pipeline = Flux2OutpaintPipeline(
-        lora_paths=[lora_path] if lora_path else None,
-        lora_scales=[lora_scale] if lora_path else None,
+        lora_paths=[lora_path] if lora_path is not None else None,
+        lora_scales=[lora_scale] if lora_path is not None else None,
     )
     try:
         result = pipeline.expand(

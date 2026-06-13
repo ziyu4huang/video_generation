@@ -1,5 +1,6 @@
 """animate — frame-to-frame animation with ControlNet guidance (coming soon)."""
 
+import argparse
 import sys
 from app.commands._shared import add_common_generation_args
 
@@ -16,7 +17,7 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     add_common_generation_args(parser)
 
     parser.add_argument("--width", type=int, default=640, help="Frame width")
@@ -42,7 +43,7 @@ def add_args(parser):
                         help="ControlNet conditioning strength (default: 1.0)")
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     print("Frame-to-frame animation is not yet implemented.")
     print("Planned: ControlNet-guided animation on Apple Silicon.")
     print("Track progress: python/mlx-movie-director/docs/todo.md")

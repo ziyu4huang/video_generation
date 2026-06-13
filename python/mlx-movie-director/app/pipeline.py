@@ -1,20 +1,21 @@
-import mlx.core as mx
-import mlx.nn as nn
-import numpy as np
+import gc
 import json
 import os
 import sys
 import time
-import gc
 from dataclasses import dataclass
+
+import mlx.core as mx
+import mlx.nn as nn
+import numpy as np
 from PIL import Image
 from transformers import AutoTokenizer
 
-from app.pipeline_types import GenerationResult
-from app.transformer import ZImageTransformerMLX
-from app.text_encoder import TextEncoderMLX
-from app.lora_utils import apply_lora
 from app import config as cfg
+from app.lora_utils import apply_lora
+from app.pipeline_types import GenerationResult
+from app.text_encoder import TextEncoderMLX
+from app.transformer import ZImageTransformerMLX
 
 
 def _vae_mlx_available(vae_dir: str | None = None) -> bool:
@@ -36,7 +37,7 @@ def _load_mlx_vae(vae_dir: str | None = None):
     return vae
 
 
-def create_coordinate_grid(size, start):
+def create_coordinate_grid(size: tuple[int, int, int], start: tuple[int, int, int]) -> mx.array:
     d0, d1, d2 = size
     s0, s1, s2 = start
     i = mx.arange(s0, s0 + d0)
@@ -48,13 +49,13 @@ def create_coordinate_grid(size, start):
     return mx.stack([grid_i, grid_j, grid_k], axis=-1).reshape(-1, 3)
 
 
-def calculate_shift(image_seq_len, base_seq_len=256, max_seq_len=4096, base_shift=0.5, max_shift=1.15):
+def calculate_shift(image_seq_len: int, base_seq_len: int = 256, max_seq_len: int = 4096, base_shift: float = 0.5, max_shift: float = 1.15) -> float:
     m = (max_shift - base_shift) / (max_seq_len - base_seq_len)
     b = base_shift - m * base_seq_len
     return image_seq_len * m + b
 
 
-def load_sharded_weights(model_path):
+def load_sharded_weights(model_path: str) -> dict[str, mx.array]:
     index_path = os.path.join(model_path, "model.safetensors.index.json")
     weights = {}
     if os.path.exists(index_path):
@@ -158,17 +159,17 @@ class ZImagePipeline:
 
     def generate(
         self,
-        prompt,
-        width=1024,
-        height=1024,
-        steps=9,
-        seed=42,
-        lora_path=None,
-        lora_scale=1.0,
-        lora_paths=None,
-        lora_scales=None,
+        prompt: str,
+        width: int = 1024,
+        height: int = 1024,
+        steps: int = 9,
+        seed: int | None = 42,
+        lora_path: str | None = None,
+        lora_scale: float = 1.0,
+        lora_paths: list[str] | None = None,
+        lora_scales: list[float] | None = None,
         # img2img params
-        input_image: Image.Image = None,
+        input_image: Image.Image | None = None,
         latent_upscale: float = 1.0,
         denoise_strength: float = 1.0,
         # seed variance
@@ -178,7 +179,7 @@ class ZImagePipeline:
         seed_variance_switchover: float = 20.0,
         # post-process
         upscale: bool = False,
-        upscale_model: str = None,
+        upscale_model: str | None = None,
         upscale_method: str = "esrgan",
         # VAE override (None = use default cfg.VAE_DIR)
         vae_dir: str | None = None,
@@ -541,8 +542,5 @@ class ZImagePipeline:
                     timings["esrgan_seconds"] = time.time() - t_up
                     print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
 
-        return GenerationResult(image=pil_image, timings=timings)
-
         print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
-
         return GenerationResult(image=pil_image, timings=timings)
