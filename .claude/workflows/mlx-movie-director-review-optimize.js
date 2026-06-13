@@ -364,6 +364,7 @@ const REVERIFY_SCHEMA = {
         pytestOutput:    { type: "string" },
         pytestPassed:    { type: "number" },
         pytestFailed:    { type: "number" },
+        pytestFailNames: { type: "array", items: { type: "string" }, description: "Full names (file::class::test) of all failing tests — compared against baseline to isolate NEW regressions" },
       },
     },
   },
@@ -399,25 +400,42 @@ const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+// Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
+// tool silently produced nothing — a reliability fix: the prior run's persist subagent reported
+// success but never wrote the file, breaking the trend/reflection/resume loops.
 async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
-  await agent(
-    `Persist workflow history to disk.
+  const targetPath = `${histDir}/${runId}.json`
+  const persist = await agent(
+    `Persist workflow history to disk RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
-2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
-   ${histJson}
-3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
-4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
-Return { written: true }.`,
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${histJson}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'HIST_EOF'
+${histJson}
+HIST_EOF")
+5. Bash("wc -c < '${targetPath}'")
+6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
+Return { written: true, bytes: <the number printed by wc> }.`,
     { label: "persist-history", phase: "Persist", model: "haiku" },
   )
+  const histBytes = Number(persist?.bytes) || 0
+  if (histBytes > 0) {
+    log(`History: written ${histBytes} bytes → ${targetPath}`)
+  } else {
+    log(`WARNING: history file verification FAILED (0 bytes) — run continues but trend/reflection will miss this run.`)
+  }
   await agent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
 3. Keep only latest 50 entries (sort by run_id descending).
 4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
+6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )
@@ -1047,9 +1065,9 @@ ${baselineSmokeCommands.map((cmd) => `Bash("${VENV_PYTHON} ${PYTHON_DIR}/run.py 
 
 Count how many pass vs fail. For failures, note the command name.
 
-2. Pytest:
-Bash("${VENV_PYTHON} -m pytest ${PYTHON_DIR}/app/tests/ -q 2>&1; echo EXIT_CODE=$?")
-Record: how many passed, how many failed, and the NAMES of any failing tests.
+2. Pytest (run from PYTHON_DIR so 'app.*' imports resolve, and clear stale __pycache__ first so we don't measure failures from outdated bytecode):
+Bash("cd '${PYTHON_DIR}' && find app -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null; ${VENV_PYTHON} -m pytest app/tests/ -q -p no:cacheprovider 2>&1; echo EXIT_CODE=$?")
+Record: how many passed, how many failed, and the FULL NAMES (file::class::test) of any failing tests. The names are critical — they are compared against the post-fix run to detect NEW regressions.
 
 Return structured baseline results.`,
     { label: "baseline-tests", phase: "Checkpoint", model: "haiku", schema: BASELINE_SCHEMA },
@@ -1220,9 +1238,9 @@ ${smokeCommands.map((cmd) => `Bash("${VENV_PYTHON} ${PYTHON_DIR}/run.py ${cmd} 2
 Count: ${smokeCommands.length} total (1 main --help + ${SMOKE_COMMANDS.length} commands + ${SMOKE_ALIASES.length} aliases).
 For each FAILED command (exit != 0), capture the stderr output.
 
-LEVEL 2 — Pytest (functional regression testing):
-Bash("${VENV_PYTHON} -m pytest ${PYTHON_DIR}/app/tests/ -x -q 2>&1; echo EXIT_CODE=$?")
-ONLY report individual test FAILURES or ERRORs — not the overall pass summary.
+LEVEL 2 — Pytest (functional regression testing). MUST use the SAME invocation as the baseline (run from PYTHON_DIR, clear __pycache__ first, NO -x flag so all failures are collected — -x would stop at the first failure and hide the rest, breaking the baseline comparison):
+Bash("cd '${PYTHON_DIR}' && find app -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null; ${VENV_PYTHON} -m pytest app/tests/ -q -p no:cacheprovider 2>&1; echo EXIT_CODE=$?")
+ONLY report individual test FAILURES or ERRORs — not the overall pass summary. Report the FULL failing test names (file::class::test) in smokeTestResults.pytestFailNames.
 
 LEVEL 3 — Quick code review on changed files:
 Read each changed file and look for syntax errors, broken imports, or logic regressions introduced by edits.
@@ -1256,6 +1274,32 @@ Return ONLY actual failures as findings with the "source" field. If everything p
         }
         return !onlyPass
       })
+
+      // ── Deterministic baseline diff ──────────────────────────────────────
+      // The re-verify LLM agent is unreliable at cross-referencing the baseline
+      // prompt (it reported pre-existing failures as regressions in prior runs,
+      // triggering a false restore that rolled back correct fixes). Do the
+      // baseline comparison HERE in code: any pytest finding whose test already
+      // failed at baseline is pre-existing and must NOT count as a regression.
+      const baselineFailNames = new Set((baselineTestResults?.pytestFailNames || []).map((n) => n.trim()).filter(Boolean))
+      if (baselineFailNames.size > 0) {
+        const beforeBaseline = reVerifyFindings.length
+        reVerifyFindings = reVerifyFindings.filter((f) => {
+          if (f.source !== "pytest") return true
+          const blob = `${f.title || ""} ${f.description || ""} ${f.rawOutput || ""}`
+          const isPreExisting = [...baselineFailNames].some((name) => {
+            const leaf = name.split("::").pop() // test function name, e.g. test_scalar_factor
+            return blob.includes(name) || (leaf && blob.includes(leaf))
+          })
+          if (isPreExisting) {
+            log(`  ↳ Filtered pre-existing failure (matched baseline): "${f.title}"`)
+          }
+          return !isPreExisting
+        })
+        if (reVerifyFindings.length < beforeBaseline) {
+          log(`  Baseline diff removed ${beforeBaseline - reVerifyFindings.length} pre-existing pytest failure(s)`)
+        }
+      }
 
       if (reVerifyFindings.length > 0) {
         log(`WARNING: ${reVerifyFindings.length} NEW regression(s) detected after fixes (baseline-filtered)!`)
