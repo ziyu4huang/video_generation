@@ -103,25 +103,42 @@ const RUN_PY  = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+// Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
+// tool silently produced nothing — a reliability fix: the prior run's persist subagent reported
+// success but never wrote the file, breaking the trend/reflection/resume loops.
 async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
-  await agent(
-    `Persist workflow history to disk.
+  const targetPath = `${histDir}/${runId}.json`
+  const persist = await agent(
+    `Persist workflow history to disk RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
-2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
-   ${histJson}
-3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
-4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
-Return { written: true }.`,
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${histJson}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'HIST_EOF'
+${histJson}
+HIST_EOF")
+5. Bash("wc -c < '${targetPath}'")
+6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
+Return { written: true, bytes: <the number printed by wc> }.`,
     { label: "persist-history", phase: "Persist", model: "haiku" },
   )
+  const histBytes = Number(persist?.bytes) || 0
+  if (histBytes > 0) {
+    log(`History: written ${histBytes} bytes → ${targetPath}`)
+  } else {
+    log(`WARNING: history file verification FAILED (0 bytes) — run continues but trend/reflection will miss this run.`)
+  }
   await agent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
 3. Keep only latest 50 entries (sort by run_id descending).
 4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
+6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )

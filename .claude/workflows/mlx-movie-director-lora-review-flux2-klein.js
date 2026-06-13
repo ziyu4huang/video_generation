@@ -97,6 +97,55 @@ function markPhase(name, status) {
   if (status === "failed") phasesFailed.push(name)
 }
 
+// ── Retry helper (rate-limit / transient-failure resilience) ─────────────────
+// The orchestrator's model API can return 429 ("Rate limit reached") when too many
+// subagents run concurrently. parallel() swallows a thrown agent() into null, which
+// silently drops a caption score (degrading a LoRA's average). withRetry wraps an
+// agent call and retries on TRANSIENT failures (429 / rate limit / timeout /
+// overloaded / null), backing off via a sleep-subagent. It does NOT retry PERMANENT
+// failures ("VLM unavailable" / "connection" — the local VLM is genuinely down;
+// retrying wastes ~30s each).
+
+async function sleepBackoff(secs) {
+  await agent(
+    `Backoff sleep to clear API rate limit. Run: Bash("sleep ${secs}"). Return { ok: true }.`,
+    { label: "retry-sleep", model: "haiku", schema: { type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] } },
+  )
+}
+
+// Usage-limit 429 (account quota: "Usage limit reached for 5 hour", code 1308) will NOT
+// clear in a 30-60s backoff — retrying just burns time and attempts. Treat it as PERMANENT
+// (return immediately) so we don't sleep through a doomed retry loop. Distinguished from a
+// per-call rate-limit 429, which IS transient and worth retrying.
+const USAGE_LIMIT_RE = /usage limit|limit reached|code 1308|reset at/
+
+async function withRetry(fn, { retries = 2, backoff = 30 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let r
+    try {
+      r = await fn()
+    } catch (err) {
+      const m = String(err?.message || err).toLowerCase()
+      if (USAGE_LIMIT_RE.test(m)) return null // permanent quota — do not retry
+      if (attempt < retries && /429|rate|timeout|overloaded/.test(m)) {
+        await sleepBackoff(backoff * (attempt + 1))
+        continue
+      }
+      return null // non-transient throw
+    }
+    const e = String(r?.error || "").toLowerCase()
+    if (e && USAGE_LIMIT_RE.test(e)) return r // permanent quota — do not retry
+    if (e && /vlm unavailable|connection/.test(e)) return r // permanent — don't retry
+    const transient = r == null || /429|rate|timeout|overloaded/.test(e)
+    if (transient && attempt < retries) {
+      await sleepBackoff(backoff * (attempt + 1))
+      continue
+    }
+    return r
+  }
+  return null
+}
+
 // ── Schemas (shared across phases) ───────────────────────────────────────────
 
 const PATH_SCHEMA = {
@@ -126,6 +175,20 @@ const RESUME_CHECK_SCHEMA = {
     previousPhasesCompleted: { type: "array", items: { type: "string" } },
   },
   required: ["action"],
+}
+
+// Raw-string load schemas — the agent returns the EXACT cat output and the SCRIPT parses it.
+// Asking a haiku agent to both cat AND parse a 75-line JSON in one shot is unreliable (it
+// returned {reflection:null} in the wfkn9vjf8 run, silently disabling ceiling escalation).
+const RAW_STRING_SCHEMA = {
+  type: "object",
+  properties: { raw: { type: "string" } },
+  required: ["raw"],
+}
+const RESUME_RAW_SCHEMA = {
+  type: "object",
+  properties: { latestFile: { type: "string" }, raw: { type: "string" } },
+  required: ["latestFile", "raw"],
 }
 
 // ── Helpers + Constants ──────────────────────────────────────────────────────
@@ -226,6 +289,7 @@ let denoiseStrength = 0.4
 let realismStyle    = "photorealistic"
 let challengePrompts = false
 let customPrompts    = null   // array of prompt strings
+let noCeilingEscalation = false // opt out of auto-escalating ceiling-prone LoRAs to challenge prompts
 
 if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   prompt = resolvedArgs
@@ -250,6 +314,7 @@ if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   if (typeof resolvedArgs.realismStyle === "string") realismStyle    = resolvedArgs.realismStyle
   if (resolvedArgs.challengePrompts === true)         challengePrompts = true
   if (Array.isArray(resolvedArgs.prompts))             customPrompts = resolvedArgs.prompts
+  if (resolvedArgs.noCeilingEscalation === true)       noCeilingEscalation = true
 }
 
 // Sweep is opt-in (prior run showed zero scale sensitivity 0.5-1.2 across all LoRAs).
@@ -295,25 +360,42 @@ const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE     = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+// Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
+// tool silently produced nothing — a reliability fix: the prior run's persist subagent reported
+// success but never wrote the file, breaking the trend/reflection/resume loops.
 async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
-  await agent(
-    `Persist workflow history to disk.
+  const targetPath = `${histDir}/${runId}.json`
+  const persist = await agent(
+    `Persist workflow history to disk RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
-2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
-   ${histJson}
-3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
-4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
-Return { written: true }.`,
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${histJson}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'HIST_EOF'
+${histJson}
+HIST_EOF")
+5. Bash("wc -c < '${targetPath}'")
+6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
+Return { written: true, bytes: <the number printed by wc> }.`,
     { label: "persist-history", phase: "Persist", model: "haiku" },
   )
+  const histBytes = Number(persist?.bytes) || 0
+  if (histBytes > 0) {
+    log(`History: written ${histBytes} bytes → ${targetPath}`)
+  } else {
+    log(`WARNING: history file verification FAILED (0 bytes) — run continues but trend/reflection will miss this run.`)
+  }
   await agent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
 3. Keep only latest 50 entries (sort by run_id descending).
 4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
+6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )
@@ -348,55 +430,42 @@ let resumeFromPhase = null
 if (resumeMode === "fresh") {
   log("Resume: fresh mode — ignoring prior history.")
 } else {
-  const resumeCheck = await agent(
-    `Check for a previous run history file for the workflow "${WORKFLOW_NAME}".
-
-  Steps:
-  1. Run: Bash("mkdir -p '${HISTORY_DIR}'")
-  2. Run: Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | head -1")
-  3. If a file path was returned, read it: Bash("cat '<path>'")
-  4. Examine the JSON:
-     - Check "status": is it "complete", "partial", or "error"?
-     - Check "phases_completed": which phases finished?
-     - Check "args": do they match the current invocation?
-
-  Current invocation args: ${JSON.stringify({ prompt: prompt.slice(0, 60), seeds: seeds.join(","), steps, pipeline: PIPELINE, resume: resumeMode })}
-
-  Decide:
-  - If no file found: action = "fresh"
-  - If file found and status = "complete": action = "compare" (prior run finished, use for trend)
-  - If file found and status = "partial" or "error": action = "resume", set resumeFromPhase to the phase AFTER the last completed phase
-  - If file found but args differ significantly (different prompt entirely): action = "fresh" (different scope)
-
-  Return your decision.`,
-    { label: "resume-check", phase: "Resolve", model: "haiku", schema: RESUME_CHECK_SCHEMA },
+  // Find the most recent prior run file (EXCLUDING reflection.json) and return its RAW
+  // contents — the SCRIPT parses it. An LLM cat+parse+decide was unreliable: the
+  // wfkn9vjf8 run logged "no prior history found" despite files existing on disk.
+  const resumeRaw = await agent(
+    `Find the most recent prior run history file for "${WORKFLOW_NAME}" (EXCLUDE reflection.json) and return its RAW contents.
+1. Bash("mkdir -p '${HISTORY_DIR}'")
+2. Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -1")
+3. If a path was returned, cat it: Bash("cat '<path>'")
+Return { latestFile: "<the path, or '' if none>", raw: "<the EXACT full cat output verbatim — or '__NONE__' if no file>" }.
+Do NOT parse, summarize, or modify the output.`,
+    { label: "resume-check", phase: "Resolve", model: "haiku", schema: RESUME_RAW_SCHEMA },
   )
 
-  if (resumeCheck) {
-    if (resumeCheck.action === "resume") {
-      isResume = true
-      resumeFromPhase = resumeCheck.resumeFromPhase
-      log(`Resume: picking up from phase "${resumeFromPhase}" (prior run: ${resumeCheck.previousRunId})`)
-    } else if (resumeCheck.action === "compare") {
-      log(`Resume: prior run ${resumeCheck.previousRunId} completed — loading for trend comparison.`)
-      const priorLoad = await agent(
-        `Read the prior run history file and return its "result" field (the workflow-specific payload).
-      Run: Bash("cat '${HISTORY_DIR}/${resumeCheck.previousRunId}.json'")
-      Extract the "result" object and return it as { result: <payload> }.
-      If the file cannot be read, return { result: null }.`,
-        { label: "load-prior", phase: "Resolve", model: "haiku" },
-      )
-      priorHistory = priorLoad?.result || null
-      if (priorHistory) {
-        const ps = priorHistory.baseScoreSummary
-        log(`  Prior run: baseline overall=${ps?.overall ?? "?"}, LoRAs=${priorHistory.loraScoreSummary?.length || 0}`)
-      }
-    } else {
-      log("Resume: no prior history found — starting fresh.")
+  let priorParsed = null
+  const latestFile = (resumeRaw?.latestFile || "").trim()
+  const latestRaw = resumeRaw?.raw || ""
+  if (latestFile && latestRaw && latestRaw !== "__NONE__") {
+    try { priorParsed = JSON.parse(latestRaw) } catch { priorParsed = null }
+  }
+
+  if (!priorParsed) {
+    log("Resume: no prior history found — starting fresh.")
+  } else {
+    const priorStatus = priorParsed.status || ""
+    const priorRunId = priorParsed.run_id || (latestFile.split("/").pop() || "").replace(/\.json$/, "")
+    // No robust mid-phase resume exists (no image-level cache), so both "complete" and
+    // "partial" prior runs are loaded for trend comparison only.
+    priorHistory = priorParsed.result || null
+    log(`Resume: prior run ${priorRunId} (status="${priorStatus}") loaded for trend comparison.`)
+    if (priorHistory) {
+      const ps = priorHistory.baseScoreSummary
+      log(`  Prior run: baseline overall=${ps?.overall ?? "?"}, LoRAs=${priorHistory.loraScoreSummary?.length || 0}`)
     }
   }
 
-  if (resumeMode === "continue" && !isResume && resumeCheck?.action !== "compare") {
+  if (resumeMode === "continue" && !priorHistory) {
     log("WARNING: resume=continue but no prior run found. Starting fresh.")
   }
 }
@@ -405,14 +474,21 @@ if (resumeMode === "fresh") {
 
 let loraReflection = null
 if (resumeMode !== "fresh") {
+  // Agent returns the RAW file contents; the SCRIPT parses. Asking haiku to cat+parse a
+  // 75-line JSON returned {reflection:null} in wfkn9vjf8, which silently emptied
+  // ceiling_prone_loras and disabled the ceiling-escalation fix below.
   const reflectLoad = await agent(
-    `Read the LoRA reflection file if it exists.
-Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
-Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
-Otherwise return { reflection: <the parsed object> }.`,
-    { label: "load-lora-reflection", phase: "Resolve", model: "haiku" },
+    `Read the LoRA reflection file and return its RAW contents.
+Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '__NONE__'")
+Return { raw: "<the EXACT full output verbatim>" }. Do NOT parse or modify it.
+If the output is "__NONE__", return { raw: "__NONE__" }.`,
+    { label: "load-lora-reflection", phase: "Resolve", model: "haiku", schema: RAW_STRING_SCHEMA },
   )
-  loraReflection = reflectLoad?.reflection || null
+  const reflectRaw = reflectLoad?.raw || ""
+  if (reflectRaw && reflectRaw !== "__NONE__") {
+    try { loraReflection = JSON.parse(reflectRaw) }
+    catch { log("Reflection: file present but failed to JSON.parse — treating as none."); loraReflection = null }
+  }
   if (loraReflection?.score_baselines) {
     const count = Object.keys(loraReflection.score_baselines).length
     log(`Reflection: loaded baselines for ${count} LoRA(s) from ${loraReflection.runs_analyzed || 0} prior run(s)`)
@@ -605,6 +681,39 @@ if (isMultiPrompt) {
   }
 }
 
+// ── Ceiling-aware prompt escalation ──────────────────────────────────────────
+// LoRAs flagged ceiling-prone in prior reflection.json (always scored ≥8.5) ride the
+// base model's ceiling and can never show improvement on the easy per-LoRA test_prompt.
+// Substitute a harder anatomy challenge prompt for them. Baselines are generated
+// per-unique-prompt (below), so the escalated LoRA gets its OWN baseline on the same
+// hard prompt — the A/B stays fair (no easy-vs-hard mismatch). Disabled in multi-prompt
+// (challenge) mode, where every LoRA already gets all challenge prompts.
+const ceilingProneSet = new Set(loraReflection?.ceiling_prone_loras || [])
+const ceilingEscalations = [] // [{ loraName, originalPrompt, escalatedPrompt, challengeName }]
+
+if (!noCeilingEscalation && ceilingProneSet.size > 0 && !isMultiPrompt) {
+  const escalationCp = ANATOMY_CHALLENGE_PROMPTS[0] // anatomy-hands-complex
+  allT2iLoras.forEach((lora) => {
+    if (!ceilingProneSet.has(lora.name)) return
+    const original = promptMap[lora.name]
+    let escalated = escalationCp.prompt
+    if (lora.trigger_words && lora.trigger_words.length > 0) {
+      const triggerPrefix = lora.trigger_words.join(", ")
+      if (!escalated.toLowerCase().includes(triggerPrefix.toLowerCase())) {
+        escalated = `${triggerPrefix}, ${escalated}`
+      }
+    }
+    promptMap[lora.name] = escalated
+    ceilingEscalations.push({
+      loraName: lora.name,
+      originalPrompt: original.slice(0, 60),
+      escalatedPrompt: escalated.slice(0, 60),
+      challengeName: escalationCp.name,
+    })
+    log(`  CEILING ESCALATION: ${lora.name} prompt overridden to "${escalationCp.name}" challenge`)
+  })
+}
+
 // Unique T2I prompts for baseline grouping
 const uniqueT2iPrompts = isMultiPrompt
   ? [...new Set(allT2iLoras.flatMap((l) => (promptMapMulti[l.name] || []).map((cp) => cp.prompt)))]
@@ -708,7 +817,10 @@ if (hasAnime2real) {
       lane: "anime2real",
       promptUsed: promptMap[anime2realLoras[0].name],
       seed,
-      cmd: `${PYTHON} ${RUN_PY} image anime2real --input-image '${animeImage}' --realism-style ${realismStyle} --seed ${seed} --no-lora --json-summary 2>&1 || ${PYTHON} ${RUN_PY} image anime2real --input-image '${animeImage}' --realism-style ${realismStyle} --seed ${seed} --lora-scale 0 --json-summary`,
+      cmd: `${PYTHON} ${RUN_PY} image anime2real --input-image '${animeImage}' --realism-style ${realismStyle} --anime2real-lora-scale 0 --seed ${seed} --json-summary`,
+      // anime2real has NO --no-lora mode; it always loads _DEFAULT_LORA. Baseline =
+      // default LoRA at --anime2real-lora-scale 0 (neutral weight → reference conditioning
+      // only). MUST use --anime2real-lora-scale: anime2real ignores the shared --lora-scale.
     })
   })
 }
@@ -813,6 +925,12 @@ markPhase("gpuWait", "completed")
 const bestScales = {}   // loraName → optimal scale
 const sweepResults = [] // full sweep data for report
 
+// Usage-limit abort flag — set when a generation agent hits the 5-hour account quota
+// (429 code 1308). Checked at phase boundaries to skip downstream agent-spawning phases
+// and persist partial results, instead of burning more doomed spawns (wfkn9vjf8 wasted ~15).
+let hitUsageLimit = false
+let usageLimitReset = ""
+
 // Only sweep T2I LoRAs (anime2real/faceswap sweeps would need lane-specific logic)
 const sweepableLoras = allT2iLoras
 
@@ -850,57 +968,78 @@ if (doSweep && sweepableLoras.length > 0) {
     required: ["status", "outputPngs"],
   }
 
+  // BATCHED: one agent per LoRA runs all its scales sequentially (separate Bash call each),
+  // returning a per-command results array. Cuts sweep gen agents 20→5. The 429 usage-limit
+  // is incurred per agent SPAWN; generation itself (run.py, local GPU) costs no Claude quota.
+  const BATCH_SWEEP_SCHEMA = {
+    type: "object",
+    properties: { results: { type: "array", items: SWEEP_GEN_SCHEMA } },
+    required: ["results"],
+  }
+
   const sweepGenResults = []
   const sweepGenCache = {}
 
-  for (let idx = 0; idx < sweepSpecs.length; idx++) {
-    const spec = sweepSpecs[idx]
-    const cmd = spec.cmd
+  // In-run dedup first (shared cmds), then group remaining by LoRA.
+  const remainingSweep = []
+  for (const spec of sweepSpecs) {
+    if (sweepGenCache[spec.cmd]) sweepGenResults.push({ ...sweepGenCache[spec.cmd], spec })
+    else remainingSweep.push(spec)
+  }
+  const sweepGroups = {}
+  remainingSweep.forEach((spec) => { (sweepGroups[spec.loraName] = sweepGroups[spec.loraName] || []).push(spec) })
 
-    if (sweepGenCache[cmd]) {
-      sweepGenResults.push({ ...sweepGenCache[cmd], spec })
-      continue
-    }
+  const sweepGroupKeys = Object.keys(sweepGroups)
+  for (let gi = 0; gi < sweepGroupKeys.length; gi++) {
+    const loraName = sweepGroupKeys[gi]
+    const specs = sweepGroups[loraName]
+    log(`  Sweep gen [group ${gi + 1}/${sweepGroupKeys.length}] ${loraName}: ${specs.length} scales`)
+    const cmdsBlock = specs.map((s, i) => `(${i + 1}/${specs.length}) scale=${s.scale}\n${s.cmd}`).join("\n\n")
 
-    log(`  [${idx + 1}/${totalSweep}] ${spec.loraName} scale=${spec.scale}...`)
-
+    let batchRes = null
     try {
-      const res = await agent(
-        `Execute a T2I generation command and extract output paths from JSON_SUMMARY.
+      batchRes = await agent(
+        `Execute ${specs.length} T2I generation commands SEQUENTIALLY — one Bash call per command — and return per-command results.
 
-COMMAND:
-${cmd}
+COMMANDS (run each in order, each via its OWN Bash("<cmd> 2>&1", timeout=600000)):
+${cmdsBlock}
 
-STEPS:
-1. Run the command (may take 1-2 min per image on flux2-klein):
-   Bash("${cmd} 2>&1", timeout=600000)
+FOR EACH command:
+1. Run it with its own Bash call: Bash("<cmd> 2>&1", timeout=600000).
+2. Parse that command's "JSON_SUMMARY:" line: JSON_SUMMARY:{"status":"success","outputs":["/path/img.png"]}
+   Extract the JSON after "JSON_SUMMARY:".
+3. If no JSON_SUMMARY, fall back to "Saved: " lines → output PNG paths.
+4. Non-zero exit or "Error"/"Traceback" → status="error".
+Append {status, outputPngs, runJsonPath, error} to results[] IN COMMAND ORDER.
 
-2. Parse JSON_SUMMARY line from stdout:
-   JSON_SUMMARY:{"status":"success","run_json":"...","manifest_json":"...","outputs":["/path/img.png"]}
-   Extract the JSON after "JSON_SUMMARY:" prefix.
+Each command is INDEPENDENT — if one errors, still run and report the rest.
 
-3. If no JSON_SUMMARY found, fall back:
-   - "Saved: " lines → output PNG paths
-   - "Run config: " lines → run.json path
-
-4. If non-zero exit or "Error"/"Traceback" in output, set status="error".
-
-Return JSON:
-{
-  "status": "success" or "error",
-  "outputPngs": ["/abs/path/img.png"],
-  "runJsonPath": "/abs/path/img.run.json" or "",
-  "error": ""
-}`,
-        { label: `sweep-${idx}-${spec.loraName}`, phase: "Scale Sweep", schema: SWEEP_GEN_SCHEMA },
+Return JSON: { "results": [ {status, outputPngs, runJsonPath, error}, ... ] } in the same order as the commands above.`,
+        { label: `sweep-${gi}-${loraName}`, phase: "Scale Sweep", schema: BATCH_SWEEP_SCHEMA },
       )
-      res.spec = spec
-      sweepGenResults.push(res)
-      if (res?.status === "success") sweepGenCache[cmd] = res
     } catch (e) {
-      log(`  [${idx + 1}] Sweep generation failed: ${e?.message || e}`)
-      sweepGenResults.push({ status: "error", outputPngs: [], runJsonPath: "", error: String(e?.message || e), spec })
+      const em = String(e?.message || e)
+      log(`  Sweep batch [${loraName}] agent failed: ${em}`)
+      if (USAGE_LIMIT_RE.test(em)) { hitUsageLimit = true; usageLimitReset = em }
     }
+
+    const got = Array.isArray(batchRes?.results) ? batchRes.results : null
+    specs.forEach((spec, i) => {
+      const r = got
+        ? (got[i] || { status: "error", outputPngs: [], runJsonPath: "", error: "missing result in batch" })
+        : { status: "error", outputPngs: [], runJsonPath: "", error: "batch agent failed" }
+      r.spec = spec
+      sweepGenResults.push(r)
+      if (r.status === "success") {
+        sweepGenCache[spec.cmd] = r
+        log(`    ${loraName} scale=${spec.scale} → ${r.outputPngs?.[0] || "(no png)"}`)
+      } else {
+        if (USAGE_LIMIT_RE.test(String(r.error || ""))) { hitUsageLimit = true; usageLimitReset = String(r.error || "") }
+        log(`    ${loraName} scale=${spec.scale} → FAILED: ${String(r.error || "").slice(0, 100)}`)
+      }
+    })
+
+    if (hitUsageLimit) { log(`  USAGE LIMIT HIT during sweep (${usageLimitReset.slice(0, 80)}) — stopping sweep early.`); break }
   }
 
   const sweepSuccessCount = sweepGenResults.filter((r) => r.status === "success").length
@@ -925,56 +1064,78 @@ Return JSON:
   const sweepCaptionable = sweepGenResults.filter((r) => r.outputPngs && r.outputPngs.length > 0)
   log(`Captioning ${sweepCaptionable.length} sweep images...`)
 
+  // BATCHED: one caption agent per LoRA scores all its sweep PNGs sequentially. 20→5 agents.
+  // Direct agent() (no withRetry): only ~5 sequential agents (low per-call-429 risk), and a
+  // direct catch lets us detect a usage-limit 429 and abort the sweep cleanly.
   const sweepScores = []
+  const sweepCapGroups = {}
+  sweepCaptionable.forEach((item) => {
+    const k = item.spec.loraName
+    ;(sweepCapGroups[k] = sweepCapGroups[k] || []).push(item)
+  })
 
-  for (let idx = 0; idx < sweepCaptionable.length; idx++) {
-    const item = sweepCaptionable[idx]
-    const pngPath = item.outputPngs[0]
-    const captionFile = captionPathFor(pngPath)
-    const loraName = item.spec.loraName
-    const scale = item.spec.scale
-    const sweepPrompt = item.spec.promptUsed
+  const BATCH_SWEEP_CAP_SCHEMA = {
+    type: "object",
+    properties: { scores: { type: "array", items: sweepCaptionSchema } },
+    required: ["scores"],
+  }
 
+  const sweepCapKeys = Object.keys(sweepCapGroups)
+  for (let gi = 0; gi < sweepCapKeys.length; gi++) {
+    const loraName = sweepCapKeys[gi]
+    const items = sweepCapGroups[loraName]
+    log(`  Sweep caption [group ${gi + 1}/${sweepCapKeys.length}] ${loraName}: ${items.length} images`)
+
+    const tasks = items.map((item) => {
+      const pngPath = item.outputPngs[0]
+      const sweepPrompt = item.spec.promptUsed
+      return {
+        pngPath,
+        captionFile: captionPathFor(pngPath),
+        scale: item.spec.scale,
+        cmd: `${PYTHON} ${RUN_PY} caption '${pngPath}' --style review --prompt '${sweepPrompt.replace(/'/g, "'\\''")}' --lang en`,
+      }
+    })
+    const tasksBlock = tasks.map((t, i) => `(${i + 1}/${tasks.length}) scale=${t.scale} image=${t.pngPath}\ncmd: ${t.cmd}\nthen: cat '${t.captionFile}'`).join("\n\n")
+
+    let capBatch = null
     try {
-      const cap = await agent(
-        `Quick quality score for a sweep probe image.
+      capBatch = await agent(
+        `Quick quality scores for ${tasks.length} sweep probe images of LoRA "${loraName}". Score them SEQUENTIALLY — one caption command each.
 
-IMAGE PATH: ${pngPath}
-LoRA: ${loraName} at scale=${scale}
+TASKS (for each: run its own Bash("<cmd>"), then Bash("cat '<captionFile>'"); parse the outer JSON then the nested "caption" string — strip markdown fences, extract the first {...}):
+${tasksBlock}
 
-STEPS:
-1. Run: Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style review --prompt '${sweepPrompt.replace(/'/g, "'\\''")}' --lang en")
-2. Read: Bash("cat '${captionFile}'")
-3. Parse the outer JSON, then parse the nested "caption" string.
-   Strip markdown fences if present. Extract the first {...}.
+For EACH task append a scores object to scores[] IN TASK ORDER:
+{ "imagePath": "<pngPath>", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "error": "" }
 
-Return JSON (scores only):
-{
-  "imagePath": "${pngPath}",
-  "overall": <1-10>,
-  "detail": <1-10>,
-  "sharpness": <1-10>,
-  "composition": <1-10>,
-  "prompt_adherence": <1-10>,
-  "artifacts": <1-10>,
-  "error": ""
-}`,
-        { label: `sweep-cap-${loraName}-${scale}`, phase: "Scale Sweep", schema: sweepCaptionSchema },
+Each task is INDEPENDENT — if one fails, set its error and continue with the rest.
+
+Return JSON: { "scores": [ {...}, ... ] } in task order.`,
+        { label: `sweep-cap-${loraName}`, phase: "Scale Sweep", schema: BATCH_SWEEP_CAP_SCHEMA },
       )
+    } catch (e) {
+      const em = String(e?.message || e)
+      log(`  Sweep caption batch [${loraName}] failed: ${em}`)
+      if (USAGE_LIMIT_RE.test(em)) { hitUsageLimit = true; usageLimitReset = em }
+    }
+
+    const caps = Array.isArray(capBatch?.scores) ? capBatch.scores : []
+    items.forEach((item, i) => {
+      const c = caps[i] || {}
       sweepScores.push({
         loraName,
-        scale,
-        overall: cap?.overall || 0,
-        detail: cap?.detail || 0,
-        sharpness: cap?.sharpness || 0,
-        composition: cap?.composition || 0,
-        prompt_adherence: cap?.prompt_adherence || 0,
-        artifacts: cap?.artifacts || 0,
+        scale: item.spec.scale,
+        overall: c.overall || 0,
+        detail: c.detail || 0,
+        sharpness: c.sharpness || 0,
+        composition: c.composition || 0,
+        prompt_adherence: c.prompt_adherence || 0,
+        artifacts: c.artifacts || 0,
       })
-    } catch (e) {
-      log(`  Sweep caption failed for ${loraName} scale=${scale}: ${e?.message || e}`)
-      sweepScores.push({ loraName, scale, overall: 0, detail: 0, sharpness: 0, composition: 0, prompt_adherence: 0, artifacts: 0 })
-    }
+    })
+
+    if (hitUsageLimit) { log(`  USAGE LIMIT HIT during sweep caption — stopping.`); break }
   }
 
   // Pick best scale per LoRA (highest overall, tiebreak on detail)
@@ -1053,58 +1214,90 @@ const GEN_SCHEMA = {
   required: ["status", "outputPngs"],
 }
 
+// BATCHED: one agent per group (baseline-prompt group OR LoRA group) runs all its seeds
+// sequentially. Cuts final-gen agents 30→~10. Direct agent() with catch so a usage-limit
+// 429 aborts generation and we persist partial results instead of spawning doomed agents.
+const BATCH_GEN_SCHEMA = {
+  type: "object",
+  properties: { results: { type: "array", items: GEN_SCHEMA } },
+  required: ["results"],
+}
+
 const genResults = []
 const genCache = {}
 
-for (let idx = 0; idx < allSpecs.length; idx++) {
-  const spec = allSpecs[idx]
-  const cmd = spec.cmd
-
-  if (genCache[cmd]) {
-    log(`[${idx + 1}/${totalImages}] Dedup — reusing cached result (${spec.lane}/${spec.type}${spec.type === "lora" ? ` ${spec.loraName}` : ""}, seed=${spec.seed})`)
-    genResults.push({ ...genCache[cmd], spec })
-    continue
+if (hitUsageLimit) {
+  log("Generate: SKIPPED — usage limit hit during sweep; proceeding to persist partial results.")
+} else {
+  // In-run dedup first (shared cmds), then group remaining by baseline-prompt or LoRA.
+  const remainingGen = []
+  for (const spec of allSpecs) {
+    if (genCache[spec.cmd]) {
+      log(`Dedup — reusing cached result (${spec.lane}/${spec.type}${spec.type === "lora" ? ` ${spec.loraName}` : ""}, seed=${spec.seed})`)
+      genResults.push({ ...genCache[spec.cmd], spec })
+    } else {
+      remainingGen.push(spec)
+    }
   }
+  const genGroups = {}
+  remainingGen.forEach((spec) => {
+    const key = spec.type === "baseline" ? `baseline|${spec.promptUsed}` : `lora|${spec.loraName}`
+    ;(genGroups[key] = genGroups[key] || []).push(spec)
+  })
 
-  const laneTag = spec.lane !== "t2i" ? `[${spec.lane}] ` : ""
-  log(`[${idx + 1}/${totalImages}] ${laneTag}Generating ${spec.type}${spec.type === "lora" ? ` ${spec.loraName}` : ""}, seed=${spec.seed}...`)
+  const genGroupKeys = Object.keys(genGroups)
+  for (let gi = 0; gi < genGroupKeys.length; gi++) {
+    const key = genGroupKeys[gi]
+    const specs = genGroups[key]
+    const gLabel = specs[0].type === "baseline" ? `baseline "${(specs[0].promptUsed || "").slice(0, 30)}"` : `lora ${specs[0].loraName}`
+    const laneTag = specs[0].lane !== "t2i" ? `[${specs[0].lane}] ` : ""
+    log(`Generate [group ${gi + 1}/${genGroupKeys.length}] ${laneTag}${gLabel}: ${specs.length} seed(s)`)
+    const cmdsBlock = specs.map((s, i) => `(${i + 1}/${specs.length}) seed=${s.seed}${s.type === "lora" ? ` scale=${s.scale}` : ""}\n${s.cmd}`).join("\n\n")
 
-  try {
-    const res = await agent(
-      `Execute a generation command and extract output paths from JSON_SUMMARY.
+    let batchRes = null
+    try {
+      batchRes = await agent(
+        `Execute ${specs.length} generation commands SEQUENTIALLY — one Bash call per command — and return per-command results.
 
-COMMAND:
-${cmd}
+COMMANDS (run each in order, each via its OWN Bash("<cmd> 2>&1", timeout=600000)):
+${cmdsBlock}
 
-STEPS:
-1. Run the command (may take 1-5 min per image):
-   Bash("${cmd} 2>&1", timeout=600000)
+FOR EACH command:
+1. Run it with its own Bash call: Bash("<cmd> 2>&1", timeout=600000).
+2. Parse that command's "JSON_SUMMARY:" line: JSON_SUMMARY:{"status":"success","outputs":["/path/img.png"]}
+   Extract the JSON after "JSON_SUMMARY:".
+3. If no JSON_SUMMARY, fall back to "Saved: " lines → output PNG paths.
+4. Non-zero exit or "Error"/"Traceback" → status="error".
+Append {status, outputPngs, runJsonPath, error} to results[] IN COMMAND ORDER.
 
-2. Parse JSON_SUMMARY line from stdout:
-   JSON_SUMMARY:{"status":"success","run_json":"...","manifest_json":"...","outputs":["/path/img.png"]}
-   Extract the JSON after "JSON_SUMMARY:" prefix.
+Each command is INDEPENDENT — if one errors, still run and report the rest.
 
-3. If no JSON_SUMMARY found, fall back:
-   - "Saved: " lines → output PNG paths
-   - "Run config: " lines → run.json path
+Return JSON: { "results": [ {status, outputPngs, runJsonPath, error}, ... ] } in the same order as the commands above.`,
+        { label: `gen-${gi}-${specs[0].lane}-${specs[0].type}`, phase: "Generate", schema: BATCH_GEN_SCHEMA },
+      )
+    } catch (e) {
+      const em = String(e?.message || e)
+      log(`  Generate batch [${gLabel}] agent failed: ${em}`)
+      if (USAGE_LIMIT_RE.test(em)) { hitUsageLimit = true; usageLimitReset = em }
+    }
 
-4. If non-zero exit or "Error"/"Traceback" in output, set status="error".
+    const got = Array.isArray(batchRes?.results) ? batchRes.results : null
+    specs.forEach((spec, i) => {
+      const r = got
+        ? (got[i] || { status: "error", outputPngs: [], runJsonPath: "", error: "missing result in batch" })
+        : { status: "error", outputPngs: [], runJsonPath: "", error: "batch agent failed" }
+      r.spec = spec
+      genResults.push(r)
+      if (r.status === "success") {
+        genCache[spec.cmd] = r
+        log(`    ${gLabel} seed=${spec.seed} → ${r.outputPngs?.[0] || "(no png)"}`)
+      } else {
+        if (USAGE_LIMIT_RE.test(String(r.error || ""))) { hitUsageLimit = true; usageLimitReset = String(r.error || "") }
+        log(`    ${gLabel} seed=${spec.seed} → FAILED: ${String(r.error || "").slice(0, 100)}`)
+      }
+    })
 
-Return JSON:
-{
-  "status": "success" or "error",
-  "outputPngs": ["/abs/path/img.png"],
-  "runJsonPath": "/abs/path/img.run.json" or "",
-  "error": ""
-}`,
-      { label: `gen-${idx}-${spec.lane}-${spec.type}`, phase: "Generate", schema: GEN_SCHEMA },
-    )
-    res.spec = spec
-    genResults.push(res)
-    if (res?.status === "success") genCache[cmd] = res
-  } catch (e) {
-    log(`[${idx + 1}] Generation agent failed: ${e?.message || e}`)
-    genResults.push({ status: "error", outputPngs: [], runJsonPath: "", error: String(e?.message || e), spec })
+    if (hitUsageLimit) { log(`  USAGE LIMIT HIT during generate (${usageLimitReset.slice(0, 80)}) — stopping generation.`); break }
   }
 }
 
@@ -1112,7 +1305,7 @@ const successCount = genResults.filter((r) => r.status === "success").length
 const failCount = genResults.filter((r) => r.status !== "success").length
 log(`Generation complete: ${successCount} success, ${failCount} failed`)
 
-markPhase("generate", "completed")
+markPhase("generate", hitUsageLimit ? "skipped" : "completed")
 
 // ── Phase 5: VLM pre-flight check ────────────────────────────────────────────
 
@@ -1124,20 +1317,30 @@ const VLM_CHECK_SCHEMA = {
   required: ["available"],
 }
 
-const vlmCheck = await agent(
-  `Check if LM Studio VLM is running at http://localhost:1234.
+let vlmAvailable = false
+if (hitUsageLimit) {
+  log("VLM check: SKIPPED — usage limit hit earlier; skipping Review/report/HTML.")
+  markPhase("vlmCheck", "skipped")
+} else {
+  const vlmCheck = await agent(
+    `Verify the VLM can actually LOAD and serve inference — NOT just that it's listed. (LM Studio
+lists models in /v1/models even when they fail to load under GPU memory pressure.)
 
-Run: Bash("curl -sf http://localhost:1234/v1/models -o /dev/null -w '%{http_code}'")
-
-Return { "available": true } if HTTP 200, { "available": false } otherwise.
+1. Server up? Bash("curl -sf http://localhost:1234/v1/models -o /dev/null -w '%{http_code}'")
+2. Probe LOADABILITY with a tiny inference (the first request may take 10-90s while the model
+   loads into GPU memory — that is normal, use timeout=120000):
+   Bash("curl -s http://localhost:1234/v1/chat/completions -H 'Content-Type: application/json' -d '{\\"model\\":\\"qwen/qwen3-vl-4b\\",\\"messages\\":[{\\"role\\":\\"user\\",\\"content\\":\\"reply OK\\"}],\\"max_tokens\\":5}'", timeout=120000)
+3. If the response body contains "error" or "Failed to load model", the VLM is NOT usable yet:
+   wait 20s — Bash("sleep 20") — and retry step 2 ONCE.
+Return { "available": true } ONLY if step 2 returned a real chat completion (no "error"/"Failed
+to load model" in the body). Otherwise { "available": false }.
 IMPORTANT: Return ONLY the JSON object.`,
-  { label: "vlm-check", phase: "VLM Check", model: "haiku", schema: VLM_CHECK_SCHEMA },
-)
-
-const vlmAvailable = vlmCheck?.available === true
-log(vlmAvailable ? "VLM available — proceeding with Review." : "VLM UNAVAILABLE — skipping Review. Start LM Studio with a VLM model.")
-
-markPhase("vlmCheck", "completed")
+    { label: "vlm-check", phase: "VLM Check", model: "haiku", schema: VLM_CHECK_SCHEMA },
+  )
+  vlmAvailable = vlmCheck?.available === true
+  log(vlmAvailable ? "VLM available — proceeding with Review." : "VLM UNAVAILABLE — skipping Review. Start LM Studio with a VLM model.")
+  markPhase("vlmCheck", "completed")
+}
 
 // ── Phase 6: Review — Caption each PNG ───────────────────────────────────────
 
@@ -1171,75 +1374,78 @@ if (!vlmAvailable) {
   log("Skipping caption phase (VLM unavailable).")
   captionable.forEach((r) => { r.captions = [] })
 } else {
-  const captionedResults = await pipeline(
-    captionable,
-    async (item, _orig, idx) => {
-      log(`[${idx + 1}/${captionable.length}] Captioning ${item.outputPngs.length} PNG(s)...`)
+  // BATCHED: one caption agent per group (baseline-prompt or LoRA) captions all its images
+  // sequentially. ~19→~10 agents. captionable items are references into genResults, so we
+  // mutate item.captions in place (no merge-back needed). Direct agent() with catch for
+  // usage-limit detection.
+  const BATCH_CAP_SCHEMA = {
+    type: "object",
+    properties: { captions: { type: "array", items: CAPTION_SCHEMA } },
+    required: ["captions"],
+  }
 
-      const captions = await parallel(
-        item.outputPngs.map((pngPath, pngIdx) => () => {
-          const captionFile = captionPathFor(pngPath)
-          const label = item.spec.type === "lora" ? `${item.spec.lane}/${item.spec.loraName}` : `${item.spec.lane}/baseline`
-          // Use per-image prompt for accurate prompt-adherence scoring
-          const imagePrompt = item.spec.promptUsed || prompt
-
-          return agent(
-            `Score the image quality using the VLM caption tool.
-
-IMAGE PATH: ${pngPath}
-VARIANT: ${label}
-SEED: ${item.spec.seed}
-LANE: ${item.spec.lane}
-
-STEPS:
-1. Run the caption command with the prompt used for generation:
-   Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style review --prompt '${imagePrompt.replace(/'/g, "'\\''")}' --lang en")
-
-   If connection error, set error = "VLM unavailable" and return.
-
-2. Read the output caption JSON:
-   Bash("cat '${captionFile}'")
-
-3. Parse the outer JSON. The "caption" field is a nested JSON STRING — parse it again.
-   The caption string may be wrapped in markdown fences — strip fences and extract the first {...}.
-   Extract: overall, detail, sharpness, composition, prompt_adherence, artifacts,
-   captured[], missed[], issues[], strengths[], summary.
-
-Return flat JSON:
-{
-  "imagePath": "${pngPath}",
-  "overall": <1-10>,
-  "detail": <1-10>,
-  "sharpness": <1-10>,
-  "composition": <1-10>,
-  "prompt_adherence": <1-10>,
-  "artifacts": <1-10>,
-  "captured": [...],
-  "missed": [...],
-  "issues": [...],
-  "strengths": [...],
-  "summary": "...",
-  "style": "review",
-  "model": "...",
-  "error": ""
-}`,
-            { label: `caption-${label}-${item.spec.seed}`, phase: "Review", schema: CAPTION_SCHEMA },
-          )
-        }),
-      )
-
-      item.captions = captions.filter(Boolean)
-      return item
-    },
-  )
-
-  // Merge captioned results back
-  captionedResults.forEach((captioned) => {
-    if (captioned) {
-      const idx = genResults.findIndex((r) => r.spec === captioned.spec)
-      if (idx >= 0) genResults[idx] = captioned
-    }
+  const captionGroups = {}
+  captionable.forEach((item) => {
+    const key = item.spec.type === "baseline" ? `baseline|${item.spec.promptUsed}` : `lora|${item.spec.loraName}`
+    ;(captionGroups[key] = captionGroups[key] || []).push(item)
   })
+
+  const capGroupKeys = Object.keys(captionGroups)
+  for (let gi = 0; gi < capGroupKeys.length; gi++) {
+    const key = capGroupKeys[gi]
+    const items = captionGroups[key]
+    const gLabel = items[0].spec.type === "lora" ? items[0].spec.loraName : "baseline"
+    log(`Review caption [group ${gi + 1}/${capGroupKeys.length}] ${gLabel}: ${items.reduce((n, it) => n + it.outputPngs.length, 0)} image(s)`)
+
+    // Flatten one task per PNG across the group.
+    const tasks = []
+    items.forEach((item) => {
+      item.outputPngs.forEach((pngPath) => {
+        const imagePrompt = item.spec.promptUsed || prompt
+        tasks.push({
+          pngPath,
+          captionFile: captionPathFor(pngPath),
+          cmd: `${PYTHON} ${RUN_PY} caption '${pngPath}' --style review --prompt '${imagePrompt.replace(/'/g, "'\\''")}' --lang en`,
+        })
+      })
+    })
+    const tasksBlock = tasks.map((t, i) => `(${i + 1}/${tasks.length}) image=${t.pngPath}\ncmd: ${t.cmd}\nthen: cat '${t.captionFile}'`).join("\n\n")
+
+    let capBatch = null
+    try {
+      capBatch = await agent(
+        `Score ${tasks.length} images for quality using the VLM caption tool. Score them SEQUENTIALLY — one caption command each.
+
+TASKS (for each: run its own Bash("<cmd>"), then Bash("cat '<captionFile>'"); parse the outer JSON, then the nested "caption" string — strip markdown fences, extract the first {...}):
+${tasksBlock}
+
+For EACH task append a caption object to captions[] IN TASK ORDER:
+{ "imagePath": "<pngPath>", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "review", "model": "...", "error": "" }
+
+If a connection error occurs for a task, set its error = "VLM unavailable" and continue with the rest. Each task is INDEPENDENT.
+
+Return JSON: { "captions": [ {...}, ... ] } in task order.`,
+        { label: `caption-${gLabel}`, phase: "Review", schema: BATCH_CAP_SCHEMA },
+      )
+    } catch (e) {
+      const em = String(e?.message || e)
+      log(`  Review caption batch [${gLabel}] failed: ${em}`)
+      if (USAGE_LIMIT_RE.test(em)) { hitUsageLimit = true; usageLimitReset = em }
+    }
+
+    const caps = Array.isArray(capBatch?.captions) ? capBatch.captions : []
+    let capIdx = 0
+    items.forEach((item) => {
+      item.captions = []
+      item.outputPngs.forEach(() => {
+        const c = caps[capIdx]
+        if (c) item.captions.push(c)
+        capIdx++
+      })
+    })
+
+    if (hitUsageLimit) { log(`  USAGE LIMIT HIT during review caption — stopping.`); break }
+  }
 }
 
 // ── Build caption sets for manifest (multi-lane aware) ───────────────────────
@@ -1442,7 +1648,33 @@ if (baseScoreSummary.count > 0) {
   }
 }
 
-const reportResult = await agent(
+// ── Ceiling analysis ─────────────────────────────────────────────────────────
+// ceilingBound = baseline already ≥8.5 AND |LoRA−baseline| < 0.5 → the LoRA adds no
+// measurable improvement over the base model's ceiling. NOTE: baseScoreSummary.overall
+// is the GLOBAL T2I average across all unique prompts; for LoRAs that were ceiling-
+// escalated onto a hard prompt, the precise per-prompt delta comes from the caption-set
+// comparisons surfaced to the report agent (threshold 8.5 matches reflection.json).
+const ceilingAnalysis = loraScoreSummary.map((l) => {
+  const base = baseScoreSummary.overall || 0
+  const overall = l.overall || 0
+  const delta = +(overall - base).toFixed(2)
+  return {
+    loraName: l.name,
+    baselineOverall: +base.toFixed(2),
+    loraOverall: overall,
+    bestScale: bestScales[l.name],
+    delta,
+    ceilingBound: base >= 8.5 && Math.abs(delta) < 0.5,
+    escalated: ceilingEscalations.some((c) => c.loraName === l.name),
+  }
+})
+
+let reportResult = null
+if (hitUsageLimit) {
+  log("Report: SKIPPED — usage limit hit; persisting partial results without a narrative report.")
+  markPhase("report", "skipped")
+} else {
+  reportResult = await agent(
   `Generate a concise LoRA comparison report for this flux2-klein dynamic A/B test.
 ${loraBaselineCtx}
 ## Test Configuration
@@ -1458,6 +1690,11 @@ ${loraBaselineCtx}
 - Lanes: T2I (${allT2iLoras.length} LoRAs)${hasAnime2real ? `, anime2real (${anime2realLoras.length})` : ""}${hasFaceswap ? `, faceswap (${faceswapLoras.length})` : ""}
 - Challenge mode: ${isMultiPrompt ? `YES — ${multiPromptSet.length} anatomy challenge prompts` : "NO"}
 
+${ceilingEscalations.length > 0 ? `## Ceiling-Prompt Escalations (auto-applied)
+These LoRAs were flagged ceiling-prone in prior reflection.json (always scored ≥8.5), so they
+were retested on a harder anatomy challenge prompt instead of their easy test_prompt:
+${JSON.stringify(ceilingEscalations, null, 2)}` : "## Ceiling-Prompt Escalations: none (no ceiling-prone LoRAs, or escalation disabled)."}
+
 ${doSweep && sweepResults.length > 0 ? `## Scale Sweep Results
 ${JSON.stringify(sweepResults.map((sr) => ({
   loraName: sr.loraName,
@@ -1470,6 +1707,11 @@ ${JSON.stringify(baseScoreSummary, null, 2)}
 
 ## Per-LoRA Scores at Optimal Scale (avg over seeds)
 ${JSON.stringify(loraScoreSummary, null, 2)}
+
+## Ceiling Analysis
+${JSON.stringify(ceilingAnalysis, null, 2)}
+- ceilingBound=true ⇒ baseline ≥8.5 AND |Δ overall| < 0.5: the LoRA adds no measurable improvement over the ceiling.
+- escalated=true ⇒ tested on a harder challenge prompt; the per-prompt caption-set delta is the precise signal.
 
 ## Full Results
 ${JSON.stringify(genResults.map((r) => ({
@@ -1529,13 +1771,13 @@ Use a lower ceiling threshold for challenge prompts (7.0 instead of 8.5) since t
 Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
-
-markPhase("report", "completed")
+  markPhase("report", "completed")
+}
 
 // ── Phase 8: Review HTML ─────────────────────────────────────────────────────
 
 let reviewHtml = ""
-if (captionFiles.length > 0 && !noHtml) {
+if (captionFiles.length > 0 && !noHtml && !hitUsageLimit) {
   phase("Review HTML")
 
   const manifestJson = JSON.stringify({ lang: wfLang, sets: captionSets }, null, 2)
@@ -1594,7 +1836,7 @@ const scoreDeltaFromLast = loraReflection?.score_baselines
   : null
 
 const signals = {
-  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  run_quality: hitUsageLimit ? "usage-limited" : (phasesFailed.length === 0 ? "good" : "degraded"),
   key_metric: topLora?.overall ?? null,
   delta_from_last: null,
   highlights: [
@@ -1635,7 +1877,9 @@ const historyEntry = {
   },
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
-  status: phasesFailed.length === 0 ? "complete" : "partial",
+  status: hitUsageLimit ? "partial" : (phasesFailed.length === 0 ? "complete" : "partial"),
+  reason: hitUsageLimit ? "usage-limit" : null,
+  usage_limit_reset: hitUsageLimit ? usageLimitReset.slice(0, 200) : null,
   signals,
   tags: ["lora-review", "flux2-klein-9b", ...(doSweep ? ["scale-sweep"] : []), ...(hasAnime2real ? ["anime2real"] : []), ...(hasFaceswap ? ["faceswap"] : []), ...(isMultiPrompt ? ["anatomy-challenge"] : [])],
   result: {
@@ -1646,6 +1890,8 @@ const historyEntry = {
     promptMap,
     loraScoreSummary,
     baseScoreSummary,
+    ceilingAnalysis,
+    ceilingEscalations,
     reviewHtml,
     lanes: {
       t2i: { active: true, loraCount: allT2iLoras.length, baselines: t2iBaseSpecs.length, images: t2iLoraSpecs.length },
@@ -1740,14 +1986,26 @@ const reflectResult = await agent(
 )
 
 if (reflectResult) {
-  await agent(
-    `Write the LoRA reflection JSON file.
-Use the Write tool: Write({ file_path: '${REFLECTION_FILE}', content: <json> })
-The content is: ${JSON.stringify(reflectResult, null, 2)}
-Return { written: true }.`,
+  const reflectJson = JSON.stringify(reflectResult, null, 2)
+  const reflectWrite = await agent(
+    `Write the LoRA reflection JSON file RELIABLY.
+1. Write with the Write tool: file_path='${REFLECTION_FILE}', content is the JSON below VERBATIM:
+${reflectJson}
+2. Verify: Bash("test -s '${REFLECTION_FILE}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via a quoted heredoc:
+   Bash("cat > '${REFLECTION_FILE}' <<'REFLECT_EOF'
+${reflectJson}
+REFLECT_EOF")
+4. Bash("wc -c < '${REFLECTION_FILE}'")
+Return { written: true, bytes: <number> }.`,
     { label: "write-lora-reflection", phase: "Persist", model: "haiku" },
   )
-  log(`Reflection: updated ${REFLECTION_FILE} (${reflectResult.runs_analyzed} run(s) analyzed)`)
+  const reflectBytes = Number(reflectWrite?.bytes) || 0
+  if (reflectBytes > 0) {
+    log(`Reflection: updated ${REFLECTION_FILE} (${reflectResult.runs_analyzed} run(s) analyzed, ${reflectBytes} bytes)`)
+  } else {
+    log(`WARNING: reflection write verification FAILED (0 bytes) — reflection.json may be stale.`)
+  }
 }
 
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
@@ -1781,6 +2039,8 @@ return {
   promptMap,
   loraScoreSummary,
   baseScoreSummary,
+  ceilingAnalysis,
+  ceilingEscalations,
   lanes: {
     t2i: { active: true, loraCount: allT2iLoras.length },
     anime2real: { active: hasAnime2real, loraCount: hasAnime2real ? anime2realLoras.length : 0 },
