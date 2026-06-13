@@ -1,1 +1,5 @@
 config.json
+
+# Runtime job store — live mutable state (absolute paths, logs, timestamps).
+# Read/written at runtime by lib/jobstore.ts; must never be committed.
+data/jobs.json
