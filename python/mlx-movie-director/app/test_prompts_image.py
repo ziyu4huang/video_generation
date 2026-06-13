@@ -1,5 +1,7 @@
 """Built-in test prompts for image quality evaluation commands."""
 
+import sys
+
 # ---------------------------------------------------------------------------
 # Image test prompts (used by quality/review/workflow commands)
 # ---------------------------------------------------------------------------
@@ -349,7 +351,7 @@ _ALL_TESTS = {
     # type=vae: VAE variant comparison
     # -----------------------------------------------------------------------
 
-    "ultraflux": {
+    "vae:ultraflux": {
         "type": "vae",
         "description": "Default flux-ae vs UltraFlux VAE — sharpness and edge quality comparison",
         "test_prompt": "portrait",
@@ -365,7 +367,7 @@ _ALL_TESTS = {
     # type=workflow: WorkflowOrchestrator variations
     # -----------------------------------------------------------------------
 
-    "portrait-full": {
+    "workflow:portrait": {
         "type": "workflow",
         "description": (
             "Full pipeline A/B/C: base only vs base+detail+post vs full pipeline "
@@ -414,7 +416,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "grain-sweep": {
+    "workflow:grain": {
         "type": "workflow",
         "description": (
             "Film grain intensity sweep: 0 / 0.008 / 0.015 / 0.025 — "
@@ -475,7 +477,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "face-detail-ab": {
+    "workflow:face-detail": {
         "type": "workflow",
         "description": (
             "Face detailer denoise strength A/B: off / 0.10 / 0.15 / 0.25 — "
@@ -536,7 +538,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "landscape-post": {
+    "workflow:landscape": {
         "type": "workflow",
         "description": (
             "Post-processing chain comparison on landscape: base / sharp+clean / "
@@ -589,7 +591,7 @@ _ALL_TESTS = {
     # type=nomodel: fast in-process smoke tests, no GPU / no model loading
     # -----------------------------------------------------------------------
 
-    "workflow-postprocess": {
+    "workflow:postprocess": {
         "type": "nomodel",
         "description": "PostProcessChain on synthetic image — no model loading, <1s",
     },
@@ -598,7 +600,7 @@ _ALL_TESTS = {
     # type=t2i: simple T2I comparison across seeds or parameters
     # -----------------------------------------------------------------------
 
-    "portrait-seeds": {
+    "t2i:portrait": {
         "type": "t2i",
         "description": "Same portrait prompt, 4 different seeds — baseline diversity check",
         "test_prompt": "portrait",
@@ -606,7 +608,7 @@ _ALL_TESTS = {
         "seeds": [42, 123, 777, 999],
     },
 
-    "landscape-seeds": {
+    "t2i:landscape": {
         "type": "t2i",
         "description": "Same landscape prompt, 4 different seeds — composition variety check",
         "test_prompt": "landscape",
@@ -618,7 +620,7 @@ _ALL_TESTS = {
     # type=lora: LoRA adapter A/B comparison (multi-seed paired)
     # -----------------------------------------------------------------------
 
-    "zit-sda-v1": {
+    "lora:sda-portrait": {
         "type": "lora",
         "description": (
             "SDA LoKr A/B: baseline vs Z-Image-Turbo SDA diversity adapter — "
@@ -634,7 +636,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "zit-sda-v1-fullbody": {
+    "lora:sda-fullbody": {
         "type": "lora",
         "description": (
             "SDA LoKr A/B: baseline vs SDA adapter — full-body fashion photography prompt, "
@@ -654,7 +656,7 @@ _ALL_TESTS = {
     # type=lora-sweep: LoRA across multiple prompt styles (general evaluator)
     # -----------------------------------------------------------------------
 
-    "zit-sda-v1-sweep": {
+    "lora:sda-sweep": {
         "type": "lora-sweep",
         "description": "SDA LoRA sweep: baseline vs SDA v1 across 8 diverse prompt styles",
         "lora_scale": 1.0,
@@ -674,7 +676,7 @@ _ALL_TESTS = {
     # type=lora-i2i: T2I → I2I pipeline with LoRA (style transfer via img2img)
     # -----------------------------------------------------------------------
 
-    "anime2real": {
+    "lora:anime2real": {
         "type": "lora-i2i",
         "description": (
             "anime2real LoRA: T2I anime baseline → I2I with anything2real LoRA — "
@@ -700,7 +702,7 @@ _ALL_TESTS = {
     # type=lora-ref: Flux2KleinEdit reference conditioning + LoRA (identity-preserving)
     # -----------------------------------------------------------------------
 
-    "anime2real-ref": {
+    "lora:anime2real-ref": {
         "type": "lora-ref",
         "description": (
             "anime2real Ref+LoRA: Flux2KleinEdit reference conditioning preserves identity "
@@ -734,7 +736,7 @@ _ALL_TESTS = {
     # type=lora-ref: Simple review — original anime vs anime2real result
     # -----------------------------------------------------------------------
 
-    "anime2real-review": {
+    "lora:anime2real-review": {
         "type": "lora-ref",
         "review_only": True,
         "description": (
@@ -761,7 +763,7 @@ _ALL_TESTS = {
     # type=lora-ref: Cross-pipeline anime2real comparison (flux2-klein vs zimage)
     # -----------------------------------------------------------------------
 
-    "anime2real-pipeline": {
+    "lora:anime2real-pipeline": {
         "type": "lora-ref",
         "description": (
             "anime2real cross-pipeline: flux2-klein Ref+LoRA vs zimage I2I+LoRA. "
@@ -807,7 +809,7 @@ _ALL_TESTS = {
     # type=lora-ref: A/B test — photorealistic vs 3D game vs semi-realistic
     # -----------------------------------------------------------------------
 
-    "anime2real-ab": {
+    "lora:anime2real-ab": {
         "type": "lora-ref",
         "description": (
             "anime2real A/B test: photorealistic vs 3D game vs semi-realistic. "
@@ -858,7 +860,7 @@ _ALL_TESTS = {
     # type=lora-ref: A/B test — ref_strength sweep for body proportion freedom
     # -----------------------------------------------------------------------
 
-    "anime2real-ref-strength": {
+    "lora:anime2real-ref-strength": {
         "type": "lora-ref",
         "description": (
             "Ref strength v3: 0.2 vs 0.25 vs 0.15 vs 0.1 — "
@@ -892,7 +894,7 @@ _ALL_TESTS = {
     # type=lora-ref: CivitAI workflow comparison — Chinese vs English prompt
     # -----------------------------------------------------------------------
 
-    "anime2real-civitai-compare": {
+    "lora:anime2real-civitai": {
         "type": "lora-ref",
         "description": (
             "CivitAI workflow comparison: our best (3D Game, EN) vs their Chinese prompt "
@@ -941,7 +943,7 @@ _ALL_TESTS = {
     # anime2real expanded tests: diversity, male boundary, steps sweep, edge cases
     # -----------------------------------------------------------------------
 
-    "anime2real-diversity": {
+    "lora:anime2real-diversity": {
         "type": "lora-ref",
         "description": (
             "Diversity validation: CivitAI CN defaults (scale=1.0, str=1.0, 8 steps) "
@@ -962,7 +964,7 @@ _ALL_TESTS = {
         "ref_strength": 1.0,
     },
 
-    "anime2real-male-boundary": {
+    "lora:anime2real-male": {
         "type": "lora-ref",
         "description": (
             "Male character boundary test: 3 male anime prompts x 3 ref_prompt variants "
@@ -999,7 +1001,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "anime2real-steps-sweep": {
+    "lora:anime2real-steps": {
         "type": "lora-ref",
         "description": (
             "Step count sweep: 4/6/8/12 steps on CivitAI CN defaults. "
@@ -1021,7 +1023,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "anime2real-edge-cases": {
+    "lora:anime2real-edge": {
         "type": "lora-ref",
         "description": (
             "Edge case test: animal ears (kemonomimi), mecha pilot (mechanical), "
@@ -1043,7 +1045,7 @@ _ALL_TESTS = {
     # type=profile: Multi-view character profile with VLM view-angle verification
     # -----------------------------------------------------------------------
 
-    "profile-zimage": {
+    "profile:zimage": {
         "type": "profile",
         "description": "ZImage front/back/side three-view — VLM verifies each view angle",
         "views": ["front", "back", "side"],
@@ -1054,7 +1056,7 @@ _ALL_TESTS = {
         "ratio": "standing",
     },
 
-    "profile-prompt-abc": {
+    "profile:prompt-abc": {
         "type": "profile",
         "description": "Prompt A/B/C: v1-medium vs v2-ultrashort (CivitAI) vs angle-EN — VLM picks winner",
         "views": ["front", "back", "side"],
@@ -1086,7 +1088,7 @@ _ALL_TESTS = {
         ],
     },
 
-    "profile-flux2-gen": {
+    "profile:flux2-gen": {
         "type": "profile",
         "description": (
             "ZImage T2I → Flux2-Klein 3-view profile — "
@@ -1103,7 +1105,7 @@ _ALL_TESTS = {
         "ratio": "standing",
     },
 
-    "profile-flux2-abc": {
+    "profile:flux2-abc": {
         "type": "profile",
         "description": (
             "Flux2-Klein A/B/C: v1-medium vs v2-ultrashort vs angle-EN — "
@@ -1142,82 +1144,82 @@ _ALL_TESTS = {
     # type=controlnet-i2i: I2I + ControlNet verification
     # -----------------------------------------------------------------------
 
-    "basic-controlnet": {
+    "controlnet:basic": {
         "type": "controlnet-i2i",
         "description": "I2I + ControlNet (canny): verify V-pose transfer; denoise=1.0 is the smoking gun",
         "mode": "debug",   # "debug" → 1 variation (~3 min); "full" → 8 variations (~25 min)
     },
 
-    "cnet-sweep": {
+    "controlnet:sweep": {
         "type": "controlnet-i2i",
         "description": "cnet_active_steps + ctrl_strength sweep to eliminate double-body while keeping V-pose",
-        "mode": "cnet-sweep",   # 6 variations: act8/10/12, str0.4/0.8, 15-20 steps
+        "mode": "controlnet:sweep",   # 6 variations: act8/10/12, str0.4/0.8, 15-20 steps
     },
 
-    "cnet-sweep2": {
+    "controlnet:sweep2": {
         "type": "controlnet-i2i",
         "description": "ctrl_strength push (0.9-1.0) with fixed act=8 cutoff to achieve full V-pose",
-        "mode": "cnet-sweep2",  # 4 variations: str0.9/1.0 x 20/25 steps, plus act6
+        "mode": "controlnet:sweep2",  # 4 variations: str0.9/1.0 x 20/25 steps, plus act6
     },
 
-    "cnet-pose": {
+    "controlnet:pose": {
         "type": "controlnet-i2i",
         "description": "OpenPose skeleton conditioning: pure pose signal, no clothing bleed",
-        "mode": "cnet-pose",    # 5 variations: openpose x medium/full denoise + canny baseline
+        "mode": "controlnet:pose",    # 5 variations: openpose x medium/full denoise + canny baseline
     },
 
-    "cnet-pose2": {
+    "controlnet:pose2": {
         "type": "controlnet-i2i",
         "description": "OpenPose pose2: dn09 gap fill, act=8 cutoff for dn08/09, act=6 for dn10",
-        "mode": "cnet-pose2",   # 4 variations: tuned from cnet-pose feedback (dn08 partial/bad_hands, dn10 ghost)
+        "mode": "controlnet:pose2",   # 4 variations: tuned from cnet-pose feedback (dn08 partial/bad_hands, dn10 ghost)
     },
 
-    "cnet-pose3": {
+    "controlnet:pose3": {
         "type": "controlnet-i2i",
         "description": "OpenPose pose3: ctrl_strength 1.5/2.0 boost, dn=0.95+act10, steps=30",
-        "mode": "cnet-pose3",   # 4 variations: amplify ctrl signal to overcome source latent bias at dn=0.9
+        "mode": "controlnet:pose3",   # 4 variations: amplify ctrl signal to overcome source latent bias at dn=0.9
     },
 
-    "cnet-pose4": {
+    "controlnet:pose4": {
         "type": "controlnet-i2i",
         "description": "Blurred Canny: pre-blur ref before Canny to remove clothing texture edges",
-        "mode": "cnet-pose4",   # 4 variations: blur10/15/20 + str0.8/1.0; blurred Canny = pose edges only
+        "mode": "controlnet:pose4",   # 4 variations: blur10/15/20 + str0.8/1.0; blurred Canny = pose edges only
     },
 
-    "seed-sweep": {
+    "controlnet:seed-sweep": {
         "type": "controlnet-i2i",
         "description": "Seed sweep: best pose2 params (dn09+openpose+ALL) across 8 seeds to find fuller V-pose",
-        "mode": "seed-sweep",   # 8 seeds: 42,43,100,200,300,500,1000,2025
+        "mode": "controlnet:seed-sweep",   # 8 seeds: 42,43,100,200,300,500,1000,2025
     },
 
-    "dual-guidance": {
+    "controlnet:dual": {
         "type": "controlnet-i2i",
         "description": "Dual-guidance: OpenPose pose + source inpaint anchor at varying mask strengths (seed=43)",
-        "mode": "dual-guidance",   # 5 variants: inpaint_mask = 0.0, 0.2, 0.5, 0.8, 1.0
+        "mode": "controlnet:dual",   # 5 variants: inpaint_mask = 0.0, 0.2, 0.5, 0.8, 1.0
     },
 
-    "clothing-prompt": {
+    "controlnet:clothing": {
         "type": "controlnet-i2i",
         "description": "Clothing-prompt: explicit 'white t-shirt, blue jeans' in prompt — test clothing preservation at dn=0.9",
-        "mode": "clothing-prompt",   # 4 variants: cloth-s43, cloth-s200, cloth-s43-dn08, cloth-s43-base
+        "mode": "controlnet:clothing",   # 4 variants: cloth-s43, cloth-s200, cloth-s43-dn08, cloth-s43-base
     },
-    "spatial-mask": {
+    "controlnet:spatial-mask": {
         "type": "controlnet-i2i",
         "description": "Spatial arm mask: torso/head anchored to source (mask=0, clothing preserved), arm regions free for ControlNet V-pose (mask=1)",
-        "mode": "spatial-mask",   # 4 variants: tight/med/loose padding + s200
+        "mode": "controlnet:spatial-mask",   # 4 variants: tight/med/loose padding + s200
     },
 
-    "arm-erase": {
+    "controlnet:arm-erase": {
         "type": "controlnet-i2i",
         "description": "Arm-erase: paint source arms white before VAE encoding inpaint_latent; uniform mask=1 preserves clothing while neutralizing arm-at-sides anchor conflict",
-        "mode": "arm-erase",      # 4 variants: radius 8/12, mask 1.0/0.7, seed 43/200
+        "mode": "controlnet:arm-erase",      # 4 variants: radius 8/12, mask 1.0/0.7, seed 43/200
     },
 
     # -----------------------------------------------------------------------
     # type=video: LTX-2.3 T2V generation tests
     # -----------------------------------------------------------------------
 
-    "video-rainy-street": {
+    "video:t2v-rainy": {
         "type": "video",
         "description": "Woman walking in rain — cinematic T2V baseline",
         "prompt": (
@@ -1231,7 +1233,7 @@ _ALL_TESTS = {
         "steps": 30,
     },
 
-    "video-forest-hiker": {
+    "video:t2v-forest": {
         "type": "video",
         "description": "Person hiking through sunlit forest — motion and nature lighting test",
         "prompt": (
@@ -1252,7 +1254,7 @@ _ALL_TESTS = {
     # Best practice: same seed for both keyframes, different prompts, cfg_scale=3.0.
     # See app/test_prompts_flf2v.py for the full prompt definitions.
 
-    "flf2v-kitchen-coffee": {
+    "video:flf2v-coffee": {
         "type": "flf2v",
         "description": (
             "Man makes coffee in kitchen: standing at counter → seated at table sipping. "
@@ -1261,7 +1263,7 @@ _ALL_TESTS = {
         "flf2v_test": "kitchen-coffee",
     },
 
-    "flf2v-studio-turn": {
+    "video:flf2v-turn": {
         "type": "flf2v",
         "description": (
             "Woman in studio: frontal portrait → subtle head turn with gentle smile. "
@@ -1270,7 +1272,7 @@ _ALL_TESTS = {
         "flf2v_test": "studio-turn",
     },
 
-    "flf2v-landscape-dusk": {
+    "video:flf2v-dusk": {
         "type": "flf2v",
         "description": (
             "Open meadow: golden hour → dusk. Tests FLF2V on non-character scenes "
@@ -1285,7 +1287,7 @@ _ALL_TESTS = {
     # 3-phase pipeline: ZImage body → Flux2 T2I face → Flux2 Klein Edit + BFS LoRA swap.
     # Uses "head" mode for cross-gender swaps (full head replacement including hair).
 
-    "faceswap-crossgender": {
+    "swap:face-crossgender": {
         "type": "faceswap",
         "description": (
             "Cross-gender faceswap: woman body + man head (head mode) — "
@@ -1308,7 +1310,7 @@ _ALL_TESTS = {
         "face_seed": 200,
     },
 
-    "faceswap-crossgender-reverse": {
+    "swap:face-crossgender-reverse": {
         "type": "faceswap",
         "description": (
             "Reverse cross-gender faceswap: man body + woman head (head mode) — "
@@ -1333,7 +1335,7 @@ _ALL_TESTS = {
     },
 
     # ── SAM3 Swap self-tests ──────────────────────────────────────────────
-    "swap-face": {
+    "swap:sam-face": {
         "type": "swap",
         "description": (
             "SAM3 face swap: replace JK girl's face with European woman — "
@@ -1371,7 +1373,7 @@ _ALL_TESTS = {
             "hands resting on desk, textbooks and ramune bottle on desk."
         ),
     },
-    "swap-outfit": {
+    "swap:sam-outfit": {
         "type": "swap",
         "description": (
             "SAM3 outfit swap: replace casual clothes with elegant dress — "
@@ -1407,7 +1409,7 @@ _ALL_TESTS = {
             "natural pose, photorealistic."
         ),
     },
-    "swap-object": {
+    "swap:sam-object": {
         "type": "swap",
         "description": (
             "SAM3 object swap: replace ramune bottle with coffee cup on a desk — "
@@ -1445,7 +1447,7 @@ _ALL_TESTS = {
             "overhead view, photorealistic, detailed."
         ),
     },
-    "swap-food": {
+    "swap:sam-food": {
         "type": "swap",
         "description": (
             "SAM3 food swap: replace chocolate cake with macaron tower — "
@@ -1487,7 +1489,7 @@ _ALL_TESTS = {
     # Swap variant tests — more examples per category for broader coverage
     # ------------------------------------------------------------------
 
-    "swap-face-2": {
+    "swap:sam-face-2": {
         "type": "swap",
         "description": (
             "SAM3 face swap: replace Asian man with European man — "
@@ -1526,7 +1528,7 @@ _ALL_TESTS = {
         ),
     },
 
-    "swap-food-2": {
+    "swap:sam-food-2": {
         "type": "swap",
         "description": (
             "SAM3 food swap: replace donut with croissant — "
@@ -1565,7 +1567,7 @@ _ALL_TESTS = {
         ),
     },
 
-    "swap-object-2": {
+    "swap:sam-object-2": {
         "type": "swap",
         "description": (
             "SAM3 object swap: replace potted plant with desk lamp — "
@@ -1606,8 +1608,8 @@ _ALL_TESTS = {
     },
 
     # ── Swap meta-test ─────────────────────────────────────────────────
-    "swap-all": {
-        "type": "swap-all",
+    "swap:sam-all": {
+        "type": "swap:sam-all",
         "description": "Run ALL swap self-tests sequentially, one HTML review",
         "tests": [
             "swap-face", "swap-face-2",
@@ -1620,8 +1622,8 @@ _ALL_TESTS = {
     # ------------------------------------------------------------------
     # Expansion / outpaint self-tests (Flux2 Klein latent-mask outpaint)
     # ------------------------------------------------------------------
-    "expansion": {
-        "type": "expansion",
+    "expansion:basic": {
+        "type": "expansion:basic",
         "description": (
             "Flux2 Klein outpaint: generate a square source, then expand two ways "
             "(directional widen + 16:9 aspect) — side-by-side + VLM seam/quality review"
@@ -1667,8 +1669,8 @@ _ALL_TESTS = {
     },
 
     # A/B sweep: overlap × feather × steps — find optimal seam quality
-    "expansion-sweep": {
-        "type": "expansion",
+    "expansion:sweep": {
+        "type": "expansion:basic",
         "description": (
             "Expansion A/B sweep: overlap × feather × steps. "
             "Fixed source + expand left/right 512px — vary overlap (64/96/128), "
@@ -1747,8 +1749,8 @@ _ALL_TESTS = {
     },
 
     # Multi-source expansion: diverse scenes × shared configs → robust feedback
-    "expansion-multi": {
-        "type": "expansion",
+    "expansion:multi": {
+        "type": "expansion:basic",
         "description": (
             "Expansion multi-scene: 4 diverse sources × 2 expansion configs. "
             "Review seam quality across landscapes, portraits, food, and abstract "
@@ -1829,8 +1831,8 @@ _ALL_TESTS = {
     # Comprehensive expansion: directional + aspect + ref_strength + non-square
     # 4 sources × 8 configs = 32 runs
     # ------------------------------------------------------------------
-    "expansion-comprehensive": {
-        "type": "expansion",
+    "expansion:full": {
+        "type": "expansion:basic",
         "description": (
             "Comprehensive expansion: 4 diverse sources (square, landscape, portrait, edge-subject) "
             "× 8 configs (horizontal, vertical, all-4, single-dir, 16:9, 21:9, 9:16, ref_str=0.5). "
@@ -1970,8 +1972,8 @@ _ALL_TESTS = {
     # ------------------------------------------------------------------
     # Ref strength sweep: 2 sources × 5 strength values
     # ------------------------------------------------------------------
-    "expansion-ref-strength": {
-        "type": "expansion",
+    "expansion:ref-strength": {
+        "type": "expansion:basic",
         "description": (
             "Ref strength sweep: 1.0 (default) / 0.8 / 0.6 / 0.4 / 0.2 — "
             "fixed expand left+right 512px on 2 diverse sources. "
@@ -2057,8 +2059,8 @@ _ALL_TESTS = {
     # Edge-case content: stress-test seam quality on difficult boundaries
     # 4 sources × 3 configs = 12 runs
     # ------------------------------------------------------------------
-    "expansion-edge-cases": {
-        "type": "expansion",
+    "expansion:edge": {
+        "type": "expansion:basic",
         "description": (
             "Content edge-case expansion: subject at frame edge, repeating brick pattern, "
             "tree silhouette against sunset, neon sign text — stress-tests seam quality "
@@ -2146,8 +2148,8 @@ _ALL_TESTS = {
     # Expansion parameter finetuning sweeps (single-variable isolation)
     # ===================================================================
 
-    "expansion-overlap-sweep": {
-        "type": "expansion",
+    "expansion:overlap": {
+        "type": "expansion:basic",
         "description": (
             "Overlap sweep: 32/64/96/128/160/192 — "
             "fixed feather=96, steps=8, expand left+right 512px on 2 sources. "
@@ -2238,8 +2240,8 @@ _ALL_TESTS = {
         ],
     },
 
-    "expansion-feather-sweep": {
-        "type": "expansion",
+    "expansion:feather": {
+        "type": "expansion:basic",
         "description": (
             "Feather sweep: 0/32/64/96/128/192 — "
             "fixed overlap=192, steps=8, expand left+right 512px on 2 sources. "
@@ -2331,8 +2333,8 @@ _ALL_TESTS = {
         ],
     },
 
-    "expansion-steps-sweep": {
-        "type": "expansion",
+    "expansion:steps": {
+        "type": "expansion:basic",
         "description": (
             "Steps sweep: 4/6/8/12/16 — "
             "fixed overlap=128, feather=96, expand left+right 512px on 2 sources. "
@@ -2414,8 +2416,8 @@ _ALL_TESTS = {
         ],
     },
 
-    "expansion-pixels-sweep": {
-        "type": "expansion",
+    "expansion:pixels": {
+        "type": "expansion:basic",
         "description": (
             "Pixels sweep: 256/384/512/768/1024 — "
             "fixed overlap=128, feather=96, steps=8, expand left+right on 2 sources. "
@@ -2497,8 +2499,8 @@ _ALL_TESTS = {
         ],
     },
 
-    "expansion-defaults-ab": {
-        "type": "expansion",
+    "expansion:defaults-ab": {
+        "type": "expansion:basic",
         "description": (
             "Expansion defaults A/B: current defaults vs proposed optimal set. "
             "Run AFTER the individual sweeps to validate the final tuning. "
@@ -2560,7 +2562,7 @@ _ALL_TESTS = {
     # type=lora-sweep: Anatomy challenge — stress-test anatomy/pose quality
     # -----------------------------------------------------------------------
 
-    "anatomy-challenge": {
+    "lora:anatomy": {
         "type": "lora-sweep",
         "description": (
             "Anatomy challenge: baseline vs klein-slider-anatomy across 6 stress-test "
@@ -2587,125 +2589,267 @@ _ALL_TESTS = {
 }
 
 # ---------------------------------------------------------------------------
+# Deprecated test names (old canonical names kept as aliases)
+# ---------------------------------------------------------------------------
+_DEPRECATED_NAMES = {
+    "anatomy-challenge",
+    "anime2real",
+    "anime2real-ab",
+    "anime2real-civitai-compare",
+    "anime2real-diversity",
+    "anime2real-edge-cases",
+    "anime2real-male-boundary",
+    "anime2real-pipeline",
+    "anime2real-ref",
+    "anime2real-ref-strength",
+    "anime2real-review",
+    "anime2real-steps-sweep",
+    "arm-erase",
+    "basic-controlnet",
+    "clothing-prompt",
+    "cnet-pose",
+    "cnet-pose2",
+    "cnet-pose3",
+    "cnet-pose4",
+    "cnet-sweep",
+    "cnet-sweep2",
+    "dual-guidance",
+    "expansion",
+    "expansion-comprehensive",
+    "expansion-defaults-ab",
+    "expansion-edge-cases",
+    "expansion-feather-sweep",
+    "expansion-multi",
+    "expansion-overlap-sweep",
+    "expansion-pixels-sweep",
+    "expansion-ref-strength",
+    "expansion-steps-sweep",
+    "expansion-sweep",
+    "face-detail-ab",
+    "faceswap-crossgender",
+    "faceswap-crossgender-reverse",
+    "flf2v-kitchen-coffee",
+    "flf2v-landscape-dusk",
+    "flf2v-studio-turn",
+    "grain-sweep",
+    "landscape-post",
+    "landscape-seeds",
+    "portrait-full",
+    "portrait-seeds",
+    "profile-flux2-abc",
+    "profile-flux2-gen",
+    "profile-prompt-abc",
+    "profile-zimage",
+    "seed-sweep",
+    "spatial-mask",
+    "swap-all",
+    "swap-face",
+    "swap-face-2",
+    "swap-food",
+    "swap-food-2",
+    "swap-object",
+    "swap-object-2",
+    "swap-outfit",
+    "ultraflux",
+    "video-forest-hiker",
+    "video-rainy-street",
+    "workflow-postprocess",
+    "zit-sda-v1",
+    "zit-sda-v1-fullbody",
+    "zit-sda-v1-sweep",
+}
+# ---------------------------------------------------------------------------
 # Unified alias table
 # ---------------------------------------------------------------------------
 
 _ALL_TESTS_ALIASES = {
+    # Deprecated canonical names (moved to namespace:name format)
+    "ultraflux": "vae:ultraflux",
+    "portrait-full": "workflow:portrait",
+    "grain-sweep": "workflow:grain",
+    "face-detail-ab": "workflow:face-detail",
+    "landscape-post": "workflow:landscape",
+    "workflow-postprocess": "workflow:postprocess",
+    "portrait-seeds": "t2i:portrait",
+    "landscape-seeds": "t2i:landscape",
+    "zit-sda-v1": "lora:sda-portrait",
+    "zit-sda-v1-fullbody": "lora:sda-fullbody",
+    "zit-sda-v1-sweep": "lora:sda-sweep",
+    "anime2real": "lora:anime2real",
+    "anime2real-ref": "lora:anime2real-ref",
+    "anime2real-review": "lora:anime2real-review",
+    "anime2real-pipeline": "lora:anime2real-pipeline",
+    "anime2real-ab": "lora:anime2real-ab",
+    "anime2real-ref-strength": "lora:anime2real-ref-strength",
+    "anime2real-civitai-compare": "lora:anime2real-civitai",
+    "anime2real-diversity": "lora:anime2real-diversity",
+    "anime2real-male-boundary": "lora:anime2real-male",
+    "anime2real-steps-sweep": "lora:anime2real-steps",
+    "anime2real-edge-cases": "lora:anime2real-edge",
+    "anatomy-challenge": "lora:anatomy",
+    "profile-zimage": "profile:zimage",
+    "profile-prompt-abc": "profile:prompt-abc",
+    "profile-flux2-gen": "profile:flux2-gen",
+    "profile-flux2-abc": "profile:flux2-abc",
+    "basic-controlnet": "controlnet:basic",
+    "cnet-sweep": "controlnet:sweep",
+    "cnet-sweep2": "controlnet:sweep2",
+    "cnet-pose": "controlnet:pose",
+    "cnet-pose2": "controlnet:pose2",
+    "cnet-pose3": "controlnet:pose3",
+    "cnet-pose4": "controlnet:pose4",
+    "seed-sweep": "controlnet:seed-sweep",
+    "dual-guidance": "controlnet:dual",
+    "clothing-prompt": "controlnet:clothing",
+    "spatial-mask": "controlnet:spatial-mask",
+    "arm-erase": "controlnet:arm-erase",
+    "video-rainy-street": "video:t2v-rainy",
+    "video-forest-hiker": "video:t2v-forest",
+    "flf2v-kitchen-coffee": "video:flf2v-coffee",
+    "flf2v-studio-turn": "video:flf2v-turn",
+    "flf2v-landscape-dusk": "video:flf2v-dusk",
+    "faceswap-crossgender": "swap:face-crossgender",
+    "faceswap-crossgender-reverse": "swap:face-crossgender-reverse",
+    "swap-face": "swap:sam-face",
+    "swap-outfit": "swap:sam-outfit",
+    "swap-object": "swap:sam-object",
+    "swap-food": "swap:sam-food",
+    "swap-face-2": "swap:sam-face-2",
+    "swap-food-2": "swap:sam-food-2",
+    "swap-object-2": "swap:sam-object-2",
+    "swap-all": "swap:sam-all",
+    "expansion": "expansion:basic",
+    "expansion-sweep": "expansion:sweep",
+    "expansion-multi": "expansion:multi",
+    "expansion-comprehensive": "expansion:full",
+    "expansion-ref-strength": "expansion:ref-strength",
+    "expansion-edge-cases": "expansion:edge",
+    "expansion-overlap-sweep": "expansion:overlap",
+    "expansion-feather-sweep": "expansion:feather",
+    "expansion-steps-sweep": "expansion:steps",
+    "expansion-pixels-sweep": "expansion:pixels",
+    "expansion-defaults-ab": "expansion:defaults-ab",
+
     # VAE test aliases
-    "vae-ultra-flux":  "ultraflux",
-    "vae-ultraflux":   "ultraflux",
-    "ultra-flux":      "ultraflux",
-    "ultraflux-ae":    "ultraflux",
+    "vae-ultra-flux": "vae:ultraflux",
+    "vae-ultraflux": "vae:ultraflux",
+    "ultra-flux": "vae:ultraflux",
+    "ultraflux-ae": "vae:ultraflux",
     # Workflow test aliases
-    "full":        "portrait-full",
-    "portrait":    "portrait-full",
-    "grain":       "grain-sweep",
-    "faces":       "face-detail-ab",
-    "landscape":   "landscape-post",
-    "post":        "landscape-post",
+    "full": "workflow:portrait",
+    "portrait": "workflow:portrait",
+    "grain": "workflow:grain",
+    "faces": "workflow:face-detail",
+    "landscape": "workflow:landscape",
+    "post": "workflow:landscape",
     # T2I alias
-    "seeds":       "portrait-seeds",
+    "seeds": "t2i:portrait",
     # LoRA test aliases
-    "sda":         "zit-sda-v1",
-    "sda-v1":      "zit-sda-v1",
-    "sda-test":    "zit-sda-v1",
-    "sda-fullbody":   "zit-sda-v1-fullbody",
-    "sda-v1-fullbody": "zit-sda-v1-fullbody",
-    "sda-sweep":     "zit-sda-v1-sweep",
+    "sda": "lora:sda-portrait",
+    "sda-v1": "lora:sda-portrait",
+    "sda-test": "lora:sda-portrait",
+    "sda-fullbody": "lora:sda-fullbody",
+    "sda-v1-fullbody": "lora:sda-fullbody",
+    "sda-sweep": "lora:sda-sweep",
     # LoRA I2I aliases
-    "anime-girl":     "anime2real",
-    "anime2real-lora": "anime2real",
-    "anything2real":  "anime2real",
+    "anime-girl": "lora:anime2real",
+    "anime2real-lora": "lora:anime2real",
+    "anything2real": "lora:anime2real",
     # LoRA Ref aliases
-    "anime2real-v2":  "anime2real-ref",
-    "a2r-ref":        "anime2real-ref",
-    "ref-lora":       "anime2real-ref",
-    "anime2real-v3":  "anime2real-pipeline",
-    "a2r-pipe":       "anime2real-pipeline",
-    "a2r-review":     "anime2real-review",
-    "a2r-ab":         "anime2real-ab",
-    "a2r-str":        "anime2real-ref-strength",
+    "anime2real-v2": "lora:anime2real-ref",
+    "a2r-ref": "lora:anime2real-ref",
+    "ref-lora": "lora:anime2real-ref",
+    "anime2real-v3": "lora:anime2real-pipeline",
+    "a2r-pipe": "lora:anime2real-pipeline",
+    "a2r-review": "lora:anime2real-review",
+    "a2r-ab": "lora:anime2real-ab",
+    "a2r-str": "lora:anime2real-ref-strength",
     # anime2real expanded test aliases
-    "a2r-diversity":  "anime2real-diversity",
-    "a2r-male":       "anime2real-male-boundary",
-    "a2r-steps":      "anime2real-steps-sweep",
-    "a2r-edges":      "anime2real-edge-cases",
+    "a2r-diversity": "lora:anime2real-diversity",
+    "a2r-male": "lora:anime2real-male",
+    "a2r-steps": "lora:anime2real-steps",
+    "a2r-edges": "lora:anime2real-edge",
     # Video aliases
-    "rainy-street":  "video-rainy-street",
-    "forest-hiker":  "video-forest-hiker",
+    "rainy-street": "video:t2v-rainy",
+    "forest-hiker": "video:t2v-forest",
     # FLF2V aliases
-    "kitchen-coffee":   "flf2v-kitchen-coffee",
-    "flf2v-kitchen":    "flf2v-kitchen-coffee",
-    "coffee":           "flf2v-kitchen-coffee",
-    "studio-turn":      "flf2v-studio-turn",
-    "flf2v-portrait":   "flf2v-studio-turn",
-    "landscape-dusk":   "flf2v-landscape-dusk",
-    "flf2v-landscape":  "flf2v-landscape-dusk",
-    "dusk":             "flf2v-landscape-dusk",
+    "kitchen-coffee": "video:flf2v-coffee",
+    "flf2v-kitchen": "video:flf2v-coffee",
+    "coffee": "video:flf2v-coffee",
+    "studio-turn": "video:flf2v-turn",
+    "flf2v-portrait": "video:flf2v-turn",
+    "landscape-dusk": "video:flf2v-dusk",
+    "flf2v-landscape": "video:flf2v-dusk",
+    "dusk": "video:flf2v-dusk",
     # Profile aliases
-    "profile":          "profile-zimage",
-    "profile-abc":      "profile-prompt-abc",
-    "profile-ab":       "profile-prompt-abc",
-    "profile-prompts":  "profile-prompt-abc",
-    "profile-flux2":    "profile-flux2-gen",
+    "profile": "profile:zimage",
+    "profile-abc": "profile:prompt-abc",
+    "profile-ab": "profile:prompt-abc",
+    "profile-prompts": "profile:prompt-abc",
+    "profile-flux2": "profile:flux2-gen",
     # Faceswap aliases
-    "crossgender":          "faceswap-crossgender",
-    "faceswap-xgender":     "faceswap-crossgender",
-    "xgender":              "faceswap-crossgender",
-    "crossgender-reverse":  "faceswap-crossgender-reverse",
-    "xgender-reverse":      "faceswap-crossgender-reverse",
+    "crossgender": "swap:face-crossgender",
+    "faceswap-xgender": "swap:face-crossgender",
+    "xgender": "swap:face-crossgender",
+    "crossgender-reverse": "swap:face-crossgender-reverse",
+    "xgender-reverse": "swap:face-crossgender-reverse",
     # Swap aliases
-    "face-swap-sam":        "swap-face",
-    "face-swap-sam-2":      "swap-face-2",
-    "outfit-swap-sam":      "swap-outfit",
-    "object-swap-sam":      "swap-object",
-    "object-swap-sam-2":    "swap-object-2",
-    "food-swap-sam":        "swap-food",
-    "food-swap-sam-2":      "swap-food-2",
+    "face-swap-sam": "swap:sam-face",
+    "face-swap-sam-2": "swap:sam-face-2",
+    "outfit-swap-sam": "swap:sam-outfit",
+    "object-swap-sam": "swap:sam-object",
+    "object-swap-sam-2": "swap:sam-object-2",
+    "food-swap-sam": "swap:sam-food",
+    "food-swap-sam-2": "swap:sam-food-2",
     # Expansion aliases
-    "outpaint":             "expansion",
-    "image-expansion":      "expansion",
-    "image-expand":         "expansion",
-    "expand":               "expansion",
-    "expansion-sweep":      "expansion-sweep",
-    "expand-sweep":         "expansion-sweep",
-    "sweep":                "expansion-sweep",
-    "expansion-multi":      "expansion-multi",
-    "expand-multi":         "expansion-multi",
-    "multi":                "expansion-multi",
+    "outpaint": "expansion:basic",
+    "image-expansion": "expansion:basic",
+    "image-expand": "expansion:basic",
+    "expand": "expansion:basic",
+    "expansion-sweep": "expansion:sweep",
+    "expand-sweep": "expansion:sweep",
+    "sweep": "expansion:sweep",
+    "expansion-multi": "expansion:multi",
+    "expand-multi": "expansion:multi",
+    "multi": "expansion:multi",
     # Comprehensive expansion aliases
-    "comprehensive":        "expansion-comprehensive",
-    "expand-full":          "expansion-comprehensive",
-    "expansion-full":       "expansion-comprehensive",
+    "comprehensive": "expansion:full",
+    "expand-full": "expansion:full",
+    "expansion-full": "expansion:full",
     # Ref strength sweep aliases
-    "expansion-ref":        "expansion-ref-strength",
-    "expand-ref":           "expansion-ref-strength",
-    "ref-sweep":            "expansion-ref-strength",
+    "expansion-ref": "expansion:ref-strength",
+    "expand-ref": "expansion:ref-strength",
+    "ref-sweep": "expansion:ref-strength",
     # Edge cases aliases
-    "expansion-edges":      "expansion-edge-cases",
-    "expand-edges":         "expansion-edge-cases",
-    "edges":                "expansion-edge-cases",
+    "expansion-edges": "expansion:edge",
+    "expand-edges": "expansion:edge",
+    "edges": "expansion:edge",
     # Parameter finetuning sweep aliases
-    "expand-overlap":        "expansion-overlap-sweep",
-    "overlap-sweep":         "expansion-overlap-sweep",
-    "expand-feather":        "expansion-feather-sweep",
-    "feather-sweep":         "expansion-feather-sweep",
-    "expand-steps":          "expansion-steps-sweep",
-    "steps-sweep":           "expansion-steps-sweep",
-    "expand-pixels":         "expansion-pixels-sweep",
-    "pixels-sweep":          "expansion-pixels-sweep",
+    "expand-overlap": "expansion:overlap",
+    "overlap-sweep": "expansion:overlap",
+    "expand-feather": "expansion:feather",
+    "feather-sweep": "expansion:feather",
+    "expand-steps": "expansion:steps",
+    "steps-sweep": "expansion:steps",
+    "expand-pixels": "expansion:pixels",
+    "pixels-sweep": "expansion:pixels",
     # Defaults A/B validation
-    "expand-ab":             "expansion-defaults-ab",
-    "defaults-ab":           "expansion-defaults-ab",
+    "expand-ab": "expansion:defaults-ab",
+    "defaults-ab": "expansion:defaults-ab",
     # Anatomy challenge aliases
-    "anatomy":               "anatomy-challenge",
-    "anatomy-test":          "anatomy-challenge",
-    "klein-anatomy":         "anatomy-challenge",
+    "anatomy": "lora:anatomy",
+    "anatomy-test": "lora:anatomy",
+    "klein-anatomy": "lora:anatomy",
 }
 
 
 def get_test(name: str) -> dict:
     """Unified lookup across all test types. Returns the test config dict."""
+    # Deprecation warning for old-style test names
+    if name in _DEPRECATED_NAMES:
+        new_name = _ALL_TESTS_ALIASES.get(name, name)
+        print(f"\u26a0  DEPRECATED: self-test '{name}' is deprecated. "
+              f"Use '{new_name}' instead.", file=sys.stderr)
     key = _ALL_TESTS_ALIASES.get(name, name)
     if key not in _ALL_TESTS:
         available = sorted(set(list(_ALL_TESTS.keys()) + list(_ALL_TESTS_ALIASES.keys())))

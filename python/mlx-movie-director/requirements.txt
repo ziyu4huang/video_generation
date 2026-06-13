@@ -10,3 +10,6 @@ safetensors
 accelerate
 hf_transfer
 tqdm
+
+# dev / test
+pytest>=8.0

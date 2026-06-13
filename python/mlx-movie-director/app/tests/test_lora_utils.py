@@ -53,7 +53,9 @@ class TestMxKron:
         a = mx.array([[2]])
         b = mx.array([[3, 4], [5, 6]])
         out = _mx_kron(a, b)
-        assert out.shape == (2, 4)
+        # Kronecker shape is (m*p, n*q); (1,1) ⊗ (2,2) = (2,2). The scalar
+        # scaling is still b * 2, but the outer dims come from a's (1,1).
+        assert out.shape == (2, 2)
         assert mx.allclose(out, b * 2), "Kron with 1x1 factor M should be M * scalar"
 
     def test_dtype_preserved(self):

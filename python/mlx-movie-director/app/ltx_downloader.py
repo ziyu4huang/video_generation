@@ -28,8 +28,8 @@ COMPONENT_FILES = {
         "quantize_config.json",
     ]),
     "lora": (cfg.LTX_LORA_DIR, [
-        "ltx-2.3-22b-distilled-lora-384.safetensors",
-        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+        "ltx-2.3-22b-distilled-lora-384.int8.safetensors",
+        "ltx-2.3-22b-distilled-lora-384-1.1.int8.safetensors",
     ]),
     "text_encoder": (cfg.LTX_TEXT_ENCODER_DIR, [
         "connector.safetensors",

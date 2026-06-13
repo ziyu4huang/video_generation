@@ -4,8 +4,8 @@ Native MLX inference toolkit on Apple Silicon with three pipelines:
 
 | Pipeline | Model | Purpose | Command |
 |----------|-------|---------|---------|
-| **Z-Image Turbo** (Moody V12.6) | Pre-converted 4-bit, local `models/` | Text-to-image, img2img, upscale | `run.py generate` |
-| **Flux2 Klein 9B** | Pre-converted INT8, local `models/` | Character profile sheets with reference conditioning | `run.py profile` |
+| **Z-Image Turbo** (Moody V12.6) | Pre-converted 4-bit, local `models/` | Text-to-image, img2img, upscale | `run.py image` |
+| **Flux2 Klein 9B** | Pre-converted INT8, local `models/` | Character profile sheets with reference conditioning | `run.py image profile` |
 | **LTX-2.3 Video** (22B) | Pre-converted Q8 + vendored submodule | Text/image/audio-to-video with joint audio | `run.py video generate` |
 
 ## What Works (Verified 2026-06-07)
@@ -42,19 +42,19 @@ cd /Users/huangziyu/proj/video_generation
 ./python/venv/bin/python python/mlx-movie-director/convert.py --transformer
 
 # Inference (matches moody flow JSON base stage)
-/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py generate \
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py image \
   --prompt "cinematic portrait photo, beautiful woman, moody dramatic lighting, photorealistic" \
   --width 640 --height 960 --steps 9 --seed 42
 
 # With LoRA (zit diversity adapter)
-/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py generate \
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py image \
   --prompt "..." --width 640 --height 960 --steps 9 --seed 42 \
   --lora-path comfyui_data/models/loras/zit_sda_v1.safetensors \
   --lora-scale 1.0
 
 # --- Flux2 Klein (character profile sheets) ---
 # Model auto-downloads from HuggingFace on first run (~32 GB)
-/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py profile \
+/Users/huangziyu/.local/bin/python3.13 python/mlx-movie-director/run.py image profile \
   --input-image /path/to/character.png \
   --quantize 8 --ratio standing
 
@@ -130,17 +130,30 @@ Replay generates a **new** output with a fresh timestamp (original is preserved)
 
 | Command | Description |
 |---------|-------------|
-| `run.py generate` | Text-to-image, img2img, batch (Z-Image Turbo) |
+| `run.py image` | Unified image dispatcher (default: T2I). Sub-actions: t2i, review, profile, controlnet, i2i, faceswap, swap, anime2real, quality, expansion, purify, workflow |
 | `run.py image quality` | No-reference image quality analysis (7 metrics) |
 | `run.py image review lora` | LoRA A/B test with quality metrics + HTML voting |
 | `run.py image review vae` | VAE A/B comparison with quality metrics |
-| `run.py image --self-test <id>` | Named self-tests (sda, sda-fullbody, ultraflux, etc.) |
-| `run.py profile` | Multi-view character profile sheet (Flux2 Klein) |
-| `run.py video generate` | Text/image/audio-to-video with audio (LTX-2.3) |
-| `run.py video review` | A/B variation review gallery |
+| `run.py video` | Unified video dispatcher (default: generate). Sub-actions: generate, review, compare, quality, restore, vbvr, relay |
+| `run.py refine` | Image-to-image refinement (latent upscale + re-denoise) |
 | `run.py upscale` | ESRGAN / SeedVR2 upscale |
 | `run.py caption` | VLM image captioning (Qwen3-VL via LM Studio) |
 | `run.py replay` | Reproduce a previous run from `.run.json` |
+| `run.py import-lora` | Import a LoRA .safetensors file into the model registry |
+| `run.py import-workflow` | Download ComfyUI workflow JSON from CivitAI |
+| `run.py check-model` | Validate model manifests under models/ |
+| `run.py schema-defaults` | Output command schema defaults as JSON (for GUI sync) |
+
+### Deprecated Aliases (Backward Compatible)
+
+The following old command names still work but print a deprecation warning at runtime. Update scripts to use the canonical names.
+
+| Old (deprecated) | → Canonical | Reason |
+|------------------|-------------|--------|
+| `run.py generate ...` | `run.py image ...` | Redundant alias for `image` |
+| `run.py t2i ...` | `run.py image t2i ...` | Confusing top-level duplicate of sub-action |
+| `run.py import-lora-image ...` | `run.py import-lora ...` | Name was misleading (imports LoRA, not images) |
+| `run.py check-manifests ...` | `run.py check-model ...` | Renamed for conciseness |
 
 ## Python Environment
 
@@ -174,7 +187,8 @@ mlx-movie-director uses Python 3.13 via `uv`:
 
 ## Output
 
-- **generate**: `output/output_YYYYMMDD_HHMMSS.png`
-- **profile**: `output/profile_YYYYMMDD_HHMMSS/{front.png, back.png, side.png, index.html, run.json, manifest.json}`
+- **image (default T2I)**: `output/output_YYYYMMDD_HHMMSS.png`
+- **image profile**: `output/profile_YYYYMMDD_HHMMSS/{front.png, back.png, side.png, index.html, run.json, manifest.json}`
 - **upscale**: `output/upscale_YYYYMMDD_HHMMSS.png`
 - **caption**: `<image>.caption.json` alongside the input image
+- **import-lora**: `models/lora/<name>/` (manifest.json, README.md, safetensors)

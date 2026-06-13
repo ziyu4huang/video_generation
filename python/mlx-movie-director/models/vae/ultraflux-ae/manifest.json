@@ -3,16 +3,14 @@
   "name": "ultraflux-ae",
   "type": "vae",
   "arch": "flux-ae",
-  "format": "pytorch-fp32",
-  "description": "UltraFlux improved AutoencoderKL for Flux/ZImage — sharper decode output than stock flux-ae. Loaded via PyTorch AutoencoderKL.from_pretrained (diffusers format).",
+  "format": "mlx-bf16",
+  "description": "UltraFlux improved AutoencoderKL for Flux/ZImage — sharper decode output than stock flux-ae. Converted from PyTorch FP32 to MLX BF16 via convert.py --ultraflux-vae.",
   "pipeline": ["zimage-turbo"],
   "compatible_with": [
     "transformer/zimage-moody-v126"
   ],
-  "size_bytes": 335306212,
+  "size_bytes": 167666894,
   "source": "Owen777/UltraFlux-v1",
-  "hf_repo": "Owen777/UltraFlux-v1",
-  "hf_filename": "vae/diffusion_pytorch_model.safetensors",
   "source_url": "https://civitai.com/models/2231253",
   "created_at": "2026-06-08T00:00:00Z"
 }

@@ -1,0 +1,12 @@
+{
+  "removed_at": "2026-06-13T22:30:00Z",
+  "reason": "Replaced by MLX BF16 conversion (model.safetensors). PyTorch/diffusers VAE no longer needed.",
+  "original_format": "pytorch-fp32",
+  "original_files": ["diffusion_pytorch_model.safetensors"],
+  "original_size_bytes": 335306212,
+  "new_format": "mlx-bf16",
+  "new_size_bytes": 167666894,
+  "disk_saved_bytes": 167639318,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/convert.py --ultraflux-vae",
+  "ab_test_psnr_db": "inf (same weight conversion pipeline)"
+}

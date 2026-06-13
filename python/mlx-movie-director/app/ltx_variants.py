@@ -21,6 +21,7 @@ across every variant, so they live once in ``COMMON_COMPONENTS``.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from app import config as cfg
@@ -48,7 +49,7 @@ class LTXVariant:
         """
         files: list[tuple[str, str]] = [(self.transformer_dir, self.transformer_file)]
         if not self.is_distilled:
-            files.append((cfg.LTX_LORA_DIR, "ltx-2.3-22b-distilled-lora-384.safetensors"))
+            files.append((cfg.LTX_LORA_DIR, "ltx-2.3-22b-distilled-lora-384.int8.safetensors"))
         files.extend([
             (cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors"),
             (cfg.LTX_VAE_DIR, "vae_encoder.safetensors"),
@@ -75,8 +76,8 @@ class LTXVariant:
 # Shared components symlinked into every variant's flat dir (identical for all).
 COMMON_COMPONENTS: dict[str, list[str]] = {
     cfg.LTX_LORA_DIR: [
-        "ltx-2.3-22b-distilled-lora-384.safetensors",
-        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
+        "ltx-2.3-22b-distilled-lora-384.int8.safetensors",
+        "ltx-2.3-22b-distilled-lora-384-1.1.int8.safetensors",
     ],
     cfg.LTX_TEXT_ENCODER_DIR: [
         "connector.safetensors",

@@ -83,7 +83,8 @@ LTX_RESTORE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-video-restoration
 LTX_UPSCALE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-ic-video-upscale-general.safetensors")
 
 # Z-Image ControlNet (Union 2.1 Lite — supports pose/depth/canny/hed/scribble/gray, 8-step distilled)
-CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.1")
+# MLX 4-bit GS32 quantized version; 69% smaller than BF16 original (SSIM 97.9%).
+CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.1-mlx")
 
 # SeedVR2 text embeddings (loaded at inference, not converted)
 SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")

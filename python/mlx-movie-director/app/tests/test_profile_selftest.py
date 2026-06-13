@@ -108,19 +108,19 @@ class TestProfileAliases:
         return _ALL_TESTS_ALIASES.get(alias)
 
     def test_profile_alias(self):
-        assert self._resolve("profile") == "profile-zimage"
+        assert self._resolve("profile") == "profile:zimage"
 
     def test_profile_abc_alias(self):
-        assert self._resolve("profile-abc") == "profile-prompt-abc"
+        assert self._resolve("profile-abc") == "profile:prompt-abc"
 
     def test_profile_flux2_alias(self):
-        assert self._resolve("profile-flux2") == "profile-flux2-gen"
+        assert self._resolve("profile-flux2") == "profile:flux2-gen"
 
     def test_profile_ab_alias(self):
-        assert self._resolve("profile-ab") == "profile-prompt-abc"
+        assert self._resolve("profile-ab") == "profile:prompt-abc"
 
     def test_profile_prompts_alias(self):
-        assert self._resolve("profile-prompts") == "profile-prompt-abc"
+        assert self._resolve("profile-prompts") == "profile:prompt-abc"
 
 
 # ---------------------------------------------------------------------------

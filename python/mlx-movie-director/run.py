@@ -18,12 +18,28 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Subcommand registry (order = display order in --help)
 # ---------------------------------------------------------------------------
 
-COMMAND_NAMES = ["t2i", "image", "refine", "upscale", "caption", "replay", "video", "animate", "import-lora-image", "import-workflow", "check-model", "schema-defaults"]
+COMMAND_NAMES = [
+    "image", "refine", "upscale", "caption", "replay",
+    "video", "import-lora", "import-workflow", "check-model",
+    "schema-defaults",
+]
 
-# Commands that load a different module than their name implies.
-# "generate" is kept as a recognized subcommand for backward compat but
-# delegates to the "image" module (same parser, same run function).
-COMMAND_ALIASES = {"generate": "image", "check-manifests": "check-model"}
+# Aliases — backward-compat names that load a different module.
+# Registered as subcommands so old invocation patterns still work.
+# DEPRECATED_ALIASES controls deprecation hints in help text + runtime.
+COMMAND_ALIASES = {
+    "generate": "image",
+    "t2i": "t2i",
+    "check-manifests": "check-model",
+    "import-lora-image": "import-lora",
+}
+
+DEPRECATED_ALIASES = {
+    "generate": "Use 'image' instead.",
+    "t2i": "Use 'image t2i' instead.",
+    "check-manifests": "Use 'check-model' instead.",
+    "import-lora-image": "Use 'import-lora' instead.",
+}
 
 SUBCOMMANDS = set(COMMAND_NAMES) | set(COMMAND_ALIASES)
 
@@ -104,11 +120,21 @@ def build_parser() -> argparse.ArgumentParser:
         except ImportError as e:
             print(f"WARNING: skipping broken command module '{module_name}': {e}", file=sys.stderr)
             continue
+
+        # Inject deprecation prefix into help/description for deprecated aliases
+        parser_kwargs = dict(mod.PARSER_META)
+        if name in DEPRECATED_ALIASES:
+            msg = DEPRECATED_ALIASES[name]
+            parser_kwargs["help"] = f"[DEPRECATED] {msg} {parser_kwargs.get('help', '')}"
+            parser_kwargs["description"] = (
+                f"[DEPRECATED] {msg}\n\n{parser_kwargs.get('description', '')}"
+            )
+
         sub = subparsers.add_parser(
             name,
             formatter_class=argparse.RawDescriptionHelpFormatter,
             parents=[_global_parser],
-            **mod.PARSER_META,
+            **parser_kwargs,
         )
         mod.add_args(sub)
         sub.set_defaults(func=mod.run)
@@ -140,6 +166,11 @@ def main() -> None:
     _inject_default_subcommand()
     parser = build_parser()
     args = parser.parse_args()
+
+    # Runtime deprecation warning
+    if args.command in DEPRECATED_ALIASES:
+        print(f"\u26a0  DEPRECATED: '{args.command}' is deprecated. {DEPRECATED_ALIASES[args.command]}", file=sys.stderr)
+
     _run_with_gpu_guard(args)
 
 

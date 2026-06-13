@@ -582,7 +582,7 @@ class LTXVideoPipeline:
             low_memory=True,
             low_ram_streaming=self.low_ram,
             dev_transformer=self._variant.transformer_file,
-            distilled_lora="ltx-2.3-22b-distilled-lora-384.safetensors",
+            distilled_lora="ltx-2.3-22b-distilled-lora-384.int8.safetensors",
             distilled_lora_strength=self._distilled_lora_strength,
         )
         self._apply_lora(pipeline)

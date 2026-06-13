@@ -1,19 +1,40 @@
 {
-  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "_comment": "Private metadata. MLX int8 quantized from ltx-2.3-22b-distilled-lora-384*.safetensors (bf16). Validated by `run.py check-model`.",
   "name": "ltx-2.3-distilled",
   "type": "lora",
   "arch": "ltx-2.3",
-  "format": "safetensors-bf16",
-  "description": "LTX-2.3 22B Stage-2 distilled LoRA (384-step). From dgrauet/ltx-2.3-mlx-q8.",
+  "format": "mlx-int8",
+  "description": "LTX-2.3 22B Stage-2 distilled LoRA (384-step), int8 quantized (per-tensor max-abs scale). From dgrauet/ltx-2.3-mlx-q8.",
   "source": "dgrauet/ltx-2.3-mlx-q8",
-  "pipeline": [
-    "ltx-2.3"
-  ],
-  "compatible_with": [
-    "transformer/ltx-2.3-dev-q8"
-  ],
+  "pipeline": ["ltx-2.3"],
+  "compatible_with": ["transformer/ltx-2.3-dev-q8"],
   "hf_repo": "dgrauet/ltx-2.3-mlx-q8",
   "hf_filename": "ltx-2.3-22b-distilled-lora-384.safetensors",
-  "size_bytes": 15211014512,
-  "created_at": "2026-06-07T00:00:00Z"
+  "weight_file": "ltx-2.3-22b-distilled-lora-384.int8.safetensors",
+  "size_bytes": 7606951690,
+  "created_at": "2026-06-13T13:08:27Z",
+  "converted_from": {
+    "model": "lora/ltx-2.3-distilled",
+    "format": "safetensors-bf16",
+    "size_bytes": 15211014512
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "group_size": null,
+    "type": "per-tensor max-abs scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py",
+  "convert_command": "python/venv/bin/python scripts/convert_lora_mlx.py --name ltx-2.3-distilled",
+  "convert_timestamp": "2026-06-13T21:22:00Z",
+  "original_files": [
+    "ltx-2.3-22b-distilled-lora-384.safetensors",
+    "ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+  ],
+  "verification": {
+    "method": "A/B test via scripts/ab_test_lora_int8.py",
+    "video_ssim": 1.0,
+    "video_psnr_db": 361.2,
+    "frames_compared": 24
+  }
 }

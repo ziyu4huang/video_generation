@@ -1,0 +1,11 @@
+{
+  "removed_at": "2026-06-13T21:44:00Z",
+  "reason": "Replaced by MLX 4-bit GS32 quantization (connector.safetensors). BF16 file renamed to connector.safetensors.bf16.bak.",
+  "original_format": "safetensors-bf16",
+  "original_files": ["connector.safetensors"],
+  "original_size_bytes": 6344495512,
+  "reconvert_command": "python/venv/bin/python python/mlx-movie-director/convert.py --ltx-connector",
+  "new_format": "mlx-4bit-gs32",
+  "new_size_bytes": 1984551738,
+  "disk_saved_bytes": 4359943774
+}

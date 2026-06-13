@@ -28,6 +28,7 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 
 from app import config as cfg
 from app.commands._shared import execute_generation
@@ -130,7 +131,11 @@ def run_review(args, sub: str = "manifest"):
     # Any --self-test value on the review action routes to the unified dispatcher,
     # unless the explicit sub-action is vae/angle/generation (which handle it themselves).
     self_test = getattr(args, "self_test", None)
-    if isinstance(self_test, str) and sub not in ("vae", "angle", "generation"):
+    # Route any real --self-test value (single name or multi-name list; bare True
+    # excluded) to the unified selftest dispatcher, unless the explicit sub-action
+    # is vae/angle/generation (which handle their own review path).
+    if (self_test is not None and self_test is not True
+            and sub not in ("vae", "angle", "generation")):
         run_review_selftest(args)
         return
 
@@ -1844,40 +1849,153 @@ loadState(); renderAll();
 # Mode 4: Unified self-test dispatcher
 # ---------------------------------------------------------------------------
 
-def run_review_selftest(args):
-    """Unified dispatcher for all named self-tests (--self-test <name>).
+# ---------------------------------------------------------------------------
+# Unified multi-test report: data model + accumulator
+# ---------------------------------------------------------------------------
 
-    Routes to the correct runner based on test type in the registry.
-    Always ends with HTML review generation.
+@dataclass
+class ReviewItem:
+    """One image inside a unified report section."""
+    image_rel: str                       # path relative to out_dir (for <img src>)
+    label: str
+    group: str | None = None             # variant-set / pair id
+    seed: int | None = None
+    scores: dict | None = None           # VLM {overall, detail, ...}
+    metrics: dict | None = None          # 7 no-reference metrics
+    caption: str | None = None
+    prompt: str | None = None
+
+
+@dataclass
+class ReviewSection:
+    """One self-test's results, normalized for the unified renderer."""
+    name: str                            # test name, e.g. "redzit15"
+    type: str                            # "t2i" | "lora" | ...
+    layout: str                          # "grid" | "pairs" | "variants"
+    title_zh: str
+    title_en: str
+    desc_zh: str
+    desc_en: str
+    items: list = field(default_factory=list)            # flat grid of every image
+    pairs: list | None = None                            # A/B: [{left, right}]
+    variant_sets: list | None = None                     # sweep/ref: [{group, items}]
+
+
+class UnifiedReport:
+    """Accumulates ReviewSections across a multi-test run."""
+
+    def __init__(self, out_dir: str, title: str, names: list):
+        self.out_dir = out_dir
+        self.title = title
+        self.names = names
+        self.sections: list[ReviewSection] = []
+        # Stable id (process-independent) so reopening the HTML restores feedback.
+        h = 0
+        for ch in "|".join(names):
+            h = (h * 131 + ord(ch)) & 0xFFFFFFFF
+        self.report_id = f"unified_{h:08x}"
+
+    def push(self, section: ReviewSection) -> None:
+        self.sections.append(section)
+
+
+# Module-global accumulator. None outside a unified multi-test run, so every
+# runner's `_push_section(...)` tail-guard is a no-op in single/standalone mode.
+_UNIFIED_REPORT: UnifiedReport | None = None
+
+
+def _push_section(section: ReviewSection) -> None:
+    """Append a section to the active unified report (no-op in standalone mode)."""
+    if _UNIFIED_REPORT is not None and section is not None:
+        _UNIFIED_REPORT.push(section)
+
+
+def _print_selftest_list(all_tests: dict) -> None:
+    print("[selftest] Available tests:")
+    print(f"  {'Name':<26} {'Type':<10} Description")
+    print(f"  {'─'*26} {'─'*10} {'─'*40}")
+    for name, tcfg in all_tests.items():
+        print(f"  {name:<26} [{tcfg['type']:<8}] {tcfg['description']}")
+
+
+def run_review_selftest(args):
+    """Unified dispatcher for named self-tests.
+
+    Single name (str) → run one test + standalone HTML (legacy behavior).
+    Multi-name list (≥2) → run every test, collect ReviewSections, emit ONE
+        unified HTML report via _render_unified_html().
 
     Usage:
       run.py image review --self-test portrait-full
-      run.py image review --self-test ultraflux
-      run.py image review --self-test portrait-seeds
+      run.py image review --self-test redzit15 redzit15-lora   # unified
+      run.py image review --self-test list
       run.py image t2i --self-test portrait-full   (also routed here)
     """
-    from app.test_prompts_image import get_test, list_test_names, _ALL_TESTS
+    from app.test_prompts_image import get_test, _ALL_TESTS
 
-    test_name = getattr(args, "self_test", None)
+    global _UNIFIED_REPORT
+    raw = getattr(args, "self_test", None)
 
-    # Special value "list" → print all available tests
-    if not test_name or test_name == "list":
-        print("[selftest] Available tests:")
-        print(f"  {'Name':<26} {'Type':<10} Description")
-        print(f"  {'─'*26} {'─'*10} {'─'*40}")
-        for name, tcfg in _ALL_TESTS.items():
-            print(f"  {name:<26} [{tcfg['type']:<8}] {tcfg['description']}")
+    # Resolve the list of test names (handles None/True/bare/"list"/str/list).
+    if raw is None or raw is True or (isinstance(raw, list) and len(raw) == 0):
+        _print_selftest_list(_ALL_TESTS)
+        return
+    if isinstance(raw, list):
+        if "list" in raw:
+            _print_selftest_list(_ALL_TESTS)
+            return
+        names = [n for n in raw if n != "list"]
+    else:  # scalar str
+        if raw == "list":
+            _print_selftest_list(_ALL_TESTS)
+            return
+        names = [raw]
+
+    # Fail fast on any unknown name before running anything.
+    resolved = []  # [(name, cfg)]
+    for name in names:
+        try:
+            resolved.append((name, get_test(name)))
+        except ValueError as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    # --- Single test: legacy standalone path (unchanged behavior) ---
+    if len(resolved) == 1:
+        name, test_cfg = resolved[0]
+        args.self_test = name
+        _run_one_test(args, name, test_cfg)
         return
 
+    # --- Multi test: unified report ---
+    report = UnifiedReport(out_dir=cfg.OUTPUT_DIR,
+                           title=" · ".join(names), names=list(names))
+    _UNIFIED_REPORT = report
     try:
-        test_cfg = get_test(test_name)
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
+        for name, test_cfg in resolved:
+            print(f"\n[selftest] ═══ {name} ({test_cfg['type']}) ═══")
+            print(f"[selftest] {test_cfg['description']}")
+            args.self_test = name  # each runner sees a single name
+            _run_one_test(args, name, test_cfg)
+    finally:
+        _UNIFIED_REPORT = None
 
+    if not report.sections:
+        print("[selftest] No image-producing sections to render; skipping unified HTML.")
+        return
+
+    html_path = _render_unified_html(report)
+    print(f"\n[selftest] UnifiedReviewHTML: {html_path}")
+    print(f"[selftest] Unified review ({len(report.sections)}/{len(resolved)} "
+          f"sections): {html_path}")
+
+
+def _run_one_test(args, test_name: str, test_cfg: dict):
+    """Dispatch a single resolved test to its type runner."""
     test_type = test_cfg["type"]
-    print(f"[selftest] ═══ {test_name} ({test_type}) ═══")
-    print(f"[selftest] {test_cfg['description']}")
+    if test_type != "nomodel":
+        print(f"[selftest] ═══ {test_name} ({test_type}) ═══")
+        print(f"[selftest] {test_cfg['description']}")
 
     if test_type == "nomodel":
         _run_selftest_nomodel(test_name, test_cfg)
@@ -1914,6 +2032,501 @@ def run_review_selftest(args):
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Unified report: section builders (convert each runner's local data → ReviewSection)
+# ---------------------------------------------------------------------------
+
+def _unified_metrics(image_file: str | None) -> dict | None:
+    """7 no-reference quality metrics for one image (None if unavailable)."""
+    if not image_file or not os.path.exists(image_file):
+        return None
+    try:
+        _qm = importlib.import_module("app.commands.image-quality")
+        report = _qm.analyze_image(image_file)
+        return report.get("metrics", report) if isinstance(report, dict) else report
+    except Exception:
+        return None
+
+
+def _unified_vlm_scores(image_file: str | None) -> dict | None:
+    """VLM score dict for an image; auto-scores + caches to .caption.json if missing."""
+    if not image_file or not os.path.exists(image_file):
+        return None
+    cap_file = os.path.splitext(image_file)[0] + ".caption.json"
+
+    def _read():
+        if os.path.exists(cap_file):
+            try:
+                with open(cap_file) as f:
+                    return _parse_caption_scores(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                return None
+        return None
+
+    scores = _read()
+    if not scores:
+        _auto_score_image(image_file)
+        scores = _read()
+    return scores
+
+
+def _unified_caption_text(image_file: str | None, scores: dict | None) -> str:
+    if not image_file:
+        return ""
+    cap_file = os.path.splitext(image_file)[0] + ".caption.json"
+    if not os.path.exists(cap_file):
+        return ""
+    try:
+        with open(cap_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ""
+    if scores and isinstance(scores, dict) and scores.get("summary"):
+        return str(scores["summary"])
+    return str(data.get("caption", ""))
+
+
+def _unified_item_from_manifest(manifest_file: str, label: str,
+                                seed=None, prompt=None) -> ReviewItem:
+    t = _load_test(manifest_file)
+    image_file = t.get("image_file")
+    scores = t.get("caption_scores") or _unified_vlm_scores(image_file)
+    run = t.get("run", {})
+    return ReviewItem(
+        image_rel=t.get("image_rel") or "",
+        label=label,
+        seed=seed if seed is not None else run.get("seed"),
+        scores=scores,
+        metrics=_unified_metrics(image_file),
+        caption=_unified_caption_text(image_file, scores),
+        prompt=prompt or run.get("prompt"),
+    )
+
+
+def _unified_item_from_path(image_file: str | None, label: str, out_dir: str,
+                            seed=None, group=None, prompt=None) -> ReviewItem:
+    if not image_file or not os.path.exists(image_file):
+        return ReviewItem(image_rel="", label=label, seed=seed, group=group, prompt=prompt)
+    scores = _unified_vlm_scores(image_file)
+    return ReviewItem(
+        image_rel=os.path.relpath(image_file, out_dir),
+        label=label, seed=seed, group=group,
+        scores=scores,
+        metrics=_unified_metrics(image_file),
+        caption=_unified_caption_text(image_file, scores),
+        prompt=prompt,
+    )
+
+
+def _section_titles(name: str, test_cfg: dict):
+    desc = (test_cfg.get("description") or "").strip()
+    return f"測試：{name}", f"Test: {name}", desc, desc
+
+
+def _unified_sec_id(name: str) -> str:
+    """Stable HTML id for a section (colons/namespaced names → dashes)."""
+    return "sec-" + re.sub(r"[^A-Za-z0-9._-]", "-", name)
+
+
+def _section_from_manifest(name: str, test_cfg: dict, manifest_paths: list,
+                           labels: list, prompt=None) -> ReviewSection:
+    """Grid layout from manifest-based runners (t2i/workflow/profile/faceswap/swap/...)."""
+    t_zh, t_en, d_zh, d_en = _section_titles(name, test_cfg)
+    items = [_unified_item_from_manifest(mf, lab)
+             for mf, lab in zip(manifest_paths, labels)]
+    return ReviewSection(name=name, type=test_cfg.get("type", ""), layout="grid",
+                         title_zh=t_zh, title_en=t_en, desc_zh=d_zh, desc_en=d_en,
+                         items=items)
+
+
+def _section_from_pairs(name: str, test_cfg: dict, pairs: list, metrics_by_pair: list,
+                        label_a: str, label_b: str, prompt=None,
+                        out_dir: str | None = None) -> ReviewSection:
+    """A/B pairs layout (lora / lora-i2i / lora-sweep)."""
+    out_dir = out_dir or cfg.OUTPUT_DIR
+    t_zh, t_en, d_zh, d_en = _section_titles(name, test_cfg)
+    items, pair_rows = [], []
+    for i, p in enumerate(pairs):
+        seed = p.get("seed")
+        paths = p.get("paths", [])
+        left = _unified_item_from_path(
+            paths[0] if len(paths) > 0 else None, label_a, out_dir,
+            seed=seed, group=f"seed={seed}", prompt=prompt)
+        right = _unified_item_from_path(
+            paths[1] if len(paths) > 1 else None, label_b, out_dir,
+            seed=seed, group=f"seed={seed}", prompt=prompt)
+        if metrics_by_pair and i < len(metrics_by_pair):
+            mb = metrics_by_pair[i]
+            left.metrics = left.metrics or mb.get("metrics_a")
+            right.metrics = right.metrics or mb.get("metrics_b")
+        items.extend([left, right])
+        pair_rows.append({"seed": seed, "left": left, "right": right})
+    return ReviewSection(name=name, type=test_cfg.get("type", ""), layout="pairs",
+                         title_zh=t_zh, title_en=t_en, desc_zh=d_zh, desc_en=d_en,
+                         items=items, pairs=pair_rows)
+
+
+def _section_from_paths(name: str, test_cfg: dict, image_paths: list, labels: list,
+                        prompt=None, out_dir: str | None = None) -> ReviewSection:
+    """Flat grid layout from raw image paths (vae / video / flf2v)."""
+    out_dir = out_dir or cfg.OUTPUT_DIR
+    t_zh, t_en, d_zh, d_en = _section_titles(name, test_cfg)
+    items = [_unified_item_from_path(p, lab, out_dir, prompt=prompt)
+             for p, lab in zip(image_paths, labels)]
+    return ReviewSection(name=name, type=test_cfg.get("type", ""), layout="grid",
+                         title_zh=t_zh, title_en=t_en, desc_zh=d_zh, desc_en=d_en,
+                         items=items)
+
+
+def _section_from_variants(name: str, test_cfg: dict, groups, col_labels=None,
+                           prompt=None, out_dir: str | None = None) -> ReviewSection:
+    """Grouped grid layout (expansion / lora-ref).
+
+    groups: dict {group_label: [paths]} OR list of (group_label, [paths]).
+    """
+    out_dir = out_dir or cfg.OUTPUT_DIR
+    t_zh, t_en, d_zh, d_en = _section_titles(name, test_cfg)
+    iterable = list(groups.items()) if isinstance(groups, dict) else list(groups)
+    items = []
+    for grp_label, paths in iterable:
+        for j, p in enumerate(paths):
+            lab = col_labels[j] if col_labels and j < len(col_labels) else f"v{j + 1}"
+            items.append(_unified_item_from_path(p, lab, out_dir,
+                                                 group=str(grp_label), prompt=prompt))
+    return ReviewSection(name=name, type=test_cfg.get("type", ""), layout="grid",
+                         title_zh=t_zh, title_en=t_en, desc_zh=d_zh, desc_en=d_en,
+                         items=items)
+
+
+# ---------------------------------------------------------------------------
+# Unified report: renderer
+# ---------------------------------------------------------------------------
+
+def _score_badge_html(scores: dict | None) -> str:
+    if not scores:
+        return ""
+    ov = scores.get("overall")
+    if ov is None:
+        return ""
+    try:
+        ov = float(ov)
+    except (TypeError, ValueError):
+        return ""
+    color = "#16a34a" if ov >= 8 else ("#d97706" if ov >= 6 else "#dc2626")
+    return (f'<span class="score-badge" style="border-color:{color};color:{color}">'
+            f'{ov:.1f}</span>')
+
+
+def _metrics_details_html(metrics: dict | None) -> str:
+    if not metrics:
+        return ""
+    rows = "".join(
+        f"<tr><td>{_html.escape(str(k))}</td><td>{v:.2f}</td></tr>"
+        for k, v in metrics.items() if isinstance(v, (int, float))
+    )
+    if not rows:
+        return ""
+    return ('<details class="meta"><summary>metrics</summary>'
+            f'<table class="mtable">{rows}</table></details>')
+
+
+def _unified_card_html(item: ReviewItem) -> str:
+    if item.image_rel:
+        img = (f'<div class="img-wrap" onclick="openLightbox(this)">'
+               f'<img src="{_html.escape(item.image_rel)}" loading="lazy"></div>')
+    else:
+        img = '<div class="img-wrap empty">—</div>'
+    cap = ""
+    if item.caption:
+        cap = (f'<details class="cap"><summary>caption</summary>'
+               f'<p>{_html.escape(item.caption)}</p></details>')
+    seed_attr = f' data-seed="{item.seed}"' if item.seed is not None else ""
+    return (
+        f'<div class="card"{seed_attr}>'
+        f'<div class="card-head"><span class="label">{_html.escape(item.label)}</span>'
+        f'{_score_badge_html(item.scores)}</div>'
+        f'{img}{_metrics_details_html(item.metrics)}{cap}</div>'
+    )
+
+
+def _unified_section_html(section: ReviewSection) -> str:
+    out = [
+        f'<section id="{_unified_sec_id(section.name)}" class="report-section" '
+        f'data-layout="{section.layout}">',
+        (f'<h2 class="i18n"><span class="zh">{_html.escape(section.title_zh)}</span>'
+         f'<span class="en">{_html.escape(section.title_en)}</span></h2>'),
+    ]
+    if section.desc_en:
+        out.append(f'<p class="sec-desc">{_html.escape(section.desc_en)}</p>')
+
+    if section.layout == "pairs" and section.pairs:
+        out.append('<div class="pairs">')
+        for pr in section.pairs:
+            out.append(
+                f'<div class="pair-row" data-seed="{pr.get("seed")}">'
+                f'{_unified_card_html(pr["left"])}'
+                f'<div class="vs">vs</div>'
+                f'{_unified_card_html(pr["right"])}</div>'
+            )
+        out.append('</div>')
+    else:
+        groups, order = {}, []
+        for it in section.items:
+            g = it.group or ""
+            if g not in groups:
+                groups[g] = []
+                order.append(g)
+            groups[g].append(it)
+        out.append('<div class="grid">')
+        for g in order:
+            if len(order) > 1 and g:
+                out.append(f'<div class="group-h">{_html.escape(g)}</div>')
+            for it in groups[g]:
+                out.append(_unified_card_html(it))
+        out.append('</div>')
+    out.append('</section>')
+    return "\n".join(out)
+
+
+def _render_unified_html(report: UnifiedReport) -> str:
+    """Build ONE merged HTML report from all collected ReviewSections."""
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    slug = "-".join(re.sub(r"[^A-Za-z0-9._-]", "", n) or "test" for n in report.names)[:60]
+    html_path = os.path.join(report.out_dir, f"unified-review-{slug}_{ts}.html")
+
+    nav = "".join(
+        f'<a class="chip" href="#{_unified_sec_id(s.name)}">{_html.escape(s.name)}</a>'
+        for s in report.sections
+    )
+    sections_html = "\n".join(_unified_section_html(s) for s in report.sections)
+    sections_meta = json.dumps(
+        [{"name": s.name, "type": s.type} for s in report.sections], ensure_ascii=False)
+    test_options = "".join(f'<option value="{_html.escape(s.name)}">{_html.escape(s.name)}</option>'
+                           for s in report.sections)
+    now_str = time.strftime("%Y-%m-%d %H:%M")
+
+    storage_key = f"unified_fb_{report.report_id}"
+
+    html = f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified Review · {' · '.join(report.names)}</title>
+<style>
+  *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+  :root{{
+    --bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#242424;--border:#333;--text:#e0e0e0;--muted:#888;
+    --accent:#4a9eff;--gold:#f5c842;--green:#4caf50;--red:#f44336;--amber:#d97706;
+    --radius:8px;--gap:16px;
+  }}
+  body{{background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;
+        font-size:14px;line-height:1.5;padding-bottom:340px}}
+  /* Bilingual: body class hides the other language */
+  body.lang-zh .en{{display:none}}
+  body.lang-en .zh{{display:none}}
+  header{{background:var(--bg2);border-bottom:1px solid var(--border);padding:14px 24px;
+          position:sticky;top:0;z-index:100}}
+  header h1{{font-size:18px;font-weight:600;color:var(--accent)}}
+  header .meta{{color:var(--muted);font-size:12px;margin-top:4px}}
+  .nav{{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}}
+  .chip{{font-size:12px;padding:4px 10px;border-radius:12px;background:var(--bg3);
+         border:1px solid var(--border);color:var(--muted);text-decoration:none;transition:all .15s}}
+  .chip:hover{{border-color:var(--accent);color:var(--accent)}}
+  .lang-btn{{margin-left:auto;background:var(--accent);color:#fff;border:none;border-radius:6px;
+             padding:5px 14px;cursor:pointer;font-weight:600}}
+  .head-row{{display:flex;align-items:center}}
+  #content{{padding:var(--gap) 20px;display:flex;flex-direction:column;gap:26px}}
+  .report-section{{background:transparent}}
+  .report-section h2{{font-size:16px;color:var(--accent);border-bottom:1px solid var(--border);
+                      padding-bottom:6px;margin-bottom:10px}}
+  .sec-desc{{color:var(--muted);font-size:12px;margin-bottom:12px}}
+  .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--gap)}}
+  .group-h{{grid-column:1/-1;font-size:13px;font-weight:600;color:var(--gold);
+            padding:4px 0;border-bottom:1px dashed var(--border);margin-top:6px}}
+  .card{{background:var(--bg2);border:2px solid var(--border);border-radius:var(--radius);
+         overflow:hidden;display:flex;flex-direction:column}}
+  .card-head{{display:flex;align-items:center;gap:8px;padding:8px 12px;
+              background:var(--bg3);border-bottom:1px solid var(--border)}}
+  .card-head .label{{font-weight:700;color:var(--accent);font-size:13px;flex:1;
+                     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+  .score-badge{{font-size:13px;font-weight:700;padding:1px 8px;border-radius:10px;
+                border:1px solid;background:var(--bg)}}
+  .img-wrap{{background:#111;cursor:zoom-in}}
+  .img-wrap img{{width:100%;display:block;max-height:440px;object-fit:contain}}
+  .img-wrap.empty{{padding:40px;text-align:center;color:var(--muted)}}
+  .meta,.cap{{border-top:1px solid var(--border);padding:6px 12px;font-size:11px}}
+  .meta summary,.cap summary{{cursor:pointer;color:var(--muted)}}
+  .mtable{{width:100%;border-collapse:collapse;margin-top:4px}}
+  .mtable td{{padding:1px 6px;color:var(--muted)}}
+  .mtable td:last-child{{color:var(--text);text-align:right;font-variant-numeric:tabular-nums}}
+  .cap p{{margin-top:4px;color:#bbb;font-size:11px}}
+  .pairs{{display:flex;flex-direction:column;gap:14px}}
+  .pair-row{{display:flex;gap:10px;align-items:stretch}}
+  .pair-row .card{{flex:1}}
+  .vs{{display:flex;align-items:center;color:var(--muted);font-weight:700;font-size:12px;padding:0 2px}}
+  #bottom{{position:fixed;left:0;right:0;bottom:0;background:var(--bg2);
+           border-top:2px solid var(--accent);z-index:200;max-height:330px;overflow:auto;
+           box-shadow:0 -4px 16px rgba(0,0,0,.5)}}
+  .fb-head{{display:flex;align-items:center;gap:8px;padding:8px 16px;position:sticky;top:0;
+            background:var(--bg2);border-bottom:1px solid var(--border);z-index:1}}
+  .fb-head .title{{font-weight:700;color:var(--accent)}}
+  .fb-head #saved-hint{{color:var(--muted);font-size:11px;flex:1}}
+  .fb-head button,.fb-btn{{background:var(--bg3);border:1px solid var(--border);color:var(--text);
+           padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px}}
+  .fb-head button:hover,.fb-btn:hover{{border-color:var(--accent)}}
+  #fb-table{{width:100%;border-collapse:collapse;font-size:12px}}
+  #fb-table th{{text-align:left;padding:6px 8px;color:var(--muted);font-size:11px;
+                border-bottom:1px solid var(--border);position:sticky;top:42px;background:var(--bg2)}}
+  #fb-table td{{padding:4px 8px;border-bottom:1px solid #222;vertical-align:middle}}
+  #fb-table select,#fb-table input,#fb-table textarea{{
+     background:var(--bg);border:1px solid var(--border);color:var(--text);
+     padding:3px 6px;border-radius:4px;font-size:12px;font-family:inherit}}
+  #fb-table textarea{{width:100%;min-width:140px;resize:vertical}}
+  .vrow{{display:flex;gap:4px}}
+  .vb{{flex:1;font-size:10px;font-weight:700;padding:4px 2px;border-radius:4px;cursor:pointer;
+       border:1px solid #334155;background:transparent;color:var(--muted)}}
+  .vb.active.vpass{{background:var(--green);color:#fff;border-color:var(--green)}}
+  .vb.active.vpartial{{background:var(--amber);color:#fff;border-color:var(--amber)}}
+  .vb.active.vfail{{background:var(--red);color:#fff;border-color:var(--red)}}
+  .stars{{unicode-bidi:bidi-ordered;color:#444;cursor:pointer;letter-spacing:2px;font-size:14px}}
+  .stars .on{{color:var(--gold)}}
+  #lightbox{{position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:300;display:none;
+             align-items:center;justify-content:center;cursor:zoom-out}}
+  #lightbox.open{{display:flex}}
+  #lightbox img{{max-width:94vw;max-height:94vh}}
+</style>
+</head>
+<body class="lang-zh">
+<header>
+  <div class="head-row">
+    <h1 class="i18n"><span class="zh">📷 統一多測試報告</span><span class="en">📷 Unified Multi-Test Review</span></h1>
+    <button class="lang-btn" id="lang-btn" onclick="toggleLang()">EN</button>
+  </div>
+  <div class="meta">{now_str} · <span class="i18n"><span class="zh">{len(report.sections)} 個測試</span><span class="en">{len(report.sections)} tests</span></span></div>
+  <div class="nav">{nav}</div>
+</header>
+<div id="content">
+{sections_html}
+</div>
+
+<div id="bottom">
+  <div class="fb-head">
+    <span class="title i18n"><span class="zh">回饋</span><span class="en">Feedback</span></span>
+    <span id="saved-hint" class="i18n"><span class="zh">自動儲存至瀏覽器</span><span class="en">Auto-saved to browser</span></span>
+    <button onclick="addRow()"><span class="i18n"><span class="zh">＋ 新增列</span><span class="en">＋ Add row</span></span></button>
+    <button onclick="exportJson()"><span class="i18n"><span class="zh">複製 JSON</span><span class="en">Copy JSON</span></span></button>
+    <button onclick="downloadJson()"><span class="i18n"><span class="zh">下載 JSON</span><span class="en">Download JSON</span></span></button>
+    <button onclick="resetFb()"><span class="i18n"><span class="zh">清除</span><span class="en">Reset</span></span></button>
+  </div>
+  <table id="fb-table">
+    <thead><tr>
+      <th class="i18n"><span class="zh">測試</span><span class="en">Test</span></th>
+      <th class="i18n"><span class="zh">變體／圖片</span><span class="en">Variant / Image</span></th>
+      <th class="i18n"><span class="zh">判定</span><span class="en">Verdict</span></th>
+      <th class="i18n"><span class="zh">評分</span><span class="en">Rating</span></th>
+      <th class="i18n"><span class="zh">備註</span><span class="en">Notes</span></th>
+      <th></th>
+    </tr></thead>
+    <tbody id="fb-body"></tbody>
+  </table>
+</div>
+
+<div id="lightbox" onclick="this.classList.remove('open')"><img id="lb-img"></div>
+
+<script>
+const SECTIONS = {sections_meta};
+const STORAGE_KEY = '{storage_key}';
+const TEST_OPTS = `{test_options}`;
+const VERDICTS = [{{k:'pass',z:'通過',e:'Pass'}},{{k:'partial',z:'部分',e:'Partial'}},{{k:'fail',z:'失敗',e:'Fail'}}];
+let ROWS = [];
+let lang = localStorage.getItem('unified_review_lang') || 'zh';
+
+function applyLang() {{
+  document.body.classList.toggle('lang-zh', lang==='zh');
+  document.body.classList.toggle('lang-en', lang==='en');
+  document.getElementById('lang-btn').textContent = (lang==='zh') ? 'EN' : '中';
+  render();  // verdict/rating labels are bilingual
+}}
+function toggleLang() {{
+  lang = (lang==='zh') ? 'en' : 'zh';
+  localStorage.setItem('unified_review_lang', lang);
+  applyLang();
+}}
+
+function load() {{
+  try {{
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (s) {{ ROWS = JSON.parse(s); return; }}
+  }} catch(e){{}}
+  // seed one row per section
+  ROWS = SECTIONS.map(s => ({{test:s.name, variant:'', verdict:null, rating:0, notes:''}}));
+}}
+function save() {{
+  try {{ localStorage.setItem(STORAGE_KEY, JSON.stringify(ROWS)); }} catch(e){{}}
+  const h = document.getElementById('saved-hint');
+  h.textContent = (lang==='zh') ? '已儲存 ✓' : 'Saved ✓';
+  setTimeout(()=> {{ h.innerHTML = (lang==='zh') ? '<span class="zh">自動儲存至瀏覽器</span>' : '<span class="en">Auto-saved to browser</span>'; }}, 1200);
+}}
+function addRow() {{ ROWS.push({{test:SECTIONS[0]?.name||'', variant:'', verdict:null, rating:0, notes:''}}); render(); save(); }}
+function delRow(i) {{ ROWS.splice(i,1); render(); save(); }}
+
+function esc(s) {{ return String(s??'').replace(/[&<>\"']/g, c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}}[c])); }}
+
+function render() {{
+  const body = document.getElementById('fb-body');
+  body.innerHTML = ROWS.map((r,i)=>{{
+    const opts = SECTIONS.map(s=>`<option value="${{esc(s.name)}}" ${{r.test===s.name?'selected':''}}>${{esc(s.name)}}</option>`).join('');
+    const vb = VERDICTS.map(v=>`<button class="vb ${{r.verdict===v.k?'active v'+v.k:''}}" data-i="${{i}}" data-v="${{v.k}}" onclick="setVerdict(${{i}},'${{v.k}}')">${{lang==='zh'?v.z:v.e}}</button>`).join('');
+    let stars=''; for(let n=1;n<=5;n++) stars += `<span class="star ${{n<=r.rating?'on':''}}" data-i="${{i}}" data-n="${{n}}" onclick="setRating(${{i}},${{n}})">★</span>`;
+    return `<tr>
+      <td><select onchange="upd(${{i}},'test',this.value)">${{opts}}</select></td>
+      <td><input value="${{esc(r.variant)}}" onchange="upd(${{i}},'variant',this.value)" placeholder="seed / label"></td>
+      <td><div class="vrow">${{vb}}</div></td>
+      <td><div class="stars">${{stars}}</div></td>
+      <td><textarea rows="1" onchange="upd(${{i}},'notes',this.value)">${{esc(r.notes)}}</textarea></td>
+      <td><button class="fb-btn" onclick="delRow(${{i}})">✕</button></td>
+    </tr>`;
+  }}).join('');
+}}
+function upd(i,k,v){{ ROWS[i][k]=v; save(); }}
+function setVerdict(i,v){{ ROWS[i].verdict = (ROWS[i].verdict===v)?null:v; render(); save(); }}
+function setRating(i,n){{ ROWS[i].rating = (ROWS[i].rating===n)?n-1:n; render(); save(); }}
+
+function exportJson() {{
+  const txt = JSON.stringify(ROWS, null, 2);
+  navigator.clipboard.writeText(txt).then(()=>{{
+    const h=document.getElementById('saved-hint'); h.textContent = (lang==='zh')?'已複製 JSON ✓':'JSON copied ✓';
+  }});
+}}
+function downloadJson() {{
+  const blob = new Blob([JSON.stringify(ROWS,null,2)], {{type:'application/json'}});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = STORAGE_KEY + '.json';
+  a.click();
+}}
+function resetFb() {{
+  if(!confirm(lang==='zh'?'清除所有回饋？':'Clear all feedback?')) return;
+  localStorage.removeItem(STORAGE_KEY);
+  load(); render();
+}}
+function openLightbox(el) {{
+  const img = el.querySelector('img'); if(!img) return;
+  document.getElementById('lb-img').src = img.src;
+  document.getElementById('lightbox').classList.add('open');
+}}
+
+load(); applyLang();
+</script>
+</body>
+</html>"""
+
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    return html_path
 
 
 def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
@@ -2022,6 +2635,13 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
         except Exception as e:
             results.append((key, fname, label, params, f"VLM error: {e}", None))
             print(f"  [review] WARN: {label} — {e}")
+
+    # Unified multi-report: collect a paths section instead of standalone HTML.
+    if _UNIFIED_REPORT is not None:
+        image_paths = [os.path.join(cfg.OUTPUT_DIR, r[1]) for r in results]
+        labels = [r[2] for r in results]
+        _push_section(_section_from_paths(test_name, test_cfg, image_paths, labels))
+        return
 
     # --- Generate interactive HTML review ---
     out_html = os.path.join(cfg.OUTPUT_DIR, f"i2i_cnet_{mode}_review.html")
@@ -2520,6 +3140,11 @@ def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
                     manifest_paths.append(os.path.join(out_dir, f))
                     break
 
+    if _UNIFIED_REPORT is not None:
+        if manifest_paths:
+            _push_section(_section_from_manifest(test_name, test_cfg, manifest_paths, labels))
+        return
+
     if manifest_paths:
         html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
         _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
@@ -2556,7 +3181,12 @@ def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
         labels.append(label)
         print(f"\n[selftest] Generating seed={seed}...")
 
-        pipeline = ZImagePipeline()
+        transformer_name = test_cfg.get("transformer")
+        if transformer_name:
+            t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+            pipeline = ZImagePipeline(transformer_dir=t_dir)
+        else:
+            pipeline = ZImagePipeline()
         result = pipeline.generate(
             prompt=prompt,
             width=width,
@@ -2604,6 +3234,11 @@ def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
         del pipeline, result
         mx.clear_cache()
         gc.collect()
+
+    if _UNIFIED_REPORT is not None:
+        if manifest_paths:
+            _push_section(_section_from_manifest(test_name, test_cfg, manifest_paths, labels))
+        return
 
     if manifest_paths:
         html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
@@ -2786,6 +3421,11 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
         del pipeline
         mx.clear_cache()
         gc.collect()
+
+    if _UNIFIED_REPORT is not None:
+        if manifest_paths:
+            _push_section(_section_from_manifest(test_name, test_cfg, manifest_paths, labels))
+        return
 
     if manifest_paths:
         html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
@@ -3015,6 +3655,14 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
     mx.clear_cache()
     gc.collect()
 
+    # Unified multi-report: show begin/end reference frames (videos are mp4,
+    # not embeddable in the image grid — linked from the standalone HTML).
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_paths(
+            test_name, test_cfg, [begin_path, end_path],
+            ["Begin frame", "End frame"]))
+        return
+
     # === RENDER HTML REVIEW ===
     html_path = _render_flf2v_html(
         test_name=test_name,
@@ -3158,6 +3806,10 @@ def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
             labels.append(f"{lbl} — score {s.get('overall', '?')}/10")
         else:
             labels.append(lbl)
+
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_manifest(test_name, test_cfg, manifest_files, labels))
+        return
 
     _open_manifest_review(manifest_files, labels=labels)
 
@@ -3519,6 +4171,10 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
     if return_manifests:
         return manifest_files, labels, images_to_score
 
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_manifest(test_name, test_cfg, manifest_files, labels))
+        return
+
     _open_manifest_review(manifest_files, labels=labels)
 
 
@@ -3617,6 +4273,10 @@ def _run_selftest_swap_all(args, test_name: str, test_cfg: dict):
                 print(f"  [{lbl}] OK")
             except Exception as e:
                 print(f"  [{lbl}] Caption failed: {e}")
+
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_manifest(test_name, test_cfg, all_manifests, all_labels))
+        return
 
     # Open single HTML review with all results
     print(f"\n{'='*60}")
@@ -3819,6 +4479,15 @@ def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
         print(f"[VLM] Scored {len(scores)} image(s)")
     else:
         print("[VLM] Server not available — start LM Studio with Qwen3-VL to enable scoring")
+
+    # Unified multi-report: collect a grouped (variants) section.
+    if _UNIFIED_REPORT is not None:
+        groups = {src: [t[1] for t in items]
+                  for src, items in results_by_source.items()}
+        first_items = next(iter(results_by_source.values()), [])
+        col_labels = [t[0] for t in first_items]
+        _push_section(_section_from_variants(test_name, test_cfg, groups, col_labels=col_labels))
+        return
 
     # Phase 4: Grouped HTML review
     html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
@@ -4865,6 +5534,11 @@ def run_review_vae(args):
 
     _quality_mod._print_comparison(metrics_list)
 
+    # Unified multi-report: collect a paths section instead of standalone HTML.
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_paths(test_name, test_cfg, image_paths, labels))
+        return
+
     # Render HTML
     html_path = os.path.join(cfg.OUTPUT_DIR, f"{base}.html")
     html = _render_vae_html(
@@ -5161,6 +5835,13 @@ def _run_lora_i2i_selftest(args, test_name: str, test_cfg: dict):
                 "metrics_b": report_b["metrics"],
             })
 
+    # Unified multi-report: collect a pairs section instead of standalone HTML.
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_pairs(
+            test_name, test_cfg, pairs, metrics_by_pair, label_a, label_b,
+            prompt=t2i_prompt))
+        return
+
     # --- Generate HTML review ---
     html_path = _render_lora_i2i_html(
         output_dir=cfg.OUTPUT_DIR,
@@ -5450,7 +6131,7 @@ def run_review_lora(args):
     from app.commands._shared import resolve_lora_path
 
     test_name_raw = getattr(args, "self_test", None)
-    test_name = test_name_raw if isinstance(test_name_raw, str) else "zit-sda-v1"
+    test_name = test_name_raw if isinstance(test_name_raw, str) else "lora:sda-portrait"
 
     try:
         test_cfg = get_lora_test(test_name)
@@ -5511,7 +6192,12 @@ def run_review_lora(args):
     print()
 
     # Load pipeline once — reuse across all seeds
-    pipeline = ZImagePipeline()
+    transformer_name = test_cfg.get("transformer")
+    if transformer_name:
+        t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+        pipeline = ZImagePipeline(transformer_dir=t_dir)
+    else:
+        pipeline = ZImagePipeline()
 
     pairs = []  # [{seed, paths: [str, str], timings: [float, float]}, ...]
 
@@ -5579,6 +6265,12 @@ def run_review_lora(args):
             agg_report_b = {"label": label_b, "metrics": agg_b, "resolution": [width, height]}
             print(f"\n  Average across {len(metrics_by_pair)} seeds:")
             _quality_mod._print_comparison([agg_report_a, agg_report_b])
+
+    # Unified multi-report: collect a pairs section instead of standalone HTML.
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_pairs(
+            test_name, test_cfg, pairs, metrics_by_pair, label_a, label_b, prompt=prompt))
+        return
 
     # Generate paired HTML review
     html_path = _render_lora_html(
@@ -6091,7 +6783,12 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
         from app.flux2_pipeline import Flux2KleinPipeline
         pipeline = Flux2KleinPipeline()
     else:
-        pipeline = ZImagePipeline()
+        transformer_name = test_cfg.get("transformer")
+        if transformer_name:
+            t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+            pipeline = ZImagePipeline(transformer_dir=t_dir)
+        else:
+            pipeline = ZImagePipeline()
     _quality_mod = importlib.import_module("app.commands.image-quality")
 
     groups = []  # [{prompt_name, prompt_text, width, height, pairs, metrics_by_pair}, ...]
@@ -6184,6 +6881,16 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
         # Free memory between groups
         mx.clear_cache()
         gc.collect()
+
+    # Unified multi-report: flatten all groups' pairs into one pairs section.
+    if _UNIFIED_REPORT is not None:
+        all_pairs, all_metrics = [], []
+        for g in groups:
+            all_pairs.extend(g.get("pairs", []))
+            all_metrics.extend(g.get("metrics_by_pair", []))
+        _push_section(_section_from_pairs(
+            test_name, test_cfg, all_pairs, all_metrics, label_a, label_b))
+        return
 
     # Render HTML
     html_path = _render_lora_sweep_html(
@@ -6822,6 +7529,14 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
                 r["label"] = col_labels_all[ci] if ci < len(col_labels_all) else f"Col {ci}"
                 m_dict[f"metrics_{chr(97+ci)}"] = r["metrics"]
             metrics.append(m_dict)
+
+    # Unified multi-report: collect a grouped (variants) section.
+    if _UNIFIED_REPORT is not None:
+        groups = [(f"{t.get('prompt_name', '')} (seed={t.get('seed')})",
+                   t.get("paths", [])) for t in triples]
+        _push_section(_section_from_variants(
+            test_name, test_cfg, groups, col_labels=col_labels_all))
+        return
 
     # --- HTML ---
     if style_variants:

@@ -16,27 +16,26 @@ Sub-actions (loaded from sibling modules via importlib):
   workflow        — Multi-stage: generate → face detail → post-process → upscale → app/commands/image-workflow.py
 
 Named self-tests (--self-test <id>):
-  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE quality comparison
-  zit-sda-v1 / sda            — SDA LoKr A/B: portrait prompt, quality metrics + voting
-  zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body prompt, quality metrics + voting
-  zit-sda-v1-sweep / sda-sweep — SDA LoKr sweep: 8 diverse prompt styles, cross-prompt quality comparison
-  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer, caption + quality review
-  anime2real-ref               — anime2real Ref+LoRA: identity-preserving anime→real with multi-prompt HTML review
-  faceswap-crossgender / crossgender — Woman body + man head swap (head mode), cross-gender BFS test
-  faceswap-crossgender-reverse / xgender-reverse — Man body + woman head swap (head mode)
-  workflow-postprocess         — PostProcessChain on synthetic image (no model)
-  workflow-basic               — Full pipeline at 4 steps / 512×512
-  portrait-full                — A/B/C: base → detail+post → full+upscale
-  grain-sweep                  — Film grain intensity sweep
-  face-detail-ab               — Face detailer denoise strength A/B
-  landscape-post               — Post-processing chain on landscape
-  flf2v-kitchen-coffee / kitchen-coffee — FLF2V: man making coffee, standing→seated
-  flf2v-studio-turn / studio-turn — FLF2V: portrait head turn with smile
-  flf2v-landscape-dusk / landscape-dusk — FLF2V: meadow golden hour→dusk
-  swap-face / face-swap-sam    — SAM3 face swap: JK girl + European woman composite
-  swap-outfit / outfit-swap-sam — SAM3 outfit swap: casual clothes + elegant dress
-  swap-object / object-swap-sam — SAM3 object swap: ramune bottle + coffee cup
-  swap-food / food-swap-sam    — SAM3 food swap: chocolate cake + macaron tower
+  vae:ultraflux                  — Default VAE vs UltraFlux VAE quality comparison (was: ultraflux)
+  lora:sda-portrait              — SDA LoKr A/B: portrait prompt, quality metrics + voting (was: zit-sda-v1)
+  lora:sda-fullbody              — SDA LoKr A/B: full-body prompt, quality metrics + voting (was: zit-sda-v1-fullbody)
+  lora:sda-sweep                 — SDA LoKr sweep: 8 diverse prompt styles, cross-prompt quality (was: zit-sda-v1-sweep)
+  lora:anime2real                — anime2real LoRA: T2I→I2I style transfer (was: anime2real)
+  lora:anime2real-ref            — anime2real Ref+LoRA: identity-preserving review (was: anime2real-ref)
+  swap:face-crossgender          — Woman body + man head swap, cross-gender BFS (was: faceswap-crossgender)
+  swap:face-crossgender-reverse  — Man body + woman head swap (was: faceswap-crossgender-reverse)
+  workflow:postprocess           — PostProcessChain on synthetic image (no model)
+  workflow:portrait              — A/B/C: base → detail+post → full+upscale (was: portrait-full)
+  workflow:grain                 — Film grain intensity sweep (was: grain-sweep)
+  workflow:face-detail           — Face detailer denoise strength A/B (was: face-detail-ab)
+  workflow:landscape             — Post-processing chain on landscape (was: landscape-post)
+  video:flf2v-coffee             — FLF2V: man making coffee, standing→seated (was: flf2v-kitchen-coffee)
+  video:flf2v-turn               — FLF2V: portrait head turn with smile (was: flf2v-studio-turn)
+  video:flf2v-dusk               — FLF2V: meadow golden hour→dusk (was: flf2v-landscape-dusk)
+  swap:sam-face                  — SAM3 face swap: JK girl + European woman (was: swap-face)
+  swap:sam-outfit                — SAM3 outfit swap: casual → elegant dress (was: swap-outfit)
+  swap:sam-object                — SAM3 object swap: ramune bottle → coffee cup (was: swap-object)
+  swap:sam-food                  — SAM3 food swap: chocolate cake → macaron tower (was: swap-food)
 
 'run.py generate' is an alias for this command (see run.py COMMAND_ALIASES).
 
@@ -44,10 +43,10 @@ Usage:
   run.py image --prompt 'Moody portrait'
   run.py image t2i --prompt 'Moody portrait' --pipeline flux2-klein
   run.py image t2i --prompt '...' --ab-test
-  run.py image t2i --self-test ultraflux
-  run.py image review vae --self-test ultraflux
-  run.py image review lora --self-test zit-sda-v1
-  run.py image review lora --self-test zit-sda-v1 --seeds 42,123 --lora-scale 0.7
+  run.py image t2i --self-test vae:ultraflux
+  run.py image review vae --self-test vae:ultraflux
+  run.py image review lora --self-test lora:sda-portrait
+  run.py image review lora --self-test lora:sda-portrait --seeds 42,123 --lora-scale 0.7
   run.py image angle --input output/portrait.png
   run.py image angle --input photo.png --azimuth 270 --elevation -20
   run.py image profile --input char.png
@@ -120,46 +119,62 @@ PARSER_META = {
         "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n"
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
-        "  ultraflux / vae-ultra-flux  — Default VAE vs UltraFlux VAE comparison\n"
-        "  zit-sda-v1 / sda            — SDA LoKr A/B: portrait, quality + voting\n"
-        "  zit-sda-v1-fullbody / sda-fullbody — SDA LoKr A/B: full-body, quality + voting\n"
-        "  anime2real / anything2real  — anime2real LoRA: T2I→I2I style transfer + caption review\n"
-        "  anime2real-ref              — anime2real Ref+LoRA: identity-preserving multi-prompt review\n"
-        "  anime2real-ab / a2r-ab      — A/B test: photorealistic vs 3D game vs semi-realistic\n"
-        "  anime2real-ref-strength / a2r-str — Ref strength sweep: 1.0 vs 0.7 vs 0.5 vs 0.3\n"
-        "  anime2real-pipeline / -v3   — Cross-pipeline: flux2-klein Ref+LoRA vs zimage I2I+LoRA\n"
-        "  faceswap-crossgender / crossgender — Woman body + man head (head mode), cross-gender BFS\n"
-        "  faceswap-crossgender-reverse / xgender-reverse — Man body + woman head (head mode)\n"
-        "  portrait-full               — Workflow A/B/C: base → detail+post → full+upscale\n"
-        "  grain-sweep                 — Workflow: film grain intensity sweep\n"
-        "  face-detail-ab              — Workflow: face detailer denoise strength A/B\n"
-        "  landscape-post              — Workflow: post-processing chain on landscape\n"
-        "  swap-face / face-swap-sam    — SAM3 face swap: JK girl + European woman\n"
-        "  swap-outfit / outfit-swap-sam — SAM3 outfit swap: casual → elegant dress\n"
-        "  swap-object / object-swap-sam — SAM3 object swap: ramune → coffee cup\n"
-        "  swap-food / food-swap-sam    — SAM3 food swap: chocolate cake → macaron tower\n"
-        "  expansion / outpaint         — Flux2 Klein outpaint: square source → expand + interactive seam review\n"
-        "  expansion-sweep / sweep      — Outpaint A/B sweep: overlap × feather × steps (5 variants)\n"
-        "  expansion-multi / multi      — Multi-scene: 4 diverse sources × 2 expansion configs\n"
-        "  expansion-comprehensive / comprehensive — Comprehensive: 4 sources × 8 configs (dirs, aspects, ref_str)\n"
-        "  expansion-ref-strength / ref-sweep — Ref strength sweep: 1.0→0.2 on 2 sources\n"
-        "  expansion-edge-cases / edges — Edge-case content: subject-at-edge, patterns, silhouette, neon\n"
-        "  expansion-overlap-sweep / overlap-sweep — Overlap sweep: 32/64/96/128/160/192 (single-variable)\n"
-        "  expansion-feather-sweep / feather-sweep — Feather sweep: 0/32/64/96/128/192 (single-variable)\n"
-        "  expansion-steps-sweep / steps-sweep — Steps sweep: 4/6/8/12/16 (single-variable)\n"
-        "  expansion-pixels-sweep / pixels-sweep — Pixels sweep: 256/384/512/768/1024 (single-variable)\n"
-        "  expansion-defaults-ab / defaults-ab — Defaults A/B: current vs proposed optimal (post-sweep)\n\n"
+        "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
+        "  lora:sda-portrait       — SDA LoKr A/B: portrait (was: zit-sda-v1)\n"
+        "  lora:sda-fullbody       — SDA LoKr A/B: full-body (was: zit-sda-v1-fullbody)\n"
+        "  lora:anime2real         — T2I→I2I style transfer (was: anime2real)\n"
+        "  lora:anime2real-ref     — Ref+LoRA identity-preserving (was: anime2real-ref)\n"
+        "  lora:anime2real-ab      — Realism style A/B (was: anime2real-ab)\n"
+        "  lora:anime2real-pipeline— Cross-pipeline compare (was: anime2real-pipeline)\n"
+        "  swap:face-crossgender   — Woman body + man head (was: faceswap-crossgender)\n"
+        "  swap:face-crossgender-reverse — Man body + woman head (was: faceswap-crossgender-reverse)\n"
+        "  workflow:portrait       — A/B/C: base→full+upscale (was: portrait-full)\n"
+        "  workflow:grain          — Film grain sweep (was: grain-sweep)\n"
+        "  workflow:face-detail    — Face detailer A/B (was: face-detail-ab)\n"
+        "  workflow:landscape      — Post-processing on landscape (was: landscape-post)\n"
+        "  swap:sam-face           — SAM3 face swap (was: swap-face)\n"
+        "  swap:sam-outfit         — SAM3 outfit swap (was: swap-outfit)\n"
+        "  swap:sam-object         — SAM3 object swap (was: swap-object)\n"
+        "  swap:sam-food           — SAM3 food swap (was: swap-food)\n"
+        "  expansion:basic         — Outpaint directional+16:9 (was: expansion)\n"
+        "  expansion:sweep         — Outpaint sweep (was: expansion-sweep)\n"
+        "  expansion:multi         — Multi-scene (was: expansion-multi)\n"
+        "  expansion:full          — Comprehensive (was: expansion-comprehensive)\n"
+        "  expansion:ref-strength  — Ref strength sweep (was: expansion-ref-strength)\n"
+        "  expansion:edge          — Edge cases (was: expansion-edge-cases)\n"
+        "  expansion:overlap       — Overlap sweep (was: expansion-overlap-sweep)\n"
+        "  expansion:feather       — Feather sweep (was: expansion-feather-sweep)\n"
+        "  expansion:steps         — Steps sweep (was: expansion-steps-sweep)\n"
+        "  expansion:pixels        — Pixels sweep (was: expansion-pixels-sweep)\n"
+        "  expansion:defaults-ab   — Defaults A/B (was: expansion-defaults-ab)\n"
+        "  video:t2v-rainy         — T2V: woman walking in rain (was: video-rainy-street)\n"
+        "  video:t2v-forest        — T2V: forest hiking (was: video-forest-hiker)\n"
+        "  video:flf2v-coffee      — FLF2V: coffee scene (was: flf2v-kitchen-coffee)\n"
+        "  video:flf2v-turn        — FLF2V: portrait turn (was: flf2v-studio-turn)\n"
+        "  video:flf2v-dusk        — FLF2V: landscape dusk (was: flf2v-landscape-dusk)\n"
+        "  t2i:portrait            — 4-seed portrait (was: portrait-seeds)\n"
+        "  t2i:landscape           — 4-seed landscape (was: landscape-seeds)\n"
+        "  profile:zimage          — 3-view profile (was: profile-zimage)\n"
+        "  profile:prompt-abc      — Prompt A/B/C (was: profile-prompt-abc)\n"
+        "  profile:flux2-gen       — ZImage→Flux2 3-view (was: profile-flux2-gen)\n"
+        "  controlnet:basic        — I2I+ControlNet debug (was: basic-controlnet)\n"
+        "  controlnet:pose         — OpenPose skeleton (was: cnet-pose)\n"
+        "  controlnet:dual         — OpenPose+inpaint anchor (was: dual-guidance)\n"
+        "  lora:anatomy            — Anatomy stress test (was: anatomy-challenge)\n"
+        "  lora:sda-sweep          — SDA 8-prompt sweep (was: zit-sda-v1-sweep)\n"
+        "  swap:sam-all            — Run all SAM3 swap tests\n"
+        "Run `run.py image review --self-test list` for full listing.\n\n"
         "Examples:\n"
         "  run.py image --prompt 'Moody portrait'\n"
         "  run.py image t2i --prompt '...' --pipeline flux2-klein\n"
         "  run.py image t2i --prompt '...' --ab-test\n"
-        "  run.py image t2i --self-test ultraflux\n"
-        "  run.py image review vae --self-test ultraflux\n"
-        "  run.py image review lora --self-test zit-sda-v1\n"
-        "  run.py image review lora --self-test zit-sda-v1 --seeds 42,123 --lora-scale 0.7\n"
-        "  run.py image review lora --self-test zit-sda-v1 --no-quality\n"
-        "  run.py image --self-test sda-fullbody\n"
-        "  run.py image --self-test sda-sweep\n"
+        "  run.py image t2i --self-test vae:ultraflux\n"
+        "  run.py image review vae --self-test vae:ultraflux\n"
+        "  run.py image review lora --self-test lora:sda-portrait\n"
+        "  run.py image review lora --self-test lora:sda-portrait --seeds 42,123 --lora-scale 0.7\n"
+        "  run.py image review lora --self-test lora:sda-portrait --no-quality\n"
+        "  run.py image --self-test lora:sda-fullbody\n"
+        "  run.py image --self-test lora:sda-sweep\n"
         "  run.py image angle --input output/portrait.png\n"
         "  run.py image angle --input photo.png --azimuth 270 --elevation -20\n"
         "  run.py image angle --input x.png --azimuth 180 --prompt 'cyberpunk outfit'\n"
@@ -180,19 +195,19 @@ PARSER_META = {
         "  run.py image anime2real --input-image anime.png --steps 8 --anime2real-lora-scale 1.0\n"
         "  run.py image --self-test anime2real\n"
         "  run.py image --self-test anime2real-ref\n"
-        "  run.py image review anime2real --self-test anime2real-pipeline\n"
+        "  run.py image review anime2real --self-test lora:anime2real-pipeline\n"
         "  run.py image i2i --self-test\n"
         "  run.py image faceswap --input body.png --face source.png\n"
         "  run.py image faceswap --input body.png --face source.png --mode head\n"
         "  run.py image faceswap --self-test\n"
-        "  run.py image faceswap --self-test crossgender\n"
-        "  run.py image --self-test faceswap-crossgender-reverse\n"
-        "  run.py image workflow --self-test portrait-full\n"
-        "  run.py image workflow --self-test grain-sweep\n"
-        "  run.py image workflow --self-test landscape-post\n"
+        "  run.py image faceswap --self-test swap:face-crossgender\n"
+        "  run.py image --self-test swap:face-crossgender-reverse\n"
+        "  run.py image workflow --self-test workflow:portrait\n"
+        "  run.py image workflow --self-test workflow:grain\n"
+        "  run.py image workflow --self-test workflow:landscape\n"
         "  run.py image expansion --input photo.png --expand left,right --pixels 768 --prompt '...'\n"
         "  run.py image expansion --input photo.png --aspect 16:9 --upscale --upscale-method seedvr2\n"
-        "  run.py image --self-test expansion\n"
+        "  run.py image --self-test expansion:basic\n"
         "  run.py image purify --input-image output/photo.png\n"
         "  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x\n"
         "  run.py image purify --input-image output/photo.png --purify-mode purify --resolution same\n"
@@ -296,6 +311,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
 def run(args: "argparse.Namespace") -> None:
     action = getattr(args, "action", "t2i") or "t2i"
+    # Restore legacy --self-test semantics (bare→True, single→str); only a
+    # multi-name list (≥2) survives for the unified review path.
+    from app.commands._shared import normalize_self_test
+    normalize_self_test(args)
     self_test_val = getattr(args, "self_test", None)
 
     # --list-loras: discover available LoRAs and exit
@@ -310,7 +329,9 @@ def run(args: "argparse.Namespace") -> None:
     #   'quality'  — has its own traditional-metrics self-test
     #   'workflow'  — has its own dedicated self-test runner + HTML renderer
     #   'i2i'      — handles self_test internally
-    if isinstance(self_test_val, str) and action not in ("review", "quality", "workflow", "i2i"):
+    # A real test value is a name (str) or a multi-name list; bare True is NOT routed.
+    if (self_test_val is not None and self_test_val is not True
+            and action not in ("review", "quality", "workflow", "i2i")):
         _review.run_review(args, sub="selftest")
         return
 

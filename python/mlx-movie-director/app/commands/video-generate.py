@@ -1133,7 +1133,7 @@ def _collect_model_fingerprints(model_dir: str, args=None) -> dict:
         # Dev pipeline (T2V, I2V, HQ, FLF2V): dev transformer + distilled LoRA for stage 2
         key_files = [
             "transformer-dev.safetensors",
-            "ltx-2.3-22b-distilled-lora-384.safetensors",
+            "ltx-2.3-22b-distilled-lora-384.int8.safetensors",
             "connector.safetensors",
             "spatial_upscaler_x2_v1_1.safetensors",
             "vae_encoder.safetensors",

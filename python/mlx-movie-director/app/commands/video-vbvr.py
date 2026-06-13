@@ -346,7 +346,7 @@ def _collect_vbvr_fingerprints(model_dir: str, lora_path: str) -> dict:
 
     key_files = [
         "transformer-dev.safetensors",
-        "ltx-2.3-22b-distilled-lora-384.safetensors",
+        "ltx-2.3-22b-distilled-lora-384.int8.safetensors",
         "connector.safetensors",
         "spatial_upscaler_x2_v1_1.safetensors",
         "vae_encoder.safetensors",

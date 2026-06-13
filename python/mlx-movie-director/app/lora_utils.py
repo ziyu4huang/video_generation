@@ -198,8 +198,28 @@ def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> nn.Modul
     tensors = {}
     try:
         with safe_open(lora_path, framework="pt", device="cpu") as f:
+            # First pass: collect all keys, separating weights from .scale metadata
+            scale_keys: set[str] = set()
+            weight_keys: list[str] = []
             for k in f.keys():
-                tensors[k] = mx.array(f.get_tensor(k).float().numpy()).astype(mx.bfloat16)
+                if k.endswith(".scale"):
+                    scale_keys.add(k)
+                else:
+                    weight_keys.append(k)
+
+            # Second pass: load each weight, dequantizing int8 tensors
+            for k in weight_keys:
+                raw = f.get_tensor(k)
+                # Check if this tensor is quantized int8 (has a companion .scale key)
+                scale_key = f"{k}.scale"
+                if scale_key in scale_keys:
+                    # Int8 quantized LoRA: dequantize = int8_value * scale
+                    raw_i8 = raw.float().numpy()  # int8 → float32 cast (values still -128..127)
+                    scale_val = float(f.get_tensor(scale_key).item())
+                    tensors[k] = mx.array(raw_i8 * scale_val).astype(mx.bfloat16)
+                else:
+                    # Standard float LoRA
+                    tensors[k] = mx.array(raw.float().numpy()).astype(mx.bfloat16)
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
         return model

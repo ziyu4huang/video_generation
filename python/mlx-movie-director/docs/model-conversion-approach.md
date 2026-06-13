@@ -89,16 +89,19 @@ For each model conversion, ensure:
 | zimage-moody-v126 | transformer | mlx-4bit-gs32 | 3.6 GB | ✅ Pre-quantized | ✅ ComfyUI source (11 GB) deleted |
 | klein-9b | transformer | mlx-8bit | 9.6 GB | ✅ Pre-quantized | ✅ HF cache (32 GB) deleted |
 | seedvr2-7b | transformer | mlx-4bit-gs32 | 4.8 GB | ✅ Pre-quantized | ✅ ComfyUI source (15 GB) deleted |
+| ltx-2.3-connector | text_encoder | mlx-4bit-gs32 | 6.3 GB → 1.9 GB | ✅ Pre-quantized | ✅ ComfyUI source deleted |
 | qwen3-4b | text_encoder | mlx-4bit-gs32 | 2.3 GB | ✅ Pre-quantized | ✅ ComfyUI source (7.5 GB) deleted |
 | qwen3-8b | text_encoder | mlx-8bit | 8.0 GB | ✅ Pre-quantized | ✅ HF cache (via klein-9b) deleted |
 | flux-ae | vae | mlx-bf16 | 160 MB | ✅ Converted (was pytorch-fp32) | ✅ PyTorch file deleted, REMOVED marker |
 | flux2-klein | vae | mlx-8bit | 158 MB | ✅ Pre-quantized | ✅ HF cache (via klein-9b) deleted |
 | seedvr2-vae | vae | mlx-bf16 | 478 MB | — INT8 negligible savings (Conv3d-skipped) | ✅ ComfyUI source (478 MB) deleted |
+| ultraflux-ae | vae | mlx-bf16 | 335 MB → 168 MB | ✅ Converted (was pytorch-fp32) | ✅ PyTorch file deleted, REMOVED marker |
 | qwen3 | tokenizer | hf-tokenizer | 15 MB | ✅ No conversion needed | N/A (HF download) |
 | qwen3-klein | tokenizer | hf-tokenizer | 11 MB | ✅ No conversion needed | ✅ HF cache (via klein-9b) deleted |
 | zit-sda-v1 | lora | safetensors-fp32 | 162 MB | — Low priority | Kept (still in ComfyUI) |
+| zimage-turbo-fun-union-2.1 | controlnet | safetensors-bf16 | 2.0 GB | ⚠️ Deprecated — replaced by MLX 4-bit | ✅ Cleaned up (REMOVED + dir deleted) |
 
-**Total disk recovered: ~87 GB** (34 GB ComfyUI sources + 49 GB HF caches + 4.4 GB GGUF)
+**Total disk recovered: ~94 GB** (34 GB ComfyUI sources + 49 GB HF caches + 4.4 GB GGUF + 4.2 GB connector BF16→4-bit + 2.0 GB deprecated ControlNet + 0.2 GB ultraflux-ae FP32→BF16)
 
 ### Also Deleted
 

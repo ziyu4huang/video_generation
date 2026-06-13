@@ -32,7 +32,6 @@ from app.commands._shared import _arg_registered, _option_registered
 from app.io_utils import load_image_rgb, require_file
 from app.controlnet import (
     load_controlnet, build_control_input_33ch,
-    _FLUX_SHIFT_FACTOR, _FLUX_SCALE_FACTOR,
 )
 
 _DEFAULT_PROMPT = (
@@ -357,9 +356,9 @@ def run_i2i(args: argparse.Namespace) -> None:
     source_img = load_image_rgb(input_image_path).resize((out_w, out_h), Image.LANCZOS)
     vae = _load_vae()
     print("[I2I] VAE encoding source image...", end=" ", flush=True)
+    # VAE.encode() ALREADY applies shift*scale internally (vae.py:24).
+    # Double-normalizing squashes signal to 36% range — skip re-application.
     clean_latent = _vae_encode(vae, source_img)
-    # Apply Flux latent format normalization
-    clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
     print(f"Done → latent {list(clean_latent.shape)}")
 
     # ── Optional: VAE encode reference for ControlNet ──────────────────────
@@ -374,8 +373,8 @@ def run_i2i(args: argparse.Namespace) -> None:
             blur_ref=blur_ref,
         )
         print("[I2I] VAE encoding ControlNet reference...", end=" ", flush=True)
+        # VAE.encode() ALREADY applies shift*scale internally — skip double-norm.
         ctrl_latent = _vae_encode(vae, ref_pil)
-        ctrl_latent = (ctrl_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
         ctrl_33ch = build_control_input_33ch(ctrl_latent, lambda img: _vae_encode(vae, img))
         mx.eval(ctrl_33ch)  # Force materialize before VAE is freed (lazy tensor safety)
         print(f"Done → control input {list(ctrl_33ch.shape)}")
@@ -781,8 +780,8 @@ def _run_self_test(args: argparse.Namespace) -> None:
     print(f"\n[Self-Test] VAE encoding source image...", end=" ", flush=True)
     vae = _load_vae()
     source_pil = Image.open(source_path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    # VAE.encode() already applies shift*scale — skip double-norm.
     clean_latent = _vae_encode(vae, source_pil)
-    clean_latent = (clean_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
     print(f"Done → {list(clean_latent.shape)}")
 
     # Encode ControlNet reference image for each unique
@@ -818,13 +817,12 @@ def _run_self_test(args: argparse.Namespace) -> None:
                   end=" ", flush=True)
             ref_pil = _load_and_preprocess(ref_path, out_w, out_h, skip=False,
                                             blur_ref=blur, preprocess_mode=mode)
+            # VAE.encode() already applies shift*scale — skip double-norm.
             ctrl_lat = _vae_encode(vae, ref_pil)
-            ctrl_lat = (ctrl_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
             if arm_erase_frac > 0.0 and src_landmarks is not None:
                 # Erase source arms → neutral white inpaint_latent in arm regions
                 erased_pil = _erase_arms_from_pil(source_pil, src_landmarks, arm_erase_frac)
                 erased_lat = _vae_encode(vae, erased_pil)
-                erased_lat = (erased_lat - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
                 mx.eval(erased_lat)
                 c33 = build_control_input_33ch(ctrl_lat, inpaint_latent=erased_lat,
                                                mask_value=inpaint_mask)

@@ -1,5 +1,7 @@
 """Shared helpers for command modules — avoids circular imports with run.py."""
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys
@@ -165,6 +167,28 @@ def _option_registered(parser: argparse.ArgumentParser, option: str) -> bool:
     return any(option in getattr(a, 'option_strings', []) for a in parser._actions)
 
 
+def normalize_self_test(args: "argparse.Namespace") -> None:
+    """Normalize the nargs='*' --self-test value back to legacy scalar form.
+
+    Must be called once at the top of the image command entry point, BEFORE any
+    sub-action reads args.self_test. Preserves all existing semantics:
+      None              → None            (not given)
+      []  (bare)        → True            (command default, == old const=True)
+      ["X"]             → "X"             (single named test, == old scalar)
+      ["X", "Y", ...]   → kept as list    (≥2 names → unified multi-report)
+
+    Only the multi-name list (≥2) is a new case; it is consumed by the review
+    dispatcher (run_review_selftest). All other commands see their legacy form.
+    """
+    st = getattr(args, "self_test", None)
+    if isinstance(st, list):
+        if len(st) == 0:
+            args.self_test = True
+        elif len(st) == 1:
+            args.self_test = st[0]
+        # len >= 2: leave the list intact for unified review
+
+
 def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
     """Register args shared by generate, refine, and video subcommands.
 
@@ -184,10 +208,16 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--seed", type=int, default=42,
                             help="Random seed (default: 42)")
     if not _arg_registered(parser, "self_test"):
-        parser.add_argument("--self-test", nargs="?", const=True, default=None,
+        # nargs="*" accepts 0..N names. normalize_self_test() (called at the
+        # image entry point) restores the legacy scalar/bare semantics:
+        #   absent  → None      bare --self-test → True   (command default)
+        #   one name → "NAME"   two+ names → ["A","B"] (unified multi report)
+        parser.add_argument("--self-test", nargs="*", default=None,
                             dest="self_test", metavar="TEST_ID",
-                            help="Run named self-test (e.g. --self-test ultraflux) "
-                                 "or bare --self-test for the command default test")
+                            help="Run named self-test (e.g. --self-test ultraflux), "
+                                 "bare --self-test for the command default, "
+                                 "or multiple names for a unified multi-report "
+                                 "(e.g. --self-test redzit15 redzit15-lora)")
     if not _arg_registered(parser, "lora_path"):
         parser.add_argument("--lora-path", type=str, default=None,
                             help="LoRA weights: full path, dir, or short name "

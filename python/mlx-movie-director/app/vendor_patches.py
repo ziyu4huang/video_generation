@@ -506,6 +506,101 @@ def _patch_klein_edit_ref_strength() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Patch 10 — dequantize int8 LoRA weights in _fuse_distilled_lora
+# ---------------------------------------------------------------------------
+
+
+def _patch_int8_lora() -> None:
+    """Dequantize int8-quantized LoRA weights in TI2VidTwoStagesPipeline.
+
+    When a distilled LoRA file has been converted to int8 (via
+    ``scripts/convert_lora_mlx.py``), weights are stored as int8 with
+    per-tensor float32 scale keys (``key.scale``).  After ``mx.load()``,
+    the raw int8 values need to be multiplied by their scale before
+    remapping and fusion.
+
+    Strategy: patch ``_fuse_distilled_lora`` to insert the dequantize
+    step between ``mx.load()`` and ``_remap_lora_keys()``.
+    """
+    import mlx.core as mx
+
+    from ltx_pipelines_mlx.ti2vid_two_stages import TI2VidTwoStagesPipeline
+
+    _orig_fuse = TI2VidTwoStagesPipeline._fuse_distilled_lora
+
+    def _patched_fuse_distilled_lora(self, dit):  # type: ignore[no-untyped-def]
+        # Run up to mx.load as before
+        if self.low_ram_streaming:
+            self._swap_to_distilled_streamer()
+            return
+
+        from pathlib import Path
+
+        lora_stem = Path(self._distilled_lora).stem
+        # Prefer int8-quantized file (*.int8.safetensors) over original bf16
+        int8_path = self.model_dir / f"{lora_stem}.int8.safetensors"
+        int8_versioned = sorted(self.model_dir.glob(f"{lora_stem}-*.int8.safetensors"))
+        if int8_versioned:
+            lora_path = int8_versioned[-1]  # latest versioned int8
+        elif int8_path.exists():
+            lora_path = int8_path
+        else:
+            lora_path = self._resolve_safetensors(self.model_dir, lora_stem)
+        if not lora_path.exists():
+            raise FileNotFoundError(
+                f"Distilled LoRA not found: {lora_path}\n"
+                "Two-stage requires the distilled LoRA for Stage 2.\n"
+                "Use: --model dgrauet/ltx-2.3-mlx-q8"
+            )
+        if str(lora_path).endswith(".int8.safetensors"):
+            print(f"  [int8 LoRA] Loading quantized: {lora_path.name}")
+        lora_raw = dict(mx.load(str(lora_path)))
+
+        # ---- Int8 dequantize step ----
+        # Detect int8 tensors with companion .scale keys and dequantize
+        scale_keys = {k for k in lora_raw if k.endswith(".scale")}
+        if scale_keys:
+            dequantized: dict[str, mx.array] = {}
+            for key, val in lora_raw.items():
+                if key.endswith(".scale"):
+                    continue  # skip raw scale keys
+                scale_key = f"{key}.scale"
+                if scale_key in scale_keys:
+                    # Int8 LoRA: dequantize = int8 * scale, then cast to bf16
+                    scale = lora_raw[scale_key].astype(mx.float32)
+                    dequantized[key] = (val.astype(mx.float32) * scale).astype(mx.bfloat16)
+                else:
+                    # Standard float weight — pass through
+                    dequantized[key] = val
+            lora_raw = dequantized
+        # ---- End int8 dequantize ----
+
+        # Continue with original logic (remap + fuse)
+        from ltx_pipelines_mlx.ti2vid_two_stages import _remap_lora_keys
+        from ltx_core_mlx.loader.fuse_loras import apply_loras
+        from ltx_core_mlx.loader.primitives import LoraStateDictWithStrength, StateDict
+
+        lora_remapped = _remap_lora_keys(lora_raw)
+
+        import mlx.utils
+
+        flat_params = mlx.utils.tree_flatten(dit.parameters())
+        flat_model = {k: v for k, v in flat_params if isinstance(v, mx.array)}
+
+        model_sd = StateDict(sd=flat_model, size=0, dtype=set())
+        lora_sd = StateDict(sd=lora_remapped, size=0, dtype=set())
+        lora_with_strength = LoraStateDictWithStrength(lora_sd, self._distilled_lora_strength)
+
+        fused = apply_loras(model_sd, [lora_with_strength])
+        dit.load_weights(list(fused.sd.items()))
+
+        from ltx_core_mlx.utils.memory import aggressive_cleanup
+        aggressive_cleanup()
+
+    TI2VidTwoStagesPipeline._fuse_distilled_lora = _patched_fuse_distilled_lora
+
+
 def apply_all_patches() -> None:
     """Apply all vendor monkey-patches.  Called automatically at import time."""
     _patch_upsample1d()
@@ -517,7 +612,8 @@ def apply_all_patches() -> None:
     _patch_klein_edit_nan_guard()
     _patch_image_util_nan_guard()
     _patch_klein_edit_ref_strength()
-    print("[vendor_patches] Applied 9 patches (6 ltx-2-mlx + 3 mflux)")
+    _patch_int8_lora()
+    print("[vendor_patches] Applied 10 patches (7 ltx-2-mlx + 3 mflux)")
 
 
 apply_all_patches()

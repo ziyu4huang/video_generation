@@ -1323,6 +1323,201 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     return True
 
 
+def convert_ltx_connector() -> bool:
+    """Convert LTX-2.3 connector from BF16 safetensors to 4-bit MLX (group_size=32).
+
+    The connector bridges Gemma-3-12B text embeddings to the LTX-2.3 transformer.
+    Architecture: TextEncoderConnector with 3 sub-modules:
+      - text_embedding_projection: 2 Linear layers (188160->4096, 188160->2048)
+      - video_embeddings_connector: 8 transformer blocks, 7 Linear each (56 total)
+      - audio_embeddings_connector: 8 transformer blocks, 7 Linear each (56 total)
+    Total: 114 Linear layers, all quantizable (every in_features divisible by 64).
+
+    Saves quantized weights back as ``connector.safetensors`` (overwrite) so the
+    existing pipeline loading code (``load_split_safetensors(prefix='connector.')``)
+    works unchanged. The original BF16 file is backed up to
+    ``connector.safetensors.bf16.bak``.
+    """
+    src = os.path.join(cfg.LTX_TEXT_ENCODER_DIR, "connector.safetensors")
+    dst_dir = cfg.LTX_TEXT_ENCODER_DIR
+
+    if not os.path.exists(src):
+        print(f"[ltx-connector] ERROR: Source not found: {src}")
+        print(f"[ltx-connector] Run downloader first: convert.py --ltx-download or setup LTX manually")
+        return False
+
+    # Ensure vendor sub-packages are importable
+    _vendor_base = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "vendor", "ltx-2-mlx")
+    for _pkg in ("packages/ltx-core-mlx",):
+        _src = os.path.join(_vendor_base, _pkg, "src")
+        if os.path.isdir(_src) and _src not in sys.path:
+            sys.path.insert(0, _src)
+
+    try:
+        from ltx_core_mlx.text_encoders.gemma.feature_extractor import TextEncoderConnector
+        from ltx_core_mlx.utils.weights import load_split_safetensors
+    except ImportError as e:
+        print(f"[ltx-connector] ERROR: Failed to import vendor module: {e}")
+        print(f"[ltx-connector] Ensure vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ is intact")
+        return False
+
+    # ── Step 1: Build connector with correct arch config ────────────────
+    # From embedded_config.json: connector_num_layers=8, num_heads=32,
+    # head_dim=128, num_registers=128, caption_channels=3840 (Gemma 3 12B).
+    connector = TextEncoderConnector(
+        caption_channels=3840,
+        num_gemma_layers=49,
+        video_dim=4096,
+        audio_dim=2048,
+        num_heads=32,
+        video_head_dim=128,
+        audio_head_dim=64,
+        num_layers=8,
+        num_registers=128,
+    )
+
+    # ── Step 2: Load BF16 weights ───────────────────────────────────────
+    # Source keys: connector.text_embedding_projection.video_aggregate_embed.weight, ...
+    # load_split_safetensors strips the "connector." prefix, giving keys that
+    # match the TextEncoderConnector parameter tree directly.
+    print(f"[ltx-connector] Loading {os.path.basename(src)} (~6.3 GB)...")
+    weights = load_split_safetensors(src, prefix="connector.")
+    print(f"[ltx-connector] Loaded {len(weights)} tensors")
+
+    connector.load_weights(list(weights.items()))
+    del weights
+    gc.collect()
+    mx.eval(connector.parameters())
+
+    # ── Step 3: Quantize to 4-bit GS32 ──────────────────────────────────
+    print("[ltx-connector] Quantizing to 4-bit (group_size=32)...")
+    nn.quantize(connector, bits=4, group_size=32)
+    mx.eval(connector.parameters())
+
+    # ── Step 4: Backup original BF16 file ───────────────────────────────
+    backup = src + ".bf16.bak"
+    if not os.path.exists(backup):
+        print(f"[ltx-connector] Backing up original BF16 weights...")
+        shutil.copy2(src, backup)
+    else:
+        print(f"[ltx-connector] Backup already exists at {os.path.basename(backup)}, skipping")
+
+    # ── Step 5: Save quantized weights (with connector. prefix) ─────────
+    # The loading code does load_split_safetensors(path, prefix="connector."),
+    # which strips "connector." from keys. We must save WITH the prefix so
+    # the stripping works correctly.
+    flat = {f"connector.{k}": v for k, v in tree_flatten(connector.parameters())}
+    del connector
+    gc.collect()
+
+    print(f"[ltx-connector] Saving {len(flat)} tensors to connector.safetensors...")
+    mx.save_safetensors(src, flat)
+    del flat
+    gc.collect()
+
+    old_mb = os.path.getsize(backup) / (1024 * 1024)
+    new_mb = os.path.getsize(src) / (1024 * 1024)
+    print(f"[ltx-connector] Done. {old_mb:.0f} MB (BF16) -> {new_mb:.0f} MB (4-bit)")
+    return True
+
+
+def convert_ultraflux_vae_to_mlx() -> bool:
+    """Convert UltraFlux VAE from PyTorch FP32 to MLX BF16.
+
+    Same architecture as flux-ae (AutoencoderKL), same conversion pipeline.
+    Uses the mflux ZImageWeightMapping for key remapping and Conv2d transpose.
+    Saves to models/vae/ultraflux-ae/model.safetensors.
+    """
+    _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "vendor", "mflux", "src")
+    if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+        sys.path.insert(0, _mflux_src)
+
+    from mflux.models.z_image.model.z_image_vae import VAE as ZImageVAE
+    from mflux.models.z_image.weights.z_image_weight_mapping import ZImageWeightMapping
+    from mflux.models.common.weights.mapping.weight_transforms import WeightTransforms
+    from mlx.utils import tree_flatten
+
+    vae_dir = cfg.ULTRAFLUX_VAE_DIR
+    src = os.path.join(vae_dir, "diffusion_pytorch_model.safetensors")
+    if not os.path.exists(src):
+        print(f"[ultraflux-vae] ERROR: PyTorch VAE not found: {src}")
+        return False
+
+    # 1. Load PyTorch weights
+    print(f"[ultraflux-vae] Loading {os.path.basename(src)} (~335 MB)...")
+    pt_weights = load_pt_file(src)
+
+    # 2. Build key mapping from mflux ZImageWeightMapping
+    mappings = ZImageWeightMapping.get_vae_mapping()
+
+    def _expand_pattern(pattern, expansion_ranges):
+        import re
+        placeholders = re.findall(r'\{(\w+)\}', pattern)
+        if not placeholders:
+            return [pattern]
+        results = [pattern]
+        for ph in placeholders:
+            new_results = []
+            for r in results:
+                for val in expansion_ranges.get(ph, [0]):
+                    new_results.append(r.replace(f'{{{ph}}}', str(val)))
+            results = new_results
+        return results
+
+    expansion_ranges = {'block': [0, 1, 2, 3], 'res': [0, 1], 'i': [0, 1]}
+    decoder_expansion = dict(expansion_ranges, res=[0, 1, 2])
+
+    key_map = {}
+    for m in mappings:
+        to_pat = m.to_pattern
+        for from_pat in m.from_pattern:
+            is_decoder_upblock = 'decoder.up_blocks.{block}' in from_pat
+            exp = decoder_expansion if is_decoder_upblock else expansion_ranges
+            for fk, tk in zip(_expand_pattern(from_pat, exp), _expand_pattern(to_pat, exp)):
+                key_map[fk] = (tk, m.transform)
+
+    # 3. Convert weights
+    print("[ultraflux-vae] Converting weights (transposing Conv2d)...")
+    mlx_weights = {}
+    for k, v in tqdm(pt_weights.items()):
+        if k not in key_map:
+            continue
+        new_key, transform = key_map[k]
+        val_np = v.detach().cpu().float().numpy() if isinstance(v, torch.Tensor) else v
+        arr = mx.array(val_np).astype(mx.bfloat16)
+        if transform is not None:
+            arr = transform(arr)
+        mlx_weights[new_key] = arr
+
+    del pt_weights
+    gc.collect()
+    print(f"[ultraflux-vae] Mapped {len(mlx_weights)} weights")
+
+    # 4. Initialize MLX VAE and load weights
+    print("[ultraflux-vae] Initializing MLX VAE...")
+    vae = ZImageVAE()
+    model_keys = set(dict(tree_flatten(vae.parameters())).keys())
+    missing = model_keys - set(mlx_weights.keys())
+    if missing:
+        print(f"[ultraflux-vae] Warning: {len(missing)} missing keys: {sorted(missing)[:5]}...")
+
+    vae.load_weights(list(mlx_weights.items()))
+    del mlx_weights
+    mx.eval(vae.parameters())
+
+    # 5. Save
+    out_path = os.path.join(vae_dir, "model.safetensors")
+    print(f"[ultraflux-vae] Saving to {out_path}...")
+    vae.save_weights(out_path)
+
+    size_mb = os.path.getsize(out_path) / (1024 * 1024)
+    print(f"[ultraflux-vae] Done. MLX VAE saved: {size_mb:.0f} MB")
+    print(f"[ultraflux-vae] Old PyTorch file still at: {os.path.basename(src)}")
+    return True
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="mlx-movie-director: one-time model conversion and download",
@@ -1384,6 +1579,10 @@ Examples:
                         help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--seedvr2-vae-int8", action="store_true",
                         help="Quantize SeedVR2 VAE from MLX BF16 to INT8 (~478MB → ~240MB)")
+    parser.add_argument("--ltx-connector", action="store_true",
+                        help="Convert LTX-2.3 connector from BF16 to 4-bit MLX (~6.3GB → ~1.6GB)")
+    parser.add_argument("--ultraflux-vae", action="store_true",
+                        help="Convert UltraFlux VAE from PyTorch FP32 to MLX BF16 (~335MB → ~168MB)")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
@@ -1414,6 +1613,10 @@ Examples:
         convert_vae_to_mlx()
     if args.seedvr2_vae_int8:
         quantize_seedvr2_vae_int8()
+    if args.ltx_connector:
+        convert_ltx_connector()
+    if args.ultraflux_vae:
+        convert_ultraflux_vae_to_mlx()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,18 @@
+{
+  "zimage_9steps_768x768_seed42_prod": {
+    "hash": "4a3ebefc7f6ed2c262ef8e09988e2effa168995b3211e2564ee71e63a33c4518",
+    "created": "2026-06-13T11:24:08.073074+00:00"
+  },
+  "zimage_9steps_1024x1024_seed42_prod": {
+    "hash": "960f0c357f14c8e7e8a4f9d779fc412082b62fe64032e6043c1fb47f5aa7e031",
+    "created": "2026-06-13T11:24:33.029961+00:00"
+  },
+  "zimage_9steps_768x768_lora_zitsda_seed42": {
+    "hash": "6a1ae22340346ac3bebac412e3b745f0846c77b25d235b4ab3bbb1a8c1d6baa6",
+    "created": "2026-06-13T11:24:48.253791+00:00"
+  },
+  "zimage_9steps_768x768_lora_jibmix_seed42": {
+    "hash": "4b985d25b97dd8db4ea820527e50f978b325e52669f335d058ed4fa67acbd239",
+    "created": "2026-06-13T11:25:02.898615+00:00"
+  }
+}

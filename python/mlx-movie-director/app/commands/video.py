@@ -19,7 +19,7 @@ Usage:
   run.py video compare --pipelines i2v,distilled-i2v --source-image ref.png --prompt "..."
   run.py video quality --quality-inputs output/video.mp4
   run.py video quality --quality-inputs A.mp4 B.mp4 --quality-labels "Baseline,LoRA"
-  run.py video quality --self-test --test-prompt forest-hiker
+  run.py video quality --self-test --test-prompt video:t2v-forest
   run.py video restore --restore-input degraded.mp4 --low-ram
   run.py video restore --restore-input degraded.mp4 --output restored.mp4 --frames 49
   run.py video vbvr --input-image base.jpg --prompt "person opens a door and walks through"
@@ -59,7 +59,7 @@ PARSER_META = {
         "  run.py video compare --source-image ref.png --prompt 'person walking'\n"
         "  run.py video compare --pipelines i2v,distilled-i2v --list-pipelines\n"
         "  run.py video quality --quality-inputs output/video.mp4\n"
-        "  run.py video quality --self-test --test-prompt forest-hiker\n"
+        "  run.py video quality --self-test --test-prompt video:t2v-forest\n"
         "  run.py video restore --restore-input degraded.mp4 --low-ram\n"
         "  run.py video restore --restore-input degraded.mp4 --output restored.mp4 --frames 49\n"
         "  run.py video vbvr --input-image base.jpg --prompt 'person opens a door'\n"

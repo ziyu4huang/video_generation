@@ -37,10 +37,11 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--seed", type=int, default=42,
                             help="Random seed (default: 42)")
     if not _arg_registered(parser, "self_test"):
-        parser.add_argument("--self-test", nargs="?", const=True, default=None,
+        parser.add_argument("--self-test", nargs="*", default=None,
                             dest="self_test", metavar="TEST_ID",
-                            help="Run named self-test (e.g. --self-test ultraflux) "
-                                 "or bare --self-test for the command default test")
+                            help="Run named self-test (e.g. --self-test ultraflux), "
+                                 "bare --self-test for the command default, "
+                                 "or multiple names for a unified multi-report")
     if not _arg_registered(parser, "lora_path"):
         parser.add_argument("--lora-path", type=str, default=None,
                             help="LoRA weights: full path, dir, or short name "
