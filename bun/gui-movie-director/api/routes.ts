@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
 import { handleGallery, handleGalleryImage } from "./gallery";
-import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob } from "./jobs";
+import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
@@ -147,6 +147,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   if (pathname.startsWith("/api/jobs/") && method === "GET") {
     const id = pathname.slice("/api/jobs/".length);
     return handleGetJob(req, id);
+  }
+  if (pathname === "/api/jobs/all" && method === "DELETE") {
+    return handleClearJobs(req);
   }
   if (pathname.startsWith("/api/jobs/") && method === "DELETE") {
     const id = pathname.slice("/api/jobs/".length);

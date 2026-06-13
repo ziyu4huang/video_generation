@@ -85,6 +85,31 @@ const BENCH_RESULTS_DIR = PROJECT_ROOT ? `${PROJECT_ROOT}/comfyui_data/output/be
 const VLM_REVIEW_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-vlm-review.py` : "scripts/flux2-klein-bench-vlm-review.py"
 const COMPARE_HTML_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-compare-html.py` : "scripts/flux2-klein-bench-compare-html.py"
 
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
+
 log("Resolved paths:")
 log(`  PROJECT_ROOT: ${PROJECT_ROOT || "(fallback: relative)"}`)
 log(`  PYTHON:       ${PYTHON}`)
@@ -544,13 +569,12 @@ const benchSignals = {
     : [],
 }
 
-const _bench_HIST_JSON = JSON.stringify({
+const _bench_histEntry = {
   schema_version: 1, run_id: _bench_RUN_TS, workflow: meta.name, started_at: _bench_RUN_TS,
   args: args,
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  signals: benchSignals,
   result: {
     mode: returnResult.mode || "compare",
     runTag: returnResult.runTag || "",
@@ -559,18 +583,9 @@ const _bench_HIST_JSON = JSON.stringify({
     qualityDeltas: returnResult.deltas?.quality || null,
     score_delta_from_last: benchDelta,
   },
-}, null, 2)
+}
 
-await agent(
-  `Persist workflow history.
-1. Bash("mkdir -p '${_bench_HIST_DIR}'")
-2. Write file: Write({ file_path: '${_bench_HIST_DIR}/${_bench_RUN_TS}.json', content: <json> })
-   Content: ${_bench_HIST_JSON}
-3. Bash("wc -c '${_bench_HIST_DIR}/${_bench_RUN_TS}.json' && echo OK")
-4. Bash("cd '${_bench_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-Return { written: true }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
-)
+await saveHistory(_bench_HIST_DIR, BENCH_INDEX_FILE, _bench_histEntry, benchSignals)
 
 // ── Synthesize benchmark reflection ─────────────────────────────────────────
 
@@ -608,18 +623,6 @@ Return { written: true }.`,
   )
   log(`Reflection: updated ${BENCH_REFLECTION_FILE} (${benchReflectResult.runs_analyzed} run(s))`)
 }
-
-// ── Update cross-workflow index ──────────────────────────────────────────────
-
-await agent(
-  `Append a summary entry to the cross-workflow index.
-1. Bash("cat '${BENCH_INDEX_FILE}' 2>/dev/null || echo '[]'")
-2. Parse JSON array. Append: ${JSON.stringify({ run_id: _bench_RUN_TS, workflow: meta.name, started_at: _bench_RUN_TS, run_quality: benchSignals.run_quality, key_metric: benchSignals.key_metric, highlights: benchSignals.highlights })}
-3. Keep only latest 50 entries.
-4. Write back: Write({ file_path: '${BENCH_INDEX_FILE}', content: <updated array as JSON> })
-Return { updated: true }.`,
-  { label: "update-index", phase: "Persist", model: "haiku" },
-)
 
 markPhase("persist", "completed")
 log(`History: ${_bench_HIST_DIR}/${_bench_RUN_TS}.json`)

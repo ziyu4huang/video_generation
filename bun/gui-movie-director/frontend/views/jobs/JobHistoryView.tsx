@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { useJobs } from "../../hooks/useJobs";
 import { useNavigation } from "../../context/NavigationContext";
 import { LogViewer } from "../../components/LogViewer";
+import { JsonViewer } from "../../components/JsonViewer";
 import type { JobInfo } from "../../types";
-import { relativeTime } from "../../utils/format";
+import { relativeTime, formatDuration } from "../../utils/format";
 
 interface JobRowProps {
   job: JobInfo;
@@ -13,7 +14,16 @@ interface JobRowProps {
 
 function JobRow({ job, expanded, onToggle }: JobRowProps) {
   const isFailed = job.status === "failed";
+  const isRunning = job.status === "running";
   const navigate = useNavigation();
+
+  const duration =
+    job.completedAt && job.startedAt
+      ? formatDuration(new Date(job.completedAt).getTime() - new Date(job.startedAt).getTime())
+      : isRunning
+      ? "running…"
+      : null;
+
   return (
     <div
       style={{
@@ -39,9 +49,24 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
           <span className="status-dot" />
           {job.status}
         </span>
-        <span style={{ flex: 1, fontSize: 13, color: "var(--text-bright)" }}>
-          {job.command}
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 13, color: "var(--text-bright)", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {job.action ?? job.command}
+          </span>
+          {job.action && (
+            <span style={{ fontSize: 11, color: "var(--text-dim)", display: "block" }}>
+              {job.command}
+            </span>
+          )}
         </span>
+        {job.exitCode !== undefined && job.exitCode !== 0 && (
+          <span style={{ fontSize: 11, color: "var(--error)", background: "color-mix(in srgb, var(--error) 12%, transparent)", padding: "1px 6px", borderRadius: 4 }}>
+            exit {job.exitCode}
+          </span>
+        )}
+        {duration && (
+          <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{duration}</span>
+        )}
         {job.outputFiles.length > 0 && (
           <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
             🖼 {job.outputFiles.length}
@@ -86,6 +111,31 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
               </span>
             </div>
           )}
+
+          {(job.runPath || job.manifestPath) && (
+            <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+              {job.runPath && (
+                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  Run: <span style={{ color: "var(--text-secondary)", fontFamily: "monospace" }}>{job.runPath.split("/").pop()}</span>
+                </span>
+              )}
+              {job.manifestPath && (
+                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  Manifest: <span style={{ color: "var(--text-secondary)", fontFamily: "monospace" }}>{job.manifestPath.split("/").pop()}</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {job.params && (
+            <details style={{ marginBottom: 10 }}>
+              <summary style={{ fontSize: 12, color: "var(--text-dim)", cursor: "pointer", marginBottom: 4 }}>
+                Params
+              </summary>
+              <JsonViewer data={job.params} />
+            </details>
+          )}
+
           {job.logs.length === 0 ? (
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>No logs captured.</span>
           ) : (
@@ -98,7 +148,7 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
 }
 
 export function JobHistoryView() {
-  const { jobs } = useJobs();
+  const { jobs, refresh } = useJobs();
   const [expandedId, setExpandedId] = useState<string | null>(() => {
     // Auto-expand the most recent failed job
     const sorted = [...jobs].sort(
@@ -106,12 +156,24 @@ export function JobHistoryView() {
     );
     return sorted.find((j) => j.status === "failed")?.id ?? null;
   });
+  const [clearing, setClearing] = useState(false);
 
   const sorted = [...jobs].sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
   );
 
   const failedCount = jobs.filter((j) => j.status === "failed").length;
+  const doneCount = jobs.filter((j) => j.status !== "running").length;
+
+  const handleClearDone = async () => {
+    setClearing(true);
+    try {
+      await fetch("/api/jobs/all?status=completed,failed", { method: "DELETE" });
+      refresh();
+    } finally {
+      setClearing(false);
+    }
+  };
 
   return (
     <div style={{ padding: "24px", maxWidth: 900 }}>
@@ -124,9 +186,19 @@ export function JobHistoryView() {
             {failedCount} failed
           </span>
         )}
-        <span style={{ fontSize: 12, color: "var(--text-dim)", marginLeft: "auto" }}>
+        <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {jobs.length} total
         </span>
+        {doneCount > 0 && (
+          <button
+            className="btn btn-secondary"
+            onClick={handleClearDone}
+            disabled={clearing}
+            style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}
+          >
+            {clearing ? "Clearing…" : `Clear done (${doneCount})`}
+          </button>
+        )}
       </div>
 
       {sorted.length === 0 ? (

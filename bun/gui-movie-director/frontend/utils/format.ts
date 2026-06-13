@@ -42,3 +42,11 @@ export function basename(p: string): string {
   const parts = p.split("/");
   return parts[parts.length - 1] || p;
 }
+
+/** Format millisecond duration (e.g. "5s", "1m 32s"). */
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}

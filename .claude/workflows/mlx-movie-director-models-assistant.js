@@ -124,6 +124,31 @@ const PYTHON = PROJECT_ROOT ? `${PROJECT_ROOT}/ComfyUI/.venv/bin/python` : "Comf
 const RUN_PY = PROJECT_ROOT ? `${PROJECT_ROOT}/python/mlx-movie-director/run.py` : "python/mlx-movie-director/run.py";
 const MODELS_DIR = PROJECT_ROOT ? `${PROJECT_ROOT}/python/mlx-movie-director/models` : "python/mlx-movie-director/models";
 
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
+
 log("Resolved paths:");
 log(`  PROJECT_ROOT: ${PROJECT_ROOT || "(fallback: relative)"}`);
 log(`  PYTHON:       ${PYTHON}`);
@@ -767,13 +792,12 @@ const _ma_signals = {
   warnings: audit.errors.map((e) => e.message || String(e)).slice(0, 3),
 };
 
-const _ma_HIST_JSON = JSON.stringify({
+const _ma_histEntry = {
   schema_version: 1, run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP,
   args: args,
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  signals: _ma_signals,
   result: {
     auditErrors: audit.errors.length,
     auditWarnings: audit.warnings.length,
@@ -782,29 +806,9 @@ const _ma_HIST_JSON = JSON.stringify({
     suggestionCount: suggestions.length,
     totalSizeGB: parseFloat((totalSizeBytes / 1e9).toFixed(1)),
   },
-}, null, 2);
+};
 
-await agent(
-  `Persist workflow run history to disk.
-1. Bash("mkdir -p '${_ma_HIST_DIR}'")
-2. Write file: Write({ file_path: '${_ma_HIST_DIR}/${TIMESTAMP}.json', content: <json> })
-   Content: ${_ma_HIST_JSON}
-3. Bash("wc -c '${_ma_HIST_DIR}/${TIMESTAMP}.json' && echo OK")
-4. Bash("cd '${_ma_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-Return { written: true }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
-);
-
-await agent(
-  `Append a summary entry to the cross-workflow index.
-1. Bash("cat '${_ma_INDEX_FILE}' 2>/dev/null || echo '[]'")
-2. Parse JSON array. Append: ${JSON.stringify({ run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP, run_quality: _ma_signals.run_quality, key_metric: _ma_signals.key_metric, highlights: _ma_signals.highlights })}
-3. Keep only latest 50 entries.
-4. Write back: Write({ file_path: '${_ma_INDEX_FILE}', content: <updated array as JSON> })
-Return { updated: true }.`,
-  { label: "update-index", phase: "Persist", model: "haiku" },
-);
-
+await saveHistory(_ma_HIST_DIR, _ma_INDEX_FILE, _ma_histEntry, _ma_signals);
 markPhase("persist", "completed")
 log(`History: ${_ma_HIST_DIR}/${TIMESTAMP}.json`);
 

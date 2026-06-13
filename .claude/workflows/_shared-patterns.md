@@ -41,46 +41,78 @@ try {
 
 Standard envelope written to `.claude/workflows/history/<meta.name>/<timestamp>.json`.
 
-```javascript
-// At top of script body:
-const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+### `saveHistory` helper — copy this VERBATIM into every workflow
 
-// Persist phase — add BEFORE Report phase:
+```javascript
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+// entry: standard envelope (schema_version, run_id, workflow, started_at, args,
+//        phases_completed, phases_failed, status, tags, result)
+// signals: { run_quality, key_metric, delta_from_last, highlights, warnings }
+//   → merged into the saved JSON via spread (readable from the history file)
+// histDir: absolute path to .claude/workflows/history/<workflow-name>/
+// indexFile: absolute path to .claude/workflows/history/_index.json
+// grep -v reflection: protects reflection.json from being pruned (lives in same dir)
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
+```
+
+### Usage pattern
+
+```javascript
+// At top of script body (after PROJECT_ROOT):
+const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`
+const INDEX_FILE  = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+
+// ... paste saveHistory function here ...
+
+// Persist phase — BEFORE Report:
 phase("Persist")
+
+const signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: /* workflow-specific scalar */,
+  delta_from_last: null,
+  highlights: [ /* 2-3 short strings */ ],
+  warnings: [ /* optional */ ],
+}
 
 const historyEntry = {
   schema_version: 1,
   run_id: RUN_ID,
-  workflow: WORKFLOW_NAME,
+  workflow: meta.name,
   started_at: RUN_TIMESTAMP,
-  args: { /* workflow-specific args */ },
+  args: { /* workflow-specific */ },
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  tags: [/* workflow-specific */],
+  tags: [ /* workflow-specific */ ],
   result: { /* workflow-specific payload */ },
+  // NOTE: do NOT add signals here — saveHistory merges it via spread
 }
 
-const historyJson = JSON.stringify(historyEntry, null, 2)
-
-await agent(
-  `Persist the workflow run history to disk.
-
-Steps:
-1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON file using a heredoc:
-   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
-${historyJson}
-HISTORY_EOF")
-3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent:
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-
-Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
-)
-
-log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
+log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 markPhase("persist", "completed")
 ```
 

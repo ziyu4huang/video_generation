@@ -1,19 +1,21 @@
 import React, { useRef, useEffect, useState } from "react";
+import type { LogLine } from "../types";
 import s from "./LogViewer.module.css";
 
 interface LogViewerProps {
-  logs: string[];
+  logs: LogLine[];
   status?: string;
   onCancel?: () => void;
 }
 
-function classifyLine(line: string): string {
-  if (line.includes("Saved:") || line.includes("Saved ")) return "saved";
-  if (line.includes("ERROR:") || line.includes("Traceback") || line.includes("Error:")) return "error";
-  if (line.includes("WARNING:") || line.includes("WARN:") || line.includes("⚠️")) return "warning";
-  if (line.startsWith("===") || line.includes("=== Batch")) return "batch";
-  if (line.includes("[stderr]")) return "stderr";
-  if (/\d+%\s/.test(line) || /\[\d+\/\d+\]/.test(line)) return "progress";
+function classifyLine(line: LogLine): string {
+  if (line.stream === "stderr") return "stderr";
+  const t = line.text;
+  if (t.includes("Saved:") || t.includes("Saved ")) return "saved";
+  if (t.includes("ERROR:") || t.includes("Traceback") || t.includes("Error:")) return "error";
+  if (t.includes("WARNING:") || t.includes("WARN:") || t.includes("⚠️")) return "warning";
+  if (t.startsWith("===") || t.includes("=== Batch")) return "batch";
+  if (/\d+%\s/.test(t) || /\[\d+\/\d+\]/.test(t)) return "progress";
   return "stdout";
 }
 
@@ -22,7 +24,7 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(logs.join("\n"));
+    navigator.clipboard.writeText(logs.map((l) => l.text).join("\n"));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -63,7 +65,7 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
         ) : (
           logs.map((line, i) => (
             <div key={i} className={`${s.logLine} ${s[classifyLine(line)] ?? ""}`}>
-              {line}
+              {line.text}
             </div>
           ))
         )}

@@ -4,6 +4,11 @@ import { RUN_PY } from "./paths";
 import { loadConfig, REPO_DIR } from "./config";
 import { saveJobs, loadJobs } from "./jobstore";
 
+export interface LogLine {
+  text: string;
+  stream: "stdout" | "stderr";
+}
+
 export interface Job {
   id: string;
   command: string;
@@ -16,7 +21,9 @@ export interface Job {
   outputFiles: string[];
   manifestPath?: string;
   runPath?: string;
-  logs: string[];
+  logs: LogLine[];
+  action?: string;
+  params?: Record<string, any>;
 }
 
 type LogListener = (jobId: string, line: string, stream: "stdout" | "stderr") => void;
@@ -51,14 +58,14 @@ export class SubprocessManager {
       if (job.status === "running") {
         job.status = "failed";
         job.completedAt = now;
-        job.logs.push("[interrupted: server restarted]");
+        job.logs.push({ text: "[interrupted: server restarted]", stream: "stdout" });
       }
       this.jobs.set(job.id, job);
     }
     this.persistJobs();
   }
 
-  spawn(command: string, cliArgs: string[]): string {
+  spawn(command: string, cliArgs: string[], meta?: { action?: string; params?: Record<string, any> }): string {
     const id = randomUUID();
     const parts = command.split(" ");
     const fullArgs = [RUN_PY, ...parts, ...cliArgs];
@@ -71,6 +78,8 @@ export class SubprocessManager {
       startedAt: new Date().toISOString(),
       outputFiles: [],
       logs: [],
+      action: meta?.action,
+      params: meta?.params,
     };
 
     this.jobs.set(id, job);
@@ -98,7 +107,7 @@ export class SubprocessManager {
           const lines = text.split("\n");
           for (const line of lines) {
             if (line === "") continue;
-            job.logs.push(line);
+            job.logs.push({ text: line, stream });
             this.broadcastLog(id, line, stream);
 
             // Parse structured output (all command variants: image, video, workflow)
@@ -159,7 +168,7 @@ export class SubprocessManager {
     if (!job || job.status !== "running") return false;
     try {
       process.kill(job.pid!, "SIGTERM");
-      job.logs.push("[cancelled by user]");
+      job.logs.push({ text: "[cancelled by user]", stream: "stdout" });
       const finalize = this.finalizers.get(id);
       if (finalize) {
         finalize("failed", -1);
@@ -173,6 +182,17 @@ export class SubprocessManager {
     } catch {
       return false;
     }
+  }
+  clearJobs(statuses: Job["status"][]): number {
+    let count = 0;
+    for (const [id, job] of this.jobs) {
+      if (statuses.includes(job.status)) {
+        this.jobs.delete(id);
+        count++;
+      }
+    }
+    this.persistJobs();
+    return count;
   }
 }
 

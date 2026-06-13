@@ -1,4 +1,5 @@
 import { subprocessManager } from "../lib/subprocess";
+import type { Job } from "../lib/subprocess";
 import { buildCliArgs, validateParams } from "../lib/args";
 
 export async function handleRunJob(req: Request): Promise<Response> {
@@ -36,7 +37,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   }
 
   // Spawn subprocess
-  const jobId = subprocessManager.spawn(command, cliArgs);
+  const jobId = subprocessManager.spawn(command, cliArgs, { action, params });
   const job = subprocessManager.getJob(jobId);
 
   return Response.json({
@@ -75,4 +76,15 @@ export async function handleDeleteJob(req: Request, id: string): Promise<Respons
     return Response.json({ error: "Job not found or not running" }, { status: 404 });
   }
   return Response.json({ ok: true });
+}
+
+export async function handleClearJobs(req: Request): Promise<Response> {
+  if (req.method !== "DELETE") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+  const url = new URL(req.url);
+  const statuses = (url.searchParams.get("status") ?? "completed,failed")
+    .split(",") as Job["status"][];
+  const count = subprocessManager.clearJobs(statuses);
+  return Response.json({ ok: true, cleared: count });
 }

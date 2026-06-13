@@ -1,7 +1,8 @@
 import fs from "fs";
 import path from "path";
-import { loadConfig, REPO_DIR } from "../lib/config";
-import { OUTPUT_DIRS } from "../lib/paths";
+import { loadConfig } from "../lib/config";
+import { isPathAllowed } from "../lib/paths";
+import { readJsonFile } from "../lib/fsUtils";
 
 /**
  * Run caption (VLM analysis) on an image via `run.py caption`.
@@ -25,11 +26,7 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'image' path" }, { status: 400 });
   }
 
-  // Resolve to absolute path and confine to allowed directories
-  const resolvedImage = path.resolve(image);
-  const allowedDirs = [...OUTPUT_DIRS, REPO_DIR];
-  const isAllowed = allowedDirs.some((d) => resolvedImage.startsWith(d + path.sep) || resolvedImage === d);
-  if (!isAllowed) {
+  if (!isPathAllowed(image)) {
     return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
   }
 
@@ -69,13 +66,9 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     const savedMatch = stdout.match(/Saved:\s+(.+)/);
     const captionPath = savedMatch ? savedMatch[1].trim() : null;
 
-    // Try to read the caption JSON if available
-    let captionResult = null;
-    if (captionPath && fs.existsSync(captionPath)) {
-      try {
-        captionResult = JSON.parse(fs.readFileSync(captionPath, "utf-8"));
-      } catch { /* ignore parse errors */ }
-    }
+    const captionResult = captionPath && fs.existsSync(captionPath)
+      ? readJsonFile(captionPath)
+      : null;
 
     return Response.json({ ok: true, captionPath, caption: captionResult });
   } catch (err: any) {
@@ -96,13 +89,10 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'image' query param" }, { status: 400 });
   }
 
-  // Resolve to absolute path and confine to allowed directories
-  const resolvedImage = path.resolve(imagePath);
-  const allowedDirs = [...OUTPUT_DIRS, REPO_DIR];
-  const isAllowed = allowedDirs.some((d) => resolvedImage.startsWith(d + path.sep) || resolvedImage === d);
-  if (!isAllowed) {
+  if (!isPathAllowed(imagePath)) {
     return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
   }
+  const resolvedImage = path.resolve(imagePath);
 
   // Derive caption path: image.png → image.caption.json
   const base = resolvedImage.replace(/\.[^.]+$/, "");
@@ -112,10 +102,7 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
     return Response.json({ ok: true, caption: null });
   }
 
-  try {
-    const caption = JSON.parse(fs.readFileSync(captionPath, "utf-8"));
-    return Response.json({ ok: true, caption, captionPath });
-  } catch {
-    return Response.json({ ok: true, caption: null });
-  }
+  const caption = readJsonFile(captionPath);
+  if (caption === null) return Response.json({ ok: true, caption: null });
+  return Response.json({ ok: true, caption, captionPath });
 }

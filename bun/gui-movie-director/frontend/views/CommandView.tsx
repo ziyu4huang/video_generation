@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { LogViewer } from "../components/LogViewer";
 import { CommandForm } from "../components/CommandForm";
 import { JobOutputPreview } from "../components/JobOutputPreview";
@@ -12,22 +12,30 @@ export function createCommandView(schema: CommandSchema, commandPrefix?: string)
     const command = `${commandPrefix ?? "image"} ${schema.action}`;
     const { job, loading, handleJobStart, handleCancel } = useCommandView(command);
     const navigate = useNavigation();
+    const [isSelfTest, setIsSelfTest] = useState(false);
+
+    const onJobStart = (opts: { jobId: string; command: string; isSelfTest?: boolean }) => {
+      setIsSelfTest(!!opts.isSelfTest);
+      handleJobStart(opts);
+    };
+
+    const handleGallery = () => {
+      const names = (job?.outputFiles ?? [])
+        .map((f: string) => f.split("/").pop())
+        .filter(Boolean) as string[];
+      navigate({ type: "gallery", highlight: names });
+    };
 
     return (
       <>
-        <CommandForm schema={schema} onJobStart={handleJobStart} loading={loading} commandPrefix={commandPrefix} />
-        <div className="btn-row" style={{ marginTop: -4 }}>
-          <SelfTestButton action={schema.action} onJobStart={handleJobStart} />
+        <CommandForm schema={schema} onJobStart={onJobStart} loading={loading} commandPrefix={commandPrefix} />
+        <div className="btn-row" style={{ marginTop: -8 }}>
+          <SelfTestButton action={schema.action} onJobStart={onJobStart} />
         </div>
-        {job?.status === "completed" && (
+        {job?.status === "completed" && !isSelfTest && (
           <JobOutputPreview
             job={job}
-            onViewInGallery={() => {
-              const names = (job.outputFiles ?? [])
-                .map((f: string) => f.split("/").pop())
-                .filter(Boolean) as string[];
-              navigate({ type: "gallery", highlight: names });
-            }}
+            onViewInGallery={handleGallery}
           />
         )}
         {(job?.logs?.length ?? 0) > 0 && (

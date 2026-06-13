@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { OUTPUT_DIRS } from "../lib/paths";
+import { readJsonFile } from "../lib/fsUtils";
 
 const MEDIA_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".mp4", ".mov", ".webm", ".m4v"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
@@ -105,13 +106,13 @@ export async function handleGallery(req: Request): Promise<Response> {
     const manifestPath = findCompanionJson(entry.dir, base, ".manifest.json");
     let manifest: Record<string, any> | null = null;
     if (manifestPath) {
-      try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8")); } catch { /* ignore */ }
+      manifest = readJsonFile(manifestPath);
     }
 
     const runPath = findCompanionJson(entry.dir, base, ".run.json");
     let run: Record<string, any> | null = null;
     if (runPath) {
-      try { run = JSON.parse(fs.readFileSync(runPath, "utf-8")); } catch { /* ignore */ }
+      run = readJsonFile(runPath);
     }
 
     // Thumbnail: for videos, look for companion relay PNG or regular PNG
@@ -135,7 +136,7 @@ export async function handleGallery(req: Request): Promise<Response> {
     const captionPath = findCompanionJson(entry.dir, base, ".caption.json");
     let caption: Record<string, any> | null = null;
     if (captionPath) {
-      try { caption = JSON.parse(fs.readFileSync(captionPath, "utf-8")); } catch { /* ignore */ }
+      caption = readJsonFile(captionPath);
     }
 
     return {

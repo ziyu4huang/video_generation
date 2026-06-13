@@ -92,6 +92,31 @@ const PYTHON  = `${PROJECT_ROOT}/python/venv/bin/python`
 const RUN_PY  = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
+
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:  ${PYTHON}`)
 log(`  RUN_PY:  ${RUN_PY}`)
@@ -962,38 +987,17 @@ const _i2i_signals = {
   warnings: fixAnalysis ? ["self-fix triggered"] : [],
 }
 
-const _i2i_HIST_JSON = JSON.stringify({
+const _i2i_histEntry = {
   schema_version: 1, run_id: _i2i_RUN_TS, workflow: meta.name, started_at: _i2i_RUN_TS,
   args: resolvedArgs,
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  signals: _i2i_signals,
   result: { mode: selfTestMode || "default", imageCount: allOutputPngs.length,
     captionCount: captions.length, selfFix: !!fixAnalysis, reviewHtml: !!reviewHtml },
-}, null, 2)
+}
 
-await agent(
-  `Persist workflow run history to disk.
-1. Bash("mkdir -p '${_i2i_HIST_DIR}'")
-2. Write file: Write({ file_path: '${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json', content: <json> })
-   Content: ${_i2i_HIST_JSON}
-3. Bash("wc -c '${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json' && echo OK")
-4. Bash("cd '${_i2i_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-Return { written: true }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
-)
-
-await agent(
-  `Append a summary entry to the cross-workflow index.
-1. Bash("cat '${_i2i_INDEX_FILE}' 2>/dev/null || echo '[]'")
-2. Parse JSON array. Append: ${JSON.stringify({ run_id: _i2i_RUN_TS, workflow: meta.name, started_at: _i2i_RUN_TS, run_quality: _i2i_signals.run_quality, key_metric: _i2i_signals.key_metric, highlights: _i2i_signals.highlights })}
-3. Keep only latest 50 entries.
-4. Write back: Write({ file_path: '${_i2i_INDEX_FILE}', content: <updated array as JSON> })
-Return { updated: true }.`,
-  { label: "update-index", phase: "Persist", model: "haiku" },
-)
-
+await saveHistory(_i2i_HIST_DIR, _i2i_INDEX_FILE, _i2i_histEntry, _i2i_signals)
 markPhase("persist", "completed")
 log(`History: ${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json`)
 

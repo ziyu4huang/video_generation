@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { GUI_DIR_ABS } from "./config";
 import type { Job } from "./subprocess";
+import { readJsonFile, writeJsonFile } from "./fsUtils";
 
 const DATA_DIR = path.join(GUI_DIR_ABS, "data");
 const JOBS_PATH = path.join(DATA_DIR, "jobs.json");
@@ -12,12 +13,16 @@ export function saveJobs(jobs: Job[]): void {
   const capped = [...jobs]
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
     .slice(0, MAX_JOBS);
-  fs.writeFileSync(JOBS_PATH, JSON.stringify(capped, null, 2) + "\n");
+  writeJsonFile(JOBS_PATH, capped);
 }
 
 export function loadJobs(): Job[] {
-  try {
-    if (fs.existsSync(JOBS_PATH)) return JSON.parse(fs.readFileSync(JOBS_PATH, "utf-8"));
-  } catch { /* ignore corrupt file */ }
-  return [];
+  const loaded = readJsonFile<Job[]>(JOBS_PATH) ?? [];
+  // Migrate old string[] logs to LogLine[] format
+  for (const job of loaded) {
+    if (job.logs.length > 0 && typeof (job.logs as any)[0] === "string") {
+      (job as any).logs = (job.logs as unknown as string[]).map((t) => ({ text: t, stream: "stdout" }));
+    }
+  }
+  return loaded;
 }

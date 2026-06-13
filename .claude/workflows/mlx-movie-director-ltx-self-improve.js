@@ -37,7 +37,8 @@ export const meta = {
     { title: "Baseline", detail: "measure the base config (reuse existing mp4 if present) → currentBest" },
     { title: "Improve",  detail: "loop ≤budget: propose one knob change → generate+measure (self-fix retry) → adopt/revert" },
     { title: "Knowledge", detail: "graduate confirmed levers to the KB (memory fact + docs/ltx-tuning.md), dedup" },
-    { title: "Report",   detail: "trajectory HTML (iter→composite) + run summary <runId>.json + stdout verdict" },
+    { title: "Persist",  detail: "write run summary JSON + update cross-workflow index" },
+    { title: "Report",   detail: "trajectory HTML (iter→composite) + stdout verdict" },
   ],
 }
 
@@ -183,6 +184,32 @@ Return the resolved object. Current invocation: objective=${objective}, transfor
 if (!resolve) { log("Resolve failed — aborting."); throw new Error("resolve failed") }
 const R = resolve
 const HIST_FILE = `${R.historyDir}/${R.runId}.jsonl`
+const _ltx_INDEX_FILE = `${R.projectRoot}/.claude/workflows/history/_index.json`
+
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
 log(`Resolve: runId=${R.runId} | priorRuns=${(R.priorRuns || []).length} | deadEnds=${(R.knownDeadEnds || []).length} | dryRun=${dryRun}`)
 
 const deadEnds = new Set((R.knownDeadEnds || []).map((s) => s.trim()).filter(Boolean))
@@ -393,35 +420,9 @@ Report what you wrote (or "no new confirmed levers; ceiling reconfirmed").`,
 )
 if (knowledge) log(`Knowledge: ${knowledge.summary}`)
 
-// ── Phase 4: Report (trajectory HTML + run summary) ──────────────────────────
-phase("Report")
-const summary = await agent(
-  `Write the run summary + a trajectory review HTML for this LTX self-improve run.
+// ── Phase 4: Persist (run summary JSON + cross-workflow index) ───────────────
+phase("Persist")
 
-1. Build a compact trajectory HTML at '${R.mlxDir}/output/review_ltx_self_improve_${R.runId}.html'
-   showing iteration → composite (a simple <table> + the best config highlighted). Reuse
-   the dark-theme CSS vars (--bg/#0f1115, --surface, --accent, --ok, --err). Include a
-   <video controls src="<basename>"> for the best mp4 if it exists. Use a quoted heredoc to
-   write it. The mp4 src must be the basename only (HTML lives in output/).
-2. Write the run summary JSON to '${R.historyDir}/${R.runId}.json' (heredoc), then verify with wc -c:
-   { "runId": "${R.runId}", "objective": "${objective}", "transformer": "${transformer}",
-     "baseline": <baseline composite or null>, "best": { "composite": <num>, "config": "${currentBest ? cfgKey(currentBest.config) : ""}", "mp4": "${currentBest?.mp4 || ""}" },
-     "iterations": ${JSON.stringify(iterations)}, "deadEnds": ${JSON.stringify([...deadEnds])},
-     "knowledge": ${JSON.stringify(knowledge?.written || [])} }
-3. Prune old history beyond 15 runs: Bash("cd '${R.historyDir}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f 2>/dev/null")
-
-Best mp4: ${currentBest?.mp4 || "(none)"}
-Iterations: ${JSON.stringify(iterations)}`,
-  { label: "report", phase: "Report", model: "haiku", schema: {
-    type: "object",
-    properties: { htmlPath: { type: "string" }, summaryPath: { type: "string" } },
-    required: ["summaryPath"],
-  } },
-)
-
-// ── Update cross-workflow index ──────────────────────────────────────────────
-
-const _ltx_INDEX_FILE = `${R.projectRoot}/.claude/workflows/history/_index.json`
 const _ltx_signals = {
   run_quality: iterations.some((it) => it.adopted) ? "good" : "degraded",
   key_metric: currentBest?.composite ?? null,
@@ -436,14 +437,45 @@ const _ltx_signals = {
     : [],
 }
 
-await agent(
-  `Append a summary entry to the cross-workflow index.
-1. Bash("cat '${_ltx_INDEX_FILE}' 2>/dev/null || echo '[]'")
-2. Parse JSON array. Append: ${JSON.stringify({ run_id: R.runId, workflow: "mlx-movie-director-ltx-self-improve", started_at: R.runId, run_quality: _ltx_signals.run_quality, key_metric: _ltx_signals.key_metric, highlights: _ltx_signals.highlights })}
-3. Keep only latest 50 entries.
-4. Write back: Write({ file_path: '${_ltx_INDEX_FILE}', content: <updated array as JSON> })
-Return { updated: true }.`,
-  { label: "update-index", phase: "Report", model: "haiku" },
+const ltxHistEntry = {
+  schema_version: 1,
+  run_id: R.runId,
+  workflow: meta.name,
+  started_at: R.runId,
+  args: { objective, transformer, dryRun, budget },
+  phases_completed: ["Baseline", "Improve", "Knowledge"],
+  phases_failed: [],
+  status: "complete",
+  result: {
+    baseline: currentBest ? { composite: currentBest.composite } : null,
+    best: currentBest ? { composite: currentBest.composite, config: cfgKey(currentBest.config), mp4: currentBest.mp4 } : null,
+    iterations,
+    deadEnds: [...deadEnds],
+    knowledge: knowledge?.written || [],
+  },
+}
+
+await saveHistory(R.historyDir, _ltx_INDEX_FILE, ltxHistEntry, _ltx_signals)
+log(`History: ${R.historyDir}/${R.runId}.json`)
+
+// ── Phase 5: Report (trajectory HTML) ────────────────────────────────────────
+phase("Report")
+const summary = await agent(
+  `Build a trajectory review HTML for this LTX self-improve run.
+
+1. Write a compact HTML at '${R.mlxDir}/output/review_ltx_self_improve_${R.runId}.html'
+   showing iteration → composite (a simple <table> + the best config highlighted). Reuse
+   the dark-theme CSS vars (--bg/#0f1115, --surface, --accent, --ok, --err). Include a
+   <video controls src="<basename>"> for the best mp4 if it exists. Use a quoted heredoc to
+   write it. The mp4 src must be the basename only (HTML lives in output/).
+
+Best mp4: ${currentBest?.mp4 || "(none)"}
+Iterations: ${JSON.stringify(iterations)}`,
+  { label: "report", phase: "Report", model: "haiku", schema: {
+    type: "object",
+    properties: { htmlPath: { type: "string" } },
+    required: [],
+  } },
 )
 
 log(`════════════════════════════════════════`)

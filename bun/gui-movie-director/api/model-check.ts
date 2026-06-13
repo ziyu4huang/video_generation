@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY, MLX_OUTPUT_DIR } from "../lib/paths";
+import { readJsonFile } from "../lib/fsUtils";
 import { subprocessManager } from "../lib/subprocess";
 
 export async function handleModelCheckRun(_req: Request): Promise<Response> {
@@ -57,8 +58,10 @@ export async function handleModelCheckCache(_req: Request): Promise<Response> {
   }
 
   try {
-    const raw = fs.readFileSync(cachePath, "utf-8");
-    const result = JSON.parse(raw);
+    const result = readJsonFile(cachePath);
+    if (!result) {
+      return Response.json({ ok: false, error: "Failed to read cache" });
+    }
 
     // Resolve the latest HTML report so the frontend can show the link
     // even after a tab switch (component remount + cache reload).

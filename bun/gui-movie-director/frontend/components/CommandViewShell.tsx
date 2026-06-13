@@ -21,7 +21,7 @@ interface Props {
   onDismiss: () => void;
   // Optional self-test button
   action?: string;
-  handleJobStart?: (info: { jobId: string; command: string }) => void;
+  handleJobStart?: (info: { jobId: string; command: string; isSelfTest?: boolean }) => void;
 }
 
 export function CommandViewShell({

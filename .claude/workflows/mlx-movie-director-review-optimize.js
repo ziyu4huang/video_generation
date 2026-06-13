@@ -396,6 +396,32 @@ const PYTHON_DIR = `${PROJECT_ROOT}/python/mlx-movie-director`
 const VENV_PYTHON = `${PROJECT_ROOT}/ComfyUI/.venv/bin/python`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
+const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+
+// ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
+async function saveHistory(histDir, indexFile, entry, signals) {
+  const histJson = JSON.stringify({ ...entry, signals }, null, 2)
+  const runId = entry.run_id
+  await agent(
+    `Persist workflow history to disk.
+1. Bash("mkdir -p '${histDir}'")
+2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
+   ${histJson}
+3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
+4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
+Return { written: true }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku" },
+  )
+  await agent(
+    `Update cross-workflow index at ${indexFile}.
+1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only latest 50 entries (sort by run_id descending).
+4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+Return { updated: true }.`,
+    { label: "update-index", phase: "Persist", model: "haiku" },
+  )
+}
 
 // All registered commands for argparse smoke testing
 const SMOKE_COMMANDS = [
@@ -1386,7 +1412,6 @@ const historyEntry = {
   status: "complete",
   files_touched: [...filesTouched],
   tags: ["code-review", "python", "mlx", ...dimensions],
-  signals,
   result: {
     scan: {
       totalFiles,
@@ -1440,27 +1465,8 @@ const historyEntry = {
   },
 }
 
-// Write history via agent — use Write tool (not heredoc) to avoid shell quoting issues
-const historyJson = JSON.stringify(historyEntry, null, 2)
-
-await agent(
-  `Persist the workflow run history to disk.
-
-Steps:
-1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON using the Write tool (NOT a shell heredoc, to avoid quoting issues):
-   Write({ file_path: "${HISTORY_DIR}/${RUN_ID}.json", content: <the JSON string below> })
-   JSON content to write:
-${historyJson}
-3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent history files (not reflection.json):
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f")
-
-Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
-)
-
-log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
+log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 
 // ── Reflect: synthesize patterns across all prior runs ────────────────────────
 const REFLECT_SCHEMA = {
@@ -1602,27 +1608,6 @@ ${reflectJson}
   const patCount = Object.values(reflectResult.patterns || {}).flat().length
   log(`Reflect: ${patCount} pattern(s), ${reflectResult.confirmed_patterns?.length || 0} confirmed, ${reflectResult.false_positives?.length || 0} false-positives → ${REFLECTION_FILE}`)
 }
-
-// ── Update cross-workflow _index.json ─────────────────────────────────────────
-const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
-const indexEntry = JSON.stringify({
-  run_id: RUN_ID,
-  workflow: WORKFLOW_NAME,
-  started_at: RUN_TIMESTAMP,
-  run_quality: signals.run_quality,
-  key_metric: signals.key_metric,
-  highlights: signals.highlights,
-})
-await agent(
-  `Append a workflow summary to the cross-workflow index.
-1. Read current index: Bash("cat '${INDEX_FILE}' 2>/dev/null || echo '[]'")
-2. Parse the JSON array. Append this entry:
-   ${indexEntry}
-3. Keep only the 50 most recent entries (sort descending by run_id, slice to 50).
-4. Write back using Write tool: Write({ file_path: "${INDEX_FILE}", content: <updated JSON array, 2-space indent> })
-Return { updated: true }.`,
-  { label: "update-index", phase: "Persist", model: "haiku" },
-)
 
 markPhase("persist", "completed")
 

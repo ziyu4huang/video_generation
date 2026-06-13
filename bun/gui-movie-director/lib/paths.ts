@@ -32,3 +32,8 @@ export function ensureUploadDir(): void {
   const { mkdirSync } = require("fs");
   mkdirSync(UPLOAD_DIR, { recursive: true });
 }
+
+export function isPathAllowed(filePath: string, allowedDirs: string[] = [...OUTPUT_DIRS, REPO_DIR]): boolean {
+  const resolved = path.resolve(filePath);
+  return allowedDirs.some((d) => resolved.startsWith(d + path.sep) || resolved === d);
+}

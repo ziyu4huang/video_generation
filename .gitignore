@@ -1,69 +1,19 @@
-# macOS
+node_modules
+package.json
+package-lock.json
+bun.lock
+.gitignore
 .DS_Store
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual environment
-.venv/
-venv/
-
-# Model files (too large for git)
-*.safetensors
-*.bin
-*.pt
-*.pth
-*.ckpt
-*.gguf
-
-# comfyui_data — models (too large for git)
-comfyui_data/models/
-
-# comfyui_data — generated output
-comfyui_data/output/
-comfyui_data/temp/
-
-# comfyui_data — input images (user uploads)
-comfyui_data/input/
-
-# comfyui_data — runtime/generated files
-comfyui_data/user/*.db
-comfyui_data/user/*.db-*
-comfyui_data/user/*.db.lock
-comfyui_data/user/*.log
-comfyui_data/user/__manager/
-comfyui_data/user/default/workflows/.index.json
-
-# comfyui_data — custom nodes (third-party cloned repos)
-# Use /* so negation patterns below still work
-comfyui_data/custom_nodes/*
-!comfyui_data/custom_nodes/ltx-missing-node-stubs/
-!comfyui_data/custom_nodes/fp8-mps-metal/
-!comfyui_data/custom_nodes/VERSIONS.txt
-
-# comfyui_data — runtime per-node data
-comfyui_data/user/default/ComfyUI-Impact-Subpack/
-comfyui_data/user/default/test.json
-
-# Patches for reinstallable custom nodes
-patches/comfyui_data/
-
-# Playwright
-.playwright-cli/
-
-# Playwright snapshots (top-level *.png)
-/*.png
-
-# GUI server runtime state
-bun/gui-movie-director/data/jobs.json
-
-# Claude Code session files
-.claude/scheduled_tasks.lock
-.claude/scheduled_tasks.json
-
-# Claude Code workflow history (machine-specific run data)
 .claude/workflows/history/
-node_modules/
+.playwright-cli/
+comfyui_data/models/
+comfyui_data/input/
+comfyui_data/user/**/*.db
+comfyui_data/user/**/*.log
+comfyui_data/user/__manager/
+comfyui_data/custom_nodes/
+comfyui_data/output/
+comfyui_data/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
+comfyui_data/user/default/test.json
+comfyui_data/user/default/workflows/.index.json
+.reasonix/

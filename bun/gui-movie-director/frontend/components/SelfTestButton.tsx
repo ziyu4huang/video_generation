@@ -3,21 +3,25 @@ import { useSchemaDefaults, type SelfTestEntry } from "../hooks/useSchemaDefault
 
 interface SelfTestButtonProps {
   action: string;
-  onJobStart: (opts: { jobId: string; command: string }) => void;
+  onJobStart: (opts: { jobId: string; command: string; isSelfTest?: boolean }) => void;
 }
 
 /**
- * Dropdown button that shows available self-tests for a given action.
- * Reads test names from server schema-defaults cache.
+ * Dropdown button showing available self-tests for a given action.
+ * Reads test names + I2I modes from server schema-defaults cache.
  * Hidden if no tests are available for the action.
  */
 export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
   const defaults = useSchemaDefaults(action);
   const tests: SelfTestEntry[] = defaults?.self_tests ?? [];
+  const i2iModes: Record<string, { desc: string }> | undefined = defaults?.i2i_self_test_modes;
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const hasTests = tests.length > 0;
+  const hasModes = i2iModes && Object.keys(i2iModes).length > 0;
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -31,10 +35,10 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // No tests available — don't render
-  if (tests.length === 0) return null;
+  // Nothing to show
+  if (!hasTests && !hasModes) return null;
 
-  const handleSelect = async (test: SelfTestEntry) => {
+  const handleSelect = async (testName: string) => {
     setOpen(false);
     setRunning(true);
     setError(null);
@@ -42,7 +46,7 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
       const res = await fetch("/api/selftest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, test_name: test.name }),
+        body: JSON.stringify({ action, test_name: testName }),
       });
       const data = await res.json();
       if (data.jobId) {
@@ -50,7 +54,7 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
         const command = isVideo
           ? `video ${action.replace("video-", "")}`
           : `image ${action}`;
-        onJobStart({ jobId: data.jobId, command });
+        onJobStart({ jobId: data.jobId, command, isSelfTest: true });
       } else if (data.error) {
         setError(data.error);
       }
@@ -62,14 +66,13 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
   };
 
   return (
-    <div style={{ position: "relative" }} ref={dropdownRef}>
+    <div className="self-test-wrapper" ref={dropdownRef}>
       <button
         type="button"
-        className="btn"
+        className="btn self-test-btn"
         onClick={() => setOpen(!open)}
         disabled={running}
         title="Run built-in self-test"
-        style={{ fontSize: 12, padding: "6px 14px", whiteSpace: "nowrap" }}
       >
         {running ? (
           <><span className="spinner" style={{ width: 12, height: 12 }} /> Testing…</>
@@ -85,53 +88,43 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
       )}
 
       {open && (
-        <div
-          className="st-dropdown"
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            marginTop: 4,
-            minWidth: 280,
-            maxHeight: 320,
-            overflowY: "auto",
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-            zIndex: 50,
-          }}
-        >
-          {tests.map((t) => (
-            <button
-              key={t.name}
-              type="button"
-              onClick={() => handleSelect(t)}
-              style={{
-                display: "block",
-                width: "100%",
-                padding: "8px 12px",
-                background: "transparent",
-                border: "none",
-                borderBottom: "1px solid var(--border)",
-                color: "var(--text)",
-                textAlign: "left",
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLElement).style.background = "transparent";
-              }}
-            >
-              <div style={{ fontWeight: 500, color: "var(--text-bright)" }}>{t.name}</div>
-              <div style={{ color: "var(--text-dim)", marginTop: 2, lineHeight: 1.3 }}>
-                {t.desc}
-              </div>
-            </button>
-          ))}
+        <div className="self-test-dropdown">
+          {hasTests && (
+            <>
+              {hasModes && (
+                <div className="self-test-section-title">Built-in Tests</div>
+              )}
+              {tests.map((t) => (
+                <button
+                  key={t.name}
+                  type="button"
+                  className="self-test-item"
+                  onClick={() => handleSelect(t.name)}
+                >
+                  <div className="self-test-item-name">{t.name}</div>
+                  <div className="self-test-item-desc">{t.desc}</div>
+                </button>
+              ))}
+            </>
+          )}
+          {hasModes && (
+            <>
+              {hasTests && (
+                <div className="self-test-section-title">I2I Modes</div>
+              )}
+              {Object.entries(i2iModes!).map(([mode, { desc }]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className="self-test-item"
+                  onClick={() => handleSelect(mode)}
+                >
+                  <div className="self-test-item-name">{mode}</div>
+                  <div className="self-test-item-desc">{desc}</div>
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

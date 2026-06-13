@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useWebSocket } from "./useWebSocket";
-import type { JobInfo } from "../types";
+import type { JobInfo, LogLine } from "../types";
 
 export function useCommandView(command?: string) {
   const [job, setJob] = useState<JobInfo | null>(null);
@@ -9,12 +9,12 @@ export function useCommandView(command?: string) {
   // Restore last completed/failed job on mount so results survive page reload
   useEffect(() => {
     if (!command) return;
-    fetch(`/api/jobs/last?command=${encodeURIComponent(command)}`)
+    const ctrl = new AbortController();
+    fetch(`/api/jobs/last?command=${encodeURIComponent(command)}`, { signal: ctrl.signal })
       .then((r) => r.json())
-      .then((data) => {
-        if (data.job) setJob(data.job);
-      })
+      .then((data) => { if (data.job) setJob(data.job); })
       .catch(() => {});
+    return () => ctrl.abort();
   }, [command]);
 
   const handleJobStart = useCallback(
@@ -25,7 +25,7 @@ export function useCommandView(command?: string) {
         status: "running",
         startedAt: new Date().toISOString(),
         outputFiles: [],
-        logs: [],
+        logs: [] as LogLine[],
       });
       subscribe(jobId);
     },
@@ -45,7 +45,9 @@ export function useCommandView(command?: string) {
     ? {
         ...job,
         status: (jobStatus as JobInfo["status"]) ?? job.status,
-        logs: logs.length > 0 ? logs.map((e) => e.line) : job.logs,
+        logs: logs.length > 0
+          ? logs.map((e) => ({ text: e.line, stream: e.stream }))
+          : job.logs,
         outputFiles: outputFiles.length > 0 ? outputFiles : job.outputFiles,
         completedAt:
           jobStatus === "completed" || jobStatus === "failed"

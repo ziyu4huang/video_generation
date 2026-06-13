@@ -1,11 +1,21 @@
+export interface LogLine {
+  text: string;
+  stream: "stdout" | "stderr";
+}
+
 export interface JobInfo {
   id: string;
   command: string;
   status: "running" | "completed" | "failed";
   startedAt: string;
   completedAt?: string;
+  exitCode?: number;
   outputFiles: string[];
-  logs: string[];
+  manifestPath?: string;
+  runPath?: string;
+  action?: string;
+  params?: Record<string, any>;
+  logs: LogLine[];
 }
 
 export interface GalleryImage {
