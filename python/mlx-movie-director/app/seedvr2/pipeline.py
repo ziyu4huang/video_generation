@@ -1,7 +1,9 @@
 """SeedVR2 upscale pipeline — load models, upscale image, return PIL Image."""
 
 import gc
+import json
 import os
+import struct
 import time
 
 import mlx.core as mx
@@ -39,8 +41,9 @@ class SeedVR2Upscaler:
         result.save("output_upscaled.png")
     """
 
-    def __init__(self, model_size: str = "7b"):
+    def __init__(self, model_size: str = "7b", vae_dir: str | None = None):
         self.model_size = model_size
+        self._vae_dir = vae_dir  # override VAE dir if provided
         self.transformer = None
         self.vae = None
         self.txt_pos = None
@@ -81,7 +84,7 @@ class SeedVR2Upscaler:
         print(f"[SeedVR2] Transformer loaded ({time.time() - t0:.1f}s)")
 
         # --- VAE ---
-        vae_dir = cfg.SEEDVR2_VAE_DIR
+        vae_dir = self._vae_dir or cfg.SEEDVR2_VAE_DIR
         if not os.path.exists(os.path.join(vae_dir, "model.safetensors")):
             raise FileNotFoundError(
                 f"SeedVR2 VAE model not found at {vae_dir}.\n"
@@ -90,8 +93,26 @@ class SeedVR2Upscaler:
 
         print("[SeedVR2] Loading VAE...")
         t0 = time.time()
+        vae_path = os.path.join(vae_dir, "model.safetensors")
         self.vae = SeedVR2VAE()
-        self.vae.load_weights(os.path.join(vae_dir, "model.safetensors"))
+        # Check if weights are quantized (contain uint32 keys → QuantizedLinear format)
+        is_quantized = False
+        try:
+            with open(vae_path, "rb") as f:
+                header_len = struct.unpack("<Q", f.read(8))[0]
+                header = json.loads(f.read(header_len))
+            is_quantized = any(
+                v.get("dtype") in ("uint32", "U32") for v in header.values()
+                if isinstance(v, dict)
+            )
+        except Exception as e:
+            print(f"[SeedVR2] Warning: could not detect weight format: {e}")
+
+        if is_quantized:
+            # Quantize model structure before loading quantized weights
+            nn.quantize(self.vae, bits=8, group_size=64,
+                        class_predicate=_quantize_predicate)
+        self.vae.load_weights(vae_path)
         mx.eval(self.vae.parameters())
         print(f"[SeedVR2] VAE loaded ({time.time() - t0:.1f}s)")
 

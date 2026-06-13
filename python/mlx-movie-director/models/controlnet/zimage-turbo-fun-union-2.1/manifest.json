@@ -10,5 +10,8 @@
   "pipeline": ["zimage-turbo"],
   "compatible_with": ["transformer/zimage-moody-v126"],
   "size_bytes": 2016627488,
-  "created_at": "2026-06-08T00:00:00Z"
+  "created_at": "2026-06-08T00:00:00Z",
+  "deprecated": true,
+  "deprecation_note": "Superseded by MLX 4-bit GS32 quantized version — 69% smaller with near-identical output (SSIM 97.9%). Use zimage-turbo-fun-union-2.1-mlx instead.",
+  "superseded_by": "controlnet/zimage-turbo-fun-union-2.1-mlx"
 }

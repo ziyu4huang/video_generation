@@ -1,0 +1,28 @@
+{
+  "_comment": "Private metadata. INT8 quantized copy of seedvr2-vae (BF16).",
+  "name": "seedvr2-vae-int8",
+  "type": "vae",
+  "arch": "seedvr2-vae",
+  "format": "mlx-int8",
+  "description": "SeedVR2 3D VAE, MLX INT8 quantized (group_size=64). Only 8/266 attention Linear layers quantized (Conv3D layers skipped by MLX nn.quantize). Output SSIM 98.6% vs BF16 original.",
+  "source": "ByteDance-Seed/SeedVR2-7B",
+  "source_url": "https://huggingface.co/ByteDance-Seed/SeedVR2-7B",
+  "pipeline": ["seedvr2-upscale"],
+  "compatible_with": ["transformer/seedvr2-7b"],
+  "size_bytes": 499360800,
+  "created_at": "2026-06-13T00:00:00Z",
+  "converted_from": {
+    "model": "vae/seedvr2-vae",
+    "format": "mlx-bf16",
+    "size_bytes": 501325022
+  },
+  "convert_method": {
+    "tool": "MLX nn.quantize",
+    "bits": 8,
+    "group_size": 64,
+    "class_predicate": "skip_conv3d_and_small_linear"
+  },
+  "convert_script": "scripts/quantize_seedvr2_vae.py",
+  "convert_command": "python/venv/bin/python scripts/quantize_seedvr2_vae.py",
+  "convert_timestamp": "2026-06-13T00:30:00Z"
+}

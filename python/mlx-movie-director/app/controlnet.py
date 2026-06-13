@@ -21,7 +21,9 @@ For non-inpaint use: mask=zeros, inpaint_latent=VAE(gray_image).
 Module attribute names mirror safetensors key paths exactly to enable direct weight loading.
 """
 
+import json
 import os
+import struct
 import sys
 
 import mlx.core as mx
@@ -229,17 +231,52 @@ class ZImageControlnet(nn.Module):
 # Weight loader
 # ---------------------------------------------------------------------------
 
+def _is_quantized_weights(model_path: str) -> bool:
+    """Check safetensors header for U32 dtype => quantized weights."""
+    try:
+        with open(model_path, "rb") as f:
+            header_len = struct.unpack("<Q", f.read(8))[0]
+            header = json.loads(f.read(header_len))
+        return any(
+            v.get("dtype") in ("uint32", "U32") for v in header.values()
+            if isinstance(v, dict)
+        )
+    except Exception:
+        return False
+
+
 def load_controlnet(model_dir: str) -> ZImageControlnet:
-    """Load ZImageControlnet weights from model_dir/model.safetensors."""
+    """Load ZImageControlnet weights from model_dir/model.safetensors.
+
+    Auto-detects quantized weights (U32 dtype in safetensors header) and
+    pre-quantizes the model structure before loading.
+    """
     model_path = os.path.join(model_dir, "model.safetensors")
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"ControlNet weights not found: {model_path}")
 
-    print(f"[ControlNet] Loading {os.path.getsize(model_path) // 1_000_000} MB from {model_path}...", end=" ", flush=True)
+    size_mb = os.path.getsize(model_path) // 1_000_000
+    print(f"[ControlNet] Loading {size_mb} MB from {model_path}...", end=" ", flush=True)
     weights = mx.load(model_path)
     print(f"({len(weights)} tensors)", flush=True)
 
     model = ZImageControlnet()
+
+    # Auto-detect quantized weights and pre-quantize model structure
+    if _is_quantized_weights(model_path):
+        print("[ControlNet] Detected quantized weights — pre-quantizing model...")
+
+        def _quantize_predicate(path: str, module) -> bool:
+            if not hasattr(module, "to_quantized"):
+                return False
+            if isinstance(module, nn.Linear):
+                if hasattr(module, "weight") and module.weight.shape[-1] % 64 != 0:
+                    return False
+            return True
+
+        nn.quantize(model, bits=4, group_size=32,
+                    class_predicate=_quantize_predicate)
+
     model.load_weights(list(weights.items()))
     mx.eval(model.parameters())
     print("[ControlNet] Ready.")
@@ -296,8 +333,10 @@ def build_control_input_33ch(ctrl_latent: mx.array, vae_encode_fn=None,
         gray_img = Image.fromarray(
             (np.ones((H * 8, W * 8, 3), dtype=np.uint8) * 127).astype("uint8")
         )
-        inpaint_latent = vae_encode_fn(gray_img)  # [1, 16, H, W]
-        inpaint_latent = (inpaint_latent - _FLUX_SHIFT_FACTOR) * _FLUX_SCALE_FACTOR
+        # VAE.encode() ALREADY applies shift*scale internally (vae.py:24).
+        # Double-normalizing would squash the control signal to 36% range —
+        # only canny edges survive; raw continuous signals vanish.
+        inpaint_latent = vae_encode_fn(gray_img)  # [1, 16, H, W] — already Flux-normalized
 
     if mask_spatial is not None:
         mask = mx.array(mask_spatial).astype(ctrl_latent.dtype)  # [1, 1, H, W]

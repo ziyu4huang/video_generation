@@ -91,6 +91,16 @@ OPTIONAL_FIELDS = {
     "trigger_words": list,  # LoRA trigger words (e.g. ["style1", "style2"])
     "test_prompt":   str,   # LoRA reference test prompt
     "recommended_scale": float,  # Recommended LoRA weight (0.0-2.0)
+    # ── Lifecycle ────────────────────────────────────────────────────
+    "deprecated":        bool,   # True if superseded by a newer format/version
+    "deprecation_note":  str,    # Reason + replacement recommendation
+    "superseded_by":     str,    # "category/name" of the replacement instance
+    # ── Conversion provenance (for MLX-converted models) ─────────────
+    "converted_from":    dict,   # {model, format, size_bytes} of source
+    "convert_method":    dict,   # {tool, bits, group_size, predicate}
+    "convert_script":    str,    # Relative path to conversion script
+    "convert_command":   str,    # Exact command to reproduce conversion
+    "convert_timestamp": str,    # ISO-8601 of conversion
 }
 
 # Known pipeline names (warn on unknown)

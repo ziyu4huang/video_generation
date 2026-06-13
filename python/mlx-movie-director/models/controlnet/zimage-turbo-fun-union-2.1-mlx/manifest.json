@@ -1,0 +1,28 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. MLX 4-bit quantized from zimage-turbo-fun-union-2.1.",
+  "name": "zimage-turbo-fun-union-2.1-mlx",
+  "type": "controlnet",
+  "arch": "zimage-turbo",
+  "format": "mlx-4bit-gs32",
+  "description": "Z-Image Turbo Fun ControlNet Union 2.1 Lite, MLX 4-bit quantized (group_size=32). All 152 Linear layers quantized; output SSIM 97.9% vs BF16 original.",
+  "source": "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+  "source_url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
+  "pipeline": ["zimage-turbo"],
+  "compatible_with": ["transformer/zimage-moody-v126"],
+  "size_bytes": 631166339,
+  "created_at": "2026-06-13T00:00:00Z",
+  "converted_from": {
+    "model": "controlnet/zimage-turbo-fun-union-2.1",
+    "format": "safetensors-bf16",
+    "size_bytes": 2016627488
+  },
+  "convert_method": {
+    "tool": "MLX nn.quantize",
+    "bits": 4,
+    "group_size": 32,
+    "class_predicate": "skip_linear_with_dim_not_divisible_by_64"
+  },
+  "convert_script": "scripts/convert_controlnet_mlx.py",
+  "convert_command": "python/venv/bin/python scripts/convert_controlnet_mlx.py",
+  "convert_timestamp": "2026-06-13T01:00:00Z"
+}

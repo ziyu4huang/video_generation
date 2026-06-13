@@ -1,0 +1,18 @@
+{
+  "_comment": "Architecture config created by mlx-movie-director (not from HuggingFace). Safe to edit. Used by MLX model loading code.",
+  "in_channels": 3,
+  "out_channels": 3,
+  "latent_channels": 16,
+  "block_out_channels": [
+    128,
+    256,
+    512,
+    512
+  ],
+  "scaling_factor": 0.9152,
+  "spatial_scale": 8,
+  "encoder_layers_per_block": 2,
+  "encoder_temporal_down_blocks": 2,
+  "decoder_layers_per_block": 3,
+  "decoder_temporal_up_blocks": 2
+}
