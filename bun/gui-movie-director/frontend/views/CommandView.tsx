@@ -39,10 +39,13 @@ export function createCommandView(schema: CommandSchema, commandPrefix?: string)
 
     return (
       <>
-        <CommandForm schema={schema} onJobStart={onJobStart} loading={loading} commandPrefix={commandPrefix} />
-        <div className="btn-row" style={{ marginTop: -8 }}>
-          <SelfTestButton action={schema.action} onJobStart={onJobStart} />
-        </div>
+        <CommandForm
+          schema={schema}
+          onJobStart={onJobStart}
+          loading={loading}
+          commandPrefix={commandPrefix}
+          extraActions={<SelfTestButton action={schema.action} onJobStart={onJobStart} />}
+        />
         {job?.status === "completed" && isSelfTest && (
           <SelfTestResults job={job} />
         )}

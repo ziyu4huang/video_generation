@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Video Generation — ComfyUI on Apple Silicon
 
 Project-level instructions for Claude Code sessions working on this ComfyUI setup.
@@ -24,7 +28,7 @@ python/venv/bin/python python/mlx-movie-director/convert.py --all
 
 - Venv at `python/venv/` — Python 3.13.13
 - Requirements: `python/mlx-movie-director/requirements.txt`
-- Used for all `run.py` subcommands: `t2i`, `image`, `refine`, `upscale`, `caption`, `replay`, `video`, `animate`, `controlnet`, `faceswap`, etc.
+- Used for all `run.py` subcommands — see **run.py Subcommands** below
 
 ### For ComfyUI (workflow execution)
 
@@ -71,6 +75,41 @@ All workflows run on **Apple Silicon (MPS backend)**. This constrains what works
 | 2 | Multi-Pose Character Sheet | `anime2real.json` | Flux 2 Klein 9B bf16 |
 | 3 | LTX-2.3 Video Generation | `ltx2.3-singularity.json` | LTX-2.3 22B bf16 + Singularity LoRA |
 | 4 | Moody Zimage Photorealistic | `moody-zimage-v7.5.json` | Moody V12.6 DPO + SeedVR2 7B |
+
+## run.py Subcommands
+
+All commands run via `python/venv/bin/python python/mlx-movie-director/run.py`.
+
+```
+image [subcommand]   default: t2i
+  t2i, angle, review, profile, controlnet, i2i, faceswap, swap,
+  anime2real, quality, workflow, expansion, purify, restore
+
+video [subcommand]   default: generate
+  generate, review, compare, quality, restore, vbvr, relay
+
+caption <image>      VLM image analysis (see section below)
+replay <manifest>    re-run a previous generation from JSON manifest
+upscale              ESRGAN-only upscale
+check-model          model manifest validation
+schema               print full CLI schema as JSON
+schema-defaults      print schema defaults for a given action
+```
+
+Deprecated aliases still accepted: `generate` → `image`, `t2i` → `image t2i`, `check-manifests` → `check-model`.
+
+### Self-test flag
+
+Most subcommands support `--self-test` to run a named reproducibility check without a live prompt:
+
+```bash
+cd python/mlx-movie-director
+python/venv/bin/python run.py image t2i --self-test                     # default test
+python/venv/bin/python run.py image t2i --self-test t2i:portrait        # named test
+python/venv/bin/python run.py image i2i --self-test i2i:pose i2i:style  # multiple
+```
+
+Available test names per action are listed in `run.py schema-defaults` or via `bun run check:schema` in the GUI project.
 
 ## Image Caption (replaces MCP image analysis)
 
@@ -142,9 +181,40 @@ Server runs on **http://localhost:3099**. Kill existing instances with `lsof -ti
 ### Frontend conventions
 
 - Views live in `frontend/views/<group>/FooView.tsx`
-- Register in `app.tsx`: add to `COMMAND_GROUPS` array + `VIEW_MAP` record
+- Register a `ViewDescriptor` in `frontend/views/index.ts` — `COMMAND_GROUPS` and `VIEW_MAP` in `app.tsx` are auto-derived from that array
+- Views are mounted once on first navigation and toggled via CSS `display` (never unmounted)
 - CSS classes use lowercase-hyphen (e.g. `.mc-badge`, `.cmd-form`)
 - CSS variables: `--bg-surface`, `--accent`, `--success`, `--warning`, `--error`, etc.
+
+## Testing
+
+### Bun (from `bun/gui-movie-director/`)
+
+```bash
+bun test                           # all tests
+bun test --coverage                # with coverage
+bun test schemas/t2i.test.ts       # single file
+bun run check:schema               # validate all command schemas against run.py CLI
+```
+
+Test files: `schemas/*.test.ts` (one per command), `lib/*.test.ts`, `api/gallery.test.ts`.
+
+### Python mlx-movie-director (from `python/mlx-movie-director/`)
+
+```bash
+python/venv/bin/python -m pytest app/tests           # all tests (CPU-only, fast)
+python/venv/bin/python -m pytest app/tests/test_run_config.py -v  # single file
+
+# Custom flags (defined in app/tests/conftest.py):
+python/venv/bin/python -m pytest app/tests --run-gpu         # real MLX weights + Metal GPU
+python/venv/bin/python -m pytest app/tests --run-slow        # tests >30s
+python/venv/bin/python -m pytest app/tests --update-baselines  # regenerate hash baselines
+
+# With coverage:
+python/venv/bin/python -m pytest app/tests --cov=app --cov-report=html
+```
+
+Config: `python/mlx-movie-director/pytest.ini` — `testpaths = app/tests`, strict markers, short tracebacks.
 
 ## Key Directories
 

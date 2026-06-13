@@ -12,6 +12,7 @@ interface CommandFormProps {
   onJobStart: (opts: { jobId: string; command: string }) => void;
   loading: boolean;
   commandPrefix?: string;
+  extraActions?: React.ReactNode;
 }
 
 /** Extract defaults from all field definitions */
@@ -61,7 +62,7 @@ function groupIntoRows(fields: FieldDef[], state: Record<string, any>): FieldDef
   return rows;
 }
 
-export function CommandForm({ schema, onJobStart, loading, commandPrefix }: CommandFormProps) {
+export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraActions }: CommandFormProps) {
   const { state, setField } = useDefaultState(schema.action, buildDefaults(schema.sections));
   const [error, setError] = useState<string | null>(null);
 
@@ -267,6 +268,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
           )}
         </button>
       </div>
+      {extraActions}
       <InlineError message={error} onDismiss={() => setError(null)} />
     </form>
   );

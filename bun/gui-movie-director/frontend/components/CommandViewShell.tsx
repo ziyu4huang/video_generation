@@ -46,10 +46,10 @@ export function CommandViewShell({
           <button type="submit" className="btn btn-primary" disabled={disabled}>
             {loading ? <><span className="spinner" /> {submitLabel}</> : submitLabel}
           </button>
-          {action && handleJobStart && (
-            <SelfTestButton action={action} onJobStart={handleJobStart} />
-          )}
         </div>
+        {action && handleJobStart && (
+          <SelfTestButton action={action} onJobStart={handleJobStart} />
+        )}
         <InlineError message={error} onDismiss={onDismiss} />
       </form>
 

@@ -24,7 +24,8 @@
 //
 // Usage:
 //   Workflow({ name: "mlx-movie-director-coverage-self-improve" })
-//     → DRY-RUN (default): propose-only plan, zero pytest runs, zero writes
+//     → DRY-RUN (default): one baseline pytest run to find weakest modules, then
+//       propose-only; zero files written, zero re-measure runs
 //   Workflow({ name: "...", args: { dryRun: false } })
 //     → execute the full autonomous loop (baseline + ≤budget iterations)
 //   Workflow({ name: "...", args: { dryRun: false, budget: 3, target: "workflow" } })
@@ -33,7 +34,7 @@
 export const meta = {
   name: "mlx-movie-director-coverage-self-improve",
   description: "Self-improve python/mlx-movie-director test coverage: find weakest source module → propose CPU-pure unit tests → run pytest --cov → adopt/revert, learning dead-ends run-over-run",
-  whenToUse: "Raise real pytest coverage for the mlx-movie-director Python CLI via an autonomous propose→measure→adopt/revert loop. Dry-run by default; set dryRun:false to actually write tests and run the suite. Targets CPU-pure paths only (no GPU).",
+  whenToUse: "Raise real pytest coverage for the mlx-movie-director Python CLI via an autonomous propose→measure→adopt/revert loop. Dry-run by default (one baseline pytest run to find weakest modules, then propose-only — no writes); set dryRun:false to actually write tests and re-measure each iteration. Targets CPU-pure paths only (no GPU).",
   phases: [
     { title: "Resolve",  detail: "Load history JSONL + reflection, derive runId, load dead-ends + good patterns" },
     { title: "Baseline", detail: "Run pytest --cov (clear __pycache__) → parse coverage.json → starting composite" },
@@ -178,9 +179,15 @@ const resolveResult = await agent(
 4. Count total lines in the JSONL to derive runId = "run-<N+1>" (or "run-1" if empty/missing).
 5. Return JSON.
 
-Rules for the derived lists:
-- deadEndFiles: source paths that appear in >= 2 consecutive non-adopted iterations, OR were explicitly skipped (skipped=true).
-- knownGoodPatterns: testClass strings from adopted (adopted=true) iterations.
+Rules for the derived lists (CRITICAL: an entry with dryRun === true NEVER actually
+ran tests — ignore ALL dryRun=true entries when computing these lists, otherwise
+dry-run targets get falsely marked as dead-ends and real runs skip them):
+- deadEndFiles: source paths that appear in >= 2 consecutive REAL non-adopted
+  iterations (dryRun absent/false AND adopted=false), OR were skipped in a REAL
+  run (skipped=true AND dryRun absent=false).
+- knownGoodPatterns: testClass strings from REAL adopted iterations (adopted=true
+  AND dryRun absent=false).
+- totalPriorIters: count of REAL iterations only (dryRun absent=false).
 
 If JSONL is empty or missing, return defaults with runId "run-1".`,
   { label: "resolve-history", phase: "Resolve", schema: RESOLVE_SCHEMA },
@@ -395,7 +402,11 @@ Return { reverted: true }.`,
 
 phase("Persist")
 
-if (iterations.length > 0) {
+// Dry-run must NOT write history: its iterations never ran real tests, so writing
+// them would poison the resume/dead-end store (resolve would later mark dry-run
+// targets as dead-ends and real runs would skip them). Guarded here AND resolve
+// ignores dryRun=true entries, so it's belt-and-suspenders.
+if (!DRY_RUN && iterations.length > 0) {
   await agent(
     `Persist this run's history RELIABLY (Write tool can silently produce nothing).
 
@@ -411,7 +422,7 @@ ITER_EOF")
 4. Write reflection.json (overwrite) with dead-ends + good patterns so the next
    run's Resolve phase can read them. Use the Write tool:
    file_path='${REFLECT_PATH}', content = this JSON verbatim:
-${JSON.stringify({ runId, deadEnds: [...deadEnds], goodPatterns: goodPats.slice(-25), updatedAt: "runId:" + "${runId}" }, null, 2)}
+${JSON.stringify({ runId, deadEnds: [...deadEnds], goodPatterns: goodPats.slice(-25), updatedAt: runId }, null, 2)}
 5. Verify reflection: Bash("test -s '${REFLECT_PATH}' && echo OK || echo MISSING")
 
 Return { written: true }.`,
@@ -420,9 +431,11 @@ Return { written: true }.`,
   )
 }
 
-// Update the cross-workflow index (reliable write: read → update → Write → verify → heredoc fallback).
+// Update the cross-workflow index (dry-run skips it — no real progress to record).
 const adoptedCount = iterations.filter((e) => e.adopted).length
-await agent(
+if (DRY_RUN) {
+  log("[DRY RUN] skipping cross-workflow index update")
+} else await agent(
   `Update the cross-workflow index at ${INDEX_PATH}.
 1. Bash("cat '${INDEX_PATH}' 2>/dev/null || echo '[]'")
 2. Parse the JSON array. Add (or update for this runId) an entry:
