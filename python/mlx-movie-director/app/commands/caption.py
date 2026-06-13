@@ -429,8 +429,13 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
         return True
 
     # Load failed — the most common cause for MLX VLMs is KV-cache quantization.
-    # Auto-fix it (idempotent) and retry once.
+    # Auto-fix it (idempotent), give LM Studio a moment to release the failed
+    # load state and re-read the edited config, then retry once.
     if _disable_kv_cache_quant(model_id):
+        # LM Studio caches the failed-load state for a brief window: a retry
+        # fired immediately after the config edit still fails with
+        # model_load_failed. A short pause lets it pick up the updated config.
+        time.sleep(2)
         print("[caption] Retrying load after KV-cache fix...", flush=True)
         if _load_once():
             return True
