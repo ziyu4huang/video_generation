@@ -70,6 +70,29 @@ glm()
     export MAX_MCP_OUTPUT_TOKENS=50000
     export DISABLE_COST_WARNINGS=1
     export CLAUDE_CONFIG_DIR="${HOME}/.claude-glm"
+    # --- MCP API-key resolution (read if your z.ai MCP servers ever fail to auth) ---
+    # The MCP servers in $CLAUDE_CONFIG_DIR/settings.json and .claude.json
+    # (web-search-prime / web-reader / zread = http; zai-mcp-server = stdio)
+    # do NOT store the key. Their headers / env hold the literal placeholder
+    # ${ZAI_API_KEY}, which Claude Code expands at MCP-server *spawn* time from
+    # THIS process's environment.
+    #
+    # Chain that makes it resolve correctly:
+    #   .zshrc:  export ZAI_API_KEY=<key>     (interactive shell sources it)
+    #     -> glm() subshell inherits it        (we only add vars, never unset)
+    #       -> `exec claude` carries it into the Claude Code process
+    #         -> at MCP spawn, ${ZAI_API_KEY} is substituted with the real key
+    #            and sent as `Authorization: Bearer <key>` (http servers) or
+    #            passed as a child-process env var (stdio server).
+    #
+    # Rotating the key — change the SOURCE, not the JSON:
+    #   1. Edit the export in ~/.zshrc (prefer ~/.zshenv to also cover
+    #      non-interactive / daemon launches, which skip ~/.zshrc).
+    #   2. Re-launch glm. Expansion is one-shot at spawn, so already-running
+    #      MCP servers keep the OLD key until the `claude` process restarts.
+    #   3. NEVER edit settings.json / .claude.json — they hold only the
+    #      placeholder, so they need no change on key rotation. (Both files
+    #      define identical mcpServers: redundant but harmless.)
     # Set the starting working directory for Claude Code
     export CLAUDE_START_CWD="${PWD}"
 

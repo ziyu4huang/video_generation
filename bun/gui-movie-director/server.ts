@@ -17,6 +17,10 @@ await fetchCliSchema();
 
 const server = Bun.serve({
   port: PORT,
+  maxRequestBodySize: 50 * 1024 * 1024,
+  static: {
+    "/health": new Response("ok", { headers: { "Content-Type": "text/plain" } }),
+  },
   async fetch(req, server) {
     const result = await handleRequest(req, server);
     if (result === undefined) {
@@ -24,7 +28,13 @@ const server = Bun.serve({
     }
     return result;
   },
+  error(err: Error) {
+    console.error("Unhandled fetch error:", err.message);
+    return Response.json({ error: "Internal server error" }, { status: 500 });
+  },
   websocket: {
+    perMessageDeflate: true,
+    maxPayloadLength: 64 * 1024,
     open: wsHandlers.open,
     message: wsHandlers.message,
     close: wsHandlers.close,
@@ -50,9 +60,9 @@ fs.watch(FRONTEND_DIR, { recursive: true }, (_event, filename) => {
 
     const changed = filename;
     console.log(`🔄 ${changed} changed — rebuilding bundle…`);
-    const t0 = performance.now();
+    const t0 = Bun.nanoseconds();
     const ok = await rebuildFrontendBundle();
-    const ms = Math.round(performance.now() - t0);
+    const ms = ((Bun.nanoseconds() - t0) / 1_000_000).toFixed(1);
     if (ok) {
       broadcastMessage({ type: "hmr-reload" });
       console.log(`✅ Rebuilt in ${ms}ms — browser will reload`);

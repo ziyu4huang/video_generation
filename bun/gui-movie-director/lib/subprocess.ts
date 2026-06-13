@@ -1,5 +1,4 @@
 import path from "path";
-import { randomUUID } from "crypto";
 import { RUN_PY } from "./paths";
 import { loadConfig, REPO_DIR } from "./config";
 import { saveJobs, loadJobs } from "./jobstore";
@@ -67,7 +66,7 @@ export class SubprocessManager {
   }
 
   spawn(command: string, cliArgs: string[], meta?: { action?: string; params?: Record<string, any> }): string {
-    const id = randomUUID();
+    const id = Bun.randomUUIDv7();
     const parts = command.split(" ");
     const fullArgs = [RUN_PY, ...parts, ...cliArgs];
 

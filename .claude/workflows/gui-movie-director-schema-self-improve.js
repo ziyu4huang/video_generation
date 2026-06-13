@@ -1,7 +1,7 @@
 export const meta = {
   name: 'gui-movie-director-schema-self-improve',
-  description: 'Autonomous test coverage improvement for gui-movie-director command schemas via propose→test→adopt/revert loop',
-  whenToUse: 'Improve unit test coverage for bun/gui-movie-director command schemas, iterating until coverage plateaus',
+  description: 'Self-improve gui-movie-director schemas two ways: (coverage) add unit tests via propose→test→adopt/revert; (drift) align GUI schemas to run.py — the CLI source of truth — via check:schema',
+  whenToUse: 'objective=coverage (default): raise schema test coverage. objective=drift: auto-fix GUI↔run.py CLI drift. objective=both: drift first, then coverage.',
   phases: [
     { title: 'Resolve',  detail: 'Load history, dead-ends, prior run context' },
     { title: 'Baseline', detail: 'Run bun test --coverage to get starting state' },
@@ -14,16 +14,22 @@ export const meta = {
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const isObj = x => x && typeof x === 'object' && !Array.isArray(x)
-const A = isObj(args) ? args : {}
+// `args` may arrive as an object or a JSON string depending on the caller; accept both.
+const _rawArgs = typeof args === 'string' ? (() => { try { return JSON.parse(args) } catch { return {} } })() : args
+const A = isObj(_rawArgs) ? _rawArgs : {}
 const BUDGET     = Number(A.budget) || 6           // max iterations
 const DRY_RUN    = A.dryRun !== false              // default: dry-run (safe to demo)
 const MARGIN     = Number(A.margin) || 1.5         // min composite delta to adopt (pp)
 const CONVERGE_K = Number(A.convergeK) || 2        // stop after K non-improving iters
 const TARGET     = A.target || null                // optional: focus on one schema file
+const OBJECTIVE  = String(A.objective || 'coverage')  // 'coverage' | 'drift' | 'both'
+const DO_DRIFT   = OBJECTIVE !== 'coverage'         // drift-fix lane runs when objective includes drift
+const DO_COVERAGE = OBJECTIVE !== 'drift'           // coverage lane runs when objective includes coverage
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
 const GUI_DIR      = '/Users/huangziyu/proj/video_generation/bun/gui-movie-director'
+const PROJECT_ROOT = GUI_DIR.replace(/\/bun\/gui-movie-director$/, '')
 const SCHEMAS_DIR  = `${GUI_DIR}/schemas`
 const HISTORY_DIR  = '/Users/huangziyu/proj/video_generation/.claude/workflows/history/gui-movie-director-schema-self-improve'
 const JSONL_PATH   = `${HISTORY_DIR}/iterations.jsonl`
@@ -144,6 +150,34 @@ const baselineCoverage = parseCoverageTable(baselineResult?.output || '')
 const baselineComposite = globalComposite(baselineCoverage)
 let currentBest = baselineComposite
 
+// ── Drift baseline (when objective includes drift) ───────────────────────────
+// run.py is the CLI source of truth; check:schema --json lists GUI↔run.py drift.
+let baselineDriftCount = 0
+let driftWorkList = []
+if (DO_DRIFT) {
+  const driftBase = await agent(
+    `Run this exact command and return the parsed JSON object verbatim:
+cd "${GUI_DIR}" && bun run check:schema --json 2>/dev/null
+
+It prints one JSON object: { warningCount, errorCount, warnings: [...], errors: [...] }.
+Return that object under the field "schema".`,
+    { label: 'drift-baseline', phase: 'Baseline',
+      schema: { type: 'object', properties: { schema: { type: 'object' } }, required: ['schema'] }
+    }
+  )
+  const allFindings = (driftBase?.schema?.warnings || [])
+  baselineDriftCount = Number(driftBase?.schema?.warningCount) || allFindings.length
+  // Dedupe to one fix per flag (choices) or per action:flag (default). --pipeline
+  // appears across 6 actions but is a single shared fix via schemas/shared.ts.
+  const seen = new Set()
+  driftWorkList = allFindings.filter(f => {
+    const key = f.kind === 'choices' ? `choice:${f.flag}` : `default:${f.action}:${f.flag}`
+    if (seen.has(key)) return false
+    seen.add(key); return true
+  })
+  log(`Baseline drift: ${baselineDriftCount} warning(s) → ${driftWorkList.length} unique fix target(s)`)
+}
+
 log(`Baseline composite: ${baselineComposite.toFixed(2)}pp across ${COMMAND_SCHEMA_FILES.length} files`)
 
 // Log weakest files
@@ -159,7 +193,104 @@ phase('Improve')
 const iterations = []
 let noImprove = 0
 
-for (let iter = 0; iter < BUDGET; iter++) {
+// ── Drift-fix sub-loop (runs before coverage when objective includes drift) ──
+// run.py is the source of truth; align GUI → run.py. Where the GUI legitimately
+// has MORE than run.py's argparse (runpy_narrow), widen run.py instead.
+let driftFixed = 0
+let driftRemaining = baselineDriftCount
+const driftIterations = []
+
+if (DO_DRIFT && driftWorkList.length > 0) {
+  for (const f of driftWorkList) {
+    log(`Drift: ${f.flag} [${f.action}] (${f.category}) — GUI:${JSON.stringify(f.guiValue)} run.py:${JSON.stringify(f.runValue)}`)
+
+    if (DRY_RUN) {
+      log(`  [DRY RUN] would apply policy fix for ${f.flag} (${f.category})`)
+      driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, dryRun: true })
+      continue
+    }
+
+    // Conservative guard: choices mismatches where GUI ≠ run.py (runpy_narrow,
+    // mixed_choices) need human judgment — the GUI may offer options the backend
+    // doesn't implement (e.g. --controlnet-type: only "canny" is implemented;
+    // others fall back to raw at runtime), or run.py's set may be intentionally
+    // wider. Auto-widening run.py or trimming the GUI is unsafe; report instead.
+    if (f.category === 'runpy_narrow' || f.category === 'mixed_choices') {
+      log(`  ⚠ needs human review (GUI/run.py choice sets differ — may be backend-limited or intentional) — skip`)
+      driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, skipped: 'needs-review' })
+      continue
+    }
+
+    // Apply the fix per policy
+    const applyResult = await agent(
+      `Apply ONE schema-drift fix to align the GUI with run.py (run.py is the source of truth).
+Repo root: ${PROJECT_ROOT}. GUI dir: ${GUI_DIR}.
+
+Finding (from \`bun run check:schema --json\`):
+${JSON.stringify(f, null, 2)}
+
+Apply exactly ONE branch based on category:
+- "gui_missing_choice": run.py offers choice value(s) the GUI lacks → add them to the GUI field.
+    • If flag is "--pipeline": choices come from PIPELINE_OPTIONS in bun/gui-movie-director/schemas/shared.ts (one edit fixes all schemas). Each entry is { value, label }. Add the missing value(s) with a sensible label.
+    • Otherwise edit the field's choices array in bun/gui-movie-director/schemas/<file>.ts (action→file map: t2i→t2i.ts, i2i→i2i.ts, workflow→workflow.ts, controlnet→controlnet.ts, profile→profile.ts, faceswap→faceswap.ts, restore→image-restore.ts, video-relay→video-relay.ts). Add { value, label } entries for run.py's extra value(s).
+- "runpy_narrow": GUI offers value(s) run.py's argparse rejects → widen run.py. grep for the flag in python/mlx-movie-director/app/commands/*.py, find add_argument(..., choices=[...]), add the GUI's missing value(s) to choices.
+- "default_mismatch": set the GUI field's default to run.py's default (run.py wins). Edit the field in bun/gui-movie-director/schemas/<file>.ts (same action→file map). ONLY if the field has no choices, OR run.py's default value is already among the field's choice values — otherwise make NO edit and set notes="default not in choices" (a default outside the choice list would be inconsistent).
+- "mixed_choices": add run.py's extra value(s) to the GUI choices (align toward run.py); do NOT remove GUI-only values.
+
+Rules: make the MINIMAL edit, do not reformat, preserve existing entries. Return absolute paths of files modified.`,
+      { label: `drift-apply-${f.flag.replace(/^--/, '')}`, phase: 'Improve',
+        schema: { type: 'object', properties: { touchedFiles: { type: 'array', items: { type: 'string' } }, notes: { type: 'string' } }, required: ['touchedFiles'] }
+      }
+    )
+
+    const touchedFiles = (applyResult?.touchedFiles || []).filter(Boolean)
+    const touchedRunpy = touchedFiles.some(p => p.includes('/python/mlx-movie-director/'))
+
+    if (touchedFiles.length === 0) {
+      log(`  no edit made (skip)`)
+      driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
+      continue
+    }
+
+    // Verify: check:schema warning count down + bun test pass (+ pytest if run.py touched)
+    const verifyResult = await agent(
+      `Verify a schema-drift fix broke nothing. Run each, capture the numbers:
+1. cd "${GUI_DIR}" && bun run check:schema 2>&1            → the "⚠  N warning(s)" count, and whether it printed "drift error(s)" / exited nonzero (errored=true)
+2. cd "${GUI_DIR}" && bun test 2>&1                         → count of failing tests (the "N fail" number)
+${touchedRunpy ? `3. cd "${PROJECT_ROOT}/python/mlx-movie-director" && ../../python/venv/bin/python -m pytest app/tests/test_schema.py -q 2>&1  → schemaPytestPass true iff "failed" not in summary` : `3. (run.py not touched — schemaPytestPass=true)`}
+Return { warningCount, errored, bunFail, schemaPytestPass }.`,
+      { label: `drift-verify-${f.flag.replace(/^--/, '')}`, phase: 'Improve',
+        schema: { type: 'object', properties: { warningCount: { type: 'number' }, errored: { type: 'boolean' }, bunFail: { type: 'number' }, schemaPytestPass: { type: 'boolean' } }, required: ['warningCount', 'bunFail'] }
+      }
+    )
+
+    const warnCount = Number(verifyResult?.warningCount)
+    const testsOk = (verifyResult?.bunFail === 0) && (touchedRunpy ? verifyResult?.schemaPytestPass !== false : true)
+    const countImproved = Number.isFinite(warnCount) && warnCount < driftRemaining && !verifyResult?.errored
+
+    if (countImproved && testsOk) {
+      driftFixed++
+      driftRemaining = warnCount
+      log(`  ✓ adopted → ${driftRemaining} drift warning(s) remain`)
+      driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: true })
+    } else {
+      // Revert
+      await agent(
+        `Revert the failed drift fix. For each path run: git checkout -- "<path>"
+Paths: ${touchedFiles.map(p => `"${p}"`).join(' ')}
+Return { reverted: true }.`,
+        { label: `drift-revert-${f.flag.replace(/^--/, '')}`, phase: 'Improve',
+          schema: { type: 'object', properties: { reverted: { type: 'boolean' } }, required: ['reverted'] }
+        }
+      )
+      log(`  ✗ reverted (warnCount=${warnCount}, bunFail=${verifyResult?.bunFail})`)
+      driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
+    }
+  }
+}
+
+// ── Coverage sub-loop (existing; runs when objective includes coverage) ──────
+for (let iter = 0; DO_COVERAGE && iter < BUDGET; iter++) {
   const targetFile = findWeakestFile(baselineCoverage, deadEnds)
   if (!targetFile) {
     log(`No candidates left (all in dead-ends). Stopping.`)
@@ -325,13 +456,14 @@ Return: { "reverted": true }`,
 
 phase('Persist')
 
-if (iterations.length > 0) {
+const persistLines = [...iterations, ...driftIterations]
+if (persistLines.length > 0) {
   await agent(
     `Append these JSON entries (one per line) to the JSONL file at ${JSONL_PATH}.
 Create the file and directory if they don't exist (mkdir -p "${HISTORY_DIR}").
 
 Lines to append:
-${iterations.map(e => JSON.stringify(e)).join('\n')}
+${persistLines.map(e => JSON.stringify(e)).join('\n')}
 
 After writing, confirm: { "written": true }`,
     { label: 'persist-history', phase: 'Persist',
@@ -344,7 +476,7 @@ After writing, confirm: { "written": true }`,
 await agent(
   `Append or update the cross-workflow index at ${INDEX_PATH}.
 Read the file if it exists (JSON array), add/update an entry:
-{ "workflow": "gui-movie-director-schema-self-improve", "runId": "${runId}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)} }
+{ "workflow": "gui-movie-director-schema-self-improve", "runId": "${runId}", "objective": "${OBJECTIVE}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)}, "baselineDrift": ${baselineDriftCount}, "driftFixed": ${driftFixed}, "driftRemaining": ${driftRemaining} }
 Keep only the 50 most recent entries. Write back.
 Return: { "done": true }`,
   { label: 'update-index', phase: 'Persist',
@@ -361,6 +493,7 @@ const adopted = iterations.filter(e => e.adopted).length
 
 return {
   runId,
+  objective: OBJECTIVE,
   dryRun: DRY_RUN,
   baseline: baselineComposite.toFixed(2),
   final:    currentBest.toFixed(2),
@@ -368,5 +501,12 @@ return {
   iters:    iterations.length,
   adopted,
   rejected: iterations.length - adopted,
-  summary:  `Coverage: ${baselineComposite.toFixed(1)}% → ${currentBest.toFixed(1)}% (+${totalDelta.toFixed(1)}pp) | ${adopted}/${iterations.length} proposals adopted`,
+  baselineDrift: baselineDriftCount,
+  driftFixed,
+  driftRemaining,
+  driftIterations,
+  summary: [
+    DO_DRIFT ? `Drift: ${baselineDriftCount} → ${driftRemaining} (${driftFixed} fixed)` : null,
+    DO_COVERAGE ? `Coverage: ${baselineComposite.toFixed(1)}% → ${currentBest.toFixed(1)}% (+${totalDelta.toFixed(1)}pp) | ${adopted}/${iterations.length} adopted` : null,
+  ].filter(Boolean).join(' | '),
 }

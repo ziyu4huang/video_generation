@@ -21,6 +21,8 @@ const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
 // Pre-built frontend bundle (built at server startup, rebuilt on file change in dev)
 let _bundle: Response | null = null;
 let _bundleCss: Response | null = null;
+let _bundleEtag = "";
+let _bundleCssEtag = "";
 
 async function _doBuild(silent?: boolean): Promise<boolean> {
   const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
@@ -39,14 +41,18 @@ async function _doBuild(silent?: boolean): Promise<boolean> {
       let jsSize = 0;
       let cssSize = 0;
       for (const output of result.outputs) {
+        const stat = fs.statSync(output.path);
+        const etag = `"${Bun.hash(`${stat.mtimeMs}:${stat.size}`).toString(16)}"`;
         if (output.path.endsWith(".css")) {
+          _bundleCssEtag = etag;
           _bundleCss = new Response(output, {
-            headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" },
+            headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
           });
           cssSize = output.size;
         } else if (output.path.endsWith(".js")) {
+          _bundleEtag = etag;
           _bundle = new Response(output, {
-            headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" },
+            headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
           });
           jsSize = output.size;
         }
@@ -104,14 +110,18 @@ export async function handleRequest(req: Request, server: Server): Promise<Respo
 
   // Frontend bundle JS
   if (pathname === "/frontend/bundle.js") {
-    if (_bundle) return _bundle.clone();
-    return new Response("Bundle not ready", { status: 503 });
+    if (!_bundle) return new Response("Bundle not ready", { status: 503 });
+    if (req.headers.get("If-None-Match") === _bundleEtag)
+      return new Response(null, { status: 304, headers: { ETag: _bundleEtag } });
+    return _bundle.clone();
   }
 
   // Frontend bundle CSS (from Bun.build — includes global.css + CSS module outputs)
   if (pathname === "/frontend/bundle.css") {
-    if (_bundleCss) return _bundleCss.clone();
-    return new Response("", { status: 200, headers: TEXT_CSS });
+    if (!_bundleCss) return new Response("", { status: 200, headers: TEXT_CSS });
+    if (req.headers.get("If-None-Match") === _bundleCssEtag)
+      return new Response(null, { status: 304, headers: { ETag: _bundleCssEtag } });
+    return _bundleCss.clone();
   }
 
   // Legacy CSS (kept for backwards compatibility during transition)

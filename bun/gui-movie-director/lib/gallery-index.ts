@@ -30,7 +30,7 @@ export function invalidateIndex(): void {
 
 export function buildIndex(images: any[]): void {
   db.exec("DELETE FROM images_fts");
-  const stmt = db.prepare(
+  const stmt = db.prepare<unknown, [string, string, string, string, string, string, number]>(
     "INSERT INTO images_fts(name, prompt, command, model, data, media_type, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   );
   const insertAll = db.transaction((imgs: any[]) => {
@@ -56,14 +56,14 @@ export function searchImages(q: string, type?: string): any[] {
   if (!ftsQuery) return [];
   try {
     const validType = type === "image" || type === "video" ? type : null;
-    const rows: any[] = validType
+    const rows = validType
       ? db
-          .query(
+          .query<{ data: string }, [string, string]>(
             "SELECT data FROM images_fts WHERE images_fts MATCH ? AND media_type = ? ORDER BY rank LIMIT 200"
           )
           .all(ftsQuery, validType)
       : db
-          .query(
+          .query<{ data: string }, [string]>(
             "SELECT data FROM images_fts WHERE images_fts MATCH ? ORDER BY rank LIMIT 200"
           )
           .all(ftsQuery);

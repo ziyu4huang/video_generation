@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { GUI_DIR_ABS } from "./config";
 import type { Job } from "./subprocess";
-import { readJsonFile, writeJsonFile } from "./fsUtils";
+import { readJsonFile } from "./fsUtils";
 
 const DATA_DIR = path.join(GUI_DIR_ABS, "data");
 const JOBS_PATH = path.join(DATA_DIR, "jobs.json");
@@ -13,7 +13,8 @@ export function saveJobs(jobs: Job[]): void {
   const capped = [...jobs]
     .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
     .slice(0, MAX_JOBS);
-  writeJsonFile(JOBS_PATH, capped);
+  // Fire-and-forget: write job state without blocking the event loop
+  Bun.write(JOBS_PATH, JSON.stringify(capped, null, 2) + "\n").catch(() => {});
 }
 
 export function loadJobs(): Job[] {

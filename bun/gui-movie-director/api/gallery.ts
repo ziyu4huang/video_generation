@@ -5,6 +5,21 @@ import { readJsonFile } from "../lib/fsUtils";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 
+function gzipJsonResponse(req: Request, json: unknown): Response {
+  const body = JSON.stringify(json);
+  if (req.headers.get("Accept-Encoding")?.includes("gzip")) {
+    const compressed = Bun.gzipSync(body);
+    return new Response(compressed, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Encoding": "gzip",
+        "Vary": "Accept-Encoding",
+      },
+    });
+  }
+  return Response.json(json);
+}
+
 interface ImageEntry {
   name: string;
   url: string;
@@ -142,7 +157,7 @@ export async function handleGallerySearch(req: Request): Promise<Response> {
   }
 
   const images = searchImages(q, typeFilter);
-  return Response.json({ images, total: images.length });
+  return gzipJsonResponse(req, { images, total: images.length });
 }
 
 export async function handleGallery(req: Request): Promise<Response> {
@@ -157,7 +172,7 @@ export async function handleGallery(req: Request): Promise<Response> {
 
   const images: ImageEntry[] = paged.map((entry) => buildImageEntry(entry, dirFileCache));
 
-  return Response.json({ images, total, page, limit });
+  return gzipJsonResponse(req, { images, total, page, limit });
 }
 
 export async function handleGalleryImage(req: Request, filename: string): Promise<Response> {

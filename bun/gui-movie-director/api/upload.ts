@@ -37,9 +37,8 @@ export async function handleUpload(req: Request): Promise<Response> {
       return Response.json({ error: "File too large" }, { status: 413 });
     }
 
-    // Write file
-    const buffer = Buffer.from(await file.arrayBuffer());
-    fs.writeFileSync(filePath, buffer);
+    // Write file — File extends Blob, Bun.write accepts Blob directly (no Buffer allocation)
+    await Bun.write(filePath, file);
 
     // URL relative to output serving
     const url = `/output/uploads/${filename}`;
@@ -48,7 +47,7 @@ export async function handleUpload(req: Request): Promise<Response> {
       path: filePath,
       url,
       name: file.name,
-      size: buffer.length,
+      size: file.size,
     });
   } catch (err: any) {
     return Response.json({ error: err.message }, { status: 500 });
