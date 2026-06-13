@@ -13,3 +13,4 @@ tqdm
 
 # dev / test
 pytest>=8.0
+pytest-cov

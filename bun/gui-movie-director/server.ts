@@ -29,7 +29,7 @@ const server = Bun.serve({
     return result;
   },
   error(err: Error) {
-    console.error("Unhandled fetch error:", err.message);
+    console.error("Unhandled fetch error:", Bun.inspect(err));
     return Response.json({ error: "Internal server error" }, { status: 500 });
   },
   websocket: {
