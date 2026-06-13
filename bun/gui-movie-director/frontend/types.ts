@@ -13,6 +13,7 @@ export interface JobInfo {
   outputFiles: string[];
   manifestPath?: string;
   runPath?: string;
+  selfTestHtmlPath?: string;
   action?: string;
   params?: Record<string, any>;
   logs: LogLine[];

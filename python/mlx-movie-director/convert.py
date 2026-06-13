@@ -104,7 +104,7 @@ def _map_key_and_convert(key, tensor):
 
 # === Conversion functions ===
 
-def convert_transformer():
+def convert_transformer() -> bool:
     src = cfg.SRC_TRANSFORMER
     dst_dir = cfg.TRANSFORMER_DIR
 
@@ -153,7 +153,7 @@ def convert_transformer():
     return True
 
 
-def convert_text_encoder():
+def convert_text_encoder() -> bool:
     src = cfg.SRC_TEXT_ENCODER
     dst_dir = cfg.TEXT_ENCODER_DIR
 
@@ -243,7 +243,7 @@ def _quantize_predicate(path: str, module) -> bool:
     return True
 
 
-def convert_seedvr2_dit():
+def convert_seedvr2_dit() -> bool:
     """Convert SeedVR2 7B DiT from fp16 safetensors → 4-bit MLX."""
     src = cfg.SRC_SEEDVR2_DIT_7B
     dst_dir = cfg.SEEDVR2_DIT_DIR
@@ -421,7 +421,7 @@ def _remap_seedvr2_key(src_key: str, num_layers: int, mm_layers: int) -> str | N
     return None
 
 
-def convert_seedvr2_vae():
+def convert_seedvr2_vae() -> bool:
     """Convert SeedVR2 VAE from fp16 safetensors → bf16 MLX (no quantization)."""
     src = cfg.SRC_SEEDVR2_VAE
     dst_dir = cfg.SEEDVR2_VAE_DIR
@@ -467,7 +467,7 @@ def convert_seedvr2_vae():
 
 # === Flux2 Klein 9B conversion ===
 
-def convert_vae_to_mlx():
+def convert_vae_to_mlx() -> bool:
     """Convert flux-ae VAE from PyTorch FP32 to MLX BF16.
 
     Uses the mflux ZImageWeightMapping to handle Conv2d transpose and key renaming.
@@ -632,7 +632,7 @@ def quantize_seedvr2_vae_int8():
     print(f"[seedvr2-vae-int8] Backup at: {os.path.basename(backup)}")
     return True
 
-def convert_klein_9b():
+def convert_klein_9b() -> bool:
     """Convert Flux2 Klein 9B from HF cache to pre-quantized INT8, stored in category dirs.
 
     Uses mflux ModelSaver to save pre-quantized shards, then moves each component
@@ -1323,7 +1323,7 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     return True
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="mlx-movie-director: one-time model conversion and download",
         formatter_class=argparse.RawDescriptionHelpFormatter,

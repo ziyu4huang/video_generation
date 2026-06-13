@@ -3,6 +3,7 @@ import { LogViewer } from "../components/LogViewer";
 import { CommandForm } from "../components/CommandForm";
 import { JobOutputPreview } from "../components/JobOutputPreview";
 import { SelfTestButton } from "../components/SelfTestButton";
+import { SelfTestResults } from "../components/SelfTestResults";
 import { useCommandView } from "../hooks/useCommandView";
 import { useNavigation } from "../context/NavigationContext";
 import type { CommandSchema } from "../schemas/types";
@@ -32,6 +33,9 @@ export function createCommandView(schema: CommandSchema, commandPrefix?: string)
         <div className="btn-row" style={{ marginTop: -8 }}>
           <SelfTestButton action={schema.action} onJobStart={onJobStart} />
         </div>
+        {job?.status === "completed" && isSelfTest && (
+          <SelfTestResults job={job} />
+        )}
         {job?.status === "completed" && !isSelfTest && (
           <JobOutputPreview
             job={job}

@@ -1069,8 +1069,11 @@ def _apply_prompt_defaults(args, defaults: dict) -> None:
     }
     for prompt_key, value in defaults.items():
         if prompt_key in _ARGPARSE_DEFAULTS:
-            current = getattr(args, prompt_key)
-            if current == _ARGPARSE_DEFAULTS[prompt_key]:
+            # Use a sentinel default; skip override if the dest is missing
+            # (e.g. a parser variant that omits it) to avoid AttributeError.
+            sentinel = object()
+            current = getattr(args, prompt_key, sentinel)
+            if current is not sentinel and current == _ARGPARSE_DEFAULTS[prompt_key]:
                 setattr(args, prompt_key, value)
 
 

@@ -28,7 +28,7 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import _arg_registered, generate_base_name, resolve_prompt, resolve_lora_path
+from app.commands._shared import generate_base_name, resolve_prompt, resolve_lora_path
 from app.manifest import Manifest
 from app.run_config import RunConfig
 
@@ -88,82 +88,22 @@ def _find_vbvr_lora() -> str | None:
 # ---------------------------------------------------------------------------
 
 def add_vbvr_args(parser):
-    """Register video-vbvr arguments."""
-    # Prompt — skip when generate's --prompt is already registered (same parser)
-    if not _arg_registered(parser, "prompt"):
-        prompt_grp = parser.add_mutually_exclusive_group()
-        prompt_grp.add_argument("--vbvr-prompt", type=str, dest="prompt",
-                                help="Text prompt for VBVR generation")
-        prompt_grp.add_argument("--vbvr-prompt-file", type=str, dest="prompt_file",
-                                help="Path to a .txt file containing the prompt")
+    """Register video-vbvr arguments.
 
-    # Input image (I2V conditioning — recommended but optional)
-    if not _arg_registered(parser, "input_image"):
-        parser.add_argument("--vbvr-input-image", type=str, default=None, dest="input_image",
-                            metavar="PATH",
-                            help="Reference image for I2V conditioning (recommended)")
-
-    # VBVR-specific LoRA override (auto-detected if not specified)
-    parser.add_argument("--vbvr-lora", type=str, default=None, metavar="PATH",
+    VBVR reuses the shared video flags registered by add_generate_args() on the
+    same parser (--prompt, --input-image, --seed, --width, --height, --frames,
+    --fps, --cfg-scale, --stg-scale, --stage1-steps, --stage2-steps, --low-ram,
+    --hq, --teacache, --video-model, --first-frame, --lora-scale, etc.). Those
+    shared dests are always registered before this function runs, so no
+    --vbvr-* aliases for them are provided — they were previously guarded by
+    _arg_registered() and silently skipped, which made flags like --vbvr-prompt
+    crash with a confusing 'invalid choice' error. Only the VBVR-specific LoRA
+    override is registered here.
+    """
+    # VBVR-specific LoRA override (auto-detected from models/lora/vbvr* if not set)
+    parser.add_argument("--vbvr-lora", type=str, default=None, metavar="PATH", dest="vbvr_lora",
                         help="Explicit path to VBVR .safetensors LoRA "
                              "(auto-detected from models/lora/vbvr* if not set)")
-    if not _arg_registered(parser, "lora_scale"):
-        parser.add_argument("--vbvr-lora-scale", type=float, default=1.0, dest="lora_scale",
-                            help="VBVR LoRA scale factor (default: 1.0)")
-
-    # Resolution and timing
-    if not _arg_registered(parser, "width"):
-        parser.add_argument("--vbvr-width", type=int, default=704, dest="width",
-                            help="Video width — auto-adjusted to nearest 64× (default: 704)")
-    if not _arg_registered(parser, "height"):
-        parser.add_argument("--vbvr-height", type=int, default=448, dest="height",
-                            help="Video height — auto-adjusted to nearest 64× (default: 448)")
-    if not _arg_registered(parser, "frames"):
-        parser.add_argument("--vbvr-frames", type=int, default=97, dest="frames",
-                            help="Number of frames — auto-adjusted to nearest 8k+1 (default: 97)")
-    if not _arg_registered(parser, "fps"):
-        parser.add_argument("--vbvr-fps", type=float, default=24.0, dest="fps",
-                            help="Output frame rate (default: 24.0)")
-
-    # Sampling
-    if not _arg_registered(parser, "seed"):
-        parser.add_argument("--vbvr-seed", type=int, default=42, dest="seed",
-                            help="Random seed (default: 42)")
-    if not _arg_registered(parser, "cfg_scale"):
-        parser.add_argument("--vbvr-cfg-scale", type=float, default=5.0, dest="cfg_scale",
-                            help="Text guidance scale (default: 5.0)")
-    if not _arg_registered(parser, "stg_scale"):
-        parser.add_argument("--vbvr-stg-scale", type=float, default=1.0, dest="stg_scale",
-                            help="Spatial-temporal guidance scale (default: 1.0)")
-    if not _arg_registered(parser, "stage1_steps"):
-        parser.add_argument("--vbvr-stage1-steps", type=int, default=None, dest="stage1_steps",
-                            help="Stage 1 denoising steps (default: 8)")
-    if not _arg_registered(parser, "stage2_steps"):
-        parser.add_argument("--vbvr-stage2-steps", type=int, default=None, dest="stage2_steps",
-                            help="Stage 2 refinement steps (default: 3)")
-
-    # Performance
-    if not _arg_registered(parser, "low_ram"):
-        parser.add_argument("--vbvr-low-ram", action="store_true", default=False, dest="low_ram",
-                            help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
-    if not _arg_registered(parser, "hq"):
-        parser.add_argument("--vbvr-hq", action="store_true", default=False, dest="hq",
-                            help="HQ pipeline (res_2s sampler) — higher quality, ~2× slower")
-    if not _arg_registered(parser, "teacache"):
-        parser.add_argument("--vbvr-teacache", action="store_true", default=False, dest="teacache",
-                            help="Enable TeaCache — ~1.46× speedup with minimal quality loss")
-
-    # Model directory (advanced)
-    if not _arg_registered(parser, "video_model"):
-        parser.add_argument("--vbvr-model", type=str, default=None, dest="video_model",
-                            metavar="PATH",
-                            help="Local flat model dir or HF repo ID (default: auto-detect)")
-
-    # Extras
-    if not _arg_registered(parser, "first_frame"):
-        parser.add_argument("--vbvr-first-frame", action="store_true", default=False,
-                            dest="first_frame",
-                            help="Extract first frame to <base>.png after generation")
 
 
 # ---------------------------------------------------------------------------

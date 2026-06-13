@@ -120,7 +120,7 @@ def build_parser() -> argparse.ArgumentParser:
 # GPU-guarded dispatch
 # ---------------------------------------------------------------------------
 
-def _run_with_gpu_guard(args) -> None:
+def _run_with_gpu_guard(args: argparse.Namespace) -> None:
     """Acquire GPU lock if the command is GPU-heavy, then dispatch."""
     from app.gpu_monitor import GpuLock, is_gpu_heavy_command
 

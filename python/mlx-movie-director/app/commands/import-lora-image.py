@@ -305,6 +305,9 @@ def _try_ai_import(url: str, args) -> dict | None:
     """Use local LLM to analyze a URL and extract import parameters."""
     prompt = _AI_IMPORT_PROMPT.format(input_str=url)
     response = _call_llm(args.api_url, args.model, prompt)
+    if not response:
+        print("  AI import LLM call failed, skipping AI import", file=sys.stderr)
+        return None
 
     # Parse JSON from LLM response
     # Strip markdown fences if present
@@ -715,8 +718,13 @@ def _download_file(url: str, dest_path: str, chunk_size: int = 8192) -> None:
 # LLM helpers (reuses same LM Studio endpoint as caption.py)
 # ---------------------------------------------------------------------------
 
-def _call_llm(api_url: str, model: str, prompt: str) -> str:
-    """Text-only LLM call via OpenAI-compatible API (same endpoint as caption)."""
+def _call_llm(api_url: str, model: str, prompt: str) -> str | None:
+    """Text-only LLM call via OpenAI-compatible API (same endpoint as caption).
+
+    Returns the response text, or None if the LLM call fails (transient HTTP
+    error, malformed JSON, empty choices). Enrichment is optional, so callers
+    should degrade gracefully on None.
+    """
     url = f"{api_url}/chat/completions"
     payload = {
         "model": model,
@@ -725,9 +733,13 @@ def _call_llm(api_url: str, model: str, prompt: str) -> str:
         "temperature": 0.2,
         "stream": False,
     }
-    resp = requests.post(url, json=payload, timeout=60)
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
+    try:
+        resp = requests.post(url, json=payload, timeout=60)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+    except (requests.RequestException, KeyError, IndexError, ValueError) as e:
+        print(f"[enrich] LLM call failed, skipping enrichment: {e}", file=sys.stderr)
+        return None
     # Strip Qwen3 <think/> reasoning blocks if present
     return re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
 
@@ -791,6 +803,9 @@ def _ai_enrich_metadata(info: dict, args) -> dict | None:
     )
 
     response = _call_llm(args.api_url, args.model, prompt)
+    if not response:
+        print("  AI enrichment LLM call failed, skipping enrichment", file=sys.stderr)
+        return None
 
     # Strip markdown fences
     response = re.sub(r"^```(?:json)?\s*", "", response)

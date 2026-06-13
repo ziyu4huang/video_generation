@@ -7,7 +7,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import NamedTuple, Union
+from typing import Generator, NamedTuple
 
 from app import config as cfg
 
@@ -71,13 +71,13 @@ def apply_draft_overrides(args: argparse.Namespace) -> None:
     print("  [Draft] Quick preview: 4 steps, 512x512")
 
 
-def seed_sequence(args_or_config: Union[argparse.Namespace, "RunConfig"]) -> list[int]:
+def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]:
     """Return a list of seeds for a batch run.
 
     Works with both argparse Namespace and RunConfig objects (same attribute names).
     """
     count = max(1, getattr(args_or_config, "count", 1) or 1)
-    seed = getattr(args_or_config, "seed", None)
+    seed = getattr(args_or_config, "seed", None) or 42
     seed_start = getattr(args_or_config, "seed_start", None)
     if seed_start is not None:
         return [seed_start + i for i in range(count)]
@@ -89,7 +89,7 @@ def seed_sequence(args_or_config: Union[argparse.Namespace, "RunConfig"]) -> lis
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_summary: bool = False):
+def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_summary: bool = False) -> "Generator[dict, None, None]":
     """Write run.json, record timing, write manifest on success/error.
 
     Yields a mutable dict (ctx) the caller fills with generation results:

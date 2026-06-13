@@ -78,6 +78,7 @@ subprocessManager.onStatus((job) => {
     outputFiles: job.outputFiles,
     manifestPath: job.manifestPath,
     runPath: job.runPath,
+    selfTestHtmlPath: job.selfTestHtmlPath,
   });
   for (const ws of connectedClients) {
     try { ws.send(message); } catch { /* ws closed */ }

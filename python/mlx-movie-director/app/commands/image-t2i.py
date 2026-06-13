@@ -8,13 +8,15 @@ Public API:
   run_t2i(args)         — execute T2I generation
 """
 
+import argparse
+
 from app.commands._shared import execute_generation, execute_ab_test, apply_draft_overrides
 from app.run_config import RunConfig
 
 _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4}
 
 
-def add_t2i_args(parser):
+def add_t2i_args(parser: argparse.ArgumentParser) -> None:
     """Register T2I-specific arguments on an argparse parser."""
     parser.add_argument("--width", type=int, default=None,
                         help="Image width in pixels (default: 640)")
@@ -49,7 +51,7 @@ def add_t2i_args(parser):
     )
 
 
-def run_t2i(args):
+def run_t2i(args: argparse.Namespace) -> None:
     """Execute T2I generation. Called by image.py dispatcher."""
     pipeline_type = getattr(args, "pipeline", "zimage")
 

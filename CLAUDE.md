@@ -7,23 +7,43 @@ Project-level instructions for Claude Code sessions working on this ComfyUI setu
 - **Conversation language**: 繁體中文 (zh_TW) — use zh_TW for discussion, explanations, and Q&A
 - **Written output**: English — all docs, code comments, commit messages, and file content in English
 
-## Python — Always Use Project Venv
+## Python — Choose the Right Venv
 
-**RULE: Every Python command in this repo MUST use the ComfyUI venv.**
+This repo has **two separate Python venvs** for different subsystems. Use the correct one.
+
+### For mlx-movie-director (image/video generation scripts)
 
 ```bash
-# Correct — always use this path:
+# Correct:
+python/venv/bin/python python/mlx-movie-director/run.py image --prompt "..."
+python/venv/bin/python python/mlx-movie-director/run.py image controlnet --self-test
+python/venv/bin/python python/mlx-movie-director/convert.py --all
+
+# Installed deps: mlx, torch, diffusers, transformers, safetensors, Pillow, etc.
+```
+
+- Venv at `python/venv/` — Python 3.13.13
+- Requirements: `python/mlx-movie-director/requirements.txt`
+- Used for all `run.py` subcommands: `t2i`, `image`, `refine`, `upscale`, `caption`, `replay`, `video`, `animate`, `controlnet`, `faceswap`, etc.
+
+### For ComfyUI (workflow execution)
+
+```bash
+# Correct:
 ComfyUI/.venv/bin/python script.py
 ComfyUI/.venv/bin/python -c "import torch; ..."
+```
 
+- Venv at `ComfyUI/.venv/` — Python 3.13.13, same as `run.sh`
+- Has all deps: torch, safetensors, websocket-client, requests, etc.
+
+### Never use system Python
+
+```bash
 # WRONG — never use these:
 python3 script.py          # system Python 3.9, lacks project deps
 python3.13 script.py       # uv-managed, pip install fails (PEP 668)
 ```
-
-- Venv is at `ComfyUI/.venv/` — Python 3.13.13, same as `run.sh`
-- Has all deps: torch, safetensors, websocket-client, requests, etc.
-- Never install packages into brew Python — it's externally managed by uv
 
 ## Platform: Apple Silicon MPS
 

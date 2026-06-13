@@ -11,7 +11,6 @@ Usage:
 """
 
 import time
-from typing import Optional, Union
 
 import numpy as np
 from PIL import Image
@@ -49,9 +48,9 @@ def get_sam3_predictor(threshold: float = 0.3):
 
 def segment_image(
     predictor,
-    image: Union[Image.Image, np.ndarray],
+    image: Image.Image | np.ndarray,
     text_prompt: str,
-    score_threshold: Optional[float] = None,
+    score_threshold: float | None = None,
 ):
     """Run text-prompted segmentation on a single image.
 
@@ -144,7 +143,7 @@ def composite_images(
     reference: Image.Image,
     mask: np.ndarray,
     feather_radius: int = 10,
-    ref_mask: Optional[np.ndarray] = None,
+    ref_mask: np.ndarray | None = None,
     preserve_aspect_ratio: bool = False,
 ) -> Image.Image:
     """Composite reference content onto source using a feathered mask.

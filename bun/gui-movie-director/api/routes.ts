@@ -10,7 +10,7 @@ import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleVlmTest } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetSchemaDefaults } from "./schema-defaults";
-import { handleRunSelfTest } from "./selftest";
+import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
 import { handleCaptionRun, handleCaptionGet } from "./caption";
 import { handleWebSocketUpgrade } from "./ws";
 
@@ -204,6 +204,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // Self-test
   if (pathname === "/api/selftest" && method === "POST") {
     return handleRunSelfTest(req);
+  }
+  if (pathname === "/api/selftest/results" && method === "GET") {
+    return handleSelfTestResults(req);
   }
 
   // Caption

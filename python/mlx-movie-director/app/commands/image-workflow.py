@@ -92,6 +92,21 @@ def add_workflow_args(parser):
                         help="Use noisy embedding for first N%% of steps (default: 20)")
 
 
+def _open_in_browser(path):
+    """Open a file/URL in the default browser, guarded for platform and headless.
+
+    Falls back silently (no GUI / SSH / CI) so HTML generation results are not
+    spoiled by a launch failure.
+    """
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif os.name == "posix":
+            subprocess.Popen(["xdg-open", path])
+    except (FileNotFoundError, OSError):
+        pass  # headless / no GUI — user opens manually
+
+
 # ---------------------------------------------------------------------------
 # Legacy self-tests (no registry)
 # ---------------------------------------------------------------------------
@@ -318,7 +333,7 @@ def _run_named_self_test(args, test_name: str) -> None:
     print(f"\n{'═' * 60}")
     print(f"  Self-test complete: {html_path}")
     print(f"{'═' * 60}")
-    subprocess.Popen(["open", html_path])
+    _open_in_browser(html_path)
 
 
 # ---------------------------------------------------------------------------

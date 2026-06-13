@@ -21,6 +21,7 @@ export interface Job {
   outputFiles: string[];
   manifestPath?: string;
   runPath?: string;
+  selfTestHtmlPath?: string;
   logs: LogLine[];
   action?: string;
   params?: Record<string, any>;
@@ -119,6 +120,10 @@ export class SubprocessManager {
 
             const runMatch = /Run(?:\s+config)?:\s+(.+)/.exec(line);
             if (runMatch) job.runPath = runMatch[1].trim();
+
+            // Self-test HTML review path marker (printed by I2I self-test)
+            const selfTestHtmlMatch = /SelfTestHTML:\s+(.+)/.exec(line);
+            if (selfTestHtmlMatch) job.selfTestHtmlPath = selfTestHtmlMatch[1].trim();
           }
         }
       } catch {
