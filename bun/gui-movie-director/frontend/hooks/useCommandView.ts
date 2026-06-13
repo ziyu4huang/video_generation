@@ -4,7 +4,7 @@ import type { JobInfo, LogLine } from "../types";
 
 export function useCommandView(command?: string) {
   const [job, setJob] = useState<JobInfo | null>(null);
-  const { logs, jobStatus, outputFiles, subscribe } = useWebSocket();
+  const { logs, jobStatus, outputFiles, progress, subscribe } = useWebSocket();
 
   // Restore last completed/failed job on mount so results survive page reload
   useEffect(() => {
@@ -59,6 +59,7 @@ export function useCommandView(command?: string) {
   return {
     job: derivedJob,
     loading: derivedJob?.status === "running",
+    progress: derivedJob?.status === "running" ? progress : null,
     handleJobStart,
     handleCancel,
   };

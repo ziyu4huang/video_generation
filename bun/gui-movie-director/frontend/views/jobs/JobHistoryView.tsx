@@ -90,7 +90,7 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
                   <img
                     key={name}
                     src={`/output/${name}`}
-                    onClick={(e) => { e.stopPropagation(); navigate({ type: "gallery" }); }}
+                    onClick={(e) => { e.stopPropagation(); navigate("/gallery"); }}
                     alt={name}
                     style={{
                       width: 48,
@@ -104,7 +104,7 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
                 );
               })}
               <span
-                onClick={(e) => { e.stopPropagation(); navigate({ type: "gallery" }); }}
+                onClick={(e) => { e.stopPropagation(); navigate("/gallery"); }}
                 style={{ fontSize: 12, color: "var(--accent)", cursor: "pointer" }}
               >
                 View in Gallery →

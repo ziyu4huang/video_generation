@@ -3,6 +3,7 @@ import type { ViewDescriptor } from "../registry";
 import { CommandViewShell } from "../../components/CommandViewShell";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
+import { FormSection } from "../../components/FormSection";
 import { useCommandJob } from "../../hooks/useCommandJob";
 
 const FALLBACK_DEFAULTS: Record<string, any> = {
@@ -10,7 +11,7 @@ const FALLBACK_DEFAULTS: Record<string, any> = {
 };
 
 export function VideoRestoreView() {
-  const { state, setField, job, loading, handleJobStart, handleCancel, submit, error, setError } =
+  const { state, setField, job, loading, progress, handleJobStart, handleCancel, submit, error, setError } =
     useCommandJob("video-restore", "video restore", "video-restore", FALLBACK_DEFAULTS);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,13 +42,13 @@ export function VideoRestoreView() {
       loading={loading}
       job={job}
       handleCancel={handleCancel}
+      progress={progress}
       error={error}
       onDismiss={() => setError(null)}
       action="video-restore"
       handleJobStart={handleJobStart}
     >
-      <div className="form-section">
-        <div className="form-section-title">Input</div>
+      <FormSection title="Input">
         <div className="form-group">
           <label>Source Video *{state.restore_input_flag && " ✅"}</label>
           <FileUpload value={state.restore_input_flag ?? null} onChange={(v) => setField("restore_input_flag", v)} />
@@ -58,10 +59,9 @@ export function VideoRestoreView() {
           onChange={(v) => setField("restore_output", v)}
           placeholder="Default: <input>_restored.mp4"
         />
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Restore Settings</div>
+      <FormSection title="Restore Settings">
         <div className="form-row">
           <RangeField label="Resolution Scale" value={state.restore_scale} onChange={(v) => setField("restore_scale", v)} min={0.5} max={4} step={0.25} />
           <RangeField label="Cond Strength" value={state.restore_cond_strength} onChange={(v) => setField("restore_cond_strength", v)} min={0} max={1} step={0.05} />
@@ -73,19 +73,17 @@ export function VideoRestoreView() {
           placeholder="Default: built-in negative prompt"
           multiline
         />
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Generation</div>
+      <FormSection title="Generation">
         <div className="form-row">
           <NumberField label="Seed" value={state.seed} onChange={(v) => setField("seed", v)} />
           <NumberField label="Frames" value={state.frames} onChange={(v) => setField("frames", v)} min={9} max={257} step={8} />
         </div>
         <ToggleField label="Low RAM" checked={state.low_ram ?? false} onChange={(v) => setField("low_ram", v)} />
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">LoRA</div>
+      <FormSection title="LoRA">
         <div className="form-row">
           <TextField label="Restoration LoRA" value={state.restoration_lora ?? ""} onChange={(v) => setField("restoration_lora", v)} placeholder="Default: built-in" />
           <RangeField label="Restoration Scale" value={state.restoration_scale} onChange={(v) => setField("restoration_scale", v)} min={0} max={2} step={0.05} />
@@ -98,7 +96,7 @@ export function VideoRestoreView() {
           <ToggleField label="Skip Upscale LoRA" checked={state.no_upscale_lora ?? false} onChange={(v) => setField("no_upscale_lora", v)} />
           <ToggleField label="No Audio Passthrough" checked={state.restore_no_audio ?? false} onChange={(v) => setField("restore_no_audio", v)} />
         </div>
-      </div>
+      </FormSection>
     </CommandViewShell>
   );
 }

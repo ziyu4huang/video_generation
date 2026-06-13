@@ -1,10 +1,12 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import type { LogLine } from "../types";
 import s from "./LogViewer.module.css";
+import { toast } from "../utils/toast";
 
 interface LogViewerProps {
   logs: LogLine[];
   status?: string;
+  progress?: number | null;
   onCancel?: () => void;
 }
 
@@ -19,14 +21,12 @@ function classifyLine(line: LogLine): string {
   return "stdout";
 }
 
-export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
+export function LogViewer({ logs, status, progress, onCancel }: LogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(logs.map((l) => l.text).join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    toast.success("Log copied");
   };
 
   // Auto-scroll to bottom
@@ -51,7 +51,7 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
           onClick={handleCopy}
           style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}
         >
-          {copied ? "Copied!" : "Copy"}
+          Copy
         </button>
         {onCancel && (
           <button className="btn btn-danger" onClick={onCancel} style={{ fontSize: 12, padding: "4px 12px" }}>
@@ -59,6 +59,11 @@ export function LogViewer({ logs, status, onCancel }: LogViewerProps) {
           </button>
         )}
       </div>
+      {progress != null && (
+        <div className="job-progress-bar">
+          <div className="job-progress-fill" style={{ width: `${progress}%` }} />
+        </div>
+      )}
       <div className={s.logViewer} ref={containerRef}>
         {logs.length === 0 ? (
           <span className={s.logPlaceholder}>Waiting for output...</span>

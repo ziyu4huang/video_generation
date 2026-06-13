@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import useSWR from "swr";
 
 export type SelfTestEntry = { name: string; desc: string };
 
@@ -7,39 +7,19 @@ type ActionDefaults = Record<string, any> & {
   self_tests?: SelfTestEntry[];
 };
 
-// Module-level singleton: entire SPA makes at most one HTTP request
-let _cache: Record<string, ActionDefaults> | null = null;
-let _promise: Promise<Record<string, ActionDefaults> | null> | null = null;
-
-function fetchOnce(): Promise<Record<string, ActionDefaults> | null> {
-  if (_promise) return _promise;
-  _promise = fetch("/api/schema-defaults")
+const fetcher = (url: string) =>
+  fetch(url)
     .then((r) => r.json())
-    .then((data) => {
-      if (data.ok) {
-        _cache = data.defaults;
-        return _cache;
-      }
-      return null;
-    })
-    .catch(() => null);
-  return _promise;
-}
+    .then((d) => (d.ok ? (d.defaults as Record<string, ActionDefaults>) : null));
 
 export function useSchemaDefaults(action: string): ActionDefaults | null {
-  const [defaults, setDefaults] = useState<ActionDefaults | null>(
-    _cache?.[action] ?? null,
-  );
-
-  useEffect(() => {
-    if (_cache) {
-      setDefaults(_cache[action] ?? null);
-      return;
+  const { data } = useSWR<Record<string, ActionDefaults> | null>(
+    "/api/schema-defaults",
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60_000, // SPA-wide singleton: all instances share one request
     }
-    fetchOnce().then((all) => {
-      if (all) setDefaults(all[action] ?? null);
-    });
-  }, [action]);
-
-  return defaults;
+  );
+  return data?.[action] ?? null;
 }

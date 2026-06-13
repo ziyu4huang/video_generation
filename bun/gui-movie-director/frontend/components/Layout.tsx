@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { COMMAND_GROUPS } from "../app";
 import { useJobs } from "../hooks/useJobs";
+import { Tip } from "./Tip";
 
 interface LayoutProps {
   currentView: { type: string; action?: string };
@@ -63,9 +64,11 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
           >
             📋 Jobs
             {failedCount > 0 && (
-              <span className="sidebar-failed-count">
-                {failedCount} failed
-              </span>
+              <Tip label={`${failedCount} failed job${failedCount > 1 ? "s" : ""} — click to review`}>
+                <span className="sidebar-failed-count">
+                  {failedCount} failed
+                </span>
+              </Tip>
             )}
           </div>
         </div>
@@ -89,7 +92,9 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
 
         {/* Connection status */}
         <div className="sidebar-conn-status">
-          <span className={`conn-dot ${wsConnected ? "ok" : "err"}`} />
+          <Tip label={wsConnected ? "WebSocket connected" : "WebSocket disconnected — retrying…"}>
+            <span className={`conn-dot ${wsConnected ? "ok" : "err"}`} />
+          </Tip>
           <span>{wsConnected ? "Connected" : "Disconnected"}</span>
         </div>
 

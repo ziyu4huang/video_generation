@@ -3,6 +3,7 @@ import s from "./GalleryCard.module.css";
 import type { GalleryImage } from "../types";
 import { formatSize, formatDate } from "../utils/format";
 import { parseCaptionScores } from "./CaptionScoreBar";
+import { Tip } from "./Tip";
 
 export type ViewMode = "s" | "m" | "l" | "list";
 
@@ -24,7 +25,7 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m" }: { img
   const captionScores = img.caption ? parseCaptionScores(img.caption.caption) : null;
   const avgScore = captionScores
     ? ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
-        .reduce((s, k) => s + (captionScores[k] || 0), 0) / 6
+        .reduce((s, k) => s + ((captionScores[k] as number) || 0), 0) / 6
     : null;
 
   const handleVideoEnter = () => {
@@ -78,20 +79,23 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m" }: { img
           <img src={img.url} alt={img.name} loading="lazy" />
         )}
         {avgScore !== null && (
-          <span style={{
-            position: "absolute",
-            top: 6,
-            right: 6,
-            background: avgScore >= 8 ? "rgba(76,175,80,0.9)" : avgScore >= 5 ? "rgba(255,152,0,0.9)" : "rgba(244,67,54,0.9)",
-            color: "#fff",
-            fontSize: 11,
-            fontWeight: 700,
-            padding: "2px 6px",
-            borderRadius: 4,
-            lineHeight: 1,
-          }}>
-            {avgScore.toFixed(1)}
-          </span>
+          <Tip label={`Caption quality: ${avgScore.toFixed(1)}/10`}>
+            <span style={{
+              position: "absolute",
+              top: 6,
+              right: 6,
+              background: avgScore >= 8 ? "rgba(76,175,80,0.9)" : avgScore >= 5 ? "rgba(255,152,0,0.9)" : "rgba(244,67,54,0.9)",
+              color: "#fff",
+              fontSize: 11,
+              fontWeight: 700,
+              padding: "2px 6px",
+              borderRadius: 4,
+              lineHeight: 1,
+              cursor: "default",
+            }}>
+              {avgScore.toFixed(1)}
+            </span>
+          </Tip>
         )}
       </div>
       <div className={s.galleryCardInfo}>

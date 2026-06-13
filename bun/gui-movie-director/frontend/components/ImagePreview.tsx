@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { formatBytes, basename } from "../utils/format";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
+import { toast } from "../utils/toast";
 import s from "./ImagePreview.module.css";
 
 type Tab = "run" | "manifest" | "scores";
@@ -54,18 +56,16 @@ function StatusBadge({ status, elapsed, memoryPeakMb }: {
 }
 
 function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      toast.success("Copied!");
     } catch { /* ignore */ }
   };
   return (
     <button className={s.mfCopyBtn} onClick={handleCopy}>
-      {copied ? "✓ Copied" : "📋 Copy"}
+      📋 Copy
     </button>
   );
 }
@@ -458,8 +458,6 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const hasCaption = !!caption;
   const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "scores");
   const [showRaw, setShowRaw] = useState(false);
-  const [rawCopied, setRawCopied] = useState(false);
-  const [pathCopied, setPathCopied] = useState(false);
   const data = tab === "run" ? run : manifest;
   const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : captionPath;
 
@@ -521,8 +519,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     if (!data) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-      setRawCopied(true);
-      setTimeout(() => setRawCopied(false), 1500);
+      toast.success("JSON copied!");
     } catch { /* ignore */ }
   };
 
@@ -530,15 +527,23 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     if (!activePath) return;
     try {
       await navigator.clipboard.writeText(activePath);
-      setPathCopied(true);
-      setTimeout(() => setPathCopied(false), 1500);
+      toast.success("Path copied!");
     } catch { /* ignore */ }
   };
 
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
   return (
-    <div className={s.imagePreviewOverlay} onClick={handleOverlayClick}>
+    <Dialog.Root open={true} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+    <Dialog.Content
+      className={s.imagePreviewOverlay}
+      onClick={handleOverlayClick}
+      aria-describedby={undefined}
+      onPointerDownOutside={(e) => e.preventDefault()}
+      onInteractOutside={(e) => e.preventDefault()}
+    >
+      <Dialog.Title className="sr-only">Image Preview</Dialog.Title>
       <div
         className={`${s.imagePreviewContent}${cursorMod ? " " + cursorMod : ""}`}
         onMouseDown={handleMouseDown}
@@ -616,7 +621,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               onClick={handleCopyPath}
               disabled={!activePath}
               title={activePath || "No JSON file"}
-            >{pathCopied ? "✓ Copied" : "📁 Path"}</button>
+            >📁 Path</button>
             <button className={s.imagePreviewPanelClose} onClick={onClose}>✕</button>
           </div>
         </div>
@@ -639,7 +644,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
                 <span className={s.mfRawModalTitle}>{tab}.json</span>
                 <div className={s.mfRawModalActions}>
                   <button className={s.mfRawCopyBtn} onClick={handleCopyRaw}>
-                    {rawCopied ? "✓ Copied" : "📋 Copy"}
+                    📋 Copy
                   </button>
                   <button className={s.mfRawCloseBtn} onClick={() => setShowRaw(false)}>✕</button>
                 </div>
@@ -649,6 +654,8 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
           </div>
         )}
       </div>
-    </div>
+    </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

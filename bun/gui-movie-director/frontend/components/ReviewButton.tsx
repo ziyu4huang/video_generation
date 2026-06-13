@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
+import { toast } from "../utils/toast";
 
 interface ReviewButtonProps {
   /** Absolute path to the image file on disk */
@@ -41,11 +42,16 @@ export function ReviewButton({ imagePath, prompt, existingCaption }: ReviewButto
       const data = await res.json();
       if (data.ok && data.caption) {
         setResult(data.caption);
+        toast.success("Review complete");
       } else {
-        setError(data.error || "Caption failed");
+        const msg = data.error || "Caption failed";
+        setError(msg);
+        toast.error(msg);
       }
     } catch (err) {
-      setError(`Failed: ${err}`);
+      const msg = `Failed: ${err}`;
+      setError(msg);
+      toast.error(msg);
     } finally {
       setRunning(false);
     }

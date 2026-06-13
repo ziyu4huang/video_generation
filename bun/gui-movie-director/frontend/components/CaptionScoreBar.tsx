@@ -1,5 +1,20 @@
 import React, { useState } from "react";
 
+export interface CaptionScores {
+  overall?: number;
+  detail?: number;
+  sharpness?: number;
+  composition?: number;
+  prompt_adherence?: number;
+  artifacts?: number;
+  issues?: string[];
+  strengths?: string[];
+  captured?: string[];
+  missed?: string[];
+  summary?: string;
+  [key: string]: number | string[] | string | undefined;
+}
+
 const SCORE_KEYS = [
   { key: "overall", label: "Overall" },
   { key: "detail", label: "Detail" },
@@ -10,7 +25,7 @@ const SCORE_KEYS = [
 ];
 
 interface CaptionScoreBarProps {
-  scores: Record<string, number>;
+  scores: CaptionScores;
   issues?: string[];
   strengths?: string[];
   captured?: string[];
@@ -18,7 +33,7 @@ interface CaptionScoreBarProps {
   summary?: string;
 }
 
-function scoreColor(val: number): string {
+export function scoreColor(val: number): string {
   if (val >= 8) return "var(--success)";
   if (val >= 5) return "var(--warning)";
   return "var(--error)";
@@ -26,14 +41,14 @@ function scoreColor(val: number): string {
 
 export function CaptionScoreBar({ scores, issues, strengths, captured, missed, summary }: CaptionScoreBarProps) {
   const [expanded, setExpanded] = useState(false);
-  const avg = SCORE_KEYS.reduce((sum, k) => sum + (scores[k.key] || 0), 0) / SCORE_KEYS.length;
+  const avg = SCORE_KEYS.reduce((sum, k) => sum + ((scores[k.key] as number) || 0), 0) / SCORE_KEYS.length;
 
   return (
     <div style={{ marginTop: 8 }}>
       {/* Score bars */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {SCORE_KEYS.map(({ key, label }) => {
-          const val = scores[key] || 0;
+          const val = (scores[key] as number) || 0;
           const pct = val * 10;
           return (
             <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -101,7 +116,7 @@ export function CaptionScoreBar({ scores, issues, strengths, captured, missed, s
  * Parse the caption string (which may be JSON wrapped in markdown fences)
  * into a structured scores object. Returns null if parsing fails.
  */
-export function parseCaptionScores(caption: any): Record<string, number> | null {
+export function parseCaptionScores(caption: any): CaptionScores | null {
   if (!caption) return null;
   if (typeof caption === "object") return caption;
   if (typeof caption !== "string") return null;

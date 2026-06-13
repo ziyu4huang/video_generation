@@ -3,7 +3,9 @@ import type { ViewDescriptor } from "../registry";
 import { CommandViewShell } from "../../components/CommandViewShell";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
+import { FormSection } from "../../components/FormSection";
 import { useCommandJob } from "../../hooks/useCommandJob";
+import { VideoLoraSection } from "./VideoLoraSection";
 
 const PRESET_OPTIONS = [
   { value: "", label: "Custom" },
@@ -29,7 +31,7 @@ const FALLBACK_DEFAULTS: Record<string, any> = {
 };
 
 export function VideoRelayView() {
-  const { state, setField, job, loading, handleCancel, submit, error, setError } =
+  const { state, setField, job, loading, progress, handleCancel, submit, error, setError } =
     useCommandJob("video-relay", "video relay", "video-relay", FALLBACK_DEFAULTS);
   const [selectedPreset, setSelectedPreset] = useState("");
   const [selectedVariants, setSelectedVariants] = useState<string[]>([]);
@@ -83,11 +85,11 @@ export function VideoRelayView() {
       loading={loading}
       job={job}
       handleCancel={handleCancel}
+      progress={progress}
       error={error}
       onDismiss={() => setError(null)}
     >
-      <div className="form-section">
-        <div className="form-section-title">Prompt Preset</div>
+      <FormSection title="Prompt Preset">
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {PRESET_OPTIONS.map((opt) => (
             <button
@@ -100,11 +102,10 @@ export function VideoRelayView() {
             </button>
           ))}
         </div>
-      </div>
+      </FormSection>
 
       {!selectedPreset && (
-        <div className="form-section">
-          <div className="form-section-title">Prompts (one per line = one segment)</div>
+        <FormSection title="Prompts (one per line = one segment)">
           <TextField
             label="Relay Prompts"
             value={state.relay_prompts_text ?? ""}
@@ -112,11 +113,10 @@ export function VideoRelayView() {
             placeholder={"Line 1: opening shot...\nLine 2: next action...\nLine 3: finale..."}
             multiline
           />
-        </div>
+        </FormSection>
       )}
 
-      <div className="form-section">
-        <div className="form-section-title">A/B Variant Comparison</div>
+      <FormSection title="A/B Variant Comparison">
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {VARIANT_OPTIONS.map((opt) => (
             <button
@@ -136,10 +136,9 @@ export function VideoRelayView() {
             {selectedVariants.length} variant(s) selected — each runs independently (~5-10 min/variant)
           </div>
         )}
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Generation</div>
+      <FormSection title="Generation">
         <div className="form-row">
           <NumberField label="Width" value={state.width} onChange={(v) => setField("width", v)} min={256} max={2048} step={64} />
           <NumberField label="Height" value={state.height} onChange={(v) => setField("height", v)} min={256} max={2048} step={64} />
@@ -155,26 +154,24 @@ export function VideoRelayView() {
           <RangeField label="CFG Scale" value={state.cfg_scale} onChange={(v) => setField("cfg_scale", v)} min={1} max={20} step={0.5} />
           <RangeField label="STG Scale" value={state.stg_scale} onChange={(v) => setField("stg_scale", v)} min={0} max={5} step={0.1} />
         </div>
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Quality</div>
+      <FormSection title="Quality">
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <ToggleField label="Distilled" checked={state.distilled ?? true} onChange={(v) => setField("distilled", v)} />
           <ToggleField label="Low RAM" checked={state.low_ram ?? false} onChange={(v) => setField("low_ram", v)} />
         </div>
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">LoRA</div>
-        <div className="form-row">
-          <TextField label="LoRA Path" value={state.lora_path ?? ""} onChange={(v) => setField("lora_path", v)} placeholder="Short name or path..." />
-          <RangeField label="LoRA Scale" value={state.lora_scale} onChange={(v) => setField("lora_scale", v)} min={0} max={2} step={0.05} />
-        </div>
-      </div>
+      <VideoLoraSection
+        loraPath={state.lora_path ?? ""}
+        loraScale={state.lora_scale}
+        onPathChange={(v) => setField("lora_path", v)}
+        onScaleChange={(v) => setField("lora_scale", v)}
+        placeholder="Short name or path..."
+      />
 
-      <div className="form-section">
-        <div className="form-section-title">Audio & First Image</div>
+      <FormSection title="Audio & First Image">
         <div className="form-row">
           <div className="form-group">
             <label>Audio Track{state.relay_audio && " ✅"}</label>
@@ -185,7 +182,7 @@ export function VideoRelayView() {
             <FileUpload value={state.relay_first_image ?? null} onChange={(v) => setField("relay_first_image", v)} />
           </div>
         </div>
-      </div>
+      </FormSection>
     </CommandViewShell>
   );
 }

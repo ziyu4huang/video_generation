@@ -16,6 +16,7 @@ interface Props {
   // Job state
   job: JobInfo | null;
   handleCancel: () => void;
+  progress?: number | null;
   // Error
   error: string | null;
   onDismiss: () => void;
@@ -26,7 +27,7 @@ interface Props {
 
 export function CommandViewShell({
   children, onSubmit, submitLabel, disabled, loading,
-  job, handleCancel, error, onDismiss, action, handleJobStart,
+  job, handleCancel, progress, error, onDismiss, action, handleJobStart,
 }: Props) {
   const navigate = useNavigation();
 
@@ -34,7 +35,7 @@ export function CommandViewShell({
     const names = (job?.outputFiles ?? [])
       .map((f: string) => f.split("/").pop())
       .filter(Boolean) as string[];
-    navigate({ type: "gallery", highlight: names });
+    navigate("/gallery", names);
   };
 
   return (
@@ -59,6 +60,7 @@ export function CommandViewShell({
         <LogViewer
           logs={job?.logs ?? []}
           status={job?.status}
+          progress={progress}
           onCancel={job?.status === "running" ? handleCancel : undefined}
         />
       )}

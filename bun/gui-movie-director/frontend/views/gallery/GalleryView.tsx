@@ -10,13 +10,8 @@ interface GalleryViewProps {
 
 export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps) {
   const [refreshKey, setRefreshKey] = useState(0);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [previewManifest, setPreviewManifest] = useState<Record<string, any> | null>(null);
-  const [previewRun, setPreviewRun] = useState<Record<string, any> | null>(null);
-  const [previewManifestPath, setPreviewManifestPath] = useState<string | null>(null);
-  const [previewRunPath, setPreviewRunPath] = useState<string | null>(null);
-  const [previewCaption, setPreviewCaption] = useState<Record<string, any> | null>(null);
-  const [previewCaptionPath, setPreviewCaptionPath] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<GalleryImage | null>(null);
+  const [allImages, setAllImages] = useState<GalleryImage[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
@@ -64,26 +59,35 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   }, [highlight]);
 
   const handleImageClick = useCallback((img: GalleryImage) => {
-    setPreviewImage(img.url);
-    setPreviewManifest(img.manifest);
-    setPreviewRun(img.run);
-    setPreviewManifestPath(img.manifestPath ?? null);
-    setPreviewRunPath(img.runPath ?? null);
-    setPreviewCaption(img.caption ?? null);
-    setPreviewCaptionPath(img.captionPath ?? null);
+    setPreviewImage(img);
   }, []);
 
-  const handleClose = useCallback(() => {
-    setPreviewImage(null);
-    setPreviewManifest(null);
-    setPreviewRun(null);
-    setPreviewManifestPath(null);
-    setPreviewRunPath(null);
-    setPreviewCaption(null);
-    setPreviewCaptionPath(null);
-  }, []);
+  const handleClose = useCallback(() => setPreviewImage(null), []);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!allImages.length) return;
+      if (e.key === "Escape" && previewImage) {
+        setPreviewImage(null);
+        return;
+      }
+      if (!previewImage) return;
+      const idx = allImages.findIndex((img) => img.url === previewImage.url);
+      if (e.key === "ArrowRight") {
+        setPreviewImage(allImages[(idx + 1) % allImages.length]);
+        e.preventDefault();
+      } else if (e.key === "ArrowLeft") {
+        setPreviewImage(allImages[(idx - 1 + allImages.length) % allImages.length]);
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [allImages, previewImage]);
 
   const handleImagesReady = useCallback((images: GalleryImage[]) => {
+    setAllImages(images);
     if (!highlight?.length || highlightConsumedRef.current) return;
 
     const matched = images.filter((img) => highlight.includes(img.name));
@@ -106,13 +110,13 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
       />
       {previewImage && (
         <ImagePreview
-          url={previewImage}
-          manifest={previewManifest}
-          run={previewRun}
-          manifestPath={previewManifestPath}
-          runPath={previewRunPath}
-          caption={previewCaption}
-          captionPath={previewCaptionPath}
+          url={previewImage.url}
+          manifest={previewImage.manifest}
+          run={previewImage.run}
+          manifestPath={previewImage.manifestPath ?? null}
+          runPath={previewImage.runPath ?? null}
+          caption={previewImage.caption ?? null}
+          captionPath={previewImage.captionPath ?? null}
           onClose={handleClose}
         />
       )}

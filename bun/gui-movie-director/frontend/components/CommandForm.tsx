@@ -3,6 +3,7 @@ import type { CommandSchema, FieldDef } from "../schemas/types";
 import { TextField, NumberField, RangeField, SelectField, ToggleField } from "./FieldComponents";
 import { FileUpload } from "./FileUpload";
 import { InlineError } from "./InlineError";
+import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
 
 interface CommandFormProps {
@@ -192,8 +193,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
   return (
     <form onSubmit={handleSubmit}>
       {schema.sections.map((section) => (
-        <div key={section.title} className="form-section">
-          <div className="form-section-title">{section.title}</div>
+        <FormSection key={section.title} title={section.title}>
           {groupIntoRows(section.fields, state).map((row, ri) => {
             const single = row.length === 1 && isFullWidth(row[0]);
             if (single) {
@@ -222,7 +222,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix }: Comm
               </div>
             );
           })}
-        </div>
+        </FormSection>
       ))}
       <div className="btn-row">
         <button

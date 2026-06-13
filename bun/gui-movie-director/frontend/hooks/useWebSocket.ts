@@ -19,6 +19,7 @@ export function useWebSocket() {
   const [jobStatus, setJobStatus] = useState<string | null>(null);
   const [outputFiles, setOutputFiles] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<number | null>(null);
   const reconnectDelay = useRef(1000);
@@ -61,15 +62,23 @@ export function useWebSocket() {
 
         if (msg.type === "log" && msg.line) {
           setLogs((prev) => [...prev, { line: msg.line!, stream: msg.stream ?? "stdout" }]);
+          // Parse progress percentage from log line
+          const pm = msg.line.match(/\b(\d{1,3})%/) ?? msg.line.match(/step (\d+) of (\d+)/i);
+          if (pm) {
+            const pct = pm[2] ? Math.round((+pm[1] / +pm[2]) * 100) : +pm[1];
+            if (pct >= 0 && pct <= 100) setProgress(pct);
+          }
         }
 
         if (msg.type === "job_complete") {
           setJobStatus("completed");
+          setProgress(null);
           if (msg.outputFiles) setOutputFiles(msg.outputFiles);
         }
 
         if (msg.type === "job_failed") {
           setJobStatus("failed");
+          setProgress(null);
         }
       } catch {
         // Ignore malformed messages
@@ -81,6 +90,7 @@ export function useWebSocket() {
     setLogs([]);
     setJobStatus(null);
     setOutputFiles([]);
+    setProgress(null);
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: "subscribe", jobId }));
     } else {
@@ -102,5 +112,5 @@ export function useWebSocket() {
     };
   }, [connect]);
 
-  return { logs, jobStatus, outputFiles, connected, subscribe, unsubscribe };
+  return { logs, jobStatus, outputFiles, connected, progress, subscribe, unsubscribe };
 }

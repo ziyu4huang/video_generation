@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { JobInfo } from "../types";
-import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
+import { CaptionScoreBar, parseCaptionScores, scoreColor } from "./CaptionScoreBar";
 import { ImagePreview } from "./ImagePreview";
+import { ParamBadge } from "./ParamBadge";
 
 interface Props {
   job: JobInfo;
@@ -37,7 +38,7 @@ export function SelfTestResults({ job }: Props) {
   const [captionOverrides, setCaptionOverrides] = useState<Record<string, Record<string, any> | null>>({});
   const [scoringAll, setScoringAll] = useState(false);
   const [scoringIdx, setScoringIdx] = useState<number | null>(null);
-  const [preview, setPreview] = SelfTestPreviewState();
+  const [preview, setPreview] = useState<SelfTestVariant | null>(null);
 
   const fetchResults = useCallback(() => {
     setLoading(true);
@@ -220,7 +221,7 @@ export function SelfTestResults({ job }: Props) {
                   </span>
                 )}
                 {scores && !isWinner && (
-                  <span style={{ position: "absolute", top: 6, left: 6, background: "var(--bg)", color: scoreColor(scores.overall), fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 3, opacity: 0.92 }}>
+                  <span style={{ position: "absolute", top: 6, left: 6, background: "var(--bg)", color: scoreColor(scores.overall ?? 0), fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 3, opacity: 0.92 }}>
                     {scores.overall}/10
                   </span>
                 )}
@@ -276,29 +277,3 @@ export function SelfTestResults({ job }: Props) {
   );
 }
 
-/** Compact parameter badge from the run.json params. Falls back to filename. */
-function ParamBadge({ params, filename }: { params: Record<string, any>; filename: string }) {
-  const parts: string[] = [];
-  if (params.denoise_strength != null) parts.push(`dn=${params.denoise_strength}`);
-  if (params.controlnet_strength != null) parts.push(`cnet=${params.controlnet_strength}`);
-  if (params.steps != null) parts.push(`${params.steps}st`);
-  if (params.seed != null) parts.push(`s${params.seed}`);
-  if (params.cnet_active_steps != null) parts.push(`act=${params.cnet_active_steps}`);
-  const text = parts.length > 0 ? parts.join(" ") : filename.replace(/\.[^.]+$/, "");
-  return (
-    <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "var(--font-mono)", wordBreak: "break-all", lineHeight: 1.4 }}>
-      {text}
-    </div>
-  );
-}
-
-function scoreColor(val: number): string {
-  if (val >= 8) return "var(--success)";
-  if (val >= 5) return "var(--warning)";
-  return "var(--error)";
-}
-
-// Lightbox preview state helper
-function SelfTestPreviewState(): [SelfTestVariant | null, (v: SelfTestVariant | null) => void] {
-  return useState<SelfTestVariant | null>(null);
-}

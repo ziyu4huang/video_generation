@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useSchemaDefaults, type SelfTestEntry } from "../hooks/useSchemaDefaults";
+import { toast } from "../utils/toast";
 
 interface SelfTestButtonProps {
   action: string;
@@ -55,11 +56,15 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
           ? `video ${action.replace("video-", "")}`
           : `image ${action}`;
         onJobStart({ jobId: data.jobId, command, isSelfTest: true });
+        toast.success("Self-test started");
       } else if (data.error) {
         setError(data.error);
+        toast.error(data.error);
       }
     } catch (err) {
-      setError(`Failed: ${err}`);
+      const msg = `Failed: ${err}`;
+      setError(msg);
+      toast.error(msg);
     } finally {
       setRunning(false);
     }

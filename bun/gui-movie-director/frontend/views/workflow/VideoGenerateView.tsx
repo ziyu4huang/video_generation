@@ -3,7 +3,9 @@ import type { ViewDescriptor } from "../registry";
 import { CommandViewShell } from "../../components/CommandViewShell";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
 import { FileUpload } from "../../components/FileUpload";
+import { FormSection } from "../../components/FormSection";
 import { useCommandJob } from "../../hooks/useCommandJob";
+import { VideoLoraSection } from "./VideoLoraSection";
 
 type VideoMode = "t2v" | "i2v" | "a2v" | "flf2v";
 
@@ -20,7 +22,7 @@ const FALLBACK_DEFAULTS: Record<string, any> = {
 };
 
 export function VideoGenerateView() {
-  const { state, setField, job, loading, handleJobStart, handleCancel, submit, error, setError } =
+  const { state, setField, job, loading, progress, handleJobStart, handleCancel, submit, error, setError } =
     useCommandJob("video-generate", "video generate", "video-generate", FALLBACK_DEFAULTS);
   const [mode, setMode] = useState<VideoMode>("t2v");
 
@@ -84,6 +86,7 @@ export function VideoGenerateView() {
       loading={loading}
       job={job}
       handleCancel={handleCancel}
+      progress={progress}
       error={error}
       onDismiss={() => setError(null)}
       action="video-generate"
@@ -104,8 +107,7 @@ export function VideoGenerateView() {
         ))}
       </div>
 
-      <div className="form-section">
-        <div className="form-section-title">Prompt</div>
+      <FormSection title="Prompt">
         <TextField
           label="Prompt *"
           value={state.prompt ?? ""}
@@ -114,15 +116,14 @@ export function VideoGenerateView() {
           multiline
           required
         />
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">
-          {mode === "t2v" && "Text-to-Video"}
-          {mode === "i2v" && "Image-to-Video"}
-          {mode === "a2v" && "Audio-to-Video"}
-          {mode === "flf2v" && "First-Last Frame to Video"}
-        </div>
+      <FormSection title={
+        mode === "t2v" ? "Text-to-Video" :
+        mode === "i2v" ? "Image-to-Video" :
+        mode === "a2v" ? "Audio-to-Video" :
+        "First-Last Frame to Video"
+      }>
         {mode === "i2v" && (
           <div className="form-group">
             <label>Source Image *{state.input_image && " ✅"}</label>
@@ -153,10 +154,9 @@ export function VideoGenerateView() {
             </div>
           </>
         )}
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Generation</div>
+      <FormSection title="Generation">
         <div className="form-row">
           <NumberField label="Width" value={state.width} onChange={(v) => setField("width", v)} min={256} max={2048} step={64} />
           <NumberField label="Height" value={state.height} onChange={(v) => setField("height", v)} min={256} max={2048} step={64} />
@@ -171,10 +171,9 @@ export function VideoGenerateView() {
           <NumberField label="Stage 1 Steps" value={state.stage1_steps} onChange={(v) => setField("stage1_steps", v)} min={1} max={100} />
           <NumberField label="Stage 2 Steps" value={state.stage2_steps} onChange={(v) => setField("stage2_steps", v)} min={1} max={100} />
         </div>
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">Quality</div>
+      <FormSection title="Quality">
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <ToggleField label="Low RAM" checked={state.low_ram ?? false} onChange={(v) => setField("low_ram", v)} />
           <ToggleField label="HQ" checked={state.hq ?? false} onChange={(v) => handleQualityToggle("hq", v)} />
@@ -183,15 +182,14 @@ export function VideoGenerateView() {
           <ToggleField label="Temporal Upscale" checked={state.temporal_upscale ?? false} onChange={(v) => setField("temporal_upscale", v)} />
           <ToggleField label="Enhance Prompt" checked={state.enhance_prompt ?? false} onChange={(v) => setField("enhance_prompt", v)} />
         </div>
-      </div>
+      </FormSection>
 
-      <div className="form-section">
-        <div className="form-section-title">LoRA</div>
-        <div className="form-row">
-          <TextField label="LoRA Path" value={state.lora_path ?? ""} onChange={(v) => setField("lora_path", v)} placeholder="Path to LoRA weights..." />
-          <RangeField label="LoRA Scale" value={state.lora_scale} onChange={(v) => setField("lora_scale", v)} min={0} max={2} step={0.05} />
-        </div>
-      </div>
+      <VideoLoraSection
+        loraPath={state.lora_path ?? ""}
+        loraScale={state.lora_scale}
+        onPathChange={(v) => setField("lora_path", v)}
+        onScaleChange={(v) => setField("lora_scale", v)}
+      />
     </CommandViewShell>
   );
 }
