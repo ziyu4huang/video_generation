@@ -1,13 +1,13 @@
 export const meta = {
   name: 'gui-movie-director-schema-self-improve',
-  description: 'Self-improve gui-movie-director schemas two ways: (coverage) add unit tests via propose→test→adopt/revert; (drift) align GUI schemas to run.py — the CLI source of truth — via check:schema',
-  whenToUse: 'objective=coverage (default): raise schema test coverage. objective=drift: auto-fix GUI↔run.py CLI drift. objective=both: drift first, then coverage.',
+  description: 'Harden the GUI→run.py integration three ways: (runtime) exercise buildCliArgs() with synthesized params and assert run.py accepts the output — catches the integration bugs check:schema can\'t see; (drift) align GUI schemas to run.py — the CLI source of truth — via check:schema; (coverage) add unit tests via propose→test→adopt/revert',
+  whenToUse: 'objective=runtime (default): highest-value — validate the schema→CLI boundary (the bug-prone surface with zero coverage). objective=drift: auto-fix GUI↔run.py flag drift. objective=coverage: raise schema test coverage (near ceiling — maintenance). objective=both/all: runtime+drift+coverage.',
   phases: [
     { title: 'Resolve',  detail: 'Load history, dead-ends, prior run context' },
-    { title: 'Baseline', detail: 'Run bun test --coverage to get starting state' },
-    { title: 'Improve',  detail: 'Loop: propose test addition → write → run → adopt/revert' },
+    { title: 'Baseline', detail: 'Run bun test --coverage + check:schema + check:runtime to get starting state' },
+    { title: 'Improve',  detail: 'Lanes: runtime-validate buildCliArgs → drift-fix → propose tests (adopt/revert)' },
     { title: 'Persist',  detail: 'Write JSONL history + reflection.json' },
-    { title: 'Report',   detail: 'Print coverage delta summary' },
+    { title: 'Report',   detail: 'Print runtime findings + drift + coverage delta' },
   ],
 }
 
@@ -22,9 +22,13 @@ const DRY_RUN    = A.dryRun !== false              // default: dry-run (safe to 
 const MARGIN     = Number(A.margin) || 1.5         // min composite delta to adopt (pp)
 const CONVERGE_K = Number(A.convergeK) || 2        // stop after K non-improving iters
 const TARGET     = A.target || null                // optional: focus on one schema file
-const OBJECTIVE  = String(A.objective || 'coverage')  // 'coverage' | 'drift' | 'both'
-const DO_DRIFT   = OBJECTIVE !== 'coverage'         // drift-fix lane runs when objective includes drift
-const DO_COVERAGE = OBJECTIVE !== 'drift'           // coverage lane runs when objective includes coverage
+// objective selects which lanes run. 'runtime' is the default — it's the
+// highest-value lane (validates the buildCliArgs→run.py boundary, which has zero
+// coverage and is where real user-facing bugs live). 'both'/'all' run all three.
+const OBJECTIVE  = String(A.objective || 'runtime')  // 'runtime' | 'drift' | 'coverage' | 'both' | 'all'
+const DO_RUNTIME  = ['runtime', 'both', 'all'].includes(OBJECTIVE)
+const DO_DRIFT    = ['drift', 'both', 'all'].includes(OBJECTIVE)
+const DO_COVERAGE = ['coverage', 'both', 'all'].includes(OBJECTIVE)
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -49,20 +53,34 @@ const COMMAND_SCHEMA_FILES = [
 
 function parseCoverageTable(output) {
   const files = {}
-  // Format: " path/file.ts    |   72.46 |   94.17 | ..."
+  // Isolate the coverage table: everything before the "All files" summary line.
+  // This prevents a stray "|" in an it() description (e.g. an arg-parsing test
+  // case) from being mis-read as a coverage row.
+  const allIdx = output.indexOf('All files')
+  const tableRegion = allIdx >= 0 ? output.slice(0, allIdx) : output
+  // Format: " schemas/angle.ts |   0.00 |   72.22 | 14-18" (4th col ignored)
   const re = /^\s+(\S+\.ts)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/gm
   let m
-  while ((m = re.exec(output)) !== null) {
+  while ((m = re.exec(tableRegion)) !== null) {
     const [, file, funcs, lines] = m
     const f = parseFloat(funcs), l = parseFloat(lines)
     files[file] = { funcs: f, lines: l, composite: 0.4 * f + 0.6 * l }
+  }
+  // Loud signal if the table was present but nothing parsed — format drift or a
+  // parse bug. Returning {} silently would make globalComposite() return NaN
+  // (see below), which fail-safes the adoption loop, but the log makes it visible.
+  if (Object.keys(files).length === 0 && output.includes('All files')) {
+    log('⚠ parseCoverageTable: "All files" present but 0 rows parsed — coverage measurements unreliable')
   }
   return files
 }
 
 function globalComposite(fileCoverage) {
   const relevant = COMMAND_SCHEMA_FILES.map(f => fileCoverage[f]).filter(Boolean)
-  if (relevant.length === 0) return 0
+  // NaN (not 0) when nothing was measured: an unmeasurable baseline must NOT be
+  // treated as 0% — otherwise every test proposal would "improve" it and get
+  // falsely adopted. NaN propagates through delta comparisons as always-false.
+  if (relevant.length === 0) return NaN
   return relevant.reduce((s, f) => s + f.composite, 0) / relevant.length
 }
 
@@ -136,19 +154,25 @@ log(`Run: ${runId} | Prior iters: ${resolveResult?.totalPriorIters || 0} | Dead-
 
 phase('Baseline')
 
-const baselineResult = await agent(
-  `Run this exact command and return the full stdout output:
+// Coverage baseline only when the coverage lane will run — bun test --coverage is
+// the slowest baseline step and otherwise wasted (objective=runtime default).
+let baselineCoverage = {}
+let baselineComposite = NaN
+let currentBest = baselineComposite
+if (DO_COVERAGE) {
+  const baselineResult = await agent(
+    `Run this exact command and return the full stdout output:
 cd "${GUI_DIR}" && bun test --coverage 2>&1
 
 Return the complete terminal output as a JSON string in the field "output". Include the coverage table lines.`,
-  { label: 'baseline-run', phase: 'Baseline',
-    schema: { type: 'object', properties: { output: { type: 'string' } }, required: ['output'] }
-  }
-)
-
-const baselineCoverage = parseCoverageTable(baselineResult?.output || '')
-const baselineComposite = globalComposite(baselineCoverage)
-let currentBest = baselineComposite
+    { label: 'baseline-run', phase: 'Baseline',
+      schema: { type: 'object', properties: { output: { type: 'string' } }, required: ['output'] }
+    }
+  )
+  baselineCoverage = parseCoverageTable(baselineResult?.output || '')
+  baselineComposite = globalComposite(baselineCoverage)
+  currentBest = baselineComposite
+}
 
 // ── Drift baseline (when objective includes drift) ───────────────────────────
 // run.py is the CLI source of truth; check:schema --json lists GUI↔run.py drift.
@@ -178,13 +202,14 @@ Return that object under the field "schema".`,
   log(`Baseline drift: ${baselineDriftCount} warning(s) → ${driftWorkList.length} unique fix target(s)`)
 }
 
-log(`Baseline composite: ${baselineComposite.toFixed(2)}pp across ${COMMAND_SCHEMA_FILES.length} files`)
-
-// Log weakest files
-const sorted = COMMAND_SCHEMA_FILES
-  .map(f => ({ f, c: (baselineCoverage[f] || { composite: 0 }).composite }))
-  .sort((a, b) => a.c - b.c)
-log(`Weakest: ${sorted.slice(0, 3).map(x => `${x.f}(${x.c.toFixed(0)}%)`).join(', ')}`)
+if (DO_COVERAGE) {
+  log(`Baseline composite: ${baselineComposite.toFixed(2)}pp across ${COMMAND_SCHEMA_FILES.length} files`)
+  // Log weakest files
+  const sorted = COMMAND_SCHEMA_FILES
+    .map(f => ({ f, c: (baselineCoverage[f] || { composite: 0 }).composite }))
+    .sort((a, b) => a.c - b.c)
+  log(`Weakest: ${sorted.slice(0, 3).map(x => `${x.f}(${x.c.toFixed(0)}%)`).join(', ')}`)
+}
 
 // ── Phase: Improve ────────────────────────────────────────────────────────────
 
@@ -247,7 +272,11 @@ Rules: make the MINIMAL edit, do not reformat, preserve existing entries. Return
     const touchedRunpy = touchedFiles.some(p => p.includes('/python/mlx-movie-director/'))
 
     if (touchedFiles.length === 0) {
-      log(`  no edit made (skip)`)
+      // Distinguish an intentional no-op (the apply agent returned notes but no
+      // files — e.g. default_mismatch where the run.py default isn't in the
+      // field's choice list) from an unexpected empty result.
+      const note = applyResult?.notes ? ` — ${applyResult.notes}` : ' (no reason returned)'
+      log(`  no edit made (skip)${note}`)
       driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
       continue
     }
@@ -286,6 +315,40 @@ Return { reverted: true }.`,
       log(`  ✗ reverted (warnCount=${warnCount}, bunFail=${verifyResult?.bunFail})`)
       driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
     }
+  }
+}
+
+// ── Runtime-validation sub-loop (the highest-value lane) ─────────────────────
+// Exercise buildCliArgs() with synthesized params and assert run.py accepts the
+// output (scripts/check-runtime.ts). Catches the schema→CLI integration bugs
+// check:schema CANNOT see — e.g. a GUI toggle whose run.py flag needs a value
+// (control-mismatch), a required flag the GUI can't form, or a type mismatch.
+// Read-only by design: it only SURFACES findings for human follow-up. Auto-
+// fixing schema changes is deferred to a later overhaul.
+let runtimeFindings = []
+let runtimeErrors = 0
+const runtimeIterations = []
+
+if (DO_RUNTIME) {
+  const runtimeResult = await agent(
+    `Run this exact command and return the parsed JSON object verbatim:
+cd "${GUI_DIR}" && bun run check:runtime --json 2>/dev/null
+
+It prints one JSON object: { findingCount, errorCount, findings: [...] }.
+Return that object under the field "runtime".`,
+    { label: 'runtime-check', phase: 'Improve',
+      schema: { type: 'object', properties: { runtime: { type: 'object' } }, required: ['runtime'] }
+    }
+  )
+  runtimeFindings = (runtimeResult?.runtime?.findings || [])
+  runtimeErrors = Number(runtimeResult?.runtime?.errorCount) || 0
+  const runtimeTotal = Number(runtimeResult?.runtime?.findingCount) || runtimeFindings.length
+
+  log(`Runtime: ${runtimeTotal} finding(s) — ${runtimeErrors} error(s), ${runtimeTotal - runtimeErrors} warning(s) (none visible to check:schema)`)
+  for (const f of runtimeFindings) {
+    const exp = Array.isArray(f.expected) ? `[${f.expected.join(',')}]` : JSON.stringify(f.expected)
+    log(`  [${f.action}] ${f.flag} (${f.violation}, set=${f.set}) — emitted:${JSON.stringify(f.emitted)} expected:${exp}`)
+    runtimeIterations.push({ action: f.action, flag: f.flag, violation: f.violation, set: f.set, isHard: f.violation !== 'choice-valid' })
   }
 }
 
@@ -384,7 +447,7 @@ After appending, confirm by returning: { "written": true, "filePath": "${propose
     )
 
     if (!writeResult?.written) {
-      log(`Iter ${iter + 1}: write failed, skipping`)
+      log(`Iter ${iter + 1}: write failed, skipping (result=${JSON.stringify(writeResult).slice(0, 200)})`)
       noImprove++
       continue
     }
@@ -405,8 +468,16 @@ Return JSON: { "output": "<full stdout>" }`,
     delta = newComposite - currentBest
 
     // Check if tests pass (no failures)
-    const testsPassed = !(measureResult?.output || '').includes(' fail\n') ||
-      (measureResult?.output || '').includes(' 0 fail\n')
+    // Parse the real fail count from bun test's summary line ("  N fail"),
+    // instead of fragile substring sniffing (which misfires on any test
+    // description or output containing " fail"). Fail-closed if unparseable.
+    const rawMeasureOut = measureResult?.output || ''
+    const failMatch = rawMeasureOut.match(/(\d+)\s+fail\b/)
+    const failCount = failMatch ? parseInt(failMatch[1], 10) : null
+    const testsPassed = failCount !== null ? failCount === 0 : false
+    if (failCount === null && rawMeasureOut.trim() !== '') {
+      log(`⚠ could not parse fail count from bun test output — fail-closed (treating as failed)`)
+    }
 
     if (testsPassed && delta >= MARGIN) {
       adopted = true
@@ -456,7 +527,7 @@ Return: { "reverted": true }`,
 
 phase('Persist')
 
-const persistLines = [...iterations, ...driftIterations]
+const persistLines = [...iterations, ...driftIterations, ...runtimeIterations]
 if (persistLines.length > 0) {
   await agent(
     `Append these JSON entries (one per line) to the JSONL file at ${JSONL_PATH}.
@@ -476,7 +547,7 @@ After writing, confirm: { "written": true }`,
 await agent(
   `Append or update the cross-workflow index at ${INDEX_PATH}.
 Read the file if it exists (JSON array), add/update an entry:
-{ "workflow": "gui-movie-director-schema-self-improve", "runId": "${runId}", "objective": "${OBJECTIVE}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)}, "baselineDrift": ${baselineDriftCount}, "driftFixed": ${driftFixed}, "driftRemaining": ${driftRemaining} }
+{ "workflow": "gui-movie-director-schema-self-improve", "runId": "${runId}", "objective": "${OBJECTIVE}", "iters": ${iterations.length}, "adopted": ${iterations.filter(e=>e.adopted).length}, "baselineComposite": ${baselineComposite.toFixed(2)}, "finalComposite": ${currentBest.toFixed(2)}, "baselineDrift": ${baselineDriftCount}, "driftFixed": ${driftFixed}, "driftRemaining": ${driftRemaining}, "runtimeFindings": ${runtimeFindings.length}, "runtimeErrors": ${runtimeErrors} }
 Keep only the 50 most recent entries. Write back.
 Return: { "done": true }`,
   { label: 'update-index', phase: 'Persist',
@@ -505,7 +576,11 @@ return {
   driftFixed,
   driftRemaining,
   driftIterations,
+  runtimeFindings: runtimeFindings.length,
+  runtimeErrors,
+  runtimeIterations,
   summary: [
+    DO_RUNTIME ? `Runtime: ${runtimeFindings.length} finding(s) — ${runtimeErrors} error(s), ${runtimeFindings.length - runtimeErrors} warning(s) [buildCliArgs→run.py boundary]` : null,
     DO_DRIFT ? `Drift: ${baselineDriftCount} → ${driftRemaining} (${driftFixed} fixed)` : null,
     DO_COVERAGE ? `Coverage: ${baselineComposite.toFixed(1)}% → ${currentBest.toFixed(1)}% (+${totalDelta.toFixed(1)}pp) | ${adopted}/${iterations.length} adopted` : null,
   ].filter(Boolean).join(' | '),

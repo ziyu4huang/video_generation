@@ -8,7 +8,8 @@
     "start": "bun run server.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "check:schema": "bun run scripts/check-schema.ts"
+    "check:schema": "bun run scripts/check-schema.ts",
+    "check:runtime": "bun run scripts/check-runtime.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.16",
