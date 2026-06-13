@@ -167,6 +167,30 @@ Git patches in `patches/comfyui/` are auto-applied by `run.sh`:
 - MPS fp8 safety in `comfy/model_management.py`
 - MPS quantized module fix in `comfy/ops.py`
 
+### Vendor patches (ltx-2-mlx / mflux) — runtime, NOT git patches
+
+The `patches/comfyui/` mechanism above is **ComfyUI-only**. Fixes to the Python
+vendor submodules (`vendor/ltx-2-mlx`, `vendor/mflux`) follow a different
+convention: those submodules are kept **clean at upstream HEAD**, and all local
+fixes live in `python/mlx-movie-director/app/vendor_patches.py` as import-time
+monkey-patches (auto-applied via `apply_all_patches()` when `app.ltx_pipeline`
+is imported).
+
+**Never** leave working-tree edits in a vendor submodule or add git patches
+under `patches/` for them — `git submodule update` would silently wipe working-
+tree edits, and they'd stay permanently "dirty".
+
+To add a vendor fix:
+1. Append a `_patch_*()` function (model the style on `_patch_orchestration` —
+   Patch 5 — which replaces a loader to insert a call).
+2. Register it in `apply_all_patches()` and bump the count + the inventory
+   docstring at the top of the file.
+
+Current inventory: 8 ltx-2-mlx patches + 3 mflux patches. Notable:
+- Patch 5 — inserts `apply_quantization` before `load_weights` (transformer).
+- Patch 11 — same insert for the connector (`PromptEncoder.load` +
+  `load_feature_extractor`); fixes INT8 connector loading.
+
 ## Filename Tokens
 
 ComfyUI built-in tokens for SaveImage `filename_prefix`: `%year%`, `%month%`, `%day%`, `%hour%`, `%minute%`, `%second%`, `%width%`, `%height%`. The `%date:...%` syntax is from the pysssss plugin and won't resolve without it.

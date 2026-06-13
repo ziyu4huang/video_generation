@@ -11,6 +11,9 @@ Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
                                + from_checkpoint_config classmethod
   5. _orchestration          — _load_transformer_config reads embedded_config.json
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
+  10. _fuse_distilled_lora   — dequantize int8 LoRA weights before fusion
+  11. PromptEncoder.load +   — apply_quantization before connector.load_weights
+      load_feature_extractor    (no-op for BF16; fixes INT8 connector loading)
 
 Patches for vendor/mflux (upstream filipstrand/mflux):
   7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
@@ -601,6 +604,82 @@ def _patch_int8_lora() -> None:
     TI2VidTwoStagesPipeline._fuse_distilled_lora = _patched_fuse_distilled_lora
 
 
+# ---------------------------------------------------------------------------
+# Patch 11 — apply_quantization before connector.load_weights
+# ---------------------------------------------------------------------------
+
+
+def _patch_connector_apply_quantization() -> None:
+    """Insert apply_quantization() before connector.load_weights().
+
+    Pre-quantized INT8 connector weights carry ``.scales`` keys; the connector
+    module structure must be quantized (matched) BEFORE the raw weights are
+    loaded, otherwise load_weights silently mis-shapes them. ``apply_quantization``
+    is a no-op for plain BF16 weights (no ``.scales`` keys), so this is safe to
+    run unconditionally. Same insert idiom as Patch 5 (_patch_orchestration).
+
+    Two vendor sites build the GemmaFeaturesExtractorV2 connector:
+
+      * ``PromptEncoder.load`` (ltx_pipelines_mlx.utils.blocks) — the inference
+        runtime path used by all generation pipelines. On sys.path, patched
+        unconditionally.
+      * ``load_feature_extractor`` (ltx_trainer_mlx.model_loader) — the trainer
+        path. ltx_trainer_mlx is NOT on sys.path for inference runs, so the
+        import is wrapped defensively; if the trainer is ever wired in, the
+        fix applies automatically.
+    """
+    from pathlib import Path
+
+    from ltx_core_mlx.text_encoders.gemma.encoders.base_encoder import GemmaLanguageModel
+    from ltx_core_mlx.text_encoders.gemma.feature_extractor import GemmaFeaturesExtractorV2
+    from ltx_core_mlx.utils.memory import aggressive_cleanup
+    from ltx_core_mlx.utils.weights import apply_quantization, load_split_safetensors
+
+    # --- Inference path: PromptEncoder.load (always available) ---
+    from ltx_pipelines_mlx.utils.blocks import PromptEncoder
+
+    def prompt_encoder_load(self) -> None:  # type: ignore[no-untyped-def]
+        """Load Gemma + connector if not already loaded (quantization-aware)."""
+        if self._text_encoder is None:
+            self._text_encoder = GemmaLanguageModel()
+            self._text_encoder.load(self.gemma_model_id)
+            aggressive_cleanup()
+
+        if self._feature_extractor is None:
+            self._feature_extractor = GemmaFeaturesExtractorV2()
+            connector_weights = load_split_safetensors(
+                self.model_dir / "connector.safetensors", prefix="connector."
+            )
+            # Quantize structure first if weights are pre-quantized (.scales keys);
+            # no-op for BF16. Must run before load_weights.
+            apply_quantization(self._feature_extractor.connector, connector_weights)
+            self._feature_extractor.connector.load_weights(list(connector_weights.items()))
+            aggressive_cleanup()
+
+    PromptEncoder.load = prompt_encoder_load
+
+    # --- Trainer path: load_feature_extractor (defensive — trainer not on sys.path) ---
+    try:
+        import ltx_trainer_mlx.model_loader as _ml
+
+        def load_feature_extractor(model_dir):  # type: ignore[no-untyped-def]
+            """Load the Gemma feature-extractor connector (quantization-aware)."""
+            model_dir = Path(model_dir)
+            model = GemmaFeaturesExtractorV2()
+            connector_weights = load_split_safetensors(
+                model_dir / "connector.safetensors", prefix="connector."
+            )
+            apply_quantization(model.connector, connector_weights)
+            model.connector.load_weights(list(connector_weights.items()))
+            aggressive_cleanup()
+            return model
+
+        _ml.load_feature_extractor = load_feature_extractor
+    except ImportError:
+        # ltx_trainer_mlx is not on sys.path during inference runs — nothing to patch.
+        pass
+
+
 def apply_all_patches() -> None:
     """Apply all vendor monkey-patches.  Called automatically at import time."""
     _patch_upsample1d()
@@ -613,7 +692,8 @@ def apply_all_patches() -> None:
     _patch_image_util_nan_guard()
     _patch_klein_edit_ref_strength()
     _patch_int8_lora()
-    print("[vendor_patches] Applied 10 patches (7 ltx-2-mlx + 3 mflux)")
+    _patch_connector_apply_quantization()
+    print("[vendor_patches] Applied 11 patches (8 ltx-2-mlx + 3 mflux)")
 
 
 apply_all_patches()
