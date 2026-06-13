@@ -7,7 +7,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 from app import config as cfg
 
@@ -71,7 +71,7 @@ def apply_draft_overrides(args: argparse.Namespace) -> None:
     print("  [Draft] Quick preview: 4 steps, 512x512")
 
 
-def seed_sequence(args_or_config: argparse.Namespace | object) -> list[int]:
+def seed_sequence(args_or_config: Union[argparse.Namespace, "RunConfig"]) -> list[int]:
     """Return a list of seeds for a batch run.
 
     Works with both argparse Namespace and RunConfig objects (same attribute names).
@@ -480,7 +480,16 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
             transformer_name=getattr(run_config, "transformer", "klein-9b"),
         )
     else:
-        pipeline = ZImagePipeline()
+        transformer_name = getattr(run_config, "transformer", None)
+        if transformer_name:
+            t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+            if not os.path.isdir(t_dir):
+                print(f"ERROR: Transformer '{transformer_name}' not found at {t_dir}")
+                sys.exit(1)
+            print(f"[Pipeline] Using transformer: {transformer_name}")
+            pipeline = ZImagePipeline(transformer_dir=t_dir)
+        else:
+            pipeline = ZImagePipeline()
 
     all_outputs = []
     output_paths = []
@@ -630,7 +639,7 @@ def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_mode
 # A/B test: run both pipelines sequentially for comparison
 # ---------------------------------------------------------------------------
 
-def _stitch_horizontal(images: list, gap: int = 0, labels: list[str] | None = None, bg_color: tuple[int, int, int] = (30, 30, 30)) -> "Image.Image":
+def _stitch_horizontal(images: "list[Image.Image]", gap: int = 0, labels: list[str] | None = None, bg_color: tuple[int, int, int] = (30, 30, 30)) -> "Image.Image":
     """Stitch images horizontally with optional text labels."""
     from PIL import Image, ImageDraw, ImageFont
     max_h = max(img.height for img in images)
@@ -841,7 +850,11 @@ def execute_upscale(input_path: str, model_path: str, output_path: str | None) -
         print(f"  Expected at: {model_path}", file=sys.stderr)
         sys.exit(1)
 
-    image = Image.open(input_path).convert("RGB")
+    try:
+        image = Image.open(input_path).convert("RGB")
+    except Exception as exc:
+        print(f"ERROR: cannot open image (corrupt or unsupported format): {input_path}\n  {exc}", file=sys.stderr)
+        sys.exit(1)
     w0, h0 = image.size
 
     print(f"Upscaling {input_path} ({w0}×{h0}) with {os.path.basename(model_path)}...")

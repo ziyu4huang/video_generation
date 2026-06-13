@@ -20,7 +20,7 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     # Accept image as positional arg OR --input-image flag
     parser.add_argument("image", nargs="?", default=None, metavar="IMAGE",
                         help="Input image path (positional shorthand for --input-image)")
@@ -44,7 +44,7 @@ def add_args(parser):
                         help="Seed for SeedVR2 noise (default: 42)")
 
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     input_path = require_file(
         args.image or args.input_image,
         "input image (positional arg or --input-image)",

@@ -161,7 +161,7 @@ def set_module_by_name(model: nn.Module, module_name: str, new_module: nn.Module
         setattr(parent, last, new_module)
 
 
-def convert_unet_key_to_mlx(key):
+def convert_unet_key_to_mlx(key: str) -> str:
     new_key = key.replace("lora_unet_", "")
     new_key = new_key.replace("diffusion_model.", "")
 

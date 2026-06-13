@@ -6049,6 +6049,7 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
     from app.test_prompts_image import get_test_prompt
     from app.commands._shared import resolve_lora_path
 
+    pipeline_type = test_cfg.get("pipeline", "zimage")
     lora_scale = (getattr(args, "lora_scale", None) or 1.0) or test_cfg.get("lora_scale", 1.0)
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
     seeds = test_cfg.get("seeds", [42, 777])
@@ -6080,12 +6081,17 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
     print(f"  Seeds:      {seeds}")
     print(f"  Steps:      {steps}")
     print(f"  LoRA scale: {lora_scale}")
+    print(f"  Pipeline:   {pipeline_type}")
     print(f"  A:          {label_a} (lora={lora_paths[0] is not None})")
     print(f"  B:          {label_b} (lora={os.path.basename(lora_paths[1]) if lora_paths[1] else 'None'})")
     print(f"  Total:      {total_images} images ({len(prompt_names)} styles × {len(seeds)} seeds × 2)")
     print()
 
-    pipeline = ZImagePipeline()
+    if pipeline_type == "flux2-klein":
+        from app.flux2_pipeline import Flux2KleinPipeline
+        pipeline = Flux2KleinPipeline()
+    else:
+        pipeline = ZImagePipeline()
     _quality_mod = importlib.import_module("app.commands.image-quality")
 
     groups = []  # [{prompt_name, prompt_text, width, height, pairs, metrics_by_pair}, ...]

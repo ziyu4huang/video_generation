@@ -134,8 +134,10 @@ const RUN_PY      = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR     = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR    = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
 
-const WORKFLOW_NAME = "mlx-movie-director-lora-review-t2i-zimage-turbo"
-const HISTORY_DIR   = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const WORKFLOW_NAME  = "mlx-movie-director-lora-review-t2i-zimage-turbo"
+const HISTORY_DIR    = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
+const INDEX_FILE     = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:   ${PYTHON}`)
@@ -218,6 +220,38 @@ if (resumeMode === "fresh") {
     log("WARNING: resume=continue but no prior run found. Starting fresh.")
   }
 }
+
+// ── Load LoRA reflection ─────────────────────────────────────────────────────
+
+let loraReflection = null
+if (resumeMode !== "fresh") {
+  const reflectLoad = await agent(
+    `Read the LoRA reflection file if it exists.
+Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
+Otherwise return { reflection: <the parsed object> }.`,
+    { label: "load-lora-reflection", phase: "Resolve", model: "haiku" },
+  )
+  loraReflection = reflectLoad?.reflection || null
+  if (loraReflection?.score_baselines) {
+    const count = Object.keys(loraReflection.score_baselines).length
+    log(`Reflection: loaded baselines for ${count} LoRA(s) from ${loraReflection.runs_analyzed || 0} prior run(s)`)
+  } else {
+    log("Reflection: no prior LoRA reflection.json — will create after this run")
+  }
+}
+
+const loraBaselineCtx = loraReflection?.score_baselines
+  ? `\n## LORA SCORE BASELINES FROM PRIOR RUNS (flag regression if drop > 0.5):\n` +
+    Object.entries(loraReflection.score_baselines)
+      .map(([n, b]) => `- ${n}: overall=${b.overall} (${b.runs} run(s))`)
+      .join("\n") +
+    (loraReflection.regression_alerts?.length
+      ? `\n\n## REGRESSION ALERTS — check these LoRAs:\n` +
+        loraReflection.regression_alerts.map((a) => `- ⚠️ ${a}`).join("\n")
+      : "") +
+    "\n"
+  : ""
 
 markPhase("resolve", "completed")
 
@@ -934,7 +968,7 @@ if (baseScoreSummary.count > 0) {
 
 const reportResult = await agent(
   `Generate a concise LoRA comparison report for this zimage-turbo A/B test.
-
+${loraBaselineCtx}
 ## Test Configuration
 - Pipeline: zimage (zimage-turbo LoRAs)
 - Prompt: ${prompt.slice(0, 120)}${prompt.length > 120 ? "..." : ""}
@@ -1058,7 +1092,31 @@ markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
 
 phase("Persist")
 
-// Reuse successCount/failCount from Generate phase (already defined)
+const topLora = loraScoreSummary.length > 0
+  ? loraScoreSummary.reduce((best, l) => ((l.overall || 0) > (best.overall || 0) ? l : best), loraScoreSummary[0])
+  : null
+
+const scoreDeltaFromLast = loraReflection?.score_baselines
+  ? loraScoreSummary.reduce((acc, l) => {
+      const base = loraReflection.score_baselines[l.name]
+      if (base) acc[l.name] = { delta: +(l.overall - base.overall).toFixed(2), regression: l.overall < base.overall - 0.5 }
+      return acc
+    }, {})
+  : null
+
+const signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: topLora?.overall ?? null,
+  delta_from_last: null,
+  highlights: [
+    `${loras.length} LoRA(s) tested, ${genResults.filter((r) => r.status === "success").length} images generated`,
+    topLora ? `Best: ${topLora.name} overall=${topLora.overall}` : "no LoRA scores",
+    `Baseline: overall=${baseScoreSummary.overall ?? "?"}`,
+  ],
+  warnings: loraScoreSummary
+    .filter((l) => (l.overall || 0) < (baseScoreSummary.overall || 0))
+    .map((l) => `${l.name} below baseline (${l.overall} < ${baseScoreSummary.overall})`),
+}
 
 const historyEntry = {
   schema_version: 1,
@@ -1080,6 +1138,7 @@ const historyEntry = {
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals,
   tags: ["lora-review", "zimage-turbo", ...(doSweep ? ["scale-sweep"] : [])],
   result: {
     loras: loras.map((l) => ({ name: l.name, dirName: l.dirName, description: l.description })),
@@ -1104,26 +1163,88 @@ const historyEntry = {
         })),
     },
     priorRunId: priorHistory?.runId || null,
+    score_delta_from_last: scoreDeltaFromLast,
   },
 }
 
-const historyJson = JSON.stringify(historyEntry, null, 2)
+await agent(
+  `Persist workflow history.
+1. Bash("mkdir -p '${HISTORY_DIR}'")
+2. Use the Write tool: Write({ file_path: '${HISTORY_DIR}/${RUN_ID}.json', content: <historyJson> })
+   The content is: ${JSON.stringify(historyEntry, null, 2)}
+3. Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
+4. Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true, path: '${HISTORY_DIR}/${RUN_ID}.json' }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+// ── Synthesize LoRA reflection ───────────────────────────────────────────────
+
+const LORA_REFLECT_SCHEMA = {
+  type: "object",
+  properties: {
+    score_baselines: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        properties: {
+          overall: { type: "number" },
+          detail: { type: "number" },
+          sharpness: { type: "number" },
+          prompt_adherence: { type: "number" },
+          runs: { type: "number" },
+        },
+        required: ["overall", "runs"],
+      },
+    },
+    regression_alerts: { type: "array", items: { type: "string" } },
+    confirmed_best_settings: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        properties: { scale: { type: "number" }, runs_stable: { type: "number" } },
+        required: ["scale", "runs_stable"],
+      },
+    },
+    prompt_patterns: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+    runs_analyzed: { type: "number" },
+    updated_at: { type: "string" },
+  },
+  required: ["score_baselines", "regression_alerts", "runs_analyzed", "updated_at"],
+}
+
+const reflectResult = await agent(
+  `Synthesize a LoRA score reflection from the run history.
+1. List history files: Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | head -10")
+2. Read up to 5 most recent files.
+3. For each LoRA across runs, compute rolling average: overall, detail, sharpness, prompt_adherence. Count runs.
+4. Flag regression_alerts: any LoRA where current run overall dropped > 0.5 vs prior average.
+5. Identify confirmed_best_settings: LoRAs whose optimal scale was consistent across ≥2 runs.
+6. Return with updated_at = "${RUN_TIMESTAMP}".`,
+  { label: "synthesize-lora-reflection", phase: "Persist", model: "haiku", schema: LORA_REFLECT_SCHEMA },
+)
+
+if (reflectResult) {
+  await agent(
+    `Write the LoRA reflection JSON file.
+Use the Write tool: Write({ file_path: '${REFLECTION_FILE}', content: <json> })
+The content is: ${JSON.stringify(reflectResult, null, 2)}
+Return { written: true }.`,
+    { label: "write-lora-reflection", phase: "Persist", model: "haiku" },
+  )
+  log(`Reflection: updated ${REFLECTION_FILE} (${reflectResult.runs_analyzed} run(s) analyzed)`)
+}
+
+// ── Update cross-workflow index ──────────────────────────────────────────────
 
 await agent(
-  `Persist the workflow run history to disk.
-
-Steps:
-1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON file using a heredoc:
-   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
-${historyJson}
-HISTORY_EOF")
-3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent:
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-
-Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse the JSON array. Append: ${JSON.stringify({ run_id: RUN_ID, workflow: WORKFLOW_NAME, started_at: RUN_TIMESTAMP, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only the latest 50 entries.
+4. Write back: Write({ file_path: '${INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
 )
 
 log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)

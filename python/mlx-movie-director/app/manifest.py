@@ -31,7 +31,7 @@ def measure_peak_rss_mb() -> float:
         return 0.0
 
 
-def file_fingerprint(path: str, chunk_mb: int = 1) -> dict:
+def file_fingerprint(path: str, chunk_mb: int = 1) -> dict[str, Any]:
     """Fast fingerprint for large files: MD5 of first+last chunks + file size.
 
     This avoids reading multi-GB files in full while still detecting

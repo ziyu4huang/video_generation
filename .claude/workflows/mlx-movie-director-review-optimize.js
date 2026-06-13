@@ -56,7 +56,7 @@ export const meta = {
     { title: "Resolve Fix",        detail: "Apply verified fixes to codebase" },
     { title: "Re-verify",          detail: "Argparse smoke tests + pytest + code review on changed files" },
     { title: "Restore",            detail: "Conditional: rollback fixes if re-verify detects regressions" },
-    { title: "Persist",            detail: "Write run history to disk for trend analysis and incremental improvement" },
+    { title: "Persist",            detail: "Write run history + synthesize reflection.json (patterns for future runs)" },
     { title: "Report",             detail: "Synthesize prioritized findings with fix status and prior-run comparison" },
   ],
 }
@@ -393,8 +393,9 @@ if (!PROJECT_ROOT) {
 
 const WORKFLOW_NAME = "mlx-movie-director-review-optimize"
 const PYTHON_DIR = `${PROJECT_ROOT}/python/mlx-movie-director`
-const VENV_PYTHON = `${PROJECT_ROOT}/python/venv/bin/python`
+const VENV_PYTHON = `${PROJECT_ROOT}/ComfyUI/.venv/bin/python`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 
 // All registered commands for argparse smoke testing
 const SMOKE_COMMANDS = [
@@ -486,6 +487,38 @@ if (resumeMode === "fresh") {
     log("WARNING: resume=continue but no prior run found. Starting fresh.")
   }
 }
+
+// ── Load reflection.json (accumulated patterns from all prior runs) ───────────
+let priorReflection = null
+if (resumeMode !== "fresh") {
+  const reflectLoad = await agent(
+    `Read the reflection file if it exists.
+    Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+    Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
+    Otherwise return { reflection: <the parsed object> }.`,
+    { label: "load-reflection", phase: "Resolve", model: "haiku" },
+  )
+  priorReflection = reflectLoad?.reflection || null
+  if (priorReflection?.patterns) {
+    const patCount = Object.values(priorReflection.patterns).flat().length
+    log(`Reflection: loaded ${patCount} pattern(s) from ${priorReflection.runs_analyzed || 0} prior run(s)`)
+  } else {
+    log("Reflection: no prior reflection.json found — will create after this run")
+  }
+}
+
+// Build prior-patterns injection string for Review prompts
+const priorPatternsCtx = priorReflection?.patterns
+  ? `\n## KNOWN PATTERNS FROM PRIOR RUNS — check these proactively (confirmed real bugs in this codebase):\n` +
+    Object.entries(priorReflection.patterns)
+      .flatMap(([dim, pats]) => (pats || []).map((p) => `- [${dim}] ${p}`))
+      .join("\n") +
+    (priorReflection.false_positives?.length
+      ? `\n\n## FALSE POSITIVE PATTERNS TO AVOID (do NOT flag these):\n` +
+        priorReflection.false_positives.map((p) => `- ${p}`).join("\n")
+      : "") +
+    "\n"
+  : ""
 
 markPhase("resolve", "completed")
 
@@ -586,7 +619,7 @@ phase("Review")
 // Dimension-specific review prompts
 const DIMENSION_PROMPTS = {
   "argparse-integrity": `Review these Python command modules for ARGPARSE INTEGRITY issues in an MLX video generation CLI tool.
-
+${priorPatternsCtx}
 The project uses a dynamic argparse architecture:
 - run.py's build_parser() registers subcommands via importlib.import_module()
 - Unified commands (e.g. video.py, image.py) call multiple add_*_args() functions from sibling modules ON THE SAME PARSER
@@ -627,7 +660,7 @@ For each finding:
 Return structured findings matching the schema.`,
 
   correctness: `Review these Python source files for CORRECTNESS BUGS in an MLX-based image/video generation CLI tool on Apple Silicon.
-
+${priorPatternsCtx}
 Focus on:
 - Logic errors: wrong conditions in image/video processing pipelines, off-by-one in frame calculations
 - The 8k+1 frame constraint: frames must satisfy (frames-1) % 8 == 0 (i.e. 9, 17, 25, 33, 41, 49...). Check frame validation logic in video-generate.py
@@ -655,7 +688,7 @@ For each finding:
 Return structured findings matching the schema.`,
 
   "type-safety": `Review these Python source files for TYPE SAFETY issues.
-
+${priorPatternsCtx}
 Focus on:
 - Missing type hints on public functions (def run(args) vs def run(args: argparse.Namespace) -> None)
 - Any usage that should be typed: RunConfig dataclass fields, pipeline method signatures, manifest structures
@@ -676,7 +709,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "error-handling": `Review these Python source files for ERROR HANDLING gaps in this CLI tool.
-
+${priorPatternsCtx}
 Focus on:
 - sys.exit(1) calls in library code (app/*.py) — should raise exceptions instead, let the CLI layer handle exit
 - Missing try/except around importlib.import_module() in run.py and unified commands
@@ -698,7 +731,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "import-hygiene": `Review these Python source files for IMPORT HYGIENE issues.
-
+${priorPatternsCtx}
 Focus on:
 - importlib.import_module() calls with incorrect module paths (e.g. "app.commands.video_generate" vs "app.commands.video-generate")
 - Circular import risk: run.py imports app.commands.*, but _shared.py imports app.config
@@ -742,6 +775,24 @@ reviewResults.forEach((r, i) => {
 })
 
 log(`Review complete: ${allFindings.length} finding(s) across ${dimensions.length} dimension(s)`)
+
+// ── Pattern-matched confidence boost ─────────────────────────────────────────
+// Confirmed cross-run patterns get +20 confidence to ensure they survive the threshold filter
+const confirmedPatterns = priorReflection?.confirmed_patterns || []
+if (confirmedPatterns.length > 0) {
+  let boosted = 0
+  allFindings.forEach((f) => {
+    const match = confirmedPatterns.find((p) =>
+      p.keyword && (f.description || "").toLowerCase().includes(p.keyword.toLowerCase()),
+    )
+    if (match) {
+      f.confidence = Math.min(100, (f.confidence || 60) + 20)
+      f._patternMatch = match.pattern
+      boosted++
+    }
+  })
+  if (boosted > 0) log(`Pattern boost: ${boosted} finding(s) matched confirmed patterns → confidence +20`)
+}
 
 // ── Incremental dedup: suppress findings already upheld in prior run ─────────
 const newFindings = []
@@ -1261,6 +1312,33 @@ const appliedCount = fixResults.fixes.filter((f) => f.status === "applied").leng
 const skippedCount = fixResults.fixes.filter((f) => f.status === "skipped").length
 const failedCount  = fixResults.fixes.filter((f) => f.status === "failed").length
 
+// Build diagnostic aggregates for enhanced history
+const hotspotFiles = verifiedFindings.reduce((acc, f) => {
+  acc[f.file] = (acc[f.file] || 0) + 1; return acc
+}, {})
+const adversarialRejectionRate = allVerdicts.length
+  ? +(allVerdicts.filter((v) => !v.upheld).length / allVerdicts.length).toFixed(2)
+  : null
+const fixFailureReasons = fixResults.fixes
+  .filter((f) => f.status === "failed")
+  .reduce((acc, f) => {
+    const r = (f.error || "").includes("context") ? "context_mismatch" : "other"
+    acc[r] = (acc[r] || 0) + 1; return acc
+  }, {})
+
+// Build signals for cross-workflow health index
+const signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: verifiedFindings.length,
+  delta_from_last: null,
+  highlights: [
+    `${verifiedFindings.length} verified finding(s) across ${dimensions.length} dimension(s)`,
+    doFix ? `${appliedCount} fix(es) applied` : "review-only mode",
+    allVerdicts.length > 0 ? `adversarial: ${allVerdicts.filter((v) => v.upheld).length}/${allVerdicts.length} upheld` : "no adversarial run",
+  ],
+  warnings: reVerifyFindings.length > 0 ? [`${reVerifyFindings.length} regression(s) detected`] : [],
+}
+
 // Build the history envelope
 const historyEntry = {
   schema_version: 1,
@@ -1273,6 +1351,7 @@ const historyEntry = {
   status: "complete",
   files_touched: [...filesTouched],
   tags: ["code-review", "python", "mlx", ...dimensions],
+  signals,
   result: {
     scan: {
       totalFiles,
@@ -1318,10 +1397,13 @@ const historyEntry = {
       stashRef: checkpointResult?.stashRef || "",
       dirtyFilesBefore: checkpointResult?.dirtyBefore || [],
     },
+    hotspot_files: hotspotFiles,
+    adversarial_rejection_rate: adversarialRejectionRate,
+    fix_failure_reasons: fixFailureReasons,
   },
 }
 
-// Write history via agent (scripts can't use fs directly)
+// Write history via agent — use Write tool (not heredoc) to avoid shell quoting issues
 const historyJson = JSON.stringify(historyEntry, null, 2)
 
 await agent(
@@ -1329,19 +1411,120 @@ await agent(
 
 Steps:
 1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON file using a heredoc:
-   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
+2. Write the history JSON using the Write tool (NOT a shell heredoc, to avoid quoting issues):
+   Write({ file_path: "${HISTORY_DIR}/${RUN_ID}.json", content: <the JSON string below> })
+   JSON content to write:
 ${historyJson}
-HISTORY_EOF")
 3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent:
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+4. Prune old runs — keep only the 15 most recent history files (not reflection.json):
+   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f")
 
 Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
   { label: "persist-history", phase: "Persist", model: "haiku" },
 )
 
 log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+
+// ── Reflect: synthesize patterns across all prior runs ────────────────────────
+const REFLECT_SCHEMA = {
+  type: "object",
+  properties: {
+    patterns: {
+      type: "object",
+      description: "dimension → array of pattern strings (max 5 per dimension)",
+      additionalProperties: { type: "array", items: { type: "string" } },
+    },
+    false_positives: {
+      type: "array",
+      items: { type: "string" },
+      description: "Patterns that were repeatedly flagged but rejected as false positives",
+    },
+    confirmed_patterns: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          pattern:     { type: "string", description: "Human-readable pattern name" },
+          keyword:     { type: "string", description: "Keyword to match against finding descriptions" },
+          dimension:   { type: "string" },
+          occurrences: { type: "number" },
+          last_seen:   { type: "string" },
+        },
+        required: ["pattern", "keyword", "dimension"],
+      },
+    },
+    runs_analyzed: { type: "number" },
+    updated_at:    { type: "string" },
+  },
+  required: ["patterns", "false_positives", "confirmed_patterns", "runs_analyzed"],
+}
+
+const reflectResult = await agent(
+  `Synthesize code review patterns from all history runs. This builds reflection.json that future runs use to find bugs faster.
+
+Step 1 — List history files (exclude reflection.json):
+Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -10")
+
+Step 2 — Read each history file and extract:
+For CONFIRMED patterns: findings that appear in the "fixes.items" with status="applied" (these were real bugs we fixed)
+For FALSE POSITIVE patterns: findings where adversarial verdict upheld=false across multiple runs
+For TRENDING issues: dimensions with many medium/high findings across runs
+
+Step 3 — Include THIS run's data:
+- Applied fixes this run: ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied").map((f) => ({ id: f.findingId, change: f.change })))}
+- Sample verified findings: ${JSON.stringify(verifiedFindings.slice(0, 10).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
+
+Build output:
+- patterns: { "correctness": ["<1 sentence actionable checker>", ...max 5], "import-hygiene": [...], ... }
+  CRITICAL: Patterns must be SPECIFIC to this codebase. Examples:
+  "correctness": ["getattr(args, 'seed', 42) returns None when args.seed=None — use explicit if-None check for all getattr with numeric defaults"]
+  "import-hygiene": ["Check every file using sys.stderr/sys.exit/sys.argv has top-level 'import sys'"]
+  "error-handling": ["Image.open() without 'with' statement leaks file handles — all Image.open calls need context managers"]
+- false_positives: patterns that recur in review but are always rejected, e.g. "Python 3.12+ nested f-string quotes are valid in Python 3.13.13"
+- confirmed_patterns: findings confirmed across ≥2 runs OR successfully fixed, with keyword for matching
+  keyword should be a short string found in the finding's description field
+- runs_analyzed: how many history files you read
+- updated_at: "${RUN_TIMESTAMP}"
+
+Max 5 patterns per dimension. Keep each pattern to 1 sentence. Return the reflection object.`,
+  { label: "reflect", phase: "Persist", model: "sonnet", schema: REFLECT_SCHEMA },
+)
+
+if (reflectResult) {
+  const reflectJson = JSON.stringify({ ...reflectResult, schema_version: 1 }, null, 2)
+  await agent(
+    `Write the updated reflection to '${REFLECTION_FILE}'. Use the Write tool (NOT heredoc).
+    Write({ file_path: "${REFLECTION_FILE}", content: <JSON below> })
+    JSON:
+${reflectJson}
+    Then verify: Bash("wc -c '${REFLECTION_FILE}' && echo REFLECT_OK")`,
+    { label: "write-reflection", phase: "Persist", model: "haiku" },
+  )
+  const patCount = Object.values(reflectResult.patterns || {}).flat().length
+  log(`Reflect: ${patCount} pattern(s), ${reflectResult.confirmed_patterns?.length || 0} confirmed, ${reflectResult.false_positives?.length || 0} false-positives → ${REFLECTION_FILE}`)
+}
+
+// ── Update cross-workflow _index.json ─────────────────────────────────────────
+const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+const indexEntry = JSON.stringify({
+  run_id: RUN_ID,
+  workflow: WORKFLOW_NAME,
+  started_at: RUN_TIMESTAMP,
+  run_quality: signals.run_quality,
+  key_metric: signals.key_metric,
+  highlights: signals.highlights,
+})
+await agent(
+  `Append a workflow summary to the cross-workflow index.
+1. Read current index: Bash("cat '${INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse the JSON array. Append this entry:
+   ${indexEntry}
+3. Keep only the 50 most recent entries (sort descending by run_id, slice to 50).
+4. Write back using Write tool: Write({ file_path: "${INDEX_FILE}", content: <updated JSON array, 2-space indent> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+)
+
 markPhase("persist", "completed")
 
 // ══════════════════════════════════════════════════════════════════════════════

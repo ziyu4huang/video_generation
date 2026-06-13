@@ -1,11 +1,13 @@
-// mlx-movie-director-run-and-review-image-t2i — Iterative T2I generation + VLM review
+// mlx-movie-director-run-and-review-image-t2i — Iterative T2I generation + VLM review + self-fix
 //
 // An iterative loop for GPU-limited Apple Silicon:
 //   1. Generation iteration — run.py t2i (sequentially, one model process at a time),
 //      auto-score each output with run.py caption --style review.
-//   2. Finalize — aggregate an explicit list of accumulated caption JSONs into ONE
+//   2. Self-Fix (optional) — when autoFix:true and best overall score < autoFixThreshold,
+//      auto-propose parameter changes (steps, seed) and re-run to improve quality.
+//   3. Finalize — aggregate an explicit list of accumulated caption JSONs into ONE
 //      interactive review HTML for a human.
-//   3. Feedback — the human exports feedback (best image + comments) from that HTML,
+//   4. Feedback — the human exports feedback (best image + comments) from that HTML,
 //      which is fed back into the next generation iteration.
 //
 // Two modes (selected by args):
@@ -62,8 +64,10 @@ export const meta = {
     { title: "Generate", detail: "Execute T2I sequentially (one model process at a time, GPU-safe) with --json-summary" },
     { title: "VLM Check", detail: "Verify LM Studio is running before caption phase" },
     { title: "Review", detail: "Score each output PNG via run.py caption --style review (requires LM Studio)" },
-    { title: "Report", detail: "Summarize quality scores and improvement recommendations" },
+    { title: "Self-Fix", detail: "Analyze score weaknesses, propose 1–2 fix specs, re-run and re-score (autoFix:true only)" },
+    { title: "Report", detail: "Summarize quality scores, self-fix outcome, and improvement recommendations" },
     { title: "Review HTML", detail: "Auto-build after gen (or finalize) — multi-set A/B HTML via caption --ab-manifest" },
+    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
   ],
 }
 
@@ -102,6 +106,22 @@ log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:  ${PYTHON}`)
 log(`  RUN_PY:  ${RUN_PY}`)
 log(`  OUT_DIR: ${OUT_DIR}`)
+
+// ── Phase tracking ──────────────────────────────────────────────────────────
+const phaseStatus = {
+  resolve: "pending", feedback: "pending", generate: "pending",
+  vlmCheck: "pending", review: "pending", selfFix: "pending",
+  report: "pending", reviewHtml: "pending", persist: "pending",
+}
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+markPhase("resolve", "completed")
 
 // ── Helpers (pure JS — no agent needed) ──────────────────────────────────────
 
@@ -544,8 +564,10 @@ Return JSON:
   feedbackGuidance = feedbackResult?.guidance || ""
   if (feedbackResult?.bestFilename) log(`  Human's best: ${feedbackResult.bestFilename}`)
   log(`  Guidance:\n${feedbackGuidance.split("\n").map((l) => "    " + l).join("\n")}`)
+  markPhase("feedback", "completed")
 } else {
   log("No feedback for this iteration (first iteration) — skipping Feedback phase.")
+  markPhase("feedback", "skipped")
 }
 
 // ── Phase 1.5: GPU gate — wait if another run.py generation is already using the GPU ──
@@ -643,6 +665,7 @@ Return JSON:
     genResults.push(null)
   }
 }
+markPhase("generate", "completed")
 
 // ── Phase 3: VLM pre-flight check ────────────────────────────────────────────
 
@@ -662,9 +685,11 @@ const vlmAvailable = vlmCheck?.available === true
 
 if (vlmAvailable) {
   log("VLM available — proceeding with Review phase.")
+  markPhase("vlmCheck", "completed")
 } else {
   log("VLM UNAVAILABLE — LM Studio not running at localhost:1234. Skipping Review phase.")
   log("Start LM Studio with a VLM model (e.g. qwen3-vl-4b) to enable scoring.")
+  markPhase("vlmCheck", "skipped")
 }
 
 // ── Phase 4: Review — Caption each PNG ───────────────────────────────────────
@@ -774,6 +799,167 @@ Return flat JSON:
     }
   })
 }
+markPhase("review", vlmAvailable ? "completed" : "skipped")
+
+// ── Phase 4.5: Self-Fix (optional) ──────────────────────────────────────────
+
+const autoFix = isObj(resolvedArgs) && resolvedArgs.autoFix === true
+const autoFixThreshold = (isObj(resolvedArgs) && typeof resolvedArgs.autoFixThreshold === "number")
+  ? resolvedArgs.autoFixThreshold : 6.0
+
+let fixCaptions = []
+let fixAnalysis = ""
+
+if (autoFix && vlmAvailable && mode !== "finalize") {
+  // Collect all scored captions from allResults
+  const scoredCaptions = allResults
+    .flatMap((r) => (r.captions || []).filter((c) => c.overall != null))
+  const bestScore = scoredCaptions.reduce((best, c) => Math.max(best, c.overall || 0), 0)
+  const worstCaptions = scoredCaptions.filter((c) => (c.overall || 0) < autoFixThreshold)
+
+  if (worstCaptions.length > 0 && bestScore < autoFixThreshold) {
+    phase("Self-Fix")
+    log(`Self-Fix triggered: best overall=${bestScore.toFixed(1)} < threshold=${autoFixThreshold}. Analyzing ${worstCaptions.length} under-threshold output(s)...`)
+
+    const FIX_SCHEMA = {
+      type: "object",
+      properties: {
+        fixSpecs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              label: { type: "string" },
+              rationale: { type: "string" },
+              prompt: { type: "string" },
+              seed: { type: "number" },
+              steps: { type: "number" },
+              pipeline: { type: "string" },
+            },
+          },
+        },
+        analysis: { type: "string" },
+      },
+      required: ["fixSpecs", "analysis"],
+    }
+
+    const fixProposalResult = await agent(
+      `Analyze T2I quality scores and propose 1–2 targeted parameter fixes.
+
+## Scored Outputs (below threshold ${autoFixThreshold})
+${JSON.stringify(worstCaptions, null, 2)}
+
+## All Scored Outputs (for context)
+${JSON.stringify(scoredCaptions, null, 2)}
+
+## Prior Feedback Guidance: ${feedbackGuidance || "(none)"}
+
+## Fix Rules (apply these rules to identify fixes):
+- detail < 5 → increase steps by 3–5 (helps with fine texture rendering)
+- sharpness < 5 → try a different seed (stochastic quality variation)
+- composition < 5 → try a different seed
+- prompt_adherence < 5 → strengthen the prompt with more specific style keywords
+- overall low across all dimensions → increase steps by 5 AND try a different seed
+- If the pipeline is "zimage" and steps < 9 → try steps: 9
+- If the pipeline is "flux2-klein" and steps < 4 → try steps: 4
+
+## Your Task
+1. Identify the PRIMARY failure mode(s) from the scores.
+2. Propose at most 2 concrete fix specs. Each spec MUST include:
+   - label: short identifier (e.g. "fix-steps7-s42", "fix-seed200")
+   - rationale: one sentence explaining what it fixes
+   - prompt: re-use the prompt from the worst-scoring output
+   - Only include fields that CHANGE from the original spec (seed, steps, pipeline)
+3. Write a brief analysis of what failed and why these fixes should help.
+
+Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
+      { label: "fix-analysis", phase: "Self-Fix", model: "sonnet", schema: FIX_SCHEMA },
+    )
+
+    fixAnalysis = fixProposalResult?.analysis || ""
+    const fixSpecs = fixProposalResult?.fixSpecs || []
+    log(`Self-Fix analysis: ${fixAnalysis}`)
+    log(`Proposed ${fixSpecs.length} fix spec(s).`)
+
+    // Run fix specs sequentially (GPU-safe)
+    for (let fi = 0; fi < fixSpecs.length; fi++) {
+      const spec = fixSpecs[fi]
+      log(`[Fix ${fi + 1}/${fixSpecs.length}] Running "${spec.label}": ${spec.rationale}`)
+
+      const fixCmd = buildCommand({
+        type: "t2i",
+        prompt: spec.prompt || runSpecs[0]?.prompt || "A high quality photograph",
+        seed: spec.seed,
+        steps: spec.steps,
+        pipeline: spec.pipeline || runSpecs[0]?.pipeline,
+      })
+
+      if (!fixCmd) {
+        log(`[Fix ${fi + 1}] Cannot build command — skipping.`)
+        continue
+      }
+
+      try {
+        const fixGen = await agent(
+          `Execute a T2I fix generation command.
+
+COMMAND: ${fixCmd}
+
+STEPS:
+1. Run: Bash("${fixCmd} 2>&1", timeout=600000)
+2. Parse stdout for the JSON_SUMMARY line or "Saved: " lines to collect output PNG paths.
+3. Return status and paths.
+
+Return JSON: { "status": "success" or "error", "outputPngs": [...], "error": "" }`,
+          { label: `fix-gen-${fi}-${spec.label}`, phase: "Self-Fix", schema: GEN_SCHEMA },
+        )
+
+        const fixPngs = fixGen?.outputPngs || []
+        log(`[Fix ${fi + 1}] Generated ${fixPngs.length} PNG(s). Scoring...`)
+
+        // Score the fix output
+        const fixScores = await parallel(
+          fixPngs.map((pngPath, pi) => () =>
+            agent(
+              `Score the T2I fix output image.
+
+IMAGE PATH: ${pngPath}
+
+STEPS:
+1. Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style score --lang en 2>&1", timeout=120000)
+2. Read: Bash("cat '${captionPathFor(pngPath)}'")
+3. Parse outer JSON, double-parse the "caption" string field.
+
+Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "artifacts": <1-10>, "summary": "...", "error": "" }`,
+              { label: `fix-score-${fi}-${pi}`, phase: "Self-Fix", schema: CAPTION_SCHEMA },
+            ),
+          ),
+        )
+
+        const validScores = fixScores.filter(Boolean)
+        fixCaptions.push(...validScores)
+        const bestFix = validScores.reduce((b, c) => Math.max(b, c.overall || 0), 0)
+        log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)}`)
+      } catch (e) {
+        log(`[Fix ${fi + 1}] Agent failed: ${e?.message || e}`)
+      }
+    }
+    markPhase("selfFix", "completed")
+  } else if (bestScore >= autoFixThreshold) {
+    log(`Self-Fix skipped: best overall=${bestScore.toFixed(1)} >= threshold=${autoFixThreshold} — quality is acceptable.`)
+    markPhase("selfFix", "skipped")
+  } else {
+    log("Self-Fix skipped: no below-threshold outputs to fix.")
+    markPhase("selfFix", "skipped")
+  }
+} else if (mode === "finalize") {
+  markPhase("selfFix", "skipped")
+} else if (!autoFix) {
+  markPhase("selfFix", "skipped")
+} else if (!vlmAvailable) {
+  log("Self-Fix skipped: VLM unavailable.")
+  markPhase("selfFix", "skipped")
+}
 
 // ── Phase 5: Report ──────────────────────────────────────────────────────────
 
@@ -847,6 +1033,7 @@ For Captured/Missed columns: list the top 2–3 items, comma-separated. If not a
 Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
+markPhase("report", "completed")
 
 // ── Phase 6: Review HTML (auto-build — ONE HTML with all sets, for human feedback) ──
 let reviewHtml = ""
@@ -877,7 +1064,67 @@ Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captio
   )
   reviewHtml = htmlResult?.htmlPath || ""
   log(reviewHtml ? `Review HTML: ${reviewHtml}` : (htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : "Review HTML build failed."))
+  markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
 }
+
+// ── Persist — write run history ──────────────────────────────────────────────
+phase("Persist")
+const _t2i_tsR = await agent(
+  `Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'") and return { timestamp: "<exact output trimmed>" }.`,
+  { label: "get-persist-ts", phase: "Persist", model: "haiku",
+    schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
+)
+const _t2i_RUN_TS   = (_t2i_tsR?.timestamp || "unknown").trim()
+const _t2i_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`
+const _t2i_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+
+const _t2i_signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: validResults.length,
+  delta_from_last: null,
+  highlights: [
+    `${validResults.length} image(s) generated, ${captionFiles.length} captioned`,
+    fixAnalysis ? "self-fix triggered" : "no issues detected",
+    reviewHtml ? "review HTML built" : "no review HTML",
+  ],
+  warnings: phasesFailed.length > 0 ? [`${phasesFailed.length} phase(s) failed`] : [],
+}
+
+const _t2i_HIST_JSON = JSON.stringify({
+  schema_version: 1, run_id: _t2i_RUN_TS, workflow: meta.name, started_at: _t2i_RUN_TS,
+  args: resolvedArgs,
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals: _t2i_signals,
+  result: { specCount: runSpecs.length, imageCount: validResults.length,
+    captionCount: captionFiles.length, selfFix: !!fixAnalysis,
+    fixCaptions: fixCaptions.length, reviewHtml: !!reviewHtml },
+}, null, 2)
+
+await agent(
+  `Persist workflow run history to disk.
+1. Bash("mkdir -p '${_t2i_HIST_DIR}'")
+2. Write file: Write({ file_path: '${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json', content: <json> })
+   Content: ${_t2i_HIST_JSON}
+3. Bash("wc -c '${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json' && echo OK")
+4. Bash("cd '${_t2i_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+await agent(
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${_t2i_INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: _t2i_RUN_TS, workflow: meta.name, started_at: _t2i_RUN_TS, run_quality: _t2i_signals.run_quality, key_metric: _t2i_signals.key_metric, highlights: _t2i_signals.highlights })}
+3. Keep only latest 50 entries.
+4. Write back: Write({ file_path: '${_t2i_INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+)
+
+markPhase("persist", "completed")
+log(`History: ${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json`)
 
 log("=== T2I Run-and-Review Complete ===")
 log(reportResult || "(no report)")
@@ -895,4 +1142,5 @@ return {
   captionFiles,
   captionSets,
   reviewHtml,
+  history: { runId: _t2i_RUN_TS, path: `${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json` },
 }

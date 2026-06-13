@@ -126,7 +126,7 @@ def _f0_track(samples: np.ndarray, sr: int,
     return f0s
 
 
-def analyze_voice(mp4_path: str) -> dict:
+def analyze_voice(mp4_path: str) -> dict[str, float | str]:
     """Compute rich voice-quality metrics for an mp4's audio track.
 
     Returns a dict whose values are all finite floats (0.0 on failure / empty

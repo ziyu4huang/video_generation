@@ -4,7 +4,9 @@
   "type": "lora",
   "arch": "flux2-klein-9b",
   "format": "safetensors-bf16",
-  "description": "LoRA adapter for flux2-klein-9b",
+  "description": "Klein Anatomy Quality Fixer — slider LoRA for fixing anatomy/pose problems",
+  "trigger_words": ["anatomyfix"],
+  "test_prompt": "full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus",
   "source": "manual-import",
   "compatible_with": [
     "transformer/klein-9b"

@@ -23,7 +23,7 @@ def _vae_mlx_available(vae_dir: str | None = None) -> bool:
     return os.path.exists(os.path.join(vae_dir or cfg.VAE_DIR, "model.safetensors"))
 
 
-def _load_mlx_vae(vae_dir: str | None = None):
+def _load_mlx_vae(vae_dir: str | None = None) -> "VAE":
     """Load the MLX-native ZImage VAE from the given (or default) VAE dir."""
     _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "vendor", "mflux", "src")
@@ -102,7 +102,7 @@ class MLXFlowMatchEulerScheduler:
         self.use_dynamic_shifting = use_dynamic_shifting
         self.timesteps = None
 
-    def set_timesteps(self, num_inference_steps: int, mu: float = None):
+    def set_timesteps(self, num_inference_steps: int, mu: float | None = None):
         ts = np.linspace(1.0, 0.0, num_inference_steps + 1)
 
         if self.use_dynamic_shifting and mu is not None:
@@ -116,7 +116,7 @@ class MLXFlowMatchEulerScheduler:
         res[mask] = np.exp(mu) / (np.exp(mu) + (1 / t[mask] - 1))
         return res
 
-    def step(self, model_output, timestep_idx, sample):
+    def step(self, model_output: mx.array, timestep_idx: int, sample: mx.array) -> mx.array:
         t_curr = self.timesteps[timestep_idx]
         t_prev = self.timesteps[timestep_idx + 1]
         dt = t_prev - t_curr
@@ -125,15 +125,16 @@ class MLXFlowMatchEulerScheduler:
 
 
 class ZImagePipeline:
-    def __init__(self):
+    def __init__(self, transformer_dir: str | None = None):
         self.model_path = cfg.MODELS_DIR
         self.text_encoder_path = cfg.TEXT_ENCODER_DIR
+        self._transformer_dir = transformer_dir or cfg.TRANSFORMER_DIR
 
         self._pos_cache_key = None
         self._pos_cache = None
         self._rope_cache = None
 
-        for required_dir in [cfg.TRANSFORMER_DIR, cfg.TEXT_ENCODER_DIR, cfg.TOKENIZER_DIR, cfg.VAE_DIR]:
+        for required_dir in [self._transformer_dir, cfg.TEXT_ENCODER_DIR, cfg.TOKENIZER_DIR, cfg.VAE_DIR]:
             if not cfg.check_model_available(required_dir):
                 raise FileNotFoundError(
                     f"Model directory not available: {required_dir}\n"
@@ -283,7 +284,8 @@ class ZImagePipeline:
         messages = [{"role": "user", "content": prompt}]
         try:
             prompt_fmt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        except Exception:
+        except (TypeError, ValueError) as e:
+            print(f"  [WARN] chat template failed ({e}), using raw prompt")
             prompt_fmt = prompt
 
         inputs = tokenizer(prompt_fmt, padding="max_length", max_length=512, truncation=True, return_tensors="np")
@@ -321,8 +323,9 @@ class ZImagePipeline:
         # [Phase 2] Transformer Loading (4-bit)
         # ----------------------------------------------------------------
         t_start = time.time()
-        trans_path = cfg.TRANSFORMER_DIR
-        print(f"[Phase 2] Loading Transformer (4-bit GS32)...", end=" ", flush=True)
+        trans_path = self._transformer_dir
+        trans_name = os.path.basename(trans_path)
+        print(f"[Phase 2] Loading Transformer '{trans_name}' (4-bit GS32)...", end=" ", flush=True)
 
         with open(os.path.join(trans_path, "config.json"), "r") as f:
             config = json.load(f)

@@ -1,5 +1,6 @@
 """replay — re-run a previous generation from its .run.json file."""
 
+import argparse
 import sys
 from app.run_config import RunConfig
 from app.commands._shared import execute_generation
@@ -16,12 +17,12 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     parser.add_argument("file", type=str, metavar="RUN_JSON",
                         help="Path to the .run.json file to replay")
 
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     try:
         run_config = RunConfig.from_json(args.file)
     except FileNotFoundError:

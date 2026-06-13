@@ -1,5 +1,9 @@
 """refine — img2img: VAE encode → latent upscale → partial re-denoise."""
 
+from __future__ import annotations
+
+import argparse
+
 from app.commands._shared import add_common_generation_args, execute_generation
 from app.run_config import RunConfig
 
@@ -20,7 +24,7 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     # Required input
     parser.add_argument("--input-image", required=True, metavar="PATH",
                         help="Input image to refine (required)")
@@ -42,6 +46,6 @@ def add_args(parser):
                         help="Ignored when --input-image is set (size comes from input image)")
 
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     run_config = RunConfig.from_args(args, command="refine")
     execute_generation(run_config)

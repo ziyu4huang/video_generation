@@ -41,6 +41,7 @@ export const meta = {
     { title: "Inventory", detail: "Read all manifests + configs, build complete model catalog" },
     { title: "Verify", detail: "Deep post-conversion checks: shard sizes, config schemas, reference graph" },
     { title: "Suggest", detail: "Prioritized actionable suggestions with known fix patterns" },
+    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
   ],
 };
 
@@ -146,6 +147,18 @@ if (typeof TIMESTAMP === "string" && TIMESTAMP.startsWith("{")) {
 const quick = args?.quick || false;
 const filterCategory = args?.category || null;
 
+// ── Phase tracking ────────────────────────────────────────────────────────────
+const phaseStatus = { resolve: "pending", audit: "pending", inventory: "pending", verify: "pending", suggest: "pending", persist: "pending" }
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+markPhase("resolve", "completed")
+
 // ── Phase: Audit ──────────────────────────────────────────────────────────────
 
 phase("Audit");
@@ -243,6 +256,7 @@ if (quick) {
 
 // ── Pre-scan: accurate file sizes via bash (avoids LLM miscounting) ──────────
 
+markPhase("audit", "completed")
 phase("Inventory");
 
 log("Pre-scanning .safetensors files for accurate sizes...");
@@ -363,6 +377,7 @@ if (tmpFolders.length) {
 
 // ── Phase: Verify ─────────────────────────────────────────────────────────────
 
+markPhase("inventory", "completed")
 phase("Verify");
 
 const verifyFindings = [];
@@ -514,6 +529,7 @@ log(`  Errors: ${verifyBySeverity.error}, Warnings: ${verifyBySeverity.warning},
 
 // ── Phase: Suggest ────────────────────────────────────────────────────────────
 
+markPhase("verify", "completed")
 phase("Suggest");
 
 const suggestions = [];
@@ -685,6 +701,8 @@ for (const f of verifyFindings) {
 const priorityOrder = { high: 0, medium: 1, low: 2, info: 3 };
 suggestions.sort((a, b) => (priorityOrder[a.priority] || 99) - (priorityOrder[b.priority] || 99));
 
+markPhase("suggest", "completed")
+
 // ── Report ────────────────────────────────────────────────────────────────────
 
 log("");
@@ -731,6 +749,64 @@ if (suggestions.length) {
 
 log("");
 log("=== END REPORT ===");
+
+// ── Persist — write run history ──────────────────────────────────────────────
+phase("Persist");
+const _ma_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`;
+const _ma_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`;
+
+const _ma_signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: models.length,
+  delta_from_last: null,
+  highlights: [
+    `${models.length} model(s) inventoried, ${parseFloat((totalSizeBytes / 1e9).toFixed(1))}GB total`,
+    audit.errors.length > 0 ? `${audit.errors.length} audit error(s)` : "audit clean",
+    suggestions.length > 0 ? `${suggestions.length} suggestion(s)` : "no suggestions",
+  ],
+  warnings: audit.errors.map((e) => e.message || String(e)).slice(0, 3),
+};
+
+const _ma_HIST_JSON = JSON.stringify({
+  schema_version: 1, run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP,
+  args: args,
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals: _ma_signals,
+  result: {
+    auditErrors: audit.errors.length,
+    auditWarnings: audit.warnings.length,
+    modelCount: models.length,
+    findingCount: verifyFindings.length,
+    suggestionCount: suggestions.length,
+    totalSizeGB: parseFloat((totalSizeBytes / 1e9).toFixed(1)),
+  },
+}, null, 2);
+
+await agent(
+  `Persist workflow run history to disk.
+1. Bash("mkdir -p '${_ma_HIST_DIR}'")
+2. Write file: Write({ file_path: '${_ma_HIST_DIR}/${TIMESTAMP}.json', content: <json> })
+   Content: ${_ma_HIST_JSON}
+3. Bash("wc -c '${_ma_HIST_DIR}/${TIMESTAMP}.json' && echo OK")
+4. Bash("cd '${_ma_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+);
+
+await agent(
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${_ma_INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP, run_quality: _ma_signals.run_quality, key_metric: _ma_signals.key_metric, highlights: _ma_signals.highlights })}
+3. Keep only latest 50 entries.
+4. Write back: Write({ file_path: '${_ma_INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+);
+
+markPhase("persist", "completed")
+log(`History: ${_ma_HIST_DIR}/${TIMESTAMP}.json`);
 
 // ── Return structured result ──────────────────────────────────────────────────
 

@@ -62,7 +62,7 @@ class ModelRegistry:
         """Return the first model path matching arch; raise if none found."""
         return self.find(model_type, arch=arch)
 
-    def get_manifest(self, model_type: str, name: str) -> dict:
+    def get_manifest(self, model_type: str, name: str) -> dict[str, Any]:
         """Return the manifest dict for a specific model by name."""
         for manifest in self.list(model_type):
             if manifest.get("name") == name:

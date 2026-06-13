@@ -23,6 +23,7 @@ Metric Limitations (validated via degradation self-test):
 
 import json
 import os
+from typing import Any
 import shutil
 import subprocess
 import tempfile
@@ -200,7 +201,7 @@ def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 
     }
 
 
-def _read_all_frames(video_path: str) -> list:
+def _read_all_frames(video_path: str) -> list[np.ndarray]:
     """Read all BGR frames from a video into a list."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -219,7 +220,7 @@ def _read_all_frames(video_path: str) -> list:
 # HTML report generation (shared by image-quality and video-quality)
 # ---------------------------------------------------------------------------
 
-def generate_html_report(report_data: dict, reference_path: str):
+def generate_html_report(report_data: dict, reference_path: str) -> None:
     """Generate JS+HTML quality report file and launch Bun server.
 
     Args:
@@ -374,7 +375,7 @@ def validate_metric_trends(
     return findings
 
 
-def print_trend_validation(findings: list, labels: list):
+def print_trend_validation(findings: list[dict[str, Any]], labels: list[str]) -> None:
     """Pretty-print trend validation results to terminal.
 
     Args:

@@ -1,6 +1,7 @@
 import mlx.core as mx
 import mlx.nn as nn
 import math
+from typing import Any
 
 
 class RMSNorm(nn.Module):
@@ -14,7 +15,7 @@ class RMSNorm(nn.Module):
 
 
 class TimestepEmbedder(nn.Module):
-    def __init__(self, out_size, mid_size=None, frequency_embedding_size=256):
+    def __init__(self, out_size: int, mid_size: int | None = None, frequency_embedding_size: int = 256):
         super().__init__()
         if mid_size is None: mid_size = out_size
         self.linear1 = nn.Linear(frequency_embedding_size, mid_size)
@@ -152,7 +153,7 @@ class Attention(nn.Module):
 
 
 class ZImageTransformerBlock(nn.Module):
-    def __init__(self, config, layer_id, modulation=True):
+    def __init__(self, config: dict[str, Any], layer_id: int, modulation: bool = True):
         super().__init__()
         dim = config['dim']
         nheads = config['nheads']
@@ -197,7 +198,7 @@ class FinalLayer(nn.Module):
 
 
 class ZImageTransformerMLX(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.config = config
         dim = config['dim']

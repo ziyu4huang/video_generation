@@ -1,3 +1,5 @@
+from typing import Any
+
 import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
@@ -15,7 +17,7 @@ class RMSNorm(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.hidden_size = config["hidden_size"]
         self.num_heads = config["num_attention_heads"]

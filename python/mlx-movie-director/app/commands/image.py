@@ -66,6 +66,7 @@ Usage:
   run.py image review --self-test flf2v-studio-turn
 """
 
+import argparse
 import importlib
 import os
 
@@ -210,7 +211,7 @@ PARSER_META = {
 # Argument registration
 # ---------------------------------------------------------------------------
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     # Primary action (nargs="?" fills before sub_action)
     parser.add_argument(
         "action",
@@ -293,7 +294,7 @@ def add_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     action = getattr(args, "action", "t2i") or "t2i"
     self_test_val = getattr(args, "self_test", None)
 

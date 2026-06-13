@@ -27,8 +27,8 @@ class NodeInfo:
     title: str
     params: dict[str, Any]        # Named widget values
     inputs: dict[str, str]        # input_name → connected node_id
-    outputs: list[dict]           # Output slot info
-    widget_values: list           # Raw positional widget values
+    outputs: list[dict[str, Any]]           # Output slot info
+    widget_values: list[Any]                # Raw positional widget values
     mode: int = 0                 # 0=normal, 4=bypassed/muted
 
 

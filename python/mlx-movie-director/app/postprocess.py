@@ -7,9 +7,22 @@ Each filter implements apply(image) -> image for use in PostProcessChain.
 import math
 import os
 import time
+from typing import Protocol
 
 import numpy as np
 from PIL import Image
+
+
+# ---------------------------------------------------------------------------
+# Filter Protocol (shared interface for PostProcessChain)
+# ---------------------------------------------------------------------------
+
+class PostProcessFilter(Protocol):
+    """Protocol for post-processing filters usable in PostProcessChain."""
+
+    name: str
+
+    def apply(self, image: Image.Image) -> Image.Image: ...
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +391,7 @@ class PostProcessChain:
         result_image, timings = chain.apply(input_image)
     """
 
-    def __init__(self, filters: list):
+    def __init__(self, filters: list[PostProcessFilter]):
         self.filters = filters
 
     @classmethod
@@ -411,7 +424,7 @@ class PostProcessChain:
 
         return cls(filters)
 
-    def apply(self, image: Image.Image, seed: int | None = None) -> tuple:
+    def apply(self, image: Image.Image, seed: int | None = None) -> tuple[Image.Image, dict[str, float]]:
         """Apply all filters in sequence.
 
         Returns (result_image, timings_dict).

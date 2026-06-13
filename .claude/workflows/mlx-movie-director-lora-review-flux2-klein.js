@@ -34,6 +34,11 @@
 //     faceImage: "/path/to/face.png",     // activate faceswap lane (needs bodyImage too)
 //     denoiseStrength: 0.4,         // I2I denoise strength (default: 0.4)
 //     realismStyle: "photorealistic", // anime2real style (default: "photorealistic")
+//     challengePrompts: true,       // use built-in anatomy challenge prompts (6 stress-test prompts)
+//     prompts: [                    // custom multi-prompt set (overrides challengePrompts)
+//       "prompt 1 ...",
+//       "prompt 2 ...",
+//     ],
 //   } })
 //
 // Generation plan (default: 3-5 LoRAs × 3 seeds, no sweep, T2I lane only):
@@ -145,6 +150,46 @@ const DEFAULT_SCALES = [0.5, 0.8, 1.0, 1.2]
 const PIPELINE       = "flux2-klein"
 const LORA_ARCH      = "flux2-klein-9b"
 
+// Built-in anatomy challenge prompts for ceiling-effect busting
+const ANATOMY_CHALLENGE_PROMPTS = [
+  {
+    name: "anatomy-hands-complex",
+    prompt: "photorealistic close-up of a woman's hands holding a small origami crane, five fingers clearly visible on each hand with distinct knuckles and fingernails, fingers delicately folding paper with visible tension in the joints, natural skin texture with fine creases at each finger joint, even studio lighting, macro photography, ultra sharp focus on fingers",
+    width: 640,
+    height: 960,
+  },
+  {
+    name: "anatomy-ballet-action",
+    prompt: "full body shot of a female ballet dancer in mid-grand jete leap, left leg fully extended forward with pointed toes, right leg stretched back at 180 degree split, arms in fifth position with elbows slightly bent, visible muscle definition in calves and thighs, torso twisted with chest facing camera, photorealistic, detailed anatomy, dramatic stage lighting, ultra sharp focus",
+    width: 640,
+    height: 960,
+  },
+  {
+    name: "anatomy-foreshortening",
+    prompt: "photorealistic portrait of a man reaching his right hand directly toward the camera in a foreshortened perspective, hand appearing disproportionately large with clearly visible five fingers and knuckles, arm receding dramatically into the background with correct elliptical foreshortening at the elbow joint, head and shoulders smaller in the distance, natural lighting, wide-angle perspective distortion, ultra sharp focus",
+    width: 640,
+    height: 960,
+  },
+  {
+    name: "anatomy-torso-twist",
+    prompt: "full body shot of a young woman in a dramatic contrapposto pose, torso twisted 45 degrees to the right while hips face forward, visible oblique muscle engagement, right arm raised behind her head with elbow bent at a sharp angle, left hand resting on her hip with five individual fingers visible, weight on left leg with right knee slightly bent, correct spinal curve, photorealistic, detailed anatomy, studio lighting, ultra sharp focus",
+    width: 640,
+    height: 960,
+  },
+  {
+    name: "anatomy-multi-person",
+    prompt: "photorealistic image of two young women dancing salsa together, their arms intertwined with the leader's right hand holding the follower's left hand showing five fingers each, the follower's right arm draped over the leader's left shoulder, torsos close together with visible correct torso angles, their legs in mid-step with knees at different angles, natural club lighting, detailed hands and limb anatomy, ultra sharp focus",
+    width: 640,
+    height: 960,
+  },
+  {
+    name: "anatomy-low-angle",
+    prompt: "extreme low angle shot looking up at a man standing on a ledge above the camera, camera at knee height looking upward, visible perspective distortion with legs appearing large and head appearing small, hands on hips with clearly defined five fingers and knuckles, jawline and chin visible from below with correct neck anatomy, dramatic sky background, photorealistic, wide-angle lens distortion, detailed anatomy, ultra sharp focus",
+    width: 640,
+    height: 960,
+  },
+]
+
 // ── Args normalization (BEFORE Resolve so all vars are defined) ───────────────
 
 let resolvedArgs = args
@@ -179,6 +224,8 @@ let bodyImage       = null
 let faceImage       = null
 let denoiseStrength = 0.4
 let realismStyle    = "photorealistic"
+let challengePrompts = false
+let customPrompts    = null   // array of prompt strings
 
 if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   prompt = resolvedArgs
@@ -201,12 +248,22 @@ if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   if (typeof resolvedArgs.faceImage === "string")    faceImage       = resolvedArgs.faceImage
   if (resolvedArgs.denoiseStrength != null)          denoiseStrength = Number(resolvedArgs.denoiseStrength)
   if (typeof resolvedArgs.realismStyle === "string") realismStyle    = resolvedArgs.realismStyle
+  if (resolvedArgs.challengePrompts === true)         challengePrompts = true
+  if (Array.isArray(resolvedArgs.prompts))             customPrompts = resolvedArgs.prompts
 }
 
 // Sweep is opt-in (prior run showed zero scale sensitivity 0.5-1.2 across all LoRAs).
 // Pass doSweep: true or lora_scales: [...] to enable.
 const doSweep = resolvedArgs?.doSweep === true || Array.isArray(resolvedArgs?.lora_scales)
 const sweepScales = loraScales || (resolvedArgs?.lora_scale != null ? [Number(resolvedArgs.lora_scale)] : DEFAULT_SCALES)
+
+// Multi-prompt challenge mode
+const multiPromptSet = customPrompts
+  ? customPrompts.map((p, i) => ({ name: `custom-${i}`, prompt: p, width, height }))
+  : challengePrompts
+    ? ANATOMY_CHALLENGE_PROMPTS
+    : null
+const isMultiPrompt = multiPromptSet !== null
 
 // ── Phase 0: Resolve absolute paths + timestamp + resume check ───────────────
 
@@ -232,8 +289,10 @@ const RUN_PY    = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR   = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR  = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
 
-const WORKFLOW_NAME = "mlx-movie-director-lora-review-flux2-klein"
-const HISTORY_DIR   = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const WORKFLOW_NAME  = "mlx-movie-director-lora-review-flux2-klein"
+const HISTORY_DIR    = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
+const INDEX_FILE     = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:   ${PYTHON}`)
@@ -316,6 +375,38 @@ if (resumeMode === "fresh") {
     log("WARNING: resume=continue but no prior run found. Starting fresh.")
   }
 }
+
+// ── Load LoRA reflection (score baselines from prior runs) ──────────────────
+
+let loraReflection = null
+if (resumeMode !== "fresh") {
+  const reflectLoad = await agent(
+    `Read the LoRA reflection file if it exists.
+Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
+Otherwise return { reflection: <the parsed object> }.`,
+    { label: "load-lora-reflection", phase: "Resolve", model: "haiku" },
+  )
+  loraReflection = reflectLoad?.reflection || null
+  if (loraReflection?.score_baselines) {
+    const count = Object.keys(loraReflection.score_baselines).length
+    log(`Reflection: loaded baselines for ${count} LoRA(s) from ${loraReflection.runs_analyzed || 0} prior run(s)`)
+  } else {
+    log("Reflection: no prior LoRA reflection.json — will create after this run")
+  }
+}
+
+const loraBaselineCtx = loraReflection?.score_baselines
+  ? `\n## LORA SCORE BASELINES FROM PRIOR RUNS (flag regression if drop > 0.5):\n` +
+    Object.entries(loraReflection.score_baselines)
+      .map(([n, b]) => `- ${n}: overall=${b.overall} (${b.runs} run(s))`)
+      .join("\n") +
+    (loraReflection.regression_alerts?.length
+      ? `\n\n## REGRESSION ALERTS — check these LoRAs:\n` +
+        loraReflection.regression_alerts.map((a) => `- ⚠️ ${a}`).join("\n")
+      : "") +
+    "\n"
+  : ""
 
 markPhase("resolve", "completed")
 
@@ -424,78 +515,156 @@ if (faceswapLoras.length > 0 && !hasFaceswap) {
 const allT2iLoras = [...t2iLoras, ...fallbackLoras]
 
 // Build per-LoRA prompt map
-const promptMap = {}
-allT2iLoras.forEach((lora) => {
-  let resolvedPrompt = prompt
-  if (useTestPrompts && lora.test_prompt) {
-    resolvedPrompt = lora.test_prompt
+const promptMap = {}          // loraName -> string (single-prompt or first prompt in multi)
+const promptMapMulti = {}     // loraName -> [{name, prompt, width, height}] (multi-prompt mode)
+
+if (isMultiPrompt) {
+  // Multi-prompt mode: each LoRA gets the full challenge set
+  allT2iLoras.forEach((lora) => {
+    const prompts = multiPromptSet.map((cp) => {
+      let resolvedPrompt = cp.prompt
+      if (lora.trigger_words && lora.trigger_words.length > 0) {
+        const triggerPrefix = lora.trigger_words.join(", ")
+        if (!resolvedPrompt.toLowerCase().includes(triggerPrefix.toLowerCase())) {
+          resolvedPrompt = `${triggerPrefix}, ${resolvedPrompt}`
+        }
+      }
+      return { ...cp, prompt: resolvedPrompt }
+    })
+    promptMapMulti[lora.name] = prompts
+    promptMap[lora.name] = prompts[0].prompt  // backward compat
+  })
+  // anime2real and faceswap lanes use single prompt (unchanged)
+  if (hasAnime2real) {
+    anime2realLoras.forEach((lora) => {
+      promptMap[lora.name] = lora.test_prompt || `Convert this anime character to realistic photorealistic style`
+    })
   }
-  if (lora.trigger_words && lora.trigger_words.length > 0) {
-    const triggerPrefix = lora.trigger_words.join(", ")
-    if (!resolvedPrompt.toLowerCase().includes(triggerPrefix.toLowerCase())) {
-      resolvedPrompt = `${triggerPrefix}, ${resolvedPrompt}`
+  if (hasFaceswap) {
+    faceswapLoras.forEach((lora) => {
+      promptMap[lora.name] = prompt  // faceswap uses internal prompt from --input/--face
+    })
+  }
+} else {
+  // Original single-prompt logic
+  allT2iLoras.forEach((lora) => {
+    let resolvedPrompt = prompt
+    if (useTestPrompts && lora.test_prompt) {
+      resolvedPrompt = lora.test_prompt
     }
+    if (lora.trigger_words && lora.trigger_words.length > 0) {
+      const triggerPrefix = lora.trigger_words.join(", ")
+      if (!resolvedPrompt.toLowerCase().includes(triggerPrefix.toLowerCase())) {
+        resolvedPrompt = `${triggerPrefix}, ${resolvedPrompt}`
+      }
+    }
+    promptMap[lora.name] = resolvedPrompt
+  })
+  if (hasAnime2real) {
+    anime2realLoras.forEach((lora) => {
+      promptMap[lora.name] = lora.test_prompt || `Convert this anime character to realistic photorealistic style`
+    })
   }
-  promptMap[lora.name] = resolvedPrompt
-})
-// anime2real and faceswap lanes have their own prompts
-if (hasAnime2real) {
-  anime2realLoras.forEach((lora) => {
-    promptMap[lora.name] = lora.test_prompt || `Convert this anime character to realistic photorealistic style`
-  })
-}
-if (hasFaceswap) {
-  faceswapLoras.forEach((lora) => {
-    promptMap[lora.name] = prompt  // faceswap uses internal prompt from --input/--face
-  })
+  if (hasFaceswap) {
+    faceswapLoras.forEach((lora) => {
+      promptMap[lora.name] = prompt  // faceswap uses internal prompt from --input/--face
+    })
+  }
 }
 
 // Unique T2I prompts for baseline grouping
-const uniqueT2iPrompts = [...new Set(allT2iLoras.map((l) => promptMap[l.name]))]
+const uniqueT2iPrompts = isMultiPrompt
+  ? [...new Set(allT2iLoras.flatMap((l) => (promptMapMulti[l.name] || []).map((cp) => cp.prompt)))]
+  : [...new Set(allT2iLoras.map((l) => promptMap[l.name]))]
 
 log(`\nLane routing:`)
 log(`  T2I Lane:       ${allT2iLoras.length} LoRAs (${t2iLoras.length} style/slider + ${fallbackLoras.length} fallback)`)
 log(`  Anime2Real Lane: ${hasAnime2real ? `${anime2realLoras.length} LoRAs (${animeImage})` : "inactive"}`)
 log(`  Faceswap Lane:   ${hasFaceswap ? `${faceswapLoras.length} LoRAs` : "inactive"}`)
 log(`  Unique T2I prompts: ${uniqueT2iPrompts.length}`)
-allT2iLoras.forEach((l) => {
-  const p = promptMap[l.name]
-  log(`  ${l.name}: "${p.slice(0, 60)}${p.length > 60 ? "..." : ""}"`)
-})
+if (isMultiPrompt) {
+  log(`  Challenge mode: ${multiPromptSet.length} prompts × ${seeds.length} seeds`)
+  multiPromptSet.forEach((cp) => log(`    [${cp.name}] "${cp.prompt.slice(0, 50)}..."`))
+} else {
+  allT2iLoras.forEach((l) => {
+    const p = promptMap[l.name]
+    log(`  ${l.name}: "${p.slice(0, 60)}${p.length > 60 ? "..." : ""}"`)
+  })
+}
 
 // ── Build generation specs ───────────────────────────────────────────────────
 
-// T2I baselines: one per unique prompt × seed
+// T2I baselines: one per unique prompt × seed (shared across LoRAs)
 const t2iBaseSpecs = []
-uniqueT2iPrompts.forEach((up) => {
-  seeds.forEach((seed) => {
-    t2iBaseSpecs.push({
-      type: "baseline",
-      lane: "t2i",
-      promptUsed: up,
-      seed,
-      cmd: `${PYTHON} ${RUN_PY} t2i --prompt '${up.replace(/'/g, "'\\''")}' --pipeline ${PIPELINE} --steps ${steps} --seed ${seed} --width ${width} --height ${height} --json-summary`,
+if (isMultiPrompt) {
+  // Multi-prompt: one baseline per challenge prompt × seed
+  uniqueT2iPrompts.forEach((up) => {
+    const cpMatch = allT2iLoras.flatMap((l) => promptMapMulti[l.name] || []).find((cp) => cp.prompt === up)
+    const w = cpMatch?.width || width
+    const h = cpMatch?.height || height
+    seeds.forEach((seed) => {
+      t2iBaseSpecs.push({
+        type: "baseline",
+        lane: "t2i",
+        promptUsed: up,
+        challengeName: cpMatch?.name || "",
+        seed,
+        cmd: `${PYTHON} ${RUN_PY} t2i --prompt '${up.replace(/'/g, "'\\''")}' --pipeline ${PIPELINE} --steps ${steps} --seed ${seed} --width ${w} --height ${h} --json-summary`,
+      })
     })
   })
-})
+} else {
+  uniqueT2iPrompts.forEach((up) => {
+    seeds.forEach((seed) => {
+      t2iBaseSpecs.push({
+        type: "baseline",
+        lane: "t2i",
+        promptUsed: up,
+        seed,
+        cmd: `${PYTHON} ${RUN_PY} t2i --prompt '${up.replace(/'/g, "'\\''")}' --pipeline ${PIPELINE} --steps ${steps} --seed ${seed} --width ${width} --height ${height} --json-summary`,
+      })
+    })
+  })
+}
 
 // T2I LoRA specs (scale TBD after sweep)
 const t2iLoraSpecs = []
-allT2iLoras.forEach((lora) => {
-  const loraPrompt = promptMap[lora.name]
-  seeds.forEach((seed) => {
-    t2iLoraSpecs.push({
-      type: "lora",
-      lane: "t2i",
-      loraName: lora.name,
-      loraPath: lora.loraPath,
-      promptUsed: loraPrompt,
-      seed,
-      scale: loraScale,
-      cmd: "",
+if (isMultiPrompt) {
+  // Multi-prompt: each LoRA × each challenge prompt × each seed
+  allT2iLoras.forEach((lora) => {
+    (promptMapMulti[lora.name] || []).forEach((cp) => {
+      seeds.forEach((seed) => {
+        t2iLoraSpecs.push({
+          type: "lora",
+          lane: "t2i",
+          loraName: lora.name,
+          loraPath: lora.loraPath,
+          promptUsed: cp.prompt,
+          challengeName: cp.name,
+          seed,
+          scale: loraScale,
+          cmd: "",
+        })
+      })
     })
   })
-})
+} else {
+  allT2iLoras.forEach((lora) => {
+    const loraPrompt = promptMap[lora.name]
+    seeds.forEach((seed) => {
+      t2iLoraSpecs.push({
+        type: "lora",
+        lane: "t2i",
+        loraName: lora.name,
+        loraPath: lora.loraPath,
+        promptUsed: loraPrompt,
+        seed,
+        scale: loraScale,
+        cmd: "",
+      })
+    })
+  })
+}
 
 // Anime2Real baselines (without LoRA — pure pipeline)
 const a2rBaseSpecs = []
@@ -807,7 +976,11 @@ t2iLoraSpecs.forEach((spec) => {
   const scale = bestScales[spec.loraName] || loraScale
   spec.scale = scale
   const loraPrompt = spec.promptUsed
-  spec.cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${loraPrompt.replace(/'/g, "'\\''")}' --pipeline ${PIPELINE} --steps ${steps} --seed ${spec.seed} --width ${width} --height ${height} --lora-path '${spec.loraPath}' --lora-scale ${scale} --json-summary`
+  // In multi-prompt mode, use per-challenge width/height
+  const cpMatch = isMultiPrompt ? multiPromptSet.find((cp) => cp.prompt === loraPrompt) : null
+  const w = cpMatch?.width || width
+  const h = cpMatch?.height || height
+  spec.cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${loraPrompt.replace(/'/g, "'\\''")}' --pipeline ${PIPELINE} --steps ${steps} --seed ${spec.seed} --width ${w} --height ${h} --lora-path '${spec.loraPath}' --lora-scale ${scale} --json-summary`
 })
 
 // Anime2Real LoRA specs
@@ -1040,40 +1213,73 @@ Return flat JSON:
 
 const captionSets = []
 
-// T2I lane sets: one per T2I LoRA, paired with baselines that used the same prompt
-allT2iLoras.forEach((lora) => {
-  const scale = bestScales[lora.name] || loraScale
-  const loraPrompt = promptMap[lora.name]
-  const setName = `T2I: Baseline vs ${lora.name} (${lora.category}, s=${scale})`
-  const zh = wfLang === "zh_TW"
-  const guide = zh
-    ? `比較 T2I Baseline 與 ${lora.name} (${lora.category}, scale=${scale}) 的畫質。LoRA 是否改善了圖像？`
-    : `Compare T2I Baseline vs ${lora.name} (${lora.category}, scale=${scale}). Does the LoRA improve quality?`
+// T2I lane sets: one per T2I LoRA (single-prompt) or per challenge×LoRA (multi-prompt)
+if (isMultiPrompt) {
+  // Multi-prompt: one caption set per (challenge prompt × LoRA)
+  allT2iLoras.forEach((lora) => {
+    const scale = bestScales[lora.name] || loraScale
+    ;(promptMapMulti[lora.name] || []).forEach((cp) => {
+      const setName = `Challenge "${cp.name}": Baseline vs ${lora.name} (s=${scale})`
+      const guide = `Compare baseline vs ${lora.name} on anatomy challenge "${cp.name}". Does the LoRA fix the anatomy issues?`
 
-  const files = []
-  // Baselines with matching prompt
-  seeds.forEach((seed) => {
-    const baseResult = genResults.find(
-      (r) => r.spec?.type === "baseline" && r.spec?.lane === "t2i" && r.spec?.promptUsed === loraPrompt && r.spec?.seed === seed && r.outputPngs?.[0],
-    )
-    if (baseResult) files.push(captionPathFor(baseResult.outputPngs[0]))
-  })
-  // LoRA images
-  seeds.forEach((seed) => {
-    const loraResult = genResults.find(
-      (r) => r.spec?.type === "lora" && r.spec?.lane === "t2i" && r.spec?.loraName === lora.name && r.spec?.seed === seed && r.outputPngs?.[0],
-    )
-    if (loraResult) files.push(captionPathFor(loraResult.outputPngs[0]))
-  })
+      const files = []
+      seeds.forEach((seed) => {
+        const baseResult = genResults.find(
+          (r) => r.spec?.type === "baseline" && r.spec?.lane === "t2i" && r.spec?.promptUsed === cp.prompt && r.spec?.seed === seed && r.outputPngs?.[0],
+        )
+        if (baseResult) files.push(captionPathFor(baseResult.outputPngs[0]))
+      })
+      seeds.forEach((seed) => {
+        const loraResult = genResults.find(
+          (r) => r.spec?.type === "lora" && r.spec?.lane === "t2i" && r.spec?.loraName === lora.name && r.spec?.promptUsed === cp.prompt && r.spec?.seed === seed && r.outputPngs?.[0],
+        )
+        if (loraResult) files.push(captionPathFor(loraResult.outputPngs[0]))
+      })
 
-  captionSets.push({
-    name: setName,
-    prompt: loraPrompt,
-    guide,
-    variants: ["Baseline", `${lora.name} (s=${scale})`].map((l) => ({ label: l })),
-    files,
+      captionSets.push({
+        name: setName,
+        prompt: cp.prompt,
+        challengeName: cp.name,
+        guide,
+        variants: ["Baseline", `${lora.name} (s=${scale})`].map((l) => ({ label: l })),
+        files,
+      })
+    })
   })
-})
+} else {
+  // Original single-prompt caption sets
+  allT2iLoras.forEach((lora) => {
+    const scale = bestScales[lora.name] || loraScale
+    const loraPrompt = promptMap[lora.name]
+    const setName = `T2I: Baseline vs ${lora.name} (${lora.category}, s=${scale})`
+    const zh = wfLang === "zh_TW"
+    const guide = zh
+      ? `比較 T2I Baseline 與 ${lora.name} (${lora.category}, scale=${scale}) 的畫質。LoRA 是否改善了圖像？`
+      : `Compare T2I Baseline vs ${lora.name} (${lora.category}, scale=${scale}). Does the LoRA improve quality?`
+
+    const files = []
+    seeds.forEach((seed) => {
+      const baseResult = genResults.find(
+        (r) => r.spec?.type === "baseline" && r.spec?.lane === "t2i" && r.spec?.promptUsed === loraPrompt && r.spec?.seed === seed && r.outputPngs?.[0],
+      )
+      if (baseResult) files.push(captionPathFor(baseResult.outputPngs[0]))
+    })
+    seeds.forEach((seed) => {
+      const loraResult = genResults.find(
+        (r) => r.spec?.type === "lora" && r.spec?.lane === "t2i" && r.spec?.loraName === lora.name && r.spec?.seed === seed && r.outputPngs?.[0],
+      )
+      if (loraResult) files.push(captionPathFor(loraResult.outputPngs[0]))
+    })
+
+    captionSets.push({
+      name: setName,
+      prompt: loraPrompt,
+      guide,
+      variants: ["Baseline", `${lora.name} (s=${scale})`].map((l) => ({ label: l })),
+      files,
+    })
+  })
+}
 
 // Anime2Real lane sets
 if (hasAnime2real) {
@@ -1205,7 +1411,7 @@ if (baseScoreSummary.count > 0) {
 
 const reportResult = await agent(
   `Generate a concise LoRA comparison report for this flux2-klein dynamic A/B test.
-
+${loraBaselineCtx}
 ## Test Configuration
 - Pipeline: ${PIPELINE} (flux2-klein-9b LoRAs)
 - Prompt (global): ${prompt.slice(0, 120)}${prompt.length > 120 ? "..." : ""}
@@ -1217,6 +1423,7 @@ const reportResult = await agent(
 - Optimal scales: ${loras.map((l) => `${l.name}=${bestScales[l.name]}`).join(", ")}
 - LoRAs tested: ${loras.map((l) => `${l.name}[${l.category}]`).join(", ")}
 - Lanes: T2I (${allT2iLoras.length} LoRAs)${hasAnime2real ? `, anime2real (${anime2realLoras.length})` : ""}${hasFaceswap ? `, faceswap (${faceswapLoras.length})` : ""}
+- Challenge mode: ${isMultiPrompt ? `YES — ${multiPromptSet.length} anatomy challenge prompts` : "NO"}
 
 ${doSweep && sweepResults.length > 0 ? `## Scale Sweep Results
 ${JSON.stringify(sweepResults.map((sr) => ({
@@ -1278,6 +1485,14 @@ Show Δ (delta) from baseline for each metric.
 
 **9. Recommendation** — per-category recommendations with optimal scale.
 
+${isMultiPrompt ? `**10. Per-Challenge Anatomy Breakdown** — for each challenge prompt, show:
+- Baseline vs LoRA scores (overall, detail, prompt_adherence)
+- Which anatomy features were captured vs missed (from captions captured[]/missed[])
+- Whether the LoRA specifically improved the targeted weakness (hands, pose, foreshortening, etc.)
+
+**11. Anatomy Challenge Summary** — rank challenges by LoRA improvement delta. Which anatomy weaknesses does this LoRA actually fix?
+
+Use a lower ceiling threshold for challenge prompts (7.0 instead of 8.5) since they are designed to be harder.` : ""}
 Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
@@ -1333,6 +1548,32 @@ markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
 
 phase("Persist")
 
+const topLora = loraScoreSummary.length > 0
+  ? loraScoreSummary.reduce((best, l) => ((l.overall || 0) > (best.overall || 0) ? l : best), loraScoreSummary[0])
+  : null
+
+const scoreDeltaFromLast = loraReflection?.score_baselines
+  ? loraScoreSummary.reduce((acc, l) => {
+      const base = loraReflection.score_baselines[l.name]
+      if (base) acc[l.name] = { delta: +(l.overall - base.overall).toFixed(2), regression: l.overall < base.overall - 0.5 }
+      return acc
+    }, {})
+  : null
+
+const signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: topLora?.overall ?? null,
+  delta_from_last: null,
+  highlights: [
+    `${loras.length} LoRA(s) tested, ${genResults.filter((r) => r.status === "success").length} images generated`,
+    topLora ? `Best: ${topLora.name} overall=${topLora.overall}` : "no LoRA scores",
+    `Baseline: overall=${baseScoreSummary.overall ?? "?"}`,
+  ],
+  warnings: loraScoreSummary
+    .filter((l) => (l.overall || 0) < (baseScoreSummary.overall || 0))
+    .map((l) => `${l.name} below baseline (${l.overall} < ${baseScoreSummary.overall})`),
+}
+
 const historyEntry = {
   schema_version: 1,
   run_id: RUN_ID,
@@ -1356,11 +1597,14 @@ const historyEntry = {
     faceImage: faceImage ? faceImage.slice(-60) : null,
     denoiseStrength,
     realismStyle,
+    challengePrompts,
+    customPromptCount: customPrompts ? customPrompts.length : null,
   },
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  tags: ["lora-review", "flux2-klein-9b", ...(doSweep ? ["scale-sweep"] : []), ...(hasAnime2real ? ["anime2real"] : []), ...(hasFaceswap ? ["faceswap"] : [])],
+  signals,
+  tags: ["lora-review", "flux2-klein-9b", ...(doSweep ? ["scale-sweep"] : []), ...(hasAnime2real ? ["anime2real"] : []), ...(hasFaceswap ? ["faceswap"] : []), ...(isMultiPrompt ? ["anatomy-challenge"] : [])],
   result: {
     loras: loras.map((l) => ({ name: l.name, dirName: l.dirName, description: l.description, category: l.category })),
     seeds,
@@ -1391,26 +1635,89 @@ const historyEntry = {
         })),
     },
     priorRunId: priorHistory?.runId || null,
+    score_delta_from_last: scoreDeltaFromLast,
   },
 }
 
-const historyJson = JSON.stringify(historyEntry, null, 2)
+await agent(
+  `Persist workflow history.
+1. Bash("mkdir -p '${HISTORY_DIR}'")
+2. Use the Write tool: Write({ file_path: '${HISTORY_DIR}/${RUN_ID}.json', content: <historyJson> })
+   The content is: ${JSON.stringify(historyEntry, null, 2)}
+3. Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
+4. Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true, path: '${HISTORY_DIR}/${RUN_ID}.json' }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+// ── Synthesize LoRA reflection ───────────────────────────────────────────────
+
+const LORA_REFLECT_SCHEMA = {
+  type: "object",
+  properties: {
+    score_baselines: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        properties: {
+          overall: { type: "number" },
+          detail: { type: "number" },
+          sharpness: { type: "number" },
+          prompt_adherence: { type: "number" },
+          runs: { type: "number" },
+        },
+        required: ["overall", "runs"],
+      },
+    },
+    regression_alerts: { type: "array", items: { type: "string" } },
+    confirmed_best_settings: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        properties: { scale: { type: "number" }, runs_stable: { type: "number" } },
+        required: ["scale", "runs_stable"],
+      },
+    },
+    prompt_patterns: { type: "object", additionalProperties: { type: "array", items: { type: "string" } } },
+    runs_analyzed: { type: "number" },
+    updated_at: { type: "string" },
+  },
+  required: ["score_baselines", "regression_alerts", "runs_analyzed", "updated_at"],
+}
+
+const reflectResult = await agent(
+  `Synthesize a LoRA score reflection from the run history.
+1. List history files: Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | head -10")
+2. Read up to 5 most recent: for each path, Bash("cat '<path>'")
+3. For each LoRA that appears across runs, compute rolling average of: overall, detail, sharpness, prompt_adherence. Count how many runs it appeared in.
+4. Flag regression_alerts: any LoRA where current run overall dropped > 0.5 vs its prior average.
+5. Identify confirmed_best_settings: LoRAs whose optimal scale was consistent across ≥2 runs.
+6. Extract prompt_patterns: group effective prompts by category (style, slider, anime2real).
+7. Return the synthesized reflection object with updated_at = "${RUN_TIMESTAMP}".`,
+  { label: "synthesize-lora-reflection", phase: "Persist", model: "haiku", schema: LORA_REFLECT_SCHEMA },
+)
+
+if (reflectResult) {
+  await agent(
+    `Write the LoRA reflection JSON file.
+Use the Write tool: Write({ file_path: '${REFLECTION_FILE}', content: <json> })
+The content is: ${JSON.stringify(reflectResult, null, 2)}
+Return { written: true }.`,
+    { label: "write-lora-reflection", phase: "Persist", model: "haiku" },
+  )
+  log(`Reflection: updated ${REFLECTION_FILE} (${reflectResult.runs_analyzed} run(s) analyzed)`)
+}
+
+// ── Update cross-workflow index ──────────────────────────────────────────────
 
 await agent(
-  `Persist the workflow run history to disk.
-
-Steps:
-1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON file using a heredoc:
-   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
-${historyJson}
-HISTORY_EOF")
-3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent:
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
-
-Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
-  { label: "persist-history", phase: "Persist", model: "haiku" },
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse the JSON array. Append: ${JSON.stringify({ run_id: RUN_ID, workflow: WORKFLOW_NAME, started_at: RUN_TIMESTAMP, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
+3. Keep only the latest 50 entries.
+4. Write back: Write({ file_path: '${INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
 )
 
 log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)

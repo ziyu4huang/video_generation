@@ -43,6 +43,7 @@ export const meta = {
     { title: "Compare", detail: "Compute quality/performance/disk deltas" },
     { title: "Report", detail: "Structured comparison + migration recommendation" },
     { title: "Report HTML", detail: "Generate comparison.html with side-by-side images and metrics" },
+    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
   ],
 };
 
@@ -77,6 +78,9 @@ if (!PROJECT_ROOT) {
 
 const PYTHON = PROJECT_ROOT ? `${PROJECT_ROOT}/ComfyUI/.venv/bin/python` : "ComfyUI/.venv/bin/python"
 const BENCH_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/comfy_bench.py` : "scripts/comfy_bench.py"
+const _BENCH_HIST_DIR_ROOT = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`
+const BENCH_REFLECTION_FILE = `${_BENCH_HIST_DIR_ROOT}/reflection.json`
+const BENCH_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 const BENCH_RESULTS_DIR = PROJECT_ROOT ? `${PROJECT_ROOT}/comfyui_data/output/bench_results` : "comfyui_data/output/bench_results"
 const VLM_REVIEW_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-vlm-review.py` : "scripts/flux2-klein-bench-vlm-review.py"
 const COMPARE_HTML_SCRIPT = PROJECT_ROOT ? `${PROJECT_ROOT}/scripts/flux2-klein-bench-compare-html.py` : "scripts/flux2-klein-bench-compare-html.py"
@@ -99,6 +103,38 @@ const timestampResult = await agent(
 )
 
 const resolvedTimestamp = timestampResult?.timestamp || ""
+
+// ── Phase tracking ────────────────────────────────────────────────────────────
+const phaseStatus = { resolve: "pending", plan: "pending", setup: "pending", runFp16: "pending", runFp8: "pending", review: "pending", compare: "pending", report: "pending", reportHtml: "pending", persist: "pending" }
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+// ── Load benchmark reflection (score baselines from prior runs) ──────────────
+
+let benchReflection = null
+const benchReflectLoad = await agent(
+  `Read the benchmark reflection file if it exists.
+Run: Bash("cat '${BENCH_REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
+Otherwise return { reflection: <the parsed object> }.`,
+  { label: "load-bench-reflection", phase: "Resolve", model: "haiku" },
+)
+benchReflection = benchReflectLoad?.reflection || null
+if (benchReflection?.fp16_baseline || benchReflection?.fp8_baseline) {
+  log(`Reflection: fp16 baseline=${benchReflection.fp16_baseline?.overall ?? "?"} fp8 baseline=${benchReflection.fp8_baseline?.overall ?? "?"} (${benchReflection.runs_analyzed || 0} runs)`)
+  if (benchReflection.regression_alerts?.length) {
+    benchReflection.regression_alerts.forEach((a) => log(`  ⚠️ ${a}`))
+  }
+} else {
+  log("Reflection: no prior benchmark reflection.json — will create after this run")
+}
+
+markPhase("resolve", "completed")
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -200,6 +236,7 @@ log(`Extra params: ${userParams ? JSON.stringify(userParams) : "none"}`);
 
 // ── Phase 2: Setup ────────────────────────────────────────────────────────────
 
+markPhase("plan", "completed")
 phase("Setup");
 
 const statusResult = await agent(
@@ -227,6 +264,7 @@ if (!statusResult.running) {
 
 // ── Run each variant sequentially ─────────────────────────────────────────────
 
+markPhase("setup", "completed")
 const runResults = {};
 
 for (const v of variantsToRun) {
@@ -256,6 +294,7 @@ for (const v of variantsToRun) {
   if (parsed.error) {
     log(`ERROR: ${parsed.error}`);
   }
+  markPhase(v === "fp16" ? "runFp16" : "runFp8", "completed")
 }
 
 // ── Phase: Review (local VLM) ──────────────────────────────────────────────────
@@ -310,6 +349,7 @@ if (skipReview) {
 
 // ── Phase: Compare ────────────────────────────────────────────────────────────
 
+markPhase("review", "completed")
 phase("Compare");
 
 const qualityDeltas = {};
@@ -371,6 +411,7 @@ if (variantsToRun.length === 2) {
 
 // ── Phase: Report ─────────────────────────────────────────────────────────────
 
+markPhase("compare", "completed")
 phase("Report");
 
 log("");
@@ -428,6 +469,8 @@ if (variantsToRun.length === 2) {
 log("");
 log("=== END REPORT ===");
 
+markPhase("report", "completed")
+
 // ── Phase: Report HTML ─────────────────────────────────────────────────────────
 
 if (variantsToRun.length === 2) {
@@ -469,4 +512,117 @@ if (variantsToRun.length === 2) {
   };
 }
 
+// ── Persist — write run history ──────────────────────────────────────────────
+markPhase("reportHtml", "completed")
+phase("Persist")
+const _bench_RUN_TS = (resolvedTimestamp || "unknown").trim()
+const _bench_HIST_DIR = _BENCH_HIST_DIR_ROOT
+
+const fp8AvgScore = returnResult.fp8?.avgOverall ?? null
+const fp16AvgScore = returnResult.fp16?.avgOverall ?? null
+
+const benchDelta = benchReflection?.fp8_baseline
+  ? {
+      fp8_delta: +((fp8AvgScore || 0) - (benchReflection.fp8_baseline.overall || 0)).toFixed(2),
+      fp16_delta: +((fp16AvgScore || 0) - (benchReflection.fp16_baseline?.overall || 0)).toFixed(2),
+      regression: (fp8AvgScore || 0) < (benchReflection.fp8_baseline.overall || 0) - 0.5,
+    }
+  : null
+
+const benchSignals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: fp8AvgScore ?? fp16AvgScore,
+  delta_from_last: null,
+  highlights: variantsToRun.length === 2
+    ? [
+        `fp16=${fp16AvgScore?.toFixed(1) ?? "?"} fp8=${fp8AvgScore?.toFixed(1) ?? "?"} Δoverall=${qualityDeltas.overall != null ? qualityDeltas.overall.toFixed(1) : "N/A"}`,
+        `Wall time: fp16=${returnResult.fp16?.wallTime ?? "?"}s fp8=${returnResult.fp8?.wallTime ?? "?"}s`,
+      ]
+    : [`${variantsToRun[0]} score=${(returnResult[variantsToRun[0]]?.avgOverall ?? 0).toFixed(1)}`],
+  warnings: qualityDeltas.overall != null && qualityDeltas.overall < -0.5
+    ? [`fp8 quality regression: Δoverall=${qualityDeltas.overall.toFixed(1)}`]
+    : [],
+}
+
+const _bench_HIST_JSON = JSON.stringify({
+  schema_version: 1, run_id: _bench_RUN_TS, workflow: meta.name, started_at: _bench_RUN_TS,
+  args: args,
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals: benchSignals,
+  result: {
+    mode: returnResult.mode || "compare",
+    runTag: returnResult.runTag || "",
+    fp16AvgScore,
+    fp8AvgScore,
+    qualityDeltas: returnResult.deltas?.quality || null,
+    score_delta_from_last: benchDelta,
+  },
+}, null, 2)
+
+await agent(
+  `Persist workflow history.
+1. Bash("mkdir -p '${_bench_HIST_DIR}'")
+2. Write file: Write({ file_path: '${_bench_HIST_DIR}/${_bench_RUN_TS}.json', content: <json> })
+   Content: ${_bench_HIST_JSON}
+3. Bash("wc -c '${_bench_HIST_DIR}/${_bench_RUN_TS}.json' && echo OK")
+4. Bash("cd '${_bench_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+// ── Synthesize benchmark reflection ─────────────────────────────────────────
+
+const BENCH_REFLECT_SCHEMA = {
+  type: "object",
+  properties: {
+    fp16_baseline: { type: "object", properties: { overall: { type: "number" }, runs: { type: "number" } }, required: ["overall", "runs"] },
+    fp8_baseline: { type: "object", properties: { overall: { type: "number" }, runs: { type: "number" } }, required: ["overall", "runs"] },
+    fp8_degradation_pct: { type: "number" },
+    regression_alerts: { type: "array", items: { type: "string" } },
+    runs_analyzed: { type: "number" },
+    updated_at: { type: "string" },
+  },
+  required: ["regression_alerts", "runs_analyzed", "updated_at"],
+}
+
+const benchReflectResult = await agent(
+  `Synthesize a benchmark reflection from run history.
+1. Bash("ls -t '${_bench_HIST_DIR}'/*.json 2>/dev/null | head -10")
+2. Read up to 5 most recent files.
+3. Compute rolling average fp16AvgScore and fp8AvgScore across runs (ignore nulls).
+4. Compute fp8_degradation_pct = ((fp16_avg - fp8_avg) / fp16_avg * 100) if both available.
+5. Flag regression_alerts: if current fp8AvgScore dropped > 0.5 vs fp8 rolling average.
+6. Return with updated_at = "${_bench_RUN_TS}".`,
+  { label: "synthesize-bench-reflection", phase: "Persist", model: "haiku", schema: BENCH_REFLECT_SCHEMA },
+)
+
+if (benchReflectResult) {
+  await agent(
+    `Write the benchmark reflection JSON.
+Write({ file_path: '${BENCH_REFLECTION_FILE}', content: <json> })
+Content: ${JSON.stringify(benchReflectResult, null, 2)}
+Return { written: true }.`,
+    { label: "write-bench-reflection", phase: "Persist", model: "haiku" },
+  )
+  log(`Reflection: updated ${BENCH_REFLECTION_FILE} (${benchReflectResult.runs_analyzed} run(s))`)
+}
+
+// ── Update cross-workflow index ──────────────────────────────────────────────
+
+await agent(
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${BENCH_INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: _bench_RUN_TS, workflow: meta.name, started_at: _bench_RUN_TS, run_quality: benchSignals.run_quality, key_metric: benchSignals.key_metric, highlights: benchSignals.highlights })}
+3. Keep only latest 50 entries.
+4. Write back: Write({ file_path: '${BENCH_INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+)
+
+markPhase("persist", "completed")
+log(`History: ${_bench_HIST_DIR}/${_bench_RUN_TS}.json`)
+
+returnResult.history = { runId: _bench_RUN_TS, path: `${_bench_HIST_DIR}/${_bench_RUN_TS}.json` }
 return returnResult;

@@ -1,8 +1,10 @@
 """Run configuration: schema, serialization, and migration for .run.json files."""
 
+import argparse
 import json
 import os
 from dataclasses import asdict, dataclass
+from typing import Any
 
 SCHEMA_VERSION = 12
 
@@ -26,7 +28,7 @@ class RunConfig:
 
     # Pipeline selection
     pipeline: str = "zimage"            # "zimage" or "flux2-klein"
-    transformer: str = "klein-9b"       # Transformer instance dir under models/transformer/
+    transformer: str | None = "klein-9b"       # Transformer instance dir under models/transformer/
 
     # Prompt
     prompt: str | None = None
@@ -91,7 +93,7 @@ class RunConfig:
 
     # A/B variation tracking
     variation_index: int | None = None      # 1-based index within an A/B test
-    ab_params: dict | None = None           # the full ab-params JSON (for reference)
+    ab_params: dict[str, Any] | None = None           # the full ab-params JSON (for reference)
 
     # Draft mode (quick preview: fewer steps, smaller resolution)
     draft: bool = False
@@ -119,7 +121,7 @@ class RunConfig:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_args(cls, args, command: str = "generate") -> "RunConfig":
+    def from_args(cls, args: "argparse.Namespace", command: str = "generate") -> "RunConfig":
         """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
         from app.commands._shared import resolve_lora_path, resolve_vae_path
         rc = cls(

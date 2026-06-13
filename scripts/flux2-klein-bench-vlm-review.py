@@ -2,7 +2,7 @@
 """Flux 2 Klein Bench — VLM Review (local Vision Language Model).
 
 Part of the flux2-klein-character-profile-bench workflow.
-  Workflow:  .claude/workflows/flux2-klein-character-profile-bench.js  (Review phase)
+  Workflow:  .claude/workflows/bench/flux2-klein-character-profile-bench.js  (Review phase)
   Siblings:  scripts/flux2-klein-bench-compare-html.py                 (Report HTML phase)
   Runner:    scripts/comfy_bench.py                                    (Run FP16/FP8 phases)
 

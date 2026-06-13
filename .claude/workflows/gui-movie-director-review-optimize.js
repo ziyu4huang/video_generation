@@ -53,7 +53,7 @@ export const meta = {
     { title: "Resolve Fix",        detail: "Apply verified fixes to codebase" },
     { title: "Re-verify",          detail: "Quick correctness + type-safety check on changed files" },
     { title: "Restore",            detail: "Conditional: rollback fixes if re-verify detects regressions" },
-    { title: "Persist",            detail: "Write run history to disk for trend analysis and incremental improvement" },
+    { title: "Persist",            detail: "Write run history + synthesize reflection.json (patterns for future runs) + update cross-workflow index" },
     { title: "Report",             detail: "Synthesize prioritized findings with fix status and prior-run comparison" },
   ],
 }
@@ -338,6 +338,7 @@ if (!PROJECT_ROOT) {
 const WORKFLOW_NAME = "gui-movie-director-review-optimize"
 const GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
+const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  GUI_DIR: ${GUI_DIR}`)
@@ -420,6 +421,38 @@ if (resumeMode === "fresh") {
     log("WARNING: resume=continue but no prior run found. Starting fresh.")
   }
 }
+
+// ── Load reflection.json (accumulated patterns from all prior runs) ───────────
+let priorReflection = null
+if (resumeMode !== "fresh") {
+  const reflectLoad = await agent(
+    `Read the reflection file if it exists.
+    Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+    Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
+    Otherwise return { reflection: <the parsed object> }.`,
+    { label: "load-reflection", phase: "Resolve", model: "haiku" },
+  )
+  priorReflection = reflectLoad?.reflection || null
+  if (priorReflection?.patterns) {
+    const patCount = Object.values(priorReflection.patterns).flat().length
+    log(`Reflection: loaded ${patCount} pattern(s) from ${priorReflection.runs_analyzed || 0} prior run(s)`)
+  } else {
+    log("Reflection: no prior reflection.json found — will create after this run")
+  }
+}
+
+// Build prior-patterns injection string for Review prompts
+const priorPatternsCtx = priorReflection?.patterns
+  ? `\n## KNOWN PATTERNS FROM PRIOR RUNS — check these proactively (confirmed real bugs in this codebase):\n` +
+    Object.entries(priorReflection.patterns)
+      .flatMap(([dim, pats]) => (pats || []).map((p) => `- [${dim}] ${p}`))
+      .join("\n") +
+    (priorReflection.false_positives?.length
+      ? `\n\n## FALSE POSITIVE PATTERNS TO AVOID (do NOT flag these):\n` +
+        priorReflection.false_positives.map((p) => `- ${p}`).join("\n")
+      : "") +
+    "\n"
+  : ""
 
 markPhase("resolve", "completed")
 
@@ -515,7 +548,7 @@ phase("Review")
 // Dimension-specific review prompts
 const DIMENSION_PROMPTS = {
   correctness: `Review these TypeScript source files for CORRECTNESS BUGS in a Bun HTTP server + React SPA app.
-
+${priorPatternsCtx}
 Focus on:
 - Logic errors, off-by-one, wrong conditions (e.g. pathname matching in routes.ts)
 - Null/undefined dereferences: Map.get() without null check, optional chaining gaps
@@ -541,7 +574,7 @@ For each finding:
 Return structured findings matching the schema.`,
 
   "type-safety": `Review these TypeScript source files for TYPE SAFETY issues.
-
+${priorPatternsCtx}
 Focus on:
 - \`any\` types that should be concrete types: server.ts Bun.serve callback params, ws.ts WebSocket objects, subprocess.ts reader types, gallery.ts response data
 - Missing interfaces or incomplete type definitions: API request/response shapes, Job fields, config types
@@ -560,7 +593,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "error-handling": `Review these TypeScript source files for ERROR HANDLING gaps.
-
+${priorPatternsCtx}
 Focus on:
 - Uncaught promise rejections: ws.ts message handler, subprocess.ts readStream and proc.exited, bundle build in routes.ts
 - Missing try/catch: JSON.parse on incoming requests, fs operations in serveFile/gallery, Bun.spawn failures
@@ -580,7 +613,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "code-quality": `Review these TypeScript source files for CODE QUALITY improvements.
-
+${priorPatternsCtx}
 Focus on:
 - Duplicated patterns: API handler boilerplate in routes.ts, config loading patterns, response construction
 - Complex functions that should be decomposed: handleApi routing (long if-else chain), buildCliArgs in args.ts
@@ -603,7 +636,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   security: `Review these TypeScript source files for SECURITY vulnerabilities in this Bun HTTP server app.
-
+${priorPatternsCtx}
 Focus on:
 - Input validation gaps: API endpoints that accept POST bodies without schema validation (handleRunJob, handleUpload, handlePutConfig)
 - Path traversal: handleGalleryImage filename handling in gallery.ts, serveFile in routes.ts — can a crafted URL escape the output directory?
@@ -649,6 +682,24 @@ reviewResults.forEach((r, i) => {
 })
 
 log(`Review complete: ${allFindings.length} finding(s) across ${dimensions.length} dimension(s)`)
+
+// ── Pattern-matched confidence boost ─────────────────────────────────────────
+// Confirmed cross-run patterns get +20 confidence to ensure they survive the threshold filter
+const confirmedPatterns = priorReflection?.confirmed_patterns || []
+if (confirmedPatterns.length > 0) {
+  let boosted = 0
+  allFindings.forEach((f) => {
+    const match = confirmedPatterns.find((p) =>
+      p.keyword && (f.description || "").toLowerCase().includes(p.keyword.toLowerCase()),
+    )
+    if (match) {
+      f.confidence = Math.min(100, (f.confidence || 60) + 20)
+      f._patternMatch = match.pattern
+      boosted++
+    }
+  })
+  if (boosted > 0) log(`Pattern boost: ${boosted} finding(s) matched confirmed patterns → confidence +20`)
+}
 
 // ── Incremental dedup: suppress findings already upheld in prior run ─────────
 const newFindings = []
@@ -1038,6 +1089,33 @@ const appliedCount = fixResults.fixes.filter((f) => f.status === "applied").leng
 const skippedCount = fixResults.fixes.filter((f) => f.status === "skipped").length
 const failedCount  = fixResults.fixes.filter((f) => f.status === "failed").length
 
+// Build diagnostic aggregates for enhanced history
+const hotspotFiles = verifiedFindings.reduce((acc, f) => {
+  acc[f.file] = (acc[f.file] || 0) + 1; return acc
+}, {})
+const adversarialRejectionRate = allVerdicts.length
+  ? +(allVerdicts.filter((v) => !v.upheld).length / allVerdicts.length).toFixed(2)
+  : null
+const fixFailureReasons = fixResults.fixes
+  .filter((f) => f.status === "failed")
+  .reduce((acc, f) => {
+    const r = (f.error || "").includes("context") ? "context_mismatch" : "other"
+    acc[r] = (acc[r] || 0) + 1; return acc
+  }, {})
+
+// Build signals for cross-workflow health index
+const signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: verifiedFindings.length,
+  delta_from_last: null,
+  highlights: [
+    `${verifiedFindings.length} verified finding(s) across ${dimensions.length} dimension(s)`,
+    doFix ? `${appliedCount} fix(es) applied` : "review-only mode",
+    allVerdicts.length > 0 ? `adversarial: ${allVerdicts.filter((v) => v.upheld).length}/${allVerdicts.length} upheld` : "no adversarial run",
+  ],
+  warnings: reVerifyFindings.length > 0 ? [`${reVerifyFindings.length} regression(s) detected`] : [],
+}
+
 // Build the history envelope
 const historyEntry = {
   schema_version: 1,
@@ -1050,6 +1128,7 @@ const historyEntry = {
   status: "complete",
   files_touched: [...filesTouched],
   tags: ["code-review", ...dimensions],
+  signals,
   result: {
     scan: {
       totalFiles,
@@ -1088,32 +1167,131 @@ const historyEntry = {
       stashRef: checkpointResult?.stashRef || "",
       dirtyFilesBefore: checkpointResult?.dirtyBefore || [],
     },
+    hotspot_files: hotspotFiles,
+    adversarial_rejection_rate: adversarialRejectionRate,
+    fix_failure_reasons: fixFailureReasons,
   },
 }
 
-// Write history via agent (scripts can't use fs directly)
+// Write history via agent — use Write tool (not heredoc) to avoid shell quoting issues
 const historyJson = JSON.stringify(historyEntry, null, 2)
-// Escape any backticks in the JSON for the heredoc
-const historyJsonEscaped = historyJson.replace(/`/g, "\\`")
 
 await agent(
   `Persist the workflow run history to disk.
 
 Steps:
 1. Ensure directory exists: Bash("mkdir -p '${HISTORY_DIR}'")
-2. Write the history JSON file using a heredoc:
-   Bash("cat > '${HISTORY_DIR}/${RUN_ID}.json' <<'HISTORY_EOF'
+2. Write the history JSON using the Write tool (NOT a shell heredoc, to avoid quoting issues):
+   Write({ file_path: "${HISTORY_DIR}/${RUN_ID}.json", content: <the JSON string below> })
+   JSON content to write:
 ${historyJson}
-HISTORY_EOF")
 3. Verify it was written: Bash("wc -c '${HISTORY_DIR}/${RUN_ID}.json'")
-4. Prune old runs — keep only the 15 most recent:
-   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+4. Prune old runs — keep only the 15 most recent history files (not reflection.json):
+   Bash("cd '${HISTORY_DIR}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f")
 
 Return { written: true, path: "${HISTORY_DIR}/${RUN_ID}.json" }.`,
   { label: "persist-history", phase: "Persist", model: "haiku" },
 )
 
 log(`History: persisted to ${HISTORY_DIR}/${RUN_ID}.json`)
+
+// ── Reflect: synthesize patterns across all prior runs ────────────────────────
+const REFLECT_SCHEMA = {
+  type: "object",
+  properties: {
+    patterns: {
+      type: "object",
+      description: "dimension → array of pattern strings (max 5 per dimension)",
+      additionalProperties: { type: "array", items: { type: "string" } },
+    },
+    false_positives: {
+      type: "array",
+      items: { type: "string" },
+      description: "Patterns that were repeatedly flagged but rejected as false positives",
+    },
+    confirmed_patterns: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          pattern:     { type: "string", description: "Human-readable pattern name" },
+          keyword:     { type: "string", description: "Keyword to match against finding descriptions" },
+          dimension:   { type: "string" },
+          occurrences: { type: "number" },
+          last_seen:   { type: "string" },
+        },
+        required: ["pattern", "keyword", "dimension"],
+      },
+    },
+    runs_analyzed: { type: "number" },
+    updated_at:    { type: "string" },
+  },
+  required: ["patterns", "false_positives", "confirmed_patterns", "runs_analyzed"],
+}
+
+const reflectResult = await agent(
+  `Synthesize code review patterns from all history runs. This builds reflection.json that future runs use to find bugs faster.
+
+Step 1 — List history files (exclude reflection.json):
+Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -10")
+
+Step 2 — Read each history file and extract:
+For CONFIRMED patterns: findings in "fixes.items" with status="applied" (real bugs we fixed)
+For FALSE POSITIVE patterns: findings where adversarial verdict upheld=false across multiple runs
+For TRENDING issues: dimensions with many medium/high findings across runs
+
+Step 3 — Include THIS run's data:
+- Applied fixes this run: ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied").map((f) => ({ id: f.findingId, change: f.change })))}
+- Sample verified findings: ${JSON.stringify(verifiedFindings.slice(0, 10).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
+
+Build output:
+- patterns: { "correctness": ["<1 sentence actionable checker>", ...max 5], "type-safety": [...], ... }
+  CRITICAL: Patterns must be SPECIFIC to this codebase (Bun HTTP server, React SPA, TypeScript).
+  Examples: "type-safety: Bun.serve request.json() returns unknown — cast result before field access"
+- false_positives: patterns that recur in review but are always rejected
+- confirmed_patterns: findings confirmed across ≥2 runs OR successfully fixed, with keyword for matching
+- runs_analyzed: how many history files you read
+- updated_at: "${RUN_TIMESTAMP}"
+
+Max 5 patterns per dimension. Keep each pattern to 1 sentence. Return the reflection object.`,
+  { label: "reflect", phase: "Persist", model: "sonnet", schema: REFLECT_SCHEMA },
+)
+
+if (reflectResult) {
+  const reflectJson = JSON.stringify({ ...reflectResult, schema_version: 1 }, null, 2)
+  await agent(
+    `Write the updated reflection to '${REFLECTION_FILE}'. Use the Write tool (NOT heredoc).
+    Write({ file_path: "${REFLECTION_FILE}", content: <JSON below> })
+    JSON:
+${reflectJson}
+    Then verify: Bash("wc -c '${REFLECTION_FILE}' && echo REFLECT_OK")`,
+    { label: "write-reflection", phase: "Persist", model: "haiku" },
+  )
+  const patCount = Object.values(reflectResult.patterns || {}).flat().length
+  log(`Reflect: ${patCount} pattern(s), ${reflectResult.confirmed_patterns?.length || 0} confirmed, ${reflectResult.false_positives?.length || 0} false-positives → ${REFLECTION_FILE}`)
+}
+
+// ── Update cross-workflow _index.json ─────────────────────────────────────────
+const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+const indexEntry = JSON.stringify({
+  run_id: RUN_ID,
+  workflow: WORKFLOW_NAME,
+  started_at: RUN_TIMESTAMP,
+  run_quality: signals.run_quality,
+  key_metric: signals.key_metric,
+  highlights: signals.highlights,
+})
+await agent(
+  `Append a workflow summary to the cross-workflow index.
+1. Read current index: Bash("cat '${INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse the JSON array. Append this entry:
+   ${indexEntry}
+3. Keep only the 50 most recent entries (sort descending by run_id, slice to 50).
+4. Write back using Write tool: Write({ file_path: "${INDEX_FILE}", content: <updated JSON array, 2-space indent> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+)
+
 markPhase("persist", "completed")
 
 // ══════════════════════════════════════════════════════════════════════════════

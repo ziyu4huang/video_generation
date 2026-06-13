@@ -2,7 +2,7 @@
 """Flux 2 Klein Bench — HTML Comparison Report Generator.
 
 Part of the flux2-klein-character-profile-bench workflow.
-  Workflow:  .claude/workflows/flux2-klein-character-profile-bench.js  (Report HTML phase)
+  Workflow:  .claude/workflows/bench/flux2-klein-character-profile-bench.js  (Report HTML phase)
   Siblings:  scripts/flux2-klein-bench-vlm-review.py                   (Review phase)
   Runner:    scripts/comfy_bench.py                                    (Run FP16/FP8 phases)
 

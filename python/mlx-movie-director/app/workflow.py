@@ -19,6 +19,7 @@ from PIL import Image
 
 from app import config as cfg
 from app.pipeline_types import GenerationResult, WorkflowResult
+from app.run_config import RunConfig
 
 
 class WorkflowOrchestrator:
@@ -30,7 +31,7 @@ class WorkflowOrchestrator:
     Stage 4: Upscale (optional)
     """
 
-    def __init__(self, run_config):
+    def __init__(self, run_config: RunConfig):
         """
         Args:
             run_config: A RunConfig instance with all generation parameters
@@ -104,7 +105,7 @@ class WorkflowOrchestrator:
             total_seconds=total_seconds,
         )
 
-    def _run_base_generation(self, prompt: str) -> tuple:
+    def _run_base_generation(self, prompt: str) -> tuple[Image.Image, dict[str, float]]:
         """Stage 1: Generate base image via ZImagePipeline."""
         from app.pipeline import ZImagePipeline
 
@@ -216,7 +217,7 @@ class WorkflowOrchestrator:
         gc.collect()
 
     @staticmethod
-    def save_outputs(result: WorkflowResult, run_config, base_name: str | None = None):
+    def save_outputs(result: WorkflowResult, run_config: RunConfig, base_name: str | None = None):
         """Save all workflow outputs to a per-generation subfolder.
 
         Creates:

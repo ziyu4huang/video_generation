@@ -57,6 +57,7 @@ export const meta = {
     { title: "Self-Fix", detail: "Analyze score weaknesses, propose 1–2 fix specs, re-run and re-score (autoFix:true only)" },
     { title: "Report", detail: "Summarize quality scores, self-fix outcome, and improvement recommendations" },
     { title: "Review HTML", detail: "Build multi-set A/B review HTML via caption --ab-manifest" },
+    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
   ],
 }
 
@@ -95,6 +96,22 @@ log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:  ${PYTHON}`)
 log(`  RUN_PY:  ${RUN_PY}`)
 log(`  OUT_DIR: ${OUT_DIR}`)
+
+// ── Phase tracking ──────────────────────────────────────────────────────────
+const phaseStatus = {
+  resolve: "pending", feedback: "pending", gpuWait: "pending",
+  generate: "pending", vlmCheck: "pending", review: "pending",
+  selfFix: "pending", report: "pending", reviewHtml: "pending", persist: "pending",
+}
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+markPhase("resolve", "completed")
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -458,8 +475,10 @@ Return JSON:
   feedbackGuidance = feedbackResult?.guidance || ""
   if (feedbackResult?.winners?.length > 0) log(`  Human winners: ${feedbackResult.winners.join(", ")}`)
   log(`  Guidance:\n${feedbackGuidance.split("\n").map((l) => "    " + l).join("\n")}`)
+  markPhase("feedback", "completed")
 } else {
   log("No feedback for this iteration — skipping Feedback phase.")
+  markPhase("feedback", "skipped")
 }
 
 // ── Phase 1.5: GPU gate ──────────────────────────────────────────────────────
@@ -495,8 +514,10 @@ NOTE: pgrep matches command-lines — this detection command ("pgrep ...") will 
     gpuWaited += 20
   }
   if (gpuWaited >= maxGpuWait) log(`WARNING: GPU still busy after ${maxGpuWait}s — proceeding anyway.`)
+  markPhase("gpuWait", "completed")
 } else {
   log("GPU gate SKIPPED (gpuWait:false).")
+  markPhase("gpuWait", "skipped")
 }
 
 // ── Phase 2: Generate ────────────────────────────────────────────────────────
@@ -570,6 +591,7 @@ Return JSON:
 // Flatten all output PNGs across all generation runs
 const allOutputPngs = genResults.flatMap((r) => r.result?.outputPngs || [])
 log(`Total output PNGs collected: ${allOutputPngs.length}`)
+markPhase("generate", "completed")
 
 // ── Phase 3: VLM Check ───────────────────────────────────────────────────────
 
@@ -585,6 +607,7 @@ IMPORTANT: Return ONLY the JSON object.`,
 
 const vlmAvailable = vlmCheck?.available === true
 log(vlmAvailable ? "VLM available — proceeding with Review." : "VLM UNAVAILABLE — skipping Review phase.")
+markPhase("vlmCheck", vlmAvailable ? "completed" : "failed")
 
 // ── Phase 4: Review ──────────────────────────────────────────────────────────
 
@@ -648,6 +671,9 @@ Return flat JSON:
   captions = captionResults.filter(Boolean)
   const scored = captions.filter((c) => c.overall != null).length
   log(`Scored ${scored}/${allOutputPngs.length} PNG(s).`)
+  markPhase("review", scored > 0 ? "completed" : "failed")
+} else {
+  markPhase("review", "failed")
 }
 
 // ── Phase 5: Self-Fix (optional) ─────────────────────────────────────────────
@@ -780,15 +806,22 @@ Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharp
         log(`[Fix ${fi + 1}] Agent failed: ${e?.message || e}`)
       }
     }
+    markPhase("selfFix", "completed")
   } else if (bestScore >= autoFixThreshold) {
     log(`Self-Fix skipped: best overall=${bestScore.toFixed(1)} ≥ threshold=${autoFixThreshold} — quality is acceptable.`)
+    markPhase("selfFix", "skipped")
   } else {
     log("Self-Fix skipped: no below-threshold outputs to fix.")
+    markPhase("selfFix", "skipped")
   }
 } else if (autoFix && !vlmAvailable) {
   log("Self-Fix skipped: VLM unavailable.")
+  markPhase("selfFix", "skipped")
 } else if (autoFix && captions.length === 0) {
   log("Self-Fix skipped: no scored outputs.")
+  markPhase("selfFix", "skipped")
+} else {
+  markPhase("selfFix", "skipped")
 }
 
 // ── Phase 6: Report ──────────────────────────────────────────────────────────
@@ -860,6 +893,7 @@ If prior feedback guidance was provided, explicitly address whether this run fol
 Keep the report concise. Use markdown.`,
   { label: "report", phase: "Report", model: "sonnet" },
 )
+markPhase("report", "completed")
 
 // ── Phase 7: Review HTML ─────────────────────────────────────────────────────
 
@@ -900,7 +934,68 @@ Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captio
   log(reviewHtml
     ? `Review HTML: ${reviewHtml}`
     : (htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : "Review HTML build failed."))
+  markPhase("reviewHtml", reviewHtml ? "completed" : "failed")
+} else {
+  markPhase("reviewHtml", "skipped")
 }
+
+// ── Persist — write run history ──────────────────────────────────────────────
+phase("Persist")
+const _i2i_tsR = await agent(
+  `Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'") and return { timestamp: "<exact output trimmed>" }.`,
+  { label: "get-persist-ts", phase: "Persist", model: "haiku",
+    schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
+)
+const _i2i_RUN_TS   = (_i2i_tsR?.timestamp || "unknown").trim()
+const _i2i_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`
+const _i2i_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+
+const _i2i_signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: allOutputPngs.length,
+  delta_from_last: null,
+  highlights: [
+    `${allOutputPngs.length} image(s) generated, ${captions.length} captioned`,
+    selfTestMode ? `mode=${selfTestMode}` : "mode=default",
+    reviewHtml ? "review HTML built" : "no review HTML",
+  ],
+  warnings: fixAnalysis ? ["self-fix triggered"] : [],
+}
+
+const _i2i_HIST_JSON = JSON.stringify({
+  schema_version: 1, run_id: _i2i_RUN_TS, workflow: meta.name, started_at: _i2i_RUN_TS,
+  args: resolvedArgs,
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals: _i2i_signals,
+  result: { mode: selfTestMode || "default", imageCount: allOutputPngs.length,
+    captionCount: captions.length, selfFix: !!fixAnalysis, reviewHtml: !!reviewHtml },
+}, null, 2)
+
+await agent(
+  `Persist workflow run history to disk.
+1. Bash("mkdir -p '${_i2i_HIST_DIR}'")
+2. Write file: Write({ file_path: '${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json', content: <json> })
+   Content: ${_i2i_HIST_JSON}
+3. Bash("wc -c '${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json' && echo OK")
+4. Bash("cd '${_i2i_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+)
+
+await agent(
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${_i2i_INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: _i2i_RUN_TS, workflow: meta.name, started_at: _i2i_RUN_TS, run_quality: _i2i_signals.run_quality, key_metric: _i2i_signals.key_metric, highlights: _i2i_signals.highlights })}
+3. Keep only latest 50 entries.
+4. Write back: Write({ file_path: '${_i2i_INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+)
+
+markPhase("persist", "completed")
+log(`History: ${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json`)
 
 log("=== I2I Run-and-Review Complete ===")
 log(reportResult || "(no report)")
@@ -922,4 +1017,5 @@ return {
   captionFiles,
   captionSets,
   reviewHtml,
+  history: { runId: _i2i_RUN_TS, path: `${_i2i_HIST_DIR}/${_i2i_RUN_TS}.json` },
 }

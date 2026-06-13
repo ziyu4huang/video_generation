@@ -26,6 +26,7 @@ Usage:
   run.py video vbvr --prompt "ball bounces off wall" --frames 49
 """
 
+import argparse
 import importlib
 
 # Load sub-action modules (importlib required: filenames contain hyphens)
@@ -77,7 +78,7 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: "argparse.ArgumentParser") -> None:
     # Optional positional sub-action
     parser.add_argument(
         "action",
@@ -118,7 +119,7 @@ def add_args(parser):
     _relay.add_relay_args(parser)
 
 
-def run(args):
+def run(args: "argparse.Namespace") -> None:
     action = getattr(args, "action", "generate") or "generate"
     if action == "relay":
         _relay.run_relay(args)

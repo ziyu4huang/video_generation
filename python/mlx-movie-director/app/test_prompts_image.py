@@ -244,6 +244,76 @@ _PROMPTS = {
         "width": 960,
         "height": 640,
     },
+    # --- anatomy challenge prompts (stress-test hand/pose/body quality) ---
+    "anatomy-hands-complex": {
+        "prompt": (
+            "photorealistic close-up of a woman's hands holding a small origami crane, "
+            "five fingers clearly visible on each hand with distinct knuckles and fingernails, "
+            "fingers delicately folding paper with visible tension in the joints, natural skin "
+            "texture with fine creases at each finger joint, even studio lighting, macro "
+            "photography, ultra sharp focus on fingers"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anatomy-ballet-action": {
+        "prompt": (
+            "full body shot of a female ballet dancer in mid-grand jete leap, left leg fully "
+            "extended forward with pointed toes, right leg stretched back at 180 degree split, "
+            "arms in fifth position with elbows slightly bent, visible muscle definition in "
+            "calves and thighs, torso twisted with chest facing camera, photorealistic, detailed "
+            "anatomy, dramatic stage lighting, ultra sharp focus"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anatomy-foreshortening": {
+        "prompt": (
+            "photorealistic portrait of a man reaching his right hand directly toward the camera "
+            "in a foreshortened perspective, hand appearing disproportionately large with clearly "
+            "visible five fingers and knuckles, arm receding dramatically into the background with "
+            "correct elliptical foreshortening at the elbow joint, head and shoulders smaller in "
+            "the distance, natural lighting, wide-angle perspective distortion, ultra sharp focus"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anatomy-torso-twist": {
+        "prompt": (
+            "full body shot of a young woman in a dramatic contrapposto pose, torso twisted 45 "
+            "degrees to the right while hips face forward, visible oblique muscle engagement, right "
+            "arm raised behind her head with elbow bent at a sharp angle, left hand resting on her "
+            "hip with five individual fingers visible, weight on left leg with right knee slightly "
+            "bent, correct spinal curve, photorealistic, detailed anatomy, studio lighting, "
+            "ultra sharp focus"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anatomy-multi-person": {
+        "prompt": (
+            "photorealistic image of two young women dancing salsa together, their arms "
+            "intertwined with the leader's right hand holding the follower's left hand showing "
+            "five fingers each, the follower's right arm draped over the leader's left shoulder, "
+            "torsos close together with visible correct torso angles, their legs in mid-step with "
+            "knees at different angles, natural club lighting, detailed hands and limb anatomy, "
+            "ultra sharp focus"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "anatomy-low-angle": {
+        "prompt": (
+            "extreme low angle shot looking up at a man standing on a ledge above the camera, "
+            "camera at knee height looking upward, visible perspective distortion with legs "
+            "appearing large and head appearing small, hands on hips with clearly defined five "
+            "fingers and knuckles, jawline and chin visible from below with correct neck anatomy, "
+            "dramatic sky background, photorealistic, wide-angle lens distortion, detailed "
+            "anatomy, ultra sharp focus"
+        ),
+        "width": 640,
+        "height": 960,
+    },
 }
 
 _DEFAULT = "portrait"
@@ -2485,6 +2555,35 @@ _ALL_TESTS = {
             },
         ],
     },
+
+    # -----------------------------------------------------------------------
+    # type=lora-sweep: Anatomy challenge — stress-test anatomy/pose quality
+    # -----------------------------------------------------------------------
+
+    "anatomy-challenge": {
+        "type": "lora-sweep",
+        "description": (
+            "Anatomy challenge: baseline vs klein-slider-anatomy across 6 stress-test "
+            "prompts targeting hand detail, dynamic poses, foreshortening, torso rotation, "
+            "multi-person interaction, and unusual camera angles"
+        ),
+        "pipeline": "flux2-klein",
+        "lora_scale": 1.0,
+        "seeds": [42, 777],
+        "steps": 4,
+        "test_prompts": [
+            "anatomy-hands-complex",
+            "anatomy-ballet-action",
+            "anatomy-foreshortening",
+            "anatomy-torso-twist",
+            "anatomy-multi-person",
+            "anatomy-low-angle",
+        ],
+        "variants": [
+            {"label": "Baseline", "lora_path": None},
+            {"label": "Anatomy Fix", "lora_path": "klein-slider-anatomy"},
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -2598,6 +2697,10 @@ _ALL_TESTS_ALIASES = {
     # Defaults A/B validation
     "expand-ab":             "expansion-defaults-ab",
     "defaults-ab":           "expansion-defaults-ab",
+    # Anatomy challenge aliases
+    "anatomy":               "anatomy-challenge",
+    "anatomy-test":          "anatomy-challenge",
+    "klein-anatomy":         "anatomy-challenge",
 }
 
 

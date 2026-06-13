@@ -12,6 +12,7 @@ Provides:
   - GpuLock    — context manager with flock mutex that blocks until GPU is free
 """
 
+import argparse
 import fcntl
 import json
 import os
@@ -271,7 +272,7 @@ _LIGHTWEIGHT_COMMANDS = frozenset([
 ])
 
 
-def is_gpu_heavy_command(args) -> bool:
+def is_gpu_heavy_command(args: "argparse.Namespace") -> bool:
     """Determine if a parsed command requires GPU heavy lifting.
 
     Inspects args.command and args.action to classify.
@@ -330,7 +331,7 @@ def is_gpu_heavy_command(args) -> bool:
     return False
 
 
-def _is_replay_gpu_heavy(args) -> bool:
+def _is_replay_gpu_heavy(args: "argparse.Namespace") -> bool:
     """Check if a replay command is GPU-heavy by reading the target run.json."""
     replay_file = getattr(args, "file", None)
     if not replay_file or not os.path.exists(replay_file):

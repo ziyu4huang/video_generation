@@ -26,6 +26,7 @@ export const meta = {
     { title: "Conversion", detail: "Clean HF metadata, update manifest size_bytes, verify symlink assembly" },
     { title: "Validate",   detail: "check-manifests + ltx_pipelines_mlx import test" },
     { title: "Report",     detail: "Token self-reflection + domain risks + prioritized TODO list" },
+    { title: "Persist",    detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
   ],
 };
 
@@ -324,6 +325,18 @@ if (!depsOk && missingDeps.length) {
   log(`  install: ${PYTHON} -m pip install ${depArgs}`);
 }
 
+// ── Phase tracking ────────────────────────────────────────────────────────────
+const phaseStatus = { resolve: "pending", download: "pending", conversion: "pending", validate: "pending", report: "pending", persist: "pending" }
+const phasesCompleted = []
+const phasesFailed = []
+const filesTouched = new Set()
+function markPhase(name, status) {
+  phaseStatus[name] = status
+  if (status === "completed") phasesCompleted.push(name)
+  if (status === "failed") phasesFailed.push(name)
+}
+markPhase("resolve", "completed")
+
 // ── Phase 2: Download ─────────────────────────────────────────────────────────
 
 phase("Download");
@@ -405,6 +418,8 @@ for (const item of downloadQueue) {
     }
   }
 }
+
+markPhase("download", "completed")
 
 // ── Phase 3: Conversion (Organize + Update) ───────────────────────────────────
 
@@ -491,6 +506,8 @@ for (const r of (setupResults || [])) {
   log(`  [${r.component}] ${r.skipped ? "skipped (already clean)" : `done${delta}${cleaned}`}`);
 }
 
+markPhase("conversion", "completed")
+
 // ── Phase 4: Validate ─────────────────────────────────────────────────────────
 
 phase("Validate");
@@ -538,6 +555,8 @@ log(`  check-manifests: ${audit.errors.length === 0 ? `✓ passed (${audit.total
 for (const e of audit.errors)   log(`    ❌ ${e}`);
 for (const w of audit.warnings) log(`    ⚠️  ${w}`);
 log(`  import test: ${importCheck?.importOk ? "✓ OK" : `✗ ${importCheck?.error || "failed"}`}`);
+
+markPhase("validate", "completed")
 
 // ── Phase 5: Report ───────────────────────────────────────────────────────────
 
@@ -674,6 +693,68 @@ if (report?.tokenReflection?.length) {
 
 log("");
 log("═══ END REPORT ═══");
+
+markPhase("report", "completed")
+
+// ── Persist — write run history ──────────────────────────────────────────────
+phase("Persist");
+const _va_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`;
+const _va_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`;
+
+const _va_downloaded = downloadResults.filter(r => r?.success && !r?.skipped).length;
+const _va_failed = downloadResults.filter(r => !r?.success).length;
+
+const _va_signals = {
+  run_quality: phasesFailed.length === 0 ? "good" : "degraded",
+  key_metric: _va_downloaded,
+  delta_from_last: null,
+  highlights: [
+    `${_va_downloaded} downloaded, ${downloadResults.filter(r => r?.skipped).length} skipped, ${_va_failed} failed`,
+    compData.allReady ? "all models ready" : `${compData.totalMissingGB?.toFixed(1) ?? "?"}GB still missing`,
+    importCheck?.importOk ? "import check OK" : "import check failed",
+  ],
+  warnings: _va_failed > 0 ? [`${_va_failed} download(s) failed`] : [],
+};
+
+const _va_HIST_JSON = JSON.stringify({
+  schema_version: 1, run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP,
+  args: args,
+  phases_completed: phasesCompleted,
+  phases_failed: phasesFailed,
+  status: phasesFailed.length === 0 ? "complete" : "partial",
+  signals: _va_signals,
+  result: {
+    allReady: compData.allReady,
+    downloaded: _va_downloaded,
+    failed: _va_failed,
+    manifestsUpdated: (setupResults || []).filter(r => r?.manifestUpdated).length,
+    importOk: importCheck?.importOk || false,
+  },
+}, null, 2);
+
+await agent(
+  `Persist workflow run history to disk.
+1. Bash("mkdir -p '${_va_HIST_DIR}'")
+2. Write file: Write({ file_path: '${_va_HIST_DIR}/${TIMESTAMP}.json', content: <json> })
+   Content: ${_va_HIST_JSON}
+3. Bash("wc -c '${_va_HIST_DIR}/${TIMESTAMP}.json' && echo OK")
+4. Bash("cd '${_va_HIST_DIR}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f")
+Return { written: true }.`,
+  { label: "persist-history", phase: "Persist", model: "haiku" },
+);
+
+await agent(
+  `Append a summary entry to the cross-workflow index.
+1. Bash("cat '${_va_INDEX_FILE}' 2>/dev/null || echo '[]'")
+2. Parse JSON array. Append: ${JSON.stringify({ run_id: TIMESTAMP, workflow: meta.name, started_at: TIMESTAMP, run_quality: _va_signals.run_quality, key_metric: _va_signals.key_metric, highlights: _va_signals.highlights })}
+3. Keep only latest 50 entries.
+4. Write back: Write({ file_path: '${_va_INDEX_FILE}', content: <updated array as JSON> })
+Return { updated: true }.`,
+  { label: "update-index", phase: "Persist", model: "haiku" },
+);
+
+markPhase("persist", "completed")
+log(`History: ${_va_HIST_DIR}/${TIMESTAMP}.json`);
 
 // ── Structured return ─────────────────────────────────────────────────────────
 
