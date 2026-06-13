@@ -1,0 +1,21 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py --zit-checkpoint. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ernie-redmix-redzit15",
+  "type": "transformer",
+  "arch": "zimage-turbo",
+  "format": "mlx-4bit-gs32",
+  "description": "ZImage Turbo finetune, 4-bit MLX. Converted from ernie-redmix-redzit15_bf16_pruned.safetensors via convert.py --zit-checkpoint.",
+  "source": "civitai.com/models/958009",
+  "source_url": "https://civitai.com/models/958009?modelVersionId=2462789",
+  "weight_file": "model.safetensors",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "compatible_with": [
+    "text_encoder/qwen3-4b",
+    "tokenizer/qwen3",
+    "vae/flux-ae"
+  ],
+  "size_bytes": 3848371806,
+  "created_at": "2026-06-13T00:00:00Z"
+}

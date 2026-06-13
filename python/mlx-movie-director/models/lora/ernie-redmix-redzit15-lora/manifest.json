@@ -1,0 +1,20 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ernie-redmix-redzit15-lora",
+  "type": "lora",
+  "arch": "zimage-turbo",
+  "format": "safetensors-fp16",
+  "description": "LoRA adapter for zimage-turbo",
+  "source": "manual-import",
+  "compatible_with": [
+    "transformer/zimage-moody-v126"
+  ],
+  "size_bytes": 702631800,
+  "created_at": "2026-06-13T00:29:52Z",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "trigger_words": [
+    "ernie redmix"
+  ]
+}

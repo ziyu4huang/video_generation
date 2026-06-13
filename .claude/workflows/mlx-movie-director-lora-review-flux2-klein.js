@@ -18,8 +18,9 @@
 //     prompt: "...",                 // global T2I prompt (overridden per-LoRA by test_prompt)
 //     seeds: [42, 123, 777],        // seeds (default: [42, 123, 777, 999])
 //     steps: 4,                     // denoising steps (default: 4 for flux2-klein)
-//     lora_scale: 1.0,              // single LoRA scale → skip sweep
-//     lora_scales: [0.5, 0.8, 1.0, 1.2], // sweep range → auto-pick best per LoRA
+//     lora_scale: 1.0,              // single LoRA scale (default)
+//     doSweep: true,                 // enable scale sweep (opt-in; prior run showed no sensitivity)
+//     lora_scales: [0.5, 0.8, 1.0, 1.2], // explicit sweep range → auto-pick best per LoRA
 //     loras: ["klein-slider-anatomy"], // specific LoRAs (default: auto-discover all)
 //     width: 640,                   // image width (default: 640)
 //     height: 960,                  // image height (default: 960)
@@ -35,12 +36,11 @@
 //     realismStyle: "photorealistic", // anime2real style (default: "photorealistic")
 //   } })
 //
-// Generation plan (default: 3 style/slider LoRAs × 4 seeds, T2I lane only):
-//   Scale sweep: 3 LoRAs × 4 scales × 1 probe seed = 12 probe images
-//   Baselines: 1-3 unique prompts × 4 seeds = 4-12 images (per-LoRA prompt)
-//   LoRA images: 3 × 4 = 12 images (at optimal scale per LoRA)
-//   Total: ~28-36 images (sweep + baselines + LoRA at best scale)
-//   ~30-50 min on Apple Silicon (sequential, GPU-safe, flux2-klein ~40s/4steps)
+// Generation plan (default: 3-5 LoRAs × 3 seeds, no sweep, T2I lane only):
+//   Baselines: 1-3 unique prompts × 3 seeds = 3-9 images (per-LoRA prompt)
+//   LoRA images: 3-5 × 3 = 9-15 images (at scale 1.0)
+//   Total: ~12-24 images
+//   ~15-30 min on Apple Silicon (sequential, GPU-safe, flux2-klein ~40s/4steps)
 //
 // History:
 //   Run history persisted to .claude/workflows/history/<workflow-name>/<timestamp>.json
@@ -130,12 +130,13 @@ function captionPathFor(pngPath) {
 }
 
 const DEFAULT_PROMPT = (
-  "photorealistic portrait of a young woman, sharp eyes with detailed irises, " +
-  "natural skin texture with fine pores, soft studio lighting, bokeh background, " +
-  "high detail, ultra sharp focus"
+  "full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing " +
+  "red dress, one hand raised to adjust her hair with visible individual fingers, natural " +
+  "afternoon side lighting casting long shadows, photorealistic, detailed hands and face, " +
+  "ultra sharp focus"
 )
 
-const DEFAULT_SEEDS  = [42, 123, 777, 999]
+const DEFAULT_SEEDS  = [42, 123, 777]
 const DEFAULT_STEPS  = 4     // flux2-klein default (vs 9 for zimage)
 const DEFAULT_WIDTH  = 640
 const DEFAULT_HEIGHT = 960
@@ -202,7 +203,9 @@ if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   if (typeof resolvedArgs.realismStyle === "string") realismStyle    = resolvedArgs.realismStyle
 }
 
-const doSweep = loraScales === null && resolvedArgs?.lora_scale == null
+// Sweep is opt-in (prior run showed zero scale sensitivity 0.5-1.2 across all LoRAs).
+// Pass doSweep: true or lora_scales: [...] to enable.
+const doSweep = resolvedArgs?.doSweep === true || Array.isArray(resolvedArgs?.lora_scales)
 const sweepScales = loraScales || (resolvedArgs?.lora_scale != null ? [Number(resolvedArgs.lora_scale)] : DEFAULT_SCALES)
 
 // ── Phase 0: Resolve absolute paths + timestamp + resume check ───────────────
