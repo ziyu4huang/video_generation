@@ -1,0 +1,227 @@
+{
+  "reflection": {
+    "patterns": {
+      "security": [
+        "Gallery path-traversal checks must use `resolved.startsWith(dir + path.sep)` not bare startsWith — the delete path repeatedly re-introduces the bug the read path was hardened against",
+        "vlmApiUrl from PUT /api/config needs scheme allowlist (http/https only) and loopback restriction before handleVlmTest fetches it server-side (SSRF oracle)",
+        "All error responses (caption/upload/config/model-check) must return a generic string, not err.message/stderr — server-side log the detail",
+        "Add X-Content-Type-Options:nosniff, X-Frame-Options, and a restrictive CSP to every Bun.serve Response since /output/ serves user-influenced bytes",
+        "caption/selftest handlers bypass buildCliArgs — validate style/prompt/test_name against an allowlist or charset regex and reject leading-dash values before pushing into argv"
+      ],
+      "correctness": [
+        "lib/paths.ts resolves OUTPUT_DIRS/MODELS_DIR/UPLOAD_DIR at import time — convert them to functions (getOutputDirs()) so config PUT takes effect without restart",
+        "subprocess.ts readStream must carry a leftover buffer across reader.read() chunks and only emit newline-terminated lines; flush the tail on stream done",
+        "Guard proc.stdout/proc.stderr with null checks before .getReader() — spawn failures leave them null and the sync throw escapes the try/catch",
+        "WS 'open' handler replays ALL running jobs' buffered logs to every new client and hard-codes stream:'stdout' — filter by subscribedJobId and forward line.stream",
+        "API routes.ts SPA fallback condition `!pathname.startsWith(\"/api/\")` is always-true dead logic (all /api/ already returned above) — simplify or it masks missing-asset 404s"
+      ],
+      "type-safety": [
+        "Bun.serve fetch/upgrade handler `server` param is typed `any` — type it as `Server` from \"bun\" (call site passes Bun.Server)",
+        "ServerWebSocket handler params and connectedClients Set are typed `any` — import ServerWebSocket<WsData> from \"bun\" and define a WsData interface",
+        "readStream's `reader` param is typed `any` — use ReadableStreamDefaultReader<Uint8Array>",
+        "Response.json catch blocks use `err: any` then access err.message — narrow to `err: unknown` with `err instanceof Error` guard to avoid swallowing non-Error throws"
+      ],
+      "error-handling": [
+        "readStream's bare `catch { /* stream closed */ }` swallows reader errors and drops the unterminated final line — flush textDecoder.decode() on exit",
+        "handleDeleteJob calls killJob (cancel) but is named/used as delete — non-running jobs 404 instead of being removed from history",
+        "selftest job.selfTestHtmlPath marker is joined raw into path/URL — normalize via path.basename before lookup"
+      ],
+      "code-quality": [
+        "OUTPUT_DIRS.indexOf(entry.dir) uses reference equality on resolved path strings — use a Map for stable dir-index lookup",
+        "ensureUploadDir() uses require('fs') (CJS) while the file uses ESM import, and is never called — delete the dead function",
+        "Duplicate WebSocket connections: useJobs, ConfigView, and Layout each open their own /ws — refactor to a shared WS singleton/context"
+      ]
+    },
+    "false_positives": [
+      "SPA fallback dead-code/redundant condition in api/routes.ts — flagged as correctness in 4 of 5 runs but rejected each time; the always-true fallback IS the intended SPA catch-all behavior, not a bug (functional, by design)",
+      "ensureUploadDir() require('fs') dead code in lib/paths.ts — flagged in 2 runs but it is dead (never called) and harmless; low-value cleanup, not a correctness defect",
+      "loadConfig() in-memory cache never re-reads disk — flagged once as a stale-config bug but it is an intentional design choice (saveConfig updates the same cache), only matters for external edits",
+      "useSchemaDefaults one-render flash on action remount with populated cache — flagged as correctness but self-corrects on the next effect tick; cosmetic only",
+      "Gallery OUTPUT_DIRS.indexOf reference-equality fragility — flagged in 3 runs but works correctly because entry.dir is literally the same array element; no actual divergence path"
+    ],
+    "confirmed_patterns": [
+      {
+        "pattern": "Gallery path-traversal via startsWith without trailing separator",
+        "keyword": "path traversal startsWith trailing separator delete unlink",
+        "dimension": "security",
+        "occurrences": 4,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "subprocess.ts stream drain / getReader null check / proc.exited race",
+        "keyword": "subprocess getReader null proc.exited race stream drain newline split",
+        "dimension": "correctness",
+        "occurrences": 5,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "WS open handler replays all running jobs' logs, hardcodes stream stdout",
+        "keyword": "websocket open replay logs all running jobs stream stdout subscribedJobId",
+        "dimension": "correctness",
+        "occurrences": 5,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "Missing security response headers (nosniff/CSP/X-Frame-Options)",
+        "keyword": "security headers nosniff CSP X-Frame-Options X-Content-Type-Options",
+        "dimension": "security",
+        "occurrences": 3,
+        "last_seen": "2026-06-14T03-24-15"
+      },
+      {
+        "pattern": "err.message/stderr leaked to client in error responses",
+        "keyword": "err.message stderr returned client information disclosure generic message",
+        "dimension": "security",
+        "occurrences": 4,
+        "last_seen": "2026-06-14T03-24-15"
+      },
+      {
+        "pattern": "WS upgrade no Origin/CSRF check, fail-open when Origin absent",
+        "keyword": "websocket origin csrf upgrade accept any origin fail-open",
+        "dimension": "security",
+        "occurrences": 3,
+        "last_seen": "2026-06-14T03-24-15"
+      },
+      {
+        "pattern": "paths.ts OUTPUT_DIRS/MODELS_DIR resolved at import time, stale after config PUT",
+        "keyword": "OUTPUT_DIRS MODELS_DIR import-time stale config restart restartRequired",
+        "dimension": "correctness",
+        "occurrences": 2,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "vlmApiUrl SSRF (URL-shape-only validation, no scheme allowlist)",
+        "keyword": "vlmApiUrl ssrf scheme allowlist file metadata handleVlmTest fetch",
+        "dimension": "security",
+        "occurrences": 2,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "caption/selftest argv injection (style/prompt/test_name unvalidated)",
+        "keyword": "caption selftest argv injection style prompt test_name unvalidated leading dash",
+        "dimension": "security",
+        "occurrences": 3,
+        "last_seen": "2026-06-14T04-16-08"
+      },
+      {
+        "pattern": "PUT /api/config unauthenticated accepts pythonPath/outputDir/modelsDir",
+        "keyword": "PUT /api/config unauthenticated pythonPath modelsDir outputDir validatePythonPath substring",
+        "dimension": "security",
+        "occurrences": 3,
+        "last_seen": "2026-06-14T03-24-15"
+      }
+    ],
+    "recurring_findings": [
+      {
+        "title_fragment": "Path-traversal guard missing trailing separator in gallery delete / startsWith prefix-confusion",
+        "file": "api/gallery.ts",
+        "dimension": "security",
+        "seen_in_runs": 4,
+        "last_fix_status": "read-path hardened in 2026-06-12T21-18-29; delete-path still vulnerable (never fixed)"
+      },
+      {
+        "title_fragment": "Stream log lines split on \\n / getReader null check / proc.exited race",
+        "file": "lib/subprocess.ts",
+        "dimension": "correctness",
+        "seen_in_runs": 4,
+        "last_fix_status": "race finalized-flag fix applied 2026-06-12T21-18-29; newline-split + null-check recurred after"
+      },
+      {
+        "title_fragment": "onopen replays ALL running jobs' logs / hard-coded stream stdout",
+        "file": "api/ws.ts",
+        "dimension": "correctness",
+        "seen_in_runs": 5,
+        "last_fix_status": "never fixed (recurs every run)"
+      },
+      {
+        "title_fragment": "No security response headers (nosniff/CSP/X-Frame-Options)",
+        "file": "api/routes.ts",
+        "dimension": "security",
+        "seen_in_runs": 3,
+        "last_fix_status": "never fixed"
+      },
+      {
+        "title_fragment": "err.message / stderr forwarded verbatim to client",
+        "file": "api/caption.ts",
+        "dimension": "security",
+        "seen_in_runs": 4,
+        "last_fix_status": "never fixed (recurs across caption/upload/config/model-check)"
+      },
+      {
+        "title_fragment": "OUTPUT_DIRS/MODELS_DIR resolved at import time, stale after config update",
+        "file": "lib/paths.ts",
+        "dimension": "correctness",
+        "seen_in_runs": 2,
+        "last_fix_status": "never fixed"
+      },
+      {
+        "title_fragment": "SPA fallback dead-code/redundant condition",
+        "file": "api/routes.ts",
+        "dimension": "correctness",
+        "seen_in_runs": 4,
+        "last_fix_status": "intentional design — rejected each time (false positive)"
+      },
+      {
+        "title_fragment": "vlmApiUrl SSRF / scheme not validated",
+        "file": "api/config.ts",
+        "dimension": "security",
+        "seen_in_runs": 2,
+        "last_fix_status": "never fixed"
+      },
+      {
+        "title_fragment": "WS upgrade accepts any origin / no CSRF",
+        "file": "api/ws.ts",
+        "dimension": "security",
+        "seen_in_runs": 3,
+        "last_fix_status": "origin-check added 2026-06-12T21-18-29 but flagged fail-open (absent Origin) in later run"
+      }
+    ],
+    "dimension_calibration": {
+      "correctness": {
+        "avg_fp_rate": 0.18,
+        "avg_per_run": 7,
+        "action": "ok"
+      },
+      "security": {
+        "avg_fp_rate": 0.08,
+        "avg_per_run": 7,
+        "action": "ok"
+      },
+      "error-handling": {
+        "avg_fp_rate": 0.1,
+        "avg_per_run": 2,
+        "action": "reduce_effort"
+      },
+      "type-safety": {
+        "avg_fp_rate": 0.22,
+        "avg_per_run": 23,
+        "action": "increase_threshold"
+      },
+      "code-quality": {
+        "avg_fp_rate": 0.3,
+        "avg_per_run": 18,
+        "action": "increase_threshold"
+      }
+    },
+    "unstable_fixes": [
+      {
+        "title_fragment": "Gallery path-traversal (startsWith no trailing separator)",
+        "file": "api/gallery.ts",
+        "note": "Read/serving path was hardened in 2026-06-12T21-18-29 with dir+path.sep, but the delete path (tryDelete) re-introduced the identical bare-startsWith bug — same file, mirrored handler, fix not propagated"
+      },
+      {
+        "title_fragment": "subprocess.ts proc.exited race / double-broadcast",
+        "file": "lib/subprocess.ts",
+        "note": "Finalizer-flag fix applied 2026-06-12T21-18-29, but the file kept producing NEW correctness findings (getReader null check, newline-split, stream-drain) in all 3 subsequent runs — the file is a persistent hotspot needing holistic review"
+      },
+      {
+        "title_fragment": "WS upgrade origin check",
+        "file": "api/ws.ts",
+        "note": "Origin validation added 2026-06-12T21-18-29 but 2026-06-14T03-24-15 re-flagged it as fail-open (allows absent Origin header) — fix was incomplete, not fail-closed"
+      }
+    ],
+    "runs_analyzed": 5,
+    "updated_at": "2026-06-14T04-16-08",
+    "schema_version": 1
+  }
+}
