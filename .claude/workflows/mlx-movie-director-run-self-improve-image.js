@@ -1116,13 +1116,20 @@ if (autoFix && vlmAvailable && mode !== "finalize") {
 
     const fixRules = isI2i
       ? `## Fix Rules (I2I pipeline)
-- detail < 5 → increase steps by 5
+I2I runs at denoise_strength; denoise=1.0 ERASES all source pixels, so source content (clothing,
+identity, pose) survives ONLY through (a) the controlnet edge map + (b) the prompt. Lowering
+denoise lets real source pixels survive the restyle — the PRIMARY lever for source fidelity.
+- feedback mentions source fidelity (clothing/identity/jeans/garment "should match the original")
+  → lower denoise_strength toward 0.5–0.7 (more source pixels survive); keep seed + controlnet
+- detail/texture weak → lower denoise_strength by 0.1–0.2 (surviving source pixels carry real texture
+  that +steps cannot synthesize)
 - sharpness < 5 → lower denoise_strength by 0.1
 - artifacts < 5 → lower controlnet_strength by 0.2 OR set cnet_active_steps: 8
-- composition < 5 → try a different seed
-- overall low across all dimensions → lower denoise_strength by 0.1 AND try a different seed
-Each i2i fixSpec MUST include: label, rationale, input_image ("${i2iSourceImg}"), prompt (reuse
-the worst-scoring output's prompt), and ONLY the fields that change. reference_image: "${i2iRefImg}" if pose guidance applies.`
+- composition/pose < 5 → keep denoise low, ensure reference_image is set + controlnet_strength ≥ 0.5
+Each i2i fixSpec MUST include: label, rationale, input_image ("${i2iSourceImg}"), prompt (reuse the
+worst-scoring output's prompt, optionally APPEND a source-fidelity anchor like "wearing the original
+<garment> from the source image, <garment> detail preserved"), and ONLY the fields that change.
+reference_image: "${i2iRefImg}" if pose guidance applies.`
       : `## Fix Rules (T2I pipeline)
 - detail < 5 → increase steps by 3–5 (helps with fine texture rendering)
 - sharpness < 5 → try a different seed (stochastic quality variation)
@@ -1148,8 +1155,10 @@ ${JSON.stringify(scoredCaptions, null, 2)}
 ${fixRules}
 
 ## Your Task
-1. Identify the PRIMARY failure mode(s) from the scores.
-2. Propose at most 2 concrete fix specs (label + rationale + the required fields above + only what changes).
+1. Identify the PRIMARY failure mode(s) from the scores AND the feedback guidance above.
+2. Propose at most 2 concrete fix specs that pull DIFFERENT levers (e.g. for i2i: one denoise-tweak
+   + one prompt-anchor; for t2i: one steps-tweak + one prompt-strengthen) — NOT two near-identical
+   tweaks of the same parameter. Diversity lets the score-gate pick the genuinely best fix.
 3. Write a brief analysis of what failed and why these fixes should help.
 4. For EACH fixSpec set targetDimension = the score dimension it primarily improves. The score-gate
    judges the fix on THIS dimension (clothing/texture-fidelity fix -> "detail"; pose/structure fix
