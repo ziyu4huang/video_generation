@@ -1262,7 +1262,15 @@ Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
       const spec = fixSpecs[fi]
       log(`[Fix ${fi + 1}/${fixSpecs.length}] Running "${spec.label}": ${spec.rationale}`)
 
-      // kind-aware fix-command builder: i2i → buildI2iExplicitCommand, t2i → buildT2iCommand
+      // kind-aware fix-command builder: i2i → buildI2iExplicitCommand, t2i → buildT2iCommand.
+      // STEPS FALLBACK: a fix must change ONLY its lever (denoise/prompt/cnet/seed), so it runs at
+      // the SAME steps as the baseline. fix-analysis returns only the fields that change, so when a
+      // fix omits steps we fall back to the baseline spec's steps, then the project standard
+      // (i2i=15 matching the debug self-test baseline, t2i=9). Without this, buildCommand omits
+      // --steps, run.py defaults to 9, and a fix aimed at a 15-step baseline silently also changes
+      // steps 15→9 — a confound that makes the score-gate's attribution ambiguous.
+      const baselineSteps = (typeof runSpecs[0]?.steps === "number" && runSpecs[0].steps)
+        || (defaultKind === "i2i" ? 15 : 9)
       let fixCmd
       if (defaultKind === "i2i") {
         fixCmd = buildCommand({
@@ -1274,7 +1282,7 @@ Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
           controlnet_strength: spec.controlnet_strength,
           preprocess_mode: spec.preprocess_mode,
           seed: spec.seed,
-          steps: spec.steps,
+          steps: spec.steps || baselineSteps,
           cnet_active_steps: spec.cnet_active_steps,
           pipeline: spec.pipeline || runSpecs[0]?.pipeline,
         })
@@ -1283,7 +1291,7 @@ Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
           type: "t2i", kind: "t2i",
           prompt: spec.prompt || runSpecs[0]?.prompt || "A high quality photograph",
           seed: spec.seed,
-          steps: spec.steps,
+          steps: spec.steps || baselineSteps,
           pipeline: spec.pipeline || runSpecs[0]?.pipeline,
         })
       }
