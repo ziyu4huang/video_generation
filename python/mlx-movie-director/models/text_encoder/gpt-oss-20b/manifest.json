@@ -1,0 +1,44 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. GPT-OSS-20B text encoder for Microsoft Lens, MLX INT4 quantized. Both weight files below are gitignored (*.safetensors by root rule, tokenizer.json by models/**/tokenizer.json rule) — re-obtain via the commands in this manifest. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "gpt-oss-20b",
+  "type": "text_encoder",
+  "arch": "gpt-oss-20b",
+  "format": "mlx-int4-gs32",
+  "description": "OpenAI GPT-OSS-20B text encoder (MoE FFN, 64/8 GQA, YARN RoPE, sliding window 128) for the Microsoft Lens 3.8B MMDiT. MLX INT4 quantized (group_size=32). Loads multi-layer hidden states at selected layers (5, 11, 17, 23). Used by app/lens_text_encoder.py + app/lens_pipeline.py.",
+  "source": "openai/gpt-oss-20b",
+  "source_url": "https://huggingface.co/openai/gpt-oss-20b",
+  "pipeline": ["lens"],
+  "compatible_with": ["transformer/lens-3.8b"],
+  "created_at": "2026-06-14T00:00:00Z",
+  "files": [
+    {
+      "name": "model.safetensors",
+      "size_bytes": 13519556736,
+      "tracked": false,
+      "origin": "Converted from ComfyUI NVFP4 source (not a direct HF download)",
+      "source_file": "comfyui_data/models/text_encoders/gpt_oss_20b_nvfp4.safetensors",
+      "source_note": "The NVFP4 source is a ComfyUI-managed download (~13GB). If absent, obtain it via ComfyUI-Manager (text_encoders section) or search HuggingFace for a gpt-oss-20b nvfp4 checkpoint.",
+      "convert_script": "python/mlx-movie-director/scripts/convert_lens_te_mlx.py",
+      "convert_command": "python/venv/bin/python python/mlx-movie-director/scripts/convert_lens_te_mlx.py --src comfyui_data/models/text_encoders/gpt_oss_20b_nvfp4.safetensors --dst python/mlx-movie-director/models/text_encoder/gpt-oss-20b --bits 4"
+    },
+    {
+      "name": "tokenizer.json",
+      "size_bytes": 27868174,
+      "tracked": false,
+      "origin": "Standard GPT-OSS tokenizer (same as GPT-4o), downloaded from HuggingFace",
+      "source_url": "https://huggingface.co/openai/gpt-oss-20b/resolve/main/tokenizer.json",
+      "download_command": "huggingface-cli download openai/gpt-oss-20b tokenizer.json --local-dir python/mlx-movie-director/models/text_encoder/gpt-oss-20b"
+    }
+  ],
+  "convert_method": {
+    "tool": "scripts/convert_lens_te_mlx.py",
+    "input_format": "nvfp4 (ComfyUI quantization: uint8 packed FP4 + float8 block scales)",
+    "output_format": "mlx-int4 (group_size=32, bits=4)",
+    "steps": [
+      "Load NVFP4 safetensors on CPU (comfy_kitchen eager backend, CUDA-free)",
+      "Dequantize NVFP4 -> BF16 layer-by-layer (avoids 40GB RAM peak)",
+      "Split 3D MoE expert banks [E,O,I] -> per-expert 2D arrays [O,I]",
+      "Apply MLX INT4 quantization -> ~12GB output"
+    ]
+  }
+}

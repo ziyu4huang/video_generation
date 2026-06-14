@@ -7,8 +7,11 @@ models/**/*.pth
 models/**/*.ckpt
 models/**/*.gguf
 
-# Large downloaded/converted files (>1MB — restore via convert.py / download)
-models/tokenizer/qwen3/tokenizer.json
+# Large downloaded/converted files (>1MB — restore via convert.py / download).
+# All tokenizer.json are HF artifacts — re-download via each model dir's
+# manifest.json (source_url + download command) instead of tracking them.
+# Covers both models/tokenizer/<arch>/ and models/text_encoder/<arch>/ layouts.
+models/**/tokenizer.json
 models/tokenizer/qwen3/tmp/
 
 # HuggingFace download cache
