@@ -176,3 +176,60 @@ class TestMultiLoraFingerprint:
         models = collect_model_fingerprint(lora_path=None, extra_loras=None)
         assert "loras" not in models
         assert "lora" not in models
+
+
+class TestEvents:
+    """Runtime events trace: what the pipeline ACTUALLY did (model loads, LoRA, denoise)."""
+
+    _SAMPLE_EVENTS = [
+        {"event": "model_loaded", "target": "transformer",
+         "detail": {"quant": "4bit", "weights": "sharded"}, "seconds": 12.3},
+        {"event": "lora_applied", "target": "style.safetensors",
+         "detail": {"type": "lora", "applied_count": 64, "user_scale": 0.8}, "seconds": None},
+        {"event": "denoise_config", "target": "denoise",
+         "detail": {"steps": 9, "img2img": False}, "seconds": None},
+    ]
+
+    def _iso(self) -> str:
+        return datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+
+    def test_from_success_accepts_events(self):
+        mf = Manifest.from_success("/tmp/x.run.json", self._iso(), self._iso(),
+                                   timings={}, output_files=[], models={},
+                                   events=self._SAMPLE_EVENTS)
+        assert mf.events == self._SAMPLE_EVENTS
+        assert mf.events[1]["detail"]["type"] == "lora"
+
+    def test_from_success_events_defaults_none(self):
+        mf = Manifest.from_success("/tmp/x.run.json", self._iso(), self._iso(),
+                                   timings={}, output_files=[], models={})
+        assert mf.events is None
+
+    def test_events_round_trip_json(self, tmp_path):
+        mf = Manifest.from_success("/tmp/x.run.json", self._iso(), self._iso(),
+                                   timings={}, output_files=[], models={},
+                                   events=self._SAMPLE_EVENTS)
+        path = str(tmp_path / "ev.manifest.json")
+        mf.to_json(path)
+        with open(path) as f:
+            data = json.load(f)
+        assert data["events"] == self._SAMPLE_EVENTS
+        assert data["events"][0]["target"] == "transformer"
+
+    def test_from_error_events_none_by_default(self):
+        try:
+            raise ValueError("boom")
+        except ValueError as e:
+            mf = Manifest.from_error("/tmp/x.run.json", self._iso(), self._iso(),
+                                     timings={}, exception=e, models={})
+        assert mf.events is None
+
+    def test_events_and_pipeline_steps_coexist(self):
+        mf = Manifest.from_success("/tmp/x.run.json", self._iso(), self._iso(),
+                                   timings={"denoising_seconds": 4.0},
+                                   output_files=[], models={},
+                                   events=self._SAMPLE_EVENTS)
+        assert mf.events is not None and len(mf.events) == 3
+        # pipeline_steps built independently from timings; events untouched
+        assert [s["step"] for s in mf.pipeline_steps] == ["denoising_seconds"]
+        assert mf.pipeline_steps[0]["seconds"] == 4.0

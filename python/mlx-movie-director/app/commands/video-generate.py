@@ -969,8 +969,12 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
             }]
 
             models = _collect_model_fingerprints(pipeline._model_dir, args=var_args)
+            # LTX pipeline returns events inside the timings dict; lift them out so
+            # timings stays clean (floats only) and events land in the manifest.
+            _video_events = timings.pop("events", None)
             manifest = Manifest.from_success(
-                run_file, start_time, end_time, timings, output_files, models)
+                run_file, start_time, end_time, timings, output_files, models,
+                events=_video_events)
             manifest.to_json(manifest_file)
 
             print(f"[video] Saved:    {output_mp4}")

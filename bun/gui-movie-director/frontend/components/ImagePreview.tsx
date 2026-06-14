@@ -282,6 +282,34 @@ function PipelineStepsList({ steps }: { steps: any[] }) {
   );
 }
 
+function EventsList({ events }: { events: any[] }) {
+  return (
+    <div className={s.mfTimings}>
+      {events.map((ev: any, i: number) => (
+        <div key={i} className={s.mfEventEntry}>
+          <div className={s.mfTimingRow}>
+            <span className={s.mfEventTypeBadge}>{ev.event}</span>
+            <span className={s.mfTimingLabel}>{ev.target}</span>
+            {typeof ev.seconds === "number" && (
+              <span className={s.mfTimingValue}>{ev.seconds.toFixed(2)}s</span>
+            )}
+          </div>
+          {ev.detail && Object.keys(ev.detail).length > 0 && (
+            <div className={s.mfParamGrid}>
+              {Object.entries(ev.detail).map(([k, v]: [string, any]) => (
+                <div key={k} className={s.mfParamRow}>
+                  <span className={s.mfParamKey}>{k}</span>
+                  <span className={s.mfEventDetailVal}>{String(v)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PromptBlock({ prompt }: { prompt: string }) {
   return <div className={s.mfPrompt}>{prompt}</div>;
 }
@@ -462,6 +490,7 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
     if (data.output_files) usedKeys.add("output_files");
     if (data.error !== undefined) usedKeys.add("error");
     if (data.pipeline_steps) usedKeys.add("pipeline_steps");
+    if (Array.isArray(data.events) && data.events.length > 0) usedKeys.add("events");
 
     // LoRA fingerprints: models.loras (array) gets its own section; lora/loras
     // are removed from the generic ModelTable to avoid duplication.
@@ -500,6 +529,11 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
         {Array.isArray(data.pipeline_steps) && data.pipeline_steps.length > 0 && (
           <Section title="Run sequence">
             <PipelineStepsList steps={data.pipeline_steps} />
+          </Section>
+        )}
+        {Array.isArray(data.events) && data.events.length > 0 && (
+          <Section title="Events">
+            <EventsList events={data.events} />
           </Section>
         )}
         {data.output_files && data.output_files.length > 0 && (

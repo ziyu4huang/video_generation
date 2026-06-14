@@ -575,6 +575,33 @@
   flex-shrink: 0;
 }
 
+/* Events (runtime trace: what the pipeline ACTUALLY did) */
+.mfEventEntry {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.mfEventEntry:last-child {
+  border-bottom: none;
+}
+.mfEventTypeBadge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.mfEventDetailVal {
+  font-size: 11px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
 /* Output */
 .mfOutputRow {
   display: flex;

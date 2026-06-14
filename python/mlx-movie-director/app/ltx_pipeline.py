@@ -366,7 +366,17 @@ class LTXVideoPipeline:
             kwargs["teacache_thresh"] = teacache_thresh
 
         self._pipeline.generate_and_save(**kwargs)
-        return {"generate_seconds": time.time() - t0}
+        _events = list(self._pipeline_events)
+        _events.append({
+            "event": "denoise_config", "target": f"ltx_{mode}",
+            "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
+                       "cfg_scale": cfg_scale, "stg_scale": stg_scale,
+                       "frames": num_frames, "frame_rate": frame_rate,
+                       "image_conditioning": image is not None,
+                       "audio": audio_path is not None, "teacache": enable_teacache},
+            "seconds": None,
+        })
+        return {"generate_seconds": time.time() - t0, "events": _events}
 
     def generate_flf2v(
         self,
@@ -480,7 +490,17 @@ class LTXVideoPipeline:
             video_guider_params=video_gp,
             audio_guider_params=audio_gp,
         )
-        return {"generate_seconds": time.time() - t0}
+        _events = list(self._pipeline_events)
+        _events.append({
+            "event": "denoise_config", "target": "ltx_flf2v",
+            "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
+                       "cfg_scale": cfg_scale, "stg_scale": stg_scale,
+                       "frames": num_frames, "frame_rate": frame_rate,
+                       "keyframes": [begin_image is not None, end_image is not None],
+                       "keyframe_strengths": [begin_strength, end_strength]},
+            "seconds": None,
+        })
+        return {"generate_seconds": time.time() - t0, "events": _events}
 
     def generate_ic_lora(
         self,
@@ -559,7 +579,30 @@ class LTXVideoPipeline:
             images=images,
             conditioning_attention_strength=conditioning_attention_strength,
         )
-        return {"generate_seconds": time.time() - t0}
+        # IC-LoRA builds a fresh pipeline (not via _build_pipeline), so emit its
+        # runtime trace locally: model load + each LoRA fused at init + denoise config.
+        _events = [{
+            "event": "model_loaded", "target": "ltx_ic_lora",
+            "detail": {"mode": "ic_lora", "model_dir": self._model_dir,
+                       "variant": self.transformer, "lora_count": len(ic_lora_paths)},
+            "seconds": None,
+        }]
+        for _lp, _ls in ic_lora_paths:
+            _events.append({
+                "event": "lora_applied",
+                "target": os.path.basename(_lp) if isinstance(_lp, str) else str(_lp),
+                "detail": {"type": "ic_lora_fused_at_init", "user_scale": _ls},
+                "seconds": None,
+            })
+        _events.append({
+            "event": "denoise_config", "target": "ltx_ic_lora",
+            "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
+                       "frames": num_frames, "frame_rate": frame_rate,
+                       "conditioning_attention_strength": conditioning_attention_strength,
+                       "video_conditioning_count": len(video_conditioning)},
+            "seconds": None,
+        })
+        return {"generate_seconds": time.time() - t0, "events": _events}
 
     def _build_flf2v_pipeline(self):
         """Build a KeyframeInterpolationPipeline for FLF2V mode."""
@@ -588,7 +631,15 @@ class LTXVideoPipeline:
         )
         self._apply_lora(pipeline)
 
-        print(f"[LTXVideoPipeline] Pipeline ready ({time.time() - t0:.1f}s)")
+        _elapsed = time.time() - t0
+        self._pipeline_events.append({
+            "event": "model_loaded", "target": "ltx_flf2v",
+            "detail": {"mode": "flf2v", "variant": self.transformer,
+                       "temporal_upscale": self.temporal_upscale,
+                       "model_dir": self._model_dir},
+            "seconds": _elapsed,
+        })
+        print(f"[LTXVideoPipeline] Pipeline ready ({_elapsed:.1f}s)")
         return pipeline
 
     def _apply_lora(self, pipeline) -> None:
@@ -668,5 +719,14 @@ class LTXVideoPipeline:
             )
         self._apply_lora(pipeline)
 
-        print(f"[LTXVideoPipeline] Pipeline ready ({time.time() - t0:.1f}s)")
+        _elapsed = time.time() - t0
+        self._pipeline_events.append({
+            "event": "model_loaded", "target": f"ltx_{mode}",
+            "detail": {"mode": mode, "hq": self.hq, "distilled": self.distilled,
+                       "variant": self.transformer, "temporal_upscale": self.temporal_upscale,
+                       "model_dir": self._model_dir,
+                       "distilled_lora_strength": self._distilled_lora_strength},
+            "seconds": _elapsed,
+        })
+        print(f"[LTXVideoPipeline] Pipeline ready ({_elapsed:.1f}s)")
         return pipeline

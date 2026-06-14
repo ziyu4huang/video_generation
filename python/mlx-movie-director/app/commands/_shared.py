@@ -524,6 +524,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
     all_outputs = []
     output_paths = []
     last_timings = {}
+    last_events = None
 
     try:
         for i, seed in enumerate(seeds):
@@ -582,6 +583,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                 "height": result.image.height,
             })
             last_timings = result.timings
+            last_events = result.events
 
         end_time = datetime.now(timezone.utc).isoformat()
         # Extra LoRAs (face_detail / fusion / etc.) beyond the main lora_path,
@@ -601,7 +603,8 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                 extra_loras=extra_lora_paths,
             )
         manifest = Manifest.from_success(run_file, start_time, end_time,
-                                         last_timings, all_outputs, models)
+                                         last_timings, all_outputs, models,
+                                         events=last_events)
         manifest.to_json(manifest_file)
         print(f"Run config: {run_file}")
         print(f"Manifest:   {manifest_file}")
@@ -620,7 +623,8 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
         end_time = datetime.now(timezone.utc).isoformat()
         models = {}
         manifest = Manifest.from_error(run_file, start_time, end_time,
-                                       last_timings, exc, models)
+                                       last_timings, exc, models,
+                                       events=last_events)
         manifest.to_json(manifest_file)
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         print(f"Manifest (error): {manifest_file}", file=sys.stderr)
@@ -667,10 +671,10 @@ def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_mode
                 upscaler.unload()
             except Exception:
                 pass
-        return GR(image=upscaled, timings=result.timings)
+        return GR(image=upscaled, timings=result.timings, events=result.events)
     else:
         upscaled = ZImagePipeline.upscale_esrgan(result.image, upscale_model)
-        return GR(image=upscaled, timings=result.timings)
+        return GR(image=upscaled, timings=result.timings, events=result.events)
 
 
 # ---------------------------------------------------------------------------
@@ -737,6 +741,7 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
     count = len(seeds)
     all_outputs = []
     all_timings = {}
+    all_events = []
 
     try:
         for i, seed in enumerate(seeds):
@@ -770,6 +775,7 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
                 "width": result_z.image.width, "height": result_z.image.height,
             })
             all_timings["zimage"] = result_z.timings
+            all_events.extend(result_z.events or [])
 
             # Unload ZImage to free ~8 GB
             del pipeline_z, result_z
@@ -808,6 +814,7 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
                 "width": result_f.image.width, "height": result_f.image.height,
             })
             all_timings["flux2-klein"] = result_f.timings
+            all_events.extend(result_f.events or [])
 
             # --- Side-by-side comparison ---
             zimg = Image.open(zimg_path)
@@ -839,7 +846,8 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
                                                    extra_loras=extra_lora_paths)
         models = {"zimage": models_z, "flux2-klein": models_f}
         manifest = Manifest.from_success(run_file, start_time, end_time,
-                                         all_timings, all_outputs, models)
+                                         all_timings, all_outputs, models,
+                                         events=all_events or None)
         manifest.to_json(manifest_file)
         print(f"\nRun config: {run_file}")
         print(f"Manifest:   {manifest_file}")
@@ -858,7 +866,8 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()
         manifest = Manifest.from_error(run_file, start_time, end_time,
-                                       all_timings, exc, {})
+                                       all_timings, exc, {},
+                                       events=all_events or None)
         manifest.to_json(manifest_file)
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
         traceback.print_exc()

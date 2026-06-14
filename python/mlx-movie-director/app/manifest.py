@@ -229,6 +229,7 @@ class Manifest:
     output_files: list[dict[str, Any]] | None   # [{path, seed, size_bytes, width, height}] or None
     error: dict[str, str | None] | None          # {type, message, traceback} or None
     pipeline_steps: list[dict[str, Any]] | None  # ordered execution trace from timings (+stage_timings)
+    events: list[dict[str, Any]] | None  # runtime trace: what the pipeline ACTUALLY did (model loads w/ quant+format, LoRA apply, denoise config, VAE backend, fallbacks)
 
     # ------------------------------------------------------------------
     # Factories
@@ -238,7 +239,8 @@ class Manifest:
     def from_success(cls, run_file: str, start_time: str, end_time: str,
                      timings: dict[str, Any], output_files: list[dict[str, Any]] | None,
                      models: dict[str, Any],
-                     stage_timings: dict[str, Any] | None = None) -> "Manifest":
+                     stage_timings: dict[str, Any] | None = None,
+                     events: list[dict[str, Any]] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,
@@ -252,13 +254,15 @@ class Manifest:
             output_files=output_files,
             error=None,
             pipeline_steps=_build_pipeline_steps(timings, stage_timings),
+            events=events,
         )
 
     @classmethod
     def from_error(cls, run_file: str, start_time: str, end_time: str,
                    timings: dict[str, Any], exception: Exception,
                    models: dict[str, Any],
-                   stage_timings: dict[str, Any] | None = None) -> "Manifest":
+                   stage_timings: dict[str, Any] | None = None,
+                   events: list[dict[str, Any]] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,
@@ -276,6 +280,7 @@ class Manifest:
                 "traceback": traceback.format_exc(),
             },
             pipeline_steps=_build_pipeline_steps(timings, stage_timings),
+            events=events,
         )
 
     # ------------------------------------------------------------------
