@@ -126,6 +126,23 @@ export class SubprocessManager {
 
     job.pid = proc.pid;
 
+    // Guard: Bun.spawn can return a proc whose stdout/stderr are null (e.g. a
+    // spawn-level pipe failure the try/catch above didn't surface). The
+    // getReader() calls below would throw synchronously OUTSIDE that try/catch,
+    // crashing the request handler and leaving the job stuck in 'running'
+    // (finalize never runs). Finalize as failed instead, mirroring the spawn-
+    // failed catch path.
+    if (!proc.stdout || !proc.stderr) {
+      const msg = "[spawn failed: proc has no stdout/stderr stream]";
+      job.logs.push({ text: msg, stream: "stderr" });
+      this.broadcastLog(id, msg, "stderr");
+      job.status = "failed";
+      job.exitCode = -1;
+      job.completedAt = new Date().toISOString();
+      this.broadcastStatus(job);
+      return id;
+    }
+
     // Drain stdout
     const readStream = async (stream: "stdout" | "stderr", reader: ReadableStreamDefaultReader<Uint8Array>) => {
       const textDecoder = new TextDecoder();

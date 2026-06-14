@@ -29,6 +29,13 @@ export async function handleRunSelfTest(req: Request): Promise<Response> {
   if (!test_name) {
     return Response.json({ error: "Missing 'test_name'" }, { status: 400 });
   }
+  // test_name is forwarded into the run.py argv; reject anything that isn't a
+  // bare self-test identifier (registry names are "word:word", e.g. t2i:portrait).
+  // Requiring a non-dash first char blocks argument injection (a leading "--"
+  // would be parsed by run.py's argparse as a separate flag).
+  if (typeof test_name !== "string" || !/^[A-Za-z0-9_:][\w:.-]*$/.test(test_name)) {
+    return Response.json({ error: "Invalid 'test_name'" }, { status: 400 });
+  }
 
   const command = actionToCommand(action);
 

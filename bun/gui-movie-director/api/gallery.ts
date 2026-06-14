@@ -186,7 +186,12 @@ export async function handleGalleryImage(req: Request, filename: string): Promis
 
   for (const dir of dirsToSearch) {
     const filePath = path.normalize(path.join(dir, name));
-    if (!filePath.startsWith(path.resolve(dir))) continue;
+    // Containment check MUST include the trailing separator: a bare startsWith
+    // lets a sibling named "<dir>something" in the parent (e.g. name="../output-
+    // secret" normalizes to /a/b/output-secret which startsWith /a/b/output) slip
+    // through and serve a file outside the output dir.
+    const resolvedDir = path.resolve(dir) + path.sep;
+    if (!filePath.startsWith(resolvedDir)) continue;
     if (!fs.existsSync(filePath)) continue;
 
     const stat = fs.statSync(filePath);
