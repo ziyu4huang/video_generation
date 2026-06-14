@@ -160,9 +160,21 @@ if (bestScore < autoFixThreshold) { /* enter self-fix */ }
 // - artifacts < 5 → ctrl_strength − 0.2
 // - composition < 5 → different seed
 // - overall low → combine lower denoise + different seed
+
+// Gate — DIMENSION-AWARE, not overall-only. Each fix declares the dimension it targets
+// (targetDimension: detail/composition/prompt_adherence/overall/...). The gate keeps a fix if
+// it beats baseline on THAT dimension. An overall-only gate wrongly drops a targeted fix that
+// lifts a weak dimension (clothing fidelity → detail 7→8) when overall stays flat (8 <= 8).
+const SCORE_DIMS = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+const baselineBest = {}
+for (const d of SCORE_DIMS) baselineBest[d] = scoredOutputs.reduce((b, c) => Math.max(b, c[d] || 0), 0)
+// per fix:
+const dim = SCORE_DIMS.includes(spec.targetDimension) ? spec.targetDimension : "overall"
+const baselineForGate = dim === "overall" ? bestScore : baselineBest[dim]
+const passed = bestFixOnDim > baselineForGate   // strict >; ties dropped
 ```
 
-Full pattern: see `mlx-movie-director-run-self-improve-image.js` Self-Fix phase (kind-aware: t2i rules vs i2i rules, score-gated for both).
+Full pattern: see `mlx-movie-director-run-self-improve-image.js` Self-Fix phase (kind-aware: t2i rules vs i2i rules, dimension-aware score-gate for both kinds).
 
 ## Adversarial Verify (Code Review Only)
 
