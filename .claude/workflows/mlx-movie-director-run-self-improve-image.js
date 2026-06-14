@@ -34,6 +34,12 @@
 //     → multi-spec generation + ingest prior human feedback (iteration N>1)
 //   Workflow({ scriptPath: "...", args: ["output_20260610_194901.run.json"] })
 //     → replay one or more previous run.json files (relative to output/ or absolute)
+//   Workflow({ scriptPath: "...", args: { selfTest:"lora:multi-zimage", kind:"t2i" } })
+//     → named T2I self-test (routed to the review selftest dispatcher; emits only
+//       "Saved:" lines, no JSON_SUMMARY). lora:multi-zimage stacks SDA+JibMix on
+//       Z-Image to verify the --lora-path action="append" plumbing applied BOTH
+//       adapters on the stacked variant. Other named ids: run.py image review
+//       --self-test list (e.g. t2i:portrait, lora:sda-portrait, lora:sda-sweep).
 //
 // GENERATION (kind:"i2i"):
 //   Workflow({ scriptPath: "...", args: { kind:"i2i" } })
@@ -1411,6 +1417,29 @@ validResults.forEach((r, idx) => {
   })
 })
 const captionSets = Object.keys(captionSetsMap).sort((a, b) => Number(a) - Number(b)).map((k) => captionSetsMap[k])
+
+// ── Surface KEPT self-fix outputs in the review set ─────────────────────────
+// fixCaptions holds the score-gate's KEPT fixes, but the review HTML + report are
+// built from captionFiles/captionSets (derived from the baseline generation above).
+// Without this merge, a fix that PASSED the gate lives only in-memory + the history
+// count — the human never sees the improvement. Add each KEPT fix's caption file and
+// a dedicated "Self-Fix (KEPT)" set so the improvement is reviewable in the HTML.
+if (fixCaptions.length > 0) {
+  const fixFiles = []
+  const fixVariants = []
+  fixCaptions.forEach((c) => {
+    if (!c?.imagePath) return
+    const capPath = captionPathFor(c.imagePath)
+    if (!capPath || captionFiles.includes(capPath)) return
+    captionFiles.push(capPath)
+    fixFiles.push(capPath)
+    fixVariants.push({ label: String(c.imagePath).split("/").pop().replace(/\.png$/, "") })
+  })
+  if (fixFiles.length > 0) {
+    captionSets.push({ name: `Self-Fix (KEPT, ${fixFiles.length})`, kind: defaultKind, variants: fixVariants, files: fixFiles })
+    log(`Self-Fix surfaced ${fixFiles.length} KEPT fix output(s) into the review set.`)
+  }
+}
 
 const feedbackSection = feedbackGuidance
   ? `## Prior Iteration Feedback (guidance applied to this run)\n${feedbackGuidance}\n`
