@@ -717,18 +717,17 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
 
 // --- Main component ---
 
-export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const [captionLoading, setCaptionLoading] = useState(false);
   const [generatedCaption, setGeneratedCaption] = useState<Record<string, any> | null>(null);
   const [captionStyle, setCaptionStyle] = useState<string>("default");
-  const effectiveCaption = generatedCaption ?? caption;
-  const hasCaption = !!effectiveCaption;
-  const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : hasCaption ? "scores" : "run");
+  const effectiveCaption = generatedCaption;
+  const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "run");
   const [showRaw, setShowRaw] = useState(false);
   const data = tab === "run" ? run : manifest;
-  const effectiveCaptionPath = generatedCaption ? null : captionPath;
+  const effectiveCaptionPath = captionPath ?? null;
   const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : effectiveCaptionPath;
 
   // Zoom / pan state
@@ -743,12 +742,20 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  // Reset zoom/pan and loading state when url changes
+  // Reset view + caption state when url changes.
+  // Caption is on-demand: never carry a generated caption or picked style
+  // across to a different image, and restore the default tab. We reset here
+  // (rather than via a React `key` remount) so the `.imagePreviewPanel`
+  // slide-in animation does not re-play on every prev/next switch.
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setImageLoaded(false);
     setImageError(false);
+    setGeneratedCaption(null);
+    setCaptionStyle("default");
+    setTab(hasRun ? "run" : hasManifest ? "manifest" : "run");
+    setShowRaw(false);
   }, [url]);
 
   // Scroll-wheel zoom (non-passive to allow preventDefault)
@@ -822,51 +829,11 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     } catch { /* ignore */ }
   };
 
-  const handleLoadOrGenerate = useCallback(async (style: string) => {
-    setCaptionStyle(style);
-    setCaptionLoading(true);
-    try {
-      // First try to load existing .caption.json from GET API
-      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
-      const getData = await getRes.json();
-      // Only use cached caption if its style matches what user picked
-      if (getData.ok && getData.caption && getData.caption.style === style) {
-        setGeneratedCaption(getData.caption);
-        setTab("scores");
-        toast.success("Caption loaded!");
-        setCaptionLoading(false);
-        return;
-      }
-      // No matching cached caption → generate with selected style
-      const res = await fetch("/api/caption/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, style }),
-      });
-      const data = await res.json();
-      if (data.ok && data.caption) {
-        setGeneratedCaption(data.caption);
-        setTab("scores");
-        toast.success(`Caption generated (${style})!`);
-      } else {
-        toast.error(data.error || "Caption failed");
-      }
-    } catch (err) {
-      toast.error(`Caption failed: ${err}`);
-    } finally {
-      setCaptionLoading(false);
-    }
-  }, [url]);
-
   const handleCaption = useCallback(() => {
-    // If we already have a caption (from props or session), just show it
-    if (effectiveCaption) {
-      setTab("scores");
-      return;
-    }
-    // No caption yet — switch to Scores tab; user picks a style to load/generate
+    // Caption is on-demand: just switch to the Scores tab where the user
+    // picks a style and clicks Rerun.
     setTab("scores");
-  }, [effectiveCaption]);
+  }, []);
 
   const handleStylePick = useCallback((style: string) => {
     setCaptionStyle(style);
@@ -876,18 +843,28 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     setCaptionLoading(true);
     const style = captionStyle;
     try {
-      const res = await fetch("/api/caption/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, style }),
-      });
-      const data = await res.json();
-      if (data.ok && data.caption) {
-        setGeneratedCaption(data.caption);
+      // Cache-first: reuse the on-disk caption if its style matches the pick.
+      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
+      const getData = await getRes.json();
+      if (getData.ok && getData.caption && getData.caption.style === style) {
+        setGeneratedCaption(getData.caption);
         setTab("scores");
-        toast.success(`Caption regenerated (${style})!`);
+        toast.success("Caption loaded");
       } else {
-        toast.error(data.error || "Caption failed");
+        // No matching cached caption → run the VLM.
+        const res = await fetch("/api/caption/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, style }),
+        });
+        const data = await res.json();
+        if (data.ok && data.caption) {
+          setGeneratedCaption(data.caption);
+          setTab("scores");
+          toast.success(`Caption generated (${style})`);
+        } else {
+          toast.error(data.error || "Caption failed");
+        }
       }
     } catch (err) {
       toast.error(`Caption failed: ${err}`);
@@ -895,25 +872,6 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
       setCaptionLoading(false);
     }
   }, [url, captionStyle]);
-
-  const handleRefreshCaption = useCallback(async () => {
-    setCaptionLoading(true);
-    try {
-      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
-      const getData = await getRes.json();
-      if (getData.ok && getData.caption) {
-        setGeneratedCaption(getData.caption);
-        setTab("scores");
-        toast.success("Caption refreshed!");
-      } else {
-        toast.warning("No saved caption found.");
-      }
-    } catch (err) {
-      toast.error(`Refresh failed: ${err}`);
-    } finally {
-      setCaptionLoading(false);
-    }
-  }, [url]);
 
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
@@ -1106,7 +1064,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
         </div>
         <div className={s.imagePreviewPanelBody}>
           {tab === "scores" && effectiveCaption ? (
-            <ScoresViewer caption={effectiveCaption} onRerun={handleRerunCaption} onRefresh={handleRefreshCaption} rerunning={captionLoading} captionStyle={captionStyle} onStyleChange={handleStylePick} />
+            <ScoresViewer caption={effectiveCaption} onRerun={handleRerunCaption} rerunning={captionLoading} captionStyle={captionStyle} onStyleChange={handleStylePick} />
           ) : tab === "scores" ? (
             <div className={s.captionPickPrompt}>
               <div className={s.captionPickLabel}>Choose a caption style, then click Rerun</div>
