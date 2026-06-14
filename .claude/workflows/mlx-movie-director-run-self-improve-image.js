@@ -1035,6 +1035,89 @@ Return flat JSON:
 }
 markPhase("review", vlmAvailable ? "completed" : "skipped")
 
+// ── Multi-sample VLM scoring (denoise the score-gate) ───────────────────────
+// caption --style score runs the VLM at temperature 0.3, so the SAME image scores differently
+// across calls (validated: one baseline image scored detail 7 in run wf_ecdf74af, 8 in wf_3ab11b12).
+// A single-sample score-gate is fragile — a real fix is dropped as a "tie" when the baseline
+// randomly inflates (wf_3ab11b12 dropped BOTH fixes this way). scoreImageMedian runs N independent
+// samples (distinct --output paths to avoid file-write collisions) and the JS layer takes the
+// per-dimension MEDIAN — the agent only parses, JS computes (no LLM math, per agent-schema lessons).
+// The median is written back to the canonical caption path so the review HTML stays consistent.
+const SCORE_SAMPLES_DEFAULT = 3
+const numScoreSamples = (isObj(resolvedArgs) && typeof resolvedArgs.numScoreSamples === "number" && resolvedArgs.numScoreSamples >= 1)
+  ? Math.floor(resolvedArgs.numScoreSamples) : SCORE_SAMPLES_DEFAULT
+
+async function scoreImageMedian(pngPath, captionCmdBase, opts = {}) {
+  const n = (opts.samples && opts.samples > 1) ? opts.samples : 1
+  const phaseLabel = opts.phase || "Review"
+  const labelTag = opts.label || "img"
+  if (n === 1) {
+    // single-sample fast path (no denoising) — used when numScoreSamples=1
+    return agent(
+      `Score this image.
+IMAGE PATH: ${pngPath}
+STEPS:
+1. Bash("${captionCmdBase} 2>&1", timeout=120000)
+2. Read: Bash("cat '${captionPathFor(pngPath)}'")
+3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences.
+On connection refused: return error="VLM unavailable".
+Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
+      { label: `${labelTag}-s0`, phase: phaseLabel, schema: CAPTION_SCHEMA },
+    ).catch(() => null)
+  }
+  const rawSamples = await parallel(
+    Array.from({ length: n }, (_, i) => () =>
+      agent(
+        `Score this image (sample ${i + 1}/${n}). The VLM is stochastic at temperature 0.3 — each sample differs slightly; this is INTENTIONAL for score denoising. Do not try to make them match.
+IMAGE PATH: ${pngPath}
+STEPS:
+1. Run with a DISTINCT --output path (parallel samples must not collide on the same file):
+   Bash("${captionCmdBase} --output '${pngPath}.s${i}.caption.json' 2>&1", timeout=120000)
+2. Read it: Bash("cat '${pngPath}.s${i}.caption.json'")
+3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences / prose, extract the first {...} block.
+On connection refused: return error="VLM unavailable — LM Studio not running at localhost:1234".
+Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
+        { label: `${labelTag}-s${i}`, phase: phaseLabel, schema: CAPTION_SCHEMA },
+      ).catch(() => null),
+    ),
+  )
+  const valid = rawSamples.filter(Boolean).filter((c) => c && !c.error)
+  if (valid.length === 0) return rawSamples.find(Boolean) || { imagePath: pngPath, error: "all score samples failed" }
+  if (valid.length === 1) return valid[0]
+  const dims = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+  const median = (vals) => {
+    const s = vals.slice().sort((a, b) => a - b)
+    const m = Math.floor(s.length / 2)
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2)
+  }
+  const agg = { imagePath: pngPath }
+  for (const d of dims) agg[d] = median(valid.map((c) => (typeof c[d] === "number" ? c[d] : 0)))
+  for (const k of ["captured", "missed", "issues", "strengths"]) {
+    const seen = new Set()
+    agg[k] = []
+    for (const c of valid) for (const x of (c[k] || [])) { const t = String(x); if (!seen.has(t)) { seen.add(t); agg[k].push(t) } }
+  }
+  const byOverall = valid.slice().sort((a, b) => (a.overall || 0) - (b.overall || 0))
+  const carrier = byOverall[Math.floor(byOverall.length / 2)] || valid[0]
+  agg.summary = carrier.summary || ""
+  agg.style = valid[0].style || ""; agg.model = valid[0].model || ""; agg.error = ""
+  agg.scoreSamples = valid.length
+  // Write the median back to the canonical caption path (rm -f first — Write refuses overwrite without
+  // Read, per the reliableWrite lesson) so the review HTML / ab-manifest stays consistent with the gate.
+  const canonical = captionPathFor(pngPath)
+  const medianJson = JSON.stringify({ image: pngPath, style: agg.style || "score", model: agg.model || "", caption: JSON.stringify(agg) }, null, 2)
+  await agent(
+    `Write the median score JSON to the canonical caption path (overwrites the single-sample file).
+1. Bash("rm -f '${canonical}'")
+2. Write({ file_path: '${canonical}', content: <the JSON below> })
+${medianJson}
+3. Bash("wc -c '${canonical}'")
+Return { written: true }.`,
+    { label: `${labelTag}-median-write`, phase: phaseLabel, model: "haiku" },
+  ).catch(() => {})
+  return agg
+}
+
 // ── Phase 4.5: Self-Fix (optional) ──────────────────────────────────────────
 
 const autoFix = isObj(resolvedArgs) && resolvedArgs.autoFix === true
@@ -1058,17 +1141,34 @@ if (autoFix && vlmAvailable && mode !== "finalize") {
     // A fix output is KEPT only if it beats this baseline; a fix that regresses (or
     // merely ties) is dropped so self-fix can never make the review set worse. The
     // original higher-scoring outputs remain in allResults/captionFiles untouched.
-    const globalBaseline = bestScore
+    // ── Score baseline for regression gating (DENOISED) ──
+    // A fix output is KEPT only if it beats this baseline. The Review phase single-samples, and the
+    // VLM is noisy (temperature 0.3) — a baseline that randomly inflates (detail 7→8 across runs)
+    // wrongly drops a real fix as a tie. So re-score each baseline image as the MEDIAN of N samples.
+    // Both baseline and fix use --style score here, keeping the comparison apples-to-apples.
+    const SCORE_DIMS = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+    const baselinePngs = [...new Set(scoredCaptions.map((c) => c.imagePath).filter(Boolean))]
+    let gateScored = scoredCaptions
+    if (baselinePngs.length > 0 && numScoreSamples > 1) {
+      const denoised = await parallel(
+        baselinePngs.map((p, bi) => () => scoreImageMedian(p, `${PYTHON} ${RUN_PY} caption '${p}' --style score --lang en`, { label: `base-${bi}`, phase: "Self-Fix", samples: numScoreSamples })),
+      )
+      const ok = denoised.filter(Boolean).filter((c) => c && !c.error)
+      if (ok.length > 0) {
+        gateScored = ok
+        log(`Baseline re-scored (median of ${numScoreSamples} samples × ${ok.length} image(s)) for a denoised gate.`)
+      }
+    }
+    const globalBaseline = gateScored.reduce((b, c) => Math.max(b, c.overall || 0), 0)
     // Per-dimension baselines — a fix is judged on the dimension it TARGETS (targetDimension),
     // so a targeted improvement (clothing fidelity -> detail 7->8) isn't dropped by a flat overall
     // (8 <= 8). Finding from i2i feedback iteration: the old overall-only gate discarded EVERY
     // fix that improved detail without moving overall. Falls back to overall when unspecified.
-    const SCORE_DIMS = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
     const baselineBest = {}
     for (const d of SCORE_DIMS) {
-      baselineBest[d] = scoredCaptions.reduce((b, c) => Math.max(b, typeof c[d] === "number" ? c[d] : 0), 0)
+      baselineBest[d] = gateScored.reduce((b, c) => Math.max(b, typeof c[d] === "number" ? c[d] : 0), 0)
     }
-    log(`Self-Fix gate active (dimension-aware): a fix must beat baseline on its TARGET dimension (overall=${globalBaseline.toFixed(1)}, detail=${(baselineBest.detail || 0).toFixed(1)}, sharpness=${(baselineBest.sharpness || 0).toFixed(1)}; strict >, ties dropped).`)
+    log(`Self-Fix gate active (dimension-aware${numScoreSamples > 1 ? ", denoised" : ""}): a fix must beat baseline on its TARGET dimension (overall=${globalBaseline.toFixed(1)}, detail=${(baselineBest.detail || 0).toFixed(1)}, sharpness=${(baselineBest.sharpness || 0).toFixed(1)}; strict >, ties dropped).`)
 
     const FIX_SCHEMA = {
       type: "object",
@@ -1247,24 +1347,14 @@ Return JSON: { "status": "success" or "error", "outputPngs": [...], "runJsonPath
         const fixPngs = fixGen?.outputPngs || []
         log(`[Fix ${fi + 1}] Generated ${fixPngs.length} PNG(s). Scoring...`)
 
-        // Score the fix output
-        const fixScores = await parallel(
-          fixPngs.map((pngPath, pi) => () =>
-            agent(
-              `Score the T2I fix output image.
-
-IMAGE PATH: ${pngPath}
-
-STEPS:
-1. Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style score --lang en 2>&1", timeout=120000)
-2. Read: Bash("cat '${captionPathFor(pngPath)}'")
-3. Parse outer JSON, double-parse the "caption" string field.
-
-Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "artifacts": <1-10>, "summary": "...", "error": "" }`,
-              { label: `fix-score-${fi}-${pi}`, phase: "Self-Fix", schema: CAPTION_SCHEMA },
-            ),
-          ),
-        )
+        // Score the fix output — multi-sample median (denoised, same N as the baseline re-score so
+        // both sides of the gate are equally stable). scoreImageMedian runs N samples in parallel
+        // and the JS layer takes the per-dimension median.
+        const fixScores = []
+        for (let pi = 0; pi < fixPngs.length; pi++) {
+          const s = await scoreImageMedian(fixPngs[pi], `${PYTHON} ${RUN_PY} caption '${fixPngs[pi]}' --style score --lang en`, { label: `fix-${fi}-${pi}`, phase: "Self-Fix", samples: numScoreSamples })
+          if (s) fixScores.push(s)
+        }
 
         const validScores = fixScores.filter(Boolean)
         const bestFix = validScores.reduce((b, c) => Math.max(b, c.overall || 0), 0)
