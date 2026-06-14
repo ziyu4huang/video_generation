@@ -16,7 +16,7 @@ export function getManifestSummary(manifest: any): string | null {
   return parts.join(" · ") || null;
 }
 
-export function GalleryCard({ img, onClick, highlighted, viewMode = "m" }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode }) {
+export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelete }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode; onDelete?: (img: GalleryImage) => void }) {
   const summary = getManifestSummary(img.manifest);
   const isVideo = img.mediaType === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -60,6 +60,16 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m" }: { img
       style={{ cursor: onClick ? "pointer" : undefined }}
     >
       <div className={s.galleryCardImage}>
+        {onDelete && (
+          <button
+            className={s.galleryCardDelete}
+            onClick={(e) => { e.stopPropagation(); onDelete(img); }}
+            title="Delete"
+            aria-label="Delete image"
+          >
+            🗑️
+          </button>
+        )}
         {isVideo ? (
           <>
             <video

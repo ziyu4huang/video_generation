@@ -37,6 +37,32 @@
   display: block;
 }
 
+.galleryCardDelete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 5;
+  pointer-events: auto;
+  color: #fff;
+}
+
+.galleryCard:hover .galleryCardDelete {
+  opacity: 1;
+}
+
+.galleryCardDelete:hover {
+  background: rgba(244, 67, 54, 0.8);
+}
+
 .galleryCardPlayBadge {
   position: absolute;
   bottom: 8px;

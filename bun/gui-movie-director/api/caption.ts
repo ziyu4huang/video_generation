@@ -15,7 +15,7 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
   if (body instanceof Response) return body;
   const { image, style, prompt } = body;
   if (!image) {
-    return Response.json({ error: "Missing 'image' path" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'image' path" }, { status: 400 });
   }
   // image is forwarded as run.py caption's POSITIONAL arg. A leading-dash value
   // (e.g. "--steps") bypasses isPathAllowed — path.resolve("--steps") lands under
@@ -25,11 +25,11 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
   // style are safe: they follow value-taking flags, so argparse consumes the next
   // token as their value even if it looks like a flag.
   if (image.trimStart().startsWith("-")) {
-    return Response.json({ error: "Invalid 'image' path" }, { status: 400 });
+    return Response.json({ ok: false, error: "Invalid 'image' path" }, { status: 400 });
   }
 
   if (!isPathAllowed(image)) {
-    return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
+    return Response.json({ ok: false, error: "Image path outside allowed directories" }, { status: 403 });
   }
 
   const cfg = loadConfig();
@@ -88,11 +88,11 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const imagePath = url.searchParams.get("image");
   if (!imagePath) {
-    return Response.json({ error: "Missing 'image' query param" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'image' query param" }, { status: 400 });
   }
 
   if (!isPathAllowed(imagePath)) {
-    return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
+    return Response.json({ ok: false, error: "Image path outside allowed directories" }, { status: 403 });
   }
   const resolvedImage = path.resolve(imagePath);
 

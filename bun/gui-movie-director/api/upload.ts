@@ -4,7 +4,7 @@ import { UPLOAD_DIR, OUTPUT_DIR } from "../lib/paths";
 
 export async function handleUpload(req: Request): Promise<Response> {
   if (req.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
+    return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
   }
 
   // Ensure upload directory exists
@@ -15,14 +15,14 @@ export async function handleUpload(req: Request): Promise<Response> {
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return Response.json({ error: "No file provided" }, { status: 400 });
+      return Response.json({ ok: false, error: "No file provided" }, { status: 400 });
     }
 
     // Validate file extension against allowlist
     const ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp4", ".mov"]);
     const ext = path.extname(file.name).toLowerCase() || ".png";
     if (!ALLOWED_EXTENSIONS.has(ext)) {
-      return Response.json({ error: "File type not allowed" }, { status: 400 });
+      return Response.json({ ok: false, error: "File type not allowed" }, { status: 400 });
     }
 
     // Generate unique filename
@@ -34,7 +34,7 @@ export async function handleUpload(req: Request): Promise<Response> {
     // Enforce upload size limit (50 MB)
     const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
     if (file.size > MAX_UPLOAD_SIZE) {
-      return Response.json({ error: "File too large" }, { status: 413 });
+      return Response.json({ ok: false, error: "File too large" }, { status: 413 });
     }
 
     // Write file — File extends Blob, Bun.write accepts Blob directly (no Buffer allocation)
@@ -50,6 +50,6 @@ export async function handleUpload(req: Request): Promise<Response> {
       size: file.size,
     });
   } catch (err: any) {
-    return Response.json({ error: err.message }, { status: 500 });
+    return Response.json({ ok: false, error: err.message }, { status: 500 });
   }
 }

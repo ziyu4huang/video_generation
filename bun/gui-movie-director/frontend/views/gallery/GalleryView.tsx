@@ -4,6 +4,7 @@ import { GallerySearchBar } from "../../components/GallerySearchBar";
 import type { GalleryTypeFilter } from "../../components/Gallery";
 import { ImagePreview } from "../../components/ImagePreview";
 import type { GalleryImage } from "../../types";
+import { toast } from "../../utils/toast";
 
 interface GalleryViewProps {
   highlight?: string[];
@@ -91,6 +92,33 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     return () => window.removeEventListener("keydown", handler);
   }, [allImages, previewImage]);
 
+  const handleDeleteImage = useCallback(async (img: GalleryImage) => {
+    if (!confirm(`Delete ${img.name}?`)) return;
+    // Parse dirIdx from url: "/output/N/filename"
+    const m = img.url.match(/^\/output\/(\d+)\//);
+    const dirIdx = m ? parseInt(m[1], 10) : 0;
+    try {
+      const res = await fetch("/api/gallery", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: img.name, dirIdx }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAllImages((prev) => prev.filter((i) => i.name !== img.name));
+        // Close preview if the deleted image is currently shown
+        setPreviewImage((prev) => prev?.name === img.name ? null : prev);
+        toast.success(`Deleted ${img.name}`);
+        // Force gallery refresh
+        setRefreshKey((k) => k + 1);
+      } else {
+        toast.error(data.failed?.join(", ") || "Failed to delete");
+      }
+    } catch (err) {
+      toast.error(`Failed to delete: ${err}`);
+    }
+  }, []);
+
   const handleImagesReady = useCallback((images: GalleryImage[]) => {
     setAllImages(images);
     if (!highlight?.length || highlightConsumedRef.current) return;
@@ -121,6 +149,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
         onImagesReady={handleImagesReady}
         searchQuery={searchQuery}
         typeFilter={typeFilter}
+        onDeleteImage={handleDeleteImage}
       />
       {previewImage && (
         <ImagePreview

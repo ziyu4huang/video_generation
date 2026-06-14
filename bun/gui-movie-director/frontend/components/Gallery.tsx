@@ -20,9 +20,10 @@ interface GalleryProps {
   searchQuery?: string;
   typeFilter?: GalleryTypeFilter;
   key?: number; // for refresh
+  onDeleteImage?: (img: GalleryImage) => void;
 }
 
-export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter }: GalleryProps) {
+export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -33,7 +34,25 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   );
   const PAGE_SIZE = 100;
   const gridRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const isSearchMode = !!(searchQuery?.trim());
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    if (isSearchMode) return; // search returns all results at once
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore && !loading && hasMore) {
+          loadData(page + 1, true, "", typeFilter ?? "all");
+        }
+      },
+      { rootMargin: "400px" } // start loading before the sentinel is visible
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isSearchMode, loadingMore, loading, hasMore, page, loadData, typeFilter]);
 
   const handleViewMode = (m: ViewMode) => {
     setViewMode(m);
@@ -151,23 +170,28 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
             onClick={() => onImageClick(img)}
             highlighted={highlightSet?.has(img.name) ?? false}
             viewMode={viewMode}
+            onDelete={onDeleteImage}
           />
         ))}
       </div>
 
+      {/* Infinite scroll sentinel + fallback Load More button */}
       {!isSearchMode && hasMore && (
-        <div style={{ textAlign: "center", padding: "24px 0" }}>
-          <button
-            className="btn"
-            disabled={loadingMore}
-            onClick={() => loadData(page + 1, true, "", typeFilter ?? "all")}
-          >
-            {loadingMore ? (
-              <><span className="spinner" /> Loading...</>
-            ) : (
-              `Load more (${images.length}/${total})`
-            )}
-          </button>
+        <div style={{ textAlign: "center", padding: "24px 0" }} ref={sentinelRef}>
+          {loadingMore ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--text-dim)" }}>
+              <span className="spinner" style={{ width: 16, height: 16 }} />
+              Loading...
+            </div>
+          ) : (
+            <button
+              className="btn"
+              onClick={() => loadData(page + 1, true, "", typeFilter ?? "all")}
+              title="Scroll down to auto-load more"
+            >
+              Load more ({images.length}/{total})
+            </button>
+          )}
         </div>
       )}
     </div>

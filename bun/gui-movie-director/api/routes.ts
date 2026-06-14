@@ -2,7 +2,7 @@ import type { Server } from "bun";
 import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
-import { handleGallery, handleGalleryImage, handleGallerySearch } from "./gallery";
+import { handleGallery, handleGalleryImage, handleGallerySearch, handleGalleryDelete } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
@@ -154,6 +154,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   if (pathname === "/api/gallery" && method === "GET") {
     return handleGallery(req);
   }
+  if (pathname === "/api/gallery" && method === "DELETE") {
+    return handleGalleryDelete(req);
+  }
 
   // Jobs
   if (pathname === "/api/run" && method === "POST") {
@@ -243,5 +246,5 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
     return handleCaptionGet(req);
   }
 
-  return Response.json({ error: "Not found" }, { status: 404 });
+  return Response.json({ ok: false, error: "Not found" }, { status: 404 });
 }

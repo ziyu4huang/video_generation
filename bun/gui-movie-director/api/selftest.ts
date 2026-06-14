@@ -15,17 +15,17 @@ export async function handleRunSelfTest(req: Request): Promise<Response> {
   if (body instanceof Response) return body;
   const { action, test_name } = body;
   if (!action) {
-    return Response.json({ error: "Missing 'action'" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'action'" }, { status: 400 });
   }
   if (!test_name) {
-    return Response.json({ error: "Missing 'test_name'" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'test_name'" }, { status: 400 });
   }
   // test_name is forwarded into the run.py argv; reject anything that isn't a
   // bare self-test identifier (registry names are "word:word", e.g. t2i:portrait).
   // Requiring a non-dash first char blocks argument injection (a leading "--"
   // would be parsed by run.py's argparse as a separate flag).
   if (typeof test_name !== "string" || !/^[A-Za-z0-9_:][\w:.-]*$/.test(test_name)) {
-    return Response.json({ error: "Invalid 'test_name'" }, { status: 400 });
+    return Response.json({ ok: false, error: "Invalid 'test_name'" }, { status: 400 });
   }
 
   const command = actionToCommand(action);
@@ -47,12 +47,12 @@ export async function handleSelfTestResults(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const jobId = url.searchParams.get("jobId");
   if (!jobId) {
-    return Response.json({ error: "Missing 'jobId'" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'jobId'" }, { status: 400 });
   }
 
   const job = subprocessManager.getJob(jobId);
   if (!job) {
-    return Response.json({ error: "Job not found" }, { status: 404 });
+    return Response.json({ ok: false, error: "Job not found" }, { status: 404 });
   }
 
   // Locate each output file in OUTPUT_DIRS, build variant cards.

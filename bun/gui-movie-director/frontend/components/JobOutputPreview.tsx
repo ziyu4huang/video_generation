@@ -3,6 +3,7 @@ import { GalleryCard } from "./GalleryCard";
 import { ImagePreview } from "./ImagePreview";
 import { ReviewButton } from "./ReviewButton";
 import type { GalleryImage, JobInfo } from "../types";
+import { toast } from "../utils/toast";
 
 interface Props {
   job: JobInfo;
@@ -36,10 +37,35 @@ export function JobOutputPreview({ job, onViewInGallery }: Props) {
         <h3 style={{ fontSize: 14, color: "var(--text-bright)" }}>
           Output ({images.length})
         </h3>
+        {job.action && (
+          <button
+            className="btn"
+            onClick={async () => {
+              try {
+                const res = await fetch("/api/run", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ action: job.action, params: job.params ?? {} }),
+                });
+                const data = await res.json();
+                if (data.jobId) {
+                  toast.success("Run started");
+                } else if (data.error) {
+                  toast.error(data.error);
+                }
+              } catch (err) {
+                toast.error(`Failed: ${err}`);
+              }
+            }}
+            style={{ marginLeft: "auto", fontSize: 12, padding: "4px 14px" }}
+          >
+            🔁 Run Again
+          </button>
+        )}
         <button
           className="btn btn-primary"
           onClick={onViewInGallery}
-          style={{ marginLeft: "auto", fontSize: 12, padding: "4px 14px" }}
+          style={{ marginLeft: job.action ? 8 : "auto", fontSize: 12, padding: "4px 14px" }}
         >
           View in Gallery →
         </button>

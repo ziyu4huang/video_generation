@@ -8,7 +8,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   if (body instanceof Response) return body;
   const { action, params } = body;
   if (!action || !params) {
-    return Response.json({ error: "Missing 'action' or 'params'" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'action' or 'params'" }, { status: 400 });
   }
 
   // Derive the command string server-side from the validated `action`.
@@ -22,7 +22,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   // Validate required params
   const errors = validateParams(action, params);
   if (errors.length > 0) {
-    return Response.json({ error: errors.join("; ") }, { status: 400 });
+    return Response.json({ ok: false, error: errors.join("; ") }, { status: 400 });
   }
 
   // Build CLI args
@@ -30,7 +30,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   try {
     cliArgs = buildCliArgs(action, params);
   } catch (err: any) {
-    return Response.json({ error: err.message }, { status: 400 });
+    return Response.json({ ok: false, error: err.message }, { status: 400 });
   }
 
   return spawnJobResponse(command, cliArgs, { action, params });
@@ -44,7 +44,7 @@ export async function handleListJobs(req: Request): Promise<Response> {
 export async function handleGetJob(req: Request, id: string): Promise<Response> {
   const job = subprocessManager.getJob(id);
   if (!job) {
-    return Response.json({ error: "Job not found" }, { status: 404 });
+    return Response.json({ ok: false, error: "Job not found" }, { status: 404 });
   }
   return Response.json({ job });
 }
@@ -62,7 +62,7 @@ export async function handleGetLastJob(req: Request): Promise<Response> {
 export async function handleDeleteJob(req: Request, id: string): Promise<Response> {
   const job = subprocessManager.getJob(id);
   if (!job) {
-    return Response.json({ error: "Job not found" }, { status: 404 });
+    return Response.json({ ok: false, error: "Job not found" }, { status: 404 });
   }
   // Dual-mode "dismiss this job":
   //  - running  → cancel (terminate child, mark failed, KEEP in history with a
@@ -74,7 +74,7 @@ export async function handleDeleteJob(req: Request, id: string): Promise<Respons
   // individually (only the bulk /api/jobs/all path worked).
   if (job.status === "running") {
     if (!subprocessManager.killJob(id)) {
-      return Response.json({ error: "Job not found or not running" }, { status: 404 });
+      return Response.json({ ok: false, error: "Job not found or not running" }, { status: 404 });
     }
     return Response.json({ ok: true, cancelled: true });
   }
@@ -84,7 +84,7 @@ export async function handleDeleteJob(req: Request, id: string): Promise<Respons
 
 export async function handleClearJobs(req: Request): Promise<Response> {
   if (req.method !== "DELETE") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
+    return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
   }
   const url = new URL(req.url);
   const statuses = (url.searchParams.get("status") ?? "completed,failed")

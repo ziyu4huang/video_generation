@@ -230,3 +230,64 @@ export async function handleGalleryImage(req: Request, filename: string): Promis
   }
   return new Response("Not found", { status: 404 });
 }
+
+export async function handleGalleryDelete(req: Request): Promise<Response> {
+  if (req.method !== "DELETE") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body: { name?: string; dirIdx?: number };
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { name, dirIdx } = body;
+  if (!name || dirIdx == null) {
+    return Response.json({ error: "Missing 'name' or 'dirIdx'" }, { status: 400 });
+  }
+
+  const dir = OUTPUT_DIRS[dirIdx];
+  if (!dir) {
+    return Response.json({ error: "Invalid dirIdx" }, { status: 400 });
+  }
+
+  const deleted: string[] = [];
+  const failed: string[] = [];
+
+  // Helper to delete a file if it exists
+  const tryDelete = (filePath: string) => {
+    const resolved = path.normalize(filePath);
+    if (!resolved.startsWith(path.resolve(dir))) return; // prevent path traversal
+    if (fs.existsSync(resolved)) {
+      try {
+        fs.unlinkSync(resolved);
+        deleted.push(path.basename(resolved));
+      } catch {
+        failed.push(path.basename(resolved));
+      }
+    }
+  };
+
+  // Delete the main image/video file
+  const mainPath = path.join(dir, name);
+  tryDelete(mainPath);
+
+  // Delete companion JSON files
+  const base = name.replace(/\.[^.]+$/, "");
+  for (const suffix of [".manifest.json", ".run.json", ".caption.json"]) {
+    tryDelete(path.join(dir, `${base}${suffix}`));
+  }
+
+  // Delete thumbnail if exists
+  tryDelete(path.join(dir, ".thumbs", `${base}_thumb.jpg`));
+
+  // Delete video relay thumbnail if exists
+  for (const c of [`${base}_relay.png`, `${base}.png`]) {
+    const thumbPath = path.join(dir, c);
+    if (c !== name) tryDelete(thumbPath);
+  }
+
+  return Response.json({ ok: failed.length === 0, deleted, failed });
+}

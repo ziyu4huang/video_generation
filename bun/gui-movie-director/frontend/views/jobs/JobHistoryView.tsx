@@ -5,6 +5,7 @@ import { LogViewer } from "../../components/LogViewer";
 import { JsonViewer } from "../../components/JsonViewer";
 import type { JobInfo } from "../../types";
 import { relativeTime, formatDuration } from "../../utils/format";
+import { toast } from "../../utils/toast";
 
 interface JobRowProps {
   job: JobInfo;
@@ -134,6 +135,35 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
               </summary>
               <JsonViewer data={job.params} />
             </details>
+          )}
+
+          {(job.status === "failed" || job.status === "completed") && job.action && (
+            <div style={{ marginBottom: 10 }}>
+              <button
+                className="btn btn-primary"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const res = await fetch("/api/run", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ action: job.action, params: job.params ?? {} }),
+                    });
+                    const data = await res.json();
+                    if (data.jobId) {
+                      toast.success("Retry started");
+                    } else if (data.error) {
+                      toast.error(data.error);
+                    }
+                  } catch (err) {
+                    toast.error(`Failed to retry: ${err}`);
+                  }
+                }}
+                style={{ fontSize: 12, padding: "4px 14px" }}
+              >
+                {job.status === "failed" ? "🔁 Retry" : "🔁 Run Again"}
+              </button>
+            </div>
           )}
 
           {job.logs.length === 0 ? (
