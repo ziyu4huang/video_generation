@@ -111,7 +111,7 @@ export class SubprocessManager {
       proc = Bun.spawn([pythonBin, ...fullArgs], {
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env },
+        env: { ...process.env, PYTHONUNBUFFERED: "1" },
       });
     } catch (err: any) {
       const msg = `[spawn failed: ${err?.message || err}]`;

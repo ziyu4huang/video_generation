@@ -1,5 +1,5 @@
 import type { UnifiedCommand } from "./types";
-import { T2I_PIPELINE_OPTIONS } from "./shared";
+import { T2I_PIPELINE_OPTIONS, RESOLUTION_CHOICES } from "./shared";
 
 export const t2iCommand: UnifiedCommand = {
   action: "t2i",
@@ -9,6 +9,10 @@ export const t2iCommand: UnifiedCommand = {
   fields: [
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image you want to generate...", section: "Prompt" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: T2I_PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
+    // Resolution picker — a "WxH" key (UI-only, no CLI flag). The key expands to
+    // width/height, which is what run.py receives. Switching pipeline auto-selects
+    // the per-model preference (lens→1024², zimage/flux2-klein→640×960).
+    { key: "resolution", control: "select", label: "Resolution", choices: RESOLUTION_CHOICES, default: "640x960", section: "Generation" },
     // Steps is hidden on purpose: each pipeline has its own optimized step count,
     // resolved server-side via _PIPELINE_DEFAULT_STEPS (zimage=9, flux2-klein=4,
     // lens=20). There's nothing for the user to tune — the value just tracks the

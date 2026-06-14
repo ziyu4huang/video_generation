@@ -401,9 +401,8 @@ class LensPipeline:
             #   x_{t-dt} = x_t + v * (sigma_next - sigma)
             latents = latents + pred_v * (sigma_next_val - sigma)
             mx.eval(latents)
-            print(f"[Lens] step {i+1}/{steps}  σ={sigma:.3f}", end="\r")
-
-        print()
+            pct = int((i + 1) / steps * 100)
+            print(f"[Lens] step {i+1}/{steps}  {pct}%  σ={sigma:.3f}", flush=True)
         timings["denoise"] = time.time() - t0
         print(f"[Lens] Denoised in {timings['denoise']:.1f}s")
 

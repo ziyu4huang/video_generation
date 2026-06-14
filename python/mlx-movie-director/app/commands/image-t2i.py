@@ -16,6 +16,17 @@ from app.run_config import RunConfig
 
 _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4, "lens": 20}
 
+# Per-pipeline preferred resolution [width, height]. Lens is a high-res model
+# (gallery all >=1440^2, near-square) so it defaults to 1024^2 — the documented
+# quality/time sweet spot; 640x960 (zimage portrait) is badly out-of-distribution
+# and slower. Exposed to the GUI via schema-defaults as `pipeline_resolution`.
+_PIPELINE_DEFAULT_RESOLUTION = {
+    "zimage": (640, 960),
+    "flux2-klein": (640, 960),
+    "lens": (1024, 1024),
+    "auto": (640, 960),
+}
+
 # Default prompt for bare `--self-test` (no test name). Named self-tests (e.g.
 # --self-test vae:ultraflux) are routed to the review selftest dispatcher in
 # image.py before reaching run_t2i; only bare --self-test falls through here.

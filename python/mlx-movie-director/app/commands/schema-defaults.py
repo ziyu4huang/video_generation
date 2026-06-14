@@ -52,6 +52,7 @@ def _build():
     # Load pipeline step defaults from image-t2i without importing mlx
     _t2i = importlib.import_module("app.commands.image-t2i")
     pipeline_steps = dict(_t2i._PIPELINE_DEFAULT_STEPS)
+    pipeline_resolution = {k: list(v) for k, v in _t2i._PIPELINE_DEFAULT_RESOLUTION.items()}
 
     # Build self-test metadata grouped by GUI action
     self_tests = _build_self_tests()
@@ -67,6 +68,7 @@ def _build():
             "draft": False,
             "upscale": False,
             "pipeline_steps": pipeline_steps,
+            "pipeline_resolution": pipeline_resolution,
             "self_tests": self_tests.get("t2i", []),
         },
         "i2i": {

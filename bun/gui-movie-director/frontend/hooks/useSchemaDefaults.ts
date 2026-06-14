@@ -4,6 +4,7 @@ export type SelfTestEntry = { name: string; desc: string };
 
 type ActionDefaults = Record<string, any> & {
   pipeline_steps?: Record<string, number>;
+  pipeline_resolution?: Record<string, [number, number]>;
   self_tests?: SelfTestEntry[];
 };
 
