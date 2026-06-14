@@ -162,7 +162,7 @@ if (bestScore < autoFixThreshold) { /* enter self-fix */ }
 // - overall low → combine lower denoise + different seed
 ```
 
-Full pattern: see `generate/run-and-review-image-i2i.js` Self-Fix phase.
+Full pattern: see `mlx-movie-director-run-self-improve-image.js` Self-Fix phase (kind-aware: t2i rules vs i2i rules, score-gated for both).
 
 ## Adversarial Verify (Code Review Only)
 

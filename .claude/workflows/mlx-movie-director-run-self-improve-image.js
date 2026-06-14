@@ -161,9 +161,11 @@ Return { written: true, bytes: <the number printed by wc> }.`,
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
 3. Keep only latest 50 entries (sort by run_id descending).
-4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
-5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
-6. If MISSING, rewrite the index via a quoted heredoc with the same array content.
+4. Remove the stale file first (the Write tool refuses to overwrite an existing file without a
+   prior Read, silently leaving the old index without the new entry): Bash("rm -f '${indexFile}'")
+5. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+6. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
+7. If MISSING, rewrite the index via a quoted heredoc with the same array content.
 Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )
@@ -179,14 +181,17 @@ async function reliableWrite(targetPath, jsonStr, label) {
   const result = await agent(
     `Write a JSON file to disk RELIABLY.
 1. Bash("mkdir -p '${dir}'")
-2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+2. Remove any existing file first — the Write tool REFUSES to overwrite an existing file
+   without a prior Read, which silently leaves STALE content on disk while test -s still
+   passes (verified bug: review HTML rendered images from a prior run). Bash("rm -f '${targetPath}'")
+3. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
 ${jsonStr}
-3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
-4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+4. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+5. If step 4 printed MISSING, rewrite via a quoted heredoc (no expansion):
    Bash("cat > '${targetPath}' <<'WFWITE'
 ${jsonStr}
 WFWITE")
-5. Bash("wc -c < '${targetPath}'")
+6. Bash("wc -c < '${targetPath}'")
 Return { written: true, bytes: <the number printed by wc> }.`,
     { label: label || "reliable-write", phase: "Review HTML", model: "haiku",
       schema: {
