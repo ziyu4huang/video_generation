@@ -11,6 +11,19 @@ export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
   const url = new URL(req.url);
   if (url.pathname !== "/ws") return false;
 
+  // WSRF / cross-origin defense: browsers always send an Origin header on the
+  // WebSocket handshake. If present, it must be same-origin with this server
+  // (derived from the request's own Host header, so the check is port-agnostic).
+  // A malicious website (Origin: https://evil.com) could otherwise open a socket
+  // to localhost:3099 and drive job submission. An absent Origin (curl, scripts,
+  // programmatic clients that don't set one) is allowed through.
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  if (origin && host) {
+    const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
+    if (!sameOrigin) return false;
+  }
+
   const success = server.upgrade(req, { data: { subscribedJobId: null } });
   return success;
 }
