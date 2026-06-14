@@ -12,7 +12,7 @@ export const faceswapCommand: UnifiedCommand = {
     { key: "mode", cliFlag: "--mode", control: "select", label: "Mode", choices: [
       { value: "head", label: "Head Swap" },
       { value: "face", label: "Face Swap" },
-    ], default: "head", section: "Settings" },
+    ], default: "face", section: "Settings" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Settings" },
     { key: "lora", cliFlag: "--lora", control: "text", label: "LoRA Path" },
   ],

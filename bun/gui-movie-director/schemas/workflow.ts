@@ -13,8 +13,8 @@ export const workflowCommand: UnifiedCommand = {
     { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation" },
     { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation" },
     { key: "face_detail", cliFlag: "--face-detail", control: "toggle", label: "Face Detailer", default: true, section: "Post-Processing" },
-    { key: "film_grain", cliFlag: "--film-grain", control: "range", label: "Film Grain", min: 0, max: 1, step: 0.05, default: 0.3, section: "Post-Processing" },
-    { key: "sharpening", cliFlag: "--sharpening", control: "range", label: "Sharpening", min: 0, max: 1, step: 0.05, default: 0.5, section: "Post-Processing" },
+    { key: "film_grain", cliFlag: "--film-grain", control: "range", label: "Film Grain", min: 0, max: 1, step: 0.05, default: 0, section: "Post-Processing" },
+    { key: "sharpening", cliFlag: "--sharpening", control: "range", label: "Sharpening", min: 0, max: 1, step: 0.05, default: 0, section: "Post-Processing" },
     { key: "upscale", cliFlag: "--upscale", control: "toggle", label: "ESRGAN 4× Upscale", default: true, section: "Post-Processing" },
     // Backend-only
     { key: "face_detail_denoise", cliFlag: "--face-detail-denoise", control: "number", label: "Face Detail Denoise" },

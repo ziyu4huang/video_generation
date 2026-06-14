@@ -159,7 +159,7 @@ const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
     testClass:      { type: "string", description: "one-line description of what is tested" },
-    targetTestFile: { type: "string", description: "app/tests/test_*.py path to append to (existing or new)" },
+    targetTestFile: { type: "string", description: "Path RELATIVE to the mlx-movie-director dir, e.g. 'app/tests/test_ltx_downloader.py' — NEVER absolute" },
     newTestCode:    { type: "string", description: "Python test code to APPEND (imports + def test_*); empty string if no CPU-pure path is testable" },
     estimatedLines: { type: "number" },
     reasoning:      { type: "string" },
@@ -264,7 +264,7 @@ tests to improve coverage of ONE source file.
 
 Project: ${MLX_DIR} (run with venv '${PYTHON_EXE}')
 Source file: ${MLX_DIR}/${targetFile}
-Candidate test file: ${MLX_DIR}/${testHint} (may already exist with related tests — check app/tests/ first; append, never clobber)
+Candidate test file (path RELATIVE to the mlx-movie-director dir): ${testHint} (may already exist with related tests — check app/tests/ first; append, never clobber)
 Coverage baseline for this file: ${cur?.percentCovered || 0}% (${cur?.coveredLines || 0}/${cur?.numStatements || 0} statements)
 Known-good test patterns from prior runs: ${goodPats.slice(0, 5).join("; ") || "none yet"}
 
@@ -278,10 +278,17 @@ STEPS:
    - command dispatch / routing logic
    - build_params / arg construction
    - pure helper functions, validation, parsing, IO that doesn't load weights
-5. Write 3-6 new test functions (def test_*). Use the repo's existing patterns
+5. Draft 3-6 new test functions (def test_*) as a code STRING to return in
+   newTestCode — do NOT write them to disk (a later agent does, after measurement).
+   Use the repo's existing patterns
    (import pytest; from app.... import ...; fixtures as seen in conftest.py / sibling tests).
 
 HARD RULES:
+- DO NOT use Write or Edit to create or modify ANY file. You are PROPOSING tests as
+  a code STRING in the newTestCode field — a SEPARATE agent writes them later, behind
+  the measure/adopt gate. Writing files yourself bypasses that gate and corrupts the
+  run (the write agent then sees the file "already exists" and skips). You MAY use
+  Read (source + existing tests) and Bash (coverage queries) ONLY.
 - Tests MUST pass under plain "pytest" with NO --run-gpu / --run-slow and NO network.
 - Do NOT import heavy pipelines (ltx_pipeline, flux2_*, seedvr2/*, sam3_predictor) at
   module load unless you are testing a pure helper that does not touch MLX.
@@ -339,7 +346,8 @@ After writing, confirm by returning { written: true, filePath: "${proposeResult.
   )
 
   if (!writeResult?.written) {
-    log(`Iter ${iter + 1}: write failed, skipping`)
+    log(`Iter ${iter + 1}: write failed (or already-present no-op), skipping`)
+    iterations.push({ runId, iter: iter + 1, targetFile, testClass: proposeResult.testClass, targetTestFile: proposeResult.targetTestFile, adopted: false, delta: 0, reason: "write failed or no-op", dryRun: DRY_RUN })
     noImprove++
     continue
   }
