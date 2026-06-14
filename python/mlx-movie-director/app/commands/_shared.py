@@ -584,13 +584,21 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
             last_timings = result.timings
 
         end_time = datetime.now(timezone.utc).isoformat()
+        # Extra LoRAs (face_detail / fusion / etc.) beyond the main lora_path,
+        # fingerprinted into models["loras"]. Built from the structured loras[].
+        extra_lora_paths = [
+            e["path"] for e in (run_config.loras or [])
+            if e.get("stage") != "main" and e.get("path")
+        ]
         if pipeline_type == "flux2-klein":
             models = collect_model_fingerprint_flux2(lora_path=run_config.lora_path,
-                                                      upscale_model=upscale_model)
+                                                      upscale_model=upscale_model,
+                                                      extra_loras=extra_lora_paths)
         else:
             models = collect_model_fingerprint(
                 lora_path=run_config.lora_path,
                 upscale_model=upscale_model,
+                extra_loras=extra_lora_paths,
             )
         manifest = Manifest.from_success(run_file, start_time, end_time,
                                          last_timings, all_outputs, models)
@@ -821,8 +829,14 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
             gc.collect()
 
         end_time = datetime.now(timezone.utc).isoformat()
-        models_z = collect_model_fingerprint(lora_path=run_config.lora_path)
-        models_f = collect_model_fingerprint_flux2(upscale_model=upscale_model)
+        extra_lora_paths = [
+            e["path"] for e in (run_config.loras or [])
+            if e.get("stage") != "main" and e.get("path")
+        ]
+        models_z = collect_model_fingerprint(lora_path=run_config.lora_path,
+                                             extra_loras=extra_lora_paths)
+        models_f = collect_model_fingerprint_flux2(upscale_model=upscale_model,
+                                                   extra_loras=extra_lora_paths)
         models = {"zimage": models_z, "flux2-klein": models_f}
         manifest = Manifest.from_success(run_file, start_time, end_time,
                                          all_timings, all_outputs, models)

@@ -1,6 +1,7 @@
 import { subprocessManager } from "../lib/subprocess";
 import type { Job } from "../lib/subprocess";
 import { buildCliArgs, validateParams } from "../lib/args";
+import { actionToCommand } from "../lib/actionToCommand";
 
 export async function handleRunJob(req: Request): Promise<Response> {
   if (req.method !== "POST") {
@@ -25,10 +26,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   // convert, delete). The `action` is already validated against the
   // COMMAND_SCHEMAS registry by validateParams() below, so it is guaranteed
   // to be a known sub-command action when we reach spawn().
-  // Mapping: "video-<sub>" -> "video <sub>"; everything else -> "image <action>".
-  const command = action.startsWith("video-")
-    ? `video ${action.slice("video-".length)}`
-    : `image ${action}`;
+  const command = actionToCommand(action);
 
   // Validate required params
   const errors = validateParams(action, params);

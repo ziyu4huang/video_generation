@@ -1,12 +1,10 @@
-import path from "path";
-import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY } from "../lib/paths";
+import { resolvePythonBin } from "../lib/pythonBin";
 
 let _cache: Record<string, any> | null = null;
 
 export async function fetchSchemaDefaults(): Promise<void> {
-  const cfg = loadConfig();
-  const pythonBin = cfg.pythonPath?.trim() || path.join(REPO_DIR, "python", "venv", "bin", "python");
+  const pythonBin = resolvePythonBin();
   try {
     const proc = Bun.spawnSync(
       [pythonBin, RUN_PY, "schema-defaults"],

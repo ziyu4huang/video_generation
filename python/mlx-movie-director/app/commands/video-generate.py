@@ -1215,4 +1215,10 @@ def _collect_model_fingerprints(model_dir: str, args=None) -> dict:
         key = fname.replace(".safetensors", "").replace("-", "_").replace(".", "_")
         if os.path.exists(fpath):
             models[key] = file_fingerprint(fpath)
+
+    # User-supplied LoRA (--lora-path) — fingerprint into models["loras"].
+    # The built-in distilled LoRA is already captured above as its own key.
+    lora_path = getattr(args, "lora_path", None) if args is not None else None
+    if lora_path and os.path.exists(lora_path):
+        models["loras"] = [file_fingerprint(lora_path)]
     return models

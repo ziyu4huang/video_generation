@@ -4,10 +4,10 @@ import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY, MLX_OUTPUT_DIR } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { subprocessManager } from "../lib/subprocess";
+import { resolvePythonBin } from "../lib/pythonBin";
 
 export async function handleModelCheckRun(_req: Request): Promise<Response> {
-  const cfg = loadConfig();
-  const pythonBin = cfg.pythonPath?.trim() || path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
+  const pythonBin = resolvePythonBin();
   const outputDir = MLX_OUTPUT_DIR;
 
   try {

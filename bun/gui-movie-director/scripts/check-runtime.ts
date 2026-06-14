@@ -28,24 +28,15 @@
  * Usage: bun run check:runtime [--json]
  */
 
-import path from "path";
 import { ALL_COMMANDS } from "../schemas/registry";
 import { COMMAND_SCHEMAS } from "../lib/schemas";
 import { buildCliArgs } from "../lib/args";
 import type { CliField } from "../schemas/toCli";
-import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY } from "../lib/paths";
+import { subcommand } from "../lib/actionToCommand";
+import { resolvePythonBin } from "../lib/pythonBin";
 
 const JSON_MODE = process.argv.includes("--json");
-
-// ── run.py action routing (mirrors check-schema.ts) ─────────────────────────
-// GUI actions route through `image <action>` (api/jobs.ts); video-* → `video`.
-// run.py flattens sub-action flags onto the top-level command's parser, so flag
-// lookup is per top-level command (image | video).
-
-function commandFor(action: string): string {
-  return action.startsWith("video-") ? "video" : "image";
-}
 
 // ── run.py schema shape (mirror of app/commands/schema.py output) ───────────
 
@@ -69,8 +60,7 @@ interface RunSchema {
 }
 
 function fetchRunSchema(): RunSchema {
-  const cfg = loadConfig();
-  const pythonBin = cfg.pythonPath?.trim() || path.join(REPO_DIR, "python", "venv", "bin", "python");
+  const pythonBin = resolvePythonBin();
   const proc = Bun.spawnSync(
     [pythonBin, RUN_PY, "schema", "--compact"],
     { stdout: "pipe", stderr: "pipe", timeout: 15_000 },
@@ -178,7 +168,7 @@ for (const [name, cmd] of Object.entries(schema.commands)) {
 }
 
 for (const cmd of ALL_COMMANDS) {
-  const runCmd = commandFor(cmd.action);
+  const runCmd = subcommand(cmd.action);
   const flagMap = byCommand[runCmd];
   if (!flagMap) continue; // not a generation command routed through image/video
 

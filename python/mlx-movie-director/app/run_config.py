@@ -3,10 +3,11 @@
 import argparse
 import json
 import os
+import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -116,6 +117,16 @@ class RunConfig:
     skin_contrast: bool = False
     noise_clean: bool = False
 
+    # Reproducibility: exact argv that launched this run (sys.argv[1:], after
+    # run.py injects the default subcommand) — re-run verbatim with
+    # `python run.py <argv...>`. Absolute paths recorded as-typed (portability
+    # is the caller's concern; this is a faithful "what was typed" record).
+    argv: list[str] | None = None
+    # Structured LoRA usage: [{path, scale, stage}], stage ∈
+    # main / face_detail / anime2real / faceswap / fusion. lora_path/lora_scale
+    # (the "main" LoRA) stay authoritative for replay + backward-compat readers.
+    loras: list[dict[str, Any]] | None = None
+
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
@@ -197,6 +208,20 @@ class RunConfig:
         if rc.prompt_file and not rc.prompt:
             with open(rc.prompt_file, "r") as f:
                 rc.prompt = f.read().strip()
+
+        # Reproducibility: snapshot the exact argv. run.py has already injected
+        # the default subcommand, so this is a complete, re-runnable command.
+        rc.argv = list(sys.argv[1:])
+
+        # Structured LoRA list: main LoRA + face-detail LoRA (anime2real /
+        # faceswap / fusion are appended by their own command paths). lora_path /
+        # lora_scale remain the source of truth for the "main" LoRA + replay.
+        _lora_entries: list[dict[str, Any]] = []
+        if rc.lora_path:
+            _lora_entries.append({"path": rc.lora_path, "scale": rc.lora_scale, "stage": "main"})
+        if rc.face_detail_lora:
+            _lora_entries.append({"path": rc.face_detail_lora, "scale": None, "stage": "face_detail"})
+        rc.loras = _lora_entries or None
         return rc
 
     @classmethod
@@ -344,5 +369,13 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("noise_clean", False)
         raw["schema_version"] = 12
         version = 12
+
+    if version == 12:
+        # v12 → v13: add argv snapshot (reproduce command) + structured LoRA list.
+        # Both optional/None — old run.json files simply lack them.
+        raw.setdefault("argv", None)
+        raw.setdefault("loras", None)
+        raw["schema_version"] = 13
+        version = 13
 
     return raw

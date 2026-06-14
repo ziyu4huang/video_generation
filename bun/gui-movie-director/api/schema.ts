@@ -1,6 +1,5 @@
-import path from "path";
-import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY } from "../lib/paths";
+import { resolvePythonBin } from "../lib/pythonBin";
 
 // Cache of the full run.py CLI contract (from `run.py schema`). The single
 // source of truth for accepted flags/types/defaults/choices — the GUI schemas
@@ -9,8 +8,7 @@ import { RUN_PY } from "../lib/paths";
 let _cache: Record<string, any> | null = null;
 
 export async function fetchCliSchema(): Promise<void> {
-  const cfg = loadConfig();
-  const pythonBin = cfg.pythonPath?.trim() || path.join(REPO_DIR, "python", "venv", "bin", "python");
+  const pythonBin = resolvePythonBin();
   try {
     const proc = Bun.spawnSync(
       [pythonBin, RUN_PY, "schema", "--compact"],

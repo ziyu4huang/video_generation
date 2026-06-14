@@ -3,6 +3,7 @@ import path from "path";
 import { subprocessManager } from "../lib/subprocess";
 import { OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
+import { actionToCommand } from "../lib/actionToCommand";
 
 /**
  * Run a built-in self-test via `run.py image <action> --self-test [name]`.
@@ -29,11 +30,7 @@ export async function handleRunSelfTest(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'test_name'" }, { status: 400 });
   }
 
-  // Determine the command prefix: "image" for image subcommands, "video" for video
-  const isVideo = action.startsWith("video-");
-  const command = isVideo
-    ? `video ${action.replace("video-", "")}`
-    : `image ${action}`;
+  const command = actionToCommand(action);
 
   const cliArgs = ["--self-test", test_name];
 

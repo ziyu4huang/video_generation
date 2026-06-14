@@ -2,8 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { ALL_COMMANDS } from "./registry";
 
 describe("ALL_COMMANDS registry", () => {
-  it("has 15 command entries", () => {
-    expect(ALL_COMMANDS.length).toBe(15);
+  it("has 18 command entries", () => {
+    expect(ALL_COMMANDS.length).toBe(18);
   });
 
   it("all command actions are unique", () => {

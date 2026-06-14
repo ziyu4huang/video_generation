@@ -122,3 +122,57 @@ class TestManifestFromError:
         except ValueError as e:
             mf = Manifest.from_error("/tmp/x.run.json", start, end, {}, e, {})
         assert mf.output_files is None
+
+
+class TestPipelineSteps:
+    def test_timings_become_ordered_steps(self):
+        start = end = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        mf = Manifest.from_success(
+            "/tmp/x.run.json", start, end,
+            timings={"text_encoding_seconds": 0.5, "denoising_seconds": 4.0, "vae_decode_seconds": 0.7},
+            output_files=[], models={})
+        assert [s["step"] for s in mf.pipeline_steps] == [
+            "text_encoding_seconds", "denoising_seconds", "vae_decode_seconds"]
+        assert mf.pipeline_steps[1]["seconds"] == 4.0
+
+    def test_denoise_step_times_collapsed_into_detail(self):
+        start = end = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        mf = Manifest.from_success("/tmp/x.run.json", start, end,
+            timings={"denoising_seconds": 4.0, "denoising_step_times": [0.4, 0.41, 0.39]},
+            output_files=[], models={})
+        steps = {s["step"]: s for s in mf.pipeline_steps}
+        assert "denoising_step_times" not in steps
+        assert steps["denoising_per_step"]["detail"] == [0.4, 0.41, 0.39]
+
+    def test_empty_timings_yields_none_pipeline_steps(self):
+        start = end = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        mf = Manifest.from_success("/tmp/x.run.json", start, end, timings={}, output_files=[], models={})
+        assert mf.pipeline_steps is None
+
+    def test_stage_timings_prepended(self):
+        start = end = datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()
+        mf = Manifest.from_success("/tmp/x.run.json", start, end,
+            timings={"denoising_seconds": 4.0}, output_files=[], models={},
+            stage_timings={"base": {"denoising_seconds": 4.0}, "face_detail": {"total": 2.0}})
+        assert [s["step"] for s in mf.pipeline_steps] == [
+            "stage:base", "stage:face_detail", "denoising_seconds"]
+        assert mf.pipeline_steps[1]["seconds"] == 2.0
+
+
+class TestMultiLoraFingerprint:
+    def test_loras_list_includes_main_and_extra(self, tmp_path):
+        from app.manifest import collect_model_fingerprint
+        main = tmp_path / "main.safetensors"
+        main.write_bytes(b"main")
+        extra = tmp_path / "extra.safetensors"
+        extra.write_bytes(b"extra")
+        models = collect_model_fingerprint(lora_path=str(main), extra_loras=[str(extra)])
+        assert "loras" in models
+        assert len(models["loras"]) == 2
+        assert models["lora"]["path"] == str(main)  # backward-compat single entry
+
+    def test_no_lora_keys_when_none(self):
+        from app.manifest import collect_model_fingerprint
+        models = collect_model_fingerprint(lora_path=None, extra_loras=None)
+        assert "loras" not in models
+        assert "lora" not in models

@@ -6,6 +6,9 @@ import { imagePipelineDescriptor } from "./workflow/ImagePipelineView";
 import { videoGenerateDescriptor } from "./workflow/VideoGenerateView";
 import { videoRelayDescriptor } from "./workflow/VideoRelayView";
 import { videoRestoreDescriptor } from "./workflow/VideoRestoreView";
+import { videoCompareDescriptor } from "./workflow/VideoCompareView";
+import { videoQualityDescriptor } from "./workflow/VideoQualityView";
+import { videoVbvrDescriptor } from "./workflow/VideoVbvrView";
 import { i2iDescriptor } from "./transform/I2iView";
 import { imageRestoreDescriptor } from "./transform/ImageRestoreView";
 import { anime2realDescriptor } from "./transform/Anime2realView";
@@ -25,6 +28,9 @@ export const VIEWS: ViewDescriptor[] = [
   videoGenerateDescriptor,
   videoRelayDescriptor,
   videoRestoreDescriptor,
+  videoCompareDescriptor,
+  videoQualityDescriptor,
+  videoVbvrDescriptor,
   i2iDescriptor,
   imageRestoreDescriptor,
   anime2realDescriptor,

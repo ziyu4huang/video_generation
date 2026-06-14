@@ -1,6 +1,5 @@
-import path from "path";
 import { RUN_PY } from "./paths";
-import { loadConfig, REPO_DIR } from "./config";
+import { resolvePythonBin } from "./pythonBin";
 import { saveJobs, loadJobs } from "./jobstore";
 
 export interface LogLine {
@@ -104,9 +103,7 @@ export class SubprocessManager {
     this.jobs.set(id, job);
     this.persistJobs();
 
-    const pythonBin =
-      loadConfig().pythonPath?.trim() ||
-      path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
+    const pythonBin = resolvePythonBin();
     // Wrap spawn so a synchronous failure (e.g. ENOENT on a missing pythonBin)
     // surfaces to the job log + status instead of crashing the request handler.
     let proc: any;

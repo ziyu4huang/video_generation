@@ -111,8 +111,13 @@ def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors
 
 
 def collect_model_fingerprint(lora_path: str | None = None,
-                              upscale_model: str | None = None) -> dict:
-    """Collect fingerprints for all model files used by the pipeline."""
+                              upscale_model: str | None = None,
+                              extra_loras: list[str] | None = None) -> dict:
+    """Collect fingerprints for all model files used by the pipeline.
+
+    extra_loras: additional LoRA paths (face_detail / fusion / etc.) fingerprinted
+    into models["loras"] alongside the main lora_path.
+    """
     from app import config as cfg
 
     models = {}
@@ -132,9 +137,19 @@ def collect_model_fingerprint(lora_path: str | None = None,
     tok_path = os.path.join(cfg.TOKENIZER_DIR, "tokenizer.json")
     models["tokenizer"] = file_fingerprint(tok_path)
 
-    # LoRA (optional)
-    if lora_path and os.path.exists(lora_path):
-        models["lora"] = file_fingerprint(lora_path)
+    # LoRA fingerprints: "lora" (single, backward-compat = lora_path) +
+    # "loras" (full list incl. extra_loras from face_detail / fusion / etc.)
+    lora_paths: list[str] = []
+    if lora_path:
+        lora_paths.append(lora_path)
+    for lp in (extra_loras or []):
+        if lp and lp not in lora_paths:
+            lora_paths.append(lp)
+    lora_fps = [file_fingerprint(p) for p in lora_paths if os.path.exists(p)]
+    if lora_fps:
+        models["loras"] = lora_fps
+        if lora_path and os.path.exists(lora_path):
+            models["lora"] = lora_fps[0]
 
     # Upscale model (optional)
     if upscale_model and os.path.exists(upscale_model):
@@ -143,19 +158,24 @@ def collect_model_fingerprint(lora_path: str | None = None,
     return models
 
 
-def collect_model_fingerprint_controlnet(lora_path: str | None = None) -> dict:
+def collect_model_fingerprint_controlnet(lora_path: str | None = None,
+                                         extra_loras: list[str] | None = None) -> dict:
     """Collect fingerprints for the ControlNet pipeline (ZImage + ControlNet weights)."""
     from app import config as cfg
 
-    models = collect_model_fingerprint(lora_path=lora_path)
+    models = collect_model_fingerprint(lora_path=lora_path, extra_loras=extra_loras)
     ctrl_path = os.path.join(cfg.CONTROLNET_DIR, "model.safetensors")
     models["controlnet"] = file_fingerprint(ctrl_path)
     return models
 
 
 def collect_model_fingerprint_flux2(lora_path: str | None = None,
-                                     upscale_model: str | None = None) -> dict:
-    """Collect fingerprints for Flux2 Klein 9B model files."""
+                                     upscale_model: str | None = None,
+                                     extra_loras: list[str] | None = None) -> dict:
+    """Collect fingerprints for Flux2 Klein 9B model files.
+
+    extra_loras: additional LoRA paths fingerprinted into models["loras"].
+    """
     from app import config as cfg
 
     models = {}
@@ -173,9 +193,19 @@ def collect_model_fingerprint_flux2(lora_path: str | None = None,
     tok_path = os.path.join(cfg.KLEIN_9B_TOKENIZER_DIR, "tokenizer.json")
     models["tokenizer"] = file_fingerprint(tok_path)
 
-    # LoRA (optional)
-    if lora_path and os.path.exists(lora_path):
-        models["lora"] = file_fingerprint(lora_path)
+    # LoRA fingerprints: "lora" (single, backward-compat = lora_path) +
+    # "loras" (full list incl. extra_loras from face_detail / fusion / etc.)
+    lora_paths: list[str] = []
+    if lora_path:
+        lora_paths.append(lora_path)
+    for lp in (extra_loras or []):
+        if lp and lp not in lora_paths:
+            lora_paths.append(lp)
+    lora_fps = [file_fingerprint(p) for p in lora_paths if os.path.exists(p)]
+    if lora_fps:
+        models["loras"] = lora_fps
+        if lora_path and os.path.exists(lora_path):
+            models["lora"] = lora_fps[0]
 
     # Upscale model (optional)
     if upscale_model and os.path.exists(upscale_model):
@@ -198,6 +228,7 @@ class Manifest:
     models: dict[str, Any]            # model fingerprints: {name: {path, size_bytes, md5_partial}}
     output_files: list[dict[str, Any]] | None   # [{path, seed, size_bytes, width, height}] or None
     error: dict[str, str | None] | None          # {type, message, traceback} or None
+    pipeline_steps: list[dict[str, Any]] | None  # ordered execution trace from timings (+stage_timings)
 
     # ------------------------------------------------------------------
     # Factories
@@ -206,7 +237,8 @@ class Manifest:
     @classmethod
     def from_success(cls, run_file: str, start_time: str, end_time: str,
                      timings: dict[str, Any], output_files: list[dict[str, Any]] | None,
-                     models: dict[str, Any]) -> "Manifest":
+                     models: dict[str, Any],
+                     stage_timings: dict[str, Any] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,
@@ -219,12 +251,14 @@ class Manifest:
             models=models,
             output_files=output_files,
             error=None,
+            pipeline_steps=_build_pipeline_steps(timings, stage_timings),
         )
 
     @classmethod
     def from_error(cls, run_file: str, start_time: str, end_time: str,
                    timings: dict[str, Any], exception: Exception,
-                   models: dict[str, Any]) -> "Manifest":
+                   models: dict[str, Any],
+                   stage_timings: dict[str, Any] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
             run_file=run_file,
@@ -241,6 +275,7 @@ class Manifest:
                 "message": str(exception),
                 "traceback": traceback.format_exc(),
             },
+            pipeline_steps=_build_pipeline_steps(timings, stage_timings),
         )
 
     # ------------------------------------------------------------------
@@ -255,6 +290,32 @@ class Manifest:
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp_path, path)
+
+
+def _build_pipeline_steps(timings: dict[str, Any] | None,
+                          stage_timings: dict[str, Any] | None = None) -> list[dict[str, Any]] | None:
+    """Build an ordered execution-trace list from pipeline timings.
+
+    Multi-stage workflows prepend one summary row per stage; pipeline phase
+    timings follow in dict insertion order (= pipeline.py execution order). The
+    per-step denoise list is collapsed into a single row carrying a `detail`
+    field (avoids 30+ noise rows). Returns None when nothing was recorded
+    (e.g. Flux2Klein/LTX fill no phase timings).
+    """
+    steps: list[dict[str, Any]] = []
+    if stage_timings:
+        for stage_name, t_dict in stage_timings.items():
+            total = sum(v for v in (t_dict or {}).values() if isinstance(v, (int, float)))
+            steps.append({"step": f"stage:{stage_name}", "seconds": round(float(total), 3)})
+    for key, val in (timings or {}).items():
+        if key == "denoising_step_times":
+            if isinstance(val, list) and val:
+                steps.append({"step": "denoising_per_step",
+                              "detail": [round(float(v), 3) for v in val]})
+            continue
+        if isinstance(val, (int, float)):
+            steps.append({"step": key, "seconds": round(float(val), 3)})
+    return steps or None
 
 
 def _parse_iso(s: str) -> datetime:

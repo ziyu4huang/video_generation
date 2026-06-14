@@ -7,12 +7,12 @@ from app.run_config import RunConfig, SCHEMA_VERSION, _migrate
 
 
 class TestSchemaVersion:
-    def test_schema_version_is_12(self):
-        assert SCHEMA_VERSION == 12
+    def test_schema_version_is_13(self):
+        assert SCHEMA_VERSION == 13
 
     def test_new_runconfig_has_current_version(self):
         rc = RunConfig()
-        assert rc.schema_version == 12
+        assert rc.schema_version == 13
 
 
 class TestWorkflowFieldsInAsdict:
@@ -154,3 +154,67 @@ class TestV11Migration:
         raw["film_grain"] = 0.025  # pre-set (unusual but possible)
         migrated = _migrate(raw)
         assert migrated["film_grain"] == 0.025  # setdefault should NOT overwrite
+
+
+class TestReproducibilityFields:
+    def test_defaults_are_none(self):
+        rc = RunConfig()
+        assert rc.argv is None
+        assert rc.loras is None
+
+    def test_asdict_includes_argv_and_loras(self):
+        rc = RunConfig(
+            argv=["image", "generate"],
+            loras=[{"path": "/lora.safetensors", "scale": 0.8, "stage": "main"}],
+        )
+        d = asdict(rc)
+        assert d["argv"] == ["image", "generate"]
+        assert d["loras"][0]["stage"] == "main"
+
+    def test_from_args_snapshots_argv_and_builds_loras(self, monkeypatch):
+        import argparse
+        import sys
+        import types
+        # Stub the _shared helpers so from_args doesn't pull heavy pipeline imports.
+        fake = types.ModuleType("app.commands._shared")
+        fake.resolve_lora_path = lambda p: p
+        fake.resolve_vae_path = lambda p: p
+        monkeypatch.setitem(sys.modules, "app.commands._shared", fake)
+        monkeypatch.setattr("sys.argv", ["run.py", "image", "generate", "--seed", "7"])
+        ns = argparse.Namespace(
+            prompt="cat", prompt_file=None,
+            lora_path="/main.safetensors", lora_scale=0.9, face_detail_lora="/fd.safetensors",
+        )
+        rc = RunConfig.from_args(ns)
+        assert rc.argv == ["image", "generate", "--seed", "7"]
+        stages = {e["stage"]: e for e in rc.loras}
+        assert stages["main"] == {"path": "/main.safetensors", "scale": 0.9, "stage": "main"}
+        assert stages["face_detail"] == {"path": "/fd.safetensors", "scale": None, "stage": "face_detail"}
+
+    def test_from_args_loras_none_when_no_lora(self, monkeypatch):
+        import argparse
+        import sys
+        import types
+        fake = types.ModuleType("app.commands._shared")
+        fake.resolve_lora_path = lambda p: p
+        fake.resolve_vae_path = lambda p: p
+        monkeypatch.setitem(sys.modules, "app.commands._shared", fake)
+        monkeypatch.setattr("sys.argv", ["run.py", "generate"])
+        ns = argparse.Namespace(prompt="cat", prompt_file=None,
+                                lora_path=None, lora_scale=1.0, face_detail_lora=None)
+        rc = RunConfig.from_args(ns)
+        assert rc.loras is None
+
+
+class TestV12Migration:
+    def test_v12_migrates_to_v13(self):
+        assert _migrate({"schema_version": 12})["schema_version"] == 13
+
+    def test_v12_migration_adds_argv_and_loras_defaults(self):
+        m = _migrate({"schema_version": 12})
+        assert m["argv"] is None
+        assert m["loras"] is None
+
+    def test_v12_migration_preserves_existing_argv(self):
+        m = _migrate({"schema_version": 12, "argv": ["image", "generate"]})
+        assert m["argv"] == ["image", "generate"]  # setdefault does not overwrite
