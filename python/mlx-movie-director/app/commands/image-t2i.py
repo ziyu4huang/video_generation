@@ -15,6 +15,17 @@ from app.run_config import RunConfig
 
 _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4}
 
+# Default prompt for bare `--self-test` (no test name). Named self-tests (e.g.
+# --self-test vae:ultraflux) are routed to the review selftest dispatcher in
+# image.py before reaching run_t2i; only bare --self-test falls through here.
+# Inject a standard portrait prompt so the pipeline runs end-to-end instead of
+# failing with "No prompt provided".
+_T2I_DEFAULT_PROMPT = (
+    "A young woman standing in a simple pose, facing the camera, wearing "
+    "casual clothes, clean white background, studio lighting, high quality "
+    "portrait photography."
+)
+
 
 def add_t2i_args(parser: argparse.ArgumentParser) -> None:
     """Register T2I-specific arguments on an argparse parser."""
@@ -56,6 +67,13 @@ def run_t2i(args: argparse.Namespace) -> None:
     pipeline_type = getattr(args, "pipeline", "zimage")
 
     apply_draft_overrides(args)
+
+    # Bare --self-test (no test name) falls through to here after image.py routes
+    # only named tests to the review dispatcher. Inject a default prompt so the
+    # pipeline runs end-to-end instead of failing with "No prompt provided".
+    if getattr(args, "self_test", False) is True and not getattr(args, "prompt", None) \
+            and not getattr(args, "prompt_file", None):
+        args.prompt = _T2I_DEFAULT_PROMPT
 
     if args.steps is None:
         args.steps = _PIPELINE_DEFAULT_STEPS.get(pipeline_type, 9)
