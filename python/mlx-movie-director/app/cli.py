@@ -24,14 +24,12 @@ COMMAND_NAMES = [
 # DEPRECATED_ALIASES controls deprecation hints in help text + runtime.
 COMMAND_ALIASES = {
     "generate": "image",
-    "t2i": "t2i",
     "check-manifests": "check-model",
     "import-lora-image": "import-lora",
 }
 
 DEPRECATED_ALIASES = {
     "generate": "Use 'image' instead.",
-    "t2i": "Use 'image t2i' instead.",
     "check-manifests": "Use 'check-model' instead.",
     "import-lora-image": "Use 'import-lora' instead.",
 }

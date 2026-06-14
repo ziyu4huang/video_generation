@@ -67,15 +67,32 @@ def _lens_position_ids(
     return mx.concatenate([img_ids, txt_ids], axis=0)
 
 
-def _apply_rope(q: mx.array, k: mx.array, freqs: mx.array) -> tuple[mx.array, mx.array]:
-    """Rotary positional embedding. q/k: [B, H, S, D], freqs: [1, 1, S, D]."""
-    cos, sin = freqs[..., : freqs.shape[-1] // 2], freqs[..., freqs.shape[-1] // 2 :]
-    # Split head dim in half for rotation
-    q1, q2 = q[..., : q.shape[-1] // 2], q[..., q.shape[-1] // 2 :]
-    k1, k2 = k[..., : k.shape[-1] // 2], k[..., k.shape[-1] // 2 :]
-    q_rot = mx.concatenate([q1 * cos - q2 * sin, q1 * sin + q2 * cos], axis=-1)
-    k_rot = mx.concatenate([k1 * cos - k2 * sin, k1 * sin + k2 * cos], axis=-1)
-    return q_rot, k_rot
+def _rope_rotation(pos: mx.array, dim: int, theta: float) -> mx.array:
+    """pos: [B, n] → per-frequency 2x2 rotation matrices [B, n, dim//2, 2, 2].
+
+    Matches comfy.ldm.flux.math.rope (== mflux EmbedND.rope). Each 2x2 block is
+    [[cos, -sin], [sin, cos]] for one RoPE frequency.
+    """
+    half = dim // 2
+    # scale = arange(0, dim, 2) / dim, identical to the reference linspace.
+    scale = mx.arange(half, dtype=mx.float32) * (2.0 / dim)
+    omega = 1.0 / (theta ** scale)                       # [half]
+    out = pos[..., None].astype(mx.float32) * omega      # [B, n, half]
+    cos, sin = mx.cos(out), mx.sin(out)
+    stacked = mx.stack([cos, -sin, sin, cos], axis=-1)   # [B, n, half, 4]
+    return stacked.reshape(*stacked.shape[:-1], 2, 2)    # [B, n, half, 2, 2]
+
+
+def _apply_rope(x: mx.array, freqs_cis: mx.array) -> mx.array:
+    """Complex-form rotary embedding (interleaved pairs).
+
+    x: [B, H, S, D]; freqs_cis: [B, 1, S, D//2, 2, 2].
+    Consecutive pairs (x[2i], x[2i+1]) are treated as a complex number and
+    rotated by the 2x2 matrix — matches comfy.ldm.flux.math._apply_rope1.
+    """
+    x_ = x.astype(mx.float32).reshape(*x.shape[:-1], -1, 1, 2)        # [B,H,S,D/2,1,2]
+    x_out = freqs_cis[..., 0] * x_[..., 0] + freqs_cis[..., 1] * x_[..., 1]
+    return x_out.reshape(*x.shape).astype(x.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +102,8 @@ def _apply_rope(q: mx.array, k: mx.array, freqs: mx.array) -> tuple[mx.array, mx
 class EmbedND(mnn.Module):
     """Multi-axis RoPE embedding (EmbedND from Flux).
 
-    axes_dim: list of per-axis embedding dimensions (sum = head_dim).
+    Produces per-frequency 2x2 rotation matrices concatenated across the
+    requested axes, matching comfy.ldm.flux.layers.EmbedND.
     """
 
     def __init__(self, dim: int, theta: float, axes_dim: list[int]) -> None:
@@ -95,24 +113,11 @@ class EmbedND(mnn.Module):
         self.axes_dim = axes_dim
 
     def __call__(self, ids: mx.array) -> mx.array:
-        """ids: [B, S, N_axes] → freqs [B, 1, S, dim]."""
-        embs = []
-        for i, ax_dim in enumerate(self.axes_dim):
-            embs.append(self._rope_1d(ids[..., i], ax_dim))
-        # Concatenate along last axis → [B, 1, S, dim]
-        return mx.concatenate(embs, axis=-1)
-
-    def _rope_1d(self, pos: mx.array, dim: int) -> mx.array:
-        """pos: [B, S] → freqs [B, 1, S, dim] with cos/sin interleaved."""
-        half = dim // 2
-        freqs = 1.0 / (self.theta ** (mx.arange(half, dtype=mx.float32) / half))
-        # [B, S, half]
-        angles = pos[..., None].astype(mx.float32) * freqs[None, None]
-        cos = mx.cos(angles)
-        sin = mx.sin(angles)
-        # Interleave: [B, S, dim] where dim = [cos0, sin0, cos1, sin1, ...]
-        rope = mx.concatenate([cos, sin], axis=-1)
-        return rope[:, None]  # [B, 1, S, dim]
+        """ids: [B, S, N_axes] → freqs_cis [B, 1, S, sum(dim//2), 2, 2]."""
+        embs = [_rope_rotation(ids[..., i], ax, self.theta)
+                for i, ax in enumerate(self.axes_dim)]
+        emb = mx.concatenate(embs, axis=-3)   # cat along the per-axis freq axis
+        return mx.expand_dims(emb, axis=1)    # [B, 1, S, sum(half), 2, 2]
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +196,8 @@ class LensJointAttention(mnn.Module):
         k = mx.concatenate([img_k, txt_k], axis=1).transpose(0, 2, 1, 3)
         v = mx.concatenate([img_v, txt_v], axis=1).transpose(0, 2, 1, 3)
 
-        q, k = _apply_rope(q, k, freqs_cis)
+        q = _apply_rope(q, freqs_cis)
+        k = _apply_rope(k, freqs_cis)
 
         # SDPA
         scale = 1.0 / math.sqrt(D)
@@ -446,10 +452,11 @@ class LensTransformer(mnn.Module):
         hidden = self.norm_out(hidden, temb)
         out = self.proj_out(hidden)
 
-        # Unpatchify: [B, H*W, patch²*C_out] → [B, C_out, H, W]
-        p = self.patch_size
-        out = out.reshape(B, H, W, p, p, self.out_channels)
-        out = out.transpose(0, 5, 1, 3, 2, 4).reshape(B, self.out_channels, H * p, W * p)
+        # Output stays in PATCHIFIED space [B, C_pack, H, W] where
+        # C_pack = patch² * out_channels (128). Patchify/depatchify is the
+        # caller's responsibility (matches comfy/ldm/lens/model.py _forward).
+        C_pack = self.patch_size * self.patch_size * self.out_channels
+        out = out.reshape(B, H, W, C_pack).transpose(0, 3, 1, 2)
         return out
 
     @classmethod

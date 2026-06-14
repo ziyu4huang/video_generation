@@ -281,7 +281,7 @@ def is_gpu_heavy_command(args: "argparse.Namespace") -> bool:
     command = getattr(args, "command", None) or ""
 
     # Direct aliases
-    if command in ("t2i", "generate"):
+    if command == "generate":
         return True
 
     # Always lightweight

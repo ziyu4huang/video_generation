@@ -66,13 +66,30 @@ describe("t2i: buildParams", () => {
     expect(result.count).toBe(4);
   });
 
-  it("omits steps when undefined", () => {
-    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, lora_scale: 1.0, count: 1 });
+  it("never sends steps — server picks the per-pipeline optimum", () => {
+    // Even if state.steps is populated (by the pipeline→steps auto-fill hook),
+    // buildParams drops it so the backend resolves _PIPELINE_DEFAULT_STEPS
+    // (zimage=9, flux2-klein=4, lens=20). The steps field is also hidden in the UI.
+    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, lora_scale: 1.0, count: 1, steps: 20 });
     expect(result.steps).toBeUndefined();
   });
+});
 
-  it("includes steps when provided", () => {
-    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, lora_scale: 1.0, count: 1, steps: 20 });
-    expect(result.steps).toBe(20);
+describe("t2i: pipeline choices (lens support)", () => {
+  it("exposes lens alongside zimage/flux2-klein/auto", () => {
+    const pipelineField = t2iCommand.fields.find((f) => f.key === "pipeline")!;
+    expect(pipelineField.choices!.map((c) => c.value)).toEqual(["zimage", "flux2-klein", "lens", "auto"]);
+  });
+
+  it("forwards lens as the pipeline param", () => {
+    const fn = t2iCommand.buildParams!;
+    const result = fn({ prompt: "a corgi", pipeline: "lens", width: 512, height: 512, seed: 42, lora_scale: 1.0, count: 1 });
+    expect(result.pipeline).toBe("lens");
+  });
+
+  it("hides the steps field from the UI", () => {
+    const stepsField = t2iCommand.fields.find((f) => f.key === "steps")!;
+    expect(stepsField.visible).toBeDefined();
+    expect(stepsField.visible!({})).toBe(false);
   });
 });

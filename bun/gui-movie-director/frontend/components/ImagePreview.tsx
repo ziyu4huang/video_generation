@@ -44,11 +44,26 @@ function shortPath(p: string, segments: number = 2): string {
 
 // --- Section components ---
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, defaultOpen = true }: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  // Collapsible: title bar toggles the body. Reproduce passes defaultOpen=false
+  // (its shell command is long); every other section stays open by default.
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className={s.mfSection}>
-      <div className={s.mfSectionTitle}>{title}</div>
-      <div className={s.mfSectionBody}>{children}</div>
+      <button
+        type="button"
+        className={`${s.mfSectionTitle}${!open ? " " + s.mfSectionTitleCollapsed : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
+        <span className={s.mfSectionToggle} aria-hidden="true">{open ? "▾" : "▸"}</span>
+        {title}
+      </button>
+      {open && <div className={s.mfSectionBody}>{children}</div>}
     </div>
   );
 }
@@ -323,7 +338,12 @@ function EventsList({ events }: { events: any[] }) {
 }
 
 function PromptBlock({ prompt }: { prompt: string }) {
-  return <div className={s.mfPrompt}>{prompt}</div>;
+  return (
+    <div className={s.mfPromptRow}>
+      <div className={s.mfPromptBox}>{prompt}</div>
+      <CopyButton text={prompt} />
+    </div>
+  );
 }
 
 function ParamValue({ value }: { value: unknown }): React.ReactElement {
@@ -448,7 +468,7 @@ function RunViewer({ data }: { data: Record<string, any> }) {
   return (
     <div className={s.manifestViewer}>
       {reproCmd && (
-        <Section title="Reproduce">
+        <Section title="Reproduce" defaultOpen={false}>
           <div className={s.mfReproRow}>
             <pre className={s.mfReproBlock}>{reproCmd}</pre>
             <CopyButton text={reproCmd} />

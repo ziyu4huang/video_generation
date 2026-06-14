@@ -55,9 +55,6 @@ def _make_args(command, action=None, **kwargs):
 class TestIsGpuHeavyCommandHeavy:
     """Verify all GPU-heavy commands are classified correctly."""
 
-    def test_t2i_alias(self):
-        assert is_gpu_heavy_command(_make_args("t2i"))
-
     def test_generate_alias(self):
         assert is_gpu_heavy_command(_make_args("generate"))
 

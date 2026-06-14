@@ -9,11 +9,12 @@ Public API:
 """
 
 import argparse
+import sys
 
 from app.commands._shared import execute_generation, execute_ab_test, apply_draft_overrides
 from app.run_config import RunConfig
 
-_PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4}
+_PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4, "lens": 20}
 
 # Default prompt for bare `--self-test` (no test name). Named self-tests (e.g.
 # --self-test vae:ultraflux) are routed to the review selftest dispatcher in
@@ -34,9 +35,10 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--height", type=int, default=None,
                         help="Image height in pixels (default: 960)")
     parser.add_argument(
-        "--pipeline", choices=["zimage", "flux2-klein", "auto"], default="zimage",
-        help="Pipeline: 'zimage' (Moody 12.6 DPO, ~14s/9steps) or "
-             "'flux2-klein' (Klein 9B, ~40s/4steps, better for consistent characters)",
+        "--pipeline", choices=["zimage", "flux2-klein", "lens", "auto"], default="zimage",
+        help="Pipeline: 'zimage' (Moody 12.6 DPO, ~14s/9steps), "
+             "'flux2-klein' (Klein 9B, ~40s/4steps, better for consistent characters), "
+             "or 'lens' (Microsoft Lens 3.8B, pure MLX, ~7s/20steps, high-res best)",
     )
     parser.add_argument(
         "--ab-test", action="store_true", default=False,
@@ -60,11 +62,41 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
         "--quantize", type=int, choices=[4, 8], default=None, metavar="BITS",
         help="Quantization bits for HF download mode (4 or 8).",
     )
+    # Lens-only guidance knob (default None → lens resolves to 4.0; unused by
+    # zimage/flux2-klein, which have internal guidance). Shift is internal to
+    # Lens (dynamic mu via compute_empirical_mu) and not exposed.
+    parser.add_argument(
+        "--cfg-scale", type=float, default=None, metavar="VAL",
+        help="Classifier-free guidance scale — Lens pipeline only (default 4.0, "
+             "per microsoft/Lens; ignored by zimage/flux2-klein)",
+    )
 
 
 def run_t2i(args: argparse.Namespace) -> None:
     """Execute T2I generation. Called by image.py dispatcher."""
     pipeline_type = getattr(args, "pipeline", "zimage")
+
+    # ── Lens pipeline: separate model family (no LoRA/ControlNet/i2i), so it
+    # has its own execution path (run_lens). Lens defaults differ from
+    # zimage/flux2-klein: 512×512 (not 640×960), 20 steps, and dims must be
+    # divisible by 16 (Flux2 VAE /8 × patchify /2). Dispatch before the shared
+    # defaults/RunConfig path so those zimage-flavored defaults don't apply.
+    if pipeline_type == "lens":
+        if args.steps is None:
+            args.steps = _PIPELINE_DEFAULT_STEPS["lens"]
+        if args.width is None:
+            args.width = 512
+        if args.height is None:
+            args.height = 512
+        for dim in ("width", "height"):
+            val = getattr(args, dim)
+            if val <= 0 or val % 16 != 0:
+                print(f"ERROR [lens]: --{dim}={val} must be a positive multiple of 16.",
+                      file=sys.stderr)
+                sys.exit(1)
+        from app.commands.lens import run_lens
+        run_lens(args, json_summary=getattr(args, "json_summary", False))
+        return
 
     apply_draft_overrides(args)
 

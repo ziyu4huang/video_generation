@@ -186,7 +186,7 @@ bun/gui-movie-director/          # Frontend + Bun server
     views/                       # Per-command views (generate/, transform/, edit/, analyze/)
 
 python/mlx-movie-director/       # Python backend
-  run.py                         # CLI entry point (subcommands: t2i, image, upscale, ...)
+  run.py                         # CLI entry point (subcommands: image, video, caption, upscale, ...)
   app/commands/                  # Command modules (image-t2i, image-faceswap, ...)
   output/                        # Generated images + metadata (gitignored)
   models/                        # Model weights (gitignored)

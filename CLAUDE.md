@@ -96,7 +96,12 @@ schema               print full CLI schema as JSON
 schema-defaults      print schema defaults for a given action
 ```
 
-Deprecated aliases still accepted: `generate` → `image`, `t2i` → `image t2i`, `check-manifests` → `check-model`.
+Microsoft Lens T2I is a `--pipeline lens` option of `image t2i` (alongside
+`zimage` and `flux2-klein`) — see the **Lens T2I** section below.
+
+Deprecated aliases still accepted: `generate` → `image`, `check-manifests` → `check-model`.
+Removed top-level commands (`lens`, `t2i`) are auto-rewritten to their canonical
+`image t2i` form with a deprecation nudge.
 
 ### Self-test flag
 
@@ -110,6 +115,43 @@ python/venv/bin/python run.py image i2i --self-test i2i:pose i2i:style  # multip
 ```
 
 Available test names per action are listed in `run.py schema-defaults` or via `bun run check:schema` in the GUI project.
+
+## Lens T2I (Microsoft Lens 3.8B, pure MLX)
+
+Independent text-to-image pipeline: Microsoft Lens 3.8B dual-stream MMDiT +
+GPT-OSS-20B encoder + Flux2 VAE. It is a **separate model family** from
+Z-Image/Flux (no LoRA, ControlNet, i2i, or shared args), so it is a
+`--pipeline lens` option of `image t2i` (alongside `zimage` and `flux2-klein`),
+not an `image` sub-action of its own.
+
+```bash
+cd python/mlx-movie-director
+python/venv/bin/python run.py image t2i --pipeline lens --prompt 'a cute corgi puppy, photorealistic'
+python/venv/bin/python run.py image t2i --pipeline lens --self-test                       # built-in prompt + seed
+python/venv/bin/python run.py image t2i --pipeline lens --prompt '...' --width 1024 --height 1024  # higher res = better
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--pipeline lens` | — | Select the Lens model family |
+| `--prompt` / `--prompt-file` | — | Text prompt (or use `--self-test`) |
+| `--width` / `--height` | 512 / 512 | Must be divisible by 16 (Lens default differs from zimage's 640×960) |
+| `--steps` | 20 | Official default 50 |
+| `--cfg-scale` | 4.0 | Classifier-free guidance (Lens-only; ignored by zimage/flux2-klein) |
+| `--seed` / `--count` | 42 / 1 | RNG seed / batch |
+| `--json-summary` | off | Machine-readable output for automation |
+
+The flow-matching shift (`mu`) is computed dynamically via `compute_empirical_mu`
+(resolution + step count), matching microsoft/Lens — no `--shift` flag is
+exposed. Requires INT4 Lens models (~16 GB: TE 13 GB + UNet 2.6 GB + Flux2 VAE),
+loaded lazily on first `generate()` (~5s). ~7s/20 steps at 512². Lens is a
+high-resolution model (its gallery is all ≥1440²); 512² is out-of-distribution,
+quality rises further at 1024² and with 50 steps.
+
+Sampling matches the official [`microsoft/Lens`](https://github.com/microsoft/Lens)
+pipeline: dynamic mu (`compute_empirical_mu`), CFG velocity norm-rescaling,
+Flux2 VAE BatchNorm de-normalization. Full bug-fix history (8 bugs across two
+rounds) in [docs/lens-mlx-t2i-rope-patchify.md](docs/lens-mlx-t2i-rope-patchify.md).
 
 ## Image Caption (replaces MCP image analysis)
 

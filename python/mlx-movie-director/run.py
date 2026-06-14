@@ -48,6 +48,27 @@ def _inject_default_subcommand() -> None:
         sys.argv.insert(1, "replay")
         return
 
+    # Removed top-level commands, rewritten to their canonical `image` form.
+    # These are no longer registered in COMMAND_NAMES (so they're absent from
+    # --help), but kept working — WITHOUT this rewrite, the generic injection
+    # below would treat the unknown token as a missing subcommand and insert
+    # `generate`, silently running the WRONG model (e.g. `run.py lens` → zimage).
+    # Rewriting + a deprecation nudge avoids that footgun.
+    _REMOVED_REWRITES = {
+        "lens": (["image", "t2i", "--pipeline", "lens"],
+                 "Use 'image t2i --pipeline lens' instead."),
+        "t2i": (["image", "t2i"],
+                "Use 'image t2i' instead."),
+    }
+    first_real = next((t for t in argv if not t.startswith("-")), None)
+    if first_real in _REMOVED_REWRITES:
+        new_tokens, msg = _REMOVED_REWRITES[first_real]
+        print(f"⚠  '{first_real}' is now a pipeline option of 'image'. {msg}",
+              file=sys.stderr)
+        idx = sys.argv.index(first_real, 1)   # positional token in argv[1:]
+        sys.argv[idx:idx + 1] = new_tokens
+        return
+
     # Find first non-flag token to detect explicit subcommand
     for token in argv:
         if not token.startswith("-"):

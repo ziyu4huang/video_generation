@@ -53,9 +53,9 @@ class TestArgShape:
         for a in self._image_args():
             for f in a["flags"]:
                 by_flag[f] = a
-        # --pipeline: store, default zimage, 3 choices
+        # --pipeline: store, default zimage, 4 choices (incl. lens)
         assert by_flag["--pipeline"]["default"] == "zimage"
-        assert set(by_flag["--pipeline"]["choices"]) == {"zimage", "flux2-klein", "auto"}
+        assert set(by_flag["--pipeline"]["choices"]) == {"zimage", "flux2-klein", "lens", "auto"}
         # --ab-test: store_true → default false
         assert by_flag["--ab-test"]["action"] == "_StoreTrueAction"
         assert by_flag["--ab-test"]["default"] is False

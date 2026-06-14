@@ -1,5 +1,5 @@
 import type { UnifiedCommand } from "./types";
-import { PIPELINE_OPTIONS } from "./shared";
+import { T2I_PIPELINE_OPTIONS } from "./shared";
 
 export const t2iCommand: UnifiedCommand = {
   action: "t2i",
@@ -8,8 +8,12 @@ export const t2iCommand: UnifiedCommand = {
   isDisabled: (s) => !s.prompt?.trim(),
   fields: [
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image you want to generate...", section: "Prompt" },
-    { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
-    { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation" },
+    { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: T2I_PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
+    // Steps is hidden on purpose: each pipeline has its own optimized step count,
+    // resolved server-side via _PIPELINE_DEFAULT_STEPS (zimage=9, flux2-klein=4,
+    // lens=20). There's nothing for the user to tune — the value just tracks the
+    // chosen model — so buildParams never sends --steps either.
+    { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation", visible: () => false },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
     { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation" },
     { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation" },
@@ -29,7 +33,7 @@ export const t2iCommand: UnifiedCommand = {
     pipeline: s.pipeline,
     width: s.width,
     height: s.height,
-    steps: s.steps ?? undefined,
+    // steps intentionally omitted — server picks the per-pipeline optimum.
     seed: s.seed,
     lora_scale: s.lora_scale !== 1.0 ? s.lora_scale : undefined,
     draft: s.draft || undefined,
