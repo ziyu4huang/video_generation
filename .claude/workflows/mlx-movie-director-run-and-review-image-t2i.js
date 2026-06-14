@@ -71,6 +71,10 @@ export const meta = {
   ],
 }
 
+// The Workflow runtime strips `export const meta` to extract metadata, leaving `meta`
+// unbound in execution scope. Mirror the name here so the Persist phase can reference it.
+const _WF_NAME = "mlx-movie-director-run-and-review-image-t2i"
+
 // ── Phase 0: Resolve absolute paths ──────────────────────────────────────────
 
 phase("Resolve")
@@ -1220,7 +1224,7 @@ const _t2i_tsR = await agent(
     schema: { type: "object", properties: { timestamp: { type: "string" } }, required: ["timestamp"] } },
 )
 const _t2i_RUN_TS   = (_t2i_tsR?.timestamp || "unknown").trim()
-const _t2i_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${meta.name}`
+const _t2i_HIST_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${_WF_NAME}`
 const _t2i_INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 
 const _t2i_signals = {
@@ -1236,7 +1240,7 @@ const _t2i_signals = {
 }
 
 const _t2i_histEntry = {
-  schema_version: 1, run_id: _t2i_RUN_TS, workflow: meta.name, started_at: _t2i_RUN_TS,
+  schema_version: 1, run_id: _t2i_RUN_TS, workflow: _WF_NAME, started_at: _t2i_RUN_TS,
   args: resolvedArgs,
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
