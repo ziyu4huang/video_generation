@@ -3,8 +3,9 @@ import path from "path";
 
 // Smoke test for check-runtime. The script exercises buildCliArgs() with
 // synthesized params and asserts the output against run.py's argparse contract,
-// so its findings depend on live drift state — we assert STRUCTURE + a known
-// regression (the --blur-ref control-mismatch), not "zero findings".
+// so its findings depend on live drift state — we assert STRUCTURE + a
+// regression guard (--blur-ref was a GUI toggle vs run.py float; now fixed, so
+// we assert it stays aligned), not "zero findings".
 
 const SCRIPT = path.join(import.meta.dir, "check-runtime.ts");
 const ALLOWED = new Set([
@@ -46,16 +47,18 @@ describe("check-runtime", () => {
     expect(json.errorCount).toBe(hardErrors.length);
   });
 
-  it("detects the known --blur-ref control-mismatch (GUI toggle vs run.py float)", () => {
-    // Regression guard: blur_ref is a GUI toggle (emits a bare --blur-ref) but
-    // run.py's --blur-ref is type=float. check-runtime MUST surface this — it is
-    // exactly the integration bug check-schema cannot see (it never compares
-    // control/type). If this fails, the runtime check has regressed.
+  it("verifies --blur-ref is aligned (GUI range → run.py float, no control-mismatch)", () => {
+    // Regression guard: blur_ref WAS a GUI toggle (emitted a bare --blur-ref)
+    // while run.py's --blur-ref is type=float — exactly the integration bug
+    // check-schema cannot see (it never compares control/type). Fixed
+    // 2026-06-14: GUI controlnet + i2i schemas now declare control="range".
+    // This test guards against regressing back to a toggle. check-runtime's
+    // ability to DETECT such mismatches is still exercised — it surfaces the
+    // controlnet --controlnet-type choice-valid warnings in the run above.
     const { json } = runJson();
-    const blurRef = json.findings.find(
+    const blurRefMismatch = json.findings.find(
       (f: any) => f.flag === "--blur-ref" && f.violation === "control-mismatch",
     );
-    expect(blurRef).toBeDefined();
-    expect(String(blurRef.expected)).toContain("float");
+    expect(blurRefMismatch).toBeUndefined();
   });
 });

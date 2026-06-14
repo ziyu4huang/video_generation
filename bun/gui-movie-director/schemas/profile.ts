@@ -14,10 +14,13 @@ export const profileCommand: UnifiedCommand = {
       { value: "front", label: "Front Only" },
       { value: "front,back", label: "Front + Back" },
     ], default: "front,back,side", section: "Settings" },
-    { key: "ratio", cliFlag: "--ratio", control: "select", label: "Pose", choices: [
-      { value: "standing", label: "Standing" },
-      { value: "sitting", label: "Sitting" },
-    ], default: "standing", section: "Settings" },
+    { key: "ratio", cliFlag: "--ratio", control: "select", label: "Framing", choices: [
+      { value: "portrait", label: "Portrait (3:4)" },
+      { value: "standing", label: "Standing (2:3)" },
+      { value: "full-body", label: "Full-body (1:2)" },
+      { value: "tall", label: "Tall" },
+      { value: "9:16", label: "9:16" },
+    ], default: "full-body", section: "Settings" },
     { key: "ref_count", cliFlag: "--ref-count", control: "number", label: "Reference Count", min: 1, max: 4, default: 3, section: "Settings" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Settings" },
     // Backend-only

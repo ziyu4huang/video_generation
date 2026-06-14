@@ -18,7 +18,7 @@ export const controlnetCommand: UnifiedCommand = {
       { value: "gray", label: "Gray" },
     ], default: "canny", section: "ControlNet" },
     { key: "controlnet_strength", cliFlag: "--controlnet-strength", control: "range", label: "Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "ControlNet" },
-    { key: "blur_ref", cliFlag: "--blur-ref", control: "toggle", label: "Blur Reference", section: "ControlNet" },
+    { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5, section: "ControlNet" },
     { key: "remove_outlines", cliFlag: "--remove-outlines", control: "toggle", label: "Remove Outlines", section: "ControlNet" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "ControlNet" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "ControlNet" },

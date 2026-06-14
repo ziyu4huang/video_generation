@@ -19,7 +19,7 @@ export const i2iCommand: UnifiedCommand = {
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
     // Backend-only
     { key: "skip_preprocess", cliFlag: "--skip-preprocess", control: "toggle", label: "Skip Preprocess" },
-    { key: "blur_ref", cliFlag: "--blur-ref", control: "toggle", label: "Blur Reference" },
+    { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5 },
     { key: "lora_path", cliFlag: "--lora-path", control: "multiselect", label: "LoRA Paths" },
     { key: "lora_scale", cliFlag: "--lora-scale", control: "multiselect", label: "LoRA Scales" },
     { key: "upscale", cliFlag: "--upscale", control: "toggle", label: "Upscale" },
