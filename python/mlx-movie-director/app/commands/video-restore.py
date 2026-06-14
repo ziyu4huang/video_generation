@@ -139,6 +139,12 @@ def add_restore_args(parser):
 
 def run_restore(args):
     """Main restore execution (called by video.py dispatcher)."""
+    from app.commands._shared import normalize_self_test
+    normalize_self_test(args)
+    if getattr(args, "self_test", None) is not None:
+        _run_restore_self_test(args)
+        return
+
     # Resolve input path
     input_path = getattr(args, "restore_input_flag", None)
     if not input_path:
@@ -258,6 +264,127 @@ def run_restore(args):
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024) if os.path.exists(output_path) else 0
     print(f"[restore] Saved: {output_path} ({size_mb:.1f} MB)")
+
+
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+def _run_restore_self_test(args):
+    """Restore self-test: generate synthetic degraded video, run IC-LoRA restoration.
+
+    Flow:
+      1. Generate a tiny test video (ffmpeg color bars, 25 frames, 320×240)
+      2. Apply synthetic blur + noise degradation (OpenCV)
+      3. Check LoRA files exist
+      4. Run restoration pipeline
+      5. Verify output exists
+    """
+    print("[restore-self-test] ═══ Restore Self-Test ═══")
+    import tempfile
+
+    tmp_dir = tempfile.mkdtemp(prefix="restore_selftest_")
+    clean_video = os.path.join(tmp_dir, "clean.mp4")
+    degraded_video = os.path.join(tmp_dir, "degraded.mp4")
+    restored_video = os.path.join(tmp_dir, "restored.mp4")
+
+    try:
+        # Step 1: Generate clean test video with ffmpeg
+        print("[restore-self-test] Generating clean test video (25 frames, 320×240)...")
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            print("ERROR: ffmpeg not found", file=sys.stderr)
+            sys.exit(1)
+
+        # Color bars with a moving gradient (simple synthetic content)
+        subprocess.run([
+            ffmpeg, "-y",
+            "-f", "lavfi",
+            "-i", "color=c=blue:s=320x240:d=1.0",  # 1 second @ 25fps = 25 frames
+            "-vf", "drawbox=x=100:y=100:w=40:h=40:color=red:t=fill,"
+                    "drawbox=x=140:y=140:w=40:h=40:color=yellow:t=fill",
+            "-frames:v", "25",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            clean_video,
+        ], capture_output=True, timeout=30, check=True)
+
+        if not os.path.exists(clean_video):
+            print("ERROR: failed to generate clean test video", file=sys.stderr)
+            sys.exit(1)
+        print(f"[restore-self-test] Clean video: {os.path.getsize(clean_video)/1024:.0f} KB")
+
+        # Step 2: Apply synthetic degradation
+        print("[restore-self-test] Applying blur + noise degradation...")
+        import cv2
+        import numpy as np
+
+        cap = cv2.VideoCapture(clean_video)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(degraded_video, fourcc, fps, (320, 240))
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            # Gaussian blur
+            blurred = cv2.GaussianBlur(frame, (9, 9), 2.0)
+            # Add noise
+            noise = np.random.normal(0, 25, blurred.shape).astype(np.uint8)
+            degraded = cv2.add(blurred, noise)
+            out.write(degraded)
+
+        cap.release()
+        out.release()
+
+        if not os.path.exists(degraded_video):
+            print("ERROR: failed to create degraded video", file=sys.stderr)
+            sys.exit(1)
+        print(f"[restore-self-test] Degraded video: {os.path.getsize(degraded_video)/1024:.0f} KB")
+
+        # Step 3: Check LoRA files
+        restoration_lora = args.restoration_lora or cfg.LTX_RESTORE_LORA
+        upscale_lora = args.upscale_lora or cfg.LTX_UPSCALE_LORA
+
+        if not os.path.exists(restoration_lora):
+            print(f"[restore-self-test] WARNING: restoration LoRA not found: {restoration_lora}", file=sys.stderr)
+            print("[restore-self-test] Skipping restore pipeline (check-only mode)")
+            print("[restore-self-test] ✓ Dependency check passed (ffmpeg + OpenCV)")
+            # Clean up and exit gracefully
+            _cleanup_tmp(tmp_dir)
+            return
+
+        # Step 4: Run restoration
+        print("[restore-self-test] Running IC-LoRA restoration (9 frames, fast mode)...")
+        # Override args for self-test
+        args.restore_input_flag = degraded_video
+        args.restore_output = restored_video
+        args.frames = 9
+        args.low_ram = getattr(args, "low_ram", True)
+        args.seed = 42
+        args.no_upscale_lora = True  # skip upscale LoRA for speed
+
+        # Re-run restore with modified args (will not recurse since self_test is already consumed)
+        args.self_test = None  # prevent recursion
+        run_restore(args)
+
+        # Step 5: Verify output
+        if os.path.exists(restored_video) and os.path.getsize(restored_video) > 1024:
+            print(f"[restore-self-test] ✓ Restored: {restored_video}")
+            print(f"[restore-self-test] ✓ ALL PASSED")
+        else:
+            print(f"[restore-self-test] ✗ Restoration produced no valid output", file=sys.stderr)
+            sys.exit(1)
+
+    finally:
+        _cleanup_tmp(tmp_dir)
+
+
+def _cleanup_tmp(tmp_dir: str) -> None:
+    """Remove temp directory if it exists."""
+    if os.path.isdir(tmp_dir):
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

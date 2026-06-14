@@ -5590,7 +5590,7 @@ def _render_vae_html(test_name, test_cfg, image_paths, labels, metrics_list,
         ("Sharpness (Laplacian σ²)", "sharpness",     "higher"),
         ("Edge density (Sobel mean)", "edge_density",  "higher"),
         ("Contrast (luminance σ)",   "contrast",       "higher"),
-        ("Noise (MAD σ)",            "noise_mad",      "lower"),
+        ("Noise (MAD σ)",            "noise_sigma",    "lower"),
         ("Saturation σ",             "saturation_std", "—"),
     ]
 

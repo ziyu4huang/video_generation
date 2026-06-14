@@ -264,6 +264,47 @@ const TEMPORAL_METRIC_KEYS = [
 ];
 
 // ---------------------------------------------------------------------------
+// VLM score rendering helper
+// ---------------------------------------------------------------------------
+
+const VLM_METRICS = [
+  { key: "overall",           label: "VLM Overall",             dir: "higher" },
+  { key: "sharpness",         label: "VLM Sharpness",           dir: "higher" },
+  { key: "detail_preservation", label: "VLM Detail",             dir: "higher" },
+  { key: "color_lighting",    label: "VLM Color/Lighting",      dir: "higher" },
+  { key: "temporal_coherence",label: "VLM Temporal Coherence",  dir: "higher" },
+  { key: "artifacts",         label: "VLM Artifacts (1-10)",     dir: "higher" },
+];
+
+function renderVlmScores(item) {
+  const vs = item.vlm_score;
+  if (!vs || !vs.overall) return "";
+  const scoreBar = (val) => {
+    const pct = Math.round((val / 10) * 100);
+    const color = val >= 8 ? "#4caf50" : val >= 5 ? "#f5c518" : "#f44336";
+    return `<div class="vlm-bar-bg"><div class="vlm-bar-fill" style="width:${pct}%;background:${color}"></div></div>`;
+  };
+  let rows = "";
+  for (const m of VLM_METRICS) {
+    const v = vs[m.key];
+    if (v == null) continue;
+    rows += `<div class="vlm-row">
+      <span class="vlm-label">${m.label}</span>
+      <span class="vlm-value">${v}/10</span>
+      ${scoreBar(v)}
+    </div>`;
+  }
+  const issues = vs.issues ? `<div class="vlm-issues"><strong>Issues:</strong> ${vs.issues}</div>` : "";
+  const strengths = vs.strengths ? `<div class="vlm-strengths"><strong>Strengths:</strong> ${vs.strengths}</div>` : "";
+  const summary = vs.summary ? `<div class="vlm-summary">${vs.summary}</div>` : "";
+  return `<div class="card-vlm">
+    <div class="vlm-title">VLM Quality Scores (Qwen3-VL)</div>
+    ${rows}
+    ${issues}${strengths}${summary}
+  </div>`;
+}
+
+// ---------------------------------------------------------------------------
 // HTML template
 // ---------------------------------------------------------------------------
 
@@ -321,6 +362,30 @@ function renderHTML(config) {
     tableRows += `</tr>`;
   }
 
+  // Build VLM comparison rows (if any item has vlm_score)
+  let vlmTableRows = "";
+  const hasVlm = items.some(v => v.vlm_score && v.vlm_score.overall);
+  if (hasVlm && isCompare) {
+    for (const m of VLM_METRICS) {
+      const values = items.map(v => v.vlm_score?.[m.key] ?? 0);
+      let winnerIdx = -1;
+      if (m.dir === "higher") winnerIdx = values.indexOf(Math.max(...values));
+      else if (m.dir === "lower") winnerIdx = values.indexOf(Math.min(...values));
+      vlmTableRows += `<tr class="vlm-row-tbl">`;
+      vlmTableRows += `<td class="metric-name">${m.label}</td>`;
+      for (let i = 0; i < n; i++) {
+        const isWin = i === winnerIdx && isCompare;
+        const v = values[i];
+        vlmTableRows += `<td class="${isWin ? 'winner' : ''}">${v > 0 ? v.toFixed(0) + '/10' : '—'}</td>`;
+      }
+      if (isCompare) {
+        vlmTableRows += `<td class="winner-badge">${winnerIdx >= 0 ? items[winnerIdx].label + ' ✓' : '—'}</td>`;
+      }
+      vlmTableRows += `<td class="hint">↑ higher better</td>`;
+      vlmTableRows += `</tr>`;
+    }
+  }
+
   // Build summary cards
   let summaryCards = "";
   for (const item of items) {
@@ -342,6 +407,7 @@ function renderHTML(config) {
         ${!isImage ? `<div><span class="metric-label" data-i18n-metric-name="flicker_mean"></span> <span class="metric-value">${(ts.flicker_mean ?? 0).toFixed(1)}</span> <span class="dir" data-i18n-metric-dir="flicker_mean"></span></div>
         <div><span class="metric-label" data-i18n-metric-name="consistency_ncc"></span> <span class="metric-value">${(ts.consistency_ncc ?? 0).toFixed(3)}</span> <span class="dir" data-i18n-metric-dir="consistency_ncc"></span></div>` : ''}
       </div>
+      ${renderVlmScores(item)}
     </div>`;
   }
 
@@ -481,6 +547,19 @@ header .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
                     border-bottom: 1px solid var(--bg3); }
 .metric-label { color: var(--muted); }
 .metric-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* VLM score cards */
+.card-vlm { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.vlm-title { font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.vlm-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: 12px; }
+.vlm-label { color: var(--muted); min-width: 100px; }
+.vlm-value { font-weight: 600; min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+.vlm-bar-bg { flex: 1; height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.vlm-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+.vlm-issues { margin-top: 6px; font-size: 11px; color: var(--gold); }
+.vlm-strengths { margin-top: 2px; font-size: 11px; color: var(--green); }
+.vlm-summary { margin-top: 4px; font-size: 11px; color: var(--text); font-style: italic; }
+.vlm-row-tbl td { font-size: 13px; }
 .dir { font-size: 11px; color: var(--muted); width: 16px; text-align: center; }
 
 /* Comparison table */
@@ -586,6 +665,12 @@ td.winner { color: var(--gold); font-weight: 700; }
     <thead><tr><th data-i18n="metric"></th>${items.map(v => `<th>${v.label}</th>`).join('')}<th data-i18n="winner"></th><th></th></tr></thead>
     <tbody>${tableRows}</tbody>
   </table>
+  ${hasVlm && isCompare ? `
+  <h3 style="margin-top:24px;">VLM Quality Scores</h3>
+  <table>
+    <thead><tr><th>Metric</th>${items.map(v => `<th>${v.label}</th>`).join('')}<th>Winner</th><th></th></tr></thead>
+    <tbody>${vlmTableRows}</tbody>
+  </table>` : ''}
   <div class="charts-grid">
     <div class="chart-card">
       <h3>Comparison Overview</h3>

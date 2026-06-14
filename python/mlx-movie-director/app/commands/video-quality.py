@@ -135,6 +135,12 @@ def add_quality_args(parser):
         choices=["en", "zh_TW"],
         help="HTML report language (default: en)",
     )
+    parser.add_argument(
+        "--vlm-score", action="store_true", default=False,
+        help="Also score video quality using VLM (Qwen3-VL via LM Studio). "
+             "Extracts keyframes and evaluates overall/sharpness/detail/color/"
+             "temporal_coherence/artifacts. Combines with pixel metrics in output.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +215,10 @@ def _run_analyze(args, video_paths: list[str]):
     # Attach labels
     for r, label in zip(results, labels):
         r["label"] = label
+
+    # VLM scoring (optional)
+    if getattr(args, "vlm_score", False):
+        _run_vlm_scoring(results, args)
 
     # A/B comparison if multiple
     if len(results) > 1:
@@ -1070,6 +1080,16 @@ def _prepare_html_data(report_data: dict) -> dict:
             "flicker_values": tp.get("flicker_values", []),
             "consistency_values": tp.get("consistency_values", []),
         }
+        # VLM scores
+        vs = v.get("vlm_score")
+        if vs and isinstance(vs, dict):
+            vd["vlm_score"] = {
+                k: vs[k] for k in (
+                    "overall", "sharpness", "detail_preservation",
+                    "color_lighting", "temporal_coherence", "artifacts",
+                    "issues", "strengths", "summary",
+                ) if k in vs
+            }
         videos.append(vd)
 
     return {
@@ -1105,6 +1125,23 @@ def _print_single_report(report: dict):
     print(f"    Flicker (mean)            : {tp['flicker_mean']:>8.1f}  ↓ better")
     print(f"    Flicker (max)             : {tp['flicker_max']:>8.1f}  ↓ better")
     print(f"    Frame consistency (NCC)   : {tp['consistency_ncc']:>8.3f}  ↑ better")
+
+    # VLM scores (if available)
+    vs = report.get("vlm_score")
+    if vs and isinstance(vs, dict):
+        print(f"  VLM scores (Qwen3-VL):")
+        print(f"    Overall                 : {vs.get('overall', '?'):>8}  ↑ better")
+        print(f"    Sharpness               : {vs.get('sharpness', '?'):>8}  ↑ better")
+        print(f"    Detail preservation     : {vs.get('detail_preservation', '?'):>8}  ↑ better")
+        print(f"    Color/lighting          : {vs.get('color_lighting', '?'):>8}  ↑ better")
+        print(f"    Temporal coherence      : {vs.get('temporal_coherence', '?'):>8}  ↑ better")
+        print(f"    Artifacts (no artifacts): {vs.get('artifacts', '?'):>8}  ↑ better")
+        if vs.get("issues"):
+            print(f"    Issues: {vs['issues']}")
+        if vs.get("strengths"):
+            print(f"    Strengths: {vs['strengths']}")
+        if vs.get("summary"):
+            print(f"    Summary: {vs['summary']}")
 
 
 def _print_comparison(results: list[dict]):
@@ -1167,6 +1204,79 @@ def _print_comparison(results: list[dict]):
         print(row)
 
     print()
+
+    # VLM comparison rows (if available)
+    has_vlm = any(r.get("vlm_score") for r in results)
+    if has_vlm:
+        vlm_metrics = [
+            ("VLM Overall",             "overall",              "higher"),
+            ("VLM Sharpness",           "sharpness",            "higher"),
+            ("VLM Detail",              "detail_preservation",  "higher"),
+            ("VLM Color/Lighting",      "color_lighting",       "higher"),
+            ("VLM Temporal Coherence",  "temporal_coherence",   "higher"),
+            ("VLM Artifacts (1-10)",    "artifacts",            "higher"),
+        ]
+        print(f"\n  VLM Comparison (Qwen3-VL):")
+        print(f"  {'─' * metric_col}  " + f"{'─' * (label_width + 1)} " * n + f"{'─' * 8}")
+        for name, key, direction in vlm_metrics:
+            row = f"  {name:<{metric_col}}"
+            values = []
+            for r in results:
+                vs = r.get("vlm_score") or {}
+                v = vs.get(key, 0)
+                if isinstance(v, (int, float)):
+                    values.append(float(v))
+                else:
+                    values.append(0.0)
+            for v in values:
+                row += f" {v:>{label_width}.1f}"
+            if direction == "higher":
+                best_idx = values.index(max(values))
+            else:
+                best_idx = values.index(min(values))
+            winner = labels[best_idx]
+            row += f" {winner:>8} ✓"
+            print(row)
+
+    print()
+
+
+# ---------------------------------------------------------------------------
+# VLM scoring integration
+# ---------------------------------------------------------------------------
+
+def _run_vlm_scoring(results: list[dict], args) -> None:
+    """Score each video using VLM and attach vlm_score to the result dict."""
+    from app.commands.caption import caption_video
+
+    for report in results:
+        video_path = report.get("video")
+        if not video_path or not os.path.exists(video_path):
+            print(f"[quality] WARNING: video not found, skipping VLM score: {video_path}",
+                  file=sys.stderr)
+            report["vlm_score"] = {}
+            continue
+
+        label = report.get("label", os.path.basename(video_path))
+        print(f"\n[quality] VLM scoring: {label}...")
+        try:
+            vs = caption_video(
+                video_path,
+                style="video_score",
+                lang="en",
+                n_frames=8,
+                auto_load=True,
+            )
+            if vs and isinstance(vs, dict) and vs.get("overall"):
+                report["vlm_score"] = vs
+                print(f"[quality]   VLM overall: {vs.get('overall')}/10")
+            else:
+                print(f"[quality]   WARNING: VLM returned empty or invalid response",
+                      file=sys.stderr)
+                report["vlm_score"] = {}
+        except Exception as exc:
+            print(f"[quality]   WARNING: VLM scoring failed: {exc}", file=sys.stderr)
+            report["vlm_score"] = {}
 
 
 # ---------------------------------------------------------------------------

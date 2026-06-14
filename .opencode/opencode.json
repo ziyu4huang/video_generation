@@ -128,15 +128,29 @@
       "model": "my-zai/glm-4.5-air",
       "description": "GLM fast codebase exploration"
     },
-    "build-my-ds": {
+    "build-my-ds-pro": {
       "mode": "all",
       "model": "my-ds/deepseek-v4-pro",
       "description": "My-DeepSeek V4 Pro coding agent"
     },
-    "plan-my-ds": {
+    "build-my-ds-flash": {
+      "mode": "all",
+      "model": "my-ds/deepseek-v4-flash",
+      "description": "My-DeepSeek V4 flashcoding agent"
+    },
+    "plan-my-ds-pro": {
       "mode": "primary",
       "model": "my-ds/deepseek-v4-pro",
       "description": "My-DeepSeek V4 Pro planning and analysis",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    },
+    "plan-my-ds-flash": {
+      "mode": "primary",
+      "model": "my-ds/deepseek-v4-flash",
+      "description": "My-DeepSeek V4 Flash planning and analysis",
       "permission": {
         "edit": "deny",
         "bash": "deny"

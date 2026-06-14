@@ -2,8 +2,9 @@
 ########################################
 # sync-mcp.sh — Keep MCP config consistent across all config dirs
 #
-# Reads canonical MCP server definitions and merges them into both
-# settings.json and .claude.json in every Claude Code config dir.
+# Reads canonical MCP server definitions and merges them into:
+#   - settings.json and .claude.json in every Claude Code config dir
+#   - opencode.json (global OpenCode config)
 #
 # USAGE:
 #   ./scripts/sync-mcp.sh              # sync all dirs
@@ -12,6 +13,7 @@
 #
 # WHY: Claude Code reads MCP from BOTH settings.json AND .claude.json
 # inside CLAUDE_CONFIG_DIR. Updates can wipe .claude.json, breaking MCP.
+# OpenCode uses ~/.config/opencode/opencode.json with {env:VAR} syntax.
 # See .agents/memory/feedback/mcp-config-rca.md
 ########################################
 set -euo pipefail
@@ -33,7 +35,7 @@ for arg in "$@"; do
   esac
 done
 
-# Canonical MCP server definitions as JSON
+# Canonical MCP server definitions — Claude Code format (${VAR}, type: http/stdio)
 CANONICAL_MCP='{
   "web-search-prime": {
     "type": "http",
@@ -61,30 +63,60 @@ CANONICAL_MCP='{
   }
 }'
 
-CONFIG_DIRS=(
+# Canonical MCP server definitions — OpenCode format ({env:VAR}, type: local/remote)
+CANONICAL_OPENCODE_MCP='{
+  "web-search-prime": {
+    "type": "remote",
+    "url": "https://api.z.ai/api/mcp/web_search_prime/mcp",
+    "headers": { "Authorization": "Bearer {env:ZAI_API_KEY}" }
+  },
+  "web-reader": {
+    "type": "remote",
+    "url": "https://api.z.ai/api/mcp/web_reader/mcp",
+    "headers": { "Authorization": "Bearer {env:ZAI_API_KEY}" }
+  },
+  "zread": {
+    "type": "remote",
+    "url": "https://api.z.ai/api/mcp/zread/mcp",
+    "headers": { "Authorization": "Bearer {env:ZAI_API_KEY}" }
+  },
+  "zai-mcp-server": {
+    "type": "local",
+    "command": ["bunx", "-y", "@z_ai/mcp-server"],
+    "environment": {
+      "ZAI_API_KEY": "{env:ZAI_API_KEY}",
+      "Z_AI_MODE": "ZAI"
+    }
+  }
+}'
+
+CLAUDE_CONFIG_DIRS=(
   "$HOME/.claude"
   "$HOME/.claude-glm"
   "$HOME/.claude-deepseek"
 )
 
+OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+
 merge_mcp_into_file() {
   local filepath="$1"
   local label="$2"
+  local key="${3:-mcpServers}"
+  local canonical="$4"
 
   if [ ! -f "$filepath" ]; then
     echo "  [SKIP] $label — file not found: $filepath"
     return
   fi
 
-  # Check if mcpServers already matches canonical
   local current
   current=$(python3 -c "
 import json, sys
 try:
     with open('$filepath') as f:
         data = json.load(f)
-    existing = json.dumps(data.get('mcpServers', {}), sort_keys=True)
-    canonical = json.dumps(json.loads('''$CANONICAL_MCP'''), sort_keys=True)
+    existing = json.dumps(data.get('$key', {}), sort_keys=True)
+    canonical = json.dumps(json.loads('''$canonical'''), sort_keys=True)
     if existing == canonical:
         sys.exit(0)  # in sync
     else:
@@ -104,42 +136,50 @@ except Exception:
   fi
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  [WOULD UPDATE] $label — would merge mcpServers"
+    echo "  [WOULD UPDATE] $label — would merge $key"
     return 0
   fi
 
-  # Merge canonical mcpServers into file, preserving all other keys
+  # Merge canonical MCP into file, preserving all other keys
   python3 -c "
 import json
 filepath = '$filepath'
-canonical = json.loads('''$CANONICAL_MCP''')
+key = '$key'
+canonical = json.loads('''$canonical''')
 with open(filepath) as f:
     data = json.load(f)
-data['mcpServers'] = canonical
+data[key] = canonical
 with open(filepath, 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
-print('  [SYNCED] $label — mcpServers updated')
+print('  [SYNCED] $label — $key updated')
 "
 }
 
 echo "=== MCP Sync ==="
-echo "Canonical servers: $(echo "$CANONICAL_MCP" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))") servers"
+echo "Claude Code target: $(echo "$CANONICAL_MCP" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))") servers"
+echo "OpenCode target:   $(echo "$CANONICAL_OPENCODE_MCP" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))") servers"
 echo ""
 
 DRIFT_FOUND=0
 
-for dir in "${CONFIG_DIRS[@]}"; do
+# --- Claude Code config dirs ---
+for dir in "${CLAUDE_CONFIG_DIRS[@]}"; do
   if [ ! -d "$dir" ]; then
     echo "[SKIP] $dir — directory not found"
     continue
   fi
 
   echo "$dir"
-  merge_mcp_into_file "$dir/settings.json" "settings.json" || DRIFT_FOUND=1
-  merge_mcp_into_file "$dir/.claude.json" ".claude.json" || DRIFT_FOUND=1
+  merge_mcp_into_file "$dir/settings.json" "settings.json" "mcpServers" "$CANONICAL_MCP" || DRIFT_FOUND=1
+  merge_mcp_into_file "$dir/.claude.json" ".claude.json" "mcpServers" "$CANONICAL_MCP" || DRIFT_FOUND=1
   echo ""
 done
+
+# --- OpenCode global config ---
+echo "OpenCode (global)"
+merge_mcp_into_file "$OPENCODE_CONFIG" "opencode.json" "mcp" "$CANONICAL_OPENCODE_MCP" || DRIFT_FOUND=1
+echo ""
 
 if [ "$VERIFY" -eq 1 ]; then
   if [ "$DRIFT_FOUND" -eq 0 ]; then

@@ -3,9 +3,11 @@
 //
 // Ports the proven coverage lane from gui-movie-director-schema-self-improve.js
 // to the Python suite. Loop: find the weakest-tested source module → an agent
-// proposes new CPU-pure unit tests → run pytest --cov → ADOPT only if global
-// coverage rose by ≥ margin AND the suite still passes, else REVERT. Learns
-// dead-ends + good patterns run-over-run via a JSONL history.
+// proposes new CPU-pure unit tests → run pytest --cov → ADOPT if the suite is green
+// AND either the TARGET file gained ≥ fileMargin newly-covered lines OR global
+// coverage rose by ≥ margin (the OR defeats the dilution problem: on a ~15k-stmt
+// codebase a 19-stmt file fully covered is only +0.13pp global but +19 file-lines),
+// else REVERT. Learns dead-ends + good patterns run-over-run.
 //
 // Composes existing infrastructure rather than reinventing it:
 //   - Loop shape + phase skeleton + dead-end/margin/convergence: copied from
@@ -52,9 +54,10 @@ const _rawArgs = typeof args === "string" ? (() => { try { return JSON.parse(arg
 const A = isObj(_rawArgs) ? _rawArgs : {}
 const BUDGET     = Number(A.budget) || 6           // max iterations
 const DRY_RUN    = A.dryRun !== false              // default: dry-run (safe to demo)
-const MARGIN     = Number(A.margin) || 0.5         // min global composite delta to adopt (pp)
-const CONVERGE_K = Number(A.convergeK) || 2        // stop after K non-improving iters
-const TARGET     = A.target || null                // optional: focus on one source path substring
+const MARGIN      = Number(A.margin) || 0.5        // min GLOBAL composite delta to adopt (pp) — primary bar for LARGE modules
+const FILE_MARGIN = Number(A.fileMargin) || 8      // min NEW source lines covered on the TARGET file to adopt — primary bar for SMALL modules (defeats global dilution: 19 stmts fully covered = +0.13pp global but +19 file-lines)
+const CONVERGE_K  = Number(A.convergeK) || 2       // stop after K non-improving iters
+const TARGET      = A.target || null               // optional: focus on one source path substring
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -370,13 +373,22 @@ Return output, passed, failed, errors, files=<COV_JSON array>.`,
   const newErrors = Number(measureResult?.errors) || 0
   delta = newComposite - currentBest
 
-  const testsOk = newFailed === 0 && newErrors === 0
+  // Per-file delta: NEW source lines covered on the TARGET file this iteration.
+  // Primary adopt signal for small modules — global delta gets diluted to noise on
+  // a ~15k-stmt codebase. Adopt if EITHER bar clears, as long as the suite is green.
+  const beforeFile = (currentFiles.find((f) => f.path === targetFile) || {}).coveredLines || 0
+  const afterFile = (newFiles.find((f) => f.path === targetFile) || {}).coveredLines || 0
+  const fileDeltaLines = Math.max(0, afterFile - beforeFile)
 
-  if (testsOk && delta >= MARGIN) {
+  const testsOk = newFailed === 0 && newErrors === 0
+  const globalAdopt = delta >= MARGIN
+  const fileAdopt = fileDeltaLines >= FILE_MARGIN
+
+  if (testsOk && (fileAdopt || globalAdopt)) {
     adopted = true
     currentBest = newComposite
     currentFiles = newFiles
-    log(`✓ Adopted! +${delta.toFixed(2)}pp → ${newComposite.toFixed(2)}% total (suite passed=${measureResult?.passed})`)
+    log(`✓ Adopted! +${fileDeltaLines} file-lines (+${delta.toFixed(2)}pp global) → ${newComposite.toFixed(2)}% total (suite passed=${measureResult?.passed})`)
   } else {
     // Revert
     await agent(
@@ -388,11 +400,11 @@ Return { reverted: true }.`,
       { label: `revert-${targetFile.replace(/[^a-z0-9]/gi, "-")}`, phase: "Improve",
         schema: { type: "object", properties: { reverted: { type: "boolean" } }, required: ["reverted"] } },
     )
-    const reason = !testsOk ? `suite failed (failed=${newFailed} errors=${newErrors})` : `delta ${delta.toFixed(2)} < margin ${MARGIN}`
+    const reason = !testsOk ? `suite failed (failed=${newFailed} errors=${newErrors})` : `file +${fileDeltaLines} < ${FILE_MARGIN} lines AND global ${delta.toFixed(2)} < ${MARGIN}pp`
     log(`✗ Reverted (${reason})`)
   }
 
-  iterations.push({ runId, iter: iter + 1, targetFile, testClass: proposeResult.testClass, targetTestFile: proposeResult.targetTestFile, adopted, delta, prevScore: currentBest - (adopted ? delta : 0), newScore: adopted ? currentBest : currentBest - delta, dryRun: DRY_RUN })
+  iterations.push({ runId, iter: iter + 1, targetFile, testClass: proposeResult.testClass, targetTestFile: proposeResult.targetTestFile, adopted, delta, fileDeltaLines, prevScore: currentBest - (adopted ? delta : 0), newScore: adopted ? currentBest : currentBest - delta, dryRun: DRY_RUN })
 
   if (adopted) {
     noImprove = 0

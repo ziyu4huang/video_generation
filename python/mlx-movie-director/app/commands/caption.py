@@ -16,11 +16,16 @@ import requests
 from PIL import Image
 
 PARSER_META = {
-    "help": "Generate image caption using Qwen3-VL",
+    "help": "Generate caption using Qwen3-VL (image or video)",
     "description": (
-        "Caption an image using a local Qwen3-VL model.\n\n"
+        "Caption an image or video using a local Qwen3-VL model.\n\n"
+        "For images: uses the full image directly.\n"
+        "For videos: extracts evenly-spaced keyframes and sends them as multiple images.\n\n"
         "Examples:\n"
         "  run.py caption output/base.png\n"
+        "  run.py caption output/video.mp4\n"
+        "  run.py caption video.mp4 --style video_score --lang en\n"
+        "  run.py caption video.mp4 --style video_analysis\n"
         "  run.py caption base.png --style photography\n"
         "  run.py caption base.png --style prompt --lang en\n"
         "  run.py caption base.png --style score --lang en  ← VLM quality scoring\n"
@@ -71,10 +76,74 @@ _STYLE_PROMPTS = {
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}\n'
         "Each score is an integer 1-10."
     ),
+    "video_score": (
+        "You are a professional video quality evaluator. "
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video. "
+        "Analyze them together to assess the video's overall quality.\n\n"
+        "Evaluate these dimensions on a scale of 1-10:\n"
+        "1. overall — overall video quality and aesthetic appeal\n"
+        "2. sharpness — image sharpness and clarity across frames\n"
+        "3. detail_preservation — level of fine detail (textures, faces, objects)\n"
+        "4. color_lighting — color accuracy, lighting quality, exposure consistency\n"
+        "5. temporal_coherence — how consistent objects/subjects appear across frames "
+        "(do shapes, faces, and positions change smoothly or flicker/jump)\n"
+        "6. artifacts — absence of rendering artifacts like blur, noise, blockiness, "
+        "or seams (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
+        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
+        '{"overall": N, "sharpness": N, "detail_preservation": N, '
+        '"color_lighting": N, "temporal_coherence": N, "artifacts": N, '
+        '"issues": "...", "strengths": "...", "summary": "one-sentence assessment"}\n'
+        "Each score is an integer 1-10."
+    ),
+    "video_analysis": (
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video.\n\n"
+        "Analyze the video's content and production quality. Report:\n"
+        "1. scene_description — what is happening in the video (subject, action, setting)\n"
+        "2. camera_movement — is the camera static, panning, zooming, tracking?\n"
+        "3. motion_quality — does motion appear smooth and natural, or jittery/stuttering?\n"
+        "4. subject_consistency — does the main subject change appearance between frames?\n"
+        "5. overall_quality — one-sentence quality summary\n\n"
+        "Respond with ONLY a JSON object (no markdown fences):\n"
+        '{"scene_description": "...", "camera_movement": "...", '
+        '"motion_quality": "...", "subject_consistency": "...", '
+        '"overall_quality": "..."}'
+    ),
     "compare": (
         "Describe this image in ONE short sentence (max 25 words). "
         "Focus on: subject appearance (hair color, clothing), style (realistic/anime/3D), "
         "and overall quality. Output only the sentence, nothing else."
+    ),
+    "video_score": (
+        "You are a professional video quality evaluator. "
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video. "
+        "Analyze them together to assess the video's overall quality.\n\n"
+        "Evaluate these dimensions on a scale of 1-10:\n"
+        "1. overall — overall video quality and aesthetic appeal\n"
+        "2. sharpness — image sharpness and clarity across frames\n"
+        "3. detail_preservation — level of fine detail (textures, faces, objects)\n"
+        "4. color_lighting — color accuracy, lighting quality, exposure consistency\n"
+        "5. temporal_coherence — how consistent objects/subjects appear across frames "
+        "(do shapes, faces, and positions change smoothly or flicker/jump)\n"
+        "6. artifacts — absence of rendering artifacts like blur, noise, blockiness, "
+        "or seams (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
+        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
+        '{"overall": N, "sharpness": N, "detail_preservation": N, '
+        '"color_lighting": N, "temporal_coherence": N, "artifacts": N, '
+        '"issues": "...", "strengths": "...", "summary": "one-sentence assessment"}\n'
+        "Each score is an integer 1-10."
+    ),
+    "video_analysis": (
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video.\n\n"
+        "Analyze the video's content and production quality. Report:\n"
+        "1. scene_description — what is happening in the video (subject, action, setting)\n"
+        "2. camera_movement — is the camera static, panning, zooming, tracking?\n"
+        "3. motion_quality — does motion appear smooth and natural, or jittery/stuttering?\n"
+        "4. subject_consistency — does the main subject change appearance between frames?\n"
+        "5. overall_quality — one-sentence quality summary\n\n"
+        "Respond with ONLY a JSON object (no markdown fences):\n"
+        '{"scene_description": "...", "camera_movement": "...", '
+        '"motion_quality": "...", "subject_consistency": "...", '
+        '"overall_quality": "..."}'
     ),
     "review": (
         "You are a professional image quality evaluator reviewing a TEXT-TO-IMAGE output.\n\n"
@@ -100,6 +169,38 @@ _STYLE_PROMPTS = {
         '"captured": ["..."], "missed": ["..."], '
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}}\n'
         "Each score is an integer 1-10."
+    ),
+    "video_score": (
+        "You are a professional video quality evaluator. "
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video. "
+        "Analyze them together to assess the video's overall quality.\n\n"
+        "Evaluate these dimensions on a scale of 1-10:\n"
+        "1. overall — overall video quality and aesthetic appeal\n"
+        "2. sharpness — image sharpness and clarity across frames\n"
+        "3. detail_preservation — level of fine detail (textures, faces, objects)\n"
+        "4. color_lighting — color accuracy, lighting quality, exposure consistency\n"
+        "5. temporal_coherence — how consistent objects/subjects appear across frames "
+        "(do shapes, faces, and positions change smoothly or flicker/jump)\n"
+        "6. artifacts — absence of rendering artifacts like blur, noise, blockiness, "
+        "or seams (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
+        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
+        '{"overall": N, "sharpness": N, "detail_preservation": N, '
+        '"color_lighting": N, "temporal_coherence": N, "artifacts": N, '
+        '"issues": "...", "strengths": "...", "summary": "one-sentence assessment"}\n'
+        "Each score is an integer 1-10."
+    ),
+    "video_analysis": (
+        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video.\n\n"
+        "Analyze the video's content and production quality. Report:\n"
+        "1. scene_description — what is happening in the video (subject, action, setting)\n"
+        "2. camera_movement — is the camera static, panning, zooming, tracking?\n"
+        "3. motion_quality — does motion appear smooth and natural, or jittery/stuttering?\n"
+        "4. subject_consistency — does the main subject change appearance between frames?\n"
+        "5. overall_quality — one-sentence quality summary\n\n"
+        "Respond with ONLY a JSON object (no markdown fences):\n"
+        '{"scene_description": "...", "camera_movement": "...", '
+        '"motion_quality": "...", "subject_consistency": "...", '
+        '"overall_quality": "..."}'
     ),
     "playwright": (
         "You are analyzing a SCREENSHOT of a web application's graphical user interface to help "
@@ -154,6 +255,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         "(assume the model is already loaded)")
     parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
                         help="Original T2I prompt (used by 'review' style for adherence evaluation)")
+    parser.add_argument("--frames", type=int, default=8, metavar="N",
+                        help="Number of keyframes for video captioning (default: 8)")
     parser.add_argument("--review-html", type=str, nargs="+", metavar="JSON",
                         help="Generate feedback HTML from caption JSON files (exits after HTML generation)")
     parser.add_argument("--ab-manifest", type=str, default=None, metavar="PATH",
@@ -189,46 +292,72 @@ def run(args: argparse.Namespace) -> None:
     from app.io_utils import require_file
     input_path = require_file(
         args.image or args.input_image,
-        "input image (positional arg or --input-image)",
+        "input (positional arg or --input-image)",
     )
 
-    # Derive default output path: image.png → image.caption.json
+    style = args.style
+    lang = args.lang
+
+    # Detect video by extension
+    video_exts = {".mp4", ".mov", ".avi", ".webm", ".mkv", ".gif"}
+    is_video = os.path.splitext(input_path)[1].lower() in video_exts
+
+    # Derive default output path: file.ext → file.caption.json
     output_path = args.output
     if output_path is None:
         base, _ = os.path.splitext(input_path)
         output_path = f"{base}.caption.json"
 
-    style = args.style
-    lang = args.lang
+    if is_video:
+        # --- Video path ---
+        n_frames = getattr(args, "frames", 8)
+        print(f"Captioning video {input_path} (style={style}, lang={lang}, {n_frames} frames)...", flush=True)
+        result = caption_video(
+            input_path,
+            style=style,
+            lang=lang,
+            n_frames=n_frames,
+            api_url=args.api_url,
+            model=args.model,
+            auto_load=not getattr(args, "no_auto_load", False),
+        )
+        caption_text = result.get("summary", json.dumps(result, ensure_ascii=False))
+        # Wrap in standard output format
+        output = {
+            "video": input_path,
+            "style": style,
+            "model": args.model,
+            "frames": n_frames,
+            "caption": result,
+        }
+    else:
+        # --- Image path (existing flow) ---
+        prompt_text = _STYLE_PROMPTS[style]
+        if style == "review":
+            if not args.prompt:
+                print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
+                sys.exit(1)
+            prompt_text = prompt_text.format(prompt=args.prompt)
+        prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
 
-    prompt_text = _STYLE_PROMPTS[style]
-    if style == "review":
-        if not args.prompt:
-            print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
-            sys.exit(1)
-        prompt_text = prompt_text.format(prompt=args.prompt)
-    prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
+        print(f"Captioning {input_path} (style={style}, lang={lang})...", end=" ", flush=True)
+        b64 = _image_to_base64(input_path)
+        caption_text = _call_vlm(args.api_url, args.model, b64, prompt_text,
+                                 auto_load=not getattr(args, "no_auto_load", False))
+        output = {
+            "image": input_path,
+            "style": style,
+            "model": args.model,
+            "caption": caption_text,
+        }
 
-    # 1. Encode image to base64
-    print(f"Captioning {input_path} (style={style}, lang={lang})...", end=" ", flush=True)
-    b64 = _image_to_base64(input_path)
-
-    # 2. Call VLM API
-    caption = _call_vlm(args.api_url, args.model, b64, prompt_text,
-                        auto_load=not getattr(args, "no_auto_load", False))
-
-    # 3. Save JSON
-    result = {
-        "image": input_path,
-        "style": style,
-        "model": args.model,
-        "caption": caption,
-    }
+    # Save JSON
     with open(output_path, "w") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
+        json.dump(output, f, indent=2, ensure_ascii=False)
 
     print("Done")
-    print(f"Caption: {caption}")
+    preview = (caption_text or "")[:120].replace("\n", " ")
+    print(f"Caption: {preview}..." if len(preview) == 120 else f"Caption: {preview}")
     print(f"Saved: {output_path}")
 
 
@@ -517,6 +646,64 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
     return content
 
 
+def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str,
+                    auto_load: bool = True) -> str:
+    """Call OpenAI-compatible chat completions API with MULTIPLE images + text.
+
+    Same as _call_vlm() but accepts a list of base64-encoded images. Each image
+    is added as a separate image_url entry in the content array, enabling the VLM
+    to see multiple frames (e.g. keyframes from a video) at once.
+
+    Args:
+        api_url: OpenAI-compatible API base URL.
+        model: Model name (e.g. 'qwen/qwen3-vl-4b').
+        b64_images: List of base64 JPEG strings, one per keyframe.
+        prompt: Text prompt to accompany the images.
+        auto_load: If True, ensure model is loaded in LM Studio first.
+
+    Returns:
+        Raw text response from the VLM.
+    """
+    url = f"{api_url}/chat/completions"
+
+    # Build content array: image_url entries (one per frame) + text prompt
+    content = []
+    for b64 in b64_images:
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+        })
+    content.append({"type": "text", "text": prompt})
+
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 2048,
+        "temperature": 0.3,
+        "stream": False,
+    }
+
+    def _do_request():
+        resp = requests.post(url, json=payload, timeout=180)  # longer timeout for multi-image
+        resp.raise_for_status()
+        return resp.json()
+
+    if auto_load:
+        _lmstudio_ensure_model(api_url, model)
+
+    try:
+        data = _do_request()
+    except (requests.ConnectionError, requests.HTTPError) as first_err:
+        if _lmstudio_ensure_model(api_url, model):
+            data = _do_request()
+        else:
+            raise first_err
+
+    content = data["choices"][0]["message"]["content"]
+    content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
+    return content
+
+
 # ---------------------------------------------------------------------------
 # Public helper — reusable by other commands (e.g., image-review self-tests)
 # ---------------------------------------------------------------------------
@@ -544,6 +731,72 @@ def caption_image(image_path: str, style: str = "photography", lang: str = "en",
     prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
     b64 = _image_to_base64(image_path)
     return _call_vlm(api_url, model, b64, prompt_text, auto_load=auto_load)
+
+
+def caption_video(video_path: str, style: str = "video_score", lang: str = "en",
+                  n_frames: int = 8, api_url: str = _DEFAULT_API_URL,
+                  model: str = _DEFAULT_MODEL,
+                  auto_load: bool = True) -> dict:
+    """Analyze a video by extracting keyframes and sending them to a VLM.
+
+    Extracts N evenly-spaced keyframes from the video, sends them as multiple
+    images in a single VLM call, and returns the parsed response dict.
+
+    Args:
+        video_path: Path to video file.
+        style: Caption style key (video_score or video_analysis).
+        lang: Output language (en, zh_TW, zh_CN, ja).
+        n_frames: Number of keyframes to extract (default: 8).
+        api_url: VLM API base URL.
+        model: VLM model name.
+        auto_load: If True, ensure the VLM is loaded in LM Studio first.
+
+    Returns:
+        Parsed JSON dict from VLM response. For video_score style, contains:
+        overall, sharpness, detail_preservation, color_lighting,
+        temporal_coherence, artifacts, issues, strengths, summary.
+        Returns empty dict on failure.
+    """
+    from app.video_utils import extract_keyframes
+
+    prompt_text = _STYLE_PROMPTS.get(style, _STYLE_PROMPTS["video_score"])
+    prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
+
+    # Extract keyframes
+    print(f"[caption] Extracting {n_frames} keyframes from {os.path.basename(video_path)}...",
+          flush=True)
+    frame_paths = extract_keyframes(video_path, n_frames=n_frames)
+
+    if not frame_paths:
+        print(f"[caption] WARNING: no keyframes extracted from {video_path}", file=sys.stderr)
+        return {}
+
+    # Convert to base64
+    print(f"[caption] Sending {len(frame_paths)} frames to VLM ({style})...", flush=True)
+    b64_images = [_image_to_base64(p) for p in frame_paths]
+
+    # Call VLM
+    response = _call_vlm_multi(api_url, model, b64_images, prompt_text,
+                               auto_load=auto_load)
+
+    # Parse JSON from response
+    result = _extract_caption_json(response)
+
+    # Clean up keyframe JPEGs (they're in a temp dir)
+    for p in frame_paths:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    # Remove the temp dir if it's empty
+    parent_dir = os.path.dirname(frame_paths[0])
+    try:
+        if parent_dir and os.path.isdir(parent_dir) and not os.listdir(parent_dir):
+            os.rmdir(parent_dir)
+    except OSError:
+        pass
+
+    return result
 
 
 # ---------------------------------------------------------------------------

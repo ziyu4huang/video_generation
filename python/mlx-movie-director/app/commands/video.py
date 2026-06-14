@@ -37,6 +37,7 @@ _quality = importlib.import_module("app.commands.video-quality")
 _restore = importlib.import_module("app.commands.video-restore")
 _vbvr = importlib.import_module("app.commands.video-vbvr")
 _relay = importlib.import_module("app.commands.video-relay")
+_segment = importlib.import_module("app.commands.video-segment")
 
 PARSER_META = {
     "help": "LTX-2.3 video generation, review, comparison, quality analysis, restoration, and VBVR",
@@ -50,7 +51,8 @@ PARSER_META = {
         "  quality            — No-reference quality analysis (noise, sharpness, artifacts)\n"
         "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n"
         "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
-        "  relay              — Multi-segment Prompt-Relay short film + custom audio\n\n"
+        "  relay              — Multi-segment Prompt-Relay short film + custom audio\n"
+        "  segment            — Scene detection + per-segment quality analysis\n\n"
         "Examples:\n"
         "  run.py video --test-prompt rainy-street\n"
         "  run.py video generate --test-prompt rainy-street\n"
@@ -84,8 +86,8 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         "action",
         nargs="?",
         default="generate",
-        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay"],
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', or 'relay'",
+        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay", "segment"],
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', or 'segment'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -120,6 +122,9 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Relay args: --relay-prompt-file, --relay-audio, --relay-first-image, etc.
     _relay.add_relay_args(parser)
 
+    # Segment args: --segment-input, --threshold, --vlm-score, etc.
+    _segment.add_segment_args(parser)
+
 
 def run(args: "argparse.Namespace") -> None:
     # Normalize --self-test (shared nargs="*" → legacy scalar/bool form)
@@ -129,6 +134,8 @@ def run(args: "argparse.Namespace") -> None:
     action = getattr(args, "action", "generate") or "generate"
     if action == "relay":
         _relay.run_relay(args)
+    elif action == "segment":
+        _segment.run_segment(args)
     elif action == "vbvr":
         _vbvr.run_vbvr(args)
     elif action == "restore":

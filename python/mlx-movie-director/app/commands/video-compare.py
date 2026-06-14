@@ -170,6 +170,12 @@ def add_compare_args(parser):
 
 def run_compare(args):
     """Execute pipeline compare flow."""
+    from app.commands._shared import normalize_self_test
+    normalize_self_test(args)
+    if getattr(args, "self_test", None) is not None:
+        _run_compare_self_test(args)
+        return
+
     if getattr(args, "list_pipelines", False):
         _print_pipelines()
         return
@@ -210,6 +216,74 @@ def run_compare(args):
     # Step 4: Launch video review
     print(f"\n[compare] All done — launching review for {len(manifest_paths)} videos")
     _launch_review(args, manifest_paths, labels)
+
+
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+_SELF_TEST_PIPELINES = "t2v,distilled-t2v"
+_SELF_TEST_PROMPT = "beach-walk"
+
+
+def _run_compare_self_test(args):
+    """Run compare self-test: 2 T2V pipelines on a standard test prompt."""
+    from app.test_prompts_video import get_test_prompt
+
+    print("[compare-self-test] ═══ Compare Self-Test ═══")
+
+    # Resolve test prompt
+    tp_name = getattr(args, "self_test", None)
+    if isinstance(tp_name, str) and tp_name != "True":
+        prompt_name = tp_name
+    else:
+        prompt_name = _SELF_TEST_PROMPT
+
+    try:
+        tp = get_test_prompt(prompt_name)
+        prompt = tp["prompt"]
+    except KeyError:
+        print(f"[compare-self-test] ERROR: unknown test prompt: {prompt_name}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[compare-self-test] Test prompt: {prompt_name}")
+    print(f"[compare-self-test] Pipelines: {_SELF_TEST_PIPELINES}")
+
+    selected = _parse_pipelines(_SELF_TEST_PIPELINES)
+
+    # Override args for self-test
+    args.prompt = prompt
+    args.source_image = None
+    args.skip_caption = True
+    args.dry_run = False
+    args.no_open = True
+    args.pipelines = _SELF_TEST_PIPELINES
+    args.frames = 25       # short clip = faster
+    args.stage1_steps = 8
+    args.seed = 42
+
+    manifest_paths = []
+    labels = []
+    for i, (name, pcfg) in enumerate(selected, start=1):
+        print(f"\n[compare-self-test] Pipeline {i}/{len(selected)}: {name}")
+        manifest = _run_pipeline_subprocess(
+            args, name, pcfg, prompt, image_path=None,
+            step=i, total=len(selected),
+        )
+        if manifest:
+            manifest_paths.append(manifest)
+            labels.append(pcfg["label"])
+        else:
+            print(f"[compare-self-test] FAILED: {name}", file=sys.stderr)
+
+    passed = len(manifest_paths) == len(selected)
+    print(f"\n[compare-self-test] {'═' * 20}")
+    print(f"[compare-self-test] Pipelines passed: {len(manifest_paths)}/{len(selected)}")
+    if passed:
+        print(f"[compare-self-test] ✓ ALL PASSED")
+    else:
+        print(f"[compare-self-test] ✗ SOME FAILED", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

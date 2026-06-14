@@ -405,13 +405,6 @@ def add_relay_args(parser):
              "For 'edge-tts': percentage offset, e.g. -10 for slower (default 0).",
     )
 
-    # Self-test
-    grp.add_argument(
-        "--relay-self-test", action="store_true", default=False, dest="relay_self_test",
-        help="[deprecated: use --self-test] Run a 2-segment relay self-test. "
-             "No prompts or images required. Pass --relay-audio to also test audio mux.",
-    )
-
     # Variant A/B comparison
     grp.add_argument(
         "--relay-variant", type=str, default=None, dest="relay_variant",
@@ -697,7 +690,7 @@ def run_relay(args):
     """Entry point for video relay sub-action."""
     if getattr(args, "relay_variant", None):
         _run_relay_variants(args)
-    elif getattr(args, "relay_self_test", False):
+    elif getattr(args, "self_test", None) is not None:
         _run_relay_self_test(args)
     else:
         _run_relay_inner(args)
@@ -726,7 +719,6 @@ def _run_relay_self_test(args):
         relay_audio=relay_audio,
         relay_duration=2.0,           # 49 frames @ 24fps per segment
         relay_output=None,
-        relay_self_test=False,        # prevent recursion
         width=704,
         height=448,
         fps=24.0,

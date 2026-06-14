@@ -50,6 +50,83 @@ PARSER_META = {
 
 
 # ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
+def _run_vbvr_self_test(args):
+    """VBVR self-test: verify VBVR LoRA detection + I2V generation."""
+    from app.test_prompts_video import get_test_prompt
+
+    print("[vbvr-self-test] ═══ VBVR Self-Test ═══")
+
+    # Resolve test prompt
+    tp_name = getattr(args, "self_test", None)
+    if isinstance(tp_name, str) and tp_name != "True":
+        prompt_name = tp_name
+    else:
+        prompt_name = "beach-walk"
+
+    try:
+        tp = get_test_prompt(prompt_name)
+        prompt = tp["prompt"]
+    except KeyError:
+        print(f"[vbvr-self-test] ERROR: unknown test prompt: {prompt_name}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"[vbvr-self-test] Test prompt: {prompt_name}")
+
+    # Auto-detect VBVR LoRA
+    vbvr_lora = _find_vbvr_lora()
+    if not vbvr_lora:
+        print(f"[vbvr-self-test] WARNING: VBVR LoRA not found (auto-detect)", file=sys.stderr)
+        print(f"[vbvr-self-test] Attempting to use default path from --vbvr-lora...")
+        vbvr_lora = getattr(args, "vbvr_lora", None)
+        if not vbvr_lora:
+            print(f"[vbvr-self-test] ✓ Dependency check: no VBVR LoRA available (skipping generation)")
+            return
+
+    print(f"[vbvr-self-test] LoRA: {vbvr_lora}")
+
+    # Override args for self-test
+    args.prompt = prompt
+    args.input_image = None  # T2V mode (no image needed)
+    args.frames = 25
+    args.seed = 42
+    args.low_ram = getattr(args, "low_ram", True)
+    args.vbvr_lora = vbvr_lora  # Ensure explicit path
+    args.stage1_steps = 8
+    args.stage2_steps = 3
+    args.cfg_scale = 5.0
+    args.stg_scale = 1.0
+    args.width = 448
+    args.height = 256
+    args.lora_scale = 1.0
+    args.hq = False
+    args.teacache = False
+    args.first_frame = False
+    args.caption = False
+
+    # Run generation
+    print(f"[vbvr-self-test] Running VBVR T2V generation (25 frames, 448×256)...")
+
+    # Track output before/after
+    import glob as _glob
+    before = set(_glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.mp4")))
+
+    _run_vbvr_inner(args)
+
+    after = set(_glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.mp4")))
+    new_files = sorted(after - before, key=os.path.getmtime)
+
+    if new_files:
+        print(f"[vbvr-self-test] ✓ Output: {os.path.basename(new_files[-1])}")
+        print(f"[vbvr-self-test] ✓ ALL PASSED")
+    else:
+        print(f"[vbvr-self-test] ✗ No output files generated", file=sys.stderr)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
 # LoRA auto-detection
 # ---------------------------------------------------------------------------
 
@@ -181,6 +258,11 @@ def _fit_to_image(image_path: str, width: int, height: int,
 
 def run_vbvr(args):
     """Entry point for video vbvr sub-action."""
+    from app.commands._shared import normalize_self_test
+    normalize_self_test(args)
+    if getattr(args, "self_test", None) is not None:
+        _run_vbvr_self_test(args)
+        return
     _run_vbvr_inner(args)
 
 
