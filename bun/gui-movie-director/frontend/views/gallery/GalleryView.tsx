@@ -132,6 +132,16 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
           caption={previewImage.caption ?? null}
           captionPath={previewImage.captionPath ?? null}
           onClose={handleClose}
+          onPrev={() => {
+            const idx = allImages.findIndex((img) => img.url === previewImage.url);
+            if (idx > 0) setPreviewImage(allImages[idx - 1]);
+          }}
+          onNext={() => {
+            const idx = allImages.findIndex((img) => img.url === previewImage.url);
+            if (idx < allImages.length - 1) setPreviewImage(allImages[idx + 1]);
+          }}
+          hasPrev={allImages.findIndex((img) => img.url === previewImage.url) > 0}
+          hasNext={allImages.findIndex((img) => img.url === previewImage.url) < allImages.length - 1}
         />
       )}
     </>

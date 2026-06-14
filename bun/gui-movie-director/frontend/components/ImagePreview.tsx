@@ -16,6 +16,10 @@ interface ImagePreviewProps {
   caption?: Record<string, any> | null;
   captionPath?: string | null;
   onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }
 
 // --- Shared helpers ---
@@ -452,7 +456,7 @@ function ScoresViewer({ caption }: { caption: Record<string, any> }) {
 
 // --- Main component ---
 
-export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose }: ImagePreviewProps) {
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const hasCaption = !!caption;
@@ -467,12 +471,33 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const [isPanning, setIsPanning] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const didDrag = useRef(false);
+  const imageContainerRef = useRef<HTMLDivElement>(null);
 
-  // Reset zoom/pan when url changes
+  // Image loading state
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
+
+  // Reset zoom/pan and loading state when url changes
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setImageLoaded(false);
+    setImageError(false);
   }, [url]);
+
+  // Scroll-wheel zoom (non-passive to allow preventDefault)
+  useEffect(() => {
+    const el = imageContainerRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.88 : 1 / 0.88;
+      setZoom((prev) => Math.max(0.5, Math.min(8, prev * delta)));
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -552,6 +577,28 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
         onMouseLeave={handleMouseUp}
         onDoubleClick={handleDoubleClick}
       >
+        {/* Navigation arrows */}
+        {onPrev && (
+          <button
+            className={`${s.navArrow} ${s.navArrowLeft}${!hasPrev ? " " + s.navArrowDisabled : ""}`}
+            onClick={(e) => { e.stopPropagation(); onPrev(); }}
+            disabled={!hasPrev}
+            aria-label="Previous image"
+          >
+            ‹
+          </button>
+        )}
+        {onNext && (
+          <button
+            className={`${s.navArrow} ${s.navArrowRight}${!hasNext ? " " + s.navArrowDisabled : ""}`}
+            onClick={(e) => { e.stopPropagation(); onNext(); }}
+            disabled={!hasNext}
+            aria-label="Next image"
+          >
+            ›
+          </button>
+        )}
+
         {isVideoUrl(url) ? (
           <video
             src={url}
@@ -562,27 +609,86 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
             style={{ transform }}
           />
         ) : (
-          <img
-            src={url}
-            alt="Preview"
-            className={s.previewMedia}
-            style={{ transform }}
-          />
+          <>
+            {!imageLoaded && !imageError && (
+              <div className={s.previewLoading}>
+                <div className={s.previewSpinner} />
+                <div className={s.previewLoadingText}>Loading image...</div>
+              </div>
+            )}
+            {imageError ? (
+              <div className={s.previewError}>
+                <div className={s.previewErrorIcon}>⚠️</div>
+                <div className={s.previewErrorText}>Failed to load image</div>
+                <div className={s.previewErrorUrl}>{url.split("/").pop()}</div>
+              </div>
+            ) : (
+              <img
+                src={url}
+                alt="Preview"
+                className={`${s.previewMedia}${!imageLoaded ? " " + s.previewMediaHidden : ""}`}
+                style={{ transform }}
+                onLoad={() => setImageLoaded(true)}
+                onError={() => { setImageLoaded(true); setImageError(true); }}
+              />
+            )}
+          </>
         )}
+
+        {/* Zoom toolbar */}
         <div className={s.zoomToolbar} onMouseDown={(e) => e.stopPropagation()}>
-          {[1, 2, 4].map((level) => (
+          <button
+            className={s.zoomBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              const z = Math.max(0.5, zoom / 1.5);
+              setZoom(z);
+              if (z === 1) setPan({ x: 0, y: 0 });
+            }}
+            title="Zoom out"
+          >−</button>
+          <span className={s.zoomLabel}>{zoom.toFixed(1)}×</span>
+          <button
+            className={`${s.zoomBtn} ${zoom === 1 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(1);
+              setPan({ x: 0, y: 0 });
+            }}
+          >1×</button>
+          <button
+            className={`${s.zoomBtn} ${zoom === 2 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(2);
+            }}
+          >2×</button>
+          <button
+            className={`${s.zoomBtn} ${zoom === 4 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(4);
+            }}
+          >4×</button>
+          <button
+            className={s.zoomBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              const z = Math.min(8, zoom * 1.5);
+              setZoom(z);
+            }}
+            title="Zoom in"
+          >+</button>
+          {zoom !== 1 && (
             <button
-              key={level}
-              className={`${s.zoomBtn}${zoom === level ? " " + s.zoomBtnActive : ""}`}
+              className={s.zoomBtn}
               onClick={(e) => {
                 e.stopPropagation();
-                setZoom(level);
-                if (level === 1) setPan({ x: 0, y: 0 });
+                resetView();
               }}
-            >
-              {level}×
-            </button>
-          ))}
+              title="Reset view"
+            >↺</button>
+          )}
         </div>
       </div>
       <div className={s.imagePreviewPanel} onClick={(e) => e.stopPropagation()}>

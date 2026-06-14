@@ -120,10 +120,10 @@ class TestV11Migration:
             "seed_variance_switchover": 20.0,
         }
 
-    def test_v11_migrates_to_v12(self):
+    def test_v11_migrates_to_current(self):
         raw = self._v11_dict()
         migrated = _migrate(raw)
-        assert migrated["schema_version"] == 12
+        assert migrated["schema_version"] == SCHEMA_VERSION
 
     def test_v11_migration_adds_all_workflow_fields(self):
         raw = self._v11_dict()

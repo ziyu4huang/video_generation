@@ -1,38 +1,71 @@
 import { RUN_PY } from "../lib/paths";
 import { resolvePythonBin } from "../lib/pythonBin";
 
-// Cache of the full run.py CLI contract (from `run.py schema`). The single
-// source of truth for accepted flags/types/defaults/choices — the GUI schemas
-// are validated against this (see scripts/check-schema.ts) and may eventually
-// derive defaults from it at runtime.
-let _cache: Record<string, any> | null = null;
+let _schemaCache: Record<string, any> | null = null;
+let _defaultsCache: Record<string, any> | null = null;
 
-export async function fetchCliSchema(): Promise<void> {
+interface FetchOptions {
+  subcommand: string;
+  extraFlags?: string[];
+  cache: () => Record<string, any> | null;
+  setCache: (v: Record<string, any> | null) => void;
+  logOk: string;
+  logWarn: string;
+}
+
+function _fetchFromRunPy(opts: FetchOptions): Promise<void> {
   const pythonBin = resolvePythonBin();
   try {
-    const proc = Bun.spawnSync(
-      [pythonBin, RUN_PY, "schema", "--compact"],
-      { stdout: "pipe", stderr: "pipe", timeout: 15_000 },
-    );
+    const args = [pythonBin, RUN_PY, opts.subcommand, ...(opts.extraFlags ?? [])];
+    const proc = Bun.spawnSync(args, { stdout: "pipe", stderr: "pipe", timeout: 15_000 });
     const out = new TextDecoder().decode(proc.stdout).trim();
     if (out) {
-      _cache = JSON.parse(out);
-      console.log("📋 CLI schema loaded from run.py");
+      opts.setCache(JSON.parse(out));
+      console.log(opts.logOk);
     } else {
       const err = new TextDecoder().decode(proc.stderr).trim();
-      console.warn("⚠️  run.py schema produced no output:", err);
+      console.warn(opts.logWarn, err);
     }
   } catch (e) {
-    // Non-fatal: consumers fall back to the GUI's hand-authored schemas.
-    console.warn("⚠️  CLI schema unavailable:", e);
+    console.warn(opts.logWarn, e);
   }
 }
 
+// -- CLI schema (run.py schema --compact) --
+
+export async function fetchCliSchema(): Promise<void> {
+  return _fetchFromRunPy({
+    subcommand: "schema",
+    extraFlags: ["--compact"],
+    cache: () => _schemaCache,
+    setCache: (v) => { _schemaCache = v; },
+    logOk: "📋 CLI schema loaded from run.py",
+    logWarn: "⚠️  CLI schema unavailable:",
+  });
+}
+
 export function getCliSchema(): Record<string, any> | null {
-  return _cache;
+  return _schemaCache;
 }
 
 export async function handleGetCliSchema(_req: Request): Promise<Response> {
-  if (_cache) return Response.json({ ok: true, schema: _cache });
+  if (_schemaCache) return Response.json({ ok: true, schema: _schemaCache });
   return Response.json({ ok: false, error: "CLI schema not loaded" }, { status: 503 });
+}
+
+// -- Schema defaults (run.py schema-defaults) --
+
+export async function fetchSchemaDefaults(): Promise<void> {
+  return _fetchFromRunPy({
+    subcommand: "schema-defaults",
+    cache: () => _defaultsCache,
+    setCache: (v) => { _defaultsCache = v; },
+    logOk: "📋 Schema defaults loaded from Python",
+    logWarn: "⚠️  schema-defaults unavailable:",
+  });
+}
+
+export async function handleGetSchemaDefaults(_req: Request): Promise<Response> {
+  if (_defaultsCache) return Response.json({ ok: true, defaults: _defaultsCache });
+  return Response.json({ ok: false, error: "Schema defaults not loaded" }, { status: 503 });
 }

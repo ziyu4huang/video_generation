@@ -597,17 +597,26 @@ markPhase("scan", "completed")
 // Phase 2: Review — multi-dimensional parallel agents
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Build set of prior upheld finding keys for incremental dedup
+// Build set of prior FIXED finding keys for incremental dedup. We suppress only
+// findings actually applied-fixed last run — NOT every upheld finding — so
+// upheld-but-unfixed findings (review-only runs, or ones deferred by the fix
+// cap) keep resurfacing until fixed. Without this, a low-effort run's upheld
+// findings would suppress a later medium run's fixes (low→medium would fix nothing).
 const priorUpheldKeys = new Set()
 let suppressedCount = 0
+const priorFixedIds = new Set(
+  (priorHistory?.fixes?.items || [])
+    .filter((fx) => fx && fx.status === "applied" && fx.findingId)
+    .map((fx) => fx.findingId),
+)
 if (priorHistory?.findings?.items) {
   priorHistory.findings.items.forEach((f) => {
-    if (f.file && f.line && f.dimension) {
+    if (f.file && f.line && f.dimension && priorFixedIds.has(f.id)) {
       priorUpheldKeys.add(`${f.file}:${f.line}:${f.dimension}`)
     }
   })
   if (priorUpheldKeys.size > 0) {
-    log(`Incremental: ${priorUpheldKeys.size} prior upheld finding key(s) loaded for dedup`)
+    log(`Incremental: ${priorUpheldKeys.size} prior FIXED finding key(s) loaded for dedup (${priorFixedIds.size} fixed / ${priorHistory.findings.items.length} upheld last run)`)
   }
 }
 
@@ -783,7 +792,7 @@ allFindings.forEach((f) => {
 })
 
 if (suppressedFromPrior.length > 0) {
-  log(`Incremental: ${suppressedFromPrior.length} finding(s) suppressed (previously upheld in prior run)`)
+  log(`Incremental: ${suppressedFromPrior.length} finding(s) suppressed (previously FIXED in prior run)`)
   suppressedFromPrior.forEach((f) => {
     log(`  ⊘ ${f.id}: ${f.title} (${f.file}:${f.line || "?"})`)
   })
@@ -927,6 +936,24 @@ const rejectedByDimension = rejectedFindings.reduce((acc, f) => {
 
 markPhase("adversarialVerify", "completed")
 
+// ── Durable findings dump (interrupt-safe) ───────────────────────────────────
+// Write verified findings NOW so a run killed during Checkpoint/Fix — or a
+// review-only (low-effort) run — still yields a consumable findings file. The
+// full <RUN_ID>.json is still written at the end (Persist phase).
+if (verifiedFindings.length > 0) {
+  const dumpJson = JSON.stringify({ runId: RUN_ID, writtenAt: RUN_TIMESTAMP, phase: "post-verify", findingCount: verifiedFindings.length, findings: verifiedFindings })
+  await agent(`Run this Bash command exactly — it writes a compact one-line JSON via a quoted heredoc (do not modify the JSON):
+mkdir -p '${HISTORY_DIR}' && cat > '${HISTORY_DIR}/${RUN_ID}.findings.json' <<'WFDUMP'
+${dumpJson}
+WFDUMP
+Return { "written": true }.`,
+    { label: "dump-findings", phase: "Adversarial Verify", model: "haiku",
+      schema: { type: "object", properties: { written: { type: "boolean" } }, required: ["written"] } })
+  log(`Findings dumped (interrupt-safe): ${HISTORY_DIR}/${RUN_ID}.findings.json (${verifiedFindings.length} finding(s))`)
+} else {
+  log("No verified findings to dump.")
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 4: Checkpoint — git stash backup before fixes
 // ══════════════════════════════════════════════════════════════════════════════
@@ -977,6 +1004,20 @@ if (doFix && verifiedFindings.length > 0) {
     findingsToFix = verifiedFindings.filter((f) => f.severity === "critical" || f.severity === "high")
   } else if (config.fix === "skip") {
     findingsToFix = []
+  }
+
+  // Cap fixes per run so the Resolve Fix phase can't balloon on a broad/first
+  // scan (one agent per file, sequential). Defer the rest — they're captured in
+  // the findings dump and remain fixable next run (dedup suppresses only FIXED
+  // findings, not merely upheld, so deferred ones resurface).
+  const MAX_FIXES = Number(resolvedArgs?.maxFixes) || 5
+  if (findingsToFix.length > MAX_FIXES) {
+    const sevRank = (s) => ({ critical: 0, high: 1, medium: 2, low: 3 }[s] ?? 9)
+    findingsToFix.sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (b.line || 0) - (a.line || 0))
+    const deferred = findingsToFix.slice(MAX_FIXES)
+    findingsToFix = findingsToFix.slice(0, MAX_FIXES)
+    log(`Fix cap (${MAX_FIXES}): applying top ${MAX_FIXES}, deferring ${deferred.length} (captured in findings dump; resurface next run)`)
+    deferred.forEach((d) => log(`  deferred [${d.severity}] ${d.file}:${d.line || "?"} — ${d.title}`))
   }
 
   if (findingsToFix.length === 0) {

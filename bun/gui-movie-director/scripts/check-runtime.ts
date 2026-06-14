@@ -32,52 +32,11 @@ import { ALL_COMMANDS } from "../schemas/registry";
 import { COMMAND_SCHEMAS } from "../lib/schemas";
 import { buildCliArgs } from "../lib/args";
 import type { CliField } from "../schemas/toCli";
-import { RUN_PY } from "../lib/paths";
 import { subcommand } from "../lib/actionToCommand";
-import { resolvePythonBin } from "../lib/pythonBin";
+import type { RunArg } from "./schema-utils";
+import { fetchRunSchema, indexByFlag } from "./schema-utils";
 
 const JSON_MODE = process.argv.includes("--json");
-
-// ── run.py schema shape (mirror of app/commands/schema.py output) ───────────
-
-interface RunArg {
-  flags: string[];
-  dest: string;
-  type?: string;
-  default?: unknown;
-  choices?: string[];
-  action: string; // "_StoreAction" | "_StoreTrueAction" | "_CountAction" | ...
-  nargs?: number | string;
-  required: boolean;
-  help?: string;
-}
-interface RunCommand {
-  args: RunArg[];
-  positionals: RunArg[];
-}
-interface RunSchema {
-  commands: Record<string, RunCommand>;
-}
-
-function fetchRunSchema(): RunSchema {
-  const pythonBin = resolvePythonBin();
-  const proc = Bun.spawnSync(
-    [pythonBin, RUN_PY, "schema", "--compact"],
-    { stdout: "pipe", stderr: "pipe", timeout: 15_000 },
-  );
-  const stdout = new TextDecoder().decode(proc.stdout).trim();
-  const stderr = new TextDecoder().decode(proc.stderr).trim();
-  if (!stdout) {
-    throw new Error(`run.py schema produced no output${stderr ? `: ${stderr}` : ""}`);
-  }
-  return JSON.parse(stdout) as RunSchema;
-}
-
-function indexByFlag(args: RunArg[]): Map<string, RunArg> {
-  const m = new Map<string, RunArg>();
-  for (const a of args) for (const f of a.flags) m.set(f, a);
-  return m;
-}
 
 /** Argparse actions that emit a bare flag with no following value. */
 function isValueless(runArg: RunArg): boolean {

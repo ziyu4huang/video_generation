@@ -617,6 +617,118 @@
   word-break: break-all;
 }
 
+/* === Navigation Arrows === */
+.navArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 32px;
+  width: 48px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+  line-height: 1;
+}
+
+.navArrow:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+}
+
+.navArrow:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+
+.navArrowLeft {
+  left: 12px;
+}
+
+.navArrowRight {
+  right: 12px;
+}
+
+/* === Loading State === */
+.previewLoading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--text-dim);
+}
+
+.previewSpinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--bg-elevated);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: previewSpin 0.8s linear infinite;
+}
+
+@keyframes previewSpin {
+  to { transform: rotate(360deg); }
+}
+
+.previewLoadingText {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* === Error State === */
+.previewError {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--error);
+  text-align: center;
+}
+
+.previewErrorIcon {
+  font-size: 32px;
+}
+
+.previewErrorText {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.previewErrorUrl {
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* === Hidden media (shown after load) === */
+.previewMediaHidden {
+  display: none !important;
+}
+
+/* === Zoom label === */
+.zoomLabel {
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 0 8px;
+  min-width: 36px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
 /* === Syntax token classes (shared with JsonViewer) === */
 .jvNull { color: #c792ea; font-style: italic; }
 .jvBool { color: #c3e88d; }

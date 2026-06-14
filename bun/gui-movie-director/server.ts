@@ -4,8 +4,7 @@ import { handleRequest, buildFrontendBundle, rebuildFrontendBundle } from "./api
 import { wsHandlers, broadcastMessage } from "./api/ws";
 import { subprocessManager } from "./lib/subprocess";
 import { FRONTEND_DIR, OUTPUT_DIRS } from "./lib/paths";
-import { fetchSchemaDefaults } from "./api/schema-defaults";
-import { fetchCliSchema } from "./api/schema";
+import { fetchCliSchema, fetchSchemaDefaults } from "./api/schema";
 
 const PORT = 3099;
 
