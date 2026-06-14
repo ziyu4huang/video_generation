@@ -17,6 +17,16 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
   if (!image) {
     return Response.json({ error: "Missing 'image' path" }, { status: 400 });
   }
+  // image is forwarded as run.py caption's POSITIONAL arg. A leading-dash value
+  // (e.g. "--steps") bypasses isPathAllowed — path.resolve("--steps") lands under
+  // REPO_DIR, so the directory-prefix check passes — and argparse then treats it
+  // as a flag, not a positional. Reject it explicitly to close the
+  // argument-injection gap (same class as the selftest test_name fix). prompt and
+  // style are safe: they follow value-taking flags, so argparse consumes the next
+  // token as their value even if it looks like a flag.
+  if (image.trimStart().startsWith("-")) {
+    return Response.json({ error: "Invalid 'image' path" }, { status: 400 });
+  }
 
   if (!isPathAllowed(image)) {
     return Response.json({ error: "Image path outside allowed directories" }, { status: 403 });
