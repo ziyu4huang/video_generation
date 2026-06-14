@@ -2,6 +2,30 @@ import fs from "fs";
 import path from "path";
 import { UPLOAD_DIR, OUTPUT_DIR } from "../lib/paths";
 
+// Verify the uploaded file's actual bytes match its claimed extension.
+// Defense-in-depth against polyglot / HTML / SVG payloads disguised as images
+// (e.g. evil.png whose bytes are <html><script>…). The extension allowlist alone
+// can't catch this; combined with the Content-Type + nosniff on the serving
+// path (gallery.ts), it closes the stored-XSS primitive.
+async function matchesMagic(file: File, ext: string): Promise<boolean> {
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const eq = (offset: number, bytes: number[]) => bytes.every((b, i) => head[offset + i] === b);
+  switch (ext) {
+    case ".png":
+      return eq(0, [0x89, 0x50, 0x4e, 0x47]);
+    case ".jpg":
+    case ".jpeg":
+      return eq(0, [0xff, 0xd8, 0xff]);
+    case ".webp":
+      return eq(0, [0x52, 0x49, 0x46, 0x46]) && eq(8, [0x57, 0x45, 0x42, 0x50]); // RIFF….WEBP
+    case ".mp4":
+    case ".mov":
+      return eq(4, [0x66, 0x74, 0x79, 0x70]); // ftyp box at offset 4
+    default:
+      return false;
+  }
+}
+
 export async function handleUpload(req: Request): Promise<Response> {
   if (req.method !== "POST") {
     return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
@@ -23,6 +47,10 @@ export async function handleUpload(req: Request): Promise<Response> {
     const ext = path.extname(file.name).toLowerCase() || ".png";
     if (!ALLOWED_EXTENSIONS.has(ext)) {
       return Response.json({ ok: false, error: "File type not allowed" }, { status: 400 });
+    }
+    // Reject polyglot payloads: content must match the claimed extension.
+    if (!(await matchesMagic(file, ext))) {
+      return Response.json({ ok: false, error: "File content does not match its extension" }, { status: 400 });
     }
 
     // Generate unique filename

@@ -175,6 +175,26 @@ export async function handleGallery(req: Request): Promise<Response> {
   return gzipJsonResponse(req, { images, total, page, limit });
 }
 
+// MIME allowlist for served gallery files. Unknown extensions get
+// application/octet-stream (a forced download, never sniffed into HTML/SVG).
+// Combined with X-Content-Type-Options: nosniff on every serve response below,
+// this closes the stored-XSS vector where an uploaded evil.png (whose bytes
+// are actually HTML/SVG) would be content-sniffed and executed in the
+// localhost:3099 origin — reachable from the network while the server bound
+// 0.0.0.0 and the API had no auth.
+const GALLERY_MIME: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+};
+function contentTypeFor(filename: string): string {
+  return GALLERY_MIME[path.extname(filename).toLowerCase()] ?? "application/octet-stream";
+}
+
 export async function handleGalleryImage(req: Request, filename: string): Promise<Response> {
   const decoded = decodeURIComponent(filename);
   // Support dir-indexed format "0/file.png" (new) and plain "file.png" (legacy)
@@ -214,6 +234,8 @@ export async function handleGalleryImage(req: Request, filename: string): Promis
         return new Response(Bun.file(filePath).slice(start, end + 1), {
           status: 206,
           headers: {
+            "Content-Type": contentTypeFor(name),
+            "X-Content-Type-Options": "nosniff",
             "Content-Range": `bytes ${start}-${end}/${totalSize}`,
             "Content-Length": String(end - start + 1),
             "Accept-Ranges": "bytes",
@@ -225,7 +247,13 @@ export async function handleGalleryImage(req: Request, filename: string): Promis
     }
 
     return new Response(Bun.file(filePath), {
-      headers: { ETag: etag, "Cache-Control": "no-cache", "Accept-Ranges": "bytes" },
+      headers: {
+        "Content-Type": contentTypeFor(name),
+        "X-Content-Type-Options": "nosniff",
+        ETag: etag,
+        "Cache-Control": "no-cache",
+        "Accept-Ranges": "bytes",
+      },
     });
   }
   return new Response("Not found", { status: 404 });

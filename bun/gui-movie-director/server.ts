@@ -15,6 +15,10 @@ await fetchSchemaDefaults();
 await fetchCliSchema();
 
 const server = Bun.serve({
+  // Bind loopback only — the API has no auth, so exposing it on 0.0.0.0 lets
+  // any device on the LAN drive run.py jobs and read/write the output tree.
+  // If you need LAN access, change to "0.0.0.0" (and accept that risk).
+  hostname: "127.0.0.1",
   port: PORT,
   maxRequestBodySize: 50 * 1024 * 1024,
   static: {
