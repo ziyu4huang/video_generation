@@ -942,6 +942,42 @@ def _score_bars_html(item: dict) -> str:
     return bars
 
 
+def _build_reproducibility_html(item: dict) -> str:
+    """Compact per-image reproducibility panel: models · LoRA · denoise · seed.
+
+    Fed by the workflow's ab_manifest.json "reproducibility" map (keyed by caption
+    filename), built from each image's sibling <base>.manifest.json events trace.
+    Returns "" when no reproducibility data (old runs / self-test) — graceful.
+    """
+    rep = item.get("reproducibility")
+    if not rep:
+        return ""
+    parts = []
+    models = rep.get("models") or []
+    if models:
+        parts.append('<span class="repro-models"><b>models:</b> ' + html.escape(", ".join(models)) + "</span>")
+    lora = rep.get("lora")
+    if lora:
+        lstr = f'{html.escape(str(lora.get("name", "?")))} (scale {lora.get("scale", "?")}, {lora.get("applied_count", "?")} layers)'
+        parts.append(f'<span class="repro-lora"><b>LoRA:</b> {lstr}</span>')
+    denoise = rep.get("denoise") or {}
+    if denoise:
+        dparts = []
+        if "steps" in denoise:
+            dparts.append(f'steps={denoise["steps"]}')
+        if "img2img" in denoise:
+            dparts.append(f'img2img={denoise["img2img"]}')
+        if "scheduler" in denoise:
+            dparts.append(str(denoise["scheduler"]))
+        parts.append('<span class="repro-denoise"><b>denoise:</b> ' + html.escape(" ".join(dparts)) + "</span>")
+    seed = rep.get("seed")
+    if seed is not None:
+        parts.append(f'<span class="repro-seed"><b>seed:</b> {seed}</span>')
+    if not parts:
+        return ""
+    return '<div class="reproducibility">' + " · ".join(parts) + "</div>"
+
+
 def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) -> str:
     bars_html = _score_bars_html(item)
     captured_html = "".join(
@@ -960,6 +996,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
         f'<p class="summary"><b>VLM:</b> <i>{html.escape(item["summary"])}</i></p>'
         if item["summary"] else ""
     )
+    repro_html = _build_reproducibility_html(item)
     # Media: embed a playable <video> (poster = the captioned first frame) when a
     # sibling mp4 exists (video A/B review); otherwise the usual zoomable <img>.
     if item.get("video_src"):
@@ -990,6 +1027,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
             <div class="tags missed-list"><b>{T['missed']}:</b> {missed_html or T['none']}</div>
           </div>
           {summary_html}
+          {repro_html}
           <details class="details-section">
             <summary>{T['strengths']}</summary>
             <div class="details-inner">
@@ -1101,6 +1139,10 @@ def generate_review_html(caption_json_paths: list[str] | None = None,
     resolved_lang = lang or mf.get("lang") or "en"
     T = _REVIEW_I18N.get(resolved_lang, _REVIEW_I18N["en"])
 
+    # Per-image reproducibility map (keyed by caption filename) from the workflow's
+    # ab_manifest.json "reproducibility" field. Empty for old/flat manifests — graceful.
+    repro_map = mf.get("reproducibility") or {}
+
     # Load items per group, resolving relative file paths
     rendered = []
     for gi, g in enumerate(groups):
@@ -1111,7 +1153,9 @@ def generate_review_html(caption_json_paths: list[str] | None = None,
                 print(f"WARNING: caption JSON not found, skipping: {fp}", file=sys.stderr)
                 continue
             try:
-                items.append(_load_review_item(resolved))
+                _ri = _load_review_item(resolved)
+                _ri["reproducibility"] = repro_map.get(os.path.basename(resolved))
+                items.append(_ri)
             except Exception as e:
                 print(f"WARNING: could not load caption JSON {fp}: {e}", file=sys.stderr)
         if not items:
@@ -1247,6 +1291,8 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 .lb-hint{{color:#666;font-size:.76rem}}
 .lb-viewport{{flex:1;overflow:auto;display:flex;align-items:safe center;justify-content:safe center;cursor:zoom-out}}
 #lb-img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px;cursor:default}}
+.reproducibility{{font-size:.82em;color:#555;margin:4px 0 8px;padding:4px 6px;background:#f7f7f7;border-radius:3px;line-height:1.5}}
+.reproducibility b{{color:#333}}
 </style>
 </head>
 <body>
