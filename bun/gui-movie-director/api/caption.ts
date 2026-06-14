@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { loadConfig } from "../lib/config";
-import { isPathAllowed } from "../lib/paths";
+import { isPathAllowed, OUTPUT_DIRS, RUN_PY } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { parsePostJson } from "../lib/requestUtils";
 
@@ -11,11 +11,25 @@ import { parsePostJson } from "../lib/requestUtils";
  * (not a long-running job), so we await the subprocess directly.
  */
 export async function handleCaptionRun(req: Request): Promise<Response> {
-  const body = await parsePostJson<{ image?: string; style?: string; prompt?: string }>(req);
+  const body = await parsePostJson<{ image?: string; style?: string; prompt?: string; url?: string }>(req);
   if (body instanceof Response) return body;
-  const { image, style, prompt } = body;
+  let { image, style, prompt, url } = body;
+
+  // Resolve url → image when frontend sends /output/N/filename
+  if (!image && url) {
+    const m = url.match(/^\/output\/(\d+)\/(.+)/);
+    if (!m) {
+      return Response.json({ ok: false, error: "Invalid 'url' — expected /output/<N>/<filename>" }, { status: 400 });
+    }
+    const dirIdx = parseInt(m[1], 10);
+    if (dirIdx < 0 || dirIdx >= OUTPUT_DIRS.length) {
+      return Response.json({ ok: false, error: "Invalid output directory index" }, { status: 400 });
+    }
+    image = path.join(OUTPUT_DIRS[dirIdx], m[2]);
+  }
+
   if (!image) {
-    return Response.json({ ok: false, error: "Missing 'image' path" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'image' path or 'url'" }, { status: 400 });
   }
   // image is forwarded as run.py caption's POSITIONAL arg. A leading-dash value
   // (e.g. "--steps") bypasses isPathAllowed — path.resolve("--steps") lands under
@@ -28,13 +42,22 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: "Invalid 'image' path" }, { status: 400 });
   }
 
-  if (!isPathAllowed(image)) {
+  // Only check isPathAllowed when image was provided directly (not resolved from url)
+  // URL-resolved paths come from server-known directories and are safe.
+  if (!url && !isPathAllowed(image)) {
     return Response.json({ ok: false, error: "Image path outside allowed directories" }, { status: 403 });
+  }
+  if (url) {
+    // Still verify the resolved path is under one of the output dirs
+    const resolved = path.resolve(image);
+    if (!OUTPUT_DIRS.some((d) => resolved.startsWith(d + path.sep) || resolved === d)) {
+      return Response.json({ ok: false, error: "Resolved image path outside output directories" }, { status: 403 });
+    }
   }
 
   const cfg = loadConfig();
   const args = [
-    path.resolve(import.meta.dir, "../../python/mlx-movie-director/run.py"),
+    RUN_PY,
     "caption",
     image,
     "--style", style || "score",
@@ -83,12 +106,28 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
 
 /**
  * Read an existing .caption.json file for a given image.
+ * Accepts ?image=<path> (filesystem) or ?url=/output/N/<filename>.
  */
 export async function handleCaptionGet(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  const imagePath = url.searchParams.get("image");
+  const reqUrl = new URL(req.url);
+  let imagePath = reqUrl.searchParams.get("image");
+  const imageUrl = reqUrl.searchParams.get("url");
+
+  // Resolve url → image when frontend sends /output/N/filename
+  if (!imagePath && imageUrl) {
+    const m = imageUrl.match(/^\/output\/(\d+)\/(.+)/);
+    if (!m) {
+      return Response.json({ ok: false, error: "Invalid 'url' — expected /output/<N>/<filename>" }, { status: 400 });
+    }
+    const dirIdx = parseInt(m[1], 10);
+    if (dirIdx < 0 || dirIdx >= OUTPUT_DIRS.length) {
+      return Response.json({ ok: false, error: "Invalid output directory index" }, { status: 400 });
+    }
+    imagePath = path.join(OUTPUT_DIRS[dirIdx], m[2]);
+  }
+
   if (!imagePath) {
-    return Response.json({ ok: false, error: "Missing 'image' query param" }, { status: 400 });
+    return Response.json({ ok: false, error: "Missing 'image' or 'url' query param" }, { status: 400 });
   }
 
   if (!isPathAllowed(imagePath)) {

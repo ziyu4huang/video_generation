@@ -829,3 +829,153 @@
 .jvUrl:hover { text-decoration: underline; }
 .jvPath { color: #ffcb6b; word-break: break-all; font-size: 11px; }
 .jvKey { color: #7ec8e3; font-weight: 500; }
+
+/* === Caption text display (non-score captions) === */
+.captionTextBlock {
+  padding: 16px;
+}
+
+.captionTextActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.captionTextLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  flex: 1;
+}
+
+.captionTextContent {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* === Caption style dropdown === */
+.styleDropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 500;
+  min-width: 180px;
+  overflow: hidden;
+}
+
+.styleDropdownItem {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.styleDropdownItem:last-child {
+  border-bottom: none;
+}
+
+.styleDropdownItem:hover {
+  background: var(--bg-hover);
+}
+
+.styleDropdownItemActive {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* === Caption style selector in panel body === */
+.styleSelectBtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  white-space: nowrap;
+}
+
+.styleSelectBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.styleSelectBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.styleDropdownBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 499;
+  background: transparent;
+}
+
+.styleDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  z-index: 500;
+  min-width: 200px;
+  overflow: hidden;
+}
+
+.captionActionsRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.captionTextFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.captionPickPrompt {
+  padding: 40px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.captionPickLabel {
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}

@@ -7,6 +7,18 @@ import s from "./ImagePreview.module.css";
 
 type Tab = "run" | "manifest" | "scores";
 
+const CAPTION_STYLES = [
+  { id: "default", icon: "📝", label: "Description" },
+  { id: "photography", icon: "📷", label: "Photography" },
+  { id: "prompt", icon: "✨", label: "T2I Prompt" },
+  { id: "profile", icon: "👤", label: "Profile" },
+  { id: "style", icon: "🎨", label: "Art Style" },
+  { id: "score", icon: "📊", label: "Quality Score" },
+  { id: "compare", icon: "⚖️", label: "Compare" },
+  { id: "review", icon: "✅", label: "Review" },
+  { id: "playwright", icon: "🎭", label: "Playwright" },
+] as const;
+
 interface ImagePreviewProps {
   url: string;
   manifest?: Record<string, any> | null;
@@ -605,17 +617,92 @@ function isVideoUrl(url: string): boolean {
   return /\.(mp4|mov|webm|m4v)(\?|$)/i.test(url);
 }
 
-function ScoresViewer({ caption }: { caption: Record<string, any> }) {
+function StyleDropdown({ currentStyle, onPick, disabled }: { currentStyle: string; onPick: (style: string) => void; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const cur = CAPTION_STYLES.find((s) => s.id === currentStyle) || CAPTION_STYLES[0];
+  return (
+    <div style={{ position: "relative" }}>
+      <button
+        className={s.styleSelectBtn}
+        onClick={() => setOpen(!open)}
+        disabled={disabled}
+        type="button"
+      >
+        {cur.icon} {cur.label} <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
+      </button>
+      {open && (
+        <>
+          <div className={s.styleDropdownBackdrop} onClick={() => setOpen(false)} />
+          <div className={s.styleDropdown}>
+            {CAPTION_STYLES.map((st) => (
+              <button
+                key={st.id}
+                className={`${s.styleDropdownItem}${st.id === currentStyle ? " " + s.styleDropdownItemActive : ""}`}
+                onClick={() => { onPick(st.id); setOpen(false); }}
+                type="button"
+              >
+                {st.icon} {st.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, onStyleChange }: {
+  caption: Record<string, any>;
+  onRerun?: () => void;
+  onRefresh?: () => void;
+  rerunning?: boolean;
+  captionStyle?: string;
+  onStyleChange?: (style: string) => void;
+}) {
   const scores = parseCaptionScores(caption.caption);
+  const styleLabel = CAPTION_STYLES.find((s) => s.id === caption.style);
+  const label = styleLabel ? `${styleLabel.icon} ${styleLabel.label}` : "Image Analysis";
+
+  const actionRow = (
+    <div className={s.captionActionsRow}>
+      {onStyleChange && (
+        <StyleDropdown currentStyle={captionStyle || "default"} onPick={onStyleChange} disabled={rerunning} />
+      )}
+      <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+        {onRefresh && (
+          <button className={s.mfCopyBtn} onClick={onRefresh} disabled={rerunning} title="Reload from file">↻</button>
+        )}
+        {onRerun && (
+          <button className={s.mfCopyBtn} onClick={onRerun} disabled={rerunning}>
+            {rerunning ? "⏳" : "🔄"} Rerun
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   if (!scores) {
+    const text = String(caption.caption ?? "");
+    const handleCopy = async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success("Caption copied!");
+      } catch { /* ignore */ }
+    };
     return (
-      <div style={{ padding: 16, color: "var(--text-dim)", fontSize: 13 }}>
-        No scores available. Raw caption: {String(caption.caption).slice(0, 200)}
+      <div className={s.captionTextBlock}>
+        {actionRow}
+        <div className={s.captionTextContent}>{text}</div>
+        <div className={s.captionTextFooter}>
+          <span className={s.captionTextLabel}>{label}</span>
+          <button className={s.mfCopyBtn} onClick={handleCopy}>📋 Copy</button>
+        </div>
       </div>
     );
   }
   return (
     <div style={{ padding: 16 }}>
+      {actionRow}
       <CaptionScoreBar
         scores={scores}
         issues={scores.issues}
@@ -633,11 +720,16 @@ function ScoresViewer({ caption }: { caption: Record<string, any> }) {
 export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
-  const hasCaption = !!caption;
-  const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "scores");
+  const [captionLoading, setCaptionLoading] = useState(false);
+  const [generatedCaption, setGeneratedCaption] = useState<Record<string, any> | null>(null);
+  const [captionStyle, setCaptionStyle] = useState<string>("default");
+  const effectiveCaption = generatedCaption ?? caption;
+  const hasCaption = !!effectiveCaption;
+  const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : hasCaption ? "scores" : "run");
   const [showRaw, setShowRaw] = useState(false);
   const data = tab === "run" ? run : manifest;
-  const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : captionPath;
+  const effectiveCaptionPath = generatedCaption ? null : captionPath;
+  const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : effectiveCaptionPath;
 
   // Zoom / pan state
   const [zoom, setZoom] = useState(1);
@@ -729,6 +821,99 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
       toast.success("Path copied!");
     } catch { /* ignore */ }
   };
+
+  const handleLoadOrGenerate = useCallback(async (style: string) => {
+    setCaptionStyle(style);
+    setCaptionLoading(true);
+    try {
+      // First try to load existing .caption.json from GET API
+      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
+      const getData = await getRes.json();
+      // Only use cached caption if its style matches what user picked
+      if (getData.ok && getData.caption && getData.caption.style === style) {
+        setGeneratedCaption(getData.caption);
+        setTab("scores");
+        toast.success("Caption loaded!");
+        setCaptionLoading(false);
+        return;
+      }
+      // No matching cached caption → generate with selected style
+      const res = await fetch("/api/caption/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, style }),
+      });
+      const data = await res.json();
+      if (data.ok && data.caption) {
+        setGeneratedCaption(data.caption);
+        setTab("scores");
+        toast.success(`Caption generated (${style})!`);
+      } else {
+        toast.error(data.error || "Caption failed");
+      }
+    } catch (err) {
+      toast.error(`Caption failed: ${err}`);
+    } finally {
+      setCaptionLoading(false);
+    }
+  }, [url]);
+
+  const handleCaption = useCallback(() => {
+    // If we already have a caption (from props or session), just show it
+    if (effectiveCaption) {
+      setTab("scores");
+      return;
+    }
+    // No caption yet — switch to Scores tab; user picks a style to load/generate
+    setTab("scores");
+  }, [effectiveCaption]);
+
+  const handleStylePick = useCallback((style: string) => {
+    setCaptionStyle(style);
+  }, []);
+
+  const handleRerunCaption = useCallback(async () => {
+    setCaptionLoading(true);
+    const style = captionStyle;
+    try {
+      const res = await fetch("/api/caption/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, style }),
+      });
+      const data = await res.json();
+      if (data.ok && data.caption) {
+        setGeneratedCaption(data.caption);
+        setTab("scores");
+        toast.success(`Caption regenerated (${style})!`);
+      } else {
+        toast.error(data.error || "Caption failed");
+      }
+    } catch (err) {
+      toast.error(`Caption failed: ${err}`);
+    } finally {
+      setCaptionLoading(false);
+    }
+  }, [url, captionStyle]);
+
+  const handleRefreshCaption = useCallback(async () => {
+    setCaptionLoading(true);
+    try {
+      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
+      const getData = await getRes.json();
+      if (getData.ok && getData.caption) {
+        setGeneratedCaption(getData.caption);
+        setTab("scores");
+        toast.success("Caption refreshed!");
+      } else {
+        toast.warning("No saved caption found.");
+      }
+    } catch (err) {
+      toast.error(`Refresh failed: ${err}`);
+    } finally {
+      setCaptionLoading(false);
+    }
+  }, [url]);
 
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
@@ -883,9 +1068,8 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               manifest.json
             </button>
             <button
-              className={`${s.imagePreviewTab}${tab === "scores" ? " " + s.imagePreviewTabActive : ""}${!hasCaption ? " " + s.imagePreviewTabDisabled : ""}`}
+              className={`${s.imagePreviewTab}${tab === "scores" ? " " + s.imagePreviewTabActive : ""}`}
               onClick={() => { setTab("scores"); setShowRaw(false); }}
-              disabled={!hasCaption}
             >
               Scores
             </button>
@@ -909,12 +1093,30 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               title="Download"
               onClick={(e) => e.stopPropagation()}
             >↓ Save</a>
+            <button
+              className={s.imagePreviewRawBtn}
+              onClick={handleCaption}
+              disabled={captionLoading}
+              title={captionLoading ? "Generating caption..." : "Load or generate caption"}
+            >
+              {captionLoading ? "⏳" : "📝"}
+            </button>
             <button className={s.imagePreviewPanelClose} onClick={onClose}>✕</button>
           </div>
         </div>
         <div className={s.imagePreviewPanelBody}>
-          {tab === "scores" && caption ? (
-            <ScoresViewer caption={caption} />
+          {tab === "scores" && effectiveCaption ? (
+            <ScoresViewer caption={effectiveCaption} onRerun={handleRerunCaption} onRefresh={handleRefreshCaption} rerunning={captionLoading} captionStyle={captionStyle} onStyleChange={handleStylePick} />
+          ) : tab === "scores" ? (
+            <div className={s.captionPickPrompt}>
+              <div className={s.captionPickLabel}>Choose a caption style, then click Rerun</div>
+              <StyleDropdown currentStyle={captionStyle} onPick={(style) => { handleStylePick(style); }} disabled={captionLoading} />
+              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                <button className={s.mfCopyBtn} onClick={handleRerunCaption} disabled={captionLoading}>
+                  {captionLoading ? "⏳ Generating…" : "🔄 Rerun"}
+                </button>
+              </div>
+            </div>
           ) : data ? (
             tab === "run" ? <RunViewer data={data} /> : <ManifestViewer data={data} />
           ) : (
