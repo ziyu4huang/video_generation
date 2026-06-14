@@ -71,17 +71,23 @@ export function searchImages(q: string, type?: string): any[] {
           .all(ftsQuery);
 
     // 2. Substring filename search via LIKE (catches partial name matches
-    //    that FTS5 prefix matching misses — e.g. "193630" in "output_20260611_193630")
-    const likePattern = `%${q.replace(/['"()^*%_]/g, "")}%`;
+    //    that FTS5 prefix matching misses — e.g. "193630" in "output_20260611_193630").
+    //    Escape LIKE wildcards (\ % _) instead of STRIPPING them: output filenames
+    //    are heavily underscored, so stripping _ made "output_2026" search as
+    //    "%output2026%" which never matches "output_20260611_193630.png". Drop
+    //    quote/paren/caret/asterisk (not LIKE wildcards, just sanitize), then
+    //    backslash-escape the real wildcards so a literal _ matches a literal _.
+    const escQ = q.replace(/['"()^*]/g, "").replace(/[\\%_]/g, (c) => "\\" + c);
+    const likePattern = `%${escQ}%`;
     const likeRows = validType
       ? db
           .query<{ data: string }, [string, string]>(
-            "SELECT data FROM images_fts WHERE name LIKE ? AND media_type = ? LIMIT 200"
+            "SELECT data FROM images_fts WHERE name LIKE ? ESCAPE '\\' AND media_type = ? LIMIT 200"
           )
           .all(likePattern, validType)
       : db
           .query<{ data: string }, [string]>(
-            "SELECT data FROM images_fts WHERE name LIKE ? LIMIT 200"
+            "SELECT data FROM images_fts WHERE name LIKE ? ESCAPE '\\' LIMIT 200"
           )
           .all(likePattern);
 
