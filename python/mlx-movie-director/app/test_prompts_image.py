@@ -673,6 +673,35 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=multi-lora: stacked multi-LoRA on Z-Image (verifies action="append"
+    # plumbing — lora_paths/lora_scales lists flow through to the pipeline and
+    # BOTH adapters are applied to the stacked variant).
+    # -----------------------------------------------------------------------
+
+    "lora:multi-zimage": {
+        "type": "multi-lora",
+        "description": (
+            "Multi-LoRA stacking on Z-Image: baseline vs SDA-only vs Jib-Mix-only "
+            "vs stacked(SDA+JibMix). Verifies the --lora-path/--lora-scale "
+            "action='append' plumbing end-to-end — the stacked variant passes "
+            "lora_paths=[a,b] + lora_scales and the pipeline applies BOTH adapters "
+            "(two lora_applied events, applied_count tracked), yielding a result "
+            "distinct from either single-LoRA variant."
+        ),
+        "test_prompt": "portrait",
+        "seeds": [42],
+        "steps": 9,
+        "variants": [
+            {"label": "Baseline",     "lora_paths": [],  "lora_scales": []},
+            {"label": "SDA only",     "lora_paths": ["zit-sda-v1"],                     "lora_scales": [1.0]},
+            {"label": "Jib-Mix only", "lora_paths": ["jib-mix-realistic-z-image-lora"], "lora_scales": [1.0]},
+            {"label": "Stacked SDA+Jib",
+             "lora_paths": ["zit-sda-v1", "jib-mix-realistic-z-image-lora"],
+             "lora_scales": [0.6, 0.6]},
+        ],
+    },
+
+    # -----------------------------------------------------------------------
     # type=lora-i2i: T2I → I2I pipeline with LoRA (style transfer via img2img)
     # -----------------------------------------------------------------------
 

@@ -2015,6 +2015,8 @@ def _run_one_test(args, test_name: str, test_cfg: dict):
         _run_lora_i2i_selftest(args, test_name, test_cfg)
     elif test_type == "lora-sweep":
         _run_lora_sweep(args, test_name, test_cfg)
+    elif test_type == "multi-lora":
+        _run_selftest_multi_lora(args, test_name, test_cfg)
     elif test_type == "lora-ref":
         _run_lora_ref_selftest(args, test_name, test_cfg)
     elif test_type == "controlnet-i2i":
@@ -3234,6 +3236,153 @@ def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
         del pipeline, result
         mx.clear_cache()
         gc.collect()
+
+    if _UNIFIED_REPORT is not None:
+        if manifest_paths:
+            _push_section(_section_from_manifest(test_name, test_cfg, manifest_paths, labels))
+        return
+
+    if manifest_paths:
+        html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
+        _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
+
+
+def _run_selftest_multi_lora(args, test_name: str, test_cfg: dict):
+    """Stacked multi-LoRA self-test: one Z-Image generation per variant, passing
+    lora_paths/lora_scales lists so the pipeline applies each adapter.
+
+    Verifies the --lora-path/--lora-scale action='append' plumbing end-to-end:
+    the stacked variant carries lora_paths=[a,b] and the pipeline must emit a
+    lora_applied event per adapter (applied_count tracked in detail). The
+    baseline / single-LoRA variants confirm the list path also handles 0 and 1
+    entries (not just the multi case).
+    """
+    import gc
+    import mlx.core as mx
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_test_prompt
+    from app.commands._shared import resolve_lora_paths
+    from app import config as cfg
+
+    tp_name = test_cfg["test_prompt"]
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    seeds = test_cfg.get("seeds", [42])
+    variants = test_cfg.get("variants", [])
+
+    tp = get_test_prompt(tp_name)
+    prompt = tp["prompt"]
+    width = tp["width"]
+    height = tp["height"]
+
+    print(f"[selftest] {len(variants)} variant(s) × {len(seeds)} seed(s) | "
+          f"{width}×{height} | {steps} steps")
+    print("[selftest] multi-LoRA stacking check: --lora-path action='append' "
+          "→ lora_paths list → apply_lora per adapter")
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    manifest_paths = []
+    labels = []
+    stacked_applied = None  # adapters the stacked (≥2) variant actually applied
+
+    pipeline = ZImagePipeline()
+
+    for vi, vcfg in enumerate(variants):
+        label = vcfg.get("label", f"variant{vi}")
+        # Resolve LoRA names → absolute paths; resolve_lora_paths warns+skips
+        # unresolvable entries so a missing LoRA degrades rather than crashes.
+        raw_paths = vcfg.get("lora_paths") or []
+        lora_paths = resolve_lora_paths(raw_paths) if raw_paths else []
+        lora_scales = list(vcfg.get("lora_scales") or [])
+        # Pad scales to match resolved paths (default 1.0); matches the pipeline's
+        # own padding so a short scale list never silently mis-pairs.
+        if lora_paths and len(lora_scales) < len(lora_paths):
+            lora_scales += [1.0] * (len(lora_paths) - len(lora_scales))
+
+        for seed in seeds:
+            full_label = f"{label}·s{seed}" if len(seeds) > 1 else label
+            labels.append(full_label)
+            lora_desc = "none" if not lora_paths else ", ".join(
+                f"{os.path.basename(p)}@{s}" for p, s in zip(lora_paths, lora_scales))
+            print(f"\n[selftest] Generating [{full_label}] LoRA: {lora_desc} ...")
+
+            result = pipeline.generate(
+                prompt=prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                seed=seed,
+                lora_paths=lora_paths or None,
+                lora_scales=lora_scales or None,
+            )
+
+            # Verification: count lora_applied events the pipeline emitted.
+            events = getattr(result, "events", None) or []
+            applied = [e for e in events if e.get("event") == "lora_applied"]
+            n_applied = len(applied)
+            if len(lora_paths) >= 2:
+                stacked_applied = n_applied
+            if lora_paths:
+                verdict = "OK" if n_applied == len(lora_paths) else "MISMATCH"
+                print(f"[selftest]   lora_applied events: {n_applied}/{len(lora_paths)} "
+                      f"requested [{verdict}]")
+            else:
+                print(f"[selftest]   baseline (no LoRA) — {n_applied} lora_applied events")
+
+            base_name = (f"selftest_{test_name}_{ts}_"
+                         + full_label.replace(" ", "_").replace("·", "_"))
+            out_path = os.path.join(cfg.OUTPUT_DIR, base_name + ".png")
+            result.image.save(out_path)
+            # Clean "Saved:" line — the dynamic workflow parses ^Saved: (.+\.png)$
+            # to collect self-test outputs (self-test specs have no JSON_SUMMARY).
+            print(f"Saved: {out_path}")
+
+            run_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".run.json")
+            manifest_file = os.path.join(cfg.OUTPUT_DIR, base_name + ".manifest.json")
+            import json as _json
+            from datetime import datetime as _dt, timezone as _tz
+            from app.manifest import Manifest, collect_model_fingerprint
+            run_data = {
+                "command": "image",
+                "action": "review",
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "steps": steps,
+                "seed": seed,
+                "pipeline": "zimage",
+                "variant": label,
+                "lora_paths": lora_paths,
+                "lora_scales": lora_scales,
+            }
+            with open(run_file, "w") as f:
+                _json.dump(run_data, f, indent=2)
+            now = _dt.now(_tz.utc).isoformat()
+            mf = Manifest.from_success(
+                run_file=run_file,
+                start_time=now,
+                end_time=now,
+                timings=getattr(result, "timings", {}),
+                output_files=[{"path": out_path, "seed": seed,
+                               "width": width, "height": height}],
+                models=collect_model_fingerprint(),
+            )
+            mf.to_json(manifest_file)
+            manifest_paths.append(manifest_file)
+
+            del result
+            mx.clear_cache()
+            gc.collect()
+
+    del pipeline
+    mx.clear_cache()
+    gc.collect()
+
+    if stacked_applied is not None:
+        verdict = ("PASS — both adapters applied"
+                   if stacked_applied >= 2
+                   else f"FAIL — expected ≥2 applied, got {stacked_applied}")
+        print(f"\n[selftest] multi-LoRA stacking check: {stacked_applied} adapter(s) "
+              f"applied on the stacked variant → {verdict}")
 
     if _UNIFIED_REPORT is not None:
         if manifest_paths:

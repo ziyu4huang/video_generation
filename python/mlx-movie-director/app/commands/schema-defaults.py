@@ -33,6 +33,7 @@ _TEST_TYPE_TO_ACTION = {
     "vae": "t2i",
     "lora": "t2i",
     "lora-sweep": "t2i",
+    "multi-lora": "t2i",
     "workflow": "workflow",
     "lora-i2i": "i2i",
     "controlnet-i2i": "i2i",
