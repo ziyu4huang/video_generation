@@ -686,9 +686,11 @@ _ALL_TESTS = {
             "action='append' plumbing end-to-end — the stacked variant passes "
             "lora_paths=[a,b] + lora_scales and the pipeline applies BOTH adapters "
             "(two lora_applied events, applied_count tracked), yielding a result "
-            "distinct from either single-LoRA variant."
+            "distinct from either single-LoRA variant. Uses the anatomy-multi-person "
+            "stress prompt (two people, intertwined arms, hands) — a portrait hits the "
+            "zimage-turbo ceiling (9/10) and cannot differentiate the LoRAs."
         ),
-        "test_prompt": "portrait",
+        "test_prompt": "anatomy-multi-person",
         "seeds": [42],
         "steps": 9,
         "variants": [
