@@ -1039,10 +1039,13 @@ markPhase("review", vlmAvailable ? "completed" : "skipped")
 // caption --style score runs the VLM at temperature 0.3, so the SAME image scores differently
 // across calls (validated: one baseline image scored detail 7 in run wf_ecdf74af, 8 in wf_3ab11b12).
 // A single-sample score-gate is fragile — a real fix is dropped as a "tie" when the baseline
-// randomly inflates (wf_3ab11b12 dropped BOTH fixes this way). scoreImageMedian runs N independent
-// samples (distinct --output paths to avoid file-write collisions) and the JS layer takes the
-// per-dimension MEDIAN — the agent only parses, JS computes (no LLM math, per agent-schema lessons).
-// The median is written back to the canonical caption path so the review HTML stays consistent.
+// randomly inflates (wf_3ab11b12 dropped BOTH fixes this way). Denoising runs the VLM N times and
+// takes the per-dimension MEDIAN. The N-sample loop now lives IN PYTHON (caption.py --samples N):
+// scoreImageMedian spawns ONE agent that calls `caption --samples N` and reads the single median
+// caption file. This is 1 agent/image regardless of N (the old design was N parallel agents + an
+// in-JS median + a median-write agent = N+1 agents/image ≈ 5x the tokens), and the loop never
+// enters the LLM's reasoning so there is no in-agent context accumulation. Only Self-Fix uses N>1;
+// the Review phase uses its own single-sample direct agent and is unaffected.
 const SCORE_SAMPLES_DEFAULT = 3
 const numScoreSamples = (isObj(resolvedArgs) && typeof resolvedArgs.numScoreSamples === "number" && resolvedArgs.numScoreSamples >= 1)
   ? Math.floor(resolvedArgs.numScoreSamples) : SCORE_SAMPLES_DEFAULT
@@ -1051,71 +1054,26 @@ async function scoreImageMedian(pngPath, captionCmdBase, opts = {}) {
   const n = (opts.samples && opts.samples > 1) ? opts.samples : 1
   const phaseLabel = opts.phase || "Review"
   const labelTag = opts.label || "img"
-  if (n === 1) {
-    // single-sample fast path (no denoising) — used when numScoreSamples=1
-    return agent(
-      `Score this image.
-IMAGE PATH: ${pngPath}
-STEPS:
-1. Bash("${captionCmdBase} 2>&1", timeout=120000)
-2. Read: Bash("cat '${captionPathFor(pngPath)}'")
-3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences.
-On connection refused: return error="VLM unavailable".
-Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
-      { label: `${labelTag}-s0`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
-    ).catch(() => null)
-  }
-  const rawSamples = await parallel(
-    Array.from({ length: n }, (_, i) => () =>
-      agent(
-        `Score this image (sample ${i + 1}/${n}). The VLM is stochastic at temperature 0.3 — each sample differs slightly; this is INTENTIONAL for score denoising. Do not try to make them match.
-IMAGE PATH: ${pngPath}
-STEPS:
-1. Run with a DISTINCT --output path (parallel samples must not collide on the same file):
-   Bash("${captionCmdBase} --output '${pngPath}.s${i}.caption.json' 2>&1", timeout=120000)
-2. Read it: Bash("cat '${pngPath}.s${i}.caption.json'")
-3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences / prose, extract the first {...} block.
-On connection refused: return error="VLM unavailable — LM Studio not running at localhost:1234".
-Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
-        { label: `${labelTag}-s${i}`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
-      ).catch(() => null),
-    ),
-  )
-  const valid = rawSamples.filter(Boolean).filter((c) => c && !c.error)
-  if (valid.length === 0) return rawSamples.find(Boolean) || { imagePath: pngPath, error: "all score samples failed" }
-  if (valid.length === 1) return valid[0]
-  const dims = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
-  const median = (vals) => {
-    const s = vals.slice().sort((a, b) => a - b)
-    const m = Math.floor(s.length / 2)
-    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2)
-  }
-  const agg = { imagePath: pngPath }
-  for (const d of dims) agg[d] = median(valid.map((c) => (typeof c[d] === "number" ? c[d] : 0)))
-  for (const k of ["captured", "missed", "issues", "strengths"]) {
-    const seen = new Set()
-    agg[k] = []
-    for (const c of valid) for (const x of (c[k] || [])) { const t = String(x); if (!seen.has(t)) { seen.add(t); agg[k].push(t) } }
-  }
-  const byOverall = valid.slice().sort((a, b) => (a.overall || 0) - (b.overall || 0))
-  const carrier = byOverall[Math.floor(byOverall.length / 2)] || valid[0]
-  agg.summary = carrier.summary || ""
-  agg.style = valid[0].style || ""; agg.model = valid[0].model || ""; agg.error = ""
-  agg.scoreSamples = valid.length
-  // Write the median back to the canonical caption path (rm -f first — Write refuses overwrite without
-  // Read, per the reliableWrite lesson) so the review HTML / ab-manifest stays consistent with the gate.
   const canonical = captionPathFor(pngPath)
-  const medianJson = JSON.stringify({ image: pngPath, style: agg.style || "score", model: agg.model || "", caption: JSON.stringify(agg) }, null, 2)
-  await agent(
-    `Write the median score JSON to the canonical caption path (overwrites the single-sample file).
-1. Bash("rm -f '${canonical}'")
-2. Write({ file_path: '${canonical}', content: <the JSON below> })
-${medianJson}
-3. Bash("wc -c '${canonical}'")
-Return { written: true }.`,
-    { label: `${labelTag}-median-write`, phase: phaseLabel, model: "haiku" },
-  ).catch(() => {})
-  return agg
+  // One agent: run caption (with --samples N for denoising when N>1) and read the single
+  // median caption file written to the canonical path. caption.py runs the N-sample loop
+  // in Python and medians the numeric dims, so this is 1 agent/image regardless of N.
+  const samplesFlag = n > 1 ? ` --samples ${n}` : ""
+  const timeoutMs = Math.max(120000, n * 150000) // each VLM call ~7s + model-load headroom
+  const denoiseNote = n > 1
+    ? ` (median of ${n} VLM samples for score denoising — the tool runs ${n} samples and medians them internally; you only parse the result)`
+    : ""
+  return agent(
+    `Score this image${denoiseNote}.
+IMAGE PATH: ${pngPath}
+STEPS:
+1. Bash("${captionCmdBase}${samplesFlag} --output '${canonical}' 2>&1", timeout=${timeoutMs})
+2. Read it: Bash("cat '${canonical}'")
+3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences / prose, extract the first {...} block.${n > 1 ? ` The median caption carries a "scoreSamples": ${n} count.` : ""}
+On connection refused: return error="VLM unavailable — LM Studio not running at localhost:1234".
+Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "scoreSamples": ${n}, "error": "" }`,
+    { label: `${labelTag}-score`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
+  ).catch(() => null)
 }
 
 // ── Phase 4.5: Self-Fix (optional) ──────────────────────────────────────────
@@ -1251,14 +1209,25 @@ ONLY the fields that change. reference_image: "${i2iRefImg}" if pose guidance ap
 Each t2i fixSpec MUST include: label, rationale, prompt (reuse the worst-scoring output's prompt),
 and ONLY the fields that change (seed, steps, pipeline).`
 
+    // Lean projection for the fix-analysis prompt: it proposes parameter tweaks from the SCORES,
+    // so it only needs the numeric dims + summary + issues (the failure-mode gist). Dropping the
+    // verbose captured/missed/strengths arrays cuts the sonnet input materially (this is the only
+    // sonnet agent in the Self-Fix path, so per-token cost is highest here).
+    const leanCaption = (c) => ({
+      image: c.imagePath || c.image || "",
+      overall: c.overall, detail: c.detail, sharpness: c.sharpness,
+      composition: c.composition, prompt_adherence: c.prompt_adherence, artifacts: c.artifacts,
+      summary: c.summary || "", issues: c.issues || [],
+    })
+
     const fixProposalResult = await agent(
       `Analyze ${isI2i ? "I2I" : "T2I"} quality scores and propose 1–2 targeted parameter fixes.
 
 ## Scored Outputs (below threshold ${autoFixThreshold})
-${JSON.stringify(worstCaptions, null, 2)}
+${JSON.stringify(worstCaptions.map(leanCaption), null, 2)}
 
 ## All Scored Outputs (for context)
-${JSON.stringify(scoredCaptions, null, 2)}
+${JSON.stringify(scoredCaptions.map(leanCaption), null, 2)}
 
 ## Prior Feedback Guidance: ${feedbackGuidance || "(none)"}
 

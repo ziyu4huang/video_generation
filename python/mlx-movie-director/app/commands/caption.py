@@ -271,6 +271,13 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--html-output", type=str, default=None, metavar="PATH",
                         help="Output path for --review-html/--ab-manifest (default: "
                         "output/review_<timestamp>.html next to the images)")
+    parser.add_argument("--samples", type=int, default=1, metavar="N",
+                        help="Run N independent VLM samples and write the per-dimension MEDIAN "
+                        "of their scores to --output (for --style score VLM-noise denoising; "
+                        "default 1 = single sample, current behavior). The median keeps the "
+                        "single-sample schema and adds a `scoreSamples` count. Moving the loop "
+                        "into Python (rather than N CLI calls) keeps the model loaded and costs "
+                        "zero orchestration tokens. Ignored for video / --review-html / --ab-manifest.")
 
 
 def run(args: argparse.Namespace) -> None:
@@ -345,10 +352,22 @@ def run(args: argparse.Namespace) -> None:
             prompt_text = prompt_text.format(prompt=args.prompt)
         prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
 
-        print(f"Captioning {input_path} (style={style}, lang={lang})...", end=" ", flush=True)
+        n_samples = max(1, int(getattr(args, "samples", 1) or 1))
+        sample_tag = f", x{n_samples} samples (median)" if n_samples > 1 else ""
+        print(f"Captioning {input_path} (style={style}, lang={lang}{sample_tag})...", end=" ", flush=True)
         b64 = _image_to_base64(input_path)
-        caption_text = _call_vlm(args.api_url, args.model, b64, prompt_text,
-                                 auto_load=not getattr(args, "no_auto_load", False))
+        if n_samples > 1:
+            # Multi-sample denoising: N VLM calls in-process (model stays loaded),
+            # then median the numeric score dims in Python.
+            raws = [
+                _call_vlm(args.api_url, args.model, b64, prompt_text,
+                          auto_load=not getattr(args, "no_auto_load", False))
+                for _ in range(n_samples)
+            ]
+            caption_text = median_score_caption(raws)
+        else:
+            caption_text = _call_vlm(args.api_url, args.model, b64, prompt_text,
+                                     auto_load=not getattr(args, "no_auto_load", False))
         output = {
             "image": input_path,
             "style": style,
@@ -649,6 +668,78 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
     content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
 
     return content
+
+
+# ── Multi-sample score denoising (--samples N) ───────────────────────────────
+# These run the VLM score call N times IN PYTHON and median the numeric dims,
+# so the workflow can get a denoised score from ONE CLI call instead of N
+# parallel agents each reading a full caption JSON (≈6× fewer tokens, and the
+# model stays loaded across the N calls so it is faster too).
+
+_SCORE_NUMERIC_DIMS = ("overall", "detail", "sharpness", "composition",
+                       "prompt_adherence", "artifacts")
+_SCORE_ARRAY_DIMS = ("captured", "missed", "issues", "strengths")
+
+
+def _parse_score_dict(text: str) -> dict | None:
+    """Parse a VLM score response into a dict, tolerating fences/prose.
+
+    The score-style prompt asks for a bare JSON object, but the model sometimes
+    wraps it in ```json fences or adds prose around it.
+    """
+    if not text:
+        return None
+    s = text.strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\n?", "", s)
+        s = re.sub(r"\n?```$", "", s).strip()
+    start, end = s.find("{"), s.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        return json.loads(s[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def median_score_caption(raws: list[str]) -> str:
+    """Median N raw VLM score responses into one score dict, serialized as JSON.
+
+    Numeric dims take the median; array dims take the order-preserving union
+    (deduped); `summary` comes from the carrier sample (overall closest to the
+    median overall). Output shape matches a single sample, plus `scoreSamples`.
+    Returns the first raw on total parse failure so callers still get something.
+    """
+    parsed = [d for d in (_parse_score_dict(r) for r in raws) if d]
+    if not parsed:
+        return raws[0] if raws else "{}"
+    if len(parsed) == 1:
+        out = dict(parsed[0])
+        out["scoreSamples"] = 1
+        return json.dumps(out, ensure_ascii=False)
+
+    def _median(values: list) -> float:
+        nums = sorted(v for v in values if isinstance(v, (int, float)))
+        if not nums:
+            return 0
+        m = len(nums) // 2
+        return nums[m] if len(nums) % 2 else round((nums[m - 1] + nums[m]) / 2)
+
+    med = {d: _median([p.get(d) for p in parsed]) for d in _SCORE_NUMERIC_DIMS}
+    for d in _SCORE_ARRAY_DIMS:
+        seen, union = set(), []
+        for p in parsed:
+            for x in (p.get(d) or []):
+                t = str(x)
+                if t not in seen:
+                    seen.add(t)
+                    union.append(t)
+        med[d] = union
+    target = med["overall"]
+    carrier = min(parsed, key=lambda p: abs((p.get("overall") or 0) - target))
+    med["summary"] = carrier.get("summary", "")
+    med["scoreSamples"] = len(parsed)
+    return json.dumps(med, ensure_ascii=False)
 
 
 def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str,
