@@ -160,7 +160,8 @@ HIST_EOF")
 5. Bash("wc -c < '${targetPath}'")
 6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku" },
+    { label: "persist-history", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
   const histBytes = Number(persist?.bytes) || 0
   if (histBytes > 0) {
