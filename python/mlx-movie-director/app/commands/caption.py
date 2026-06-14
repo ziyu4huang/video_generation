@@ -101,6 +101,25 @@ _STYLE_PROMPTS = {
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}}\n'
         "Each score is an integer 1-10."
     ),
+    "playwright": (
+        "You are analyzing a SCREENSHOT of a web application's graphical user interface to help "
+        "guide browser automation (Playwright). Describe the page so an automation agent can "
+        "understand and interact with it WITHOUT seeing the screen.\n\n"
+        "Report:\n"
+        "1. LAYOUT — the major page regions/panels (e.g. left sidebar nav, top bar, main content, "
+        "right output panel) and what each is for.\n"
+        "2. INTERACTIVE ELEMENTS — list every control by its VISIBLE LABEL or placeholder text, "
+        "with its type: button, text input (give placeholder), dropdown/select (list the options "
+        "and which is selected), checkbox (checked?), slider (current value), radio, link, tab. "
+        "Quote the exact on-screen text.\n"
+        "3. STATE — currently selected values, filled-in field values, disabled/greyed-out "
+        "controls, badges or counts (e.g. '12 failed'), error/warning/status messages, loading "
+        "spinners, empty states.\n"
+        "4. PRIMARY ACTION — the main submit/action button: its label, and whether it looks "
+        "enabled or disabled.\n\n"
+        "Be precise and exhaustive about labels and current values — those are what an "
+        "automation agent keys on to locate elements. Answer in English."
+    ),
 }
 
 # Language instructions — appended to style prompt

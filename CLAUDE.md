@@ -134,11 +134,14 @@ python/venv/bin/python run.py caption base.png --style score --lang en
 
 # Art style analysis
 python/venv/bin/python run.py caption base.png --style style
+
+# GUI screenshot analysis (layout + interactive elements, for playwright-cli automation)
+python/venv/bin/python run.py caption screenshot.png --style playwright --lang en
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--style` | `default` | `default`, `photography`, `prompt`, `profile`, `style`, `score` |
+| `--style` | `default` | `default`, `photography`, `prompt`, `profile`, `style`, `score`, `compare`, `review`, `playwright` |
 | `--lang` | `zh_TW` | `zh_TW`, `zh_CN`, `en`, `ja` |
 | `--model` | `qwen/qwen3-vl-4b` | OpenAI-compatible model name |
 | `--api-url` | `http://localhost:1234/v1` | VLM API base URL |
@@ -215,6 +218,22 @@ python/venv/bin/python -m pytest app/tests --cov=app --cov-report=html
 ```
 
 Config: `python/mlx-movie-director/pytest.ini` — `testpaths = app/tests`, strict markers, short tracebacks.
+
+### Browser automation with playwright-cli
+
+The GUI at `http://localhost:3099` can be driven with the `playwright-cli` skill (`playwright-cli open`, `snapshot`, `click eNN`, `fill eNN "..."`). Element refs (`e15`) come from the text snapshot.
+
+**Understand a page visually before automating.** The text YAML snapshot lists structure but not what's visible on screen. When you need to understand a screenshot — current field values, which dropdown option is selected, badges/counts, error messages, disabled controls — capture it and run the local VLM first:
+
+```bash
+playwright-cli screenshot --filename=/tmp/gui.png
+cd python/mlx-movie-director
+python/venv/bin/python run.py caption /tmp/gui.png --style playwright --lang en
+# → structured report: LAYOUT, INTERACTIVE ELEMENTS (by visible label + current value),
+#   STATE (selected values, badges, errors), PRIMARY ACTION (enabled/disabled)
+```
+
+Use the caption ALONGSIDE the text snapshot, not instead of it: the caption gives visible labels/current state to locate elements; the snapshot gives refs to click them. Requires LM Studio running locally (the caption auto-loads the model).
 
 ## Key Directories
 
