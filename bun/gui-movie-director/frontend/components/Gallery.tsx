@@ -38,23 +38,6 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   const sentinelRef = useRef<HTMLDivElement>(null);
   const isSearchMode = !!(searchQuery?.trim());
 
-  // Infinite scroll via IntersectionObserver
-  useEffect(() => {
-    if (isSearchMode) return; // search returns all results at once
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loadingMore && !loading && hasMore) {
-          loadData(page + 1, true, "", typeFilter ?? "all");
-        }
-      },
-      { rootMargin: "400px" } // start loading before the sentinel is visible
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [isSearchMode, loadingMore, loading, hasMore, page, loadData, typeFilter]);
-
   const handleViewMode = (m: ViewMode) => {
     setViewMode(m);
     localStorage.setItem("gallery-view-mode", m);
@@ -115,6 +98,27 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   }, [images, loading, highlight, onImagesReady]);
 
   const hasMore = images.length < total;
+
+  // Infinite scroll via IntersectionObserver.
+  // NOTE: must run AFTER `hasMore` (above) and `loadData` are declared — its deps
+  // array references both, which TDZ-crashes ("Cannot access 'hasMore' before
+  // initialization") if the effect precedes the declarations. Keep before the
+  // `if (loading) return` early return so the hook always runs.
+  useEffect(() => {
+    if (isSearchMode) return; // search returns all results at once
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loadingMore && !loading && hasMore) {
+          loadData(page + 1, true, "", typeFilter ?? "all");
+        }
+      },
+      { rootMargin: "400px" } // start loading before the sentinel is visible
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [isSearchMode, loadingMore, loading, hasMore, page, loadData, typeFilter]);
 
   if (loading) {
     const skeletonCols = viewMode === "list" ? "1fr" : GRID_COLS[viewMode];
