@@ -113,6 +113,21 @@ class Flux2KleinT2IPipeline:
         elapsed = time.time() - t0
         print(f"[Flux2KleinT2I] Model ready.  (load: {elapsed:.1f}s)")
 
+        # Runtime trace: record what was actually loaded at the boundary.
+        # (mflux vendor hides per-phase internals, so we capture only what's
+        # observable here — faithful, not fabricated.)
+        self._events = [{
+            "event": "model_loaded", "target": "flux2_klein_t2i",
+            "detail": {
+                "variant": variant,
+                "transformer_name": transformer_name,
+                "quantize": effective_quantize,
+                "source": "local_prequant" if assembly_dir else (model_path or "hf_autodownload"),
+                "lora_count": len(lora_paths) if lora_paths else 0,
+            },
+            "seconds": elapsed,
+        }]
+
         # Clean up assembly dir (symlinks already resolved by mflux during init)
         if assembly_dir:
             shutil.rmtree(assembly_dir, ignore_errors=True)
@@ -191,7 +206,16 @@ class Flux2KleinT2IPipeline:
                     guidance=1.0,
                 )
 
-            return GenerationResult(image=result.image, timings={})
+            events = list(getattr(self, "_events", []) or [])
+            events.append({
+                "event": "denoise_config", "target": "denoise",
+                "detail": {"steps": steps, "guidance": 1.0,
+                           "img2img": input_image is not None and denoise_strength < 1.0,
+                           "denoise_strength": denoise_strength,
+                           "model": "flux2_klein_distilled"},
+                "seconds": None,
+            })
+            return GenerationResult(image=result.image, timings={}, events=events)
 
         finally:
             if tmp_path and os.path.exists(tmp_path):

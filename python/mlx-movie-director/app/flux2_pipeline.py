@@ -112,6 +112,19 @@ class Flux2KleinPipeline:
         elapsed = time.time() - t0
         print(f"[Flux2KleinPipeline] Model ready.  (load: {elapsed:.1f}s)")
 
+        # Runtime trace: record what was actually loaded at the boundary.
+        self._events = [{
+            "event": "model_loaded", "target": "flux2_klein_edit",
+            "detail": {
+                "variant": variant,
+                "transformer_name": transformer_name,
+                "quantize": effective_quantize,
+                "source": "local_prequant" if assembly_dir else (model_path or "hf_autodownload"),
+                "lora_count": len(lora_paths) if lora_paths else 0,
+            },
+            "seconds": elapsed,
+        }]
+
         # Clean up assembly dir (symlinks already resolved by mflux during init)
         if assembly_dir:
             shutil.rmtree(assembly_dir, ignore_errors=True)
@@ -151,4 +164,13 @@ class Flux2KleinPipeline:
             guidance=1.0,  # Distilled Klein (4B/9B) must use guidance=1.0
         )
         # mflux GeneratedImage has a single .image PIL attribute
-        return GenerationResult(image=result.image, timings={})
+        events = list(getattr(self, "_events", []) or [])
+        events.append({
+            "event": "denoise_config", "target": "denoise",
+            "detail": {"steps": steps, "guidance": 1.0,
+                       "reference_conditioning": bool(reference_images),
+                       "image_strength": image_strength,
+                       "model": "flux2_klein_edit_distilled"},
+            "seconds": None,
+        })
+        return GenerationResult(image=result.image, timings={}, events=events)

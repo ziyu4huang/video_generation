@@ -56,7 +56,9 @@ export function searchImages(q: string, type?: string): any[] {
   if (!ftsQuery) return [];
   try {
     const validType = type === "image" || type === "video" ? type : null;
-    const rows = validType
+
+    // 1. FTS5 prefix search on metadata (prompt, command, model, name)
+    const ftsRows = validType
       ? db
           .query<{ data: string }, [string, string]>(
             "SELECT data FROM images_fts WHERE images_fts MATCH ? AND media_type = ? ORDER BY rank LIMIT 200"
@@ -67,7 +69,33 @@ export function searchImages(q: string, type?: string): any[] {
             "SELECT data FROM images_fts WHERE images_fts MATCH ? ORDER BY rank LIMIT 200"
           )
           .all(ftsQuery);
-    return rows.map((r) => JSON.parse(r.data));
+
+    // 2. Substring filename search via LIKE (catches partial name matches
+    //    that FTS5 prefix matching misses — e.g. "193630" in "output_20260611_193630")
+    const likePattern = `%${q.replace(/['"()^*%_]/g, "")}%`;
+    const likeRows = validType
+      ? db
+          .query<{ data: string }, [string, string]>(
+            "SELECT data FROM images_fts WHERE name LIKE ? AND media_type = ? LIMIT 200"
+          )
+          .all(likePattern, validType)
+      : db
+          .query<{ data: string }, [string]>(
+            "SELECT data FROM images_fts WHERE name LIKE ? LIMIT 200"
+          )
+          .all(likePattern);
+
+    // Merge: FTS5 results first (ranked), then filename matches not already seen
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const row of [...ftsRows, ...likeRows]) {
+      const obj = JSON.parse(row.data);
+      if (seen.has(obj.name)) continue;
+      seen.add(obj.name);
+      merged.push(obj);
+      if (merged.length >= 200) break;
+    }
+    return merged;
   } catch {
     return [];
   }

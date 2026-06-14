@@ -187,6 +187,7 @@ class ZImagePipeline:
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
+        events: list[dict] = []  # runtime trace: what the pipeline ACTUALLY did
 
         label = f"{width}x{height}"
         if input_image is not None:
@@ -213,7 +214,8 @@ class ZImagePipeline:
 
             img_np = np.array(input_image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
 
-            if _vae_mlx_available(vae_dir):
+            vae_enc_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
+            if vae_enc_backend == "mlx":
                 # MLX-native VAE encode
                 vae_mlx = _load_mlx_vae(vae_dir)
                 img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)  # (1, C, H, W)
@@ -236,6 +238,15 @@ class ZImagePipeline:
 
             gc.collect()
             timings["vae_encode_seconds"] = time.time() - t0
+            events.append({
+                "event": "model_loaded", "target": "vae_encode",
+                "detail": {"backend": vae_enc_backend, "dir": vae_dir or cfg.VAE_DIR},
+                "seconds": timings["vae_encode_seconds"],
+            })
+            if vae_enc_backend != "mlx":
+                events.append({"event": "fallback", "target": "vae_encode",
+                               "detail": {"to": vae_enc_backend, "reason": "mlx_vae_weights_missing"},
+                               "seconds": None})
             print(f"Done ({timings['vae_encode_seconds']:.2f}s) → latent {list(clean_latent.shape)}")
 
             # [Phase 0.5] Latent upscale
@@ -244,6 +255,9 @@ class ZImagePipeline:
                 print(f"[Phase 0.5] Latent ×{latent_upscale} upscale...", end=" ", flush=True)
                 clean_latent = _latent_upscale(clean_latent, latent_upscale)
                 timings["latent_upscale_seconds"] = time.time() - t05
+                events.append({"event": "stage", "target": "latent_upscale",
+                               "detail": {"scale": latent_upscale},
+                               "seconds": timings["latent_upscale_seconds"]})
                 print(f"Done → {list(clean_latent.shape)}")
 
             # Derive generation size from latent
@@ -269,10 +283,12 @@ class ZImagePipeline:
         quantized_weights_path = os.path.join(self.text_encoder_path, "model.safetensors")
 
         if os.path.exists(quantized_weights_path):
+            te_load_mode = "prequant"
             print(f"(Fast Load: Pre-Quantized)...", end=" ", flush=True)
             nn.quantize(text_encoder, bits=4, group_size=32)
             text_encoder.load_weights(quantized_weights_path)
         else:
+            te_load_mode = "onthefly"
             print(f"(Slow Load: On-the-fly Quantization)...", end=" ", flush=True)
             te_weights = load_sharded_weights(self.text_encoder_path)
             text_encoder.load_weights(list(te_weights.items()))
@@ -303,6 +319,12 @@ class ZImagePipeline:
         mx.clear_cache()
         gc.collect()
         timings["text_encoding_seconds"] = time.time() - t_start
+        events.append({
+            "event": "model_loaded", "target": "text_encoder",
+            "detail": {"quant": "4bit", "group_size": 32, "load_mode": te_load_mode,
+                       "dir": os.path.basename(self.text_encoder_path)},
+            "seconds": timings["text_encoding_seconds"],
+        })
         print(f"Done ({timings['text_encoding_seconds']:.2f}s)")
 
         # Seed variance: create noisy embedding for early denoising steps
@@ -354,7 +376,13 @@ class ZImagePipeline:
             print(f"[Phase 2.5] Applying {len(_lora_list)} LoRA(s)...", end=" ", flush=True)
             for lp, ls in zip(_lora_list, _scale_list):
                 print(f"\n   LoRA: {os.path.basename(lp)} scale={ls}", end=" ", flush=True)
-                model = apply_lora(model, lp, scale=ls)
+                model, lora_info = apply_lora(model, lp, scale=ls)
+                _d = {"type": lora_info.get("type"),
+                      "applied_count": lora_info.get("applied_count"), "user_scale": ls}
+                if lora_info.get("error"):
+                    _d["error"] = lora_info["error"]
+                events.append({"event": "lora_applied", "target": os.path.basename(lp),
+                               "detail": _d, "seconds": None})
             timings["lora_apply_seconds"] = time.time() - lora_start
             print(f"\n   Done ({timings['lora_apply_seconds']:.2f}s)")
         else:
@@ -366,6 +394,13 @@ class ZImagePipeline:
 
         model.eval()
         timings["transformer_load_seconds"] = time.time() - t_start
+        events.append({
+            "event": "model_loaded", "target": "transformer",
+            "detail": {"quant": "4bit", "group_size": 32,
+                       "weights": "sharded" if os.path.exists(os.path.join(trans_path, "model.safetensors.index.json")) else "single",
+                       "fused": True, "dir": trans_name},
+            "seconds": timings["transformer_load_seconds"],
+        })
         print(f"Done ({timings['transformer_load_seconds']:.2f}s)")
 
         # ----------------------------------------------------------------
@@ -444,6 +479,17 @@ class ZImagePipeline:
             from app.seed_variance import SeedVarianceEnhancer
             sv_cutoff = int(steps * seed_variance_switchover / 100.0)
 
+        events.append({
+            "event": "denoise_config", "target": "denoise",
+            "detail": {"steps": steps, "start_step": start_step, "steps_run": steps - start_step,
+                       "img2img": clean_latent is not None,
+                       "denoise_strength": denoise_strength if clean_latent is not None else None,
+                       "seed_variance": noisy_cap_feats is not None,
+                       "sv_cutoff_step": sv_cutoff if noisy_cap_feats is not None else None,
+                       "scheduler": "flowmatch_euler", "shift": 3.0},
+            "seconds": None,
+        })
+
         for i in range(start_step, steps):
             step_start = time.time()
 
@@ -516,6 +562,13 @@ class ZImagePipeline:
         gc.collect()
 
         timings["vae_decode_seconds"] = time.time() - t_dec
+        _vae_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
+        events.append({
+            "event": "model_loaded", "target": "vae",
+            "detail": {"backend": _vae_backend, "dir": vae_dir or cfg.VAE_DIR,
+                       "tiled": _vae_backend != "mlx"},
+            "seconds": timings["vae_decode_seconds"],
+        })
         print(f"Done ({timings['vae_decode_seconds']:.2f}s)")
 
         # ----------------------------------------------------------------
@@ -533,6 +586,9 @@ class ZImagePipeline:
                 finally:
                     sv2.unload()
                 timings["seedvr2_seconds"] = time.time() - t_up
+                events.append({"event": "stage", "target": "seedvr2",
+                               "detail": {"model_size": "7b", "resolution": 2.0},
+                               "seconds": timings["seedvr2_seconds"]})
                 print(f"Done ({timings['seedvr2_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
             elif upscale_model:
                 if not os.path.exists(upscale_model):
@@ -543,7 +599,10 @@ class ZImagePipeline:
                     print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
                     pil_image = self.upscale_esrgan(pil_image, upscale_model)
                     timings["esrgan_seconds"] = time.time() - t_up
+                    events.append({"event": "stage", "target": "esrgan",
+                                   "detail": {"model": os.path.basename(upscale_model)},
+                                   "seconds": timings["esrgan_seconds"]})
                     print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
 
         print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
-        return GenerationResult(image=pil_image, timings=timings)
+        return GenerationResult(image=pil_image, timings=timings, events=events or None)

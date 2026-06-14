@@ -83,7 +83,7 @@ def _apply_lokr(model, tensors, user_scale):
         print("    [LoKR] Failed to apply any layers. Key mismatch suspected.")
     else:
         print(f"   [LoKR] Applied {applied} layers.")
-    return model
+    return model, {"type": "lokr", "applied_count": applied, "user_scale": user_scale}
 
 
 class LoRALinearWrapper(nn.Module):
@@ -188,10 +188,16 @@ def convert_unet_key_to_mlx(key: str) -> str:
     return new_key
 
 
-def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> nn.Module:
+def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> tuple[nn.Module, dict]:
+    """Apply a LoRA/LoKR adapter to ``model``.
+
+    Returns ``(model, info)`` where ``info`` is a dict describing what actually
+    happened at runtime (recorded into the manifest events trace):
+    ``{type: "lora"|"lokr"|"none", applied_count, user_scale, path[, error]}``.
+    """
     if not os.path.exists(lora_path):
         print(f"LoRA file not found: {lora_path}")
-        return model
+        return model, {"type": "none", "applied_count": 0, "user_scale": scale, "path": lora_path, "error": "file not found"}
 
     print(f"   [LoRA] Loading weights from {lora_path} (User Scale: {scale})")
 
@@ -222,7 +228,7 @@ def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> nn.Modul
                     tensors[k] = mx.array(raw.float().numpy()).astype(mx.bfloat16)
     except Exception as e:
         print(f"Failed to load LoRA: {e}")
-        return model
+        return model, {"type": "none", "applied_count": 0, "user_scale": scale, "path": lora_path, "error": f"load failed: {e}"}
 
     # Dispatch to LoKR handler if the file uses Kronecker format
     if any("lokr_w1" in k for k in tensors):
@@ -297,4 +303,4 @@ def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> nn.Modul
     else:
         print(f"   [LoRA] Applied {applied_count} layers. (Logic: Auto-Alpha & Rename)")
 
-    return model
+    return model, {"type": "lora", "applied_count": applied_count, "user_scale": scale, "path": lora_path}

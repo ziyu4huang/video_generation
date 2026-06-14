@@ -241,6 +241,7 @@ class LTXVideoPipeline:
         self._assembly_dir: str | None = None
         self._pipeline = None
         self._pipeline_mode: str | None = None  # "t2v_i2v", "a2v", "flf2v", "distilled"
+        self._pipeline_events: list[dict] = []  # runtime trace: model loads + LoRA apply (video)
 
         if model_dir:
             self._model_dir = model_dir
@@ -598,6 +599,12 @@ class LTXVideoPipeline:
         resolved = resolve_lora_path(self.lora_path)
         print(f"[LTXVideoPipeline] User LoRA: {resolved} (scale={self.lora_scale})")
         pipeline._pending_loras = [(resolved, self.lora_scale)]
+        self._pipeline_events.append({
+            "event": "lora_applied", "target": os.path.basename(resolved),
+            "detail": {"type": "ltx_pending_lora", "user_scale": self.lora_scale,
+                       "fusion": "vendor_pending_loras"},
+            "seconds": None,
+        })
 
     def _build_pipeline(self, mode: str):
         t0 = time.time()

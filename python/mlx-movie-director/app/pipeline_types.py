@@ -9,6 +9,10 @@ class GenerationResult:
     """Pipeline output: the generated image plus structured per-phase timings."""
     image: Image.Image
     timings: dict[str, float | list[float]]  # phase_name → seconds; includes "denoising_step_times" list
+    # Runtime events trace: what the pipeline ACTUALLY did (model loads with quant/format,
+    # LoRA apply with type/scale/applied_count, denoise config, VAE backend, fallbacks).
+    # Each event: {"event", "target", "detail", "seconds"}. None when nothing recorded.
+    events: list[dict] | None = None
 
 
 @dataclass
@@ -19,3 +23,5 @@ class WorkflowResult:
     stage_timings: dict[str, dict[str, float]]  # stage_name → timings dict
     total_seconds: float
     output_dir: str | None = None
+    # Flattened runtime events across all stages (same shape as GenerationResult.events).
+    stage_events: list[dict] | None = None
