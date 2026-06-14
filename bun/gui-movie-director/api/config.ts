@@ -45,8 +45,21 @@ export async function handlePutConfig(req: Request): Promise<Response> {
       return Response.json({ ok: false, error: "Invalid pythonPath" }, { status: 400 });
     }
     if (filtered.vlmApiUrl) {
-      try { new URL(filtered.vlmApiUrl); } catch {
+      let parsed: URL;
+      try { parsed = new URL(filtered.vlmApiUrl); } catch {
         return Response.json({ ok: false, error: "Invalid vlmApiUrl" }, { status: 400 });
+      }
+      // SSRF guard: vlmApiUrl is server-fetched by /api/vlm/test, so it must
+      // not point at cloud-metadata, internal services, or arbitrary hosts.
+      // Restrict to http(s) scheme and loopback-only hosts (covers the default
+      // LM Studio deployment at http://localhost:1234/v1).
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return Response.json({ ok: false, error: "vlmApiUrl must use http or https" }, { status: 400 });
+      }
+      const host = parsed.hostname.toLowerCase();
+      const allowedHosts = ["localhost", "127.0.0.1", "::1"];
+      if (!allowedHosts.includes(host)) {
+        return Response.json({ ok: false, error: "vlmApiUrl must resolve to localhost/127.0.0.1/::1" }, { status: 400 });
       }
     }
     // Merge validated overrides onto the current config; saveConfig re-merges

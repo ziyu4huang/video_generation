@@ -76,9 +76,15 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
       env: { ...process.env },
     });
 
+    // Drain stdout/stderr concurrently with waiting for exit. If we await
+    // proc.exited first, a subprocess that writes more than the OS pipe buffer
+    // (~64KB on macOS) blocks waiting for a reader, so proc.exited never
+    // resolves and the request hangs indefinitely.
+    const stdoutP = new Response(proc.stdout).text();
+    const stderrP = new Response(proc.stderr).text();
     const exitCode = await proc.exited;
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
+    const stdout = await stdoutP;
+    const stderr = await stderrP;
 
     if (exitCode !== 0) {
       // Log the raw stderr (may contain absolute paths / Python tracebacks) to

@@ -147,6 +147,21 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   const { pathname } = url;
   const method = req.method;
 
+  // Cross-site defense: browsers send an Origin header on cross-origin POSTs
+  // (including multipart/form-data "simple" requests like file uploads, which
+  // bypass CORS preflight). A malicious website (Origin: https://evil.com) could
+  // otherwise push files onto this server's filesystem via a plain <form> POST.
+  // Same pattern as the WebSocket handler (api/ws.ts). An absent Origin (curl,
+  // scripts, programmatic clients that don't set one) is allowed through.
+  const origin = req.headers.get("origin");
+  const host = req.headers.get("host");
+  if (origin && host) {
+    const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
+    if (!sameOrigin) {
+      return Response.json({ ok: false, error: "Cross-origin request blocked" }, { status: 403 });
+    }
+  }
+
   // Gallery
   if (pathname === "/api/gallery/search" && method === "GET") {
     return handleGallerySearch(req);
