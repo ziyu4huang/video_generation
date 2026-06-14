@@ -55,16 +55,35 @@ Standard envelope written to `.claude/workflows/history/<meta.name>/<timestamp>.
 async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
-  await agent(
-    `Persist workflow history to disk.
+  const targetPath = `${histDir}/${runId}.json`
+  // CRITICAL: the persist-history agent MUST carry the schema below. Without it,
+  // agent() returns the subagent's summary as TEXT and `persist?.bytes` parses to
+  // undefined -> Number(undefined)||0 = 0 -> the spurious "0 bytes FAILED" warning
+  // every run. This doc block is the canonical source workflows copy from; keep
+  // the schema in sync with `scripts/check-workflow-patterns.mjs` (which enforces
+  // it). See memory: workflow-agent-schema-for-parsed-results.
+  const persist = await agent(
+    `Persist workflow history to disk RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
-2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
-   ${histJson}
-3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
-4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
-Return { written: true }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku" },
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${histJson}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'HIST_EOF'
+${histJson}
+HIST_EOF")
+5. Bash("wc -c < '${targetPath}'")
+6. Prune old (keep newest 15, exclude reflection): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null || true")
+Return { written: true, bytes: <the number printed by wc> }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number", description: "Byte count printed by wc -c" } }, required: ["bytes"] } },
   )
+  const histBytes = Number(persist?.bytes) || 0
+  if (histBytes > 0) {
+    log(`History: written ${histBytes} bytes → ${targetPath}`)
+  } else {
+    log(`WARNING: history file verification FAILED (0 bytes) — run continues but trend/reflection will miss this run.`)
+  }
   await agent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
@@ -232,6 +251,74 @@ const RUN_TIMESTAMP = await agent(
 )
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 ```
+
+## Drift Guard (enforced)
+
+The workflow runtime has **no `import`/`require`** — shared helpers are copy-pasted
+into every workflow. A bug fixed in one silently persists in all siblings until
+someone remembers to sweep them (the `saveHistory` 0-bytes bug existed in 8 files
+before a manual sweep). The guard below is the enforcement.
+
+### `scripts/check-workflow-patterns.mjs`
+
+Run after any workflow edit, ideally alongside `bun run check:schema`:
+
+```bash
+node scripts/check-workflow-patterns.mjs
+```
+
+**Hard rules (exit 1):**
+1. `meta.name` must equal the filename without `.js` (drift here breaks history
+   routing + the dashboard `--workflow` filter).
+2. Any `persist-history` agent whose return value is **consumed** (assigned to a
+   variable) **must** carry a `schema:`. A schema-less consumed return gives the
+   0-bytes bug (text return → `.bytes` = `undefined` → `0`). A *discarded* return
+   (bare `await agent(...)`, pure side-effect write) may legitimately be
+   schema-less and is reported as `~ discarded ok`, not failed.
+
+**Soft report (never fails, surfaces drift for review):**
+- Persists-history schema grouped by normalized text. A group of size 1 is flagged
+  `⚠ UNIQUE — verify intentional`. Two accepted variants exist (both bug-free):
+  - **Canonical** `{written:boolean, bytes:number, required:["bytes"]}` — the
+    8 generation/assistant/review workflows that byte-verify the write.
+  - **Minimal** `{written:boolean, required:["written"]}` — `schema-self-improve`
+    + `coverage-self-improve`, which verify via `test -s … && echo OK` and only
+    gate on `.written`. Do not "unify" these by force; they verify differently.
+- Helper coverage matrix: which workflows define `saveHistory` / `markPhase` /
+  `reliableWrite`. Absence is reported, not enforced — `schema-self-improve` and
+  `coverage-self-improve` inline their persist logic without the shared helpers.
+
+### Coverage (as of 2026-06-15, verified by the checker)
+
+| Workflow | saveHistory | markPhase | reliableWrite | persist schema |
+|---|:---:|:---:|:---:|---|
+| gui-movie-director-review-optimize | ✓ | ✓ | ✓ | canonical |
+| gui-movie-director-self-improve | ✓ | ✓ | — | discarded (no schema) |
+| gui-movie-director-schema-self-improve | — | — | — | minimal |
+| mlx-movie-director-coverage-self-improve | — | — | — | minimal |
+| mlx-movie-director-lora-review-flux2-klein | ✓ | ✓ | — | canonical |
+| mlx-movie-director-lora-review-zimage-turbo | ✓ | ✓ | — | canonical |
+| mlx-movie-director-ltx-self-improve | ✓ | — | — | canonical |
+| mlx-movie-director-models-assistant | ✓ | ✓ | — | canonical |
+| mlx-movie-director-review-optimize | ✓ | ✓ | — | canonical |
+| mlx-movie-director-run-self-improve-image | ✓ | ✓ | ✓ | canonical |
+| mlx-movie-director-video-assistant | ✓ | ✓ | — | canonical |
+
+Known gaps (refine candidates, not bugs): `ltx-self-improve` lacks `markPhase`
+(does not track phase status); most generation workflows lack `reliableWrite`
+(only the two review-optimize + run-self-improve have it).
+
+### When you fix a shared pattern — port checklist
+
+1. Edit the canonical copy **here in `_shared-patterns.md` first** (this file is
+   the contract; every workflow header says "mirrors _shared-patterns.md verbatim").
+2. Propagate to siblings: `grep -rln '<pattern>' .claude/workflows/*.js`.
+3. Run `node scripts/check-workflow-patterns.mjs` — it must exit 0.
+4. The whole-workflow-merge temptation is a dead end: both candidate pairs
+   (lora-review flux2-klein↔zimage-turbo; mlx↔gui review-optimize) were vetted and
+   rejected — they share ~30% and differ at the generation/test layer. The `kind`
+   dimension merge (t2i+i2i) worked only because both used the same `run.py`
+   command shape. Do not re-attempt a merge without that precondition.
 
 ## History Dashboard
 
