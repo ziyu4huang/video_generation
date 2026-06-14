@@ -81,9 +81,14 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     const stderr = await new Response(proc.stderr).text();
 
     if (exitCode !== 0) {
+      // Log the raw stderr (may contain absolute paths / Python tracebacks) to
+      // the server console for debugging, but return a generic message to the
+      // client — localhost serves without auth, so leaking filesystem paths is
+      // unnecessary, and full tracebacks bloat the response.
+      console.error(`[caption] run.py exited ${exitCode}:`, stderr.trim());
       return Response.json({
         ok: false,
-        error: stderr.trim() || `Caption failed (exit ${exitCode})`,
+        error: "Caption analysis failed — see server logs for details",
       }, { status: 500 });
     }
 
@@ -97,9 +102,12 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
 
     return Response.json({ ok: true, captionPath, caption: captionResult });
   } catch (err: any) {
+    // Same disclosure concern as the stderr path above: err.message can carry
+    // filesystem paths. Log full detail server-side, return generic to client.
+    console.error("[caption] unexpected error:", err);
     return Response.json({
       ok: false,
-      error: err.message || "Caption failed",
+      error: "Caption failed — see server logs for details",
     }, { status: 500 });
   }
 }

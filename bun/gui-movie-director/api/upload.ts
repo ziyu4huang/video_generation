@@ -50,6 +50,9 @@ export async function handleUpload(req: Request): Promise<Response> {
       size: file.size,
     });
   } catch (err: any) {
-    return Response.json({ ok: false, error: err.message }, { status: 500 });
+    // err.message from fs/Bun.write can contain absolute filesystem paths —
+    // log it server-side, return a generic message to the client (no auth).
+    console.error("[upload] unexpected error:", err);
+    return Response.json({ ok: false, error: "Upload failed — see server logs for details" }, { status: 500 });
   }
 }
