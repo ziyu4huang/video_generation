@@ -1,0 +1,162 @@
+.skeleton {
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Shimmer overlay */
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 60%,
+    transparent 100%
+  );
+  animation: shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* === Card skeleton (for gallery grid) === */
+.skeletonCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: 280px;
+}
+
+.skeletonCardImage {
+  aspect-ratio: 3/4;
+  width: 100%;
+}
+
+.skeletonCardText {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeletonCardLine {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.skeletonCardLineShort {
+  width: 60%;
+}
+
+.skeletonCardLineLong {
+  width: 85%;
+}
+
+/* === Row skeleton (for list mode / job history) === */
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 8px;
+}
+
+.skeletonRowThumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.skeletonRowContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.skeletonRowLine {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.skeletonRowLineTitle {
+  width: 45%;
+}
+
+.skeletonRowLineMeta {
+  width: 30%;
+}
+
+.skeletonRowBadge {
+  width: 60px;
+  height: 20px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* === Form skeleton (for config / settings panels) === */
+.skeletonForm {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.skeletonFormSection {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.skeletonFormSectionTitle {
+  height: 28px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.skeletonFormBody {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeletonFormField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeletonFormLabel {
+  height: 10px;
+  width: 30%;
+  border-radius: 4px;
+}
+
+.skeletonFormInput {
+  height: 32px;
+  border-radius: var(--radius);
+}
+
+.skeletonFormRow {
+  display: flex;
+  gap: 12px;
+}
+
+.skeletonFormRow .skeletonFormField {
+  flex: 1;
+}

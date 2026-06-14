@@ -4,6 +4,7 @@ import { CONFIG_DEFAULTS } from "./config/types";
 import { ConfigPathsSection } from "./config/ConfigPathsSection";
 import { ConfigRuntimeSection } from "./config/ConfigRuntimeSection";
 import { ConfigVlmSection } from "./config/ConfigVlmSection";
+import { SkeletonFormSection } from "./Skeleton";
 
 export function ConfigView() {
   const [config, setConfig] = useState<ConfigData>(CONFIG_DEFAULTS);
@@ -41,7 +42,14 @@ export function ConfigView() {
   };
 
   if (loading) {
-    return <div className="empty-state"><div className="spinner" style={{ width: 32, height: 32 }} /></div>;
+    return (
+      <div style={{ padding: "0 4px" }}>
+        <div style={{ height: 28, marginBottom: 20 }} />
+        <SkeletonFormSection />
+        <div style={{ marginTop: 16 }}><SkeletonFormSection /></div>
+        <div style={{ marginTop: 16 }}><SkeletonFormSection /></div>
+      </div>
+    );
   }
 
   return (

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import type { GalleryImage } from "../types";
 import { GalleryCard } from "./GalleryCard";
+import { SkeletonCard } from "./Skeleton";
 import type { ViewMode } from "./GalleryCard";
 import { toast } from "../utils/toast";
 
@@ -116,11 +117,18 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   const hasMore = images.length < total;
 
   if (loading) {
+    const skeletonCols = viewMode === "list" ? "1fr" : GRID_COLS[viewMode];
     return (
-      <div className="empty-state">
-        <div className="spinner" style={{ width: 32, height: 32 }} />
-        <div className="empty-state-text" style={{ marginTop: 16 }}>
-          Loading gallery...
+      <div>
+        <div style={{ height: 28, marginBottom: 16 }} />
+        <div
+          className="gallery-grid"
+          style={{ display: "grid", gridTemplateColumns: skeletonCols, gap: viewMode === "list" ? 2 : 16 }}
+        >
+          {viewMode === "list"
+            ? Array.from({ length: 8 }).map((_, i) => <div key={i} className="skeleton-row-wrapper"><div className="skeleton-row-inner" style={{ height: 54, background: "var(--bg-surface)", borderRadius: "var(--radius)", border: "1px solid var(--border)" }} /></div>)
+            : Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)
+          }
         </div>
       </div>
     );
