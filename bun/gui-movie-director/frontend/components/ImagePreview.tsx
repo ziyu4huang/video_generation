@@ -169,6 +169,42 @@ function ModelTable({ models }: { models: Record<string, any> }) {
   );
 }
 
+function LoRaFingerprintList({ loras }: { loras: any[] }) {
+  const [selected, setSelected] = useState<{ name: string; info: any } | null>(null);
+
+  return (
+    <div className={s.mfModelTable}>
+      {loras.map((info: any, i: number) => {
+        const hasError = !!info.error;
+        const name = (info.path && basename(info.path)) || `lora #${i + 1}`;
+        return (
+          <div
+            key={i}
+            className={`${s.mfModelRow}${hasError ? " " + s.mfModelRowError : ""}`}
+            onClick={() => setSelected({ name, info })}
+          >
+            <span className={s.mfModelName}>{name}</span>
+            <span className={s.mfModelSize}>
+              {info.size_bytes ? formatBytes(info.size_bytes) : "—"}
+            </span>
+            <span className={`${s.mfModelStatus} ${hasError ? s.mfModelStatusErr : s.mfModelStatusOk}`}>
+              {hasError ? info.error : "✓"}
+            </span>
+            <span className={s.mfModelExpand}>▸</span>
+          </div>
+        );
+      })}
+      {selected && (
+        <ModelDetail
+          name={selected.name}
+          info={selected.info}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function TimingsList({ timings }: { timings: Record<string, any> }) {
   const [stepsOpen, setStepsOpen] = useState(false);
   const entries = Object.entries(timings).filter(([k]) => k !== "denoising_step_times");
@@ -195,6 +231,47 @@ function TimingsList({ timings }: { timings: Record<string, any> }) {
                 <div key={i} className={`${s.mfTimingRow} ${s.mfTimingRowIndent}`}>
                   <span className={s.mfTimingLabel}>step {i}</span>
                   <span className={s.mfTimingValue}>{t.toFixed(2)}s</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PipelineStepsList({ steps }: { steps: any[] }) {
+  const [stepsOpen, setStepsOpen] = useState(false);
+  const denoise = steps.find((st: any) => st.step === "denoising_per_step");
+  const rows = steps.filter((st: any) => st.step !== "denoising_per_step");
+
+  return (
+    <div className={s.mfTimings}>
+      {rows.map((st: any, i: number) => {
+        const label = st.step.startsWith("stage:")
+          ? st.step.slice(6)
+          : st.step.replace(/_seconds$/, "").replace(/_/g, " ");
+        return (
+          <div key={i} className={s.mfTimingRow}>
+            <span className={s.mfTimingLabel}>{label}</span>
+            <span className={s.mfTimingValue}>
+              {typeof st.seconds === "number" ? `${st.seconds.toFixed(2)}s` : "—"}
+            </span>
+          </div>
+        );
+      })}
+      {denoise && Array.isArray(denoise.detail) && denoise.detail.length > 0 && (
+        <div className={s.mfTimingSteps}>
+          <span className={s.mfTimingToggle} onClick={() => setStepsOpen(!stepsOpen)}>
+            {stepsOpen ? "▾" : "▸"} {denoise.detail.length} denoising steps
+          </span>
+          {stepsOpen && (
+            <div className={s.mfTimingStepList}>
+              {denoise.detail.map((t: any, i: number) => (
+                <div key={i} className={`${s.mfTimingRow} ${s.mfTimingRowIndent}`}>
+                  <span className={s.mfTimingLabel}>step {i}</span>
+                  <span className={s.mfTimingValue}>{typeof t === "number" ? t.toFixed(2) + "s" : String(t)}</span>
                 </div>
               ))}
             </div>
@@ -266,10 +343,43 @@ function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] 
 
 // --- Structured viewers ---
 
+function LoraRow({ lora }: { lora: Record<string, any> }) {
+  const stage = String(lora.stage || "main");
+  const stageClass = stage === "main" ? s.mfLoraStageMain
+    : stage === "face_detail" ? s.mfLoraStageFaceDetail
+    : s.mfLoraStageFusion; // anime2real / faceswap / fusion → warning
+  const path = lora.path ? String(lora.path) : null;
+  const scale = lora.scale;
+  return (
+    <div className={s.mfLoraRow}>
+      <span className={`${s.mfLoraStage} ${stageClass}`}>{stage}</span>
+      {path ? (
+        <>
+          <span className={s.mfLoraPath} title={path}>{shortPath(path, 3)}</span>
+          <CopyButton text={path} />
+        </>
+      ) : (
+        <span className={s.mfLoraPath}>—</span>
+      )}
+      <span className={s.mfLoraScale}>{scale != null ? `×${scale}` : "—"}</span>
+    </div>
+  );
+}
+
 function RunViewer({ data }: { data: Record<string, any> }) {
   // Collect known keys for sections, rest goes to fallback
   const usedKeys = new Set<string>();
   const extras: Record<string, any> = {};
+
+  // Reproduce: assemble a runnable command from the argv snapshot
+  const reproCmd = Array.isArray(data.argv) && data.argv.length > 0
+    ? `cd python/mlx-movie-director && python/venv/bin/python run.py ${(data.argv as string[]).join(" ")}`
+    : null;
+  if (reproCmd) usedKeys.add("argv");
+
+  // LoRAs: structured multi-LoRA list [{path, scale, stage}]
+  const loras = Array.isArray(data.loras) ? data.loras : null;
+  if (loras) usedKeys.add("loras");
 
   // Command section
   const cmdParts = [data.command, data.action, data.pipeline].filter(Boolean);
@@ -297,6 +407,19 @@ function RunViewer({ data }: { data: Record<string, any> }) {
 
   return (
     <div className={s.manifestViewer}>
+      {reproCmd && (
+        <Section title="Reproduce">
+          <div className={s.mfReproRow}>
+            <pre className={s.mfReproBlock}>{reproCmd}</pre>
+            <CopyButton text={reproCmd} />
+          </div>
+        </Section>
+      )}
+      {loras && (
+        <Section title="LoRAs">
+          {(loras as any[]).map((l, i) => <LoraRow key={i} lora={l} />)}
+        </Section>
+      )}
       {cmdParts.length > 0 && (
         <Section title="Command">
           <div className={s.mfCommandLine}>{cmdParts.join(" · ")}</div>
@@ -338,6 +461,13 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
     if (data.timings) usedKeys.add("timings");
     if (data.output_files) usedKeys.add("output_files");
     if (data.error !== undefined) usedKeys.add("error");
+    if (data.pipeline_steps) usedKeys.add("pipeline_steps");
+
+    // LoRA fingerprints: models.loras (array) gets its own section; lora/loras
+    // are removed from the generic ModelTable to avoid duplication.
+    const modelsLoras = data.models && Array.isArray(data.models.loras) ? data.models.loras : null;
+    const restModels = data.models ? { ...data.models } : null;
+    if (modelsLoras && restModels) { delete restModels.loras; delete restModels.lora; }
 
     Object.entries(data).forEach(([k, v]) => {
       if (!usedKeys.has(k)) extras[k] = v;
@@ -352,14 +482,24 @@ function ManifestViewer({ data }: { data: Record<string, any> }) {
             memoryPeakMb={data.memory_peak_mb}
           />
         </Section>
-        {data.models && (
+        {restModels && Object.keys(restModels).length > 0 && (
           <Section title="Models">
-            <ModelTable models={data.models} />
+            <ModelTable models={restModels} />
+          </Section>
+        )}
+        {modelsLoras && (
+          <Section title="LoRAs">
+            <LoRaFingerprintList loras={modelsLoras} />
           </Section>
         )}
         {data.timings && (
           <Section title="Timings">
             <TimingsList timings={data.timings} />
+          </Section>
+        )}
+        {Array.isArray(data.pipeline_steps) && data.pipeline_steps.length > 0 && (
+          <Section title="Run sequence">
+            <PipelineStepsList steps={data.pipeline_steps} />
           </Section>
         )}
         {data.output_files && data.output_files.length > 0 && (

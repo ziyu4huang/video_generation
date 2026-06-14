@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { subprocessManager } from "../lib/subprocess";
 import { OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { actionToCommand } from "../lib/actionToCommand";
+import { parsePostJson, spawnJobResponse } from "../lib/requestUtils";
 
 /**
  * Run a built-in self-test via `run.py image <action> --self-test [name]`.
@@ -11,17 +11,8 @@ import { actionToCommand } from "../lib/actionToCommand";
  * so logs and output files stream back via WebSocket automatically.
  */
 export async function handleRunSelfTest(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
-
-  let body: { action?: string; test_name?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
+  const body = await parsePostJson<{ action?: string; test_name?: string }>(req);
+  if (body instanceof Response) return body;
   const { action, test_name } = body;
   if (!action) {
     return Response.json({ error: "Missing 'action'" }, { status: 400 });
@@ -41,14 +32,7 @@ export async function handleRunSelfTest(req: Request): Promise<Response> {
 
   const cliArgs = ["--self-test", test_name];
 
-  const jobId = subprocessManager.spawn(command, cliArgs);
-  const job = subprocessManager.getJob(jobId);
-
-  return Response.json({
-    jobId,
-    status: job?.status,
-    pid: job?.pid,
-  });
+  return spawnJobResponse(command, cliArgs);
 }
 
 /**

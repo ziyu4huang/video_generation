@@ -1,20 +1,11 @@
-import { subprocessManager } from "../lib/subprocess";
-import type { Job } from "../lib/subprocess";
+import { subprocessManager, type Job } from "../lib/subprocess";
 import { buildCliArgs, validateParams } from "../lib/args";
 import { actionToCommand } from "../lib/actionToCommand";
+import { parsePostJson, spawnJobResponse } from "../lib/requestUtils";
 
 export async function handleRunJob(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
-
-  let body: { action?: string; command?: string; params?: Record<string, any> };
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
+  const body = await parsePostJson<{ action?: string; params?: Record<string, any> }>(req);
+  if (body instanceof Response) return body;
   const { action, params } = body;
   if (!action || !params) {
     return Response.json({ error: "Missing 'action' or 'params'" }, { status: 400 });
@@ -42,15 +33,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
     return Response.json({ error: err.message }, { status: 400 });
   }
 
-  // Spawn subprocess
-  const jobId = subprocessManager.spawn(command, cliArgs, { action, params });
-  const job = subprocessManager.getJob(jobId);
-
-  return Response.json({
-    jobId,
-    status: job?.status,
-    pid: job?.pid,
-  });
+  return spawnJobResponse(command, cliArgs, { action, params });
 }
 
 export async function handleListJobs(req: Request): Promise<Response> {

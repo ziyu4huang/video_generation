@@ -3,6 +3,7 @@ import path from "path";
 import { loadConfig } from "../lib/config";
 import { isPathAllowed } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
+import { parsePostJson } from "../lib/requestUtils";
 
 /**
  * Run caption (VLM analysis) on an image via `run.py caption`.
@@ -10,17 +11,8 @@ import { readJsonFile } from "../lib/fsUtils";
  * (not a long-running job), so we await the subprocess directly.
  */
 export async function handleCaptionRun(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
-
-  let body: { image?: string; style?: string; prompt?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
+  const body = await parsePostJson<{ image?: string; style?: string; prompt?: string }>(req);
+  if (body instanceof Response) return body;
   const { image, style, prompt } = body;
   if (!image) {
     return Response.json({ error: "Missing 'image' path" }, { status: 400 });

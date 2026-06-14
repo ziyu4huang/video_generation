@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import * as Tooltip from "@radix-ui/react-tooltip";
 
 import { Layout } from "./components/Layout";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfigView } from "./components/ConfigView";
 import { DomInspector } from "./components/DomInspector";
 import { CommandPalette } from "./components/CommandPalette";
@@ -107,24 +108,26 @@ function App() {
       />
       <HmrErrorOverlay />
       <Layout currentView={currentView} onViewChange={handleViewChange}>
-        {(currentView.type === "gallery") && (
-          <GalleryView
-            highlight={highlight}
-            onHighlightConsumed={handleHighlightConsumed}
-          />
-        )}
-        {currentView.type === "config" && <ConfigView />}
-        {currentView.type === "jobs" && <JobHistoryView />}
-        {[...mountedCommands].map((id) => {
-          const ViewComp = VIEW_MAP[id];
-          if (!ViewComp) return null;
-          const isActive = currentView.type === "command" && currentView.action === id;
-          return (
-            <div key={id} style={{ display: isActive ? undefined : "none" }}>
-              <ViewComp />
-            </div>
-          );
-        })}
+        <ErrorBoundary>
+          {(currentView.type === "gallery") && (
+            <GalleryView
+              highlight={highlight}
+              onHighlightConsumed={handleHighlightConsumed}
+            />
+          )}
+          {currentView.type === "config" && <ConfigView />}
+          {currentView.type === "jobs" && <JobHistoryView />}
+          {[...mountedCommands].map((id) => {
+            const ViewComp = VIEW_MAP[id];
+            if (!ViewComp) return null;
+            const isActive = currentView.type === "command" && currentView.action === id;
+            return (
+              <div key={id} style={{ display: isActive ? undefined : "none" }}>
+                <ViewComp />
+              </div>
+            );
+          })}
+        </ErrorBoundary>
       </Layout>
       <DomInspector />
     </NavigationContext.Provider>
