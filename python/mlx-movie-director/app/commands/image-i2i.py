@@ -699,6 +699,8 @@ def _run_self_test(args: argparse.Namespace) -> None:
     print(f"{'#' * 60}")
 
     seed = getattr(args, "seed", 42)
+    if seed is None:  # argparse --seed defaults to None; self-test needs an int
+        seed = 42
 
     # ── Step 1: Generate source image via T2I ─────────────────────────────
     source_path = os.path.join(cfg.OUTPUT_DIR, f"i2i_selftest_source-s{seed}.png")
