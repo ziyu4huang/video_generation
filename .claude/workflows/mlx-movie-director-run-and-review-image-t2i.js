@@ -167,7 +167,16 @@ ${jsonStr}
 WFWITE")
 5. Bash("wc -c < '${targetPath}'")
 Return { written: true, bytes: <the number printed by wc> }.`,
-    { label: label || "reliable-write", phase: "Review HTML", model: "haiku" },
+    { label: label || "reliable-write", phase: "Review HTML", model: "haiku",
+      schema: {
+        type: "object",
+        properties: {
+          written: { type: "boolean" },
+          bytes: { type: "number", description: "Byte count printed by wc -c" },
+        },
+        required: ["written", "bytes"],
+      },
+    },
   )
   const bytes = Number(result?.bytes) || 0
   log(bytes > 0 ? `reliableWrite: ${bytes} bytes → ${targetPath}` : `WARNING: reliableWrite verification FAILED (0 bytes) → ${targetPath}`)
