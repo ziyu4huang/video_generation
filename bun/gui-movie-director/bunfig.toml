@@ -1,0 +1,3 @@
+[test]
+# Register happy-dom DOM environment for React component tests
+preload = "./test-setup.ts"

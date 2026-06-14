@@ -7,7 +7,7 @@ import s from "./Skeleton.module.css";
  */
 export function SkeletonCard() {
   return (
-    <div className={s.skeletonCard}>
+    <div className={s.skeletonCard} data-testid="skeleton-card">
       <div className={`${s.skeleton} ${s.skeletonCardImage}`} />
       <div className={s.skeletonCardText}>
         <div className={`${s.skeleton} ${s.skeletonCardLine} ${s.skeletonCardLineLong}`} />
@@ -22,7 +22,7 @@ export function SkeletonCard() {
  */
 export function SkeletonRow() {
   return (
-    <div className={s.skeletonRow}>
+    <div className={s.skeletonRow} data-testid="skeleton-row">
       <div className={`${s.skeleton} ${s.skeletonRowThumb}`} />
       <div className={s.skeletonRowContent}>
         <div className={`${s.skeleton} ${s.skeletonRowLine} ${s.skeletonRowLineTitle}`} />
@@ -39,7 +39,7 @@ export function SkeletonRow() {
  */
 export function SkeletonFormSection() {
   return (
-    <div className={s.skeletonFormSection}>
+    <div className={s.skeletonFormSection} data-testid="skeleton-form-section">
       <div className={`${s.skeleton} ${s.skeletonFormSectionTitle}`} />
       <div className={s.skeletonFormBody}>
         <div className={s.skeletonFormField}>
