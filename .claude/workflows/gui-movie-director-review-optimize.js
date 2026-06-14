@@ -108,7 +108,13 @@ const EFFORT_CONFIG = {
     reVerify: "skip",
   },
   medium: {
-    dimensions: VALID_DIMENSIONS,
+    // Was VALID_DIMENSIONS (all 5). Trimmed to the 3 highest-value dimensions:
+    // a medium run reviews the same 11 files 5× with sonnet (each reads the
+    // full scope), which ballooned the 2026-06-14T06-14-30 run to 1.18M tokens
+    // / 82min and hit the API usage limit. type-safety & error-handling move
+    // to high-only — they're valuable but lower-signal per agent-second.
+    // Estimated ~40% fewer review tokens + ~29 fewer downstream findings.
+    dimensions: ["correctness", "security", "code-quality"],
     confidenceThreshold: 60,
     adversarial: "high-critical",   // only verify high/critical findings
     fix: "high-critical",           // only fix high/critical findings
@@ -131,6 +137,32 @@ const dimensions = focus
 const config = EFFORT_CONFIG[effort]
 
 log(`Config: effort=${effort}, dimensions=${dimensions.join(",")}, fix=${doFix}, focus=${focus || "all"}, resume=${resumeMode}`)
+
+// ── Agent budget guard ──────────────────────────────────────────────────────
+// Bounds total spawnAgent() calls so a run can't balloon into an API usage-limit
+// crash. The 2026-06-14T06-14-30 medium run hit 28 agents / 1.18M tokens and
+// 429'd the persist-history / update-index / reflect tail — the history JSON
+// was never written. spawnAgent() wraps the raw engine hook: at the cap it
+// resolves null instead of spawning, so parallel()/pipeline() callers (which
+// already .filter(Boolean)) degrade gracefully rather than throwing. The cap
+// sits ABOVE a normal run's count (medium ≈ 24 after the 3-dimension trim) so
+// it only trips on runaway scope or a finding flood — it is insurance, not a
+// runtime optimizer (token cost lives inside each agent, not in the count).
+const AGENT_CAP = { high: 90, medium: 40, low: 20 }[effort]
+let agentsSpawned = 0
+let capHit = false
+const _rawAgent = agent  // capture before spawnAgent is defined (avoids recursion)
+function spawnAgent(prompt, opts) {
+  if (agentsSpawned >= AGENT_CAP) {
+    if (!capHit) {
+      capHit = true
+      log(`⚠ Agent cap (${AGENT_CAP}) reached after ${agentsSpawned} agents — remaining agents resolve null; finalizing with results so far to avoid API-limit crash`)
+    }
+    return Promise.resolve(null)
+  }
+  agentsSpawned++
+  return _rawAgent(prompt, opts)
+}
 
 // ── Phase tracking (in-memory) ──────────────────────────────────────────────
 
@@ -333,7 +365,7 @@ const REPORT_SCHEMA = {
 
 phase("Resolve")
 
-const pathResolution = await agent(
+const pathResolution = await spawnAgent(
   `Detect the absolute path of the git project root for the video_generation project.
 
   Run: Bash("git rev-parse --show-toplevel")
@@ -362,7 +394,7 @@ async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
   const targetPath = `${histDir}/${runId}.json`
-  const persist = await agent(
+  const persist = await spawnAgent(
     `Persist workflow history to disk RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
 2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
@@ -383,7 +415,7 @@ Return { written: true, bytes: <the number printed by wc> }.`,
   } else {
     log(`WARNING: history file verification FAILED (0 bytes) — run continues but trend/reflection will miss this run.`)
   }
-  await agent(
+  await spawnAgent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
@@ -403,7 +435,7 @@ Return { updated: true }.`,
 // reported success but never wrote the file) can't silently lose the artifact.
 async function reliableWrite(targetPath, jsonStr, label) {
   const dir = targetPath.slice(0, targetPath.lastIndexOf("/"))
-  const result = await agent(
+  const result = await spawnAgent(
     `Write a JSON file to disk RELIABLY.
 1. Bash("mkdir -p '${dir}'")
 2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
@@ -427,7 +459,7 @@ log(`  GUI_DIR: ${GUI_DIR}`)
 log(`  HISTORY_DIR: ${HISTORY_DIR}`)
 
 // Get timestamp for this run
-const timestampResult = await agent(
+const timestampResult = await spawnAgent(
   `Get the current timestamp in ISO-8601 basic format (no colons, suitable for filenames).
 
   Run: Bash("date -u '+%Y-%m-%dT%H-%M-%S'")
@@ -448,7 +480,7 @@ let resumeFromPhase = null
 if (resumeMode === "fresh") {
   log("Resume: fresh mode — ignoring prior history.")
 } else {
-  const resumeCheck = await agent(
+  const resumeCheck = await spawnAgent(
     `Check for a previous run history file for the workflow "${WORKFLOW_NAME}".
 
   Steps:
@@ -481,7 +513,7 @@ if (resumeMode === "fresh") {
     } else if (resumeCheck.action === "compare") {
       log(`Resume: prior run ${resumeCheck.previousRunId} completed — loading for trend comparison.`)
       // Load the full prior history for dedup
-      const priorLoad = await agent(
+      const priorLoad = await spawnAgent(
         `Read the prior run history file and return its "result" field (the workflow-specific payload).
 
       Run: Bash("cat '${HISTORY_DIR}/${resumeCheck.previousRunId}.json'")
@@ -506,7 +538,7 @@ if (resumeMode === "fresh") {
   // most-recent run that DID persist git.headBefore, sidestepping the agent
   // classification entirely.
   if (resumeMode !== "fresh" && !(priorHistory?.git?.headBefore || "").trim()) {
-    const scopeFallback = await agent(
+    const scopeFallback = await spawnAgent(
       `Find the most recent prior run that persisted a non-empty result.git.headBefore (used for incremental scoping).
 1. Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -5")
 2. For each file (newest first), Bash("cat <file>") and check whether its "result.git.headBefore" field is a non-empty string.
@@ -528,7 +560,7 @@ if (resumeMode === "fresh") {
 // ── Load reflection.json (accumulated patterns from all prior runs) ───────────
 let priorReflection = null
 if (resumeMode !== "fresh") {
-  const reflectLoad = await agent(
+  const reflectLoad = await spawnAgent(
     `Read the reflection file if it exists.
     Run: Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
     Parse the JSON output. If it is '{}' or invalid, return { reflection: null }.
@@ -606,7 +638,7 @@ if (shouldSkipScan && priorHistory?.scan) {
   // graceful full-scan fallback (no worse than before).
   let incrementalFiles = []
   if (effort !== "high" && !targetFiles) {
-    const scopeRes = await agent(
+    const scopeRes = await spawnAgent(
       `Determine the incremental scan scope. Run this Bash command VERBATIM (do not modify or split it):
 
 Bash("cd '${PROJECT_ROOT}' && PREV=$(for f in $(ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection.json | head -10); do h=$(bun -e 'try{process.stdout.write(String(((require(process.argv[1]).result||{}).git||{}).headBefore||""))}catch(e){}' "$f" 2>/dev/null); if [ -n "$h" ]; then printf '%s' "$h"; break; fi; done); if [ -n "$PREV" ]; then echo PREV=$PREV; git diff --name-only $PREV -- 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' 'bun/gui-movie-director/server.ts' 'bun/gui-movie-director/frontend/' 2>/dev/null | sed 's|^bun/gui-movie-director/||' | grep -E '\\.(ts|tsx)$' | sort -u; else echo PREV=none; fi")
@@ -623,7 +655,7 @@ Return { prevHead: <the sha string, or "">, changedFiles: <array of the changed 
   const wantFullScan = effort === "high" || (incrementalFiles.length === 0 && !targetFiles)
   const explicitList = targetFiles || (incrementalFiles.length > 0 ? incrementalFiles : null)
 
-  const scanResult = await agent(
+  const scanResult = await spawnAgent(
     `Inventory TypeScript source files in the Bun GUI Movie Director app.
 
 ${explicitList
@@ -816,7 +848,7 @@ log(`Running ${dimensions.length} review dimension(s) in parallel...`)
 const reviewResults = await parallel(
   dimensions.map((dim) => () => {
     const cfg = DIMENSION_CONFIG[dim]
-    return agent(
+    return spawnAgent(
       DIMENSION_PROMPTS[dim],
       { label: `review-${dim}`, phase: "Review", model: cfg.model, schema: REVIEW_FINDING_SCHEMA },
     )
@@ -935,7 +967,7 @@ if (findingsToVerify.length > 0) {
     Object.entries(byDim).map(([dim, findings]) => () => {
       const filesToRead = [...new Set(findings.map((f) => f.file))]
 
-      return agent(
+      return spawnAgent(
         `You are a SKEPTICAL code reviewer. Your job is to REFUTE findings, not confirm them.
 
 For each finding below, re-read the ACTUAL source file and determine if the finding is:
@@ -1048,7 +1080,7 @@ if (doFix && config.fix !== "skip" && verifiedFindings.length > 0) {
   // the user's WIP forever on a clean/zero-fix run. We now REFUSE to touch a dirty
   // tree: if anything tracked-dirty is in scope, skip the entire fix phase + warn.
   // Untracked files (??) are excluded so scratch files don't trigger the refuse.
-  checkpointResult = await agent(
+  checkpointResult = await spawnAgent(
     `Snapshot the working-tree state BEFORE deciding whether to apply fixes. Do NOT stash anything.
 1. Bash("cd '${PROJECT_ROOT}' && git rev-parse HEAD")  → capture headSha.
 2. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/' | grep -v '^??' || true")  → tracked-dirty files only (untracked '??' excluded). Capture the list.
@@ -1103,7 +1135,7 @@ Return { headSha, treeDirty, dirtyFiles }.`,
       // Run the REAL test suite before and after fixes; revert if any previously-
       // green test goes red. Replaces the weak haiku-eyeball re-verify that
       // couldn't reliably catch type/logic regressions. tsc is advisory only.
-      fixResults.testBaseline = await agent(
+      fixResults.testBaseline = await spawnAgent(
         `Run the GUI test suite to capture the PRE-fix baseline.
 1. Bash("cd '${GUI_DIR}' && bun test 2>&1")
 2. From the summary lines, capture passCount and failCount (e.g. "527 pass" / "0 fail").
@@ -1112,7 +1144,7 @@ Return { headSha, treeDirty, dirtyFiles }.`,
 Return { passCount, failCount, failingTests, ranOk }.`,
         { label: "test-baseline", phase: "Resolve Fix", model: "haiku", schema: TEST_RESULT_SCHEMA },
       )
-      const tscBaselineRes = await agent(
+      const tscBaselineRes = await spawnAgent(
         `Count TypeScript errors (advisory baseline — tsc has ~108 pre-existing errors on a green tree, so only the DELTA matters).
 Bash("cd '${GUI_DIR}' && bunx tsc --noEmit 2>&1 | grep -c 'error TS' || echo 0")
 Return { count: <the number> }.`,
@@ -1142,7 +1174,7 @@ Return { count: <the number> }.`,
         (file) => {
           const fileFindings = grouped[file]
 
-          return agent(
+          return spawnAgent(
             `You are a code fixer. Apply the following verified findings to the codebase.
 
 RULES:
@@ -1193,7 +1225,7 @@ Return structured results.`,
       if (fixResults.filesChanged.length > 0) {
         phase("Re-verify")
 
-        fixResults.testPostFix = await agent(
+        fixResults.testPostFix = await spawnAgent(
           `Run the GUI test suite AFTER fixes to detect regressions.
 1. Bash("cd '${GUI_DIR}' && bun test 2>&1")
 2. Capture passCount and failCount from the summary.
@@ -1210,7 +1242,7 @@ Return { passCount, failCount, failingTests, ranOk }.`,
         reVerifyFindings = newFailures   // history.regressions reads this length
 
         // tsc advisory (never a revert trigger on its own)
-        const tscPostRes = await agent(
+        const tscPostRes = await spawnAgent(
           `Count TypeScript errors after fixes (advisory).
 Bash("cd '${GUI_DIR}' && bunx tsc --noEmit 2>&1 | grep -c 'error TS' || echo 0")
 Return { count: <the number> }.`,
@@ -1237,7 +1269,7 @@ Return { count: <the number> }.`,
           phase("Restore")
           log(`RESTORE: test regression — reverting fix changes via git checkout HEAD / rm (tree was clean at checkpoint).`)
 
-          const revertRaw = await agent(
+          const revertRaw = await spawnAgent(
             `A fix introduced test regressions. Revert ONLY the fix changes — but NEVER clobber a file the user edited concurrently mid-run.
 Files changed by fixes: ${JSON.stringify(fixResults.filesChanged)}
 
@@ -1468,7 +1500,7 @@ const REFLECT_SCHEMA = {
   required: ["patterns", "false_positives", "confirmed_patterns", "runs_analyzed"],
 }
 
-const reflectResult = await agent(
+const reflectResult = await spawnAgent(
   `Synthesize code review patterns from all history runs. This builds reflection.json that future runs use to find bugs faster.
 
 Step 1 — List history files (exclude reflection.json):
@@ -1519,7 +1551,7 @@ Max 5 patterns per dimension. Keep each pattern to 1 sentence. Return the reflec
 
 if (reflectResult) {
   const reflectJson = JSON.stringify({ ...reflectResult, schema_version: 1 }, null, 2)
-  await agent(
+  await spawnAgent(
     `Write the updated reflection to '${REFLECTION_FILE}'. Use the Write tool (NOT heredoc).
     Write({ file_path: "${REFLECTION_FILE}", content: <JSON below> })
     JSON:
@@ -1552,7 +1584,7 @@ const priorRunContext = priorHistory
 `
   : "\n## Prior Run Comparison: No prior history available (first run or fresh mode).\n"
 
-const reportResult = await agent(
+const reportResult = await spawnAgent(
   `Generate a concise code review report for the GUI Movie Director Bun app.
 
 ## Scan Summary
