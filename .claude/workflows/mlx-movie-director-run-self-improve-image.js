@@ -11,8 +11,9 @@
 //   2. VLM review — auto-score each output via run.py caption --style review, or --style score
 //      when no prompt is known (e.g. i2i self-test variations).
 //   3. Self-Fix (optional, autoFix:true) — when best score < autoFixThreshold, auto-propose
-//      parameter changes and re-run. A score-gate keeps a fix ONLY if it beats the baseline
-//      (strict >); otherwise the fix output is dropped and originals are kept. BOTH kinds.
+//      parameter changes and re-run. A dimension-aware score-gate keeps a fix ONLY if it beats
+//      the baseline on the dimension it TARGETS (default overall, strict >); a targeted fix that
+//      lifts a weak dimension without moving overall is still kept. BOTH kinds.
 //   4. Review HTML — one multi-set A/B HTML via caption --ab-manifest, with per-image
 //      reproducibility panels (models/LoRA/denoise) read from sibling <base>.manifest.json.
 //      i2i Z-Image / i2i self-test have NO manifest siblings → panels gracefully absent.
@@ -1058,7 +1059,16 @@ if (autoFix && vlmAvailable && mode !== "finalize") {
     // merely ties) is dropped so self-fix can never make the review set worse. The
     // original higher-scoring outputs remain in allResults/captionFiles untouched.
     const globalBaseline = bestScore
-    log(`Self-Fix gate active: fix must beat baseline ${globalBaseline.toFixed(1)} to be kept (strict >; ties dropped).`)
+    // Per-dimension baselines — a fix is judged on the dimension it TARGETS (targetDimension),
+    // so a targeted improvement (clothing fidelity -> detail 7->8) isn't dropped by a flat overall
+    // (8 <= 8). Finding from i2i feedback iteration: the old overall-only gate discarded EVERY
+    // fix that improved detail without moving overall. Falls back to overall when unspecified.
+    const SCORE_DIMS = ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+    const baselineBest = {}
+    for (const d of SCORE_DIMS) {
+      baselineBest[d] = scoredCaptions.reduce((b, c) => Math.max(b, typeof c[d] === "number" ? c[d] : 0), 0)
+    }
+    log(`Self-Fix gate active (dimension-aware): a fix must beat baseline on its TARGET dimension (overall=${globalBaseline.toFixed(1)}, detail=${(baselineBest.detail || 0).toFixed(1)}, sharpness=${(baselineBest.sharpness || 0).toFixed(1)}; strict >, ties dropped).`)
 
     const FIX_SCHEMA = {
       type: "object",
@@ -1070,6 +1080,10 @@ if (autoFix && vlmAvailable && mode !== "finalize") {
             properties: {
               label: { type: "string" },
               rationale: { type: "string" },
+              // Gate target: the score dimension this fix primarily improves (default "overall").
+              // The score-gate judges the fix on THIS dimension so a targeted lift (e.g. clothing
+              // fidelity -> detail 7->8) isn't dropped by a flat overall score (8 <= 8).
+              targetDimension: { type: "string", enum: ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"] },
               // t2i fix fields
               prompt: { type: "string" },
               seed: { type: "number" },
@@ -1137,6 +1151,10 @@ ${fixRules}
 1. Identify the PRIMARY failure mode(s) from the scores.
 2. Propose at most 2 concrete fix specs (label + rationale + the required fields above + only what changes).
 3. Write a brief analysis of what failed and why these fixes should help.
+4. For EACH fixSpec set targetDimension = the score dimension it primarily improves. The score-gate
+   judges the fix on THIS dimension (clothing/texture-fidelity fix -> "detail"; pose/structure fix
+   -> "composition"; prompt/keyword fix -> "prompt_adherence" for t2i; global quality fix ->
+   "overall"). This prevents targeted fixes from being dropped by a flat overall score.
 
 Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
       { label: "fix-analysis", phase: "Self-Fix", model: "sonnet", schema: FIX_SCHEMA },
@@ -1227,16 +1245,22 @@ Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharp
 
         const validScores = fixScores.filter(Boolean)
         const bestFix = validScores.reduce((b, c) => Math.max(b, c.overall || 0), 0)
-        // ── Score-gate: keep fix outputs only if they BEAT the baseline ──
-        // Self-fix re-generates with tweaked prompt/seed/steps; the output is a NEW
-        // image, so the honest bar is "did it beat the best we already have?". A fix
-        // that can't adds noise to the review HTML — drop it, keep originals untouched.
-        const passed = bestFix > globalBaseline
+        // ── Score-gate: dimension-aware — keep a fix if it beats baseline on its TARGET dimension ──
+        // Self-fix re-generates a NEW image; the honest bar is "did it beat the best we already
+        // have?". A fix targets a specific weakness (e.g. clothing fidelity -> detail), so it's
+        // judged on THAT dimension — otherwise a targeted lift (detail 7->8) gets wrongly dropped
+        // when overall stays flat (8 <= 8). The fix ADDS to the review set; originals are kept
+        // untouched regardless, so this gate only decides inclusion, not replacement.
+        const targetDim = (typeof spec.targetDimension === "string" && SCORE_DIMS.includes(spec.targetDimension))
+          ? spec.targetDimension : "overall"
+        const baselineForGate = targetDim === "overall" ? globalBaseline : baselineBest[targetDim]
+        const bestFixOnDim = validScores.reduce((b, c) => Math.max(b, typeof c[targetDim] === "number" ? c[targetDim] : 0), 0)
+        const passed = bestFixOnDim > baselineForGate
         if (passed) {
           fixCaptions.push(...validScores)
-          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)} > baseline ${globalBaseline.toFixed(1)} ✓ KEPT`)
+          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → ${targetDim}=${bestFixOnDim.toFixed(1)} > baseline ${baselineForGate.toFixed(1)} ✓ KEPT${targetDim !== "overall" ? ` (targeted: ${targetDim})` : ""}`)
         } else {
-          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)} <= baseline ${globalBaseline.toFixed(1)} ✗ REGRESSED — dropping fix output (originals kept)`)
+          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → ${targetDim}=${bestFixOnDim.toFixed(1)} <= baseline ${baselineForGate.toFixed(1)} ✗ REGRESSED — dropping fix output (originals kept)`)
         }
       } catch (e) {
         log(`[Fix ${fi + 1}] Agent failed: ${e?.message || e}`)
