@@ -3,7 +3,7 @@ import { toCliFields } from "./toCli";
 import { toSections } from "./toForm";
 import type { UnifiedCommand } from "./types";
 
-const VALID_CONTROLS = ["prompt", "text", "number", "range", "select", "toggle", "image", "images"];
+const VALID_CONTROLS = ["prompt", "text", "number", "range", "select", "toggle", "image", "images", "loras", "multiselect"];
 
 // Runs the standard invariant suite for any UnifiedCommand.
 // Call this at module top level from each command test file.

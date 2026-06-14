@@ -12,24 +12,31 @@ export const i2iCommand: UnifiedCommand = {
     { key: "prompt", cliFlag: "--prompt", control: "text", label: "Prompt", placeholder: "Describe changes (optional for I2I)...", multiline: true, section: "Generation" },
     { key: "denoise_strength", cliFlag: "--denoise-strength", control: "range", label: "Denoise Strength", min: 0, max: 1, step: 0.05, default: 0.4, section: "Generation" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
+    // Multi-LoRA editor (UI-only); buildParams derives repeated flags.
+    { key: "loras", control: "loras", label: "LoRAs", default: [], section: "Generation" },
     { key: "controlnet_strength", cliFlag: "--controlnet-strength", control: "range", label: "ControlNet Strength", min: 0, max: 1, step: 0.05, default: 1.0, visible: (s) => !!s.reference_image, section: "Generation" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
     // Backend-only
     { key: "skip_preprocess", cliFlag: "--skip-preprocess", control: "toggle", label: "Skip Preprocess" },
     { key: "blur_ref", cliFlag: "--blur-ref", control: "toggle", label: "Blur Reference" },
-    { key: "lora_path", cliFlag: "--lora-path", control: "text", label: "LoRA Path" },
-    { key: "lora_scale", cliFlag: "--lora-scale", control: "range", label: "LoRA Scale", min: 0, max: 2, step: 0.05, default: 1.0 },
+    { key: "lora_path", cliFlag: "--lora-path", control: "multiselect", label: "LoRA Paths" },
+    { key: "lora_scale", cliFlag: "--lora-scale", control: "multiselect", label: "LoRA Scales" },
     { key: "upscale", cliFlag: "--upscale", control: "toggle", label: "Upscale" },
   ],
-  buildParams: (s) => ({
-    input_image: s.input_image,
-    reference_image: s.reference_image || undefined,
-    prompt: s.prompt?.trim() || undefined,
-    denoise_strength: s.denoise_strength,
-    pipeline: s.pipeline,
-    controlnet_strength: s.reference_image ? s.controlnet_strength : undefined,
-    steps: s.steps ?? undefined,
-    seed: s.seed,
-  }),
+  buildParams: (s) => {
+    const loras = Array.isArray(s.loras) ? s.loras.filter((r: any) => r?.path) : [];
+    return {
+      input_image: s.input_image,
+      reference_image: s.reference_image || undefined,
+      prompt: s.prompt?.trim() || undefined,
+      denoise_strength: s.denoise_strength,
+      pipeline: s.pipeline,
+      controlnet_strength: s.reference_image ? s.controlnet_strength : undefined,
+      steps: s.steps ?? undefined,
+      seed: s.seed,
+      lora_path: loras.length ? loras.map((r: any) => r.path) : undefined,
+      lora_scale: loras.length ? loras.map((r: any) => Number(r.scale ?? 1.0).toFixed(2)) : undefined,
+    };
+  },
 };

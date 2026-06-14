@@ -332,7 +332,7 @@ def run_i2i(args: argparse.Namespace) -> None:
     blur_ref = getattr(args, "blur_ref", None)
     scale = getattr(args, "scale", None)
     seed = getattr(args, "seed", 42)
-    steps = getattr(args, "steps", 9)
+    steps = getattr(args, "steps", 9) or 9  # Ensure we have a valid steps value
     cnet_active_steps = getattr(args, "cnet_active_steps", None)
 
     require_file(input_image_path, "input image (--input-image)")
@@ -447,14 +447,16 @@ def _run_flux2_klein_i2i(args):
     if getattr(args, "steps", None) is None:
         args.steps = 4  # flux2-klein default
 
-    # Resolve LoRA path
-    lora_path = getattr(args, "lora_path", None)
-    if lora_path:
-        lora_path = resolve_lora_path(lora_path)
+    # Resolve LoRA path(s) — multi-LoRA (action="append"). RunConfig.from_args
+    # already normalizes the list, but i2i resolves explicitly too.
+    from app.commands._shared import resolve_lora_paths
+    lora_paths = resolve_lora_paths(getattr(args, "lora_path", None) or [])
 
     run_config = RunConfig.from_args(args, command="image i2i")
     run_config.pipeline = "flux2-klein"
-    run_config.lora_path = lora_path
+    if lora_paths:
+        run_config.lora_paths = lora_paths
+        run_config.lora_path = lora_paths[0]
     run_config.denoise_strength = denoise_strength
 
     # Warn about ControlNet incompatibility
@@ -466,8 +468,8 @@ def _run_flux2_klein_i2i(args):
     print(f"[I2I] Flux2-Klein pipeline")
     print(f"  Input     : {input_image_path}")
     print(f"  Denoise   : {denoise_strength}")
-    print(f"  LoRA      : {os.path.basename(lora_path) if lora_path else 'none'}"
-          + (f" (scale={run_config.lora_scale})" if lora_path else ""))
+    _n = len(run_config.lora_paths) if run_config.lora_paths else 0
+    print(f"  LoRA      : {_n} applied" + (f" (first scale={run_config.lora_scale})" if _n else ""))
     print(f"  Steps/seed: {run_config.steps} / {run_config.seed}")
 
     execute_generation(run_config, pipeline_type="flux2-klein")

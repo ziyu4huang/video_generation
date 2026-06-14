@@ -6,7 +6,8 @@ export type FieldDef =
   | { type: "select"; key: string; label: string; options: { value: string; label: string }[]; default?: string; visible?: (state: Record<string, any>) => boolean }
   | { type: "toggle"; key: string; label: string; default?: boolean; visible?: (state: Record<string, any>) => boolean }
   | { type: "image"; key: string; label: string; required?: boolean; visible?: (state: Record<string, any>) => boolean }
-  | { type: "images"; key: string; label: string; visible?: (state: Record<string, any>) => boolean };
+  | { type: "images"; key: string; label: string; visible?: (state: Record<string, any>) => boolean }
+  | { type: "loras"; key: string; label: string; visible?: (state: Record<string, any>) => boolean };
 
 export interface SectionDef {
   title: string;

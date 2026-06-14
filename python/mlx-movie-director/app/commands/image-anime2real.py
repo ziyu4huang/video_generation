@@ -184,14 +184,25 @@ def run_anime2real(args: "argparse.Namespace") -> None:
     prompt = getattr(args, "prompt", None) or style_preset["prompt"]
     steps = getattr(args, "steps", None) or style_preset["steps"]
     seed = getattr(args, "seed", 42)
-    lora_path_raw = getattr(args, "lora_path", None) or _DEFAULT_LORA
-    lora_path = resolve_lora_path(lora_path_raw)
-
-    # Use dedicated --anime2real-lora-scale if provided, otherwise style preset.
-    # Note: explicit None check (not `or`) to allow 0.0 as a valid scale value.
-    lora_scale = getattr(args, "anime2real_lora_scale", None)
-    if lora_scale is None:
-        lora_scale = style_preset["lora_scale"]
+    # Multi-LoRA: --lora-path is now a list (action="append"). User picks
+    # REPLACE the built-in _DEFAULT_LORA; empty/absent → built-in default
+    # (matches the old `or _DEFAULT_LORA` behavior).
+    from app.commands._shared import resolve_lora_paths
+    _user_paths = resolve_lora_paths(getattr(args, "lora_path", None) or [])
+    if _user_paths:
+        lora_paths = _user_paths
+        _user_scales = list(getattr(args, "lora_scale", None) or [])
+        if len(_user_scales) < len(lora_paths):
+            _user_scales += [1.0] * (len(lora_paths) - len(_user_scales))
+        lora_scales = _user_scales[:len(lora_paths)]
+    else:
+        # Built-in default LoRA, scale from --anime2real-lora-scale or style preset.
+        lora_paths = [resolve_lora_path(_DEFAULT_LORA)]
+        _preset_scale = getattr(args, "anime2real_lora_scale", None)
+        lora_scales = [_preset_scale if _preset_scale is not None else style_preset["lora_scale"]]
+    # Legacy single-value vars for the prints/manifest below.
+    lora_path = lora_paths[0]
+    lora_scale = lora_scales[0]
     # NOTE: uses --anime2real-ref-count (default=1), NOT shared --ref-count (default=3).
     ref_count = getattr(args, "anime2real_ref_count", 1)
     ref_strength = getattr(args, "ref_strength", None)
@@ -217,7 +228,7 @@ def run_anime2real(args: "argparse.Namespace") -> None:
     print(f"  Input     : {input_image_path} ({src_w}×{src_h})")
     print(f"  Output    : {out_w}×{out_h}")
     print(f"  Prompt    : {prompt[:80]}{'…' if len(prompt) > 80 else ''}")
-    print(f"  LoRA      : {os.path.basename(lora_path)} (scale={lora_scale})")
+    print(f"  LoRA      : {len(lora_paths)} applied — {', '.join(os.path.basename(p) for p in lora_paths)} (first scale={lora_scale})")
     print(f"  Steps/seed: {steps} / {seed}")
     print(f"  Ref count : {ref_count}")
     print(f"  Ref str   : {ref_strength}")
@@ -227,8 +238,8 @@ def run_anime2real(args: "argparse.Namespace") -> None:
     # --- Load pipeline with LoRA ---
     print(f"[anime2real] Loading Flux2KleinEdit + LoRA...")
     pipeline = Flux2KleinControlnetPipeline(
-        lora_paths=[lora_path],
-        lora_scales=[lora_scale],
+        lora_paths=lora_paths,
+        lora_scales=lora_scales,
     )
 
     # --- Generate with reference conditioning ---
@@ -262,6 +273,8 @@ def run_anime2real(args: "argparse.Namespace") -> None:
         "prompt": prompt,
         "lora_path": lora_path,
         "lora_scale": lora_scale,
+        "lora_paths": lora_paths,
+        "lora_scales": lora_scales,
         "steps": steps,
         "seed": seed,
         "ref_count": ref_count,

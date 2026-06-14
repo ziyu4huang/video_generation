@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import type { CommandSchema, FieldDef } from "../schemas/types";
 import { TextField, NumberField, RangeField, SelectField, ToggleField } from "./FieldComponents";
 import { FileUpload } from "./FileUpload";
+import { LoraField } from "./LoraField";
 import { InlineError } from "./InlineError";
 import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
@@ -30,7 +31,7 @@ function buildDefaults(sections: CommandSchema["sections"]): Record<string, any>
 
 /** Full-width field types that start their own row */
 function isFullWidth(field: FieldDef): boolean {
-  return field.type === "prompt" || field.type === "image" || field.type === "images";
+  return field.type === "prompt" || field.type === "image" || field.type === "images" || field.type === "loras";
 }
 
 /**
@@ -190,6 +191,15 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             <label>{field.label}{field.required && " *"}</label>
             <FileUpload value={state[field.key] ?? null} onChange={(v) => setField(field.key, v)} />
           </div>
+        );
+      case "loras":
+        return (
+          <LoraField
+            key={field.key}
+            label={field.label}
+            value={state[field.key] ?? []}
+            onChange={(rows) => setField(field.key, rows)}
+          />
         );
       case "images":
         return (

@@ -219,20 +219,23 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
                                  "or multiple names for a unified multi-report "
                                  "(e.g. --self-test redzit15 redzit15-lora)")
     if not _arg_registered(parser, "lora_path"):
-        parser.add_argument("--lora-path", type=str, default=None,
-                            help="LoRA weights: full path, dir, or short name "
-                                 "(e.g. 'klein-slider-anatomy') — auto-resolved from models/lora/")
+        parser.add_argument("--lora-path", type=str, action="append", default=None,
+                            metavar="PATH",
+                            help="LoRA weights (repeatable to stack): full path, dir, "
+                                 "or short name (e.g. 'klein-slider-anatomy') — "
+                                 "auto-resolved from models/lora/. Pair each with a "
+                                 "--lora-scale in the same order.")
     if not _arg_registered(parser, "lora_scale"):
-        # CAUTION: Some subcommands (e.g. anime2real) register their own
-        # dedicated --lora-scale variant with default=None BEFORE this
-        # function runs.  When that happens, _arg_registered returns True
-        # and this block is skipped — the shared --lora-scale default=1.0
-        # is NOT applied.  Other commands must use
-        #   getattr(args, "lora_scale", None) or 1.0
-        # to safely handle the None case.
-        parser.add_argument("--lora-scale", type=float, default=1.0,
-                            help="LoRA conditioning strength 0–2 (default: 1.0; "
-                                 "try 0.7–0.9 to soften style influence)")
+        # CAUTION: anime2real registers its own --anime2real-lora-scale (dest
+        # anime2real_lora_scale, default=None) BEFORE this runs; that leaves the
+        # shared lora_scale dest untouched here. action="append" (repeatable,
+        # paired with --lora-path); default None = no LoRA. Consumers must use
+        #   getattr(args, "lora_scale", None)
+        # and treat it as None | list[float].
+        parser.add_argument("--lora-scale", type=float, action="append", default=None,
+                            metavar="SCALE",
+                            help="LoRA scale per --lora-path (repeatable, same order; "
+                                 "0–1 recommended). Absent entries default to 1.0.")
     if not _arg_registered(parser, "vae_path"):
         parser.add_argument("--vae-path", type=str, default=None,
                             help="VAE weights: full dir path or short name "
@@ -334,6 +337,30 @@ def resolve_lora_path(raw: str | None) -> str | None:
     print(f"  Searched: file path, models/lora/{raw}, partial match in models/lora/",
           file=sys.stderr)
     sys.exit(1)
+
+
+def resolve_lora_paths(raw_list: list[str] | None) -> list[str]:
+    """Resolve a list of raw --lora-path values to absolute .safetensors paths.
+
+    Sibling of resolve_lora_path for the multi-LoRA (action="append") case.
+    Unresolvable entries are warned + skipped (the run continues with the rest),
+    rather than exiting, so one bad name doesn't sink a multi-LoRA stack.
+    """
+    if not raw_list:
+        return []
+    out: list[str] = []
+    for raw in raw_list:
+        if not raw:
+            continue
+        try:
+            resolved = resolve_lora_path(raw)
+        except SystemExit:
+            resolved = None
+        if resolved:
+            out.append(resolved)
+        else:
+            print(f"WARNING: could not resolve LoRA '{raw}', skipping.", file=sys.stderr)
+    return out
 
 
 def list_available_loras(pipeline_filter: str | None = None) -> None:
@@ -502,8 +529,8 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
     # Instantiate the selected pipeline
     if pipeline_type == "flux2-klein":
         from app.flux2_t2i_pipeline import Flux2KleinT2IPipeline
-        lora_paths = [run_config.lora_path] if run_config.lora_path else None
-        lora_scales = [run_config.lora_scale] if lora_paths else None
+        lora_paths = run_config.lora_paths or ([run_config.lora_path] if run_config.lora_path else None)
+        lora_scales = run_config.lora_scales or ([run_config.lora_scale] if lora_paths else None)
         pipeline = Flux2KleinT2IPipeline(
             lora_paths=lora_paths,
             lora_scales=lora_scales,
@@ -548,6 +575,8 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                     height=run_config.height,
                     steps=run_config.steps,
                     seed=seed,
+                    lora_paths=run_config.lora_paths,
+                    lora_scales=run_config.lora_scales,
                     lora_path=run_config.lora_path,
                     lora_scale=run_config.lora_scale,
                     input_image=input_image,

@@ -7,12 +7,12 @@ from app.run_config import RunConfig, SCHEMA_VERSION, _migrate
 
 
 class TestSchemaVersion:
-    def test_schema_version_is_13(self):
-        assert SCHEMA_VERSION == 13
+    def test_schema_version_is_14(self):
+        assert SCHEMA_VERSION == 14
 
     def test_new_runconfig_has_current_version(self):
         rc = RunConfig()
-        assert rc.schema_version == 13
+        assert rc.schema_version == SCHEMA_VERSION
 
 
 class TestWorkflowFieldsInAsdict:
@@ -178,12 +178,13 @@ class TestReproducibilityFields:
         # Stub the _shared helpers so from_args doesn't pull heavy pipeline imports.
         fake = types.ModuleType("app.commands._shared")
         fake.resolve_lora_path = lambda p: p
+        fake.resolve_lora_paths = lambda lst: list(lst or [])
         fake.resolve_vae_path = lambda p: p
         monkeypatch.setitem(sys.modules, "app.commands._shared", fake)
         monkeypatch.setattr("sys.argv", ["run.py", "image", "generate", "--seed", "7"])
         ns = argparse.Namespace(
             prompt="cat", prompt_file=None,
-            lora_path="/main.safetensors", lora_scale=0.9, face_detail_lora="/fd.safetensors",
+            lora_path=["/main.safetensors"], lora_scale=[0.9], face_detail_lora="/fd.safetensors",
         )
         rc = RunConfig.from_args(ns)
         assert rc.argv == ["image", "generate", "--seed", "7"]
@@ -197,18 +198,19 @@ class TestReproducibilityFields:
         import types
         fake = types.ModuleType("app.commands._shared")
         fake.resolve_lora_path = lambda p: p
+        fake.resolve_lora_paths = lambda lst: list(lst or [])
         fake.resolve_vae_path = lambda p: p
         monkeypatch.setitem(sys.modules, "app.commands._shared", fake)
         monkeypatch.setattr("sys.argv", ["run.py", "generate"])
         ns = argparse.Namespace(prompt="cat", prompt_file=None,
-                                lora_path=None, lora_scale=1.0, face_detail_lora=None)
+                                lora_path=None, lora_scale=None, face_detail_lora=None)
         rc = RunConfig.from_args(ns)
         assert rc.loras is None
 
 
 class TestV12Migration:
-    def test_v12_migrates_to_v13(self):
-        assert _migrate({"schema_version": 12})["schema_version"] == 13
+    def test_v12_migrates_to_current(self):
+        assert _migrate({"schema_version": 12})["schema_version"] == SCHEMA_VERSION
 
     def test_v12_migration_adds_argv_and_loras_defaults(self):
         m = _migrate({"schema_version": 12})

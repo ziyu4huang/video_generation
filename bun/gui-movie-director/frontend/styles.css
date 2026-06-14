@@ -1577,3 +1577,57 @@ body {
   background: var(--bg-elevated);
   border-color: var(--border);
 }
+
+/* === Multi-LoRA editor (LoraField) === */
+.lora-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.lora-row .lora-select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.lora-row .lora-scale {
+  flex: 0 0 120px;
+}
+.lora-row .lora-scale-val {
+  flex: 0 0 34px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lora-remove-btn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.lora-remove-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+.lora-add-btn {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 4px;
+  font-family: var(--font-sans);
+}
+.lora-add-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

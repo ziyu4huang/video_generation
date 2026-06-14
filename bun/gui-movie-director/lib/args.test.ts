@@ -83,6 +83,19 @@ describe("buildCliArgs", () => {
     expect(count).toBe(2);
   });
 
+  it("builds multi-LoRA as repeated --lora-path / --lora-scale", () => {
+    const args = buildCliArgs("t2i", { lora_path: ["/a", "/b"], lora_scale: ["0.50", "0.80"] });
+    expect(args.filter((a) => a === "--lora-path").length).toBe(2);
+    expect(args.filter((a) => a === "--lora-scale").length).toBe(2);
+    expect(args).toContain("/a");
+    expect(args).toContain("/b");
+  });
+
+  it("omits lora flags when lora_path is empty or undefined", () => {
+    expect(buildCliArgs("t2i", { lora_path: undefined })).not.toContain("--lora-path");
+    expect(buildCliArgs("t2i", { lora_path: [] })).not.toContain("--lora-path");
+  });
+
   it("throws for unknown action", () => {
     expect(() => buildCliArgs("nonexistent-action-xyz", {})).toThrow();
   });

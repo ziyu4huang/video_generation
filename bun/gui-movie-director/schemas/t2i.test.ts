@@ -36,14 +36,16 @@ describe("t2i: buildParams", () => {
     expect(result.prompt).toBe("hello");
   });
 
-  it("omits lora_scale when exactly 1.0", () => {
-    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, lora_scale: 1.0, count: 1 });
+  it("omits lora flags when no LoRAs selected", () => {
+    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, count: 1 });
+    expect(result.lora_path).toBeUndefined();
     expect(result.lora_scale).toBeUndefined();
   });
 
-  it("includes lora_scale when not 1.0", () => {
-    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, lora_scale: 0.8, count: 1 });
-    expect(result.lora_scale).toBe(0.8);
+  it("derives lora_path/lora_scale arrays from the loras editor", () => {
+    const result = fn({ prompt: "x", pipeline: "zimage", width: 640, height: 960, seed: 42, count: 1, loras: [{ path: "/a.safetensors", scale: 0.5 }, { path: "/b.safetensors", scale: 0.8 }] });
+    expect(result.lora_path).toEqual(["/a.safetensors", "/b.safetensors"]);
+    expect(result.lora_scale).toEqual(["0.50", "0.80"]);
   });
 
   it("omits draft when falsy", () => {

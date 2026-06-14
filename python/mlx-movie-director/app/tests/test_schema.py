@@ -59,9 +59,9 @@ class TestArgShape:
         # --ab-test: store_true → default false
         assert by_flag["--ab-test"]["action"] == "_StoreTrueAction"
         assert by_flag["--ab-test"]["default"] is False
-        # --lora-scale: float, default 1.0
-        assert by_flag["--lora-scale"]["type"] == "float"
-        assert by_flag["--lora-scale"]["default"] == 1.0
+        # --lora-scale: append (repeatable for multi-LoRA), default None
+        assert by_flag["--lora-scale"]["action"] == "_AppendAction"
+        assert by_flag["--lora-scale"]["default"] is None
 
     def test_help_action_filtered_out(self):
         # -h/--help is auto-added by argparse; not a real value flag for consumers.

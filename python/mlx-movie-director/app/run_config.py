@@ -7,7 +7,7 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
@@ -42,6 +42,8 @@ class RunConfig:
     seed: int = 42
     lora_path: str | None = None
     lora_scale: float = 1.0
+    lora_paths: list[str] | None = None    # multi-LoRA: resolved paths (main stage)
+    lora_scales: list[float] | None = None  # one per lora_paths entry
     vae_path: str | None = None
 
     # img2img / refine / FLF2V keyframe reference
@@ -146,8 +148,8 @@ class RunConfig:
             height=getattr(args, "height", 960),
             steps=getattr(args, "steps", 9),
             seed=getattr(args, "seed", 42),
-            lora_path=resolve_lora_path(getattr(args, "lora_path", None)),
-            lora_scale=getattr(args, "lora_scale", 1.0),
+            lora_path=None,        # set by multi-LoRA normalize below (legacy scalar = first)
+            lora_scale=1.0,        # set by multi-LoRA normalize below
             vae_path=resolve_vae_path(getattr(args, "vae_path", None)),
             input_image=getattr(args, "input_image", None) or getattr(args, "input", None),
             latent_upscale=getattr(args, "latent_upscale", 1.0),
@@ -213,11 +215,29 @@ class RunConfig:
         # the default subcommand, so this is a complete, re-runnable command.
         rc.argv = list(sys.argv[1:])
 
-        # Structured LoRA list: main LoRA + face-detail LoRA (anime2real /
+        # Multi-LoRA: --lora-path / --lora-scale are now lists (action="append").
+        # Resolve each, pad scales to match paths (default 1.0), and keep legacy
+        # lora_path/lora_scale = first entry for manifest/replay back-compat.
+        from app.commands._shared import resolve_lora_paths
+        rc.lora_paths = resolve_lora_paths(getattr(args, "lora_path", None) or []) or None
+        if rc.lora_paths:
+            _raw_scales = list(getattr(args, "lora_scale", None) or [])
+            if len(_raw_scales) < len(rc.lora_paths):
+                _raw_scales += [1.0] * (len(rc.lora_paths) - len(_raw_scales))
+            rc.lora_scales = _raw_scales[:len(rc.lora_paths)]
+            rc.lora_path = rc.lora_paths[0]
+            rc.lora_scale = rc.lora_scales[0]
+        else:
+            rc.lora_scales = None
+
+        # Structured LoRA list: main LoRA(s) + face-detail LoRA (anime2real /
         # faceswap / fusion are appended by their own command paths). lora_path /
         # lora_scale remain the source of truth for the "main" LoRA + replay.
         _lora_entries: list[dict[str, Any]] = []
-        if rc.lora_path:
+        if rc.lora_paths:
+            for _p, _s in zip(rc.lora_paths, rc.lora_scales or []):
+                _lora_entries.append({"path": _p, "scale": _s, "stage": "main"})
+        elif rc.lora_path:
             _lora_entries.append({"path": rc.lora_path, "scale": rc.lora_scale, "stage": "main"})
         if rc.face_detail_lora:
             _lora_entries.append({"path": rc.face_detail_lora, "scale": None, "stage": "face_detail"})
@@ -377,5 +397,14 @@ def _migrate(raw: dict) -> dict:
         raw.setdefault("loras", None)
         raw["schema_version"] = 13
         version = 13
+
+    if version == 13:
+        # v13 → v14: multi-LoRA — lora_paths/lora_scales lists (main stage).
+        # Old runs have scalar lora_path/lora_scale only; lists stay None and
+        # execute_generation falls back to [lora_path].
+        raw.setdefault("lora_paths", None)
+        raw.setdefault("lora_scales", None)
+        raw["schema_version"] = 14
+        version = 14
 
     return raw

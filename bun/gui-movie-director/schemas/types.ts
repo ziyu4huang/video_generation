@@ -1,6 +1,6 @@
 export type ControlType =
   | "prompt" | "text" | "number" | "range"
-  | "select" | "toggle" | "image" | "images";
+  | "select" | "toggle" | "image" | "images" | "loras" | "multiselect";
 
 export type CliType = "string" | "number" | "boolean" | "select" | "multiselect";
 
@@ -13,6 +13,8 @@ export const CONTROL_TO_CLI: Record<ControlType, CliType> = {
   toggle: "boolean",
   image: "string",
   images: "multiselect",
+  loras: "multiselect",      // UI-only (no cliFlag → never reaches toCliFields); defensive
+  multiselect: "multiselect", // backend-only list fields (e.g. lora_path/lora_scale)
 };
 
 export interface UnifiedField {
