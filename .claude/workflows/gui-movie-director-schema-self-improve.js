@@ -235,13 +235,25 @@ if (DO_DRIFT && driftWorkList.length > 0) {
       continue
     }
 
-    // Conservative guard: choices mismatches where GUI ≠ run.py (runpy_narrow,
-    // mixed_choices) need human judgment — the GUI may offer options the backend
-    // doesn't implement (e.g. --controlnet-type: only "canny" is implemented;
-    // others fall back to raw at runtime), or run.py's set may be intentionally
-    // wider. Auto-widening run.py or trimming the GUI is unsafe; report instead.
-    if (f.category === 'runpy_narrow' || f.category === 'mixed_choices') {
-      log(`  ⚠ needs human review (GUI/run.py choice sets differ — may be backend-limited or intentional) — skip`)
+    // Conservative guard: findings that need human judgment — auto-applying
+    // could clobber intentional GUI divergence. Two cases:
+    //   (1) choices mismatches where GUI ≠ run.py (runpy_narrow, mixed_choices):
+    //       the GUI may offer options the backend doesn't implement (e.g.
+    //       --controlnet-type: only "canny" is implemented; others fall back to
+    //       raw at runtime), or run.py's set may be intentionally wider.
+    //   (2) NUMERIC default_mismatch: the GUI default may be intentional UX
+    //       tuning (a chosen cfg/stg/film-grain/denoise), not stale drift — we
+    //       can't tell, so report rather than silently reset to run.py's default.
+    //       (run-7 auto-reset film_grain/sharpening/cfg/stg/denoise; kept only
+    //       after human sign-off. Non-numeric default_mismatch, e.g. a select
+    //       default already among the choices, stays auto-applicable.)
+    if (
+      f.category === 'runpy_narrow' ||
+      f.category === 'mixed_choices' ||
+      (f.category === 'default_mismatch' && typeof f.runValue === 'number')
+    ) {
+      const why = f.category === 'default_mismatch' ? 'numeric default may be intentional tuning' : 'GUI/run.py choice sets differ'
+      log(`  ⚠ needs human review (${why}) — skip`)
       driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, skipped: 'needs-review' })
       continue
     }
