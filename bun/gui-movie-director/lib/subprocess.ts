@@ -146,31 +146,47 @@ export class SubprocessManager {
     // Drain stdout
     const readStream = async (stream: "stdout" | "stderr", reader: ReadableStreamDefaultReader<Uint8Array>) => {
       const textDecoder = new TextDecoder();
+      // Buffer partial lines across read() chunks: a chunk boundary can split a
+      // line (e.g. "Sa" | "ved: x.png"). Previously each fragment was emitted as
+      // its own log entry AND the Saved:/Manifest:/Run:/SelfTestHTML regexes that
+      // track output files were matched against the fragments, missing real
+      // matches. Hold the trailing segment (after the last newline) until the
+      // next chunk completes it; flush any leftover when the stream ends.
+      let pending = "";
+      const processLine = (line: string) => {
+        if (line === "") return;
+        job.logs.push({ text: line, stream });
+        this.broadcastLog(id, line, stream);
+
+        // Parse structured output (all command variants: image, video, workflow)
+        const savedMatch = /Saved:\s+(.+)/.exec(line);
+        if (savedMatch) job.outputFiles.push(savedMatch[1].trim());
+
+        const manifestMatch = /Manifest:\s+(.+)/.exec(line);
+        if (manifestMatch) job.manifestPath = manifestMatch[1].trim();
+
+        const runMatch = /Run(?:\s+config)?:\s+(.+)/.exec(line);
+        if (runMatch) job.runPath = runMatch[1].trim();
+
+        // Self-test HTML review path marker (printed by I2I self-test)
+        const selfTestHtmlMatch = /SelfTestHTML:\s+(.+)/.exec(line);
+        if (selfTestHtmlMatch) job.selfTestHtmlPath = selfTestHtmlMatch[1].trim();
+      };
       try {
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          const text = textDecoder.decode(value, { stream: true });
-          const lines = text.split("\n");
-          for (const line of lines) {
-            if (line === "") continue;
-            job.logs.push({ text: line, stream });
-            this.broadcastLog(id, line, stream);
-
-            // Parse structured output (all command variants: image, video, workflow)
-            const savedMatch = /Saved:\s+(.+)/.exec(line);
-            if (savedMatch) job.outputFiles.push(savedMatch[1].trim());
-
-            const manifestMatch = /Manifest:\s+(.+)/.exec(line);
-            if (manifestMatch) job.manifestPath = manifestMatch[1].trim();
-
-            const runMatch = /Run(?:\s+config)?:\s+(.+)/.exec(line);
-            if (runMatch) job.runPath = runMatch[1].trim();
-
-            // Self-test HTML review path marker (printed by I2I self-test)
-            const selfTestHtmlMatch = /SelfTestHTML:\s+(.+)/.exec(line);
-            if (selfTestHtmlMatch) job.selfTestHtmlPath = selfTestHtmlMatch[1].trim();
-          }
+          pending += textDecoder.decode(value, { stream: true });
+          const lines = pending.split("\n");
+          // The final segment (after the last newline) may be a partial line —
+          // keep it buffered for the next chunk to complete.
+          pending = lines.pop() ?? "";
+          for (const line of lines) processLine(line);
+        }
+        // Flush a trailing line that had no final newline before EOF.
+        if (pending !== "") {
+          processLine(pending);
+          pending = "";
         }
       } catch {
         // Stream closed
