@@ -88,6 +88,7 @@ export const meta = {
   phases: [
     { title: "Resolve", detail: "Detect absolute project root via git rev-parse — eliminates CWD drift" },
     { title: "Feedback", detail: "Optional — read exported human-feedback JSON and emit keep/change guidance for this iteration" },
+    { title: "Knowledge", detail: "Read T2I knowledge base (knowledge-base/reports/latest.json) for prompt engineering context" },
     { title: "GPU Wait", detail: "Wait if another run.py generation is already using the GPU (pgrep probe)" },
     { title: "Generate", detail: "Execute specs sequentially (one model process at a time, GPU-safe) — t2i (--json-summary) or i2i (--self-test/explicit)" },
     { title: "VLM Check", detail: "Verify LM Studio is running before caption phase" },
@@ -133,6 +134,7 @@ if (!PROJECT_ROOT) {
 const PYTHON  = `${PROJECT_ROOT}/python/venv/bin/python`
 const RUN_PY  = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR = `${PROJECT_ROOT}/python/mlx-movie-director/output`
+const KB_ROOT = `${PROJECT_ROOT}/knowledge-base`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -224,7 +226,7 @@ log(`  OUT_DIR: ${OUT_DIR}`)
 
 // ── Phase tracking ──────────────────────────────────────────────────────────
 const phaseStatus = {
-  resolve: "pending", feedback: "pending", gpuWait: "pending", generate: "pending",
+  resolve: "pending", feedback: "pending", knowledge: "pending", gpuWait: "pending", generate: "pending",
   vlmCheck: "pending", review: "pending", selfFix: "pending",
   report: "pending", reviewHtml: "pending", persist: "pending",
 }
@@ -611,6 +613,18 @@ const HTML_SCHEMA = {
   required: ["htmlPath"],
 }
 
+const KB_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: {
+    available:     { type: "boolean" },
+    topStrategies: { type: "array", items: { type: "string" } },
+    avoid:         { type: "array", items: { type: "string" } },
+    bestParams:    { type: "array", items: { type: "object" } },
+    topExamples:   { type: "array", items: { type: "object" } },
+  },
+  required: ["available"],
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // FINALIZE MODE — build the human-review HTML from explicit caption JSONs
 // ════════════════════════════════════════════════════════════════════════════
@@ -793,7 +807,33 @@ Return JSON:
   markPhase("feedback", "skipped")
 }
 
-// ── Phase 1.5: GPU gate — wait if another run.py generation is already using the GPU ──
+// ── Phase 1.5: Knowledge base — load T2I prompt engineering context ──────────
+
+phase("Knowledge")
+let kbContext = null
+if (mode !== "finalize") {
+  const kbRead = await agent(
+    `Read the T2I knowledge base at ${KB_ROOT}/reports/latest.json.
+1. Bash("test -f '${KB_ROOT}/reports/latest.json' && echo EXISTS || echo MISSING")
+2. If MISSING: return { "available": false }
+3. If EXISTS: Read('${KB_ROOT}/reports/latest.json') then extract and return:
+   - available: true
+   - topStrategies: structured.topStrategies[0..2], each formatted as "template (avgScore/10)"
+   - avoid: structured.avoid (all items, max 8)
+   - bestParams: structured.bestParams (all objects)
+   - topExamples: structured.topExamples[0..2] (objects with prompt, score, pipeline)`,
+    { label: "kb-read", phase: "Knowledge", model: "haiku", schema: KB_SUMMARY_SCHEMA },
+  )
+  if (kbRead?.available) {
+    kbContext = kbRead
+    log(`Knowledge base loaded: ${kbContext.topStrategies?.length ?? 0} strategies, ${kbContext.avoid?.length ?? 0} avoid items`)
+  } else {
+    log(`Knowledge base not available yet at ${KB_ROOT}/reports/latest.json — Self-Fix will use built-in rules only`)
+  }
+}
+markPhase("knowledge", kbContext ? "completed" : "skipped")
+
+// ── Phase 1.6: GPU gate — wait if another run.py generation is already using the GPU ──
 // Generate is the GPU-requiring phase (Review/caption uses LM Studio over HTTP — not gated).
 if (mode !== "finalize" && gpuWaitOn) {
   phase("GPU Wait")
@@ -863,8 +903,12 @@ for (let idx = 0; idx < runSpecs.length; idx++) {
    Extract the JSON after "JSON_SUMMARY:" prefix → outputs[] (PNG paths) + run_json (run.json path).
 3. If no JSON_SUMMARY line found, fall back: collect "Saved: " lines for PNG paths and
    "Run config: " for the run.json path (runJsonPath = "" if neither found).`
-      : `2. This command prints "Saved: <path>.png" lines (NO JSON_SUMMARY).
-   Collect EVERY line matching ^Saved: (.+\\.png)$ as an output PNG.
+      : `2. This command prints PNG output paths in TWO possible line forms (NO JSON_SUMMARY):
+   - "Saved: <path>.png"           (freshly generated)
+   - "Reusing cached: <path>.png"  (warm cache — the cached image is STILL a valid output to review;
+     a warm-cache baseline MUST be collected, or the run has nothing to score)
+   Collect EVERY line matching ^(?:Saved|Reusing cached):\\s*(.+\\.png)$ as an output PNG.
+   Deduplicate by path (same PNG may appear once).
 3. EXCLUDE any PNG whose filename contains "selftest_source" or "selftest_ref-pose"
    (i2i self-test source/reference artifacts — NOT outputs to review). runJsonPath = "".`
 
@@ -1227,10 +1271,18 @@ and ONLY the fields that change (seed, steps, pipeline).`
       summary: c.summary || "", issues: c.issues || [],
     })
 
+    const kbBlock = kbContext ? `## T2I Knowledge Base Context (${KB_ROOT})
+Top strategies: ${(kbContext.topStrategies || []).join(" | ")}
+Avoid: ${(kbContext.avoid || []).slice(0, 5).join("; ")}
+Best params: ${JSON.stringify(kbContext.bestParams || [])}
+Apply these proven lessons when proposing prompt or parameter fixes.
+
+` : ""
+
     const fixProposalResult = await agent(
       `Analyze ${isI2i ? "I2I" : "T2I"} quality scores and propose 1–2 targeted parameter fixes.
 
-## Scored Outputs (below threshold ${autoFixThreshold})
+${kbBlock}## Scored Outputs (below threshold ${autoFixThreshold})
 ${JSON.stringify(worstCaptions.map(leanCaption), null, 2)}
 
 ## All Scored Outputs (for context)
@@ -1313,7 +1365,7 @@ Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
         const fixExpectJson = !(defaultKind === "i2i" && spec.pipeline !== "flux2-klein")
         const fixParse = fixExpectJson
           ? `2. Parse stdout for the JSON_SUMMARY line → outputs[] + run_json. Fallback: "Saved: " lines + "Run config: ".`
-          : `2. Collect EVERY "Saved: <path>.png" line; EXCLUDE filenames with selftest_source/selftest_ref-pose. runJsonPath="".`
+          : `2. Collect EVERY "Saved: <path>.png" OR "Reusing cached: <path>.png" line; EXCLUDE filenames with selftest_source/selftest_ref-pose. runJsonPath="".`
         const fixGen = await agent(
           `Execute a fix generation command.
 
