@@ -673,8 +673,8 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
           <button className={s.mfCopyBtn} onClick={onRefresh} disabled={rerunning} title="Reload from file">↻</button>
         )}
         {onRerun && (
-          <button className={s.mfCopyBtn} onClick={onRerun} disabled={rerunning}>
-            {rerunning ? "⏳" : "🔄"} Rerun
+          <button className={s.captionPrimaryBtn} onClick={onRerun} disabled={rerunning}>
+            {rerunning ? "⏳ Generating…" : "✨ Rerun"}
           </button>
         )}
       </div>
@@ -952,7 +952,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
           </>
         )}
 
-        {/* Zoom toolbar */}
+        {/* Zoom toolbar — grouped: [− label +] | [1× 2× 4×] | [↺] */}
         <div className={s.zoomToolbar} onMouseDown={(e) => e.stopPropagation()}>
           <button
             className={s.zoomBtn}
@@ -963,30 +963,9 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               if (z === 1) setPan({ x: 0, y: 0 });
             }}
             title="Zoom out"
+            aria-label="Zoom out"
           >−</button>
           <span className={s.zoomLabel}>{zoom.toFixed(1)}×</span>
-          <button
-            className={`${s.zoomBtn} ${zoom === 1 ? " " + s.zoomBtnActive : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom(1);
-              setPan({ x: 0, y: 0 });
-            }}
-          >1×</button>
-          <button
-            className={`${s.zoomBtn} ${zoom === 2 ? " " + s.zoomBtnActive : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom(2);
-            }}
-          >2×</button>
-          <button
-            className={`${s.zoomBtn} ${zoom === 4 ? " " + s.zoomBtnActive : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom(4);
-            }}
-          >4×</button>
           <button
             className={s.zoomBtn}
             onClick={(e) => {
@@ -995,16 +974,47 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               setZoom(z);
             }}
             title="Zoom in"
+            aria-label="Zoom in"
           >+</button>
+          <span className={s.zoomDivider} aria-hidden="true" />
+          <button
+            className={`${s.zoomBtn} ${zoom === 1 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(1);
+              setPan({ x: 0, y: 0 });
+            }}
+            aria-label="Zoom 1×"
+          >1×</button>
+          <button
+            className={`${s.zoomBtn} ${zoom === 2 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(2);
+            }}
+            aria-label="Zoom 2×"
+          >2×</button>
+          <button
+            className={`${s.zoomBtn} ${zoom === 4 ? " " + s.zoomBtnActive : ""}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setZoom(4);
+            }}
+            aria-label="Zoom 4×"
+          >4×</button>
           {zoom !== 1 && (
-            <button
-              className={s.zoomBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                resetView();
-              }}
-              title="Reset view"
-            >↺</button>
+            <>
+              <span className={s.zoomDivider} aria-hidden="true" />
+              <button
+                className={s.zoomBtn}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  resetView();
+                }}
+                title="Reset view"
+                aria-label="Reset view"
+              >↺</button>
+            </>
           )}
         </div>
       </div>
@@ -1070,8 +1080,8 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               <div className={s.captionPickLabel}>Choose a caption style, then click Rerun</div>
               <StyleDropdown currentStyle={captionStyle} onPick={(style) => { handleStylePick(style); }} disabled={captionLoading} />
               <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                <button className={s.mfCopyBtn} onClick={handleRerunCaption} disabled={captionLoading}>
-                  {captionLoading ? "⏳ Generating…" : "🔄 Rerun"}
+                <button className={s.captionPrimaryBtn} onClick={handleRerunCaption} disabled={captionLoading}>
+                  {captionLoading ? "⏳ Generating…" : "✨ Generate"}
                 </button>
               </div>
             </div>
