@@ -20,6 +20,7 @@ import { angleDescriptor } from "./edit/AngleView";
 import { profileDescriptor } from "./analyze/ProfileView";
 import { qualityDescriptor } from "./analyze/QualityView";
 import { modelCheckDescriptor } from "./tools/ModelCheckView";
+import { knowledgeDescriptor } from "./tools/KnowledgeView";
 import type { ViewDescriptor } from "./registry";
 
 export const VIEWS: ViewDescriptor[] = [
@@ -42,4 +43,5 @@ export const VIEWS: ViewDescriptor[] = [
   profileDescriptor,
   qualityDescriptor,
   modelCheckDescriptor,
+  knowledgeDescriptor,
 ];

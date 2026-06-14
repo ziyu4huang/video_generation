@@ -12,6 +12,7 @@ import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from
 import { handleGetCliSchema, handleGetSchemaDefaults } from "./schema";
 import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
 import { handleCaptionRun, handleCaptionGet } from "./caption";
+import { handleKnowledgeScan, handleKnowledgeCaptionMissing, handleKnowledgeAnalyze, handleKnowledgeGetReport, handleKnowledgeDeleteReport } from "./knowledge";
 import { handleWebSocketUpgrade, broadcastMessage } from "./ws";
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
@@ -259,6 +260,23 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
   if (pathname === "/api/caption" && method === "GET") {
     return handleCaptionGet(req);
+  }
+
+  // Knowledge extraction
+  if (pathname === "/api/knowledge/scan" && method === "GET") {
+    return handleKnowledgeScan(req);
+  }
+  if (pathname === "/api/knowledge/caption-missing" && method === "POST") {
+    return handleKnowledgeCaptionMissing(req);
+  }
+  if (pathname === "/api/knowledge/analyze" && method === "POST") {
+    return handleKnowledgeAnalyze(req);
+  }
+  if (pathname === "/api/knowledge/report" && method === "GET") {
+    return handleKnowledgeGetReport(req);
+  }
+  if (pathname === "/api/knowledge/report" && method === "DELETE") {
+    return handleKnowledgeDeleteReport(req);
   }
 
   return Response.json({ ok: false, error: "Not found" }, { status: 404 });

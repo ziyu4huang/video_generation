@@ -13,6 +13,8 @@ export interface AppConfig {
   vlmApiUrl: string;
   vlmModel: string;
   pythonPath: string;  // absolute path to python binary
+  deepseekApiKey?: string;   // falls back to DEEPSEEK_API_KEY env var
+  deepseekModel?: string;    // default: "deepseek-chat"
 }
 
 const DEFAULTS: AppConfig = {
