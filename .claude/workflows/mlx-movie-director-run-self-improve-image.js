@@ -1120,16 +1120,22 @@ I2I runs at denoise_strength; denoise=1.0 ERASES all source pixels, so source co
 identity, pose) survives ONLY through (a) the controlnet edge map + (b) the prompt. Lowering
 denoise lets real source pixels survive the restyle — the PRIMARY lever for source fidelity.
 - feedback mentions source fidelity (clothing/identity/jeans/garment "should match the original")
-  → lower denoise_strength toward 0.5–0.7 (more source pixels survive); keep seed + controlnet
-- detail/texture weak → lower denoise_strength by 0.1–0.2 (surviving source pixels carry real texture
-  that +steps cannot synthesize)
+  → lower denoise_strength toward 0.5–0.6 (more source pixels survive); keep seed + controlnet
+- detail/texture weak → lower denoise_strength AGGRESSIVELY toward 0.5 (surviving source pixels carry
+  real texture that +steps cannot synthesize). Data point: dn0.7 lifted detail ~1 point (7→8); push
+  to 0.5 to lift it further. This is the strongest single lever for a weak detail score.
 - sharpness < 5 → lower denoise_strength by 0.1
 - artifacts < 5 → lower controlnet_strength by 0.2 OR set cnet_active_steps: 8
 - composition/pose < 5 → keep denoise low, ensure reference_image is set + controlnet_strength ≥ 0.5
+TRADE-OFF (validated dn0.7 run): lowering denoise preserves source clothing (detail↑) but COSTS style
+adherence (prompt_adherence 9→7). When pushing denoise hard for source fidelity, PAIR it with a
+style-reinforcement anchor ("...only the lighting and brushwork convert to oil-painting style") so the
+restyle stays readable — the dimension-aware gate keeps the source-fidelity fix DESPITE the style
+regression, because source fidelity is what the feedback asked for.
 Each i2i fixSpec MUST include: label, rationale, input_image ("${i2iSourceImg}"), prompt (reuse the
-worst-scoring output's prompt, optionally APPEND a source-fidelity anchor like "wearing the original
-<garment> from the source image, <garment> detail preserved"), and ONLY the fields that change.
-reference_image: "${i2iRefImg}" if pose guidance applies.`
+worst-scoring output's prompt, APPEND a source-fidelity anchor like "wearing the original <garment>
+from the source image, <garment> detail preserved", and a style anchor when pushing denoise hard), and
+ONLY the fields that change. reference_image: "${i2iRefImg}" if pose guidance applies.`
       : `## Fix Rules (T2I pipeline)
 - detail < 5 → increase steps by 3–5 (helps with fine texture rendering)
 - sharpness < 5 → try a different seed (stochastic quality variation)
