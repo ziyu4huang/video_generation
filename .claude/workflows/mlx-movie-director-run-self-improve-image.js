@@ -1121,17 +1121,21 @@ identity, pose) survives ONLY through (a) the controlnet edge map + (b) the prom
 denoise lets real source pixels survive the restyle — the PRIMARY lever for source fidelity.
 - feedback mentions source fidelity (clothing/identity/jeans/garment "should match the original")
   → lower denoise_strength toward 0.5–0.6 (more source pixels survive); keep seed + controlnet
-- detail/texture weak → lower denoise_strength AGGRESSIVELY toward 0.5 (surviving source pixels carry
-  real texture that +steps cannot synthesize). Data point: dn0.7 lifted detail ~1 point (7→8); push
-  to 0.5 to lift it further. This is the strongest single lever for a weak detail score.
+- detail/texture weak → lower denoise_strength toward 0.5–0.7 (surviving source pixels carry real
+  texture that +steps cannot synthesize). NOTE: denoise 0.5–0.7 all PLATEAU at the same detail
+  (validated: dn0.5 and dn0.7 both scored detail 8 vs dn1.0's 7) — pick any value in that band; finer
+  gradation does NOT buy more detail. If detail is still weak inside that band, the lever is exhausted.
 - sharpness < 5 → lower denoise_strength by 0.1
 - artifacts < 5 → lower controlnet_strength by 0.2 OR set cnet_active_steps: 8
 - composition/pose < 5 → keep denoise low, ensure reference_image is set + controlnet_strength ≥ 0.5
-TRADE-OFF (validated dn0.7 run): lowering denoise preserves source clothing (detail↑) but COSTS style
-adherence (prompt_adherence 9→7). When pushing denoise hard for source fidelity, PAIR it with a
-style-reinforcement anchor ("...only the lighting and brushwork convert to oil-painting style") so the
-restyle stays readable — the dimension-aware gate keeps the source-fidelity fix DESPITE the style
-regression, because source fidelity is what the feedback asked for.
+TRADE-OFF (validated): lowering denoise preserves source clothing (detail↑) but COSTS style adherence
+(prompt_adherence↓). When pushing denoise for source fidelity, PAIR it with a style-reinforcement
+anchor ("...only the lighting and brushwork convert to oil-painting style") so the restyle stays
+readable — the dimension-aware gate keeps the source-fidelity fix DESPITE the style regression.
+LEVER CEILING: if a denoise 0.5–0.7 source-fidelity fix still doesn't beat baseline detail, the lever
+is EXHAUSTED — "preserve source garment + apply new style" are mutually exclusive on Z-Image via
+denoise. Do NOT propose a 4th denoise value. Instead strengthen prompt anchoring, or flag that a
+color-preserving ControlNet / clothing-region mask is needed (out of scope for parameter fixes).
 Each i2i fixSpec MUST include: label, rationale, input_image ("${i2iSourceImg}"), prompt (reuse the
 worst-scoring output's prompt, APPEND a source-fidelity anchor like "wearing the original <garment>
 from the source image, <garment> detail preserved", and a style anchor when pushing denoise hard), and
