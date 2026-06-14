@@ -19,8 +19,16 @@ export async function handleRunJob(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'action' or 'params'" }, { status: 400 });
   }
 
-  // Full command string, defaults to "image <action>" for backward compatibility
-  const command = body.command ?? `image ${action}`;
+  // Derive the command string server-side from the validated `action`.
+  // We deliberately ignore any client-supplied `body.command` to prevent a
+  // caller from routing to an arbitrary run.py subcommand (e.g. caption,
+  // convert, delete). The `action` is already validated against the
+  // COMMAND_SCHEMAS registry by validateParams() below, so it is guaranteed
+  // to be a known sub-command action when we reach spawn().
+  // Mapping: "video-<sub>" -> "video <sub>"; everything else -> "image <action>".
+  const command = action.startsWith("video-")
+    ? `video ${action.slice("video-".length)}`
+    : `image ${action}`;
 
   // Validate required params
   const errors = validateParams(action, params);

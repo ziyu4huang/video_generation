@@ -67,7 +67,26 @@ export class SubprocessManager {
 
   spawn(command: string, cliArgs: string[], meta?: { action?: string; params?: Record<string, any> }): string {
     const id = Bun.randomUUIDv7();
-    const parts = command.split(" ");
+    // Defense-in-depth against argv injection: command is a space-joined run.py
+    // invocation ("image t2i" | "video relay" | "check-model"). Reject any token
+    // that isn't a bare identifier so a stray space/shell metachar can't inject
+    // argv. Callers (jobs.ts/selftest.ts/model-check.ts) pass trusted server-
+    // derived commands; this guarantees that contract at the spawn boundary.
+    const parts = command.split(" ").map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0 || !parts.every((p) => /^[A-Za-z0-9_-]+$/.test(p))) {
+      const job: Job = {
+        id, command, args: [], status: "failed",
+        startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
+        exitCode: -1, outputFiles: [],
+        logs: [{ text: `[rejected: invalid command '${command}']`, stream: "stderr" }],
+        action: meta?.action, params: meta?.params,
+      };
+      this.jobs.set(id, job);
+      this.persistJobs();
+      this.broadcastLog(id, job.logs[0]!.text, "stderr");
+      this.broadcastStatus(job);
+      return id;
+    }
     const fullArgs = [RUN_PY, ...parts, ...cliArgs];
 
     const job: Job = {
@@ -88,11 +107,25 @@ export class SubprocessManager {
     const pythonBin =
       loadConfig().pythonPath?.trim() ||
       path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
-    const proc = Bun.spawn([pythonBin, ...fullArgs], {
-      stdout: "pipe",
-      stderr: "pipe",
-      env: { ...process.env },
-    });
+    // Wrap spawn so a synchronous failure (e.g. ENOENT on a missing pythonBin)
+    // surfaces to the job log + status instead of crashing the request handler.
+    let proc: any;
+    try {
+      proc = Bun.spawn([pythonBin, ...fullArgs], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env },
+      });
+    } catch (err: any) {
+      const msg = `[spawn failed: ${err?.message || err}]`;
+      job.logs.push({ text: msg, stream: "stderr" });
+      this.broadcastLog(id, msg, "stderr");
+      job.status = "failed";
+      job.exitCode = -1;
+      job.completedAt = new Date().toISOString();
+      this.broadcastStatus(job);
+      return id;
+    }
 
     job.pid = proc.pid;
 
@@ -150,7 +183,12 @@ export class SubprocessManager {
     proc.exited.then(async (code) => {
       await Promise.all([stdoutDone, stderrDone]);
       finalize(code === 0 ? "completed" : "failed", code);
-    }).catch(() => {
+    }).catch((err) => {
+      // Process exited with an error (e.g. signal, spawn-level failure) — surface
+      // the reason instead of silently marking failed.
+      const msg = `[process exited with error: ${err?.message || err}]`;
+      job.logs.push({ text: msg, stream: "stderr" });
+      this.broadcastLog(id, msg, "stderr");
       finalize("failed", -1);
     });
 
@@ -202,3 +240,17 @@ export class SubprocessManager {
 
 // Singleton
 export const subprocessManager = new SubprocessManager();
+
+// On graceful server shutdown (Ctrl-C / kill), terminate running run.py children
+// so they don't orphan and keep consuming GPU/CPU after the server is gone.
+// (loadAndRestoreJobs already marks them "failed" on next startup; this prevents
+// the orphan from running at all.)
+function killRunningChildren(): void {
+  for (const job of subprocessManager.listJobs()) {
+    if (job.status === "running" && job.pid) {
+      try { process.kill(job.pid, "SIGTERM"); } catch { /* already gone */ }
+    }
+  }
+}
+process.once("SIGINT", () => { killRunningChildren(); process.exit(0); });
+process.once("SIGTERM", () => { killRunningChildren(); process.exit(0); });

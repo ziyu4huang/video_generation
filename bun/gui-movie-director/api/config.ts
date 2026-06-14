@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { loadConfig, saveConfig, REPO_DIR } from "../lib/config";
+import { loadConfig, saveConfig, REPO_DIR, type AppConfig } from "../lib/config";
 
 /** Validate that a pythonPath looks like a real Python binary under an allowed directory. */
 function validatePythonPath(binPath: string): boolean {
@@ -29,14 +29,30 @@ export async function handlePutConfig(req: Request): Promise<Response> {
   try {
     const body = await req.json();
     const allowedKeys = ["outputDir", "modelsDir", "vlmApiUrl", "vlmModel", "pythonPath"];
-    const filtered: Record<string, unknown> = {};
+    // Validate every value up front: all config keys are strings, so reject
+    // anything else instead of casting an unvalidated Record<string, unknown>
+    // straight into AppConfig (the old `as any` path).
+    const filtered: Record<string, string> = {};
     for (const key of allowedKeys) {
-      if (key in body) filtered[key] = body[key];
+      if (!(key in body)) continue;
+      const v = body[key];
+      if (typeof v !== "string" || v.length === 0) {
+        return Response.json({ error: `${key} must be a non-empty string` }, { status: 400 });
+      }
+      filtered[key] = v;
     }
-    if (typeof filtered.pythonPath === "string" && !validatePythonPath(filtered.pythonPath)) {
+    if (filtered.pythonPath && !validatePythonPath(filtered.pythonPath)) {
       return Response.json({ error: "Invalid pythonPath" }, { status: 400 });
     }
-    saveConfig(filtered as any);
+    if (filtered.vlmApiUrl) {
+      try { new URL(filtered.vlmApiUrl); } catch {
+        return Response.json({ error: "Invalid vlmApiUrl" }, { status: 400 });
+      }
+    }
+    // Merge validated overrides onto the current config; saveConfig re-merges
+    // DEFAULTS. No unvalidated cast reaches AppConfig.
+    const merged: AppConfig = { ...loadConfig(), ...(filtered as Partial<AppConfig>) };
+    saveConfig(merged);
     return Response.json({ ok: true, config: loadConfig() });
   } catch (err) {
     return Response.json({ error: "Invalid config" }, { status: 400 });
