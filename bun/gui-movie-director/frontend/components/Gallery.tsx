@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import type { GalleryImage } from "../types";
 import { GalleryCard } from "./GalleryCard";
 import type { ViewMode } from "./GalleryCard";
+import { toast } from "../utils/toast";
 
 const GRID_COLS: Record<ViewMode, string> = {
   s:    "repeat(auto-fill, minmax(80px, 1fr))",
@@ -64,7 +65,7 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
         setPage(p);
       }
     } catch (err) {
-      console.error("Failed to load gallery:", err);
+      toast.error("Failed to load gallery");
     } finally {
       setLoading(false);
       setLoadingMore(false);

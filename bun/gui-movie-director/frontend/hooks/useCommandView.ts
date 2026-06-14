@@ -36,8 +36,8 @@ export function useCommandView(command?: string) {
     if (!job) return;
     try {
       await fetch(`/api/jobs/${job.id}`, { method: "DELETE" });
-    } catch (err) {
-      console.error("Failed to cancel job:", err);
+    } catch {
+      // Cancel failures are non-critical (DELETE is best-effort)
     }
   }, [job]);
 

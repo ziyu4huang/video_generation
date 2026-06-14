@@ -60,11 +60,26 @@ export async function handleGetLastJob(req: Request): Promise<Response> {
 }
 
 export async function handleDeleteJob(req: Request, id: string): Promise<Response> {
-  const ok = subprocessManager.killJob(id);
-  if (!ok) {
-    return Response.json({ error: "Job not found or not running" }, { status: 404 });
+  const job = subprocessManager.getJob(id);
+  if (!job) {
+    return Response.json({ error: "Job not found" }, { status: 404 });
   }
-  return Response.json({ ok: true });
+  // Dual-mode "dismiss this job":
+  //  - running  → cancel (terminate child, mark failed, KEEP in history with a
+  //               cancel marker). Preserves the existing cancel-flow behavior so
+  //               a cancelled run still leaves an audit record.
+  //  - finished → remove from history entirely.
+  // Without the finished branch, DELETE only ever cancelled running jobs and
+  // 404'd for completed/failed ones — so finished jobs were impossible to clear
+  // individually (only the bulk /api/jobs/all path worked).
+  if (job.status === "running") {
+    if (!subprocessManager.killJob(id)) {
+      return Response.json({ error: "Job not found or not running" }, { status: 404 });
+    }
+    return Response.json({ ok: true, cancelled: true });
+  }
+  subprocessManager.deleteJob(id);
+  return Response.json({ ok: true, deleted: true });
 }
 
 export async function handleClearJobs(req: Request): Promise<Response> {

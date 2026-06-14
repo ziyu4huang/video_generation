@@ -186,6 +186,10 @@ export class SubprocessManager {
       if (finalized) return;
       finalized = true;
       this.finalizers.delete(id);
+      // If the job was removed from the map (e.g. via deleteJob) between exit
+      // and this late finalize, don't re-broadcast status or re-persist an
+      // orphan job object.
+      if (!this.jobs.has(id)) return;
       job.status = status;
       job.exitCode = exitCode;
       job.completedAt = new Date().toISOString();
@@ -238,6 +242,23 @@ export class SubprocessManager {
     } catch {
       return false;
     }
+  }
+  /**
+   * Remove a job from history (used for finished jobs the user dismisses).
+   * Defensive: if the job is somehow still running, terminate its child first
+   * so we don't orphan a process; the finalize guard above makes any late
+   * proc.exited callback a no-op once the job is gone from the map.
+   */
+  deleteJob(id: string): boolean {
+    const job = this.jobs.get(id);
+    if (!job) return false;
+    if (job.status === "running" && job.pid) {
+      try { process.kill(job.pid, "SIGTERM"); } catch { /* already gone */ }
+    }
+    this.finalizers.delete(id);
+    this.jobs.delete(id);
+    this.persistJobs();
+    return true;
   }
   clearJobs(statuses: Job["status"][]): number {
     let count = 0;

@@ -5,6 +5,8 @@
   overflow: hidden;
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s;
+  content-visibility: auto;
+  contain-intrinsic-size: 240px;
 }
 
 .galleryCard:hover {
