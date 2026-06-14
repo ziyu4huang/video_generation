@@ -146,23 +146,28 @@ _STYLE_PROMPTS = {
         '"overall_quality": "..."}'
     ),
     "review": (
-        "You are a professional image quality evaluator reviewing a TEXT-TO-IMAGE output.\n\n"
+        "You are a STRICT image quality evaluator reviewing a TEXT-TO-IMAGE output.\n\n"
         "ORIGINAL PROMPT given to the generator:\n"
         "---\n"
         "{prompt}\n"
         "---\n\n"
-        "Evaluate how faithfully the generated image matches the ORIGINAL PROMPT above, "
-        "AND score general image quality.\n\n"
-        "Score these dimensions (1-10):\n"
+        "STEP 1 — ELEMENT CHECK (do this first; be literal and strict):\n"
+        "Split the prompt into its key elements: subject, clothing, pose, setting/background, "
+        "STYLE or MEDIUM (oil painting, watercolor, anime, 3D render, photograph, etc.), lighting, "
+        "color palette. For each element mark PRESENT or ABSENT in the image. "
+        "STYLE/MEDIUM is CRITICAL: if the prompt names a style/medium and the image is NOT in that "
+        "style (e.g. prompt 'oil painting' but image is a clean studio photo), mark it ABSENT.\n\n"
+        "STEP 2 — prompt_adherence is a DETERMINISTIC function of the element check, NOT a holistic "
+        "guess: adherence = round(10 x present_count / total_count), then if ANY style/medium "
+        "element is ABSENT, CAP adherence at 5. A matching subject/pose does NOT redeem a wrong "
+        "style — never score 8-10 when a named style/medium is absent.\n\n"
+        "STEP 3 — general quality dimensions (1-10):\n"
         "1. overall — overall image quality and aesthetic appeal\n"
         "2. detail — level of fine detail (textures, fabric, skin, hair)\n"
         "3. sharpness — image sharpness and clarity across the frame\n"
         "4. composition — framing, rule of thirds, visual balance\n"
-        "5. prompt_adherence — how faithfully the image matches the ORIGINAL PROMPT\n"
-        "6. artifacts — absence of rendering artifacts (INVERTED: 10 = no artifacts)\n\n"
-        "Also list:\n"
-        "- captured: elements from the prompt that are clearly present in the image\n"
-        "- missed: elements from the prompt that are absent or wrong\n\n"
+        "5. artifacts — absence of rendering artifacts (INVERTED: 10 = no artifacts)\n\n"
+        "List captured[] (PRESENT elements) and missed[] (ABSENT/wrong elements).\n\n"
         'Respond with ONLY a JSON object (no markdown fences):\n'
         '{{"overall": N, "detail": N, "sharpness": N, "composition": N, '
         '"prompt_adherence": N, "artifacts": N, '

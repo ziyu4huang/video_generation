@@ -670,7 +670,7 @@ STEPS:
 3. On error or missing line, set error to the stderr/stdout excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${totalFiles}, "error": "" }`,
-        { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+        { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
       )
     } else {
       htmlResult = { htmlPath: "", imageCount: totalFiles, error: "ab_manifest.json write failed (verified 0 bytes)" }
@@ -714,7 +714,7 @@ Return JSON:
   "imageCount": ${resolvedFiles.length},
   "error": ""
 }`,
-    { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+    { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
   )
 
   const reviewHtml = htmlResult?.htmlPath || ""
@@ -886,7 +886,7 @@ Return JSON:
   "runJsonPath": "/abs/path/img.run.json" or "",
   "error": ""
 }`,
-      { label: `generate-${idx}-${spec.type}`, phase: "Generate", schema: GEN_SCHEMA },
+      { label: `generate-${idx}-${spec.type}`, phase: "Generate", model: "haiku", schema: GEN_SCHEMA },
     )
     genResults.push(res)
     if (res?.status === "success") genCache[cmd] = res
@@ -1015,7 +1015,7 @@ Return flat JSON:
   "model": "<the VLM model name>",
   "error": ""
 }`,
-            { label: `caption-${idx}-${pngIdx}`, phase: "Review", schema: CAPTION_SCHEMA },
+            { label: `caption-${idx}-${pngIdx}`, phase: "Review", model: "haiku", schema: CAPTION_SCHEMA },
           )
         }),
       )
@@ -1062,7 +1062,7 @@ STEPS:
 3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences.
 On connection refused: return error="VLM unavailable".
 Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
-      { label: `${labelTag}-s0`, phase: phaseLabel, schema: CAPTION_SCHEMA },
+      { label: `${labelTag}-s0`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
     ).catch(() => null)
   }
   const rawSamples = await parallel(
@@ -1077,7 +1077,7 @@ STEPS:
 3. Parse outer JSON; the "caption" field is a nested JSON STRING — parse again. Strip markdown fences / prose, extract the first {...} block.
 On connection refused: return error="VLM unavailable — LM Studio not running at localhost:1234".
 Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharpness": <1-10>, "composition": <1-10>, "prompt_adherence": <1-10>, "artifacts": <1-10>, "captured": [...], "missed": [...], "issues": [...], "strengths": [...], "summary": "...", "style": "...", "model": "...", "error": "" }`,
-        { label: `${labelTag}-s${i}`, phase: phaseLabel, schema: CAPTION_SCHEMA },
+        { label: `${labelTag}-s${i}`, phase: phaseLabel, model: "haiku", schema: CAPTION_SCHEMA },
       ).catch(() => null),
     ),
   )
@@ -1341,7 +1341,7 @@ ${fixParse}
 3. Return status and paths.
 
 Return JSON: { "status": "success" or "error", "outputPngs": [...], "runJsonPath": "...", "error": "" }`,
-          { label: `fix-gen-${fi}-${spec.label}`, phase: "Self-Fix", schema: GEN_SCHEMA },
+          { label: `fix-gen-${fi}-${spec.label}`, phase: "Self-Fix", model: "haiku", schema: GEN_SCHEMA },
         )
 
         const fixPngs = fixGen?.outputPngs || []
@@ -1528,7 +1528,7 @@ STEPS:
 3. On error or missing line, set error to the excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captionFiles.length}, "error": "" }`,
-      { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+      { label: "review-html", phase: "Review HTML", model: "haiku", schema: HTML_SCHEMA },
     )
   } else {
     htmlResult = { htmlPath: "", imageCount: captionFiles.length, error: "ab_manifest.json write failed (verified 0 bytes)" }
