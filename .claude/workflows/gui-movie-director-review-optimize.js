@@ -596,38 +596,53 @@ if (shouldSkipScan && priorHistory?.scan) {
 } else {
   phase("Scan")
 
-  // Build the file list for the scan agent.
-  // Scope is INCREMENTAL by default: review only files changed since the last run
-  // (diff vs the prior run's HEAD, persisted as git.headBefore). This keeps the
-  // self-improve loop CHEAPER over time, not heavier — medium/medium runs no longer
-  // re-scan the whole app every time. effort:"high" opts into a full deep-dive scan
-  // for periodic exhaustive review. First run (no prior history) falls back to HEAD~5.
-  const prevHead = (priorHistory?.git?.headBefore || "").trim()
-  const wantFullScan = effort === "high"
-  const scanScope = targetFiles
-    ? `Only scan these specific files (relative to ${GUI_DIR}):\n${targetFiles.map((f) => `- ${f}`).join("\n")}`
-    : wantFullScan
-      ? `Deep-dive run: scan ALL .ts and .tsx files under ${GUI_DIR} (excluding node_modules and .playwright-cli).`
-      : prevHead
-        ? `Incremental self-improve (prior run HEAD ${prevHead.slice(0, 8)}): Run Bash("cd '${GUI_DIR}' && git diff --name-only ${prevHead} -- 'api/' 'lib/' 'server.ts'"). Inventory ONLY those changed files. If the diff is empty, fall back to all .ts/.tsx files.`
-        : `First run (no prior history): Run Bash("cd '${GUI_DIR}' && git diff --name-only HEAD~5 -- 'api/' 'lib/' 'server.ts'"). Inventory the changed files. If no git diff output, fall back to all .ts/.tsx files.`
+  // ── Deterministic incremental scope (Bug 4 real fix) ────────────────────────
+  // The old approach embedded a `git diff` instruction in scanScope text and
+  // HOPED the haiku scan agent would honor it — but the scan agent's step 1 was
+  // a blanket `find`, so it scanned ALL files every run (runs never got cheaper;
+  // this is the runtime-cost root cause). We now compute the changed-files list
+  // UP FRONT via one direct bash agent (self-discovers prevHead from history +
+  // runs the diff), then the scan agent inventories ONLY those. Empty list ⇒
+  // graceful full-scan fallback (no worse than before).
+  let incrementalFiles = []
+  if (effort !== "high" && !targetFiles) {
+    const scopeRes = await agent(
+      `Determine the incremental scan scope. Run this Bash command VERBATIM (do not modify or split it):
+
+Bash("cd '${PROJECT_ROOT}' && PREV=$(for f in $(ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection.json | head -10); do h=$(bun -e 'try{process.stdout.write(String(((require(process.argv[1]).result||{}).git||{}).headBefore||""))}catch(e){}' "$f" 2>/dev/null); if [ -n "$h" ]; then printf '%s' "$h"; break; fi; done); if [ -n "$PREV" ]; then echo PREV=$PREV; git diff --name-only $PREV -- 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' 'bun/gui-movie-director/server.ts' 'bun/gui-movie-director/frontend/' 2>/dev/null | sed 's|^bun/gui-movie-director/||' | grep -E '\\.(ts|tsx)$' | sort -u; else echo PREV=none; fi")
+
+The output is either "PREV=none" (no prior run had a headBefore) OR a "PREV=<sha>" line followed by zero-or-more changed file paths (relative to ${GUI_DIR}).
+Return { prevHead: <the sha string, or "">, changedFiles: <array of the changed file paths after the PREV= line; empty if PREV=none or no paths> }.`,
+      { label: "scope-resolve", phase: "Scan", model: "haiku", schema: { type: "object", properties: { prevHead: { type: "string" }, changedFiles: { type: "array", items: { type: "string" } } }, required: ["prevHead", "changedFiles"] } },
+    )
+    incrementalFiles = (scopeRes?.changedFiles || []).filter((f) => f && !f.startsWith("PREV="))
+    if (scopeRes?.prevHead) log(`Incremental scope: prevHead ${String(scopeRes.prevHead).slice(0, 8)} → ${incrementalFiles.length} changed file(s)`)
+    if (incrementalFiles.length === 0) log(`Incremental scope: no changed files (first run / no prior headBefore / empty diff) — full scan`)
+  }
+
+  const wantFullScan = effort === "high" || (incrementalFiles.length === 0 && !targetFiles)
+  const explicitList = targetFiles || (incrementalFiles.length > 0 ? incrementalFiles : null)
 
   const scanResult = await agent(
     `Inventory TypeScript source files in the Bun GUI Movie Director app.
 
-  ${scanScope}
+${explicitList
+  ? `Scan ONLY these specific files (relative to ${GUI_DIR}). Do NOT run a blanket find — inventory just the listed files:
+${explicitList.map((f) => `- ${f}`).join("\n")}
 
-  For each file:
-  1. Run: Bash("find '${GUI_DIR}' -name '*.ts' -o -name '*.tsx' | grep -v node_modules | grep -v .playwright-cli | sort")
-  2. For each file found, get its line count: Bash("wc -l <file>")
-  3. Classify the layer based on path:
-     - "server" for server.ts
-     - "api" for api/*.ts
-     - "lib" for lib/*.ts and lib/schemas/*.ts
-     - "frontend" for frontend/**/*.ts and frontend/**/*.tsx
-  4. Skip node_modules, .playwright-cli, and .d.ts files
+For each listed file: Bash("wc -l '${GUI_DIR}/<file>'") for its line count. Skip any that don't exist on disk.`
+  : `Deep-dive / first-run: scan ALL .ts and .tsx files under ${GUI_DIR}.
+1. Run: Bash("find '${GUI_DIR}' -name '*.ts' -o -name '*.tsx' | grep -v node_modules | grep -v .playwright-cli | sort")
+2. For each file found, get its line count: Bash("wc -l <file>")`}
 
-  Return the complete file inventory as structured JSON.`,
+Classify each file's layer by path:
+- "server" for server.ts
+- "api" for api/*.ts
+- "lib" for lib/*.ts and lib/schemas/*.ts
+- "frontend" for frontend/**/*.ts and frontend/**/*.tsx
+Skip node_modules, .playwright-cli, and .d.ts files.
+
+Return the file inventory as structured JSON.`,
     { label: "scan-files", phase: "Scan", model: "haiku", schema: SCAN_SCHEMA },
   )
 
