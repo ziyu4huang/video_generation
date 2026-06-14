@@ -43,10 +43,10 @@
 export const meta = {
   name: "gui-movie-director-review-optimize",
   description: "Multi-dimensional code review + adversarial verification + auto-fix for the GUI Movie Director Bun app",
-  whenToUse: "Before committing to gui-movie-director/, after adding new views/APIs, or periodic code health review",
+  whenToUse: "Self-improve loop for gui-movie-director code health. Scope is INCREMENTAL by default (reviews only files changed since the prior run via git.headBefore — gets cheaper over time, not heavier). Two tiers: (routine scan) effort:'low' — review-only scan of changed files, ~7 agents, no fix, run often to catch regressions; (fix) effort:'medium' [default] — same incremental scope + adversarial-verify + auto-fix high/critical findings with git-stash rollback. effort:'high' = full deep-dive scan of ALL files + fix everything (periodic, e.g. monthly). Narrow further with args.files:[...] or focus:'security'.",
   phases: [
     { title: "Resolve",            detail: "Detect project root, normalize args, check for prior run to resume" },
-    { title: "Scan",               detail: "File inventory, line counts, layer classification" },
+    { title: "Scan",               detail: "File inventory — INCREMENTAL: changed files since prior run's HEAD (high effort = all files)" },
     { title: "Review",             detail: "Parallel agents: correctness, type safety, error handling, code quality, security" },
     { title: "Adversarial Verify", detail: "Skeptical agents refute findings, filter false positives" },
     { title: "Checkpoint",         detail: "Git stash backup before applying fixes (enables rollback)" },
@@ -536,12 +536,21 @@ if (shouldSkipScan && priorHistory?.scan) {
 } else {
   phase("Scan")
 
-  // Build the file list for the scan agent
+  // Build the file list for the scan agent.
+  // Scope is INCREMENTAL by default: review only files changed since the last run
+  // (diff vs the prior run's HEAD, persisted as git.headBefore). This keeps the
+  // self-improve loop CHEAPER over time, not heavier — medium/medium runs no longer
+  // re-scan the whole app every time. effort:"high" opts into a full deep-dive scan
+  // for periodic exhaustive review. First run (no prior history) falls back to HEAD~5.
+  const prevHead = (priorHistory?.git?.headBefore || "").trim()
+  const wantFullScan = effort === "high"
   const scanScope = targetFiles
     ? `Only scan these specific files (relative to ${GUI_DIR}):\n${targetFiles.map((f) => `- ${f}`).join("\n")}`
-    : effort === "low"
-      ? `First run: Bash("cd '${GUI_DIR}' && git diff --name-only HEAD~5 -- 'api/' 'lib/' 'server.ts'")\nOnly inventory the changed files from that output. If no git diff output, fall back to all .ts/.tsx files.`
-      : `Scan ALL .ts and .tsx files under ${GUI_DIR} (excluding node_modules and .playwright-cli).`
+    : wantFullScan
+      ? `Deep-dive run: scan ALL .ts and .tsx files under ${GUI_DIR} (excluding node_modules and .playwright-cli).`
+      : prevHead
+        ? `Incremental self-improve (prior run HEAD ${prevHead.slice(0, 8)}): Run Bash("cd '${GUI_DIR}' && git diff --name-only ${prevHead} -- 'api/' 'lib/' 'server.ts'"). Inventory ONLY those changed files. If the diff is empty, fall back to all .ts/.tsx files.`
+        : `First run (no prior history): Run Bash("cd '${GUI_DIR}' && git diff --name-only HEAD~5 -- 'api/' 'lib/' 'server.ts'"). Inventory the changed files. If no git diff output, fall back to all .ts/.tsx files.`
 
   const scanResult = await agent(
     `Inventory TypeScript source files in the Bun GUI Movie Director app.
