@@ -144,6 +144,32 @@ Return { updated: true }.`,
   )
 }
 
+// ── reliableWrite — write a JSON artifact with verify + heredoc fallback ──────
+// Extracted from saveHistory's proven persist pattern (Write tool → test -s verify
+// → quoted-heredoc fallback). Used for ab_manifest.json so a haiku agent fumbling a
+// bare heredoc can't silently lose the file (prior failure mode: reported success,
+// wrote nothing). Modeled on gui-movie-director-review-optimize.js commit 0444284.
+async function reliableWrite(targetPath, jsonStr, label) {
+  const dir = targetPath.slice(0, targetPath.lastIndexOf("/"))
+  const result = await agent(
+    `Write a JSON file to disk RELIABLY.
+1. Bash("mkdir -p '${dir}'")
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${jsonStr}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'WFWITE'
+${jsonStr}
+WFWITE")
+5. Bash("wc -c < '${targetPath}'")
+Return { written: true, bytes: <the number printed by wc> }.`,
+    { label: label || "reliable-write", phase: "Review HTML", model: "haiku" },
+  )
+  const bytes = Number(result?.bytes) || 0
+  log(bytes > 0 ? `reliableWrite: ${bytes} bytes → ${targetPath}` : `WARNING: reliableWrite verification FAILED (0 bytes) → ${targetPath}`)
+  return bytes
+}
+
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:  ${PYTHON}`)
 log(`  RUN_PY:  ${RUN_PY}`)
@@ -174,6 +200,12 @@ function resolveJsonPath(p) {
 // caption.py strips the image extension (os.path.splitext) → img.png writes img.caption.json
 function captionPathFor(pngPath) {
   return pngPath.replace(/\.[^.\/]+$/, "") + ".caption.json"
+}
+
+// manifest.json sibling: img.png → img.manifest.json (per-RUN; same splitext pattern).
+// Used to read the runtime events trace (models/LoRA/denoise) for the review HTML.
+function manifestPathFor(pngPath) {
+  return pngPath.replace(/\.[^.\/]+$/, "") + ".manifest.json"
 }
 
 function baseName(p) {
@@ -477,30 +509,58 @@ if (mode === "finalize") {
       variants: s.variants || [],
       files: (s.files || []).map(resolveJsonPath),
     }))
-    const manifestJson = JSON.stringify({ lang: wfLang, sets }, null, 2)
+    // ── Enrich manifest with per-image reproducibility (events/models/argv from sibling manifests) ──
+    const reproMap = {}
+    const finalizeCapFiles = sets.flatMap((s) => s.files)
+    for (const capPath of finalizeCapFiles) {
+      const base = capPath.replace(/\.caption\.json$/, "")
+      const manifestSibling = `${base}.manifest.json`
+      const runSibling = `${base}.run.json`
+      const rep = await agent(
+        `Read a generation manifest.json + run.json, extract a COMPACT reproducibility summary.
+MANIFEST: ${manifestSibling}
+RUN.JSON: ${runSibling}
+STEPS:
+1. Bash("cat '${manifestSibling}' 2>/dev/null || echo MISSING") — if MISSING, return { reproducibility: null }.
+2. Parse the manifest JSON. From the "events" array extract:
+   - models: for each event where event=="model_loaded" AND target in ["transformer","text_encoder","vae"], format "<target>:<detail.dir> (<detail.quant or detail.backend>)"
+   - lora: find the event where event=="lora_applied"; if present { name: target, scale: detail.user_scale, applied_count: detail.applied_count }, else null
+   - denoise: find the event where event=="denoise_config"; { steps: detail.steps, img2img: detail.img2img, scheduler: detail.scheduler }
+3. Bash("cat '${runSibling}' 2>/dev/null || echo MISSING") — if present, extract seed (number) and argv (string array).
+4. Build { models: [...], lora: {...}|null, denoise: {...}, seed: <number>|null, argv: [...] }
+Return JSON: { reproducibility: <that object or null> }.`,
+        { label: `repro-${baseName(capPath)}`, phase: "Review HTML", model: "haiku",
+          schema: { type: "object", properties: { reproducibility: { type: ["object", "null"] } }, required: ["reproducibility"] } },
+      )
+      if (rep?.reproducibility) reproMap[baseName(capPath)] = rep.reproducibility
+    }
+    log(`Reproducibility: enriched ${Object.keys(reproMap).length}/${finalizeCapFiles.length} image(s).`)
+
+    const manifestJson = JSON.stringify({ lang: wfLang, sets, reproducibility: reproMap }, null, 2)
     const totalFiles = sets.reduce((n, s) => n + s.files.length, 0)
     log(`Building MULTI-SET review HTML — ${sets.length} set(s), ${totalFiles} image(s), lang=${wfLang}...`)
 
-    const htmlResult = await agent(
-      `Write a multi-set A/B review manifest JSON to disk, then build the review HTML.
+    // ── reliableWrite the manifest (verify + heredoc fallback), then build HTML in a focused agent ──
+    const manifestPath = `${OUT_DIR}/ab_manifest.json`
+    const wfBytes = await reliableWrite(manifestPath, manifestJson, "write-ab-manifest-finalize")
+    let htmlResult = null
+    if (wfBytes > 0) {
+      htmlResult = await agent(
+        `Build the multi-set A/B review HTML from a manifest JSON already on disk.
 
-MANIFEST CONTENT (write VERBATIM — exactly this JSON, no changes):
-${manifestJson}
+MANIFEST: ${manifestPath}
 
 STEPS:
-1. Write the manifest verbatim to ${OUT_DIR}/ab_manifest.json. A quoted heredoc is safest
-   (it disables shell expansion). Verify by reading it back:
-   Bash("cat > '${OUT_DIR}/ab_manifest.json' <<'MANIFEST_EOF'\n${manifestJson}\nMANIFEST_EOF")
-   then Bash("cat '${OUT_DIR}/ab_manifest.json'") to confirm it matches.
-2. Build the HTML:
-   Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${OUT_DIR}/ab_manifest.json' 2>&1", timeout=120000)
-3. Parse stdout for a line: Review HTML: /abs/path/review_*.html
-   Extract the absolute path after "Review HTML: ".
-4. On error or missing line, set error to the stderr/stdout excerpt.
+1. Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${manifestPath}' 2>&1", timeout=120000)
+2. Parse stdout for a line: Review HTML: /abs/path/review_*.html — extract the absolute path after "Review HTML: ".
+3. On error or missing line, set error to the stderr/stdout excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${totalFiles}, "error": "" }`,
-      { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
-    )
+        { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+      )
+    } else {
+      htmlResult = { htmlPath: "", imageCount: totalFiles, error: "ab_manifest.json write failed (verified 0 bytes)" }
+    }
 
     const reviewHtml = htmlResult?.htmlPath || ""
     log(htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : `Review HTML: ${reviewHtml}`)
@@ -862,6 +922,12 @@ if (autoFix && vlmAvailable && mode !== "finalize") {
   if (worstCaptions.length > 0 && bestScore < autoFixThreshold) {
     phase("Self-Fix")
     log(`Self-Fix triggered: best overall=${bestScore.toFixed(1)} < threshold=${autoFixThreshold}. Analyzing ${worstCaptions.length} under-threshold output(s)...`)
+    // ── Score baseline for regression gating ──
+    // A fix output is KEPT only if it beats this baseline; a fix that regresses (or
+    // merely ties) is dropped so self-fix can never make the review set worse. The
+    // original higher-scoring outputs remain in allResults/captionFiles untouched.
+    const globalBaseline = bestScore
+    log(`Self-Fix gate active: fix must beat baseline ${globalBaseline.toFixed(1)} to be kept (strict >; ties dropped).`)
 
     const FIX_SCHEMA = {
       type: "object",
@@ -979,9 +1045,18 @@ Return: { "imagePath": "${pngPath}", "overall": <1-10>, "detail": <1-10>, "sharp
         )
 
         const validScores = fixScores.filter(Boolean)
-        fixCaptions.push(...validScores)
         const bestFix = validScores.reduce((b, c) => Math.max(b, c.overall || 0), 0)
-        log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)}`)
+        // ── Score-gate: keep fix outputs only if they BEAT the baseline ──
+        // Self-fix re-generates with tweaked prompt/seed/steps; the output is a NEW
+        // image, so the honest bar is "did it beat the best we already have?". A fix
+        // that can't adds noise to the review HTML — drop it, keep originals untouched.
+        const passed = bestFix > globalBaseline
+        if (passed) {
+          fixCaptions.push(...validScores)
+          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)} > baseline ${globalBaseline.toFixed(1)} ✓ KEPT`)
+        } else {
+          log(`[Fix ${fi + 1}/${fixSpecs.length}] "${spec.label}" → best overall=${bestFix.toFixed(1)} <= baseline ${globalBaseline.toFixed(1)} ✗ REGRESSED — dropping fix output (originals kept)`)
+        }
       } catch (e) {
         log(`[Fix ${fi + 1}] Agent failed: ${e?.message || e}`)
       }
@@ -1083,27 +1158,55 @@ const noHtml = isObj(resolvedArgs) && resolvedArgs.noHtml === true
 if (captionFiles.length > 0 && !noHtml) {
   phase("Review HTML")
   const setsWithGuide = captionSets.map((s) => ({ ...s, guide: guideFor(s, wfLang) }))
-  const manifestJson = JSON.stringify({ lang: wfLang, sets: setsWithGuide }, null, 2)
-  log(`Building review HTML — ${captionSets.length} set(s), ${captionFiles.length} image(s), lang=${wfLang}...`)
-  const htmlResult = await agent(
-    `Write a multi-set A/B review manifest JSON to disk, then build the review HTML.
+  // ── Enrich manifest with per-image reproducibility (events/models/argv from sibling manifests) ──
+  const reproMap = {}
+  for (const capPath of captionFiles) {
+    const base = capPath.replace(/\.caption\.json$/, "")
+    const manifestSibling = `${base}.manifest.json`
+    const runSibling = `${base}.run.json`
+    const rep = await agent(
+      `Read a generation manifest.json + run.json, extract a COMPACT reproducibility summary.
+MANIFEST: ${manifestSibling}
+RUN.JSON: ${runSibling}
+STEPS:
+1. Bash("cat '${manifestSibling}' 2>/dev/null || echo MISSING") — if MISSING, return { reproducibility: null }.
+2. Parse the manifest JSON. From the "events" array extract:
+   - models: for each event where event=="model_loaded" AND target in ["transformer","text_encoder","vae"], format "<target>:<detail.dir> (<detail.quant or detail.backend>)"
+   - lora: find the event where event=="lora_applied"; if present { name: target, scale: detail.user_scale, applied_count: detail.applied_count }, else null
+   - denoise: find the event where event=="denoise_config"; { steps: detail.steps, img2img: detail.img2img, scheduler: detail.scheduler }
+3. Bash("cat '${runSibling}' 2>/dev/null || echo MISSING") — if present, extract seed (number) and argv (string array).
+4. Build { models: [...], lora: {...}|null, denoise: {...}, seed: <number>|null, argv: [...] }
+Return JSON: { reproducibility: <that object or null> }.`,
+      { label: `repro-${baseName(capPath)}`, phase: "Review HTML", model: "haiku",
+        schema: { type: "object", properties: { reproducibility: { type: ["object", "null"] } }, required: ["reproducibility"] } },
+    )
+    if (rep?.reproducibility) reproMap[baseName(capPath)] = rep.reproducibility
+  }
+  log(`Reproducibility: enriched ${Object.keys(reproMap).length}/${captionFiles.length} image(s).`)
 
-MANIFEST CONTENT (write VERBATIM — exactly this JSON, no changes):
-${manifestJson}
+  const manifestJson = JSON.stringify({ lang: wfLang, sets: setsWithGuide, reproducibility: reproMap }, null, 2)
+  log(`Building review HTML — ${captionSets.length} set(s), ${captionFiles.length} image(s), lang=${wfLang}...`)
+  // ── reliableWrite the manifest (verify + heredoc fallback), then build HTML in a focused agent ──
+  const manifestPath = `${OUT_DIR}/ab_manifest.json`
+  const wfBytes = await reliableWrite(manifestPath, manifestJson, "write-ab-manifest-gen")
+  let htmlResult = null
+  if (wfBytes > 0) {
+    htmlResult = await agent(
+      `Build the multi-set A/B review HTML from a manifest JSON already on disk.
+
+MANIFEST: ${manifestPath}
 
 STEPS:
-1. Write the manifest verbatim to ${OUT_DIR}/ab_manifest.json (a quoted heredoc disables shell
-   expansion). Verify by reading it back:
-   Bash("cat > '${OUT_DIR}/ab_manifest.json' <<'MANIFEST_EOF'\n${manifestJson}\nMANIFEST_EOF")
-   then Bash("cat '${OUT_DIR}/ab_manifest.json'") to confirm it matches.
-2. Build the HTML:
-   Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${OUT_DIR}/ab_manifest.json' 2>&1", timeout=120000)
-3. Parse stdout for: Review HTML: /abs/path/review_*.html — extract the absolute path.
-4. On error or missing line, set error to the excerpt.
+1. Bash("${PYTHON} ${RUN_PY} caption --ab-manifest '${manifestPath}' 2>&1", timeout=120000)
+2. Parse stdout for: Review HTML: /abs/path/review_*.html — extract the absolute path.
+3. On error or missing line, set error to the excerpt.
 
 Return JSON: { "htmlPath": "/abs/path/review.html" or "", "imageCount": ${captionFiles.length}, "error": "" }`,
-    { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
-  )
+      { label: "review-html", phase: "Review HTML", schema: HTML_SCHEMA },
+    )
+  } else {
+    htmlResult = { htmlPath: "", imageCount: captionFiles.length, error: "ab_manifest.json write failed (verified 0 bytes)" }
+  }
   reviewHtml = htmlResult?.htmlPath || ""
   log(reviewHtml ? `Review HTML: ${reviewHtml}` : (htmlResult?.error ? `Review HTML FAILED: ${htmlResult.error}` : "Review HTML build failed."))
   markPhase("reviewHtml", reviewHtml ? "completed" : "skipped")
