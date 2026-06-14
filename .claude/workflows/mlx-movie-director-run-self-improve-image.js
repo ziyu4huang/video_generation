@@ -1164,6 +1164,10 @@ ${fixRules}
    judges the fix on THIS dimension (clothing/texture-fidelity fix -> "detail"; pose/structure fix
    -> "composition"; prompt/keyword fix -> "prompt_adherence" for t2i; global quality fix ->
    "overall"). This prevents targeted fixes from being dropped by a flat overall score.
+   Pick a dimension with HEADROOM (its baseline subscore is below ~9). Do NOT target a dimension
+   already at 9–10: the gate is strict > (a 9 needs 10 to pass, which is near-impossible), so a fix
+   aimed there is almost always dropped and the fix slot is wasted. The weakest subscore is usually
+   the right target.
 
 Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
       { label: "fix-analysis", phase: "Self-Fix", model: "sonnet", schema: FIX_SCHEMA },
