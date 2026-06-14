@@ -268,22 +268,35 @@ const FIX_RESULT_SCHEMA = {
 const CHECKPOINT_SCHEMA = {
   type: "object",
   properties: {
-    stashCreated: { type: "boolean" },
-    stashRef:     { type: "string" },
-    headSha:      { type: "string" },
-    dirtyBefore:  { type: "array", items: { type: "string" } },
+    headSha:     { type: "string" },
+    treeDirty:   { type: "boolean" },
+    dirtyFiles:  { type: "array", items: { type: "string" } },
   },
-  required: ["stashCreated", "headSha"],
+  required: ["headSha", "treeDirty"],
 }
 
+// bun test result (pre/post fix) for the regression delta gate
+const TEST_RESULT_SCHEMA = {
+  type: "object",
+  properties: {
+    passCount:    { type: "number" },
+    failCount:    { type: "number" },
+    failingTests: { type: "array", items: { type: "string" } },
+    ranOk:        { type: "boolean" },
+  },
+  required: ["passCount", "failCount", "failingTests"],
+}
+
+// Revert result — replaces the old stash-pop Restore. reverted = files reverted
+// via git checkout/rm; skippedConcurrent = files left alone (user edited mid-run)
 const RESTORE_SCHEMA = {
   type: "object",
   properties: {
-    restored:      { type: "boolean" },
-    method:        { type: "string", enum: ["stash-pop", "checkout", "none"] },
-    filesReverted: { type: "array", items: { type: "string" } },
+    reverted:          { type: "array", items: { type: "string" } },
+    skippedConcurrent: { type: "array", items: { type: "string" } },
+    method:            { type: "string", enum: ["checkout", "rm", "mixed", "none"] },
   },
-  required: ["restored", "method"],
+  required: ["reverted", "skippedConcurrent"],
 }
 
 const RESUME_CHECK_SCHEMA = {
@@ -383,6 +396,32 @@ Return { updated: true }.`,
   )
 }
 
+// ── reliableWrite — write a JSON artifact with verify + heredoc fallback ──
+// Extracted from saveHistory's proven persist pattern (Write tool → test -s
+// verify → quoted-heredoc fallback). Used for interrupt-safe findings dumps so
+// a haiku agent fumbling a bare heredoc (the Bug 3 failure mode — the agent
+// reported success but never wrote the file) can't silently lose the artifact.
+async function reliableWrite(targetPath, jsonStr, label) {
+  const dir = targetPath.slice(0, targetPath.lastIndexOf("/"))
+  const result = await agent(
+    `Write a JSON file to disk RELIABLY.
+1. Bash("mkdir -p '${dir}'")
+2. Write the file with the Write tool: file_path='${targetPath}', content is the JSON below — paste it VERBATIM, do not summarize or truncate:
+${jsonStr}
+3. Verify it landed: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If step 3 printed MISSING, rewrite via a quoted heredoc (no expansion):
+   Bash("cat > '${targetPath}' <<'WFWRITE'
+${jsonStr}
+WFWRITE")
+5. Bash("wc -c < '${targetPath}'")
+Return { written: true, bytes: <the number printed by wc> }.`,
+    { label: label || "reliable-write", phase: "Review", model: "haiku" },
+  )
+  const bytes = Number(result?.bytes) || 0
+  log(bytes > 0 ? `Wrote ${bytes} bytes → ${targetPath}` : `WARNING: write verification FAILED (0 bytes) → ${targetPath}`)
+  return bytes
+}
+
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  GUI_DIR: ${GUI_DIR}`)
 log(`  HISTORY_DIR: ${HISTORY_DIR}`)
@@ -456,6 +495,27 @@ if (resumeMode === "fresh") {
       }
     } else {
       log("Resume: no prior history found — starting fresh.")
+    }
+  }
+
+  // ── Incremental scope fallback (Bug 4) ─────────────────────────────────────
+  // The resume-check / load-prior haiku agents above are nondeterministic: they
+  // can return action:"fresh" or fail to extract result.git.headBefore, leaving
+  // priorHistory empty → the Scan phase falls back to a FULL scan (expensive,
+  // noisy: 126 files vs a handful). This scans the history dir directly for the
+  // most-recent run that DID persist git.headBefore, sidestepping the agent
+  // classification entirely.
+  if (resumeMode !== "fresh" && !(priorHistory?.git?.headBefore || "").trim()) {
+    const scopeFallback = await agent(
+      `Find the most recent prior run that persisted a non-empty result.git.headBefore (used for incremental scoping).
+1. Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -5")
+2. For each file (newest first), Bash("cat <file>") and check whether its "result.git.headBefore" field is a non-empty string.
+3. Return the FIRST (newest) one that has it as: { found: true, runId: <the file's run_id>, headBefore: <the sha>, result: <the whole result object> }. If none of the 5 have it, return { found: false }.`,
+      { label: "scope-fallback", phase: "Resolve", model: "haiku" },
+    )
+    if (scopeFallback?.found && scopeFallback.headBefore) {
+      priorHistory = scopeFallback.result || priorHistory
+      log(`Incremental scope: recovered headBefore ${scopeFallback.headBefore.slice(0, 8)} from prior run ${scopeFallback.runId} (history-scan fallback)`)
     }
   }
 
@@ -816,6 +876,18 @@ if (activeFindings.length === 0 && suppressedFromPrior.length === 0) {
 
 markPhase("review", "completed")
 
+// ── Durable findings dump (interrupt-safe) ───────────────────────────────────
+// Write RAW activeFindings NOW (right after Review), unconditionally — so a run
+// killed during Adversarial/Checkpoint/Fix, OR a review-only (low-effort) run,
+// still yields a consumable findings file. The final <RUN_ID>.json (Persist)
+// holds the adversarially-verified set; this early dump is the safety net.
+// reliableWrite (Write tool + verify + heredoc fallback) replaces the bare
+// heredoc-via-haiku that nondeterministically failed to land the file (Bug 3).
+{
+  const dumpJson = JSON.stringify({ runId: RUN_ID, writtenAt: RUN_TIMESTAMP, phase: "post-review-raw", findingCount: activeFindings.length, findings: activeFindings })
+  await reliableWrite(`${HISTORY_DIR}/${RUN_ID}.findings.json`, dumpJson, "dump-findings")
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 3: Adversarial Verify — skeptical agents refute findings
 // ══════════════════════════════════════════════════════════════════════════════
@@ -936,116 +1008,127 @@ const rejectedByDimension = rejectedFindings.reduce((acc, f) => {
 
 markPhase("adversarialVerify", "completed")
 
-// ── Durable findings dump (interrupt-safe) ───────────────────────────────────
-// Write verified findings NOW so a run killed during Checkpoint/Fix — or a
-// review-only (low-effort) run — still yields a consumable findings file. The
-// full <RUN_ID>.json is still written at the end (Persist phase).
-if (verifiedFindings.length > 0) {
-  const dumpJson = JSON.stringify({ runId: RUN_ID, writtenAt: RUN_TIMESTAMP, phase: "post-verify", findingCount: verifiedFindings.length, findings: verifiedFindings })
-  await agent(`Run this Bash command exactly — it writes a compact one-line JSON via a quoted heredoc (do not modify the JSON):
-mkdir -p '${HISTORY_DIR}' && cat > '${HISTORY_DIR}/${RUN_ID}.findings.json' <<'WFDUMP'
-${dumpJson}
-WFDUMP
-Return { "written": true }.`,
-    { label: "dump-findings", phase: "Adversarial Verify", model: "haiku",
-      schema: { type: "object", properties: { written: { type: "boolean" } }, required: ["written"] } })
-  log(`Findings dumped (interrupt-safe): ${HISTORY_DIR}/${RUN_ID}.findings.json (${verifiedFindings.length} finding(s))`)
-} else {
-  log("No verified findings to dump.")
-}
+// (Findings dump moved earlier — right after Review, via reliableWrite. The
+//  old post-verify dump used a bare heredoc-via-haiku that nondeterministically
+//  failed to land the file; the early dump + the final <RUN_ID>.json cover it.)
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 4: Checkpoint — git stash backup before fixes
 // ══════════════════════════════════════════════════════════════════════════════
 
-let checkpointResult = { stashCreated: false, stashRef: "", headSha: "", dirtyBefore: [] }
-let fixResults = { fixes: [], filesChanged: [] }
-let reVerifyFindings = []
-let restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
+let checkpointResult = { headSha: "", treeDirty: false, dirtyFiles: [] }
+let fixResults = { fixes: [], filesChanged: [], testBaseline: null, testPostFix: null, tscDelta: null }
+let reVerifyFindings = []   // repurposed: list of newly-failing tests (for history.regressions)
+let restoreResult = { triggered: false, reason: null, reverted: [], skippedConcurrent: [], newFailures: [], method: "none" }
 
-if (doFix && verifiedFindings.length > 0) {
+// Gate (Bug 1): fix ONLY when doFix AND effort allows (config.fix !== "skip").
+// The old gate checked only `doFix`, so effort:"low" (config.fix="skip") still
+// entered Checkpoint and stashed the user's WIP while applying zero fixes.
+if (doFix && config.fix !== "skip" && verifiedFindings.length > 0) {
   phase("Checkpoint")
 
+  // ── Dirty-tree check (Bug 2). NO git stash. ────────────────────────────────
+  // The old checkpoint did `git stash push -- bun/gui-movie-director/`, stashing
+  // whatever WIP was dirty, then only popped on a detected regression — stranding
+  // the user's WIP forever on a clean/zero-fix run. We now REFUSE to touch a dirty
+  // tree: if anything tracked-dirty is in scope, skip the entire fix phase + warn.
+  // Untracked files (??) are excluded so scratch files don't trigger the refuse.
   checkpointResult = await agent(
-    `Create a git stash backup before applying code review fixes. This enables rollback if fixes cause regressions.
-
-  Steps:
-  1. Run: Bash("cd '${PROJECT_ROOT}' && git rev-parse HEAD")
-     Capture the HEAD SHA.
-  2. Run: Bash("cd '${PROJECT_ROOT}' && git status --short 'bun/gui-movie-director/'")
-     Capture the list of dirty files (if any).
-  3. Run: Bash("cd '${PROJECT_ROOT}' && git stash push -m 'gui-movie-director-review-checkpoint-${RUN_ID}' -- 'bun/gui-movie-director/'")
-     If output contains "No local changes to save": stashCreated=false (tree was clean).
-     Otherwise: stashCreated=true.
-  4. Run: Bash("cd '${PROJECT_ROOT}' && git stash list | head -1")
-     If stash was created, capture the stash ref (e.g. "stash@{0}").
-
-  Return the checkpoint info.`,
+    `Snapshot the working-tree state BEFORE deciding whether to apply fixes. Do NOT stash anything.
+1. Bash("cd '${PROJECT_ROOT}' && git rev-parse HEAD")  → capture headSha.
+2. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/' | grep -v '^??' || true")  → tracked-dirty files only (untracked '??' excluded). Capture the list.
+3. treeDirty = (the step-2 list is non-empty). dirtyFiles = the list (file paths as printed, minus the 2-char status prefix).
+Return { headSha, treeDirty, dirtyFiles }.`,
     { label: "checkpoint", phase: "Checkpoint", model: "haiku", schema: CHECKPOINT_SCHEMA },
   )
 
-  if (checkpointResult?.stashCreated) {
-    log(`Checkpoint: stash created (${checkpointResult.stashRef}, HEAD=${(checkpointResult.headSha || "").slice(0, 8)})`)
+  if (checkpointResult?.treeDirty) {
+    log(`WARNING: working tree is DIRTY in scope (bun/gui-movie-director/) — SKIPPING auto-fix to avoid stranding your work.`)
+    log(`  Tracked-dirty file(s): ${(checkpointResult.dirtyFiles || []).join(", ")}`)
+    log(`  To enable auto-fix: commit or stash these, then re-run with effort:medium. For review-only on a dirty tree, use effort:low.`)
+    log(`  Findings dumped for manual triage: ${HISTORY_DIR}/${RUN_ID}.findings.json`)
+    markPhase("checkpoint", "completed")
+    markPhase("resolveFix", "skipped")
+    markPhase("reVerify", "skipped")
+    markPhase("restore", "skipped")
   } else {
-    log(`Checkpoint: tree was clean, no stash needed (HEAD=${(checkpointResult.headSha || "").slice(0, 8)})`)
-  }
+    log(`Checkpoint: clean tree (HEAD=${(checkpointResult.headSha || "").slice(0, 8)}) — safe to apply fixes.`)
+    markPhase("checkpoint", "completed")
 
-  markPhase("checkpoint", "completed")
+    // ══════════════════════════════════════════════════════════════════════════════
+    // Phase 5: Resolve Fix — apply verified fixes
+    // ══════════════════════════════════════════════════════════════════════════════
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // Phase 5: Resolve Fix — apply verified fixes
-  // ══════════════════════════════════════════════════════════════════════════════
+    phase("Resolve Fix")
 
-  phase("Resolve Fix")
+    // Determine which findings to fix based on effort config
+    let findingsToFix = verifiedFindings
+    if (config.fix === "high-critical") {
+      findingsToFix = verifiedFindings.filter((f) => f.severity === "critical" || f.severity === "high")
+    }
 
-  // Determine which findings to fix based on effort config
-  let findingsToFix = verifiedFindings
-  if (config.fix === "high-critical") {
-    findingsToFix = verifiedFindings.filter((f) => f.severity === "critical" || f.severity === "high")
-  } else if (config.fix === "skip") {
-    findingsToFix = []
-  }
+    // Cap fixes per run so the Resolve Fix phase can't balloon on a broad/first
+    // scan (one agent per file, sequential). Defer the rest — they're captured in
+    // the findings dump and remain fixable next run (dedup suppresses only FIXED
+    // findings, not merely upheld, so deferred ones resurface).
+    const MAX_FIXES = Number(resolvedArgs?.maxFixes) || 5
+    if (findingsToFix.length > MAX_FIXES) {
+      const sevRank = (s) => ({ critical: 0, high: 1, medium: 2, low: 3 }[s] ?? 9)
+      findingsToFix.sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (b.line || 0) - (a.line || 0))
+      const deferred = findingsToFix.slice(MAX_FIXES)
+      findingsToFix = findingsToFix.slice(0, MAX_FIXES)
+      log(`Fix cap (${MAX_FIXES}): applying top ${MAX_FIXES}, deferring ${deferred.length} (captured in findings dump; resurface next run)`)
+      deferred.forEach((d) => log(`  deferred [${d.severity}] ${d.file}:${d.line || "?"} — ${d.title}`))
+    }
 
-  // Cap fixes per run so the Resolve Fix phase can't balloon on a broad/first
-  // scan (one agent per file, sequential). Defer the rest — they're captured in
-  // the findings dump and remain fixable next run (dedup suppresses only FIXED
-  // findings, not merely upheld, so deferred ones resurface).
-  const MAX_FIXES = Number(resolvedArgs?.maxFixes) || 5
-  if (findingsToFix.length > MAX_FIXES) {
-    const sevRank = (s) => ({ critical: 0, high: 1, medium: 2, low: 3 }[s] ?? 9)
-    findingsToFix.sort((a, b) => sevRank(a.severity) - sevRank(b.severity) || (b.line || 0) - (a.line || 0))
-    const deferred = findingsToFix.slice(MAX_FIXES)
-    findingsToFix = findingsToFix.slice(0, MAX_FIXES)
-    log(`Fix cap (${MAX_FIXES}): applying top ${MAX_FIXES}, deferring ${deferred.length} (captured in findings dump; resurface next run)`)
-    deferred.forEach((d) => log(`  deferred [${d.severity}] ${d.file}:${d.line || "?"} — ${d.title}`))
-  }
+    if (findingsToFix.length === 0) {
+      log(`No findings to fix (${config.fix} filter removed all candidates).`)
+    } else {
+      // ── C: pre-fix test baseline (clean tree) ──────────────────────────────
+      // Run the REAL test suite before and after fixes; revert if any previously-
+      // green test goes red. Replaces the weak haiku-eyeball re-verify that
+      // couldn't reliably catch type/logic regressions. tsc is advisory only.
+      fixResults.testBaseline = await agent(
+        `Run the GUI test suite to capture the PRE-fix baseline.
+1. Bash("cd '${GUI_DIR}' && bun test 2>&1")
+2. From the summary lines, capture passCount and failCount (e.g. "527 pass" / "0 fail").
+3. Capture failingTests: every failed test, as "file::testname" (best-effort from the (fail) lines; empty array if none).
+4. ranOk = true if bun ran at all (even with failures); false only if bun itself couldn't start.
+Return { passCount, failCount, failingTests, ranOk }.`,
+        { label: "test-baseline", phase: "Resolve Fix", model: "haiku", schema: TEST_RESULT_SCHEMA },
+      )
+      const tscBaselineRes = await agent(
+        `Count TypeScript errors (advisory baseline — tsc has ~108 pre-existing errors on a green tree, so only the DELTA matters).
+Bash("cd '${GUI_DIR}' && bunx tsc --noEmit 2>&1 | grep -c 'error TS' || echo 0")
+Return { count: <the number> }.`,
+        { label: "tsc-baseline", phase: "Resolve Fix", model: "haiku", schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"] } },
+      )
+      const tscBaselineCount = Number(tscBaselineRes?.count) || 0
+      log(`Pre-fix baseline: bun test ${fixResults.testBaseline?.passCount ?? "?"} pass / ${fixResults.testBaseline?.failCount ?? "?"} fail; tsc ${tscBaselineCount} errors`)
 
-  if (findingsToFix.length === 0) {
-    log(`No findings to fix (${config.fix} filter removed all candidates).`)
-  } else {
-    // Group findings by file (bottom-to-top order within each file)
-    const grouped = {}
-    findingsToFix.forEach((f) => {
-      if (!grouped[f.file]) grouped[f.file] = []
-      grouped[f.file].push(f)
-    })
+      // Group findings by file (bottom-to-top order within each file)
+      const grouped = {}
+      findingsToFix.forEach((f) => {
+        if (!grouped[f.file]) grouped[f.file] = []
+        grouped[f.file].push(f)
+      })
 
-    // Sort findings within each file by line number descending (bottom-to-top)
-    Object.values(grouped).forEach((arr) => {
-      arr.sort((a, b) => (b.line || 0) - (a.line || 0))
-    })
+      // Sort findings within each file by line number descending (bottom-to-top)
+      Object.values(grouped).forEach((arr) => {
+        arr.sort((a, b) => (b.line || 0) - (a.line || 0))
+      })
 
-    const filesWithFixes = Object.keys(grouped)
-    log(`Fixing ${findingsToFix.length} finding(s) across ${filesWithFixes.length} file(s)...`)
+      const filesWithFixes = Object.keys(grouped)
+      log(`Fixing ${findingsToFix.length} finding(s) across ${filesWithFixes.length} file(s)...`)
 
-    // Apply fixes per file (sequential to avoid conflicts within a file)
-    const fileFixResults = await pipeline(
-      filesWithFixes,
-      (file) => {
-        const fileFindings = grouped[file]
+      // Apply fixes per file (sequential to avoid conflicts within a file)
+      const fileFixResults = await pipeline(
+        filesWithFixes,
+        (file) => {
+          const fileFindings = grouped[file]
 
-        return agent(
-          `You are a code fixer. Apply the following verified findings to the codebase.
+          return agent(
+            `You are a code fixer. Apply the following verified findings to the codebase.
 
 RULES:
 1. Read the file FIRST before editing: Bash("cat '${GUI_DIR}/${file}'")
@@ -1065,136 +1148,125 @@ For each finding:
 - If the edit fails (old_string not found): status="failed", note the issue
 
 Return structured results.`,
-          { label: `fix-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", model: "sonnet", schema: FIX_RESULT_SCHEMA },
+            { label: `fix-${file.replace(/[/\\\\]/g, "-")}`, phase: "Resolve Fix", model: "sonnet", schema: FIX_RESULT_SCHEMA },
+          )
+        },
+      )
+
+      // Collect fix results
+      fileFixResults.filter(Boolean).forEach((r) => {
+        fixResults.fixes.push(...(r.fixes || []))
+        fixResults.filesChanged.push(...(r.filesChanged || []))
+      })
+      fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
+
+      // Track touched files
+      fixResults.filesChanged.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f}`))
+
+      const applied = fixResults.fixes.filter((f) => f.status === "applied").length
+      const skipped = fixResults.fixes.filter((f) => f.status === "skipped").length
+      const failed = fixResults.fixes.filter((f) => f.status === "failed").length
+      log(`Fix results: ${applied} applied, ${skipped} skipped, ${failed} failed, ${fixResults.filesChanged.length} file(s) changed`)
+      fixResults.fixes.forEach((f) => {
+        log(`  ${f.status === "applied" ? "✓" : f.status === "skipped" ? "⊘" : "✗"} ${f.findingId}: ${f.change || f.error || ""}`)
+      })
+
+      // ══════════════════════════════════════════════════════════════════════════════
+      // Phase 6: Re-verify — REAL test suite delta gate (replaces haiku eyeball)
+      // ══════════════════════════════════════════════════════════════════════════════
+
+      if (fixResults.filesChanged.length > 0) {
+        phase("Re-verify")
+
+        fixResults.testPostFix = await agent(
+          `Run the GUI test suite AFTER fixes to detect regressions.
+1. Bash("cd '${GUI_DIR}' && bun test 2>&1")
+2. Capture passCount and failCount from the summary.
+3. Capture failingTests as "file::testname" for every failed test.
+Return { passCount, failCount, failingTests, ranOk }.`,
+          { label: "test-postfix", phase: "Re-verify", model: "haiku", schema: TEST_RESULT_SCHEMA },
         )
-      },
-    )
 
-    // Collect fix results
-    fileFixResults.filter(Boolean).forEach((r) => {
-      fixResults.fixes.push(...(r.fixes || []))
-      fixResults.filesChanged.push(...(r.filesChanged || []))
-    })
-    fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
+        // Delta = tests that passed pre-fix but fail post-fix (set difference,
+        // NOT pass-count — correct the day the baseline has a known failure).
+        const baseFail = new Set((fixResults.testBaseline?.failingTests || []).filter(Boolean))
+        const postFail = new Set((fixResults.testPostFix?.failingTests || []).filter(Boolean))
+        const newFailures = [...postFail].filter((t) => !baseFail.has(t))
+        reVerifyFindings = newFailures   // history.regressions reads this length
 
-    // Track touched files
-    fixResults.filesChanged.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f}`))
+        // tsc advisory (never a revert trigger on its own)
+        const tscPostRes = await agent(
+          `Count TypeScript errors after fixes (advisory).
+Bash("cd '${GUI_DIR}' && bunx tsc --noEmit 2>&1 | grep -c 'error TS' || echo 0")
+Return { count: <the number> }.`,
+          { label: "tsc-postfix", phase: "Re-verify", model: "haiku", schema: { type: "object", properties: { count: { type: "number" } }, required: ["count"] } },
+        )
+        fixResults.tscDelta = (Number(tscPostRes?.count) || 0) - tscBaselineCount
+        if (fixResults.tscDelta > 0) {
+          log(`ADVISORY: tsc errors increased by ${fixResults.tscDelta} (${tscBaselineCount} → ${tscBaselineCount + fixResults.tscDelta}). Not auto-reverting (bun test is the hard gate) — review the type changes.`)
+        }
 
-    const applied = fixResults.fixes.filter((f) => f.status === "applied").length
-    const skipped = fixResults.fixes.filter((f) => f.status === "skipped").length
-    const failed = fixResults.fixes.filter((f) => f.status === "failed").length
-    log(`Fix results: ${applied} applied, ${skipped} skipped, ${failed} failed, ${fixResults.filesChanged.length} file(s) changed`)
-    fixResults.fixes.forEach((f) => {
-      log(`  ${f.status === "applied" ? "✓" : f.status === "skipped" ? "⊘" : "✗"} ${f.findingId}: ${f.change || f.error || ""}`)
-    })
+        if (newFailures.length > 0) {
+          log(`REGRESSION: ${newFailures.length} test(s) that passed pre-fix now FAIL — ${newFailures.join("; ")}`)
+          log(`  post-fix ${fixResults.testPostFix?.passCount ?? "?"} pass / ${fixResults.testPostFix?.failCount ?? "?"} fail (baseline ${fixResults.testBaseline?.passCount ?? "?"} pass / ${fixResults.testBaseline?.failCount ?? "?"} fail)`)
+        } else {
+          log(`Re-verify: no new test failures ✓ (baseline ${fixResults.testBaseline?.passCount ?? "?"} pass → post ${fixResults.testPostFix?.passCount ?? "?"} pass)`)
+        }
+        markPhase("reVerify", "completed")
 
-    // ══════════════════════════════════════════════════════════════════════════════
-    // Phase 6: Re-verify — quick scan of changed files
-    // ══════════════════════════════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════════════════════════════
+        // Phase 7: Restore — auto-revert on test regression (replaces stash-pop)
+        // ══════════════════════════════════════════════════════════════════════════════
 
-    if (config.reVerify !== "skip" && fixResults.filesChanged.length > 0) {
-      phase("Re-verify")
+        if (newFailures.length > 0) {
+          phase("Restore")
+          log(`RESTORE: test regression — reverting fix changes via git checkout HEAD / rm (tree was clean at checkpoint).`)
 
-      const reVerifyFiles = config.reVerify === "full"
-        ? fileList.map((f) => f.absPath)
-        : fixResults.filesChanged.map((f) => `${GUI_DIR}/${f}`)
+          const revertRaw = await agent(
+            `A fix introduced test regressions. Revert ONLY the fix changes — but NEVER clobber a file the user edited concurrently mid-run.
+Files changed by fixes: ${JSON.stringify(fixResults.filesChanged)}
 
-      log(`Re-verifying ${reVerifyFiles.length} file(s) after fixes...`)
+For EACH file in that list:
+1. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/<file>' | grep -v '^??' || true")
+   - If NON-empty (file is tracked-dirty — user edited it concurrently): do NOT revert. Add <file> to skippedConcurrent.
+   - If empty (clean — safe to revert): revert it:
+     a. Bash("cd '${PROJECT_ROOT}' && git ls-files --error-unmatch 'bun/gui-movie-director/<file>' >/dev/null 2>&1 && echo TRACKED || echo UNTRACKED")
+        - TRACKED (existed at HEAD): Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun/gui-movie-director/<file>'")
+        - UNTRACKED (created by the fix): Bash("cd '${PROJECT_ROOT}' && rm -f 'bun/gui-movie-director/<file>'")
+     b. Add <file> to reverted.
+After all files: Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/'")
+Return { reverted: [...], skippedConcurrent: [...], method: "checkout"|"rm"|"mixed"|"none" }.`,
+            { label: "restore", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
+          )
 
-      const reVerifyResult = await agent(
-        `Quick correctness + type-safety check on recently-edited files.
-
-Read each file and look for REGRESSIONS introduced by recent edits:
-- Syntax errors (unclosed braces, missing imports, broken TypeScript)
-- Type errors that the edit may have introduced
-- Logic changes that don't match the original intent
-
-Files to check:
-${reVerifyFiles.map((f) => `- ${f}`).join("\n")}
-
-ORIGINAL FINDINGS THAT WERE APPLIED (for context):
-${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied"), null, 2)}
-
-If you find any regressions, report them. If the files look clean, return an empty findings array.`,
-        { label: "re-verify", phase: "Re-verify", model: "haiku", schema: REVIEW_FINDING_SCHEMA },
-      )
-
-      reVerifyFindings = (reVerifyResult?.findings || []).filter(Boolean)
-      if (reVerifyFindings.length > 0) {
-        log(`WARNING: ${reVerifyFindings.length} regression(s) detected after fixes!`)
-        reVerifyFindings.forEach((f) => log(`  ⚠ ${f.title} (${f.file}:${f.line || "?"})`))
+          restoreResult = {
+            triggered: true,
+            reason: "test-regression",
+            reverted: revertRaw?.reverted || [],
+            skippedConcurrent: revertRaw?.skippedConcurrent || [],
+            newFailures,
+            method: revertRaw?.method || "none",
+          }
+          if (restoreResult.reverted.length > 0) {
+            log(`Restore: reverted ${restoreResult.reverted.length} file(s) via ${restoreResult.method}`)
+          }
+          if (restoreResult.skippedConcurrent.length > 0) {
+            log(`WARNING: ${restoreResult.skippedConcurrent.length} file(s) were dirty mid-run (concurrent edit) — NOT reverted, manual review needed: ${restoreResult.skippedConcurrent.join(", ")}`)
+          }
+          markPhase("restore", restoreResult.reverted.length > 0 ? "completed" : "failed")
+        } else {
+          markPhase("restore", "skipped")
+        }
       } else {
-        log("Re-verify: no regressions detected ✓")
+        markPhase("reVerify", "skipped")
+        markPhase("restore", "skipped")
       }
-
-      markPhase("reVerify", "completed")
     }
 
-    // ══════════════════════════════════════════════════════════════════════════════
-    // Phase 7: Restore — conditional rollback if regressions detected
-    // ══════════════════════════════════════════════════════════════════════════════
-
-    const hasCriticalRegression = reVerifyFindings.some((f) => f.severity === "critical")
-    const hasMultipleRegressions = reVerifyFindings.length > 2
-
-    if (reVerifyFindings.length > 0 && (hasCriticalRegression || hasMultipleRegressions)) {
-      phase("Restore")
-
-      const restoreReason = hasCriticalRegression ? "critical-regression" : "multiple-regressions"
-      log(`RESTORE: ${restoreReason} — ${reVerifyFindings.length} regression(s) detected. Rolling back fixes...`)
-
-      const stashRef = checkpointResult?.stashRef || ""
-      const stashCreated = checkpointResult?.stashCreated || false
-
-      restoreResult = await agent(
-        `A code review fix introduced regressions. Restore the pre-fix state.
-
-Stash ref from checkpoint: ${stashRef || "none"}
-Stash was created: ${stashCreated}
-Files that were changed: ${fixResults.filesChanged.join(", ")}
-
-STEPS:
-${stashCreated ? `
-1. Restore from stash:
-   Bash("cd '${PROJECT_ROOT}' && git stash pop ${stashRef}")
-   If pop fails (conflict), use the safe fallback:
-   Bash("cd '${PROJECT_ROOT}' && git checkout ${stashRef} -- 'bun/gui-movie-director/'")
-   Then drop the stash:
-   Bash("cd '${PROJECT_ROOT}' && git stash drop ${stashRef}")
-` : `
-1. No stash was created (tree was clean before fixes).
-   Restore individual files using git checkout:
-   ${fixResults.filesChanged.map((f) => `Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun/gui-movie-director/${f}'")`).join("\n   ")}
-`}
-
-After restore:
-2. Verify files are restored: Bash("cd '${PROJECT_ROOT}' && git status --short 'bun/gui-movie-director/'")
-
-Return { restored: bool, method: "stash-pop"|"checkout"|"none", filesReverted: [...] }.`,
-        { label: "restore", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
-      )
-
-      if (restoreResult?.restored) {
-        log(`Restore: SUCCESS — ${restoreResult.filesReverted?.length || 0} file(s) reverted via ${restoreResult.method}`)
-        restoreResult = { triggered: true, reason: restoreReason, stashRestored: stashCreated, filesReverted: restoreResult.filesReverted || [], method: restoreResult.method }
-      } else {
-        log(`Restore: FAILED — could not revert changes. Manual review needed.`)
-        restoreResult = { triggered: true, reason: restoreReason, stashRestored: false, filesReverted: [] }
-      }
-
-      markPhase("restore", restoreResult.triggered && restoreResult.filesReverted?.length > 0 ? "completed" : "failed")
-    } else if (reVerifyFindings.length > 0) {
-      log(`Restore: skipped — ${reVerifyFindings.length} non-critical regression(s) (below threshold)`)
-      restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
-      markPhase("restore", "skipped")
-    } else {
-      markPhase("restore", "skipped")
-    }
+    markPhase("resolveFix", "completed")
   }
-
-  markPhase("resolveFix", "completed")
-} else if (!doFix) {
-  log("Review-only mode — skipping Checkpoint, Resolve Fix, Re-verify, and Restore phases.")
+} else if (!doFix || config.fix === "skip") {
+  log(`Review-only mode (doFix=${doFix}, effort=${effort} → config.fix="${config.fix}") — skipping Checkpoint, Resolve Fix, Re-verify, Restore.`)
   markPhase("checkpoint", "skipped")
   markPhase("resolveFix", "skipped")
   markPhase("reVerify", "skipped")
@@ -1285,14 +1357,17 @@ const historyEntry = {
           failed: failedCount,
           filesChanged: fixResults.filesChanged,
           regressions: reVerifyFindings.length,
+          testBaseline: fixResults.testBaseline,
+          testPostFix: fixResults.testPostFix,
+          tscDelta: fixResults.tscDelta,
           items: fixResults.fixes,
         }
       : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
     restore: restoreResult,
     git: {
       headBefore: checkpointResult?.headSha || "",
-      stashRef: checkpointResult?.stashRef || "",
-      dirtyFilesBefore: checkpointResult?.dirtyBefore || [],
+      treeDirty: checkpointResult?.treeDirty || false,
+      dirtyFilesBefore: checkpointResult?.dirtyFiles || [],
     },
     hotspot_files: hotspotFiles,
     adversarial_rejection_rate: adversarialRejectionRate,
@@ -1485,7 +1560,7 @@ ${doFix ? `## Fix Results
 - Failed: ${failedCount}
 - Files changed: ${fixResults.filesChanged.join(", ") || "none"}
 ${reVerifyFindings.length > 0 ? `- Regressions: ${reVerifyFindings.length}` : "- Regressions: none"}
-${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.filesReverted?.length || 0} file(s) reverted` : ""}
+${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.reverted?.length || 0} file(s) reverted${restoreResult.skippedConcurrent?.length ? `, ${restoreResult.skippedConcurrent.length} left (concurrent edit)` : ""}` : ""}
 ` : "## Fix Phase: SKIPPED (review-only mode)"}
 ${priorRunContext}
 
@@ -1522,7 +1597,7 @@ if (suppressedFromPrior.length > 0) log(`Incremental: ${suppressedFromPrior.leng
 if (doFix) {
   log(`Fixes: ${appliedCount} applied, ${skippedCount} skipped, ${failedCount} failed across ${fixResults.filesChanged.length} file(s)`)
   if (reVerifyFindings.length > 0) log(`Regressions: ${reVerifyFindings.length}`)
-  if (restoreResult.triggered) log(`RESTORE: ${restoreResult.reason} — ${restoreResult.filesReverted?.length || 0} file(s) reverted`)
+  if (restoreResult.triggered) log(`RESTORE: ${restoreResult.reason} — ${restoreResult.reverted?.length || 0} file(s) reverted${restoreResult.skippedConcurrent?.length ? `, ${restoreResult.skippedConcurrent.length} left for manual review (concurrent edit)` : ""}`)
 }
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 log(reportResult || "(no report)")
@@ -1559,6 +1634,9 @@ return {
         failed: failedCount,
         filesChanged: fixResults.filesChanged,
         regressions: reVerifyFindings.length,
+        testBaseline: fixResults.testBaseline,
+        testPostFix: fixResults.testPostFix,
+        tscDelta: fixResults.tscDelta,
         items: fixResults.fixes,
       }
     : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
