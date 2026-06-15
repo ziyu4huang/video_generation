@@ -1557,7 +1557,7 @@ function renderConclusion() {{
     const rating = state.ratings[t.label] || 0;
     if (!rating) return;
     const label = t.label.split('|')[0];
-    const m = label.match(/^([A-Z])-(\d)-/);
+    const m = label.match(/^([A-Z])-(\\d)-/);
     if (!m) return;
     const group = m[1], step = parseInt(m[2]);
     const gp = GROUP_PARAMS[group];
