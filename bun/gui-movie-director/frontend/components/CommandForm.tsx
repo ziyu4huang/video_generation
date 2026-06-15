@@ -6,7 +6,7 @@ import { LoraField } from "./LoraField";
 import { InlineError } from "./InlineError";
 import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
-import { useFieldHistory } from "../hooks/useFieldHistory";
+import { useAllFieldHistories } from "../hooks/useFieldHistory";
 
 interface CommandFormProps {
   schema: CommandSchema;
@@ -67,19 +67,14 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
   const { state, setField } = useDefaultState(schema.action, buildDefaults(schema.sections));
   const [error, setError] = useState<string | null>(null);
 
-  // Collect prompt fields for history tracking
   const promptFields = schema.sections.flatMap((s) =>
     s.fields.filter((f) => f.type === "prompt" || f.type === "text")
   );
-  const promptHistories = promptFields.map((f) => ({
-    field: f,
-    // Each hook call must be unconditional — we use the field key as stable id
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    ...useFieldHistory(schema.action, f.key),
-  }));
-
-  const getHistory = (fieldKey: string) =>
-    promptHistories.find((h) => h.field.key === fieldKey) ?? null;
+  const fieldHistories = useAllFieldHistories(
+    schema.action,
+    promptFields.map((f) => f.key)
+  );
+  const getHistory = fieldHistories.getHistory;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,10 +90,9 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
       });
       const data = await res.json();
       if (data.jobId) {
-        // Save prompt/text field values to history
-        for (const { field, push } of promptHistories) {
-          const val = state[field.key];
-          if (typeof val === "string" && val.trim()) push(val);
+        for (const f of promptFields) {
+          const val = state[f.key];
+          if (typeof val === "string" && val.trim()) fieldHistories.push(f.key, val);
         }
         onJobStart({ jobId: data.jobId, command });
       } else if (data.error) {

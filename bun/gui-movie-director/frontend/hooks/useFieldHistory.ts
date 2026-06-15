@@ -47,3 +47,38 @@ export function useFieldHistory(action: string, fieldKey: string) {
 
   return { history, push };
 }
+
+export function useAllFieldHistories(action: string, fieldKeys: string[]) {
+  const [histories, setHistories] = useState<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {};
+    for (const fk of fieldKeys) {
+      result[fk] = readHistory(storageKey(action, fk));
+    }
+    return result;
+  });
+
+  const push = useCallback(
+    (fieldKey: string, value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+      const sk = storageKey(action, fieldKey);
+      setHistories((prev) => {
+        const prevArr = prev[fieldKey] ?? [];
+        const deduped = [trimmed, ...prevArr.filter((v) => v !== trimmed)].slice(0, MAX_HISTORY);
+        writeHistory(sk, deduped);
+        return { ...prev, [fieldKey]: deduped };
+      });
+    },
+    [action]
+  );
+
+  const getHistory = useCallback(
+    (fieldKey: string): { history: string[] } | null => {
+      const h = histories[fieldKey];
+      return h !== undefined ? { history: h } : null;
+    },
+    [histories]
+  );
+
+  return { getHistory, push };
+}
