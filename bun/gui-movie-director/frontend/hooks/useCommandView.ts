@@ -44,7 +44,9 @@ export function useCommandView(command?: string) {
   const derivedJob: JobInfo | null = job
     ? {
         ...job,
-        status: (jobStatus as JobInfo["status"]) ?? job.status,
+        status: job.status === "running"
+          ? ((jobStatus as JobInfo["status"]) ?? job.status)
+          : job.status,
         logs: logs.length > 0
           ? logs.map((e) => ({ text: e.line, stream: e.stream }))
           : job.logs,

@@ -251,8 +251,9 @@ export class SubprocessManager {
   killJob(id: string): boolean {
     const job = this.jobs.get(id);
     if (!job || job.status !== "running") return false;
+    if (job.pid === undefined) return false;
     try {
-      process.kill(job.pid!, "SIGTERM");
+      process.kill(job.pid, "SIGTERM");
       job.logs.push({ text: "[cancelled by user]", stream: "stdout" });
       const finalize = this.finalizers.get(id);
       if (finalize) {

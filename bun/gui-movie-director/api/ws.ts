@@ -38,8 +38,8 @@ export const wsHandlers = {
         ws.send(JSON.stringify({
           type: "log",
           jobId: job.id,
-          line,
-          stream: "stdout" as const,
+          line: line.text,
+          stream: line.stream,
         }));
       }
     }

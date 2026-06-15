@@ -103,12 +103,13 @@ export async function handleSelfTestResults(req: Request): Promise<Response> {
     });
   }
 
-  // HTML review URL (basename from SelfTestHTML: marker → resolved into /output/)
+  // HTML review URL (SelfTestHTML: marker may be absolute path — extract basename only)
   let htmlReviewUrl: string | null = null;
   if (job.selfTestHtmlPath) {
+    const htmlBasename = path.basename(job.selfTestHtmlPath);
     for (let i = 0; i < OUTPUT_DIRS.length; i++) {
-      if (fs.existsSync(path.join(OUTPUT_DIRS[i], job.selfTestHtmlPath))) {
-        htmlReviewUrl = `/output/${i}/${job.selfTestHtmlPath}`;
+      if (fs.existsSync(path.join(OUTPUT_DIRS[i], htmlBasename))) {
+        htmlReviewUrl = `/output/${i}/${htmlBasename}`;
         break;
       }
     }

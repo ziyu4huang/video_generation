@@ -87,8 +87,13 @@ export async function handleClearJobs(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
   }
   const url = new URL(req.url);
+  const CLEARABLE: Job["status"][] = ["completed", "failed"];
   const statuses = (url.searchParams.get("status") ?? "completed,failed")
-    .split(",") as Job["status"][];
+    .split(",")
+    .filter((s): s is Job["status"] => CLEARABLE.includes(s as Job["status"]));
+  if (statuses.length === 0) {
+    return Response.json({ ok: false, error: "Invalid status filter — only 'completed' and 'failed' are clearable" }, { status: 400 });
+  }
   const count = subprocessManager.clearJobs(statuses);
   return Response.json({ ok: true, cleared: count });
 }

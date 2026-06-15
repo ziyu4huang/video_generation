@@ -24,6 +24,7 @@ export function useWebSocket() {
   const reconnectTimer = useRef<number | null>(null);
   const reconnectDelay = useRef(1000);
   const pendingSubscribe = useRef<string | null>(null);
+  const subscribedJobIdRef = useRef<string | null>(null);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
@@ -70,13 +71,13 @@ export function useWebSocket() {
           }
         }
 
-        if (msg.type === "job_complete") {
+        if (msg.type === "job_complete" && msg.jobId === subscribedJobIdRef.current) {
           setJobStatus("completed");
           setProgress(null);
           if (msg.outputFiles) setOutputFiles(msg.outputFiles);
         }
 
-        if (msg.type === "job_failed") {
+        if (msg.type === "job_failed" && msg.jobId === subscribedJobIdRef.current) {
           setJobStatus("failed");
           setProgress(null);
         }
@@ -87,6 +88,7 @@ export function useWebSocket() {
   }, []);
 
   const subscribe = useCallback((jobId: string) => {
+    subscribedJobIdRef.current = jobId;
     setLogs([]);
     setJobStatus(null);
     setOutputFiles([]);
