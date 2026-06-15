@@ -6031,21 +6031,21 @@ def _make_run_config_args(**kwargs):
     for k, v in kwargs.items():
         setattr(ns, k, v)
     # Set defaults for fields RunConfig expects
-    for field in ("prompt_file", "vae_path",
+    for attr in ("prompt_file", "vae_path",
                    "seed_start",
                    "upscale", "upscale_model", "upscale_method",
                    "face_detail", "film_grain", "sharpening", "skin_contrast",
                    "noise_clean", "latent_upscale", "draft", "control_image"):
-        if not hasattr(ns, field):
-            setattr(ns, field, None)
+        if not hasattr(ns, attr):
+            setattr(ns, attr, None)
     # String defaults (must not be None)
     if not hasattr(ns, "transformer") or getattr(ns, "transformer") is None:
         setattr(ns, "transformer", "klein-9b")
     if not hasattr(ns, "variant") or getattr(ns, "variant") is None:
         setattr(ns, "variant", "9b")
-    for field in ("lora_scale", "denoise_strength"):
-        if not hasattr(ns, field):
-            setattr(ns, field, 1.0)
+    for attr in ("lora_scale", "denoise_strength"):
+        if not hasattr(ns, attr):
+            setattr(ns, attr, 1.0)
     if not hasattr(ns, "count"):
         setattr(ns, "count", 1)
     if not hasattr(ns, "seed"):
@@ -7883,7 +7883,8 @@ render();
     return html_path
 
 
-
+def _render_review_only_html(*, output_dir, base_name, test_name, triples,
+                             captions, metrics, label_a, label_b, ts):
     """Render a simple 2-column review HTML: original vs anime2real result.
 
     Each pair has 👍/👎 feedback + text comment.
@@ -8257,7 +8258,6 @@ def _build_metrics_rows_n(metrics_list, labels):
     keys = list(metrics_list[0].keys())
     if not keys:
         return ""
-    col_idx = "ABCDEFGHIJ"
     header = "<tr><th>Metric</th>" + "".join(f"<th>{html_mod.escape(l)}</th>" for l in labels) + "</tr>"
     rows = ""
     for k in keys:
