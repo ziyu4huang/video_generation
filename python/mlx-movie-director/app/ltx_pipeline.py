@@ -659,6 +659,17 @@ class LTXVideoPipeline:
 
     def _build_pipeline(self, mode: str):
         t0 = time.time()
+        # --temporal-upscale relies on the _TemporalUpscaleMixin (applied below for
+        # the hq + standard t2v_i2v branches only). DistilledPipeline and
+        # A2VidPipelineTwoStage have different generate() contracts the mixin was not
+        # built against, so the flag is intentionally not applied there — but it must
+        # not be SILENTLY ignored, or a user who set it gets fewer frames with no signal.
+        if self.temporal_upscale and mode in ("distilled", "a2v"):
+            print(
+                f"[LTXVideoPipeline] WARNING: --temporal-upscale is not supported in "
+                f"{mode} mode (the temporal x2 upsampler targets the standard t2v/i2v "
+                f"pipeline); the flag will be ignored for this run."
+            )
         if mode == "distilled":
             from ltx_pipelines_mlx import DistilledPipeline as Pipeline
             print(

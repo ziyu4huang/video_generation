@@ -56,13 +56,19 @@ def run_review_from_generation(args):
     This is the 'video review generate ...' path — it runs the full generation
     pipeline, then collects the output manifests and launches the reviewer.
     """
-    from app.commands.video_generate import run_generate
+    # NOTE: the module is video-generate (hyphen) — a bare `from ... import` needs
+    # a valid identifier (no hyphens), so use importlib like the rest of the codebase
+    # (video.py:33, image-review.py:3399). The previous `from app.commands.video_generate
+    # import run_generate` (underscore) referenced a module that does not exist and would
+    # raise ModuleNotFoundError on every `video review generate` invocation.
+    import importlib
+    _generate = importlib.import_module("app.commands.video-generate")
 
     # Remember output dir before generation
     output_dir = cfg.OUTPUT_DIR
 
     # Run generation (may produce single or multiple variation manifests)
-    run_generate(args)
+    _generate.run_generate(args)
 
     # Collect generated manifests
     # For variations: look for _v1, _v2, ... manifests from the latest run

@@ -305,7 +305,11 @@ def _adjust_frames(frames: int) -> int:
     Adjusts to the nearest valid value and prints what changed.
     """
     if (frames - 1) % 8 == 0:
-        return frames
+        # Already aligned — but still enforce the minimum meaningful count.
+        # frames=1 satisfies (1-1)%8==0 yet is far below the 9-frame minimum; the
+        # minimum guard below only runs on the ELSE branch, so without this clamp
+        # frames=1 (and any aligned value < 9) would slip through unchanged.
+        return max(frames, 9)
 
     # Find nearest valid value (round to nearest 8k+1)
     k = round((frames - 1) / 8)
@@ -874,6 +878,10 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
         transformer=getattr(args, "transformer", None),
         lora_path=getattr(args, "lora_path", None),
         lora_scale=getattr(args, "lora_scale", 1.0),
+        # Previously omitted: --temporal-upscale was silently dropped in A/B mode
+        # (the pipeline defaulted to temporal_upscale=False even when the user set
+        # the flag). Plumb it through like the main generation path does.
+        temporal_upscale=getattr(args, "temporal_upscale", False),
     )
 
     allow_noise = getattr(args, "allow_noise", False)
