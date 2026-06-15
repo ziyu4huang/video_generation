@@ -287,7 +287,7 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   // Helper to delete a file if it exists
   const tryDelete = (filePath: string) => {
     const resolved = path.normalize(filePath);
-    if (!resolved.startsWith(path.resolve(dir))) return; // prevent path traversal
+    if (!resolved.startsWith(path.resolve(dir) + path.sep)) return; // prevent path traversal
     if (fs.existsSync(resolved)) {
       try {
         fs.unlinkSync(resolved);

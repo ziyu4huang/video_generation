@@ -11,6 +11,7 @@ export interface JobInfo {
   completedAt?: string;
   exitCode?: number;
   outputFiles: string[];
+  outputUrls?: string[];
   manifestPath?: string;
   runPath?: string;
   selfTestHtmlPath?: string;

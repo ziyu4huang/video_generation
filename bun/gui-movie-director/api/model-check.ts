@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { loadConfig, REPO_DIR } from "../lib/config";
-import { RUN_PY, MLX_OUTPUT_DIR } from "../lib/paths";
+import { RUN_PY, MLX_OUTPUT_DIR, OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile, findLatestReportUrl } from "../lib/fsUtils";
 import { subprocessManager } from "../lib/subprocess";
 import { resolvePythonBin } from "../lib/pythonBin";
@@ -25,7 +25,8 @@ export async function handleModelCheckRun(_req: Request): Promise<Response> {
       try {
         const result = JSON.parse(stdout);
 
-        const htmlUrl = findLatestReportUrl(outputDir, "model-report-");
+        const mlxDirIdx = OUTPUT_DIRS.indexOf(MLX_OUTPUT_DIR);
+        const htmlUrl = findLatestReportUrl(outputDir, "model-report-", mlxDirIdx >= 0 ? mlxDirIdx : undefined);
 
         return Response.json({ ok: true, result, htmlUrl });
       } catch {
@@ -54,7 +55,8 @@ export async function handleModelCheckCache(_req: Request): Promise<Response> {
       return Response.json({ ok: false, error: "Failed to read cache" });
     }
 
-    const htmlUrl = findLatestReportUrl(outputDir, "model-report-");
+    const mlxDirIdx = OUTPUT_DIRS.indexOf(MLX_OUTPUT_DIR);
+    const htmlUrl = findLatestReportUrl(outputDir, "model-report-", mlxDirIdx >= 0 ? mlxDirIdx : undefined);
 
     return Response.json({ ok: true, result, htmlUrl });
   } catch (e: any) {

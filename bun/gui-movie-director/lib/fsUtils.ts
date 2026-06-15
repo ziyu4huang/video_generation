@@ -12,12 +12,14 @@ export function writeJsonFile(filePath: string, data: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n");
 }
 
-export function findLatestReportUrl(outputDir: string, prefix: string): string | null {
+export function findLatestReportUrl(outputDir: string, prefix: string, dirIdx?: number): string | null {
   try {
     const files = fs.readdirSync(outputDir)
       .filter((f) => f.startsWith(prefix) && f.endsWith(".html"))
       .sort();
-    return files.length > 0 ? `/output/${files[files.length - 1]}` : null;
+    if (files.length === 0) return null;
+    const file = files[files.length - 1];
+    return dirIdx !== undefined ? `/output/${dirIdx}/${file}` : `/output/${file}`;
   } catch {
     return null;
   }

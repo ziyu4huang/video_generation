@@ -4,6 +4,7 @@ import { OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { actionToCommand } from "../lib/actionToCommand";
 import { parsePostJson, spawnJobResponse } from "../lib/requestUtils";
+import { subprocessManager } from "../lib/subprocess";
 
 /**
  * Run a built-in self-test via `run.py image <action> --self-test [name]`.

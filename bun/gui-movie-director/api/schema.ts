@@ -13,7 +13,7 @@ interface FetchOptions {
   logWarn: string;
 }
 
-function _fetchFromRunPy(opts: FetchOptions): Promise<void> {
+function _fetchFromRunPy(opts: FetchOptions): void {
   const pythonBin = resolvePythonBin();
   try {
     const args = [pythonBin, RUN_PY, opts.subcommand, ...(opts.extraFlags ?? [])];

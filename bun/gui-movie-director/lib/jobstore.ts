@@ -24,6 +24,9 @@ export function loadJobs(): Job[] {
     if (job.logs.length > 0 && typeof (job.logs as any)[0] === "string") {
       (job as any).logs = (job.logs as unknown as string[]).map((t) => ({ text: t, stream: "stdout" }));
     }
+    if (!Array.isArray((job as any).outputUrls)) {
+      (job as any).outputUrls = [];
+    }
   }
   return loaded;
 }

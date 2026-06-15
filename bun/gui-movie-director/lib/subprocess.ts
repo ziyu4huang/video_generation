@@ -1,4 +1,5 @@
-import { RUN_PY } from "./paths";
+import path from "path";
+import { RUN_PY, OUTPUT_DIRS } from "./paths";
 import { resolvePythonBin } from "./pythonBin";
 import { saveJobs, loadJobs } from "./jobstore";
 
@@ -17,6 +18,7 @@ export interface Job {
   exitCode?: number;
   pid?: number;
   outputFiles: string[];
+  outputUrls: string[];
   manifestPath?: string;
   runPath?: string;
   selfTestHtmlPath?: string;
@@ -76,7 +78,7 @@ export class SubprocessManager {
       const job: Job = {
         id, command, args: [], status: "failed",
         startedAt: new Date().toISOString(), completedAt: new Date().toISOString(),
-        exitCode: -1, outputFiles: [],
+        exitCode: -1, outputFiles: [], outputUrls: [],
         logs: [{ text: `[rejected: invalid command '${command}']`, stream: "stderr" }],
         action: meta?.action, params: meta?.params,
       };
@@ -95,6 +97,7 @@ export class SubprocessManager {
       status: "running",
       startedAt: new Date().toISOString(),
       outputFiles: [],
+      outputUrls: [],
       logs: [],
       action: meta?.action,
       params: meta?.params,
@@ -160,7 +163,13 @@ export class SubprocessManager {
 
         // Parse structured output (all command variants: image, video, workflow)
         const savedMatch = /Saved:\s+(.+)/.exec(line);
-        if (savedMatch) job.outputFiles.push(savedMatch[1].trim());
+        if (savedMatch) {
+          const absPath = savedMatch[1].trim();
+          job.outputFiles.push(absPath);
+          const basename = path.basename(absPath);
+          const di = OUTPUT_DIRS.findIndex((d) => absPath.startsWith(d + path.sep));
+          job.outputUrls.push(di >= 0 ? `/output/${di}/${basename}` : `/output/${basename}`);
+        }
 
         const manifestMatch = /Manifest:\s+(.+)/.exec(line);
         if (manifestMatch) job.manifestPath = manifestMatch[1].trim();

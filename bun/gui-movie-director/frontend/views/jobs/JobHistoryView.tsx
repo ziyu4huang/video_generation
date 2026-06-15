@@ -86,12 +86,13 @@ function JobRow({ job, expanded, onToggle, onRefresh }: JobRowProps) {
         <div style={{ padding: "0 14px 12px" }}>
           {job.outputFiles.length > 0 && (
             <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-              {job.outputFiles.map((fp) => {
+              {job.outputFiles.map((fp, i) => {
                 const name = fp.split("/").pop()!;
+                const src = job.outputUrls?.[i] ?? `/output/${name}`;
                 return (
                   <img
                     key={name}
-                    src={`/output/${name}`}
+                    src={src}
                     onClick={(e) => { e.stopPropagation(); navigate("/gallery"); }}
                     alt={name}
                     style={{
