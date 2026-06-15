@@ -1,0 +1,3 @@
+{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.8}
+{"pipeline":"zimage","steps":9,"cfgScale":5,"loraScale":1}
+{"pipeline":"lens","steps":20,"cfgScale":5,"loraScale":1}

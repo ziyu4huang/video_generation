@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>T2I Knowledge Base — Prompt Engineering Report</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-surface: #161b22;
+    --bg-elevated: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --success: #3fb950;
+    --warning: #d29922;
+    --error: #f85149;
+    --score-10: #3fb950;
+    --score-9: #56d364;
+    --score-8: #d29922;
+    --score-low: #f85149;
+    --flux: #a371f7;
+    --zimage: #58a6ff;
+    --lens: #ffa657;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Layout ── */
+  .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  /* ── Header ── */
+  .kb-header {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 50%, #0d1117 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 36px;
+    margin-bottom: 32px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kb-header::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 70% 50%, rgba(88,166,255,0.07) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .kb-header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 6px;
+    color: #fff;
+  }
+  .kb-header h1 span { color: var(--accent); }
+  .kb-header .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-bottom: 24px;
+  }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    text-align: center;
+  }
+  .stat-card .val {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .stat-card .lbl {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .stat-card .val.green  { color: var(--success); }
+  .stat-card .val.blue   { color: var(--accent); }
+  .stat-card .val.purple { color: #a371f7; }
+
+  /* ── Section ── */
+  section { margin-bottom: 36px; }
+  .section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+  }
+  .section-title .icon { font-size: 20px; }
+  .section-title .badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+    margin-left: 4px;
+  }
+
+  /* ── Strategy Cards ── */
+  .strategy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 14px;
+  }
+  .strategy-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    transition: border-color 0.15s;
+  }
+  .strategy-card:hover { border-color: var(--accent); }
+  .strategy-card .rank {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .strategy-card .template {
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+    font-size: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: #79c0ff;
+    word-break: break-word;
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+  .strategy-card .meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+  }
+  .tag.score-10 { background: rgba(63,185,80,0.15); color: var(--score-10); }
+  .tag.score-9  { background: rgba(86,211,100,0.12); color: var(--score-9); }
+  .tag.pipeline-flux   { background: rgba(163,113,247,0.15); color: var(--flux); }
+  .tag.pipeline-zimage { background: rgba(88,166,255,0.15); color: var(--zimage); }
+  .tag.pipeline-none   { background: rgba(139,148,158,0.15); color: var(--text-muted); }
+  .tag.samples { background: rgba(255,255,255,0.06); color: var(--text-muted); }
+
+  /* ── Table ── */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .data-table td {
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+    background: var(--bg-surface);
+  }
+  .data-table tr:hover td { background: var(--bg-elevated); }
+  .data-table td.code {
+    font-family: "SF Mono", monospace;
+    font-size: 12px;
+    color: #79c0ff;
+  }
+  .score-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 26px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .score-pill.s10 { background: rgba(63,185,80,0.2); color: var(--success); }
+  .score-pill.s9  { background: rgba(86,211,100,0.15); color: var(--score-9); }
+  .score-pill.s8  { background: rgba(210,153,34,0.2); color: var(--warning); }
+  .badge-pipeline {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .badge-pipeline.flux   { background: rgba(163,113,247,0.18); color: var(--flux); }
+  .badge-pipeline.zimage { background: rgba(88,166,255,0.18); color: var(--zimage); }
+  .badge-pipeline.none   { background: rgba(139,148,158,0.12); color: var(--text-muted); }
+
+  /* ── Example Cards ── */
+  .example-list { display: flex; flex-direction: column; gap: 12px; }
+  .example-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 14px;
+    align-items: start;
+    transition: border-color 0.15s;
+  }
+  .example-card:hover { border-color: var(--accent); }
+  .example-card .score-big {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1;
+    padding-top: 4px;
+  }
+  .example-card .score-big.s10 { color: var(--success); }
+  .example-card .score-big.s9  { color: var(--score-9); }
+  .example-card .prompt-text {
+    font-size: 13px;
+    line-height: 1.55;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .example-card .why {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    padding-left: 10px;
+    border-left: 2px solid var(--accent);
+  }
+  .example-card .example-meta { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* ── Avoid List ── */
+  .avoid-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .avoid-list li {
+    background: rgba(248,81,73,0.06);
+    border: 1px solid rgba(248,81,73,0.2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .avoid-list li .x { color: var(--error); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .avoid-list li .text { color: var(--text); font-size: 13px; }
+
+  /* ── Full Guide ── */
+  .guide-box {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px 28px;
+  }
+  .guide-box h3 { color: #58a6ff; margin: 18px 0 8px; font-size: 15px; }
+  .guide-box h3:first-child { margin-top: 0; }
+  .guide-box h4 { color: var(--text); margin: 14px 0 6px; font-size: 14px; }
+  .guide-box p { color: var(--text); margin-bottom: 10px; font-size: 13px; }
+  .guide-box ul, .guide-box ol { padding-left: 20px; margin-bottom: 12px; }
+  .guide-box li { color: var(--text); font-size: 13px; margin-bottom: 4px; }
+  .guide-box code {
+    font-family: "SF Mono", "Fira Code", monospace;
+    font-size: 12px;
+    background: var(--bg-elevated);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #79c0ff;
+  }
+  .guide-box strong { color: #e6edf3; }
+  .guide-box em { color: #ffa657; font-style: normal; }
+
+  /* ── Params table colours ── */
+  .param-flux td:first-child { border-left: 3px solid var(--flux); }
+  .param-zimage td:first-child { border-left: 3px solid var(--zimage); }
+
+  /* ── Footer ── */
+  .kb-footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="kb-header">
+    <h1>T2I <span>Knowledge Base</span> — Prompt Engineering Report</h1>
+    <p class="subtitle">
+      Generated by DeepSeek · Model: deepseek-chat ·
+      Date: 2026-06-14T23:12:52Z ·
+      Source: <code style="color:#79c0ff;font-size:12px">knowledge-base/reports/latest.json</code>
+    </p>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="val green">30</div>
+        <div class="lbl">Records Analyzed</div>
+      </div>
+      <div class="stat-card">
+        <div class="val green">9.4 / 10</div>
+        <div class="lbl">Avg Quality Score</div>
+      </div>
+      <div class="stat-card">
+        <div class="val blue">5</div>
+        <div class="lbl">Top Strategies</div>
+      </div>
+      <div class="stat-card">
+        <div class="val purple">4</div>
+        <div class="lbl">LoRA Insights</div>
+      </div>
+      <div class="stat-card">
+        <div class="val blue">4</div>
+        <div class="lbl">Param Combos</div>
+      </div>
+      <div class="stat-card">
+        <div class="val green">5</div>
+        <div class="lbl">Top Examples</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Strategies -->
+  <section>
+    <div class="section-title">
+      <span class="icon">⚡</span> Top Prompt Strategies
+      <span class="badge">5 patterns</span>
+    </div>
+    <div class="strategy-grid">
+
+      <div class="strategy-card">
+        <div class="rank">Strategy 1 — Universal LoRA+Anatomy</div>
+        <div class="template">[trigger_word], [scene_description], [anatomical_detail], [lighting], photorealistic, [texture_detail], ultra sharp focus</div>
+        <div class="meta">
+          <span class="tag score-10">10.0 / 10</span>
+          <span class="tag samples">10 samples</span>
+          <span class="tag pipeline-flux">flux2-klein</span>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <div class="rank">Strategy 2 — Zimage Portrait</div>
+        <div class="template">photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus</div>
+        <div class="meta">
+          <span class="tag score-9">9.0 / 10</span>
+          <span class="tag samples">10 samples</span>
+          <span class="tag pipeline-zimage">zimage</span>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <div class="rank">Strategy 3 — Landscape / HDR</div>
+        <div class="template">photorealistic [landscape_type] at [time_of_day], sharp [feature1], detailed [feature2], dramatic [sky_detail], ultra sharp, high dynamic range</div>
+        <div class="meta">
+          <span class="tag score-9">9.0 / 10</span>
+          <span class="tag samples">4 samples</span>
+          <span class="tag pipeline-zimage">zimage</span>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <div class="rank">Strategy 4 — Anatomy Challenge</div>
+        <div class="template">[trigger_word], [pose_description] with [explicit_finger_detail] and [joint_detail], [lighting], photorealistic, detailed anatomy, ultra sharp focus</div>
+        <div class="meta">
+          <span class="tag score-10">10.0 / 10</span>
+          <span class="tag samples">5 samples</span>
+          <span class="tag pipeline-flux">flux2-klein</span>
+        </div>
+      </div>
+
+      <div class="strategy-card">
+        <div class="rank">Strategy 5 — HighRes Portrait</div>
+        <div class="template">a close-up portrait of a young woman with [distinctive_features], [lighting], detailed [texture], photorealistic, [resolution_keyword]</div>
+        <div class="meta">
+          <span class="tag score-10">10.0 / 10</span>
+          <span class="tag samples">1 sample</span>
+          <span class="tag pipeline-flux">flux2-klein</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- LoRA Insights -->
+  <section>
+    <div class="section-title">
+      <span class="icon">🎯</span> LoRA Insights
+      <span class="badge">4 LoRAs</span>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>LoRA File</th>
+          <th>Avg Score</th>
+          <th>Best Scale</th>
+          <th>Trigger Word</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="code">klein_slider_anatomy.safetensors</td>
+          <td><span class="score-pill s10">10</span></td>
+          <td>1.0 – 1.2</td>
+          <td><code>anatomyfix</code></td>
+          <td>Exceptional anatomical accuracy; ensures precise joints and muscle rendering</td>
+        </tr>
+        <tr>
+          <td class="code">klein_slider_bodyweight_50.safetensors</td>
+          <td><span class="score-pill s10">10</span></td>
+          <td>0.5 – 0.8</td>
+          <td><code>slider, bodyweight</code></td>
+          <td>Excellent bodyweight rendering; lower scale preserves natural variation</td>
+        </tr>
+        <tr>
+          <td class="code">HighResolutionFlux2-Kelien-9B.safetensors</td>
+          <td><span class="score-pill s10">10</span></td>
+          <td>0.5</td>
+          <td>descriptive portrait</td>
+          <td>Enhances resolution and skin detail without overpowering the base model</td>
+        </tr>
+        <tr>
+          <td class="code">bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors</td>
+          <td><span class="score-pill s9">9</span></td>
+          <td>varies</td>
+          <td>avoid technical commands</td>
+          <td>Excellent skin texture &amp; eye reflections; prompt_adherence drops with technical commands</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Best Parameters -->
+  <section>
+    <div class="section-title">
+      <span class="icon">⚙️</span> Best Parameter Combinations
+      <span class="badge">4 configs</span>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Pipeline</th>
+          <th>Steps</th>
+          <th>CFG Scale</th>
+          <th>LoRA Scale</th>
+          <th>Size</th>
+          <th>Use Case</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="param-flux">
+          <td><span class="badge-pipeline flux">flux2-klein</span></td>
+          <td>4</td>
+          <td>5</td>
+          <td>0.5</td>
+          <td><code>640×960</code></td>
+          <td>Human subjects with LoRAs; 4 steps sufficient for high quality</td>
+        </tr>
+        <tr class="param-flux">
+          <td><span class="badge-pipeline flux">flux2-klein</span></td>
+          <td>4</td>
+          <td>5</td>
+          <td>1.2</td>
+          <td><code>640×960</code></td>
+          <td>Anatomy-focused prompts; higher LoRA scale ensures precise joints</td>
+        </tr>
+        <tr class="param-zimage">
+          <td><span class="badge-pipeline zimage">zimage</span></td>
+          <td>9</td>
+          <td>7</td>
+          <td>—</td>
+          <td><code>640×960</code></td>
+          <td>Portraits without LoRAs; more steps needed for detail</td>
+        </tr>
+        <tr class="param-zimage">
+          <td><span class="badge-pipeline zimage">zimage</span></td>
+          <td>9</td>
+          <td>7</td>
+          <td>—</td>
+          <td><code>960×640</code></td>
+          <td>Landscapes; landscape aspect ratio improves composition</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Top Examples -->
+  <section>
+    <div class="section-title">
+      <span class="icon">🏆</span> Top Example Prompts
+      <span class="badge">5 examples</span>
+    </div>
+    <div class="example-list">
+
+      <div class="example-card">
+        <div class="score-big s10">10</div>
+        <div>
+          <div class="prompt-text">slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus</div>
+          <div class="why">Perfect trigger word usage, explicit finger detail, specific lighting, and quality keywords combined with optimal LoRA scale (0.5)</div>
+          <div class="example-meta">
+            <span class="badge-pipeline flux">flux2-klein</span>
+            <span class="tag samples">klein_slider_bodyweight_50</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="example-card">
+        <div class="score-big s10">10</div>
+        <div>
+          <div class="prompt-text">anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus</div>
+          <div class="why">Trigger word + exhaustive anatomical detail + quality keywords; higher LoRA scale (1.2) ensures precise anatomy</div>
+          <div class="example-meta">
+            <span class="badge-pipeline flux">flux2-klein</span>
+            <span class="tag samples">klein_slider_anatomy</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="example-card">
+        <div class="score-big s10">10</div>
+        <div>
+          <div class="prompt-text">a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd</div>
+          <div class="why">Simple but specific description with texture keywords; LoRA enhances resolution without overpowering</div>
+          <div class="example-meta">
+            <span class="badge-pipeline flux">flux2-klein</span>
+            <span class="tag samples">HighResolutionFlux2-Kelien-9B</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="example-card">
+        <div class="score-big s9">9</div>
+        <div>
+          <div class="prompt-text">photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus</div>
+          <div class="why">Rich natural language description with multiple detail layers; zimage handles studio lighting and bokeh exceptionally well</div>
+          <div class="example-meta">
+            <span class="badge-pipeline zimage">zimage</span>
+            <span class="tag samples">no LoRA</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="example-card">
+        <div class="score-big s9">9</div>
+        <div>
+          <div class="prompt-text">photorealistic mountain landscape at golden hour, sharp rocky peaks, detailed pine forest, dramatic sky with clouds, ultra sharp, high dynamic range</div>
+          <div class="why">Scene-specific keywords (golden hour, dramatic sky) + texture + HDR; landscape aspect ratio (960×640) matches subject</div>
+          <div class="example-meta">
+            <span class="badge-pipeline zimage">zimage</span>
+            <span class="tag samples">no LoRA · 960×640</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Things to Avoid -->
+  <section>
+    <div class="section-title">
+      <span class="icon">🚫</span> Things to Avoid
+      <span class="badge">5 rules</span>
+    </div>
+    <ul class="avoid-list">
+      <li>
+        <span class="x">✕</span>
+        <span class="text"><strong>Technical commands as prompts</strong> — e.g. "BFS head face swap" drops prompt_adherence to 5/10 because the model cannot execute the operation</span>
+      </li>
+      <li>
+        <span class="x">✕</span>
+        <span class="text"><strong>Undefined CFG scale</strong> — zimage records show "undefined" CFG which reduces consistency; always specify a numeric value</span>
+      </li>
+      <li>
+        <span class="x">✕</span>
+        <span class="text"><strong>Overly short prompts without detail</strong> — single-word or minimal prompts lower composition and adherence scores significantly</span>
+      </li>
+      <li>
+        <span class="x">✕</span>
+        <span class="text"><strong>Missing LoRA trigger words</strong> — without trigger words, LoRA effects do not activate properly; always use the manifest-specified trigger word</span>
+      </li>
+      <li>
+        <span class="x">✕</span>
+        <span class="text"><strong>Inconsistent aspect ratios</strong> — portrait subjects in landscape (960×640) or landscapes in portrait (640×960) hurt composition scores</span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Full Guide -->
+  <section>
+    <div class="section-title">
+      <span class="icon">📖</span> Full Prompt Engineering Guide
+      <span class="badge">AI-generated</span>
+    </div>
+    <div class="guide-box">
+      <h3>Top 5 Prompt Strategies</h3>
+
+      <h4>1. Use LoRA-specific trigger words at the start of prompts</h4>
+      <p><em>Example:</em> <code>slider, bodyweight, full body shot of a woman...</code> or <code>anatomyfix, full body shot of a woman...</code></p>
+      <p>Trigger words activate LoRA behavior early, ensuring the model applies specialized training from the first step. This consistently yields perfect prompt_adherence (10/10) and overall scores (10/10).</p>
+
+      <h4>2. Specify anatomical details explicitly</h4>
+      <p><em>Example:</em> <code>...with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment</code></p>
+      <p>Detailed anatomical instructions eliminate common failures like missing fingers or distorted joints. Prompts with such specificity scored 10/10 on prompt_adherence and detail.</p>
+
+      <h4>3. Combine lighting, texture, and sharpness keywords</h4>
+      <p><em>Example:</em> <code>natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus</code></p>
+      <p>This triad (lighting + texture + sharpness) consistently produces high scores in detail (9–10), sharpness (9–10), and overall (9–10) across both pipelines.</p>
+
+      <h4>4. Use descriptive, scene-based prompts for zimage</h4>
+      <p><em>Example:</em> <code>photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus</code></p>
+      <p>zimage excels with natural language descriptions including multiple sensory details, yielding consistent 9/10 scores across all dimensions.</p>
+
+      <h4>5. Balance LoRA scale for optimal results</h4>
+      <p>LoRA scale 0.5–0.8 for bodyweight preserves natural variation; scale 1.0–1.2 for anatomy ensures precise joint and muscle rendering. Both ranges produce 10/10 scores.</p>
+
+      <h3>Prompt Patterns That Correlate With High Scores</h3>
+      <ul>
+        <li><strong>Trigger word + scene + anatomical detail + lighting + quality keywords</strong> → 10/10 overall, 10/10 prompt_adherence</li>
+        <li><strong>"photorealistic" + "ultra sharp focus" + specific texture keywords</strong> → 9–10/10 detail and sharpness</li>
+        <li><strong>"soft studio lighting" + "bokeh background"</strong> → 9/10 composition and artifacts</li>
+        <li><strong>Explicit finger/joint descriptions</strong> → eliminates common anatomy failures</li>
+        <li><strong>"high dynamic range" + "dramatic sky"</strong> → 9–10/10 composition for landscapes</li>
+      </ul>
+
+      <h3>Best Parameter Combinations per Pipeline</h3>
+      <ul>
+        <li><strong>flux2-klein</strong>: steps=4, CFG=5, LoRA 0.5 (human subjects) or 1.2 (anatomy), size 640×960</li>
+        <li><strong>zimage</strong>: steps=9, CFG=7, no LoRA, portrait 640×960 or landscape 960×640</li>
+        <li><strong>lens</strong>: steps=20, higher-res preferred (1024×1024), excellent for cinematic/historical prompts</li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="kb-footer">
+    <span>Knowledge Base · <code>/Users/huangziyu/proj/video_generation/knowledge-base/</code></span>
+    <span>30 records · deepseek-chat · 2026-06-15</span>
+  </div>
+
+</div>
+</body>
+</html>

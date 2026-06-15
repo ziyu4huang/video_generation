@@ -61,11 +61,30 @@ _STYLE_PROMPTS = {
         "Answer in English."
     ),
     "score": (
-        "You are a professional image quality evaluator. "
-        "Analyze this AI-generated image and score it on a 1-10 scale.\n\n"
-        "Evaluate these dimensions:\n"
+        "You are a STRICT, ADVERSARIAL image quality evaluator. AI-generated "
+        "images almost always carry subtle flaws — your job is to FIND them, not "
+        "to praise. Do not be lenient; a polished-looking image can still fail on "
+        "skin texture or hands.\n\n"
+        "DEFECT CHECK (do this first; be ruthless — hunt for each of these):\n"
+        "- PLASTICKY / WAXY / OVERSMOOTHED SKIN: skin with no visible pores that "
+        "looks like a mannequin, wax doll, or airbrushed plastic. This is the most "
+        "common AI defect — check forehead, cheeks, shoulders, hands, and arms.\n"
+        "- HANDS & FINGERS: wrong finger count, fused/merged fingers, extra or "
+        "missing fingers, malformed hands, or extra/missing/fused limbs.\n"
+        "- FACE: asymmetric eyes or ears, mismatched pupils, deformed teeth, "
+        "melting or drifting features.\n"
+        "- STRUCTURE & SYMMETRY: warped body proportions, fused clothing, "
+        "floating or duplicated objects.\n"
+        "- BACKGROUND: chaotic/melting background, nonsensical objects, seams, "
+        "or ghosting.\n\n"
+        "HARD RULES (override any holistic impression):\n"
+        "- If skin looks plasticky/waxy/oversmoothed (no visible pores): artifacts <= 5 AND overall <= 7.\n"
+        "- If ANY hand has a wrong finger count or fused fingers: artifacts <= 4 AND overall <= 6.\n"
+        "- If there are extra limbs or fused body parts: artifacts <= 3 AND overall <= 4.\n"
+        "- Give artifacts 9-10 ONLY if you genuinely cannot find ANY defect above.\n\n"
+        "Then score on a 1-10 scale (respect the HARD RULES caps on overall/artifacts):\n"
         "1. overall — overall image quality and aesthetic appeal\n"
-        "2. detail — level of fine detail (textures, fabric, skin, hair)\n"
+        "2. detail — level of fine detail (textures, fabric, skin pores, hair)\n"
         "3. sharpness — image sharpness and clarity across the frame\n"
         "4. composition — framing, rule of thirds, visual balance\n"
         "5. prompt_adherence — how well the image matches a typical text-to-image prompt intent\n"
@@ -74,7 +93,7 @@ _STYLE_PROMPTS = {
         '{"overall": N, "detail": N, "sharpness": N, "composition": N, '
         '"prompt_adherence": N, "artifacts": N, '
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}\n'
-        "Each score is an integer 1-10."
+        "Each score is an integer 1-10. List EVERY defect you found in issues[]."
     ),
     "video_score": (
         "You are a professional video quality evaluator. "
@@ -113,38 +132,6 @@ _STYLE_PROMPTS = {
         "Focus on: subject appearance (hair color, clothing), style (realistic/anime/3D), "
         "and overall quality. Output only the sentence, nothing else."
     ),
-    "video_score": (
-        "You are a professional video quality evaluator. "
-        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video. "
-        "Analyze them together to assess the video's overall quality.\n\n"
-        "Evaluate these dimensions on a scale of 1-10:\n"
-        "1. overall — overall video quality and aesthetic appeal\n"
-        "2. sharpness — image sharpness and clarity across frames\n"
-        "3. detail_preservation — level of fine detail (textures, faces, objects)\n"
-        "4. color_lighting — color accuracy, lighting quality, exposure consistency\n"
-        "5. temporal_coherence — how consistent objects/subjects appear across frames "
-        "(do shapes, faces, and positions change smoothly or flicker/jump)\n"
-        "6. artifacts — absence of rendering artifacts like blur, noise, blockiness, "
-        "or seams (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
-        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
-        '{"overall": N, "sharpness": N, "detail_preservation": N, '
-        '"color_lighting": N, "temporal_coherence": N, "artifacts": N, '
-        '"issues": "...", "strengths": "...", "summary": "one-sentence assessment"}\n'
-        "Each score is an integer 1-10."
-    ),
-    "video_analysis": (
-        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video.\n\n"
-        "Analyze the video's content and production quality. Report:\n"
-        "1. scene_description — what is happening in the video (subject, action, setting)\n"
-        "2. camera_movement — is the camera static, panning, zooming, tracking?\n"
-        "3. motion_quality — does motion appear smooth and natural, or jittery/stuttering?\n"
-        "4. subject_consistency — does the main subject change appearance between frames?\n"
-        "5. overall_quality — one-sentence quality summary\n\n"
-        "Respond with ONLY a JSON object (no markdown fences):\n"
-        '{"scene_description": "...", "camera_movement": "...", '
-        '"motion_quality": "...", "subject_consistency": "...", '
-        '"overall_quality": "..."}'
-    ),
     "review": (
         "You are a STRICT image quality evaluator reviewing a TEXT-TO-IMAGE output.\n\n"
         "ORIGINAL PROMPT given to the generator:\n"
@@ -174,38 +161,6 @@ _STYLE_PROMPTS = {
         '"captured": ["..."], "missed": ["..."], '
         '"issues": ["..."], "strengths": ["..."], "summary": "one sentence"}}\n'
         "Each score is an integer 1-10."
-    ),
-    "video_score": (
-        "You are a professional video quality evaluator. "
-        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video. "
-        "Analyze them together to assess the video's overall quality.\n\n"
-        "Evaluate these dimensions on a scale of 1-10:\n"
-        "1. overall — overall video quality and aesthetic appeal\n"
-        "2. sharpness — image sharpness and clarity across frames\n"
-        "3. detail_preservation — level of fine detail (textures, faces, objects)\n"
-        "4. color_lighting — color accuracy, lighting quality, exposure consistency\n"
-        "5. temporal_coherence — how consistent objects/subjects appear across frames "
-        "(do shapes, faces, and positions change smoothly or flicker/jump)\n"
-        "6. artifacts — absence of rendering artifacts like blur, noise, blockiness, "
-        "or seams (INVERTED: 10 = no artifacts, 1 = severe)\n\n"
-        "Respond with ONLY a JSON object (no markdown fences, no explanation):\n"
-        '{"overall": N, "sharpness": N, "detail_preservation": N, '
-        '"color_lighting": N, "temporal_coherence": N, "artifacts": N, '
-        '"issues": "...", "strengths": "...", "summary": "one-sentence assessment"}\n'
-        "Each score is an integer 1-10."
-    ),
-    "video_analysis": (
-        "The images below are EVENLY-SPACED KEYFRAMES from a single generated video.\n\n"
-        "Analyze the video's content and production quality. Report:\n"
-        "1. scene_description — what is happening in the video (subject, action, setting)\n"
-        "2. camera_movement — is the camera static, panning, zooming, tracking?\n"
-        "3. motion_quality — does motion appear smooth and natural, or jittery/stuttering?\n"
-        "4. subject_consistency — does the main subject change appearance between frames?\n"
-        "5. overall_quality — one-sentence quality summary\n\n"
-        "Respond with ONLY a JSON object (no markdown fences):\n"
-        '{"scene_description": "...", "camera_movement": "...", '
-        '"motion_quality": "...", "subject_consistency": "...", '
-        '"overall_quality": "..."}'
     ),
     "playwright": (
         "You are analyzing a SCREENSHOT of a web application's graphical user interface to help "
@@ -238,6 +193,16 @@ _LANG_INSTRUCTIONS = {
 
 _DEFAULT_API_URL = "http://localhost:1234/v1"
 _DEFAULT_MODEL = "qwen/qwen3-vl-4b"
+# Preferred VLM when it's already loaded in LM Studio (the user loaded it
+# deliberately — respect that and reuse it instead of loading Qwen on top).
+# This is used-only-when-loaded; we never auto-load the heavy 26B model here.
+_PREFERRED_MODEL = "google/gemma-4-26b-a4b-qat"
+
+# Per-request timeout for VLM chat completions. Large (26B) models can take well
+# over a minute on a COLD first inference (MLX graph compilation), which used to
+# blow past the old 120s ceiling and time out. 300s tolerates cold start while
+# still bounding a genuine hang. Applied to both single- and multi-image paths.
+_VLM_REQUEST_TIMEOUT = 300
 
 
 def add_args(parser: argparse.ArgumentParser) -> None:
@@ -249,8 +214,10 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Output JSON path (default: <image>.caption.json)")
     parser.add_argument("--api-url", type=str, default=_DEFAULT_API_URL,
                         help=f"VLM API base URL (default: {_DEFAULT_API_URL})")
-    parser.add_argument("--model", type=str, default=_DEFAULT_MODEL,
-                        help=f"Model name (default: {_DEFAULT_MODEL})")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Model name. If omitted, use "
+                        f"{_PREFERRED_MODEL} if already loaded in LM Studio, "
+                        f"else fall back to {_DEFAULT_MODEL} (actively loaded).")
     parser.add_argument("--style", choices=list(_STYLE_PROMPTS.keys()), default="default",
                         help="Caption style (default: default)")
     parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
@@ -301,6 +268,13 @@ def run(args: argparse.Namespace) -> None:
         print(f"Review HTML: {html_path}")
         return
 
+    # Auto-select VLM: an explicit --model always wins; otherwise prefer the
+    # heavier Gemma 26B when it is already loaded in LM Studio, else fall back
+    # to the Qwen default (actively loaded by _lmstudio_ensure_model). Resolved
+    # once here so the video/image branches and the output JSON all record the
+    # actually-used model, and Qwen is never loaded on top of a running Gemma.
+    model = _resolve_model(args.api_url, args.model)
+
     from app.io_utils import require_file
     input_path = require_file(
         args.image or args.input_image,
@@ -324,22 +298,25 @@ def run(args: argparse.Namespace) -> None:
         # --- Video path ---
         n_frames = getattr(args, "frames", 8)
         print(f"Captioning video {input_path} (style={style}, lang={lang}, {n_frames} frames)...", flush=True)
+        t0 = time.perf_counter()
         result = caption_video(
             input_path,
             style=style,
             lang=lang,
             n_frames=n_frames,
             api_url=args.api_url,
-            model=args.model,
+            model=model,
             auto_load=not getattr(args, "no_auto_load", False),
         )
+        elapsed_sec = round(time.perf_counter() - t0, 2)
         caption_text = result.get("summary", json.dumps(result, ensure_ascii=False))
         # Wrap in standard output format
         output = {
             "video": input_path,
             "style": style,
-            "model": args.model,
+            "model": model,
             "frames": n_frames,
+            "elapsed_sec": elapsed_sec,
             "caption": result,
         }
     else:
@@ -356,22 +333,27 @@ def run(args: argparse.Namespace) -> None:
         sample_tag = f", x{n_samples} samples (median)" if n_samples > 1 else ""
         print(f"Captioning {input_path} (style={style}, lang={lang}{sample_tag})...", end=" ", flush=True)
         b64 = _image_to_base64(input_path)
+        # Time only the VLM call(s) — the meaningful cold/warm cost (b64 encode is
+        # negligible). Recorded in the output JSON as elapsed_sec.
+        t0 = time.perf_counter()
         if n_samples > 1:
             # Multi-sample denoising: N VLM calls in-process (model stays loaded),
             # then median the numeric score dims in Python.
             raws = [
-                _call_vlm(args.api_url, args.model, b64, prompt_text,
+                _call_vlm(args.api_url, model, b64, prompt_text,
                           auto_load=not getattr(args, "no_auto_load", False))
                 for _ in range(n_samples)
             ]
             caption_text = median_score_caption(raws)
         else:
-            caption_text = _call_vlm(args.api_url, args.model, b64, prompt_text,
+            caption_text = _call_vlm(args.api_url, model, b64, prompt_text,
                                      auto_load=not getattr(args, "no_auto_load", False))
+        elapsed_sec = round(time.perf_counter() - t0, 2)
         output = {
             "image": input_path,
             "style": style,
-            "model": args.model,
+            "model": model,
+            "elapsed_sec": elapsed_sec,
             "caption": caption_text,
         }
 
@@ -379,7 +361,7 @@ def run(args: argparse.Namespace) -> None:
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2, ensure_ascii=False)
 
-    print("Done")
+    print(f"Done ({output.get('elapsed_sec', 0)}s)")
     preview = (caption_text or "")[:120].replace("\n", " ")
     print(f"Caption: {preview}..." if len(preview) == 120 else f"Caption: {preview}")
     print(f"Saved: {output_path}")
@@ -528,6 +510,96 @@ def _disable_kv_cache_quant(model_id: str) -> bool:
     return True
 
 
+def _loaded_model_keys(api_url: str):
+    """Return the set of currently-loaded model keys, or None if unreachable.
+
+    Uses the NATIVE /api/v1/models endpoint: each model carries a
+    `loaded_instances` list (non-empty iff loaded). The OpenAI /v1/models
+    endpoint lists ALL indexed models regardless of load state, so it cannot
+    distinguish loaded from unloaded.
+    """
+    base = _lmstudio_base(api_url)
+    lms_base = f"{base}/api/v1"
+    try:
+        r = requests.get(f"{lms_base}/models", timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        return {
+            m.get("key", "") for m in data.get("models", [])
+            if m.get("loaded_instances")
+        }
+    except Exception:
+        return None
+
+
+def _resolve_model(api_url: str, explicit_model):
+    """Pick which VLM to use for captioning.
+
+    - An explicit --model always wins (no LM Studio query is issued).
+    - Otherwise prefer _PREFERRED_MODEL (Gemma 26B) when it is ALREADY LOADED
+      in LM Studio — the user loaded it deliberately, so reuse it rather than
+      loading Qwen on top.
+    - Otherwise fall back to _DEFAULT_MODEL (Qwen), which _lmstudio_ensure_model
+      actively loads.
+
+    Gemma is never auto-loaded here; it is used-only-when-loaded. Returns the
+    chosen model id string.
+    """
+    if explicit_model:
+        return explicit_model
+    loaded = _loaded_model_keys(api_url)
+    if loaded and _PREFERRED_MODEL in loaded:
+        print(f"[caption] {_PREFERRED_MODEL} is loaded — using it "
+              f"(not loading Qwen).", flush=True)
+        return _PREFERRED_MODEL
+    return _DEFAULT_MODEL
+
+
+def _warmup_vlm(api_url: str, model_id: str,
+                timeout: int = _VLM_REQUEST_TIMEOUT) -> None:
+    """Run one throwaway inference right after a FRESH model load to absorb MLX
+    cold-start cost (graph compilation + first weight upload to GPU) — so the
+    real caption doesn't pay it and doesn't risk the request timeout on a slow
+    26B model. Only called on a successful load, never on the already-loaded
+    short-circuit, so warm sessions pay zero.
+
+    Best-effort: any failure is logged and swallowed. A warmup error must never
+    block the caption; the subsequent real request surfaces genuine problems.
+    """
+    url = f"{api_url}/chat/completions"
+    content = [{"type": "text", "text": "ready"}]
+    try:
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), (128, 128, 128)).save(buf, format="JPEG")
+        warmup_b64 = base64.b64encode(buf.getvalue()).decode()
+        content.insert(0, {
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{warmup_b64}"},
+        })
+    except Exception as e:
+        # PIL unavailable or image build failed — fall back to text-only warmup,
+        # which still compiles the (dominant) decoder graph.
+        print(f"[caption] Warmup image build failed ({e}); text-only warmup.",
+              file=sys.stderr)
+
+    payload = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 2,
+        "temperature": 0,
+        "stream": False,
+    }
+    t0 = time.perf_counter()
+    try:
+        requests.post(url, json=payload, timeout=timeout)
+        print(f"[caption] Warmup inference for {model_id} done "
+              f"({time.perf_counter() - t0:.1f}s); subsequent captions run warm.",
+              flush=True)
+    except Exception as e:
+        print(f"[caption] Warmup inference failed ({e}); proceeding anyway.",
+              file=sys.stderr)
+
+
 def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> bool:
     """Ensure the given model is loaded in LM Studio.
 
@@ -546,25 +618,6 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
     """
     base = _lmstudio_base(api_url)
     lms_base = f"{base}/api/v1"
-
-    def _loaded_models():
-        """Return the set of currently-loaded model keys, or None if unreachable.
-
-        Uses the NATIVE /api/v1/models endpoint: each model carries a
-        `loaded_instances` list (non-empty iff loaded). The OpenAI /v1/models
-        endpoint lists ALL indexed models regardless of load state, so it cannot
-        distinguish loaded from unloaded.
-        """
-        try:
-            r = requests.get(f"{lms_base}/models", timeout=5)
-            r.raise_for_status()
-            data = r.json()
-            return {
-                m.get("key", "") for m in data.get("models", [])
-                if m.get("loaded_instances")
-            }
-        except Exception:
-            return None
 
     def _load_once() -> bool:
         """POST the load endpoint; returns True if the model reports loaded."""
@@ -590,7 +643,7 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
             print(f"[caption] LM Studio load request failed: {e}", file=sys.stderr)
         return False
 
-    loaded = _loaded_models()
+    loaded = _loaded_model_keys(api_url)
     if loaded is None:
         return False  # LM Studio not responding
     if model_id in loaded:
@@ -598,6 +651,7 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
 
     print(f"[caption] Loading model {model_id} via LM Studio...", flush=True)
     if _load_once():
+        _warmup_vlm(api_url, model_id)
         return True
 
     # Load failed — the most common cause for MLX VLMs is KV-cache quantization.
@@ -610,6 +664,7 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
         time.sleep(2)
         print("[caption] Retrying load after KV-cache fix...", flush=True)
         if _load_once():
+            _warmup_vlm(api_url, model_id)
             return True
 
     return False
@@ -646,7 +701,7 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
     }
 
     def _do_request():
-        resp = requests.post(url, json=payload, timeout=120)
+        resp = requests.post(url, json=payload, timeout=_VLM_REQUEST_TIMEOUT)
         resp.raise_for_status()
         return resp.json()
 
@@ -780,7 +835,7 @@ def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str
     }
 
     def _do_request():
-        resp = requests.post(url, json=payload, timeout=180)  # longer timeout for multi-image
+        resp = requests.post(url, json=payload, timeout=_VLM_REQUEST_TIMEOUT)  # tolerates cold start
         resp.raise_for_status()
         return resp.json()
 

@@ -11,9 +11,10 @@ interface JobRowProps {
   job: JobInfo;
   expanded: boolean;
   onToggle: () => void;
+  onRefresh: () => void;
 }
 
-function JobRow({ job, expanded, onToggle }: JobRowProps) {
+function JobRow({ job, expanded, onToggle, onRefresh }: JobRowProps) {
   const isFailed = job.status === "failed";
   const isRunning = job.status === "running";
   const navigate = useNavigation();
@@ -137,6 +138,26 @@ function JobRow({ job, expanded, onToggle }: JobRowProps) {
             </details>
           )}
 
+          {isRunning && (
+            <div style={{ marginBottom: 10 }}>
+              <button
+                className="btn btn-secondary"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    await fetch(`/api/jobs/${job.id}`, { method: "DELETE" });
+                    onRefresh();
+                  } catch (err) {
+                    toast.error(`Failed to cancel: ${err}`);
+                  }
+                }}
+                style={{ fontSize: 12, padding: "4px 14px", color: "var(--error)", borderColor: "var(--error)" }}
+              >
+                ⏹ Cancel
+              </button>
+            </div>
+          )}
+
           {(job.status === "failed" || job.status === "completed") && job.action && (
             <div style={{ marginBottom: 10 }}>
               <button
@@ -186,7 +207,7 @@ export function JobHistoryView() {
     );
     return sorted.find((j) => j.status === "failed")?.id ?? null;
   });
-  const [clearing, setClearing] = useState(false);
+  const [clearing, setClearing] = useState<"none" | "failed" | "all">("none");
 
   const sorted = [...jobs].sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
@@ -195,19 +216,29 @@ export function JobHistoryView() {
   const failedCount = jobs.filter((j) => j.status === "failed").length;
   const doneCount = jobs.filter((j) => j.status !== "running").length;
 
+  const handleClearFailed = async () => {
+    setClearing("failed");
+    try {
+      await fetch("/api/jobs/all?status=failed", { method: "DELETE" });
+      refresh();
+    } finally {
+      setClearing("none");
+    }
+  };
+
   const handleClearDone = async () => {
-    setClearing(true);
+    setClearing("all");
     try {
       await fetch("/api/jobs/all?status=completed,failed", { method: "DELETE" });
       refresh();
     } finally {
-      setClearing(false);
+      setClearing("none");
     }
   };
 
   return (
     <div style={{ padding: "24px", maxWidth: 900 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-bright)" }}>
           Job History
         </h2>
@@ -219,16 +250,28 @@ export function JobHistoryView() {
         <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
           {jobs.length} total
         </span>
-        {doneCount > 0 && (
-          <button
-            className="btn btn-secondary"
-            onClick={handleClearDone}
-            disabled={clearing}
-            style={{ marginLeft: "auto", fontSize: 12, padding: "4px 12px" }}
-          >
-            {clearing ? "Clearing…" : `Clear done (${doneCount})`}
-          </button>
-        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {failedCount > 0 && (
+            <button
+              className="btn btn-secondary"
+              onClick={handleClearFailed}
+              disabled={clearing !== "none"}
+              style={{ fontSize: 12, padding: "4px 12px", color: "var(--error)", borderColor: "var(--error)" }}
+            >
+              {clearing === "failed" ? "Clearing…" : `Clear failed (${failedCount})`}
+            </button>
+          )}
+          {doneCount > 0 && (
+            <button
+              className="btn btn-secondary"
+              onClick={handleClearDone}
+              disabled={clearing !== "none"}
+              style={{ fontSize: 12, padding: "4px 12px" }}
+            >
+              {clearing === "all" ? "Clearing…" : `Clear all done (${doneCount})`}
+            </button>
+          )}
+        </div>
       </div>
 
       {sorted.length === 0 ? (
@@ -242,6 +285,7 @@ export function JobHistoryView() {
             job={job}
             expanded={expandedId === job.id}
             onToggle={() => setExpandedId(expandedId === job.id ? null : job.id)}
+            onRefresh={refresh}
           />
         ))
       )}

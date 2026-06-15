@@ -10,9 +10,15 @@ interface LayoutProps {
 }
 
 export function Layout({ currentView, onViewChange, children }: LayoutProps) {
-  const { jobs } = useJobs();
+  const { jobs, refresh } = useJobs();
   const runningJob = jobs.find((j) => j.status === "running") ?? null;
   const failedCount = jobs.filter((j) => j.status === "failed").length;
+
+  const clearFailed = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await fetch("/api/jobs/all?status=failed", { method: "DELETE" });
+    refresh();
+  };
 
   // Lightweight WebSocket connection monitor (separate from useWebSocket singleton)
   const [wsConnected, setWsConnected] = useState(true);
@@ -64,11 +70,23 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
           >
             📋 Jobs
             {failedCount > 0 && (
-              <Tip label={`${failedCount} failed job${failedCount > 1 ? "s" : ""} — click to review`}>
-                <span className="sidebar-failed-count">
-                  {failedCount} failed
-                </span>
-              </Tip>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <Tip label={`${failedCount} failed job${failedCount > 1 ? "s" : ""} — click to review`}>
+                  <span className="sidebar-failed-count">
+                    {failedCount} failed
+                  </span>
+                </Tip>
+                <Tip label="Clear failed jobs">
+                  <span
+                    onClick={clearFailed}
+                    style={{ fontSize: 10, color: "var(--error)", cursor: "pointer", padding: "0 3px", lineHeight: 1, opacity: 0.7 }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.7")}
+                  >
+                    ×
+                  </span>
+                </Tip>
+              </span>
             )}
           </div>
         </div>

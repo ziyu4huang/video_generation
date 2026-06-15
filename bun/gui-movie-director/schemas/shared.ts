@@ -24,6 +24,7 @@ export const RESOLUTION_CHOICES = [
   { value: "960x640", label: "960×640 (landscape)" },
   { value: "1024x1024", label: "1024×1024 (square HD)" },
   { value: "1440x1440", label: "1440×1440 (gallery)" },
+  { value: "custom", label: "Custom…" },
 ];
 
 export const RESOLUTION_MAP: Record<string, [number, number]> = {

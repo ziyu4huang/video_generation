@@ -32,6 +32,47 @@ _LENS_SELF_TEST_PROMPT = (
 )
 
 
+# Lens supports ONLY two base resolutions (1024 and 1440) crossed with nine
+# aspect ratios, per microsoft/Lens lens/resolution.py. Lens is a high-res
+# model — its gallery is entirely at these buckets, and resolutions below the
+# 1024 base (e.g. 640×960) are out-of-distribution → soft, low-detail, weak
+# anatomy. We snap non-bucket (width, height) to the nearest bucket so the model
+# always runs on a resolution it was trained on. Values are (width, height).
+_LENS_BUCKETS: set[tuple[int, int]] = {
+    # base 1024
+    (736, 1472), (768, 1376), (832, 1248), (864, 1152), (1024, 1024),
+    (1152, 864), (1248, 832), (1376, 768), (1472, 736),
+    # base 1440
+    (1040, 2080), (1088, 1936), (1168, 1760), (1216, 1616), (1440, 1440),
+    (1616, 1216), (1760, 1168), (1936, 1088), (2080, 1040),
+}
+
+
+def _snap_to_lens_bucket(width: int, height: int) -> tuple[tuple[int, int], bool]:
+    """Return ((width, height), is_exact_bucket).
+
+    If ``(width, height)`` is a Lens bucket, return it unchanged. Otherwise snap
+    to the nearest bucket: closest aspect ratio first, then prefer the smallest
+    area >= requested (so we never downscale below the requested detail level).
+    e.g. 640×960 (2:3) → 832×1248 (the base-1024 2:3 bucket).
+    """
+    if (width, height) in _LENS_BUCKETS:
+        return (width, height), True
+    req_ratio = width / height
+    req_area = width * height
+
+    def _key(b: tuple[int, int]):
+        bw, bh = b
+        area = bw * bh
+        return (
+            abs((bw / bh) - req_ratio),   # closest aspect ratio first
+            0 if area >= req_area else 1,  # prefer not to downscale
+            area,                          # then smallest sufficient area
+        )
+
+    return min(_LENS_BUCKETS, key=_key), False
+
+
 def run_lens(args: argparse.Namespace, json_summary: bool = False) -> str:
     """Execute Lens T2I generation.
 
@@ -61,11 +102,27 @@ def run_lens(args: argparse.Namespace, json_summary: bool = False) -> str:
     seeds = seed_sequence(args)
     batch = len(seeds)
 
-    # Lens cfg-scale default is 4.0 (per microsoft/Lens). The shared --cfg-scale
-    # arg defaults to None (unused by zimage/flux2); resolve it here.
+    # Lens cfg-scale default is 5.0 (microsoft/Lens inference.py argparse
+    # default). The shared --cfg-scale arg defaults to None (unused by
+    # zimage/flux2); resolve it here. Keep the None sentinel — see the
+    # argparse-sentinel-for-user-override lesson (cfg_scale was previously
+    # bitten by magic-number comparison).
     cfg_scale = getattr(args, "cfg_scale", None)
     if cfg_scale is None:
-        cfg_scale = 4.0
+        cfg_scale = 5.0
+
+    # Snap non-bucket resolutions to the nearest Lens bucket (see
+    # _LENS_BUCKETS). Lens only supports 1024/1440 bases; OOD resolutions
+    # produce soft, low-detail output. Update args in place so run.json records
+    # the ACTUAL bucket used in outputs[] (argv still shows what was typed).
+    (args.width, args.height), _bucket_exact = _snap_to_lens_bucket(args.width, args.height)
+    if not _bucket_exact:
+        print(
+            "[lens] WARNING: requested resolution is not a Lens bucket (Lens "
+            "supports only 1024/1440 bases × 9 aspect ratios); snapped to "
+            f"nearest bucket {args.width}×{args.height}. "
+            "See microsoft/Lens lens/resolution.py."
+        )
 
     print(f"[lens] {args.width}×{args.height}  steps={args.steps}  cfg={cfg_scale}  "
           f"seeds={seeds}")

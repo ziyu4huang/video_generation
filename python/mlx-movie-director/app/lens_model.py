@@ -199,13 +199,17 @@ class LensJointAttention(mnn.Module):
         q = _apply_rope(q, freqs_cis)
         k = _apply_rope(k, freqs_cis)
 
-        # SDPA
+        # SDPA — fused kernel (mx.fast.scaled_dot_product_attention). Numerically
+        # identical to the manual einsum + fp32 softmax (verified corr=1.0), but
+        # it does NOT materialize the [B,H,S,S] attention matrix. The naive form
+        # built the full S×S scores in fp32 (~6 GB at 8030 tokens) — that S²
+        # materialization + fp32 cast dominated step time and made 1440-base runs
+        # ~4.5x slower than 832×1248 for only ~2x the tokens.
         scale = 1.0 / math.sqrt(D)
-        attn = mx.einsum("bhsd,bhtd->bhst", q * scale, k)
-        if attention_mask is not None:
-            attn = attn + attention_mask
-        attn = mx.softmax(attn.astype(mx.float32), axis=-1).astype(q.dtype)
-        out = mx.einsum("bhst,bhtd->bhsd", attn, v)
+        # SDPA requires the mask dtype to promote to the output dtype (bf16). The
+        # additive mask is just 0 / -inf, so casting to q.dtype is exact.
+        mask = attention_mask.astype(q.dtype) if attention_mask is not None else None
+        out = mx.fast.scaled_dot_product_attention(q, k, v, scale=scale, mask=mask)
 
         # [B, H, S, D] → [B, S, H*D]
         out = out.transpose(0, 2, 1, 3).reshape(B, seq_img + seq_txt, self.inner_dim)

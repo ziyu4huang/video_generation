@@ -50,7 +50,9 @@ console.log(`🎬 Movie Director UI: http://localhost:${server.port}`);
 let _rebuildTimer: ReturnType<typeof setTimeout> | null = null;
 let _lastRebuildHash = 0;
 
-fs.watch(FRONTEND_DIR, { recursive: true }, (_event, filename) => {
+const SCHEMAS_DIR = path.join(path.dirname(FRONTEND_DIR), "schemas");
+
+function onFileChange(_event: string, filename: string | null) {
   if (!filename) return;
   if (!/\.[tj]sx?$/.test(filename) && !filename.endsWith(".css")) return;
 
@@ -73,7 +75,10 @@ fs.watch(FRONTEND_DIR, { recursive: true }, (_event, filename) => {
       console.log(`❌ Build failed after ${ms}ms`);
     }
   }, 200);
-});
+}
+
+fs.watch(FRONTEND_DIR, { recursive: true }, onFileChange);
+fs.watch(SCHEMAS_DIR, { recursive: true }, onFileChange);
 
 // --- Dev: output-dir watcher → push gallery-updated to browser ---
 const MEDIA_EXTS = new Set([".png", ".jpg", ".jpeg", ".mp4", ".mov", ".webm", ".m4v"]);

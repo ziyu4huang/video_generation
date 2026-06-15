@@ -259,6 +259,12 @@ class LensPipeline:
         else:
             ids = []
         if len(ids) > _MAX_TOKENS:
+            print(
+                f"[Lens] WARNING: prompt is {len(ids)} tokens but the GPT-OSS-20B "
+                f"encoder caps at {_MAX_TOKENS}; truncating. The model only sees "
+                "the first 512 tokens — condense the prompt (or rewrite it as a "
+                "concise image prompt) to retain detail."
+            )
             ids = ids[:_MAX_TOKENS]
 
         seq_len = max(len(ids), 1)

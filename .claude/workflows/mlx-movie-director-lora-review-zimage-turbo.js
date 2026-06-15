@@ -43,6 +43,7 @@ export const meta = {
   whenToUse: "Compare all zimage-turbo LoRAs against baseline in one run. Generates paired images per seed, VLM-scores each, and produces a multi-set review HTML for human feedback.",
   phases: [
     { title: "Resolve", detail: "Detect absolute project root via git rev-parse" },
+    { title: "Knowledge", detail: "Read T2I knowledge base (knowledge-base/reports/latest.json) for prompt engineering context" },
     { title: "Discover", detail: "Auto-scan models/lora/*/manifest.json for zimage-turbo LoRAs" },
     { title: "GPU Wait", detail: "Wait if another run.py generation is using the GPU" },
     { title: "Scale Sweep", detail: "Probe each LoRA at multiple scales to find optimal setting" },
@@ -59,6 +60,7 @@ export const meta = {
 
 const phaseStatus = {
   resolve: "pending",
+  knowledge: "pending",
   discover: "pending",
   gpuWait: "pending",
   scaleSweep: "pending",
@@ -80,6 +82,18 @@ function markPhase(name, status) {
 }
 
 // ── Schemas (shared across phases) ───────────────────────────────────────────
+
+const KB_SUMMARY_SCHEMA = {
+  type: "object",
+  properties: {
+    available:     { type: "boolean" },
+    topStrategies: { type: "array", items: { type: "string" } },
+    avoid:         { type: "array", items: { type: "string" } },
+    bestParams:    { type: "array", items: { type: "object" } },
+    topExamples:   { type: "array", items: { type: "object" } },
+  },
+  required: ["available"],
+}
 
 const PATH_SCHEMA = {
   type: "object",
@@ -133,6 +147,7 @@ const PYTHON      = `${PROJECT_ROOT}/python/venv/bin/python`
 const RUN_PY      = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR     = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR    = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
+const KB_ROOT     = `${PROJECT_ROOT}/knowledge-base`
 
 const WORKFLOW_NAME  = "mlx-movie-director-lora-review-zimage-turbo"
 const HISTORY_DIR    = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
@@ -305,6 +320,26 @@ const loraBaselineCtx = loraReflection?.score_baselines
   : ""
 
 markPhase("resolve", "completed")
+
+// ── Knowledge Base: read T2I prompt engineering context ──────────────────────
+
+phase("Knowledge")
+let kbContext = null
+const kbRead = await agent(
+  `Read the T2I knowledge base at ${KB_ROOT}/reports/latest.json.
+1. Bash("test -f '${KB_ROOT}/reports/latest.json' && echo EXISTS || echo MISSING")
+2. If MISSING: return { "available": false }
+3. If EXISTS: Read("${KB_ROOT}/reports/latest.json") and extract from the "structured" field:
+   - available: true
+   - topStrategies: structured.topStrategies[0..2], each formatted as "<template> (score: <avgScore>/10)"
+   - avoid: structured.avoid (all items as strings)
+   - bestParams: structured.bestParams (all objects)
+   - topExamples: structured.topExamples[0..2] with prompt+score+pipeline fields`,
+  { label: "kb-read", phase: "Knowledge", model: "haiku", schema: KB_SUMMARY_SCHEMA },
+)
+if (kbRead?.available) kbContext = kbRead
+markPhase("knowledge", kbContext ? "completed" : "skipped")
+log(`Knowledge base: ${kbContext ? `loaded (${(kbContext.topStrategies || []).length} strategies, ${(kbContext.avoid || []).length} avoid rules)` : "not available"}`)
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1017,9 +1052,16 @@ if (baseScoreSummary.count > 0) {
   }
 }
 
+const kbBlock = kbContext ? `## T2I Knowledge Base Context (${KB_ROOT})
+Top strategies: ${(kbContext.topStrategies || []).join(" | ")}
+Avoid: ${(kbContext.avoid || []).slice(0, 5).join("; ")}
+Best params for zimage: ${JSON.stringify((kbContext.bestParams || []).filter((p) => p.pipeline === "zimage"))}
+Top examples: ${JSON.stringify((kbContext.topExamples || []).slice(0, 2).map((e) => ({ prompt: e.prompt?.slice(0, 80), score: e.score, lora: e.loraPath })))}
+Use this knowledge when analyzing per-LoRA prompt adherence and recommending optimal settings.\n\n` : ""
+
 const reportResult = await agent(
   `Generate a concise LoRA comparison report for this zimage-turbo A/B test.
-${loraBaselineCtx}
+${kbBlock}${loraBaselineCtx}
 ## Test Configuration
 - Pipeline: zimage (zimage-turbo LoRAs)
 - Prompt: ${prompt.slice(0, 120)}${prompt.length > 120 ? "..." : ""}

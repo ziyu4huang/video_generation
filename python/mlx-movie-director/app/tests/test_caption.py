@@ -157,10 +157,13 @@ class TestEnsureModelFlow:
         with patch.object(caption.requests, "get", side_effect=get_resps), \
              patch.object(caption.requests, "post", side_effect=post_resps), \
              patch.object(caption, "_disable_kv_cache_quant", return_value=True) as fix, \
+             patch.object(caption, "_warmup_vlm") as warmup, \
              patch.object(caption.time, "sleep"):
             assert caption._lmstudio_ensure_model(
                 "http://localhost:1234/v1", "qwen/qwen3-vl-4b") is True
             fix.assert_called_once_with("qwen/qwen3-vl-4b")
+            warmup.assert_called_once_with("http://localhost:1234/v1",
+                                           "qwen/qwen3-vl-4b")
 
     def test_load_fail_no_fix_returns_false(self):
         with patch.object(caption.requests, "get") as g, \
@@ -170,3 +173,144 @@ class TestEnsureModelFlow:
                 {"key": "m", "loaded_instances": []}]})
             p.return_value = self._resp(200, {"error": {"type": "model_load_failed"}})
             assert caption._lmstudio_ensure_model("http://localhost:1234/v1", "m") is False
+
+
+def _resp(status_code: int, body: dict) -> MagicMock:
+    """Module-scope response mock (shared by the resolve-model tests below)."""
+    r = MagicMock()
+    r.status_code = status_code
+    r.json.return_value = body
+    r.text = json.dumps(body)
+    return r
+
+
+_URL = "http://localhost:1234/v1"
+_LOADED = lambda *keys: _resp(200, {"models": [
+    {"key": k, "loaded_instances": [{"id": "x"}]} for k in keys]})
+_UNLOADED = lambda *keys: _resp(200, {"models": [
+    {"key": k, "loaded_instances": []} for k in keys]})
+
+
+class TestResolveModel:
+    """`_resolve_model`: prefer Gemma 26B when LOADED, else Qwen default;
+    explicit --model always wins (no query). Gemma is never auto-loaded."""
+
+    def test_gemma_loaded_returns_gemma(self):
+        with patch.object(caption.requests, "get", return_value=_LOADED(
+                caption._PREFERRED_MODEL)):
+            assert caption._resolve_model(_URL, None) == caption._PREFERRED_MODEL
+
+    def test_gemma_not_loaded_qwen_only_returns_qwen(self):
+        with patch.object(caption.requests, "get", return_value=_LOADED(
+                caption._DEFAULT_MODEL)):
+            assert caption._resolve_model(_URL, None) == caption._DEFAULT_MODEL
+
+    def test_neither_loaded_returns_qwen(self):
+        with patch.object(caption.requests, "get", return_value=_UNLOADED(
+                caption._PREFERRED_MODEL, caption._DEFAULT_MODEL)):
+            assert caption._resolve_model(_URL, None) == caption._DEFAULT_MODEL
+
+    def test_lms_unreachable_returns_qwen(self):
+        with patch.object(caption.requests, "get",
+                          side_effect=caption.requests.ConnectionError()):
+            assert caption._resolve_model(_URL, None) == caption._DEFAULT_MODEL
+
+    def test_explicit_override_wins_and_skips_query(self):
+        # Explicit model must win AND issue no LM Studio query at all.
+        with patch.object(caption.requests, "get") as g:
+            assert caption._resolve_model(_URL, "other/model") == "other/model"
+            g.assert_not_called()
+
+    def test_both_loaded_prefers_gemma(self):
+        with patch.object(caption.requests, "get", return_value=_LOADED(
+                caption._PREFERRED_MODEL, caption._DEFAULT_MODEL)):
+            assert caption._resolve_model(_URL, None) == caption._PREFERRED_MODEL
+
+
+class TestRunModelSelection:
+    """`run()` resolves the model once and threads it through _call_vlm and the
+    output JSON, never passing the Qwen default when a model is resolved."""
+
+    def _build_args(self, tmp_path, **overrides):
+        import argparse
+        p = argparse.ArgumentParser()
+        caption.add_args(p)
+        img = tmp_path / "img.png"
+        img.write_bytes(b"\x89PNG fake")
+        ns = p.parse_args([str(img)])
+        ns.output = str(tmp_path / "out.caption.json")
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_run_records_resolved_model_and_uses_it(self, tmp_path):
+        args = self._build_args(tmp_path)
+        with patch.object(caption, "_resolve_model",
+                          return_value=caption._PREFERRED_MODEL) as resolver, \
+             patch.object(caption, "_image_to_base64", return_value="b64"), \
+             patch.object(caption, "_call_vlm", return_value='{"overall": 8}') as vlm:
+            caption.run(args)
+        # Resolved exactly once with the CLI api_url + the (None) --model value.
+        resolver.assert_called_once_with(args.api_url, None)
+        # _call_vlm received the resolved Gemma model, never the Qwen default.
+        used = {c.args[1] for c in vlm.call_args_list}
+        assert caption._PREFERRED_MODEL in used
+        assert caption._DEFAULT_MODEL not in used
+        # The output JSON records the resolved model.
+        out = json.load(open(args.output))
+        assert out["model"] == caption._PREFERRED_MODEL
+
+    def test_run_explicit_model_is_respected(self, tmp_path):
+        # Explicit --model flows straight through _resolve_model.
+        args = self._build_args(tmp_path, model="explicit/model")
+        with patch.object(caption, "_resolve_model",
+                          side_effect=lambda url, m: m) as resolver, \
+             patch.object(caption, "_image_to_base64", return_value="b64"), \
+             patch.object(caption, "_call_vlm", return_value="ok"):
+            caption.run(args)
+        resolver.assert_called_once_with(args.api_url, "explicit/model")
+        out = json.load(open(args.output))
+        assert out["model"] == "explicit/model"
+
+
+class TestWarmup:
+    """`_warmup_vlm` fires once after a FRESH load (absorbing MLX cold-start),
+    never on the already-loaded short-circuit, and swallows its own errors."""
+
+    def test_warmup_called_after_fresh_load(self):
+        with patch.object(caption.requests, "get", return_value=_resp(200, {
+                "models": [{"key": "m", "loaded_instances": []}]})), \
+             patch.object(caption.requests, "post", return_value=_resp(200, {
+                "status": "loaded", "instance_id": "x"})), \
+             patch.object(caption, "_warmup_vlm") as warmup:
+            assert caption._lmstudio_ensure_model(_URL, "m") is True
+            warmup.assert_called_once_with(_URL, "m")
+
+    def test_warmup_not_called_when_already_loaded(self):
+        with patch.object(caption.requests, "get", return_value=_resp(200, {
+                "models": [{"key": "m", "loaded_instances": [{"id": "x"}]}]})), \
+             patch.object(caption.requests, "post") as post, \
+             patch.object(caption, "_warmup_vlm") as warmup:
+            assert caption._lmstudio_ensure_model(_URL, "m") is True
+            warmup.assert_not_called()
+            post.assert_not_called()
+
+    def test_warmup_failure_is_swallowed(self):
+        # A warmup error must never propagate to the caller.
+        with patch.object(caption.requests, "post",
+                          side_effect=caption.requests.ConnectionError("boom")):
+            caption._warmup_vlm(_URL, "m")  # must not raise
+
+
+class TestRequestTimeout:
+    """The request timeout must tolerate a 26B model's cold-start inference
+    (the old 120s ceiling timed out on Gemma)."""
+
+    def test_timeout_constant_is_coldstart_safe(self):
+        assert caption._VLM_REQUEST_TIMEOUT >= 240
+
+    def test_call_vlm_uses_configured_timeout(self):
+        resp = _resp(200, {"choices": [{"message": {"content": "x"}}]})
+        with patch.object(caption.requests, "post", return_value=resp) as p:
+            caption._call_vlm(_URL, "m", "b64", "prompt", auto_load=False)
+        assert p.call_args.kwargs["timeout"] == caption._VLM_REQUEST_TIMEOUT

@@ -152,11 +152,67 @@ velocity magnitude → over-exposure / over-contrast.
 features + all-False mask (drops the negative tokens from attention entirely),
 NOT an encoded empty chat string.
 
-**Bug 8 — cfg default was 3.5, should be 4.0** (official `guidance_scale`).
+**Bug 8 — cfg default + sentinel.** The shared `--cfg-scale` arg defaults to
+`None` (unused by zimage/flux2); the Lens path resolves `None → 5.0`, matching
+the official `microsoft/Lens inference.py` argparse default of **5.0** (its
+docstring example shows `--cfg 4.0`). Resolved via `getattr(args, "cfg_scale",
+None)` + `if cfg_scale is None` — **never** compare against a concrete default
+(see the `argparse-sentinel-for-user-override` lesson; cfg_scale was previously
+bitten by magic-number comparison).
 
 The Lens gallery is all 1440² / 1248×1664 / 1664×1248 — it is a high-resolution
 model, so 512² is out-of-distribution; quality scales further with resolution
 (high-freq detail +43% at 1024²) and steps (official default 50).
+
+## Performance bug — naive attention (Bug 9, perf not correctness)
+
+A 1168×1760/50-step run took **814s** and scaled ~4.5x slower than 832×1248 for
+only ~2x the tokens — slightly super-quadratic, the signature of an S² memory
+bottleneck. Root cause: `app/lens_model.py` implemented the joint attention with
+a **manual einsum + fp32 softmax** that materialized the full `[B,H,S,S]` score
+matrix (≈6 GB at S=8030) instead of MLX's fused kernel — despite the code comment
+literally reading `# SDPA`.
+
+**Fix:** swapped to `mx.fast.scaled_dot_product_attention(q, k, v, scale, mask)`
+(cast the additive mask to `q.dtype` — SDPA requires the mask to promote to the
+output dtype). Verified numerically equivalent to the manual form (**corr=1.0**,
+with and without mask) and output-preserving (pixel diff vs the pre-fix 1440
+output: mean 1.6/255 — imperceptible bf16 fusion-order noise).
+
+**Speedup:** 832×1248 **3.56 → 0.845 s/step (4.2x)**; 1440 base **15.84 → 2.75
+s/step (5.8x)** — the 1168×1760/50 run dropped **814s → 140s**. The win grows with
+resolution because the eliminated S² materialization cost grows with S. After the
+fix, 1440 base (140s) is faster than the pre-fix 832×1248 run (178s), so native-
+resolution generation is no longer time-prohibitive. MLX ≥0.21 has the fused SDPA;
+the port already required it transitively but never called it here.
+
+## Quality levers ruled out — reasoner & token-cap (Bug 10, investigation)
+
+Two hypothesized prompt-side quality levers were **empirically ruled out** with a
+fixed-seed A/B/C test (`scripts/test_lens_reasoner.py`, 832×1248 / 50 steps / cfg
+5.0 / seed 42, on the real 521-token portrait prompt):
+
+| condition | text tokens seen | result |
+|-----------|------------------|--------|
+| (A) baseline, cap 512 | 415 (truncated tail) | reference |
+| (B) cap enlarged 512→1024 | 543 (full prompt) | mean Δ 11.6/255 (15% px) vs A |
+| (C) gemma-4-26b reasoner rewrite, cap 512 | 311 (condensed) | mean Δ 30/255 (48% px) vs A |
+
+Objective pixel diffs prove the images **do** differ — but a critical VLM read
+found the **same rendering defects in all three** (plastic skin, mushed fabric,
+blur). So the reasoner changes *what* renders (it rewrites the prompt → a
+different image), not the *quality*; cap enlargement barely moves anything. The
+defects are rendering-capacity (resolution / 3.8B model size), not prompt-content.
+Seed dominates composition/lighting; text conditioning only nudges content.
+
+**Consequences:** do not wire a reasoner into the CLI for quality (it only helps
+if the input prompt is vague/short and you want elaboration — a different goal;
+`app/lens_reasoner.py` is kept opt-in for that). Do not raise `_MAX_TOKENS` past
+512 expecting better images. The actual quality levers are native resolution,
+steps 50, cfg 5.0, and **best-of-N seed selection** (official `--n 4`; we have
+`--count`) — eyeball-pick the best of N, since per-seed rendering defects can't be
+prompt-conditioned away. The reasoner needs `reasoning_effort:"none"` for the
+thinking gemma-4-26b, or it spends the whole budget on `<think>` and emits nothing.
 
 ## Architecture facts (verified against the reference)
 

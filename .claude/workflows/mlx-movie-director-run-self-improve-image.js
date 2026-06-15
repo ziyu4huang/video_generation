@@ -96,7 +96,7 @@ export const meta = {
     { title: "Self-Fix", detail: "Analyze score weaknesses, propose 1–2 fix specs, re-run and re-score, score-gated (autoFix:true only)" },
     { title: "Report", detail: "Summarize quality scores, self-fix outcome, and improvement recommendations" },
     { title: "Review HTML", detail: "Auto-build after gen (or finalize) — multi-set A/B HTML via caption --ab-manifest, with reproducibility panels" },
-    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ for trend analysis" },
+    { title: "Persist", detail: "Write run history JSON to .claude/workflows/history/ + refresh KB via knowledge:learn so next iteration reads updated T2I guidance" },
   ],
 }
 
@@ -1634,6 +1634,26 @@ const _t2i_histEntry = {
 await saveHistory(_t2i_HIST_DIR, _t2i_INDEX_FILE, _t2i_histEntry, _t2i_signals)
 markPhase("persist", "completed")
 log(`History: ${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json`)
+
+// KB auto-regen: refresh T2I knowledge base so the next iteration's Knowledge phase
+// gets an up-to-date report reflecting all newly captioned images.
+const _t2i_GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
+if (captionFiles.length > 0) {
+  const kbRegen = await agent(
+    `Refresh the T2I knowledge base by running the learn command.
+This run just produced ${captionFiles.length} new captioned image(s).
+Run: Bash("cd '${_t2i_GUI_DIR}' && bun run knowledge:learn --max-records 80 2>&1 | tail -4")
+Return { ok: true, summary: "<last non-empty line of output>" } on success,
+       { ok: false, summary: "<first error line>" } if DeepSeek fails or key is missing.`,
+    { label: "kb-regen", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { ok: { type: "boolean" }, summary: { type: "string" } }, required: ["ok", "summary"] } },
+  )
+  if (kbRegen?.ok) {
+    log(`KB refreshed: ${kbRegen.summary}`)
+  } else {
+    log(`KB regen skipped (${kbRegen?.summary ?? "no captions or DeepSeek unavailable"})`)
+  }
+}
 
 log("=== T2I Run-and-Review Complete ===")
 log(reportResult || "(no report)")

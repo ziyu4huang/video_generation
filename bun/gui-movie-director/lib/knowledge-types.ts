@@ -32,7 +32,17 @@ export interface KnowledgeRecord {
   dirIdx: number;
   imagePath: string;
   run: T2IRunConfig | null;
-  manifest: { status: string; elapsed_seconds: number } | null;
+  manifest: {
+    status: string;
+    elapsed_seconds: number;
+    // Enriched perf profile (optional — older manifests may lack these).
+    // Lets the knowledge pipeline correlate model/time/memory with quality.
+    memory_peak_mb?: number;
+    denoising_seconds?: number;
+    avg_step_seconds?: number;
+    step_count?: number;
+    transformer_model?: string;   // model dir basename, e.g. "zimage-moody-v126"
+  } | null;
   caption: ReviewCaption | null;
   hasCaption: boolean;
   qualityScore: number | null;
@@ -82,4 +92,18 @@ export interface KnowledgeReport {
   avgQualityScore: number;
   markdown: string;
   structured: StructuredKnowledge;
+}
+
+export interface KnowledgeIndex {
+  version: number;
+  lastUpdated: string;
+  recordShards: string[];   // relative: "records/records-0000.jsonl"
+  totalRecords: number;
+  reports: string[];        // relative: "reports/20260615-120000.json"
+  latestReport: string | null;
+  stats: {
+    avgQualityScore: number;
+    withCaption: number;
+    pipelines: Record<string, number>;
+  };
 }

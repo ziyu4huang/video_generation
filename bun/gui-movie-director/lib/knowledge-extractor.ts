@@ -3,6 +3,11 @@ import path from "path";
 import { OUTPUT_DIRS, RUN_PY } from "./paths";
 import { loadConfig } from "./config";
 import { readJsonFile, writeJsonFile } from "./fsUtils";
+import {
+  saveReportToDb,
+  loadLatestReportFromDb,
+  appendRecordsToDb,
+} from "./knowledge-db";
 import type {
   KnowledgeRecord,
   KnowledgeReport,
@@ -80,7 +85,29 @@ export function scanOutputDirs(): KnowledgeRecord[] {
         : null;
 
       const manifest = manifestRaw
-        ? { status: manifestRaw.status ?? "unknown", elapsed_seconds: manifestRaw.elapsed_seconds ?? 0 }
+        ? (() => {
+            const mf: any = manifestRaw;
+            const stepTimes: number[] = Array.isArray(mf?.timings?.denoising_step_times)
+              ? mf.timings.denoising_step_times
+              : [];
+            const avgStep = stepTimes.length
+              ? stepTimes.reduce((a: number, b: number) => a + b, 0) / stepTimes.length
+              : undefined;
+            // transformer model identity = its containing dir basename (e.g. "zimage-moody-v126")
+            const txPath: string | undefined = mf?.models?.transformer?.path;
+            const txModel = txPath ? path.basename(path.dirname(txPath)) : undefined;
+            return {
+              status: mf.status ?? "unknown",
+              elapsed_seconds: mf.elapsed_seconds ?? 0,
+              memory_peak_mb: typeof mf.memory_peak_mb === "number" ? Math.round(mf.memory_peak_mb) : undefined,
+              denoising_seconds: typeof mf?.timings?.denoising_seconds === "number"
+                ? Math.round(mf.timings.denoising_seconds * 100) / 100
+                : undefined,
+              avg_step_seconds: avgStep !== undefined ? Math.round(avgStep * 100) / 100 : undefined,
+              step_count: stepTimes.length || undefined,
+              transformer_model: txModel,
+            };
+          })()
         : null;
 
       records.push({
@@ -121,6 +148,8 @@ export async function generateMissingCaptions(
   const batch = limit ? missing.slice(0, limit) : missing;
   let generated = 0;
   let failed = 0;
+
+  const newlyCaptioned: KnowledgeRecord[] = [];
 
   for (let i = 0; i < batch.length; i++) {
     const rec = batch[i];
@@ -164,10 +193,20 @@ export async function generateMissingCaptions(
           rec.hasCaption = parsed !== null;
           rec.qualityScore = parsed?.overall ?? null;
         }
+        newlyCaptioned.push(rec);
       }
     } catch (err: any) {
       console.error(`[knowledge] caption error for ${rec.stem}:`, err.message);
       failed++;
+    }
+  }
+
+  // Persist newly captioned records to the knowledge base
+  if (newlyCaptioned.length > 0) {
+    try {
+      appendRecordsToDb(newlyCaptioned);
+    } catch (err: any) {
+      console.error("[knowledge] appendRecordsToDb failed:", err.message);
     }
   }
 
@@ -185,10 +224,39 @@ function formatRecord(rec: KnowledgeRecord, index: number): string {
   const strengths = cap.strengths.length ? cap.strengths.slice(0, 3).join("; ") : "—";
   const issues = cap.issues.length ? cap.issues.slice(0, 2).join("; ") : "none";
 
+  // Impactful params beyond the headline pipeline/steps/cfg — these are the real
+  // quality levers (denoise = i2i source fidelity; stg = coherence; post-processing;
+  // controlnet/face_detail). Only surface non-default values to avoid noise.
+  const r = run as any;
+  const extras: string[] = [];
+  if (r.denoise_strength != null && r.denoise_strength !== 1) extras.push(`denoise=${r.denoise_strength}`);
+  if (r.stg_scale != null && r.stg_scale !== 1) extras.push(`stg=${r.stg_scale}`);
+  if (r.seed != null) extras.push(`seed=${r.seed}`);
+  if (r.enhance_prompt) extras.push(`enhance_prompt`);
+  if (r.film_grain) extras.push(`film_grain=${r.film_grain}`);
+  if (r.sharpening) extras.push(`sharpening=${r.sharpening}`);
+  if (r.lut_path) extras.push(`lut=${path.basename(r.lut_path)}`);
+  if (r.control_type) extras.push(`controlnet=${r.control_type}@${r.control_strength ?? "?"}`);
+  if (r.face_detail) extras.push(`face_detail(dn=${r.face_detail_denoise ?? "?"})`);
+  if (r.seed_variance) extras.push(`seed_variance`);
+  const extraLine = extras.length ? ` | ${extras.join(", ")}` : "";
+
+  // Perf profile from the manifest — lets knowledge correlate model/time/memory
+  // with quality (e.g. "moody-v126 + 12 steps = 16s / 7.8GB, scored 9").
+  const mf = rec.manifest;
+  const perfParts: string[] = [];
+  if (mf) {
+    if (mf.transformer_model) perfParts.push(`model=${mf.transformer_model}`);
+    if (mf.elapsed_seconds) perfParts.push(`${mf.elapsed_seconds}s`);
+    if (mf.memory_peak_mb) perfParts.push(`${mf.memory_peak_mb}MB`);
+    if (mf.step_count && mf.avg_step_seconds) perfParts.push(`${mf.step_count}steps@${mf.avg_step_seconds}s`);
+  }
+  const perfLine = perfParts.length ? ` | Perf: ${perfParts.join(", ")}` : "";
+
   return [
     `--- Record ${index + 1} ---`,
     `Prompt: ${run.prompt}`,
-    `Pipeline: ${run.pipeline} | LoRA: ${lora} @ ${run.lora_scale} | Steps: ${run.steps} | CFG: ${run.cfg_scale} | Size: ${run.width}x${run.height}`,
+    `Pipeline: ${run.pipeline} | LoRA: ${lora} @ ${run.lora_scale} | Steps: ${run.steps} | CFG: ${run.cfg_scale} | Size: ${run.width}x${run.height}${extraLine}${perfLine}`,
     `Scores: ${scores}`,
     `Strengths: ${strengths}`,
     `Issues: ${issues}`,
@@ -199,7 +267,11 @@ const SYSTEM_PROMPT = `You are a T2I (text-to-image) prompt engineering expert s
 
 You will receive a batch of image generation records, each with:
 - The full prompt used
-- Pipeline/LoRA/parameter settings
+- Pipeline/LoRA/parameter settings — including impactful levers only shown when non-default:
+  denoise_strength (i2i source fidelity), stg_scale (coherence), seed, enhance_prompt,
+  post-processing (film_grain/sharpening/lut), controlnet (type@strength), face_detail
+- A perf profile: transformer model identity, total elapsed seconds, peak memory, and
+  per-step timing — use this to correlate model/time/memory COST with quality
 - VLM quality scores (1-10 on 6 dimensions) and analysis
 
 Your job: extract actionable prompt engineering knowledge from patterns in the data.
@@ -210,7 +282,8 @@ SECTION 1 — Markdown guide (start with "## T2I Prompt Engineering Guide"):
 - Top 5 prompt strategies (with concrete examples)
 - Prompt patterns that correlate with high scores (especially prompt_adherence and overall)
 - Things to avoid
-- Best parameter combinations per pipeline
+- Best parameter combinations per pipeline — note how denoise/stg/post-processing levers
+  shifted scores when present, and the perf cost (time/memory) of each combination
 - Top 5 example prompts with explanation of why they worked
 
 SECTION 2 — JSON block (must be valid JSON, fenced with \`\`\`json and \`\`\`):
@@ -298,7 +371,11 @@ export async function callDeepSeek(
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
-      max_tokens: 4096,
+      // Enriched records (perf + impactful params) + the richer markdown guide the
+      // SYSTEM_PROMPT asks for can run ~11K chars of markdown alone; 4096 tokens
+      // gets consumed before the JSON block finishes, losing structured knowledge.
+      // 8192 leaves headroom for BOTH the markdown guide and the fenced JSON block.
+      max_tokens: 8192,
     }),
   });
 
@@ -330,10 +407,14 @@ export function getReportPath(): string {
 }
 
 export function loadReport(): KnowledgeReport | null {
-  return readJsonFile<KnowledgeReport>(getReportPath());
+  // Try new KB location first; fall back to legacy output-dir path
+  return loadLatestReportFromDb() ?? readJsonFile<KnowledgeReport>(getReportPath());
 }
 
 export function saveReport(report: KnowledgeReport): void {
+  // Primary: new knowledge-base/ folder (JSONL DB structure)
+  saveReportToDb(report);
+  // Secondary: legacy path for GUI backward compat (/api/knowledge/report)
   writeJsonFile(getReportPath(), report);
 }
 

@@ -19,8 +19,8 @@ export const t2iCommand: UnifiedCommand = {
     // chosen model — so buildParams never sends --steps either.
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation", visible: () => false },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
-    { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation" },
-    { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation" },
+    { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation", visible: (s) => s.resolution === "custom" },
+    { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation", visible: (s) => s.resolution === "custom" },
     { key: "count", cliFlag: "--count", control: "number", label: "Count", min: 1, max: 10, default: 1, section: "Generation" },
     // Multi-LoRA editor (UI-only). buildParams derives lora_path/lora_scale
     // arrays → repeated --lora-path / --lora-scale flags (multiselect backend fields).

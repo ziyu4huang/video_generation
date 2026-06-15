@@ -1,0 +1,141 @@
+{
+  "generatedAt": "2026-06-14T23:12:52.810Z",
+  "model": "deepseek-chat",
+  "recordCount": 30,
+  "avgQualityScore": 9.4,
+  "markdown": "## T2I Prompt Engineering Guide\n\n### Top 5 Prompt Strategies\n\n1. **Use LoRA-specific trigger words at the start of prompts**  \n   *Example:* `slider, bodyweight, full body shot of a woman...` or `anatomyfix, full body shot of a woman...`  \n   *Why it works:* Trigger words activate LoRA behavior early, ensuring the model applies the specialized training (bodyweight, anatomy) from the first step. This consistently yields perfect prompt_adherence (10/10) and overall scores (10/10).\n\n2. **Specify anatomical details explicitly**  \n   *Example:* `...with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment`  \n   *Why it works:* Detailed anatomical instructions eliminate common failures like missing fingers or distorted joints. Prompts with such specificity scored 10/10 on prompt_adherence and detail.\n\n3. **Combine lighting, texture, and sharpness keywords**  \n   *Example:* `natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus`  \n   *Why it works:* This triad (lighting + texture + sharpness) consistently produces high scores in detail (9-10), sharpness (9-10), and overall (9-10) across both pipelines.\n\n4. **Use descriptive, scene-based prompts for zimage**  \n   *Example:* `photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus`  \n   *Why it works:* zimage excels with natural language descriptions that include multiple sensory details. This pattern yields consistent 9/10 scores across all dimensions.\n\n5. **Balance LoRA scale for optimal results**  \n   *Example:* LoRA scale of 0.5-0.8 for bodyweight, 1.0-1.2 for anatomy  \n   *Why it works:* Lower scales (0.5) for bodyweight preserve natural variation; higher scales (1.0-1.2) for anatomy ensure precise joint and muscle rendering. Both ranges produce 10/10 scores.\n\n### Prompt Patterns That Correlate with High Scores\n\n- **Trigger word + scene description + anatomical detail + lighting + quality keywords** → 10/10 overall, 10/10 prompt_adherence\n- **\"photorealistic\" + \"ultra sharp focus\" + specific texture keywords** → 9-10/10 detail and sharpness\n- **\"soft studio lighting\" + \"bokeh background\"** → 9/10 composition and artifacts\n- **Explicit finger/joint descriptions** → eliminates common anatomy failures\n- **\"high dynamic range\" + \"dramatic sky\"** → 9-10/10 composition for landscapes\n\n### Things to Avoid\n\n- **Technical commands as prompts** (e.g., `BFS head face swap`) → prompt_adherence drops to 5/10 because the model cannot verify the operation\n- **Undefined CFG scale** → zimage records show \"undefined\" CFG, which may limit consistency; always specify a value\n- **Overly short prompts** → lack of detail reduces prompt_adherence and composition scores\n- **Missing trigger words for LoRAs** → without trigger words, LoRA effects may not activate properly\n- **Inconsistent aspect ratios** → portrait (640x960) works best for humans; landscape (960x640) for scenes\n\n### Best Parameter Combinations per Pipeline\n\n| Pipeline | Steps | CFG Scale | LoRA Scale | Size | Notes |\n|----------|-------|-----------|------------|------|-------|\n| flux2-klein | 4 | 5 | 0.5-0.8 (bodyweight), 1.0-1.2 (anatomy) | 640x960 | Fast, high quality; 4 steps sufficient |\n| zimage | 8-9 | (specify 5-7) | none | 640x960 (portrait), 960x640 (landscape) | More steps needed; CFG should be explicit |\n\n### Top 5 Example Prompts\n\n1. **Prompt:** `slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus`  \n   **Score:** 10/10 | **Pipeline:** flux2-klein | **LoRA:** klein_slider_bodyweight_50.safetensors @ 0.5  \n   **Why it worked:** Perfect trigger word usage, explicit finger detail, specific lighting, and quality keywords combined with optimal LoRA scale.\n\n2. **Prompt:** `anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus`  \n   **Score:** 10/10 | **Pipeline:** flux2-klein | **LoRA:** klein_slider_anatomy.safetensors @ 1.2  \n   **Why it worked:** Trigger word + exhaustive anatomical detail + quality keywords; higher LoRA scale ensures precise anatomy.\n\n3. **Prompt:** `a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd`  \n   **Score:** 10/10 | **Pipeline:** flux2-klein | **LoRA:** HighResolutionFlux2-Kelien-9B.safetensors @ 0.5  \n   **Why it worked:** Simple but specific description with texture keywords; LoRA enhances resolution without overpowering.\n\n4. **Prompt:** `photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus`  \n   **Score:** 9/10 | **Pipeline:** zimage | **LoRA:** none  \n   **Why it worked:** Rich natural language description with multiple detail layers; zimage handles studio lighting and bokeh exceptionally well.\n\n5. **Prompt:** `photorealistic mountain landscape at golden hour, sharp rocky peaks, detailed pine forest, dramatic sky with clouds, ultra sharp, high dynamic range`  \n   **Score:** 9/10 | **Pipeline:** zimage | **LoRA:** none  \n   **Why it worked:** Scene-specific keywords (golden hour, dramatic sky) + texture + HDR; landscape aspect ratio (960x640) matches subject.",
+  "structured": {
+    "topStrategies": [
+      {
+        "template": "[trigger_word], [scene_description], [anatomical_detail], [lighting], photorealistic, [texture_detail], ultra sharp focus",
+        "avgScore": 10,
+        "sampleCount": 10,
+        "bestLora": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "template": "photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus",
+        "avgScore": 9,
+        "sampleCount": 10,
+        "bestLora": "none"
+      },
+      {
+        "template": "photorealistic [landscape_type] at [time_of_day], sharp [feature1], detailed [feature2], dramatic [sky_detail], ultra sharp, high dynamic range",
+        "avgScore": 9,
+        "sampleCount": 4,
+        "bestLora": "none"
+      },
+      {
+        "template": "[trigger_word], [pose_description] with [explicit_finger_detail] and [joint_detail], [lighting], photorealistic, detailed anatomy, ultra sharp focus",
+        "avgScore": 10,
+        "sampleCount": 5,
+        "bestLora": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "template": "a close-up portrait of a young woman with [distinctive_features], [lighting], detailed [texture], photorealistic, [resolution_keyword]",
+        "avgScore": 10,
+        "sampleCount": 1,
+        "bestLora": "HighResolutionFlux2-Kelien-9B.safetensors"
+      }
+    ],
+    "avoid": [
+      "Technical commands as prompts (e.g., 'BFS head face swap') - drops prompt_adherence to 5/10",
+      "Undefined CFG scale - reduces consistency",
+      "Overly short prompts without detail - lowers composition and adherence scores",
+      "Missing trigger words for LoRAs - prevents proper activation",
+      "Inconsistent aspect ratios for subject type (portrait vs landscape)"
+    ],
+    "bestParams": [
+      {
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "cfgScale": 5,
+        "loraScale": 0.5,
+        "size": "640x960",
+        "notes": "Best for human subjects with LoRAs; 4 steps sufficient for high quality"
+      },
+      {
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "cfgScale": 5,
+        "loraScale": 1.2,
+        "size": "640x960",
+        "notes": "Best for anatomy-focused prompts; higher LoRA scale ensures precise joints"
+      },
+      {
+        "pipeline": "zimage",
+        "steps": 9,
+        "cfgScale": 7,
+        "loraScale": 0,
+        "size": "640x960",
+        "notes": "Best for portraits without LoRAs; more steps needed for detail"
+      },
+      {
+        "pipeline": "zimage",
+        "steps": 9,
+        "cfgScale": 7,
+        "loraScale": 0,
+        "size": "960x640",
+        "notes": "Best for landscapes; landscape aspect ratio improves composition"
+      }
+    ],
+    "loraInsights": [
+      {
+        "lora": "klein_slider_anatomy.safetensors",
+        "avgScore": 10,
+        "notes": "Exceptional anatomical accuracy; best at scale 1.0-1.2; requires trigger word 'anatomyfix'"
+      },
+      {
+        "lora": "klein_slider_bodyweight_50.safetensors",
+        "avgScore": 10,
+        "notes": "Excellent bodyweight rendering; best at scale 0.5-0.8; requires trigger word 'slider, bodyweight'"
+      },
+      {
+        "lora": "HighResolutionFlux2-Kelien-9B.safetensors",
+        "avgScore": 10,
+        "notes": "Enhances resolution and skin detail; best at scale 0.5; works with descriptive portrait prompts"
+      },
+      {
+        "lora": "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors",
+        "avgScore": 9,
+        "notes": "Excellent skin texture and eye reflections; but prompt_adherence suffers when used with technical commands"
+      }
+    ],
+    "topExamples": [
+      {
+        "prompt": "slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Perfect trigger word usage, explicit finger detail, specific lighting, and quality keywords combined with optimal LoRA scale (0.5)",
+        "loraPath": "klein_slider_bodyweight_50.safetensors"
+      },
+      {
+        "prompt": "anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Trigger word + exhaustive anatomical detail + quality keywords; higher LoRA scale (1.2) ensures precise anatomy",
+        "loraPath": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "prompt": "a close-up portrait of a young woman with freckles and red hair, soft natural lighting, detailed skin texture, photorealistic, 8k uhd",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Simple but specific description with texture keywords; LoRA enhances resolution without overpowering",
+        "loraPath": "HighResolutionFlux2-Kelien-9B.safetensors"
+      },
+      {
+        "prompt": "photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Rich natural language description with multiple detail layers; zimage handles studio lighting and bokeh exceptionally well",
+        "loraPath": "none"
+      },
+      {
+        "prompt": "photorealistic mountain landscape at golden hour, sharp rocky peaks, detailed pine forest, dramatic sky with clouds, ultra sharp, high dynamic range",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Scene-specific keywords (golden hour, dramatic sky) + texture + HDR; landscape aspect ratio (960x640) matches subject",
+        "loraPath": "none"
+      }
+    ]
+  }
+}

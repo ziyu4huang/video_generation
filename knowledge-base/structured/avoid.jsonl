@@ -1,0 +1,5 @@
+{"item":"Vague or under-specified prompts (e.g., 'a girl')"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap')"}
+{"item":"Contradictory instructions (e.g., asking for a 'photograph' but describing an AI-generated style)"}
+{"item":"Overly complex or confusing syntax (e.g., mixed languages, typos)"}
+{"item":"Relying solely on LoRAs without a well-crafted prompt"}

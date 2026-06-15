@@ -17,7 +17,7 @@ export function useJobs() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "job_complete" || msg.type === "job_failed") mutate();
+        if (msg.type === "job_complete" || msg.type === "job_failed" || msg.type === "job_start") mutate();
       } catch { /* ignore */ }
     };
     ws.onerror = () => ws.close();

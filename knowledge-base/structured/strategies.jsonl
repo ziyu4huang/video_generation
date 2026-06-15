@@ -1,0 +1,5 @@
+{"template":"anatomyfix, [pose description], [specific anatomical details: fingers, joints, etc.], photorealistic, detailed anatomy, ultra sharp focus","avgScore":9.8,"sampleCount":8,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"[style trigger], [scene description with lighting], [subject with specific details: hands, face], photorealistic, ultra sharp focus","avgScore":9.7,"sampleCount":10,"bestLora":"klein_slider_bodyweight_50.safetensors"}
+{"template":"photorealistic portrait of a [subject], [specific features: eyes, skin texture], [lighting], [background], high detail, ultra sharp focus","avgScore":9.5,"sampleCount":20,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
+{"template":"[Detailed narrative description of subject, setting, mood, and style]","avgScore":9,"sampleCount":5,"bestLora":"none"}
+{"template":"[Simple subject], [simple pose], [simple background], [lighting], high quality portrait photography","avgScore":9.5,"sampleCount":5,"bestLora":"none"}
