@@ -57,7 +57,7 @@ def _detect_macmon(threshold: float) -> GpuStatus | None:
             ["macmon", "pipe", "-s", "1", "-i", "500"],
             capture_output=True, text=True, timeout=4,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, subprocess.SubprocessError):
         if not _MACMON_WARNED:
             print("[gpu-monitor] Tip: install macmon for accurate GPU detection: "
                   "brew install macmon", flush=True)

@@ -524,7 +524,11 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
     # Load input image for img2img (once, reused across batch)
     input_image = None
     if run_config.input_image:
-        input_image = Image.open(run_config.input_image).convert("RGB")
+        # .convert("RGB") materializes pixels into a new in-memory image, so close
+        # the file handle immediately — otherwise it stays open across the whole
+        # batch loop (fd leak / source-file lock on macOS until GC runs).
+        with Image.open(run_config.input_image) as _im:
+            input_image = _im.convert("RGB")
 
     # Instantiate the selected pipeline
     if pipeline_type == "flux2-klein":
@@ -762,7 +766,11 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
     upscale_model = resolve_upscale_model(run_config)
     input_image = None
     if run_config.input_image:
-        input_image = Image.open(run_config.input_image).convert("RGB")
+        # .convert("RGB") materializes pixels into a new in-memory image, so close
+        # the file handle immediately — otherwise it stays open across the whole
+        # batch loop (fd leak / source-file lock on macOS until GC runs).
+        with Image.open(run_config.input_image) as _im:
+            input_image = _im.convert("RGB")
 
     seeds = seed_sequence(run_config)
     count = len(seeds)

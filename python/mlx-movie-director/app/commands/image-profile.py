@@ -203,7 +203,7 @@ def add_profile_args(parser):
         ),
     )
     parser.add_argument(
-        "--chain-ref", "--no-chain-ref", action=argparse.BooleanOptionalAction, default=False,
+        "--chain-ref", action=argparse.BooleanOptionalAction, default=False,
         help=(
             "Use generated views as cascade reference for subsequent views "
             "(default: False). When on, side refs original+front, back refs original+side. "
@@ -220,7 +220,7 @@ def add_profile_args(parser):
     )
     # VLM auto-caption options
     parser.add_argument(
-        "--vlm", "--no-vlm", action=argparse.BooleanOptionalAction, default=True,
+        "--vlm", action=argparse.BooleanOptionalAction, default=True,
         help=(
             "Auto-generate clothing description from reference image using VLM "
             "when --base-prompt is not provided (default: True). "

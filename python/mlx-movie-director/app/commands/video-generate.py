@@ -96,11 +96,13 @@ def add_generate_args(parser):
 
     parser.add_argument("--seed", type=int, default=42,
                         help="Random seed (default: 42)")
-    parser.add_argument("--cfg-scale", type=float, default=5.0, dest="cfg_scale",
+    parser.add_argument("--cfg-scale", type=float, default=None, dest="cfg_scale",
                         help="Text guidance scale. Controls how strongly the model follows "
                              "the text prompt. Does NOT affect keyframe enforcement (FLF2V) "
                              "or image conditioning (I2V) — those use a separate mechanism. "
-                             "Auto-set: 3.0 for FLF2V, 1.0 for --distilled. (default: 5.0)")
+                             "Effective default: 5.0 (T2V/I2V), 3.0 (FLF2V), 1.0 (--distilled) — "
+                             "applied only when the flag is omitted; an explicit value is always "
+                             "respected (previously an explicit 5.0 in FLF2V was silently overridden).")
     parser.add_argument("--stg-scale", type=float, default=1.0, dest="stg_scale",
                         help="Spatial-temporal guidance scale (default: 1.0)")
     parser.add_argument("--stage1-steps", type=int, default=None,
@@ -597,7 +599,7 @@ def _run_generate_inner(args):
         if args.stage1_steps is None:
             args.stage1_steps = 20
             print("[video] FLF2V mode: stage1_steps auto-set to 20 (dev transformer)")
-        if args.cfg_scale == 5.0:  # 5.0 is argparse default for T2V/I2V
+        if args.cfg_scale is None:  # None = user did not pass --cfg-scale
             args.cfg_scale = 3.0
             print("[video] FLF2V mode: cfg_scale auto-set to 3.0 (dev transformer)")
 
@@ -606,6 +608,10 @@ def _run_generate_inner(args):
         args.stage1_steps = 8
     if args.stage2_steps is None:
         args.stage2_steps = 3
+    # Resolve cfg_scale sentinel for the standard path (distilled set it to 1.0
+    # above; FLF2V set it to 3.0; an explicit user value was already non-None).
+    if args.cfg_scale is None:
+        args.cfg_scale = 5.0
 
     audio_path = args.audio
 
