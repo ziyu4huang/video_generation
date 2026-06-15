@@ -22,6 +22,21 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+class GpuLockTimeout(Exception):
+    """Raised by GpuLock.__enter__ when the GPU-acquire deadline expires.
+
+    Replaces a hard sys.exit(1) so callers (tests, the GUI job runner) can
+    intercept a timeout and surface it as a job-level error instead of the
+    whole process dying. _print_timeout() already printed the human message
+    before this is raised, so the CLI boundary just needs to exit(1).
+    """
+
+
 # ---------------------------------------------------------------------------
 # GpuStatus
 # ---------------------------------------------------------------------------
@@ -407,7 +422,8 @@ class GpuLock:
                 self._lock_fd.close()
                 self._lock_fd = None
                 _print_timeout(status, self.max_wait)
-                sys.exit(1)
+                raise GpuLockTimeout(
+                    f"GPU still busy after {self.max_wait}s — see status above")
 
             # 3. Report busy + sleep
             status = detect_gpu_busy(self.threshold)

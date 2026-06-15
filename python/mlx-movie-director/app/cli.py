@@ -8,6 +8,8 @@ argparse contract — so argparse stays authoritative and is never duplicated.
 
 import argparse
 import importlib
+import sys
+import traceback
 
 # ---------------------------------------------------------------------------
 # Subcommand registry (order = display order in --help)
@@ -74,7 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
         try:
             mod = importlib.import_module(f"app.commands.{module_name}")
         except ImportError as e:
-            print(f"WARNING: skipping broken command module '{module_name}': {e}", file=__import__("sys").stderr)
+            # Graceful degradation: a broken subcommand is skipped so the rest of
+            # the CLI stays usable, but the full traceback is printed so a real
+            # import failure (SyntaxError after an edit, missing transitive dep)
+            # is impossible to miss instead of silently vanishing from --help.
+            print(f"WARNING: skipping broken command module '{module_name}': {e}",
+                  file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             continue
 
         # Inject deprecation prefix into help/description for deprecated aliases

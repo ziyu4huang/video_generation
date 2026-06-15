@@ -87,14 +87,19 @@ def _inject_default_subcommand() -> None:
 
 def _run_with_gpu_guard(args: argparse.Namespace) -> None:
     """Acquire GPU lock if the command is GPU-heavy, then dispatch."""
-    from app.gpu_monitor import GpuLock, is_gpu_heavy_command
+    from app.gpu_monitor import GpuLock, GpuLockTimeout, is_gpu_heavy_command
 
     force = getattr(args, "force_gpu", False)
-    if is_gpu_heavy_command(args) and not force:
-        with GpuLock():
+    try:
+        if is_gpu_heavy_command(args) and not force:
+            with GpuLock():
+                args.func(args)
+        else:
             args.func(args)
-    else:
-        args.func(args)
+    except GpuLockTimeout:
+        # GpuLock already printed the timeout detail; exit cleanly at the CLI
+        # boundary rather than from inside the context manager.
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

@@ -524,11 +524,23 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
     # Load input image for img2img (once, reused across batch)
     input_image = None
     if run_config.input_image:
+        # Validate up front so a missing/corrupt input fails fast with a clear
+        # message BEFORE the heavy pipeline is built — this load sits outside
+        # the generation try/except, so an unguarded failure would surface as a
+        # raw PIL traceback at the top level rather than a readable error.
+        if not os.path.exists(run_config.input_image):
+            print(f"ERROR: input image not found: {run_config.input_image}", file=sys.stderr)
+            sys.exit(1)
         # .convert("RGB") materializes pixels into a new in-memory image, so close
         # the file handle immediately — otherwise it stays open across the whole
         # batch loop (fd leak / source-file lock on macOS until GC runs).
-        with Image.open(run_config.input_image) as _im:
-            input_image = _im.convert("RGB")
+        try:
+            with Image.open(run_config.input_image) as _im:
+                input_image = _im.convert("RGB")
+        except Exception as exc:
+            print(f"ERROR: cannot open input image '{run_config.input_image}': {exc}",
+                  file=sys.stderr)
+            sys.exit(1)
 
     # Instantiate the selected pipeline
     if pipeline_type == "flux2-klein":
@@ -700,8 +712,11 @@ def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_mode
         finally:
             try:
                 upscaler.unload()
-            except Exception:
-                pass
+            except Exception as e:
+                # A silently-swallowed unload failure can leak GPU memory and
+                # cause OOM on the next op — surface it even though the upscale
+                # itself succeeded.
+                print(f"[upscaler] WARNING: unload failed: {e}", file=sys.stderr)
         return GR(image=upscaled, timings=result.timings, events=result.events)
     else:
         upscaled = ZImagePipeline.upscale_esrgan(result.image, upscale_model)

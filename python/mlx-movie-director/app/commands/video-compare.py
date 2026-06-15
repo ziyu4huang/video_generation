@@ -326,7 +326,12 @@ def _resolve_text_prompt(args) -> str | None:
         if not os.path.exists(pf):
             print(f"ERROR: prompt file not found: {pf}", file=sys.stderr)
             sys.exit(1)
-        return open(pf).read().strip()
+        try:
+            with open(pf, encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError as e:
+            print(f"ERROR: cannot read prompt file '{pf}': {e}", file=sys.stderr)
+            sys.exit(1)
     return None
 
 

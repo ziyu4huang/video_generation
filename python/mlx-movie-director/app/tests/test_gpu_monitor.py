@@ -16,6 +16,7 @@ import pytest
 from app.gpu_monitor import (
     GpuStatus,
     GpuLock,
+    GpuLockTimeout,
     _LOCK_DIR,
     _LOCK_FILE,
     _GPU_HEAVY_IMAGE_ACTIONS,
@@ -442,7 +443,7 @@ class TestGpuLock:
             lock1.__enter__()
             try:
                 lock2 = GpuLock(max_wait=1, poll_interval=0.1)
-                with pytest.raises(SystemExit):
+                with pytest.raises(GpuLockTimeout):
                     lock2.__enter__()
             finally:
                 lock1.__exit__(None, None, None)
@@ -463,7 +464,7 @@ class TestGpuLock:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 lock = GpuLock(max_wait=0, poll_interval=0.1)
-                with pytest.raises(SystemExit):
+                with pytest.raises(GpuLockTimeout):
                     lock.__enter__()
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
