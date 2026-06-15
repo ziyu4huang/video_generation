@@ -1,6 +1,7 @@
 """upscale — standalone image upscale: ESRGAN (pixel) or SeedVR2 (AI diffusion)."""
 
 import argparse
+import sys
 
 from app.commands._shared import DEFAULT_UPSCALE_MODEL, execute_upscale
 from app.io_utils import require_file
