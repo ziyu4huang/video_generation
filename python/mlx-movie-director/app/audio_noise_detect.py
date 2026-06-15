@@ -172,12 +172,20 @@ def is_audio_noise(mp4_path: str) -> tuple[bool, dict]:
     return is_noise, metrics
 
 
-def check_audio_noise_or_exit(mp4_path: str, *, allow_noise: bool = False) -> dict | None:
+def check_audio_noise_or_exit(mp4_path: str, *, allow_noise: bool = False,
+                              raise_on_noise: bool = False) -> dict | None:
     """Check audio for noise; print error and exit(1) if detected.
 
     Args:
         mp4_path: Path to the MP4 file to analyze.
         allow_noise: If True, suppress the error exit (still print warning).
+        raise_on_noise: If True (and allow_noise is False), raise RuntimeError
+            instead of calling sys.exit(1). Used by the A/B variation loop so a
+            noisy variation is caught by the loop's `except Exception` and recorded
+            as a failed variation WITHOUT killing the process — sys.exit raises
+            SystemExit (BaseException), which `except Exception` does not catch,
+            so a single noisy variation previously aborted the whole multi-variation
+            run. Single-run callers leave this False (fail-fast).
 
     Returns:
         metrics dict if noise was detected, None otherwise.
@@ -199,6 +207,8 @@ def check_audio_noise_or_exit(mp4_path: str, *, allow_noise: bool = False) -> di
                 f"Re-try with a different seed, or use --allow-noise to suppress.",
                 file=sys.stderr,
             )
+            if raise_on_noise:
+                raise RuntimeError(f"audio noise detected: {msg}")
             sys.exit(1)
 
     return None

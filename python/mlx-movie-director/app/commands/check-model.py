@@ -1298,6 +1298,11 @@ def run(args: "argparse.Namespace") -> None:
         print(f"\n📄 HTML report: {output}")
         print(f"📄 Report: {output}", file=sys.stderr)
         if getattr(args, 'open', False):
-            subprocess.Popen(["open", output])
+            # subprocess.run (not Popen) so the child is reaped and its fd closed;
+            # ignore failures (a missing 'open'/display is non-fatal for a report).
+            try:
+                subprocess.run(["open", output], check=False, timeout=10)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
 
     sys.exit(1 if errors else 0)

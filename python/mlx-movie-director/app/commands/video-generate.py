@@ -966,7 +966,10 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                 _boost_audio_volume(output_mp4, audio_volume)
 
             # --- Audio noise detection ---
-            _check_audio_noise(output_mp4, allow_noise=allow_noise)
+            # raise_on_noise: a noisy variation raises RuntimeError (caught by the
+            # `except Exception` below) instead of sys.exit — so one noisy variation
+            # is recorded as failed and the loop continues to the remaining variations.
+            _check_audio_noise(output_mp4, allow_noise=allow_noise, raise_on_noise=True)
 
             output_files = [{
                 "path": output_mp4,
@@ -1028,10 +1031,12 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _check_audio_noise(mp4_path: str, *, allow_noise: bool = False) -> None:
+def _check_audio_noise(mp4_path: str, *, allow_noise: bool = False,
+                       raise_on_noise: bool = False) -> None:
     """Check generated video audio for noise. Exits on detection unless suppressed."""
     from app.audio_noise_detect import check_audio_noise_or_exit
-    check_audio_noise_or_exit(mp4_path, allow_noise=allow_noise)
+    check_audio_noise_or_exit(mp4_path, allow_noise=allow_noise,
+                              raise_on_noise=raise_on_noise)
 
 
 def _boost_audio_volume(mp4_path: str, gain: float) -> None:

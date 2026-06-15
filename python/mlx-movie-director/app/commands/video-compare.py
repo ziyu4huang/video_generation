@@ -387,7 +387,7 @@ def _get_or_generate_image(args, video_prompt_raw: str | None, selected) -> str 
     if steps:
         cmd += ["--steps", str(steps)]
 
-    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
     if result.returncode != 0:
         print("[compare] WARNING: Z-Image generation failed — I2V pipelines will be skipped",
               file=sys.stderr)
@@ -418,7 +418,7 @@ def _get_or_caption_prompt(args, image_path: str | None, video_prompt_raw: str |
         style = getattr(args, "caption_style", None) or "prompt"
         cmd = build_run_py_cmd("caption", image_path,
                "--style", style, "--lang", "en")
-        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+        result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
         if result.returncode == 0 and os.path.exists(caption_path):
             try:
                 with open(caption_path) as f:
@@ -466,7 +466,7 @@ def _run_pipeline_subprocess(
     if needs_image:
         cmd += ["--input-image", image_path]
 
-    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY))
+    result = subprocess.run(cmd, cwd=os.path.dirname(_RUN_PY), timeout=7200)
 
     after = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
     new_manifests = sorted(after - before, key=os.path.getmtime)
