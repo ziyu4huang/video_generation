@@ -4074,6 +4074,8 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
     composite_path = out.get("composite")
     blend_path = out.get("blend")
     blend_manifest = None
+    final_manifest = None
+    overlay_manifest = None
 
     from app.manifest import Manifest, collect_model_fingerprint
 
@@ -4186,7 +4188,6 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
 
         # Separate manifest for final (mask-blended) result
         final_path = out.get("final")
-        final_manifest = None
         if final_path and os.path.exists(final_path):
             final_base = final_path.replace(".png", "")
             final_run_file = f"{final_base}.run.json"
@@ -4219,6 +4220,41 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
             )
             f_manifest.to_json(final_manifest_file)
             final_manifest = final_manifest_file
+
+    # Separate manifest for the SAM overlay (segmentation visualization) —
+    # shows WHERE the swap was applied (mask region tinted red). Produced
+    # whenever save_mask is on and a detection succeeded (both inpaint +
+    # composite modes), so this lives at function scope, not inside a branch.
+    if overlay_path and os.path.exists(overlay_path):
+        overlay_base = overlay_path.replace(".png", "")
+        overlay_run_file = f"{overlay_base}.run.json"
+        overlay_manifest_file = f"{overlay_base}.manifest.json"
+
+        overlay_run_data = {
+            "command": "image",
+            "action": "swap-overlay",
+            "sam_prompt": sam_prompt,
+            "sam_threshold": sam_threshold,
+            "source_image": source_path,
+            "pipeline": "sam3-segmentation-overlay",
+        }
+        with open(overlay_run_file, "w") as f:
+            json.dump(overlay_run_data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+
+        o_manifest = Manifest.from_success(
+            overlay_run_file, now_start, now_end, {},
+            [{
+                "path": overlay_path,
+                "seed": source_seed,
+                "size_bytes": os.path.getsize(overlay_path),
+                "width": source_w,
+                "height": source_h,
+            }],
+            models,
+        )
+        o_manifest.to_json(overlay_manifest_file)
+        overlay_manifest = overlay_manifest_file
 
     # Handle no-result case
     if not result_manifest:
@@ -4289,6 +4325,8 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
         manifest_files.append(blend_manifest)
     if final_manifest:
         manifest_files.append(final_manifest)
+    if overlay_manifest:
+        manifest_files.append(overlay_manifest)
 
     review_entries = [
         ("1-Source|ZImage T2I, seed=" + str(source_seed), "source"),
@@ -4313,6 +4351,14 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
             review_entries.append(
                 (f"5-Final|mask-blend, dilate={mask_dilate}", "final")
             )
+
+    # Overlay (segmentation visualization) is produced in both swap modes; add
+    # it last so manifest_files <-> labels stay 1:1 aligned (matches the
+    # overlay_manifest append above). _open_manifest_review zips the two lists.
+    if overlay_path and os.path.exists(overlay_path):
+        review_entries.append(
+            (f"6-Overlay|SAM3: '{sam_prompt}' (red = swapped region)", "overlay")
+        )
 
     # Labels: use short|detail format — score shown separately as badge by HTML
     labels = [lbl for lbl, _ in review_entries]
