@@ -1512,8 +1512,13 @@ const historyEntry = {
 
 await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
+// History JSON — the core Persist deliverable (all findings, zero loss) — is now
+// on disk. Mark Persist complete HERE, before the Reflect enrichment, so a Reflect
+// stall can never block the persist-completed signal (resume + completion
+// notification both read phasesCompleted). reflection.json is best-effort.
+markPhase("persist", "completed")
 
-// ── Reflect: synthesize patterns across all prior runs ────────────────────────
+// ── Reflect: incrementally merge this run into reflection.json ────────────────
 const REFLECT_SCHEMA = {
   type: "object",
   properties: {
@@ -1589,55 +1594,31 @@ const REFLECT_SCHEMA = {
 }
 
 const reflectResult = await agent(
-  `Synthesize code review patterns from all history runs. This builds reflection.json that future runs use to find bugs faster.
+  `Incrementally update the review reflection by merging THIS run's findings into the existing accumulated reflection.json. Do NOT re-synthesize from all history files — reflection.json already holds the accumulated state; just merge this run in.
 
-Step 1 — List history files (exclude reflection.json):
-Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -10")
+Step 1 — Read the current reflection:
+Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'")
+It holds: patterns (dimension→≤5 checker strings), false_positives, confirmed_patterns (with occurrences + last_seen), recurring_findings, dimension_calibration, unstable_fixes, runs_analyzed. If '{}' or invalid, treat as a fresh reflection.
 
-Step 2 — Read each history file and extract findings.items[], findings.rejected[], fixes.items[]:
-For CONFIRMED patterns: findings in fixes.items[] with status="applied" (real bugs we fixed)
-For TRENDING issues: dimensions with many medium/high findings across runs
-
-Step 2b — Analyze rejected findings across runs:
-For each run's result.findings.rejected[] (array of {id, dimension, file, title, rejection_reason}):
-- Group by dimension to compute per-dimension rejection count
-- Findings with similar title appearing in rejected[] across ≥2 runs → add to false_positives
-- avg_fp_rate per dimension = sum(rejected_by_dimension[dim]) / sum(byDimension[dim] + rejected_by_dimension[dim]) across runs
-Note: older history files may not have rejected[] — skip gracefully for those
-
-Step 2c — Identify recurring_findings:
-A finding is "recurring" if a similar (file + title_fragment match) appears in findings.items[]
-across ≥2 separate runs.
-For each recurring finding, check fixes.items[] to see if it was ever status="applied" — if yes
-and it still appears in a later run → flag it as unstable_fix.
-
-Step 2d — Build dimension_calibration:
-For each dimension seen across runs:
-- avg_fp_rate > 0.5 → action = "increase_threshold"
-- avg_fp_rate < 0.1 AND avg_per_run < 3 → action = "reduce_effort"
-- otherwise → action = "ok"
-
-Step 3 — Include THIS run's data:
+Step 2 — THIS run's data (already extracted — do NOT read history files):
 - Applied fixes this run: ${JSON.stringify(fixResults.fixes.filter((f) => f.status === "applied").map((f) => ({ id: f.findingId, change: f.change })))}
 - Rejected this run: ${JSON.stringify(rejectedFindings.slice(0, 8).map((f) => ({ dim: f.dimension, title: f.title.slice(0, 60), reason: f.rejection_reason.slice(0, 80) })))}
-- Sample verified findings: ${JSON.stringify(verifiedFindings.slice(0, 8).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
+- Verified findings (sample): ${JSON.stringify(verifiedFindings.slice(0, 8).map((f) => ({ dim: f.dimension, sev: f.severity, title: f.title, desc: (f.description || "").slice(0, 80) })))}
+- Findings by dimension: ${JSON.stringify(byDimension)}
+- Rejected by dimension: ${JSON.stringify(rejectedByDimension)}
 
-Build output:
-- patterns: { "correctness": ["<1 sentence actionable checker>", ...max 5], ... }
-  CRITICAL: Patterns must be SPECIFIC to this codebase. Examples:
-  "correctness": ["getattr(args, 'seed', 42) returns None when args.seed=None — use explicit if-None check"]
-  "import-hygiene": ["Check every file using sys.stderr/sys.exit has top-level 'import sys'"]
-  "error-handling": ["Image.open() without 'with' statement leaks file handles"]
-- false_positives: patterns recurring in review but always rejected
-- confirmed_patterns: findings confirmed across ≥2 runs OR fixed, with keyword for matching
-- recurring_findings: findings appearing in ≥2 runs (by file+title similarity)
-- dimension_calibration: per-dimension {avg_fp_rate, avg_per_run, action}
-- unstable_fixes: fixes applied but finding recurred or fix repeatedly failed/skipped
-- runs_analyzed: how many history files you read
-- updated_at: "${RUN_TIMESTAMP}"
+Step 3 — Incrementally MERGE (preserve existing entries; do not re-derive from scratch):
+- patterns: for each dimension, ADD genuinely-new checkers distilled from this run's findings; if a dimension exceeds 5, drop the OLDEST. Keep all existing patterns.
+- confirmed_patterns: for findings with an APPLIED fix this run — if a matching keyword already exists, set occurrences+1 and last_seen="${RUN_TIMESTAMP}"; otherwise add {pattern, keyword, dimension, occurrences:1, last_seen:"${RUN_TIMESTAMP}"}.
+- false_positives: append this run's rejected findings whose title resembles an existing entry (a recurring reject); keep ≤8.
+- recurring_findings: for entries whose file+title_fragment match an existing recurring entry, set seen_in_runs+1 and last_fix_status from this run; a single run alone cannot establish a NEW recurrence, so only add new entries when file+title matched a PRIOR entry.
+- dimension_calibration: for each dimension, blend this run's (rejected/total) ratio into the existing avg_fp_rate, then set action: avg_fp_rate>0.5 → "increase_threshold"; avg_fp_rate<0.1 AND avg_per_run<3 → "reduce_effort"; else "ok".
+- unstable_fixes: append applied fixes whose finding recurred this run; keep ≤8.
+- runs_analyzed: existing+1 (or 1 if was {}).
+- updated_at: "${RUN_TIMESTAMP}".
 
-Max 5 patterns per dimension. Keep each pattern to 1 sentence. Return the reflection object.`,
-  { label: "reflect", phase: "Persist", model: "sonnet", schema: REFLECT_SCHEMA },
+Keep patterns SPECIFIC to this codebase, 1 sentence each, max 5 per dimension. Return the merged reflection object.`,
+  { label: "reflect", phase: "Persist", model: "haiku", schema: REFLECT_SCHEMA },
 )
 
 if (reflectResult) {
@@ -1653,8 +1634,6 @@ ${reflectJson}
   const patCount = Object.values(reflectResult.patterns || {}).flat().length
   log(`Reflect: ${patCount} pattern(s), ${reflectResult.confirmed_patterns?.length || 0} confirmed, ${reflectResult.false_positives?.length || 0} false-positives → ${REFLECTION_FILE}`)
 }
-
-markPhase("persist", "completed")
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Phase 9: Report — synthesize prioritized findings with prior-run comparison
