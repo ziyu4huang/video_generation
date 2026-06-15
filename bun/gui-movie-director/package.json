@@ -12,7 +12,8 @@
     "check:runtime": "bun run scripts/check-runtime.ts",
     "knowledge:scan": "bun run scripts/knowledge-cli.ts scan",
     "knowledge:extract": "bun run scripts/knowledge-cli.ts extract-captions",
-    "knowledge:learn": "bun run scripts/knowledge-cli.ts learn"
+    "knowledge:learn": "bun run scripts/knowledge-cli.ts learn",
+    "code-knowledge": "bun run scripts/code-knowledge-cli.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.16",

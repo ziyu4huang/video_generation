@@ -303,6 +303,38 @@ const historyEntry = {
   },
 }
 
+// Code-knowledge record — feeds the shared KB's code-health surface
+// (knowledge-base/code/), the producer side of the integration with the
+// generation knowledge base. Built from the already-computed lane results.
+const codeRecord = {
+  runId: RUN_ID,
+  workflow: NAME,
+  lanes: LANES,
+  effort: EFFORT,
+  fixApplied: fixEnabled,
+  openIssues,
+  findings: {
+    verified: reviewVerified,
+    newFindings: reviewNew,
+    bySeverity: reviewResult?.findings?.bySeverity || {},
+    byDimension: reviewResult?.findings?.byDimension || {},
+  },
+  fixes: fixEnabled
+    ? { applied: reviewApplied, regressions: reviewRegress }
+    : { mode: "review-only" },
+  schema: {
+    runtimeErrors: schemaRuntimeErr,
+    runtimeFindings: schemaRuntimeFind,
+    driftRemaining: schemaDriftRem,
+  },
+  // Files with verified findings this run — drives the "most bug-prone" trend
+  // across runs (independent of whether they were fixed).
+  filesTouched: reviewResult?.findings?.items
+    ? [...new Set(reviewResult.findings.items.map((f) => f.file).filter(Boolean))]
+    : [],
+  timestamp: RUN_ID,
+}
+
 try {
   await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
   log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
@@ -310,6 +342,29 @@ try {
 } catch (e) {
   log(`Persist failed: ${e?.message || e}`)
   markPhase("persist", "failed")
+}
+
+// Code-knowledge contribution — independent of history persist: a KB append
+// failure must not fail the run. The workflow can't import TS (sandboxed JS),
+// so it writes the record to a temp file + runs the canonical append script
+// (single source of truth for the record shape + index in lib/code-knowledge).
+let knowledgeAppended = false
+try {
+  const codeRecordJson = JSON.stringify(codeRecord)
+  await agent(
+    `Append this self-improve run as a code-knowledge record to the shared knowledge base.
+1. Write the record JSON to a temp file:
+   Write({ file_path: "/tmp/code-knowledge-record.json", content: <JSON below> })
+   ${codeRecordJson}
+2. Append it via the canonical module (updates records.jsonl + index.json):
+   Bash("bun run '${PROJECT_ROOT}/bun/gui-movie-director/scripts/code-knowledge-append.ts' /tmp/code-knowledge-record.json")
+Return { appended: true }.`,
+    { label: "code-knowledge-append", phase: "Persist", model: "haiku" },
+  )
+  log(`Code-knowledge: record appended to knowledge-base/code/ (openIssues=${openIssues})`)
+  knowledgeAppended = true
+} catch (e) {
+  log(`Code-knowledge append failed (non-fatal): ${e?.message || e}`)
 }
 
 // ══ Phase: Report ════════════════════════════════════════════════════════════
@@ -355,6 +410,9 @@ const report = {
       }
     : null,
   signals,
+  knowledgeContribution: knowledgeAppended
+    ? { appended: true, openIssues, kbPath: "knowledge-base/code/records.jsonl" }
+    : { appended: false },
   nextStep:
     fixEnabled
       ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-rolled back via git stash. Inspect the tree." : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
