@@ -1126,7 +1126,7 @@ def _run_relay_inner(args):
                 stg_scale=stg_scale,
                 image=input_img,
                 enable_teacache=getattr(args, "teacache", False),
-                teacache_thresh=None,
+                teacache_thresh=getattr(args, "teacache_thresh", None),
             )
 
             all_timings[f"seg{seg_num:02d}"] = timings

@@ -405,30 +405,42 @@ class GpuLock:
 
         os.makedirs(_LOCK_DIR, exist_ok=True)
         self._lock_fd = open(_LOCK_FILE, "w")
-        deadline = time.time() + self.max_wait
+        try:
+            deadline = time.time() + self.max_wait
 
-        while True:
-            # 1. Try non-blocking flock
-            try:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                _print_available(detect_gpu_busy(self.threshold))
-                return self
-            except (IOError, OSError):
-                pass
+            while True:
+                # 1. Try non-blocking flock
+                try:
+                    fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    _print_available(detect_gpu_busy(self.threshold))
+                    return self
+                except (IOError, OSError):
+                    pass
 
-            # 2. Check timeout
-            if time.time() >= deadline:
+                # 2. Check timeout
+                if time.time() >= deadline:
+                    status = detect_gpu_busy(self.threshold)
+                    _print_timeout(status, self.max_wait)
+                    raise GpuLockTimeout(
+                        f"GPU still busy after {self.max_wait}s — see status above")
+
+                # 3. Report busy + sleep
                 status = detect_gpu_busy(self.threshold)
-                self._lock_fd.close()
+                _print_busy(status)
+                time.sleep(self.poll_interval)
+        except BaseException:
+            # __exit__ does NOT run if __enter__ raises, so close the lock fd
+            # here on ANY failure (unexpected error, or the GpuLockTimeout above)
+            # to avoid leaking it. The raise-based timeout contract (vs the old
+            # sys.exit, whose process death reclaimed fds) makes this leak
+            # persist in the surviving process, so explicit cleanup is required.
+            if self._lock_fd is not None:
+                try:
+                    self._lock_fd.close()
+                except Exception:
+                    pass
                 self._lock_fd = None
-                _print_timeout(status, self.max_wait)
-                raise GpuLockTimeout(
-                    f"GPU still busy after {self.max_wait}s — see status above")
-
-            # 3. Report busy + sleep
-            status = detect_gpu_busy(self.threshold)
-            _print_busy(status)
-            time.sleep(self.poll_interval)
+            raise
 
     def __exit__(self, *_):
         if self._lock_fd:
