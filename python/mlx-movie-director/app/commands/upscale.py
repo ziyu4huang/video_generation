@@ -1,5 +1,7 @@
 """upscale — standalone image upscale: ESRGAN (pixel) or SeedVR2 (AI diffusion)."""
 
+import argparse
+
 from app.commands._shared import DEFAULT_UPSCALE_MODEL, execute_upscale
 from app.io_utils import require_file
 
@@ -58,7 +60,7 @@ def run(args: "argparse.Namespace") -> None:
         _run_seedvr2(input_path, args)
 
 
-def _run_seedvr2(input_path: str, args) -> None:
+def _run_seedvr2(input_path: str, args: argparse.Namespace) -> None:
     """Run SeedVR2 AI upscale."""
     import os
     from app.io_utils import load_image_rgb

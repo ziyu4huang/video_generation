@@ -102,7 +102,7 @@ class MLXFlowMatchEulerScheduler:
         self.use_dynamic_shifting = use_dynamic_shifting
         self.timesteps = None
 
-    def set_timesteps(self, num_inference_steps: int, mu: float | None = None):
+    def set_timesteps(self, num_inference_steps: int, mu: float | None = None) -> None:
         ts = np.linspace(1.0, 0.0, num_inference_steps + 1)
 
         if self.use_dynamic_shifting and mu is not None:
@@ -110,7 +110,7 @@ class MLXFlowMatchEulerScheduler:
 
         self.timesteps = mx.array(ts).astype(mx.float32)
 
-    def _time_shift(self, mu: float, t: np.ndarray):
+    def _time_shift(self, mu: float, t: np.ndarray) -> np.ndarray:
         mask = t > 0
         res = np.zeros_like(t)
         res[mask] = np.exp(mu) / (np.exp(mu) + (1 / t[mask] - 1))

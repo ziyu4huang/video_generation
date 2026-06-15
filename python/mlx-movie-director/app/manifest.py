@@ -60,7 +60,7 @@ def file_fingerprint(path: str, chunk_mb: int = 1) -> dict[str, Any]:
     }
 
 
-def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors") -> dict:
+def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors") -> dict[str, Any]:
     """Fingerprint a model directory that may be single-file or sharded.
 
     Pre-quantized INT8 models (e.g. Klein 9B) use sharded safetensors
@@ -112,7 +112,7 @@ def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors
 
 def collect_model_fingerprint(lora_path: str | None = None,
                               upscale_model: str | None = None,
-                              extra_loras: list[str] | None = None) -> dict:
+                              extra_loras: list[str] | None = None) -> dict[str, Any]:
     """Collect fingerprints for all model files used by the pipeline.
 
     extra_loras: additional LoRA paths (face_detail / fusion / etc.) fingerprinted
@@ -159,7 +159,7 @@ def collect_model_fingerprint(lora_path: str | None = None,
 
 
 def collect_model_fingerprint_controlnet(lora_path: str | None = None,
-                                         extra_loras: list[str] | None = None) -> dict:
+                                         extra_loras: list[str] | None = None) -> dict[str, Any]:
     """Collect fingerprints for the ControlNet pipeline (ZImage + ControlNet weights)."""
     from app import config as cfg
 
@@ -171,7 +171,7 @@ def collect_model_fingerprint_controlnet(lora_path: str | None = None,
 
 def collect_model_fingerprint_flux2(lora_path: str | None = None,
                                      upscale_model: str | None = None,
-                                     extra_loras: list[str] | None = None) -> dict:
+                                     extra_loras: list[str] | None = None) -> dict[str, Any]:
     """Collect fingerprints for Flux2 Klein 9B model files.
 
     extra_loras: additional LoRA paths fingerprinted into models["loras"].

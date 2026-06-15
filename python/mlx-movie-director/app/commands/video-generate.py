@@ -26,12 +26,14 @@ Extracted from video.py as the "generate" sub-action module.
 Exports: add_generate_args(), run_generate().
 """
 
+import argparse
 import os
 import shutil
 import subprocess
 import sys
 import traceback
 from datetime import datetime, timezone
+from typing import Any
 
 from app import config as cfg
 from app.commands._shared import (generate_base_name, make_output_paths,
@@ -1199,7 +1201,7 @@ def _run_caption(png_path: str, style: str = "default", prompt: str = "") -> Non
         print(f"[video] Caption skipped: {exc}", file=sys.stderr)
 
 
-def _collect_model_fingerprints(model_dir: str, args=None) -> dict:
+def _collect_model_fingerprints(model_dir: str, args: argparse.Namespace | None = None) -> dict[str, Any]:
     """Fingerprint only the weight files actually loaded for this run.
 
     The flat model dir contains symlinks for both dev and distilled transformers.

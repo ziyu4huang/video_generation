@@ -8,6 +8,7 @@ Examples:
   run.py image restore --input-image frame.png --prompt "sharp eyes, detailed face, natural skin texture" --denoise-strength 0.35
   run.py image restore --input-image frame.png --pipeline flux2-klein --denoise-strength 0.4
 """
+import argparse
 import importlib
 
 _i2i = importlib.import_module("app.commands.image-i2i")
@@ -18,10 +19,10 @@ PARSER_META = {
 }
 
 
-def add_restore_args(parser):
+def add_restore_args(parser: argparse.ArgumentParser) -> None:
     pass  # all args already registered by add_i2i_args() and add_common_generation_args()
 
 
-def run_restore(args):
+def run_restore(args: argparse.Namespace) -> None:
     args.reference_image = None  # no ControlNet for restore
     _i2i.run_i2i(args)

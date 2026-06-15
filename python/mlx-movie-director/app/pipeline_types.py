@@ -1,6 +1,7 @@
 """Shared types used across pipeline modules."""
 
 from dataclasses import dataclass
+from typing import Any
 from PIL import Image
 
 
@@ -12,7 +13,7 @@ class GenerationResult:
     # Runtime events trace: what the pipeline ACTUALLY did (model loads with quant/format,
     # LoRA apply with type/scale/applied_count, denoise config, VAE backend, fallbacks).
     # Each event: {"event", "target", "detail", "seconds"}. None when nothing recorded.
-    events: list[dict] | None = None
+    events: list[dict[str, Any]] | None = None
 
 
 @dataclass
@@ -24,4 +25,4 @@ class WorkflowResult:
     total_seconds: float
     output_dir: str | None = None
     # Flattened runtime events across all stages (same shape as GenerationResult.events).
-    stage_events: list[dict] | None = None
+    stage_events: list[dict[str, Any]] | None = None

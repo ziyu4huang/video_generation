@@ -24,12 +24,14 @@ Public API:
   run_swap(args)         — execute swap generation
 """
 
+import argparse
 import gc
 import json
 import os
 import sys
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -171,7 +173,7 @@ def add_swap_args(parser):
 # Core swap logic
 # ---------------------------------------------------------------------------
 
-def _run_swap_core(source_path: str, reference_path: str | None, args) -> dict:
+def _run_swap_core(source_path: str, reference_path: str | None, args: argparse.Namespace) -> dict[str, Any]:
     """Core swap logic: SAM3 segment → composite/inpaint → optional blend.
 
     Two modes controlled by args:

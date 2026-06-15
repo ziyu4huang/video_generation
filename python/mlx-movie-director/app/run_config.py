@@ -275,7 +275,7 @@ class RunConfig:
         os.replace(tmp_path, path)
 
 
-def _migrate(raw: dict) -> dict:
+def _migrate(raw: dict[str, Any]) -> dict[str, Any]:
     """Migrate a raw run config dict through version chain to SCHEMA_VERSION."""
     version = raw.get("schema_version", 0)
 
