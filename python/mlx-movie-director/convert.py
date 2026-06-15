@@ -26,7 +26,6 @@ import torch
 
 import mlx.core as mx
 import mlx.nn as nn
-from mlx import nn as _nn
 from mlx.utils import tree_flatten
 from safetensors.torch import load_file as load_pt_file
 from tqdm import tqdm
@@ -233,11 +232,11 @@ def download_vae():
 
 def _quantize_predicate(path: str, module) -> bool:
     """Skip quantization for Conv layers and small Linear layers (last dim not divisible by 64)."""
-    if isinstance(module, (_nn.Conv2d, _nn.Conv3d)):
+    if isinstance(module, (nn.Conv2d, nn.Conv3d)):
         return False
     if not hasattr(module, "to_quantized"):
         return False
-    if isinstance(module, _nn.Linear):
+    if isinstance(module, nn.Linear):
         if hasattr(module, "weight") and module.weight.shape[-1] % 64 != 0:
             return False
     return True

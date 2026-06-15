@@ -4,6 +4,7 @@ Split from _shared.py (was ~903 lines, now ~50 lines).
 """
 
 import os
+import time
 from typing import NamedTuple
 
 from app import config as cfg
@@ -23,8 +24,6 @@ RELAY_FINAL_MODE = "relay-final"
 # ---------------------------------------------------------------------------
 # Output naming
 # ---------------------------------------------------------------------------
-
-import time
 
 
 def generate_base_name() -> str:
