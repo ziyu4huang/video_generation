@@ -9,13 +9,11 @@ export const controlnetCommand: UnifiedCommand = {
   fields: [
     { key: "input_image", cliFlag: "--input", control: "image", label: "Reference Image (optional)", section: "Input" },
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image...", section: "ControlNet" },
+    // run.py's argparse only accepts "canny" (app/commands/image-controlnet.py)
+    // — pose/depth/hed/scribble require --skip-preprocess + external preprocessing,
+    // they are not selectable --controlnet-type values.
     { key: "controlnet_type", cliFlag: "--controlnet-type", control: "select", label: "Type", choices: [
       { value: "canny", label: "Canny Edges" },
-      { value: "pose", label: "OpenPose" },
-      { value: "depth", label: "Depth" },
-      { value: "hed", label: "HED" },
-      { value: "scribble", label: "Scribble" },
-      { value: "gray", label: "Gray" },
     ], default: "canny", section: "ControlNet" },
     { key: "controlnet_strength", cliFlag: "--controlnet-strength", control: "range", label: "Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "ControlNet" },
     { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5, section: "ControlNet" },

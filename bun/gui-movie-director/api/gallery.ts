@@ -276,6 +276,12 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'name' or 'dirIdx'" }, { status: 400 });
   }
 
+  // Restrict to actual gallery media files — blocks deleting arbitrary files
+  // (e.g. other companions, config) that were never surfaced by the gallery scan.
+  if (name.includes("/") || name.includes("\\") || !MEDIA_GLOB.match(name)) {
+    return Response.json({ error: "Invalid 'name': not a gallery media file" }, { status: 400 });
+  }
+
   const dir = OUTPUT_DIRS[dirIdx];
   if (!dir) {
     return Response.json({ error: "Invalid dirIdx" }, { status: 400 });
