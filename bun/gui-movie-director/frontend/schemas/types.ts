@@ -7,7 +7,7 @@ export type FieldDef =
   | { type: "toggle"; key: string; label: string; default?: boolean; visible?: (state: Record<string, any>) => boolean }
   | { type: "image"; key: string; label: string; required?: boolean; visible?: (state: Record<string, any>) => boolean }
   | { type: "images"; key: string; label: string; visible?: (state: Record<string, any>) => boolean }
-  | { type: "loras"; key: string; label: string; visible?: (state: Record<string, any>) => boolean };
+  | { type: "loras"; key: string; label: string; loraTags?: string[]; visible?: (state: Record<string, any>) => boolean };
 
 export interface SectionDef {
   title: string;

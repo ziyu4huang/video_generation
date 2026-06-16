@@ -247,6 +247,42 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         "zero orchestration tokens. Ignored for video / --review-html / --ab-manifest.")
 
 
+def _normalize_caption_file(data: dict) -> dict:
+    """Migrate a legacy flat single-style caption record to the multi-style
+    `styles` map format. Already-normalized files (with a `styles` key) pass
+    through unchanged. Legacy files guess their style key from their own
+    `style` field, defaulting to "default" when absent.
+    """
+    if isinstance(data.get("styles"), dict):
+        return data
+    style = data.get("style") or "default"
+    return {
+        "image": data.get("image"),
+        "video": data.get("video"),
+        "model": data.get("model"),
+        "updated_style": style,
+        "styles": {
+            style: {
+                "model": data.get("model"),
+                "elapsed_sec": data.get("elapsed_sec"),
+                "caption": data.get("caption"),
+            }
+        },
+    }
+
+
+def _load_existing_styles(output_path: str) -> dict:
+    """Read and normalize the styles map from an existing caption.json, if any."""
+    if not os.path.exists(output_path):
+        return {}
+    try:
+        with open(output_path) as f:
+            existing = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return _normalize_caption_file(existing).get("styles", {})
+
+
 def run(args: argparse.Namespace) -> None:
     # --ab-manifest mode: build a MULTI-SET A/B review HTML from a manifest JSON
     if getattr(args, "ab_manifest", None):
@@ -357,9 +393,27 @@ def run(args: argparse.Namespace) -> None:
             "caption": caption_text,
         }
 
+    # Merge this style into the existing multi-style caption.json (if any),
+    # preserving previously-generated styles for the same image instead of
+    # overwriting them.
+    styles = _load_existing_styles(output_path)
+    style_entry = {k: v for k, v in output.items() if k not in ("image", "video", "style")}
+    styles[style] = style_entry
+    # Keep flat top-level `style`/`caption`/`model`/`elapsed_sec` fields mirroring
+    # this run alongside the new `styles` map: other tools (image-review.py,
+    # video-review.py, image-profile.py) read those flat fields directly and
+    # expect the latest-style behavior that already existed before multi-style
+    # caching — this keeps that read path unchanged while the GUI gets the
+    # full per-style cache via `styles`.
+    merged = {
+        **output,
+        "updated_style": style,
+        "styles": styles,
+    }
+
     # Save JSON
     with open(output_path, "w") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
+        json.dump(merged, f, indent=2, ensure_ascii=False)
 
     print(f"Done ({output.get('elapsed_sec', 0)}s)")
     preview = (caption_text or "")[:120].replace("\n", " ")

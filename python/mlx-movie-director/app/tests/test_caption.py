@@ -273,6 +273,87 @@ class TestRunModelSelection:
         assert out["model"] == "explicit/model"
 
 
+class TestNormalizeCaptionFile:
+    """`_normalize_caption_file` migrates legacy flat single-style records to
+    the `styles` map format, guessing the style key from the file's own
+    `style` field (defaulting to "default" when absent)."""
+
+    def test_already_normalized_passthrough(self):
+        data = {"image": "a.png", "model": "m", "updated_style": "score",
+                 "styles": {"score": {"caption": {"overall": 7}}}}
+        assert caption._normalize_caption_file(data) == data
+
+    def test_legacy_flat_migrates_using_style_field(self):
+        data = {"image": "a.png", "style": "photography", "model": "m",
+                 "elapsed_sec": 1.5, "caption": "a description"}
+        out = caption._normalize_caption_file(data)
+        assert out["updated_style"] == "photography"
+        assert out["styles"]["photography"] == {
+            "model": "m", "elapsed_sec": 1.5, "caption": "a description",
+        }
+
+    def test_legacy_flat_missing_style_defaults_to_default(self):
+        data = {"image": "a.png", "model": "m", "caption": "x"}
+        out = caption._normalize_caption_file(data)
+        assert out["updated_style"] == "default"
+        assert "default" in out["styles"]
+
+
+class TestMultiStyleCaptionMerge:
+    """`run()` must accumulate styles across invocations instead of
+    overwriting the previous style's cache entry."""
+
+    def _build_args(self, tmp_path, output_path, **overrides):
+        import argparse
+        p = argparse.ArgumentParser()
+        caption.add_args(p)
+        img = tmp_path / "img.png"
+        if not img.exists():
+            img.write_bytes(b"\x89PNG fake")
+        ns = p.parse_args([str(img)])
+        ns.output = output_path
+        for k, v in overrides.items():
+            setattr(ns, k, v)
+        return ns
+
+    def test_second_style_preserves_first(self, tmp_path):
+        out_path = str(tmp_path / "out.caption.json")
+        args1 = self._build_args(tmp_path, out_path, style="default")
+        with patch.object(caption, "_resolve_model", return_value="m"), \
+             patch.object(caption, "_image_to_base64", return_value="b64"), \
+             patch.object(caption, "_call_vlm", return_value="a description"):
+            caption.run(args1)
+
+        args2 = self._build_args(tmp_path, out_path, style="score")
+        with patch.object(caption, "_resolve_model", return_value="m"), \
+             patch.object(caption, "_image_to_base64", return_value="b64"), \
+             patch.object(caption, "_call_vlm", return_value='{"overall": 8}'):
+            caption.run(args2)
+
+        saved = json.load(open(out_path))
+        assert set(saved["styles"].keys()) == {"default", "score"}
+        assert saved["styles"]["default"]["caption"] == "a description"
+        assert saved["styles"]["score"]["caption"] == '{"overall": 8}'
+        # Flat top-level fields mirror the most recently generated style.
+        assert saved["updated_style"] == "score"
+        assert saved["style"] == "score"
+
+    def test_merges_with_preexisting_legacy_flat_file(self, tmp_path):
+        out_path = str(tmp_path / "out.caption.json")
+        json.dump({"image": "img.png", "style": "review", "model": "old",
+                    "caption": "old review text"}, open(out_path, "w"))
+
+        args = self._build_args(tmp_path, out_path, style="score")
+        with patch.object(caption, "_resolve_model", return_value="m"), \
+             patch.object(caption, "_image_to_base64", return_value="b64"), \
+             patch.object(caption, "_call_vlm", return_value='{"overall": 9}'):
+            caption.run(args)
+
+        saved = json.load(open(out_path))
+        assert saved["styles"]["review"]["caption"] == "old review text"
+        assert saved["styles"]["score"]["caption"] == '{"overall": 9}'
+
+
 class TestWarmup:
     """`_warmup_vlm` fires once after a FRESH load (absorbing MLX cold-start),
     never on the already-loaded short-circuit, and swallows its own errors."""

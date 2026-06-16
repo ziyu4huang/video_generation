@@ -27,6 +27,19 @@ export const RESOLUTION_CHOICES = [
   { value: "custom", label: "Custom…" },
 ];
 
+// Maps a UI "pipeline" select value to the LoRA manifest `pipeline` tags it
+// accepts (see python/mlx-movie-director/models/lora/*/manifest.json). Used to
+// filter the LoraField dropdown so e.g. picking "zimage" doesn't show
+// flux2-klein-only LoRAs. `undefined` means "don't filter" (server resolves
+// the actual pipeline at runtime, e.g. "auto"); an empty array means the
+// pipeline has no LoRA support at all (e.g. Microsoft Lens).
+export const PIPELINE_TO_LORA_TAGS: Record<string, string[] | undefined> = {
+  zimage: ["zimage-turbo"],
+  "flux2-klein": ["flux2-klein", "flux2-klein-edit"],
+  lens: [],
+  auto: undefined,
+};
+
 export const RESOLUTION_MAP: Record<string, [number, number]> = {
   "512x512": [512, 512],
   "640x960": [640, 960],

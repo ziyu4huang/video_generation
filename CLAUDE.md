@@ -30,6 +30,14 @@ python/venv/bin/python python/mlx-movie-director/convert.py --all
 - Requirements: `python/mlx-movie-director/requirements.txt`
 - Used for all `run.py` subcommands — see **run.py Subcommands** below
 
+> **Working directory & venv path.** The mlx venv lives at repo-root
+> `python/venv/` — **not** inside `python/mlx-movie-director/`. So
+> `cd python/mlx-movie-director && python/venv/bin/python run.py …` fails with
+> `no such file or directory` (the relative venv path no longer resolves after
+> the `cd`). `run.py` resolves `MODELS_DIR`/paths from its own `__file__`
+> location (absolute), so it writes to the correct place from **any** cwd —
+> **invoke from repo root**: `python/venv/bin/python python/mlx-movie-director/run.py <args>` (no `cd`).
+
 ### For ComfyUI (workflow execution)
 
 ```bash
@@ -108,10 +116,9 @@ Removed top-level commands (`lens`, `t2i`) are auto-rewritten to their canonical
 Most subcommands support `--self-test` to run a named reproducibility check without a live prompt:
 
 ```bash
-cd python/mlx-movie-director
-python/venv/bin/python run.py image t2i --self-test                     # default test
-python/venv/bin/python run.py image t2i --self-test t2i:portrait        # named test
-python/venv/bin/python run.py image i2i --self-test i2i:pose i2i:style  # multiple
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test                     # default test
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test t2i:portrait        # named test
+python/venv/bin/python python/mlx-movie-director/run.py image i2i --self-test i2i:pose i2i:style  # multiple
 ```
 
 Available test names per action are listed in `run.py schema-defaults` or via `bun run check:schema` in the GUI project.
@@ -125,10 +132,9 @@ Z-Image/Flux (no LoRA, ControlNet, i2i, or shared args), so it is a
 not an `image` sub-action of its own.
 
 ```bash
-cd python/mlx-movie-director
-python/venv/bin/python run.py image t2i --pipeline lens --prompt 'a cute corgi puppy, photorealistic'
-python/venv/bin/python run.py image t2i --pipeline lens --self-test                       # built-in prompt + seed
-python/venv/bin/python run.py image t2i --pipeline lens --prompt '...' --width 1024 --height 1024  # higher res = better
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --pipeline lens --prompt 'a cute corgi puppy, photorealistic'
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --pipeline lens --self-test                       # built-in prompt + seed
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --pipeline lens --prompt '...' --width 1024 --height 1024  # higher res = better
 ```
 
 | Flag | Default | Description |
@@ -158,27 +164,26 @@ rounds) in [docs/lens-mlx-t2i-rope-patchify.md](docs/lens-mlx-t2i-rope-patchify.
 Use `run.py caption` to analyze local images with a local VLM (Qwen3-VL 4B via LM Studio). **Prefer this over MCP-based image analysis tools** — MCP tools cannot read local file paths and will error.
 
 ```bash
-# MUST use the project venv
-cd python/mlx-movie-director
-python/venv/bin/python run.py caption <IMAGE> [options]
+# MUST use the project venv (from repo root — see "Working directory & venv path" above)
+python/venv/bin/python python/mlx-movie-director/run.py caption <IMAGE> [options]
 
 # Describe image (default style)
-python/venv/bin/python run.py caption output/base.png
+python/venv/bin/python python/mlx-movie-director/run.py caption output/base.png
 
 # Photography analysis (subject, lighting, camera angle, composition)
-python/venv/bin/python run.py caption base.png --style photography
+python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style photography
 
 # Generate a T2I prompt from an image
-python/venv/bin/python run.py caption base.png --style prompt --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style prompt --lang en
 
 # Quality scoring (1-10 on 6 dimensions)
-python/venv/bin/python run.py caption base.png --style score --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style score --lang en
 
 # Art style analysis
-python/venv/bin/python run.py caption base.png --style style
+python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style style
 
 # GUI screenshot analysis (layout + interactive elements, for playwright-cli automation)
-python/venv/bin/python run.py caption screenshot.png --style playwright --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption screenshot.png --style playwright --lang en
 ```
 
 | Flag | Default | Description |
@@ -244,19 +249,20 @@ bun run check:schema               # validate all command schemas against run.py
 
 Test files: `schemas/*.test.ts` (one per command), `lib/*.test.ts`, `api/gallery.test.ts`.
 
-### Python mlx-movie-director (from `python/mlx-movie-director/`)
+### Python mlx-movie-director
 
 ```bash
-python/venv/bin/python -m pytest app/tests           # all tests (CPU-only, fast)
-python/venv/bin/python -m pytest app/tests/test_run_config.py -v  # single file
+# From repo root — pytest discovers pytest.ini under python/mlx-movie-director/
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests           # all tests (CPU-only, fast)
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests/test_run_config.py -v  # single file
 
 # Custom flags (defined in app/tests/conftest.py):
-python/venv/bin/python -m pytest app/tests --run-gpu         # real MLX weights + Metal GPU
-python/venv/bin/python -m pytest app/tests --run-slow        # tests >30s
-python/venv/bin/python -m pytest app/tests --update-baselines  # regenerate hash baselines
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --run-gpu         # real MLX weights + Metal GPU
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --run-slow        # tests >30s
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --update-baselines  # regenerate hash baselines
 
 # With coverage:
-python/venv/bin/python -m pytest app/tests --cov=app --cov-report=html
+python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --cov=app --cov-report=html
 ```
 
 Config: `python/mlx-movie-director/pytest.ini` — `testpaths = app/tests`, strict markers, short tracebacks.
@@ -269,8 +275,7 @@ The GUI at `http://localhost:3099` can be driven with the `playwright-cli` skill
 
 ```bash
 playwright-cli screenshot --filename=/tmp/gui.png
-cd python/mlx-movie-director
-python/venv/bin/python run.py caption /tmp/gui.png --style playwright --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption /tmp/gui.png --style playwright --lang en
 # → structured report: LAYOUT, INTERACTIVE ELEMENTS (by visible label + current value),
 #   STATE (selected values, badges, errors), PRIMARY ACTION (enabled/disabled)
 ```

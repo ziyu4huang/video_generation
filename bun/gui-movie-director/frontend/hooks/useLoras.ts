@@ -5,7 +5,7 @@ export interface LoraInfo {
   path: string;
   description?: string;
   arch?: string;
-  pipeline?: string;
+  pipeline?: string[];
   size_bytes?: number;
 }
 

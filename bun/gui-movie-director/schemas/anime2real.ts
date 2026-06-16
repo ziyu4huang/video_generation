@@ -16,7 +16,9 @@ export const anime2realCommand: UnifiedCommand = {
     { key: "anime2real_lora_scale", cliFlag: "--anime2real-lora-scale", control: "range", label: "LoRA Scale (built-in default)", min: 0, max: 1, step: 0.05, default: 1.0, section: "Style Transfer" },
     // Multi-LoRA editor. User picks REPLACE the built-in default LoRA; empty
     // list → backend uses the built-in _DEFAULT_LORA at the scale above.
-    { key: "loras", control: "loras", label: "LoRAs (override default)", default: [], section: "Style Transfer" },
+    // anime2real has no user-facing pipeline picker — it's fixed to the
+    // flux2-klein-9b base model, so the compatible LoRA tags are static.
+    { key: "loras", control: "loras", label: "LoRAs (override default)", default: [], section: "Style Transfer", loraTags: ["flux2-klein", "flux2-klein-edit"] },
     { key: "ref_strength", cliFlag: "--ref-strength", control: "range", label: "Reference Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "Style Transfer" },
     { key: "anime2real_ref_count", cliFlag: "--anime2real-ref-count", control: "number", label: "Reference Count", min: 1, max: 4, default: 1, section: "Style Transfer" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, default: 8, section: "Style Transfer" },

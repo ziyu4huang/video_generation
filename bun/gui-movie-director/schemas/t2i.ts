@@ -24,7 +24,9 @@ export const t2iCommand: UnifiedCommand = {
     { key: "count", cliFlag: "--count", control: "number", label: "Count", min: 1, max: 10, default: 1, section: "Generation" },
     // Multi-LoRA editor (UI-only). buildParams derives lora_path/lora_scale
     // arrays → repeated --lora-path / --lora-scale flags (multiselect backend fields).
-    { key: "loras", control: "loras", label: "LoRAs", default: [], section: "LoRA & Style" },
+    // Microsoft Lens is a separate model family with no LoRA support — hide
+    // the editor entirely when it's selected (see PIPELINE_TO_LORA_TAGS).
+    { key: "loras", control: "loras", label: "LoRAs", default: [], section: "LoRA & Style", visible: (s) => s.pipeline !== "lens" },
     { key: "draft", cliFlag: "--draft", control: "toggle", label: "Draft mode (fewer steps, smaller resolution)", section: "Options" },
     { key: "upscale", cliFlag: "--upscale", control: "toggle", label: "ESRGAN 4× Upscale", section: "Options" },
     // Backend-only fields (no section → not shown in form)

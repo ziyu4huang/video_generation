@@ -29,5 +29,6 @@ function fieldToUi(f: UnifiedField): Record<string, any> {
   if (f.visible !== undefined) out.visible = f.visible;
   if (f.multiline !== undefined) out.multiline = f.multiline;
   if (f.control === "select" && f.choices) out.options = f.choices;
+  if (f.control === "loras" && f.loraTags) out.loraTags = f.loraTags;
   return out;
 }

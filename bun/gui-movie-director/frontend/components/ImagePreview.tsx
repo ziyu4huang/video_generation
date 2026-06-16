@@ -769,13 +769,35 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
 
 // --- Main component ---
 
-export function ImagePreview({ url, manifest, run, manifestPath, runPath, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
+// A `.caption.json` file holds multiple VLM styles per image. Legacy flat
+// files (`{style, model, elapsed_sec, caption}`, no `styles` key) are migrated
+// in-memory here, guessing the style key from their own `style` field.
+function normalizeCaptionFile(raw: Record<string, any> | null | undefined): Record<string, any> | null {
+  if (!raw) return null;
+  if (raw.styles && typeof raw.styles === "object") return raw;
+  const style = raw.style || "default";
+  return {
+    image: raw.image,
+    video: raw.video,
+    model: raw.model,
+    updated_style: style,
+    styles: { [style]: { model: raw.model, elapsed_sec: raw.elapsed_sec, caption: raw.caption } },
+  };
+}
+
+function pickCaptionStyle(file: Record<string, any> | null, style: string): Record<string, any> | null {
+  const entry = file?.styles?.[style];
+  if (!entry) return null;
+  return { style, model: entry.model, elapsed_sec: entry.elapsed_sec, caption: entry.caption };
+}
+
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const [captionLoading, setCaptionLoading] = useState(false);
-  const [generatedCaption, setGeneratedCaption] = useState<Record<string, any> | null>(null);
+  const [captionFile, setCaptionFile] = useState<Record<string, any> | null>(() => normalizeCaptionFile(caption));
   const [captionStyle, setCaptionStyle] = useState<string>("default");
-  const effectiveCaption = generatedCaption;
+  const effectiveCaption = pickCaptionStyle(captionFile, captionStyle);
   const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "run");
   const [showRaw, setShowRaw] = useState(false);
   const data = tab === "run" ? run : manifest;
@@ -794,17 +816,17 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  // Reset view + caption state when url changes.
-  // Caption is on-demand: never carry a generated caption or picked style
-  // across to a different image, and restore the default tab. We reset here
-  // (rather than via a React `key` remount) so the `.imagePreviewPanel`
-  // slide-in animation does not re-play on every prev/next switch.
+  // Reset view + caption state when url changes. We reset here (rather than
+  // via a React `key` remount) so the `.imagePreviewPanel` slide-in animation
+  // does not re-play on every prev/next switch. The new image's own caption
+  // cache (if any) seeds captionFile fresh — never carries over the previous
+  // image's styles.
   useEffect(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setImageLoaded(false);
     setImageError(false);
-    setGeneratedCaption(null);
+    setCaptionFile(normalizeCaptionFile(caption));
     setCaptionStyle("default");
     setTab(hasRun ? "run" : hasManifest ? "manifest" : "run");
     setShowRaw(false);
@@ -881,49 +903,37 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     } catch { /* ignore */ }
   };
 
-  const handleCaption = useCallback(() => {
-    // Caption is on-demand: just switch to the Scores tab where the user
-    // picks a style and clicks Rerun.
-    setTab("scores");
-  }, []);
-
   const handleStylePick = useCallback((style: string) => {
     setCaptionStyle(style);
   }, []);
 
   const handleRerunCaption = useCallback(async () => {
-    setCaptionLoading(true);
     const style = captionStyle;
+    // Cache-first: this style is already in the loaded multi-style file.
+    if (captionFile?.styles?.[style]) {
+      toast.success("Caption loaded");
+      return;
+    }
+    setCaptionLoading(true);
     try {
-      // Cache-first: reuse the on-disk caption if its style matches the pick.
-      const getRes = await fetch(`/api/caption?url=${encodeURIComponent(url)}`);
-      const getData = await getRes.json();
-      if (getData.ok && getData.caption && getData.caption.style === style) {
-        setGeneratedCaption(getData.caption);
-        setTab("scores");
-        toast.success("Caption loaded");
+      const res = await fetch("/api/caption/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, style }),
+      });
+      const data = await res.json();
+      if (data.ok && data.caption) {
+        setCaptionFile(data.caption);
+        toast.success(`Caption generated (${style})`);
       } else {
-        // No matching cached caption → run the VLM.
-        const res = await fetch("/api/caption/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, style }),
-        });
-        const data = await res.json();
-        if (data.ok && data.caption) {
-          setGeneratedCaption(data.caption);
-          setTab("scores");
-          toast.success(`Caption generated (${style})`);
-        } else {
-          toast.error(data.error || "Caption failed");
-        }
+        toast.error(data.error || "Caption failed");
       }
     } catch (err) {
       toast.error(`Caption failed: ${err}`);
     } finally {
       setCaptionLoading(false);
     }
-  }, [url, captionStyle]);
+  }, [url, captionStyle, captionFile]);
 
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
@@ -1090,37 +1100,12 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
             <button
               className={`${s.imagePreviewTab}${tab === "scores" ? " " + s.imagePreviewTabActive : ""}`}
               onClick={() => { setTab("scores"); setShowRaw(false); }}
+              title={captionLoading ? "Generating caption..." : "Load or generate caption"}
             >
-              Scores
+              {captionLoading ? "⏳" : "📊"} Scores
             </button>
           </div>
           <div className={s.imagePreviewPanelActions}>
-            <button
-              className={s.imagePreviewRawBtn}
-              onClick={() => setShowRaw(true)}
-              disabled={!data}
-            >📋 Raw</button>
-            <button
-              className={s.imagePreviewRawBtn}
-              onClick={handleCopyPath}
-              disabled={!activePath}
-              title={activePath || "No JSON file"}
-            >📁 Path</button>
-            <a
-              href={url}
-              download={url.split("/").pop()}
-              className={s.imagePreviewRawBtn}
-              title="Download"
-              onClick={(e) => e.stopPropagation()}
-            >↓ Save</a>
-            <button
-              className={s.imagePreviewRawBtn}
-              onClick={handleCaption}
-              disabled={captionLoading}
-              title={captionLoading ? "Generating caption..." : "Load or generate caption"}
-            >
-              {captionLoading ? "⏳" : "📝"}
-            </button>
             <button className={s.imagePreviewPanelClose} onClick={onClose}>✕</button>
           </div>
         </div>
@@ -1138,7 +1123,21 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               </div>
             </div>
           ) : data ? (
-            tab === "run" ? <RunViewer data={data} runPath={runPath} /> : <ManifestViewer data={data} />
+            <>
+              <div className={s.imagePreviewPanelActions} style={{ padding: "8px 20px 0" }}>
+                <button
+                  className={s.imagePreviewRawBtn}
+                  onClick={() => setShowRaw(true)}
+                >📋 Raw</button>
+                <button
+                  className={s.imagePreviewRawBtn}
+                  onClick={handleCopyPath}
+                  disabled={!activePath}
+                  title={activePath || "No JSON file"}
+                >📁 Path</button>
+              </div>
+              {tab === "run" ? <RunViewer data={data} runPath={runPath} /> : <ManifestViewer data={data} />}
+            </>
           ) : (
             <div className="empty-state">
               <div className="empty-state-icon">📄</div>

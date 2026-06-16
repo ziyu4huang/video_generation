@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
+import { normalizeCaptionFile } from "../lib/captionFormat";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 
@@ -120,7 +121,7 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
     }
 
     const captionPath = findCompanionJson(entry.dir, base, ".caption.json");
-    const caption = captionPath ? readJsonFile(captionPath) : null;
+    const caption = captionPath ? normalizeCaptionFile(readJsonFile(captionPath)) : null;
 
     return {
       name: entry.name,

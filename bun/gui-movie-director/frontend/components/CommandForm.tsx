@@ -7,6 +7,7 @@ import { InlineError } from "./InlineError";
 import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
 import { useAllFieldHistories } from "../hooks/useFieldHistory";
+import { PIPELINE_TO_LORA_TAGS } from "../../schemas/shared";
 
 interface CommandFormProps {
   schema: CommandSchema;

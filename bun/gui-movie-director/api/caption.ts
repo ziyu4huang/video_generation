@@ -4,6 +4,7 @@ import { loadConfig } from "../lib/config";
 import { isPathAllowed, OUTPUT_DIRS, RUN_PY } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { parsePostJson } from "../lib/requestUtils";
+import { normalizeCaptionFile } from "../lib/captionFormat";
 
 /**
  * Run caption (VLM analysis) on an image via `run.py caption`.
@@ -102,9 +103,10 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     const savedMatch = stdout.match(/Saved:\s+(.+)/);
     const captionPath = savedMatch ? savedMatch[1].trim() : null;
 
-    const captionResult = captionPath && fs.existsSync(captionPath)
+    const rawCaption = captionPath && fs.existsSync(captionPath)
       ? readJsonFile(captionPath)
       : null;
+    const captionResult = normalizeCaptionFile(rawCaption);
 
     return Response.json({ ok: true, captionPath, caption: captionResult });
   } catch (err: any) {
@@ -157,7 +159,8 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
     return Response.json({ ok: true, caption: null });
   }
 
-  const caption = readJsonFile(captionPath);
+  const rawCaption = readJsonFile(captionPath);
+  const caption = normalizeCaptionFile(rawCaption);
   if (caption === null) return Response.json({ ok: true, caption: null });
   return Response.json({ ok: true, caption, captionPath });
 }

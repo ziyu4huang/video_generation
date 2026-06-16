@@ -32,6 +32,12 @@ export interface UnifiedField {
   section?: string;
   visible?: (s: Record<string, any>) => boolean;
   multiline?: boolean;
+  // "loras" control only: static list of compatible LoRA manifest `pipeline`
+  // tags, for commands with no user-facing pipeline picker (e.g. anime2real,
+  // fixed to the flux2-klein-9b base model). Commands that DO have a
+  // "pipeline" field (t2i, i2i) instead derive this dynamically from the
+  // current pipeline selection via PIPELINE_TO_LORA_TAGS — see CommandForm.
+  loraTags?: string[];
 }
 
 export interface UnifiedCommand {
