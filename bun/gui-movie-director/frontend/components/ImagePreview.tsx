@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useSWRConfig } from "swr";
 import * as Dialog from "@radix-ui/react-dialog";
 import { formatBytes, basename } from "../utils/format";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
@@ -49,8 +50,7 @@ function Section({ title, children, defaultOpen = true }: {
   children: React.ReactNode;
   defaultOpen?: boolean;
 }) {
-  // Collapsible: title bar toggles the body. Reproduce passes defaultOpen=false
-  // (its shell command is long); every other section stays open by default.
+  // Collapsible: title bar toggles the body; sections stay open by default.
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className={s.mfSection}>
@@ -426,16 +426,44 @@ function LoraRow({ lora }: { lora: Record<string, any> }) {
   );
 }
 
-function RunViewer({ data }: { data: Record<string, any> }) {
+function RunViewer({ data, runPath }: { data: Record<string, any>; runPath?: string | null }) {
+  const { mutate } = useSWRConfig();
+  const [rerunning, setRerunning] = useState(false);
+
+  // Re-run this generation by invoking the top-level `run.py replay <runPath>`
+  // via the /api/replay job endpoint. Mirrors the useCommandJob submit pattern
+  // (fetch + toast), inlined because RunViewer is a leaf component.
+  const handleReRun = async () => {
+    if (!runPath || rerunning) return;
+    setRerunning(true);
+    try {
+      const res = await fetch("/api/replay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runPath }),
+      });
+      const d = await res.json();
+      if (d.jobId) {
+        toast.success("Re-run started");
+        mutate("/api/jobs"); // refresh the Jobs panel now (it also arrives over WS)
+      } else {
+        toast.error(d.error || "Failed to start re-run");
+      }
+    } catch (e) {
+      toast.error(`Failed to start re-run: ${e}`);
+    } finally {
+      setRerunning(false);
+    }
+  };
+
   // Collect known keys for sections, rest goes to fallback
   const usedKeys = new Set<string>();
   const extras: Record<string, any> = {};
 
-  // Reproduce: assemble a runnable command from the argv snapshot
-  const reproCmd = Array.isArray(data.argv) && data.argv.length > 0
-    ? `cd python/mlx-movie-director && python/venv/bin/python run.py ${(data.argv as string[]).join(" ")}`
-    : null;
-  if (reproCmd) usedKeys.add("argv");
+  // argv is no longer rendered (the Reproduce command display was replaced by
+  // the Re-run button above), but keep it out of the Details fallback so stale
+  // argv in old manifests doesn't leak there.
+  usedKeys.add("argv");
 
   // LoRAs: structured multi-LoRA list [{path, scale, stage}]
   const loras = Array.isArray(data.loras) ? data.loras : null;
@@ -467,13 +495,17 @@ function RunViewer({ data }: { data: Record<string, any> }) {
 
   return (
     <div className={s.manifestViewer}>
-      {reproCmd && (
-        <Section title="Reproduce" defaultOpen={false}>
-          <div className={s.mfReproRow}>
-            <pre className={s.mfReproBlock}>{reproCmd}</pre>
-            <CopyButton text={reproCmd} />
-          </div>
-        </Section>
+      {runPath && (
+        <div className={s.mfReRunRow}>
+          <button
+            className={s.mfReRunBtn}
+            onClick={handleReRun}
+            disabled={rerunning}
+            title="Re-run this generation via run.py replay"
+          >
+            {rerunning ? "⏳ Starting…" : "↻ Re-run"}
+          </button>
+        </div>
       )}
       {loras && (
         <Section title="LoRAs">
@@ -1106,7 +1138,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
               </div>
             </div>
           ) : data ? (
-            tab === "run" ? <RunViewer data={data} /> : <ManifestViewer data={data} />
+            tab === "run" ? <RunViewer data={data} runPath={runPath} /> : <ManifestViewer data={data} />
           ) : (
             <div className="empty-state">
               <div className="empty-state-icon">📄</div>

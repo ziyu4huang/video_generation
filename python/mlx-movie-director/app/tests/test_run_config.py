@@ -159,19 +159,17 @@ class TestV11Migration:
 class TestReproducibilityFields:
     def test_defaults_are_none(self):
         rc = RunConfig()
-        assert rc.argv is None
         assert rc.loras is None
 
-    def test_asdict_includes_argv_and_loras(self):
+    def test_asdict_includes_loras(self):
         rc = RunConfig(
-            argv=["image", "generate"],
             loras=[{"path": "/lora.safetensors", "scale": 0.8, "stage": "main"}],
         )
         d = asdict(rc)
-        assert d["argv"] == ["image", "generate"]
+        assert "argv" not in d  # argv snapshot was removed from the persisted shape
         assert d["loras"][0]["stage"] == "main"
 
-    def test_from_args_snapshots_argv_and_builds_loras(self, monkeypatch):
+    def test_from_args_builds_loras(self, monkeypatch):
         import argparse
         import sys
         import types
@@ -181,13 +179,11 @@ class TestReproducibilityFields:
         fake.resolve_lora_paths = lambda lst: list(lst or [])
         fake.resolve_vae_path = lambda p: p
         monkeypatch.setitem(sys.modules, "app.commands._shared", fake)
-        monkeypatch.setattr("sys.argv", ["run.py", "image", "generate", "--seed", "7"])
         ns = argparse.Namespace(
             prompt="cat", prompt_file=None,
             lora_path=["/main.safetensors"], lora_scale=[0.9], face_detail_lora="/fd.safetensors",
         )
         rc = RunConfig.from_args(ns)
-        assert rc.argv == ["image", "generate", "--seed", "7"]
         stages = {e["stage"]: e for e in rc.loras}
         assert stages["main"] == {"path": "/main.safetensors", "scale": 0.9, "stage": "main"}
         assert stages["face_detail"] == {"path": "/fd.safetensors", "scale": None, "stage": "face_detail"}
@@ -212,11 +208,6 @@ class TestV12Migration:
     def test_v12_migrates_to_current(self):
         assert _migrate({"schema_version": 12})["schema_version"] == SCHEMA_VERSION
 
-    def test_v12_migration_adds_argv_and_loras_defaults(self):
+    def test_v12_migration_adds_loras_default(self):
         m = _migrate({"schema_version": 12})
-        assert m["argv"] is None
         assert m["loras"] is None
-
-    def test_v12_migration_preserves_existing_argv(self):
-        m = _migrate({"schema_version": 12, "argv": ["image", "generate"]})
-        assert m["argv"] == ["image", "generate"]  # setdefault does not overwrite

@@ -4,6 +4,7 @@ import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
 import { handleGallery, handleGalleryImage, handleGallerySearch, handleGalleryDelete } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
+import { handleReplayJob } from "./replay";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
@@ -178,6 +179,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // Jobs
   if (pathname === "/api/run" && method === "POST") {
     return handleRunJob(req);
+  }
+  if (pathname === "/api/replay" && method === "POST") {
+    return handleReplayJob(req);
   }
   if (pathname === "/api/jobs" && method === "GET") {
     return handleListJobs(req);

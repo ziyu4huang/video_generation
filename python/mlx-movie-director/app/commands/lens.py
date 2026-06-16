@@ -168,7 +168,8 @@ def run_lens(args: argparse.Namespace, json_summary: bool = False) -> str:
         ctx["outputs"] = outputs
         ctx["timings"] = last_timings
         # Lens model fingerprint: paths only (no hashing — 16 GB INT4 files).
-        # Reproducibility is via argv + seed recorded in run.json.
+        # Reproducibility is via the structured fields + seed recorded in run.json
+        # (re-run with `run.py replay <run.json>`).
         ctx["models"] = {
             "pipeline": "lens",
             "text_encoder": pipe.te_path,
