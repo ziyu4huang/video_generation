@@ -100,6 +100,14 @@ def _run_with_gpu_guard(args: argparse.Namespace) -> None:
         # GpuLock already printed the timeout detail; exit cleanly at the CLI
         # boundary rather than from inside the context manager.
         sys.exit(1)
+    except (ValueError, FileNotFoundError) as exc:
+        # User-facing input/usage errors raised by library helpers (e.g.
+        # io_utils.require_file) — print a clean one-line error at the CLI
+        # boundary instead of a raw traceback. These RAISE (not sys.exit) from
+        # the library so tests / programmatic callers can catch them; this
+        # handler preserves the clean CLI exit for the run.py dispatch path.
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------

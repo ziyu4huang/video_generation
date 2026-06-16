@@ -4,7 +4,6 @@ No dependencies on other app.* modules — safe to import anywhere.
 """
 
 import os
-import sys
 
 from PIL import Image
 
@@ -18,15 +17,16 @@ def load_image_rgb(path: str) -> Image.Image:
 def require_file(path: str | None, label: str = "input") -> str:
     """Validate that a file path is provided and exists on disk.
 
-    Prints a human-readable error and sys.exit(1) on failure.
-    Returns the path unchanged on success (for chaining).
+    Raises ValueError (no path) / FileNotFoundError (missing) on failure —
+    NOT sys.exit, so programmatic callers (tests, the GUI job runner) can
+    catch the failure instead of having the whole process killed. The CLI
+    boundary in run.py._run_with_gpu_guard converts these to a clean one-line
+    error + exit. Returns the path unchanged on success (for chaining).
     """
     if not path:
-        print(f"ERROR: {label} path is required", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"{label} path is required")
     if not os.path.exists(path):
-        print(f"ERROR: {label} not found: {path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"{label} not found: {path}")
     return path
 
 

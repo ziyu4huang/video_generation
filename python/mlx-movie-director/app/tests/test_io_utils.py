@@ -89,44 +89,34 @@ class TestRequireFile:
         result = require_file(str(p))
         assert result == str(p)
 
-    def test_none_path_exits(self):
-        with pytest.raises(SystemExit) as exc:
+    def test_none_path_raises_value_error(self):
+        with pytest.raises(ValueError, match="path is required"):
             require_file(None)
-        assert exc.value.code == 1
 
-    def test_empty_string_exits(self):
-        with pytest.raises(SystemExit) as exc:
+    def test_empty_string_raises_value_error(self):
+        with pytest.raises(ValueError, match="path is required"):
             require_file("")
-        assert exc.value.code == 1
 
-    def test_missing_path_exits(self, tmp_path):
+    def test_missing_path_raises_filenotfound(self, tmp_path):
         p = tmp_path / "missing.txt"
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(FileNotFoundError, match="not found"):
             require_file(str(p))
-        assert exc.value.code == 1
 
-    def test_custom_label_in_error(self, tmp_path, capsys):
-        """Custom label appears in the error message."""
-        with pytest.raises(SystemExit):
+    def test_custom_label_in_error(self, tmp_path):
+        """Custom label appears in the raised error message."""
+        with pytest.raises(ValueError, match="model"):
             require_file(None, label="model")
-        err = capsys.readouterr().err
-        assert "model" in err
 
-    def test_none_path_stderr_message(self, capsys):
-        with pytest.raises(SystemExit):
+    def test_none_path_error_message(self):
+        with pytest.raises(ValueError, match="path is required"):
             require_file(None)
-        err = capsys.readouterr().err
-        assert "ERROR" in err
-        assert "path is required" in err
 
-    def test_missing_path_stderr_message(self, tmp_path, capsys):
+    def test_missing_path_error_message(self, tmp_path):
         p = tmp_path / "missing.txt"
-        with pytest.raises(SystemExit):
+        with pytest.raises(FileNotFoundError) as exc:
             require_file(str(p))
-        err = capsys.readouterr().err
-        assert "ERROR" in err
-        assert "not found" in err
-        assert str(p) in err
+        assert "not found" in str(exc.value)
+        assert str(p) in str(exc.value)
 
 
 # ==========================================================================
