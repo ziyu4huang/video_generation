@@ -1472,8 +1472,20 @@ const historyEntry = {
       suppressedFromPrior: suppressedFromPrior.length,
       byDimension,
       bySeverity,
-      items: verifiedFindings,
-      rejected: rejectedFindings,
+      // Slimmed to skeletons — full description/suggestedFix/codeSnippet live
+      // in the agent transcripts; history only needs these fields for cross-run
+      // dedup (the file:line:dimension key built at line ~670) and trend counts.
+      // A bulky items[] made the persist agent stall verbatim-writing ~60-80K of
+      // JSON on medium effort (2026-06-16); slimming to ~150 bytes/finding brings
+      // it back to the low-effort size band where haiku reliably writes it.
+      items: verifiedFindings.map((f) => ({
+        id: f.id, dimension: f.dimension, severity: f.severity,
+        file: f.file, line: f.line, title: f.title,
+      })),
+      rejected: rejectedFindings.map((f) => ({
+        id: f.id, dimension: f.dimension, severity: f.severity,
+        file: f.file, line: f.line, title: f.title,
+      })),
       rejected_by_dimension: rejectedByDimension,
     },
     adversarial: {
@@ -1489,7 +1501,10 @@ const historyEntry = {
           filesChanged: fixResults.filesChanged,
           regressions: reVerifyFindings.length,
           safeFixes: { applied: safeFixResults.fixes.filter((f) => f.status === "applied").length, filesChanged: safeFixResults.filesChanged },
-          items: fixResults.fixes,
+          items: fixResults.fixes.map((f) => ({
+            id: f.findingId || f.id, status: f.status,
+            change: (f.change || "").slice(0, 120),
+          })),
         }
       : { mode: "review-only", applied: 0, skipped: 0, failed: 0, filesChanged: [], regressions: 0 },
     baseline: baselineTestResults,
