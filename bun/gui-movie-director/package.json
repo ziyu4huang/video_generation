@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "bun run --watch server.ts",
-    "dev:debug": "bun --inspect-wait run --watch server.ts",
+    "dev": "bun --hot server.ts",
+    "dev:watch": "bun run --watch server.ts",
+    "dev:debug": "bun --inspect-wait --hot server.ts",
     "start": "bun run server.ts",
     "test": "bun test",
     "test:coverage": "bun test --coverage",

@@ -206,14 +206,14 @@ The web UI at `bun/gui-movie-director/` is a Bun + React SPA with live job manag
 cd bun/gui-movie-director && bun run dev
 ```
 
-`bun run dev` = `bun run --watch server.ts` which:
-- Auto-restarts the **server** when backend files (`server.ts`, `api/*.ts`, `lib/*.ts`) change
-- Watches `frontend/` directory and **rebuilds the bundle** on `.tsx`/`.ts`/`.css` changes
-- Pushes `hmr-reload` via WebSocket → browser auto-refreshes
+`bun run dev` = `bun --hot server.ts` which:
+- **Backend HMR**: Bun swaps changed modules in-place — no process restart, WebSocket connections stay alive, jobs stay in memory
+- **Frontend HMR**: Watches `frontend/` and **rebuilds the bundle** on `.tsx`/`.ts`/`.css` changes, then pushes `hmr-reload` via WebSocket → browser auto-refreshes
+- `globalThis._devServer` / `_devInitialized` guard prevents double-init on hot reloads
 
-**Do NOT use `bun run start`** — that has no file watching or HMR. Always use `bun run dev`.
+**Do NOT use `bun run start`** — no file watching. Use `bun run dev:watch` only if hot reload breaks (`--watch` does a full restart).
 
-Server runs on **http://localhost:3099**. Kill existing instances with `lsof -ti :3099 | xargs kill`.
+Server runs on **http://localhost:3099**. Kill existing instances with `lsof -ti :3099 | xargs kill -9`.
 
 ### Architecture
 

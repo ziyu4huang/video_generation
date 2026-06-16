@@ -2,19 +2,23 @@
 
 ## Start the server
 
-**Always use dev mode** for development — it provides hot reload for both backend and frontend:
+**Always use dev mode** for development — it provides hot module replacement for both backend and frontend:
 
 ```bash
-bun run dev
+cd bun/gui-movie-director && bun run dev
 ```
 
-This runs `bun run --watch server.ts`, which:
-1. **Backend hot reload**: `--watch` auto-restarts the server when `*.ts` files change
-2. **Frontend HMR**: File watcher on `frontend/` rebuilds the bundle on `.tsx`/`.ts`/`.css` changes, then broadcasts `hmr-reload` via WebSocket to auto-refresh the browser
+This runs `bun --hot server.ts`. The `--hot` flag means:
+1. **Backend hot reload**: Bun swaps changed modules in-place — **no process restart, no dropped WebSocket connections, jobs stay in memory**. Routes/handlers update instantly.
+2. **Frontend HMR**: File watcher on `frontend/` rebuilds the bundle on `.tsx`/`.ts`/`.css` changes, then broadcasts `hmr-reload` via WebSocket to auto-refresh the browser.
 
-**Never use `bun run start`** during development — it has no file watching.
+`globalThis._devServer` and `globalThis._devInitialized` persist across hot reloads so `Bun.serve()` and file watchers are only set up once.
 
-If port 3099 is occupied: `lsof -ti :3099 | xargs kill`
+**Alternative**: `bun run dev:watch` uses `--watch` (full process restart) — use only if hot reload breaks things.
+
+**Never use `bun run start`** — no file watching.
+
+If port 3099 is occupied: `lsof -ti :3099 | xargs kill -9`
 
 ## Project structure
 
