@@ -187,15 +187,25 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             <FileUpload value={state[field.key] ?? null} onChange={(v) => setField(field.key, v)} />
           </div>
         );
-      case "loras":
+      case "loras": {
+        // Prefer static loraTags from the schema field; fall back to
+        // PIPELINE_TO_LORA_TAGS when the form has a live "pipeline" picker.
+        const tags: string[] | undefined =
+          field.loraTags !== undefined
+            ? field.loraTags
+            : state.pipeline !== undefined
+              ? PIPELINE_TO_LORA_TAGS[state.pipeline as string]
+              : undefined;
         return (
           <LoraField
             key={field.key}
             label={field.label}
             value={state[field.key] ?? []}
             onChange={(rows) => setField(field.key, rows)}
+            loraTags={tags}
           />
         );
+      }
       case "images":
         return (
           <div key={field.key} className="form-group">

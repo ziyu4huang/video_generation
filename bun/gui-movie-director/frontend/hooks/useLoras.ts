@@ -5,8 +5,14 @@ export interface LoraInfo {
   path: string;
   description?: string;
   arch?: string;
+  format?: string;
   pipeline?: string[];
+  rank?: number;
   size_bytes?: number;
+  recommended_scale?: number;
+  trigger_words?: string[];
+  compatible_with?: string[];
+  source?: string;
 }
 
 // Module-scope cache: the installed-LoRA list rarely changes mid-session, so a

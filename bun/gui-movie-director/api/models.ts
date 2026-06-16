@@ -7,8 +7,14 @@ interface LoraInfo {
   path: string;
   description?: string;
   arch?: string;
+  format?: string;
   pipeline?: string[];
+  rank?: number;
   size_bytes?: number;
+  recommended_scale?: number;
+  trigger_words?: string[];
+  compatible_with?: string[];
+  source?: string;
 }
 
 interface VaeInfo {
@@ -36,8 +42,14 @@ export async function handleListLoras(req: Request): Promise<Response> {
           path: path.join(loraDir, entry.name),
           description: manifest.description,
           arch: manifest.arch,
+          format: manifest.format,
           pipeline: manifest.pipeline,
+          rank: manifest.rank,
           size_bytes: manifest.size_bytes,
+          recommended_scale: manifest.recommended_scale,
+          trigger_words: manifest.trigger_words,
+          compatible_with: manifest.compatible_with,
+          source: manifest.source,
         });
       } catch {
         lorals.push({ name: entry.name, path: path.join(loraDir, entry.name) });
