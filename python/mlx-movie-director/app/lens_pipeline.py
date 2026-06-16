@@ -22,7 +22,6 @@ import math
 import os
 import sys
 import time
-from typing import Optional
 
 import mlx.core as mx
 import mlx.nn as mnn
@@ -172,9 +171,9 @@ class LensPipeline:
 
     def __init__(
         self,
-        te_path: Optional[str] = None,
-        unet_path: Optional[str] = None,
-        vae_path: Optional[str] = None,
+        te_path: str | None = None,
+        unet_path: str | None = None,
+        vae_path: str | None = None,
         cfg_scale: float = 4.0,
         num_steps: int = 20,
         shift: float = 1.829,
@@ -313,8 +312,8 @@ class LensPipeline:
         seed: int = 0,
         width: int = 512,
         height: int = 512,
-        num_steps: Optional[int] = None,
-        cfg_scale: Optional[float] = None,
+        num_steps: int | None = None,
+        cfg_scale: float | None = None,
     ) -> GenerationResult:
         """Generate one image.
 

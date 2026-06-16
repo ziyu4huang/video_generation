@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Optional
 
 import mlx.core as mx
 import mlx.nn as mnn
@@ -146,7 +145,7 @@ class LensJointAttention(mnn.Module):
         added_kv_proj_dim: int,
         dim_head: int = 64,
         heads: int = 8,
-        out_dim: Optional[int] = None,
+        out_dim: int | None = None,
         eps: float = 1e-5,
     ) -> None:
         super().__init__()
@@ -173,7 +172,7 @@ class LensJointAttention(mnn.Module):
         hidden_states: mx.array,
         encoder_hidden_states: mx.array,
         freqs_cis: mx.array,
-        attention_mask: Optional[mx.array] = None,
+        attention_mask: mx.array | None = None,
     ) -> tuple[mx.array, mx.array]:
         B, seq_img, _ = hidden_states.shape
         seq_txt = encoder_hidden_states.shape[1]
@@ -258,7 +257,7 @@ class LensTransformerBlock(mnn.Module):
         encoder_hidden_states: mx.array,
         temb: mx.array,
         freqs_cis: mx.array,
-        attention_mask: Optional[mx.array] = None,
+        attention_mask: mx.array | None = None,
     ) -> tuple[mx.array, mx.array]:
         # SiLU before Linear (mirrors PyTorch Sequential(SiLU(), Linear()))
         img_mod = self.img_mod(mnn.silu(temb))
@@ -399,7 +398,7 @@ class LensTransformer(mnn.Module):
         x: mx.array,
         timestep: mx.array,
         context: mx.array,
-        attention_mask: Optional[mx.array] = None,
+        attention_mask: mx.array | None = None,
     ) -> mx.array:
         """
         Args:

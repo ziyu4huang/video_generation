@@ -20,7 +20,6 @@ import json
 import re
 import urllib.error
 import urllib.request
-from typing import List, Optional, Tuple
 
 # Verbatim from microsoft/Lens lens/reasoner.py — the reasoner's behavior IS
 # this system prompt; do not paraphrase.
@@ -89,7 +88,7 @@ _DEFAULT_TEMPERATURE = 0.7
 _DEFAULT_TIMEOUT = 180.0
 
 
-def _extract_plain_harmony_final(text: str) -> Optional[str]:
+def _extract_plain_harmony_final(text: str) -> str | None:
     matches = list(PLAIN_HARMONY_FINAL_MARKER_RE.finditer(text))
     if matches:
         final_text = text[matches[-1].end():].strip()
@@ -159,13 +158,13 @@ def clean_reasoner_output(text: str) -> str:
 
 def _chat_completion(
     api_url: str,
-    api_key: Optional[str],
+    api_key: str | None,
     model: str,
     user_prompt: str,
     max_tokens: int,
     temperature: float,
     timeout: float,
-) -> Tuple[Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None]:
     """POST to an OpenAI-compatible /chat/completions. Returns (text, error)."""
     url = api_url.rstrip("/") + "/chat/completions"
     body = json.dumps({
@@ -216,22 +215,22 @@ def _chat_completion(
 
 
 def refine(
-    prompts: List[str],
+    prompts: list[str],
     *,
     api_url: str = _DEFAULT_API_URL,
-    api_key: Optional[str] = None,
+    api_key: str | None = None,
     model: str = _DEFAULT_MODEL,
     max_tokens: int = _DEFAULT_MAX_TOKENS,
     temperature: float = _DEFAULT_TEMPERATURE,
     timeout: float = _DEFAULT_TIMEOUT,
-) -> List[Tuple[str, Optional[str]]]:
+) -> list[tuple[str, str | None]]:
     """Refine each prompt via the OpenAI-compatible endpoint.
 
     Returns a list of ``(refined_text, error)`` tuples, one per input prompt.
     On any failure (endpoint down, parse error) ``refined_text`` is the ORIGINAL
     prompt and ``error`` describes the problem. Never raises.
     """
-    out: List[Tuple[str, Optional[str]]] = []
+    out: list[tuple[str, str | None]] = []
     for prompt in prompts:
         raw, err = _chat_completion(
             api_url, api_key, model, prompt, max_tokens, temperature, timeout,

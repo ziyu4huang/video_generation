@@ -22,7 +22,6 @@ passed to LensTransformer as context.
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import mlx.core as mx
 import mlx.nn as mnn
@@ -141,7 +140,7 @@ class GptOssAttention(mnn.Module):
     def __call__(
         self,
         hidden_states: mx.array,
-        attention_mask: Optional[mx.array],
+        attention_mask: mx.array | None,
         cos: mx.array,
         sin: mx.array,
     ) -> mx.array:
@@ -315,7 +314,7 @@ class GptOssDecoderLayer(mnn.Module):
     def __call__(
         self,
         x: mx.array,
-        attention_mask: Optional[mx.array],
+        attention_mask: mx.array | None,
         cos: mx.array,
         sin: mx.array,
     ) -> mx.array:
@@ -352,8 +351,8 @@ class GptOssModel(mnn.Module):
     def __call__(
         self,
         input_ids: mx.array,
-        attention_mask: Optional[mx.array] = None,
-        capture_layers: Optional[tuple[int, ...]] = None,
+        attention_mask: mx.array | None = None,
+        capture_layers: tuple[int, ...] | None = None,
     ) -> dict:
         B, S = input_ids.shape
         hidden = self.embed_tokens(input_ids)
@@ -400,8 +399,8 @@ class LensGptOssEncoder(mnn.Module):
     def encode(
         self,
         input_ids: mx.array,
-        attention_mask: Optional[mx.array] = None,
-    ) -> tuple[mx.array, Optional[mx.array]]:
+        attention_mask: mx.array | None = None,
+    ) -> tuple[mx.array, mx.array | None]:
         """Return (features [B, S, L*H], trimmed_mask [B, S])."""
         out = self.transformer(input_ids, attention_mask, capture_layers=self.selected_layers)
         layers = out["hidden_states"]  # list of L tensors [B, S, H]
