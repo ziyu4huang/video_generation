@@ -61,7 +61,7 @@ export function useWebSocket() {
       try {
         const msg: WsMessage = JSON.parse(event.data);
 
-        if (msg.type === "log" && msg.line) {
+        if (msg.type === "log" && msg.line && msg.jobId === subscribedJobIdRef.current) {
           setLogs((prev) => [...prev, { line: msg.line!, stream: msg.stream ?? "stdout" }]);
           // Parse progress percentage from log line
           const pm = msg.line.match(/\b(\d{1,3})%/) ?? msg.line.match(/step (\d+) of (\d+)/i);

@@ -9,6 +9,7 @@ export interface CliField {
   choices?: string[];
   min?: number;
   max?: number;
+  isPath?: boolean;
 }
 
 export function toCliFields(cmd: UnifiedCommand): Record<string, CliField> {
@@ -24,6 +25,9 @@ export function toCliFields(cmd: UnifiedCommand): Record<string, CliField> {
     if (f.choices) field.choices = f.choices.map((c) => c.value);
     if (f.min !== undefined) field.min = f.min;
     if (f.max !== undefined) field.max = f.max;
+    // Image/file-upload controls always carry a server filesystem path —
+    // flag for path-containment validation in buildCliArgs.
+    if (f.control === "image") field.isPath = true;
     result[f.key] = field;
   }
   return result;

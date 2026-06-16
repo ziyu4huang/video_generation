@@ -1,4 +1,7 @@
 import { COMMAND_SCHEMAS, type CommandSchema, type FieldSchema } from "./schemas";
+import { UPLOAD_DIR, OUTPUT_DIRS, isPathAllowed } from "./paths";
+
+const PATH_ALLOWED_DIRS = [UPLOAD_DIR, ...OUTPUT_DIRS];
 
 /**
  * Build CLI arguments from a form submission for a given action.
@@ -29,7 +32,11 @@ export function buildCliArgs(action: string, params: Record<string, any>): strin
       // false → omit
     } else if (field.type === "string") {
       if (typeof value === "string" && value.trim() !== "") {
-        args.push(field.cliFlag, value.trim());
+        const trimmed = value.trim();
+        if (field.isPath && !isPathAllowed(trimmed, PATH_ALLOWED_DIRS)) {
+          throw new Error(`Invalid path for ${key}: must be inside an allowed directory`);
+        }
+        args.push(field.cliFlag, trimmed);
       }
     } else if (field.type === "number") {
       if (typeof value === "number" && !isNaN(value)) {

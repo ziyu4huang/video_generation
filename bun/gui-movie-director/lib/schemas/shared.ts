@@ -10,6 +10,7 @@ export interface FieldSchema {
   choices?: string[];    // For select fields
   min?: number;
   max?: number;
+  isPath?: boolean;      // Value must resolve under an allowed directory (uploads/output)
 }
 
 export type CommandSchema = Record<string, FieldSchema>;

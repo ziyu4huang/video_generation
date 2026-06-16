@@ -31,18 +31,6 @@ export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
 export const wsHandlers = {
   open(ws: ServerWebSocket<WsData>) {
     connectedClients.add(ws);
-    // Send currently running jobs' buffered logs
-    const jobs = subprocessManager.listJobs().filter((j) => j.status === "running");
-    for (const job of jobs) {
-      for (const line of job.logs) {
-        ws.send(JSON.stringify({
-          type: "log",
-          jobId: job.id,
-          line: line.text,
-          stream: line.stream,
-        }));
-      }
-    }
   },
 
   message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
@@ -50,6 +38,19 @@ export const wsHandlers = {
       const data = JSON.parse(typeof msg === "string" ? msg : msg.toString());
       if (data.type === "subscribe" && data.jobId) {
         ws.data.subscribedJobId = data.jobId;
+        // Replay buffered logs for the subscribed job only (recovers state across
+        // reconnects/page reloads without flooding the client with unrelated jobs).
+        const job = subprocessManager.getJob(data.jobId);
+        if (job) {
+          for (const line of job.logs) {
+            ws.send(JSON.stringify({
+              type: "log",
+              jobId: job.id,
+              line: line.text,
+              stream: line.stream,
+            }));
+          }
+        }
       }
       if (data.type === "unsubscribe") {
         ws.data.subscribedJobId = null;
