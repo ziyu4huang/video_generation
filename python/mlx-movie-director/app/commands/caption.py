@@ -38,7 +38,7 @@ _STYLE_PROMPTS = {
         "Describe this photo as a photography prompt. "
         "Include: subject, pose, clothing, lighting, camera angle, composition, mood, and setting."
     ),
-    "prompt": (
+    "t2i": (
         "Write a detailed text-to-image generation prompt for this image. "
         "Describe subject, appearance, clothing, pose, background, lighting, style, and atmosphere. "
         "Output only the prompt, no preamble."
@@ -218,8 +218,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Model name. If omitted, use "
                         f"{_PREFERRED_MODEL} if already loaded in LM Studio, "
                         f"else fall back to {_DEFAULT_MODEL} (actively loaded).")
-    parser.add_argument("--style", choices=list(_STYLE_PROMPTS.keys()), default="default",
-                        help="Caption style (default: default)")
+    parser.add_argument("--style", choices=list(_STYLE_PROMPTS.keys()), default="t2i",
+                        help="Caption style (default: t2i)")
     parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
                         help="Output language (default: zh_TW)")
     parser.add_argument("--no-auto-load", action="store_true",
