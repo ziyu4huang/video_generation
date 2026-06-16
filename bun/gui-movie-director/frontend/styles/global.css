@@ -916,19 +916,52 @@ body {
   color: var(--error);
   border-color: var(--error);
 }
+
+/* LoRA info panel */
 .lora-info {
   margin-top: 3px;
-  padding: 5px 8px;
+  padding: 6px 8px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lora-info-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .lora-info-desc {
-  display: block;
+  flex: 1;
   color: var(--text);
-  margin-bottom: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.lora-copy-btn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  line-height: 1.6;
+  transition: color 0.1s, border-color 0.1s;
+}
+.lora-copy-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.lora-copy-btn--ok {
+  color: var(--success);
+  border-color: var(--success);
 }
 .lora-info-tags {
   display: flex;
@@ -944,6 +977,9 @@ body {
   font-family: var(--font-mono);
   color: var(--text-dim);
 }
+.lora-tag-dim {
+  opacity: 0.65;
+}
 .lora-tag-rec {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
@@ -952,16 +988,41 @@ body {
   color: var(--warning);
   border-color: color-mix(in srgb, var(--warning) 40%, transparent);
 }
-.lora-info-compat {
-  margin-top: 3px;
+.lora-info-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+.lora-info-key {
+  flex: 0 0 42px;
   font-size: 10px;
   font-family: var(--font-mono);
   color: var(--text-dim);
-  opacity: 0.7;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.6;
+  text-align: right;
 }
+.lora-info-val {
+  color: var(--text-dim);
+  word-break: break-word;
+}
+.lora-info-mono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.lora-info-prompt {
+  font-style: italic;
+  color: var(--text-dim);
+}
+.lora-info-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 11px;
+}
+.lora-info-link:hover {
+  text-decoration: underline;
+}
+
 .lora-add-btn {
   align-self: flex-start;
   background: transparent;

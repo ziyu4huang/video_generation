@@ -9,10 +9,17 @@ export interface LoraInfo {
   pipeline?: string[];
   rank?: number;
   size_bytes?: number;
+  folder_size_bytes?: number;
   recommended_scale?: number;
   trigger_words?: string[];
   compatible_with?: string[];
   source?: string;
+  source_url?: string;
+  created_at?: string;
+  weight_file?: string;
+  test_prompt?: string;
+  notes?: string;
+  converted_from?: { format?: string; size_bytes?: number };
 }
 
 // Module-scope cache: the installed-LoRA list rarely changes mid-session, so a
