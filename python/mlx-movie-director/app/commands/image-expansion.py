@@ -295,7 +295,8 @@ def run_expansion(args: "argparse.Namespace") -> dict[str, str] | None:
     prompt = getattr(args, "prompt", None) or _DEFAULT_PROMPT
 
     # Load source + compute geometry ----------------------------------------
-    source = Image.open(input_path).convert("RGB")
+    with Image.open(input_path) as _im:
+        source = _im.convert("RGB")
     src_w, src_h = source.size
     sw, sh, left, top, canvas_w, canvas_h = compute_canvas(
         src_w, src_h,
@@ -380,7 +381,8 @@ def _run_upscale(input_path: str, args) -> str | None:
             resolution = float(res_str_s.lower().rstrip("x"))
         else:
             resolution = int(res_str_s)
-        image = Image.open(input_path).convert("RGB")
+        with Image.open(input_path) as _im:
+            image = _im.convert("RGB")
         upscaler = SeedVR2Upscaler(model_size="7b")
         try:
             result = upscaler.upscale(image=image, resolution=resolution, softness=softness,

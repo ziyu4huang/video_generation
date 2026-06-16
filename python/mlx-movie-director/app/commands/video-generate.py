@@ -1059,14 +1059,20 @@ def _boost_audio_volume(mp4_path: str, gain: float) -> None:
         return
 
     tmp_path = mp4_path + ".tmp.mp4"
-    result = subprocess.run(
-        [ffmpeg, "-y", "-i", mp4_path,
-         "-af", f"volume={gain},alimiter=limit=0.95",
-         "-c:v", "copy",
-         tmp_path],
-        capture_output=True, timeout=60,
-    )
-    if result.returncode == 0 and os.path.exists(tmp_path):
+    # Best-effort post-processing: a hung ffmpeg (large/corrupt MP4, slow disk)
+    # must not turn this into a whole-run failure. Swallow TimeoutExpired and
+    # fall through to the same WARNING + cleanup path as a non-zero returncode.
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-y", "-i", mp4_path,
+             "-af", f"volume={gain},alimiter=limit=0.95",
+             "-c:v", "copy",
+             tmp_path],
+            capture_output=True, timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        result = None
+    if result is not None and result.returncode == 0 and os.path.exists(tmp_path):
         os.replace(tmp_path, mp4_path)
         print(f"[video] Audio volume boosted: {gain}x")
     else:
@@ -1173,10 +1179,15 @@ def _extract_first_frame(video_path: str, png_path: str) -> bool:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return False
-    result = subprocess.run(
-        [ffmpeg, "-y", "-i", video_path, "-vframes", "1", png_path],
-        capture_output=True, timeout=30,
-    )
+    # Non-critical (frame is for captioning only): a ffmpeg timeout must degrade
+    # to False, not raise TimeoutExpired out of this bool-typed helper.
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-y", "-i", video_path, "-vframes", "1", png_path],
+            capture_output=True, timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return False
     return result.returncode == 0 and os.path.exists(png_path)
 
 

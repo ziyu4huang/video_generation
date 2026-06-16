@@ -156,7 +156,8 @@ def run_purify(args) -> None:
 
     # Determine softness: override > mode preset
     mode = getattr(args, "purify_mode", "enhance") or "enhance"
-    softness = args.softness_override if args.softness_override is not None else MODE_PRESETS[mode]
+    softness_override = getattr(args, "softness_override", None)
+    softness = softness_override if softness_override is not None else MODE_PRESETS[mode]
 
     # Parse resolution
     res_str = getattr(args, "resolution", "same") or "same"
