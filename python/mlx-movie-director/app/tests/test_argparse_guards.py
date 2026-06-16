@@ -1,4 +1,4 @@
-"""Regression tests for app/commands/_argparse.py — guard functions and
+"""Regression tests for app/commands/_shared.py — guard functions and
 add_common_generation_args duplicate-safe registration.
 
 These tests verify that guards prevent double-registration of argparse
@@ -10,7 +10,7 @@ import argparse
 
 import pytest
 
-from app.commands._argparse import (
+from app.commands._shared import (
     _arg_registered,
     _option_registered,
     add_common_generation_args,

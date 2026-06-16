@@ -8,6 +8,7 @@ Usage:
   run.py schema-defaults
 """
 
+import argparse
 import importlib
 import json
 import sys
@@ -18,11 +19,11 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     pass
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     json.dump(_build(), sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
 

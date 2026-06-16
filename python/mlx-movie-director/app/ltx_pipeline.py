@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import time
+from typing import Any
 
 from app import config as cfg
 
@@ -117,7 +118,7 @@ class _TemporalUpscaleMixin:
 
     _temporal_upsampler = None  # lazy-loaded per instance
 
-    def _load_temporal_upsampler(self):
+    def _load_temporal_upsampler(self) -> Any:
         from ltx_core_mlx.model.upsampler.model import LatentUpsampler
         from ltx_core_mlx.loader.sft_loader import load_split_safetensors
         import json

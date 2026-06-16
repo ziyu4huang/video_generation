@@ -428,12 +428,15 @@ class GpuLock:
                 status = detect_gpu_busy(self.threshold)
                 _print_busy(status)
                 time.sleep(self.poll_interval)
-        except BaseException:
+        except (Exception, KeyboardInterrupt, SystemExit):
             # __exit__ does NOT run if __enter__ raises, so close the lock fd
             # here on ANY failure (unexpected error, or the GpuLockTimeout above)
             # to avoid leaking it. The raise-based timeout contract (vs the old
             # sys.exit, whose process death reclaimed fds) makes this leak
             # persist in the surviving process, so explicit cleanup is required.
+            # Narrowed from BaseException to the explicit exit/abort classes so
+            # the intent (clean up fd, then re-raise) is clear; GeneratorExit
+            # alone (the remaining BaseException subclass) is not expected here.
             if self._lock_fd is not None:
                 try:
                     self._lock_fd.close()

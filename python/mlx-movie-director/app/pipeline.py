@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -187,7 +188,7 @@ class ZImagePipeline:
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
-        events: list[dict] = []  # runtime trace: what the pipeline ACTUALLY did
+        events: list[dict[str, Any]] = []  # runtime trace: what the pipeline ACTUALLY did
 
         label = f"{width}x{height}"
         if input_image is not None:
@@ -369,6 +370,9 @@ class ZImagePipeline:
         # Normalize: single lora_path → list form
         _lora_list = lora_paths or ([lora_path] if lora_path else [])
         _scale_list = lora_scales or ([lora_scale] if _lora_list else [])
+        # Guard explicitly: if LoRAs present but no scales, default each to lora_scale
+        if _lora_list and not _scale_list:
+            _scale_list = [lora_scale] * len(_lora_list)
         if len(_lora_list) != len(_scale_list):
             # Pad scales to match
             _scale_list = _scale_list + [_scale_list[-1]] * (len(_lora_list) - len(_scale_list))

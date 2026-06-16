@@ -589,7 +589,7 @@ def _generate_tts_edge(text: str, voice: str, rate_offset: int, output_path: str
 # Resolution / frame helpers (same logic as video-generate.py)
 # ---------------------------------------------------------------------------
 
-def _adjust_resolution(width: int, height: int, distilled: bool = False) -> tuple:
+def _adjust_resolution(width: int, height: int, distilled: bool = False) -> tuple[int, int]:
     """Snap resolution to multiples of 64 (required by VAE).
 
     When distilled=True, the pipeline runs Stage 1 at width//2 × height//2 and applies

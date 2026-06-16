@@ -1,6 +1,7 @@
 import math
 import os
 import re
+from typing import Any
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -188,7 +189,7 @@ def convert_unet_key_to_mlx(key: str) -> str:
     return new_key
 
 
-def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> tuple[nn.Module, dict]:
+def apply_lora(model: nn.Module, lora_path: str, scale: float = 1.0) -> tuple[nn.Module, dict[str, Any]]:
     """Apply a LoRA/LoKR adapter to ``model``.
 
     Returns ``(model, info)`` where ``info`` is a dict describing what actually

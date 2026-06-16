@@ -114,7 +114,19 @@ class WorkflowOrchestrator:
         # Load input image for I2I
         input_image = None
         if self.config.input_image:
-            input_image = Image.open(self.config.input_image).convert("RGB")
+            # Validate up front so a missing/corrupt input fails fast with a
+            # clear message BEFORE the heavy pipeline is built — mirrors the
+            # guard in _shared.execute_generation (lines 533-545).
+            if not os.path.exists(self.config.input_image):
+                raise FileNotFoundError(
+                    f"Input image not found: {self.config.input_image}")
+            try:
+                with Image.open(self.config.input_image) as _im:
+                    input_image = _im.convert("RGB")
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Cannot open input image '{self.config.input_image}': {exc}"
+                ) from exc
 
         result = pipeline.generate(
             prompt=prompt,
@@ -136,7 +148,7 @@ class WorkflowOrchestrator:
 
         return result.image, result.timings
 
-    def _run_face_detailer(self, image: Image.Image, prompt: str) -> tuple:
+    def _run_face_detailer(self, image: Image.Image, prompt: str) -> tuple[Image.Image, dict]:
         """Stage 2: Detect and enhance face details."""
         from app.face_detailer import detail_faces
 
@@ -159,7 +171,7 @@ class WorkflowOrchestrator:
             or getattr(self.config, "noise_clean", False)
         )
 
-    def _run_postprocess(self, image: Image.Image) -> tuple:
+    def _run_postprocess(self, image: Image.Image) -> tuple[Image.Image, dict[str, float]]:
         """Stage 3: Apply post-processing filter chain."""
         from app.postprocess import PostProcessChain
 
@@ -177,7 +189,7 @@ class WorkflowOrchestrator:
             print(f"    {name}: {t:.3f}s")
         return result, timings
 
-    def _run_upscale(self, image: Image.Image) -> tuple:
+    def _run_upscale(self, image: Image.Image) -> tuple[Image.Image, dict[str, float]]:
         """Stage 4: Upscale via ESRGAN or SeedVR2."""
         from app.commands._shared import DEFAULT_UPSCALE_MODEL
 

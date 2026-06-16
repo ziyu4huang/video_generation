@@ -112,7 +112,7 @@ def add_purify_args(parser):
 # Resolution parsing (reused pattern from upscale.py)
 # ---------------------------------------------------------------------------
 
-def _parse_resolution(res_str: str) -> tuple:
+def _parse_resolution(res_str: str) -> tuple[int | float, str]:
     """Parse resolution string into (value, label).
 
     Returns (value, label) where value is int|float and label is a display

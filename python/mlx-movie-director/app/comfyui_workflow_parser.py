@@ -309,7 +309,7 @@ def parse_workflow(workflow_json: dict, name: str = "") -> WorkflowSummary:
 
     # Resolve link references: link_id → (from_node_id, from_slot, to_node_id, to_slot)
     # link format: [link_id, from_node_id, from_slot, to_node_id, to_slot, type_name]
-    link_map: dict[int, tuple] = {}
+    link_map: dict[int, tuple[int, int, int, int]] = {}
     for link in links:
         if isinstance(link, list) and len(link) >= 6:
             link_map[link[0]] = (link[1], link[2], link[3], link[4])

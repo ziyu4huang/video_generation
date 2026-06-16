@@ -31,14 +31,14 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--compact", action="store_true", default=False,
         help="Emit compact JSON (no indent)",
     )
 
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     data = build()
     indent = None if getattr(args, "compact", False) else 2
     json.dump(data, sys.stdout, ensure_ascii=False, indent=indent, sort_keys=True)

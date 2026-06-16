@@ -9,7 +9,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Generator, NamedTuple
+from typing import Any, Generator, NamedTuple
 
 from app import config as cfg
 
@@ -77,6 +77,8 @@ def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]
     """Return a list of seeds for a batch run.
 
     Works with both argparse Namespace and RunConfig objects (same attribute names).
+    The union is intentionally duck-typed: getattr defaults are load-bearing
+    fallbacks for subcommands whose Namespace may lack these attributes.
     """
     count = max(1, getattr(args_or_config, "count", 1) or 1)
     seed = getattr(args_or_config, "seed", None) or 42
@@ -111,7 +113,7 @@ def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_
     if run_config is not None:
         run_config.to_json(paths.run_file)
     start = datetime.now(timezone.utc).isoformat()
-    ctx: dict = {"timings": {}, "outputs": [], "models": {}}
+    ctx: dict[str, Any] = {"timings": {}, "outputs": [], "models": {}}
     try:
         yield ctx
     except Exception as exc:

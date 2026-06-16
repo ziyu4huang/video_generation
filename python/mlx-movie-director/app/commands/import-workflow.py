@@ -30,6 +30,7 @@ Examples:
   run.py import-workflow '...' --output-dir ./my-workflows/
 """
 
+import argparse
 import importlib
 import json
 import math
@@ -75,7 +76,7 @@ PARSER_META = {
 }
 
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "url", type=str, metavar="URL",
         help="CivitAI model URL (e.g. https://civitai.com/models/379786/...)",
@@ -107,7 +108,7 @@ def add_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     # Set CivitAI token from CLI arg or env var
     token = getattr(args, "civitai_token", None) or os.environ.get("CIVITAI_TOKEN") or os.environ.get("CIVITAI_API_TOKEN")
     if token:
