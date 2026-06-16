@@ -293,6 +293,11 @@ const FIX_RESULT_SCHEMA = {
       },
     },
     filesChanged: { type: "array", items: { type: "string" } },
+    fileHashes: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      description: "git hash-object of each changed file's content immediately after fixing it — lets Restore detect concurrent edits that land on top of our own fix",
+    },
   },
   required: ["fixes", "filesChanged"],
 }
@@ -1065,7 +1070,7 @@ markPhase("adversarialVerify", "completed")
 // ══════════════════════════════════════════════════════════════════════════════
 
 let checkpointResult = { headSha: "", treeDirty: false, dirtyFiles: [] }
-let fixResults = { fixes: [], filesChanged: [], testBaseline: null, testPostFix: null, tscDelta: null }
+let fixResults = { fixes: [], filesChanged: [], testBaseline: null, testPostFix: null, tscDelta: null, postFixHashes: {} }
 let reVerifyFindings = []   // repurposed: list of newly-failing tests (for history.regressions)
 let restoreResult = { triggered: false, reason: null, reverted: [], skippedConcurrent: [], newFailures: [], method: "none" }
 
@@ -1186,6 +1191,11 @@ RULES:
 5. If a fix would change the public API surface or break existing callers, mark it "skipped"
 6. If two fixes conflict, apply the first and mark the second "skipped"
 7. After ALL fixes for a file, read the file back to verify it still looks syntactically valid
+8. If at least one fix in this file was "applied", capture its post-fix content hash:
+   Bash("cd '${GUI_DIR}' && git hash-object '${file}'")
+   Put it in fileHashes as { "${file}": "<the hash>" }. This lets Restore tell
+   our own fix apart from a concurrent edit landing on the same file later — do
+   not skip this step or auto-revert-on-regression silently degrades to a no-op.
 
 FINDINGS FOR ${file} (apply from bottom to top):
 ${JSON.stringify(fileFindings, null, 2)}
@@ -1205,6 +1215,7 @@ Return structured results.`,
       fileFixResults.filter(Boolean).forEach((r) => {
         fixResults.fixes.push(...(r.fixes || []))
         fixResults.filesChanged.push(...(r.filesChanged || []))
+        Object.assign(fixResults.postFixHashes, r.fileHashes || {})
       })
       fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
 
@@ -1273,11 +1284,16 @@ Return { count: <the number> }.`,
           const revertRaw = await spawnAgent(
             `A fix introduced test regressions. Revert ONLY the fix changes — but NEVER clobber a file the user edited concurrently mid-run.
 Files changed by fixes: ${JSON.stringify(fixResults.filesChanged)}
+Expected post-fix content hash per file (captured right after we fixed it): ${JSON.stringify(fixResults.postFixHashes)}
+
+Every file in the list is necessarily "dirty" in git status right now — WE made it dirty by fixing it.
+So a plain dirty-check can't tell our own fix apart from a concurrent edit; compare content hashes instead.
 
 For EACH file in that list:
-1. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/<file>' | grep -v '^??' || true")
-   - If NON-empty (file is tracked-dirty — user edited it concurrently): do NOT revert. Add <file> to skippedConcurrent.
-   - If empty (clean — safe to revert): revert it:
+1. Bash("cd '${GUI_DIR}' && git hash-object '<file>'")  → currentHash
+   - If '<file>' has no expected hash in the map above (fix agent didn't capture one): treat as safe to revert (fall through to step 1a).
+   - If currentHash !== the expected hash for <file>: someone changed the file AFTER our fix landed (concurrent edit). Do NOT revert. Add <file> to skippedConcurrent.
+   - If currentHash === the expected hash (no one touched it since our fix): safe to revert.
      a. Bash("cd '${PROJECT_ROOT}' && git ls-files --error-unmatch 'bun/gui-movie-director/<file>' >/dev/null 2>&1 && echo TRACKED || echo UNTRACKED")
         - TRACKED (existed at HEAD): Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun/gui-movie-director/<file>'")
         - UNTRACKED (created by the fix): Bash("cd '${PROJECT_ROOT}' && rm -f 'bun/gui-movie-director/<file>'")

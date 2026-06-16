@@ -215,6 +215,28 @@ if (DO_COVERAGE) {
 
 phase('Improve')
 
+// Dirty-tree guard: both sub-loops below revert via bare `git checkout -- <path>`
+// (or `rm -f` for newly-created files), which discards ALL uncommitted changes
+// to that path, not just our own edit. If the path already had uncommitted user
+// WIP before this run started, a revert would silently destroy it. When not in
+// DRY_RUN, refuse to mutate if the mutation scope is already dirty — mirrors the
+// Checkpoint guard in gui-movie-director-review-optimize.js.
+let EFFECTIVE_DRY_RUN = DRY_RUN
+if (!DRY_RUN) {
+  const dirtyCheck = await agent(
+    `Check whether the git working tree has uncommitted changes in scope.
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/schemas/' 'bun/gui-movie-director/scripts/' 'python/mlx-movie-director/app/commands/' | grep -v '^??' || true")
+dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
+Return { dirty, files: [<the printed file paths, if any>] }.`,
+    { label: 'dirty-tree-check', phase: 'Improve', model: 'haiku',
+      schema: { type: 'object', properties: { dirty: { type: 'boolean' }, files: { type: 'array', items: { type: 'string' } } }, required: ['dirty'] } },
+  )
+  if (dirtyCheck?.dirty === true) {
+    EFFECTIVE_DRY_RUN = true
+    log(`⚠ Working tree is DIRTY in scope (${(dirtyCheck?.files || []).join(', ')}) — forcing dry-run for this run to avoid a revert clobbering your WIP. Commit/stash, then re-run with dryRun:false.`)
+  }
+}
+
 const iterations = []
 let noImprove = 0
 
@@ -229,7 +251,7 @@ if (DO_DRIFT && driftWorkList.length > 0) {
   for (const f of driftWorkList) {
     log(`Drift: ${f.flag} [${f.action}] (${f.category}) — GUI:${JSON.stringify(f.guiValue)} run.py:${JSON.stringify(f.runValue)}`)
 
-    if (DRY_RUN) {
+    if (EFFECTIVE_DRY_RUN) {
       log(`  [DRY RUN] would apply policy fix for ${f.flag} (${f.category})`)
       driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, dryRun: true })
       continue
@@ -434,7 +456,7 @@ Return JSON:
   let adopted = false
   let delta = 0
 
-  if (DRY_RUN) {
+  if (EFFECTIVE_DRY_RUN) {
     log(`[DRY RUN] Would append to ${proposeResult.targetTestFile}`)
     adopted = false
     delta = 0

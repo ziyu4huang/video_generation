@@ -415,7 +415,7 @@ const report = {
     : { appended: false },
   nextStep:
     fixEnabled
-      ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-rolled back via git stash. Inspect the tree." : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
+      ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-reverted the offending files via git checkout/rm. Inspect the tree." : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
       : FIX_REQ && dirtyTree
         ? "Tree was dirty so fixes were skipped. Commit/stash concurrent WIP, then re-run with fix:true to apply the verified findings above."
         : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.",

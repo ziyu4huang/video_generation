@@ -171,6 +171,7 @@ const FIX_RESULT_SCHEMA = {
     scoreAfter:   { type: "number" },
     revertReason: { type: "string" },
     description:  { type: "string" },
+    fileHash:     { type: "string", description: "git hash-object of the file right after the edit, so a later revert can detect a concurrent edit landing on top of it" },
   },
   required: ["issueId", "applied", "testsPassed"],
 }
@@ -430,8 +431,31 @@ phase("Fix Loop")
 const fixResults = []
 let fixIter = 0
 
+// Dirty-tree guard: every revert below is a bare `git checkout -- <file>`, which
+// discards ALL uncommitted changes to that file, not just our own edit. If the
+// file already had uncommitted user WIP before this loop started, a revert
+// would silently destroy it. Refuse to mutate when the tree is dirty in scope —
+// mirrors the Checkpoint guard in gui-movie-director-review-optimize.js.
+let treeDirty = false
+if (!dryRun) {
+  const dirtyCheck = await agent(
+    `Check whether the git working tree has uncommitted changes in scope.
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/frontend/' 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' | grep -v '^??' || true")
+dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
+Return { dirty, files: [<the printed file paths, if any>] }.`,
+    { label: "dirty-tree-check", phase: "Fix Loop", model: "haiku",
+      schema: { type: "object", properties: { dirty: { type: "boolean" }, files: { type: "array", items: { type: "string" } } }, required: ["dirty"] } },
+  )
+  treeDirty = dirtyCheck?.dirty === true
+  if (treeDirty) {
+    log(`⚠ Working tree is DIRTY in scope (${(dirtyCheck?.files || []).join(", ")}) — skipping fix loop to avoid a revert clobbering your WIP. Commit/stash, then re-run.`)
+  }
+}
+
 if (dryRun) {
   log(`Dry run mode — skipping fix loop. ${fixQueue.length} issues identified.`)
+  markPhase("fixLoop", "skipped")
+} else if (treeDirty) {
   markPhase("fixLoop", "skipped")
 } else {
   const itersToRun = Math.min(maxIters, fixQueue.length)
@@ -466,8 +490,9 @@ Rules:
 5. Do NOT add new npm dependencies
 6. If the fix requires adding a CSS class, add it to frontend/styles.css AND reference it in the TSX
 7. Use the Edit tool to apply the change
+8. If applied, capture: Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → fileHash
 
-Return { applied: true, description: "<one sentence describing what you changed>" }
+Return { applied: true, description: "<one sentence describing what you changed>", fileHash: "<the hash from step 8>" }
 or { applied: false, description: "<why you skipped this>" }.`,
       { label: `fix:${issue.id}`, phase: "Fix Loop", model: "sonnet", schema: FIX_RESULT_SCHEMA },
     )
@@ -493,9 +518,12 @@ Return { ok: <true if fail count is 0>, pass: <number>, fail: <number>, output: 
     if (!testResult?.ok) {
       log(`[fix ${fixIter}] TESTS FAILED (pass=${testResult?.pass}, fail=${testResult?.fail}) — reverting`)
       await agent(
-        `Revert the change to ${issue.affectedFile}.
-Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}' 2>&1 || echo REVERT_FAILED")
-If the affected file was frontend/styles.css AND another file was also changed, revert both.
+        `Revert the change to ${issue.affectedFile} — but only if nobody else touched it since our fix.
+Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → currentHash
+Expected hash (captured right after our fix): ${fixResult?.fileHash || "(none captured — proceed with revert)"}
+If currentHash differs from the expected hash, someone edited the file concurrently — do NOT revert it, just report skipped.
+Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}' 2>&1 || echo REVERT_FAILED")
+If the affected file was frontend/styles.css AND another file was also changed, apply the same hash check before reverting it too.
 Return nothing.`,
         { label: `revert:iter${fixIter}`, phase: "Fix Loop", model: "haiku" },
       )
@@ -532,7 +560,11 @@ Return nothing.`,
     if (!improved && scoreAfter != null) {
       log(`[fix ${fixIter}] UX score did not improve (before=${scoreBefore}, after=${scoreAfter}) — reverting`)
       await agent(
-        `Revert change: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). Return nothing.`,
+        `Revert ${issue.affectedFile} — but only if nobody else touched it since our fix.
+Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → currentHash
+Expected hash (captured right after our fix): ${fixResult?.fileHash || "(none captured — proceed with revert)"}
+If currentHash differs, someone edited the file concurrently — do NOT revert, just report skipped.
+Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). Return nothing.`,
         { label: `revert-score:iter${fixIter}`, phase: "Fix Loop", model: "haiku" },
       )
       fixResults.push({
