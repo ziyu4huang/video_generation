@@ -12,8 +12,10 @@ Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
   5. _orchestration          — _load_transformer_config reads embedded_config.json
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
   10. _fuse_distilled_lora   — dequantize int8 LoRA weights before fusion
-  11. PromptEncoder.load +   — apply_quantization before connector.load_weights
-      load_feature_extractor    (no-op for BF16; fixes INT8 connector loading)
+  11. PromptEncoder.load +   — quantize connector to match pre-quantized weights
+      load_feature_extractor    BEFORE load_weights; detects bits+group_size from
+                                the model's in_features (connector is int4/g32,
+                                not the int8/g64 the transformer uses)
 
 Patches for vendor/mflux (upstream filipstrand/mflux):
   7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
@@ -609,14 +611,78 @@ def _patch_int8_lora() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _patch_connector_apply_quantization() -> None:
-    """Insert apply_quantization() before connector.load_weights().
+def _quantize_connector_to_match_weights(module, weights) -> None:  # type: ignore[no-untyped-def]
+    """Quantize connector Linear layers to match pre-quantized weights.
 
-    Pre-quantized INT8 connector weights carry ``.scales`` keys; the connector
-    module structure must be quantized (matched) BEFORE the raw weights are
-    loaded, otherwise load_weights silently mis-shapes them. ``apply_quantization``
-    is a no-op for plain BF16 weights (no ``.scales`` keys), so this is safe to
-    run unconditionally. Same insert idiom as Patch 5 (_patch_orchestration).
+    The vendor ``apply_quantization`` hardcodes ``group_size=64`` and derives
+    ``bits`` from a formula that assumes that group size. That is correct for
+    the transformer (int8 / group_size=64) but WRONG for the connector, whose
+    weights are int4 / group_size=32 — there the vendor detection returns
+    ``bits=2`` and ``nn.quantize`` reshapes e.g. a (4096, 188160) Linear to a
+    (4096, 11760) param that the (4096, 23520) file can't load into.
+
+    This derives BOTH bits and group_size from the model's own in_features plus
+    the file shapes, so it handles any quant config. MLX stores a quantized
+    Linear(I, O) as (uint32-packed):
+
+        weight: (O, I * bits / 32)
+        scales: (O, I / group_size)
+
+    Given the model's bf16 in_features I and the file shapes, both unknowns
+    are solvable per layer:
+
+        group_size = I // scales.shape[-1]
+        bits       = round(32 * weight.shape[-1] / I)
+
+    All quantized layers in a connector share one (bits, group_size); we assert
+    uniformity. No-op for plain BF16 weights (no ``.scales`` keys).
+    """
+    import mlx.nn as nn
+    import mlx.utils
+
+    quantized_layers = {k[: -len(".scales")] for k in weights if k.endswith(".scales")}
+    if not quantized_layers:
+        return  # BF16 connector — nothing to quantize
+
+    flat = dict(mlx.utils.tree_flatten(module.parameters()))
+    bits_set, gs_set = set(), set()
+    for layer in quantized_layers:
+        bf16_wkey = layer + ".weight"
+        if bf16_wkey not in flat or bf16_wkey not in weights:
+            continue
+        in_features = flat[bf16_wkey].shape[-1]  # model's bf16 (O, I), pre-quantize
+        scales_cols = weights[layer + ".scales"].shape[-1]
+        weight_cols = weights[bf16_wkey].shape[-1]
+        gs_set.add(in_features // scales_cols)
+        bits_set.add(round(32 * weight_cols / in_features))
+
+    if not bits_set:
+        return  # quantized keys present but none matched a model leaf — leave as-is
+    if len(bits_set) != 1 or len(gs_set) != 1:
+        raise ValueError(
+            f"Non-uniform connector quantization: bits={sorted(bits_set)} "
+            f"group_size={sorted(gs_set)}"
+        )
+    bits, group_size = bits_set.pop(), gs_set.pop()
+
+    def _should_quantize(path: str, mod) -> bool:  # type: ignore[no-untyped-def]
+        return path in quantized_layers and isinstance(mod, nn.Linear)
+
+    nn.quantize(module, group_size=group_size, bits=bits, class_predicate=_should_quantize)
+
+
+def _patch_connector_apply_quantization() -> None:
+    """Quantize the connector to match pre-quantized weights BEFORE load_weights().
+
+    Pre-quantized connector weights carry ``.scales``/``.biases`` keys; the
+    connector module structure must be quantized (matched) BEFORE the raw
+    weights are loaded, otherwise load_weights raises a shape mismatch. The
+    quant is a no-op for plain BF16 weights (no ``.scales`` keys).
+
+    Unlike the vendor ``apply_quantization`` (Patch 5, hardcoded group_size=64),
+    the connector helper detects bits AND group_size from the model's
+    in_features — the connector is int4/group_size=32, which the vendor
+    detection mis-quantizes as bits=2.
 
     Two vendor sites build the GemmaFeaturesExtractorV2 connector:
 
@@ -633,7 +699,7 @@ def _patch_connector_apply_quantization() -> None:
     from ltx_core_mlx.text_encoders.gemma.encoders.base_encoder import GemmaLanguageModel
     from ltx_core_mlx.text_encoders.gemma.feature_extractor import GemmaFeaturesExtractorV2
     from ltx_core_mlx.utils.memory import aggressive_cleanup
-    from ltx_core_mlx.utils.weights import apply_quantization, load_split_safetensors
+    from ltx_core_mlx.utils.weights import load_split_safetensors
 
     # --- Inference path: PromptEncoder.load (always available) ---
     from ltx_pipelines_mlx.utils.blocks import PromptEncoder
@@ -650,9 +716,9 @@ def _patch_connector_apply_quantization() -> None:
             connector_weights = load_split_safetensors(
                 self.model_dir / "connector.safetensors", prefix="connector."
             )
-            # Quantize structure first if weights are pre-quantized (.scales keys);
+            # Quantize structure to match pre-quantized weights (.scales keys);
             # no-op for BF16. Must run before load_weights.
-            apply_quantization(self._feature_extractor.connector, connector_weights)
+            _quantize_connector_to_match_weights(self._feature_extractor.connector, connector_weights)
             self._feature_extractor.connector.load_weights(list(connector_weights.items()))
             aggressive_cleanup()
 
@@ -669,7 +735,7 @@ def _patch_connector_apply_quantization() -> None:
             connector_weights = load_split_safetensors(
                 model_dir / "connector.safetensors", prefix="connector."
             )
-            apply_quantization(model.connector, connector_weights)
+            _quantize_connector_to_match_weights(model.connector, connector_weights)
             model.connector.load_weights(list(connector_weights.items()))
             aggressive_cleanup()
             return model
