@@ -556,7 +556,20 @@ def _generate_tts_audio(text: str, engine: str, voice: str | None,
 def _generate_tts_say(text: str, voice: str, rate: int, output_path: str) -> None:
     """macOS say → AIFF → AAC via ffmpeg."""
     aiff_path = output_path.rsplit(".", 1)[0] + ".aiff"
-    subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", aiff_path, text], check=True)
+    try:
+        subprocess.run(
+            ["say", "-v", voice, "-r", str(rate), "-o", aiff_path, text],
+            check=True, capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        # 'say' exits non-zero when the voice isn't installed on this macOS.
+        # Surface an actionable message instead of letting the raw
+        # CalledProcessError kill the whole relay mid-run.
+        stderr = (exc.stderr or b"").decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"macOS 'say' failed — voice '{voice}' may not be installed. "
+            f"List available voices with: say -v '?'\nstderr: {stderr}"
+        ) from exc
     try:
         subprocess.run(
             [_require_ffmpeg(), "-y", "-i", aiff_path, "-c:a", "aac", output_path],
@@ -626,6 +639,29 @@ def _duration_to_frames(duration_secs: float, fps: float) -> int:
     """Convert duration + FPS to valid frame count (8k+1 pattern)."""
     raw = int(round(duration_secs * fps))
     return _adjust_frames(max(9, raw))
+
+
+def _relay_total_frames(relay_mp4: str, frames_per_seg: int, n: int) -> int:
+    """Actual frame count of the concatenated relay video.
+
+    Each segment after the first reuses the previous segment's last frame as
+    its first frame (i2v image conditioning), so the naive ``frames*n`` double-
+    counts the n-1 boundary frames. Prefer the real count from ffprobe; fall
+    back to the deduped estimate ``frames*n - (n-1)`` if ffprobe is unavailable.
+    """
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        try:
+            result = subprocess.run(
+                [ffprobe, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=nb_frames", "-of", "csv=p=0", relay_mp4],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0 and result.stdout.strip().isdigit():
+                return int(result.stdout.strip())
+        except (ValueError, subprocess.SubprocessError):
+            pass
+    return frames_per_seg * n - (n - 1)
 
 
 # ---------------------------------------------------------------------------
@@ -1170,7 +1206,7 @@ def _run_relay_inner(args):
             "size_bytes": relay_size,
             "width": width,
             "height": height,
-            "frames": frames * n,
+            "frames": _relay_total_frames(relay_mp4, frames, n),
             "fps": fps,
             "audio": os.path.basename(relay_audio) if relay_audio else None,
         }]

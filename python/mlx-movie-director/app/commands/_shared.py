@@ -85,7 +85,15 @@ def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]
     seed_start = getattr(args_or_config, "seed_start", None)
     if seed_start is not None:
         return [seed_start + i for i in range(count)]
-    return [seed] * count
+    if count > 1:
+        # Without --seed-start, [seed]*count would yield N IDENTICAL images that
+        # all overwrite _s{seed}.png (same seed → same filename → only the last
+        # survives). Auto-derive distinct seeds from --seed so --count actually
+        # varies output. Use --seed-start for explicit control.
+        print(f"[seed] --count {count} without --seed-start: deriving seeds "
+              f"{seed}..{seed + count - 1} from --seed {seed}", flush=True)
+        return [seed + i for i in range(count)]
+    return [seed]
 
 
 # ---------------------------------------------------------------------------

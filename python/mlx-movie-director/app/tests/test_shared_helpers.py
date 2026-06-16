@@ -78,9 +78,14 @@ class TestSeedSequence:
         args = argparse.Namespace(count=1, seed=99, seed_start=None)
         assert seed_sequence(args) == [99]
 
-    def test_count_2_same_seed(self):
+    def test_count_2_auto_distinct_seeds(self):
+        """count>1 without --seed-start: auto-derive distinct seeds from --seed.
+
+        Previously returned [seed]*count (N identical images overwriting
+        _s{seed}.png). Now derives [seed, seed+1, ...] so --count varies output.
+        """
         args = argparse.Namespace(count=2, seed=42, seed_start=None)
-        assert seed_sequence(args) == [42, 42]
+        assert seed_sequence(args) == [42, 43]
 
     def test_seed_start_produces_sequential(self):
         args = argparse.Namespace(count=3, seed=None, seed_start=100)
@@ -107,9 +112,12 @@ class TestSeedSequence:
         assert result == [42], f"seed=0 quirk: got {result}"
 
     def test_works_with_runconfig(self):
-        """seed_sequence accepts RunConfig objects too."""
+        """seed_sequence accepts RunConfig objects too.
+
+        count>1 without seed_start now auto-derives distinct seeds (was [seed]*count).
+        """
         rc = RunConfig(count=3, seed=42)
-        assert seed_sequence(rc) == [42, 42, 42]
+        assert seed_sequence(rc) == [42, 43, 44]
 
     def test_runconfig_seed_start(self):
         rc = RunConfig(count=3, seed=99, seed_start=50)
