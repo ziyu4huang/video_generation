@@ -28,6 +28,7 @@ Examples:
   run.py import-lora-image 'https://civitai.com/models/1234/...' --no-ai
 """
 
+import argparse
 import json
 import math
 import os
@@ -188,7 +189,7 @@ If no trigger words are found, return an empty array."""
 # Argument registration
 # ---------------------------------------------------------------------------
 
-def add_args(parser):
+def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("files", nargs="+", metavar="FILE_OR_URL",
                         help="LoRA .safetensors file or URL (CivitAI, HuggingFace, etc.), "
                              "optionally followed by a link file (.url, .webloc, .txt)")
@@ -225,7 +226,7 @@ def add_args(parser):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run(args):
+def run(args: argparse.Namespace) -> None:
     # Set CivitAI token from CLI arg or env var (supports both CIVITAI_TOKEN and CIVITAI_API_TOKEN)
     token = getattr(args, "civitai_token", None) or os.environ.get("CIVITAI_TOKEN") or os.environ.get("CIVITAI_API_TOKEN")
     if token:

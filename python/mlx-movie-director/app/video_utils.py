@@ -22,7 +22,7 @@ def require_ffmpeg() -> str:
     return ffmpeg
 
 
-def get_video_info(video_path: str) -> dict:
+def get_video_info(video_path: str) -> dict[str, float | int]:
     """Probe a video file and return metadata.
 
     Returns dict with: total_frames, fps, duration_sec, width, height, has_audio.
@@ -364,7 +364,7 @@ def detect_scenes(video_path: str, threshold: float = 0.4,
     return scenes
 
 
-def scenes_to_timestamps(scenes: list[tuple[int, int]], fps: float) -> list[dict]:
+def scenes_to_timestamps(scenes: list[tuple[int, int]], fps: float) -> list[dict[str, float]]:
     """Convert frame-range scenes to timestamp dicts for display.
 
     Args:

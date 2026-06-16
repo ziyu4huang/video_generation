@@ -48,7 +48,7 @@ _STATIC_TEMPLATE = os.path.join(
 # Core: per-frame analysis
 # ---------------------------------------------------------------------------
 
-def analyze_frame(gray: np.ndarray, bgr_frame: np.ndarray) -> dict:
+def analyze_frame(gray: np.ndarray, bgr_frame: np.ndarray) -> dict[str, float]:
     """Compute all 7 no-reference quality metrics on a single frame.
 
     Args:
@@ -116,7 +116,7 @@ def _compute_blockiness(gray: np.ndarray, height: int, width: int) -> float:
 # Reference-based metrics (PSNR + SSIM) — require a ground-truth reference
 # ---------------------------------------------------------------------------
 
-def compute_frame_reference(ref_bgr: np.ndarray, test_bgr: np.ndarray) -> dict:
+def compute_frame_reference(ref_bgr: np.ndarray, test_bgr: np.ndarray) -> dict[str, float]:
     """Compute full-reference PSNR + SSIM of test_bgr against ref_bgr.
 
     Unlike analyze_frame (no-reference), these metrics measure fidelity to a
@@ -220,7 +220,7 @@ def _read_all_frames(video_path: str) -> list[np.ndarray]:
 # HTML report generation (shared by image-quality and video-quality)
 # ---------------------------------------------------------------------------
 
-def generate_html_report(report_data: dict, reference_path: str) -> None:
+def generate_html_report(report_data: dict[str, Any], reference_path: str) -> None:
     """Generate JS+HTML quality report file and launch Bun server.
 
     Args:

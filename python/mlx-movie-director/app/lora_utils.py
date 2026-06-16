@@ -8,14 +8,14 @@ import mlx.nn as nn
 from safetensors import safe_open
 
 
-def _mx_kron(a, b):
+def _mx_kron(a: mx.array, b: mx.array) -> mx.array:
     """Kronecker product of two 2D MLX arrays: [m,n] x [p,q] -> [m*p, n*q]."""
     m, n = a.shape
     p, q = b.shape
     return (a.reshape(m, 1, n, 1) * b.reshape(1, p, 1, q)).reshape(m * p, n * q)
 
 
-def _convert_lokr_key(key):
+def _convert_lokr_key(key: str) -> str:
     """Map LoKR source module path to MLX model module path."""
     key = key.replace("diffusion_model.", "")
     # to_out in source is nn.ModuleList([Linear, Dropout]), .0 = Linear
@@ -25,7 +25,7 @@ def _convert_lokr_key(key):
     return key
 
 
-def _apply_lokr_delta(module, delta_w):
+def _apply_lokr_delta(module: nn.Module, delta_w: mx.array) -> bool:
     """Add delta_w to a QuantizedLinear or Linear weight in-place."""
     if isinstance(module, nn.QuantizedLinear):
         W = mx.dequantize(module.weight, module.scales, module.biases,
@@ -49,7 +49,7 @@ def _apply_lokr_delta(module, delta_w):
     return True
 
 
-def _apply_lokr(model, tensors, user_scale):
+def _apply_lokr(model: nn.Module, tensors: dict[str, mx.array], user_scale: float) -> None:
     """Apply LoKR (Kronecker LoRA) weights to model in-place."""
     # Group keys by base module path (strip .lokr_w1/.lokr_w2/.alpha)
     groups = {}

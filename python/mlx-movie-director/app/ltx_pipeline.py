@@ -240,9 +240,10 @@ class LTXVideoPipeline:
         self.lora_path = lora_path
         self.lora_scale = lora_scale
         self._assembly_dir: str | None = None
-        self._pipeline = None
+        self._pipeline: Any | None = None
+        self._model_dir: str = ""  # set below: explicit / assembled / HF repo id
         self._pipeline_mode: str | None = None  # "t2v_i2v", "a2v", "flf2v", "distilled"
-        self._pipeline_events: list[dict] = []  # runtime trace: model loads + LoRA apply (video)
+        self._pipeline_events: list[dict[str, Any]] = []  # runtime trace: model loads + LoRA apply (video)
 
         if model_dir:
             self._model_dir = model_dir
@@ -516,9 +517,9 @@ class LTXVideoPipeline:
         seed: int = 42,
         stage1_steps: int | None = None,
         stage2_steps: int | None = None,
-        images: list | None = None,
+        images: list[tuple[str, int, float]] | None = None,
         conditioning_attention_strength: float = 1.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Run IC-LoRA conditioned video generation (control conditioning or restoration).
 
         Uses ICLoraPipeline from vendor: Stage 1 at half resolution with LoRA fused,

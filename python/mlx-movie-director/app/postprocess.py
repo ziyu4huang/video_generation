@@ -7,7 +7,7 @@ Each filter implements apply(image) -> image for use in PostProcessChain.
 import math
 import os
 import time
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 from PIL import Image
@@ -395,7 +395,7 @@ class PostProcessChain:
         self.filters = filters
 
     @classmethod
-    def from_config(cls, config: dict) -> "PostProcessChain":
+    def from_config(cls, config: dict[str, Any]) -> "PostProcessChain":
         """Build a filter chain from a configuration dict."""
         filters = []
 

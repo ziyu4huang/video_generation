@@ -29,6 +29,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from typing import Any
 
 from app import config as cfg
 from app.commands._shared import execute_generation
@@ -1876,15 +1877,15 @@ class ReviewSection:
     title_en: str
     desc_zh: str
     desc_en: str
-    items: list = field(default_factory=list)            # flat grid of every image
-    pairs: list | None = None                            # A/B: [{left, right}]
-    variant_sets: list | None = None                     # sweep/ref: [{group, items}]
+    items: list[dict[str, Any]] = field(default_factory=list)            # flat grid of every image
+    pairs: list[dict[str, str]] | None = None                            # A/B: [{left, right}]
+    variant_sets: list[dict[str, Any]] | None = None                     # sweep/ref: [{group, items}]
 
 
 class UnifiedReport:
     """Accumulates ReviewSections across a multi-test run."""
 
-    def __init__(self, out_dir: str, title: str, names: list):
+    def __init__(self, out_dir: str, title: str, names: list[str]):
         self.out_dir = out_dir
         self.title = title
         self.names = names

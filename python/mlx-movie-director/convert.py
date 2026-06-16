@@ -50,7 +50,7 @@ _replace_keys = {
 }
 
 
-def _remap_qkv(key, state_dict):
+def _remap_qkv(key: str, state_dict: dict[str, torch.Tensor]) -> None:
     weight = state_dict.pop(key)
     to_q, to_k, to_v = weight.chunk(3, dim=0)
     state_dict[key.replace(".qkv.", ".to_q.")] = to_q
@@ -58,14 +58,14 @@ def _remap_qkv(key, state_dict):
     state_dict[key.replace(".qkv.", ".to_v.")] = to_v
 
 
-def _remap_keys(key, state_dict):
+def _remap_keys(key: str, state_dict: dict[str, torch.Tensor]) -> None:
     new_key = key
     for r, rr in _replace_keys.items():
         new_key = new_key.replace(r, rr)
     state_dict[new_key] = state_dict.pop(key)
 
 
-def _map_key_and_convert(key, tensor):
+def _map_key_and_convert(key: str, tensor: torch.Tensor) -> tuple[str, mx.array]:
     if isinstance(tensor, torch.Tensor):
         val = tensor.detach().cpu().float().numpy()
     else:
@@ -194,7 +194,7 @@ def convert_text_encoder() -> bool:
     return True
 
 
-def download_tokenizer():
+def download_tokenizer() -> None:
     from huggingface_hub import snapshot_download
 
     dst_dir = cfg.TOKENIZER_DIR
@@ -211,7 +211,7 @@ def download_tokenizer():
     return True
 
 
-def download_vae():
+def download_vae() -> None:
     from huggingface_hub import snapshot_download
 
     dst_dir = cfg.VAE_DIR
