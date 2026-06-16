@@ -475,8 +475,11 @@ def resolve_prompt(args: argparse.Namespace) -> str:
     prompt = getattr(args, "prompt", None)
     prompt_file = getattr(args, "prompt_file", None)
     if prompt_file:
-        with open(prompt_file, "r") as f:
-            prompt = f.read().strip()
+        try:
+            with open(prompt_file, "r") as f:
+                prompt = f.read().strip()
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            raise ValueError(f"Cannot read prompt file {prompt_file}: {e}") from e
     if not prompt:
         raise ValueError("No prompt provided. Use --prompt, --prompt-file, or --test-prompt.")
     return prompt
@@ -522,8 +525,11 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
     # Resolve prompt
     prompt = run_config.prompt
     if run_config.prompt_file:
-        with open(run_config.prompt_file, "r") as f:
-            prompt = f.read().strip()
+        try:
+            with open(run_config.prompt_file, "r") as f:
+                prompt = f.read().strip()
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            raise ValueError(f"Cannot read prompt file {run_config.prompt_file}: {e}") from e
     if not prompt:
         raise ValueError("No prompt provided.")
 
@@ -783,8 +789,11 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
 
     prompt = run_config.prompt
     if run_config.prompt_file:
-        with open(run_config.prompt_file, "r") as f:
-            prompt = f.read().strip()
+        try:
+            with open(run_config.prompt_file, "r") as f:
+                prompt = f.read().strip()
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            raise ValueError(f"Cannot read prompt file {run_config.prompt_file}: {e}") from e
     if not prompt:
         raise ValueError("No prompt provided.")
 

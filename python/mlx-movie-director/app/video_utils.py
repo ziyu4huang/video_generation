@@ -30,8 +30,11 @@ def get_video_info(video_path: str) -> dict:
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
-        sys.exit(1)
+        # Library-layer helper: raise (not sys.exit) so callers — the caption
+        # pipeline, GUI job runner, tests — can catch the failure instead of
+        # having the whole process killed mid-run. Mirrors the GpuLock /
+        # audio-noise precedent (gpu_monitor.py, audio_noise_detect.py).
+        raise RuntimeError(f"cannot open video: {video_path}")
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -91,7 +94,14 @@ def extract_keyframes(video_path: str, n_frames: int = 8,
         os.makedirs(output_dir, exist_ok=True)
 
     ffmpeg = require_ffmpeg()
-    info = get_video_info(video_path)
+    try:
+        info = get_video_info(video_path)
+    except RuntimeError as e:
+        # Video exists (checked above) but OpenCV can't open it (corrupt /
+        # non-video container). Degrade to no keyframes so the caption caller
+        # falls through to its empty-result handling, instead of crashing.
+        print(f"[video_utils] WARNING: {e}", file=sys.stderr)
+        return []
 
     if info["total_frames"] <= 1:
         print(f"[video_utils] WARNING: video has only {info['total_frames']} frame(s)", file=sys.stderr)
@@ -127,7 +137,13 @@ def extract_keyframes(video_path: str, n_frames: int = 8,
         output_pattern,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, timeout=120)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        # A hung ffmpeg must degrade to no keyframes, not crash the caption
+        # pipeline with an unhandled TimeoutExpired.
+        print("[video_utils] WARNING: ffmpeg keyframe extraction timed out", file=sys.stderr)
+        return []
     if result.returncode != 0:
         stderr = result.stderr.decode(errors="replace")
         print(f"[video_utils] WARNING: ffmpeg keyframe extraction failed:\n{stderr}",

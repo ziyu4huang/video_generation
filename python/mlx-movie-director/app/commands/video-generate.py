@@ -346,7 +346,12 @@ def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
         img = Image.open(image_path)
         img_w, img_h = img.size
         img.close()
-    except ImportError:
+    except (ImportError, FileNotFoundError, OSError) as e:
+        # Corrupt/missing --input-image must not crash here (this runs before
+        # the main try/except). Degrade to the explicit dims with a warning so
+        # a later, clearer error surfaces the real problem.
+        print(f"[video] WARNING: cannot read input image dims {image_path}: {e}; "
+              f"keeping {width}×{height}", file=sys.stderr)
         return width, height
 
     img_ratio = img_w / img_h
@@ -400,7 +405,9 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
         end_w, end_h = end_img.size
         begin_img.close()
         end_img.close()
-    except ImportError:
+    except (ImportError, FileNotFoundError, OSError) as e:
+        print(f"[video] WARNING: cannot read begin/end image dims: {e}; "
+              f"keeping {width}×{height}", file=sys.stderr)
         return width, height
 
     begin_ratio = begin_w / begin_h
@@ -1146,8 +1153,11 @@ def _enhance_prompt(prompt: str, *, image_path: str | None = None) -> str:
     try:
         import mlx.core as mx
         mx.clear_cache()
-    except Exception:
-        pass
+    except Exception as e:
+        # A failed cache clear silently leaks GPU memory (the exact resource
+        # this call means to release) — surface it so an OOM on the next op
+        # stays diagnosable. Mirrors the _apply_upscale warn-don't-swallow fix.
+        print(f"[video] WARNING: mx.clear_cache after Gemma unload failed: {e}", file=sys.stderr)
 
     elapsed = _time.time() - t0
     print(f"[video] Enhanced prompt ({len(enhanced)} chars, {elapsed:.1f}s):")
