@@ -72,7 +72,7 @@
         "google/gemma-4-26b-a4b-qat": {
           "name": "Gemma 4 26b MoE a4b QAT",
           "limit": {
-            "context": 262144,
+            "context": 128000,
             "output": 32768
           }
         }
