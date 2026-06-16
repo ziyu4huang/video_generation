@@ -10,7 +10,14 @@ import argparse
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if __name__ == "__main__":
+    # Entry-point bootstrap: put the package root (parent of app/) on sys.path so
+    # `from app import config` resolves when run as a script. Skipped when imported
+    # as a library (app is already on sys.path via the caller) — running it there
+    # would pollute sys.path with a directory that shouldn't be a top-level entry.
+    _pkg_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _pkg_root not in sys.path:
+        sys.path.insert(0, _pkg_root)
 
 from app import config as cfg
 
@@ -67,7 +74,7 @@ OPTIONAL_FILES = {
 
 def download_component(component: str, dest_dir: str, filenames: list[str],
                        dry_run: bool = False) -> None:
-    from huggingface_hub import hf_hub_download, file_exists
+    from huggingface_hub import hf_hub_download
 
     os.makedirs(dest_dir, exist_ok=True)
     print(f"\n[{component}] → {dest_dir}")

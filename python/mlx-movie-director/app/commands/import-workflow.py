@@ -33,18 +33,12 @@ Examples:
 import argparse
 import importlib
 import json
-import math
 import os
 import re
 import sys
 import tempfile
-from pathlib import Path
-from urllib.parse import urlparse, parse_qs
 
 import requests
-
-# Import shared config for default paths
-from app import config as cfg
 
 # Reuse CivitAI helpers from import-lora-image (filenames have hyphens, need importlib)
 _lora_importer = importlib.import_module("app.commands.import-lora-image")

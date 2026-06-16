@@ -2549,7 +2549,6 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     """
     import importlib
     import base64
-    import json as _json
     from app import config as cfg
     _i2i = importlib.import_module("app.commands.image-i2i")
     cap = importlib.import_module("app.commands.caption")
@@ -3161,7 +3160,6 @@ def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
     import mlx.core as mx
     from app.pipeline import ZImagePipeline
     from app.test_prompts_image import get_test_prompt
-    from app.commands._shared import execute_generation
     from app import config as cfg
 
     tp_name = test_cfg["test_prompt"]
@@ -3602,7 +3600,6 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
       begin frame | video player | end frame
     """
     import argparse as _argparse
-    import base64
     import gc
     import json as _json
     import time as _time
@@ -3611,8 +3608,7 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
     from datetime import datetime as _dt, timezone as _tz
     from app.pipeline import ZImagePipeline
     from app.ltx_pipeline import LTXVideoPipeline
-    from app.manifest import Manifest, collect_model_fingerprint
-    from app.commands.caption import _image_to_base64
+    from app.manifest import Manifest
     from app import config as _cfg
     from app.test_prompts_flf2v import get_flf2v_test
     _vid_gen = importlib.import_module("app.commands.video-generate")
@@ -5648,7 +5644,6 @@ function copyResults() {{
 
 def run_review_vae(args):
     """Generate images with each VAE variant, analyze quality, and render HTML review."""
-    import base64
     import gc
     import mlx.core as mx
     from app.pipeline import ZImagePipeline
@@ -7776,8 +7771,6 @@ def _render_style_ab_html(*, output_dir, base_name, test_name,
     Columns: A=anime baseline, B=default Ref+LoRA, C/D/E...=style variants.
     Each row has voting buttons + text comment + Copy/Save export.
     """
-    import html as html_mod
-
     n_cols = len(col_labels)
 
     # Build per-row data as JSON
