@@ -11,7 +11,7 @@ type Tab = "run" | "manifest" | "scores";
 const CAPTION_STYLES = [
   { id: "default", icon: "📝", label: "Description" },
   { id: "photography", icon: "📷", label: "Photography" },
-  { id: "prompt", icon: "✨", label: "T2I Prompt" },
+  { id: "t2i", icon: "✨", label: "T2I Prompt" },
   { id: "profile", icon: "👤", label: "Profile" },
   { id: "style", icon: "🎨", label: "Art Style" },
   { id: "score", icon: "📊", label: "Quality Score" },

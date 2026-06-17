@@ -393,5 +393,5 @@ class TestRequestTimeout:
     def test_call_vlm_uses_configured_timeout(self):
         resp = _resp(200, {"choices": [{"message": {"content": "x"}}]})
         with patch.object(caption.requests, "post", return_value=resp) as p:
-            caption._call_vlm(_URL, "m", "b64", "prompt", auto_load=False)
+            caption._call_vlm(_URL, "m", "b64", "t2i", auto_load=False)
         assert p.call_args.kwargs["timeout"] == caption._VLM_REQUEST_TIMEOUT

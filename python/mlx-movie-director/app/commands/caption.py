@@ -27,7 +27,7 @@ PARSER_META = {
         "  run.py caption video.mp4 --style video_score --lang en\n"
         "  run.py caption video.mp4 --style video_analysis\n"
         "  run.py caption base.png --style photography\n"
-        "  run.py caption base.png --style prompt --lang en\n"
+        "  run.py caption base.png --style t2i --lang en\n"
         "  run.py caption base.png --style score --lang en  ← VLM quality scoring\n"
     ),
 }

@@ -167,14 +167,14 @@ Use `run.py caption` to analyze local images with a local VLM (Qwen3-VL 4B via L
 # MUST use the project venv (from repo root — see "Working directory & venv path" above)
 python/venv/bin/python python/mlx-movie-director/run.py caption <IMAGE> [options]
 
-# Describe image (default style)
-python/venv/bin/python python/mlx-movie-director/run.py caption output/base.png
+# Describe image (the 'default' style)
+python/venv/bin/python python/mlx-movie-director/run.py caption output/base.png --style default
 
 # Photography analysis (subject, lighting, camera angle, composition)
 python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style photography
 
 # Generate a T2I prompt from an image
-python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style prompt --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style t2i --lang en
 
 # Quality scoring (1-10 on 6 dimensions)
 python/venv/bin/python python/mlx-movie-director/run.py caption base.png --style score --lang en
@@ -188,7 +188,7 @@ python/venv/bin/python python/mlx-movie-director/run.py caption screenshot.png -
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--style` | `default` | `default`, `photography`, `prompt`, `profile`, `style`, `score`, `compare`, `review`, `playwright` |
+| `--style` | `t2i` | `default`, `photography`, `t2i`, `profile`, `style`, `score`, `compare`, `review`, `playwright` |
 | `--lang` | `zh_TW` | `zh_TW`, `zh_CN`, `en`, `ja` |
 | `--model` | `qwen/qwen3-vl-4b` | OpenAI-compatible model name |
 | `--api-url` | `http://localhost:1234/v1` | VLM API base URL |
