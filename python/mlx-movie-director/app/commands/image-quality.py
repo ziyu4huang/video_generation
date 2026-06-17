@@ -713,14 +713,22 @@ def _print_comparison(results: list):
 # ---------------------------------------------------------------------------
 
 def _save_comparison_png(image_paths: list, labels: list, output_path: str):
-    """Stitch images horizontally and save comparison PNG."""
+    """Stitch images horizontally and save comparison PNG.
+
+    Best-effort: if any image is missing or unreadable, log a warning and
+    skip the comparison PNG rather than crashing the quality run — the
+    per-image metrics (the primary output) are already computed by then.
+    """
     from PIL import Image
     from app.commands._shared import _stitch_horizontal
 
-    images = [Image.open(p).convert("RGB") for p in image_paths]
-    compare = _stitch_horizontal(images, gap=4, labels=labels)
-    compare.save(output_path)
-    print(f"[quality] Comparison PNG: {output_path}")
+    try:
+        images = [Image.open(p).convert("RGB") for p in image_paths]
+        compare = _stitch_horizontal(images, gap=4, labels=labels)
+        compare.save(output_path)
+        print(f"[quality] Comparison PNG: {output_path}")
+    except (FileNotFoundError, OSError) as exc:
+        print(f"[quality] WARNING: could not save comparison PNG ({exc})")
 
 
 # ---------------------------------------------------------------------------

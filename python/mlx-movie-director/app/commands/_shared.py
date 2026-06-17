@@ -803,8 +803,13 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
         # .convert("RGB") materializes pixels into a new in-memory image, so close
         # the file handle immediately — otherwise it stays open across the whole
         # batch loop (fd leak / source-file lock on macOS until GC runs).
-        with Image.open(run_config.input_image) as _im:
-            input_image = _im.convert("RGB")
+        try:
+            with Image.open(run_config.input_image) as _im:
+                input_image = _im.convert("RGB")
+        except (FileNotFoundError, OSError) as e:
+            raise ValueError(
+                f"Cannot read input image {run_config.input_image}: {e}"
+            ) from e
 
     seeds = seed_sequence(run_config)
     count = len(seeds)

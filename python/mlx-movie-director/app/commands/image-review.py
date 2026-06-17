@@ -51,6 +51,18 @@ def _quality_module():
     return importlib.import_module("app.commands.image-quality")
 
 
+def _open_report(path: str) -> None:
+    """Open a generated HTML/PNG report in the default viewer (macOS ``open``).
+
+    Fire-and-forget: failing to launch the viewer must not crash the command
+    that just finished writing the report. Logs a warning and continues.
+    """
+    try:
+        subprocess.Popen(["open", path])
+    except OSError as exc:
+        print(f"⚠  Could not open report in viewer ({path}): {exc}", file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # Angle grid constants
 # ---------------------------------------------------------------------------
@@ -273,7 +285,7 @@ def run_review_angle(args):
     print(f"\nReview dir: {review_dir}/")
     print(f"HTML:       {html_path}")
     print(f"Total:      {total} images")
-    subprocess.Popen(["open", html_path])
+    _open_report(html_path)
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +396,7 @@ def _open_manifest_review(manifest_paths: list, labels=None, output=None,
         print(f"  [{t['label']}] {status}  {img_name}{score_tag}")
 
     if auto_open:
-        subprocess.Popen(["open", output])
+        _open_report(output)
 
 
 def _resolve_files(args) -> list:
@@ -2668,7 +2680,7 @@ def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
     if mode == "debug":
         _vlm_verify_controlnet_pose(os.path.join(cfg.OUTPUT_DIR, f"i2i_selftest_debug-dn10-cnet-canny-15st-s{seed}.png"))
 
-    subprocess.Popen(["open", out_html])
+    _open_report(out_html)
 
 
 def _generate_cnet_vlm_review_html(results, output_path: str, mode: str = "debug", seed: int = 42):
@@ -3866,7 +3878,7 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
           f"FLF2V {sum(v for k, v in timings.items() if k.startswith('flf2v') and isinstance(v, (int, float))):.0f}s = "
           f"{total_time:.0f}s total")
 
-    subprocess.Popen(["open", html_path])
+    _open_report(html_path)
 
 
 def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
@@ -5766,7 +5778,7 @@ def run_review_vae(args):
     print(f"\n[review vae] HTML generated:")
     print(f"             {html_path}")
     print(f"\n  open {html_path}")
-    subprocess.Popen(["open", html_path])
+    _open_report(html_path)
 
 
 def _render_vae_html(test_name, test_cfg, image_paths, labels, metrics_list,
@@ -6501,7 +6513,7 @@ def run_review_lora(args):
     print(f"  HTML review: {html_path}")
     print(f"  Images:      {len(pairs)*2} ({len(pairs)} pairs)")
 
-    subprocess.Popen(["open", html_path])
+    _open_report(html_path)
     print(f"  Opened in browser")
 
 
@@ -7117,7 +7129,7 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
     print(f"  HTML review: {html_path}")
     print(f"  Images:      {total_images} ({len(prompt_names)} styles × {len(seeds)} seeds × 2)")
 
-    subprocess.Popen(["open", html_path])
+    _open_report(html_path)
     print(f"  Opened in browser")
 
 
