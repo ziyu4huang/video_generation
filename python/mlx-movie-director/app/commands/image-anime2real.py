@@ -133,13 +133,21 @@ def add_anime2real_args(parser: "argparse.ArgumentParser") -> None:
         help="LoRA scale override for anime2real. Default: depends on --realism-style "
              "(3d-game=0.7, photorealistic=1.0, semi-realistic=0.85).",
     )
+    # ref_strength is a SHARED dest — image-profile.py registers it (default=None)
+    # earlier in image.py's add_args order. The _arg_registered guard skips our
+    # registration when profile won, so a concrete default=1.0 here would be dead
+    # code that SILENTLY loses to profile's None. Use sentinel default=None and
+    # resolve anime2real's verified default (1.0) in run_anime2real. (Unlike
+    # --ref-count/--lora-scale, --ref-strength stays on the shared dest because
+    # the GUI sends `--ref-strength` directly; ref-count/lora-scale moved to
+    # dedicated --anime2real-* dests to avoid the same shared-dest default race.)
     if not _arg_registered(parser, "ref_strength"):
         parser.add_argument(
-            "--ref-strength", type=float, default=1.0,
-            help="Reference conditioning strength (0.0-1.0, default: 1.0). "
-                 "Controls how strongly the reference anime image conditions the output. "
-                 "1.0 = full strength (CivitAI default, A/B test winner 5/5). "
-                 "Lower values give the model more freedom but may cause identity drift.",
+            "--ref-strength", type=float, default=None,
+            help="Reference conditioning strength (0.0-1.0). Default for anime2real: "
+                 "1.0 (full strength, CivitAI default, A/B test winner 5/5) — resolved "
+                 "at run time, since this shared dest's argparse default is the sentinel "
+                 "None. Lower values give the model more freedom but may cause identity drift.",
         )
     if not _arg_registered(parser, "realism_style"):
         parser.add_argument(
@@ -205,6 +213,8 @@ def run_anime2real(args: "argparse.Namespace") -> None:
     lora_scale = lora_scales[0]
     # NOTE: uses --anime2real-ref-count (default=1), NOT shared --ref-count (default=3).
     ref_count = getattr(args, "anime2real_ref_count", 1)
+    # ref_strength: shared dest with sentinel default=None (see add_anime2real_args).
+    # Resolve anime2real's verified default (1.0) when the user / GUI didn't pass it.
     ref_strength = getattr(args, "ref_strength", None)
     if ref_strength is None:
         ref_strength = 1.0
