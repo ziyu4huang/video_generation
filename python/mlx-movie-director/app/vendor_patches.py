@@ -21,6 +21,9 @@ Patches for vendor/mflux (upstream filipstrand/mflux):
   7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
   8. ImageUtil._numpy_to_pil — NaN/Inf guard before float→uint8 conversion
   9. Flux2KleinEdit + helpers — ref_strength param for reference image conditioning
+  12. LoRALoader._apply_single_lora — dequantize int8 LoRA weights (int8
+      key.weight + float32 key.weight.scale) before applying; without this the
+      mflux image pipelines apply raw int8 (no scale) → pure-noise output
 """
 
 from __future__ import annotations
@@ -746,6 +749,88 @@ def _patch_connector_apply_quantization() -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# Patch 12 — dequantize int8 LoRA weights in mflux LoRALoader (image pipelines)
+# ---------------------------------------------------------------------------
+
+
+def _patch_mflux_int8_lora() -> None:
+    """Dequantize int8-quantized LoRA weights in mflux's image LoRALoader.
+
+    Sibling of Patch 10 (`_patch_int8_lora`) for the **mflux image** path.
+    Mflux's ``LoRALoader._apply_single_lora`` (used by Flux2Klein / zimage /
+    anime2real / i2i) pattern-matches only ``lora_A.weight`` / ``lora_B.weight``
+    / ``alpha`` keys. When a LoRA has been converted to per-tensor int8 (via
+    ``scripts/convert_lora_mlx.py`` — stored as int8 ``key.weight`` plus a
+    float32 scalar ``key.weight.scale``), the loader matches the raw int8
+    ``.weight`` and applies it WITHOUT its companion scale. The resulting LoRA
+    matrices are ~hundreds of times too large, which corrupts the transformer
+    and yields pure-noise output (no recognizable subject).
+
+    Strategy: replace ``_apply_single_lora`` to dequantize each int8 ``.weight``
+    by its ``.weight.scale`` (→ bf16, matching the original bf16 LoRA format)
+    right after ``mx.load()``, then delegate to the upstream pattern-match +
+    apply helpers (``_build_pattern_mappings`` / ``_apply_lora_with_mapping``).
+    The consumed ``.scale`` keys are dropped so they no longer surface as
+    "unmatched keys" warnings. Non-int8 LoRAs (no ``.scale`` companions, or a
+    float ``.weight``) pass through unchanged.
+    """
+    import mlx.core as mx
+
+    from mflux.models.common.lora.mapping.lora_loader import LoRALoader
+
+    def _dequant_int8_weights(weights):  # type: ignore[no-untyped-def]
+        scale_keys = {k for k in weights if k.endswith(".scale")}
+        if not scale_keys:
+            return weights
+        dequantized: dict[str, mx.array] = {}
+        for key, val in weights.items():
+            if key.endswith(".scale"):
+                continue  # consumed by its companion .weight below
+            scale_key = f"{key}.scale"
+            if scale_key in scale_keys and val.dtype == mx.int8:
+                scale = weights[scale_key].astype(mx.float32)
+                dequantized[key] = (val.astype(mx.float32) * scale).astype(mx.bfloat16)
+            else:
+                dequantized[key] = val
+        return dequantized
+
+    @staticmethod
+    def _patched_apply_single_lora(  # type: ignore[no-untyped-def]
+        transformer, lora_file, scale, lora_mapping, *, role=None
+    ):
+        if not Path(lora_file).exists():
+            print(f"❌ LoRA file not found: {lora_file}")
+            return
+
+        print(f"🔧 Applying LoRA: {Path(lora_file).name} (scale={scale})")
+
+        try:
+            weights = dict(mx.load(lora_file, return_metadata=True)[0].items())
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            print(f"❌ Failed to load LoRA file: {e}")
+            return
+
+        weights = _dequant_int8_weights(weights)
+
+        pattern_mappings = LoRALoader._build_pattern_mappings(lora_mapping)
+        applied_count, matched_keys = LoRALoader._apply_lora_with_mapping(
+            transformer, weights, scale, pattern_mappings, role=role
+        )
+
+        total_keys = len(weights)
+        unmatched_keys = set(weights.keys()) - matched_keys
+        print(f"   ✅ Applied to {applied_count} layers ({len(matched_keys)}/{total_keys} keys matched)")
+        if unmatched_keys:
+            print(f"   ⚠️  {len(unmatched_keys)} unmatched keys in LoRA file:")
+            for key in sorted(unmatched_keys)[:5]:
+                print(f"      - {key}")
+            if len(unmatched_keys) > 5:
+                print(f"      ... and {len(unmatched_keys) - 5} more")
+
+    LoRALoader._apply_single_lora = _patched_apply_single_lora
+
+
 def apply_all_patches() -> None:
     """Apply all vendor monkey-patches.  Called automatically at import time."""
     _patch_upsample1d()
@@ -759,7 +844,8 @@ def apply_all_patches() -> None:
     _patch_klein_edit_ref_strength()
     _patch_int8_lora()
     _patch_connector_apply_quantization()
-    print("[vendor_patches] Applied 11 patches (8 ltx-2-mlx + 3 mflux)")
+    _patch_mflux_int8_lora()
+    print("[vendor_patches] Applied 12 patches (8 ltx-2-mlx + 4 mflux)")
 
 
 apply_all_patches()
