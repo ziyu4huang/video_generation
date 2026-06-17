@@ -282,8 +282,8 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             schema.submitLabel
           )}
         </button>
+        {extraActions}
       </div>
-      {extraActions}
       <InlineError message={error} onDismiss={() => setError(null)} />
     </form>
   );

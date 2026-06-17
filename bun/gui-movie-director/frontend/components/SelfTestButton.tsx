@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import { useSchemaDefaults, type SelfTestEntry } from "../hooks/useSchemaDefaults";
 import { toast } from "../utils/toast";
 
@@ -8,9 +8,8 @@ interface SelfTestButtonProps {
 }
 
 /**
- * Multi-select dropdown showing available self-tests for a given action.
- * Check tests to select, then click "Run (N)" to execute them.
- * Hidden if no tests are available for the action.
+ * Trigger button that opens a modal to select and run built-in self-tests.
+ * Hidden when no tests are available for the action.
  */
 export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
   const defaults = useSchemaDefaults(action);
@@ -20,23 +19,24 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const hasTests = tests.length > 0;
   const hasModes = i2iModes && Object.keys(i2iModes).length > 0;
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   if (!hasTests && !hasModes) return null;
+
+  const allItems: Array<{ name: string; desc: string; section: string | null }> = [
+    ...(hasTests
+      ? tests.map((t) => ({ name: t.name, desc: t.desc, section: hasModes ? "Built-in Tests" : null }))
+      : []),
+    ...(hasModes
+      ? Object.entries(i2iModes!).map(([name, { desc }]) => ({
+          name,
+          desc,
+          section: hasTests ? "I2I Modes" : null,
+        }))
+      : []),
+  ];
 
   const toggle = (name: string) => {
     setSelected((prev) => {
@@ -47,6 +47,10 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
     });
   };
 
+  const allSelected = allItems.length > 0 && allItems.every((i) => selected.has(i.name));
+  const selectAll = () => setSelected(new Set(allItems.map((i) => i.name)));
+  const selectNone = () => setSelected(new Set());
+
   const runOne = async (testName: string) => {
     const res = await fetch("/api/selftest", {
       method: "POST",
@@ -56,9 +60,7 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
     const data = await res.json();
     if (data.jobId) {
       const isVideo = action.startsWith("video-");
-      const command = isVideo
-        ? `video ${action.replace("video-", "")}`
-        : `image ${action}`;
+      const command = isVideo ? `video ${action.replace("video-", "")}` : `image ${action}`;
       onJobStart({ jobId: data.jobId, command, isSelfTest: true });
       return true;
     }
@@ -86,80 +88,112 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
     }
   };
 
-  const selectedCount = selected.size;
+  const handleOverlayMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) setOpen(false);
+  };
 
-  const renderItems = (items: Array<{ name: string; desc: string }>) =>
-    items.map(({ name, desc }) => (
-      <label key={name} className="self-test-item self-test-item--check">
-        <input
-          type="checkbox"
-          className="self-test-checkbox"
-          checked={selected.has(name)}
-          onChange={() => toggle(name)}
-        />
-        <span className="self-test-item-body">
-          <span className="self-test-item-name">{name}</span>
-          <span className="self-test-item-desc">{desc}</span>
-        </span>
-      </label>
-    ));
+  const selectedCount = selected.size;
+  let lastSection: string | null = null;
 
   return (
-    <div className="self-test-wrapper" ref={dropdownRef}>
+    <>
       <button
         type="button"
-        className="btn self-test-btn"
-        onClick={() => setOpen(!open)}
+        className="btn self-test-trigger-btn"
+        onClick={() => setOpen(true)}
         disabled={running}
         title="Run built-in self-tests"
       >
         {running ? (
-          <><span className="spinner" style={{ width: 12, height: 12 }} /> Testing…</>
+          <>
+            <span className="spinner" style={{ width: 12, height: 12 }} /> Testing…
+          </>
         ) : (
-          <>🧪 Self-Test{selectedCount > 0 && <span className="self-test-badge">{selectedCount}</span>}</>
+          <>
+            🧪 Self-Test
+            {selectedCount > 0 && <span className="self-test-badge">{selectedCount}</span>}
+          </>
         )}
       </button>
 
       {error && (
-        <span style={{ marginLeft: 8, fontSize: 12, color: "var(--error)" }}>
-          {error}
-        </span>
+        <span style={{ fontSize: 12, color: "var(--error)", marginLeft: 8 }}>{error}</span>
       )}
 
       {open && (
-        <div className="self-test-dropdown">
-          {hasTests && (
-            <>
-              {hasModes && (
-                <div className="self-test-section-title">Built-in Tests</div>
-              )}
-              {renderItems(tests)}
-            </>
-          )}
-          {hasModes && (
-            <>
-              {hasTests && (
-                <div className="self-test-section-title">I2I Modes</div>
-              )}
-              {renderItems(
-                Object.entries(i2iModes!).map(([name, { desc }]) => ({ name, desc }))
-              )}
-            </>
-          )}
-          <div className="self-test-footer">
-            <button
-              type="button"
-              className="btn btn-primary self-test-run-btn"
-              disabled={selectedCount === 0}
-              onClick={handleRunSelected}
-            >
-              {selectedCount === 0
-                ? "Select tests above"
-                : `Run ${selectedCount} test${selectedCount > 1 ? "s" : ""}`}
-            </button>
+        <div className="self-test-overlay" onMouseDown={handleOverlayMouseDown}>
+          <div className="self-test-modal">
+            {/* Header */}
+            <div className="self-test-modal-header">
+              <div>
+                <div className="self-test-modal-title">🧪 Self-Test Suite</div>
+                <div className="self-test-modal-subtitle">
+                  Select tests to run for <code style={{ fontSize: 12 }}>{action}</code>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="self-test-modal-close"
+                onClick={() => setOpen(false)}
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="self-test-modal-body">
+              {allItems.map(({ name, desc, section }) => {
+                const showSection = section !== null && section !== lastSection;
+                if (section !== null) lastSection = section;
+                return (
+                  <React.Fragment key={name}>
+                    {showSection && (
+                      <div className="self-test-section-title">{section}</div>
+                    )}
+                    <label
+                      className="self-test-modal-item"
+                      data-selected={selected.has(name) ? "true" : "false"}
+                    >
+                      <input
+                        type="checkbox"
+                        className="self-test-checkbox"
+                        checked={selected.has(name)}
+                        onChange={() => toggle(name)}
+                      />
+                      <div className="self-test-modal-item-body">
+                        <div className="self-test-item-name">{name}</div>
+                        <div className="self-test-item-desc">{desc}</div>
+                      </div>
+                    </label>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="self-test-modal-footer">
+              <button
+                type="button"
+                className="self-test-select-all-btn"
+                onClick={allSelected ? selectNone : selectAll}
+              >
+                {allSelected ? "Deselect All" : "Select All"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={selectedCount === 0}
+                onClick={handleRunSelected}
+              >
+                {selectedCount === 0
+                  ? "Select tests above"
+                  : `Run ${selectedCount} test${selectedCount > 1 ? "s" : ""} →`}
+              </button>
+            </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
