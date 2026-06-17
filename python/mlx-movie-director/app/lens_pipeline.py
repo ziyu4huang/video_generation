@@ -24,9 +24,7 @@ import sys
 import time
 
 import mlx.core as mx
-import mlx.nn as mnn
 
-from app import config as cfg
 from app.pipeline_types import GenerationResult
 
 # ---------------------------------------------------------------------------
