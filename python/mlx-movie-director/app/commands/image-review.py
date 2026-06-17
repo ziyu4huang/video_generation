@@ -37,6 +37,20 @@ from app.run_config import RunConfig
 
 _angle_mod = importlib.import_module("app.commands.image-angle")
 
+
+def _quality_module():
+    """Lazy accessor for the image-quality command module.
+
+    ``image-quality.py`` has a hyphen in its filename, so it cannot be loaded
+    by a plain ``import`` — call sites must use ``importlib.import_module``.
+    Six call sites in this module previously each did that inline; this
+    accessor centralizes the resolution. The module is imported lazily (only
+    when first needed), and Python caches it in ``sys.modules`` after the
+    first load, so repeated calls stay cheap.
+    """
+    return importlib.import_module("app.commands.image-quality")
+
+
 # ---------------------------------------------------------------------------
 # Angle grid constants
 # ---------------------------------------------------------------------------
@@ -2046,7 +2060,7 @@ def _unified_metrics(image_file: str | None) -> dict | None:
     if not image_file or not os.path.exists(image_file):
         return None
     try:
-        _qm = importlib.import_module("app.commands.image-quality")
+        _qm = _quality_module()
         report = _qm.analyze_image(image_file)
         return report.get("metrics", report) if isinstance(report, dict) else report
     except Exception:
@@ -5649,7 +5663,7 @@ def run_review_vae(args):
     from app.pipeline import ZImagePipeline
     from app.test_prompts_image import get_vae_test, get_test_prompt
     from app.commands._shared import resolve_vae_path
-    _quality_mod = importlib.import_module("app.commands.image-quality")
+    _quality_mod = _quality_module()
 
     test_name_raw = getattr(args, "self_test", None)
     test_name = test_name_raw if isinstance(test_name_raw, str) else "ultraflux"
@@ -6009,7 +6023,7 @@ def _run_lora_i2i_selftest(args, test_name: str, test_cfg: dict):
     # --- Quality analysis (default on, opt-out via --no-quality) ---
     metrics_by_pair = []
     if not getattr(args, "no_quality", False):
-        _quality_mod = importlib.import_module("app.commands.image-quality")
+        _quality_mod = _quality_module()
         print(f"\n{'─'*40}")
         print(f"Quality Analysis")
         print(f"{'─'*40}")
@@ -6428,7 +6442,7 @@ def run_review_lora(args):
     # --- Quality analysis (default on, opt-out via --no-quality) ---
     metrics_by_pair = []
     if not getattr(args, "no_quality", False):
-        _quality_mod = importlib.import_module("app.commands.image-quality")
+        _quality_mod = _quality_module()
         print(f"\n{'─'*40}")
         print(f"Quality Analysis")
         print(f"{'─'*40}")
@@ -6980,7 +6994,7 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
             pipeline = ZImagePipeline(transformer_dir=t_dir)
         else:
             pipeline = ZImagePipeline()
-    _quality_mod = importlib.import_module("app.commands.image-quality")
+    _quality_mod = _quality_module()
 
     groups = []  # [{prompt_name, prompt_text, width, height, pairs, metrics_by_pair}, ...]
     img_counter = 0
@@ -7710,7 +7724,7 @@ def _run_lora_ref_selftest(args, test_name: str, test_cfg: dict):
     # --- Quality ---
     metrics = []
     if not getattr(args, "no_quality", False):
-        _qm = importlib.import_module("app.commands.image-quality")
+        _qm = _quality_module()
         print(f"\n{'-'*40}\n Quality Analysis\n{'-'*40}")
         for i, t in enumerate(triples):
             print(f"\n  {t['prompt_name']} / seed={t['seed']}")
