@@ -13,7 +13,7 @@
 //   - Loop shape + phase skeleton + dead-end/margin/convergence: copied from
 //     gui-movie-director-schema-self-improve.js (coverage lane).
 //   - Python invocation + reliable saveHistory (Write→test -s→heredoc fallback):
-//     copied from mlx-movie-director-ltx-self-improve.js.
+//     copied from mlx-movie-director-run-self-improve-ltx.js.
 //   - Flakiness fix (clear __pycache__ + -p no:cacheprovider before every pytest
 //     run): from the pytest-stale-pycache-false-failures memory.
 //   - Coverage measurement: pytest-cov --cov-report=json (machine-readable, far

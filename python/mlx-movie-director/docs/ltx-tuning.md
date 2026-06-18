@@ -1,10 +1,10 @@
 # LTX Tuning Log
 
 Running, objective-agnostic record of **confirmed** LTX generation-tuning
-findings. Appended by the `mlx-movie-director-ltx-self-improve` workflow's
+findings. Appended by the `mlx-movie-director-run-self-improve-ltx` workflow's
 Knowledge phase — only levers that improved the composite score by ≥ the margin
 (and were reproduced) are written here. Within-noise / rejected moves stay in
-the per-run history under `.claude/workflows/history/mlx-movie-director-ltx-self-improve/`,
+the per-run history under `.claude/workflows/history/mlx-movie-director-run-self-improve-ltx/`,
 not in this log.
 
 ## Entry format

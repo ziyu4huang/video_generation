@@ -1,4 +1,4 @@
-// mlx-movie-director-ltx-self-improve — Autonomous LTX generation tuning.
+// mlx-movie-director-run-self-improve-ltx — Autonomous LTX generation tuning.
 //
 // Closes the loop: an agent PROPOSES one CLI-knob change → GENERATE → MEASURE
 // (voice + quality composite) → ADOPT-or-REVERT, iterating within a budget,
@@ -19,7 +19,7 @@
 // patch edits (av_ca speech-gate stays fixed), no prompt tuning.
 //
 // Usage:
-//   Workflow({ name: "mlx-movie-director-ltx-self-improve" })
+//   Workflow({ name: "mlx-movie-director-run-self-improve-ltx" })
 //     → DRY-RUN (default): propose-only plan, zero GPU, for human review
 //   Workflow({ name: "...", args: { dryRun: false } })
 //     → execute the full autonomous loop (baseline + ≤budget iterations)
@@ -29,7 +29,7 @@
 //   Workflow({ name: "...", args: { voiceWeight: 1, qualityWeight: 0 } })  // voice only
 
 export const meta = {
-  name: "mlx-movie-director-ltx-self-improve",
+  name: "mlx-movie-director-run-self-improve-ltx",
   description: "Autonomous LTX generation tuning: propose→generate→measure→adopt/revert CLI-knob changes to maximize a deterministic voice+quality composite, persisting iteration history and writing confirmed levers to the knowledge base",
   whenToUse: "Tune LTX (dasiwa/dev) generation params for best voice+quality via a self-improving loop that learns from its own history. Dry-run by default; set dryRun:false to spend GPU.",
   phases: [
@@ -41,6 +41,11 @@ export const meta = {
     { title: "Report",   detail: "trajectory HTML (iter→composite) + stdout verdict" },
   ],
 }
+
+// The Workflow runtime strips `export const meta` to extract metadata, leaving `meta`
+// unbound in execution scope. Mirror the name here so KB_FILE / the history entry can
+// reference it (matches mlx-movie-director-run-self-improve-image.js).
+const _WF_NAME = "mlx-movie-director-run-self-improve-ltx"
 
 // ── args ────────────────────────────────────────────────────────────────────
 const isObj = (x) => x && typeof x === "object" && !Array.isArray(x)
@@ -169,7 +174,7 @@ Do exactly this:
 1. Bash("git rev-parse --show-toplevel") → projectRoot
 2. mlxDir   = projectRoot + "/python/mlx-movie-director"
    pythonExe= projectRoot + "/python/venv/bin/python"
-   historyDir= projectRoot + "/.claude/workflows/history/mlx-movie-director-ltx-self-improve"
+   historyDir= projectRoot + "/.claude/workflows/history/mlx-movie-director-run-self-improve-ltx"
 3. Bash("mkdir -p '\${historyDir}'")
 4. runId = Bash("date +%Y%m%d_%H%M%S").trim()
 5. Prior history: Bash("ls -t '\${historyDir}'/*.jsonl 2>/dev/null | head -5") → priorRuns (basenames). If resume != "fresh", read the newest jsonl tail (last ~12 lines) to summarize what was tried + best config + dead-ends.
@@ -185,7 +190,7 @@ if (!resolve) { log("Resolve failed — aborting."); throw new Error("resolve fa
 const R = resolve
 const HIST_FILE = `${R.historyDir}/${R.runId}.jsonl`
 const _ltx_INDEX_FILE = `${R.projectRoot}/.claude/workflows/history/_index.json`
-const KB_FILE = `${R.projectRoot}/.claude/workflows/${meta.name}.knowledge.jsonl`
+const KB_FILE = `${R.projectRoot}/.claude/workflows/${_WF_NAME}.knowledge.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -546,7 +551,7 @@ const _ltx_signals = {
 const ltxHistEntry = {
   schema_version: 1,
   run_id: R.runId,
-  workflow: meta.name,
+  workflow: _WF_NAME,
   started_at: R.runId,
   args: { objective, transformer, dryRun, budget },
   phases_completed: ["Baseline", "Improve", "Knowledge"],

@@ -3,7 +3,7 @@
 
 Emits ONE JSON line combining voice (ASR + app.voice_metrics) and video-quality
 (app.quality_metrics) into a weighted composite. Used by the
-mlx-movie-director-ltx-self-improve workflow's Measure step, and reusable
+mlx-movie-director-run-self-improve-ltx workflow's Measure step, and reusable
 standalone. Deterministic: same mp4 → identical output (ASR is deterministic given
 the same mlx-whisper release + model), so adopt/revert decisions are sound.
 

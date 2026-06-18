@@ -1,12 +1,12 @@
 {
   "manifest_version": 1,
-  "file": "mlx-movie-director-ltx-self-improve.knowledge.jsonl",
+  "file": "mlx-movie-director-image-review-optimize.knowledge.jsonl",
   "kind": "workflow-knowledge",
-  "purpose": "Distilled, committed, per-workflow knowledge for mlx-movie-director-ltx-self-improve — pattern/lever/avoid/gotcha/false_positive/metric records loaded at Resolve (loadKnowledge) and rewritten at Persist (extractKnowledge). The committed, cross-machine superset of the ephemeral history/mlx-movie-director-ltx-self-improve/.",
+  "purpose": "Distilled, committed, per-workflow knowledge for mlx-movie-director-image-review-optimize — pattern/lever/avoid/gotcha/false_positive/metric records loaded at Resolve (loadKnowledge) and rewritten at Persist (extractKnowledge). The committed, cross-machine superset of the ephemeral history/mlx-movie-director-image-review-optimize/.",
   "record_version_field": "schema_version",
   "record_version": 1,
-  "produced_by": "extractKnowledge() in mlx-movie-director-ltx-self-improve.js (Persists, after saveHistory).",
-  "consumed_by": "loadKnowledge() in mlx-movie-director-ltx-self-improve.js (Resolve) — injects active records' digest into the run. Also scripts/workflow-knowledge-manifest.mjs (the MANIFEST.md coverage matrix).",
+  "produced_by": "extractKnowledge() in mlx-movie-director-image-review-optimize.js (Persists, after saveHistory).",
+  "consumed_by": "loadKnowledge() in mlx-movie-director-image-review-optimize.js (Resolve) — injects active records' digest into the run. Also scripts/workflow-knowledge-manifest.mjs (the MANIFEST.md coverage matrix).",
   "record_schema": [
     {
       "name": "schema_version",

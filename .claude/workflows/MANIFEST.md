@@ -41,19 +41,20 @@ Completed coverage so **every** dynamic workflow owns its knowledge base:
 
 | Workflow | Family | load | extract | saveHistory | kb file | records | active | last run |
 |---|---|:---:|:---:|:---:|:---:|---:|---:|---|
-| gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 26 | 26 | 2026-06-16T12-02-14 |
+| gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 33 | 33 | 2026-06-18T13-33-32 |
 | gui-movie-director-schema-self-improve | gui | ✓ | ✓ | — | ✓ | 0 | 0 | empty |
-| gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 13 | 13 | 2026-06-16T12-01-58 |
+| gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 15 | 15 | 2026-06-18T13-32-31 |
 | gui-movie-director-ux-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 | mlx-movie-director-coverage-self-improve | mlx | ✓ | ✓ | — | ✓ | 0 | 0 | empty |
+| mlx-movie-director-image-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 | mlx-movie-director-lora-review-flux2-klein | mlx | ✓ | ✓ | ✓ | ✓ | 16 | 16 | 2026-06-13T22-49-29 |
 | mlx-movie-director-lora-review-zimage-turbo | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
-| mlx-movie-director-ltx-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 | mlx-movie-director-models-assistant | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 | mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 35 | 35 | 2026-06-16T21-46-02 |
 | mlx-movie-director-run-self-improve-image | mlx | ✓ | ✓ | ✓ | ✓ | 19 | 19 | 2026-06-15T12-16-49 |
+| mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 | mlx-movie-director-video-assistant | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
 
-**Totals:** 12 workflows · 12 load / 12 extract wired · 12 knowledge files · 109 records (109 active)
+**Totals:** 13 workflows · 13 load / 13 extract wired · 13 knowledge files · 118 records (118 active)
 
 <!-- END KNOWLEDGE MATRIX -->
