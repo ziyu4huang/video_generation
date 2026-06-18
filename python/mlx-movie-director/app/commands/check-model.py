@@ -103,19 +103,28 @@ OPTIONAL_FIELDS = {
     "convert_timestamp": str,    # ISO-8601 of conversion
 }
 
-# Known pipeline names (warn on unknown)
+# Known pipeline names (warn on unknown).
+# Authoritative source: the --pipeline choices in app/commands/image-t2i.py
+# (zimage / flux2-klein / lens) plus the video (ltx-2.3) and seedvr2-upscale
+# commands, and flux2-klein-edit (i2i variant). Keep this set in sync when a
+# new pipeline is added.
 KNOWN_PIPELINES = {
     "zimage-turbo",
     "flux2-klein",
     "flux2-klein-edit",
+    "lens",
     "ltx-2.3",
     "seedvr2-upscale",
 }
 
-# Known weight formats (warn on unknown)
+# Known weight formats (warn on unknown).
+# Note: "mlx-int4-gs32" is the int4 synonym of "mlx-4bit-gs32" (4-bit ≡ int4,
+# same group-size-32 quantization, two naming styles emitted by different
+# conversion paths). Both are accepted.
 KNOWN_FORMATS = {
     "mlx-4bit-gs32",
     "mlx-4bit-gs64",
+    "mlx-int4-gs32",
     "mlx-8bit",
     "mlx-int8",
     "mlx-bf16",
@@ -236,8 +245,11 @@ def _find_manifests(models_dir: str) -> Iterator[tuple[str, str, str]]:
                 yield category, instance, mf
 
 
-# Directories to skip during orphan scanning (not model categories)
-_SKIP_DIRS = {".cache", "__pycache__", ".git", "tmp"}
+# Directories to skip during orphan scanning (not model categories / not instances).
+# "ltx-mlx" is a gitignored symlink-forest aggregator (models/ltx-mlx/{dev,
+# distilled,dasiwa} recreated by scripts/setup_ltx_symlinks.py and consumed by
+# ltx_pipeline.py as a flat load root) — not a managed instance, so no manifest.
+_SKIP_DIRS = {".cache", "__pycache__", ".git", "tmp", "ltx-mlx"}
 
 
 def _find_orphans(models_dir: str) -> Iterator[tuple[str, str]]:

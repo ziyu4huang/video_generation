@@ -4,11 +4,12 @@
   "type": "text_encoder",
   "arch": "gpt-oss-20b",
   "format": "mlx-int4-gs32",
+  "size_bytes": 13519556736,
   "description": "OpenAI GPT-OSS-20B text encoder (MoE FFN, 64/8 GQA, YARN RoPE, sliding window 128) for the Microsoft Lens 3.8B MMDiT. MLX INT4 quantized (group_size=32). Loads multi-layer hidden states at selected layers (5, 11, 17, 23). Used by app/lens_text_encoder.py + app/lens_pipeline.py.",
   "source": "openai/gpt-oss-20b",
   "source_url": "https://huggingface.co/openai/gpt-oss-20b",
   "pipeline": ["lens"],
-  "compatible_with": ["transformer/lens-3.8b"],
+  "compatible_with": [],
   "created_at": "2026-06-14T00:00:00Z",
   "files": [
     {
