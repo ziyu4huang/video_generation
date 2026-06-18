@@ -1188,16 +1188,25 @@ def convert_ltx_checkpoint(checkpoint_path: str, output_name: str = "ltx-2.3-das
     return True
 
 
-def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmix-redzit15"):
+def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmix-redzit15",
+                           source: str | None = None, source_url: str | None = None):
     """Convert a third-party ZImage Turbo checkpoint (Civitai .safetensors) to 4-bit MLX.
 
     Handles ComfyUI-format safetensors (FP8 or BF16) by reusing the existing
     key remapping (_remap_qkv, _remap_keys, _map_key_and_convert) and 4-bit
     quantization pipeline — identical to the built-in convert_transformer().
 
+    source / source_url override the provenance recorded in manifest.json +
+    README.md. When omitted they fall back to the Ernie checkpoint's Civitai IDs
+    (958009 / 2462789) for backward compatibility — always pass them for a
+    different checkpoint so the registry records correct provenance.
+
     Usage:
         convert.py --zit-checkpoint /path/to/redzit15.safetensors
         convert.py --zit-checkpoint checkpoint.safetensors --name my-zit-variant
+        convert.py --zit-checkpoint ckpt.safetensors --name my-zit \
+            --source civitai.com/models/2242173 \
+            --source-url "https://civitai.com/models/2242173?modelVersionId=2788849"
     """
     checkpoint_path = os.path.abspath(checkpoint_path)
     if not os.path.exists(checkpoint_path):
@@ -1212,15 +1221,45 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     pt_weights = load_pt_file(checkpoint_path)
     print(f"[zit-checkpoint] Loaded {len(pt_weights)} tensors")
 
-    # ── Step 2: Dequantize FP8 -> BF16 if needed ──────────────────
+    # ── Step 2: Dequantize ComfyUI FP8 (per-tensor scaled) -> BF16 ─
+    # ComfyUI FP8 stores each quantized linear as <key>.weight (float8_e4m3fn)
+    # + <key>.weight_scale (per-tensor F32 scalar) + <key>.comfy_quant (U8 JSON
+    # blob). Dequant = weight.float() * scale. Older/plain FP8 sources without
+    # a scale sibling fall back to a raw fp8->bf16 cast. The metadata siblings
+    # are dropped here so they don't flow into the key remap / weight loader.
     _FP8 = (torch.float8_e4m3fn, torch.float8_e5m2)
+    scales: dict[str, torch.Tensor] = {}
+    meta_keys: list[str] = []
     for k in list(pt_weights.keys()):
+        if k.endswith(".comfy_quant"):
+            meta_keys.append(k)
+        elif k.endswith(".weight_scale"):
+            base = k[: -len(".weight_scale")]
+            t = pt_weights[k]
+            if isinstance(t, torch.Tensor):
+                scales[base] = t
+            meta_keys.append(k)
+    for k in list(pt_weights.keys()):
+        if k in meta_keys:
+            continue
         t = pt_weights[k]
         if isinstance(t, torch.Tensor):
             if t.dtype in _FP8:
-                pt_weights[k] = t.to(torch.bfloat16)
+                base = k[: -len(".weight")] if k.endswith(".weight") else k
+                if base in scales:
+                    t = (t.to(torch.float32) * scales[base]).to(torch.bfloat16)
+                else:
+                    t = t.to(torch.bfloat16)
+                pt_weights[k] = t
             elif t.dtype in (torch.float16, torch.float32):
                 pt_weights[k] = t.to(torch.bfloat16)
+    for k in meta_keys:
+        pt_weights.pop(k, None)
+    if scales:
+        print(f"[zit-checkpoint] Dequantized {len(scales)} ComfyUI FP8-scaled tensors "
+              f"(weight * weight_scale); dropped {len(meta_keys)} metadata keys")
+    elif meta_keys:
+        print(f"[zit-checkpoint] Dropped {len(meta_keys)} metadata keys")
 
     # ── Step 3: Drop unused key ───────────────────────────────────
     if "model.diffusion_model.norm_final.weight" in pt_weights:
@@ -1271,6 +1310,8 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     # ── Step 9: Auto-generate manifest.json ────────────────────────
     weight_size = os.path.getsize(out_weights)
     from datetime import datetime, timezone
+    src_id = source or "civitai.com/models/958009"
+    src_url = source_url or "https://civitai.com/models/958009?modelVersionId=2462789"
     manifest = {
         "_comment": ("Private metadata for mlx-movie-director model registry. "
                      "Created by convert.py --zit-checkpoint. Validated by "
@@ -1283,8 +1324,8 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
             f"ZImage Turbo finetune, 4-bit MLX. Converted from "
             f"{os.path.basename(checkpoint_path)} via convert.py --zit-checkpoint."
         ),
-        "source": "civitai.com/models/958009",
-        "source_url": "https://civitai.com/models/958009?modelVersionId=2462789",
+        "source": src_id,
+        "source_url": src_url,
         "weight_file": "model.safetensors",
         "pipeline": ["zimage-turbo"],
         "compatible_with": [
@@ -1303,9 +1344,7 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     readme = (
         f"# {output_name}\n\n"
         f"ZImage Turbo finetune, 4-bit MLX.\n\n"
-        f"- **Source**: CivitAI [958009/2462789]"
-        f"(https://civitai.com/models/958009?modelVersionId=2462789) "
-        f"(baseModel ZImageTurbo)\n"
+        f"- **Source**: CivitAI ({src_url}) (baseModel ZImageTurbo)\n"
         f"- **Converted**: `convert.py --zit-checkpoint "
         f"{os.path.basename(checkpoint_path)}`\n"
         f"- **Size**: {size_gb:.1f} GB\n"
@@ -1574,6 +1613,13 @@ Examples:
                              "/ --zit-checkpoint "
                              "(defaults: klein-9b-dark-beast-bfs / ltx-2.3-dasiwa-golden-lace-v3-q8 "
                              "/ ernie-redmix-redzit15)")
+    parser.add_argument("--source", type=str, default=None,
+                        help="Provenance recorded in the --zit-checkpoint manifest/README "
+                             "(e.g. civitai.com/models/2242173). Defaults to the Ernie "
+                             "checkpoint's Civitai ID for backward compatibility.")
+    parser.add_argument("--source-url", type=str, default=None,
+                        help="Full source URL for the --zit-checkpoint manifest/README "
+                             "(e.g. https://civitai.com/models/2242173?modelVersionId=2788849).")
     parser.add_argument("--vae-mlx", action="store_true",
                         help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--seedvr2-vae-int8", action="store_true",
@@ -1607,7 +1653,8 @@ Examples:
     if args.ltx_checkpoint:
         convert_ltx_checkpoint(args.ltx_checkpoint, args.name or "ltx-2.3-dasiwa-golden-lace-v3-q8")
     if args.zit_checkpoint:
-        convert_zit_checkpoint(args.zit_checkpoint, args.name or "ernie-redmix-redzit15")
+        convert_zit_checkpoint(args.zit_checkpoint, args.name or "ernie-redmix-redzit15",
+                               source=args.source, source_url=args.source_url)
     if args.vae_mlx:
         convert_vae_to_mlx()
     if args.seedvr2_vae_int8:
