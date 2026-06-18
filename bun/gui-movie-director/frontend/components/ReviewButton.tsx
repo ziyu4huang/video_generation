@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
 import { toast } from "../utils/toast";
+import { runCaption } from "../api/caption";
 
 interface ReviewButtonProps {
   /** Absolute path to the image file on disk */
@@ -34,12 +35,7 @@ export function ReviewButton({ imagePath, prompt, existingCaption }: ReviewButto
       if (selectedStyle === "review" && prompt) {
         body.prompt = prompt;
       }
-      const res = await fetch("/api/caption/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
+      const data = await runCaption(body);
       if (data.ok && data.caption) {
         setResult(data.caption);
         toast.success("Review complete");

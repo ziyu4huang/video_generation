@@ -6,6 +6,7 @@ import { JsonViewer } from "../../components/JsonViewer";
 import type { JobInfo } from "../../types";
 import { relativeTime, formatDuration } from "../../utils/format";
 import { toast } from "../../utils/toast";
+import { runJob, clearJobs } from "../../api/jobs";
 
 interface JobRowProps {
   job: JobInfo;
@@ -166,12 +167,7 @@ function JobRow({ job, expanded, onToggle, onRefresh }: JobRowProps) {
                 onClick={async (e) => {
                   e.stopPropagation();
                   try {
-                    const res = await fetch("/api/run", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ action: job.action, params: job.params ?? {} }),
-                    });
-                    const data = await res.json();
+                    const data = await runJob(job.action!, job.params ?? {});
                     if (data.jobId) {
                       toast.success("Retry started");
                     } else if (data.error) {
@@ -220,7 +216,7 @@ export function JobHistoryView() {
   const handleClearFailed = async () => {
     setClearing("failed");
     try {
-      await fetch("/api/jobs/all?status=failed", { method: "DELETE" });
+      await clearJobs("failed");
       refresh();
     } finally {
       setClearing("none");
@@ -230,7 +226,7 @@ export function JobHistoryView() {
   const handleClearDone = async () => {
     setClearing("all");
     try {
-      await fetch("/api/jobs/all?status=completed,failed", { method: "DELETE" });
+      await clearJobs("completed,failed");
       refresh();
     } finally {
       setClearing("none");

@@ -218,8 +218,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Model name. If omitted, use "
                         f"{_PREFERRED_MODEL} if already loaded in LM Studio, "
                         f"else fall back to {_DEFAULT_MODEL} (actively loaded).")
-    parser.add_argument("--style", choices=list(_STYLE_PROMPTS.keys()), default="t2i",
-                        help="Caption style (default: t2i)")
+    parser.add_argument("--style", nargs="+", choices=list(_STYLE_PROMPTS.keys()), default=["t2i"],
+                        help="Caption style(s) (default: t2i). Accepts ONE OR MORE styles; each is "
+                        "a separate VLM call and all merge into the same <image>.caption.json "
+                        "under the `styles` map, so e.g. --style default score yields both a "
+                        "description and a quality score in one file. Single-value usage "
+                        "(--style score) is unchanged.")
     parser.add_argument("--lang", choices=list(_LANG_INSTRUCTIONS.keys()), default="zh_TW",
                         help="Output language (default: zh_TW)")
     parser.add_argument("--no-auto-load", action="store_true",
@@ -317,7 +321,11 @@ def run(args: argparse.Namespace) -> None:
         "input (positional arg or --input-image)",
     )
 
-    style = args.style
+    # `--style` is one-or-more (default ["t2i"]). Each requested style is a
+    # separate VLM call; all merge into the SAME <image>.caption.json `styles`
+    # map (alongside any previously-generated styles), so `--style default score`
+    # produces both a description and a quality score in one file in one go.
+    styles_to_run = list(args.style)
     lang = args.lang
 
     # Detect video by extension
@@ -330,84 +338,91 @@ def run(args: argparse.Namespace) -> None:
         base, _ = os.path.splitext(input_path)
         output_path = f"{base}.caption.json"
 
-    if is_video:
-        # --- Video path ---
-        n_frames = getattr(args, "frames", 8)
-        print(f"Captioning video {input_path} (style={style}, lang={lang}, {n_frames} frames)...", flush=True)
-        t0 = time.perf_counter()
-        result = caption_video(
-            input_path,
-            style=style,
-            lang=lang,
-            n_frames=n_frames,
-            api_url=args.api_url,
-            model=model,
-            auto_load=not getattr(args, "no_auto_load", False),
-        )
-        elapsed_sec = round(time.perf_counter() - t0, 2)
-        caption_text = result.get("summary", json.dumps(result, ensure_ascii=False))
-        # Wrap in standard output format
-        output = {
-            "video": input_path,
-            "style": style,
-            "model": model,
-            "frames": n_frames,
-            "elapsed_sec": elapsed_sec,
-            "caption": result,
-        }
-    else:
-        # --- Image path (existing flow) ---
-        prompt_text = _STYLE_PROMPTS[style]
-        if style == "review":
-            if not args.prompt:
-                print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
-                sys.exit(1)
-            prompt_text = prompt_text.format(prompt=args.prompt)
-        prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
+    n_samples = max(1, int(getattr(args, "samples", 1) or 1))
+    sample_tag = f", x{n_samples} samples (median)" if n_samples > 1 else ""
+    multi_tag = f" ({len(styles_to_run)} styles)" if len(styles_to_run) > 1 else ""
 
-        n_samples = max(1, int(getattr(args, "samples", 1) or 1))
-        sample_tag = f", x{n_samples} samples (median)" if n_samples > 1 else ""
-        print(f"Captioning {input_path} (style={style}, lang={lang}{sample_tag})...", end=" ", flush=True)
-        b64 = _image_to_base64(input_path)
-        # Time only the VLM call(s) — the meaningful cold/warm cost (b64 encode is
-        # negligible). Recorded in the output JSON as elapsed_sec.
-        t0 = time.perf_counter()
-        if n_samples > 1:
-            # Multi-sample denoising: N VLM calls in-process (model stays loaded),
-            # then median the numeric score dims in Python.
-            raws = [
-                _call_vlm(args.api_url, model, b64, prompt_text,
-                          auto_load=not getattr(args, "no_auto_load", False))
-                for _ in range(n_samples)
-            ]
-            caption_text = median_score_caption(raws)
+    # b64 is identical across styles for the same image — encode once.
+    b64 = None if is_video else _image_to_base64(input_path)
+
+    new_entries: dict[str, dict] = {}
+    last_style = styles_to_run[-1]
+    flat_record: dict = {}
+    for style in styles_to_run:
+        if is_video:
+            # --- Video path (per style) ---
+            n_frames = getattr(args, "frames", 8)
+            print(f"Captioning video {input_path} (style={style}, lang={lang}, "
+                  f"{n_frames} frames{multi_tag})...", flush=True)
+            t0 = time.perf_counter()
+            result = caption_video(
+                input_path,
+                style=style,
+                lang=lang,
+                n_frames=n_frames,
+                api_url=args.api_url,
+                model=model,
+                auto_load=not getattr(args, "no_auto_load", False),
+            )
+            elapsed_sec = round(time.perf_counter() - t0, 2)
+            preview_text = result.get("summary", json.dumps(result, ensure_ascii=False))
+            entry = {"model": model, "frames": n_frames,
+                     "elapsed_sec": elapsed_sec, "caption": result}
+            flat_record = {"video": input_path, "frames": n_frames}
         else:
-            caption_text = _call_vlm(args.api_url, model, b64, prompt_text,
-                                     auto_load=not getattr(args, "no_auto_load", False))
-        elapsed_sec = round(time.perf_counter() - t0, 2)
-        output = {
-            "image": input_path,
-            "style": style,
-            "model": model,
-            "elapsed_sec": elapsed_sec,
-            "caption": caption_text,
-        }
+            # --- Image path (per style) ---
+            prompt_text = _STYLE_PROMPTS[style]
+            if style == "review":
+                if not args.prompt:
+                    print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
+                    sys.exit(1)
+                prompt_text = prompt_text.format(prompt=args.prompt)
+            prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
+            print(f"Captioning {input_path} (style={style}, lang={lang}"
+                  f"{sample_tag}){multi_tag}...", end=" ", flush=True)
+            # Time only the VLM call(s) — the meaningful cold/warm cost (b64 is
+            # encoded once above). Recorded per-style as elapsed_sec.
+            t0 = time.perf_counter()
+            if n_samples > 1:
+                # Multi-sample denoising: N VLM calls in-process (model stays
+                # loaded), then median the numeric score dims in Python.
+                raws = [
+                    _call_vlm(args.api_url, model, b64, prompt_text,
+                              auto_load=not getattr(args, "no_auto_load", False))
+                    for _ in range(n_samples)
+                ]
+                caption_value = median_score_caption(raws)
+            else:
+                caption_value = _call_vlm(args.api_url, model, b64, prompt_text,
+                                          auto_load=not getattr(args, "no_auto_load", False))
+            elapsed_sec = round(time.perf_counter() - t0, 2)
+            preview_text = caption_value
+            entry = {"model": model, "elapsed_sec": elapsed_sec, "caption": caption_value}
+            flat_record = {"image": input_path}
+        new_entries[style] = entry
+        print(f"Done ({elapsed_sec}s)")
+        preview = (preview_text or "")[:120].replace("\n", " ")
+        print(f"  [{style}] {preview}..." if len(preview) == 120 else f"  [{style}] {preview}")
 
-    # Merge this style into the existing multi-style caption.json (if any),
+    # Merge every new style into the existing multi-style caption.json (if any),
     # preserving previously-generated styles for the same image instead of
     # overwriting them.
     styles = _load_existing_styles(output_path)
-    style_entry = {k: v for k, v in output.items() if k not in ("image", "video", "style")}
-    styles[style] = style_entry
-    # Keep flat top-level `style`/`caption`/`model`/`elapsed_sec` fields mirroring
-    # this run alongside the new `styles` map: other tools (image-review.py,
-    # video-review.py, image-profile.py) read those flat fields directly and
-    # expect the latest-style behavior that already existed before multi-style
-    # caching — this keeps that read path unchanged while the GUI gets the
-    # full per-style cache via `styles`.
+    styles.update(new_entries)
+
+    # Flat top-level `style`/`caption`/`model`/`elapsed_sec` fields mirror the
+    # LAST style processed: other tools (image-review.py, video-review.py,
+    # image-profile.py) read those flat fields directly and expect the
+    # latest-style behavior that already existed before multi-style caching —
+    # this keeps that read path unchanged while the GUI gets the full per-style
+    # cache via `styles`. `updated_style` records which style the flat fields
+    # reflect; `styles_run` lists what this invocation added.
+    last_entry = new_entries[last_style]
+    output = {**flat_record, "style": last_style, **last_entry}
     merged = {
         **output,
-        "updated_style": style,
+        "updated_style": last_style,
+        "styles_run": list(new_entries.keys()),
         "styles": styles,
     }
 
@@ -415,10 +430,8 @@ def run(args: argparse.Namespace) -> None:
     with open(output_path, "w") as f:
         json.dump(merged, f, indent=2, ensure_ascii=False)
 
-    print(f"Done ({output.get('elapsed_sec', 0)}s)")
-    preview = (caption_text or "")[:120].replace("\n", " ")
-    print(f"Caption: {preview}..." if len(preview) == 120 else f"Caption: {preview}")
-    print(f"Saved: {output_path}")
+    print(f"Saved: {output_path} "
+          f"({len(new_entries)} style(s): {', '.join(new_entries)})")
 
 
 def _image_to_base64(image_path: str, max_size: int = 1024) -> str:

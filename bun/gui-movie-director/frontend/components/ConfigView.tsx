@@ -5,6 +5,7 @@ import { ConfigPathsSection } from "./config/ConfigPathsSection";
 import { ConfigRuntimeSection } from "./config/ConfigRuntimeSection";
 import { ConfigVlmSection } from "./config/ConfigVlmSection";
 import { SkeletonFormSection } from "./Skeleton";
+import { getConfig, putConfig } from "../api/config";
 
 export function ConfigView() {
   const [config, setConfig] = useState<ConfigData>(CONFIG_DEFAULTS);
@@ -13,8 +14,7 @@ export function ConfigView() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    fetch("/api/config")
-      .then((r) => r.json())
+    getConfig()
       .then((data) => { setConfig({ ...CONFIG_DEFAULTS, ...data }); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -28,11 +28,7 @@ export function ConfigView() {
     setSaving(true);
     setSaved(false);
     try {
-      const res = await fetch("/api/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
+      const res = await putConfig(config);
       if (res.ok) {
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);

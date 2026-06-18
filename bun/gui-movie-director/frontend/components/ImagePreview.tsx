@@ -5,6 +5,8 @@ import { formatBytes, basename } from "../utils/format";
 import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
 import { toast } from "../utils/toast";
 import s from "./ImagePreview.module.css";
+import { replayJob } from "../api/jobs";
+import { runCaption } from "../api/caption";
 
 type Tab = "run" | "manifest" | "scores";
 
@@ -437,12 +439,7 @@ function RunViewer({ data, runPath }: { data: Record<string, any>; runPath?: str
     if (!runPath || rerunning) return;
     setRerunning(true);
     try {
-      const res = await fetch("/api/replay", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runPath }),
-      });
-      const d = await res.json();
+      const d = await replayJob(runPath);
       if (d.jobId) {
         toast.success("Re-run started");
         mutate("/api/jobs"); // refresh the Jobs panel now (it also arrives over WS)
@@ -916,12 +913,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     }
     setCaptionLoading(true);
     try {
-      const res = await fetch("/api/caption/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, style }),
-      });
-      const data = await res.json();
+      const data = await runCaption({ url, style });
       if (data.ok && data.caption) {
         setCaptionFile(data.caption);
         toast.success(`Caption generated (${style})`);

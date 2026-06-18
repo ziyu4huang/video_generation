@@ -75,6 +75,13 @@
             "context": 128000,
             "output": 32768
           }
+        },
+        "google/gemma-4-31b-qat": {
+          "name": "Gemma 4 31B QAT",
+          "limit": {
+            "context": 128000,
+            "output": 32768
+          }
         }
       }
     },
@@ -177,6 +184,12 @@
       "description": "Gemma 4 26B Vision local build agent (oMLX)",
       "mode": "primary",
       "model": "lmstudio/google/gemma-4-26b-a4b-qat",
+      "permission": { "edit": "allow", "bash": "allow", "task": { "*": "allow" } }
+    },
+    "build-gemma4-31b": {
+      "description": "Gemma 4 31B QAT local build agent (LMStudio)",
+      "mode": "primary",
+      "model": "lmstudio/google/gemma-4-31b-qat",
       "permission": { "edit": "allow", "bash": "allow", "task": { "*": "allow" } }
     },
     "plan": {

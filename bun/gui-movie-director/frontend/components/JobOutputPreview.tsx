@@ -4,6 +4,8 @@ import { ImagePreview } from "./ImagePreview";
 import { ReviewButton } from "./ReviewButton";
 import type { GalleryImage, JobInfo } from "../types";
 import { toast } from "../utils/toast";
+import { fetchGallery, } from "../api/gallery";
+import { runJob } from "../api/jobs";
 
 interface Props {
   job: JobInfo;
@@ -16,12 +18,11 @@ export function JobOutputPreview({ job, onViewInGallery }: Props) {
 
   useEffect(() => {
     if (job.status !== "completed") return;
-    fetch("/api/gallery?limit=20")
-      .then((r) => r.json())
+    fetchGallery(20)
       .then((data) => {
         const jobStart = new Date(job.startedAt).getTime();
         setImages(
-          (data.images as GalleryImage[]).filter(
+          data.images.filter(
             (img) => new Date(img.createdAt).getTime() >= jobStart
           )
         );
@@ -42,12 +43,7 @@ export function JobOutputPreview({ job, onViewInGallery }: Props) {
             className="btn"
             onClick={async () => {
               try {
-                const res = await fetch("/api/run", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ action: job.action, params: job.params ?? {} }),
-                });
-                const data = await res.json();
+                const data = await runJob(job.action!, job.params ?? {});
                 if (data.jobId) {
                   toast.success("Run started");
                 } else if (data.error) {

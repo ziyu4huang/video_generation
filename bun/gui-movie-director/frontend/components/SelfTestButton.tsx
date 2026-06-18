@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useSchemaDefaults, type SelfTestEntry } from "../hooks/useSchemaDefaults";
 import { toast } from "../utils/toast";
+import { runSelfTest } from "../api/selftest";
 
 interface SelfTestButtonProps {
   action: string;
@@ -52,12 +53,7 @@ export function SelfTestButton({ action, onJobStart }: SelfTestButtonProps) {
   const selectNone = () => setSelected(new Set());
 
   const runOne = async (testName: string) => {
-    const res = await fetch("/api/selftest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, test_name: testName }),
-    });
-    const data = await res.json();
+    const data = await runSelfTest(action, testName);
     if (data.jobId) {
       const isVideo = action.startsWith("video-");
       const command = isVideo ? `video ${action.replace("video-", "")}` : `image ${action}`;

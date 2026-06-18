@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Gallery } from "../../components/Gallery";
 import { GallerySearchBar } from "../../components/GallerySearchBar";
 import type { GalleryTypeFilter } from "../../components/Gallery";
 import { ImagePreview } from "../../components/ImagePreview";
 import type { GalleryImage } from "../../types";
 import { toast } from "../../utils/toast";
+import { deleteGalleryItem } from "../../api/gallery";
+import { useWebSocketEvents } from "../../hooks/ui/useWebSocketEvents";
 
 interface GalleryViewProps {
   highlight?: string[];
@@ -18,44 +20,18 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<GalleryTypeFilter>("all");
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimer = useRef<number | null>(null);
   const refreshTimer = useRef<number | null>(null);
   const highlightConsumedRef = useRef(false);
 
-  useEffect(() => {
-    const connect = () => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === "job_complete" || msg.type === "gallery-updated") {
-            if (refreshTimer.current) clearTimeout(refreshTimer.current);
-            const delay = msg.type === "gallery-updated" ? 300 : 800;
-            refreshTimer.current = window.setTimeout(() => setRefreshKey((k) => k + 1), delay);
-          }
-        } catch {
-          // Ignore malformed messages
-        }
-      };
-
-      ws.onclose = () => {
-        reconnectTimer.current = window.setTimeout(connect, 2000);
-      };
-      ws.onerror = () => ws.close();
-    };
-
-    connect();
-    return () => {
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      wsRef.current?.close();
-    };
-  }, []);
+  useWebSocketEvents(
+    useCallback((msg) => {
+      if (msg.type === "job_complete" || msg.type === "gallery-updated") {
+        if (refreshTimer.current) clearTimeout(refreshTimer.current);
+        const delay = msg.type === "gallery-updated" ? 300 : 800;
+        refreshTimer.current = window.setTimeout(() => setRefreshKey((k) => k + 1), delay);
+      }
+    }, []),
+  );
 
   // Reset consumed flag when highlight changes
   useEffect(() => {
@@ -98,12 +74,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     const m = img.url.match(/^\/output\/(\d+)\//);
     const dirIdx = m ? parseInt(m[1], 10) : 0;
     try {
-      const res = await fetch("/api/gallery", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: img.name, dirIdx }),
-      });
-      const data = await res.json();
+      const data = await deleteGalleryItem(img.name, dirIdx);
       if (data.ok) {
         setAllImages((prev) => prev.filter((i) => i.name !== img.name));
         // Close preview if the deleted image is currently shown

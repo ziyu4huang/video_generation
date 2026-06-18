@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FormSection } from "../FormSection";
 import type { ConfigData, VlmTestResult } from "./types";
+import { putConfig, testVlm } from "../../api/config";
 
 interface Props {
   vlmApiUrl: string;
@@ -23,13 +24,8 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
     setTestResult(null);
     try {
       // Save config first so the test uses current values
-      await fetch("/api/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config),
-      });
-      const res = await fetch("/api/vlm/test");
-      setTestResult(await res.json());
+      await putConfig(config);
+      setTestResult(await testVlm());
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || "Test failed" });
     }

@@ -2,6 +2,7 @@ import type { Server } from "bun";
 import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
+import { buildFrontendBundle, rebuildFrontendBundle, serveBundleJs, serveBundleCss } from "./bundle";
 import { handleGallery, handleGalleryImage, handleGallerySearch, handleGalleryDelete } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
 import { handleReplayJob } from "./replay";
@@ -15,78 +16,12 @@ import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
 import { handleCaptionRun, handleCaptionGet } from "./caption";
 import { handleKnowledgeScan, handleKnowledgeCaptionMissing, handleKnowledgeAnalyze, handleKnowledgeGetReport, handleKnowledgeDeleteReport } from "./knowledge";
 import { handleCodeKnowledgeReport } from "./code-knowledge";
-import { handleWebSocketUpgrade, broadcastMessage } from "./ws";
+import { handleWebSocketUpgrade } from "./ws";
+
+export { buildFrontendBundle, rebuildFrontendBundle };
 
 const TEXT_HTML = { "Content-Type": "text/html; charset=utf-8" };
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
-
-// Pre-built frontend bundle (built at server startup, rebuilt on file change in dev)
-let _bundle: Response | null = null;
-let _bundleCss: Response | null = null;
-let _bundleEtag = "";
-let _bundleCssEtag = "";
-
-async function _doBuild(silent?: boolean): Promise<boolean> {
-  const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
-  try {
-    const result = await Bun.build({
-      entrypoints: [entryPoint],
-      outdir: "/tmp/gui-movie-director-build",
-      target: "browser",
-      minify: false,
-      splitting: false,
-      sourcemap: "external",
-      define: { "process.env.NODE_ENV": JSON.stringify("development") },
-      external: [],
-    });
-    if (result.success && result.outputs.length > 0) {
-      let jsSize = 0;
-      let cssSize = 0;
-      for (const output of result.outputs) {
-        const stat = fs.statSync(output.path);
-        const etag = `"${Bun.hash(`${stat.mtimeMs}:${stat.size}`).toString(16)}"`;
-        if (output.path.endsWith(".css")) {
-          _bundleCssEtag = etag;
-          _bundleCss = new Response(output, {
-            headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
-          });
-          cssSize = output.size;
-        } else if (output.path.endsWith(".js")) {
-          _bundleEtag = etag;
-          _bundle = new Response(output, {
-            headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
-          });
-          jsSize = output.size;
-        }
-      }
-      if (!silent) console.log(`📦 Frontend bundled: JS ${Math.round(jsSize / 1024)}KB${cssSize ? ` + CSS ${Math.round(cssSize / 1024)}KB` : ""}`);
-      return true;
-    } else {
-      console.error("Bundle errors:", result.logs);
-      const errors = result.logs
-        .filter((l) => l.level === "error")
-        .map((l) => ({
-          message: l.message,
-          file: (l as any).position?.file ?? "",
-          line: (l as any).position?.line ?? 0,
-          col: (l as any).position?.column ?? 0,
-        }));
-      if (errors.length) broadcastMessage({ type: "hmr-error", errors });
-      return false;
-    }
-  } catch (err) {
-    console.error("Bundle failed:", err);
-    return false;
-  }
-}
-
-export async function buildFrontendBundle(): Promise<void> {
-  await _doBuild();
-}
-
-export async function rebuildFrontendBundle(): Promise<boolean> {
-  return _doBuild(true);
-}
 
 export async function handleRequest(req: Request, server: Server): Promise<Response | undefined> {
   const url = new URL(req.url);
@@ -112,18 +47,14 @@ export async function handleRequest(req: Request, server: Server): Promise<Respo
 
   // Frontend bundle JS
   if (pathname === "/frontend/bundle.js") {
-    if (!_bundle) return new Response("Bundle not ready", { status: 503 });
-    if (req.headers.get("If-None-Match") === _bundleEtag)
-      return new Response(null, { status: 304, headers: { ETag: _bundleEtag } });
-    return _bundle.clone();
+    const res = serveBundleJs(req);
+    if (!res) return new Response("Bundle not ready", { status: 503 });
+    return res;
   }
 
   // Frontend bundle CSS (from Bun.build — includes global.css + CSS module outputs)
   if (pathname === "/frontend/bundle.css") {
-    if (!_bundleCss) return new Response("", { status: 200, headers: TEXT_CSS });
-    if (req.headers.get("If-None-Match") === _bundleCssEtag)
-      return new Response(null, { status: 304, headers: { ETag: _bundleCssEtag } });
-    return _bundleCss.clone();
+    return serveBundleCss(req);
   }
 
   // Legacy CSS (kept for backwards compatibility during transition)

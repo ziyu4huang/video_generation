@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import type { ViewDescriptor } from "../registry";
+import { scanKnowledge, captionMissing, analyzeKnowledge, getKnowledgeReport, deleteKnowledgeReport } from "../../api/knowledge";
 
 // Inline types matching lib/knowledge-types.ts (frontend can't import lib/ Node.js modules)
 interface KnowledgeRecord {
@@ -327,9 +328,8 @@ export function KnowledgeView() {
   const handleScan = useCallback(async () => {
     setScanning(true);
     try {
-      const res = await fetch("/api/knowledge/scan");
-      const data = await res.json();
-      if (data.ok) setRecords(data.records);
+      const data = await scanKnowledge();
+      if (data.ok) setRecords(data.records ?? []);
     } finally {
       setScanning(false);
     }
@@ -339,12 +339,7 @@ export function KnowledgeView() {
     setGenerating(true);
     setGenLog([]);
     try {
-      const res = await fetch("/api/knowledge/caption-missing", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await res.json();
+      const data = await captionMissing();
       if (data.ok) {
         setGenLog(data.logs ?? []);
         await handleScan();
@@ -358,12 +353,7 @@ export function KnowledgeView() {
     setAnalyzing(true);
     setAnalyzeError(null);
     try {
-      const res = await fetch("/api/knowledge/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ minScore, maxRecords }),
-      });
-      const data = await res.json();
+      const data = await analyzeKnowledge({ minScore, maxRecords });
       if (data.ok) {
         setReport(data.report);
       } else {
@@ -377,13 +367,12 @@ export function KnowledgeView() {
   }, []);
 
   const handleDeleteReport = useCallback(async () => {
-    await fetch("/api/knowledge/report", { method: "DELETE" });
+    await deleteKnowledgeReport();
     setReport(null);
   }, []);
 
   useEffect(() => {
-    fetch("/api/knowledge/report")
-      .then((r) => r.json())
+    getKnowledgeReport()
       .then((d) => { if (d.ok && d.report) setReport(d.report); })
       .catch(() => {});
   }, []);

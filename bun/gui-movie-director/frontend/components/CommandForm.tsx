@@ -8,6 +8,7 @@ import { FormSection } from "./FormSection";
 import { useDefaultState } from "../hooks/useDefaultState";
 import { useAllFieldHistories } from "../hooks/useFieldHistory";
 import { PIPELINE_TO_LORA_TAGS } from "../../schemas/shared";
+import { runJob } from "../api/jobs";
 
 interface CommandFormProps {
   schema: CommandSchema;
@@ -84,12 +85,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
       const params = schema.buildParams ? schema.buildParams(state) : { ...state };
       const prefix = commandPrefix ?? "image";
       const command = `${prefix} ${schema.action}`;
-      const res = await fetch("/api/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: schema.action, command, params }),
-      });
-      const data = await res.json();
+      const data = await runJob(schema.action, params);
       if (data.jobId) {
         for (const f of promptFields) {
           const val = state[f.key];

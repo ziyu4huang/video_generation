@@ -3,6 +3,7 @@ import type { JobInfo } from "../types";
 import { CaptionScoreBar, parseCaptionScores, scoreColor } from "./CaptionScoreBar";
 import { ImagePreview } from "./ImagePreview";
 import { ParamBadge } from "./ParamBadge";
+import { runCaption } from "../api/caption";
 
 interface Props {
   job: JobInfo;
@@ -64,12 +65,7 @@ export function SelfTestResults({ job }: Props) {
   // Score a single variant via the caption API. Returns the new caption or null.
   const scoreOne = useCallback(
     async (v: SelfTestVariant): Promise<Record<string, any> | null> => {
-      const res = await fetch("/api/caption/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: v.fullPath, style: "score" }),
-      });
-      const data = await res.json();
+      const data = await runCaption({ image: v.fullPath, style: "score" });
       if (data.ok && data.caption) {
         setCaptionOverrides((prev) => ({ ...prev, [v.filename]: data.caption }));
         return data.caption;

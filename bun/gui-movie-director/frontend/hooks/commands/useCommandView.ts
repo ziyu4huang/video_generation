@@ -1,0 +1,68 @@
+import { useState, useCallback, useEffect } from "react";
+import { useWebSocket } from "../ui/useWebSocket";
+import type { JobInfo, LogLine } from "../../types";
+import { getLastJob, deleteJob } from "../../api/jobs";
+
+export function useCommandView(command?: string) {
+  const [job, setJob] = useState<JobInfo | null>(null);
+  const { logs, jobStatus, outputFiles, progress, subscribe } = useWebSocket();
+
+  // Restore last completed/failed job on mount so results survive page reload
+  useEffect(() => {
+    if (!command) return;
+    const ctrl = new AbortController();
+    getLastJob(command, ctrl.signal)
+      .then((data) => { if (data.job) setJob(data.job); })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [command]);
+
+  const handleJobStart = useCallback(
+    ({ jobId, command: cmd }: { jobId: string; command: string }) => {
+      setJob({
+        id: jobId,
+        command: cmd,
+        status: "running",
+        startedAt: new Date().toISOString(),
+        outputFiles: [],
+        logs: [] as LogLine[],
+      });
+      subscribe(jobId);
+    },
+    [subscribe]
+  );
+
+  const handleCancel = useCallback(async () => {
+    if (!job) return;
+    try {
+      await deleteJob(job.id);
+    } catch {
+      // Cancel failures are non-critical (DELETE is best-effort)
+    }
+  }, [job]);
+
+  const derivedJob: JobInfo | null = job
+    ? {
+        ...job,
+        status: job.status === "running"
+          ? ((jobStatus as JobInfo["status"]) ?? job.status)
+          : job.status,
+        logs: logs.length > 0
+          ? logs.map((e) => ({ text: e.line, stream: e.stream }))
+          : job.logs,
+        outputFiles: outputFiles.length > 0 ? outputFiles : job.outputFiles,
+        completedAt:
+          jobStatus === "completed" || jobStatus === "failed"
+            ? new Date().toISOString()
+            : job.completedAt,
+      }
+    : null;
+
+  return {
+    job: derivedJob,
+    loading: derivedJob?.status === "running",
+    progress: derivedJob?.status === "running" ? progress : null,
+    handleJobStart,
+    handleCancel,
+  };
+}

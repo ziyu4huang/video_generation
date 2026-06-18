@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { InlineError } from "./InlineError";
+import { uploadFile } from "../api/upload";
 
 interface FileUploadProps {
   value: string | null;
@@ -18,10 +19,7 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
     setUploading(true);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const data = await res.json();
+      const data = await uploadFile(file);
       if (data.path) {
         onChange(data.path);
         if (data.url) setPreviewUrl(data.url);

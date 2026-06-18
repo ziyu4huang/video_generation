@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { FormSection } from "../FormSection";
+import { verifyPython } from "../../api/config";
 
 interface Props {
   pythonPath: string;
@@ -19,12 +20,7 @@ export function ConfigRuntimeSection({ pythonPath, onUpdate }: Props) {
     setVerifying(true);
     setVerifyResult(null);
     try {
-      const res = await fetch("/api/config/verify-python", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pythonPath }),
-      });
-      setVerifyResult(await res.json());
+      setVerifyResult(await verifyPython(pythonPath));
     } catch (e: any) {
       setVerifyResult({ ok: false, error: e.message });
     }

@@ -5,6 +5,7 @@ import { FormSection } from "../FormSection";
 // @ts-ignore — CSS modules lack type declarations project-wide
 import s from "./styles.module.css";
 import type { ModelCheckResult } from "./types";
+import { getModelCheckCache, scanModelCheck } from "../../api/modelCheck";
 
 function outputDirDisplay(v: string | string[]): string {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -44,8 +45,7 @@ export function ConfigPathsSection({ outputDir, modelsDir, onUpdate }: Props) {
   const logPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/model-check/cache")
-      .then((r) => r.json())
+    getModelCheckCache()
       .then((data) => {
         const parsed = parseCheckResult(data);
         if (parsed) setCheckResult(parsed);
@@ -55,8 +55,7 @@ export function ConfigPathsSection({ outputDir, modelsDir, onUpdate }: Props) {
 
   useEffect(() => {
     if (jobStatus === "completed" || jobStatus === "failed") {
-      fetch("/api/model-check/cache")
-        .then((r) => r.json())
+      getModelCheckCache()
         .then((data) => {
           const parsed = parseCheckResult(data);
           if (parsed) setCheckResult(parsed);
@@ -80,8 +79,7 @@ export function ConfigPathsSection({ outputDir, modelsDir, onUpdate }: Props) {
     setCheckResult(null);
     setShowLogs(true);
     try {
-      const res = await fetch("/api/model-check/scan", { method: "POST" });
-      const data = await res.json();
+      const data = await scanModelCheck();
       if (data.ok && data.jobId) {
         subscribe(data.jobId);
       } else {

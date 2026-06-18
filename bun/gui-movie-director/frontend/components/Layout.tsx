@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { COMMAND_GROUPS } from "../app";
 import { useJobs } from "../hooks/useJobs";
 import { Tip } from "./Tip";
+import { clearJobs } from "../api/jobs";
 
 interface LayoutProps {
   currentView: { type: string; action?: string };
@@ -16,7 +17,7 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
 
   const clearFailed = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    await fetch("/api/jobs/all?status=failed", { method: "DELETE" });
+    await clearJobs("failed");
     refresh();
   };
 

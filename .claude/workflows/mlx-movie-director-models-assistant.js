@@ -123,6 +123,7 @@ if (!PROJECT_ROOT) {
 const PYTHON = PROJECT_ROOT ? `${PROJECT_ROOT}/ComfyUI/.venv/bin/python` : "ComfyUI/.venv/bin/python";
 const RUN_PY = PROJECT_ROOT ? `${PROJECT_ROOT}/python/mlx-movie-director/run.py` : "python/mlx-movie-director/run.py";
 const MODELS_DIR = PROJECT_ROOT ? `${PROJECT_ROOT}/python/mlx-movie-director/models` : "python/mlx-movie-director/models";
+const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${meta.name}.knowledge.jsonl`;
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -167,6 +168,112 @@ Return { updated: true }.`,
   )
 }
 
+// ── loadKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Reads the colocated, committed <wf>.knowledge.jsonl and returns ACTIVE records as
+// a compact digest to inject into this run (AVOID/GOTCHA are highest-value). Runs at
+// Resolve, AFTER resume-check + reflection load — knowledge is the committed,
+// cross-machine superset, injected FIRST so it wins on conflict with ephemeral
+// reflection.json. kbFile: absolute path to .claude/workflows/<meta.name>.knowledge.jsonl
+// CRITICAL: the load-knowledge agent MUST carry the schema below (same lesson as
+// saveHistory: agent() without schema returns text). See memory:
+// workflow-agent-schema-for-parsed-results.
+async function loadKnowledge(kbFile) {
+  const load = await agent(
+    `Load distilled workflow knowledge for injection into this run.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, records: [], digest: "" }.
+3. If EXISTS: Bash("cat '${kbFile}'")
+4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
+5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - PATTERN:      "- CHECK: <title>"
+   - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
+   - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
+   - METRIC:       "- METRIC: <title>: <detail>"
+   Truncate each detail to ~160 chars. Never invent records not in the file.
+Return { found: true, records: <active records array>, digest: <the string> }.`,
+    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        records: { type: "array", items: { type: "object" } },
+        digest: { type: "string", description: "Compact <=1200 char grouped digest of active records" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Array.isArray(load?.records) ? load.records.length : 0
+  log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
+  return load
+}
+
+// ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Distills THIS run's result + the existing knowledge file into an UPDATED file:
+// append new records, bump occurrences/last_seen on id match, supersede stale ones,
+// retire lowest-value when active records exceed MAX_ACTIVE. Runs at Persist, AFTER
+// saveHistory. The file is JSONL (one JSON object/line), committed to git, shared
+// across machines — keep it CURATED and SMALL (not a run dump; raw detail stays in
+// the gitignored history/).
+// kbFile: absolute path to .claude/workflows/<meta.name>.knowledge.jsonl
+// runId: this run's RUN_ID (used for extracted_at / evidence.last_seen — NO Date.now())
+// runResult: this run's result payload (workflow-specific), JSON.stringify-able
+// runReflection: optional reflection object (review workflows); null otherwise
+// MAX_ACTIVE: retire threshold (default 40)
+// Record schema: see "Record schema" above. CRITICAL: the extract-knowledge agent
+// MUST carry the schema below. See memory: workflow-agent-schema-for-parsed-results.
+async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
+  const resultJson = JSON.stringify(runResult)
+  const reflectJson = runReflection ? JSON.stringify(runReflection) : "null"
+  const extract = await agent(
+    `Distill durable knowledge from THIS run into the colocated knowledge file.
+0. Bash("git status --porcelain '${kbFile}' 2>/dev/null || true"). If the porcelain
+   output mentions this exact path (already modified by a concurrent run), return
+   { updated: false, total_lines: 0, active: 0, new_ids: [] } WITHOUT writing.
+CURRENT FILE (may not exist yet):
+1. Bash("test -f '${kbFile}' && cat '${kbFile}' || echo '__EMPTY__'")
+2. Parse each non-empty line. Existing records have stable "id" fields.
+THIS RUN'S DATA:
+- runId: ${runId}
+- result: ${resultJson}
+- reflection (optional): ${reflectJson}
+YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
+A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
+   regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Grep existing ids; if one matches:
+     - evidence.occurrences += 1
+     - append "${runId}" to evidence.run_ids (keep newest 8)
+     - evidence.last_seen = "${runId}", extracted_at = "${runId}"
+     - refine detail/confidence/tags if this run sharpens it
+   else append a NEW record: evidence.occurrences=1, first_seen=last_seen="${runId}",
+   extracted_at="${runId}", status="active", superseded_by=null.
+B. SUPERSEDE: if a prior record is contradicted by this run (a "lever" that now
+   regresses, a "pattern" that no longer reproduces), set status="superseded" — do NOT delete.
+C. COMPACT: if active records (status="active") exceed ${MAX_ACTIVE}, retire the
+   lowest-confidence / lowest-occurrence ones to status="retired" until <= ${MAX_ACTIVE} active.
+D. Emit ONLY records (one JSON object per line; no array wrapper, no trailing comma).
+   Preserve every record you did NOT touch VERBATIM (same key order, same bytes).
+WRITE RELIABLY:
+1. Write({ file_path: "${kbFile}", content: <full new file: newline-separated JSON objects> })
+2. Bash("test -s '${kbFile}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via quoted heredoc: Bash("cat > '${kbFile}' <<'KB_EOF'\\n<full content>\\nKB_EOF")
+4. Validate every line parses: Bash("jq -c . '${kbFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${kbFile}'")  → total_lines
+6. Count active records (status="active"); optionally cross-check with a grep.
+Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
+    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        updated: { type: "boolean" },
+        total_lines: { type: "number", description: "Line count from wc -l" },
+        active: { type: "number", description: "Approx count of active records" },
+        new_ids: { type: "array", items: { type: "string" } },
+      }, required: ["updated", "total_lines"] } },
+  )
+  const lines = Number(extract?.total_lines) || 0
+  if (extract?.updated && lines > 0) {
+    log(`Knowledge: ${lines} record(s) (active≈${extract.active ?? "?"}) → ${kbFile}`)
+  } else {
+    log(`WARNING: knowledge extract did not verify (lines=${lines}) — run continues.`)
+  }
+  return extract
+}
+
 log("Resolved paths:");
 log(`  PROJECT_ROOT: ${PROJECT_ROOT || "(fallback: relative)"}`);
 log(`  PYTHON:       ${PYTHON}`);
@@ -201,6 +308,13 @@ function markPhase(name, status) {
   if (status === "failed") phasesFailed.push(name)
 }
 markPhase("resolve", "completed")
+
+// Load colocated per-workflow knowledge (committed .knowledge.jsonl) — model-manifest
+// gotchas/patterns. Injected into the inventory prompt so recurring manifest issues
+// surface during the scan.
+const _ma_knowledge = await loadKnowledge(KB_FILE)
+const _ma_knowledgeDigest = _ma_knowledge?.digest || ""
+const kbBlock = _ma_knowledgeDigest ? `## Prior knowledge (from past runs)\n${_ma_knowledgeDigest}\n\n` : ""
 
 // ── Phase: Audit ──────────────────────────────────────────────────────────────
 
@@ -357,7 +471,7 @@ log(`Pre-scan found ${Object.keys(fileScanData).length} directories with .safete
 const categoryFilter = filterCategory ? ` Only inventory the "${filterCategory}" category.` : "";
 
 const inventory = await agent(
-  `Scan the model directory at ${MODELS_DIR} and build a complete inventory.
+  `${kbBlock}Scan the model directory at ${MODELS_DIR} and build a complete inventory.
 
   For each subdirectory at models/<category>/<instance>/:
   1. Read manifest.json — extract name, type, arch, format, sizeBytes (as size_bytes), compatibleWith (as compatible_with), weightFile (as weight_file, optional)
@@ -827,6 +941,7 @@ const _ma_histEntry = {
 };
 
 await saveHistory(_ma_HIST_DIR, _ma_INDEX_FILE, _ma_histEntry, _ma_signals);
+await extractKnowledge(KB_FILE, TIMESTAMP, _ma_histEntry.result, null);
 markPhase("persist", "completed")
 log(`History: ${_ma_HIST_DIR}/${TIMESTAMP}.json`);
 

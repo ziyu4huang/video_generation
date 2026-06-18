@@ -7,6 +7,7 @@ import { DiskUsageBars } from "../../components/model-check/DiskUsageBars";
 import { ModelRow } from "../../components/model-check/ModelRow";
 import { ConversionSection } from "../../components/model-check/ConversionSection";
 import { OrphanSection } from "../../components/model-check/OrphanSection";
+import { runModelCheck, getModelCheckCache } from "../../api/modelCheck";
 
 export function ModelCheckView() {
   const [result, setResult] = useState<ModelCheckResult | null>(null);
@@ -18,8 +19,7 @@ export function ModelCheckView() {
   const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/model-check/cache")
-      .then((r) => r.json())
+    getModelCheckCache()
       .then((data) => {
         if (data.ok) { setResult(data.result); setFromCache(true); }
       })
@@ -32,8 +32,7 @@ export function ModelCheckView() {
     setFromCache(false);
     setExpandedLabel(null);
     try {
-      const res = await fetch("/api/model-check/run", { method: "POST" });
-      const data = await res.json();
+      const data = await runModelCheck();
       if (data.ok) {
         setResult(data.result);
       } else {
