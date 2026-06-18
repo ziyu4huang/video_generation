@@ -89,9 +89,10 @@ body {
 }
 
 .sidebar-item.active {
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-elevated));
   color: var(--accent);
   border-left-color: var(--accent);
+  font-weight: 600;
 }
 
 .sidebar-failed-count {
@@ -486,6 +487,38 @@ body {
 
 .empty-state-text {
   font-size: 15px;
+}
+
+/* Defensive empty-state for CommandViewShell when a view yields no form children,
+   so the content area is never a dead blank panel. */
+.empty-view-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 60px 24px;
+  text-align: center;
+  min-height: 50vh;
+}
+
+.empty-view-state__icon {
+  font-size: 44px;
+  line-height: 1;
+}
+
+.empty-view-state__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.empty-view-state__hint {
+  margin: 0;
+  font-size: 13px;
+  max-width: 420px;
+  color: var(--text-dim);
 }
 
 

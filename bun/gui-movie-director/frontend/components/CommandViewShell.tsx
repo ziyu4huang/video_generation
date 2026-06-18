@@ -38,11 +38,17 @@ export function CommandViewShell({
     navigate("/gallery", names);
   };
 
+  // Defensive empty-state: if a view yields no form children (e.g. a silent
+  // render failure upstream), never leave a dead blank panel — show guidance so
+  // the user isn't stuck on an unactionable screen.
+  const hasChildren = React.Children.count(children) > 0;
+
   return (
     <>
-      <form onSubmit={onSubmit}>
-        {children}
-        <div className="btn-row">
+      {hasChildren ? (
+        <form onSubmit={onSubmit}>
+          {children}
+          <div className="btn-row">
           <button type="submit" className="btn btn-primary" disabled={disabled}>
             {loading ? <><span className="spinner" /> {submitLabel}</> : submitLabel}
           </button>
@@ -52,6 +58,16 @@ export function CommandViewShell({
         </div>
         <InlineError message={error} onDismiss={onDismiss} />
       </form>
+      ) : (
+        <div className="empty-view-state">
+          <div className="empty-view-state__icon">📭</div>
+          <h3 className="empty-view-state__title">This view has nothing to show</h3>
+          <p className="empty-view-state__hint">
+            The form failed to render. Try reloading the page, or pick another
+            command from the sidebar.
+          </p>
+        </div>
+      )}
 
       {job?.status === "completed" && (
         <JobOutputPreview job={job} onViewInGallery={handleGallery} />
