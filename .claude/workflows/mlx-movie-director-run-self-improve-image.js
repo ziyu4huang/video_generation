@@ -272,6 +272,11 @@ THIS RUN'S DATA:
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Set type to exactly ONE of: pattern | lever | avoid | gotcha | false_positive | metric
+   (avoid/gotcha = dead-end/crash-class bug or latent trap; lever = an adopted move that
+   helped; false_positive = a recurring flag that was rejected; metric = a measured
+   ceiling/baseline; pattern = reusable check). loadKnowledge groups on type, so a NULL
+   type makes the record invisible to the next run -- ALWAYS set it.
    Grep existing ids; if one matches:
      - evidence.occurrences += 1
      - append "${runId}" to evidence.run_ids (keep newest 8)
