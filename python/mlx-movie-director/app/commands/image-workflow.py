@@ -26,7 +26,7 @@ import subprocess
 import sys
 import time
 
-from app.commands._shared import resolve_lora_path, resolve_prompt
+from app.commands._shared import resolve_lora_paths, resolve_prompt
 from app.run_config import RunConfig
 
 
@@ -873,7 +873,7 @@ def run_workflow(args):
         height=getattr(args, "height", None) or 960,
         steps=getattr(args, "steps", 10),
         seed=getattr(args, "seed", 42),
-        lora_path=resolve_lora_path(getattr(args, "lora_path", None)),
+        lora_path=(resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0],
         lora_scale=getattr(args, "lora_scale", None) or 1.0,
 
         # I2I

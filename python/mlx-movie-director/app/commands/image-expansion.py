@@ -35,7 +35,7 @@ from app.commands._shared import (
     DEFAULT_UPSCALE_MODEL,
     execute_upscale,
     generate_base_name,
-    resolve_lora_path,
+    resolve_lora_paths,
 )
 
 # ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@ def run_expansion(args: "argparse.Namespace") -> dict[str, str] | None:
     # Build + run the outpaint pipeline -------------------------------------
     from app.flux2_outpaint_pipeline import Flux2OutpaintPipeline
 
-    lora_path = resolve_lora_path(getattr(args, "lora_path", None))
+    lora_path = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
     _lora_scale_raw = getattr(args, "lora_scale", None)
     lora_scale = 1.0 if _lora_scale_raw is None else _lora_scale_raw
 

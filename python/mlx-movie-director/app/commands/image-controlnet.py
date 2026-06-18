@@ -186,8 +186,9 @@ def run_controlnet(args: argparse.Namespace) -> None:
     resolved_lora_path = None
     if pipeline_type == "flux2-klein":
         flux2_pipeline = _create_flux2_pipeline(args)
-        from app.commands._shared import resolve_lora_path
-        resolved_lora_path = resolve_lora_path(getattr(args, "lora_path", None))
+        from app.commands._shared import resolve_lora_paths
+        _resolved = resolve_lora_paths(getattr(args, "lora_path", None))
+        resolved_lora_path = _resolved[0] if _resolved else None
 
     if do_ab:
         _run_ab_test(
@@ -432,11 +433,15 @@ def _run_ab_test(prompt: str, ref_image_path: str, ctrl_type: str, skip_preproce
 def _create_flux2_pipeline(args: argparse.Namespace) -> "Flux2KleinControlnetPipeline":
     """Create a Flux2KleinControlnetPipeline from CLI args (loaded once, reused)."""
     from app.flux2_controlnet_pipeline import Flux2KleinControlnetPipeline
-    from app.commands._shared import resolve_lora_path
+    from app.commands._shared import resolve_lora_paths
 
-    lora_path = resolve_lora_path(getattr(args, "lora_path", None))
-    lora_paths = [lora_path] if lora_path else None
-    lora_scales = [getattr(args, "lora_scale", None) or 1.0] if lora_paths else None
+    lora_paths = resolve_lora_paths(getattr(args, "lora_path", None)) or None
+    if lora_paths:
+        _scales = list(getattr(args, "lora_scale", None) or [])
+        _scales += [1.0] * (len(lora_paths) - len(_scales))  # pad missing scales
+        lora_scales = _scales[:len(lora_paths)]
+    else:
+        lora_scales = None
 
     return Flux2KleinControlnetPipeline(
         model_path=getattr(args, "flux2_model_path", None),

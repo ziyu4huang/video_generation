@@ -773,8 +773,8 @@ def run_profile(args):
 
         end_time = datetime.now(timezone.utc).isoformat()
         if use_flux2:
-            from app.commands._shared import resolve_lora_path
-            resolved_lora = resolve_lora_path(getattr(args, "lora_path", None))
+            from app.commands._shared import resolve_lora_paths
+            resolved_lora = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
             models = collect_model_fingerprint_flux2(lora_path=resolved_lora)
         else:
             models = collect_model_fingerprint(lora_path=getattr(args, "lora_path", None))
