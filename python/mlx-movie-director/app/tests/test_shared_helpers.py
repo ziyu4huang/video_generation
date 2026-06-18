@@ -70,9 +70,9 @@ class TestApplyDraftOverrides:
 
 class TestSeedSequence:
     def test_default_seed(self):
-        """No seed → uses 42."""
+        """No seed → uses 777 (global default, set 2026-06-18)."""
         args = argparse.Namespace(count=1, seed=None, seed_start=None)
-        assert seed_sequence(args) == [42]
+        assert seed_sequence(args) == [777]
 
     def test_explicit_seed(self):
         args = argparse.Namespace(count=1, seed=99, seed_start=None)
@@ -104,12 +104,12 @@ class TestSeedSequence:
         assert seed_sequence(args) == [42]
 
     def test_seed_zero(self):
-        """Seed 0 is falsy in Python, should still work (use the getattr-or-42 pattern)."""
+        """Seed 0 is falsy in Python, should still work (use the getattr-or-777 pattern)."""
         args = argparse.Namespace(count=1, seed=0, seed_start=None)
         result = seed_sequence(args)
-        # WARNING: getattr(args, 'seed', None) or 42 → None or 42 → 42 for seed=0
+        # WARNING: getattr(args, 'seed', None) or 777 → None or 777 → 777 for seed=0
         # This is a known quirk: seed=0 is treated as "no seed" because 0 is falsy.
-        assert result == [42], f"seed=0 quirk: got {result}"
+        assert result == [777], f"seed=0 quirk: got {result}"
 
     def test_works_with_runconfig(self):
         """seed_sequence accepts RunConfig objects too.

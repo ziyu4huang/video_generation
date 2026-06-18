@@ -24,7 +24,7 @@ export const expansionCommand: UnifiedCommand = {
     { key: "longest", cliFlag: "--longest", control: "number", label: "Longest Side", min: 256, max: 4096, default: 1024, section: "Settings" },
     { key: "expansion_ref_strength", cliFlag: "--expansion-ref-strength", control: "range", label: "Reference Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "Settings" },
     { key: "prompt", cliFlag: "--prompt", control: "text", label: "Prompt (optional)", placeholder: "Guide the expanded content...", multiline: true, section: "Settings" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Settings" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Settings" },
     // Backend-only: computed from UI state
     { key: "expand", cliFlag: "--expand", control: "text", label: "Expand Directions" },
     { key: "expansion_feather", cliFlag: "--expansion-feather", control: "number", label: "Expansion Feather", default: 96 },

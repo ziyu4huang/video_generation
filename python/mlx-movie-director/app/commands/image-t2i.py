@@ -78,8 +78,11 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
     # Lens (dynamic mu via compute_empirical_mu) and not exposed.
     parser.add_argument(
         "--cfg-scale", type=float, default=None, metavar="VAL",
-        help="Classifier-free guidance scale — Lens pipeline only (default 4.0, "
-             "per microsoft/Lens; ignored by zimage/flux2-klein)",
+        help="Classifier-free guidance scale. Lens: default 4.0 (per microsoft/Lens). "
+             "zimage: opt-in (default None=off, single forward/step; set >1.0 to enable CFG "
+             "with a dual cond/uncond forward per step — ZImageTurbo was distilled at "
+             "guidance 0.0, so CFG is empirical, see dark-beast-dbzit9/kb.jsonl). "
+             "flux2-klein: ignored (distilled, guidance=1.0).",
     )
 
 

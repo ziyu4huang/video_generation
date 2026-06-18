@@ -50,14 +50,14 @@
 export const meta = {
   name: "gui-movie-director-self-improve",
   description:
-    "Unified self-improve loop for the Bun GUI Movie Director app — sequences structural code review (correctness/types/error-handling/quality/security) AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) via two sub-workflows, merging both into one health report. Lane-selectable; review-only by default (collision-safe).",
+    "Unified self-improve loop for the Bun GUI Movie Director app — sequences structural code review (correctness/types/error-handling/quality/security) AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) AND UX screenshot analysis (playwright→VLM→fix loop) via three sub-workflows, merging all into one health report. Lane-selectable; review-only by default (collision-safe).",
   whenToUse:
-    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema-self-improve objective:runtime (buildCliArgs→run.py boundary). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'] picks one; focus/files/target narrow scope.",
+    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema-self-improve objective:runtime (buildCliArgs→run.py boundary). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'|'ux'] picks one or more; lanes:'all' runs all three; focus/files/target narrow scope. UX lane requires GUI server at localhost:3099 + LM Studio; fails gracefully if server is down.",
   phases: [
     { title: "Resolve", detail: "Normalize args, dirty-tree guard (refuse fix if dirty), timestamp" },
-    { title: "Run",     detail: "Sequential lanes via sub-workflows: structural review → schema/boundary validation" },
+    { title: "Run",     detail: "Sequential lanes via sub-workflows: structural review → schema/boundary validation → UX screenshot analysis" },
     { title: "Persist", detail: "Unified history entry + cross-workflow index" },
-    { title: "Report",  detail: "Merged health report: review findings + drift + coverage + fix status" },
+    { title: "Report",  detail: "Merged health report: review findings + drift + coverage + UX scores + fix status" },
   ],
 }
 
@@ -75,12 +75,17 @@ if (typeof resolvedArgs === "string") {
 const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
 const A = isObj(resolvedArgs) ? resolvedArgs : {}
 
-// Lanes: which sub-workflows to run. Default both. A bare string lanes:"review"
-// is accepted for convenience.
-const LANES_RAW = Array.isArray(A.lanes) ? A.lanes : (A.lanes ? [A.lanes] : ["review", "schema"])
-const LANES = LANES_RAW.filter((l) => l === "review" || l === "schema")
-const DO_REVIEW = LANES.includes("review")
-const DO_SCHEMA  = LANES.includes("schema")
+// Lanes: which sub-workflows to run. Default: review + schema. A bare string
+// lanes:"review" is accepted for convenience. lanes:"all" expands to all three.
+const LANES_RAW_INPUT = Array.isArray(A.lanes) ? A.lanes
+  : (A.lanes === "all" ? ["review", "schema", "ux"]
+  : (A.lanes ? [A.lanes] : ["review", "schema"]))
+// UX_EXPLICIT: user passed a lanes arg → respect it exactly, no auto-detect.
+const UX_EXPLICIT = A.lanes !== undefined
+let LANES = LANES_RAW_INPUT.filter((l) => ["review", "schema", "ux"].includes(l))
+let DO_REVIEW = LANES.includes("review")
+let DO_SCHEMA  = LANES.includes("schema")
+let DO_UX      = LANES.includes("ux")
 
 // Shared / forwarded knobs.
 const EFFORT    = ["low", "medium", "high"].includes(A.effort) ? A.effort : "low"
@@ -90,6 +95,11 @@ const FOCUS     = A.focus || null                       // review dimension
 const FILES     = Array.isArray(A.files) ? A.files : null   // review file scope
 const TARGET    = A.target || null                      // schema single-file focus
 const RESUME    = A.resume || "auto"                    // review resume mode
+
+// UX-lane-specific knobs (only used when DO_UX).
+const UX_DRY_RUN   = A.uxDryRun  !== undefined ? A.uxDryRun  : (A.dryRun ?? false)
+const UX_MAX_ITERS = typeof A.uxMaxIters === "number" ? A.uxMaxIters : 3
+const UX_VIEWS     = Array.isArray(A.uxViews) ? A.uxViews : null
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 // NOTE: the workflow runtime strips `export const meta` — top-level `meta.*`
@@ -184,6 +194,11 @@ THIS RUN'S DATA:
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Set type to exactly ONE of: pattern | lever | avoid | gotcha | false_positive | metric
+   (avoid/gotcha = dead-end/crash-class bug or latent trap; lever = an adopted move that
+   helped; false_positive = a recurring flag that was rejected; metric = a measured
+   ceiling/baseline; pattern = reusable check). loadKnowledge groups on type, so a NULL
+   type makes the record invisible to the next run -- ALWAYS set it.
    Grep existing ids; if one matches:
      - evidence.occurrences += 1
      - append "${runId}" to evidence.run_ids (keep newest 8)
@@ -269,7 +284,24 @@ if (FIX_REQ) {
   }
 }
 
-log(`Unified GUI self-improve — lanes: [${LANES.join(", ")}] | effort: ${EFFORT} | fix: ${fixEnabled} | objective: ${OBJECTIVE}`)
+// Auto-detect GUI server → opportunistically add UX lane when server is up
+// and the user didn't explicitly specify lanes (so we don't override their intent).
+if (!UX_EXPLICIT && !DO_UX) {
+  const srvDetect = await agent(
+    `Check if the GUI dev server is running at port 3099.
+Bash("lsof -ti :3099 2>/dev/null | head -1")
+Return { running: <true if output is non-empty>, pid: "<trimmed output>" }.`,
+    { label: "server-auto-detect", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: { running: { type: "boolean" }, pid: { type: "string" } }, required: ["running"] } },
+  )
+  if (srvDetect?.running) {
+    LANES = [...LANES, "ux"]
+    DO_UX = true
+    log(`Auto-detected GUI server at :3099 (pid=${srvDetect.pid || "?"}) → UX lane added (dryRun=${UX_DRY_RUN}, maxIters=${UX_MAX_ITERS})`)
+  }
+}
+
+log(`Unified GUI self-improve — lanes: [${LANES.join(", ")}] | effort: ${EFFORT} | fix: ${fixEnabled} | objective: ${OBJECTIVE}${DO_UX ? ` | ux: dryRun=${UX_DRY_RUN} maxIters=${UX_MAX_ITERS}` : ""}`)
 
 markPhase("resolve", "completed")
 
@@ -279,50 +311,87 @@ phase("Run")
 
 let reviewResult = null
 let schemaResult = null
+let uxResult     = null
 
-// Lane 1: structural code review. Sequential with the schema lane — both spawn
-// many agents and review-optimize's git-stash (when fix) would collide with
-// schema edits if run in parallel.
-if (DO_REVIEW) {
-  log("▸ Lane 1/2: structural code review (gui-movie-director-review-optimize)")
-  try {
-    reviewResult = await workflow(
-      "gui-movie-director-review-optimize",
-      {
-        effort: EFFORT,
-        fix: fixEnabled,
-        resume: RESUME,
+const TOTAL_LANES = LANES.length
+let laneIdx = 0
+
+// Review + schema can run in parallel when fix is disabled — both are purely
+// read-only in that mode (no git-stash, no file edits). When fix:true, run
+// sequentially: review-optimize uses git-stash which would collide with
+// concurrent schema edits to the same working tree.
+if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
+  log(`▸ Lanes 1-2/${TOTAL_LANES}: review + schema in parallel (review-only — safe to fan out)`)
+  const [rr, sr] = await parallel([
+    () => workflow("gui-movie-director-review-optimize", {
+      effort: EFFORT, fix: false, resume: RESUME,
+      ...(FOCUS ? { focus: FOCUS } : {}),
+      ...(FILES ? { files: FILES } : {}),
+    }).catch((e) => { log(`  review lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
+    () => workflow("gui-movie-director-schema-self-improve", {
+      objective: OBJECTIVE,
+      ...(TARGET ? { target: TARGET } : {}),
+    }).catch((e) => { log(`  schema lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
+  ])
+  reviewResult = rr
+  schemaResult = sr
+  laneIdx = 2
+  log(`  review done — verified: ${reviewResult?.findings?.verified ?? "?"}`)
+  log(`  schema done — ${schemaResult?.summary ?? "(no summary)"}`)
+} else {
+  // Sequential: fix:true, or only one of the two lanes is active.
+  if (DO_REVIEW) {
+    log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: structural code review (gui-movie-director-review-optimize)`)
+    try {
+      reviewResult = await workflow("gui-movie-director-review-optimize", {
+        effort: EFFORT, fix: fixEnabled, resume: RESUME,
         ...(FOCUS ? { focus: FOCUS } : {}),
         ...(FILES ? { files: FILES } : {}),
-      },
-    )
-    log(`  review lane done — verified findings: ${reviewResult?.findings?.verified ?? "?"}`)
-  } catch (e) {
-    log(`  review lane FAILED: ${e?.message || e}`)
-    markPhase("run", "failed")
+      })
+      log(`  review lane done — verified findings: ${reviewResult?.findings?.verified ?? "?"}`)
+    } catch (e) {
+      log(`  review lane FAILED: ${e?.message || e}`)
+      markPhase("run", "failed")
+    }
   }
-}
 
-// Lane 2: schema→CLI boundary + drift + coverage.
-if (DO_SCHEMA) {
-  log("▸ Lane 2/2: schema→CLI boundary (gui-movie-director-schema-self-improve)")
-  try {
-    schemaResult = await workflow(
-      "gui-movie-director-schema-self-improve",
-      {
+  if (DO_SCHEMA) {
+    log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: schema→CLI boundary (gui-movie-director-schema-self-improve)`)
+    try {
+      schemaResult = await workflow("gui-movie-director-schema-self-improve", {
         objective: OBJECTIVE,
         ...(TARGET ? { target: TARGET } : {}),
-      },
-    )
-    log(`  schema lane done — ${schemaResult?.summary ?? "(no summary)"}`)
-  } catch (e) {
-    log(`  schema lane FAILED: ${e?.message || e}`)
-    markPhase("run", "failed")
+      })
+      log(`  schema lane done — ${schemaResult?.summary ?? "(no summary)"}`)
+    } catch (e) {
+      log(`  schema lane FAILED: ${e?.message || e}`)
+      markPhase("run", "failed")
+    }
   }
 }
 
-if (!DO_REVIEW && !DO_SCHEMA) {
-  log("⚠ No valid lanes selected (must include 'review' and/or 'schema'). Nothing to run.")
+// Lane: UX screenshot analysis + VLM scoring + fix loop.
+// Non-fatal — gracefully skipped if the GUI server is not running.
+if (DO_UX) {
+  log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: UX screenshot analysis (gui-movie-director-ux-self-improve)`)
+  try {
+    uxResult = await workflow(
+      "gui-movie-director-ux-self-improve",
+      {
+        dryRun:   UX_DRY_RUN,
+        maxIters: UX_MAX_ITERS,
+        ...(UX_VIEWS ? { views: UX_VIEWS } : {}),
+      },
+    )
+    log(`  ux lane done — ${uxResult?.totalIssues ?? "?"} issue(s), ${uxResult?.issuesFixed ?? "?"} fixed, score: ${uxResult?.avgUxScoreBefore?.toFixed(1) ?? "?"}→${uxResult?.avgUxScoreAfter?.toFixed(1) ?? "?"}`)
+  } catch (e) {
+    log(`  ux lane FAILED (non-fatal — GUI server may not be running): ${e?.message || e}`)
+    // uxResult stays null; run continues
+  }
+}
+
+if (LANES.length === 0) {
+  log("⚠ No valid lanes selected (must include 'review', 'schema', and/or 'ux'). Nothing to run.")
 }
 
 markPhase("run", "completed")
@@ -343,23 +412,89 @@ const schemaRuntimeFind  = schemaResult?.runtimeFindings ?? 0
 const schemaDriftRem     = schemaResult?.driftRemaining ?? 0
 const schemaCovDelta     = schemaResult?.delta ?? "n/a"
 
-// Unified health scalar for trend tracking: count of open issues across both
+const uxTotalIssues = uxResult?.totalIssues ?? 0
+const uxIssuesFixed = uxResult?.issuesFixed ?? 0
+const uxScoreBefore = uxResult?.avgUxScoreBefore ?? null
+const uxScoreAfter  = uxResult?.avgUxScoreAfter ?? null
+
+// Unified health scalar for trend tracking: count of open issues across all
 // surfaces (lower = healthier). review verified findings + schema runtime
-// errors + remaining drift. Fix runs should drive this down.
-const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem
+// errors + remaining drift + ux open issues. Fix runs should drive this down.
+const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem + uxTotalIssues
+
+// ── Delta from last run ─────────────────────────────────────────────────────
+// Read the most recent prior history entry to compute openIssues trend (↑/↓/=).
+let deltaStr = null
+{
+  const prevRun = await agent(
+    `Read the most recent prior self-improve run from history to get previous openIssues.
+1. Bash("ls -t '${HISTORY_DIR}/' 2>/dev/null | grep '\\.json$'")
+2. Find the FIRST filename that is NOT '${RUN_ID}.json'. If none → { found: false, openIssues: null }.
+3. Bash("cat '${HISTORY_DIR}/<that filename>'")
+4. Parse JSON. Try result.openIssues first; if missing, parse signals.key_metric
+   (format: "openIssues=N (...)") to extract N.
+Return { found: true, openIssues: <number> } or { found: false, openIssues: null }.`,
+    { label: "prev-run-delta", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { found: { type: "boolean" }, openIssues: { type: "number" } }, required: ["found"] } },
+  )
+  if (prevRun?.found && prevRun.openIssues != null) {
+    const d = openIssues - prevRun.openIssues
+    deltaStr = d === 0 ? "=" : d < 0 ? `↓${Math.abs(d)}` : `↑${d}`
+    log(`Delta: openIssues ${prevRun.openIssues} → ${openIssues} (${deltaStr})`)
+  }
+}
+
+// ── Chronic issue annotation ────────────────────────────────────────────────
+// Tag findings that also appeared in the previous run (same file + title).
+// Chronic issues have survived at least one review cycle without being fixed.
+let chronicKeys = new Set()
+{
+  const prevFindings = await agent(
+    `Load topFindings from the most recent prior self-improve run.
+1. Bash("ls -t '${HISTORY_DIR}/' 2>/dev/null | grep '\\.json$'")
+2. Find the FIRST filename that is NOT '${RUN_ID}.json'. If none → { findings: [] }.
+3. Bash("cat '${HISTORY_DIR}/<that filename>'")
+4. Parse JSON. Extract the topFindings array — it may be at result.topFindings or
+   at the root topFindings field; look inside result.review.topFindings too.
+5. Return { findings: [{ file: "...", title: "..." }, ...] } — only file and title per entry.`,
+    { label: "prev-findings-for-chronic", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: {
+        findings: { type: "array", items: { type: "object",
+          properties: { file: { type: "string" }, title: { type: "string" } } } },
+      }, required: ["findings"] } },
+  )
+  for (const f of (prevFindings?.findings || [])) {
+    if (f.file && f.title) chronicKeys.add(`${f.file}:${f.title}`)
+  }
+  if (chronicKeys.size > 0) log(`Chronic keys from prior run: ${chronicKeys.size}`)
+}
+
+// Build annotated topFindings (reused in Report phase below).
+const currentTopFindings = (reviewResult?.findings?.items || []).slice(0, 8).map((f) => ({
+  id: f.id, severity: f.severity, dimension: f.dimension,
+  file: f.file, line: f.line, title: f.title,
+  chronic: chronicKeys.has(`${f.file}:${f.title}`),
+}))
+const chronicCount = currentTopFindings.filter((f) => f.chronic).length
 
 const signals = {
   run_quality: phasesFailed.length === 0 ? (openIssues === 0 ? "clean" : "good") : "degraded",
-  key_metric: `openIssues=${openIssues} (review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem})`,
-  delta_from_last: null,
+  key_metric: `openIssues=${openIssues} (review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem} ux:${uxTotalIssues})`,
+  delta_from_last: deltaStr,
   highlights: [
     DO_REVIEW  ? `review: ${reviewVerified} verified finding(s)${fixEnabled ? ` → ${reviewApplied} fix(es) applied, ${reviewRegress} regression(s)` : " (review-only)"}` : null,
     DO_SCHEMA  ? `schema: ${schemaRuntimeFind} runtime finding(s), ${schemaRuntimeErr} error(s), drift→${schemaDriftRem}, coverage Δ=${schemaCovDelta}` : null,
+    DO_UX && uxResult  ? `ux: ${uxTotalIssues} issue(s), ${uxIssuesFixed} fixed, score: ${uxScoreBefore?.toFixed(1) ?? "?"}→${uxScoreAfter?.toFixed(1) ?? "?"}` : null,
+    DO_UX && !uxResult ? "ux: lane failed (server may be down) — skipped" : null,
     FIX_REQ && dirtyTree ? "fix:true DOWNGRADED to review-only (dirty tree)" : null,
+    chronicCount > 0 ? `chronic: ${chronicCount} finding(s) recurring from prior run (unfixed)` : null,
+    deltaStr ? `trend: ${deltaStr} vs last run` : null,
   ].filter(Boolean),
   warnings: [
     ...(phasesFailed.length ? [`phases failed: ${phasesFailed.join(",")}`] : []),
     ...(FIX_REQ && dirtyTree ? ["concurrent WIP detected; fix deferred"] : []),
+    ...(DO_UX && !uxResult ? ["ux lane did not complete (server down or crash)"] : []),
+    ...(chronicCount > 0 ? [`${chronicCount} chronic finding(s) — consider fix:true to clear backlog`] : []),
   ],
 }
 
@@ -387,6 +522,13 @@ const historyEntry = {
       runtimeErrors: schemaRuntimeErr,
       driftRemaining: schemaDriftRem,
       coverageDelta: schemaCovDelta,
+    } : null,
+    ux: uxResult ? {
+      viewsSurveyed:  uxResult.viewsSurveyed,
+      totalIssues:    uxTotalIssues,
+      issuesFixed:    uxIssuesFixed,
+      avgScoreBefore: uxScoreBefore,
+      avgScoreAfter:  uxScoreAfter,
     } : null,
     reviewHistory: reviewResult?.history?.path || null,
     schemaHistory: "gui-movie-director-schema-self-improve/iterations.jsonl",
@@ -417,6 +559,7 @@ const codeRecord = {
     runtimeFindings: schemaRuntimeFind,
     driftRemaining: schemaDriftRem,
   },
+  ux: uxResult ? { totalIssues: uxTotalIssues, issuesFixed: uxIssuesFixed } : null,
   // Files with verified findings this run — drives the "most bug-prone" trend
   // across runs (independent of whether they were fixed).
   filesTouched: reviewResult?.findings?.items
@@ -482,9 +625,7 @@ const report = {
         fixes: fixEnabled
           ? { applied: reviewApplied, skipped: reviewResult.fixes?.skipped ?? 0, failed: reviewResult.fixes?.failed ?? 0, regressions: reviewRegress }
           : { mode: "review-only" },
-        topFindings: (reviewResult.findings?.items || []).slice(0, 8).map((f) => ({
-          id: f.id, severity: f.severity, dimension: f.dimension, file: f.file, line: f.line, title: f.title,
-        })),
+        topFindings: currentTopFindings,
       }
     : null,
   schema: schemaResult
@@ -500,6 +641,23 @@ const report = {
         summary: schemaResult.summary,
       }
     : null,
+  ux: uxResult
+    ? {
+        viewsSurveyed:  uxResult.viewsSurveyed,
+        totalIssues:    uxTotalIssues,
+        issuesFixed:    uxIssuesFixed,
+        issuesSkipped:  uxResult.issuesSkipped,
+        avgScoreBefore: uxScoreBefore,
+        avgScoreAfter:  uxScoreAfter,
+        topIssues: (uxResult.analyses || [])
+          .flatMap((a) => a.issues || [])
+          .filter((i) => i.severity === "high")
+          .slice(0, 5)
+          .map((i) => ({ id: i.id, severity: i.severity, title: i.title, affectedFile: i.affectedFile })),
+      }
+    : DO_UX
+      ? { skipped: true, reason: "server not running or crash" }
+      : null,
   signals,
   knowledgeContribution: knowledgeAppended
     ? { appended: true, openIssues, kbPath: "knowledge-base/code/records.jsonl" }
@@ -509,7 +667,9 @@ const report = {
       ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-reverted the offending files via git checkout/rm. Inspect the tree." : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
       : FIX_REQ && dirtyTree
         ? "Tree was dirty so fixes were skipped. Commit/stash concurrent WIP, then re-run with fix:true to apply the verified findings above."
-        : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.",
+        : DO_UX && !uxResult
+          ? "UX lane did not run (GUI server may be down). Start the server with `cd bun/gui-movie-director && bun run dev`, then re-run with lanes:'all'."
+          : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.",
 }
 
 return report

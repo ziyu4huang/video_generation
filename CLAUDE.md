@@ -143,8 +143,8 @@ python/venv/bin/python python/mlx-movie-director/run.py image t2i --pipeline len
 | `--prompt` / `--prompt-file` | — | Text prompt (or use `--self-test`) |
 | `--width` / `--height` | 512 / 512 | Must be divisible by 16 (Lens default differs from zimage's 640×960) |
 | `--steps` | 20 | Official default 50 |
-| `--cfg-scale` | 4.0 | Classifier-free guidance (Lens-only; ignored by zimage/flux2-klein) |
-| `--seed` / `--count` | 42 / 1 | RNG seed / batch |
+| `--cfg-scale` | 4.0 | Classifier-free guidance. Lens: default 4.0. zimage: opt-in (default None=off, single forward/step; `>1.0` enables CFG via dual cond/uncond forward — the biggest quality lever, cfg≈3.0 optimal; see `dark-beast-dbzit9/kb.jsonl`). flux2-klein: ignored (distilled, guidance=1.0). |
+| `--seed` / `--count` | 777 / 1 | RNG seed / batch (default seed 777 as of 2026-06-18) |
 | `--json-summary` | off | Machine-readable output for automation |
 
 The flow-matching shift (`mu`) is computed dynamically via `compute_empirical_mu`

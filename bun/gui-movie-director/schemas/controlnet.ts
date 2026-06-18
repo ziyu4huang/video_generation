@@ -19,7 +19,7 @@ export const controlnetCommand: UnifiedCommand = {
     { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5, section: "ControlNet" },
     { key: "remove_outlines", cliFlag: "--remove-outlines", control: "toggle", label: "Remove Outlines", section: "ControlNet" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "ControlNet" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "ControlNet" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "ControlNet" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage" },
   ],
   buildParams: (s) => ({

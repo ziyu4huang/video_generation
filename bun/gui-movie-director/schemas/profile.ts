@@ -22,7 +22,7 @@ export const profileCommand: UnifiedCommand = {
       { value: "9:16", label: "9:16" },
     ], default: "full-body", section: "Settings" },
     { key: "ref_count", cliFlag: "--ref-count", control: "number", label: "Reference Count", min: 1, max: 4, default: 3, section: "Settings" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Settings" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Settings" },
     // Backend-only
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage" },

@@ -16,7 +16,7 @@ export const i2iCommand: UnifiedCommand = {
     { key: "loras", control: "loras", label: "LoRAs", default: [], section: "Generation" },
     { key: "controlnet_strength", cliFlag: "--controlnet-strength", control: "range", label: "ControlNet Strength", min: 0, max: 1, step: 0.05, default: 1.0, visible: (s) => !!s.reference_image, section: "Generation" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Generation" },
     // Backend-only
     { key: "skip_preprocess", cliFlag: "--skip-preprocess", control: "toggle", label: "Skip Preprocess" },
     { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5 },

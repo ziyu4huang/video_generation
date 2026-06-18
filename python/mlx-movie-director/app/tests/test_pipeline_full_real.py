@@ -184,7 +184,6 @@ class TestFullResolution:
 class TestWithLoRA:
     """Full-resolution generation with LoRA weight injection."""
 
-    ZIT_SDA_DIR = os.path.join(LORA_DIR, "zit-sda-v1")
     JIB_REALISTIC_DIR = os.path.join(LORA_DIR, "jib-mix-realistic-z-image-lora")
 
     @staticmethod
@@ -196,42 +195,6 @@ class TestWithLoRA:
             if f.endswith(".safetensors"):
                 return os.path.join(lora_dir, f)
         return None
-
-    @pytest.mark.skipif(not ALL_MODELS_PRESENT, reason="Model directories missing")
-    @pytest.mark.skipif(not HAS_MLX, reason="mlx not available")
-    def test_with_zit_sda_lora(self, pytestconfig):
-        """9-step 768×768 with LoRA 'zit-sda-v1' (zimage-turbo style LoRA)."""
-        lora_path = self._find_safetensors(self.ZIT_SDA_DIR)
-        if lora_path is None:
-            pytest.skip(f"LoRA weights not found at {self.ZIT_SDA_DIR}")
-
-        _setup_config_paths()
-        from app.pipeline import ZImagePipeline
-
-        pipeline = ZImagePipeline()
-        try:
-            result = pipeline.generate(
-                prompt=_SHORT_PROMPT,
-                width=768,
-                height=768,
-                steps=9,
-                seed=42,
-                lora_path=lora_path,
-                lora_scale=0.8,
-            )
-        finally:
-            _cleanup(pipeline)
-
-        assert isinstance(result.image, Image.Image)
-        assert result.image.size == (768, 768)
-
-        img_np = np.array(result.image).astype(np.float32)
-        assert not np.any(np.isnan(img_np)), "Output contains NaN"
-        assert not np.any(np.isinf(img_np)), "Output contains Inf"
-
-        from conftest import assert_pipeline_hash
-        h = _pixel_hash(result.image)
-        assert_pipeline_hash("zimage_9steps_768x768_lora_zitsda_seed42", h, pytestconfig)
 
     @pytest.mark.skipif(not ALL_MODELS_PRESENT, reason="Model directories missing")
     @pytest.mark.skipif(not HAS_MLX, reason="mlx not available")

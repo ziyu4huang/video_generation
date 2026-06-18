@@ -38,7 +38,7 @@ class RunConfig:
     width: int = 640
     height: int = 960
     steps: int = 9
-    seed: int = 42
+    seed: int = 777
     lora_path: str | None = None
     lora_scale: float = 1.0
     lora_paths: list[str] | None = None    # multi-LoRA: resolved paths (main stage)
@@ -141,7 +141,7 @@ class RunConfig:
             width=getattr(args, "width", 640),
             height=getattr(args, "height", 960),
             steps=getattr(args, "steps", 9),
-            seed=getattr(args, "seed", 42),
+            seed=getattr(args, "seed", 777),
             lora_path=None,        # set by multi-LoRA normalize below (legacy scalar = first)
             lora_scale=1.0,        # set by multi-LoRA normalize below
             vae_path=resolve_vae_path(getattr(args, "vae_path", None)),
@@ -199,6 +199,17 @@ class RunConfig:
         # ZImage Turbo checkpoints (e.g. ernie-redmix-redzit15).
         if rc.pipeline == "zimage" and rc.transformer == "klein-9b":
             rc.transformer = None
+
+        # Per-transformer built-in defaults (app/transformer_defaults.py). Applied
+        # ONLY when the user did NOT pass the flag — detected via the argparse
+        # default=None sentinel (getattr(args,key) is None ⇒ not passed), so an
+        # explicit CLI flag always wins. Never a magic-number compare vs the global
+        # default (see memory argparse-sentinel-for-user-override).
+        if rc.transformer:
+            from app.transformer_defaults import get_transformer_defaults
+            for _key, _val in get_transformer_defaults(rc.transformer).items():
+                if getattr(args, _key, None) is None:
+                    setattr(rc, _key, _val)
 
         # Inline prompt-file content so run.json is self-contained
         if rc.prompt_file and not rc.prompt:

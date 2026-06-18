@@ -48,17 +48,14 @@ run.py image quality --self-test --test-prompt portrait --seed 42
 Paired comparison across multiple seeds — baseline vs LoRA adapter. Quality metrics are **on by default**:
 
 ```bash
-# Built-in test: portrait prompt, 4 seeds
-run.py image --self-test sda
-
-# Built-in test: full-body fashion prompt
-run.py image --self-test sda-fullbody
+# Built-in test: portrait prompt, 4 seeds (baseline vs Jib-Mix Realistic LoRA)
+run.py image --self-test lora:jibmix-portrait
 
 # Skip quality (images + voting only)
-run.py image review lora --self-test zit-sda-v1 --no-quality
+run.py image review lora --self-test lora:jibmix-portrait --no-quality
 
 # Custom seeds and scale
-run.py image review lora --self-test zit-sda-v1 --seeds 42,123 --lora-scale 0.7
+run.py image review lora --self-test lora:jibmix-portrait --seeds 42,123 --lora-scale 0.7
 ```
 
 Output: self-contained HTML with:

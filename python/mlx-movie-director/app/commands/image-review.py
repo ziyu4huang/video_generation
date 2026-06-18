@@ -6348,7 +6348,7 @@ def run_review_lora(args):
     from app.commands._shared import resolve_lora_path
 
     test_name_raw = getattr(args, "self_test", None)
-    test_name = test_name_raw if isinstance(test_name_raw, str) else "lora:sda-portrait"
+    test_name = test_name_raw if isinstance(test_name_raw, str) else "lora:jibmix-portrait"
 
     try:
         test_cfg = get_lora_test(test_name)

@@ -67,7 +67,7 @@ function groupIntoRows(fields: FieldDef[], state: Record<string, any>): FieldDef
 }
 
 export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraActions }: CommandFormProps) {
-  const { state, setField } = useDefaultState(schema.action, buildDefaults(schema.sections));
+  const { state, setField, serverDefaults } = useDefaultState(schema.action, buildDefaults(schema.sections));
   const [error, setError] = useState<string | null>(null);
 
   const promptFields = schema.sections.flatMap((s) =>
@@ -145,6 +145,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             min={field.min}
             max={field.max}
             step={field.step}
+            compact={field.compact}
           />
         );
       case "range":
@@ -159,16 +160,37 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             step={field.step}
           />
         );
-      case "select":
+      case "select": {
+        // Dynamic choices (e.g. the Transformer dropdown) come from serverDefaults,
+        // which is loaded from run.py — never hardcoded in the schema. Entries may
+        // carry a `pipeline` tag so the list can be filtered by the active pipeline.
+        // "auto" pipeline is treated as "zimage" for transformer filtering purposes
+        // (backend resolves auto → zimage at runtime).
+        let options = field.options ?? [];
+        let isLoading = false;
+        if (field.choicesFrom) {
+          const all = (serverDefaults as Record<string, any> | null)?.[field.choicesFrom] as
+            { value: string; label: string; pipeline?: string }[] | undefined;
+          if (all) {
+            const activePipeline = state.pipeline === "auto" ? "zimage" : state.pipeline;
+            options = all
+              .filter((c) => !c.pipeline || c.pipeline === activePipeline)
+              .map((c) => ({ value: c.value, label: c.label }));
+          } else {
+            isLoading = true;
+          }
+        }
         return (
           <SelectField
             key={field.key}
             label={field.label}
             value={state[field.key] ?? field.default ?? ""}
             onChange={(v) => setField(field.key, v)}
-            options={field.options}
+            options={options}
+            loading={isLoading}
           />
         );
+      }
       case "toggle":
         return (
           <ToggleField

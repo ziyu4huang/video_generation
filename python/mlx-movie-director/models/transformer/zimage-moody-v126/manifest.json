@@ -10,8 +10,7 @@
   "compatible_with": [
     "text_encoder/qwen3-4b",
     "tokenizer/qwen3",
-    "vae/flux-ae",
-    "lora/zit-sda-v1"
+    "vae/flux-ae"
   ],
   "source_url": "https://civitai.com/models/2253524/moody-simple-zimage-turbodistilled-workflow",
   "size_bytes": 3848371806,

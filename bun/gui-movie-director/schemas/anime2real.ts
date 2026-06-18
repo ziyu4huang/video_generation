@@ -22,7 +22,7 @@ export const anime2realCommand: UnifiedCommand = {
     { key: "ref_strength", cliFlag: "--ref-strength", control: "range", label: "Reference Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "Style Transfer" },
     { key: "anime2real_ref_count", cliFlag: "--anime2real-ref-count", control: "number", label: "Reference Count", min: 1, max: 4, default: 1, section: "Style Transfer" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, default: 8, section: "Style Transfer" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Style Transfer" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Style Transfer" },
     // Backend-only (no section) — multiselect so buildCliArgs emits repeated
     // --lora-path / --lora-scale when the loras editor is non-empty.
     { key: "lora_path", cliFlag: "--lora-path", control: "multiselect", label: "LoRA Paths" },

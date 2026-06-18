@@ -620,11 +620,12 @@ _ALL_TESTS = {
     # type=lora: LoRA adapter A/B comparison (multi-seed paired)
     # -----------------------------------------------------------------------
 
-    "lora:sda-portrait": {
+    "lora:jibmix-portrait": {
         "type": "lora",
         "description": (
-            "SDA LoKr A/B: baseline vs Z-Image-Turbo SDA diversity adapter — "
-            "multi-seed paired comparison with HTML voting review"
+            "Jib-Mix LoRA A/B: baseline vs Jib Mix Realistic Z-image style adapter — "
+            "multi-seed paired comparison with HTML voting review. Canonical demo for "
+            "`image review lora` (which requires exactly 2 variants)."
         ),
         "test_prompt": "portrait",
         "seeds": [42, 123, 777, 999],
@@ -632,43 +633,7 @@ _ALL_TESTS = {
         "lora_scale": 1.0,
         "variants": [
             {"label": "Baseline", "lora_path": None},
-            {"label": "SDA v1",   "lora_path": "zit-sda-v1"},
-        ],
-    },
-
-    "lora:sda-fullbody": {
-        "type": "lora",
-        "description": (
-            "SDA LoKr A/B: baseline vs SDA adapter — full-body fashion photography prompt, "
-            "tests whether SDA helps with full-body composition and hand quality"
-        ),
-        "test_prompt": "fullbody",
-        "seeds": [42, 123, 777, 999],
-        "steps": 9,
-        "lora_scale": 1.0,
-        "variants": [
-            {"label": "Baseline", "lora_path": None},
-            {"label": "SDA v1",   "lora_path": "zit-sda-v1"},
-        ],
-    },
-
-    # -----------------------------------------------------------------------
-    # type=lora-sweep: LoRA across multiple prompt styles (general evaluator)
-    # -----------------------------------------------------------------------
-
-    "lora:sda-sweep": {
-        "type": "lora-sweep",
-        "description": "SDA LoRA sweep: baseline vs SDA v1 across 8 diverse prompt styles",
-        "lora_scale": 1.0,
-        "seeds": [42, 777],
-        "steps": 9,
-        "test_prompts": [
-            "portrait", "landscape", "fullbody", "street",
-            "food", "cyberpunk", "animal", "interior",
-        ],
-        "variants": [
-            {"label": "Baseline", "lora_path": None},
-            {"label": "SDA v1",   "lora_path": "zit-sda-v1"},
+            {"label": "Jib-Mix",  "lora_path": "jib-mix-realistic-z-image-lora"},
         ],
     },
 
@@ -681,8 +646,8 @@ _ALL_TESTS = {
     "lora:multi-zimage": {
         "type": "multi-lora",
         "description": (
-            "Multi-LoRA stacking on Z-Image: baseline vs SDA-only vs Jib-Mix-only "
-            "vs stacked(SDA+JibMix). Verifies the --lora-path/--lora-scale "
+            "Multi-LoRA stacking on Z-Image: baseline vs Luneva-only vs Jib-Mix-only "
+            "vs stacked(Luneva+JibMix). Verifies the --lora-path/--lora-scale "
             "action='append' plumbing end-to-end — the stacked variant passes "
             "lora_paths=[a,b] + lora_scales and the pipeline applies BOTH adapters "
             "(two lora_applied events, applied_count tracked), yielding a result "
@@ -694,11 +659,11 @@ _ALL_TESTS = {
         "seeds": [42],
         "steps": 9,
         "variants": [
-            {"label": "Baseline",     "lora_paths": [],  "lora_scales": []},
-            {"label": "SDA only",     "lora_paths": ["zit-sda-v1"],                     "lora_scales": [1.0]},
-            {"label": "Jib-Mix only", "lora_paths": ["jib-mix-realistic-z-image-lora"], "lora_scales": [1.0]},
-            {"label": "Stacked SDA+Jib",
-             "lora_paths": ["zit-sda-v1", "jib-mix-realistic-z-image-lora"],
+            {"label": "Baseline",       "lora_paths": [],                                   "lora_scales": []},
+            {"label": "Luneva only",    "lora_paths": ["luneva-cyber-hd-enhancer"],         "lora_scales": [1.0]},
+            {"label": "Jib-Mix only",   "lora_paths": ["jib-mix-realistic-z-image-lora"],   "lora_scales": [1.0]},
+            {"label": "Stacked Luneva+Jib",
+             "lora_paths": ["luneva-cyber-hd-enhancer", "jib-mix-realistic-z-image-lora"],
              "lora_scales": [0.6, 0.6]},
         ],
     },
@@ -2685,9 +2650,6 @@ _DEPRECATED_NAMES = {
     "video-forest-hiker",
     "video-rainy-street",
     "workflow-postprocess",
-    "zit-sda-v1",
-    "zit-sda-v1-fullbody",
-    "zit-sda-v1-sweep",
 }
 # ---------------------------------------------------------------------------
 # Unified alias table
@@ -2703,9 +2665,6 @@ _ALL_TESTS_ALIASES = {
     "workflow-postprocess": "workflow:postprocess",
     "portrait-seeds": "t2i:portrait",
     "landscape-seeds": "t2i:landscape",
-    "zit-sda-v1": "lora:sda-portrait",
-    "zit-sda-v1-fullbody": "lora:sda-fullbody",
-    "zit-sda-v1-sweep": "lora:sda-sweep",
     "anime2real": "lora:anime2real",
     "anime2real-ref": "lora:anime2real-ref",
     "anime2real-review": "lora:anime2real-review",
@@ -2775,13 +2734,6 @@ _ALL_TESTS_ALIASES = {
     "post": "workflow:landscape",
     # T2I alias
     "seeds": "t2i:portrait",
-    # LoRA test aliases
-    "sda": "lora:sda-portrait",
-    "sda-v1": "lora:sda-portrait",
-    "sda-test": "lora:sda-portrait",
-    "sda-fullbody": "lora:sda-fullbody",
-    "sda-v1-fullbody": "lora:sda-fullbody",
-    "sda-sweep": "lora:sda-sweep",
     # LoRA I2I aliases
     "anime-girl": "lora:anime2real",
     "anime2real-lora": "lora:anime2real",

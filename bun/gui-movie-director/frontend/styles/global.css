@@ -179,6 +179,11 @@ body {
   gap: 4px;
 }
 
+.form-group--compact {
+  flex: 0 0 auto;
+  max-width: 120px;
+}
+
 .form-group label {
   font-size: 12px;
   font-weight: 500;

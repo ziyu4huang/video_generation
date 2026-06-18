@@ -2,6 +2,22 @@ import { useState, useEffect, useRef } from "react";
 import { useSchemaDefaults, type ActionDefaults } from "../queries/useSchemaDefaults";
 import { RESOLUTION_MAP, resolutionKey } from "../../../schemas/shared";
 
+// Transformers are pipeline-coupled: a zimage checkpoint can't run on the flux2
+// pipeline and vice-versa. So switching pipeline resets the transformer to that
+// pipeline's default model (the user re-picks if they want another). Defaults
+// match the server's config.py / argparse defaults so untouched behavior is unchanged.
+const PIPELINE_DEFAULT_TRANSFORMER: Record<string, string> = {
+  zimage: "zimage-moody-v126",
+  "flux2-klein": "klein-9b",
+  auto: "zimage-moody-v126",
+};
+
+// serverDefaults keys that are METADATA (not form field values) — never merged into state.
+const METADATA_KEYS = new Set([
+  "pipeline_steps", "pipeline_resolution", "self_tests",
+  "transformers", "transformer_defaults",
+]);
+
 /**
  * Manages form state with automatic server-default merging and user-edit tracking.
  *
@@ -36,7 +52,7 @@ export function useDefaultState(
     setState((prev) => {
       const next = { ...prev };
       for (const [k, v] of Object.entries(serverDefaults)) {
-        if (k === "pipeline_steps" || k === "pipeline_resolution" || k === "self_tests") continue;
+        if (METADATA_KEYS.has(k)) continue;
         if (!userModifiedRef.current.has(k)) next[k] = v;
       }
       // Auto-update steps when pipeline changes (if user hasn't manually set steps)
@@ -51,6 +67,20 @@ export function useDefaultState(
         next.height = resWH[1];
         const rk = resolutionKey(resWH[0], resWH[1]);
         if (rk && !userModifiedRef.current.has("resolution")) next.resolution = rk;
+      }
+      // Transformer is pipeline-coupled: if the current value isn't valid for the
+      // active pipeline, reset it to that pipeline's default model.
+      const defTx = PIPELINE_DEFAULT_TRANSFORMER[next.pipeline ?? ""];
+      const allTx = serverDefaults.transformers as { value: string; pipeline: string }[] | undefined;
+      const txValid = allTx?.some((t) => t.value === next.transformer && (t.pipeline === next.pipeline || (next.pipeline === "auto" && t.pipeline === "zimage")));
+      if (defTx && !txValid) next.transformer = defTx;
+      // Apply per-transformer built-in params (e.g. dark-beast-dbzit9 → cfg_scale 3.0)
+      // for the active transformer, unless the user already edited that field.
+      const tdef = (serverDefaults.transformer_defaults as Record<string, Record<string, any>> | undefined)?.[next.transformer ?? ""];
+      if (tdef) {
+        for (const [fk, fv] of Object.entries(tdef)) {
+          if (!userModifiedRef.current.has(fk)) next[fk] = fv;
+        }
       }
       return next;
     });
@@ -74,6 +104,22 @@ export function useDefaultState(
           next.height = resWH[1];
           const rk = resolutionKey(resWH[0], resWH[1]);
           if (rk && !userModifiedRef.current.has("resolution")) next.resolution = rk;
+        }
+        // Transformers are pipeline-coupled: reset to the new pipeline's default
+        // model (the previous transformer can't run on a different pipeline). CFG
+        // is zimage-only, so clear it when leaving zimage.
+        const defTx = PIPELINE_DEFAULT_TRANSFORMER[value];
+        if (defTx) next.transformer = defTx;
+        if (value !== "zimage") next.cfg_scale = undefined;
+      }
+      // When transformer changes, apply its built-in params (e.g. cfg_scale) for
+      // any field the user hasn't manually edited — mirrors the pipeline pattern.
+      if (key === "transformer") {
+        const tdef = (serverDefaults?.transformer_defaults as Record<string, Record<string, any>> | undefined)?.[value];
+        if (tdef) {
+          for (const [fk, fv] of Object.entries(tdef)) {
+            if (!userModifiedRef.current.has(fk)) next[fk] = fv;
+          }
         }
       }
       // Picking a resolution preset sets width/height and locks them (a later

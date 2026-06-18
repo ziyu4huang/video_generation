@@ -9,6 +9,11 @@ export const t2iCommand: UnifiedCommand = {
   fields: [
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image you want to generate...", section: "Prompt" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: T2I_PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
+    // Transformer instance (models/transformer/*). Choices are loaded DYNAMICALLY from
+    // run.py (serverDefaults.transformers) — never hardcoded — and filtered by the
+    // selected pipeline. Per-transformer built-in params (e.g. dark-beast-dbzit9 →
+    // cfg_scale 3.0) are applied on selection via serverDefaults.transformer_defaults.
+    { key: "transformer", cliFlag: "--transformer", control: "select", choicesFrom: "transformers", label: "Transformer", default: "zimage-moody-v126", section: "Generation", visible: (s) => s.pipeline === "zimage" || s.pipeline === "flux2-klein" || s.pipeline === "auto" },
     // Resolution picker — a "WxH" key (UI-only, no CLI flag). The key expands to
     // width/height, which is what run.py receives. Switching pipeline auto-selects
     // the per-model preference (lens→1024², zimage/flux2-klein→640×960).
@@ -18,10 +23,14 @@ export const t2iCommand: UnifiedCommand = {
     // lens=20). There's nothing for the user to tune — the value just tracks the
     // chosen model — so buildParams never sends --steps either.
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Generation", visible: () => false },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Generation" },
     { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation", visible: (s) => s.resolution === "custom" },
     { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation", visible: (s) => s.resolution === "custom" },
-    { key: "count", cliFlag: "--count", control: "number", label: "Count", min: 1, max: 10, default: 1, section: "Generation" },
+    { key: "count", cliFlag: "--count", control: "number", label: "Count", min: 1, max: 10, default: 1, compact: true, section: "Generation" },
+    // CFG scale (zimage only). Empty = off (single forward). Selecting a transformer
+    // with a registered default (e.g. dark-beast-dbzit9) auto-fills this; the user
+    // can still override. buildParams omits it when empty so the server treats it as off.
+    { key: "cfg_scale", cliFlag: "--cfg-scale", control: "number", label: "CFG Scale", min: 1, max: 8, step: 0.5, compact: true, section: "Generation", visible: (s) => s.pipeline === "zimage" },
     // Multi-LoRA editor (UI-only). buildParams derives lora_path/lora_scale
     // arrays → repeated --lora-path / --lora-scale flags (multiselect backend fields).
     // Microsoft Lens is a separate model family with no LoRA support — hide
@@ -42,10 +51,14 @@ export const t2iCommand: UnifiedCommand = {
     return {
       prompt: s.prompt?.trim(),
       pipeline: s.pipeline,
+      transformer: (s.pipeline === "zimage" || s.pipeline === "flux2-klein" || s.pipeline === "auto") ? s.transformer : undefined,
       width: s.width,
       height: s.height,
       // steps intentionally omitted — server picks the per-pipeline optimum.
       seed: s.seed,
+      // CFG: only send when the user/transformer-default set a value (zimage).
+      // Empty → undefined → server treats as off (single forward/step).
+      cfg_scale: s.cfg_scale != null && s.cfg_scale !== "" ? s.cfg_scale : undefined,
       // Multi-LoRA: derive repeated --lora-path / --lora-scale from the editor
       // rows. Empty → both undefined → omitted (no LoRA).
       lora_path: loras.length ? loras.map((r: any) => r.path) : undefined,

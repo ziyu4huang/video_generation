@@ -35,7 +35,7 @@ export const videoCompareCommand: UnifiedCommand = {
       default: "i2v,distilled-i2v,hq-i2v", placeholder: "Comma-separated: i2v,distilled-i2v,hq-i2v,t2v,distilled-t2v" },
     // Video generation params (shared)
     { key: "frames", cliFlag: "--frames", control: "number", label: "Frames", default: 97 },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42 },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true },
     { key: "width", cliFlag: "--width", control: "number", label: "Width", default: 704 },
     { key: "height", cliFlag: "--height", control: "number", label: "Height", default: 448 },
     { key: "stage1_steps", cliFlag: "--stage1-steps", control: "number", label: "Stage 1 Steps", default: 8 },

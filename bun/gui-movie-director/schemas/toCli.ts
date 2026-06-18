@@ -23,6 +23,7 @@ export function toCliFields(cmd: UnifiedCommand): Record<string, CliField> {
     if (f.required !== undefined) field.required = f.required;
     if (f.default !== undefined) field.default = f.default;
     if (f.choices) field.choices = f.choices.map((c) => c.value);
+    else if (f.choicesFrom) field.choices = []; // dynamic choices (loaded from run.py at runtime)
     if (f.min !== undefined) field.min = f.min;
     if (f.max !== undefined) field.max = f.max;
     // Image/file-upload controls always carry a server filesystem path —

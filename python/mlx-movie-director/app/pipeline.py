@@ -165,7 +165,8 @@ class ZImagePipeline:
         width: int = 1024,
         height: int = 1024,
         steps: int = 9,
-        seed: int | None = 42,
+        seed: int | None = 777,
+        cfg_scale: float | None = None,
         lora_path: str | None = None,
         lora_scale: float = 1.0,
         lora_paths: list[str] | None = None,
@@ -298,23 +299,32 @@ class ZImagePipeline:
 
         mx.eval(text_encoder)
 
-        messages = [{"role": "user", "content": prompt}]
-        try:
-            prompt_fmt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        except (TypeError, ValueError) as e:
-            print(f"  [WARN] chat template failed ({e}), using raw prompt")
-            prompt_fmt = prompt
+        def _encode_one(text: str):
+            """Tokenize + encode one prompt string, return length-padded bf16 feats (1, L, D)."""
+            msgs = [{"role": "user", "content": text}]
+            try:
+                fmt = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            except (TypeError, ValueError):
+                fmt = text
+            toks = tokenizer(fmt, padding="max_length", max_length=512, truncation=True, return_tensors="np")
+            embeds = text_encoder(mx.array(toks["input_ids"]))
+            mx.eval(embeds)
+            arr = np.array(embeds)
+            p = (-arr.shape[1]) % 32
+            if p > 0:
+                arr = np.concatenate([arr, np.repeat(arr[:, -1:, :], p, axis=1)], axis=1)
+            return mx.array(arr).astype(mx.bfloat16)
 
-        inputs = tokenizer(prompt_fmt, padding="max_length", max_length=512, truncation=True, return_tensors="np")
+        cap_feats_mx = _encode_one(prompt)
 
-        prompt_embeds = text_encoder(mx.array(inputs["input_ids"]))
-        mx.eval(prompt_embeds)
-
-        cap_feats_np = np.array(prompt_embeds)
-        pad = (-cap_feats_np.shape[1]) % 32
-        if pad > 0:
-            cap_feats_np = np.concatenate([cap_feats_np, np.repeat(cap_feats_np[:, -1:, :], pad, axis=1)], axis=1)
-        cap_feats_mx = mx.array(cap_feats_np).astype(mx.bfloat16)
+        # Classifier-free guidance: encode an UNCONDITIONAL (empty-prompt) embedding so the
+        # denoise loop can blend cond/uncond velocity. Only when cfg_scale is set and != 1.0;
+        # default None → no second forward, byte-identical to pre-CFG behavior. ZImageTurbo
+        # was distilled at guidance 0.0, so CFG is opt-in here for empirical A/B (see kb.jsonl).
+        cfg_active = bool(cfg_scale) and float(cfg_scale) != 1.0
+        uncond_feats_mx = _encode_one("") if cfg_active else None
+        if cfg_active:
+            print(f"\n   CFG enabled: cfg_scale={cfg_scale} (dual forward per step)")
 
         del text_encoder, tokenizer
         mx.clear_cache()
@@ -490,6 +500,7 @@ class ZImagePipeline:
                        "denoise_strength": denoise_strength if clean_latent is not None else None,
                        "seed_variance": noisy_cap_feats is not None,
                        "sv_cutoff_step": sv_cutoff if noisy_cap_feats is not None else None,
+                       "cfg_scale": float(cfg_scale) if cfg_active else None,
                        "scheduler": "flowmatch_euler", "shift": 3.0},
             "seconds": None,
         })
@@ -505,7 +516,13 @@ class ZImagePipeline:
             if noisy_cap_feats is not None and i < sv_cutoff:
                 feats = noisy_cap_feats
 
-            noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
+            if uncond_feats_mx is not None:
+                # Classifier-free guidance: blend conditional + unconditional velocity.
+                cond = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
+                uncond = step_fn(latents, t_input, uncond_feats_mx, img_pos, cap_pos, cos_cached, sin_cached)
+                noise_pred = uncond + cfg_scale * (cond - uncond)
+            else:
+                noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
             latents = scheduler.step(noise_pred, i, latents)
             mx.eval(latents)
 
@@ -586,7 +603,7 @@ class ZImagePipeline:
                 from app.seedvr2.pipeline import SeedVR2Upscaler as _SV2
                 sv2 = _SV2(model_size="7b")
                 try:
-                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=seed or 42)
+                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=seed or 777)
                 finally:
                     sv2.unload()
                 timings["seedvr2_seconds"] = time.time() - t_up

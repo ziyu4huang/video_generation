@@ -81,7 +81,7 @@ def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]
     fallbacks for subcommands whose Namespace may lack these attributes.
     """
     count = max(1, getattr(args_or_config, "count", 1) or 1)
-    seed = getattr(args_or_config, "seed", None) or 42
+    seed = getattr(args_or_config, "seed", None) or 777
     seed_start = getattr(args_or_config, "seed_start", None)
     if seed_start is not None:
         return [seed_start + i for i in range(count)]
@@ -215,8 +215,8 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--steps", type=int, default=None,
                             help="Denoising steps (default: 9 for zimage, 4 for flux2-klein)")
     if not _arg_registered(parser, "seed"):
-        parser.add_argument("--seed", type=int, default=42,
-                            help="Random seed (default: 42)")
+        parser.add_argument("--seed", type=int, default=777,
+                            help="Random seed (default: 777)")
     if not _arg_registered(parser, "self_test"):
         # nargs="*" accepts 0..N names. normalize_self_test() (called at the
         # image entry point) restores the legacy scalar/bare semantics:
@@ -609,6 +609,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                     seed=seed,
                     lora_path=run_config.lora_path,
                     lora_scale=run_config.lora_scale,
+                    cfg_scale=run_config.cfg_scale,
                     input_image=input_image,
                     latent_upscale=run_config.latent_upscale,
                     denoise_strength=run_config.denoise_strength,
@@ -707,7 +708,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
 
 def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_model: str,
                    upscale_resolution: str = "2x", upscale_softness: float = 0.5,
-                   seed: int = 42) -> "GenerationResult":
+                   seed: int = 777) -> "GenerationResult":
     """Apply post-generation upscaling to a GenerationResult."""
     from app.pipeline_types import GenerationResult as GR
     from app.pipeline import ZImagePipeline

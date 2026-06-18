@@ -13,6 +13,8 @@ import importlib
 import json
 import sys
 
+from app.transformer_defaults import all_transformer_defaults
+
 PARSER_META = {
     "help": "Output command schema defaults as JSON (for GUI sync)",
     "description": "Print action defaults + self-test names as JSON. No model loading.",
@@ -64,20 +66,28 @@ def _build():
             "pipeline": "zimage",
             "width": 640,
             "height": 960,
-            "seed": 42,
+            "seed": 777,
             "lora_scale": 1.0,
             "count": 1,
             "draft": False,
             "upscale": False,
             "pipeline_steps": pipeline_steps,
             "pipeline_resolution": pipeline_resolution,
+            # T2I-applicable transformers, dynamically enumerated from
+            # models/transformer/*/manifest.json (drives the GUI dropdown — never
+            # hardcoded in the Bun schema). Tagged with the GUI pipeline so the
+            # frontend can filter by the selected pipeline.
+            "transformers": _build_t2i_transformers(),
+            # Per-transformer built-in params (app/transformer_defaults.py). The GUI
+            # applies these when the user picks a transformer (unless already edited).
+            "transformer_defaults": all_transformer_defaults(),
             "self_tests": self_tests.get("t2i", []),
         },
         "i2i": {
             "pipeline": "zimage",
             "denoise_strength": 0.4,
             "controlnet_strength": 1.0,
-            "seed": 42,
+            "seed": 777,
             "pipeline_steps": pipeline_steps,
             "self_tests": self_tests.get("i2i", []),
         },
@@ -85,7 +95,7 @@ def _build():
             "pipeline": "zimage",
             "width": 640,
             "height": 960,
-            "seed": 42,
+            "seed": 777,
             "face_detail": False,
             "film_grain": 0.0,
             "sharpening": 0.0,
@@ -97,19 +107,19 @@ def _build():
             "ref_strength": 1.0,
             "anime2real_ref_count": 1,
             "steps": 8,
-            "seed": 42,
+            "seed": 777,
             "self_tests": self_tests.get("anime2real", []),
         },
         "controlnet": {
             "controlnet_type": "canny",
             "controlnet_strength": 1.0,
-            "seed": 42,
+            "seed": 777,
             "pipeline_steps": pipeline_steps,
             "self_tests": self_tests.get("controlnet", []),
         },
         "faceswap": {
             "mode": "head",
-            "seed": 42,
+            "seed": 777,
             "self_tests": self_tests.get("faceswap", []),
         },
         "expansion": {
@@ -118,7 +128,7 @@ def _build():
             "overlap": 128,
             "longest": 1024,
             "expansion_ref_strength": 1.0,
-            "seed": 42,
+            "seed": 777,
             "self_tests": self_tests.get("expansion", []),
         },
         "angle": {
@@ -130,7 +140,7 @@ def _build():
             "views": "front,back,side",
             "ratio": "standing",
             "ref_count": 3,
-            "seed": 42,
+            "seed": 777,
             "pipeline_steps": pipeline_steps,
             "self_tests": self_tests.get("profile", []),
         },
@@ -146,7 +156,7 @@ def _build():
             "height": 448,
             "frames": 97,
             "fps": 24.0,
-            "seed": 42,
+            "seed": 777,
             "cfg_scale": 5.0,
             "stg_scale": 1.0,
             "begin_strength": 1.0,
@@ -161,7 +171,7 @@ def _build():
             "self_tests": self_tests.get("video-generate", []),
         },
         "video-restore": {
-            "seed": 42,
+            "seed": 777,
             "restore_scale": 1.0,
             "restore_cond_strength": 1.0,
             "restoration_scale": 1.0,
@@ -174,7 +184,7 @@ def _build():
             "width": 704,
             "height": 448,
             "fps": 24.0,
-            "seed": 42,
+            "seed": 777,
             "cfg_scale": 1.0,
             "stg_scale": 0.0,
             "stage1_steps": 8,
@@ -209,3 +219,33 @@ def _build_self_tests():
         result.setdefault(action, []).append(entry)
 
     return result
+
+
+# arch → GUI pipeline. Only these archs are offered in the T2I transformer dropdown;
+# ltx / seedvr2 / other archs are excluded (not T2I image transformers).
+_T2I_ARCH_TO_PIPELINE = {"zimage-turbo": "zimage", "flux2-klein-9b": "flux2-klein"}
+
+
+def _build_t2i_transformers():
+    """Enumerate T2I-applicable transformers for the GUI dropdown.
+
+    Pulled dynamically from models/transformer/*/manifest.json (never hardcoded in the
+    Bun schema). Each entry: {"value", "label", "arch", "pipeline"}; the frontend filters
+    the list by the selected pipeline. Imports are local to avoid pulling in mlx at module
+    load (schema-defaults must stay a no-model-load command).
+    """
+    from app import config as cfg
+    from app.model_registry import ModelRegistry
+
+    out = []
+    try:
+        for m in ModelRegistry(cfg.MODELS_DIR).list("transformer"):
+            arch = m.get("arch", "")
+            pipeline = _T2I_ARCH_TO_PIPELINE.get(arch)
+            if not pipeline:
+                continue
+            name = m.get("name", "")
+            out.append({"value": name, "label": name, "arch": arch, "pipeline": pipeline})
+    except Exception:
+        pass
+    return out

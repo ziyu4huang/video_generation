@@ -25,9 +25,15 @@ export interface UnifiedField {
   required?: boolean;
   default?: any;
   choices?: { value: string; label: string }[];
+  // Dynamic choices: when set, the select's options come from serverDefaults[<key>]
+  // (fetched from run.py via /api/schema-defaults) instead of the static `choices`
+  // array. Used for the T2I Transformer dropdown (choicesFrom: "transformers"), so
+  // the list always reflects models/transformer/* on disk — never hardcoded here.
+  choicesFrom?: string;
   min?: number;
   max?: number;
   step?: number;
+  compact?: boolean;
   placeholder?: string;
   section?: string;
   visible?: (s: Record<string, any>) => boolean;

@@ -91,11 +91,12 @@ interface NumberFieldProps {
   max?: number;
   step?: number;
   placeholder?: string;
+  compact?: boolean;
 }
 
-export function NumberField({ label, value, onChange, min, max, step, placeholder }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, min, max, step, placeholder, compact }: NumberFieldProps) {
   return (
-    <div className="form-group">
+    <div className={`form-group${compact ? " form-group--compact" : ""}`}>
       <label>{label}</label>
       <input
         type="number"
@@ -146,18 +147,23 @@ interface SelectFieldProps {
   value: string;
   onChange: (val: string) => void;
   options: { value: string; label: string }[];
+  loading?: boolean;
 }
 
-export function SelectField({ label, value, onChange, options }: SelectFieldProps) {
+export function SelectField({ label, value, onChange, options, loading }: SelectFieldProps) {
   return (
     <div className="form-group">
       <label>{label}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
+      <select value={loading ? "" : value} onChange={(e) => onChange(e.target.value)} disabled={loading}>
+        {loading ? (
+          <option value="">Loading…</option>
+        ) : (
+          options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))
+        )}
       </select>
     </div>
   );

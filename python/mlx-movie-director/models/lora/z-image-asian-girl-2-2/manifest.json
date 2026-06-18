@@ -1,0 +1,22 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "z-image-asian-girl-2-2",
+  "type": "lora",
+  "arch": "zimage-turbo",
+  "format": "safetensors-bf16",
+  "description": "Z-Image-Asian girl 2（小红书女孩2） v1.0",
+  "source": "civitai/z-image-asian-girl-2-2",
+  "compatible_with": [
+    "transformer/zimage-moody-v126"
+  ],
+  "size_bytes": 170128232,
+  "created_at": "2026-06-18T15:15:19Z",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "source_url": "https://civitai.com/models/2175220",
+  "trigger_words": [
+    "xhs888 woman"
+  ],
+  "test_prompt": "xhs888 woman wearing a white sweater taking a selfie indoors with messy hair and winking at camera"
+}

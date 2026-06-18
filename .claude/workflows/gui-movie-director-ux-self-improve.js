@@ -280,6 +280,11 @@ THIS RUN'S DATA:
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Set type to exactly ONE of: pattern | lever | avoid | gotcha | false_positive | metric
+   (avoid/gotcha = dead-end/crash-class bug or latent trap; lever = an adopted move that
+   helped; false_positive = a recurring flag that was rejected; metric = a measured
+   ceiling/baseline; pattern = reusable check). loadKnowledge groups on type, so a NULL
+   type makes the record invisible to the next run -- ALWAYS set it.
    Grep existing ids; if one matches:
      - evidence.occurrences += 1
      - append "${runId}" to evidence.run_ids (keep newest 8)
@@ -419,17 +424,19 @@ or { ok: false, error: "<reason>" } if playwright is unavailable or the file is 
 
     const captionOutPath = shotPath.replace(/\.png$/, ".caption.json")
     const analysis = await agent(
-      `Analyze the GUI screenshot of view "${v.label}" (id: ${v.id}) for UX quality.
+      `Analyze the GUI view "${v.label}" (id: ${v.id}) for UX quality using the local VLM caption.
 
-Screenshot path: ${shotPath}
-View source file (for context): ${v.file ? `${GUI_DIR}/${v.file}` : "N/A (config/gallery special view)"}
+⚠ TOKEN RULE: Do NOT Read() or attach the PNG file. Do NOT use built-in vision.
+  Process ONLY the text output from run.py caption (steps 1–2 below).
 
 Steps:
-1. Run VLM caption: Bash("${PYTHON} ${RUN_PY} caption '${shotPath}' --style playwright --lang en 2>&1")
-2. Read caption output: Bash("cat '${captionOutPath}' 2>/dev/null || echo '{}'")
-3. If the source file is given, Read("${GUI_DIR}/${v.file || "frontend/styles.css"}") for code context.
-4. Based on the playwright-style caption (LAYOUT, INTERACTIVE ELEMENTS, STATE, PRIMARY ACTION)
-   AND the source code, identify UX issues. For each issue assign:
+1. Run local VLM caption: Bash("${PYTHON} ${RUN_PY} caption '${shotPath}' --style playwright --lang en 2>&1")
+   (This calls LM Studio locally — no cloud tokens spent on the image.)
+2. Read the caption JSON: Bash("cat '${captionOutPath}' 2>/dev/null || echo '{}'")
+   The JSON has a "caption" field with LAYOUT, INTERACTIVE ELEMENTS, STATE, PRIMARY ACTION sections.
+3. If the source file is given (not N/A), Read("${GUI_DIR}/${v.file || "frontend/styles.css"}") for code context.
+4. Based SOLELY on the caption text (step 2) AND the source code (step 3), identify UX issues.
+   For each issue assign:
    - id: "${v.id}-NN" (e.g. "${v.id}-01")
    - severity: "high" (blocks user) | "medium" (friction) | "low" (polish)
    - category: "layout" | "feedback" | "clarity" | "consistency" | "accessibility"
@@ -447,6 +454,7 @@ Focus on finding REAL issues (not style opinions):
    - Icon-only buttons with no title/aria-label → accessibility
    - Sections with inconsistent vertical padding vs other views → consistency
 
+Source file: ${v.file ? `${GUI_DIR}/${v.file}` : "N/A (config/gallery special view)"}
 uxScore: 1-10 overall UX quality of this view (10 = excellent, 1 = very poor).
 Return UX_ANALYSIS_SCHEMA with viewId="${v.id}".`,
       { label: `analyze:${v.id}`, phase: "Survey", model: "sonnet", schema: UX_ANALYSIS_SCHEMA },
@@ -629,16 +637,25 @@ Return nothing.`,
 
     // ── Re-screenshot + VLM rescore ──
     const afterShotPath = `${SHOT_DIR}/${issue.viewId}-iter${fixIter}-after.png`
+    const beforeCaptionPath = issue.shotPath ? issue.shotPath.replace(/\.png$/, ".caption.json") : null
+    const afterCaptionPath  = afterShotPath.replace(/\.png$/, ".caption.json")
     const rescore = await agent(
       `Re-screenshot the view "${issue.viewLabel}" and rescore UX quality after the fix.
 
+⚠ TOKEN RULE: Do NOT Read() or attach any PNG file. Do NOT use built-in vision.
+  Compare ONLY the text captions from run.py caption (steps 2–4 below).
+
 1. Use playwright-cli tools to navigate to http://localhost:3099/${issue.route}
    and screenshot to ${afterShotPath}.
-2. Bash("${PYTHON} ${RUN_PY} caption '${afterShotPath}' --style playwright --lang en 2>&1")
-3. Read caption: Bash("cat '${afterShotPath.replace(/\.png$/, ".caption.json")}' 2>/dev/null || echo '{}'")
-4. Compare the before screenshot (${issue.shotPath || "N/A"}) with the after screenshot to
-   assess whether the UX issue "${issue.title}" was actually improved.
-5. Return { ok: true, uxScore: <1-10 overall UX score of the view after the fix> }
+2. Run local VLM caption on the AFTER shot:
+   Bash("${PYTHON} ${RUN_PY} caption '${afterShotPath}' --style playwright --lang en 2>&1")
+3. Read AFTER caption text: Bash("cat '${afterCaptionPath}' 2>/dev/null || echo '{}'")
+4. Read BEFORE caption text (from the survey pass):
+   Bash("cat '${beforeCaptionPath || "/dev/null"}' 2>/dev/null || echo '{}'")
+5. Compare the BEFORE caption vs AFTER caption (both are text JSON with "caption" field).
+   Assess whether the issue "${issue.title}" (category: ${issue.category}) is visibly improved
+   based on the INTERACTIVE ELEMENTS, STATE, and PRIMARY ACTION sections of both captions.
+6. Return { ok: true, uxScore: <1-10 overall UX score of the view AFTER the fix> }
    or { ok: false, uxScore: null } if screenshot failed.`,
       { label: `rescore:iter${fixIter}`, phase: "Fix Loop", model: "haiku", schema: RESCORE_SCHEMA },
     )

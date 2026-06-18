@@ -10,7 +10,7 @@ export const videoRestoreCommand: UnifiedCommand = {
     { key: "restore_negative_prompt", cliFlag: "--restore-negative-prompt", control: "text", label: "Negative Prompt" },
     { key: "restore_scale", cliFlag: "--restore-scale", control: "range", label: "Restore Scale", default: 1.0 },
     { key: "restore_cond_strength", cliFlag: "--restore-cond-strength", control: "range", label: "Condition Strength", default: 1.0, min: 0, max: 1 },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42 },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true },
     { key: "frames", cliFlag: "--frames", control: "number", label: "Frames" },
     { key: "low_ram", cliFlag: "--low-ram", control: "toggle", label: "Low RAM" },
     { key: "restoration_lora", cliFlag: "--restoration-lora", control: "text", label: "Restoration LoRA" },

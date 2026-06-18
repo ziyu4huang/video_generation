@@ -26,9 +26,11 @@ function fieldToUi(f: UnifiedField): Record<string, any> {
   if (f.min !== undefined) out.min = f.min;
   if (f.max !== undefined) out.max = f.max;
   if (f.step !== undefined) out.step = f.step;
+  if (f.compact !== undefined) out.compact = f.compact;
   if (f.visible !== undefined) out.visible = f.visible;
   if (f.multiline !== undefined) out.multiline = f.multiline;
   if (f.control === "select" && f.choices) out.options = f.choices;
+  if (f.control === "select" && f.choicesFrom) out.choicesFrom = f.choicesFrom;
   if (f.control === "loras" && f.loraTags) out.loraTags = f.loraTags;
   return out;
 }

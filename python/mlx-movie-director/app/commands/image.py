@@ -17,9 +17,7 @@ Sub-actions (loaded from sibling modules via importlib):
 
 Named self-tests (--self-test <id>):
   vae:ultraflux                  — Default VAE vs UltraFlux VAE quality comparison (was: ultraflux)
-  lora:sda-portrait              — SDA LoKr A/B: portrait prompt, quality metrics + voting (was: zit-sda-v1)
-  lora:sda-fullbody              — SDA LoKr A/B: full-body prompt, quality metrics + voting (was: zit-sda-v1-fullbody)
-  lora:sda-sweep                 — SDA LoKr sweep: 8 diverse prompt styles, cross-prompt quality (was: zit-sda-v1-sweep)
+  lora:jibmix-portrait           — Jib-Mix LoRA A/B: portrait prompt, quality metrics + voting
   lora:anime2real                — anime2real LoRA: T2I→I2I style transfer (was: anime2real)
   lora:anime2real-ref            — anime2real Ref+LoRA: identity-preserving review (was: anime2real-ref)
   swap:face-crossgender          — Woman body + man head swap, cross-gender BFS (was: faceswap-crossgender)
@@ -45,8 +43,8 @@ Usage:
   run.py image t2i --prompt '...' --ab-test
   run.py image t2i --self-test vae:ultraflux
   run.py image review vae --self-test vae:ultraflux
-  run.py image review lora --self-test lora:sda-portrait
-  run.py image review lora --self-test lora:sda-portrait --seeds 42,123 --lora-scale 0.7
+  run.py image review lora --self-test lora:jibmix-portrait
+  run.py image review lora --self-test lora:jibmix-portrait --seeds 42,123 --lora-scale 0.7
   run.py image angle --input output/portrait.png
   run.py image angle --input photo.png --azimuth 270 --elevation -20
   run.py image profile --input char.png
@@ -120,8 +118,7 @@ PARSER_META = {
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
-        "  lora:sda-portrait       — SDA LoKr A/B: portrait (was: zit-sda-v1)\n"
-        "  lora:sda-fullbody       — SDA LoKr A/B: full-body (was: zit-sda-v1-fullbody)\n"
+        "  lora:jibmix-portrait    — Jib-Mix LoRA A/B: portrait, baseline vs Jib Mix Realistic\n"
         "  lora:anime2real         — T2I→I2I style transfer (was: anime2real)\n"
         "  lora:anime2real-ref     — Ref+LoRA identity-preserving (was: anime2real-ref)\n"
         "  lora:anime2real-ab      — Realism style A/B (was: anime2real-ab)\n"
@@ -161,7 +158,6 @@ PARSER_META = {
         "  controlnet:pose         — OpenPose skeleton (was: cnet-pose)\n"
         "  controlnet:dual         — OpenPose+inpaint anchor (was: dual-guidance)\n"
         "  lora:anatomy            — Anatomy stress test (was: anatomy-challenge)\n"
-        "  lora:sda-sweep          — SDA 8-prompt sweep (was: zit-sda-v1-sweep)\n"
         "  swap:sam-all            — Run all SAM3 swap tests\n"
         "Run `run.py image review --self-test list` for full listing.\n\n"
         "Examples:\n"
@@ -170,11 +166,9 @@ PARSER_META = {
         "  run.py image t2i --prompt '...' --ab-test\n"
         "  run.py image t2i --self-test vae:ultraflux\n"
         "  run.py image review vae --self-test vae:ultraflux\n"
-        "  run.py image review lora --self-test lora:sda-portrait\n"
-        "  run.py image review lora --self-test lora:sda-portrait --seeds 42,123 --lora-scale 0.7\n"
-        "  run.py image review lora --self-test lora:sda-portrait --no-quality\n"
-        "  run.py image --self-test lora:sda-fullbody\n"
-        "  run.py image --self-test lora:sda-sweep\n"
+        "  run.py image review lora --self-test lora:jibmix-portrait\n"
+        "  run.py image review lora --self-test lora:jibmix-portrait --seeds 42,123 --lora-scale 0.7\n"
+        "  run.py image review lora --self-test lora:jibmix-portrait --no-quality\n"
         "  run.py image angle --input output/portrait.png\n"
         "  run.py image angle --input photo.png --azimuth 270 --elevation -20\n"
         "  run.py image angle --input x.png --azimuth 180 --prompt 'cyberpunk outfit'\n"

@@ -9,7 +9,7 @@ export const workflowCommand: UnifiedCommand = {
   fields: [
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image...", section: "Prompt" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage", section: "Generation" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Generation" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Generation" },
     { key: "width", cliFlag: "--width", control: "number", label: "Width", min: 256, max: 2048, step: 64, default: 640, section: "Generation" },
     { key: "height", cliFlag: "--height", control: "number", label: "Height", min: 256, max: 2048, step: 64, default: 960, section: "Generation" },
     { key: "face_detail", cliFlag: "--face-detail", control: "toggle", label: "Face Detailer", default: true, section: "Post-Processing" },

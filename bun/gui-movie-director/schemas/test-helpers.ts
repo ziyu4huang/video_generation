@@ -49,6 +49,10 @@ export function invariants(cmd: UnifiedCommand) {
     it("select fields have non-empty choices", () => {
       for (const f of cmd.fields) {
         if (f.control === "select") {
+          // choicesFrom fields (e.g. the Transformer dropdown) load their options
+          // dynamically from run.py via serverDefaults — they have no static
+          // `choices` array by design, so skip them here.
+          if (f.choicesFrom) continue;
           expect(f.choices).toBeDefined();
           expect(f.choices!.length).toBeGreaterThan(0);
           for (const c of f.choices!) {

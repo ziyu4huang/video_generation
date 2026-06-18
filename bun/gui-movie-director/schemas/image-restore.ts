@@ -12,7 +12,7 @@ export const imageRestoreCommand: UnifiedCommand = {
     { key: "denoise_strength", cliFlag: "--denoise-strength", control: "range", label: "Denoise Strength", min: 0, max: 1, step: 0.05, default: 0.4, section: "Restoration" },
     { key: "pipeline", cliFlag: "--pipeline", control: "select", label: "Pipeline", choices: PIPELINE_OPTIONS, default: "zimage", section: "Restoration" },
     { key: "steps", cliFlag: "--steps", control: "number", label: "Steps", min: 1, max: 50, section: "Restoration" },
-    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, section: "Restoration" },
+    { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Restoration" },
   ],
   buildParams: (s) => ({
     input_image: s.input_image,
