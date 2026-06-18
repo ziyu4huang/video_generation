@@ -14,6 +14,12 @@
 //      returns text, so callers reading .bytes/.total_lines/.digest get undefined
 //      -> the 0-bytes / silent-skip / undefined-digest bug class.
 //        (Per workflow-agent-schema-for-parsed-results memory.)
+//   3. Every knowledge JSONL (.claude/workflows/*.knowledge.jsonl + python/.../
+//      models/**/kb.jsonl) MUST have a sibling <stem>.manifest.json whose
+//      record_schema declares every top-level key present in the data (no drift).
+//      A key in the data but absent from the manifest means the manifest no longer
+//      explains the file — the exact miss (kb_version + provenance fields) this rule
+//      prevents. See _shared-patterns.md "KB manifest".
 //
 // Soft report (never exits, just surfaces drift for review):
 //   - Normalized persist-history AND knowledge (extract/load) schemas per workflow,
@@ -26,7 +32,7 @@
 // Usage:  node scripts/check-workflow-patterns.mjs
 // Exit:   0 clean, 1 hard-rule violation.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename, resolve } from "node:path";
 
@@ -294,6 +300,71 @@ for (const [n, info] of kg) {
   for (const f of info.files) console.log(`     - ${f}`);
 }
 if (kgIdx === 0) console.log("  (no knowledge snippets ported yet)");
+
+// --- kb.jsonl manifest + schema drift (HARD rule 3) --------------------------
+// Every knowledge JSONL needs a sibling <stem>.manifest.json declaring its record
+// schema. Drift = a top-level key present in the data but NOT in the manifest's
+// record_schema -> the manifest no longer explains the file (the exact miss this
+// prevents). See _shared-patterns.md "KB manifest".
+console.log("\n═══ kb.jsonl manifest + schema drift ═══");
+const REPO_ROOT = resolve(__dirname, "..");
+const MODELS_DIR = resolve(REPO_ROOT, "python", "mlx-movie-director", "models");
+function walkKbJsonl(dir, out) {
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) walkKbJsonl(full, out);
+    else if (e.name === "kb.jsonl") out.push(full);
+  }
+}
+const modelKb = [];
+walkKbJsonl(MODELS_DIR, modelKb);
+const kbFiles = [
+  ...readdirSync(WF_DIR).filter((f) => f.endsWith(".knowledge.jsonl")).map((f) => join(WF_DIR, f)),
+  ...modelKb,
+];
+const relPath = (p) => p.replace(REPO_ROOT + "/", "");
+const manifestRows = [];
+for (const kbPath of kbFiles) {
+  const manifestPath = kbPath.replace(/\.jsonl$/, ".manifest.json");
+  const r = { kb: relPath(kbPath), hasManifest: existsSync(manifestPath), mVer: "—", declared: 0, actual: 0, drift: 0 };
+  const actualKeys = new Set();
+  for (const line of readFileSync(kbPath, "utf8").split("\n")) {
+    const t = line.trim();
+    if (!t) continue;
+    try { Object.keys(JSON.parse(t)).forEach((k) => actualKeys.add(k)); } catch {}
+  }
+  r.actual = actualKeys.size;
+  if (!r.hasManifest) {
+    violations.push(`${r.kb}: missing sibling manifest (expected ${relPath(manifestPath)})`);
+  } else {
+    let m = null;
+    try { m = JSON.parse(readFileSync(manifestPath, "utf8")); }
+    catch (e) { violations.push(`${r.kb}: manifest ${relPath(manifestPath)} is INVALID JSON (${e.message})`); }
+    if (m) {
+      r.mVer = m.manifest_version ?? "—";
+      const declared = new Set((m.record_schema || []).map((f) => f && f.name).filter(Boolean));
+      r.declared = declared.size;
+      const drifted = [...actualKeys].filter((k) => !declared.has(k));
+      r.drift = drifted.length;
+      if (drifted.length) violations.push(`${r.kb}: schema drift — data keys not declared in manifest: ${drifted.join(", ")}`);
+    }
+  }
+  manifestRows.push(r);
+}
+console.log("file".padEnd(70) + "manifest  mVer  declared  actual  drift");
+for (const r of manifestRows) {
+  console.log(
+    trim(r.kb, 70).padEnd(70) +
+    (r.hasManifest ? "✓" : "✗").padEnd(10) +
+    String(r.mVer).padEnd(5) +
+    String(r.declared).padEnd(10) +
+    String(r.actual).padEnd(8) +
+    (r.drift ? `✗ ${r.drift}` : "0")
+  );
+}
+if (manifestRows.length === 0) console.log("  (no kb.jsonl found)");
 
 // --- verdict ----------------------------------------------------------------
 

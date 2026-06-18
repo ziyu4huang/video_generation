@@ -1,0 +1,36 @@
+{
+  "manifest_version": 1,
+  "file": "kb.jsonl",
+  "kind": "per-model-experiment",
+  "purpose": "A/B test log for ONE transformer (dark-beast-dbzit9, zimage pipeline, 4-bit). Each line is one generation variant: the exact params used, timings, memory, and a 6-dim Qwen3-VL score. Goal: find sampling-parameter quality levers.",
+  "record_version_field": "kb_version",
+  "record_version": 1,
+  "produced_by": "manual — run.py image t2i --pipeline zimage --transformer dark-beast-dbzit9 generates the image; run.py caption --style score (qwen3-vl-4b) produces the vlm block; a human assembles each line. No committed writer/reader yet (kb_version / kb.jsonl are unreferenced in python/, bun/, .claude/, scripts/).",
+  "consumed_by": "human review. Future: a kb reader / dashboard could parse this for cross-model lever comparison.",
+  "record_schema": [
+    { "name": "kb_version",   "type": "int",    "desc": "record schema version (migration key). Legacy name; canonical going forward is schema_version." },
+    { "name": "test_id",      "type": "string", "desc": "<model>-<prompttag>-<group><variant>, e.g. dbzit9-goth-A1. Stable id for cross-referencing." },
+    { "name": "date",         "type": "string", "desc": "ISO date (YYYY-MM-DD) of the run." },
+    { "name": "transformer",  "type": "string", "desc": "transformer instance name, e.g. dark-beast-dbzit9." },
+    { "name": "pipeline",     "type": "string", "desc": "run.py pipeline, e.g. zimage." },
+    { "name": "model_arch",   "type": "string", "desc": "architecture family, e.g. zimage-turbo." },
+    { "name": "model_format", "type": "string", "desc": "quant format, e.g. mlx-4bit-gs32." },
+    { "name": "prompt",       "type": "object", "desc": "{file, sha256_12, summary} — sha256_12 is the reproducibility hash of the EXACT prompt text." },
+    { "name": "ab_test",      "type": "object", "desc": "{name, group, group_name, lever, variant_tag, variant_label, control}. group=A/B/C; lever=the single parameter varied." },
+    { "name": "params",       "type": "object", "desc": "CLI params actually used: steps, seed, width, height, resolution, seed_variance + seed_variance_percent/strength/switchover, skin_contrast, noise_clean, cfg_scale. NOTE: zimage pipeline has NO classifier-free guidance, so cfg_scale is null/unused." },
+    { "name": "timings",      "type": "object", "desc": "{elapsed_seconds, denoise_seconds, avg_s_per_it, vae_decode_seconds, memory_peak_mb}." },
+    { "name": "vlm",          "type": "object", "desc": "qwen3-vl-4b verdict: {model, overall, detail, sharpness, composition, prompt_adherence, artifacts (1-10 each), issues[], summary}." },
+    { "name": "output",       "type": "object", "desc": "{image: absolute path to the generated PNG}." }
+  ],
+  "enums": {
+    "ab_test.group": ["A = steps-sweep", "B = seed best-of-N", "C = seed_variance toggle"],
+    "vlm.dimensions": ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
+  },
+  "findings": "Sampling parameters do NOT fix this model's dominant defect. All 7 variants score artifacts=8 — the issue is PLASTICKY / WAXY / OVERSMOOTHED SKIN (no pores, waxy face/neck/shoulders). Group A (steps 9→12→16→20): overall stays flat at 4 — more steps only make it slower (12s→31s), not better. Group B (seed 123/777): only B2/seed123 nudges overall 4→5 (marginal). Group C (seed_variance on): overall DROPS to 3 and adds a hand-fusion defect. Conclusion: the lever is NOT sampling params — it is a skin-detail LoRA or relaxing the quality gate. This independently confirms memory zimage-moody-plasticky-skin-base-not-lora (plasticky skin is an MLX-platform trait, not LoRA/param-tunable).",
+  "see_also": [
+    "memory: zimage-moody-plasticky-skin-base-not-lora",
+    "memory: lens-reasoner-token-cap-not-quality-levers",
+    ".claude/workflows/_shared-patterns.md#kb-manifest-self-explaining-jsonl"
+  ],
+  "notes": "This is a DIFFERENT artifact from .claude/workflows/*.knowledge.jsonl (distilled workflow-knowledge records loaded by loadKnowledge/extractKnowledge). That is curated patterns/levers; this is raw per-run measurements. The two share only the JSONL+manifest convention. Not yet git-tracked."
+}

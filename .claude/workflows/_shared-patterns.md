@@ -345,6 +345,78 @@ the aggregated findings as `runResult` to `extractKnowledge` (file is new → ev
 record is "new"), then the run EXITS after Persist. Seed candidates: any workflow
 with a non-empty `history/<wf>/` dir.
 
+## KB manifest (self-explaining JSONL)
+
+Every knowledge JSONL in this repo — both `.claude/workflows/<wf>.knowledge.jsonl`
+(distilled workflow knowledge) and `python/.../models/**/kb.jsonl` (per-model
+experiment logs) — is **opaque to a cold reader**: a new agent has to grep + infer
+what the file is, its schema, and its version, and still misses things (one agent
+missed the `kb_version` field entirely and under-reported half the provenance
+fields). The fix is a **sibling manifest** that declares all of that up front.
+
+### Naming + scope
+
+- A knowledge file `<stem>.jsonl` is described by a sibling **`<stem>.manifest.json`**
+  (replace the trailing `.jsonl` with `.manifest.json`). So `kb.jsonl` →
+  `kb.manifest.json`; `gui-…review-optimize.knowledge.jsonl` →
+  `gui-…review-optimize.knowledge.manifest.json`.
+- The manifest is a **dataset card**, NOT data: it stays small and human/machine-
+  readable. The JSONL stays pure data (every line = one record; jq / `loadKnowledge`
+  / the generator / the dashboard never special-case a "header line" — a header
+  record inside the JSONL was rejected for breaking that invariant).
+- The 12 workflow manifests are **generated** by `scripts/kb-manifest-gen.mjs` from
+  the shared record schema below (edit the template there → re-run; do not hand-edit).
+  A per-model `kb.manifest.json` is **hand-maintained** next to its experiment log.
+
+### Manifest schema (the contract)
+
+```jsonc
+{
+  "manifest_version": 1,                 // MANIFEST shape version (bump if this object's shape changes)
+  "file": "<stem>.jsonl",                // the JSONL this describes (basename)
+  "kind": "workflow-knowledge | per-model-experiment",
+  "purpose": "<one line: what this file IS>",
+  "record_version_field": "schema_version", // the per-record version key (migration key)
+  "record_version": 1,
+  "produced_by": "<what writes it>",
+  "consumed_by": "<what reads it>",
+  "record_schema": [                      // ONE entry per top-level record key
+    { "name": "schema_version", "type": "int",    "desc": "record schema version (migration key)" },
+    { "name": "id",             "type": "string", "desc": "…" },
+    …
+  ],
+  "enums":   { "type": ["pattern","lever","avoid","gotcha","false_positive","metric"] },
+  "findings": "<pre-distilled conclusion so a cold reader gets the answer immediately>",
+  "see_also": ["_shared-patterns.md#workflow-knowledge", "[[memory-link]]"],
+  "notes": "<caveats, e.g. how this differs from the other kb.jsonl kind>"
+}
+```
+
+- **`record_version_field` + `record_version`** make the per-record version
+  discoverable and consumable — the foundation for future schema migrations
+  (an upgrader reads the version to know how to rewrite). `schema_version` is the
+  canonical field name going forward; legacy files may use `kb_version` (declared
+  here so consumers know).
+- **`findings`** is the high-value field for experiment logs: it pre-distills the
+  conclusion so a cold agent doesn't have to re-derive it. For workflow-knowledge
+  files the records ARE the findings, so `findings` just points at the active records.
+
+### Enforcement (HARD rule in `check-workflow-patterns.mjs`)
+
+The checker's `═══ kb.jsonl manifest + schema drift ═══` section enforces, per
+knowledge JSONL (exit 1 on violation):
+
+1. **sibling manifest exists** (`<stem>.manifest.json`), and is valid JSON with
+   `record_schema`;
+2. **no schema drift** — every top-level key that appears in the data must be
+   declared in `record_schema[].name`. A key present in the data but absent from
+   the manifest means the manifest no longer explains the file (the exact miss this
+   rule prevents). Extra declared keys (optional fields absent from some records)
+   are fine.
+
+So: change a record's fields → update the manifest (or the generator template) →
+the checker forces them to agree.
+
 ## Self-Fix (Score-Based)
 
 For generation workflows that produce images scored by VLM. Triggered when best score < threshold.
