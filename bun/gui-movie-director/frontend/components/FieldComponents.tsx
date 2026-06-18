@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import type { BuiltinPrompt } from "../data/builtinPrompts";
 
 // Shared field components for all command forms
 
@@ -11,12 +12,53 @@ interface TextFieldProps {
   required?: boolean;
   historyId?: string;
   history?: string[];
+  presets?: BuiltinPrompt[];
 }
 
-export function TextField({ label, value, onChange, placeholder, multiline, required, historyId, history }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, multiline, required, historyId, history, presets }: TextFieldProps) {
+  const [showPresets, setShowPresets] = useState(false);
+  const categories = presets ? [...new Set(presets.map((p) => p.category))] : [];
+
   return (
     <div className="form-group">
-      <label>{label}{required && " *"}</label>
+      <div className="form-group-label-row">
+        <label>{label}{required && " *"}</label>
+        {presets && presets.length > 0 && (
+          <button
+            type="button"
+            className="preset-toggle-btn"
+            onClick={() => setShowPresets((v) => !v)}
+          >
+            📋 Examples {showPresets ? "▲" : "▼"}
+          </button>
+        )}
+      </div>
+      {showPresets && presets && (
+        <div className="preset-panel">
+          {categories.map((cat) => (
+            <div key={cat} className="preset-category">
+              <div className="preset-category-title">{cat}</div>
+              <div className="preset-grid">
+                {presets
+                  .filter((p) => p.category === cat)
+                  .map((p) => (
+                    <button
+                      key={p.label}
+                      type="button"
+                      className="preset-card"
+                      onClick={() => {
+                        onChange(p.prompt);
+                        setShowPresets(false);
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {historyId && history && history.length > 0 && (
         <datalist id={historyId}>
           {history.map((v, i) => <option key={i} value={v} />)}

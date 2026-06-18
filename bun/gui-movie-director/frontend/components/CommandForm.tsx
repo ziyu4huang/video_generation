@@ -9,6 +9,7 @@ import { useDefaultState } from "../hooks/useDefaultState";
 import { useAllFieldHistories } from "../hooks/useFieldHistory";
 import { PIPELINE_TO_LORA_TAGS } from "../../schemas/shared";
 import { runJob } from "../api/jobs";
+import { BUILTIN_PROMPTS } from "../data/builtinPrompts";
 
 interface CommandFormProps {
   schema: CommandSchema;
@@ -115,6 +116,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             required={field.required}
             historyId={`hist-${schema.action}-${field.key}`}
             history={hist?.history}
+            presets={BUILTIN_PROMPTS}
           />
         );
       }
