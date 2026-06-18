@@ -135,6 +135,7 @@ const PYTHON  = `${PROJECT_ROOT}/python/venv/bin/python`
 const RUN_PY  = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const OUT_DIR = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const KB_ROOT = `${PROJECT_ROOT}/knowledge-base`
+const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${_WF_NAME}.knowledge.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -217,6 +218,95 @@ Return { written: true, bytes: <the number printed by wc> }.`,
   const bytes = Number(result?.bytes) || 0
   log(bytes > 0 ? `reliableWrite: ${bytes} bytes → ${targetPath}` : `WARNING: reliableWrite verification FAILED (0 bytes) → ${targetPath}`)
   return bytes
+}
+
+// ── loadKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Reads the colocated, committed <wf>.knowledge.jsonl and returns ACTIVE records as
+// a compact digest to inject into this run (AVOID/GOTCHA are highest-value). CRITICAL:
+// the load-knowledge agent MUST carry the schema below.
+async function loadKnowledge(kbFile) {
+  const load = await agent(
+    `Load distilled workflow knowledge for injection into this run.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, records: [], digest: "" }.
+3. If EXISTS: Bash("cat '${kbFile}'")
+4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
+5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - PATTERN:      "- CHECK: <title>"
+   - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
+   - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
+   - METRIC:       "- METRIC: <title>: <detail>"
+   Truncate each detail to ~160 chars. Never invent records not in the file.
+Return { found: true, records: <active records array>, digest: <the string> }.`,
+    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        records: { type: "array", items: { type: "object" } },
+        digest: { type: "string", description: "Compact <=1200 char grouped digest of active records" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Array.isArray(load?.records) ? load.records.length : 0
+  log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
+  return load
+}
+
+// ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Distills THIS run's result + the existing knowledge file into an UPDATED file.
+// Keep it CURATED and SMALL. CRITICAL: the extract-knowledge agent MUST carry the schema below.
+async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
+  const resultJson = JSON.stringify(runResult)
+  const reflectJson = runReflection ? JSON.stringify(runReflection) : "null"
+  const extract = await agent(
+    `Distill durable knowledge from THIS run into the colocated knowledge file.
+0. Bash("git status --porcelain '${kbFile}' 2>/dev/null || true"). If the porcelain
+   output mentions this exact path (already modified by a concurrent run), return
+   { updated: false, total_lines: 0, active: 0, new_ids: [] } WITHOUT writing.
+CURRENT FILE (may not exist yet):
+1. Bash("test -f '${kbFile}' && cat '${kbFile}' || echo '__EMPTY__'")
+2. Parse each non-empty line. Existing records have stable "id" fields.
+THIS RUN'S DATA:
+- runId: ${runId}
+- result: ${resultJson}
+- reflection (optional): ${reflectJson}
+YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
+A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
+   regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Grep existing ids; if one matches:
+     - evidence.occurrences += 1
+     - append "${runId}" to evidence.run_ids (keep newest 8)
+     - evidence.last_seen = "${runId}", extracted_at = "${runId}"
+     - refine detail/confidence/tags if this run sharpens it
+   else append a NEW record: evidence.occurrences=1, first_seen=last_seen="${runId}",
+   extracted_at="${runId}", status="active", superseded_by=null.
+B. SUPERSEDE: if a prior record is contradicted by this run, set status="superseded" — do NOT delete.
+C. COMPACT: if active records exceed ${MAX_ACTIVE}, retire the lowest-confidence /
+   lowest-occurrence ones to status="retired" until <= ${MAX_ACTIVE} active.
+D. Emit ONLY records (one JSON object per line; no array wrapper, no trailing comma).
+   Preserve every record you did NOT touch VERBATIM (same key order, same bytes).
+WRITE RELIABLY:
+1. Write({ file_path: "${kbFile}", content: <full new file: newline-separated JSON objects> })
+2. Bash("test -s '${kbFile}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via quoted heredoc: Bash("cat > '${kbFile}' <<'KB_EOF'\\n<full content>\\nKB_EOF")
+4. Validate every line parses: Bash("jq -c . '${kbFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${kbFile}'")  → total_lines
+6. Count active records (status="active"); optionally cross-check with a grep.
+Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
+    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        updated: { type: "boolean" },
+        total_lines: { type: "number", description: "Line count from wc -l" },
+        active: { type: "number", description: "Approx count of active records" },
+        new_ids: { type: "array", items: { type: "string" } },
+      }, required: ["updated", "total_lines"] } },
+  )
+  const lines = Number(extract?.total_lines) || 0
+  if (extract?.updated && lines > 0) {
+    log(`Knowledge: ${lines} record(s) (active≈${extract.active ?? "?"}) → ${kbFile}`)
+  } else {
+    log(`WARNING: knowledge extract did not verify (lines=${lines}) — run continues.`)
+  }
+  return extract
 }
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
@@ -811,6 +901,7 @@ Return JSON:
 
 phase("Knowledge")
 let kbContext = null
+let wfKnowledgeDigest = ""
 if (mode !== "finalize") {
   const kbRead = await agent(
     `Read the T2I knowledge base at ${KB_ROOT}/reports/latest.json.
@@ -832,6 +923,14 @@ if (mode !== "finalize") {
   }
 }
 markPhase("knowledge", kbContext ? "completed" : "skipped")
+
+// Colocated per-workflow knowledge (committed .knowledge.jsonl) — SEPARATE from the
+// generation KB above. avoid/gotcha → dead-end fixes, lever → good moves, metric →
+// score ceilings. Fed to the Self-Fix prompt below.
+if (mode !== "finalize") {
+  const wfKnowledge = await loadKnowledge(KB_FILE)
+  wfKnowledgeDigest = wfKnowledge?.digest || ""
+}
 
 // ── Phase 1.6: GPU gate — wait if another run.py generation is already using the GPU ──
 // Generate is the GPU-requiring phase (Review/caption uses LM Studio over HTTP — not gated).
@@ -1271,13 +1370,16 @@ and ONLY the fields that change (seed, steps, pipeline).`
       summary: c.summary || "", issues: c.issues || [],
     })
 
-    const kbBlock = kbContext ? `## T2I Knowledge Base Context (${KB_ROOT})
+    const kbBlock = (kbContext ? `## T2I Knowledge Base Context (${KB_ROOT})
 Top strategies: ${(kbContext.topStrategies || []).join(" | ")}
 Avoid: ${(kbContext.avoid || []).slice(0, 5).join("; ")}
 Best params: ${JSON.stringify(kbContext.bestParams || [])}
 Apply these proven lessons when proposing prompt or parameter fixes.
 
-` : ""
+` : "") + (wfKnowledgeDigest ? `## Per-Workflow Knowledge (committed, curated — AVOID dead-end fixes, apply LEVER moves, respect METRIC ceilings):
+${wfKnowledgeDigest}
+
+` : "")
 
     const fixProposalResult = await agent(
       `Analyze ${isI2i ? "I2I" : "T2I"} quality scores and propose 1–2 targeted parameter fixes.
@@ -1632,6 +1734,7 @@ const _t2i_histEntry = {
 }
 
 await saveHistory(_t2i_HIST_DIR, _t2i_INDEX_FILE, _t2i_histEntry, _t2i_signals)
+await extractKnowledge(KB_FILE, _t2i_RUN_TS, { ..._t2i_histEntry.result, fixAnalysis }, null)
 markPhase("persist", "completed")
 log(`History: ${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json`)
 

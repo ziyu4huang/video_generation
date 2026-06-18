@@ -8,19 +8,20 @@
 //
 // Hard rules (exit 1 on violation):
 //   1. meta.name must equal the filename without ".js".
-//   2. Every workflow with a "persist-history" agent MUST carry a `schema:` in
-//      that agent's options object. A schema-less persist agent returns text,
-//      so callers reading .bytes/.written get undefined -> the 0-bytes bug.
+//   2. Every workflow with a CONSUMED (return-assigned) agent whose label is in
+//      { "persist-history", "extract-knowledge", "load-knowledge" } MUST carry a
+//      `schema:` in that agent's options object. A schema-less consumed agent
+//      returns text, so callers reading .bytes/.total_lines/.digest get undefined
+//      -> the 0-bytes / silent-skip / undefined-digest bug class.
 //        (Per workflow-agent-schema-for-parsed-results memory.)
 //
 // Soft report (never exits, just surfaces drift for review):
-//   - Normalized persist-history schema per workflow, grouped. A group of size 1
-//     is flagged "unique schema - verify intentional" so legitimate variation
-//     (e.g. schema-self-improve gates on .written not .bytes) is VISIBLE but
-//     not false-failed.
-//   - Coverage matrix: which workflows define saveHistory / markPhase /
-//     reliableWrite. Absence is reported, not enforced (not every workflow needs
-//     all three).
+//   - Normalized persist-history AND knowledge (extract/load) schemas per workflow,
+//     grouped. A group of size 1 is flagged "unique schema - verify intentional"
+//     so legitimate variation is VISIBLE but not false-failed.
+//   - Coverage matrices: which workflows define saveHistory / markPhase /
+//     reliableWrite; and which define loadKnowledge / extractKnowledge / reference
+//     a .knowledge.jsonl. Absence is reported, not enforced.
 //
 // Usage:  node scripts/check-workflow-patterns.mjs
 // Exit:   0 clean, 1 hard-rule violation.
@@ -88,15 +89,15 @@ function extractMetaName(src) {
   return m ? m[1] : null;
 }
 
-function findPersistHistoryOpts(src) {
-  // Find every "persist-history" anchor; for each, locate the enclosing options
-  // object (nearest "{" back) and the enclosing agent( call, and return the raw
-  // text plus whether the agent's return value is ASSIGNED (consumed) vs awaited
-  // and discarded.
+function findConsumedAgents(src, label) {
+  // Find every <label> anchor (e.g. "persist-history", "extract-knowledge",
+  // "load-knowledge"); for each, locate the enclosing options object (nearest "{"
+  // back) and the enclosing agent( call, and return the raw text plus whether the
+  // agent's return value is ASSIGNED (consumed) vs awaited and discarded.
   const results = [];
   let searchFrom = 0;
   while (true) {
-    const idx = src.indexOf("persist-history", searchFrom);
+    const idx = src.indexOf(label, searchFrom);
     if (idx === -1) break;
     searchFrom = idx + 1;
     const objStart = nearestOpenBraceBack(src, idx);
@@ -111,13 +112,21 @@ function findPersistHistoryOpts(src) {
   return results;
 }
 
+// Back-compat alias for the documented name.
+const findPersistHistoryOpts = (src) => findConsumedAgents(src, "persist-history");
+
 function isReturnAssigned(src, agentIdx) {
   // True if the agent()'s return is assigned to a variable (consumed), e.g.
   // `const persist = await agent(...)` or `... = await agent(...)`. False for a
   // bare `await agent(...)` whose return is discarded (pure side-effect write).
-  // Heuristic: the ~40 chars before agent(, whitespace-stripped, end with "=await".
+  // The call may be a wrapper like `spawnAgent(`, so back up from the "agent("
+  // match to the START of the identifier (e.g. "spawnAgent") before reading the
+  // prefix — otherwise "await spawn" is read and the assignment is missed.
+  // Heuristic: the ~40 chars before the call name, whitespace-stripped, end with "=await".
   if (agentIdx === -1) return false;
-  const prefix = src.slice(Math.max(0, agentIdx - 40), agentIdx).replace(/\s+/g, "");
+  let idStart = agentIdx;
+  while (idStart > 0 && /[A-Za-z0-9_$]/.test(src[idStart - 1])) idStart--;
+  const prefix = src.slice(Math.max(0, idStart - 40), idStart).replace(/\s+/g, "");
   return /=await$/.test(prefix) || /=$/.test(prefix);
 }
 
@@ -154,10 +163,21 @@ for (const file of files) {
   const src = readFileSync(path, "utf8");
   const metaName = extractMetaName(src);
 
-  const persistOpts = findPersistHistoryOpts(src);
+  // Collect CONSUMED agents by label. A consumed (return-assigned) agent in any of
+  // these families MUST carry a schema — schema-less consumed returns give text, so
+  // .bytes / .total_lines / .digest parse to undefined (0-bytes / silent-skip /
+  // undefined-digest bug class). A discarded return (bare `await agent(...)`) is a
+  // pure side-effect write and may legitimately be schema-less.
+  const persistOpts = findConsumedAgents(src, "persist-history");
+  const extractOpts = findConsumedAgents(src, "extract-knowledge");
+  const loadOpts = findConsumedAgents(src, "load-knowledge");
   const persistSchemas = persistOpts.map((o) => extractSchemaFromOpts(o.raw));
+  const extractSchemas = extractOpts.map((o) => extractSchemaFromOpts(o.raw));
+  const loadSchemas = loadOpts.map((o) => extractSchemaFromOpts(o.raw));
   const schemalessAssigned = persistOpts.filter((o, i) => o.assigned && persistSchemas[i] === null).length;
   const schemalessDiscarded = persistOpts.filter((o, i) => !o.assigned && persistSchemas[i] === null).length;
+  const schemalessExtract = extractOpts.filter((o, i) => o.assigned && extractSchemas[i] === null).length;
+  const schemalessLoad = loadOpts.filter((o, i) => o.assigned && loadSchemas[i] === null).length;
 
   // meta.name <-> filename
   if (!metaName) {
@@ -166,12 +186,14 @@ for (const file of files) {
     violations.push(`${file}: meta.name "${metaName}" != filename "${file.replace(/\.js$/, "")}"`);
   }
 
-  // a persist-history agent that CONSUMES its return (assigned) MUST carry a
-  // schema — otherwise agent() returns text and .bytes/.written parse to
-  // undefined/0 (the 0-bytes bug). A discarded return (bare `await agent(...)`)
-  // is a pure side-effect write and may legitimately be schema-less.
   if (schemalessAssigned > 0) {
     violations.push(`${file}: ${schemalessAssigned} persist-history agent(s) consume the return value but are MISSING schema: -> 0-bytes bug class`);
+  }
+  if (schemalessExtract > 0) {
+    violations.push(`${file}: ${schemalessExtract} extract-knowledge agent(s) consume the return value but are MISSING schema: -> silent-skip bug class`);
+  }
+  if (schemalessLoad > 0) {
+    violations.push(`${file}: ${schemalessLoad} load-knowledge agent(s) consume the return value but are MISSING schema: -> undefined-digest bug class`);
   }
 
   rows.push({
@@ -182,9 +204,14 @@ for (const file of files) {
     schemalessDiscarded,
     schemaNorms: persistSchemas.map((s) => (s ? normalize(s) : null)),
     schemaLabels: persistSchemas.map((s) => (s ? normalize(s).slice(0, 12) + "..." : "NONE")),
+    extractNorms: extractSchemas.map((s) => (s ? normalize(s) : null)),
+    loadNorms: loadSchemas.map((s) => (s ? normalize(s) : null)),
     hasSaveHistory: /async function saveHistory\s*\(/.test(src),
     hasMarkPhase: /function markPhase\s*\(/.test(src),
     hasReliableWrite: /async function reliableWrite\s*\(/.test(src),
+    hasLoadKnowledge: /async function loadKnowledge\s*\(/.test(src),
+    hasExtractKnowledge: /async function extractKnowledge\s*\(/.test(src),
+    hasKbFile: /\.knowledge\.jsonl/.test(src),
   });
 }
 
@@ -236,6 +263,37 @@ for (const r of rows) {
   const rw = r.hasReliableWrite ? "✓" : "—";
   console.log(trim(r.file, W).padEnd(W) + sh + mp + rw);
 }
+
+console.log("\n═══ knowledge snippet coverage ═══");
+console.log("file".padEnd(W) + "loadKB   extractKB  kbFile");
+for (const r of rows) {
+  const lk = (r.hasLoadKnowledge ? "✓" : "—").padEnd(8);
+  const ek = (r.hasExtractKnowledge ? "✓" : "—").padEnd(10);
+  const kf = r.hasKbFile ? "✓" : "—";
+  console.log(trim(r.file, W).padEnd(W) + lk + ek + kf);
+}
+
+console.log("\n═══ knowledge schema drift (grouped) ═══");
+const kg = new Map(); // norm -> { kind, files:Set }
+for (const r of rows) {
+  for (const [kind, norms] of [["extract", r.extractNorms], ["load", r.loadNorms]]) {
+    if (!norms) continue;
+    for (const n of norms) {
+      if (!n) continue;
+      if (!kg.has(n)) kg.set(n, { kind, files: new Set() });
+      kg.get(n).files.add(r.file);
+    }
+  }
+}
+let kgIdx = 0;
+for (const [n, info] of kg) {
+  kgIdx++;
+  const cnt = info.files.size;
+  const tag = cnt === 1 ? "  ⚠ UNIQUE — verify intentional" : "";
+  console.log(`  group ${kgIdx} (${cnt} workflow${cnt > 1 ? "s" : ""})  ${info.kind}:${n.slice(0, 16)}${tag}`);
+  for (const f of info.files) console.log(`     - ${f}`);
+}
+if (kgIdx === 0) console.log("  (no knowledge snippets ported yet)");
 
 // --- verdict ----------------------------------------------------------------
 

@@ -78,6 +78,7 @@ let focus = null                // null = all dimensions; string = single dimens
 let doFix = true                // true = apply fixes; false = review-only
 let effort = "medium"           // "low" | "medium" | "high"
 let resumeMode = "auto"         // "auto" | "fresh" | "continue"
+let seedKnowledge = false       // one-time: seed <wf>.knowledge.jsonl from accumulated history
 
 if (isObj(resolvedArgs)) {
   if (Array.isArray(resolvedArgs.files)) targetFiles = resolvedArgs.files
@@ -85,6 +86,7 @@ if (isObj(resolvedArgs)) {
   if (resolvedArgs.fix === false) doFix = false
   if (["low", "medium", "high"].includes(resolvedArgs.effort)) effort = resolvedArgs.effort
   if (["auto", "fresh", "continue"].includes(resolvedArgs.resume)) resumeMode = resolvedArgs.resume
+  if (resolvedArgs.seedKnowledge === true) seedKnowledge = true
 }
 
 const VALID_DIMENSIONS = ["correctness", "type-safety", "error-handling", "code-quality", "security"]
@@ -390,6 +392,7 @@ const GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${WORKFLOW_NAME}.knowledge.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -460,6 +463,107 @@ Return { written: true, bytes: <the number printed by wc> }.`,
   return bytes
 }
 
+// ── loadKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Reads the colocated, committed <wf>.knowledge.jsonl and returns ACTIVE records as
+// a compact digest to inject into this run (AVOID/GOTCHA are highest-value). Runs at
+// Resolve, AFTER resume-check + reflection load — knowledge is the committed,
+// cross-machine superset, injected FIRST so it wins on conflict with ephemeral
+// reflection.json. kbFile: absolute path to .claude/workflows/<wf>.knowledge.jsonl
+// CRITICAL: the load-knowledge agent MUST carry the schema below (same lesson as
+// saveHistory: agent() without schema returns text). See memory:
+// workflow-agent-schema-for-parsed-results.
+async function loadKnowledge(kbFile) {
+  const load = await spawnAgent(
+    `Load distilled workflow knowledge for injection into this run.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, records: [], digest: "" }.
+3. If EXISTS: Bash("cat '${kbFile}'")
+4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
+5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - PATTERN:      "- CHECK: <title>"
+   - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
+   - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
+   - METRIC:       "- METRIC: <title>: <detail>"
+   Truncate each detail to ~160 chars. Never invent records not in the file.
+Return { found: true, records: <active records array>, digest: <the string> }.`,
+    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        records: { type: "array", items: { type: "object" } },
+        digest: { type: "string", description: "Compact <=1200 char grouped digest of active records" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Array.isArray(load?.records) ? load.records.length : 0
+  log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
+  return load
+}
+
+// ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Distills THIS run's result + the existing knowledge file into an UPDATED file:
+// append new records, bump occurrences/last_seen on id match, supersede stale ones,
+// retire lowest-value when active records exceed MAX_ACTIVE. Runs at Persist, AFTER
+// saveHistory. The file is JSONL (one JSON object/line), committed to git, shared
+// across machines — keep it CURATED and SMALL (not a run dump; raw detail stays in
+// the gitignored history/). Record schema: see _shared-patterns.md "Workflow Knowledge".
+// CRITICAL: the extract-knowledge agent MUST carry the schema below. See memory:
+// workflow-agent-schema-for-parsed-results.
+async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
+  const resultJson = JSON.stringify(runResult)
+  const reflectJson = runReflection ? JSON.stringify(runReflection) : "null"
+  const extract = await spawnAgent(
+    `Distill durable knowledge from THIS run into the colocated knowledge file.
+0. Bash("git status --porcelain '${kbFile}' 2>/dev/null || true"). If the porcelain
+   output mentions this exact path (already modified by a concurrent run), return
+   { updated: false, total_lines: 0, active: 0, new_ids: [] } WITHOUT writing.
+CURRENT FILE (may not exist yet):
+1. Bash("test -f '${kbFile}' && cat '${kbFile}' || echo '__EMPTY__'")
+2. Parse each non-empty line. Existing records have stable "id" fields.
+THIS RUN'S DATA:
+- runId: ${runId}
+- result: ${resultJson}
+- reflection (optional): ${reflectJson}
+YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
+A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
+   regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Grep existing ids; if one matches:
+     - evidence.occurrences += 1
+     - append "${runId}" to evidence.run_ids (keep newest 8)
+     - evidence.last_seen = "${runId}", extracted_at = "${runId}"
+     - refine detail/confidence/tags if this run sharpens it
+   else append a NEW record: evidence.occurrences=1, first_seen=last_seen="${runId}",
+   extracted_at="${runId}", status="active", superseded_by=null.
+B. SUPERSEDE: if a prior record is contradicted by this run (a "lever" that now
+   regresses, a "pattern" that no longer reproduces), set status="superseded" — do NOT delete.
+C. COMPACT: if active records (status="active") exceed ${MAX_ACTIVE}, retire the
+   lowest-confidence / lowest-occurrence ones to status="retired" until <= ${MAX_ACTIVE} active.
+D. Emit ONLY records (one JSON object per line; no array wrapper, no trailing comma).
+   Preserve every record you did NOT touch VERBATIM (same key order, same bytes).
+WRITE RELIABLY:
+1. Write({ file_path: "${kbFile}", content: <full new file: newline-separated JSON objects> })
+2. Bash("test -s '${kbFile}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via quoted heredoc: Bash("cat > '${kbFile}' <<'KB_EOF'\\n<full content>\\nKB_EOF")
+4. Validate every line parses: Bash("jq -c . '${kbFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${kbFile}'")  → total_lines
+6. Count active records (status="active"); optionally cross-check with a grep.
+Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
+    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        updated: { type: "boolean" },
+        total_lines: { type: "number", description: "Line count from wc -l" },
+        active: { type: "number", description: "Approx count of active records" },
+        new_ids: { type: "array", items: { type: "string" } },
+      }, required: ["updated", "total_lines"] } },
+  )
+  const lines = Number(extract?.total_lines) || 0
+  if (extract?.updated && lines > 0) {
+    log(`Knowledge: ${lines} record(s) (active≈${extract.active ?? "?"}) → ${kbFile}`)
+  } else {
+    log(`WARNING: knowledge extract did not verify (lines=${lines}) — run continues.`)
+  }
+  return extract
+}
+
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  GUI_DIR: ${GUI_DIR}`)
 log(`  HISTORY_DIR: ${HISTORY_DIR}`)
@@ -476,6 +580,34 @@ const timestampResult = await spawnAgent(
 
 const RUN_TIMESTAMP = (timestampResult?.timestamp || "unknown").trim()
 const RUN_ID = RUN_TIMESTAMP
+
+// ── Seed knowledge (one-time: seedKnowledge arg) ─────────────────────────────
+// Aggregate ALL accumulated history (+ reflection) and distill it into the colocated
+// knowledge file in one shot, then exit. The file is new → every record is "new".
+if (seedKnowledge) {
+  log("Seed mode: aggregating all prior history → knowledge.jsonl (one-time).")
+  const seed = await spawnAgent(
+    `Aggregate ALL prior run history for this workflow into a compact seed payload.
+1. Bash("ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection | head -20")
+2. For each file: Bash("cat '<file>'") — collect the "result" payloads (findings,
+   fixes, adversarial verdicts, hotspot files, dimensions, severities).
+3. Bash("cat '${REFLECTION_FILE}' 2>/dev/null || echo '{}'") → reflection (confirmed
+   patterns, false positives, recurring findings, dimension calibration).
+Summarize AGGREGATE trends across runs (do NOT dump raw) into:
+Return { seedResult: { run_count, findings_by_dimension, recurring_patterns: [...],
+   false_positives: [...], hotspot_files: [...], fix_rate, notes }, reflection: <parsed reflection or null> }.`,
+    { label: "seed-aggregate", phase: "Resolve", model: "sonnet",
+      schema: { type: "object", properties: {
+        seedResult: { type: "object" },
+        reflection: { type: "object" },
+      }, required: ["seedResult"] } },
+  )
+  await extractKnowledge(KB_FILE, RUN_ID, seed?.seedResult || {}, seed?.reflection || null)
+  log(`Knowledge: SEEDED from ${HISTORY_DIR} → ${KB_FILE}. Re-run without seedKnowledge to resume normal operation.`)
+  markPhase("resolve", "completed")
+  markPhase("persist", "completed")
+  return { workflow: WORKFLOW_NAME, run_id: RUN_ID, seeded: true, kbFile: KB_FILE }
+}
 
 // ── Resume check: look for prior run history ─────────────────────────────────
 
@@ -582,8 +714,13 @@ if (resumeMode !== "fresh") {
   }
 }
 
-// Build prior-patterns injection string for Review prompts
-const priorPatternsCtx = priorReflection?.patterns
+// Load committed knowledge base (colocated .knowledge.jsonl) — highest-trust, curated.
+// Injected FIRST so committed knowledge wins over ephemeral reflection on conflict.
+const knowledge = await loadKnowledge(KB_FILE)
+const knowledgeDigest = knowledge?.digest || ""
+
+// Build prior-patterns injection string for Review prompts (knowledge prepended below)
+const _reflectionPatternsCtx = priorReflection?.patterns
   ? `\n## KNOWN PATTERNS FROM PRIOR RUNS — check these proactively (confirmed real bugs in this codebase):\n` +
     Object.entries(priorReflection.patterns)
       .flatMap(([dim, pats]) => (pats || []).map((p) => `- [${dim}] ${p}`))
@@ -610,6 +747,9 @@ const priorPatternsCtx = priorReflection?.patterns
       : "") +
     "\n"
   : ""
+const priorPatternsCtx = (knowledgeDigest
+  ? `\n## COMMITTED KNOWLEDGE BASE (curated, highest trust — check these proactively, suppress FALSE_POSITIVE entries):\n${knowledgeDigest}\n`
+  : "") + _reflectionPatternsCtx
 
 markPhase("resolve", "completed")
 
@@ -1441,6 +1581,7 @@ const historyEntry = {
 
 await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
+await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, priorReflection)
 
 // ── Reflect: synthesize patterns across all prior runs ────────────────────────
 const REFLECT_SCHEMA = {

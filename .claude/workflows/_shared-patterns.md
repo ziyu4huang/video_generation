@@ -164,6 +164,187 @@ const resumeCheck = await agent(
 )
 ```
 
+## Workflow Knowledge (colocated, committed JSONL)
+
+Each workflow owns a **distilled knowledge file** next to its `.js`:
+`.claude/workflows/<meta.name>.knowledge.jsonl`. Unlike `history/` (gitignored,
+pruned to 15 — ephemeral) or `knowledge-base/code/` (shared, Bun-only, coarse),
+this file is **per-workflow, distilled from accumulated history, persistent, and
+git-tracked** (`.gitignore` matches only `history/`, so a colocated `*.jsonl` is
+automatically committable). It is loaded back at Resolve so each run learns from
+prior distilled findings, and rewritten at Persist so each run graduates its own.
+
+Keep it **CURATED and SMALL** (≤ ~40 active records) — this is NOT a run dump. Raw
+per-run detail stays in the gitignored `history/`; this file holds durable lessons.
+
+### Record schema (one JSON object per line)
+
+```jsonc
+{
+  "schema_version": 1,
+  "id": "<family>:<kebab-slug>",     // stable dedup / supersession key
+  "type": "pattern | lever | avoid | gotcha | false_positive | metric",
+  "title": "<headline>",
+  "detail": "<what was learned, actionable, <=~160 chars>",
+  "tags": ["security", "argparse", "..."],
+  "dimension": "security",           // optional, review-family only
+  "confidence": 0.9,                 // 0..1
+  "status": "active | superseded | retired",
+  "superseded_by": null,             // id of the replacing record, when superseded
+  "evidence": { "run_ids": ["...8 newest"], "occurrences": 5,
+                "first_seen": "<runId>", "last_seen": "<runId>" },
+  "extracted_at": "<runId>"          // == RUN_ID, NEVER Date.now()
+}
+```
+
+`type` by family: `pattern` (recurring bug class — review/lora), `lever` (adopted
+tuning move — ltx/image), `avoid`/`gotcha` (dead-end/footgun — all),
+`false_positive` (always-rejected finding → suppress in review), `metric` (durable
+baseline/ceiling — ltx/image). `id` is what keeps the file small: an extractor greps
+existing ids and bumps `occurrences` on match instead of appending; `status` lets us
+mark stale records (append-only, never delete) while `loadKnowledge` filters them.
+
+### `loadKnowledge` helper — copy this VERBATIM into every workflow
+
+```javascript
+// ── loadKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Reads the colocated, committed <wf>.knowledge.jsonl and returns ACTIVE records as
+// a compact digest to inject into this run (AVOID/GOTCHA are highest-value). Runs at
+// Resolve, AFTER resume-check + reflection load — knowledge is the committed,
+// cross-machine superset, injected FIRST so it wins on conflict with ephemeral
+// reflection.json. kbFile: absolute path to .claude/workflows/<meta.name>.knowledge.jsonl
+// CRITICAL: the load-knowledge agent MUST carry the schema below (same lesson as
+// saveHistory: agent() without schema returns text). See memory:
+// workflow-agent-schema-for-parsed-results.
+async function loadKnowledge(kbFile) {
+  const load = await agent(
+    `Load distilled workflow knowledge for injection into this run.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, records: [], digest: "" }.
+3. If EXISTS: Bash("cat '${kbFile}'")
+4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
+5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - PATTERN:      "- CHECK: <title>"
+   - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
+   - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
+   - METRIC:       "- METRIC: <title>: <detail>"
+   Truncate each detail to ~160 chars. Never invent records not in the file.
+Return { found: true, records: <active records array>, digest: <the string> }.`,
+    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        records: { type: "array", items: { type: "object" } },
+        digest: { type: "string", description: "Compact <=1200 char grouped digest of active records" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Array.isArray(load?.records) ? load.records.length : 0
+  log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
+  return load
+}
+```
+
+### `extractKnowledge` helper — copy this VERBATIM into every workflow
+
+```javascript
+// ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Distills THIS run's result + the existing knowledge file into an UPDATED file:
+// append new records, bump occurrences/last_seen on id match, supersede stale ones,
+// retire lowest-value when active records exceed MAX_ACTIVE. Runs at Persist, AFTER
+// saveHistory. The file is JSONL (one JSON object/line), committed to git, shared
+// across machines — keep it CURATED and SMALL (not a run dump; raw detail stays in
+// the gitignored history/).
+// kbFile: absolute path to .claude/workflows/<meta.name>.knowledge.jsonl
+// runId: this run's RUN_ID (used for extracted_at / evidence.last_seen — NO Date.now())
+// runResult: this run's result payload (workflow-specific), JSON.stringify-able
+// runReflection: optional reflection object (review workflows); null otherwise
+// MAX_ACTIVE: retire threshold (default 40)
+// Record schema: see "Record schema" above. CRITICAL: the extract-knowledge agent
+// MUST carry the schema below. See memory: workflow-agent-schema-for-parsed-results.
+async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
+  const resultJson = JSON.stringify(runResult)
+  const reflectJson = runReflection ? JSON.stringify(runReflection) : "null"
+  const extract = await agent(
+    `Distill durable knowledge from THIS run into the colocated knowledge file.
+0. Bash("git status --porcelain '${kbFile}' 2>/dev/null || true"). If the porcelain
+   output mentions this exact path (already modified by a concurrent run), return
+   { updated: false, total_lines: 0, active: 0, new_ids: [] } WITHOUT writing.
+CURRENT FILE (may not exist yet):
+1. Bash("test -f '${kbFile}' && cat '${kbFile}' || echo '__EMPTY__'")
+2. Parse each non-empty line. Existing records have stable "id" fields.
+THIS RUN'S DATA:
+- runId: ${runId}
+- result: ${resultJson}
+- reflection (optional): ${reflectJson}
+YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
+A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
+   regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Grep existing ids; if one matches:
+     - evidence.occurrences += 1
+     - append "${runId}" to evidence.run_ids (keep newest 8)
+     - evidence.last_seen = "${runId}", extracted_at = "${runId}"
+     - refine detail/confidence/tags if this run sharpens it
+   else append a NEW record: evidence.occurrences=1, first_seen=last_seen="${runId}",
+   extracted_at="${runId}", status="active", superseded_by=null.
+B. SUPERSEDE: if a prior record is contradicted by this run (a "lever" that now
+   regresses, a "pattern" that no longer reproduces), set status="superseded" — do NOT delete.
+C. COMPACT: if active records (status="active") exceed ${MAX_ACTIVE}, retire the
+   lowest-confidence / lowest-occurrence ones to status="retired" until <= ${MAX_ACTIVE} active.
+D. Emit ONLY records (one JSON object per line; no array wrapper, no trailing comma).
+   Preserve every record you did NOT touch VERBATIM (same key order, same bytes).
+WRITE RELIABLY:
+1. Write({ file_path: "${kbFile}", content: <full new file: newline-separated JSON objects> })
+2. Bash("test -s '${kbFile}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via quoted heredoc: Bash("cat > '${kbFile}' <<'KB_EOF'\\n<full content>\\nKB_EOF")
+4. Validate every line parses: Bash("jq -c . '${kbFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${kbFile}'")  → total_lines
+6. Count active records (status="active"); optionally cross-check with a grep.
+Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
+    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        updated: { type: "boolean" },
+        total_lines: { type: "number", description: "Line count from wc -l" },
+        active: { type: "number", description: "Approx count of active records" },
+        new_ids: { type: "array", items: { type: "string" } },
+      }, required: ["updated", "total_lines"] } },
+  )
+  const lines = Number(extract?.total_lines) || 0
+  if (extract?.updated && lines > 0) {
+    log(`Knowledge: ${lines} record(s) (active≈${extract.active ?? "?"}) → ${kbFile}`)
+  } else {
+    log(`WARNING: knowledge extract did not verify (lines=${lines}) — run continues.`)
+  }
+  return extract
+}
+```
+
+### Usage pattern
+
+```javascript
+// At top of script body, next to HISTORY_DIR:
+const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${meta.name}.knowledge.jsonl`
+
+// ... paste loadKnowledge + extractKnowledge functions here ...
+
+// Resolve phase — AFTER resume-check + reflection load:
+const knowledge = await loadKnowledge(KB_FILE)
+// Thread knowledge.digest into this run's agents (review prompts, dead-ends,
+// self-fix rules, etc.). Inject it FIRST so committed knowledge wins over reflection.
+
+// Persist phase — AFTER `await saveHistory(...)`:
+await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj or */ null)
+markPhase("persist", "completed")
+```
+
+### Seed / backfill (one-time)
+
+A workflow with accumulated gitignored history can seed its knowledge file in one
+shot via an optional arg `seedKnowledge` (default false). When true, Resolve reads
+ALL `history/<wf>/*.json` (+ `reflection.json`) instead of just the prior run, passes
+the aggregated findings as `runResult` to `extractKnowledge` (file is new → every
+record is "new"), then the run EXITS after Persist. Seed candidates: any workflow
+with a non-empty `history/<wf>/` dir.
+
 ## Self-Fix (Score-Based)
 
 For generation workflows that produce images scored by VLM. Triggered when best score < threshold.
@@ -288,7 +469,7 @@ node scripts/check-workflow-patterns.mjs
   `reliableWrite`. Absence is reported, not enforced — `schema-self-improve` and
   `coverage-self-improve` inline their persist logic without the shared helpers.
 
-### Coverage (as of 2026-06-15, verified by the checker)
+### Coverage (as of 2026-06-18, verified by the checker)
 
 | Workflow | saveHistory | markPhase | reliableWrite | persist schema |
 |---|:---:|:---:|:---:|---|
@@ -307,6 +488,24 @@ node scripts/check-workflow-patterns.mjs
 Known gaps (refine candidates, not bugs): `ltx-self-improve` lacks `markPhase`
 (does not track phase status); most generation workflows lack `reliableWrite`
 (only the two review-optimize + run-self-improve have it).
+
+### Colocated knowledge coverage (`loadKnowledge` / `extractKnowledge`)
+
+Eight workflows own a committed `.claude/workflows/<wf>.knowledge.jsonl`, distilled
+from their accumulated history and loaded back each run (see **Workflow Knowledge**
+above). The checker's `═══ knowledge snippet coverage ═══` section reports these
+flags per workflow (soft — absence is reported, not enforced):
+
+- **Ported (load ✓ / extract ✓):** `gui-movie-director-review-optimize`,
+  `mlx-movie-director-review-optimize`, `mlx-movie-director-ltx-self-improve`
+  (its `Knowledge` phase was refactored to call `extractKnowledge` — the old
+  `~/.claude-glm` memory-file write path never landed), `mlx-movie-director-run-self-improve-image`,
+  `gui-movie-director-self-improve`, `mlx-movie-director-lora-review-flux2-klein`,
+  `mlx-movie-director-lora-review-zimage-turbo`, `gui-movie-director-ux-self-improve`.
+- **Deferred (recipe only):** `mlx-movie-director-models-assistant`,
+  `mlx-movie-director-video-assistant` (light `gotcha` extract later);
+  `gui-movie-director-schema-self-improve`, `mlx-movie-director-coverage-self-improve`
+  (no `saveHistory` — minimal `loadKnowledge`-only variant later).
 
 ### When you fix a shared pattern — port checklist
 

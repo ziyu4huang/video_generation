@@ -12,7 +12,7 @@
 //   - Generate: run.py video generate --json-summary (sequential, GPU-gated).
 //   - History/resume/dedup convention: copied from
 //     mlx-movie-director-review-optimize.js (HISTORY_DIR/<runId>.jsonl).
-//   - KB writeback: the auto-memory fact-file format + docs/ltx-tuning.md.
+//   - KB writeback: the colocated <wf>.knowledge.jsonl (committed, shared across machines).
 //
 // Scope (hard-coded): CLI knobs ONLY — --stage1-steps, --stage2-steps,
 // --cfg-scale, --audio-cfg-scale, --audio-stage1-only, --seed. No vendored-
@@ -36,7 +36,7 @@ export const meta = {
     { title: "Resolve",  detail: "resolve paths, stamp runId, load history (resume) + KB known-dead-ends/good-knobs" },
     { title: "Baseline", detail: "measure the base config (reuse existing mp4 if present) → currentBest" },
     { title: "Improve",  detail: "loop ≤budget: propose one knob change → generate+measure (self-fix retry) → adopt/revert" },
-    { title: "Knowledge", detail: "graduate confirmed levers to the KB (memory fact + docs/ltx-tuning.md), dedup" },
+    { title: "Knowledge", detail: "graduate confirmed levers to the colocated <wf>.knowledge.jsonl, dedup" },
     { title: "Persist",  detail: "write run summary JSON + update cross-workflow index" },
     { title: "Report",   detail: "trajectory HTML (iter→composite) + stdout verdict" },
   ],
@@ -185,6 +185,7 @@ if (!resolve) { log("Resolve failed — aborting."); throw new Error("resolve fa
 const R = resolve
 const HIST_FILE = `${R.historyDir}/${R.runId}.jsonl`
 const _ltx_INDEX_FILE = `${R.projectRoot}/.claude/workflows/history/_index.json`
+const KB_FILE = `${R.projectRoot}/.claude/workflows/${meta.name}.knowledge.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -228,10 +229,112 @@ Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )
 }
+
+// ── loadKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Reads the colocated, committed <wf>.knowledge.jsonl and returns ACTIVE records as
+// a compact digest to inject into this run (AVOID/GOTCHA are highest-value). Runs at
+// Resolve — knowledge is the committed, cross-machine superset. CRITICAL: the
+// load-knowledge agent MUST carry the schema below.
+async function loadKnowledge(kbFile) {
+  const load = await agent(
+    `Load distilled workflow knowledge for injection into this run.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, records: [], digest: "" }.
+3. If EXISTS: Bash("cat '${kbFile}'")
+4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
+5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - PATTERN:      "- CHECK: <title>"
+   - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
+   - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
+   - METRIC:       "- METRIC: <title>: <detail>"
+   Truncate each detail to ~160 chars. Never invent records not in the file.
+Return { found: true, records: <active records array>, digest: <the string> }.`,
+    { label: "load-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        records: { type: "array", items: { type: "object" } },
+        digest: { type: "string", description: "Compact <=1200 char grouped digest of active records" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Array.isArray(load?.records) ? load.records.length : 0
+  log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
+  return load
+}
+
+// ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Distills THIS run's result + the existing knowledge file into an UPDATED file.
+// Runs at Persist/Knowledge. Keep it CURATED and SMALL (not a run dump).
+// CRITICAL: the extract-knowledge agent MUST carry the schema below.
+async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
+  const resultJson = JSON.stringify(runResult)
+  const reflectJson = runReflection ? JSON.stringify(runReflection) : "null"
+  const extract = await agent(
+    `Distill durable knowledge from THIS run into the colocated knowledge file.
+0. Bash("git status --porcelain '${kbFile}' 2>/dev/null || true"). If the porcelain
+   output mentions this exact path (already modified by a concurrent run), return
+   { updated: false, total_lines: 0, active: 0, new_ids: [] } WITHOUT writing.
+CURRENT FILE (may not exist yet):
+1. Bash("test -f '${kbFile}' && cat '${kbFile}' || echo '__EMPTY__'")
+2. Parse each non-empty line. Existing records have stable "id" fields.
+THIS RUN'S DATA:
+- runId: ${runId}
+- result: ${resultJson}
+- reflection (optional): ${reflectJson}
+YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
+A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
+   regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
+   Grep existing ids; if one matches:
+     - evidence.occurrences += 1
+     - append "${runId}" to evidence.run_ids (keep newest 8)
+     - evidence.last_seen = "${runId}", extracted_at = "${runId}"
+     - refine detail/confidence/tags if this run sharpens it
+   else append a NEW record: evidence.occurrences=1, first_seen=last_seen="${runId}",
+   extracted_at="${runId}", status="active", superseded_by=null.
+B. SUPERSEDE: if a prior record is contradicted by this run, set status="superseded" — do NOT delete.
+C. COMPACT: if active records exceed ${MAX_ACTIVE}, retire the lowest-confidence /
+   lowest-occurrence ones to status="retired" until <= ${MAX_ACTIVE} active.
+D. Emit ONLY records (one JSON object per line; no array wrapper, no trailing comma).
+   Preserve every record you did NOT touch VERBATIM (same key order, same bytes).
+WRITE RELIABLY:
+1. Write({ file_path: "${kbFile}", content: <full new file: newline-separated JSON objects> })
+2. Bash("test -s '${kbFile}' && echo OK || echo MISSING")
+3. If MISSING, rewrite via quoted heredoc: Bash("cat > '${kbFile}' <<'KB_EOF'\\n<full content>\\nKB_EOF")
+4. Validate every line parses: Bash("jq -c . '${kbFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${kbFile}'")  → total_lines
+6. Count active records (status="active"); optionally cross-check with a grep.
+Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [<ids appended this run>] }.`,
+    { label: "extract-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        updated: { type: "boolean" },
+        total_lines: { type: "number", description: "Line count from wc -l" },
+        active: { type: "number", description: "Approx count of active records" },
+        new_ids: { type: "array", items: { type: "string" } },
+      }, required: ["updated", "total_lines"] } },
+  )
+  const lines = Number(extract?.total_lines) || 0
+  if (extract?.updated && lines > 0) {
+    log(`Knowledge: ${lines} record(s) (active≈${extract.active ?? "?"}) → ${kbFile}`)
+  } else {
+    log(`WARNING: knowledge extract did not verify (lines=${lines}) — run continues.`)
+  }
+  return extract
+}
 log(`Resolve: runId=${R.runId} | priorRuns=${(R.priorRuns || []).length} | deadEnds=${(R.knownDeadEnds || []).length} | dryRun=${dryRun}`)
 
 const deadEnds = new Set((R.knownDeadEnds || []).map((s) => s.trim()).filter(Boolean))
 const knownGood = (R.knownGood || []).slice()
+
+// Load colocated knowledge base (committed .knowledge.jsonl) — supersedes the
+// fragile memory-file path. Map avoid/gotcha→deadEnds, lever→knownGood for propose.
+const kbLoad = await loadKnowledge(KB_FILE)
+if (Array.isArray(kbLoad?.records)) {
+  for (const r of kbLoad.records) {
+    if (r.type === "avoid" || r.type === "gotcha") deadEnds.add(`${r.title}`)
+    else if (r.type === "lever") knownGood.push(`${r.title}`)
+  }
+}
+const knowledgeDigest = kbLoad?.digest || ""
 
 // ── DRY-RUN: propose-only plan, no GPU ───────────────────────────────────────
 if (dryRun) {
@@ -401,42 +504,27 @@ ${retryNote}
   if (noImprove >= convergeK) { log(`converged: ${convergeK} non-improving iterations`); break }
 }
 
-// ── Phase 3: Knowledge (graduate confirmed levers to KB) ─────────────────────
+// ── Phase 3: Knowledge (graduate confirmed levers to colocated KB JSONL) ─────
+// Refactored: was a memory-file + docs/ltx-tuning.md writer (the ~/.claude-glm path
+// never landed — verified empty). Now distills this run into the committed, colocated
+// <wf>.knowledge.jsonl via the shared extractKnowledge helper. docs/ltx-tuning.md is
+// no longer written from here (avoid dual-write divergence; regenerate from JSONL later).
 phase("Knowledge")
 const adoptedMoves = iterations.filter((it) => it.adopted)
-const knowledge = await agent(
-  `Synthesize CONFIRMED tuning levers from this run and write ONLY durable findings
-to the knowledge base. Do NOT write within-noise or rejected moves.
-
-Run summary:
-- runId: ${R.runId}
-- baseline composite: ${currentBest ? "(see iterations)" : "n/a"}
-- best composite: ${currentBest?.composite?.toFixed?.(1) ?? "n/a"}, best config: ${currentBest ? cfgKey(currentBest.config) : "n/a"}
-- adopted moves: ${JSON.stringify(adoptedMoves.map((m) => ({ knob: m.proposal.knob, to: m.proposal.to, composite: m.composite })))}
-- all iterations: ${JSON.stringify(iterations.map((m) => ({ i: m.i, knob: m.proposal?.knob, to: m.proposal?.to, composite: m.composite, adopted: m.adopted })))}
-- prior KB digest: ${R.kbDigest || "(none)"}
-
-A lever is CONFIRMED only if an adopted move raised composite by ≥ ${margin} pts AND it
-isn't already known-good in the KB. If NO lever clears that bar (e.g. all within
-noise / at the ceiling), that is itself the finding — confirm the ceiling instead.
-
-For each confirmed lever (or the ceiling confirmation):
-1. DEDUP: Bash("grep -i '<knob>' ~/.claude-glm/projects/-Users-huangziyu-proj-video-generation/memory/MEMORY.md 2>/dev/null"). Skip if an entry already covers it.
-2. Write a memory fact file at ~/.claude-glm/projects/-Users-huangziyu-proj-video-generation/memory/ltx-tune-<knob>-<short>.md using the EXACT project format (frontmatter: name/description/metadata.type=project; body with **Why:** + **How to apply:**; link related [[ltx-voice-prompt-optimization]]). Use a quoted heredoc (cat > file <<'EOF' ... EOF).
-3. Add a one-line pointer to MEMORY.md:  - [LTX tune: <knob>](ltx-tune-...md) — <hook>
-4. Append a concise entry to ${R.projectRoot}/python/mlx-movie-director/docs/ltx-tuning.md (date · objective · lever · Δcomposite · verdict).
-
-Report what you wrote (or "no new confirmed levers; ceiling reconfirmed").`,
-  { label: "knowledge", phase: "Knowledge", schema: {
-    type: "object",
-    properties: {
-      written: { type: "array", items: { type: "string" }, description: "memory/docs entries written" },
-      summary: { type: "string" },
-    },
-    required: ["summary"],
-  } },
-)
-if (knowledge) log(`Knowledge: ${knowledge.summary}`)
+const ltxRunResult = {
+  runId: R.runId,
+  objective,
+  transformer,
+  baseline: currentBest ? { composite: currentBest.composite } : null,
+  best: currentBest ? { composite: currentBest.composite, config: cfgKey(currentBest.config) } : null,
+  adoptedMoves: adoptedMoves.map((m) => ({ knob: m.proposal.knob, to: m.proposal.to, composite: m.composite })),
+  iterations: iterations.map((m) => ({ i: m.i, knob: m.proposal?.knob, to: m.proposal?.to, composite: m.composite, adopted: m.adopted })),
+  deadEnds: [...deadEnds],
+  margin,
+  priorKbDigest: R.kbDigest || null,
+}
+const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult, null)
+if (knowledge) log(`Knowledge: ${knowledge.new_ids?.length || 0} new record(s) (active≈${knowledge.active ?? "?"})`)
 
 // ── Phase 4: Persist (run summary JSON + cross-workflow index) ───────────────
 phase("Persist")
@@ -448,7 +536,7 @@ const _ltx_signals = {
   highlights: [
     `${iterations.length} iteration(s), ${iterations.filter((it) => it.adopted).length} adopted`,
     currentBest ? `best composite=${currentBest.composite?.toFixed(1)} config=${cfgKey(currentBest.config)}` : "no improvement found",
-    knowledge?.written?.length ? `${knowledge.written.length} KB entries written` : "no KB updates",
+    knowledge?.new_ids?.length ? `${knowledge.new_ids.length} KB record(s) written` : "no KB updates",
   ],
   warnings: iterations.filter((it) => it.reverted).length > 0
     ? [`${iterations.filter((it) => it.reverted).length} revert(s)`]
@@ -469,7 +557,7 @@ const ltxHistEntry = {
     best: currentBest ? { composite: currentBest.composite, config: cfgKey(currentBest.config), mp4: currentBest.mp4 } : null,
     iterations,
     deadEnds: [...deadEnds],
-    knowledge: knowledge?.written || [],
+    knowledge: knowledge?.new_ids || [],
   },
 }
 
@@ -509,6 +597,6 @@ return {
   baseline: currentBest ? "(baseline measured)" : null,
   best: currentBest ? { composite: currentBest.composite, config: cfgKey(currentBest.config), mp4: currentBest.mp4 } : null,
   iterations,
-  knowledge: knowledge?.written || [],
+  knowledge: knowledge?.new_ids || [],
   html: summary?.htmlPath || null,
 }
