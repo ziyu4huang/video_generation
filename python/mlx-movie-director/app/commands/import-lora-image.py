@@ -29,6 +29,7 @@ Examples:
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -452,6 +453,7 @@ def _execute_import_from_info(info: dict, args) -> None:
     _download_file(download_url, dest_path)
 
     file_size = os.path.getsize(dest_path)
+    _store_to_external(dest_path, file_size)
 
     # Detect format
     fmt = args.format or _detect_format(dest_path)
@@ -713,6 +715,67 @@ def _download_file(url: str, dest_path: str, chunk_size: int = 8192) -> None:
 
     mb = os.path.getsize(dest_path) / 1_048_576
     print(f"    Downloaded: {mb:.1f} MB")
+
+
+# ---------------------------------------------------------------------------
+# External model store helpers
+# ---------------------------------------------------------------------------
+
+def _md5_file(path: str, chunk: int = 1 << 20) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _external_store_dir() -> str:
+    """Return abs path to the external model store (../video_generation__models/)."""
+    manifest_file = os.path.join(cfg.MODELS_DIR, "store-manifest.json")
+    if os.path.exists(manifest_file):
+        with open(manifest_file) as f:
+            rel = json.load(f).get("store_relative_to_repo_root", "../video_generation__models")
+    else:
+        rel = "../video_generation__models"
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(cfg.MODELS_DIR)))
+    return os.path.normpath(os.path.join(repo_root, rel))
+
+
+def _store_to_external(dest_path: str, file_size: int) -> None:
+    """Move downloaded file to external store, replace with relative symlink, update store-manifest.json."""
+    store_dir = _external_store_dir()
+    os.makedirs(store_dir, exist_ok=True)
+
+    md5 = _md5_file(dest_path)
+    store_path = os.path.join(store_dir, f"{md5}.safetensors")
+
+    if os.path.exists(store_path):
+        os.remove(dest_path)  # dedup: identical content already in store
+    else:
+        shutil.copy2(dest_path, store_path)
+        if _md5_file(store_path) != md5:
+            os.remove(store_path)
+            raise RuntimeError(f"MD5 mismatch after copy to external store: {store_path}")
+        os.remove(dest_path)
+
+    rel = os.path.relpath(store_path, os.path.dirname(dest_path))
+    os.symlink(rel, dest_path)
+
+    manifest_file = os.path.join(cfg.MODELS_DIR, "store-manifest.json")
+    if os.path.exists(manifest_file):
+        with open(manifest_file) as f:
+            doc = json.load(f)
+    else:
+        doc = {"version": 1, "store_relative_to_repo_root": "../video_generation__models",
+               "count": 0, "files": {}}
+    key = os.path.relpath(dest_path, cfg.MODELS_DIR)
+    doc["files"][key] = {"md5": md5, "size": file_size}
+    doc["count"] = len(doc["files"])
+    with open(manifest_file, "w") as f:
+        json.dump(doc, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"    Externalized → {os.path.basename(store_path)}")
 
 
 # ---------------------------------------------------------------------------
