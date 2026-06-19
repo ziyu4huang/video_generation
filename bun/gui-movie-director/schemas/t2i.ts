@@ -38,10 +38,14 @@ export const t2iCommand: UnifiedCommand = {
     { key: "loras", control: "loras", label: "LoRAs", default: [], section: "LoRA & Style", visible: (s) => s.pipeline !== "lens" },
     { key: "draft", cliFlag: "--draft", control: "toggle", label: "Draft mode (fewer steps, smaller resolution)", section: "Options" },
     { key: "upscale", cliFlag: "--upscale", control: "toggle", label: "ESRGAN 4× Upscale", section: "Options" },
+    // VAE selector — dynamically populated from serverDefaults.vaes (models/vae/*/manifest.json).
+    // Filtered by selected pipeline (same mechanism as Transformer dropdown).
+    // Empty value ("Default") means no --vae-path sent; server uses the pipeline's built-in VAE.
+    // Lens uses its own fixed VAE internally — hide the picker for it.
+    { key: "vae_path", cliFlag: "--vae-path", control: "select", choicesFrom: "vaes", label: "VAE", default: "", section: "Generation", visible: (s) => s.pipeline !== "lens" },
     // Backend-only fields (no section → not shown in form)
     { key: "lora_path", cliFlag: "--lora-path", control: "multiselect", label: "LoRA Paths" },
     { key: "lora_scale", cliFlag: "--lora-scale", control: "multiselect", label: "LoRA Scales" },
-    { key: "vae_path", cliFlag: "--vae-path", control: "text", label: "VAE Path" },
     { key: "variant", cliFlag: "--variant", control: "select", label: "Variant", choices: [{ value: "4b", label: "4B" }, { value: "9b", label: "9B" }] },
     { key: "upscale_method", cliFlag: "--upscale-method", control: "select", label: "Upscale Method", choices: [{ value: "esrgan", label: "ESRGAN" }, { value: "seedvr2", label: "SeedVR2" }] },
     { key: "seed_start", cliFlag: "--seed-start", control: "number", label: "Seed Start" },
@@ -63,6 +67,7 @@ export const t2iCommand: UnifiedCommand = {
       // rows. Empty → both undefined → omitted (no LoRA).
       lora_path: loras.length ? loras.map((r: any) => r.path) : undefined,
       lora_scale: loras.length ? loras.map((r: any) => Number(r.scale ?? 1.0).toFixed(2)) : undefined,
+      vae_path: s.vae_path || undefined,
       draft: s.draft || undefined,
       upscale: s.upscale || undefined,
       count: s.count > 1 ? s.count : undefined,

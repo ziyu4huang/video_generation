@@ -5,12 +5,17 @@
   "arch": "flux-ae",
   "format": "mlx-bf16",
   "description": "Flux/ZImage compatible AutoencoderKL, converted to MLX BF16 from PyTorch FP32 via convert.py --vae-mlx",
-  "pipeline": ["zimage-turbo", "flux2-klein", "flux2-klein-edit"],
+  "pipeline": [
+    "zimage-turbo",
+    "flux2-klein",
+    "flux2-klein-edit"
+  ],
   "compatible_with": [
     "transformer/zimage-moody-v126",
     "transformer/klein-9b"
   ],
   "size_bytes": 167666894,
   "source": "Tongyi-MAI/Z-Image-Turbo",
+  "source_url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo",
   "created_at": "2026-06-06T00:00:00Z"
 }

@@ -318,13 +318,13 @@ class TestMultiStyleCaptionMerge:
 
     def test_second_style_preserves_first(self, tmp_path):
         out_path = str(tmp_path / "out.caption.json")
-        args1 = self._build_args(tmp_path, out_path, style="default")
+        args1 = self._build_args(tmp_path, out_path, style=["default"])
         with patch.object(caption, "_resolve_model", return_value="m"), \
              patch.object(caption, "_image_to_base64", return_value="b64"), \
              patch.object(caption, "_call_vlm", return_value="a description"):
             caption.run(args1)
 
-        args2 = self._build_args(tmp_path, out_path, style="score")
+        args2 = self._build_args(tmp_path, out_path, style=["score"])
         with patch.object(caption, "_resolve_model", return_value="m"), \
              patch.object(caption, "_image_to_base64", return_value="b64"), \
              patch.object(caption, "_call_vlm", return_value='{"overall": 8}'):
@@ -343,7 +343,7 @@ class TestMultiStyleCaptionMerge:
         json.dump({"image": "img.png", "style": "review", "model": "old",
                     "caption": "old review text"}, open(out_path, "w"))
 
-        args = self._build_args(tmp_path, out_path, style="score")
+        args = self._build_args(tmp_path, out_path, style=["score"])
         with patch.object(caption, "_resolve_model", return_value="m"), \
              patch.object(caption, "_image_to_base64", return_value="b64"), \
              patch.object(caption, "_call_vlm", return_value='{"overall": 9}'):

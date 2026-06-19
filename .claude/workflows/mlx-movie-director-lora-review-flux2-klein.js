@@ -1,4 +1,4 @@
-// mlx-movie-director-lora-review-flux2-klein — Dynamic LoRA A/B review for Flux2 Klein
+// mlx-movie-director-lora-review — Dynamic LoRA A/B review (flux2-klein-9b multi-lane OR zimage-turbo T2I-only)
 //
 // Auto-discovers flux2-klein-9b LoRAs, classifies them (style/slider/anime2real/face-swap),
 // and routes each to its optimal test mode. Generates per-LoRA adaptive prompts from
@@ -10,11 +10,14 @@
 //   Faceswap Lane (if face+body):    face-swap LoRA via `run.py image faceswap`
 //
 // Usage:
-//   Workflow({ name: "mlx-movie-director-lora-review-flux2-klein" })
+//   Workflow({ name: "mlx-movie-director-lora-review" })
 //     → auto-discover all flux2-klein-9b LoRAs, T2I lane only, 4 seeds
+//   Workflow({ name: "...", args: { arch: "zimage-turbo" } })
+//     → auto-discover all zimage-turbo LoRAs, T2I only, 9 steps, 4 seeds (no multi-lane)
 //   Workflow({ name: "...", args: "A moody portrait in soft lighting" })
-//     → custom prompt, T2I lane only
+//     → custom prompt, T2I lane only (flux2-klein-9b default)
 //   Workflow({ name: "...", args: {
+//     arch: "zimage-turbo",          // arch family: "flux2-klein-9b" (default) | "zimage-turbo"
 //     prompt: "...",                 // global T2I prompt (overridden per-LoRA by test_prompt)
 //     seeds: [42, 123, 777],        // seeds (default: [42, 123, 777, 999])
 //     steps: 4,                     // denoising steps (default: 4 for flux2-klein)
@@ -56,13 +59,13 @@
 //     sweepResults, promptMap, lanes, loraScoreSummary, baseScoreSummary, history }
 
 export const meta = {
-  name: "mlx-movie-director-lora-review-flux2-klein",
-  description: "Dynamic LoRA A/B review: auto-discover flux2-klein-9b LoRAs, classify, route to optimal test mode (T2I/anime2real/faceswap), caption, build interactive comparison HTML",
-  whenToUse: "Compare all flux2-klein LoRAs against baseline. Auto-classifies LoRAs and routes to T2I, anime2real, or faceswap lanes based on type and available inputs.",
+  name: "mlx-movie-director-lora-review",
+  description: "Dynamic LoRA A/B review: auto-discover LoRAs for an arch family (flux2-klein-9b multi-lane, or zimage-turbo T2I-only), classify, caption, build interactive comparison HTML",
+  whenToUse: "Compare LoRAs against baseline for one arch family. args.arch selects the family: 'flux2-klein-9b' (default; routes to T2I/anime2real/faceswap lanes) or 'zimage-turbo' (T2I-only).",
   phases: [
     { title: "Resolve", detail: "Detect absolute project root via git rev-parse" },
     { title: "Knowledge", detail: "Read T2I knowledge base (knowledge-base/reports/latest.json) for prompt engineering context" },
-    { title: "Discover", detail: "Auto-scan manifest.json for flux2-klein-9b LoRAs, classify by category" },
+    { title: "Discover", detail: "Auto-scan manifest.json for LoRAs matching args.arch, classify by category (flux2 only)" },
     { title: "GPU Wait", detail: "Wait if another run.py generation is using the GPU" },
     { title: "Scale Sweep", detail: "Probe each LoRA at multiple scales to find optimal setting" },
     { title: "Generate", detail: "Multi-lane generation: T2I + optional anime2real/faceswap (sequential, GPU-safe)" },
@@ -218,14 +221,19 @@ const DEFAULT_PROMPT = (
   "ultra sharp focus"
 )
 
-const DEFAULT_SEEDS  = [42, 123, 777]
-const DEFAULT_STEPS  = 4     // flux2-klein default (vs 9 for zimage)
 const DEFAULT_WIDTH  = 640
 const DEFAULT_HEIGHT = 960
 const DEFAULT_SCALE  = 1.0
 const DEFAULT_SCALES = [0.5, 0.8, 1.0, 1.2]
-const PIPELINE       = "flux2-klein"
-const LORA_ARCH      = "flux2-klein-9b"
+
+// Arch family config — this workflow reviews flux2-klein OR zimage-turbo LoRAs.
+// zimage-turbo is T2I-only: no multi-lane (anime2real/faceswap), no ceiling escalation.
+// flux2-klein-9b is the richer multi-lane default. Select with args.arch.
+const ARCH_CONFIG = {
+  "flux2-klein-9b": { arch: "flux2-klein-9b", pipeline: "flux2-klein", steps: 4, seeds: [42, 123, 777],      multiLane: true  },
+  "zimage-turbo":   { arch: "zimage-turbo",   pipeline: "zimage",     steps: 9, seeds: [42, 123, 777, 999],  multiLane: false },
+}
+const DEFAULT_ARCH = "flux2-klein-9b"
 
 // Built-in anatomy challenge prompts for ceiling-effect busting
 const ANATOMY_CHALLENGE_PROMPTS = [
@@ -283,9 +291,17 @@ if (typeof resolvedArgs === "string") {
 
 const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
 
+// Resolve the arch family from args (default flux2-klein-9b). Derives pipeline / seeds / steps
+// and gates multi-lane lanes. Must run before the `let` defaults below.
+const archKey   = (isObj(resolvedArgs) && typeof resolvedArgs.arch === "string" && ARCH_CONFIG[resolvedArgs.arch])
+  ? resolvedArgs.arch : DEFAULT_ARCH
+const archCfg   = ARCH_CONFIG[archKey]
+const PIPELINE  = archCfg.pipeline
+const LORA_ARCH = archCfg.arch
+
 let prompt          = DEFAULT_PROMPT
-let seeds           = DEFAULT_SEEDS
-let steps           = DEFAULT_STEPS
+let seeds           = archCfg.seeds
+let steps           = archCfg.steps
 let width           = DEFAULT_WIDTH
 let height          = DEFAULT_HEIGHT
 let loraScale       = DEFAULT_SCALE
@@ -329,6 +345,15 @@ if (typeof resolvedArgs === "string" && resolvedArgs.length > 0) {
   if (resolvedArgs.challengePrompts === true)         challengePrompts = true
   if (Array.isArray(resolvedArgs.prompts))             customPrompts = resolvedArgs.prompts
   if (resolvedArgs.noCeilingEscalation === true)       noCeilingEscalation = true
+}
+
+// T2I-only archs (zimage-turbo) have no anime2real/faceswap lanes — force the inputs off
+// even if the caller passed them, so hasAnime2real/hasFaceswap stay false downstream.
+if (!archCfg.multiLane) {
+  animeImage = null
+  bodyImage = null
+  faceImage = null
+  includeFaceswap = false
 }
 
 // Sweep is opt-in (prior run showed zero scale sensitivity 0.5-1.2 across all LoRAs).
@@ -679,12 +704,12 @@ const DISCOVER_SCHEMA = {
 }
 
 const discovery = await agent(
-  `Discover all flux2-klein-9b compatible LoRA models by scanning manifest.json files.
+  `Discover all ${LORA_ARCH} compatible LoRA models by scanning manifest.json files.
 Classify each LoRA into a category for multi-lane routing.
 
 LORA_DIR: ${LORA_DIR}
 ARCH_FILTER: "${LORA_ARCH}"
-${loraFilter ? `NAME_FILTER: Only include: ${JSON.stringify(loraFilter)}` : "NAME_FILTER: None — discover all flux2-klein-9b LoRAs"}
+${loraFilter ? `NAME_FILTER: Only include: ${JSON.stringify(loraFilter)}` : `NAME_FILTER: None — discover all ${LORA_ARCH} LoRAs`}
 FACESWAP: ${includeFaceswap ? "Include face-swap LoRAs" : "Skip face-swap LoRAs (includeFaceswap=false)"}
 
 STEPS:
@@ -722,11 +747,11 @@ If no LoRAs found, return { "loras": [] }.`,
 const loras = discovery?.loras || []
 
 if (loras.length === 0) {
-  log("ERROR: No flux2-klein-9b LoRAs found. Check models/lora/*/manifest.json files.")
+  log(`ERROR: No ${LORA_ARCH} LoRAs found. Check models/lora/*/manifest.json files.`)
   return { reviewHtml: "", captionFiles: [], captionSets: [], report: "No LoRAs found", loras: [], seeds }
 }
 
-log(`Discovered ${loras.length} flux2-klein-9b LoRA(s):`)
+log(`Discovered ${loras.length} ${LORA_ARCH} LoRA(s):`)
 loras.forEach((l, i) => log(`  [${i}] ${l.name} [${l.category}] — ${l.description} (${l.dirName})`))
 
 markPhase("discover", "completed")
@@ -1815,7 +1840,7 @@ if (hitUsageLimit) {
   const kbBlock = kbContext ? `## T2I Knowledge Base Context (${KB_ROOT})
 Top strategies: ${(kbContext.topStrategies || []).join(" | ")}
 Avoid: ${(kbContext.avoid || []).slice(0, 5).join("; ")}
-Best params for flux2-klein: ${JSON.stringify((kbContext.bestParams || []).filter((p) => p.pipeline === "flux2-klein"))}
+Best params for ${PIPELINE}: ${JSON.stringify((kbContext.bestParams || []).filter((p) => p.pipeline === PIPELINE))}
 Top examples: ${JSON.stringify((kbContext.topExamples || []).slice(0, 2).map((e) => ({ prompt: e.prompt?.slice(0, 80), score: e.score, lora: e.loraPath })))}
 Use this knowledge when analyzing per-LoRA prompt adherence and recommending optimal settings.\n\n` : ""
 
@@ -1823,7 +1848,7 @@ Use this knowledge when analyzing per-LoRA prompt adherence and recommending opt
   `Generate a concise LoRA comparison report for this flux2-klein dynamic A/B test.
 ${kbBlock}${loraBaselineCtx}
 ## Test Configuration
-- Pipeline: ${PIPELINE} (flux2-klein-9b LoRAs)
+- Pipeline: ${PIPELINE} (${LORA_ARCH} LoRAs)
 - Prompt (global): ${prompt.slice(0, 120)}${prompt.length > 120 ? "..." : ""}
 - Per-LoRA prompts: ${JSON.stringify(Object.fromEntries(loras.map((l) => [l.name, promptMap[l.name]?.slice(0, 80) + "..."])))}
 - Seeds: ${seeds.join(", ")}
@@ -2026,7 +2051,7 @@ const historyEntry = {
   reason: hitUsageLimit ? "usage-limit" : null,
   usage_limit_reset: hitUsageLimit ? usageLimitReset.slice(0, 200) : null,
   signals,
-  tags: ["lora-review", "flux2-klein-9b", ...(doSweep ? ["scale-sweep"] : []), ...(hasAnime2real ? ["anime2real"] : []), ...(hasFaceswap ? ["faceswap"] : []), ...(isMultiPrompt ? ["anatomy-challenge"] : [])],
+  tags: ["lora-review", LORA_ARCH, ...(doSweep ? ["scale-sweep"] : []), ...(hasAnime2real ? ["anime2real"] : []), ...(hasFaceswap ? ["faceswap"] : []), ...(isMultiPrompt ? ["anatomy-challenge"] : [])],
   result: {
     loras: loras.map((l) => ({ name: l.name, dirName: l.dirName, description: l.description, category: l.category })),
     seeds,

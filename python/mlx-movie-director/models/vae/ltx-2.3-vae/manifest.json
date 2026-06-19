@@ -6,6 +6,7 @@
   "format": "safetensors-bf16",
   "description": "LTX-2.3 video VAE encoder + decoder. From dgrauet/ltx-2.3-mlx-q8.",
   "source": "dgrauet/ltx-2.3-mlx-q8",
+  "source_url": "https://huggingface.co/dgrauet/ltx-2.3-mlx-q8",
   "pipeline": [
     "ltx-2.3"
   ],

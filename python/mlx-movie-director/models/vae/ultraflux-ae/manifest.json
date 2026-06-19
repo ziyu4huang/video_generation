@@ -5,12 +5,17 @@
   "arch": "flux-ae",
   "format": "mlx-bf16",
   "description": "UltraFlux improved AutoencoderKL for Flux/ZImage — sharper decode output than stock flux-ae. Converted from PyTorch FP32 to MLX BF16 via convert.py --ultraflux-vae.",
-  "pipeline": ["zimage-turbo"],
+  "pipeline": [
+    "zimage-turbo"
+  ],
   "compatible_with": [
     "transformer/zimage-moody-v126"
   ],
   "size_bytes": 167666894,
   "source": "Owen777/UltraFlux-v1",
-  "source_url": "https://civitai.com/models/2231253",
+  "source_url": "https://huggingface.co/Owen777/UltraFlux-v1",
+  "mirrors": [
+    "https://civitai.com/models/2231253?modelVersionId=2511862"
+  ],
   "created_at": "2026-06-08T00:00:00Z"
 }

@@ -35,6 +35,11 @@ from app import config as cfg
 from app.commands._shared import execute_generation
 from app.run_config import RunConfig
 
+# Default self-test for `image review lora` when --self-test is omitted.
+# run_review_lora() requires a 2-variant type:"lora" test; this MUST remain a
+# valid registry key — enforced by app/tests/test_selftest_integrity.py.
+DEFAULT_REVIEW_LORA_TEST = "lora:jibmix-portrait"
+
 _angle_mod = importlib.import_module("app.commands.image-angle")
 
 
@@ -6348,7 +6353,7 @@ def run_review_lora(args):
     from app.commands._shared import resolve_lora_path
 
     test_name_raw = getattr(args, "self_test", None)
-    test_name = test_name_raw if isinstance(test_name_raw, str) else "lora:jibmix-portrait"
+    test_name = test_name_raw if isinstance(test_name_raw, str) else DEFAULT_REVIEW_LORA_TEST
 
     try:
         test_cfg = get_lora_test(test_name)

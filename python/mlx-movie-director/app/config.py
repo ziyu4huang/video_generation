@@ -37,8 +37,9 @@ MODELS_DIR = os.path.join(PROJECT_DIR, "models")
 TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "zimage-moody-v126")
 TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "qwen3-4b")
 TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer",     "qwen3")
-VAE_DIR           = os.path.join(MODELS_DIR, "vae",           "flux-ae")
-ULTRAFLUX_VAE_DIR = os.path.join(MODELS_DIR, "vae",           "ultraflux-ae")
+VAE_DIR           = os.path.join(MODELS_DIR, "vae",           "ultraflux-ae")
+FLUX_AE_VAE_DIR   = os.path.join(MODELS_DIR, "vae",           "flux-ae")
+ULTRAFLUX_VAE_DIR = VAE_DIR
 
 OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
 LUT_DIR = os.path.join(MODELS_DIR, "lut")

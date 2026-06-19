@@ -81,6 +81,9 @@ def _build():
             # Per-transformer built-in params (app/transformer_defaults.py). The GUI
             # applies these when the user picks a transformer (unless already edited).
             "transformer_defaults": all_transformer_defaults(),
+            # T2I-compatible VAEs, dynamically enumerated from models/vae/*/manifest.json.
+            # One entry per (vae, gui-pipeline) pair; frontend filters by selected pipeline.
+            "vaes": _build_vaes(),
             "self_tests": self_tests.get("t2i", []),
         },
         "i2i": {
@@ -224,6 +227,46 @@ def _build_self_tests():
 # arch → GUI pipeline. Only these archs are offered in the T2I transformer dropdown;
 # ltx / seedvr2 / other archs are excluded (not T2I image transformers).
 _T2I_ARCH_TO_PIPELINE = {"zimage-turbo": "zimage", "flux2-klein-9b": "flux2-klein"}
+
+# Manifest pipeline names → GUI pipeline names for VAE filtering.
+_VAE_MANIFEST_PIPELINE_TO_GUI = {
+    "zimage-turbo": "zimage",
+    "flux2-klein": "flux2-klein",
+    "flux2-klein-edit": "flux2-klein",
+}
+
+
+def _build_vaes():
+    """Enumerate T2I-compatible VAEs for the GUI dropdown.
+
+    Returns a list with a leading "Default" entry (value="", no pipeline filter) followed
+    by one entry per (vae, gui-pipeline) pair — the same VAE may appear twice if it is
+    compatible with both zimage and flux2-klein. The frontend filters by the selected
+    pipeline using the same mechanism as the Transformer dropdown.
+    """
+    from app import config as cfg
+    from app.model_registry import ModelRegistry
+
+    out = [{"value": "", "label": "Default"}]
+    seen = set()
+    try:
+        for m in ModelRegistry(cfg.MODELS_DIR).list("vae"):
+            name = m.get("name", "")
+            manifest_pipelines = m.get("pipeline", [])
+            gui_pipelines = sorted({
+                _VAE_MANIFEST_PIPELINE_TO_GUI[p]
+                for p in manifest_pipelines
+                if p in _VAE_MANIFEST_PIPELINE_TO_GUI
+            })
+            for gui_pipeline in gui_pipelines:
+                key = (name, gui_pipeline)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"value": name, "label": name, "pipeline": gui_pipeline})
+    except Exception:
+        pass
+    return out
 
 
 def _build_t2i_transformers():
