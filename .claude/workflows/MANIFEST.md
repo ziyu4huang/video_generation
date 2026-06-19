@@ -68,6 +68,32 @@ Retired `mlx-movie-director-lora-review` → the mlx-* family is now **3** workf
 - Matrix regenerated to 7 workflows · 126 records. See `_shared-patterns.md` port-checklist
   note 5 for the new retire-vs-merge rule (distinct purpose → fold knowledge + retire).
 
+### Iteration 8 — 2026-06-20
+Added the **missing MLX code-health orchestrator** `mlx-movie-director-self-improve` — the MLX
+analog of `gui-movie-director-self-improve` (parent → child co-work). Two lanes, ONE knowledge
+base, ONE history, ONE persist:
+- **review lane = CHILD workflow** `workflow("mlx-movie-director-review-optimize", …)` — the
+  parent-child relationship the GUI side already had; review-optimize was child-ready but had
+  no caller. Forwarded knobs: effort/fix/resume/focus/files.
+- **lint lane = INLINED** (MLX-specific, read-only, complementary to review-optimize's semantic
+  review): pyflakes real-bug hunt + `run.py check-model` manifest integrity + `test_selftest_integrity.py`.
+  Always runs parallel (never edits code → never collides with review's git-stash fix).
+- Harness (`saveHistory`/`loadKnowledge`/`extractKnowledge`) copied VERBATIM from
+  `_shared-patterns.md`; dirty-tree guard refuses fix on a dirty tree. **Independent from GUI** —
+  no imports, no `bun/` paths (GUI is a pattern reference only); MLX does NOT append to the
+  Bun-only `knowledge-base/code/` bucket.
+- **Scope clarification:** `run-self-improve-image` reviews IMAGE quality (VLM), review-optimize
+  reviews CODE — different domains, deliberately NOT coupled. This orchestrator is the third MLX
+  workflow TYPE (code-health), leaving the image/ltx generation loops untouched.
+- **Knowledge-schema normalization (this commit):** first run's `extractKnowledge` emitted
+  `severity`/`files` keys absent from the canonical 12-key schema → checker drift. Stripped them,
+  folded severity into `sev:*` tags. Also normalized upstream `lora-quality-gate.knowledge.jsonl`
+  (run-specific `*_scales_runN` top-level keys → stable `failing_scales`/`passing_scales` arrays;
+  per-run detail preserved in `note`) + hand-wrote its non-canonical sibling manifest, and taught
+  `kb-manifest-gen.mjs` to skip manifests whose `kind` is not `workflow-knowledge` so regen no
+  longer clobbers hand-maintained non-canonical schemas.
+- Matrix regenerated to 7 workflows · 151 records.
+
 ### Iteration 7 — 2026-06-20
 Ensemble voting (3 VLM votes per scale) + non-monotonicity warning in `lora-quality-gate`:
 - **Root cause of noise**: Second run showed non-monotonic lora_activation (0.5→7, 0.65→1, 0.8→8)
@@ -120,12 +146,14 @@ Iterations 3–4 on the mlx side, now applied to gui):
 
 | Workflow | Family | load | extract | saveHistory | kb file | records | active | last run |
 |---|---|:---:|:---:|:---:|:---:|---:|---:|---|
-| gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 33 | 33 | 2026-06-18T15-23-52 |
-| gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 30 | 29 | 2026-06-18T15-42-12 |
-| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 41 | 41 | 2026-06-18T14-11-24 |
+| gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 39 | 39 | 2026-06-19T18-37-18 |
+| gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 39 | 38 | 2026-06-20T05-32-50 |
+| lora-quality-gate | — | ✓ | — | — | ✓ | 3 | 0 | — |
+| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 42 | 42 | 2026-06-19T22-02-33 |
 | mlx-movie-director-run-self-improve-image | mlx | ✓ | ✓ | ✓ | ✓ | 22 | 22 | 2026-06-13T22-49-29 |
 | mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
+| mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 6 | 6 | 2026-06-19T22-02-03 |
 
-**Totals:** 5 workflows · 5 load / 5 extract wired · 5 knowledge files · 126 records (125 active)
+**Totals:** 7 workflows · 7 load / 6 extract wired · 7 knowledge files · 151 records (147 active)
 
 <!-- END KNOWLEDGE MATRIX -->

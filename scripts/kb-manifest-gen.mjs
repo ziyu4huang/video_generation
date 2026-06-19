@@ -11,7 +11,7 @@
 //
 // The checker (check-workflow-patterns.mjs) enforces that every kb.jsonl has a
 // sibling manifest and that the declared record_schema covers the data (drift = exit 1).
-import { readdirSync, writeFileSync, readFileSync } from "node:fs";
+import { readdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -70,6 +70,19 @@ let written = 0;
 for (const f of jsonlFiles) {
   const wfName = f.replace(/\.knowledge\.jsonl$/, "");
   const manifestPath = join(WF_DIR, `${wfName}.knowledge.manifest.json`);
+  // Preserve hand-maintained non-canonical manifests — knowledge files whose
+  // schema is NOT the canonical 12-key workflow-knowledge one (e.g. per-lora
+  // metric knowledge). Re-generating from RECORD_SCHEMA would clobber their
+  // custom schema and re-trigger checker drift.
+  if (existsSync(manifestPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (existing.kind && existing.kind !== "workflow-knowledge") {
+        console.log(`  ${wfName}.knowledge.manifest.json  (hand-maintained kind="${existing.kind}" — skipped)`);
+        continue;
+      }
+    } catch {}
+  }
   const manifest = workflowManifest(wfName);
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
   // record count for the summary line
