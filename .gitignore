@@ -6,6 +6,7 @@ bun.lock
 .DS_Store
 .claude/workflows/history/
 .playwright-cli/
+tmp/
 comfyui_data/models/
 comfyui_data/input/
 comfyui_data/user/**/*.db
