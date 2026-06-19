@@ -523,6 +523,13 @@ THIS RUN'S DATA:
 - runId: ${runId}
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
+RECORD SCHEMA — every record MUST contain ONLY these 12 top-level keys; any extra key
+triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
+  schema_version(=1) | id | type | title | detail | tags | dimension | confidence |
+  status | superseded_by | evidence{occurrences,first_seen,last_seen,run_ids[<=8]} | extracted_at
+Review-finding fields NOT in this schema MUST be folded, never emitted as top-level keys:
+  severity → prepend "sev:<level>" to tags;  files / file:line → fold into detail
+  (line numbers go stale — name the module/locus instead).
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
