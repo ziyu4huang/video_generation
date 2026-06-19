@@ -464,6 +464,56 @@ def convert_seedvr2_vae() -> bool:
     return True
 
 
+def quantize_weights_file(src: str, bits: int = 8, group_size: int = 64) -> bool:
+    """Quantize any MLX safetensors file in-place without needing the model class.
+
+    Eligible tensors: 2D arrays whose key ends with '.weight' and whose last
+    dimension is divisible by group_size.  Conv weights (ndim > 2), biases,
+    LayerNorm scales, and small Linear weights are left unchanged.
+
+    The original file is backed up to <src>.bf16.bak before overwriting.
+    """
+    if not os.path.exists(src):
+        print(f"[quantize-file] ERROR: File not found: {src}")
+        return False
+
+    label = os.path.basename(src)
+    src_mb = os.path.getsize(src) / (1024 * 1024)
+    print(f"[quantize-file] Loading {label} ({src_mb:.0f} MB)...")
+    weights = dict(mx.load(src).items())
+    mx.eval(list(weights.values()))
+
+    out: dict = {}
+    quantized, skipped = 0, 0
+    for key, arr in weights.items():
+        if (arr.ndim == 2
+                and key.endswith(".weight")
+                and arr.shape[-1] % group_size == 0):
+            w_q, scales, biases = mx.quantize(arr, bits=bits, group_size=group_size)
+            out[key] = w_q
+            out[key + ".scales"] = scales
+            out[key + ".biases"] = biases
+            quantized += 1
+        else:
+            out[key] = arr
+            skipped += 1
+
+    mx.eval(list(out.values()))
+    print(f"[quantize-file] {quantized} tensors quantized, {skipped} unchanged")
+
+    backup = src + ".bf16.bak"
+    if not os.path.exists(backup):
+        print(f"[quantize-file] Backing up original to {os.path.basename(backup)}...")
+        shutil.copy2(src, backup)
+    else:
+        print(f"[quantize-file] Backup already exists at {os.path.basename(backup)}, skipping")
+
+    mx.save_safetensors(src, out)
+    dst_mb = os.path.getsize(src) / (1024 * 1024)
+    print(f"[quantize-file] Done. {src_mb:.0f} MB → {dst_mb:.0f} MB ({bits}-bit, group_size={group_size})")
+    return True
+
+
 # === Flux2 Klein 9B conversion ===
 
 def convert_vae_to_mlx() -> bool:
@@ -594,42 +644,6 @@ def convert_vae_to_mlx() -> bool:
     print(f"[vae-mlx] Old PyTorch file still at: {os.path.basename(src)}")
     return True
 
-
-def quantize_seedvr2_vae_int8():
-    """Quantize SeedVR2 VAE from MLX BF16 to INT8.
-
-    Overwrites models/vae/seedvr2-vae/model.safetensors with quantized version.
-    """
-    vae_dir = cfg.SEEDVR2_VAE_DIR
-    src = os.path.join(vae_dir, "model.safetensors")
-
-    if not os.path.exists(src):
-        print(f"[seedvr2-vae-int8] ERROR: Model not found: {src}")
-        return False
-
-    print(f"[seedvr2-vae-int8] Loading {src}...")
-    model = SeedVR2VAE()
-    model.load_weights(src)
-    mx.eval(model.parameters())
-
-    print("[seedvr2-vae-int8] Quantizing to INT8 (group_size=64, skipping Conv3d/small Linear)...")
-    nn.quantize(model, bits=8, group_size=64, class_predicate=_quantize_predicate)
-    mx.eval(model.parameters())
-
-    # Backup old file
-    backup = src + ".bf16.bak"
-    if not os.path.exists(backup):
-        print(f"[seedvr2-vae-int8] Backing up old BF16 weights...")
-        shutil.copy2(src, backup)
-
-    print(f"[seedvr2-vae-int8] Saving quantized weights...")
-    model.save_weights(src)
-
-    old_mb = os.path.getsize(backup) / (1024 * 1024)
-    new_mb = os.path.getsize(src) / (1024 * 1024)
-    print(f"[seedvr2-vae-int8] Done. {old_mb:.0f} MB (BF16) → {new_mb:.0f} MB (INT8)")
-    print(f"[seedvr2-vae-int8] Backup at: {os.path.basename(backup)}")
-    return True
 
 def convert_klein_9b() -> bool:
     """Convert Flux2 Klein 9B from HF cache to pre-quantized INT8, stored in category dirs.
@@ -1622,12 +1636,17 @@ Examples:
                              "(e.g. https://civitai.com/models/2242173?modelVersionId=2788849).")
     parser.add_argument("--vae-mlx", action="store_true",
                         help="Convert zimage-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
-    parser.add_argument("--seedvr2-vae-int8", action="store_true",
-                        help="Quantize SeedVR2 VAE from MLX BF16 to INT8 (~478MB → ~240MB)")
     parser.add_argument("--ltx-connector", action="store_true",
                         help="Convert LTX-2.3 connector from BF16 to 4-bit MLX (~6.3GB → ~1.6GB)")
     parser.add_argument("--ultraflux-vae", action="store_true",
                         help="Convert UltraFlux VAE from PyTorch FP32 to MLX BF16 (~335MB → ~168MB)")
+    parser.add_argument("--quantize-file", type=str, metavar="PATH",
+                        help="Quantize any MLX .safetensors file in-place (no model class needed). "
+                             "Backup saved as <file>.bf16.bak. Use --bits and --group-size to control precision.")
+    parser.add_argument("--bits", type=int, default=None, choices=[4, 8],
+                        help="Quantization bits for --quantize-file (default: 8)")
+    parser.add_argument("--group-size", type=int, default=None,
+                        help="Quantization group size for --quantize-file (default: 64)")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
@@ -1657,12 +1676,14 @@ Examples:
                                source=args.source, source_url=args.source_url)
     if args.vae_mlx:
         convert_vae_to_mlx()
-    if args.seedvr2_vae_int8:
-        quantize_seedvr2_vae_int8()
     if args.ltx_connector:
         convert_ltx_connector()
     if args.ultraflux_vae:
         convert_ultraflux_vae_to_mlx()
+    if args.quantize_file:
+        quantize_weights_file(args.quantize_file,
+                              bits=args.bits or 8,
+                              group_size=args.group_size or 64)
 
 
 if __name__ == "__main__":
