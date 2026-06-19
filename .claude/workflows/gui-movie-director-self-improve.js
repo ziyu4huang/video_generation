@@ -27,6 +27,8 @@
 //     Workflow({ name: "gui-movie-director-self-improve" })
 //       → effort:low review-only scan + schema runtime validation.
 //         No edits, no git stash → safe to run anytime, even with concurrent WIP.
+//         UX lane is NOT auto-added (it costs ~50 agents for 0 fixes in review-only) —
+//         pass uxAuto:true, or lanes:["ux"]/"all", to survey the UI.
 //
 //   SINGLE LANE:
 //     args: { lanes: ["review"] }    // structural code review only
@@ -103,6 +105,12 @@ const RESUME    = A.resume || "auto"                    // review resume mode
 const UX_DRY_RUN   = A.uxDryRun  !== undefined ? A.uxDryRun  : (A.dryRun ?? false)
 const UX_MAX_ITERS = typeof A.uxMaxIters === "number" ? A.uxMaxIters : 3
 const UX_VIEWS     = Array.isArray(A.uxViews) ? A.uxViews : null
+// UX auto-detect: when true, a BARE invocation (no lanes arg) opportunistically
+// appends the UX lane if the GUI server is up. Default false — the documented
+// default is a CHEAP review+schema scan, and the UX survey (23 views) costs ~50
+// agents + VLM calls for zero fixes in review-only mode. Opt in with uxAuto:true
+// (or just pass lanes:["ux"]/"all"). See reflection 2026-06-19 run.
+const UX_AUTO      = A.uxAuto === true
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 // NOTE: the workflow runtime strips `export const meta` — top-level `meta.*`
@@ -1147,7 +1155,7 @@ if (FIX_REQ) {
 
 // Auto-detect GUI server → opportunistically add UX lane when server is up
 // and the user didn't explicitly specify lanes (so we don't override their intent).
-if (!UX_EXPLICIT && !DO_UX) {
+if (!UX_EXPLICIT && !DO_UX && UX_AUTO) {
   const srvDetect = await agent(
     `Check if the GUI dev server is running at port 3099.
 Bash("lsof -ti :3099 2>/dev/null | head -1")
@@ -1278,10 +1286,15 @@ const uxIssuesFixed = uxResult?.issuesFixed ?? 0
 const uxScoreBefore = uxResult?.avgUxScoreBefore ?? null
 const uxScoreAfter  = uxResult?.avgUxScoreAfter ?? null
 
-// Unified health scalar for trend tracking: count of open issues across all
-// surfaces (lower = healthier). review verified findings + schema runtime
-// errors + remaining drift + ux open issues. Fix runs should drive this down.
-const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem + uxTotalIssues
+// Unified health scalar for trend tracking: ACTIONABLE code-health debt only
+// (lower = healthier) = review verified findings + schema runtime errors + remaining
+// drift. UX totalIssues is intentionally EXCLUDED: in the default review-only/dryRun
+// mode the UX lane surfaces issues but fixes none, so counting them made this scalar
+// (and its run-over-run trend) reflect UX screenshot variance instead of code health
+// (a prior 158-score was ~95% unfixed UX noise). UX debt is tracked separately as
+// uxOpenIssues + avgUxScore. Fix runs (review + schema drift) drive openIssues down.
+const uxOpenIssues = Math.max(0, uxTotalIssues - uxIssuesFixed)
+const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem
 
 // ── Delta from last run ─────────────────────────────────────────────────────
 // Read the most recent prior history entry to compute openIssues trend (↑/↓/=).
@@ -1292,8 +1305,11 @@ let deltaStr = null
 1. Bash("ls -t '${HISTORY_DIR}/' 2>/dev/null | grep '\\.json$'")
 2. Find the FIRST filename that is NOT '${RUN_ID}.json'. If none → { found: false, openIssues: null }.
 3. Bash("cat '${HISTORY_DIR}/<that filename>'")
-4. Parse JSON. Try result.openIssues first; if missing, parse signals.key_metric
-   (format: "openIssues=N (...)") to extract N.
+4. Parse JSON. Compute prevOpenIssues with the CURRENT (code-only) definition so the
+   trend stays comparable across the formula change: sum result.review.verified +
+   result.schema.runtimeErrors + result.schema.driftRemaining (each defaults to 0 if
+   absent). ONLY if all three components are absent, fall back to result.openIssues or
+   parse signals.key_metric (format: "openIssues=N ...") for the leading N.
 Return { found: true, openIssues: <number> } or { found: false, openIssues: null }.`,
     { label: "prev-run-delta", phase: "Persist", model: "haiku",
       schema: { type: "object", properties: { found: { type: "boolean" }, openIssues: { type: "number" } }, required: ["found"] } },
@@ -1339,7 +1355,7 @@ const chronicCount = currentTopFindings.filter((f) => f.chronic).length
 
 const signals = {
   run_quality: phasesFailed.length === 0 ? (openIssues === 0 ? "clean" : "good") : "degraded",
-  key_metric: `openIssues=${openIssues} (review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem} ux:${uxTotalIssues})`,
+  key_metric: `openIssues=${openIssues} [code: review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem}]${DO_UX ? ` + uxOpen:${uxOpenIssues}/${uxTotalIssues}` : ""}`,
   delta_from_last: deltaStr,
   highlights: [
     DO_REVIEW  ? `review: ${reviewVerified} verified finding(s)${fixEnabled ? ` → ${reviewApplied} fix(es) applied, ${reviewRegress} regression(s)` : " (review-only)"}` : null,
@@ -1494,9 +1510,14 @@ const report = {
         runtimeErrors: schemaRuntimeErr,
         driftBaseline: schemaResult.baselineDrift ?? null,
         driftRemaining: schemaDriftRem,
-        coverageBaseline: schemaResult.baseline ?? null,
-        coverageFinal: schemaResult.final ?? null,
-        coverageDelta: schemaCovDelta,
+        // Coverage is only measured when objective includes "coverage"/"both"/"all".
+        // Otherwise schemaResult.baseline/final/delta are "NaN" (toFixed of NaN) —
+        // omit them so the report doesn't show broken NaN fields for the runtime default.
+        ...(["coverage", "both", "all"].includes(OBJECTIVE) ? {
+          coverageBaseline: schemaResult.baseline ?? null,
+          coverageFinal: schemaResult.final ?? null,
+          coverageDelta: schemaCovDelta,
+        } : { coverageMeasured: false }),
         summary: schemaResult.summary,
       }
     : null,
@@ -1504,6 +1525,7 @@ const report = {
     ? {
         viewsSurveyed:  uxResult.viewsSurveyed,
         totalIssues:    uxTotalIssues,
+        openIssues:     uxOpenIssues,
         issuesFixed:    uxIssuesFixed,
         issuesSkipped:  uxResult.issuesSkipped,
         avgScoreBefore: uxScoreBefore,
