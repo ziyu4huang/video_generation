@@ -26,8 +26,8 @@ PARSER_META = {
 
 def add_args(parser: "argparse.ArgumentParser") -> None:
     # Required input
-    parser.add_argument("--input-image", required=True, metavar="PATH",
-                        help="Input image to refine (required)")
+    parser.add_argument("--input-image", metavar="PATH", default=None,
+                        help="Input image to refine (required; --input alias also accepted)")
 
     # Latent-space controls
     parser.add_argument("--latent-upscale", type=float, default=1.0, metavar="FACTOR",
@@ -47,5 +47,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
 
 def run(args: "argparse.Namespace") -> None:
+    if not getattr(args, "input_image", None):
+        raise SystemExit("error: refine requires --input-image PATH (or --input PATH)")
     run_config = RunConfig.from_args(args, command="refine")
     execute_generation(run_config)

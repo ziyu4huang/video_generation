@@ -322,7 +322,7 @@ def run_expansion(args: "argparse.Namespace") -> dict[str, str] | None:
 
     lora_path = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
     _lora_scale_raw = getattr(args, "lora_scale", None)
-    lora_scale = 1.0 if _lora_scale_raw is None else _lora_scale_raw
+    lora_scale = (_lora_scale_raw or [1.0])[0]
 
     print(f"\n[expansion] Loading Flux2 Klein outpaint pipeline...")
     pipeline = Flux2OutpaintPipeline(
