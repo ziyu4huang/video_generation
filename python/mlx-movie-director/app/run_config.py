@@ -8,6 +8,19 @@ from typing import Any
 
 SCHEMA_VERSION = 14
 
+
+def _lora_manifest_recommended_scale(lora_path: str) -> float:
+    """Read recommended_scale from the LoRA's sibling manifest.json, fallback to 1.0."""
+    from pathlib import Path
+    manifest = Path(lora_path).parent / "manifest.json"
+    if manifest.exists():
+        try:
+            return float(json.loads(manifest.read_text()).get("recommended_scale", 1.0))
+        except Exception:
+            pass
+    return 1.0
+
+
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
     "text2img": "generate",
@@ -223,8 +236,8 @@ class RunConfig:
         rc.lora_paths = resolve_lora_paths(getattr(args, "lora_path", None) or []) or None
         if rc.lora_paths:
             _raw_scales = list(getattr(args, "lora_scale", None) or [])
-            if len(_raw_scales) < len(rc.lora_paths):
-                _raw_scales += [1.0] * (len(rc.lora_paths) - len(_raw_scales))
+            while len(_raw_scales) < len(rc.lora_paths):
+                _raw_scales.append(_lora_manifest_recommended_scale(rc.lora_paths[len(_raw_scales)]))
             rc.lora_scales = _raw_scales[:len(rc.lora_paths)]
             rc.lora_path = rc.lora_paths[0]
             rc.lora_scale = rc.lora_scales[0]
