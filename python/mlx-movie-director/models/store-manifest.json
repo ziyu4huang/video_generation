@@ -1,0 +1,227 @@
+{
+  "version": 1,
+  "store_relative_to_repo_root": "../video_generation__models",
+  "count": 55,
+  "files": {
+    "audio/ltx-2.3-audio/audio_vae.safetensors": {
+      "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
+      "size": 106509048
+    },
+    "audio/ltx-2.3-audio/vocoder.safetensors": {
+      "md5": "3fbaedb774a4b33f8774650485869e37",
+      "size": 258313851
+    },
+    "controlnet/zimage-turbo-fun-union-2.1-mlx/model.safetensors": {
+      "md5": "aa77be8b7753176398cb915d68661c13",
+      "size": 631166339
+    },
+    "lens-unet-int4/model.safetensors": {
+      "md5": "8ca41b661eaa3998d15d51523642a98b",
+      "size": 2567896463
+    },
+    "lora/anime-girl-turned-into-real-person/anything2real_v1_f2k.int8.safetensors": {
+      "md5": "b114fdf0783eff1a4f135b421c9e03e5",
+      "size": 41476152
+    },
+    "lora/bfs-head-v1-klein-9b/bfs_head_v1_flux-klein_9b_step3750_rank64.int8.safetensors": {
+      "md5": "f82ee7353596b91e9f1d4c269a81712d",
+      "size": 165732879
+    },
+    "lora/highresolutionflux2-kelien-9b/HighResolutionFlux2-Kelien-9B.int8.safetensors": {
+      "md5": "2f2c0bf1e4f5975e0d3d48a5b05d56f2",
+      "size": 41476152
+    },
+    "lora/jib-mix-realistic-z-image-lora/Jibs_Realistic_z-image_lora_V1.int8.safetensors": {
+      "md5": "c774a1ef029ed8bf623d961503e9603b",
+      "size": 85155706
+    },
+    "lora/klein-slider-anatomy/klein_slider_anatomy.int8.safetensors": {
+      "md5": "05ff84866d62ac030d49c2a98b437898",
+      "size": 10411142
+    },
+    "lora/klein-slider-bodyweight-50/klein_slider_bodyweight_50.int8.safetensors": {
+      "md5": "f98ce3a353be279849039012a536a4e6",
+      "size": 10411142
+    },
+    "lora/ltx-2-3-transition/ltx2.3-transition.int8.safetensors": {
+      "md5": "88814d4beff65481929986c38469e97a",
+      "size": 195352219
+    },
+    "lora/ltx-2.3-distilled/ltx-2.3-22b-distilled-lora-384-1.1.int8.safetensors": {
+      "md5": "9eb93810176fe503416ef81fb78c94a1",
+      "size": 3803475845
+    },
+    "lora/ltx-2.3-distilled/ltx-2.3-22b-distilled-lora-384.int8.safetensors": {
+      "md5": "167d95093440b9e8534943c4f8b68315",
+      "size": 3803475845
+    },
+    "lora/luneva-cyber-hd-enhancer/ZIT_Luneva_CyberHD.safetensors": {
+      "md5": "39451647d479ef70af1aa0d83056eafe",
+      "size": 680327016
+    },
+    "lora/midjourney-luneva-cinematic-lora/ZIT_Midjourney_Luneva_Cinematic_v1_r128.safetensors": {
+      "md5": "80583be6d7ba058958502a6290345e5c",
+      "size": 680326960
+    },
+    "lora/singularity-omnicine-v1/Singularity-LTX-2.3_OmniCine_V1.int8.safetensors": {
+      "md5": "a8e78019eaf2fc9dd4cb568b0cd9034d",
+      "size": 1348506844
+    },
+    "lora/vbvr-licon-240k/Ltx2.3-Licon-VBVR-I2V-240K-R32.int8.safetensors": {
+      "md5": "403f6e37b04622c67acd2c6e48e37dcf",
+      "size": 277538645
+    },
+    "lora/vbvr-licon-390k/Ltx2.3-Licon-VBVR-I2V-390K-R32.int8.safetensors": {
+      "md5": "e6f2824065fae21e5cd7a0aa00d7a84c",
+      "size": 277538645
+    },
+    "lora/vbvr-licon-96k/Ltx2.3-Licon-VBVR-I2V-96000-R32.int8.safetensors": {
+      "md5": "9b128f8172f51aa3775b79406fb040f2",
+      "size": 277538645
+    },
+    "lora/vbvr-licon-ltx2.3/VBVR-official-comfyui.int8.safetensors": {
+      "md5": "ee757aa555b7e1ce1037e51a57d4c74d",
+      "size": 214570449
+    },
+    "lora/vbvr-ltx2.3/Video-Reason_VBVR-LTX2.3-diffsynth_comfyui.int8.safetensors": {
+      "md5": "b916ef7faa9d9cdf2af8d7ce647b50e8",
+      "size": 214607595
+    },
+    "lora/z-image-asian-girl-2-2/Z-xhs888.safetensors": {
+      "md5": "d3c250c4436dbc22bdcea0484905f7a9",
+      "size": 170128232
+    },
+    "text_encoder/gpt-oss-20b/model.safetensors": {
+      "md5": "407bdd063accb29fad4d23808a1d8919",
+      "size": 13519556736
+    },
+    "text_encoder/ltx-2.3-connector/connector.safetensors": {
+      "md5": "54f4629a0c7750d500a540fc12430329",
+      "size": 1984551738
+    },
+    "text_encoder/qwen3-4b/model.safetensors": {
+      "md5": "c1da478b98ca88e280f8ec3643c5ede7",
+      "size": 2514414621
+    },
+    "text_encoder/qwen3-8b/0.safetensors": {
+      "md5": "7435db0bd403d865f5330156958262c6",
+      "size": 2140922085
+    },
+    "text_encoder/qwen3-8b/1.safetensors": {
+      "md5": "d38215ea9b3d361cb774f3a0967c5261",
+      "size": 2103639701
+    },
+    "text_encoder/qwen3-8b/2.safetensors": {
+      "md5": "e816ea7ca43a84deb5fe5febf189e079",
+      "size": 2103639810
+    },
+    "text_encoder/qwen3-8b/3.safetensors": {
+      "md5": "d97a5adbf4efae2e824b8ebb071b979b",
+      "size": 1693615932
+    },
+    "transformer/dark-beast-dbzit9/model.safetensors": {
+      "md5": "f1198f38c6db50205f0ff0ffa9b39d78",
+      "size": 3848371806
+    },
+    "transformer/ernie-redmix-redzit15/model.safetensors": {
+      "md5": "2ca2147c655b7bd4b1daca6d52ca274d",
+      "size": 3848371806
+    },
+    "transformer/klein-9b/0.safetensors": {
+      "md5": "1b65b4111fe714ac4f5240bf8d2e0ba4",
+      "size": 2140791069
+    },
+    "transformer/klein-9b/1.safetensors": {
+      "md5": "2ab60c1cb6f96c5513522572622e7315",
+      "size": 2139119960
+    },
+    "transformer/klein-9b/2.safetensors": {
+      "md5": "46f5c3d44c57d3d4b80099c7b2bf61d2",
+      "size": 2085631345
+    },
+    "transformer/klein-9b/3.safetensors": {
+      "md5": "46f740920666598e2077851cdea45254",
+      "size": 2085631415
+    },
+    "transformer/klein-9b/4.safetensors": {
+      "md5": "91be5ee30ca80ba0a34e32060a532d0a",
+      "size": 1194893301
+    },
+    "transformer/klein-9b-dark-beast-bfs/0.safetensors": {
+      "md5": "9c206e371925deee0613d7c75a238dfb",
+      "size": 2140791069
+    },
+    "transformer/klein-9b-dark-beast-bfs/1.safetensors": {
+      "md5": "fbbe1e6a78b014c33e284a047ace97c6",
+      "size": 2139119960
+    },
+    "transformer/klein-9b-dark-beast-bfs/2.safetensors": {
+      "md5": "4c71e7d0f119211e83a2bcc35bf7a29c",
+      "size": 2085631345
+    },
+    "transformer/klein-9b-dark-beast-bfs/3.safetensors": {
+      "md5": "a28659666dcd174276360ae9dc562822",
+      "size": 2085631415
+    },
+    "transformer/klein-9b-dark-beast-bfs/4.safetensors": {
+      "md5": "8df649812062cbf907d1d1b82a399bb0",
+      "size": 1194893301
+    },
+    "transformer/ltx-2.3-dasiwa-golden-lace-v3-q8/transformer-dev.safetensors": {
+      "md5": "5686ead4ab51eefbe73a4812ebe657f5",
+      "size": 20587725515
+    },
+    "transformer/ltx-2.3-dev-q8/transformer-dev.safetensors": {
+      "md5": "b71fff59942315b09892f6ad0166d638",
+      "size": 20597189549
+    },
+    "transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors": {
+      "md5": "82e7ef514f39e5d25c47302d3eb31d79",
+      "size": 20597189549
+    },
+    "transformer/seedvr2-7b/model.safetensors": {
+      "md5": "0cbb98776dd07cf136d1d7580cc1d7c7",
+      "size": 5106997144
+    },
+    "transformer/zimage-moody-v126/model.safetensors": {
+      "md5": "58518e0893f38989e1c3c3065a9e1319",
+      "size": 3848371806
+    },
+    "vae/flux2-klein/0.safetensors": {
+      "md5": "eaf7057121c0080584fefa1f04704d8a",
+      "size": 166156496
+    },
+    "vae/ltx-2.3-vae/spatial_upscaler_x1_5_v1_0.safetensors": {
+      "md5": "345815677cda863100d36890f045c945",
+      "size": 1090127476
+    },
+    "vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors": {
+      "md5": "e3746c103a6d5891368ef6d33d5876b5",
+      "size": 995745061
+    },
+    "vae/ltx-2.3-vae/temporal_upscaler_x2_v1_0.safetensors": {
+      "md5": "083cbaf3d136a1727ec61a90c2de8daf",
+      "size": 261945581
+    },
+    "vae/ltx-2.3-vae/vae_decoder.safetensors": {
+      "md5": "e8696e979c706bc7b87b66bb2af9deb6",
+      "size": 814349531
+    },
+    "vae/ltx-2.3-vae/vae_encoder.safetensors": {
+      "md5": "fea460c455143804bb8a4e6291d3457d",
+      "size": 637885319
+    },
+    "vae/seedvr2-vae/model.safetensors": {
+      "md5": "b1d16406f7ec85c523036a49f4cf7155",
+      "size": 501325022
+    },
+    "vae/ultraflux-zimage-ae/model.safetensors": {
+      "md5": "f06c6cdcedbb49f2b05ffc7967d1acac",
+      "size": 167666894
+    },
+    "vae/zimage-ae/model.safetensors": {
+      "md5": "55021fc9d44772075424c44f88585ad6",
+      "size": 167666894
+    }
+  }
+}
