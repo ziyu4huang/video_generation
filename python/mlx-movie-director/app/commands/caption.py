@@ -194,6 +194,67 @@ _STYLE_PROMPTS = {
         "Be precise and exhaustive about labels and current values — those are what an "
         "automation agent keys on to locate elements. Answer in English."
     ),
+    "lora_quality": (
+        "You are a STRICT LoRA adapter quality evaluator. Determine whether the LoRA effect\n"
+        "is VISIBLE at the given scale, and whether the scale causes over-activation.\n\n"
+        "LoRA: {lora_name}\n"
+        "Description: {lora_description}\n"
+        "Scale applied: {scale}\n\n"
+        "═══ STEP 1 — IS THE LoRA EFFECT VISIBLE? ═══\n"
+        "Decide before scoring anything: does this image show ANY influence from this LoRA?\n"
+        "Mentally compare to what the base model would produce WITHOUT this LoRA.\n"
+        "- If you CANNOT tell that any LoRA style was applied → activation_level = 'under'\n"
+        "- If LoRA style is clearly present and appropriate → activation_level = 'correct'\n"
+        "- If LoRA has warped, filtered, or distorted the image → activation_level = 'over'\n\n"
+        "SPECIAL CASE — BASELINE IMAGE (scale=0, scale=null, or scale='none'):\n"
+        "No LoRA was applied. Unconditionally set:\n"
+        "  lora_activation=1, activation_level='under', gate='fail'.\n"
+        "Score overall/detail/artifacts for the base image quality only.\n\n"
+        "═══ STEP 2 — OVER-ACTIVATION SYMPTOMS (hunt for ALL) ═══\n"
+        "ONE symptom = activation_level must be 'over':\n"
+        "- Watercolor wash or paint filter replacing photorealism\n"
+        "- Extreme skin smoothing / plastic / airbrushed look — no visible pores\n"
+        "- Color shift toward stylized palette (over-saturated, art-filter, too warm)\n"
+        "- Style bleeding: anime or cartoon features imposed on a photo-realist subject\n"
+        "- Loss of fine texture — detail replaced by flat or smeared shading\n"
+        "- Any REGRESSION in image quality vs. what the base model alone would produce\n\n"
+        "═══ STEP 3 — UNDER-ACTIVATION SYMPTOMS ═══\n"
+        "If ANY apply, activation_level must be 'under':\n"
+        "- No visible LoRA style influence — image indistinguishable from base-model output\n"
+        "- Subject characteristics expected from this LoRA are absent\n"
+        "- Trigger content for this LoRA is missing despite correct prompt\n\n"
+        + _DEFECT_BLOCK
+        + "═══ SCORING RULES ═══\n"
+        "MANDATORY CONSISTENCY — enforce before writing JSON:\n"
+        "  activation_level='under'   → lora_activation MUST be 1-4\n"
+        "  activation_level='correct' → lora_activation MUST be 6-10\n"
+        "  activation_level='over'    → lora_activation MUST be 1-3 (artifacts tank the score)\n\n"
+        "Score each dimension 1-10 (respect HARD RULES caps from the defect check above):\n"
+        "1. overall — overall image quality and aesthetic appeal\n"
+        "2. detail — level of fine detail (pores, hair, fabric texture)\n"
+        "3. artifacts — absence of LoRA-induced artifacts (INVERTED: 10 = zero artifacts)\n"
+        "4. lora_activation — how PRESENT and CORRECT the LoRA style effect is at this scale:\n"
+        "   10 = LoRA style CLEARLY VISIBLE + appropriate + no artifacts (BOTH required)\n"
+        "   5  = marginal — faint or barely distinguishable from base-model output\n"
+        "   1  = completely absent (baseline/invisible) OR severely over-activated\n"
+        "   WARNING: 'no artifacts' alone does NOT justify a high score.\n"
+        "   A clean baseline scores lora_activation=1 because the LoRA effect is ABSENT.\n\n"
+        "GATE VERDICT — choose exactly one:\n"
+        '- "pass": LoRA effect CLEARLY VISIBLE AND appropriate (activation_level MUST be "correct")\n'
+        '- "marginal": faint activation but usable, or very minor artifacts\n'
+        '- "fail": LoRA invisible (under) OR over-activation artifacts (over)\n'
+        "  RULE: activation_level='under' → gate is 'fail' or 'marginal' ONLY. Never 'pass'.\n"
+        "  RULE: activation_level='over'  → gate is ALWAYS 'fail'.\n\n"
+        'Respond with ONLY a JSON object (no markdown fences, no prose):\n'
+        '{{"overall": N, "detail": N, "artifacts": N, "lora_activation": N,\n'
+        ' "activation_level": "under|correct|over",\n'
+        ' "gate": "pass|marginal|fail",\n'
+        ' "over_symptoms": ["list any over-activation symptoms found, empty if none"],\n'
+        ' "under_symptoms": ["list any under-activation symptoms found, empty if none"],\n'
+        ' "issues": ["all quality defects found"], "strengths": ["notable strengths"],\n'
+        ' "summary": "one sentence verdict"}}\n'
+        "Each score is an integer 1-10."
+    ),
 }
 
 # Language instructions — appended to style prompt
@@ -244,6 +305,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         "(assume the model is already loaded)")
     parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
                         help="Original T2I prompt (used by 'review' style for adherence evaluation)")
+    parser.add_argument("--lora-name", type=str, default=None, metavar="NAME",
+                        help="LoRA name (used by 'lora_quality' style)")
+    parser.add_argument("--lora-description", type=str, default=None, metavar="DESC",
+                        help="LoRA description (used by 'lora_quality' style)")
+    parser.add_argument("--lora-scale", type=float, default=None, metavar="SCALE",
+                        help="LoRA scale applied during generation (used by 'lora_quality' style)")
     parser.add_argument("--frames", type=int, default=8, metavar="N",
                         help="Number of keyframes for video captioning (default: 8)")
     parser.add_argument("--review-html", type=str, nargs="+", metavar="JSON",
@@ -390,6 +457,16 @@ def run(args: argparse.Namespace) -> None:
                     print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
                     sys.exit(1)
                 prompt_text = prompt_text.format(prompt=args.prompt)
+            elif style == "lora_quality":
+                lora_name = getattr(args, "lora_name", None) or "unknown"
+                lora_desc = getattr(args, "lora_description", None) or "no description"
+                lora_scale = getattr(args, "lora_scale", None)
+                scale_str = str(lora_scale) if lora_scale is not None else "unknown"
+                prompt_text = prompt_text.format(
+                    lora_name=lora_name,
+                    lora_description=lora_desc,
+                    scale=scale_str,
+                )
             prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
             print(f"Captioning {input_path} (style={style}, lang={lang}"
                   f"{sample_tag}){multi_tag}...", end=" ", flush=True)
@@ -941,17 +1018,23 @@ def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str
 
 def caption_image(image_path: str, style: str = "photography", lang: str = "en",
                   api_url: str = _DEFAULT_API_URL, model: str = _DEFAULT_MODEL,
-                  prompt: str | None = None, auto_load: bool = True) -> str:
+                  prompt: str | None = None, auto_load: bool = True,
+                  lora_name: str | None = None, lora_description: str | None = None,
+                  lora_scale: float | None = None) -> str:
     """Caption a single image and return the text. Reusable public API.
 
     Args:
         image_path: Path to image file.
-        style: Caption style key (default, photography, prompt, profile, style, score, review).
+        style: Caption style key (default, photography, prompt, profile, style, score,
+               review, lora_quality).
         lang: Output language (en, zh_TW, zh_CN, ja).
         api_url: VLM API base URL.
         model: VLM model name.
         prompt: Original T2I prompt (required for 'review' style).
         auto_load: If True, ensure the VLM is loaded in LM Studio first.
+        lora_name: LoRA name (required for 'lora_quality' style).
+        lora_description: LoRA description (for 'lora_quality' style).
+        lora_scale: LoRA scale applied (for 'lora_quality' style).
 
     Returns:
         Caption text string.
@@ -959,6 +1042,12 @@ def caption_image(image_path: str, style: str = "photography", lang: str = "en",
     prompt_text = _STYLE_PROMPTS.get(style, _STYLE_PROMPTS["default"])
     if style == "review" and prompt:
         prompt_text = prompt_text.format(prompt=prompt)
+    elif style == "lora_quality":
+        prompt_text = prompt_text.format(
+            lora_name=lora_name or "unknown",
+            lora_description=lora_description or "no description",
+            scale=str(lora_scale) if lora_scale is not None else "unknown",
+        )
     prompt_text += "\n" + _LANG_INSTRUCTIONS.get(lang, "")
     b64 = _image_to_base64(image_path)
     return _call_vlm(api_url, model, b64, prompt_text, auto_load=auto_load)
