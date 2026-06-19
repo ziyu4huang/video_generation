@@ -68,6 +68,31 @@ Retired `mlx-movie-director-lora-review` → the mlx-* family is now **3** workf
 - Matrix regenerated to 7 workflows · 126 records. See `_shared-patterns.md` port-checklist
   note 5 for the new retire-vs-merge rule (distinct purpose → fold knowledge + retire).
 
+### Iteration 7 — 2026-06-20
+Ensemble voting (3 VLM votes per scale) + non-monotonicity warning in `lora-quality-gate`:
+- **Root cause of noise**: Second run showed non-monotonic lora_activation (0.5→7, 0.65→1, 0.8→8)
+  — adjacent same-LoRA scales swinging by >6 points is pure VLM randomness, not real LoRA behavior.
+- **Fix: ENSEMBLE_VOTES=3** sequential VLM calls per non-baseline variant; aggregate with
+  majority-gate + majority-activation_level + median numeric scores. Variants still run in parallel
+  with each other; votes within each variant are sequential (caption.py writes to same .caption.json).
+- **Non-monotonicity check**: warn if any adjacent scale pair has |Δlora_activation| > 3 after ensemble.
+- **Report**: shows vote confidence (`3/3`, `2/3`) and all individual lma scores per scale.
+- **Baseline**: still 1 vote (deterministic: lora_activation=1, gate=fail).
+
+### Iteration 6 — 2026-06-20
+New standalone `lora-quality-gate` workflow for LoRA scale sweep + VLM gate review:
+- Targets LoRA quality issues specifically: over-activation (watercolor wash, plastic skin),
+  under-activation (invisible LoRA), standard AI defects (hands/face/skin via _DEFECT_BLOCK).
+- New `lora_quality` VLM style added to caption.py — accepts {lora_name}, {lora_description},
+  {scale} template variables; returns gate="pass|marginal|fail", activation_level="under|correct|over",
+  over_symptoms[], under_symptoms[], lora_activation score (1-10).
+- Workflow: Resolve (locate LoRA manifest) → Knowledge → GPU Wait → Generate sweep → VLM Check →
+  Gate Score (parallel caption --style lora_quality) → Analysis (rank scales, find optimal) →
+  Review HTML (A/B across scales) → Manifest update (optional) → Persist → Report.
+- Standalone (not merged into run-self-improve-image — LoRA gate is a targeted diagnostic,
+  merge is TBD after the quality issue is resolved).
+- Initialized lora-quality-gate.knowledge.jsonl placeholder.
+
 ### Iteration 5 — 2026-06-19
 Consolidated the gui self-improve family from 4 workflows down to **2** (the mirror of
 Iterations 3–4 on the mlx side, now applied to gui):
