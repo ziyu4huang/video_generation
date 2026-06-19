@@ -16,7 +16,10 @@
   ],
   "source_url": "https://civitai.com/models/667086",
   "recommended_steps": 9,
-  "recommended_scale": 0.65,
+  "recommended_scale": 0.8,
   "recommended_scale_nsfw": 1.0,
-  "_scale_note": "scale=0.65 for SFW portraits (style-only enhancement); scale=1.0 for NSFW content (full LoRA activation required). Creator recommends 0.8 as a middle ground."
+  "_scale_note": "scale=0.8 for SFW portraits (clearly visible skin texture enhancement, VLM gate pass); scale=0.65 for ultra-subtle style-only enhancement (below VLM detection threshold); scale=1.0 for NSFW content (full LoRA activation required).",
+  "trigger_words": ["nsfw"],
+  "test_prompt": "ultra-detailed close-up portrait of a woman, natural skin with visible pores and fine texture, soft golden hour lighting, photorealistic, sharp focus, high detail, no makeup, candid expression",
+  "_test_prompt_note": "SFW test prompt targeting skin texture detail — the primary visible effect of nsfw-master at SFW scale (0.65). Over-activation at scale >1.0 typically causes watercolor wash or plastic skin. Under-activation = image indistinguishable from base model."
 }
