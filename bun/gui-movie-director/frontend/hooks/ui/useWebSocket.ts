@@ -48,6 +48,11 @@ export function useWebSocket() {
       setConnected(false);
       // Don't overwrite terminal states — only reset if no definitive result yet
       setJobStatus((prev) => (prev === "completed" || prev === "failed" ? prev : null));
+      // Clear any pending reconnect timer before scheduling a new one. Without
+      // this, a second onclose (or a connect() while one is already queued)
+      // overwrites reconnectTimer with a fresh handle and leaks the prior timer,
+      // which can fire a duplicate/double reconnect.
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       // Exponential backoff: 1s → 2s → 4s → ... → 30s cap
       reconnectTimer.current = window.setTimeout(connect, reconnectDelay.current);
       reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30000);
@@ -80,6 +85,11 @@ export function useWebSocket() {
         if (msg.type === "job_failed" && msg.jobId === subscribedJobIdRef.current) {
           setJobStatus("failed");
           setProgress(null);
+          // Surface partial output files the backend reports on failure. A job
+          // can produce usable outputs before erroring; discarding them hides
+          // those results from the user (job_complete already sets them, but a
+          // failed job never reaches that handler).
+          if (msg.outputFiles) setOutputFiles(msg.outputFiles);
         }
       } catch {
         // Ignore malformed messages
