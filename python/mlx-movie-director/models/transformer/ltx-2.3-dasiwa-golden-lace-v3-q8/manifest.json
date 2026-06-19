@@ -10,6 +10,10 @@
   "pipeline": [
     "ltx-2.3"
   ],
+  "cli": {
+    "action": "video generate",
+    "transformer": "dasiwa"
+  },
   "compatible_with": [
     "text_encoder/ltx-2.3-connector",
     "vae/ltx-2.3-vae",

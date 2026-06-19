@@ -8,6 +8,11 @@
   "source": "dgrauet/ltx-2.3-mlx-q8",
   "weight_file": "transformer-dev.safetensors",
   "pipeline": ["ltx-2.3"],
+  "cli": {
+    "action": "video generate",
+    "transformer": "dev",
+    "note": "default LTX transformer — --transformer dev can be omitted"
+  },
   "compatible_with": [
     "text_encoder/ltx-2.3-connector",
     "vae/ltx-2.3-vae",

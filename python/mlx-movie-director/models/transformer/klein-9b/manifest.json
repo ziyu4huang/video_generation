@@ -6,6 +6,11 @@
   "format": "mlx-8bit",
   "description": "Flux2 Klein 9B diffusion transformer (INT8), converted from black-forest-labs/FLUX.2-klein-9B BF16 via mflux ModelSaver",
   "pipeline": ["flux2-klein", "flux2-klein-edit"],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "flux2-klein",
+    "note": "default flux2-klein transformer — no --transformer flag needed"
+  },
   "compatible_with": [
     "text_encoder/qwen3-8b",
     "tokenizer/qwen3-klein",

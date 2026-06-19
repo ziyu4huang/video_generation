@@ -7,6 +7,11 @@
   "description": "Z-Image Moody V12.6 DPO transformer, 4-bit MLX quantized (GS=32), remapped from ComfyUI single safetensors",
   "source": "civitai.com/models/2253524",
   "pipeline": ["zimage-turbo"],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "zimage",
+    "note": "default zimage transformer — no --transformer flag needed"
+  },
   "compatible_with": [
     "text_encoder/qwen3-4b",
     "tokenizer/qwen3",

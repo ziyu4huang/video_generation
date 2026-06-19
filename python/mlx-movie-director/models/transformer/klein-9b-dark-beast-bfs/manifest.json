@@ -6,6 +6,11 @@
   "format": "mlx-8bit",
   "description": "Dark Beast KLEIN 9b V2.0 BFS — face-swap specialized variant of Flux2 Klein 9B, converted from Civitai FP8 checkpoint to MLX INT8",
   "pipeline": ["flux2-klein"],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "flux2-klein",
+    "transformer": "klein-9b-dark-beast-bfs"
+  },
   "compatible_with": [
     "text_encoder/qwen3-8b",
     "tokenizer/qwen3-klein",

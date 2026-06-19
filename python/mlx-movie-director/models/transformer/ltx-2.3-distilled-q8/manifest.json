@@ -10,6 +10,11 @@
   "pipeline": [
     "ltx-2.3"
   ],
+  "cli": {
+    "action": "video generate",
+    "transformer": "distilled",
+    "note": "shorthand: --distilled flag (auto-sets stage1_steps=8, cfg_scale=1.0)"
+  },
   "compatible_with": [
     "text_encoder/ltx-2.3-connector",
     "vae/ltx-2.3-vae",

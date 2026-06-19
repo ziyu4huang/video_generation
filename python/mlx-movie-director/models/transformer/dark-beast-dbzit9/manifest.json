@@ -11,6 +11,11 @@
   "pipeline": [
     "zimage-turbo"
   ],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "zimage",
+    "transformer": "dark-beast-dbzit9"
+  },
   "compatible_with": [
     "text_encoder/qwen3-4b",
     "tokenizer/qwen3",

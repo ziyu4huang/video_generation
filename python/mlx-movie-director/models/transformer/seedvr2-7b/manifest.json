@@ -7,6 +7,10 @@
   "description": "SeedVR2 7B diffusion transformer for AI upscaling, 4-bit MLX quantized (GS=32), remapped from ComfyUI single safetensors",
   "source": "ByteDance-Seed/SeedVR2-7B",
   "pipeline": ["seedvr2-upscale"],
+  "cli": {
+    "action": "image purify",
+    "note": "also used by: upscale, image expansion --upscale-method seedvr2, image restore"
+  },
   "compatible_with": [
     "vae/seedvr2-vae"
   ],
