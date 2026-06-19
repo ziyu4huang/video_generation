@@ -76,6 +76,10 @@ python/venv/bin/python scripts/externalize_models.py --restore
 - Content-addressed by md5 → identical weights are stored once (dedup). The store's
   `INDEX.txt` maps each hash to the path(s) that reference it.
 - `--min-size N` externalizes only weights ≥ N bytes (default 0 = all `.safetensors`).
-- The `ltx-mlx/{distilled,dev,dasiwa}/` assembly symlinks point *within* `models/`
-  (model-to-model reuse), not at the store — they're committed separately and left
-  untouched by this script.
+- The `ltx-mlx/{distilled,dev,dasiwa}/` dirs are a **gitignored, regeneratable
+  symlink-forest aggregator** (not committed). They gather the scattered LTX files into
+  one flat load dir and are recreated by `scripts/setup_ltx_symlinks.py` (or auto-assembled
+  by `ltx_pipeline._assemble_flat_dir()` at runtime). The externalize script leaves them
+  untouched; once the real model files they point at are externalized, a regenerated
+  `ltx-mlx/` resolves through to the store. Do NOT `git add -f` these — they're meant to be
+  local-only.
