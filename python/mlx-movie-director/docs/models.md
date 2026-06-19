@@ -112,7 +112,7 @@ python/mlx-movie-director/models/
 | **Transformer** | ~~`comfyui_data/.../moody-porn-v12.6_00001_.safetensors`~~ (deleted, 11 GB) | `models/transformer/model.safetensors` (~3.6 GB) | `convert.py --transformer` — key remap + 4-bit quantize |
 | **Text Encoder** | ~~`comfyui_data/.../qwen_3_4b.safetensors`~~ (deleted, 7.5 GB) | `models/text_encoder/model.safetensors` (~2.3 GB) | `convert.py --text-encoder` — 4-bit quantize |
 | **Tokenizer** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/tokenizer/` (~7 MB) | `convert.py --tokenizer` — download |
-| **VAE** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/vae/flux-ae/` (~160 MB) | `convert.py --vae` (download) + `convert.py --vae-mlx` (convert to MLX BF16) |
+| **VAE** | [Tongyi-MAI/Z-Image-Turbo](https://huggingface.co/Tongyi-MAI/Z-Image-Turbo) HuggingFace | `models/vae/zimage-ae/` (~160 MB) | `convert.py --vae` (download) + `convert.py --vae-mlx` (convert to MLX BF16) |
 | **LoRA** | `comfyui_data/models/loras/zit_sda_v1.safetensors` (~162 MB) | Used directly (no conversion needed) | Runtime in-memory PyTorch → MLX |
 | **Upscale** | `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` (~28 MB) | Used directly (PyTorch MPS) | No conversion — spandrel loads .pth on MPS |
 

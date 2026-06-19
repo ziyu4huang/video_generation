@@ -467,10 +467,10 @@ def convert_seedvr2_vae() -> bool:
 # === Flux2 Klein 9B conversion ===
 
 def convert_vae_to_mlx() -> bool:
-    """Convert flux-ae VAE from PyTorch FP32 to MLX BF16.
+    """Convert zimage-ae VAE from PyTorch FP32 to MLX BF16.
 
     Uses the mflux ZImageWeightMapping to handle Conv2d transpose and key renaming.
-    Saves to models/vae/flux-ae/model.safetensors alongside the old PyTorch file.
+    Saves to models/vae/zimage-ae/model.safetensors alongside the old PyTorch file.
     """
     _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "vendor", "mflux", "src")
@@ -1331,7 +1331,7 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
         "compatible_with": [
             "text_encoder/qwen3-4b",
             "tokenizer/qwen3",
-            "vae/flux-ae",
+            "vae/zimage-ae",
         ],
         "size_bytes": weight_size,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z"),
@@ -1351,7 +1351,7 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
         f"- **Quantization**: 4-bit, group_size=32\n"
         f"- **Sampler**: EULER/DEIS | Simple | CFG=1 | 10 Steps\n\n"
         f"Shares text encoder (qwen3-4b), tokenizer (qwen3), "
-        f"and VAE (flux-ae) with the built-in ZImage models.\n"
+        f"and VAE (zimage-ae) with the built-in ZImage models.\n"
     )
     with open(os.path.join(dst_dir, "README.md"), "w") as fp:
         fp.write(readme)
@@ -1463,9 +1463,9 @@ def convert_ltx_connector() -> bool:
 def convert_ultraflux_vae_to_mlx() -> bool:
     """Convert UltraFlux VAE from PyTorch FP32 to MLX BF16.
 
-    Same architecture as flux-ae (AutoencoderKL), same conversion pipeline.
+    Same architecture as zimage-ae (AutoencoderKL), same conversion pipeline.
     Uses the mflux ZImageWeightMapping for key remapping and Conv2d transpose.
-    Saves to models/vae/ultraflux-ae/model.safetensors.
+    Saves to models/vae/ultraflux-zimage-ae/model.safetensors.
     """
     _mflux_src = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "vendor", "mflux", "src")
@@ -1621,7 +1621,7 @@ Examples:
                         help="Full source URL for the --zit-checkpoint manifest/README "
                              "(e.g. https://civitai.com/models/2242173?modelVersionId=2788849).")
     parser.add_argument("--vae-mlx", action="store_true",
-                        help="Convert flux-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
+                        help="Convert zimage-ae VAE to MLX BF16 (eliminates PyTorch/diffusers dependency)")
     parser.add_argument("--seedvr2-vae-int8", action="store_true",
                         help="Quantize SeedVR2 VAE from MLX BF16 to INT8 (~478MB → ~240MB)")
     parser.add_argument("--ltx-connector", action="store_true",

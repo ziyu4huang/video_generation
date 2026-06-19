@@ -6,30 +6,35 @@ VAE models for latent↔pixel space conversion. Used during image generation (Ph
 
 ```
 models/vae/
-├── README.md                     ← this file
-├── flux-ae/                      ← Flux/Z-Image AutoencoderKL (MLX BF16, converted)
+├── README.md                          ← this file
+├── zimage-ae/                         ← ZImage-turbo AutoencoderKL (arch=flux-ae, 16ch, MLX BF16)
 │   ├── config.json
 │   ├── model.safetensors
 │   ├── manifest.json
 │   └── README.md
-├── flux2-klein/                  ← Flux2 Klein 9B VAE (MLX INT8)
+├── ultraflux-zimage-ae/               ← UltraFlux improved AutoencoderKL for zimage-turbo (same arch, MLX BF16)
 │   ├── config.json
 │   ├── model.safetensors
 │   ├── manifest.json
 │   └── README.md
-├── ltx-2.3-vae/                  ← LTX-2.3 video VAE (safetensors BF16)
+├── flux2-klein/                       ← Flux2 Klein 9B VAE (AutoencoderKLFlux2, 32ch, MLX INT8) — NOT interchangeable with zimage-ae
 │   ├── config.json
 │   ├── model.safetensors
 │   ├── manifest.json
 │   └── README.md
-├── seedvr2-vae/                  ← SeedVR2 3D VAE (MLX BF16)
+├── ltx-2.3-vae/                       ← LTX-2.3 video VAE (safetensors BF16)
 │   ├── config.json
 │   ├── model.safetensors
 │   ├── manifest.json
 │   └── README.md
-└── ultraflux-ae/                 ← UltraFlux improved AutoencoderKL (PyTorch FP32)
+├── seedvr2-vae/                       ← SeedVR2 3D VAE (MLX BF16)
+│   ├── config.json
+│   ├── model.safetensors
+│   ├── manifest.json
+│   └── README.md
+└── seedvr2-vae-int8/                  ← SeedVR2 3D VAE INT8 quantized (MLX INT8)
     ├── config.json
-    ├── diffusion_pytorch_model.safetensors
+    ├── model.safetensors
     ├── manifest.json
     └── README.md
 ```

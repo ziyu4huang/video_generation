@@ -1,10 +1,10 @@
 {
   "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
-  "name": "ultraflux-ae",
+  "name": "ultraflux-zimage-ae",
   "type": "vae",
   "arch": "flux-ae",
   "format": "mlx-bf16",
-  "description": "UltraFlux improved AutoencoderKL for Flux/ZImage — sharper decode output than stock flux-ae. Converted from PyTorch FP32 to MLX BF16 via convert.py --ultraflux-vae.",
+  "description": "UltraFlux improved AutoencoderKL for zimage-turbo — sharper decode than stock zimage-ae. Same arch (flux-ae, 16 latent channels). Converted from PyTorch FP32 to MLX BF16 via convert.py --ultraflux-vae.",
   "pipeline": [
     "zimage-turbo"
   ],

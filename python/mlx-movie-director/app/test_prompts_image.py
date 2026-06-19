@@ -353,7 +353,7 @@ _ALL_TESTS = {
 
     "vae:ultraflux": {
         "type": "vae",
-        "description": "Default flux-ae vs UltraFlux VAE — sharpness and edge quality comparison",
+        "description": "Default zimage-ae vs ultraflux-zimage-ae VAE — sharpness and edge quality comparison",
         "test_prompt": "portrait",
         "seed": 42,
         "steps": 9,
@@ -2724,7 +2724,7 @@ _ALL_TESTS_ALIASES = {
     "vae-ultra-flux": "vae:ultraflux",
     "vae-ultraflux": "vae:ultraflux",
     "ultra-flux": "vae:ultraflux",
-    "ultraflux-ae": "vae:ultraflux",
+    "ultraflux-zimage-ae": "vae:ultraflux",
     # Workflow test aliases
     "full": "workflow:portrait",
     "portrait": "workflow:portrait",

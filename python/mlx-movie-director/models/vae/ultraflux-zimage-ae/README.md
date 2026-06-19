@@ -1,11 +1,11 @@
-# `ultraflux-ae` — UltraFlux Improved AutoencoderKL
+# `ultraflux-zimage-ae` — UltraFlux Improved AutoencoderKL
 
-Drop-in replacement for `flux-ae` with improved sharpness. Same architecture (AutoencoderKL,
+Drop-in replacement for `zimage-ae` with improved sharpness. Same architecture (AutoencoderKL,
 16-ch, `scaling_factor=0.3611`, `shift_factor=0.1159`) but retrained weights that produce
 crisper edges and higher Laplacian variance on decode output.
 
 Loaded via the PyTorch diffusers fallback path (`AutoencoderKL.from_pretrained`) — no MLX
-conversion required. Decode is slightly slower than the MLX flux-ae (1.1–1.2s vs 0.8s).
+conversion required. Decode is slightly slower than the MLX zimage-ae (1.1–1.2s vs 0.8s).
 
 ## Files
 
@@ -26,12 +26,12 @@ cd python/mlx-movie-director
 ../../ComfyUI/.venv/bin/python - <<'EOF'
 from huggingface_hub import hf_hub_download
 import os, shutil
-os.makedirs("models/vae/ultraflux-ae", exist_ok=True)
+os.makedirs("models/vae/ultraflux-zimage-ae", exist_ok=True)
 for fname in ["config.json", "diffusion_pytorch_model.safetensors"]:
     src = hf_hub_download("Owen777/UltraFlux-v1", filename=f"vae/{fname}",
                           local_dir="/tmp/ultraflux_hf")
-    shutil.copy(f"/tmp/ultraflux_hf/vae/{fname}", f"models/vae/ultraflux-ae/{fname}")
-    print(f"Saved: models/vae/ultraflux-ae/{fname}")
+    shutil.copy(f"/tmp/ultraflux_hf/vae/{fname}", f"models/vae/ultraflux-zimage-ae/{fname}")
+    print(f"Saved: models/vae/ultraflux-zimage-ae/{fname}")
 EOF
 ```
 
@@ -46,7 +46,7 @@ Pass `--vae-path ultraflux` to any `run.py image` command:
 ```
 
 The short name `ultraflux` is resolved by `resolve_vae_path()` in `_shared.py` — it prefix-matches
-against `models/vae/` subdirectories and expands to `models/vae/ultraflux-ae/`.
+against `models/vae/` subdirectories and expands to `models/vae/ultraflux-zimage-ae/`.
 
 ## A/B Test Results
 

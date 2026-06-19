@@ -14,7 +14,7 @@
   "compatible_with": [
     "text_encoder/qwen3-4b",
     "tokenizer/qwen3",
-    "vae/flux-ae"
+    "vae/zimage-ae"
   ],
   "size_bytes": 3848371806,
   "created_at": "2026-06-13T00:00:00Z"

@@ -31,7 +31,7 @@ then converted from PyTorch FP32 to MLX BF16 via `convert.py --vae-mlx`.
 ```python
 from mflux.models.z_image.model.z_image_vae import VAE
 vae = VAE()
-vae.load_weights("models/vae/flux-ae/model.safetensors")
+vae.load_weights("models/vae/zimage-ae/model.safetensors")
 mx.eval(vae.parameters())
 # Encode: latent = vae.encode(image_array)
 # Decode: image = vae.decode(latent_array)

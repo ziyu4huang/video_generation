@@ -224,7 +224,7 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
         #   one name → "NAME"   two+ names → ["A","B"] (unified multi report)
         parser.add_argument("--self-test", nargs="*", default=None,
                             dest="self_test", metavar="TEST_ID",
-                            help="Run named self-test (e.g. --self-test ultraflux), "
+                            help="Run named self-test (e.g. --self-test vae:ultraflux), "
                                  "bare --self-test for the command default, "
                                  "or multiple names for a unified multi-report "
                                  "(e.g. --self-test redzit15 redzit15-lora)")
@@ -249,7 +249,7 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
     if not _arg_registered(parser, "vae_path"):
         parser.add_argument("--vae-path", type=str, default=None,
                             help="VAE weights: full dir path or short name "
-                                 "(e.g. 'ultraflux') — auto-resolved from models/vae/")
+                                 "(e.g. 'zimage', 'ultraflux') — auto-resolved from models/vae/")
 
     # img2img / I2I (unified with t2i via --input)
     # NOTE: --input may already be registered by add_angle_args() with dest="input"
@@ -418,7 +418,7 @@ def resolve_vae_path(raw: str | None) -> str | None:
 
     Accepts:
       1. Full path to a directory  → used as-is
-      2. Short name (e.g. "ultraflux")
+      2. Short name (e.g. "zimage", "ultraflux")
          → search models/vae/ for a matching subdirectory
       3. Partial name prefix match
 

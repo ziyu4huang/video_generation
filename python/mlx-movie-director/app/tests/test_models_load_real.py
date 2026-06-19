@@ -44,7 +44,7 @@ _MODELS_DIR = os.path.join(_PROJECT_DIR, "models")
 TRANSFORMER_DIR = os.path.join(_MODELS_DIR, "transformer", "zimage-moody-v126")
 TEXT_ENCODER_DIR = os.path.join(_MODELS_DIR, "text_encoder", "qwen3-4b")
 TOKENIZER_DIR = os.path.join(_MODELS_DIR, "tokenizer", "qwen3")
-VAE_DIR = os.path.join(_MODELS_DIR, "vae", "flux-ae")
+VAE_DIR = os.path.join(_MODELS_DIR, "vae", "zimage-ae")
 
 
 def _weight_file_exists(model_dir: str) -> bool:
@@ -313,7 +313,7 @@ class TestTokenizerLoads:
 # VAE (MLX-native, from mflux vendor)
 # ==========================================================================
 
-VAE_SKIP = _model_path_skip(VAE_DIR, "VAE (flux-ae)")
+VAE_SKIP = _model_path_skip(VAE_DIR, "VAE (zimage-ae)")
 
 
 class TestVAELoads:
