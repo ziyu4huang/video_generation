@@ -3,6 +3,7 @@ import { COMMAND_GROUPS } from "../app";
 import { useJobs } from "../hooks/useJobs";
 import { Tip } from "./Tip";
 import { clearJobs } from "../api/jobs";
+import { getServerInfo } from "../api/server-info";
 
 interface LayoutProps {
   currentView: { type: string; action?: string };
@@ -20,6 +21,17 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
     await clearJobs("failed");
     refresh();
   };
+
+  // Git branch@commit for the title/header (undefined when not a git repo)
+  const [serverInfo, setServerInfo] = useState<{ branch?: string; commit?: string }>({});
+  useEffect(() => {
+    getServerInfo().then(setServerInfo).catch(() => {});
+  }, []);
+  const branchLabel = serverInfo.branch && serverInfo.branch !== "HEAD" ? serverInfo.branch : undefined;
+  const gitLabel = [branchLabel, serverInfo.commit].filter(Boolean).join("@");
+  useEffect(() => {
+    document.title = gitLabel ? `Movie Director · ${gitLabel}` : "Movie Director";
+  }, [gitLabel]);
 
   // Lightweight WebSocket connection monitor (separate from useWebSocket singleton)
   const [wsConnected, setWsConnected] = useState(true);
@@ -49,7 +61,10 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <div className="sidebar-logo">🎬 Movie Director</div>
+        <div className="sidebar-logo">
+          🎬 Movie Director
+          {gitLabel && <span className="sidebar-logo-git">{gitLabel}</span>}
+        </div>
 
         {/* Gallery link */}
         <div className="sidebar-section">

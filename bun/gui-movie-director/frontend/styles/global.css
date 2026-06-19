@@ -59,6 +59,16 @@ body {
   user-select: none;
 }
 
+.sidebar-logo-git {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0;
+}
+
 .sidebar-section {
   padding: 12px 0 4px;
 }

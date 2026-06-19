@@ -9,6 +9,7 @@ import { handleReplayJob } from "./replay";
 import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
+import { handleServerInfo } from "./server-info";
 import { handleVlmTest } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetCliSchema, handleGetSchemaDefaults } from "./schema";
@@ -143,6 +144,11 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
   if (pathname === "/api/models/vaes" && method === "GET") {
     return handleListVaes(req);
+  }
+
+  // Server info (git branch@commit for title/header)
+  if (pathname === "/api/server-info" && method === "GET") {
+    return handleServerInfo(req);
   }
 
   // Config
