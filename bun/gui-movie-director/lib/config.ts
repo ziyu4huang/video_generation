@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { getServerArgs } from "./cli-args";
 
 const SELF_DIR = import.meta.dir;
 const GUI_DIR = path.dirname(SELF_DIR);
@@ -41,13 +42,17 @@ export function loadConfig(): AppConfig {
     _config = { ...DEFAULTS };
   }
 
-  // Shared override: the MLX_OUTPUT_DIR env var (same name as run.py's) wins for the
-  // primary output dir, so a single env var controls BOTH run.py and the bun GUI.
-  // Secondary sources (e.g. comfyui_data/output) are preserved. Repo-relative values
-  // resolve against REPO_DIR in lib/paths.ts (absolute values pass through unchanged).
-  if (process.env.MLX_OUTPUT_DIR) {
+  // 4-level priority for the PRIMARY output dir: cli arg (--gen-output-dir) >
+  // env (MLX_OUTPUT_DIR) > config.json > default. bun spawns run.py with the
+  // resolved value passed explicitly via --gen-output-dir (lib/subprocess.ts),
+  // so the generator always writes where the GUI watches — no env-inheritance
+  // drift. Secondary sources (e.g. comfyui_data/output) are preserved, and
+  // repo-relative values resolve against REPO_DIR in lib/paths.ts (absolute
+  // values pass through unchanged).
+  const overrideDir = getServerArgs().genOutputDir ?? process.env.MLX_OUTPUT_DIR;
+  if (overrideDir) {
     const dirs = Array.isArray(_config!.outputDir) ? [..._config!.outputDir] : [_config!.outputDir];
-    dirs[0] = process.env.MLX_OUTPUT_DIR;
+    dirs[0] = overrideDir;
     _config!.outputDir = dirs;
   }
 

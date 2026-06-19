@@ -1,5 +1,5 @@
 import path from "path";
-import { RUN_PY, OUTPUT_DIRS } from "./paths";
+import { RUN_PY, OUTPUT_DIRS, MLX_OUTPUT_DIR } from "./paths";
 import { resolvePythonBin } from "./pythonBin";
 import { saveJobs, loadJobs } from "./jobstore";
 
@@ -89,6 +89,11 @@ export class SubprocessManager {
       return id;
     }
     const fullArgs = [RUN_PY, ...parts, ...cliArgs];
+  // Explicit > implicit: always pass the resolved output dir to run.py via CLI
+  // arg so the generator writes where the GUI watches (no env-inheritance drift,
+  // and the job's recorded args are self-describing). --gen-output-dir is a run.py
+  // global flag (_global_parser), accepted by every subcommand.
+  if (MLX_OUTPUT_DIR) fullArgs.push("--gen-output-dir", MLX_OUTPUT_DIR);
 
     const job: Job = {
       id,

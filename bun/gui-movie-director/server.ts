@@ -4,9 +4,16 @@ import { handleRequest, buildFrontendBundle, rebuildFrontendBundle } from "./api
 import { wsHandlers, broadcastMessage } from "./api/ws";
 import { subprocessManager } from "./lib/subprocess";
 import { FRONTEND_DIR, OUTPUT_DIRS } from "./lib/paths";
+import { getServerArgs } from "./lib/cli-args";
 import { fetchCliSchema, fetchSchemaDefaults } from "./api/schema";
 
-const PORT = 3099;
+// Port priority: cli arg (--port) > env (PORT) > default 3099. No config.json
+// layer — a port change needs a server restart, so persisting it is pointless
+// (unlike outputDir, which affects the gallery at runtime).
+const PORT = (() => {
+  const p = getServerArgs().port ?? Number(process.env.PORT);
+  return Number.isFinite(p) && p > 0 && p <= 65535 ? p : 3099;
+})();
 
 // Persist server + init state across --hot reloads so we can swap routes
 // without restarting the process or re-running expensive init.
