@@ -1,34 +1,37 @@
-// GUI Movie Director Self-Improve — UNIFIED orchestrator
+// GUI Movie Director Self-Improve — UNIFIED (full consolidation)
 //
 // One dynamic workflow to improve the Bun GUI Movie Director app from every
-// angle. It sequences two complementary, already-tested sub-workflows and
-// merges their results into a single health report:
+// angle. Three lanes, merged into this single file:
 //
-//   1. gui-movie-director-review-optimize
-//      Structural code health: correctness, type-safety, error-handling,
-//      code-quality, security — multi-dimension review + adversarial verify +
-//      optional git-stash-backed auto-fix.
+//   • review  — structural code health (correctness/types/error-handling/quality/
+//               security): multi-dimension review + adversarial verify + optional
+//               git-stash-backed auto-fix. Runs as a child workflow
+//               (gui-movie-director-review-optimize).
+//   • schema  — schema→CLI boundary: runtime-validates buildCliArgs() output
+//               against run.py (the bug-prone surface check:schema can't see),
+//               aligns GUI schemas to run.py (drift-fix), raises test coverage.
+//               INLINED (was gui-movie-director-schema-self-improve).
+//   • ux      — UX screenshot analysis: playwright→VLM→fix loop over every view.
+//               INLINED (was gui-movie-director-ux-self-improve).
 //
-//   2. gui-movie-director-schema-self-improve
-//      Schema→CLI boundary: runtime-validates buildCliArgs() output against
-//      run.py (the bug-prone surface check:schema can't see), aligns GUI
-//      schemas to run.py (drift-fix), and raises test coverage.
-//
-// Why an orchestrator instead of merging the files: both children are large
-// (84KB / 31KB), independently tested, each with its own persist/resume logic.
-// `workflow()` reuses them untouched — this file stays thin (~200 lines) and
-// the unification is the single entry point + merged report.
+// History: this file was previously a thin orchestrator that called schema + ux
+// as separate `workflow()` children. Those children shared identical harness
+// infrastructure (saveHistory/loadKnowledge/extractKnowledge, args/phase tracking)
+// and were already sequenced as lanes here, so they were INLINED (2026-06-19) per
+// the full-consolidation decision: ONE knowledge base, ONE history, ONE persist
+// per run (previously 4). review-optimize stays a separate child workflow.
 //
 // Modes (selected by args):
 //
-//   ROUTINE SCAN (default — cheap, collision-safe, review-only):
-//     Workflow({ scriptPath: ".../gui-movie-director-self-improve.js" })
+//   ROUTINE SCAN (default — cheap, collision-safe, review-only fix):
+//     Workflow({ name: "gui-movie-director-self-improve" })
 //       → effort:low review-only scan + schema runtime validation.
 //         No edits, no git stash → safe to run anytime, even with concurrent WIP.
 //
 //   SINGLE LANE:
 //     args: { lanes: ["review"] }    // structural code review only
 //     args: { lanes: ["schema"] }    // schema→CLI boundary only
+//     args: { lanes: ["ux"] }        // UX screenshot analysis only (needs GUI server)
 //
 //   APPLY FIXES (needs a CLEAN git tree — refuses fix if dirty):
 //     args: { effort: "medium", fix: true }
@@ -39,7 +42,7 @@
 //   DEEP:
 //     args: { effort: "high", fix: true }
 //       → review-optimize scans ALL files (not just changed) + fixes everything;
-//         schema-self-improve runs runtime+drift+coverage.
+//         schema lane runs runtime+drift+coverage.
 //
 //   FOCUS / TARGET:
 //     args: { focus: "security" }              // review dimension
@@ -50,13 +53,13 @@
 export const meta = {
   name: "gui-movie-director-self-improve",
   description:
-    "Unified self-improve loop for the Bun GUI Movie Director app — sequences structural code review (correctness/types/error-handling/quality/security) AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) AND UX screenshot analysis (playwright→VLM→fix loop) via three sub-workflows, merging all into one health report. Lane-selectable; review-only by default (collision-safe).",
+    "Unified self-improve loop for the Bun GUI Movie Director app — structural code review (correctness/types/error-handling/quality/security) via a child workflow AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) AND UX screenshot analysis (playwright→VLM→fix loop), both inlined as lanes, merging all into one health report with ONE persist per run. Lane-selectable; review-only by default (collision-safe).",
   whenToUse:
-    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema-self-improve objective:runtime (buildCliArgs→run.py boundary). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'|'ux'] picks one or more; lanes:'all' runs all three; focus/files/target narrow scope. UX lane requires GUI server at localhost:3099 + LM Studio; fails gracefully if server is down.",
+    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema lane objective:runtime (buildCliArgs→run.py boundary). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'|'ux'] picks one or more; lanes:'all' runs all three; focus/files/target/objective narrow scope. UX lane requires GUI server at localhost:3099 + LM Studio; fails gracefully if server is down.",
   phases: [
-    { title: "Resolve", detail: "Normalize args, dirty-tree guard (refuse fix if dirty), timestamp" },
-    { title: "Run",     detail: "Sequential lanes via sub-workflows: structural review → schema/boundary validation → UX screenshot analysis" },
-    { title: "Persist", detail: "Unified history entry + cross-workflow index" },
+    { title: "Resolve", detail: "Normalize args, dirty-tree guard (refuse fix if dirty), timestamp, load ONE knowledge base" },
+    { title: "Run",     detail: "Lanes: structural review (child workflow) + schema→CLI boundary (inlined: runtime/drift/coverage) + UX screenshot analysis (inlined: survey/fix-loop); parallel when review-only" },
+    { title: "Persist", detail: "ONE unified history entry + extractKnowledge + code-knowledge append (full consolidation — no per-lane persists)" },
     { title: "Report",  detail: "Merged health report: review findings + drift + coverage + UX scores + fix status" },
   ],
 }
@@ -106,9 +109,13 @@ const UX_VIEWS     = Array.isArray(A.uxViews) ? A.uxViews : null
 // refs throw "meta is not defined". Mirror the name into a plain const instead.
 const NAME         = "gui-movie-director-self-improve"
 const PROJECT_ROOT = "/Users/huangziyu/proj/video_generation"
+const GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
+const PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
+const RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 const HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
 const INDEX_FILE   = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 const KB_FILE      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
+const SHOT_DIR     = `/tmp/gui-ux`
 
 // ── Phase tracking ───────────────────────────────────────────────────────────
 
@@ -122,26 +129,37 @@ function markPhase(name, status) {
 }
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
-// (mirrors .claude/workflows/_shared-patterns.md verbatim)
+// (mirrors .claude/workflows/_shared-patterns.md verbatim — canonical reliable-bytes variant)
 async function saveHistory(histDir, indexFile, entry, signals) {
   const histJson = JSON.stringify({ ...entry, signals }, null, 2)
   const runId = entry.run_id
-  await agent(
-    `Persist workflow history to disk.
+  const targetPath = `${histDir}/${runId}.json`
+  const persist = await agent(
+    `Persist workflow history RELIABLY.
 1. Bash("mkdir -p '${histDir}'")
-2. Write({ file_path: '${histDir}/${runId}.json', content: <histJson below> })
-   ${histJson}
-3. Bash("wc -c '${histDir}/${runId}.json' && echo written")
-4. Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | grep -v reflection | tail -n +16 | xargs rm -f 2>/dev/null")
-Return { written: true }.`,
-    { label: "persist-history", phase: "Persist", model: "haiku" },
+2. Write the file: file_path='${targetPath}', content is the JSON below — paste VERBATIM:
+${histJson}
+3. Verify: Bash("test -s '${targetPath}' && echo OK || echo MISSING")
+4. If MISSING, rewrite via heredoc: Bash("cat > '${targetPath}' <<'HIST_EOF'\n${histJson}\nHIST_EOF")
+5. Bash("wc -c < '${targetPath}'")
+6. Prune old (keep newest 15): Bash("cd '${histDir}' && ls -t *.json 2>/dev/null | tail -n +16 | xargs rm -f 2>/dev/null || true")
+Return { written: true, bytes: <wc output> }.`,
+    { label: "persist-history", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { written: { type: "boolean" }, bytes: { type: "number" } }, required: ["bytes"] } },
   )
+  const histBytes = Number(persist?.bytes) || 0
+  log(histBytes > 0
+    ? `History: ${histBytes} bytes → ${targetPath}`
+    : `WARNING: history write failed (0 bytes)`)
+
   await agent(
     `Update cross-workflow index at ${indexFile}.
 1. Bash("cat '${indexFile}' 2>/dev/null || echo '[]'")
 2. Parse JSON array. Append: ${JSON.stringify({ run_id: runId, workflow: entry.workflow, started_at: entry.started_at, run_quality: signals.run_quality, key_metric: signals.key_metric, highlights: signals.highlights })}
-3. Keep only latest 50 entries (sort by run_id descending).
-4. Write({ file_path: '${indexFile}', content: <updated array, 2-space indent> })
+3. Keep latest 50 (sort by run_id desc).
+4. Write({ file_path: '${indexFile}', content: <array 2-space indent> })
+5. Verify: Bash("test -s '${indexFile}' && echo OK || echo MISSING")
+6. If MISSING, rewrite via heredoc.
 Return { updated: true }.`,
     { label: "update-index", phase: "Persist", model: "haiku" },
   )
@@ -236,6 +254,853 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   return extract
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Lane: SCHEMA (inlined from gui-movie-director-schema-self-improve)
+// Hardens the GUI→run.py integration three ways: (runtime) exercise buildCliArgs()
+// with synthesized params and assert run.py accepts the output; (drift) align GUI
+// schemas to run.py via check:schema; (coverage) add unit tests propose→test→adopt.
+// Full consolidation: NO per-lane persist. Cross-run resume (iterations.jsonl +
+// reflection.json) is replaced by the merged KB digest; runId comes from the caller.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Source schema files that tests should cover (excludes helpers, adapters, registry)
+const COMMAND_SCHEMA_FILES = [
+  'schemas/t2i.ts', 'schemas/i2i.ts', 'schemas/anime2real.ts', 'schemas/expansion.ts',
+  'schemas/faceswap.ts', 'schemas/swap.ts', 'schemas/controlnet.ts', 'schemas/angle.ts',
+  'schemas/profile.ts', 'schemas/quality.ts', 'schemas/workflow.ts',
+  'schemas/video-generate.ts', 'schemas/video-relay.ts', 'schemas/video-restore.ts',
+  'schemas/image-restore.ts', 'lib/args.ts',
+]
+
+// ── Coverage parsing ──────────────────────────────────────────────────────────
+function parseCoverageTable(output) {
+  const files = {}
+  // Isolate the coverage table: everything before the "All files" summary line.
+  // This prevents a stray "|" in an it() description (e.g. an arg-parsing test
+  // case) from being mis-read as a coverage row.
+  const allIdx = output.indexOf('All files')
+  const tableRegion = allIdx >= 0 ? output.slice(0, allIdx) : output
+  // Format: " schemas/angle.ts |   0.00 |   72.22 | 14-18" (4th col ignored)
+  const re = /^\s+(\S+\.ts)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/gm
+  let m
+  while ((m = re.exec(tableRegion)) !== null) {
+    const [, file, funcs, lines] = m
+    const f = parseFloat(funcs), l = parseFloat(lines)
+    files[file] = { funcs: f, lines: l, composite: 0.4 * f + 0.6 * l }
+  }
+  if (Object.keys(files).length === 0 && output.includes('All files')) {
+    log('⚠ parseCoverageTable: "All files" present but 0 rows parsed — coverage measurements unreliable')
+  }
+  return files
+}
+
+function globalComposite(fileCoverage) {
+  const relevant = COMMAND_SCHEMA_FILES.map(f => fileCoverage[f]).filter(Boolean)
+  // NaN (not 0) when nothing was measured: an unmeasurable baseline must NOT be
+  // treated as 0% — otherwise every test proposal would "improve" it and get
+  // falsely adopted. NaN propagates through delta comparisons as always-false.
+  if (relevant.length === 0) return NaN
+  return relevant.reduce((s, f) => s + f.composite, 0) / relevant.length
+}
+
+async function runSchemaLane(opts) {
+  const OBJECTIVE       = String(opts.objective || "runtime")
+  const TARGET          = opts.target || null
+  const knowledgeDigest = opts.knowledgeDigest || ""
+  const runId           = opts.runId || "run-1"
+  const DO_RUNTIME  = ["runtime", "both", "all"].includes(OBJECTIVE)
+  const DO_DRIFT    = ["drift", "both", "all"].includes(OBJECTIVE)
+  const DO_COVERAGE = ["coverage", "both", "all"].includes(OBJECTIVE)
+  const BUDGET     = 6
+  const MARGIN     = 1.5
+  const CONVERGE_K = 2
+  // Schema runs dry-run by default via the orchestrator (no dryRun passed); drift-fix
+  // and coverage edits only apply when dryRun:false is explicitly requested.
+  const DRY_RUN = opts.dryRun !== false
+  // Cross-run dead-end/good-pattern seeding used to come from iterations.jsonl +
+  // reflection.json; under full consolidation the merged KB digest replaces them
+  // (its avoid/gotcha + lever records are injected into the proposal prompt below).
+  const deadEnds = new Set()
+  const goodPats = []
+
+  function findWeakestFile(fileCoverage) {
+    const candidates = TARGET
+      ? COMMAND_SCHEMA_FILES.filter(f => f.includes(TARGET))
+      : COMMAND_SCHEMA_FILES
+    return candidates
+      .map(f => ({ file: f, cov: fileCoverage[f] || { composite: 0 } }))
+      .filter(({ file }) => !deadEnds.has(file))
+      .sort((a, b) => a.cov.composite - b.cov.composite)[0]?.file || null
+  }
+
+  // ── Baseline ──
+  // Coverage baseline only when the coverage lane will run — bun test --coverage is
+  // the slowest baseline step and otherwise wasted (objective=runtime default).
+  let baselineCoverage = {}
+  let baselineComposite = NaN
+  let currentBest = baselineComposite
+  if (DO_COVERAGE) {
+    const baselineResult = await agent(
+      `Run this exact command and return the full stdout output:
+cd "${GUI_DIR}" && bun test --coverage 2>&1
+
+Return the complete terminal output as a JSON string in the field "output". Include the coverage table lines.`,
+      { label: "schema-baseline-run", phase: "Schema",
+        schema: { type: "object", properties: { output: { type: "string" } }, required: ["output"] } },
+    )
+    baselineCoverage = parseCoverageTable(baselineResult?.output || "")
+    baselineComposite = globalComposite(baselineCoverage)
+    currentBest = baselineComposite
+  }
+
+  // Drift baseline (when objective includes drift). run.py is the CLI source of
+  // truth; check:schema --json lists GUI↔run.py drift.
+  let baselineDriftCount = 0
+  let driftWorkList = []
+  if (DO_DRIFT) {
+    const driftBase = await agent(
+      `Run this exact command and return the parsed JSON object verbatim:
+cd "${GUI_DIR}" && bun run check:schema --json 2>/dev/null
+
+It prints one JSON object: { warningCount, errorCount, warnings: [...], errors: [...] }.
+Return that object under the field "schema".`,
+      { label: "schema-drift-baseline", phase: "Schema",
+        schema: { type: "object", properties: { schema: { type: "object" } }, required: ["schema"] } },
+    )
+    const allFindings = (driftBase?.schema?.warnings || [])
+    baselineDriftCount = Number(driftBase?.schema?.warningCount) || allFindings.length
+    // Dedupe to one fix per flag (choices) or per action:flag (default). --pipeline
+    // appears across 6 actions but is a single shared fix via schemas/shared.ts.
+    const seen = new Set()
+    driftWorkList = allFindings.filter(f => {
+      const key = f.kind === "choices" ? `choice:${f.flag}` : `default:${f.action}:${f.flag}`
+      if (seen.has(key)) return false
+      seen.add(key); return true
+    })
+    log(`[schema] drift baseline: ${baselineDriftCount} warning(s) → ${driftWorkList.length} unique fix target(s)`)
+  }
+
+  if (DO_COVERAGE) {
+    log(`[schema] baseline composite: ${baselineComposite.toFixed(2)}pp across ${COMMAND_SCHEMA_FILES.length} files`)
+    const sorted = COMMAND_SCHEMA_FILES
+      .map(f => ({ f, c: (baselineCoverage[f] || { composite: 0 }).composite }))
+      .sort((a, b) => a.c - b.c)
+    log(`[schema] weakest: ${sorted.slice(0, 3).map(x => `${x.f}(${x.c.toFixed(0)}%)`).join(", ")}`)
+  }
+
+  // ── Improve ──
+  // Dirty-tree guard (scoped to schema's edit surface): both sub-loops revert via
+  // bare `git checkout -- <path>` (or `rm -f` for newly-created files), which
+  // discards ALL uncommitted changes to that path. Refuse to mutate when the scope
+  // is already dirty — mirrors the Checkpoint guard in review-optimize.
+  let EFFECTIVE_DRY_RUN = DRY_RUN
+  if (!DRY_RUN) {
+    const dirtyCheck = await agent(
+      `Check whether the git working tree has uncommitted changes in scope.
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/schemas/' 'bun/gui-movie-director/scripts/' 'python/mlx-movie-director/app/commands/' | grep -v '^??' || true")
+dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
+Return { dirty, files: [<the printed file paths, if any>] }.`,
+      { label: "schema-dirty-tree-check", phase: "Schema", model: "haiku",
+        schema: { type: "object", properties: { dirty: { type: "boolean" }, files: { type: "array", items: { type: "string" } } }, required: ["dirty"] } },
+    )
+    if (dirtyCheck?.dirty === true) {
+      EFFECTIVE_DRY_RUN = true
+      log(`⚠ [schema] Working tree is DIRTY in scope (${(dirtyCheck?.files || []).join(", ")}) — forcing dry-run to avoid a revert clobbering your WIP. Commit/stash, then re-run.`)
+    }
+  }
+
+  const iterations = []
+  let noImprove = 0
+
+  // ── Drift-fix sub-loop (runs before coverage when objective includes drift) ──
+  // run.py is the source of truth; align GUI → run.py. Where the GUI legitimately
+  // has MORE than run.py's argparse (runpy_narrow), widen run.py instead.
+  let driftFixed = 0
+  let driftRemaining = baselineDriftCount
+  const driftIterations = []
+
+  if (DO_DRIFT && driftWorkList.length > 0) {
+    for (const f of driftWorkList) {
+      log(`[schema] drift: ${f.flag} [${f.action}] (${f.category}) — GUI:${JSON.stringify(f.guiValue)} run.py:${JSON.stringify(f.runValue)}`)
+
+      if (EFFECTIVE_DRY_RUN) {
+        log(`  [DRY RUN] would apply policy fix for ${f.flag} (${f.category})`)
+        driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, dryRun: true })
+        continue
+      }
+
+      // Conservative guard: findings that need human judgment — auto-applying
+      // could clobber intentional GUI divergence. (choices mismatches where GUI ≠
+      // run.py; NUMERIC default_mismatch where the GUI default may be intentional
+      // UX tuning, not stale drift. Non-numeric default_mismatch stays auto-applicable.)
+      if (
+        f.category === "runpy_narrow" ||
+        f.category === "mixed_choices" ||
+        (f.category === "default_mismatch" && typeof f.runValue === "number")
+      ) {
+        const why = f.category === "default_mismatch" ? "numeric default may be intentional tuning" : "GUI/run.py choice sets differ"
+        log(`  ⚠ needs human review (${why}) — skip`)
+        driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false, skipped: "needs-review" })
+        continue
+      }
+
+      // Apply the fix per policy
+      const applyResult = await agent(
+        `Apply ONE schema-drift fix to align the GUI with run.py (run.py is the source of truth).
+Repo root: ${PROJECT_ROOT}. GUI dir: ${GUI_DIR}.
+
+Finding (from \`bun run check:schema --json\`):
+${JSON.stringify(f, null, 2)}
+
+Apply exactly ONE branch based on category:
+- "gui_missing_choice": run.py offers choice value(s) the GUI lacks → add them to the GUI field.
+    • If flag is "--pipeline": choices come from PIPELINE_OPTIONS in bun/gui-movie-director/schemas/shared.ts (one edit fixes all schemas). Each entry is { value, label }. Add the missing value(s) with a sensible label.
+    • Otherwise edit the field's choices array in bun/gui-movie-director/schemas/<file>.ts (action→file map: t2i→t2i.ts, i2i→i2i.ts, workflow→workflow.ts, controlnet→controlnet.ts, profile→profile.ts, faceswap→faceswap.ts, restore→image-restore.ts, video-relay→video-relay.ts). Add { value, label } entries for run.py's extra value(s).
+- "runpy_narrow": GUI offers value(s) run.py's argparse rejects → widen run.py. grep for the flag in python/mlx-movie-director/app/commands/*.py, find add_argument(..., choices=[...]), add the GUI's missing value(s) to choices.
+- "default_mismatch": set the GUI field's default to run.py's default (run.py wins). Edit the field in bun/gui-movie-director/schemas/<file>.ts (same action→file map). ONLY if the field has no choices, OR run.py's default value is already among the field's choice values — otherwise make NO edit and set notes="default not in choices" (a default outside the choice list would be inconsistent).
+- "mixed_choices": add run.py's extra value(s) to the GUI choices (align toward run.py); do NOT remove GUI-only values.
+
+Rules: make the MINIMAL edit, do not reformat, preserve existing entries. Return absolute paths of files modified.`,
+        { label: `schema-drift-apply-${f.flag.replace(/^--/, "")}`, phase: "Schema",
+          schema: { type: "object", properties: { touchedFiles: { type: "array", items: { type: "string" } }, notes: { type: "string" } }, required: ["touchedFiles"] } },
+      )
+
+      const touchedFiles = (applyResult?.touchedFiles || []).filter(Boolean)
+      const touchedRunpy = touchedFiles.some(p => p.includes("/python/mlx-movie-director/"))
+
+      if (touchedFiles.length === 0) {
+        const note = applyResult?.notes ? ` — ${applyResult.notes}` : " (no reason returned)"
+        log(`  no edit made (skip)${note}`)
+        driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
+        continue
+      }
+
+      // Verify: check:schema warning count down + bun test pass (+ pytest if run.py touched)
+      const verifyResult = await agent(
+        `Verify a schema-drift fix broke nothing. Run each, capture the numbers:
+1. cd "${GUI_DIR}" && bun run check:schema 2>&1            → the "⚠  N warning(s)" count, and whether it printed "drift error(s)" / exited nonzero (errored=true)
+2. cd "${GUI_DIR}" && bun test 2>&1                         → count of failing tests (the "N fail" number)
+${touchedRunpy ? `3. cd "${PROJECT_ROOT}/python/mlx-movie-director" && ../../python/venv/bin/python -m pytest app/tests/test_schema.py -q 2>&1  → schemaPytestPass true iff "failed" not in summary` : `3. (run.py not touched — schemaPytestPass=true)`}
+Return { warningCount, errored, bunFail, schemaPytestPass }.`,
+        { label: `schema-drift-verify-${f.flag.replace(/^--/, "")}`, phase: "Schema",
+          schema: { type: "object", properties: { warningCount: { type: "number" }, errored: { type: "boolean" }, bunFail: { type: "number" }, schemaPytestPass: { type: "boolean" } }, required: ["warningCount", "bunFail"] } },
+      )
+
+      const warnCount = Number(verifyResult?.warningCount)
+      const testsOk = (verifyResult?.bunFail === 0) && (touchedRunpy ? verifyResult?.schemaPytestPass !== false : true)
+      const countImproved = Number.isFinite(warnCount) && warnCount < driftRemaining && !verifyResult?.errored
+
+      if (countImproved && testsOk) {
+        driftFixed++
+        driftRemaining = warnCount
+        log(`  ✓ adopted → ${driftRemaining} drift warning(s) remain`)
+        driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: true })
+      } else {
+        await agent(
+          `Revert the failed drift fix. For each path run: git checkout -- "<path>"
+Paths: ${touchedFiles.map(p => `"${p}"`).join(" ")}
+Return { reverted: true }.`,
+          { label: `schema-drift-revert-${f.flag.replace(/^--/, "")}`, phase: "Schema",
+            schema: { type: "object", properties: { reverted: { type: "boolean" } }, required: ["reverted"] } },
+        )
+        log(`  ✗ reverted (warnCount=${warnCount}, bunFail=${verifyResult?.bunFail})`)
+        driftIterations.push({ flag: f.flag, action: f.action, category: f.category, adopted: false })
+      }
+    }
+  }
+
+  // ── Runtime-validation sub-loop (the highest-value lane) ─────────────────────
+  // Exercise buildCliArgs() with synthesized params and assert run.py accepts the
+  // output (scripts/check-runtime.ts). Catches the schema→CLI integration bugs
+  // check:schema CANNOT see. Read-only by design: it only SURFACES findings.
+  let runtimeFindings = []
+  let runtimeErrors = 0
+  const runtimeIterations = []
+
+  if (DO_RUNTIME) {
+    const runtimeResult = await agent(
+      `Run this exact command and return the parsed JSON object verbatim:
+cd "${GUI_DIR}" && bun run check:runtime --json 2>/dev/null
+
+It prints one JSON object: { findingCount, errorCount, findings: [...] }.
+Return that object under the field "runtime".`,
+      { label: "schema-runtime-check", phase: "Schema",
+        schema: { type: "object", properties: { runtime: { type: "object" } }, required: ["runtime"] } },
+    )
+    runtimeFindings = (runtimeResult?.runtime?.findings || [])
+    runtimeErrors = Number(runtimeResult?.runtime?.errorCount) || 0
+    const runtimeTotal = Number(runtimeResult?.runtime?.findingCount) || runtimeFindings.length
+
+    log(`[schema] runtime: ${runtimeTotal} finding(s) — ${runtimeErrors} error(s), ${runtimeTotal - runtimeErrors} warning(s) (none visible to check:schema)`)
+    for (const f of runtimeFindings) {
+      const exp = Array.isArray(f.expected) ? `[${f.expected.join(",")}]` : JSON.stringify(f.expected)
+      log(`  [${f.action}] ${f.flag} (${f.violation}, set=${f.set}) — emitted:${JSON.stringify(f.emitted)} expected:${exp}`)
+      runtimeIterations.push({ action: f.action, flag: f.flag, violation: f.violation, set: f.set, isHard: f.violation !== "choice-valid" })
+    }
+  }
+
+  // ── Coverage sub-loop (runs when objective includes coverage) ───────────────
+  for (let iter = 0; DO_COVERAGE && iter < BUDGET; iter++) {
+    const targetFile = findWeakestFile(baselineCoverage)
+    if (!targetFile) {
+      log(`[schema] no candidates left (all in dead-ends). Stopping.`)
+      break
+    }
+
+    const testFile = targetFile.replace(/\.ts$/, ".test.ts")
+    const baseName = targetFile.replace(/^(schemas|lib)\//, "").replace(/\.ts$/, "")
+
+    log(`[schema] iter ${iter + 1}/${BUDGET}: targeting ${targetFile} (${(baselineCoverage[targetFile]?.composite || 0).toFixed(1)}% composite)`)
+
+    const proposeResult = await agent(
+      `You are a test-writing agent for a Bun TypeScript project. Your task: propose NEW unit tests to improve coverage of ${targetFile}.
+
+Context:
+- Project: ${GUI_DIR}
+- Source file: ${GUI_DIR}/${targetFile}
+- Current test file: ${GUI_DIR}/${testFile} (may not exist yet — check)
+- Test framework: bun:test (import { describe, it, expect } from "bun:test")
+- Helper: schemas/test-helpers.ts exports invariants(cmd) for boilerplate tests
+- Coverage baseline: funcs=${(baselineCoverage[targetFile]?.funcs || 0).toFixed(1)}% lines=${(baselineCoverage[targetFile]?.lines || 0).toFixed(1)}%
+- Known good patterns from prior runs: ${goodPats.length > 0 ? goodPats.slice(0, 5).join("; ") : "none yet"}
+- Colocated knowledge base (committed): ${knowledgeDigest || "(empty — no committed knowledge yet)"}
+
+Steps:
+1. Read the source file at ${GUI_DIR}/${targetFile}
+2. Read the current test file at ${GUI_DIR}/${testFile} (note what's already tested)
+3. Identify the specific functions/branches NOT yet covered (check Uncovered Line #s from baseline)
+4. Write 3-6 new it() test cases that exercise those uncovered paths
+5. Focus on: buildParams() edge cases, isDisabled() boundary values, or field validation
+
+Return JSON:
+{
+  "testClass": "one-line description of what you're testing (e.g. 'swap isDisabled with empty inputs')",
+  "targetTestFile": "${testFile}",
+  "newTestCode": "the TypeScript test code to APPEND to the test file (just the describe block, no imports needed)",
+  "estimatedLines": <number of uncovered lines this should cover>,
+  "reasoning": "why these tests will improve coverage"
+}`,
+      { label: `schema-propose-${baseName}`, phase: "Schema",
+        schema: {
+          type: "object",
+          properties: {
+            testClass:      { type: "string" },
+            targetTestFile: { type: "string" },
+            newTestCode:    { type: "string" },
+            estimatedLines: { type: "number" },
+            reasoning:      { type: "string" },
+          },
+          required: ["testClass", "targetTestFile", "newTestCode"],
+        } },
+    )
+
+    if (!proposeResult) {
+      log(`[schema] iter ${iter + 1}: proposal agent failed, skipping`)
+      noImprove++
+      if (noImprove >= CONVERGE_K) { log("[schema] converged (agent failures). Stopping."); break }
+      continue
+    }
+
+    log(`[schema] proposed: "${proposeResult.testClass}"`)
+    log(`[schema] code preview: ${proposeResult.newTestCode.slice(0, 120).replace(/\n/g, " ")}...`)
+
+    let adopted = false
+    let delta = 0
+
+    if (EFFECTIVE_DRY_RUN) {
+      log(`[schema] [DRY RUN] Would append to ${proposeResult.targetTestFile}`)
+      adopted = false
+      delta = 0
+    } else {
+      const writeResult = await agent(
+        `Append the following TypeScript test code to the file ${GUI_DIR}/${proposeResult.targetTestFile}.
+
+The file may already have content. DO NOT replace existing content. Append AFTER the last line.
+
+Code to append:
+${proposeResult.newTestCode}
+
+After appending, confirm by returning: { "written": true, "filePath": "${proposeResult.targetTestFile}" }`,
+        { label: `schema-write-${baseName}`, phase: "Schema",
+          schema: { type: "object", properties: { written: { type: "boolean" }, filePath: { type: "string" } }, required: ["written"] } },
+      )
+
+      if (!writeResult?.written) {
+        log(`[schema] iter ${iter + 1}: write failed, skipping (result=${JSON.stringify(writeResult).slice(0, 200)})`)
+        noImprove++
+        continue
+      }
+
+      const measureResult = await agent(
+        `Run this exact command and return full stdout:
+cd "${GUI_DIR}" && bun test --coverage 2>&1
+
+Return JSON: { "output": "<full stdout>" }`,
+        { label: `schema-measure-${baseName}`, phase: "Schema",
+          schema: { type: "object", properties: { output: { type: "string" } }, required: ["output"] } },
+      )
+
+      const newCoverage = parseCoverageTable(measureResult?.output || "")
+      const newComposite = globalComposite(newCoverage)
+      delta = newComposite - currentBest
+
+      // Parse the real fail count from bun test's summary line ("  N fail"),
+      // instead of fragile substring sniffing. Fail-closed if unparseable.
+      const rawMeasureOut = measureResult?.output || ""
+      const failMatch = rawMeasureOut.match(/(\d+)\s+fail\b/)
+      const failCount = failMatch ? parseInt(failMatch[1], 10) : null
+      const testsPassed = failCount !== null ? failCount === 0 : false
+      if (failCount === null && rawMeasureOut.trim() !== "") {
+        log(`⚠ [schema] could not parse fail count from bun test output — fail-closed (treating as failed)`)
+      }
+
+      if (testsPassed && delta >= MARGIN) {
+        adopted = true
+        currentBest = newComposite
+        Object.assign(baselineCoverage, newCoverage)
+        log(`[schema] ✓ adopted! +${delta.toFixed(2)}pp → ${newComposite.toFixed(2)}pp total`)
+      } else {
+        await agent(
+          `Revert the test file to its previous state. Run:
+cd "${GUI_DIR}" && git checkout -- "${proposeResult.targetTestFile}" 2>&1 || true
+
+If git checkout fails (file was newly created), delete it:
+rm -f "${GUI_DIR}/${proposeResult.targetTestFile}"
+
+Return: { "reverted": true }`,
+          { label: `schema-revert-${baseName}`, phase: "Schema",
+            schema: { type: "object", properties: { reverted: { type: "boolean" } }, required: ["reverted"] } },
+        )
+        const reason = !testsPassed ? "tests failed" : `delta ${delta.toFixed(2)} < margin ${MARGIN}`
+        log(`[schema] ✗ reverted (${reason})`)
+      }
+    }
+
+    const entry = { runId, iter: iter + 1, targetFile, testClass: proposeResult.testClass, adopted, delta, prevScore: currentBest - (adopted ? delta : 0), newScore: adopted ? currentBest : currentBest - delta, dryRun: DRY_RUN }
+    iterations.push(entry)
+
+    if (!adopted) {
+      noImprove++
+      deadEnds.add(targetFile)
+    } else {
+      noImprove = 0
+      deadEnds.delete(targetFile)
+      goodPats.push(proposeResult.testClass)
+    }
+
+    if (noImprove >= CONVERGE_K) {
+      log(`[schema] converged (${CONVERGE_K} non-improving iters). Stopping.`)
+      break
+    }
+  }
+
+  // ── Return (no per-lane persist — the orchestrator handles all disk writes) ──
+  const totalDelta = currentBest - baselineComposite
+  const adopted = iterations.filter(e => e.adopted).length
+
+  return {
+    runId,
+    objective: OBJECTIVE,
+    dryRun: DRY_RUN,
+    baseline: baselineComposite.toFixed(2),
+    final:    currentBest.toFixed(2),
+    delta:    totalDelta.toFixed(2),
+    iters:    iterations.length,
+    adopted,
+    rejected: iterations.length - adopted,
+    baselineDrift: baselineDriftCount,
+    driftFixed,
+    driftRemaining,
+    driftIterations,
+    runtimeFindings: runtimeFindings.length,
+    runtimeErrors,
+    runtimeIterations,
+    summary: [
+      DO_RUNTIME  ? `Runtime: ${runtimeFindings.length} finding(s) — ${runtimeErrors} error(s), ${runtimeFindings.length - runtimeErrors} warning(s) [buildCliArgs→run.py boundary]` : null,
+      DO_DRIFT    ? `Drift: ${baselineDriftCount} → ${driftRemaining} (${driftFixed} fixed)` : null,
+      DO_COVERAGE ? `Coverage: ${baselineComposite.toFixed(1)}% → ${currentBest.toFixed(1)}% (+${totalDelta.toFixed(1)}pp) | ${adopted}/${iterations.length} adopted` : null,
+    ].filter(Boolean).join(" | "),
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Lane: UX (inlined from gui-movie-director-ux-self-improve)
+// Screenshots every view via playwright-cli, analyzes each with the local VLM
+// (--style playwright), builds a priority queue of UX issues, then iterates:
+//   fix → bun test → re-screenshot → VLM rescore → keep-or-revert.
+// Full consolidation: NO per-lane persist. Returns null if the GUI server is down
+// (the orchestrator's DO_UX && !uxResult path reports it as skipped).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ALL_VIEWS = [
+  { id: "gallery",        route: "#/gallery",              label: "Gallery",           file: "frontend/views/gallery/GalleryView.tsx" },
+  { id: "jobs",           route: "#/jobs",                 label: "Jobs",              file: "frontend/views/jobs/JobHistoryView.tsx" },
+  { id: "config",         route: "#/config",               label: "Config",            file: null },
+  { id: "t2i",            route: "#/cmd/t2i",              label: "Text→Image",        file: "frontend/views/generate/T2iView.tsx" },
+  { id: "image-pipeline", route: "#/cmd/image-pipeline",   label: "Image Pipeline",    file: "frontend/views/workflow/ImagePipelineView.tsx" },
+  { id: "video-generate", route: "#/cmd/video-generate",   label: "Video Generate",    file: "frontend/views/workflow/VideoGenerateView.tsx" },
+  { id: "video-relay",    route: "#/cmd/video-relay",      label: "Video Relay",       file: "frontend/views/workflow/VideoRelayView.tsx" },
+  { id: "video-restore",  route: "#/cmd/video-restore",    label: "Video Restore",     file: "frontend/views/workflow/VideoRestoreView.tsx" },
+  { id: "video-compare",  route: "#/cmd/video-compare",    label: "Video Compare",     file: "frontend/views/workflow/VideoCompareView.tsx" },
+  { id: "video-quality",  route: "#/cmd/video-quality",    label: "Video Quality",     file: "frontend/views/workflow/VideoQualityView.tsx" },
+  { id: "video-vbvr",     route: "#/cmd/video-vbvr",       label: "Video VBVR",        file: "frontend/views/workflow/VideoVbvrView.tsx" },
+  { id: "i2i",            route: "#/cmd/i2i",              label: "Image→Image",       file: "frontend/views/transform/I2iView.tsx" },
+  { id: "image-restore",  route: "#/cmd/image-restore",    label: "Image Restore",     file: "frontend/views/transform/ImageRestoreView.tsx" },
+  { id: "anime2real",     route: "#/cmd/anime2real",       label: "Anime→Real",        file: "frontend/views/transform/Anime2realView.tsx" },
+  { id: "expansion",      route: "#/cmd/expansion",        label: "Expansion",         file: "frontend/views/transform/ExpansionView.tsx" },
+  { id: "faceswap",       route: "#/cmd/faceswap",         label: "Face Swap",         file: "frontend/views/edit/FaceswapView.tsx" },
+  { id: "swap",           route: "#/cmd/swap",             label: "Swap",              file: "frontend/views/edit/SwapView.tsx" },
+  { id: "controlnet",     route: "#/cmd/controlnet",       label: "ControlNet",        file: "frontend/views/edit/ControlnetView.tsx" },
+  { id: "angle",          route: "#/cmd/angle",            label: "Angle",             file: "frontend/views/edit/AngleView.tsx" },
+  { id: "profile",        route: "#/cmd/profile",          label: "Profile",           file: "frontend/views/analyze/ProfileView.tsx" },
+  { id: "quality",        route: "#/cmd/quality",          label: "Quality",           file: "frontend/views/analyze/QualityView.tsx" },
+  { id: "model-check",    route: "#/cmd/model-check",      label: "Model Check",       file: "frontend/views/tools/ModelCheckView.tsx" },
+  { id: "knowledge",      route: "#/cmd/knowledge",        label: "Knowledge",         file: "frontend/views/tools/KnowledgeView.tsx" },
+]
+
+async function runUxLane(opts) {
+  const dryRun   = opts.dryRun === true
+  const maxIters = typeof opts.maxIters === "number" ? opts.maxIters : 5
+  const viewFilter = Array.isArray(opts.views) ? opts.views : null
+  const knowledgeDigest = opts.knowledgeDigest || ""
+  const runId    = opts.runId || "unknown"
+  const VIEWS = viewFilter ? ALL_VIEWS.filter((v) => viewFilter.includes(v.id)) : ALL_VIEWS
+
+  log(`[ux] config: dryRun=${dryRun}, maxIters=${maxIters}, views=${viewFilter ? viewFilter.join(",") : "all"}`)
+
+  // ── Check GUI server (non-fatal: return null → orchestrator reports skipped) ──
+  const serverCheck = await agent(
+    `Check if the GUI dev server is running at port 3099.
+Run: Bash("lsof -ti :3099 2>/dev/null | head -1")
+If output is non-empty → { running: true, pid: "<output>" }
+If empty → { running: false, pid: "" }`,
+    { label: "ux-server-check", phase: "UX", model: "haiku",
+      schema: { type: "object", properties: { running: { type: "boolean" }, pid: { type: "string" } }, required: ["running"] } },
+  )
+  if (!serverCheck?.running) {
+    log("[ux] GUI server not running at localhost:3099 — lane skipped (non-fatal). Start with: cd bun/gui-movie-director && bun run dev")
+    return null
+  }
+  log(`[ux] GUI server running (pid=${serverCheck?.pid || "?"})`)
+
+  await agent(
+    `Bash("mkdir -p '${SHOT_DIR}'"). Return nothing.`,
+    { label: "ux-mkdir-shots", phase: "UX", model: "haiku" },
+  )
+
+  // ── Survey: screenshot + VLM analyze all views ──
+  log(`[ux] surveying ${VIEWS.length} views...`)
+
+  const analyses = await pipeline(
+    VIEWS,
+
+    // Stage 1: Navigate + screenshot each view
+    async (v) => {
+      const shotPath = `${SHOT_DIR}/${v.id}-before.png`
+      const shot = await agent(
+        `Screenshot the GUI view "${v.label}" at http://localhost:3099/${v.route}.
+
+Steps:
+1. Use playwright-cli tools (find via ToolSearch "playwright screenshot navigate"):
+   a. Navigate to: http://localhost:3099/${v.route}
+   b. Wait ~1 second for the view to render
+   c. Take a screenshot and save to: ${shotPath}
+
+2. Verify the screenshot exists: Bash("test -f '${shotPath}' && echo OK || echo MISSING")
+
+Return { ok: true, shotPath: "${shotPath}" } if screenshot succeeded,
+or { ok: false, error: "<reason>" } if playwright is unavailable or the file is missing.`,
+        { label: `ux-screenshot:${v.id}`, phase: "UX", model: "haiku",
+          schema: { type: "object", properties: { ok: { type: "boolean" }, shotPath: { type: "string" }, error: { type: "string" } }, required: ["ok"] } },
+      )
+      return { v, shotPath: shot?.ok ? shotPath : null, screenshotOk: shot?.ok === true }
+    },
+
+    // Stage 2: VLM analyze screenshot → UX issues
+    async ({ v, shotPath, screenshotOk }) => {
+      if (!shotPath || !screenshotOk) {
+        log(`[ux][survey] ${v.id}: screenshot failed — skipping VLM analysis`)
+        return { ...v, uxScore: null, issues: [], shotPath: null, screenshotOk: false }
+      }
+
+      const captionOutPath = shotPath.replace(/\.png$/, ".caption.json")
+      const analysis = await agent(
+        `Analyze the GUI view "${v.label}" (id: ${v.id}) for UX quality using the local VLM caption.
+
+⚠ TOKEN RULE: Do NOT Read() or attach the PNG file. Do NOT use built-in vision.
+  Process ONLY the text output from run.py caption (steps 1–2 below).
+
+Steps:
+1. Run local VLM caption: Bash("${PYTHON} ${RUN_PY} caption '${shotPath}' --style playwright --lang en 2>&1")
+   (This calls LM Studio locally — no cloud tokens spent on the image.)
+2. Read the caption JSON: Bash("cat '${captionOutPath}' 2>/dev/null || echo '{}'")
+   The JSON has a "caption" field with LAYOUT, INTERACTIVE ELEMENTS, STATE, PRIMARY ACTION sections.
+3. If the source file is given (not N/A), Read("${GUI_DIR}/${v.file || "frontend/styles.css"}") for code context.
+4. Based SOLELY on the caption text (step 2) AND the source code (step 3), identify UX issues.
+   For each issue assign:
+   - id: "${v.id}-NN" (e.g. "${v.id}-01")
+   - severity: "high" (blocks user) | "medium" (friction) | "low" (polish)
+   - category: "layout" | "feedback" | "clarity" | "consistency" | "accessibility"
+   - title: short title (max 60 chars)
+   - description: what is wrong and why it hurts UX
+   - affectedFile: relative path from GUI_DIR (e.g. "frontend/styles.css" or "frontend/views/generate/T2iView.tsx"
+                   or "frontend/components/CommandView.tsx" for shared issues)
+   - fixHint: concrete 1-sentence suggestion for the code fix
+
+Focus on finding REAL issues (not style opinions):
+   - Field labels showing raw API names (cfg_scale, lora_scale, denoising_strength) → clarity
+   - No loading state / submit button stays active during generation → feedback
+   - Missing required-field indicators before form submit → feedback
+   - Empty or blank views with no guidance message → feedback
+   - Icon-only buttons with no title/aria-label → accessibility
+   - Sections with inconsistent vertical padding vs other views → consistency
+
+Prior-run knowledge digest (avoid re-flagging known false-positives, reuse known levers):
+${knowledgeDigest || "(empty — first run)"}
+
+Source file: ${v.file ? `${GUI_DIR}/${v.file}` : "N/A (config/gallery special view)"}
+uxScore: 1-10 overall UX quality of this view (10 = excellent, 1 = very poor).
+Return JSON: { viewId: "${v.id}", uxScore: <number>, issues: [<each issue as above, required: id,severity,category,title,affectedFile>] }.`,
+        { label: `ux-analyze:${v.id}`, phase: "UX", model: "sonnet",
+          schema: { type: "object", properties: {
+            viewId: { type: "string" },
+            uxScore: { type: "number" },
+            issues: { type: "array", items: { type: "object", properties: {
+              id: { type: "string" }, severity: { type: "string" }, category: { type: "string" },
+              title: { type: "string" }, description: { type: "string" },
+              affectedFile: { type: "string" }, fixHint: { type: "string" },
+            }, required: ["id", "severity", "category", "title", "affectedFile"] } },
+          }, required: ["viewId", "uxScore", "issues"] } },
+      )
+
+      const result = analysis || { viewId: v.id, uxScore: null, issues: [] }
+      log(`[ux][survey] ${v.id}: score=${result.uxScore ?? "?"}, issues=${result.issues?.length ?? 0}`)
+      return { ...v, ...result, shotPath }
+    },
+  )
+
+  const surveyed = analyses.filter(Boolean)
+  const totalIssues = surveyed.reduce((n, a) => n + (a.issues?.length || 0), 0)
+  const avgScoreBefore = (() => {
+    const scored = surveyed.filter((a) => a.uxScore != null)
+    return scored.length ? scored.reduce((s, a) => s + a.uxScore, 0) / scored.length : null
+  })()
+
+  log(`[ux] survey complete: ${surveyed.length}/${VIEWS.length} views analyzed, ${totalIssues} issues found, avg UX score=${avgScoreBefore?.toFixed(1) ?? "?"}`)
+
+  // ── Prioritize ──
+  const allIssues = []
+  surveyed.forEach((v) => {
+    ;(v.issues || []).forEach((issue) => {
+      allIssues.push({ ...issue, viewId: v.id, viewLabel: v.label, uxScoreBefore: v.uxScore, shotPath: v.shotPath, route: v.route })
+    })
+  })
+
+  const SEV_WEIGHT = { high: 3, medium: 2, low: 1 }
+  const prioritized = allIssues
+    .filter((i) => i.severity !== "low")  // skip low in fix loop; they stay in report
+    .sort((a, b) => {
+      const sw = (SEV_WEIGHT[b.severity] || 0) - (SEV_WEIGHT[a.severity] || 0)
+      if (sw !== 0) return sw
+      return (a.uxScoreBefore ?? 10) - (b.uxScoreBefore ?? 10)
+    })
+
+  // Deduplicate: if same affectedFile appears multiple times, keep highest-severity per file
+  const seenFiles = {}
+  const fixQueue = []
+  for (const issue of prioritized) {
+    const key = `${issue.affectedFile}::${issue.category}`
+    if (!seenFiles[key]) {
+      seenFiles[key] = true
+      fixQueue.push(issue)
+    }
+  }
+
+  log(`[ux] prioritized: ${fixQueue.length} unique high/medium issues ready for fix loop`)
+
+  // ── Fix Loop ──
+  const fixResults = []
+  let fixIter = 0
+
+  // Dirty-tree guard (scoped to the GUI frontend surface): every revert below is a
+  // bare `git checkout -- <file>`, which discards ALL uncommitted changes to that
+  // file. Refuse to mutate when the scope is dirty to avoid clobbering WIP.
+  let treeDirty = false
+  if (!dryRun) {
+    const dirtyCheck = await agent(
+      `Check whether the git working tree has uncommitted changes in scope.
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/frontend/' 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' | grep -v '^??' || true")
+dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
+Return { dirty, files: [<the printed file paths, if any>] }.`,
+      { label: "ux-dirty-tree-check", phase: "UX", model: "haiku",
+        schema: { type: "object", properties: { dirty: { type: "boolean" }, files: { type: "array", items: { type: "string" } } }, required: ["dirty"] } },
+    )
+    treeDirty = dirtyCheck?.dirty === true
+    if (treeDirty) {
+      log(`⚠ [ux] Working tree is DIRTY in scope (${(dirtyCheck?.files || []).join(", ")}) — skipping fix loop to avoid a revert clobbering your WIP. Commit/stash, then re-run.`)
+    }
+  }
+
+  if (dryRun) {
+    log(`[ux] dry run mode — skipping fix loop. ${fixQueue.length} issues identified.`)
+  } else if (treeDirty) {
+    // fix loop skipped
+  } else {
+    const itersToRun = Math.min(maxIters, fixQueue.length)
+    log(`[ux] fix loop: ${itersToRun} iteration(s) planned (queue=${fixQueue.length}, cap=${maxIters})`)
+
+    for (let i = 0; i < itersToRun; i++) {
+      const issue = fixQueue[i]
+      fixIter = i + 1
+      log(`[ux][fix ${fixIter}/${itersToRun}] ${issue.id}: "${issue.title}" [${issue.severity}] → ${issue.affectedFile}`)
+
+      // ── Apply fix ──
+      const fixResult = await agent(
+        `Fix this UX issue in the GUI Movie Director codebase.
+
+GUI directory: ${GUI_DIR}
+Target file: ${GUI_DIR}/${issue.affectedFile}
+
+Issue:
+  ID: ${issue.id}
+  View: ${issue.viewLabel} (${issue.viewId})
+  Severity: ${issue.severity}
+  Category: ${issue.category}
+  Title: ${issue.title}
+  Description: ${issue.description}
+  Fix hint: ${issue.fixHint || "(none — use judgment)"}
+
+Prior-run knowledge (reuse known levers, avoid known dead-ends):
+${knowledgeDigest || "(empty — first run)"}
+
+Rules:
+1. Read("${GUI_DIR}/${issue.affectedFile}") first to understand the current code
+2. Apply the MINIMUM necessary change (target 1–15 lines changed)
+3. Keep existing CSS variable names (--bg-surface, --accent, --text-dim, --text-bright, etc.)
+4. Do NOT change CLI arg logic, schema mappings, or buildCliArgs() functions
+5. Do NOT add new npm dependencies
+6. If the fix requires adding a CSS class, add it to frontend/styles.css AND reference it in the TSX
+7. Use the Edit tool to apply the change
+8. If applied, capture: Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → fileHash
+
+Return { applied: true, description: "<one sentence describing what you changed>", fileHash: "<the hash from step 8>" }
+or { applied: false, description: "<why you skipped this>" }.`,
+        { label: `ux-fix:${issue.id}`, phase: "UX", model: "sonnet",
+          schema: { type: "object", properties: {
+            issueId: { type: "string" }, applied: { type: "boolean" }, testsPassed: { type: "boolean" },
+            scoreBefore: { type: "number" }, scoreAfter: { type: "number" },
+            revertReason: { type: "string" }, description: { type: "string" },
+            fileHash: { type: "string", description: "git hash-object of the file right after the edit, so a later revert can detect a concurrent edit landing on top of it" },
+          }, required: ["issueId", "applied", "testsPassed"] } },
+      )
+
+      if (!fixResult?.applied) {
+        log(`[ux][fix ${fixIter}] SKIPPED: ${fixResult?.description || "no reason given"}`)
+        fixResults.push({ issueId: issue.id, applied: false, testsPassed: false, scoreBefore: issue.uxScoreBefore, scoreAfter: null, revertReason: fixResult?.description || "agent chose not to apply" })
+        continue
+      }
+
+      // ── Verify: bun test ──
+      const testResult = await agent(
+        `Run bun tests for the GUI Movie Director and report pass/fail.
+Bash("cd '${GUI_DIR}' && bun test 2>&1 | tail -30")
+Return { ok: <true if fail count is 0>, pass: <number>, fail: <number>, output: "<last 5 lines>" }.`,
+        { label: `ux-test:iter${fixIter}`, phase: "UX", model: "haiku",
+          schema: { type: "object", properties: { ok: { type: "boolean" }, pass: { type: "number" }, fail: { type: "number" }, output: { type: "string" } }, required: ["ok"] } },
+      )
+
+      if (!testResult?.ok) {
+        log(`[ux][fix ${fixIter}] TESTS FAILED (pass=${testResult?.pass}, fail=${testResult?.fail}) — reverting`)
+        await agent(
+          `Revert the change to ${issue.affectedFile} — but only if nobody else touched it since our fix.
+Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → currentHash
+Expected hash (captured right after our fix): ${fixResult?.fileHash || "(none captured — proceed with revert)"}
+If currentHash differs from the expected hash, someone edited the file concurrently — do NOT revert it, just report skipped.
+Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}' 2>&1 || echo REVERT_FAILED")
+If the affected file was frontend/styles.css AND another file was also changed, apply the same hash check before reverting it too.
+Return nothing.`,
+          { label: `ux-revert:iter${fixIter}`, phase: "UX", model: "haiku" },
+        )
+        fixResults.push({ issueId: issue.id, applied: false, testsPassed: false, scoreBefore: issue.uxScoreBefore, scoreAfter: null, revertReason: `bun test failed (pass=${testResult?.pass}, fail=${testResult?.fail})` })
+        continue
+      }
+
+      log(`[ux][fix ${fixIter}] tests passed (pass=${testResult?.pass})`)
+
+      // ── Re-screenshot + VLM rescore ──
+      const afterShotPath = `${SHOT_DIR}/${issue.viewId}-iter${fixIter}-after.png`
+      const beforeCaptionPath = issue.shotPath ? issue.shotPath.replace(/\.png$/, ".caption.json") : null
+      const afterCaptionPath  = afterShotPath.replace(/\.png$/, ".caption.json")
+      const rescore = await agent(
+        `Re-screenshot the view "${issue.viewLabel}" and rescore UX quality after the fix.
+
+⚠ TOKEN RULE: Do NOT Read() or attach any PNG file. Do NOT use built-in vision.
+  Compare ONLY the text captions from run.py caption (steps 2–4 below).
+
+1. Use playwright-cli tools to navigate to http://localhost:3099/${issue.route}
+   and screenshot to ${afterShotPath}.
+2. Run local VLM caption on the AFTER shot:
+   Bash("${PYTHON} ${RUN_PY} caption '${afterShotPath}' --style playwright --lang en 2>&1")
+3. Read AFTER caption text: Bash("cat '${afterCaptionPath}' 2>/dev/null || echo '{}'")
+4. Read BEFORE caption text (from the survey pass):
+   Bash("cat '${beforeCaptionPath || "/dev/null"}' 2>/dev/null || echo '{}'")
+5. Compare the BEFORE caption vs AFTER caption (both are text JSON with "caption" field).
+   Assess whether the issue "${issue.title}" (category: ${issue.category}) is visibly improved
+   based on the INTERACTIVE ELEMENTS, STATE, and PRIMARY ACTION sections of both captions.
+6. Return { ok: true, uxScore: <1-10 overall UX score of the view AFTER the fix> }
+   or { ok: false, uxScore: null } if screenshot failed.`,
+        { label: `ux-rescore:iter${fixIter}`, phase: "UX", model: "haiku",
+          schema: { type: "object", properties: { uxScore: { type: "number" }, ok: { type: "boolean" } }, required: ["ok"] } },
+      )
+
+      const scoreBefore = issue.uxScoreBefore ?? 5
+      const scoreAfter  = rescore?.uxScore ?? null
+      const improved    = scoreAfter != null && scoreAfter >= scoreBefore
+
+      if (!improved && scoreAfter != null) {
+        log(`[ux][fix ${fixIter}] UX score did not improve (before=${scoreBefore}, after=${scoreAfter}) — reverting`)
+        await agent(
+          `Revert ${issue.affectedFile} — but only if nobody else touched it since our fix.
+Bash("cd '${GUI_DIR}' && git hash-object '${issue.affectedFile}'") → currentHash
+Expected hash (captured right after our fix): ${fixResult?.fileHash || "(none captured — proceed with revert)"}
+If currentHash differs, someone edited the file concurrently — do NOT revert, just report skipped.
+Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). Return nothing.`,
+          { label: `ux-revert-score:iter${fixIter}`, phase: "UX", model: "haiku" },
+        )
+        fixResults.push({ issueId: issue.id, applied: false, testsPassed: true, scoreBefore, scoreAfter, revertReason: `UX score unchanged or worse (${scoreBefore} → ${scoreAfter})` })
+        continue
+      }
+
+      log(`[ux][fix ${fixIter}] KEPT ✓ (score: ${scoreBefore} → ${scoreAfter ?? "??"})`)
+      fixResults.push({ issueId: issue.id, applied: true, testsPassed: true, scoreBefore, scoreAfter, description: fixResult?.description })
+    }
+  }
+
+  // ── Aggregate (no per-lane persist — orchestrator handles disk writes) ──
+  const issuesFixed   = fixResults.filter((r) => r.applied).length
+  const issuesSkipped = fixResults.filter((r) => !r.applied).length
+  const avgScoreAfter = (() => {
+    const gains = fixResults.filter((r) => r.applied && r.scoreAfter != null)
+    if (!gains.length) return avgScoreBefore
+    const improvementSum = gains.reduce((s, r) => s + (r.scoreAfter - r.scoreBefore), 0)
+    return avgScoreBefore != null ? avgScoreBefore + improvementSum / surveyed.filter((v) => v.uxScore != null).length : null
+  })()
+
+  log(`[ux] complete: ${issuesFixed} fixed, ${issuesSkipped} skipped, score: ${avgScoreBefore?.toFixed(1) ?? "?"} → ${avgScoreAfter?.toFixed(1) ?? "?"}`)
+
+  return {
+    runId,
+    viewsSurveyed: surveyed.length,
+    totalIssues,
+    issuesFixed,
+    issuesSkipped,
+    avgUxScoreBefore: avgScoreBefore,
+    avgUxScoreAfter:  avgScoreAfter,
+    analyses: surveyed.map((v) => ({ id: v.id, uxScore: v.uxScore, issues: v.issues })),
+    fixResults,
+  }
+}
+
 // ══ Phase: Resolve ════════════════════════════════════════════════════════════
 
 phase("Resolve")
@@ -250,8 +1115,8 @@ const RUN_TIMESTAMP = await agent(
 )
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 
-// Load this orchestrator's own committed knowledge (meta-lessons: effort/429
-// gotchas, fix-on-dirty-tree, openIssues trend). Sub-workflows load their own.
+// ONE knowledge base for the whole run (full consolidation: the merged KB carries
+// review/schema/ux meta-lessons + ux patterns folded in from the former ux lane).
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
 
@@ -262,20 +1127,16 @@ const knowledgeDigest = knowledge?.digest || ""
 let fixEnabled = FIX_REQ
 let dirtyTree = false
 if (FIX_REQ) {
-  const TREE_CHECK_SCHEMA = {
-    type: "object",
-    properties: {
-      dirty: { type: "boolean", description: "true if git status has uncommitted tracked changes" },
-      summary: { type: "string", description: "short git status --porcelain summary" },
-    },
-    required: ["dirty"],
-  }
   const treeCheck = await agent(
     `Check whether the git working tree at ${PROJECT_ROOT} has uncommitted changes.
 1. Bash("cd '${PROJECT_ROOT}' && git status --porcelain")
 2. Ignore the ComfyUI submodule line if present (submodule noise, unrelated).
 3. dirty = true if any OTHER tracked file shows as modified/staged.`,
-    { label: "dirty-tree-check", phase: "Resolve", model: "haiku", schema: TREE_CHECK_SCHEMA },
+    { label: "dirty-tree-check", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        dirty: { type: "boolean", description: "true if git status has uncommitted tracked changes" },
+        summary: { type: "string", description: "short git status --porcelain summary" },
+      }, required: ["dirty"] } },
   )
   dirtyTree = treeCheck?.dirty === true
   if (dirtyTree) {
@@ -328,9 +1189,10 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
       ...(FOCUS ? { focus: FOCUS } : {}),
       ...(FILES ? { files: FILES } : {}),
     }).catch((e) => { log(`  review lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
-    () => workflow("gui-movie-director-schema-self-improve", {
+    () => runSchemaLane({
       objective: OBJECTIVE,
       ...(TARGET ? { target: TARGET } : {}),
+      knowledgeDigest, runId: RUN_ID,
     }).catch((e) => { log(`  schema lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
   ])
   reviewResult = rr
@@ -356,11 +1218,12 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
   }
 
   if (DO_SCHEMA) {
-    log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: schema→CLI boundary (gui-movie-director-schema-self-improve)`)
+    log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: schema→CLI boundary (inlined schema lane)`)
     try {
-      schemaResult = await workflow("gui-movie-director-schema-self-improve", {
+      schemaResult = await runSchemaLane({
         objective: OBJECTIVE,
         ...(TARGET ? { target: TARGET } : {}),
+        knowledgeDigest, runId: RUN_ID,
       })
       log(`  schema lane done — ${schemaResult?.summary ?? "(no summary)"}`)
     } catch (e) {
@@ -371,18 +1234,16 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
 }
 
 // Lane: UX screenshot analysis + VLM scoring + fix loop.
-// Non-fatal — gracefully skipped if the GUI server is not running.
+// Non-fatal — gracefully skipped if the GUI server is not running (returns null).
 if (DO_UX) {
-  log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: UX screenshot analysis (gui-movie-director-ux-self-improve)`)
+  log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: UX screenshot analysis (inlined ux lane)`)
   try {
-    uxResult = await workflow(
-      "gui-movie-director-ux-self-improve",
-      {
-        dryRun:   UX_DRY_RUN,
-        maxIters: UX_MAX_ITERS,
-        ...(UX_VIEWS ? { views: UX_VIEWS } : {}),
-      },
-    )
+    uxResult = await runUxLane({
+      dryRun:   UX_DRY_RUN,
+      maxIters: UX_MAX_ITERS,
+      ...(UX_VIEWS ? { views: UX_VIEWS } : {}),
+      knowledgeDigest, runId: RUN_ID,
+    })
     log(`  ux lane done — ${uxResult?.totalIssues ?? "?"} issue(s), ${uxResult?.issuesFixed ?? "?"} fixed, score: ${uxResult?.avgUxScoreBefore?.toFixed(1) ?? "?"}→${uxResult?.avgUxScoreAfter?.toFixed(1) ?? "?"}`)
   } catch (e) {
     log(`  ux lane FAILED (non-fatal — GUI server may not be running): ${e?.message || e}`)
@@ -446,7 +1307,6 @@ Return { found: true, openIssues: <number> } or { found: false, openIssues: null
 
 // ── Chronic issue annotation ────────────────────────────────────────────────
 // Tag findings that also appeared in the previous run (same file + title).
-// Chronic issues have survived at least one review cycle without being fixed.
 let chronicKeys = new Set()
 {
   const prevFindings = await agent(
@@ -531,7 +1391,6 @@ const historyEntry = {
       avgScoreAfter:  uxScoreAfter,
     } : null,
     reviewHistory: reviewResult?.history?.path || null,
-    schemaHistory: "gui-movie-director-schema-self-improve/iterations.jsonl",
   },
 }
 
