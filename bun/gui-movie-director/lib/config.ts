@@ -18,7 +18,7 @@ export interface AppConfig {
 }
 
 const DEFAULTS: AppConfig = {
-  outputDir: ["python/mlx-movie-director/output", "comfyui_data/output"],
+  outputDir: ["../video_generation__output", "comfyui_data/output"],
   modelsDir: "python/mlx-movie-director/models",
   vlmApiUrl: "http://localhost:1234/v1",
   vlmModel: "qwen/qwen3-vl-4b",
@@ -40,6 +40,17 @@ export function loadConfig(): AppConfig {
   } catch {
     _config = { ...DEFAULTS };
   }
+
+  // Shared override: the MLX_OUTPUT_DIR env var (same name as run.py's) wins for the
+  // primary output dir, so a single env var controls BOTH run.py and the bun GUI.
+  // Secondary sources (e.g. comfyui_data/output) are preserved. Repo-relative values
+  // resolve against REPO_DIR in lib/paths.ts (absolute values pass through unchanged).
+  if (process.env.MLX_OUTPUT_DIR) {
+    const dirs = Array.isArray(_config!.outputDir) ? [..._config!.outputDir] : [_config!.outputDir];
+    dirs[0] = process.env.MLX_OUTPUT_DIR;
+    _config!.outputDir = dirs;
+  }
+
   return _config!;
 }
 

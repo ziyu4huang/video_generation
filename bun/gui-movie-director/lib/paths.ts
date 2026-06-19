@@ -16,14 +16,14 @@ function resolveOutputDirs(raw: string | string[]): string[] {
   const resolved = dirs.filter(Boolean).map((d) => path.resolve(REPO_DIR, d));
   return resolved.length > 0
     ? resolved
-    : [path.resolve(REPO_DIR, "python/mlx-movie-director/output")];
+    : [path.resolve(REPO_DIR, "../video_generation__output")];
 }
 
 export const OUTPUT_DIRS = resolveOutputDirs(cfg.outputDir);
 /** @deprecated Use OUTPUT_DIRS for multi-directory support */
 export const OUTPUT_DIR = OUTPUT_DIRS[0];
-/** Fixed mlx output dir — always matches where Python check-model writes its reports */
-export const MLX_OUTPUT_DIR = path.resolve(REPO_DIR, "python/mlx-movie-director/output");
+/** Primary mlx output dir — always matches run.py's cfg.OUTPUT_DIR (the first OUTPUT_DIRS entry). */
+export const MLX_OUTPUT_DIR = OUTPUT_DIRS[0];
 export const MODELS_DIR = path.resolve(REPO_DIR, cfg.modelsDir);
 export const UPLOAD_DIR = path.join(OUTPUT_DIR, "uploads");
 export const FRONTEND_DIR = path.join(REPO_DIR, "bun", "gui-movie-director", "frontend");

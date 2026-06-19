@@ -95,11 +95,19 @@ class TestPathConstants:
     def test_models_dir_is_under_project(self):
         assert cfg.MODELS_DIR.startswith(cfg.PROJECT_DIR)
 
-    def test_output_dir_is_under_project(self):
-        assert cfg.OUTPUT_DIR.startswith(cfg.PROJECT_DIR)
+    def test_output_dir_is_externalized_sibling_of_repo(self):
+        """OUTPUT_DIR defaults to ../video_generation__output — sibling of REPO_DIR
+        (externalized store, mirrors ../video_generation__models). CWD-independent:
+        anchored to REPO_DIR (from __file__), never os.getcwd()."""
+        expected = os.path.normpath(os.path.join(cfg.REPO_DIR, cfg.DEFAULT_OUTPUT_DIR))
+        assert cfg.OUTPUT_DIR == expected
 
-    def test_output_dir_is_named_output(self):
-        assert cfg.OUTPUT_DIR.endswith("output")
+    def test_output_dir_resolver_normalizes(self):
+        """Resolver: absolute/~/ as-is, repo-relative anchored to REPO_DIR, normalized."""
+        assert cfg._resolve_output_dir("/tmp/abs") == "/tmp/abs"
+        assert cfg._resolve_output_dir("~/x") == os.path.expanduser("~/x")
+        assert cfg._resolve_output_dir("../sib") == os.path.normpath(
+            os.path.join(cfg.REPO_DIR, "../sib"))
 
     def test_all_model_type_dirs_under_models(self):
         """Each model-type directory name starts with models/<type>/."""

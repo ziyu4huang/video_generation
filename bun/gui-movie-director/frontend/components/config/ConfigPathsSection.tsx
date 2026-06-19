@@ -142,7 +142,7 @@ export function ConfigPathsSection({ outputDir, modelsDir, onUpdate }: Props) {
             type="text"
             value={outputDirDisplay(outputDir)}
             onChange={(e) => onUpdate("outputDir", parseOutputDir(e.target.value))}
-            placeholder="python/mlx-movie-director/output, comfyui_data/output"
+            placeholder="../video_generation__output, comfyui_data/output"
           />
         </div>
       </div>

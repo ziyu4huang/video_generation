@@ -50,6 +50,12 @@ _global_parser.add_argument(
     action="store_true", default=False, dest="force_gpu",
     help="Bypass GPU busy detection — run even when another GPU-heavy process is active",
 )
+_global_parser.add_argument(
+    "--gen-output-dir", default=None, dest="gen_output_dir",
+    help="Override generation output dir (absolute or repo-relative). "
+         "Named --gen-output-dir to avoid clashing with import-workflow's "
+         "--output-dir. Default: ../video_generation__output (or MLX_OUTPUT_DIR env).",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

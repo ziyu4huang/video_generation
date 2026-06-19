@@ -41,7 +41,22 @@ VAE_DIR              = os.path.join(MODELS_DIR, "vae", "ultraflux-zimage-ae")
 ZIMAGE_AE_VAE_DIR    = os.path.join(MODELS_DIR, "vae", "zimage-ae")
 ULTRAFLUX_VAE_DIR    = VAE_DIR
 
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "output")
+def _resolve_output_dir(raw: str) -> str:
+    """Normalize an output dir value — CWD-independent.
+
+    Absolute paths (and ``~``) are used as-is; repo-relative values are joined to
+    REPO_DIR (derived from ``__file__``, never ``os.getcwd()``). ``normpath`` matches
+    bun's ``path.resolve`` lexical normalization, so both sides produce the identical
+    clean absolute path (e.g. /…/video_generation__output, no dangling /../).
+    """
+    p = os.path.expanduser(raw.strip())
+    return os.path.normpath(p if os.path.isabs(p) else os.path.join(REPO_DIR, p))
+
+
+# Externalized output store — sibling of the repo (mirrors ../video_generation__models).
+# Repo-relative by default; override via the MLX_OUTPUT_DIR env var or run.py --output-dir.
+DEFAULT_OUTPUT_DIR = "../video_generation__output"
+OUTPUT_DIR = _resolve_output_dir(os.environ.get("MLX_OUTPUT_DIR") or DEFAULT_OUTPUT_DIR)
 LUT_DIR = os.path.join(MODELS_DIR, "lut")
 
 # SeedVR2 source models (for convert.py)

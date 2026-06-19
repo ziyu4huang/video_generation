@@ -7,7 +7,7 @@ export interface ConfigData {
 }
 
 export const CONFIG_DEFAULTS: ConfigData = {
-  outputDir: "python/mlx-movie-director/output, comfyui_data/output",
+  outputDir: "../video_generation__output, comfyui_data/output",
   modelsDir: "python/mlx-movie-director/models",
   vlmApiUrl: "http://localhost:1234/v1",
   vlmModel: "qwen/qwen3-vl-4b",
