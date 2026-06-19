@@ -394,7 +394,7 @@ const OUT_DIR   = `${PROJECT_ROOT}/python/mlx-movie-director/output`
 const LORA_DIR  = `${PROJECT_ROOT}/python/mlx-movie-director/models/lora`
 const KB_ROOT   = `${PROJECT_ROOT}/knowledge-base`
 
-const WORKFLOW_NAME  = "mlx-movie-director-lora-review-flux2-klein"
+const WORKFLOW_NAME  = "mlx-movie-director-lora-review"
 const HISTORY_DIR    = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE     = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
@@ -1034,7 +1034,7 @@ if (hasFaceswap) {
 
 log(`\nGeneration plan:`)
 log(`  Seeds:  ${seeds.join(", ")}`)
-log(`  Steps:  ${steps} (flux2-klein)`)
+log(`  Steps:  ${steps} (${LORA_ARCH})`)
 log(`  Size:   ${width}×${height}`)
 log(`  Sweep:  ${doSweep ? `YES — scales ${sweepScales.join(", ")}` : `NO — using lora_scale=${loraScale}`}`)
 log(`  T2I lane:         ${t2iBaseSpecs.length} baselines + ${t2iLoraSpecs.length} LoRA`)
@@ -1845,7 +1845,7 @@ Top examples: ${JSON.stringify((kbContext.topExamples || []).slice(0, 2).map((e)
 Use this knowledge when analyzing per-LoRA prompt adherence and recommending optimal settings.\n\n` : ""
 
   reportResult = await agent(
-  `Generate a concise LoRA comparison report for this flux2-klein dynamic A/B test.
+  `Generate a concise LoRA comparison report for this ${LORA_ARCH} dynamic A/B test.
 ${kbBlock}${loraBaselineCtx}
 ## Test Configuration
 - Pipeline: ${PIPELINE} (${LORA_ARCH} LoRAs)

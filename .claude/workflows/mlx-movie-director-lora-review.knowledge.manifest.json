@@ -1,12 +1,12 @@
 {
   "manifest_version": 1,
-  "file": "mlx-movie-director-lora-review-flux2-klein.knowledge.jsonl",
+  "file": "mlx-movie-director-lora-review.knowledge.jsonl",
   "kind": "workflow-knowledge",
-  "purpose": "Distilled, committed, per-workflow knowledge for mlx-movie-director-lora-review-flux2-klein — pattern/lever/avoid/gotcha/false_positive/metric records loaded at Resolve (loadKnowledge) and rewritten at Persist (extractKnowledge). The committed, cross-machine superset of the ephemeral history/mlx-movie-director-lora-review-flux2-klein/.",
+  "purpose": "Distilled, committed, per-workflow knowledge for mlx-movie-director-lora-review — pattern/lever/avoid/gotcha/false_positive/metric records loaded at Resolve (loadKnowledge) and rewritten at Persist (extractKnowledge). The committed, cross-machine superset of the ephemeral history/mlx-movie-director-lora-review/.",
   "record_version_field": "schema_version",
   "record_version": 1,
-  "produced_by": "extractKnowledge() in mlx-movie-director-lora-review-flux2-klein.js (Persists, after saveHistory).",
-  "consumed_by": "loadKnowledge() in mlx-movie-director-lora-review-flux2-klein.js (Resolve) — injects active records' digest into the run. Also scripts/workflow-knowledge-manifest.mjs (the MANIFEST.md coverage matrix).",
+  "produced_by": "extractKnowledge() in mlx-movie-director-lora-review.js (Persists, after saveHistory).",
+  "consumed_by": "loadKnowledge() in mlx-movie-director-lora-review.js (Resolve) — injects active records' digest into the run. Also scripts/workflow-knowledge-manifest.mjs (the MANIFEST.md coverage matrix).",
   "record_schema": [
     {
       "name": "schema_version",

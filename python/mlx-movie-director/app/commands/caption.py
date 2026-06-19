@@ -32,6 +32,34 @@ PARSER_META = {
     ),
 }
 
+# Shared defect-hunting + hard-cap block — the anti-over-praise guardrail.
+# Used by BOTH the `score` and `review` styles so they cannot drift apart. The
+# `review` style historically lacked this block and over-praised plasticky-skin
+# images ~9/10 (while `score`, with it, scored the same skin 4-6); since the
+# run-self-improve-image workflow gates autoFix on the REVIEW-style scores, that
+# drift silently defeated the self-fix loop. Keeping one block prevents recurrence.
+# `detail <= 6` on the plasticky-skin rule: no visible pores IS a detail failure
+# (the detail dim is defined on skin pores), so an honest cap belongs there too.
+_DEFECT_BLOCK = (
+    "DEFECT CHECK (do this first; be ruthless — hunt for each of these):\n"
+    "- PLASTICKY / WAXY / OVERSMOOTHED SKIN: skin with no visible pores that "
+    "looks like a mannequin, wax doll, or airbrushed plastic. This is the most "
+    "common AI defect — check forehead, cheeks, shoulders, hands, and arms.\n"
+    "- HANDS & FINGERS: wrong finger count, fused/merged fingers, extra or "
+    "missing fingers, malformed hands, or extra/missing/fused limbs.\n"
+    "- FACE: asymmetric eyes or ears, mismatched pupils, deformed teeth, "
+    "melting or drifting features.\n"
+    "- STRUCTURE & SYMMETRY: warped body proportions, fused clothing, "
+    "floating or duplicated objects.\n"
+    "- BACKGROUND: chaotic/melting background, nonsensical objects, seams, "
+    "or ghosting.\n\n"
+    "HARD RULES (override any holistic impression):\n"
+    "- If skin looks plasticky/waxy/oversmoothed (no visible pores): artifacts <= 5, detail <= 6, AND overall <= 7.\n"
+    "- If ANY hand has a wrong finger count or fused fingers: artifacts <= 4 AND overall <= 6.\n"
+    "- If there are extra limbs or fused body parts: artifacts <= 3 AND overall <= 4.\n"
+    "- Give artifacts 9-10 ONLY if you genuinely cannot find ANY defect above.\n\n"
+)
+
 _STYLE_PROMPTS = {
     "default": "Describe this image in detail.",
     "photography": (
@@ -65,24 +93,8 @@ _STYLE_PROMPTS = {
         "images almost always carry subtle flaws — your job is to FIND them, not "
         "to praise. Do not be lenient; a polished-looking image can still fail on "
         "skin texture or hands.\n\n"
-        "DEFECT CHECK (do this first; be ruthless — hunt for each of these):\n"
-        "- PLASTICKY / WAXY / OVERSMOOTHED SKIN: skin with no visible pores that "
-        "looks like a mannequin, wax doll, or airbrushed plastic. This is the most "
-        "common AI defect — check forehead, cheeks, shoulders, hands, and arms.\n"
-        "- HANDS & FINGERS: wrong finger count, fused/merged fingers, extra or "
-        "missing fingers, malformed hands, or extra/missing/fused limbs.\n"
-        "- FACE: asymmetric eyes or ears, mismatched pupils, deformed teeth, "
-        "melting or drifting features.\n"
-        "- STRUCTURE & SYMMETRY: warped body proportions, fused clothing, "
-        "floating or duplicated objects.\n"
-        "- BACKGROUND: chaotic/melting background, nonsensical objects, seams, "
-        "or ghosting.\n\n"
-        "HARD RULES (override any holistic impression):\n"
-        "- If skin looks plasticky/waxy/oversmoothed (no visible pores): artifacts <= 5 AND overall <= 7.\n"
-        "- If ANY hand has a wrong finger count or fused fingers: artifacts <= 4 AND overall <= 6.\n"
-        "- If there are extra limbs or fused body parts: artifacts <= 3 AND overall <= 4.\n"
-        "- Give artifacts 9-10 ONLY if you genuinely cannot find ANY defect above.\n\n"
-        "Then score on a 1-10 scale (respect the HARD RULES caps on overall/artifacts):\n"
+        + _DEFECT_BLOCK
+        + "Then score on a 1-10 scale (respect the HARD RULES caps on overall/artifacts):\n"
         "1. overall — overall image quality and aesthetic appeal\n"
         "2. detail — level of fine detail (textures, fabric, skin pores, hair)\n"
         "3. sharpness — image sharpness and clarity across the frame\n"
@@ -148,9 +160,10 @@ _STYLE_PROMPTS = {
         "guess: adherence = round(10 x present_count / total_count), then if ANY style/medium "
         "element is ABSENT, CAP adherence at 5. A matching subject/pose does NOT redeem a wrong "
         "style — never score 8-10 when a named style/medium is absent.\n\n"
-        "STEP 3 — general quality dimensions (1-10):\n"
+        + _DEFECT_BLOCK
+        + "STEP 3 — general quality dimensions (1-10, respect the HARD RULES caps above):\n"
         "1. overall — overall image quality and aesthetic appeal\n"
-        "2. detail — level of fine detail (textures, fabric, skin, hair)\n"
+        "2. detail — level of fine detail (textures, fabric, skin pores, hair)\n"
         "3. sharpness — image sharpness and clarity across the frame\n"
         "4. composition — framing, rule of thirds, visual balance\n"
         "5. artifacts — absence of rendering artifacts (INVERTED: 10 = no artifacts)\n\n"
