@@ -389,6 +389,14 @@ body {
   border-color: var(--text-dim);
 }
 
+/* Hint shown beneath a disabled submit button, explaining which required
+   inputs are still missing (e.g. "Add Body Image and Face Image to continue."). */
+.submit-hint {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 /* === Self-Test Button === */
 
 /* Trigger button sits in .btn-row to the right of the submit button */

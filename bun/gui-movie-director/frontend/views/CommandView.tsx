@@ -37,15 +37,31 @@ export function createCommandView(schema: CommandSchema, commandPrefix?: string)
       navigate("/gallery", names);
     };
 
+    // Defensive empty-state: if the schema yields no sectioned fields (or a
+    // render fails silently upstream), never leave a dead blank panel — mirror
+    // CommandViewShell's guidance block so the user isn't stuck unactionably.
+    const fieldCount = schema.sections.reduce((n, s) => n + s.fields.length, 0);
+
     return (
       <>
-        <CommandForm
-          schema={schema}
-          onJobStart={onJobStart}
-          loading={loading}
-          commandPrefix={commandPrefix}
-          extraActions={<SelfTestButton action={schema.action} onJobStart={onJobStart} />}
-        />
+        {fieldCount === 0 ? (
+          <div className="empty-view-state">
+            <div className="empty-view-state__icon">📭</div>
+            <h3 className="empty-view-state__title">This view has nothing to show</h3>
+            <p className="empty-view-state__hint">
+              The form failed to render. Try reloading the page, or pick another
+              command from the sidebar.
+            </p>
+          </div>
+        ) : (
+          <CommandForm
+            schema={schema}
+            onJobStart={onJobStart}
+            loading={loading}
+            commandPrefix={commandPrefix}
+            extraActions={<SelfTestButton action={schema.action} onJobStart={onJobStart} />}
+          />
+        )}
         {job?.status === "completed" && isSelfTest && (
           <SelfTestResults job={job} />
         )}
