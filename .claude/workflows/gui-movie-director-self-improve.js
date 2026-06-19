@@ -1359,7 +1359,7 @@ const signals = {
   delta_from_last: deltaStr,
   highlights: [
     DO_REVIEW  ? `review: ${reviewVerified} verified finding(s)${fixEnabled ? ` → ${reviewApplied} fix(es) applied, ${reviewRegress} regression(s)` : " (review-only)"}` : null,
-    DO_SCHEMA  ? `schema: ${schemaRuntimeFind} runtime finding(s), ${schemaRuntimeErr} error(s), drift→${schemaDriftRem}, coverage Δ=${schemaCovDelta}` : null,
+    DO_SCHEMA  ? `schema: ${schemaRuntimeFind} runtime finding(s), ${schemaRuntimeErr} error(s), drift→${schemaDriftRem}${["coverage","both","all"].includes(OBJECTIVE) ? `, coverage Δ=${schemaCovDelta}` : ""}` : null,
     DO_UX && uxResult  ? `ux: ${uxTotalIssues} issue(s), ${uxIssuesFixed} fixed, score: ${uxScoreBefore?.toFixed(1) ?? "?"}→${uxScoreAfter?.toFixed(1) ?? "?"}` : null,
     DO_UX && !uxResult ? "ux: lane failed (server may be down) — skipped" : null,
     FIX_REQ && dirtyTree ? "fix:true DOWNGRADED to review-only (dirty tree)" : null,
