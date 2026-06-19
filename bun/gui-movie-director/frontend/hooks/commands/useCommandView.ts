@@ -47,7 +47,12 @@ export function useCommandView(command?: string) {
         status: job.status === "running"
           ? ((jobStatus as JobInfo["status"]) ?? job.status)
           : job.status,
-        logs: logs.length > 0
+        // Only substitute live WS logs when THIS job is the one producing them
+        // (job.status === "running" ⇒ we subscribed in handleJobStart, so the WS
+        // `logs` array belongs to this job). A restored completed/failed job was
+        // never subscribed this session, so the shared WS `logs` holds stale lines
+        // from a PRIOR subscription — surface the job's own persisted logs instead.
+        logs: job.status === "running" && logs.length > 0
           ? logs.map((e) => ({ text: e.line, stream: e.stream }))
           : job.logs,
         outputFiles: outputFiles.length > 0 ? outputFiles : job.outputFiles,

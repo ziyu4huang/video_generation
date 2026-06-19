@@ -47,8 +47,17 @@ export function buildIndex(images: any[]): void {
     }
   });
   insertAll(images);
-  _indexed = true;
-  db.exec("INSERT INTO images_fts(images_fts) VALUES('optimize')");
+  // Set _indexed ONLY after the FTS5 'optimize' succeeds. The old order (flag
+  // then optimize) masked a build failure: if optimize threw, _indexed was
+  // already true, so subsequent searches queried a stale/unoptimized index
+  // instead of triggering a rebuild. On optimize failure leave _indexed=false so
+  // the next search rebuilds; never crash the request over an index optimization.
+  try {
+    db.exec("INSERT INTO images_fts(images_fts) VALUES('optimize')");
+    _indexed = true;
+  } catch {
+    _indexed = false;
+  }
 }
 
 export function searchImages(q: string, type?: string): any[] {
