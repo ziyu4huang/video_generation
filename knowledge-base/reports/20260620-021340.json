@@ -1,0 +1,135 @@
+{
+  "generatedAt": "2026-06-19T18:13:40.272Z",
+  "model": "deepseek-chat",
+  "recordCount": 80,
+  "avgQualityScore": 9.1,
+  "markdown": "## T2I Prompt Engineering Guide\n\n### Top 5 Prompt Strategies\n\n1.  **Hyper-Specific, Multi-Sensory Description:** The most successful prompts are not just lists of objects, but detailed, sensory-rich descriptions that guide the model on lighting, texture, pose, and composition. They act as a detailed brief for a photographer or director.\n    - **Example:** *\"A elegant female ballet dancer in a white tutu and pointe shoes, performing an arabesque pose in a grand theater. Her hair is in a perfect bun, and her makeup is stage-ready. She’s gracefully holding a delicate, swan-shaped card with '/u/PirouettePrincess' written in flowing script. The rich red velvet curtains and ornate gold decorations of the theater create a luxurious backdrop.\"*\n    - **Why it works:** This prompt doesn't just say \"ballet dancer.\" It specifies the pose (arabesque), the costume (white tutu, pointe shoes), the setting (grand theater with red velvet and gold), and a specific prop (a card with text). This level of detail provides a clear, unambiguous blueprint for the model, leading to high prompt_adherence and overall scores (9-10).\n\n2.  **Explicitly State Technical & Quality Requirements:** Directly embedding photographic and quality terms into the prompt yields sharper, more realistic results. This is a form of \"prompt engineering\" that leverages the model's training data.\n    - **Example:** *\"photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus\"*\n    - **Why it works:** Terms like \"photorealistic,\" \"ultra sharp focus,\" \"detailed irises,\" and \"bokeh background\" are powerful keywords that consistently correlate with high detail, sharpness, and realism scores (9-10). They act as direct instructions for the model's output characteristics.\n\n3.  **Use of Specialized LoRAs for Specific Domains:** LoRAs are not just for style; they are powerful tools for enforcing specific anatomical or physical constraints. The `klein_slider_anatomy` LoRA, for example, is a critical tool for generating accurate human figures.\n    - **Example:** *\"anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus\"* (with `klein_slider_anatomy.safetensors @ 1.0`)\n    - **Why it works:** This combination of a detailed prompt and a specialized LoRA consistently achieves perfect scores (10/10) for detail, sharpness, and prompt_adherence. The LoRA provides the model with a strong prior for correct anatomy, while the prompt guides the specific pose and level of detail.\n\n4.  **Structured, Bulleted/Numbered Descriptions:** Organizing a complex prompt into a clear, hierarchical structure (e.g., using bullet points or numbered lists) helps the model parse and prioritize information, especially for scenes with many elements.\n    - **Example:** The long, structured prompts for the 18th-century ballroom scene (Records 47-52) use headers like **The Central Figure**, **The Setting**, **Atmosphere and Lighting**, and **Style and Composition**.\n    - **Why it works:** This structure breaks down a complex scene into digestible chunks. The model can focus on the subject, then the environment, then the mood, leading to highly coherent and detailed images that score 9/10 across all dimensions.\n\n5.  **Leverage the \"Trigger Word\" Pattern:** Certain models or LoRAs are activated by specific trigger words at the beginning of the prompt. Using these correctly is essential for activating the intended style or capability.\n    - **Example:** *\"slider, bodyweight, full body shot of a woman...\"* and *\"anatomyfix, full body shot of a woman...\"*\n    - **Why it works:** The words \"slider\" and \"anatomyfix\" are not descriptive; they are technical triggers for the `klein_slider_bodyweight_50` and `klein_slider_anatomy` LoRAs, respectively. Using them correctly is non-negotiable for activating the LoRA's intended effect. Failure to do so (e.g., using the `anatomyfix` trigger without the LoRA) would likely result in poor anatomy.\n\n### Prompt Patterns That Correlate with High Scores\n\n- **High Prompt Adherence (9-10):**\n    - **Pattern:** Prompts that are highly specific, leaving little to the model's imagination. They explicitly state the subject, pose, clothing, setting, lighting, and style.\n    - **Example:** The ballet dancer prompts (Records 40-44) and the studio portrait prompts (Records 38, 45, 53, 55, 57, 58) all score 9-10 on adherence. They are unambiguous.\n    - **Correlation:** A direct, detailed, and non-contradictory prompt is the single strongest predictor of high prompt_adherence.\n\n- **High Detail & Sharpness (9-10):**\n    - **Pattern:** Prompts that include explicit quality keywords like \"photorealistic,\" \"ultra sharp focus,\" \"detailed skin texture,\" \"8k uhd,\" \"macro photography.\"\n    - **Example:** The portrait prompts (Records 11-19) and the hand/origami prompt (Record 74) consistently score 9-10 on detail and sharpness.\n    - **Correlation:** The presence of these \"quality\" keywords is a near-perfect predictor of high detail and sharpness scores.\n\n- **High Overall Score (9-10):**\n    - **Pattern:** A combination of the above two patterns. The highest overall scores are achieved by prompts that are both highly specific and include quality keywords, often with a supporting LoRA.\n    - **Example:** The `anatomyfix` prompts with the `klein_slider_anatomy` LoRA (Records 6-8, 10) are the best example, achieving perfect 10/10 overall scores.\n\n### Things to Avoid\n\n1.  **Vague or Ambiguous Prompts:** Prompts like `\"a girl\"` (Record 71) or `\"a girl with cyberpunk style\"` (Record 70) are too open-ended. While they can produce good-looking images, they score low on prompt_adherence (5/10) because the model's interpretation may not match the user's intent.\n2.  **Technical Commands as Prompts:** Using a technical command like `\"BFS head face swap\"` (Record 9) as the entire prompt is a failure. The model cannot execute a \"swap\" command; it will generate a generic face. This leads to a low prompt_adherence score (5/10) despite high image quality.\n3.  **Contradictory or Impossible Instructions:** Prompts that ask for a \"photograph\" but describe a scene that is clearly a \"photorealistic render\" (Record 44) or ask for an \"anime girl turned into a real person\" but generate a photorealistic portrait (Record 73) will be penalized. The model's output must match the explicit style requested.\n4.  **Overly Complex, Unstructured Paragraphs:** While detail is good, a single, massive, run-on paragraph (like Record 54) can confuse the model. The structured, bulleted prompts (Records 52, 59-66) were more successful at handling complex scenes.\n5.  **Neglecting LoRA Trigger Words:** For LoRA-specific prompts, failing to include the correct trigger word (e.g., `\"slider\"`, `\"anatomyfix\"`) will likely result in the LoRA not being activated, leading to poor performance in its specific domain (e.g., body proportions, anatomy).\n\n### Best Parameter Combinations per Pipeline\n\n**Flux2-Klein (Transformer Model)**\n- **Best Combo:** Steps: 4, CFG: 5, denoise: 0.4, LoRA Scale: 0.8-1.2\n- **Performance:** ~5.3-5.4 seconds, ~15.8-15.9 GB peak memory.\n- **Analysis:** This combination is incredibly efficient. 4 steps are sufficient for high-quality output, and the low denoise (0.4) is ideal for img2img tasks, preserving the source structure while applying the prompt. The LoRA scale of 0.8-1.2 is the sweet spot for the `anatomy` and `bodyweight` LoRAs. Higher scales (e.g., 1.2) can sometimes yield even better results (Record 6 vs. Record 8).\n- **Cost:** Very low time cost. Memory is moderate.\n\n**Z-Image (zimage-moody-v126)**\n- **Best Combo:** Steps: 9, CFG: default (null/5), denoise: 0.4\n- **Performance:** ~12.0-12.6 seconds, ~7.8-8.0 GB peak memory.\n- **Analysis:** This pipeline requires more steps (9) to achieve its best quality. The default CFG works well. The denoise of 0.4 is again a consistent sweet spot for img2img. The memory footprint is significantly lower than Flux2-Klein, making it more accessible.\n- **Cost:** Moderate time cost. Very low memory cost.\n\n**Lens Pipeline**\n- **Best Combo:** Steps: 20, denoise: 0.4\n- **Performance:** ~35-79 seconds, ~16.8 GB peak memory.\n- **Analysis:** This is the most computationally expensive pipeline. It requires 20 steps for high quality. It is best reserved for the most complex, high-resolution scenes (e.g., 1024x1024 ballroom scene, Record 49) where its extra detail (10/10 in Record 51) justifies the cost.\n- **Cost:** Very high time cost. High memory cost.\n\n### Top 5 Example Prompts\n\n1.  **Prompt:** `\"anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus\"`\n    - **Pipeline:** Flux2-Klein | **LoRA:** `klein_slider_anatomy.safetensors @ 1.2`\n    - **Score:** 10/10 | **Why:** Perfect synergy between a highly specific prompt and a specialized LoRA. The prompt leaves no ambiguity about the pose and required detail, and the LoRA ensures flawless anatomy. This is the gold standard for anatomical accuracy.\n\n2.  **Prompt:** `\"photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus\"`\n    - **Pipeline:** Z-Image | **LoRA:** None\n    - **Score:** 9/10 | **Why:** A masterclass in using quality keywords. This prompt is simple, direct, and contains all the necessary terms to guide the model towards a high-quality, photorealistic portrait. It consistently achieves top scores across multiple seeds.\n\n3.  **Prompt:** `\"A elegant female ballet dancer in a white tutu and pointe shoes, performing an arabesque pose in a grand theater. Her hair is in a perfect bun, and her makeup is stage-ready. She's gracefully holding a delicate, swan-shaped card with '/u/PirouettePrincess' written in flowing script. The rich red velvet curtains and ornate gold decorations of the theater create a luxurious backdrop.\"`\n    - **Pipeline:** Flux2-Klein | **LoRA:** None\n    - **Score:** 9/10 | **Why:** An excellent example of a detailed, narrative-driven prompt. It describes a complete scene with a clear subject, action, prop, and setting. The model perfectly executes all elements, demonstrating the power of a well-structured, specific description.\n\n4.  **Prompt:** `\"slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus\"`\n    - **Pipeline:** Flux2-Klein | **LoRA:** `klein_slider_bodyweight_50.safetensors @ 0.5`\n    - **Score:** 10/10 | **Why:** This prompt perfectly combines a LoRA trigger word (\"slider, bodyweight\") with a detailed scene description. The lighting specification (\"natural afternoon side lighting casting long shadows\") is particularly effective, creating a strong, cinematic mood. The focus on \"visible individual fingers\" and \"detailed hands and face\" directly addresses common AI failure points.\n\n5.  **Prompt:** `\"A stunning young woman in an opulent 18th-century European ballroom... The style is hyper-realistic, detailed, and painterly, evoking the elegance of a Baroque or Rococo court.\"` (Full prompt from Record 47)\n    - **Pipeline:** Z-Image | **LoRA:** None\n    - **Score:** 9/10 | **Why:** This prompt demonstrates how to handle extreme complexity. By using a structured, descriptive format (though not bulleted in this case), it guides the model through a highly detailed scene. The explicit style directive (\"hyper-realistic, detailed, and painterly... Baroque or Rococo court\") is crucial for achieving the desired aesthetic. It proves that Z-Image can handle complex, high-detail scenes without a LoRA.",
+  "structured": {
+    "topStrategies": [
+      {
+        "template": "[Trigger Word], [Subject] in [Specific Pose], wearing [Detailed Clothing], in [Specific Setting] with [Specific Lighting], [Quality Keywords: photorealistic, ultra sharp focus, detailed anatomy]",
+        "avgScore": 9.8,
+        "sampleCount": 15,
+        "bestLora": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "template": "[Quality Keywords: photorealistic, sharp eyes, detailed skin texture, soft studio lighting, bokeh background, ultra sharp focus] of [Subject]",
+        "avgScore": 9.2,
+        "sampleCount": 20,
+        "bestLora": "HighResolutionFlux2-Kelien-9B.safetensors"
+      },
+      {
+        "template": "A [Adjective] [Subject] in [Detailed Costume], performing [Specific Action] in [Detailed Setting]. [Specific Prop] with [Specific Detail]. [Specific Background Elements]. [Mood and Style Description].",
+        "avgScore": 9,
+        "sampleCount": 8,
+        "bestLora": "none"
+      },
+      {
+        "template": "[Trigger Word], [Subject] in [Specific Setting], wearing [Detailed Clothing], [Specific Action with Detail: e.g., one hand raised to adjust her hair with visible individual fingers], [Specific Lighting], [Quality Keywords]",
+        "avgScore": 9.5,
+        "sampleCount": 5,
+        "bestLora": "klein_slider_bodyweight_50.safetensors"
+      },
+      {
+        "template": "**Subject:** [Detailed Description] **Pose:** [Specific Pose] **Clothing:** [Detailed Attire] **Lighting:** [Specific Lighting Setup] **Camera Angle:** [Angle] **Composition:** [Composition Details] **Mood:** [Desired Mood] **Setting:** [Detailed Setting]",
+        "avgScore": 9,
+        "sampleCount": 6,
+        "bestLora": "none"
+      }
+    ],
+    "avoid": [
+      "Vague or single-word prompts like 'a girl' or 'a girl with cyberpunk style'",
+      "Using technical commands (e.g., 'BFS head face swap') as the entire prompt",
+      "Contradictory instructions, e.g., asking for a 'photograph' of a clearly rendered scene",
+      "Overly long, unstructured paragraphs without clear hierarchy or focus",
+      "Neglecting to use the correct trigger word for a specialized LoRA"
+    ],
+    "bestParams": [
+      {
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "cfgScale": 5,
+        "loraScale": 0.8,
+        "denoiseStrength": 0.4
+      },
+      {
+        "pipeline": "zimage",
+        "steps": 9,
+        "cfgScale": 5,
+        "loraScale": 1,
+        "denoiseStrength": 0.4
+      },
+      {
+        "pipeline": "lens",
+        "steps": 20,
+        "cfgScale": null,
+        "loraScale": 1,
+        "denoiseStrength": 0.4
+      }
+    ],
+    "loraInsights": [
+      {
+        "lora": "klein_slider_anatomy.safetensors",
+        "avgScore": 9.8,
+        "notes": "Essential for anatomical accuracy. Best results at scale 1.0-1.2. Trigger word 'anatomyfix' is mandatory."
+      },
+      {
+        "lora": "klein_slider_bodyweight_50.safetensors",
+        "avgScore": 9.5,
+        "notes": "Excellent for body proportions and pose. Best results at scale 0.5-0.8. Trigger word 'slider, bodyweight' is mandatory."
+      },
+      {
+        "lora": "HighResolutionFlux2-Kelien-9B.safetensors",
+        "avgScore": 9.3,
+        "notes": "Boosts detail and sharpness, especially for close-ups. Effective at scale 0.5. No specific trigger word observed."
+      },
+      {
+        "lora": "anything2real_v1_f2k.safetensors",
+        "avgScore": 9,
+        "notes": "Designed for anime-to-real conversion. However, it may generate a photorealistic portrait instead of a converted anime character if the prompt is not precise. Use with very specific prompts."
+      },
+      {
+        "lora": "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors",
+        "avgScore": 5,
+        "notes": "This LoRA is designed for a specific technical task (face swap). Using its trigger word as a general prompt leads to failure. It should only be used in a workflow designed for face swapping."
+      }
+    ],
+    "topExamples": [
+      {
+        "prompt": "anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Perfect synergy between a hyper-specific prompt and a specialized LoRA (klein_slider_anatomy). Achieves flawless anatomical accuracy and photorealism.",
+        "loraPath": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "prompt": "photorealistic portrait of a young woman, sharp eyes with detailed irises, natural skin texture with fine pores, soft studio lighting, bokeh background, high detail, ultra sharp focus",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "A masterclass in using quality keywords. This simple, direct prompt consistently produces top-tier photorealistic portraits across multiple seeds.",
+        "loraPath": "none"
+      },
+      {
+        "prompt": "A elegant female ballet dancer in a white tutu and pointe shoes, performing an arabesque pose in a grand theater. Her hair is in a perfect bun, and her makeup is stage-ready. She's gracefully holding a delicate, swan-shaped card with '/u/PirouettePrincess' written in flowing script. The rich red velvet curtains and ornate gold decorations of the theater create a luxurious backdrop.",
+        "score": 9,
+        "pipeline": "flux2-klein",
+        "why": "Excellent example of a detailed, narrative-driven prompt. It describes a complete scene with a clear subject, action, prop, and setting, leading to perfect execution.",
+        "loraPath": "none"
+      },
+      {
+        "prompt": "slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Perfectly combines a LoRA trigger word with a detailed scene description. The specific lighting instruction creates a strong, cinematic mood.",
+        "loraPath": "klein_slider_bodyweight_50.safetensors"
+      },
+      {
+        "prompt": "A stunning young woman in an opulent 18th-century European ballroom, dressed in an elaborate, satin-embroidered gown of gold and floral patterns with lace trim and puffed sleeves, adorned with a jeweled tiara accented by red and blue ribbons, holding a delicate ornate fan in one hand and gently touching her shoulder with the other. Her dark, voluminous curls cascade down her back, her makeup is dramatic and elegant with bold red lips and smoky eye makeup, and she gazes directly at the camera with a poised, regal expression. The setting is a grand, gilded ballroom with high ceilings, ornate frescoes, and multiple crystal chandeliers casting warm, golden light. The background features elegantly dressed figures in period attire, blurred to emphasize the central figure. The floor is covered in a richly patterned Persian rug. The lighting is soft and ambient, creating a luxurious, cinematic atmosphere with a romantic, historical grandeur. The style is hyper-realistic, detailed, and painterly, evoking the elegance of a Baroque or Rococo court.",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Demonstrates how to handle extreme complexity with a structured, descriptive prompt. The explicit style directive is crucial for achieving the desired aesthetic.",
+        "loraPath": "none"
+      }
+    ]
+  }
+}

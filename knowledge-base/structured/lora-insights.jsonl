@@ -1,5 +1,5 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":9.8,"notes":"Highly effective for improving anatomical accuracy, especially when combined with detailed anatomy prompts. Best used at scale 1.0-1.2."}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.6,"notes":"Excellent for enhancing photorealism and texture detail in full-body shots. Works well at scale 0.5-1.0."}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":9.3,"notes":"Boosts detail and sharpness, particularly in close-up and macro shots. Effective at scale 0.5."}
-{"lora":"anything2real_v1_f2k.safetensors","avgScore":9,"notes":"Designed for anime-to-real conversion, but prompt must explicitly request an anime style for best adherence."}
-{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":9,"notes":"Produces high-quality head shots with excellent skin texture, but prompt must be descriptive, not a technical command."}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":9.8,"notes":"Essential for complex poses and anatomical accuracy. Best at scale 1.0-1.2."}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.7,"notes":"Excellent for full-body shots with specific body types. Best at scale 0.5."}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":9.5,"notes":"Boosts detail and sharpness, especially for close-ups and skin texture. Best at scale 0.5."}
+{"lora":"anything2real_v1_f2k.safetensors","avgScore":9,"notes":"Effective for style transfer, but prompt must be very clear about the desired output style."}
+{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":8,"notes":"Produces high-quality heads/faces, but prompt adherence suffers if the prompt is a command."}
