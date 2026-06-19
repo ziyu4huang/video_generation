@@ -14,5 +14,9 @@
   "pipeline": [
     "zimage-turbo"
   ],
-  "source_url": "https://civitai.com/models/667086"
+  "source_url": "https://civitai.com/models/667086",
+  "recommended_steps": 9,
+  "recommended_scale": 0.65,
+  "recommended_scale_nsfw": 1.0,
+  "_scale_note": "scale=0.65 for SFW portraits (style-only enhancement); scale=1.0 for NSFW content (full LoRA activation required). Creator recommends 0.8 as a middle ground."
 }
