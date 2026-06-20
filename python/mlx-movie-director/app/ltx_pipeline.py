@@ -304,6 +304,7 @@ class LTXVideoPipeline:
         audio_path: str | None = None,
         audio_stage1_only: bool = False,
         audio_cfg_scale: float | None = None,
+        modality_scale: float | None = None,
         enable_teacache: bool = False,
         teacache_thresh: float | None = None,
     ) -> dict:
@@ -353,13 +354,13 @@ class LTXVideoPipeline:
             kwargs["audio_path"] = audio_path
         if audio_stage1_only:
             kwargs["audio_stage1_only"] = True
-        if audio_cfg_scale is not None:
+        if audio_cfg_scale is not None or modality_scale is not None:
             from ltx_core_mlx.components.guiders import MultiModalGuiderParams
             kwargs["audio_guider_params"] = MultiModalGuiderParams(
-                cfg_scale=audio_cfg_scale,
+                cfg_scale=audio_cfg_scale if audio_cfg_scale is not None else 7.0,
                 stg_scale=stg_scale,
                 rescale_scale=_GUIDER_RESCALE_SCALE,
-                modality_scale=_GUIDER_MODALITY_SCALE,
+                modality_scale=modality_scale if modality_scale is not None else _GUIDER_MODALITY_SCALE,
                 stg_blocks=_GUIDER_STG_BLOCKS,
             )
         if enable_teacache:

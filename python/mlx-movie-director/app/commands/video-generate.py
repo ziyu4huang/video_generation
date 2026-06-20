@@ -179,6 +179,11 @@ def add_generate_args(parser):
                         help="Audio CFG guidance scale (default: 7.0, upstream hardcoded). "
                              "Try 1.0 to disable audio CFG, 3.0 for less aggressive guidance.")
 
+    parser.add_argument("--audio-modality-scale", type=float, default=None, metavar="SCALE",
+                        dest="audio_modality_scale",
+                        help="Audio cross-modal guidance scale (default: 3.0). "
+                             "Controls audio↔video coupling strength. Higher = stronger audio-video alignment.")
+
     parser.add_argument("--yes", "-y", action="store_true", default=False,
                         help="Skip interactive confirmation prompts (non-interactive / scripting mode)")
 
@@ -597,6 +602,9 @@ def _run_generate_inner(args):
                 print("[video] dasiwa HQ: stage1_steps auto-set to 15 (res_2s sampler)")
         if args.cfg_scale is None:
             args.cfg_scale = 5.0
+        if getattr(args, "audio_modality_scale", None) is None:
+            args.audio_modality_scale = 5.0
+            print("[video] dasiwa: audio_modality_scale=5.0 (A/B-optimum: composite 63.93 vs 62.98 at default 3.0)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
@@ -836,6 +844,7 @@ def _run_single(args, prompt: str) -> None:
                 audio_path=audio_path,
                 audio_stage1_only=getattr(args, "audio_stage1_only", False),
                 audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
+                modality_scale=getattr(args, "audio_modality_scale", None),
                 enable_teacache=getattr(args, "teacache", False),
                 teacache_thresh=getattr(args, "teacache_thresh", None),
             )
@@ -972,6 +981,7 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                     audio_path=args.audio,
                     audio_stage1_only=getattr(args, "audio_stage1_only", False),
                     audio_cfg_scale=getattr(args, "audio_cfg_scale", None),
+                    modality_scale=getattr(args, "audio_modality_scale", None),
                     enable_teacache=getattr(args, "teacache", False),
                     teacache_thresh=getattr(args, "teacache_thresh", None),
                 )

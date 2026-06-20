@@ -53,7 +53,7 @@ const A = isObj(args) ? args : {}
 const objective   = A.objective   || "both"          // "voice" | "quality" | "both"
 const transformer = A.transformer || "dasiwa"        // dev | distilled | dasiwa
 const budget      = Number(A.budget) || 4            // max iterations
-const dryRun      = A.dryRun !== false               // default: dry-run (no GPU)
+const dryRun      = A.dryRun === true                // default: false (run); pass dryRun:true for plan-only
 const resumeMode  = A.resume || "auto"               // auto | fresh | continue
 const margin      = Number(A.margin) || 1.5          // adopt threshold (composite pts)
 const convergeK   = Number(A.convergeK) || 2         // stop after K non-improving iters
@@ -61,23 +61,24 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config (the voice sweet spot proven in prior sweeps).
+// Base config — confirmed best from prior sweeps (cfg=5, --hq, stage1=15, composite=62.98).
 const baseCfg = {
-  stage1: 16, stage2: 3, cfg: 5, frames: 57, fps: 24, seed: 42,
+  stage1: 15, stage2: 3, cfg: 5, frames: 57, fps: 24, seed: 42,
   width: 768, height: 512, lowRam: true, audioVolume: 50,
-  audioCfg: null, audioStage1Only: false,
+  audioCfg: null, audioStage1Only: false, modalityScale: null, hq: true,
   promptFile: A.promptFile || "/tmp/voice-optimized.txt",
   ...A.base,
 }
 
 // Allowed knobs + their discrete value ladders (the proposer picks from these).
 const KNOBS = {
-  stage1_steps:       [8, 16, 20, 30],
+  stage1_steps:       [8, 12, 20, 25],
   stage2_steps:       [1, 3, 5],
   cfg_scale:          [3, 5, 7],
-  audio_cfg_scale:    [null, 3, 5],
+  audio_cfg_scale:    [null, 5, 9],      // 3 is known dead-end (KB: ltx:audio-cfg-scale-3-avoid)
+  modality_scale:     [null, 1.0, 2.0, 5.0],  // audio↔video coupling (3.0=default, null=use default)
   audio_stage1_only:  [false, true],
-  seed:               "int",                       // any int (re-roll)
+  seed:               "int",                   // any int (re-roll)
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: Object.keys(KNOBS) },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","seed"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -153,9 +154,11 @@ function buildGenerateCmd(R, cfg) {
   c += ` --width ${cfg.width} --height ${cfg.height} --frames ${cfg.frames} --fps ${cfg.fps}`
   c += ` --seed ${cfg.seed} --stage1-steps ${cfg.stage1} --stage2-steps ${cfg.stage2}`
   c += ` --cfg-scale ${cfg.cfg} --audio-volume ${cfg.audioVolume}`
-  if (cfg.lowRam)           c += ` --low-ram`
-  if (cfg.audioCfg != null) c += ` --audio-cfg-scale ${cfg.audioCfg}`
-  if (cfg.audioStage1Only)  c += ` --audio-stage1-only`
+  if (cfg.lowRam)                c += ` --low-ram`
+  if (cfg.hq)                    c += ` --hq`
+  if (cfg.audioCfg != null)      c += ` --audio-cfg-scale ${cfg.audioCfg}`
+  if (cfg.modalityScale != null) c += ` --audio-modality-scale ${cfg.modalityScale}`
+  if (cfg.audioStage1Only)       c += ` --audio-stage1-only`
   c += ` --first-frame --json-summary -y`
   return c
 }
@@ -426,12 +429,14 @@ function cfgWith(cfg, knob, val) {
     case "stage2_steps":      c.stage2 = val; break
     case "cfg_scale":         c.cfg = val; break
     case "audio_cfg_scale":   c.audioCfg = val; break
+    case "modality_scale":    c.modalityScale = val; break
     case "audio_stage1_only": c.audioStage1Only = val; break
+    case "hq":                c.hq = val; break
     case "seed":              c.seed = val; break
   }
   return c
 }
-function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/acfg${c.audioCfg}/s1o${c.audioStage1Only}/seed${c.seed}` }
+function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/seed${c.seed}` }
 
 for (let i = 1; i <= budget; i++) {
   // --- Propose one knob change ---
