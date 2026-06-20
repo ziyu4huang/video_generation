@@ -1,5 +1,5 @@
-{"item":"Using technical commands as descriptive prompts (e.g., 'BFS head face swap')"}
-{"item":"Claiming a style the model cannot perfectly replicate (e.g., calling an AI image a 'photograph')"}
-{"item":"Overly long, unstructured stream-of-consciousness prompts"}
-{"item":"Using LoRAs at low scales on incompatible pipelines (e.g., zimage with LoRA @ 0.5 for detail)"}
-{"item":"Ambiguous or conflicting style instructions (e.g., mixing 'photorealistic' and 'painterly')"}
+{"item":"Using technical commands (e.g., 'BFS head face swap') as the entire prompt"}
+{"item":"Specifying a medium (e.g., 'photograph', 'cinematography') that the model cannot perfectly replicate"}
+{"item":"Using LoRAs at very low scales (e.g., 0.5 or lower) where the effect may be absent"}
+{"item":"Overly complex prompts without clear structure or focus"}
+{"item":"Assuming LoRA effect is visible at small image sizes (e.g., 640x960)"}

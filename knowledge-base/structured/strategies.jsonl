@@ -1,5 +1,5 @@
-{"template":"[Trigger Word], [Subject Description], [Detailed Pose/Action], [Specific Lighting], [Texture/Detail Keywords], photorealistic, ultra sharp focus","avgScore":9.8,"sampleCount":10,"bestLora":"klein_slider_anatomy.safetensors"}
-{"template":"A [Subject Description] with [Specific Features], [Lighting Condition], [Style Keywords], high detail, ultra sharp focus","avgScore":9.5,"sampleCount":15,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
-{"template":"[Simple Subject], [Simple Pose], [Clean Background], [Studio Lighting], high quality portrait photography","avgScore":9.4,"sampleCount":8,"bestLora":"none"}
-{"template":"A [Detailed Subject] in an [Elaborate Setting], [Specific Clothing/Accessories], [Detailed Lighting/Atmosphere], hyper-realistic, [Art Style]","avgScore":9,"sampleCount":5,"bestLora":"none"}
-{"template":"photorealistic [Subject] at [Time of Day], [Specific Landscape Features], [Sky Description], ultra sharp, high dynamic range","avgScore":9.2,"sampleCount":4,"bestLora":"none"}
+{"template":"anatomyfix, [detailed pose description], photorealistic, detailed anatomy, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"slider, bodyweight, [detailed scene description], photorealistic, detailed hands and face, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}
+{"template":"ultra-detailed close-up portrait of a woman, natural skin with visible pores and fine texture, [lighting description], photorealistic, sharp focus, high detail","avgScore":9.5,"sampleCount":10,"bestLora":"none"}
+{"template":"[Very long, highly detailed scene description], hyper-realistic, detailed, [style reference]","avgScore":9,"sampleCount":8,"bestLora":"none"}
+{"template":"a young woman, cinematic studio portrait, professional photography, high detail, clean lighting, photorealistic, 8k","avgScore":9,"sampleCount":2,"bestLora":"NSFW_master_ZIT_000017532.safetensors"}
