@@ -647,6 +647,16 @@ def run_profile(args):
             print(f"Multi-ref: ON (reference ×{ref_count})")
 
         ref_strength = getattr(args, "ref_strength", None)
+        # Footgun guard: --ref-strength passes image_strength to mflux, which BREAKS the
+        # distilled Flux2KleinEdit reference pipeline (abstract textures — the image_strength
+        # latent path is txt2img-only; edit pipelines must keep it None). Ignore on flux2-klein
+        # and warn. Real identity-conditioning levers are --ref-count and --chain-ref.
+        # (memory: profile-ref-strength-breaks-flux2-edit)
+        if ref_strength is not None and use_flux2:
+            print(f"WARNING: --ref-strength {ref_strength} is incompatible with the distilled "
+                  f"Flux2KleinEdit pipeline (produces abstract textures); ignoring and using the "
+                  f"calibrated default (None). Use --ref-count / --chain-ref for identity conditioning.")
+            ref_strength = None
 
         # Track generated views by name for cascade reference
         generated_paths: dict[str, str] = {}
