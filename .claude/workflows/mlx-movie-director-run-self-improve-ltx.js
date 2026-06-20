@@ -61,9 +61,10 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best from prior sweeps (cfg=5, --hq, stage1=15, modality=5, composite=63.93).
+// Base config — confirmed best from 2026-06-20 sweep (composite=69.12):
+//   stage1=20, stage2=5, cfg=5, stg=1.5, modality=5, hq=true, seed=42
 const baseCfg = {
-  stage1: 15, stage2: 3, cfg: 5, stg: 1.0, frames: 57, fps: 24, seed: 42,
+  stage1: 20, stage2: 5, cfg: 5, stg: 1.5, frames: 57, fps: 24, seed: 42,
   width: 768, height: 512, lowRam: true, audioVolume: 50,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   promptFile: A.promptFile || "/tmp/voice-optimized.txt",
@@ -72,10 +73,10 @@ const baseCfg = {
 
 // Allowed knobs + their discrete value ladders (the proposer picks from these).
 const KNOBS = {
-  stage1_steps:       [8, 12, 20, 25],
-  stage2_steps:       [1, 3, 5],
+  stage1_steps:       [12, 20, 25],              // 8=too few for HQ; 20=confirmed best; 25=crash risk (KB)
+  stage2_steps:       [1, 3, 5],                 // 5=confirmed best (composite 69.12)
   cfg_scale:          [3, 5, 7],
-  stg_scale:          [0.5, 1.0, 1.5, 2.0],    // STG guidance — never swept; default 1.0
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],    // 1.5=confirmed best; 2.0=dead-end (KB)
   audio_cfg_scale:    [null, 5, 9],              // 3=dead-end (KB); null=7.0 (HQ hardcode)
   modality_scale:     [5.0, 7.0, 10.0],         // 5=confirmed best; 1.0/2.0=dead-ends; null now=5 (CLI default)
   audio_stage1_only:  [false, true],
