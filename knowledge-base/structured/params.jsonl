@@ -1,4 +1,4 @@
-{"pipeline":"zimage","steps":8,"cfgScale":null,"loraScale":0,"denoise":0.4,"avgScore":9,"avgTime":53.3,"avgMemory":7836}
-{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":1,"denoise":0.4,"avgScore":10,"avgTime":5.41,"avgMemory":15857}
-{"pipeline":"zimage","steps":9,"cfgScale":null,"loraScale":0,"denoise":0.4,"avgScore":9,"avgTime":12.3,"avgMemory":7838}
-{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":0,"denoise":0.4,"avgScore":9,"avgTime":35.5,"avgMemory":16834}
+{"pipeline":"zimage","steps":8,"cfgScale":null,"loraScale":1,"denoiseStrength":0.4,"size":"1024x1536","avgTime":48.5,"avgMemory":7837,"avgScore":9}
+{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.8}
+{"pipeline":"zimage","steps":9,"cfgScale":null,"loraScale":1}
+{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":1}
