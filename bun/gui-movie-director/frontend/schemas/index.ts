@@ -25,6 +25,7 @@ export const VIDEO_RESTORE_SCHEMA = SCHEMA_MAP["video-restore"];
 // Transform
 export const I2I_SCHEMA = SCHEMA_MAP["i2i"];
 export const IMAGE_RESTORE_SCHEMA = SCHEMA_MAP["restore"];
+export const PURIFY_SCHEMA = SCHEMA_MAP["purify"];
 export const ANIME2REAL_SCHEMA = SCHEMA_MAP["anime2real"];
 export const EXPANSION_SCHEMA = SCHEMA_MAP["expansion"];
 

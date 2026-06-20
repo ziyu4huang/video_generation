@@ -45,7 +45,7 @@ export async function handleListLoras(req: Request): Promise<Response> {
     return Response.json([]);
   }
 
-  const lorals: LoraInfo[] = [];
+  const loras: LoraInfo[] = [];
   const entries = fs.readdirSync(loraDir, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -55,7 +55,7 @@ export async function handleListLoras(req: Request): Promise<Response> {
       try {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf-8"));
         const loraPath = path.join(loraDir, entry.name);
-        lorals.push({
+        loras.push({
           name: manifest.name || entry.name,
           path: loraPath,
           description: manifest.description,
@@ -77,12 +77,12 @@ export async function handleListLoras(req: Request): Promise<Response> {
           converted_from: manifest.converted_from,
         });
       } catch {
-        lorals.push({ name: entry.name, path: path.join(loraDir, entry.name) });
+        loras.push({ name: entry.name, path: path.join(loraDir, entry.name) });
       }
     }
   }
 
-  return Response.json(lorals);
+  return Response.json(loras);
 }
 
 export async function handleListVaes(req: Request): Promise<Response> {
