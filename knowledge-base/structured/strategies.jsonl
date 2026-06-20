@@ -1,5 +1,5 @@
-{"template":"[Subject] in [specific setting], wearing [detailed clothing], [specific pose/action], [lighting conditions], [camera/lens specs], [quality modifiers]","avgScore":9.5,"sampleCount":12,"bestLora":"none"}
-{"template":"[Trigger word], [pose description], [visible joint/finger details], [anatomical alignment], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors"}
-{"template":"[Subject] in [elaborate setting], [detailed clothing/accessories], [lighting/atmosphere], [background elements], [style reference]","avgScore":9.2,"sampleCount":8,"bestLora":"none"}
-{"template":"[Simple subject], [quality descriptors], [lighting], [style]","avgScore":9,"sampleCount":7,"bestLora":"none"}
-{"template":"[Trigger word], [detailed scene], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}
+{"template":"anatomyfix, [pose description], [specific body parts with visible details], photorealistic, detailed anatomy, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors @ 1.2"}
+{"template":"slider, bodyweight, [detailed scene description], [specific lighting], photorealistic, detailed [body parts], ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors @ 0.5"}
+{"template":"ultra-detailed close-up portrait of a [subject], natural skin with visible pores and fine texture, [lighting], photorealistic, sharp focus, high detail, [specific features]","avgScore":9.2,"sampleCount":12,"bestLora":"none"}
+{"template":"[narrative scene with specific props and text], [detailed setting], [atmospheric details], [style specification]","avgScore":9,"sampleCount":8,"bestLora":"none"}
+{"template":"[subject description], [camera/lens specs], [lighting setup], [photography style], high detail, ultra sharp focus","avgScore":9,"sampleCount":6,"bestLora":"none"}
