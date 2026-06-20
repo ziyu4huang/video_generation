@@ -27,7 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Image/video generation runs via **MLX on Apple Silicon**, surfaced through a **Bun + React GUI**:
 
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, all native MLX). The only generation runtime.
-- **Bun GUI** — `bun/gui-movie-director` (`bun run dev` → http://localhost:3099). Spawns `run.py`; never touches ComfyUI.
+- **Bun GUI** — `bun/gui-movie-director` (`bun run dev`; port is per-worktree — discover with `bun run gui:port`). Spawns `run.py`; never touches ComfyUI.
 
 ## Python — Choose the Right Venv
 
@@ -52,8 +52,8 @@ section. `scripts/install_stubs.sh` is part of that abandoned path.)
 ## Startup
 
 ```bash
-cd bun/gui-movie-director && bun run dev   # ACTIVE — GUI on http://localhost:3099
-lsof -ti :3099 | xargs kill -9             # kill if port stuck
+cd bun/gui-movie-director && bun run dev   # ACTIVE — GUI (port is per-worktree, see below)
+bun run gui:port                           # this worktree's url (--all lists every server)
 ```
 
 `./run.sh` (the ComfyUI server on `:8188`) was **removed 2026-06-21** — it was pure ComfyUI;
@@ -114,11 +114,16 @@ Output: `<image>.caption.json`. Requires LM Studio running locally.
 ## Bun GUI Server
 
 ```bash
-cd bun/gui-movie-director && bun run dev    # hot reload on http://localhost:3099
-lsof -ti :3099 | xargs kill -9             # kill if port stuck
+cd bun/gui-movie-director && bun run dev    # hot reload (port is per-worktree)
+bun run gui:port                            # this worktree's url; --all lists every server
 ```
 
 **Do NOT use `bun run start`** — no file watching. Use `bun run dev:watch` only if hot reload breaks.
+
+**Port is per-worktree** (concurrent dev): the primary worktree (real `.git`) uses **3099**;
+each linked worktree derives a stable port from its path (`lib/worktree.ts`). Don't assume
+3099 — run `bun run gui:port` for yours. Kill a stuck server by its discovered port
+(`lsof -ti :<port> | xargs kill -9`).
 
 ## Testing
 

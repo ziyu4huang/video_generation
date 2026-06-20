@@ -1,11 +1,12 @@
 import { Window } from "happy-dom";
 import { beforeEach, afterEach } from "bun:test";
+import { resolveDefaultPort } from "./lib/worktree";
 
 // Set up a fresh DOM environment before each test
 let window: Window;
 
 beforeEach(() => {
-  window = new Window({ url: "http://localhost:3099" });
+  window = new Window({ url: `http://localhost:${resolveDefaultPort()}` });
   // @ts-ignore
   globalThis.window = window;
   // @ts-ignore
