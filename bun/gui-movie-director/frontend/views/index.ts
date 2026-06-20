@@ -11,6 +11,7 @@ import { videoQualityDescriptor } from "./workflow/VideoQualityView";
 import { videoVbvrDescriptor } from "./workflow/VideoVbvrView";
 import { i2iDescriptor } from "./transform/I2iView";
 import { imageRestoreDescriptor } from "./transform/ImageRestoreView";
+import { purifyDescriptor } from "./transform/PurifyView";
 import { anime2realDescriptor } from "./transform/Anime2realView";
 import { expansionDescriptor } from "./transform/ExpansionView";
 import { faceswapDescriptor } from "./edit/FaceswapView";
@@ -34,6 +35,7 @@ export const VIEWS: ViewDescriptor[] = [
   videoVbvrDescriptor,
   i2iDescriptor,
   imageRestoreDescriptor,
+  purifyDescriptor,
   anime2realDescriptor,
   expansionDescriptor,
   faceswapDescriptor,
