@@ -1,8 +1,10 @@
 import fs from "fs";
 import path from "path";
-import { OUTPUT_DIRS } from "../lib/paths";
+import { OUTPUT_DIRS, RUN_PY } from "../lib/paths";
+import { loadConfig, vlmModelIsAuto } from "../lib/config";
 import { readJsonFile } from "../lib/fsUtils";
 import { normalizeCaptionFile } from "../lib/captionFormat";
+import { parsePostJson } from "../lib/requestUtils";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 
@@ -373,4 +375,65 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   }
 
   return Response.json({ ok: failed.length === 0, deleted, failed });
+}
+
+/**
+ * Batch-caption gallery images that lack a .caption.json — the orphan gap.
+ * Unlike /api/knowledge/caption-missing (which scans ONLY run.json-backed T2I
+ * records for DeepSeek analysis), this covers EVERY gallery image including
+ * test/self-test/comparison outputs that have no run.json (cnet_*, i2i_selftest_*,
+ * lora-review-*, profile subfolders). Style is "score" (view-agnostic, no prompt
+ * needed) so orphans get a quality bar + become searchable. Reuses scanRawEntries
+ * (orphan + profile-subfolder aware) + findCompanionJson (same companion resolver
+ * the gallery READS with).
+ */
+export async function handleGalleryCaptionMissing(req: Request): Promise<Response> {
+  const body = await parsePostJson<{ limit?: number }>(req);
+  if (body instanceof Response) return body;
+
+  const cfg = loadConfig();
+  const { entries } = scanRawEntries();
+  const missing = entries.filter(
+    (e) => !findCompanionJson(e.dir, e.base, ".caption.json"),
+  );
+  // Default batch when no limit: 50 (each Gemma score call is ~10-30s, so 50 ≈
+  // 10-25 min — a no-limit call against a large backlog would hang for hours).
+  // `missing` always reports the FULL backlog so the caller knows to page.
+  const batch = missing.slice(0, body.limit ?? 50);
+
+  let generated = 0;
+  let failed = 0;
+  const logs: string[] = [];
+
+  for (let i = 0; i < batch.length; i++) {
+    const e = batch[i];
+    logs.push(`[${i + 1}/${batch.length}] ${e.name}`);
+    const args = [
+      cfg.pythonPath, RUN_PY, "caption", e.fullPath,
+      "--style", "score", "--api-url", cfg.vlmApiUrl, "--lang", "en",
+    ];
+    if (!vlmModelIsAuto(cfg.vlmModel)) args.push("--model", cfg.vlmModel);
+    try {
+      const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe", env: { ...process.env } });
+      const stdoutP = new Response(proc.stdout).text();
+      const stderrP = new Response(proc.stderr).text();
+      const code = await proc.exited;
+      await stdoutP;
+      const stderr = await stderrP;
+      if (code === 0) generated++;
+      else { failed++; console.error(`[gallery] caption failed for ${e.name}:`, stderr.slice(0, 300)); }
+    } catch (err: any) {
+      failed++;
+      console.error(`[gallery] caption error for ${e.name}:`, err.message);
+    }
+  }
+
+  return Response.json({
+    ok: true,
+    total: entries.length,
+    missing: missing.length,
+    generated,
+    failed,
+    logs: logs.slice(-30),
+  });
 }

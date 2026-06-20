@@ -5,7 +5,7 @@ import type { GalleryTypeFilter } from "../../components/Gallery";
 import { ImagePreview } from "../../components/ImagePreview";
 import type { GalleryImage } from "../../types";
 import { toast } from "../../utils/toast";
-import { deleteGalleryItem } from "../../api/gallery";
+import { deleteGalleryItem, captionMissingGallery } from "../../api/gallery";
 import { useWebSocketEvents } from "../../hooks/ui/useWebSocketEvents";
 
 interface GalleryViewProps {
@@ -19,6 +19,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   const [allImages, setAllImages] = useState<GalleryImage[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<GalleryTypeFilter>("all");
+  const [captioning, setCaptioning] = useState(false);
 
   const refreshTimer = useRef<number | null>(null);
   const highlightConsumedRef = useRef(false);
@@ -104,15 +105,54 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     }
   }, [highlight, handleImageClick, onHighlightConsumed]);
 
+  // Batch-caption gallery images that have no .caption.json yet — covers orphans
+  // (test/self-test/comparison outputs with no run.json) that the knowledge
+  // caption-missing skips. Gives them a score bar + makes them searchable.
+  const handleCaptionMissing = useCallback(async () => {
+    if (captioning) return;
+    setCaptioning(true);
+    try {
+      // Batch 20/click (each Gemma score call ≈ 10-30s → ~5-10 min/click). The
+      // response reports the FULL backlog (r.missing), so the toast says how much
+      // remains; click again to chip away. No client-side timeout on apiFetch.
+      const r = await captionMissingGallery(20);
+      if (r.missing === 0) {
+        toast.info("No missing captions — all gallery images already captioned");
+      } else {
+        const remaining = Math.max(0, r.missing - r.generated);
+        const base = `Captioned ${r.generated}${r.failed ? ` (${r.failed} failed)` : ""}`;
+        toast.success(remaining > 0 ? `${base} — ${remaining} still missing, click again for more` : base);
+      }
+      setRefreshKey((k) => k + 1);  // refresh so new captions/score bars render
+    } catch (err: any) {
+      toast.error(`Caption failed: ${err?.message || err}`);
+    } finally {
+      setCaptioning(false);
+    }
+  }, [captioning]);
+
   return (
     <>
-      <GallerySearchBar
-        query={searchQuery}
-        onQueryChange={setSearchQuery}
-        typeFilter={typeFilter}
-        onTypeFilterChange={setTypeFilter}
-        resultCount={searchQuery ? allImages.length : null}
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <GallerySearchBar
+            query={searchQuery}
+            onQueryChange={setSearchQuery}
+            typeFilter={typeFilter}
+            onTypeFilterChange={setTypeFilter}
+            resultCount={searchQuery ? allImages.length : null}
+          />
+        </div>
+        <button
+          className="btn btn-secondary"
+          onClick={handleCaptionMissing}
+          disabled={captioning}
+          title="Caption gallery images that have no VLM caption yet (orphan test/self-test outputs)"
+          style={{ whiteSpace: "nowrap" }}
+        >
+          {captioning ? "⏳ Captioning…" : "✨ Caption Missing"}
+        </button>
+      </div>
       <Gallery
         key={refreshKey}
         onImageClick={handleImageClick}

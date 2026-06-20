@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { FRONTEND_DIR } from "../lib/paths";
 import { buildFrontendBundle, rebuildFrontendBundle, serveBundleJs, serveBundleCss } from "./bundle";
-import { handleGallery, handleGalleryImage, handleGallerySearch, handleGalleryDelete } from "./gallery";
+import { handleGallery, handleGalleryImage, handleGallerySearch, handleGalleryDelete, handleGalleryCaptionMissing } from "./gallery";
 import { handleRunJob, handleListJobs, handleGetJob, handleGetLastJob, handleDeleteJob, handleClearJobs } from "./jobs";
 import { handleReplayJob } from "./replay";
 import { handleUpload } from "./upload";
@@ -125,6 +125,9 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   }
   if (pathname === "/api/gallery" && method === "DELETE") {
     return handleGalleryDelete(req);
+  }
+  if (pathname === "/api/gallery/caption-missing" && method === "POST") {
+    return handleGalleryCaptionMissing(req);
   }
 
   // Jobs
