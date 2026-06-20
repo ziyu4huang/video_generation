@@ -59,7 +59,11 @@ export async function handleKnowledgeAnalyze(req: Request): Promise<Response> {
     return Response.json({ ok: true, report });
   } catch (err: any) {
     console.error("[knowledge] analyze error:", err);
-    return Response.json({ ok: false, error: err.message ?? "Analysis failed" }, { status: 500 });
+    const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
+    return Response.json(
+      { ok: false, error: isTimeout ? "DeepSeek request timed out (>90s)" : err.message ?? "Analysis failed" },
+      { status: isTimeout ? 504 : 500 },
+    );
   }
 }
 

@@ -1223,6 +1223,16 @@ let uxResult     = null
 const TOTAL_LANES = LANES.length
 let laneIdx = 0
 
+// Resolve review-optimize by scriptPath, NOT by name. The nested workflow(name)
+// call resolves from a registry that can serve a STALE cached parse of the
+// script — so edits to review-optimize.js (W3 USAGE_AWARE dimension prompts,
+// W4 consolidated low-effort verify gate) silently did NOT take effect in
+// routine scans. Validated 2026-06-20: the same 5 files at effort:low produced
+// 10 findings / ~5 FP via the name-call (stale, pre-W3/W4) but 2 findings / 0
+// FP via scriptPath (current file, gate ran). scriptPath always reads the file
+// on disk. (See memory: workflow-name-caches-stale-script.)
+const REVIEW_OPTIMIZE = { scriptPath: `${PROJECT_ROOT}/.claude/workflows/gui-movie-director-review-optimize.js` }
+
 // Review + schema can run in parallel when fix is disabled — both are purely
 // read-only in that mode (no git-stash, no file edits). When fix:true, run
 // sequentially: review-optimize uses git-stash which would collide with
@@ -1230,7 +1240,7 @@ let laneIdx = 0
 if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
   log(`▸ Lanes 1-2/${TOTAL_LANES}: review + schema in parallel (review-only — safe to fan out)`)
   const [rr, sr] = await parallel([
-    () => workflow("gui-movie-director-review-optimize", {
+    () => workflow(REVIEW_OPTIMIZE, {
       effort: EFFORT, fix: false, resume: RESUME,
       ...(FOCUS ? { focus: FOCUS } : {}),
       ...(FILES ? { files: FILES } : {}),
@@ -1251,7 +1261,7 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
   if (DO_REVIEW) {
     log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: structural code review (gui-movie-director-review-optimize)`)
     try {
-      reviewResult = await workflow("gui-movie-director-review-optimize", {
+      reviewResult = await workflow(REVIEW_OPTIMIZE, {
         effort: EFFORT, fix: fixEnabled, resume: RESUME,
         ...(FOCUS ? { focus: FOCUS } : {}),
         ...(FILES ? { files: FILES } : {}),

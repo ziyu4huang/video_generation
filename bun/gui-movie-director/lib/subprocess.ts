@@ -260,15 +260,24 @@ export class SubprocessManager {
     try {
       process.kill(job.pid, "SIGTERM");
       job.logs.push({ text: "[cancelled by user]", stream: "stdout" });
-      const finalize = this.finalizers.get(id);
-      if (finalize) {
-        finalize("failed", -1);
-      } else {
-        job.status = "failed";
-        job.exitCode = -1;
-        job.completedAt = new Date().toISOString();
-        this.broadcastStatus(job);
-      }
+      // Do NOT finalize synchronously. The proc.exited → drain → finalize path
+      // above will finalize as 'failed' once the process exits and its
+      // stdout/stderr finish draining, so trailing log lines get persisted too.
+      // Finalizing here would trip the `finalized` guard and turn that drain
+      // path into a no-op, dropping late output from the persisted jobs.json.
+      // Fallback: if the child ignores SIGTERM and is still running after 5s,
+      // ESCALATE to SIGKILL instead of finalizing directly. A direct finalize
+      // here would race the still-draining stdout/stderr streams — it persists
+      // status before trailing output lands (broadcastLog doesn't trigger a
+      // persist), dropping the tail. SIGKILL forces the process to exit, so the
+      // normal proc.exited → drain → finalize path runs end-to-end and the
+      // drain-before-finalize invariant holds. (Finalized-guard above makes a
+      // later SIGKILL-triggered finalize the only one that sticks.)
+      setTimeout(() => {
+        const j = this.jobs.get(id);
+        if (!j || j.status !== "running") return;
+        try { process.kill(job.pid, "SIGKILL"); } catch { /* already gone */ }
+      }, 5000);
       return true;
     } catch {
       return false;

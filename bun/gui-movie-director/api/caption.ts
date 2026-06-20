@@ -146,10 +146,14 @@ export async function handleCaptionGet(req: Request): Promise<Response> {
     return Response.json({ ok: false, error: "Missing 'image' or 'url' query param" }, { status: 400 });
   }
 
-  if (!isPathAllowed(imagePath)) {
-    return Response.json({ ok: false, error: "Image path outside allowed directories" }, { status: 403 });
-  }
   const resolvedImage = path.resolve(imagePath);
+  // Strict OUTPUT_DIRS containment (matches handleCaptionRun line 54) — NOT the
+  // broad isPathAllowed, which also permits REPO_DIR. A crafted
+  // ?url=/output/0/../<path> would resolve into the repo and pass the broad
+  // check, letting this handler read <base>.caption.json anywhere under REPO_DIR.
+  if (!OUTPUT_DIRS.some((d) => resolvedImage.startsWith(d + path.sep) || resolvedImage === d)) {
+    return Response.json({ ok: false, error: "Image path outside output directories" }, { status: 403 });
+  }
 
   // Derive caption path: image.png → image.caption.json
   const base = resolvedImage.replace(/\.[^.]+$/, "");
