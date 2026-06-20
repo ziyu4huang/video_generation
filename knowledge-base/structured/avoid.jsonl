@@ -1,3 +1,8 @@
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap') - results in prompt_adherence=5"}
+{"item":"Overly generic prompts with no specific detail anchors - results in detail=8 vs 9-10"}
+{"item":"Contradictory style references (e.g., 'photograph' when output is clearly AI-generated render)"}
+{"item":"Excessive LoRA scale above 0.8 without testing - diminishing returns with higher memory usage"}
+{"item":"Very short prompts with fewer than 3 specific descriptors - consistently lower detail scores"}
 {"item":"Using technical commands as prompts (e.g., 'BFS head face swap')"}
 {"item":"Specifying a style (e.g., 'photograph') that the model cannot perfectly replicate"}
 {"item":"Using LoRA at very high scales (1.0+) without testing lower scales first"}
