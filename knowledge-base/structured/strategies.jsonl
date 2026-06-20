@@ -1,3 +1,8 @@
+{"template":"[Subject] + [Action/Pose] + [Setting/Background] + [Lighting] + [Quality Modifiers]","avgScore":9.5,"sampleCount":10,"bestLora":"none"}
+{"template":"[Trigger Word/LoRA] + [Detailed Subject] + [Lighting] + [Quality Modifiers]","avgScore":9.8,"sampleCount":8,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"[Subject] + [Specific Detail 1] + [Specific Detail 2] + ... + [Quality Modifiers]","avgScore":9.3,"sampleCount":15,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
+{"template":"Hyper-specific narrative prompt with technical photography terms","avgScore":9,"sampleCount":5,"bestLora":"none"}
+{"template":"Simple, unambiguous 'photographer's brief' prompt","avgScore":9.5,"sampleCount":6,"bestLora":"none"}
 {"template":"[Trigger Word], [Subject Description with Anatomical Detail], [Scene/Setting], [Lighting], [Style Keywords: photorealistic, ultra sharp focus, high detail]","avgScore":9.8,"sampleCount":10,"bestLora":"klein_slider_anatomy.safetensors"}
 {"template":"[Subject with Distinctive Features], [Lighting Style], [Quality Target: photorealistic, 8k uhd]","avgScore":9.5,"sampleCount":5,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
 {"template":"[Simple Subject], [Simple Pose], [Simple Background], [Studio Lighting], [Photography Style]","avgScore":9.3,"sampleCount":8,"bestLora":"none"}

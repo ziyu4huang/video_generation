@@ -1,3 +1,8 @@
+{"item":"Vague or overly simple prompts (e.g., 'a beautiful woman, photorealistic portrait')"}
+{"item":"Technical commands as the entire prompt (e.g., 'BFS head face swap')"}
+{"item":"Style mismatch between prompt and generated image (e.g., asking for a 'photograph' but getting an AI render)"}
+{"item":"Overly long, narrative prompts that may distract from key visual elements"}
+{"item":"Using LoRAs at ineffective scales (too low weight or for wrong task)"}
 {"item":"Using technical commands as prompts (e.g., 'BFS head face swap') - leads to prompt adherence failure."}
 {"item":"Specifying a style the model cannot perfectly replicate (e.g., 'photograph' or 'cinematography' for a 4-step generation) - causes style mismatch and low adherence scores."}
 {"item":"Overly complex or contradictory instructions in a single prompt - can confuse the model."}
