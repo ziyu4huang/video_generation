@@ -41,7 +41,6 @@ export function scoreColor(val: number): string {
 
 export function CaptionScoreBar({ scores, issues, strengths, captured, missed, summary }: CaptionScoreBarProps) {
   const [expanded, setExpanded] = useState(false);
-  const avg = SCORE_KEYS.reduce((sum, k) => sum + ((scores[k.key] as number) || 0), 0) / SCORE_KEYS.length;
 
   return (
     <div style={{ marginTop: 8 }}>

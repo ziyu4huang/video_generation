@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import { loadConfig, REPO_DIR } from "../lib/config";
 import { RUN_PY, MLX_OUTPUT_DIR, OUTPUT_DIRS } from "../lib/paths";
 import { readJsonFile, findLatestReportUrl } from "../lib/fsUtils";
 import { subprocessManager } from "../lib/subprocess";

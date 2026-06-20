@@ -4,16 +4,16 @@ import s from "./JsonViewer.module.css";
 
 // Recursive JSON value renderer with collapsible objects/arrays
 
-function isUrl(s: string): boolean {
-  return s.startsWith("http://") || s.startsWith("https://");
+function isUrl(str: string): boolean {
+  return str.startsWith("http://") || str.startsWith("https://");
 }
 
-function isPath(s: string): boolean {
-  return s.startsWith("/") || s.startsWith("~/") || /^[A-Za-z]:\\/.test(s);
+function isPath(str: string): boolean {
+  return str.startsWith("/") || str.startsWith("~/") || /^[A-Za-z]:\\/.test(str);
 }
 
-function isLong(s: string): boolean {
-  return s.length > 120;
+function isLong(str: string): boolean {
+  return str.length > 120;
 }
 
 // Check if key name suggests a byte size field

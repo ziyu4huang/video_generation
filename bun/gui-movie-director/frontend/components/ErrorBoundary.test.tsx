@@ -1,4 +1,4 @@
-import { describe, it, expect, jest } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { render, cleanup } from "@testing-library/react";
 import React from "react";
 import { ErrorBoundary } from "./ErrorBoundary";

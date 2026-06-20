@@ -1,5 +1,5 @@
 import type { Server, ServerWebSocket } from "bun";
-import { subprocessManager, type Job } from "../lib/subprocess";
+import { subprocessManager } from "../lib/subprocess";
 
 interface WsData {
   subscribedJobId: string | null;

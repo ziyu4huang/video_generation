@@ -1,4 +1,4 @@
-import { COMMAND_SCHEMAS, type CommandSchema, type FieldSchema } from "./schemas";
+import { COMMAND_SCHEMAS } from "./schemas";
 import { UPLOAD_DIR, OUTPUT_DIRS, isPathAllowed } from "./paths";
 
 const PATH_ALLOWED_DIRS = [UPLOAD_DIR, ...OUTPUT_DIRS];

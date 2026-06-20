@@ -25,7 +25,7 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
   const captionScores = img.caption ? parseCaptionScores(img.caption.caption) : null;
   const avgScore = captionScores
     ? ["overall", "detail", "sharpness", "composition", "prompt_adherence", "artifacts"]
-        .reduce((s, k) => s + ((captionScores[k] as number) || 0), 0) / 6
+        .reduce((sum, k) => sum + ((captionScores[k] as number) || 0), 0) / 6
     : null;
 
   const handleVideoEnter = () => {

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { GalleryCard } from "./GalleryCard";
 import { ImagePreview } from "./ImagePreview";
-import { ReviewButton } from "./ReviewButton";
 import type { GalleryImage, JobInfo } from "../types";
 import { toast } from "../utils/toast";
 import { fetchGallery, } from "../api/gallery";

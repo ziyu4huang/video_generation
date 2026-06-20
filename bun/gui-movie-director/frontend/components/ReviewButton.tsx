@@ -18,7 +18,6 @@ interface ReviewButtonProps {
  */
 export function ReviewButton({ imagePath, prompt, existingCaption }: ReviewButtonProps) {
   const [running, setRunning] = useState(false);
-  const [style, setStyle] = useState<"score" | "review">("score");
   const [showDropdown, setShowDropdown] = useState(false);
   const [result, setResult] = useState<Record<string, any> | null>(existingCaption ?? null);
   const [error, setError] = useState<string | null>(null);

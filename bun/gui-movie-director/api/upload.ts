@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { UPLOAD_DIR, OUTPUT_DIR } from "../lib/paths";
+import { UPLOAD_DIR } from "../lib/paths";
 
 // Verify the uploaded file's actual bytes match its claimed extension.
 // Defense-in-depth against polyglot / HTML / SVG payloads disguised as images
