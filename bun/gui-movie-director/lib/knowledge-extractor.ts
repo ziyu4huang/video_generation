@@ -364,6 +364,10 @@ export async function callDeepSeek(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
+    // Bound the request: callDeepSeek runs ON the HTTP request path and a hung
+    // DeepSeek API would stall this request indefinitely. 90s matches the
+    // max_tokens:8192 completion budget; the caller maps a timeout to a 504.
+    signal: AbortSignal.timeout(90_000),
     body: JSON.stringify({
       model,
       messages: [
