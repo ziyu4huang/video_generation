@@ -2,6 +2,28 @@
 
 All model weights and configs for mlx-movie-director live here, organized by component type.
 
+## Weight storage (externalized — weights are NOT in the repo)
+
+The `.safetensors` entries under `models/` are **symlinks**, not real weight
+files. Real weights live in a content-addressed store outside the repo:
+
+- **Store:** `../video_generation__models/<md5>.safetensors` (~135 GB, shared
+  across sibling worktrees with zero copy). Never committed.
+- **In-tree:** model dirs hold symlinks into the store (or into category dirs
+  under `models/`), so `mflux` / `ltx-2-mlx` loaders resolve them by relative
+  path.
+- `*.safetensors` is ignored in `python/.gitignore` as a safety net so real
+  weights can never be accidentally committed. To track a symlink that *must*
+  be checked in, force-add it (`git add -f path/to/model.safetensors`); it is
+  stored as a tiny mode-120000 symlink (the path string), never the weight
+  bytes. `gitignore` does not untrack already-tracked files.
+- Flat assembly dirs `ltx-mlx/{dev,distilled}` are build artifacts (ignored
+  via `ltx-mlx/.gitignore`); recreate them locally from the store.
+
+> The layout / validation sections below describe the *logical* model catalog
+> (manifests + READMEs, which ARE committed). Weight files referenced there
+> are the externalized symlinks above.
+
 ## Layout
 
 ```

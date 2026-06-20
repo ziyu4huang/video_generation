@@ -1,6 +1,13 @@
 venv
 */output/
 
+# Large model weight files — externalized to the content-addressed store
+# (../video_generation__models/<md5>.safetensors). In-tree model dirs hold
+# symlinks into that store; real weights are reproducible (convert.py /
+# download) and must never be committed. Symlinks that must be tracked are
+# force-added (`git add -f`); gitignore does not untrack already-tracked files.
+*.safetensors
+
 # Slow tokenizer fallback (not needed at runtime)
 **/models/tokenizer/merges.txt
 **/models/tokenizer/vocab.json
