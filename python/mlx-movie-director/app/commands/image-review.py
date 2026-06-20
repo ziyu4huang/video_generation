@@ -6368,7 +6368,11 @@ def run_review_lora(args):
     width = getattr(args, "width", None) or tp["width"]
     height = getattr(args, "height", None) or tp["height"]
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
-    lora_scale = (getattr(args, "lora_scale", None) or 1.0) or test_cfg.get("lora_scale", 1.0)
+    # --lora-scale registers with action=append (multi-LoRA) → args.lora_scale is a
+    # Python list [0.7]. Unwrap to scalar at the boundary (matches e8e4456's pattern in
+    # image-profile/expansion/workflow), else apply_lora's `scale * scale_factor` crashes
+    # with "can't multiply sequence by non-int of type 'float'."
+    lora_scale = (getattr(args, "lora_scale", None) or [test_cfg.get("lora_scale", 1.0)])[0]
 
     # Seeds: CLI --seeds overrides config
     seeds_arg = getattr(args, "seeds", None)
@@ -6964,7 +6968,11 @@ def _run_lora_sweep(args, test_name: str, test_cfg: dict):
     from app.commands._shared import resolve_lora_path
 
     pipeline_type = test_cfg.get("pipeline", "zimage")
-    lora_scale = (getattr(args, "lora_scale", None) or 1.0) or test_cfg.get("lora_scale", 1.0)
+    # --lora-scale registers with action=append (multi-LoRA) → args.lora_scale is a
+    # Python list [0.7]. Unwrap to scalar at the boundary (matches e8e4456's pattern in
+    # image-profile/expansion/workflow), else apply_lora's `scale * scale_factor` crashes
+    # with "can't multiply sequence by non-int of type 'float'."
+    lora_scale = (getattr(args, "lora_scale", None) or [test_cfg.get("lora_scale", 1.0)])[0]
     steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
     seeds = test_cfg.get("seeds", [42, 777])
     prompt_names = test_cfg.get("test_prompts", [])

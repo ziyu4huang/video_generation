@@ -1059,6 +1059,39 @@ Return JSON:
 }
 markPhase("generate", "completed")
 
+// ── Byte-identical output guard ──────────────────────────────────────────────
+// Catches misconfigured A/B comparisons where two variants produce byte-identical
+// PNGs — e.g. a VAE/LoRA arm that silently resolves to the SAME model as the baseline
+// (the vae:ultraflux "default-vs-ultraflux" no-op hit 2026-06-20: both arms were
+// ultraflux because the app default VAE was already ultraflux). Without this guard the
+// A/B captions a tie that is really a config error, wasting GPU + masking the bug.
+// Only fires when ≥2 PNGs exist (multi-spec / A/B); a single-image self-test is skipped.
+const _guardPngs = genResults.flatMap((g, spec) =>
+  (g?.outputPngs || []).map((path, png) => ({ spec, png, path }))
+).map((o, idx) => ({ ...o, idx }))
+if (_guardPngs.length >= 2) {
+  const dup = await agent(
+    `Compute the md5 digest of each listed PNG and report byte-identical pairs.
+This is macOS (darwin) — use:  md5 -q "<path>"   (one hash per line, in order).
+Files (by index):
+${_guardPngs.map((o) => `${o.idx}: ${o.path}`).join("\n")}
+Compare the digests pairwise. Return the index pairs [i, j] (i < j) whose digests are
+EQUAL. Empty array if every file is byte-distinct.`,
+    { label: "dup-output-guard", phase: "Generate", model: "haiku",
+      schema: { type: "object",
+        properties: { identicalPairs: { type: "array", items: { type: "array", items: { type: "number" } } } },
+        required: ["identicalPairs"] } },
+  )
+  const pairs = Array.isArray(dup?.identicalPairs) ? dup.identicalPairs : []
+  if (pairs.length > 0) {
+    const desc = pairs.map(([i, j]) => `${_guardPngs[i]?.path} ≡ ${_guardPngs[j]?.path}`).join("; ")
+    log(`WARNING — byte-identical outputs: A/B arms are the SAME image (no-op comparison). ` +
+        `A variant likely resolved to the same model/VAE/seed as another. Fix the variant config before trusting this A/B. Pairs: ${desc}`)
+  } else {
+    log(`Output guard: all ${_guardPngs.length} PNG(s) byte-distinct.`)
+  }
+}
+
 // ── Phase 3: VLM pre-flight check ────────────────────────────────────────────
 
 phase("VLM Check")
