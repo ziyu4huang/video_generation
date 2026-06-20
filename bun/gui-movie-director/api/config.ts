@@ -12,8 +12,24 @@ function validatePythonPath(binPath: string): boolean {
     const resolved = path.resolve(binPath);
     const stat = fs.statSync(resolved);
     if (!stat.isFile()) return false;
-    // Must be under REPO_DIR or a known venv
-    if (!resolved.startsWith(REPO_DIR) && !resolved.includes("/.venv/") && !resolved.includes("/venv/")) return false;
+
+    // Security: Path containment must anchor on startsWith(root+path.sep) against an
+    // explicit allowlist of real roots. Known venv directories are enumerated below;
+    // we do NOT accept arbitrary paths containing "/.venv/" or "/venv/" substrings.
+    const allowedRoots = [
+      REPO_DIR,
+      path.resolve(REPO_DIR, "python", "venv"),      // mlx-movie-director venv (default)
+      path.resolve(REPO_DIR, "ComfyUI", ".venv"),     // ComfyUI venv (if exists)
+    ];
+
+    // Normalize the resolved path with trailing separator for robust prefix matching
+    const normalized = resolved + path.sep;
+    const isAllowed = allowedRoots.some(root => {
+      const rootNormalized = root + path.sep;
+      return normalized.startsWith(rootNormalized);
+    });
+
+    if (!isAllowed) return false;
     return true;
   } catch {
     return false;
@@ -90,10 +106,13 @@ export async function handleVerifyPython(req: Request): Promise<Response> {
       return Response.json({ ok: true, version });
     } else {
       const err = new TextDecoder().decode(proc.stderr).trim();
-      const short = err.split("\n").pop() ?? err;
-      return Response.json({ ok: false, error: short });
+      // Log the actual error server-side but don't leak paths/tracebacks to client
+      console.error("[handleVerifyPython] MLX import check failed:", err);
+      return Response.json({ ok: false, error: "MLX not installed or incompatible" }, { status: 400 });
     }
   } catch (e: any) {
-    return Response.json({ ok: false, error: e.message });
+    // Log server-side detail, return generic message to avoid leaking internal paths
+    console.error("[handleVerifyPython] Spawn failed:", e.message);
+    return Response.json({ ok: false, error: "Failed to execute Python" }, { status: 500 });
   }
 }
