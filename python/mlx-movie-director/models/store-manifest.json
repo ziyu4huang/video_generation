@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 56,
+  "count": 57,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -226,6 +226,10 @@
     "lora/nsfw-master/NSFW_master_ZIT_000017532.safetensors": {
       "md5": "34f03b2e1fb95d8888502790c2bc7179",
       "size": 621346936
+    },
+    "lora/velvet-s-mythic-fantasy-styles-flux-pony-illustrious-zit-anima/ZiTMythG0thicL1nes.safetensors": {
+      "md5": "c9159759b32af133863d4241359c353b",
+      "size": 170129464
     }
   }
 }

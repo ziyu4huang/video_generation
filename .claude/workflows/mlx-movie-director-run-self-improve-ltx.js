@@ -14,9 +14,10 @@
 //     mlx-movie-director-review-optimize.js (HISTORY_DIR/<runId>.jsonl).
 //   - KB writeback: the colocated <wf>.knowledge.jsonl (committed, shared across machines).
 //
-// Scope (hard-coded): CLI knobs ONLY — --stage1-steps, --stage2-steps,
-// --cfg-scale, --audio-cfg-scale, --audio-stage1-only, --seed. No vendored-
-// patch edits (av_ca speech-gate stays fixed), no prompt tuning.
+// Scope: CLI knobs + av_ca code-lever — --stage1-steps, --stage2-steps,
+// --cfg-scale, --audio-cfg-scale, --audio-stage1-only, --seed, AND
+// av_ca_timestep_scale_multiplier (patched in embedded_config.json before each
+// generate, restored after). No prompt tuning.
 //
 // Usage:
 //   Workflow({ name: "mlx-movie-director-run-self-improve-ltx" })
@@ -61,12 +62,14 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best from 2026-06-20 sweep (composite=69.12):
-//   stage1=20, stage2=5, cfg=5, stg=1.5, modality=5, hq=true, seed=42
+// Base config — confirmed best from 2026-06-20 sweep (composite=69.55):
+//   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=42, avCa=1000
+// frames=25: KB confirms 25 frames sufficient for quality judgment; keeps iterations fast.
 const baseCfg = {
-  stage1: 20, stage2: 5, cfg: 5, stg: 1.5, frames: 57, fps: 24, seed: 42,
+  stage1: 20, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 42,
   width: 768, height: 512, lowRam: true, audioVolume: 50,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
+  avCa: 1000.0,  // av_ca_timestep_scale_multiplier — patched in embedded_config.json
   promptFile: A.promptFile || "/tmp/voice-optimized.txt",
   ...A.base,
 }
@@ -77,9 +80,10 @@ const KNOBS = {
   stage2_steps:       [1, 3, 5],                 // 5=confirmed best (composite 69.12)
   cfg_scale:          [3, 5, 7],
   stg_scale:          [0.5, 1.0, 1.5, 2.0],    // 1.5=confirmed best; 2.0=dead-end (KB)
-  audio_cfg_scale:    [null, 5, 9],              // 3=dead-end (KB); null=7.0 (HQ hardcode)
-  modality_scale:     [5.0, 7.0, 10.0],         // 5=confirmed best; 1.0/2.0=dead-ends; null now=5 (CLI default)
+  audio_cfg_scale:    [null, 5, 9],              // 3=dead-end (KB); null=best (any explicit val regresses per KB)
+  modality_scale:     [5.0, 7.0, 10.0],         // 5=confirmed best; 1.0/2.0=dead-ends
   audio_stage1_only:  [false, true],
+  av_ca:              [200, 500, 1000, 2000, 5000], // av_ca_timestep_scale_multiplier; 1000=current best; code-lever (embedded_config.json)
   seed:               "int",                     // any int (re-roll)
 }
 
@@ -122,7 +126,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","seed"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","seed"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -167,6 +171,12 @@ function buildGenerateCmd(R, cfg) {
 
 function buildMeasureCmd(R, mp4) {
   return `cd '${R.mlxDir}' && '${R.pythonExe}' scripts/measure_ltx.py --mp4 '${mp4}' --target '${target.replace(/'/g, `'\\''`)}' --voice-weight ${vw} --quality-weight ${qw}`
+}
+
+// Returns shell one-liner to patch av_ca_timestep_scale_multiplier in embedded_config.json
+function buildAvCaPatch(R, val) {
+  const p = `${R.mlxDir}/models/ltx-mlx/dasiwa/embedded_config.json`
+  return `python3 -c "import json; d=json.load(open('${p}')); t=d.get('transformer',d); t['av_ca_timestep_scale_multiplier']=${val}; json.dump(d,open('${p}','w'),indent=2); print('av_ca → ${val}')"`
 }
 
 // ── Phase 0: Resolve ─────────────────────────────────────────────────────────
@@ -397,20 +407,31 @@ phase("Baseline")
 const baseKey = JSON.stringify(baseCfg)
 let currentBest = null
 
+const _baseCfgKey = cfgKey(baseCfg)
 const baseline = await agent(
   `Establish the BASELINE measurement for the base config (transformer=${transformer},
-stage1=${baseCfg.stage1}, cfg=${baseCfg.cfg}, seed=${baseCfg.seed}, frames=${baseCfg.frames}).
+stage1=${baseCfg.stage1}, cfg=${baseCfg.cfg}, stg=${baseCfg.stg}, modality=${baseCfg.modalityScale},
+hq=${baseCfg.hq}, avCa=${baseCfg.avCa}, seed=${baseCfg.seed}, frames=${baseCfg.frames}).
+Config key: ${_baseCfgKey}
 
-STEP A — try to REUSE an existing base-config mp4 before spending GPU:
-  Bash("cd '${R.mlxDir}' && grep -l 'dasiwa-16st-opt' output/.voice_runs.txt 2>/dev/null; head -1 output/.voice_runs.txt 2>/dev/null")
-  The first line of output/.voice_runs.txt (label dasiwa-16st-opt) IS this base config.
-  Parse its mp4 path (field before the first '|'). If that mp4 exists, use it.
+STEP A — look for a REUSABLE baseline mp4 (DO NOT SKIP the config verification):
+  1. Bash("cd '${R.mlxDir}' && cat output/.voice_runs.txt 2>/dev/null || echo MISSING")
+  2. If MISSING or empty → go to STEP C.
+  3. Parse EVERY line (format: <mp4_path>|<label>|<params>|<metrics>).
+     Find a line whose <params> field contains ALL of these EXACT tokens:
+       stage1=${baseCfg.stage1}, stage2=${baseCfg.stage2}, cfg=${baseCfg.cfg},
+       seed=${baseCfg.seed}, frames=${baseCfg.frames}
+     AND whose mp4 file exists: Bash("test -f '<mp4_path>' && echo OK || echo MISSING")
+  4. If a MATCHING line exists and the mp4 is present → use that mp4 path.
+  5. If NO matching line, or the mp4 is gone → go to STEP C.
+  NOTE: DO NOT reuse a line with different cfg, stage1, or frames values. Stale entries
+  with old configs (stage1=16, cfg=5, frames=57) MUST be skipped.
 
-STEP B — measure it:
+STEP B — measure the reused mp4:
   ${buildMeasureCmd(R, "<MP4_PATH>")}
   Parse the single JSON line → composite, voice_score, quality_score, weakest, is_noise, duration_s, asr.similarity.
 
-STEP C — if NO reusable mp4 exists, generate it first:
+STEP C — generate fresh baseline (only if STEP A found nothing valid):
   ${buildGenerateCmd(R, baseCfg)}
   then parse the saved mp4 path from the "Saved:" line or the .manifest.json, then run STEP B on it.
 
@@ -442,14 +463,21 @@ function cfgWith(cfg, knob, val) {
     case "modality_scale":    c.modalityScale = val; break
     case "audio_stage1_only": c.audioStage1Only = val; break
     case "hq":                c.hq = val; break
+    case "av_ca":             c.avCa = val; break
     case "seed":              c.seed = val; break
   }
   return c
 }
-function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/seed${c.seed}` }
+function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/avca${c.avCa??1000}/seed${c.seed}` }
 
 for (let i = 1; i <= budget; i++) {
   // --- Propose one knob change ---
+  // Track which av_ca values have been tried this run
+  const triedAvCa = new Set(iterations.filter(it => it.proposal?.knob === "av_ca").map(it => String(it.proposal?.to)))
+  const untriedAvCa = KNOBS.av_ca.filter(v => !triedAvCa.has(String(v)) && v !== (currentBest?.config?.avCa ?? 1000))
+  const avCaPriority = untriedAvCa.length > 0
+    ? `\nPRIORITY (FIRST CHOICE): av_ca=${untriedAvCa[0]} — this is a BRAND NEW code-lever (av_ca_timestep_scale_multiplier) never properly tested on the correct baseline. It modifies audio-visual cross-attention gating strength. Untried values: [${untriedAvCa.join(", ")}]. Propose this UNLESS it is already in dead-ends.`
+    : ""
   const proposal = await agent(
     `You are the PROPOSER for an autonomous LTX tuning loop (iteration ${i}/${budget}).
 Pick ONE knob change most likely to raise the composite, targeting the weakest dimension.
@@ -458,7 +486,7 @@ Objective: ${vw}-voice + ${qw}-quality composite for transformer=${transformer}.
 Current best config: ${currentBest ? cfgKey(currentBest.config) : cfgKey(baseCfg)}
 Last measurement: composite=${lastMeasure?.composite?.toFixed?.(1) ?? "?"}, weakest=${lastMeasure?.weakest ?? "?"}
 ${lastMeasure?.metrics ? "metrics: " + lastMeasure.metrics : ""}
-
+${avCaPriority}
 Allowed knobs (pick one): ${JSON.stringify(KNOBS)}
 Dead-ends (do NOT re-propose): ${[...deadEnds].join("; ") || "(none)"}
 Known-good (build on these): ${knownGood.join("; ") || "(none)"}
@@ -470,22 +498,35 @@ move already in dead-ends. Prefer the highest-EV single change. Return the propo
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
   if (!proposal) { log(`iter ${i}: propose failed — skipping`); continue }
-  const val = proposal.to === "null" ? null : (proposal.to === "true" ? true : (proposal.to === "false" ? false : (Number(proposal.to)) || proposal.to))
+  const rawTo = String(proposal.to).replace(/^["']|["']$/g, "")
+  const val = rawTo === "null" ? null : (rawTo === "true" ? true : (rawTo === "false" ? false : (!isNaN(Number(rawTo)) && rawTo !== "" ? Number(rawTo) : rawTo)))
   let cfg = cfgWith(lastMeasure?.config || baseCfg, proposal.knob, val)
   log(`iter ${i}: propose ${proposal.knob} → ${proposal.to} (Δ~${proposal.predictedDelta}) — ${proposal.rationale}`)
 
   // --- Generate + Measure, with one self-fix retry on failure/noise ---
+  const avCaRestore = currentBest?.config?.avCa ?? 1000.0
   let gm = null
   for (let attempt = 0; attempt < 2; attempt++) {
     const retryNote = attempt === 1 ? `\nNOTE: previous attempt failed/noisy — SELF-FIX by re-rolling seed (seed=${cfg.seed}).` : ""
+    const avCaNote = cfg.avCa !== avCaRestore
+      ? `STEP 0 — patch av_ca BEFORE running generate (REQUIRED):
+  Bash("${buildAvCaPatch(R, cfg.avCa)}")
+  Confirm it printed "av_ca → ${cfg.avCa}" before continuing.
+
+` : ""
+    const avCaRestoreNote = cfg.avCa !== avCaRestore
+      ? `
+STEP 5 — ALWAYS restore av_ca AFTER generate (success OR error), to prevent stale state:
+  Bash("${buildAvCaPatch(R, avCaRestore)}")
+  This MUST run even if generate failed.` : ""
     gm = await agent(
       `Generate one LTX clip and measure it. Iteration ${i}${attempt ? " (retry)" : ""}.
 
-Config to generate:
+${avCaNote}Config to generate:
 ${buildGenerateCmd(R, cfg)}
 ${retryNote}
 
-1. Run that command (timeout 240000ms). Capture the saved mp4: parse the "Saved:
+1. Run that command (timeout 480000ms). Capture the saved mp4: parse the "Saved:
    <path>.mp4" line, or read the newest output_*.manifest.json "outputs"[0].path,
    or the .run.json. If the command failed (non-zero) or no mp4, return status="error".
 2. Measure it:
@@ -496,7 +537,7 @@ ${retryNote}
    where JSON = {"i":${i},"knob":"${proposal.knob}","to":"${proposal.to}","cfg":"${cfgKey(cfg)}","composite":<num>,"voice":<num|null>,"quality":<num|null>,"weakest":"<...>","adopted":false}
    (set adopted=true only AFTER you know — but you append now with false; the orchestrator
     records adoption separately; that's fine.) Set appended=true if the echo succeeded.
-4. Fill metrics with a compact summary, e.g. "snr=6.5 f0st=5.2 cent=2221 dr=10 block=16".`,
+4. Fill metrics with a compact summary, e.g. "snr=6.5 f0st=5.2 cent=2221 dr=10 block=16".${avCaRestoreNote}`,
       { label: `genmeasure-${i}${attempt ? "-retry" : ""}`, phase: "Improve", schema: GENMEASURE_SCHEMA },
     )
     if (gm && gm.status === "success") break

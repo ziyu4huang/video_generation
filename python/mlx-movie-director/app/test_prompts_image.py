@@ -2586,6 +2586,27 @@ _ALL_TESTS = {
             {"label": "Anatomy Fix", "lora_path": "klein-slider-anatomy"},
         ],
     },
+
+    # -----------------------------------------------------------------------
+    # type=lora: Velvet's Mythic Fantasy Styles — G0thicL1nes A/B comparison
+    # -----------------------------------------------------------------------
+
+    "lora:velvet-gothic": {
+        "type": "lora",
+        "description": (
+            "Velvet Mythic Fantasy LoRA A/B: baseline vs G0thicL1nes style — "
+            "gothic warrior / fantasy portrait comparison on zimage-turbo. "
+            "Trigger words: G0thicL1nes, MythAn1m3, MythP0rt."
+        ),
+        "test_prompt": "portrait",
+        "seeds": [42, 123, 777],
+        "steps": 9,
+        "lora_scale": 1.0,
+        "variants": [
+            {"label": "Baseline",      "lora_path": None},
+            {"label": "G0thicL1nes",   "lora_path": "velvet-s-mythic-fantasy-styles-flux-pony-illustrious-zit-anima"},
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -2827,6 +2848,10 @@ _ALL_TESTS_ALIASES = {
     "anatomy": "lora:anatomy",
     "anatomy-test": "lora:anatomy",
     "klein-anatomy": "lora:anatomy",
+    # Velvet Mythic Fantasy / G0thicL1nes aliases
+    "velvet-gothic": "lora:velvet-gothic",
+    "gothic-fantasy": "lora:velvet-gothic",
+    "g0thicl1nes": "lora:velvet-gothic",
 }
 
 

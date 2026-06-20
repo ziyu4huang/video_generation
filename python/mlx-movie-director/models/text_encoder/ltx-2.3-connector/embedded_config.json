@@ -32,7 +32,7 @@
       2048
     ],
     "timestep_scale_multiplier": 1000,
-    "av_ca_timestep_scale_multiplier": 1000.0,
+    "av_ca_timestep_scale_multiplier": 1000,
     "causal_temporal_positioning": true,
     "audio_num_attention_heads": 32,
     "audio_attention_head_dim": 64,
