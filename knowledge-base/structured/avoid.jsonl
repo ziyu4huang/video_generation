@@ -1,3 +1,8 @@
+{"item":"Using technical commands as prompts (e.g., 'BFS head face swap')"}
+{"item":"Specifying a style (e.g., 'photograph') that the model cannot perfectly replicate"}
+{"item":"Using LoRA at very high scales (1.0+) without testing lower scales first"}
+{"item":"Assuming LoRA effects are visible at small image sizes (e.g., 640x960)"}
+{"item":"Using unstructured, rambling prompts without clear subject-action-setting structure"}
 {"item":"Vague or overly simple prompts (e.g., 'a beautiful woman, photorealistic portrait')"}
 {"item":"Technical commands as the entire prompt (e.g., 'BFS head face swap')"}
 {"item":"Style mismatch between prompt and generated image (e.g., asking for a 'photograph' but getting an AI render)"}

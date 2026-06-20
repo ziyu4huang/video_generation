@@ -1,3 +1,8 @@
+{"template":"anatomyfix, [detailed anatomical description], photorealistic, detailed anatomy, ultra sharp focus","avgScore":10,"sampleCount":4,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"slider, bodyweight, [detailed scene description], [specific lighting], photorealistic, detailed hands and face, ultra sharp focus","avgScore":10,"sampleCount":4,"bestLora":"klein_slider_bodyweight_50.safetensors"}
+{"template":"ultra-detailed close-up portrait of a [person description], natural skin with visible pores and fine texture, [specific lighting], photorealistic, sharp focus, high detail, no makeup, candid expression","avgScore":9,"sampleCount":15,"bestLora":"none"}
+{"template":"A young woman standing in a simple pose, facing the camera, wearing casual clothes, clean white background, studio lighting, high quality portrait photography.","avgScore":9.25,"sampleCount":4,"bestLora":"none"}
+{"template":"[Detailed scene description with subject, clothing, background, lighting, and atmosphere]. The style is hyper-realistic, detailed, and painterly.","avgScore":9,"sampleCount":6,"bestLora":"none"}
 {"template":"[Subject] + [Action/Pose] + [Setting/Background] + [Lighting] + [Quality Modifiers]","avgScore":9.5,"sampleCount":10,"bestLora":"none"}
 {"template":"[Trigger Word/LoRA] + [Detailed Subject] + [Lighting] + [Quality Modifiers]","avgScore":9.8,"sampleCount":8,"bestLora":"klein_slider_anatomy.safetensors"}
 {"template":"[Subject] + [Specific Detail 1] + [Specific Detail 2] + ... + [Quality Modifiers]","avgScore":9.3,"sampleCount":15,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
