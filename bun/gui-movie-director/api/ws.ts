@@ -104,8 +104,15 @@ subprocessManager.onStatus((job) => {
   if (job.status === "completed") {
     import("../lib/gallery-index").then((m) => m.invalidateIndex()).catch(() => {});
   }
+  // Map job status to a WS message type. A freshly-spawned job broadcasts
+  // "running" → job_start so clients revalidate their job list immediately
+  // (useJobs listens for it) instead of waiting for the 5s poll. completed →
+  // job_complete, anything else (failed) → job_failed.
+  const type = job.status === "running" ? "job_start"
+             : job.status === "completed" ? "job_complete"
+             : "job_failed";
   const message = JSON.stringify({
-    type: job.status === "completed" ? "job_complete" : "job_failed",
+    type,
     jobId: job.id,
     exitCode: job.exitCode,
     outputFiles: job.outputFiles,
