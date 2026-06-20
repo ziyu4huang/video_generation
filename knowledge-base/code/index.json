@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "lastUpdated": "2026-06-19T23:10:06.222Z",
-  "totalRuns": 15,
+  "lastUpdated": "2026-06-20T01:31:24.764Z",
+  "totalRuns": 13,
   "lastRunId": "2026-06-19T22-46-17",
   "openIssuesTrend": [
     9,
@@ -16,8 +16,6 @@
     6,
     22,
     19,
-    19,
-    10,
     10
   ]
 }
