@@ -615,6 +615,7 @@ function buildT2iCommand(spec) {
   let cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${safePrompt}' --json-summary`
   if (spec.pipeline)           cmd += ` --pipeline ${spec.pipeline}`
   if (spec.steps != null)      cmd += ` --steps ${spec.steps}`
+  if (spec.cfg_scale != null)  cmd += ` --cfg-scale ${spec.cfg_scale}`
   if (spec.seed != null)       cmd += ` --seed ${spec.seed}`
   // Resolution: explicit spec.resolution wins; else explicit width/height; else
   // the workflow default tier (benchmark). run.py --resolution overrides --width/--height.
