@@ -9,10 +9,14 @@
 
 import fs from "fs";
 import path from "path";
+import { REPO_DIR } from "./config";
 
 // ── Paths ────────────────────────────────────────────────────────────────────
 // Env-overridable so tests can point at a temp dir instead of the real KB.
-const DEFAULT_KB_CODE_ROOT = "/Users/huangziyu/proj/video_generation/knowledge-base/code";
+// Derived from REPO_DIR (not a hardcoded username) so this is portable across
+// machines/worktrees. Matches the sibling knowledge-db.ts DEFAULT_KB_ROOT pattern
+// and resolves to ../video_generation/knowledge-base/code (a sibling repo).
+const DEFAULT_KB_CODE_ROOT = path.resolve(REPO_DIR, "..", "video_generation", "knowledge-base", "code");
 function codeRoot(): string {
   return process.env.KB_CODE_ROOT || DEFAULT_KB_CODE_ROOT;
 }

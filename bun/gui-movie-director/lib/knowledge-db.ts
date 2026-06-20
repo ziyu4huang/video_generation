@@ -6,8 +6,15 @@ import type {
   KnowledgeIndex,
   StructuredKnowledge,
 } from "./knowledge-types";
+import { REPO_DIR } from "./config";
 
-export const KB_ROOT = "/Users/huangziyu/proj/video_generation/knowledge-base";
+// Resolve relative to the repo root so this is portable across machines and
+// worktrees (consistent with OUTPUT_DIRS resolution in lib/config.ts). The
+// KB sits in the sibling video_generation/knowledge-base dir. Env-overridable
+// for parity with KB_CODE_ROOT in code-knowledge.ts, so tests can point at a
+// temp dir instead of the real KB.
+const DEFAULT_KB_ROOT = path.resolve(REPO_DIR, "..", "video_generation", "knowledge-base");
+export const KB_ROOT = process.env.KB_ROOT || DEFAULT_KB_ROOT;
 const KB_RECORDS_DIR   = path.join(KB_ROOT, "records");
 const KB_REPORTS_DIR   = path.join(KB_ROOT, "reports");
 const KB_STRUCTURED_DIR = path.join(KB_ROOT, "structured");
