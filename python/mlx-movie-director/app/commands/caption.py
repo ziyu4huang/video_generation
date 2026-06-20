@@ -1168,6 +1168,9 @@ _REVIEW_I18N = {
         "img_count": lambda n: f"{n} image{'s' if n != 1 else ''}",
         "rating": "Rating", "copy": "Copy JSON", "copied": "JSON copied to clipboard!",
         "copy_fallback": "Clipboard blocked — select the text below and press ⌘C/Ctrl+C",
+        "config_label": "Config", "cfg_model": "model", "cfg_vae": "VAE",
+        "cfg_lora": "LoRA", "cfg_params": "params", "cfg_seed": "seed",
+        "cfg_default": "default", "cfg_none": "none",
     },
     "zh_TW": {
         "best": "最佳", "export": "匯出回饋 JSON", "exported": "已匯出回饋！",
@@ -1180,6 +1183,9 @@ _REVIEW_I18N = {
         "img_count": lambda n: f"{n} 張圖片",
         "rating": "評分", "copy": "複製 JSON", "copied": "JSON 已複製到剪貼簿！",
         "copy_fallback": "剪貼簿被封鎖——請選取下方文字並按 ⌘C/Ctrl+C",
+        "config_label": "生成設定", "cfg_model": "模型", "cfg_vae": "VAE",
+        "cfg_lora": "LoRA", "cfg_params": "參數", "cfg_seed": "seed",
+        "cfg_default": "預設", "cfg_none": "無",
     },
 }
 
@@ -1203,6 +1209,29 @@ def _resolve_review_path(p: str, base_dir: str = "") -> str:
     return cands[0]
 
 
+def _load_run_config(caption_path: str, img_path: str) -> dict:
+    """Load generation config from the sibling <stem>.run.json.
+
+    Tries <image_stem>.run.json next to the image, then next to the caption JSON.
+    Returns {} when no run.json is found (old runs / external images) — graceful.
+    """
+    seen = set()
+    for base in (img_path, caption_path):
+        if not base:
+            continue
+        stem = os.path.splitext(base)[0]
+        cand = stem + ".run.json"
+        if cand in seen or not os.path.exists(cand):
+            continue
+        seen.add(cand)
+        try:
+            with open(cand) as f:
+                return json.load(f) or {}
+        except Exception:
+            return {}
+    return {}
+
+
 def _load_review_item(path: str) -> dict:
     """Load one caption JSON into a flat display item.
 
@@ -1213,6 +1242,10 @@ def _load_review_item(path: str) -> dict:
         data = json.load(f)
     caption_raw = _extract_caption_json(data.get("caption", "{}"))
     img_path = data.get("image", "")
+    # Generation config from the sibling <stem>.run.json (what model/VAE/LoRA/
+    # resolution/steps/seed produced THIS image). Robust for any run that emits
+    # a run.json — unlike the manifest reproducibility map (empty for self-test).
+    run_cfg = _load_run_config(path, img_path)
     # If a sibling video (.mp4) shares the first-frame PNG's basename, embed it
     # as a playable <video> (video A/B review). Pure-image reviews have no mp4
     # → video_src "" → card renders the usual <img>. Resolve relative to the
@@ -1247,6 +1280,7 @@ def _load_review_item(path: str) -> dict:
         "issues": caption_raw.get("issues", []),
         "strengths": caption_raw.get("strengths", []),
         "summary": caption_raw.get("summary", ""),
+        "config": run_cfg,
     }
 
 
@@ -1302,6 +1336,82 @@ def _build_reproducibility_html(item: dict) -> str:
     return '<div class="reproducibility">' + " · ".join(parts) + "</div>"
 
 
+def _short_name(p) -> str:
+    """Short model/VAE/LoRA identifier: basename without common suffixes."""
+    if not p:
+        return ""
+    s = os.path.basename(str(p))
+    for suf in (".safetensors", ".int8", ".bf16", ".fp32", ".mlx"):
+        if s.endswith(suf):
+            s = s[: -len(suf)]
+    return s
+
+
+def _build_config_html(item: dict, T: dict) -> str:
+    """Per-image generation config panel: pipeline/transformer · VAE · LoRA ·
+    resolution · steps · cfg · seed. Sourced from the sibling run.json (via
+    item["config"]). Returns "" when no run.json — graceful for external images.
+    Shows what model stack produced each image so A/B reviews are interpretable.
+    """
+    cfg = item.get("config") or {}
+    if not cfg:
+        return ""
+    rows = []
+
+    # Model: pipeline + transformer (the actual model dir)
+    pipeline = cfg.get("pipeline")
+    tf = cfg.get("transformer")
+    model_bits = []
+    if pipeline:
+        model_bits.append(html.escape(str(pipeline)))
+    if tf:
+        model_bits.append(html.escape(_short_name(tf)))
+    quant = cfg.get("quantize")
+    if quant:
+        model_bits.append(f'{html.escape(str(quant))}-bit')
+    if model_bits:
+        rows.append(f'<span class="cfg-model"><b>{T["cfg_model"]}:</b> {" · ".join(model_bits)}</span>')
+
+    # VAE (None = pipeline default — show explicitly so defaults are visible)
+    vae = cfg.get("vae_path")
+    vae_str = html.escape(_short_name(vae)) if vae else T["cfg_default"]
+    rows.append(f'<span class="cfg-vae"><b>{T["cfg_vae"]}:</b> {vae_str}</span>')
+
+    # LoRA: lora_paths (multi) wins over lora_path (single); pair with scales
+    lps = cfg.get("lora_paths") or []
+    lsc = cfg.get("lora_scales") or []
+    if not lps and cfg.get("lora_path"):
+        lps = [cfg.get("lora_path")]
+        lsc = [cfg.get("lora_scale")] if cfg.get("lora_scale") is not None else []
+    if lps:
+        lstrs = []
+        for i, lp in enumerate(lps):
+            name = html.escape(_short_name(lp))
+            scale = lsc[i] if i < len(lsc) else None
+            lstrs.append(f"{name}@{scale}" if scale is not None else name)
+        rows.append(f'<span class="cfg-lora"><b>{T["cfg_lora"]}:</b> {", ".join(lstrs)}</span>')
+    else:
+        rows.append(f'<span class="cfg-lora"><b>{T["cfg_lora"]}:</b> {T["cfg_none"]}</span>')
+
+    # Resolution + steps + cfg + seed (the param knobs)
+    w, h = cfg.get("width"), cfg.get("height")
+    param_bits = []
+    if w and h:
+        param_bits.append(f'{html.escape(str(w))}×{html.escape(str(h))}')
+    if cfg.get("steps") is not None:
+        param_bits.append(f'steps={cfg["steps"]}')
+    if cfg.get("cfg_scale") is not None:
+        param_bits.append(f'cfg={cfg["cfg_scale"]}')
+    if param_bits:
+        rows.append(f'<span class="cfg-params"><b>{T["cfg_params"]}:</b> {" ".join(param_bits)}</span>')
+    if cfg.get("seed") is not None:
+        rows.append(f'<span class="cfg-seed"><b>{T["cfg_seed"]}:</b> {cfg["seed"]}</span>')
+
+    if not rows:
+        return ""
+    return '<div class="config-panel"><b class="cfg-title">' + T["config_label"] + '</b> ' + " ".join(rows) + "</div>"
+
+
 def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) -> str:
     bars_html = _score_bars_html(item)
     captured_html = "".join(
@@ -1321,6 +1431,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
         if item["summary"] else ""
     )
     repro_html = _build_reproducibility_html(item)
+    config_html = _build_config_html(item, T)
     # Media: embed a playable <video> (poster = the captioned first frame) when a
     # sibling mp4 exists (video A/B review); otherwise the usual zoomable <img>.
     if item.get("video_src"):
@@ -1341,6 +1452,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
             <h3>{html.escape(item['filename'])}</h3>
             <label class="pick-label"><input type="radio" name="best_set{gi}" value="{li}"/> {T['best']}</label>
           </div>
+          {config_html}
           {variant_html}
           <div class="img-wrap">
             {media_html}
@@ -1634,6 +1746,11 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 #lb-img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px;cursor:default}}
 .reproducibility{{font-size:.82em;color:#555;margin:4px 0 8px;padding:4px 6px;background:#f7f7f7;border-radius:3px;line-height:1.5}}
 .reproducibility b{{color:#333}}
+.config-panel{{font-size:.76rem;color:#9a9a9a;margin:0 0 .6rem;padding:.4rem .55rem;background:#181818;border:1px solid #2a2a2a;border-radius:5px;line-height:1.7;word-break:break-word}}
+.config-panel .cfg-title{{color:#4a9eff;margin-right:.15rem}}
+.config-panel b{{color:#bbb}}
+.config-panel span{{margin-right:.35rem;white-space:nowrap}}
+.config-panel span.cfg-params,.config-panel span.cfg-seed{{white-space:normal}}
 </style>
 </head>
 <body>
