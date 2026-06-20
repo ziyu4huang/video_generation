@@ -567,6 +567,13 @@ if (mode === "finalize") {
 const wfLang = (isObj(resolvedArgs) && typeof resolvedArgs.lang === "string")
   ? resolvedArgs.lang : "zh_TW"
 
+// Generation resolution tier (default "benchmark"). The model-optimal 640×960 is
+// too small to benchmark rendering capacity (e.g. skin pores) on Apple Silicon —
+// M5 Max 128GB handles multi-MP easily. Pass through to t2i --resolution. Override
+// per-spec via spec.resolution, or globally via args.resolution ("model"|"benchmark"|"large"|"WxH").
+const wfResolution = (isObj(resolvedArgs) && typeof resolvedArgs.resolution === "string")
+  ? resolvedArgs.resolution : "benchmark"
+
 // GPU-gate config: before the Generate (GPU-requiring) phase, wait if another run.py
 // generation is already using the Apple-Silicon GPU. Review/caption is NOT gated (LM Studio
 // serves over HTTP on its own resources).
@@ -589,7 +596,7 @@ function buildCommand(spec) {
       // i2i self-test: NO --json-summary (run_i2i early-returns to _run_self_test)
       return `${PYTHON} ${RUN_PY} image i2i --self-test${idFlag}`
     }
-    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag} --json-summary`
+    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag} --resolution ${wfResolution} --json-summary`
   }
 
   if (spec.type === "replay") {
@@ -609,8 +616,16 @@ function buildT2iCommand(spec) {
   if (spec.pipeline)           cmd += ` --pipeline ${spec.pipeline}`
   if (spec.steps != null)      cmd += ` --steps ${spec.steps}`
   if (spec.seed != null)       cmd += ` --seed ${spec.seed}`
-  if (spec.width)              cmd += ` --width ${spec.width}`
-  if (spec.height)             cmd += ` --height ${spec.height}`
+  // Resolution: explicit spec.resolution wins; else explicit width/height; else
+  // the workflow default tier (benchmark). run.py --resolution overrides --width/--height.
+  if (spec.resolution) {
+    cmd += ` --resolution ${spec.resolution}`
+  } else if (spec.width || spec.height) {
+    if (spec.width)            cmd += ` --width ${spec.width}`
+    if (spec.height)           cmd += ` --height ${spec.height}`
+  } else {
+    cmd += ` --resolution ${wfResolution}`
+  }
   if (spec.lora_path)          cmd += ` --lora-path '${spec.lora_path}'`
   if (spec.lora_scale != null) cmd += ` --lora-scale ${spec.lora_scale}`
   if (spec.draft)              cmd += ` --draft`
