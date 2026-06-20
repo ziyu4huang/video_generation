@@ -538,9 +538,127 @@ def _patch_int8_lora() -> None:
     _orig_fuse = TI2VidTwoStagesPipeline._fuse_distilled_lora
 
     def _patched_fuse_distilled_lora(self, dit):  # type: ignore[no-untyped-def]
-        # Run up to mx.load as before
+        # For low_ram_streaming at default strength (1.0), swap to pre-fused
+        # transformer-distilled.safetensors streamer (original behavior).
+        # For non-1.0 strength (e.g. dasiwa uses 0.999), the original
+        # _swap_to_distilled_streamer() tries to load the non-existent bf16
+        # LoRA file.  Instead resolve the int8 LoRA and attach it as a
+        # BlockLoraSource so bind-time fusion uses the available int8 file.
         if self.low_ram_streaming:
-            self._swap_to_distilled_streamer()
+            if abs(self._distilled_lora_strength - 1.0) <= 1e-6:
+                # Default strength → pre-fused streamer swap (original path).
+                self._swap_to_distilled_streamer()
+                return
+            # Non-default strength (e.g. 0.999 for dasiwa) → the original
+            # _swap_to_distilled_streamer() requires a bf16 LoRA at
+            # self._distilled_lora.  Dasiwa ships only int8 LoRA files.
+            # Resolve the int8 file, dequantize the A/B weights into bf16,
+            # and attach the result as a BlockLoraSource for bind-time fusion.
+            from pathlib import Path
+            lora_stem = Path(self._distilled_lora).stem
+            bf16_lora = self.model_dir / self._distilled_lora
+            if bf16_lora.exists():
+                # bf16 LoRA exists — let original streaming path handle it.
+                self._swap_to_distilled_streamer()
+                return
+            # Resolve int8 LoRA.
+            int8_versioned = sorted(self.model_dir.glob(f"{lora_stem}-*.int8.safetensors"))
+            int8_path = self.model_dir / f"{lora_stem}.int8.safetensors"
+            if int8_versioned:
+                lora_path = int8_versioned[-1]
+            elif int8_path.exists():
+                lora_path = int8_path
+            else:
+                raise FileNotFoundError(
+                    f"Distilled LoRA not found at {bf16_lora} (or .int8 variant). "
+                    "Use: --model dgrauet/ltx-2.3-mlx-q8"
+                )
+            print(f"  [int8 LoRA / low-ram] Dequantizing and building DictBlockLoraSource: {lora_path.name}")
+
+            class _DictBlockLoraSource:
+                """BlockLoraSource-compatible class backed by a pre-loaded dict.
+
+                Accepts a dict of dequantized+remapped LoRA weights with keys
+                like ``{idx}.{param}.lora_A.weight`` (relative to block_prefix)
+                and exposes the same has_block/get_block_lora_dict/close API.
+                """
+
+                def __init__(self, lora_data: dict, block_prefix: str, strength: float) -> None:
+                    self.strength = strength
+                    self._lora_data = lora_data
+                    self._block_keys: dict[int, dict[str, dict[str, str]]] = {}
+                    for model_key in lora_data:
+                        if not model_key.startswith(block_prefix):
+                            continue
+                        rest = model_key[len(block_prefix):]
+                        idx_str, _, param_path = rest.partition(".")
+                        try:
+                            block_idx = int(idx_str)
+                        except ValueError:
+                            continue
+                        for suffix, slot in ((".lora_A.weight", "a"), (".lora_B.weight", "b")):
+                            if param_path.endswith(suffix):
+                                param_name = param_path[: -len(suffix)]
+                                self._block_keys.setdefault(block_idx, {}).setdefault(param_name, {})[slot] = model_key
+                                break
+
+                def has_block(self, block_idx: int) -> bool:
+                    block = self._block_keys.get(block_idx)
+                    if not block:
+                        return False
+                    return any("a" in slots and "b" in slots for slots in block.values())
+
+                def get_block_lora_dict(self, block_idx: int) -> dict:
+                    out = {}
+                    block = self._block_keys.get(block_idx, {})
+                    for param_name, slots in block.items():
+                        if "a" not in slots or "b" not in slots:
+                            continue
+                        out[f"{param_name}.lora_A.weight"] = self._lora_data[slots["a"]]
+                        out[f"{param_name}.lora_B.weight"] = self._lora_data[slots["b"]]
+                    return out
+
+                def close(self) -> None:
+                    self._lora_data = {}
+                    self._block_keys = {}
+
+            # Load and dequantize: int8 * scale → bf16.
+            raw = dict(mx.load(str(lora_path)))
+            scale_keys = {k for k in raw if k.endswith(".scale")}
+            if scale_keys:
+                deq: dict[str, mx.array] = {}
+                for k, v in raw.items():
+                    if k.endswith(".scale"):
+                        continue
+                    sk = f"{k}.scale"
+                    if sk in scale_keys:
+                        deq[k] = (v.astype(mx.float32) * raw[sk].astype(mx.float32)).astype(mx.bfloat16)
+                    else:
+                        deq[k] = v
+                raw = deq
+
+            # Remap keys: diffusion_model.transformer_blocks.* → transformer_blocks.*
+            from ltx_core_mlx.loader.sd_ops import LTXV_LORA_COMFY_RENAMING_MAP
+            remapped_lora: dict[str, mx.array] = {}
+            for k, v in raw.items():
+                mk = LTXV_LORA_COMFY_RENAMING_MAP.apply_to_key(k)
+                if mk is not None:
+                    remapped_lora[mk] = v
+            del raw
+
+            lora_source = _DictBlockLoraSource(
+                remapped_lora,
+                block_prefix="transformer_blocks.",
+                strength=self._distilled_lora_strength,
+            )
+            try:
+                existing = list(object.__getattribute__(dit, "_lora_sources"))
+            except AttributeError:
+                existing = []
+            existing.append(lora_source)
+            object.__setattr__(dit, "_lora_sources", existing)
+            from ltx_core_mlx.utils.memory import aggressive_cleanup
+            aggressive_cleanup()
             return
 
         from pathlib import Path
