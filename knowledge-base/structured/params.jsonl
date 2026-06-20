@@ -1,3 +1,3 @@
-{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.5}
-{"pipeline":"zimage","steps":9,"cfgScale":null,"loraScale":null}
-{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":null}
+{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.5,"denoise":0.4,"avgTime":5.35,"avgMemory":15857}
+{"pipeline":"zimage","steps":9,"cfgScale":null,"loraScale":0.65,"denoise":0.4,"avgTime":12.3,"avgMemory":7845}
+{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":1,"denoise":0.4,"avgTime":43.6,"avgMemory":16836}

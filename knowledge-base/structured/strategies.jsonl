@@ -1,5 +1,5 @@
-{"template":"anatomyfix, [detailed pose description], photorealistic, detailed anatomy, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors"}
-{"template":"slider, bodyweight, [detailed scene description], photorealistic, detailed hands and face, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}
-{"template":"ultra-detailed close-up portrait of a woman, natural skin with visible pores and fine texture, [lighting description], photorealistic, sharp focus, high detail","avgScore":9.5,"sampleCount":10,"bestLora":"none"}
-{"template":"[Very long, highly detailed scene description], hyper-realistic, detailed, [style reference]","avgScore":9,"sampleCount":8,"bestLora":"none"}
-{"template":"a young woman, cinematic studio portrait, professional photography, high detail, clean lighting, photorealistic, 8k","avgScore":9,"sampleCount":2,"bestLora":"NSFW_master_ZIT_000017532.safetensors"}
+{"template":"[Subject] in [specific setting], wearing [detailed clothing], [specific pose/action], [lighting conditions], [camera/lens specs], [quality modifiers]","avgScore":9.5,"sampleCount":12,"bestLora":"none"}
+{"template":"[Trigger word], [pose description], [visible joint/finger details], [anatomical alignment], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"[Subject] in [elaborate setting], [detailed clothing/accessories], [lighting/atmosphere], [background elements], [style reference]","avgScore":9.2,"sampleCount":8,"bestLora":"none"}
+{"template":"[Simple subject], [quality descriptors], [lighting], [style]","avgScore":9,"sampleCount":7,"bestLora":"none"}
+{"template":"[Trigger word], [detailed scene], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}

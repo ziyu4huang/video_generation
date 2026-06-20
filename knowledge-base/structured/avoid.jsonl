@@ -1,5 +1,6 @@
-{"item":"Using technical commands (e.g., 'BFS head face swap') as the entire prompt"}
-{"item":"Specifying a medium (e.g., 'photograph', 'cinematography') that the model cannot perfectly replicate"}
-{"item":"Using LoRAs at very low scales (e.g., 0.5 or lower) where the effect may be absent"}
-{"item":"Overly complex prompts without clear structure or focus"}
-{"item":"Assuming LoRA effect is visible at small image sizes (e.g., 640x960)"}
+{"item":"Using technical commands instead of descriptive prompts (e.g., 'BFS head face swap')"}
+{"item":"Specifying 'photograph' when output is AI-generated (causes style mismatch)"}
+{"item":"Over-specifying medium with contradictory terms (e.g., 'hyperrealistic 8K cinematic' for AI)"}
+{"item":"Using LoRA at extreme scales (1.0+ causes artifacts, <0.3 has no effect)"}
+{"item":"Mixing conflicting style terms like 'painterly' with 'photorealistic'"}
+{"item":"Excessive length without clear structure or sectioning"}
