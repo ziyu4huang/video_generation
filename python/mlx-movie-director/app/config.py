@@ -102,10 +102,17 @@ LTX_UPSCALE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-ic-video-upscale-
 # MLX 4-bit GS32 quantized version; 69% smaller than BF16 original (SSIM 97.9%).
 CONTROLNET_DIR = os.path.join(MODELS_DIR, "controlnet", "zimage-turbo-fun-union-2.1-mlx")
 
-# SeedVR2 text embeddings (loaded at inference, not converted)
-SEEDVR2_CUSTOM_NODES = os.path.join(REPO_DIR, "comfyui_data", "custom_nodes", "ComfyUI-SeedVR2_VideoUpscaler")
-SEEDVR2_POS_EMB = os.path.join(SEEDVR2_CUSTOM_NODES, "pos_emb.pt")
-SEEDVR2_NEG_EMB = os.path.join(SEEDVR2_CUSTOM_NODES, "neg_emb.pt")
+# SeedVR2 text embeddings — pre-computed positive/negative prompt embeddings,
+# loaded at inference (NOT converted). Co-located in the MLX tree
+# (app/seedvr2/embeddings/) so the SeedVR2 upscaler is SELF-CONTAINED: the MLX
+# pipeline must NOT depend on a ComfyUI custom node being installed. The previous
+# path pointed into comfyui_data/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler/,
+# which is a ComfyUI install artifact that vanishes on branch switch / git clean
+# and broke purify with "Text embedding not found". The bun app only ever calls
+# run.py (MLX) — it never invokes ComfyUI — so this asset belongs in the MLX tree.
+SEEDVR2_EMB_DIR = os.path.join(APP_DIR, "seedvr2", "embeddings")
+SEEDVR2_POS_EMB = os.path.join(SEEDVR2_EMB_DIR, "pos_emb.pt")
+SEEDVR2_NEG_EMB = os.path.join(SEEDVR2_EMB_DIR, "neg_emb.pt")
 
 TRANSFORMER_CONFIG = {
     "_class_name": "ZImageTransformer2DModel",
