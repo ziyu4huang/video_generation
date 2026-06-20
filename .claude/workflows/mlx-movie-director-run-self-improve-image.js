@@ -885,8 +885,13 @@ if (feedbackPath) {
 FEEDBACK FILE: ${feedbackAbs}
 
 The file may be in one of two formats — handle BOTH:
-- GROUPED (new, multi-set): { timestamp, sets: [{ name, prompt, best_image: <local idx|null>, images: [{ index, filename, variant, comment }] }] }
+- GROUPED (new, multi-set): { timestamp, sets: [{ name, prompt, best_image: <local idx|null>, images: [{ index, filename, variant, rating, comment }] }] }
 - FLAT (legacy, single-set): { timestamp, best_image: <idx|null>, images: [{ index, filename, comment }] }
+
+Each image entry MAY carry a "rating" field (1–5 stars the human assigned in the
+review HTML, 0 = unrated). Treat rating as a STRONGER per-image quality signal
+than best_image: rank guidance by rating (5★ = keep that config), and surface
+WHY top-rated images beat low-rated ones (infer from comments + caption scores).
 
 STEPS:
 1. Read the file: Bash("cat '${feedbackAbs}'")

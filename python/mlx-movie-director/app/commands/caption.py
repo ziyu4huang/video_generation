@@ -1166,6 +1166,8 @@ _REVIEW_I18N = {
         "meta_across": "image(s) across", "meta_sets": "set(s)", "dimension": "Dimension",
         "tiebreak": " (by detail/sharpness)",
         "img_count": lambda n: f"{n} image{'s' if n != 1 else ''}",
+        "rating": "Rating", "copy": "Copy JSON", "copied": "JSON copied to clipboard!",
+        "copy_fallback": "Clipboard blocked — select the text below and press ⌘C/Ctrl+C",
     },
     "zh_TW": {
         "best": "最佳", "export": "匯出回饋 JSON", "exported": "已匯出回饋！",
@@ -1176,6 +1178,8 @@ _REVIEW_I18N = {
         "meta_across": "張圖片，共", "meta_sets": "組", "dimension": "指標",
         "tiebreak": "（依細節/銳利度）",
         "img_count": lambda n: f"{n} 張圖片",
+        "rating": "評分", "copy": "複製 JSON", "copied": "JSON 已複製到剪貼簿！",
+        "copy_fallback": "剪貼簿被封鎖——請選取下方文字並按 ⌘C/Ctrl+C",
     },
 }
 
@@ -1356,6 +1360,10 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
             </div>
           </details>
           <textarea class="comment-box" data-set="{gi}" data-idx="{li}" placeholder="{T['comment_ph']}"></textarea>
+          <div class="stars" data-set="{gi}" data-idx="{li}" data-rating="0">
+            <span class="stars-label">{T['rating']}:</span>
+            <span class="star-row">{''.join('<span class="star" data-val="%d">★</span>' % v for v in (1, 2, 3, 4, 5))}</span>
+          </div>
         </div>
         """
 
@@ -1593,6 +1601,19 @@ h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
 .details-inner ul{{padding-left:1.2rem;margin:4px 0}}
 .comment-box{{width:100%;min-height:48px;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#ddd;padding:8px;font-size:.82rem;resize:vertical;margin-top:.5rem;font-family:inherit}}
 .comment-box:focus{{border-color:#4a9eff;outline:none}}
+.stars{{margin-top:.5rem;display:flex;align-items:center;gap:.4rem}}
+.stars-label{{color:#888;font-size:.78rem}}
+.star-row{{cursor:pointer;user-select:none;font-size:1.15rem;letter-spacing:2px;line-height:1}}
+.star{{color:#3a3a3a;transition:color .1s}}
+.star:hover{{color:#888}}
+.stars[data-rating="0"] .star:hover,
+.star.active{{color:#f5a623}}
+.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;align-items:center;justify-content:center}}
+.modal.open{{display:flex}}
+.modal-box{{background:#222;border:1px solid #333;border-radius:8px;width:min(680px,92vw);max-height:86vh;display:flex;flex-direction:column}}
+.modal-bar{{display:flex;justify-content:space-between;align-items:center;padding:.6rem .9rem;border-bottom:1px solid #2e2e2e;color:#ccc;font-size:.85rem}}
+.modal-bar button{{background:none;border:none;color:#888;font-size:1.4rem;cursor:pointer;line-height:1}}
+.modal-box textarea{{flex:1;width:100%;min-height:340px;background:#1a1a1a;border:none;border-radius:0 0 8px 8px;color:#ddd;padding:.8rem;font-size:.78rem;font-family:monospace;resize:none}}
 table{{width:100%;border-collapse:collapse;background:#1e1e1e;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a}}
 th{{text-align:center;padding:.5rem .8rem;background:#242424;color:#666;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}}
 td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-size:.85rem}}
@@ -1636,7 +1657,15 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 
 <div class="bottom-bar">
   <button onclick="exportFeedback()">{T['export']}</button>
+  <button onclick="exportFeedback('copy')">{T['copy']}</button>
   <span class="status" id="status"></span>
+</div>
+
+<div class="modal" id="json-modal" onclick="if(event.target===this)closeJsonModal()">
+  <div class="modal-box">
+    <div class="modal-bar"><span>{T['copy_fallback']}</span><button onclick="closeJsonModal()">&times;</button></div>
+    <textarea id="json-modal-text" readonly></textarea>
+  </div>
 </div>
 
 <script>
@@ -1667,9 +1696,24 @@ function closeLb() {{
 document.querySelectorAll('.lb-bar button[data-z]').forEach(function(b) {{
   b.addEventListener('click', function() {{ setZoom(parseInt(b.dataset.z)); }});
 }});
-document.addEventListener('keydown', function(e) {{ if (e.key === 'Escape') closeLb(); }});
+document.addEventListener('keydown', function(e) {{
+  if (e.key === 'Escape') {{ closeLb(); closeJsonModal(); }}
+}});
 
-function exportFeedback() {{
+// ── 5-star rating (event delegation) ──────────────────────────────────────
+document.addEventListener('click', function(e) {{
+  var star = e.target.closest('.star');
+  if (!star) return;
+  var container = star.closest('.stars');
+  var val = parseInt(star.dataset.val);
+  container.dataset.rating = String(val);
+  container.querySelectorAll('.star').forEach(function(s) {{
+    s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+  }});
+}});
+
+// ── Feedback export: 'copy' (clipboard + modal fallback) or download ──────
+function buildFeedbackData() {{
   var data = {{ timestamp: new Date().toISOString(), sets: [] }};
   document.querySelectorAll('section.set').forEach(function(set) {{
     var gi = set.dataset.set;
@@ -1683,10 +1727,12 @@ function exportFeedback() {{
     var best = set.querySelector('input[name="best_set' + gi + '"]:checked');
     var images = [];
     set.querySelectorAll('.img-card').forEach(function(card) {{
+      var starsEl = card.querySelector('.stars');
       images.push({{
         index: parseInt(card.dataset.idx),
         filename: card.dataset.filename || '',
         variant: card.dataset.variant || '',
+        rating: starsEl ? parseInt(starsEl.dataset.rating || '0') : 0,
         comment: card.querySelector('.comment-box').value
       }});
     }});
@@ -1697,15 +1743,44 @@ function exportFeedback() {{
       images: images
     }});
   }});
-  var blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
+  return data;
+}}
+function flashStatus(msg) {{
+  var s = document.getElementById('status');
+  s.textContent = msg;
+  setTimeout(function() {{ s.textContent = ''; }}, 3000);
+}}
+function showJsonModal(jsonStr) {{
+  var ta = document.getElementById('json-modal-text');
+  ta.value = jsonStr;
+  document.getElementById('json-modal').classList.add('open');
+  ta.focus(); ta.select();
+}}
+function closeJsonModal() {{
+  document.getElementById('json-modal').classList.remove('open');
+}}
+function exportFeedback(mode) {{
+  var jsonStr = JSON.stringify(buildFeedbackData(), null, 2);
+  if (mode === 'copy') {{
+    // file:// URLs may block the async Clipboard API → always offer the modal
+    // textarea as a reliable manual-copy fallback.
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      navigator.clipboard.writeText(jsonStr).then(function() {{
+        flashStatus('{T['copied']}');
+      }}).catch(function() {{ showJsonModal(jsonStr); }});
+    }} else {{
+      showJsonModal(jsonStr);
+    }}
+    return;
+  }}
+  var blob = new Blob([jsonStr], {{type: 'application/json'}});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
   a.download = 'review_feedback.json';
   a.click();
   URL.revokeObjectURL(url);
-  document.getElementById('status').textContent = '{T['exported']}';
-  setTimeout(function() {{ document.getElementById('status').textContent = ''; }}, 3000);
+  flashStatus('{T['exported']}');
 }}
 </script>
 </body>
