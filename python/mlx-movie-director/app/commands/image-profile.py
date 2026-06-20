@@ -16,6 +16,9 @@ import time
 import traceback
 from datetime import datetime, timezone
 
+import gc
+import mlx.core as mx
+
 from app import config as cfg
 from app.commands._shared import resolve_lora_paths
 
@@ -646,6 +649,17 @@ def run_profile(args):
         if ref_count > 1:
             print(f"Multi-ref: ON (reference ×{ref_count})")
 
+        # Footgun guard: --ref-count > 3 over-conditions the distilled Flux2KleinEdit
+        # pipeline → solid-black / abstract texture. Validated via A/B (2026-06-21):
+        # ref-count 1-3 work (default 3 = best, 9/10/10); ref-count 5 BREAKS. Working
+        # ceiling ≈ 3. Clamp to 3 and warn. Same overload class as --ref-strength below.
+        # (memory: profile-ref-strength-breaks-flux2-edit)
+        if ref_count > 3 and use_flux2:
+            print(f"WARNING: --ref-count {ref_count} over-conditions the distilled "
+                  f"Flux2KleinEdit pipeline (solid-black/texture above 3); clamping to 3 "
+                  f"(the validated best value).")
+            ref_count = 3
+
         ref_strength = getattr(args, "ref_strength", None)
         # Footgun guard: --ref-strength passes image_strength to mflux, which BREAKS the
         # distilled Flux2KleinEdit reference pipeline (abstract textures — the image_strength
@@ -734,6 +748,16 @@ def run_profile(args):
                 "width": result.image.width,
                 "height": result.image.height,
             })
+
+            # Release GPU memory between views. Chain-ref's cascade (front → side →
+            # back) accumulates reference tensors + the MLX allocator's freed-buffer
+            # cache across the 3 sequential generations, which can trip a Metal
+            # command-buffer timeout (kIOGPUCommandBufferCallbackErrorTimeout) on the
+            # back view. Clearing the pool + GC between generations bounds peak memory.
+            # (memory: profile-ref-strength-breaks-flux2-edit — chain-ref GPU timeout)
+            if use_flux2:
+                mx.clear_cache()
+                gc.collect()
 
         # VLM view-angle verification (saves .caption.json; runs before HTML so badges appear)
         if getattr(args, "vlm", True):
