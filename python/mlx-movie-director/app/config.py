@@ -26,6 +26,11 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(APP_DIR)
 REPO_DIR = os.path.dirname(os.path.dirname(PROJECT_DIR))
 
+# ComfyUI model store — BUILD-TIME ONLY. Consumed solely by the SRC_* constants
+# below as convert.py re-conversion sources (moody/zimage/seedvr2). Runtime
+# pipelines must NEVER read from here — they use MODELS_DIR (the MLX-owned tree).
+# This keeps the bun/MLX app self-contained: comfyui_data/ is a gitignored ComfyUI
+# install artifact that can vanish on branch switch / git clean.
 COMFY_MODELS = os.path.join(REPO_DIR, "comfyui_data", "models")
 
 SRC_TRANSFORMER = os.path.join(COMFY_MODELS, "diffusion_models", "moody-porn-v12.6_00001_.safetensors")
@@ -94,9 +99,18 @@ LTX_MLX_DISTILLED_DIR = os.path.join(LTX_MLX_DIR, "distilled")
 LTX_DASIWA_TRANSFORMER_DIR = os.path.join(MODELS_DIR, "transformer", "ltx-2.3-dasiwa-golden-lace-v3-q8")
 LTX_MLX_DASIWA_DIR         = os.path.join(LTX_MLX_DIR, "dasiwa")
 
-# LTX-2.3 IC-LoRA restoration weights (download from Lightricks/CivitAI)
-LTX_RESTORE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-video-restoration-general.safetensors")
-LTX_UPSCALE_LORA = os.path.join(COMFY_MODELS, "loras", "ltx2.3-ic-video-upscale-general.safetensors")
+# LTX-2.3 IC-LoRA restoration weights (download from Lightricks/CivitAI). They live
+# in the MLX-owned model tree (NOT comfyui_data) so the restore pipeline is
+# self-contained — the bun app only ever spawns run.py, never ComfyUI.
+LTX_RESTORE_LORA = os.path.join(MODELS_DIR, "lora", "ltx-2.3-restore", "ltx2.3-video-restoration-general.safetensors")
+LTX_UPSCALE_LORA = os.path.join(MODELS_DIR, "lora", "ltx-2.3-restore", "ltx2.3-ic-video-upscale-general.safetensors")
+
+# Default ESRGAN upscale model (download 4xNomosWebPhoto_RealPLKSR). Single source
+# of truth — re-exported by commands._shared and commands._output (both previously
+# held divergent comfyui_data copies).
+DEFAULT_UPSCALE_MODEL = os.path.join(
+    MODELS_DIR, "upscale", "4x-nomos-webphoto-realplksr", "4xNomosWebPhoto_RealPLKSR.pth"
+)
 
 # Z-Image ControlNet (Union 2.1 Lite — supports pose/depth/canny/hed/scribble/gray, 8-step distilled)
 # MLX 4-bit GS32 quantized version; 69% smaller than BF16 original (SSIM 97.9%).

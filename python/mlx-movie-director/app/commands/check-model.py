@@ -253,7 +253,13 @@ _SKIP_DIRS = {".cache", "__pycache__", ".git", "tmp", "ltx-mlx"}
 
 
 def _find_orphans(models_dir: str) -> Iterator[tuple[str, str]]:
-    """Yield (category, instance) for dirs without manifest.json."""
+    """Yield (category, instance) for dirs without manifest.json.
+
+    Skips dirs marked ``.raw-download`` — intentionally manifest-less drop-in
+    weights (user-downloaded checkpoints loaded raw with no MLX conversion step,
+    e.g. the comfyui_data-decoupled LoRAs/VAE/upscaler under models/). Mirrors the
+    ``REMOVED`` marker convention in app/config.py.
+    """
     for category in sorted(os.listdir(models_dir)):
         cat_dir = os.path.join(models_dir, category)
         if not os.path.isdir(cat_dir) or category.startswith("."):
@@ -265,6 +271,8 @@ def _find_orphans(models_dir: str) -> Iterator[tuple[str, str]]:
             mf = os.path.join(inst_dir, "manifest.json")
             if os.path.isdir(inst_dir) and not os.path.exists(mf):
                 if instance in _SKIP_DIRS or instance.startswith("."):
+                    continue
+                if os.path.exists(os.path.join(inst_dir, ".raw-download")):
                     continue
                 yield category, instance
 

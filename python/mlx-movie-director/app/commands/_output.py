@@ -13,10 +13,9 @@ from app import config as cfg
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_UPSCALE_MODEL = os.path.join(
-    cfg.REPO_DIR, "comfyui_data", "models", "upscale_models",
-    "4xNomosWebPhoto_RealPLKSR.pth"
-)
+# Canonical definition lives in app.config (MODELS_DIR/upscale/...); re-exported
+# here for tests/importers of app.commands._output.
+from app.config import DEFAULT_UPSCALE_MODEL as DEFAULT_UPSCALE_MODEL  # noqa: F401 (re-export)
 
 RELAY_FINAL_MODE = "relay-final"
 

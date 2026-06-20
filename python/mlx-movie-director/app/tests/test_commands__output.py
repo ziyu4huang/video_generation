@@ -34,11 +34,11 @@ class TestConstants:
         assert RELAY_FINAL_MODE == "relay-final"
 
     def test_default_upscale_model_under_repo_dir(self):
-        """DEFAULT_UPSCALE_MODEL lives under REPO_DIR/comfyui_data/models."""
+        """DEFAULT_UPSCALE_MODEL lives under the MLX-owned MODELS_DIR/upscale tree."""
         assert DEFAULT_UPSCALE_MODEL.startswith(cfg.REPO_DIR)
 
     def test_default_upscale_model_in_upscale_models_subdir(self):
-        assert "upscale_models" in DEFAULT_UPSCALE_MODEL.split(os.sep)
+        assert "upscale" in DEFAULT_UPSCALE_MODEL.split(os.sep)
 
     def test_default_upscale_model_basename(self):
         assert os.path.basename(DEFAULT_UPSCALE_MODEL) == "4xNomosWebPhoto_RealPLKSR.pth"

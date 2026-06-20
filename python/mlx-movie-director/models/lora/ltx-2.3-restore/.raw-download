@@ -1,0 +1,5 @@
+# Marker: this directory holds a raw (non-MLX-converted) user-downloaded weight,
+# loaded directly at runtime (no conversion step). It intentionally has NO
+# manifest.json — the check-model orphan scan (app/commands/check-model.py
+# _find_orphans) skips directories marked .raw-download, mirroring the REMOVED
+# marker convention. Download instructions are in the sibling README.md.

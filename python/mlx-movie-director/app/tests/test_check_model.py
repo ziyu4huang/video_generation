@@ -112,6 +112,21 @@ def test_ltx_mlx_aggregate_dir_not_orphan(tmp_path):
     assert not any(cat == "ltx-mlx" for cat, _ in result["orphan_dirs"])
 
 
+def test_raw_download_marker_not_orphan(tmp_path):
+    """A dir marked .raw-download holds a user-downloaded raw weight with no MLX
+    conversion, so it intentionally has no manifest.json and must not be flagged."""
+    _make_instance(tmp_path, "baseline")  # a real instance so the scan isn't empty
+    raw_dir = tmp_path / "lora" / "ltx-2.3-restore"
+    raw_dir.mkdir(parents=True)
+    (raw_dir / ".raw-download").write_text("raw user-downloaded weight\n")
+    (raw_dir / "README.md").write_text("download instructions")
+    result = _run(tmp_path)
+    assert not any(
+        cat == "lora" and inst == "ltx-2.3-restore"
+        for cat, inst in result["orphan_dirs"]
+    )
+
+
 # ── gpt-oss-20b multi-file pattern ────────────────────────────────────────────
 
 

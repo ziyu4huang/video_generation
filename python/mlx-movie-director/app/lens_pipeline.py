@@ -37,10 +37,9 @@ _MODELS_DIR = os.path.join(_APP_DIR, "..", "models")
 _TE_DIR = os.path.join(_MODELS_DIR, "text_encoder", "gpt-oss-20b")
 _UNET_DIR = os.path.join(_MODELS_DIR, "lens-unet-int4")
 
-# Flux2 VAE (ComfyUI format)
-_COMFYUI_VAE = os.path.join(
-    _APP_DIR, "..", "..", "..", "comfyui_data", "models", "vae", "flux2-vae.safetensors"
-)
+# Flux2 VAE (ComfyUI format) — lives in the MLX-owned model tree (NOT comfyui_data),
+# so Lens T2I is self-contained and survives a ComfyUI-clean.
+_LENS_VAE = os.path.join(_MODELS_DIR, "vae", "flux2-vae", "flux2-vae.safetensors")
 _MFLUX_SRC = os.path.join(_APP_DIR, "..", "vendor", "mflux", "src")
 if os.path.isdir(_MFLUX_SRC) and _MFLUX_SRC not in sys.path:
     sys.path.insert(0, _MFLUX_SRC)
@@ -178,7 +177,7 @@ class LensPipeline:
     ):
         self.te_path = te_path or os.path.join(_TE_DIR, "model.safetensors")
         self.unet_path = unet_path or os.path.join(_UNET_DIR, "model.safetensors")
-        self.vae_path = vae_path or _COMFYUI_VAE
+        self.vae_path = vae_path or _LENS_VAE
         self.cfg_scale = cfg_scale
         self.num_steps = num_steps
         self.shift = shift  # 1.829 per ComfyUI Lens sampling_settings
