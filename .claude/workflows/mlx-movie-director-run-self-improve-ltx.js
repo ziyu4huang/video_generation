@@ -61,11 +61,11 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best from prior sweeps (cfg=5, --hq, stage1=15, composite=62.98).
+// Base config — confirmed best from prior sweeps (cfg=5, --hq, stage1=15, modality=5, composite=63.93).
 const baseCfg = {
-  stage1: 15, stage2: 3, cfg: 5, frames: 57, fps: 24, seed: 42,
+  stage1: 15, stage2: 3, cfg: 5, stg: 1.0, frames: 57, fps: 24, seed: 42,
   width: 768, height: 512, lowRam: true, audioVolume: 50,
-  audioCfg: null, audioStage1Only: false, modalityScale: null, hq: true,
+  audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   promptFile: A.promptFile || "/tmp/voice-optimized.txt",
   ...A.base,
 }
@@ -75,10 +75,11 @@ const KNOBS = {
   stage1_steps:       [8, 12, 20, 25],
   stage2_steps:       [1, 3, 5],
   cfg_scale:          [3, 5, 7],
-  audio_cfg_scale:    [null, 5, 9],      // 3 is known dead-end (KB: ltx:audio-cfg-scale-3-avoid)
-  modality_scale:     [null, 1.0, 2.0, 5.0],  // audio↔video coupling (3.0=default, null=use default)
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],    // STG guidance — never swept; default 1.0
+  audio_cfg_scale:    [null, 5, 9],              // 3=dead-end (KB); null=7.0 (HQ hardcode)
+  modality_scale:     [5.0, 7.0, 10.0],         // 5=confirmed best; 1.0/2.0=dead-ends; null now=5 (CLI default)
   audio_stage1_only:  [false, true],
-  seed:               "int",                   // any int (re-roll)
+  seed:               "int",                     // any int (re-roll)
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","seed"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","seed"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -153,7 +154,7 @@ function buildGenerateCmd(R, cfg) {
   c += ` --prompt-file '${cfg.promptFile}'`
   c += ` --width ${cfg.width} --height ${cfg.height} --frames ${cfg.frames} --fps ${cfg.fps}`
   c += ` --seed ${cfg.seed} --stage1-steps ${cfg.stage1} --stage2-steps ${cfg.stage2}`
-  c += ` --cfg-scale ${cfg.cfg} --audio-volume ${cfg.audioVolume}`
+  c += ` --cfg-scale ${cfg.cfg} --stg-scale ${cfg.stg != null ? cfg.stg : 1.0} --audio-volume ${cfg.audioVolume}`
   if (cfg.lowRam)                c += ` --low-ram`
   if (cfg.hq)                    c += ` --hq`
   if (cfg.audioCfg != null)      c += ` --audio-cfg-scale ${cfg.audioCfg}`
@@ -435,6 +436,7 @@ function cfgWith(cfg, knob, val) {
     case "stage1_steps":      c.stage1 = val; break
     case "stage2_steps":      c.stage2 = val; break
     case "cfg_scale":         c.cfg = val; break
+    case "stg_scale":         c.stg = val; break
     case "audio_cfg_scale":   c.audioCfg = val; break
     case "modality_scale":    c.modalityScale = val; break
     case "audio_stage1_only": c.audioStage1Only = val; break
@@ -443,7 +445,7 @@ function cfgWith(cfg, knob, val) {
   }
   return c
 }
-function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/seed${c.seed}` }
+function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/seed${c.seed}` }
 
 for (let i = 1; i <= budget; i++) {
   // --- Propose one knob change ---
