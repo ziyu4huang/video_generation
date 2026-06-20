@@ -1207,11 +1207,16 @@ if (!vlmAvailable) {
         genResult.outputPngs.map((pngPath, pngIdx) => () => {
           const captionFile = captionPathFor(pngPath)
           const specPrompt = item.spec?.prompt || null
+          // Multi-view: if this PNG is a profile view (front/back/side.png), pass the view
+          // label so caption injects per-view expected framing elements into the captured[]/
+          // missed[] checklist — otherwise front/side `captured` arrays are sparse/empty.
+          const viewLabel = (pngPath.match(/(front|back|side)\.png$/i) || [,""])[1].toLowerCase()
 
           return agent(
             `Score the image quality of a generated output using the VLM caption tool.
 
 IMAGE PATH: ${pngPath}
+SPEC VIEW: ${viewLabel || "(none — not a multi-view profile image)"}
 SPEC PROMPT: ${specPrompt ? JSON.stringify(specPrompt) : "(none in spec)"}
 RUN.JSON: ${genResult.runJsonPath || "(none)"}
 
@@ -1228,7 +1233,9 @@ STEPS:
    - If no prompt (e.g. i2i self-test variations): --style score
 
 3. Run the caption command (requires LM Studio at http://localhost:1234):
-   Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style <review|score> [--prompt '<prompt>'] --lang en")
+   Bash("${PYTHON} ${RUN_PY} caption '${pngPath}' --style <review|score> [--prompt '<prompt>'] [--view <front|back|side>] --lang en")
+   If SPEC VIEW is a profile view label (front/back/side), append \`--view <view>\` so the VLM
+   scores view-appropriate framing elements (otherwise multi-view captured[] is sparse/empty).
 
    If this fails with a connection error (e.g. "Connection refused"), set:
      error = "VLM unavailable — LM Studio not running at localhost:1234"

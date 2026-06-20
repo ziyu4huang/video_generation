@@ -305,6 +305,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         "(assume the model is already loaded)")
     parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
                         help="Original T2I prompt (used by 'review' style for adherence evaluation)")
+    parser.add_argument("--view", choices=["front", "back", "side"], default=None,
+                        help="Profile view label (front|back|side). With --style review/score, injects "
+                             "per-view EXPECTED framing elements into the captured[]/missed[] checklist "
+                             "so multi-view images are scored on a common, view-appropriate yardstick "
+                             "(otherwise front/side `captured` arrays are sparse/empty because the base "
+                             "prompt names no view-specific elements). Used by the multi-view workflow.")
     parser.add_argument("--lora-name", type=str, default=None, metavar="NAME",
                         help="LoRA name (used by 'lora_quality' style)")
     parser.add_argument("--lora-description", type=str, default=None, metavar="DESC",
@@ -467,6 +473,11 @@ def run(args: argparse.Namespace) -> None:
                     lora_description=lora_desc,
                     scale=scale_str,
                 )
+            # Per-view framing elements (multi-view fair comparison). Applies to any
+            # style whose prompt carries a captured[]/missed[] checklist (review, score).
+            view = getattr(args, "view", None)
+            if view:
+                prompt_text += get_profile_view_elements_block(view)
             prompt_text += "\n" + _LANG_INSTRUCTIONS[lang]
             print(f"Captioning {input_path} (style={style}, lang={lang}"
                   f"{sample_tag}){multi_tag}...", end=" ", flush=True)
@@ -567,7 +578,64 @@ def get_profile_verify_prompt(expected_view: str) -> str:
     )
 
 
-def get_controlnet_verify_prompt() -> str:
+# Per-view EXPECTED framing elements for fair multi-view scoring (同類比較).
+# `caption --view <front|back|side>` injects these so each angle is evaluated on a
+# common, view-appropriate yardstick. Multi-view images are usually scored with the
+# `score` style (no T2I prompt known), which has NO captured[]/missed[] checklist and
+# is fully view-agnostic — so all views score generic 9s with nothing to differentiate.
+# The block below is STYLE-AGNOSTIC: it asks the VLM to ADD view_correct + per-view
+# captured[]/missed[] to its JSON response regardless of style, giving each view
+# view-specific differentiation for fair same-category comparison.
+_PROFILE_VIEW_DESC = {
+    "front": "front view (0°): character faces the viewer, full face visible",
+    "back":  "back view (180°): rear-facing, back of head visible, no face",
+    "side":  "side view (90°): exactly sideways, head in strict profile",
+}
+_PROFILE_VIEW_ELEMENTS = {
+    "front": [
+        "full face visible (both eyes, nose, mouth)",
+        "front of the outfit / outfit front details visible",
+        "front-facing pose (character looks toward the viewer)",
+        "no back of head visible",
+    ],
+    "back": [
+        "back of head / hair visible",
+        "back of the outfit visible",
+        "rear-facing pose (180°, character turned away from viewer)",
+        "no face visible",
+    ],
+    "side": [
+        "face/head in strict profile (only one eye visible)",
+        "side of the outfit visible",
+        "exactly sideways (90°)",
+        "only one arm visible / body in silhouette",
+    ],
+}
+
+
+def get_profile_view_elements_block(view: str) -> str:
+    """Return a style-agnostic prompt block for per-view multi-view scoring.
+
+    Appended to any style's prompt when `caption --view <front|back|side>` is used.
+    Asks the VLM to ADD `view_correct` + per-view `captured`/`missed` to its JSON
+    response (alongside whatever the style already requests), so multi-view images —
+    even those scored with the prompt-less `score` style — get view-specific
+    differentiation for fair same-category comparison. Returns "" for an unknown/empty
+    view (a no-op when --view is absent).
+    """
+    elems = _PROFILE_VIEW_ELEMENTS.get(view)
+    if not elems:
+        return ""
+    desc = _PROFILE_VIEW_DESC.get(view, view)
+    return (
+        f"\n\nADDITIONAL VIEW-SPECIFIC CHECK — this image should be the {desc}. "
+        "Evaluate view correctness and framing, and ADD these fields to your JSON "
+        "response (alongside any fields the style already requests):\n"
+        f'- "view_correct": true/false — is this actually a {view} view as described?\n'
+        '- "captured": [view-specific framing elements PRESENT in the image]\n'
+        '- "missed": [view-specific framing elements ABSENT or wrong]\n'
+        f"Expected {view} framing elements to check:\n- " + "\n- ".join(elems) + "\n"
+    )
     """Build a VLM prompt to verify a ControlNet output shows a V-pose (arms raised).
 
     The returned prompt instructs the VLM to check arm position and return a JSON object
