@@ -63,12 +63,13 @@ export async function handleRequest(req: Request, server: Server): Promise<Respo
     return serveFile(path.join(FRONTEND_DIR, "styles.css"), TEXT_CSS);
   }
 
-  // HTML shell — serves index.html for all non-API, non-static routes (SPA)
-  if (pathname === "/" || pathname === "/index.html" || !pathname.startsWith("/api/")) {
-    return serveFile(path.join(FRONTEND_DIR, "index.html"), TEXT_HTML);
-  }
-
-  return new Response("Not found", { status: 404 });
+  // HTML shell — SPA fallback. Every path reaching here has already been
+  // excluded by the checks above (/ws, /api/, /output/, the static bundle
+  // files), so serve index.html unconditionally and let the client-side
+  // router take over. (The prior guard `!pathname.startsWith("/api/")` was
+  // always true here — /api/ is dispatched at line 39 — making this branch
+  // unconditional and the trailing 404 dead code.)
+  return serveFile(path.join(FRONTEND_DIR, "index.html"), TEXT_HTML);
 }
 
 function serveFile(filePath: string, headers: Record<string, string>): Response {

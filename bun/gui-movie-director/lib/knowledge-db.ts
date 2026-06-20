@@ -5,6 +5,10 @@ import type {
   KnowledgeReport,
   KnowledgeIndex,
   StructuredKnowledge,
+  PromptStrategy,
+  ExampleRecord,
+  LoraInsight,
+  BestParams,
 } from "./knowledge-types";
 import { REPO_DIR } from "./config";
 
@@ -126,21 +130,76 @@ export function saveReportToDb(report: KnowledgeReport): void {
   writeKbIndex(idx);
 }
 
-// ── Structured knowledge JSONL export (full overwrite per category) ───────────
+// ── Structured knowledge JSONL export (ACCUMULATE per category) ──────────────
+// Each knowledge:learn call distills the current top-N records via DeepSeek, but
+// it must NOT discard knowledge from prior runs (or hand-seeded entries). We
+// merge incoming entries into the existing per-category JSONL, keyed by a stable
+// field: incoming wins on collision (latest distillation for that key), while
+// entries absent from the incoming set are preserved. Without this, every
+// iteration destructively regenerates the files and the self-learning loop
+// forgets everything it ever learned (observed 2026-06-20: iteration #5 wiped
+// hand-seeded plasticky-skin-ceiling knowledge with a 1-record regeneration).
+
+// Pure merge core (no FS) — unit-tested. incoming entries overwrite existing on
+// key collision (latest wins); existing-only entries are preserved. Output order:
+// incoming (new/refreshed) first, then preserved existing-only entries. Empty
+// keys are dropped (malformed input).
+export function mergeByKey<T>(existing: T[], incoming: T[], keyOf: (item: T) => string): T[] {
+  const merged = new Map<string, T>();
+  const incomingKeys: string[] = [];
+  for (const item of existing) {
+    const k = keyOf(item);
+    if (k) merged.set(k, item);
+  }
+  for (const item of incoming) {
+    const k = keyOf(item);
+    if (!k) continue;
+    if (!merged.has(k)) incomingKeys.push(k);
+    merged.set(k, item);
+  }
+  const ordered: T[] = [];
+  for (const k of incomingKeys) ordered.push(merged.get(k) as T);
+  for (const [k, item] of merged) {
+    if (!incomingKeys.includes(k)) ordered.push(item);
+  }
+  return ordered;
+}
 
 export function exportStructuredToDb(structured: StructuredKnowledge): void {
   ensureKbDirs();
 
-  function writeJsonl(filename: string, items: unknown[]): void {
-    const content = items.map((item) => JSON.stringify(item)).join("\n") + (items.length ? "\n" : "");
+  function readExisting<T>(filename: string): T[] {
+    const p = path.join(KB_STRUCTURED_DIR, filename);
+    if (!fs.existsSync(p)) return [];
+    const out: T[] = [];
+    for (const line of fs.readFileSync(p, "utf-8").split("\n")) {
+      const t = line.trim();
+      if (!t) continue;
+      try { out.push(JSON.parse(t) as T); } catch { /* skip malformed legacy line */ }
+    }
+    return out;
+  }
+
+  function writeMerged<T>(filename: string, incoming: T[], keyOf: (item: T) => string): void {
+    const existing = readExisting<T>(filename);
+    const ordered = mergeByKey(existing, incoming, keyOf);
+    const content = ordered.map((item) => JSON.stringify(item)).join("\n") + (ordered.length ? "\n" : "");
     fs.writeFileSync(path.join(KB_STRUCTURED_DIR, filename), content, "utf-8");
   }
 
-  writeJsonl("strategies.jsonl",    structured.topStrategies);
-  writeJsonl("examples.jsonl",      structured.topExamples);
-  writeJsonl("lora-insights.jsonl", structured.loraInsights);
-  writeJsonl("params.jsonl",        structured.bestParams);
-  writeJsonl("avoid.jsonl",         structured.avoid.map((item) => ({ item })));
+  const norm = (s: unknown): string =>
+    typeof s === "string" ? s.trim().toLowerCase().replace(/\s+/g, " ") : "";
+
+  writeMerged<PromptStrategy>("strategies.jsonl", structured.topStrategies,
+    (s) => norm(s.template));
+  writeMerged<ExampleRecord>("examples.jsonl", structured.topExamples,
+    (e) => norm(e.prompt));
+  writeMerged<LoraInsight>("lora-insights.jsonl", structured.loraInsights,
+    (l) => norm(l.lora));
+  writeMerged<BestParams>("params.jsonl", structured.bestParams,
+    (p) => `${norm(p.pipeline)}|${p.steps ?? ""}|${p.cfgScale ?? ""}`);
+  writeMerged<{ item: string }>("avoid.jsonl", structured.avoid.map((item) => ({ item })),
+    (a) => norm(a.item));
 }
 
 // ── Load helpers ──────────────────────────────────────────────────────────────

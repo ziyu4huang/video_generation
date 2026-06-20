@@ -18,6 +18,7 @@ import { videoGenerateCommand } from "./video-generate";
 import { videoRelayCommand } from "./video-relay";
 import { videoRestoreCommand } from "./video-restore";
 import { imageRestoreCommand } from "./image-restore";
+import { purifyCommand } from "./purify";
 import { videoCompareCommand } from "./video-compare";
 import { videoQualityCommand } from "./video-quality";
 import { videoVbvrCommand } from "./video-vbvr";
@@ -36,6 +37,7 @@ export const ALL_COMMANDS: UnifiedCommand[] = [
   // Transform
   i2iCommand,
   imageRestoreCommand,
+  purifyCommand,
   anime2realCommand,
   expansionCommand,
   // Edit

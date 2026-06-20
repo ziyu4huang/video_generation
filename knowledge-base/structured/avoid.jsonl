@@ -1,6 +1,49 @@
-{"item":"Using technical commands instead of descriptive prompts (e.g., 'BFS head face swap')"}
-{"item":"Specifying 'photograph' when output is AI-generated (causes style mismatch)"}
-{"item":"Over-specifying medium with contradictory terms (e.g., 'hyperrealistic 8K cinematic' for AI)"}
-{"item":"Using LoRA at extreme scales (1.0+ causes artifacts, <0.3 has no effect)"}
-{"item":"Mixing conflicting style terms like 'painterly' with 'photorealistic'"}
-{"item":"Excessive length without clear structure or sectioning"}
+{"item":"Style contradictions (e.g., 'anime style' + 'photorealistic') — model defaults to photorealism, ignoring style request"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap') — no descriptive content, impossible to verify adherence"}
+{"item":"Vague prompts (e.g., 'a beautiful woman') — yields generic results with lower detail scores"}
+{"item":"Overly complex single sentences exceeding 50 words without clear structure — model drops details"}
+{"item":"Mismatched aspect ratios for close-up portraits (e.g., 1024x1536) — can introduce compositional issues"}
+{"item":"Short, style-specific prompts without sufficient detail (e.g., 'anime style illustration, cel-shaded...' without a full scene description)"}
+{"item":"Technical/command prompts (e.g., 'BFS head face swap')"}
+{"item":"Over-reliance on base model for specialized tasks; use a matching LoRA"}
+{"item":"Assuming LoRA effect is visible at small resolutions (640x960); verify at larger scales"}
+{"item":"Using 'photograph' when the output is a photorealistic render; be precise with medium terminology"}
+{"item":"Using style keywords that conflict with the desired output (e.g., 'anime' + 'photorealistic')"}
+{"item":"Using technical or command-like prompts (e.g., 'BFS head face swap')"}
+{"item":"Vague or generic prompts with low specificity (e.g., 'a beautiful woman')"}
+{"item":"Using LoRAs at a scale below 0.65, as their effect becomes negligible"}
+{"item":"Setting CFG to a non-null value on zimage pipeline, as it dramatically increases generation time without quality improvement"}
+{"item":"Mixing incompatible styles in the same prompt (e.g., 'anime' and 'photorealistic')"}
+{"item":"Using technical commands or non-descriptive prompts (e.g., 'BFS head face swap')"}
+{"item":"Overly simple prompts that lack detail (e.g., 'a beautiful woman')"}
+{"item":"High denoise strength (0.6+) when attempting a significant style change"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap') — scored 5/10 on prompt_adherence"}
+{"item":"Vague, generic prompts without specific details — scored 8/10 vs 9-10 for specific prompts"}
+{"item":"Conflicting style requests (e.g., asking for 'photograph' when output is clearly AI-generated)"}
+{"item":"LoRA at very low scales (0.5 or below) — effect may be indistinguishable from base model"}
+{"item":"Overly long prompts without narrative structure — risk of missing key elements"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap') - results in prompt_adherence=5"}
+{"item":"Overly generic prompts with no specific detail anchors - results in detail=8 vs 9-10"}
+{"item":"Contradictory style references (e.g., 'photograph' when output is clearly AI-generated render)"}
+{"item":"Excessive LoRA scale above 0.8 without testing - diminishing returns with higher memory usage"}
+{"item":"Very short prompts with fewer than 3 specific descriptors - consistently lower detail scores"}
+{"item":"Using technical commands as prompts (e.g., 'BFS head face swap')"}
+{"item":"Specifying a style (e.g., 'photograph') that the model cannot perfectly replicate"}
+{"item":"Using LoRA at very high scales (1.0+) without testing lower scales first"}
+{"item":"Assuming LoRA effects are visible at small image sizes (e.g., 640x960)"}
+{"item":"Using unstructured, rambling prompts without clear subject-action-setting structure"}
+{"item":"Vague or overly simple prompts (e.g., 'a beautiful woman, photorealistic portrait')"}
+{"item":"Technical commands as the entire prompt (e.g., 'BFS head face swap')"}
+{"item":"Style mismatch between prompt and generated image (e.g., asking for a 'photograph' but getting an AI render)"}
+{"item":"Overly long, narrative prompts that may distract from key visual elements"}
+{"item":"Using LoRAs at ineffective scales (too low weight or for wrong task)"}
+{"item":"Using technical commands as prompts (e.g., 'BFS head face swap') - leads to prompt adherence failure."}
+{"item":"Specifying a style the model cannot perfectly replicate (e.g., 'photograph' or 'cinematography' for a 4-step generation) - causes style mismatch and low adherence scores."}
+{"item":"Overly complex or contradictory instructions in a single prompt - can confuse the model."}
+{"item":"Assuming a LoRA's effect is significant at very low scales (e.g., 0.5) without a proper trigger word - the LoRA's influence may be negligible."}
+{"item":"Neglecting to specify anatomical details in human subjects - increases risk of artifacts like extra fingers or distorted limbs."}
+{"item":"Plasticky/oversmoothed skin (no visible pores, artifacts 4-5) is PLATFORM-WIDE on MLX-quantized bases (zimage-moody 4-bit AND flux2-klein INT8) — NOT a LoRA side-effect. Do NOT A/B LoRAs expecting skin-realism gains on hard skin-heavy prompts."}
+{"item":"Skin-detail levers PARTIALLY exhausted (2026-06-20): at 640×960, LoRA scale/steps/seed/base-swap/realism-LoRAs leave artifacts 4-5. BUT RESOLUTION was never tested — it is a WORKING lever (artifacts 4-5 @ 640×960 → 8-10 @ 1024×1536, mean 9.3). Do not conclude 'exhausted' without sweeping resolution AND transformer/steps/cfg."}
+{"item":"SELF-LEARN KEY FACTORS, not seeds: the actionable levers are TRANSFORMER (which ZIT checkpoint) · steps · cfg · resolution · VAE · LoRA. Seed variance is luck (random init) — A/B-ing seeds alone teaches nothing. Vary ONE real lever, hold the rest fixed. Seed sweeps are only for best-of-N selection."}
+{"item":"Build transformer knowledge from TWO sources: (1) author recs from the checkpoint download URL / model card (recommended steps/cfg/resolution/scale — store in the model manifest.json source_url + recommended_*), (2) our empirical A/B tests. Combine both per-transformer; don't rely on author recs unverified, don't ignore them either."}
+{"item":"UltraFlux 4K VAE (app default) is 2.2x sharper than standard zimage-ae but noisier/blockier — neither clears the artifacts>=6 pore gate. VAE is NOT the skin fix."}

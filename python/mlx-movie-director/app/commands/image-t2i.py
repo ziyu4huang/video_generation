@@ -9,6 +9,7 @@ Public API:
 """
 
 import argparse
+import re
 import sys
 
 from app.commands._shared import execute_generation, execute_ab_test, apply_draft_overrides
@@ -26,6 +27,54 @@ _PIPELINE_DEFAULT_RESOLUTION = {
     "lens": (1024, 1024),
     "auto": (640, 960),
 }
+
+# Resolution TIERS — decouple "what the model was trained on" from "what we want
+# to benchmark / self-learn at". The model-optimal tier (above) matches each
+# pipeline's training distribution (~1MP) and is the safe default. The benchmark
+# and large tiers exploit Apple-Silicon unified memory (M5 Max 128GB runs
+# multi-megapixel easily): the model-optimal 640×960 is too small to exercise
+# rendering capacity — e.g. skin micro-detail / pores — which biases self-learning
+# quality gates. All values are multiples of 16 (Flux2 VAE /8 × patchify /2).
+# Portrait models (zimage/flux2-klein) keep 2:3; lens keeps 1:1.
+_RESOLUTION_TIERS = {
+    # tier: { pipeline: (w, h) }; "auto"/unknown fall back to zimage portrait.
+    "model": {  # per-pipeline training-optimal (the historical default)
+        "zimage": (640, 960), "flux2-klein": (640, 960), "lens": (1024, 1024),
+    },
+    "benchmark": {  # ~1.5–1.6MP — the self-learning / quality-benchmark default
+        "zimage": (1024, 1536), "flux2-klein": (1024, 1536), "lens": (1280, 1280),
+    },
+    "large": {  # ~2.4MP — stress test (slower; watch for OOD artifacts on distilled models)
+        "zimage": (1280, 1920), "flux2-klein": (1280, 1920), "lens": (1536, 1536),
+    },
+}
+
+
+def _resolve_resolution(spec, pipeline):
+    """Resolve a --resolution spec to (width, height) or None.
+
+    Accepts a named tier ("model"|"benchmark"|"large") — resolved per-pipeline —
+    or an explicit "WxH"/"W:H" (e.g. "1024x1536"). Returns None if spec is
+    empty/invalid (caller then falls back to --width/--height / pipeline default).
+    All explicit dims are snapped up to a multiple of 16.
+    """
+    if not spec:
+        return None
+    s = str(spec).strip().lower()
+    if s in _RESOLUTION_TIERS:
+        tier = _RESOLUTION_TIERS[s]
+        key = pipeline if pipeline in tier else "zimage"
+        return tier[key]
+    # Explicit WxH or W:H
+    m = re.match(r"^(\d+)\s*[x:]\s*(\d+)$", s)
+    if not m:
+        return None
+    w, h = int(m.group(1)), int(m.group(2))
+    if w <= 0 or h <= 0:
+        return None
+    # Snap up to multiple of 16 (Flux2/zimage VAE constraint).
+    return (((w + 15) // 16) * 16, ((h + 15) // 16) * 16)
+
 
 # Default prompt for bare `--self-test` (no test name). Named self-tests (e.g.
 # --self-test vae:ultraflux) are routed to the review selftest dispatcher in
@@ -45,6 +94,16 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
                         help="Image width in pixels (default: 640)")
     parser.add_argument("--height", type=int, default=None,
                         help="Image height in pixels (default: 960)")
+    parser.add_argument(
+        "--resolution", default=None, metavar="TIER|WxH",
+        help="Resolution shortcut — overrides --width/--height. Named tier: "
+             "'model' (per-pipeline training-optimal, the default), 'benchmark' "
+             "(~1.5MP, the self-learning/quality-benchmark size — larger than "
+             "model-optimal so rendering capacity like skin pores is exercised), "
+             "'large' (~2.4MP stress). Or explicit 'WxH'/'W:H' (e.g. 1024x1536; "
+             "snapped to a multiple of 16). Apple-Silicon unified memory handles "
+             "multi-MP; 640x960 is too small to benchmark.",
+    )
     parser.add_argument(
         "--pipeline", choices=["zimage", "flux2-klein", "lens", "auto"], default="zimage",
         help="Pipeline: 'zimage' (Moody 12.6 DPO, ~14s/9steps), "
@@ -102,6 +161,10 @@ def run_t2i(args: argparse.Namespace) -> None:
             args.width = 512
         if args.height is None:
             args.height = 512
+        # --resolution tier/override (snapped to /16 by _resolve_resolution)
+        lens_res = _resolve_resolution(getattr(args, "resolution", None), "lens")
+        if lens_res:
+            args.width, args.height = lens_res
         for dim in ("width", "height"):
             val = getattr(args, dim)
             if val <= 0 or val % 16 != 0:
@@ -128,6 +191,11 @@ def run_t2i(args: argparse.Namespace) -> None:
         args.width = 640
     if args.height is None:
         args.height = 960
+    # --resolution tier/override takes precedence over the model-optimal default
+    # (and over --width/--height) so benchmark/self-learning can run larger.
+    res_override = _resolve_resolution(getattr(args, "resolution", None), pipeline_type)
+    if res_override:
+        args.width, args.height = res_override
     run_config = RunConfig.from_args(args, command="image generate")
     json_summary = getattr(args, "json_summary", False)
 

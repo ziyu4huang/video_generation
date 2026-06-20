@@ -212,11 +212,11 @@ def _parse_elevations(elevation_arg: str) -> list:
 
 def run_review_angle(args):
     """Generate all angle views from --input reference image, then open HTML grid."""
-    if not getattr(args, "input", None):
+    if not getattr(args, "input_image", None):
         print("ERROR: 'image review angle' requires --input IMAGE_PATH", file=sys.stderr)
         sys.exit(1)
-    if not os.path.exists(args.input):
-        print(f"ERROR: Input file not found: {args.input}", file=sys.stderr)
+    if not os.path.exists(args.input_image):
+        print(f"ERROR: Input file not found: {args.input_image}", file=sys.stderr)
         sys.exit(1)
 
     steps = args.steps if args.steps is not None else _REVIEW_DEFAULT_STEPS
@@ -229,7 +229,7 @@ def run_review_angle(args):
             user_prompt = f.read().strip()
 
     total = len(ANGLE_GRID) * len(elevations)
-    print(f"Input:      {args.input}")
+    print(f"Input:      {args.input_image}")
     print(f"Elevations: {', '.join(e[0] for e in elevations)}")
     print(f"Grid:       {len(ANGLE_GRID)} × {len(elevations)} = {total} images")
     print(f"Settings:   steps={steps}  seed={seed}  size={args.width}×{args.height}")
@@ -260,7 +260,7 @@ def run_review_angle(args):
             result = pipeline.generate(
                 seed=seed,
                 prompt=prompt,
-                reference_images=[args.input],
+                reference_images=[args.input_image],
                 width=args.width,
                 height=args.height,
                 steps=steps,
@@ -283,7 +283,7 @@ def run_review_angle(args):
 
     rel_dir = f"image-review-angle-{ts}"
     html_path = os.path.join(cfg.OUTPUT_DIR, f"image-review-angle-{ts}.html")
-    html = _render_angle_html(results, elevations, args.input, rel_dir, ts)
+    html = _render_angle_html(results, elevations, args.input_image, rel_dir, ts)
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(html)
 

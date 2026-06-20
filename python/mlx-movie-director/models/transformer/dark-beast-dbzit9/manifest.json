@@ -22,5 +22,11 @@
     "vae/zimage-ae"
   ],
   "size_bytes": 3848371806,
-  "created_at": "2026-06-18T00:00:00Z"
+  "created_at": "2026-06-18T00:00:00Z",
+  "recommended_steps": 8,
+  "recommended_cfg": 1.0,
+  "recommended_resolution": "1024-1536 long-edge (1M-2M px)",
+  "recommended_sampler": "Euler + Simple (or SGM Uniform / ER SDE)",
+  "recommended_vae": "Ultra Flux VAE (included)",
+  "author_notes": "Dark Beast 9 ZIT 'Fast & Reliable Edition' — fused DBZ style into Moody Porn Mix 8 base for faster inference / sharper coherence / fewer hallucinations. Author recs (civitai 2242173): CFG 1, Steps 8, Euler+Simple, 1M-2M px. ZIT-distilled → zero-CFG guidance at minimal steps. NOT yet A/B tested in our stack — recommended_* are AUTHOR recs, pending empirical verification."
 }

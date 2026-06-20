@@ -466,7 +466,7 @@ def run_swap(args):
         return
 
     # Normal mode
-    source_path = getattr(args, "input", None)
+    source_path = getattr(args, "input_image", None)
     reference_path = getattr(args, "reference", None)
     sam_prompt = getattr(args, "sam_prompt", None)
     save_mask = getattr(args, "save_mask", False)
@@ -651,7 +651,7 @@ def _run_test_mode(args):
 
     # Phase 3-5: Run swap with SAM3
     # Override args for test mode
-    args.input = body_path
+    args.input_image = body_path
     args.reference = ref_path
     args.sam_prompt = "woman's face"
     args.save_mask = True

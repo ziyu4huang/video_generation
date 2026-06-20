@@ -25,10 +25,12 @@ _ANGLE_DEFAULT_STEPS = 6
 def add_angle_args(parser: "argparse.ArgumentParser") -> None:
     """Register angle-specific arguments on an argparse parser."""
     parser.add_argument(
-        "--input",
+        "--input", "--input-image",
         metavar="IMAGE",
+        dest="input_image",
         default=None,
-        help="Reference image path. Required for 'angle' sub-action. "
+        help="Reference/input image path. Required for 'angle' sub-action. "
+             "(--input-image is a deprecated alias; --input is preferred.) "
              "For T2I: provides visual anchor for image-conditioned generation — "
              "use with same seed + different prompt to generate FLF2V keyframe pairs "
              "with consistent background.",
@@ -51,11 +53,11 @@ def add_angle_args(parser: "argparse.ArgumentParser") -> None:
 
 def run_angle(args: "argparse.Namespace") -> None:
     """Execute angle-view reframe. Called by image.py dispatcher."""
-    if not args.input:
+    if not args.input_image:
         print("ERROR: 'image angle' requires --input IMAGE_PATH", file=sys.stderr)
         sys.exit(1)
-    if not os.path.exists(args.input):
-        print(f"ERROR: Input file not found: {args.input}", file=sys.stderr)
+    if not os.path.exists(args.input_image):
+        print(f"ERROR: Input file not found: {args.input_image}", file=sys.stderr)
         sys.exit(1)
 
     steps = args.steps if args.steps is not None else _ANGLE_DEFAULT_STEPS
@@ -72,7 +74,7 @@ def run_angle(args: "argparse.Namespace") -> None:
             user_prompt = f.read().strip()
     prompt = _build_angle_prompt(user_prompt, angle_text)
 
-    print(f"Input:  {args.input}")
+    print(f"Input:  {args.input_image}")
     print(f"Angle:  azimuth={args.azimuth}°  elevation={args.elevation}°  → \"{angle_text}\"")
     print(f"Prompt: {prompt}")
     print(f"Size:   {width}×{height}  steps={steps}  seed={seed}")
@@ -85,7 +87,7 @@ def run_angle(args: "argparse.Namespace") -> None:
     run_meta = {
         "command": "image",
         "action": "angle",
-        "input": args.input,
+        "input": args.input_image,
         "azimuth": args.azimuth,
         "elevation": args.elevation,
         "angle_text": angle_text,
@@ -131,7 +133,7 @@ def run_angle(args: "argparse.Namespace") -> None:
             result = pipeline.generate(
                 seed=item_seed,
                 prompt=prompt,
-                reference_images=[args.input],
+                reference_images=[args.input_image],
                 width=width,
                 height=height,
                 steps=steps,

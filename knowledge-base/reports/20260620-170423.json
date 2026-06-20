@@ -1,0 +1,164 @@
+{
+  "generatedAt": "2026-06-20T09:04:23.500Z",
+  "model": "deepseek-chat",
+  "recordCount": 80,
+  "avgQualityScore": 9.1,
+  "markdown": "## T2I Prompt Engineering Guide\n\n### Top 5 Prompt Strategies\n\n1. **Hyper-Specific Descriptive Prompts with Technical Photography Terms**\n   - **Template**: `[subject] in [specific setting], wearing [detailed clothing description], [specific pose/action with anatomical details], [lighting type] casting [specific effect], photorealistic, [specific detail focus], ultra sharp focus`\n   - **Example**: \"full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus\"\n   - **Why it works**: This level of specificity (lighting direction, shadow behavior, anatomical details like \"visible individual fingers\") gives the model concrete constraints that eliminate ambiguity. The \"photorealistic\" + \"ultra sharp focus\" combo acts as a quality anchor.\n\n2. **Anatomical Precision Prompts with Joint/Structure References**\n   - **Template**: `[pose description] with [specific body part details], visible [joint/structural definition], [torso/limb alignment description], photorealistic, detailed anatomy, ultra sharp focus`\n   - **Example**: \"full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment\"\n   - **Why it works**: Explicitly naming joints, bone structures, and finger counts forces the model to resolve anatomical details that are typically weak points. The \"five visible fingers\" constraint prevents the common 6-finger artifact.\n\n3. **Texture-First Portrait Prompts**\n   - **Template**: `[close-up/portrait type] of a [subject], [skin detail description] with visible [specific textures], [lighting type], photorealistic, sharp focus, high detail, [additional constraints like \"no makeup\"]`\n   - **Example**: \"ultra-detailed close-up portrait of a young woman with natural skin texture, visible pores and freckles, soft natural window lighting, photorealistic, sharp focus, high detail, no makeup, candid expression\"\n   - **Why it works**: \"Visible pores and freckles\" + \"no makeup\" creates a specific texture target that the model can optimize for. The \"candid expression\" avoids the stiff/posed look.\n\n4. **Rich Contextual Scene Prompts with Multiple Sensory Layers**\n   - **Template**: `[subject] in [detailed setting], wearing [elaborate clothing description], [specific pose/action], [setting details: architecture, lighting, background elements], [style reference: hyper-realistic, painterly, cinematic], [period/style reference]`\n   - **Example**: \"A stunning young woman in an opulent 18th-century European ballroom, dressed in an elaborate, satin-embroidered gown of gold and floral patterns... The setting is a grand, gilded ballroom with high ceilings, ornate frescoes, and multiple crystal chandeliers casting warm, golden light... The style is hyper-realistic, detailed, and painterly, evoking the elegance of a Baroque or Rococo court.\"\n   - **Why it works**: The dense contextual information (period, architecture, fabric details, lighting sources, style references) creates a rich latent space that the model can interpolate between, producing highly coherent scenes.\n\n5. **Cinematic/Studio Photography Prompts with Technical Camera References**\n   - **Template**: `[subject description], [lighting setup: three-point/soft studio/natural window], [lens/depth of field reference], [color grading/style reference], photorealistic, high detail`\n   - **Example**: \"A photorealistic studio portrait of a young East Asian woman with shoulder-length black hair and a gentle smile, soft three-point studio lighting, natural freckles and detailed skin texture, wearing a deep emerald silk blouse, shallow depth of field, 85mm lens, cinematic color grading\"\n   - **Why it works**: Technical photography terms (\"three-point lighting\", \"85mm lens\", \"shallow depth of field\") anchor the output in photographic realism rather than illustration. The specific fabric and color details (\"deep emerald silk\") give the model concrete material properties to render.\n\n### Prompt Patterns That Correlate with High Scores\n\n| Pattern | Score Impact | Examples |\n|---------|-------------|----------|\n| **Explicit lighting direction + shadow behavior** | +1-2 prompt_adherence | \"natural afternoon side lighting casting long shadows\" |\n| **Anatomical specificity (joints, finger count)** | +1-2 detail, +1 artifacts | \"visible joint definition in wrists and elbows\", \"five visible fingers\" |\n| **Texture descriptors (pores, freckles, fabric type)** | +1-2 detail, +1 sharpness | \"visible pores and freckles\", \"satin-embroidered gown\" |\n| **Negative constraints** | +1 prompt_adherence | \"no makeup\", \"candid expression\" |\n| **Style anchors** | +1 composition | \"photorealistic\", \"hyper-realistic, detailed, and painterly\", \"cinematic color grading\" |\n| **Technical camera references** | +1 sharpness, +1 composition | \"85mm lens\", \"shallow depth of field\", \"three-point studio lighting\" |\n| **Multiple sensory layers (visual + spatial)** | +1 composition, +1 overall | \"high ceilings, ornate frescoes, multiple crystal chandeliers casting warm, golden light\" |\n\n### Things to Avoid\n\n1. **Technical commands as prompts** (Record 9: \"BFS head face swap\" → prompt_adherence=5)\n   - The model cannot execute operations; it generates images from descriptions. Commands produce unpredictable results.\n\n2. **Overly generic prompts** (Records 56-62: \"a beautiful woman, photorealistic portrait, natural skin texture, soft lighting\" → detail=8)\n   - Generic prompts lack the constraints needed for high detail. The model defaults to generic features.\n\n3. **Contradictory style references** (Record 71: \"photograph\" vs. generated \"photorealistic render\")\n   - If you specify \"photograph\" but the output looks like a render, it's a critical failure. Use \"photorealistic\" instead of \"photograph\" if you want AI-generated realism.\n\n4. **Excessive LoRA scale without testing** (Records 3-5: LoRA @ 1.0 vs 0.5 → no quality difference, but higher memory usage)\n   - LoRA scales above 0.8 often show diminishing returns. Test at 0.5-0.8 first.\n\n5. **Very short prompts with no detail anchors** (Records 56-62: detail consistently 8 vs 9-10 for detailed prompts)\n   - Short prompts lack the specificity needed for high detail scores. Always include at least 3-4 specific descriptors.\n\n### Best Parameter Combinations Per Pipeline\n\n#### flux2-klein (Transformer Model)\n\n| Configuration | Steps | CFG | LoRA Scale | denoise | Avg Score | Time (s) | Memory (MB) | Notes |\n|--------------|-------|-----|------------|---------|-----------|----------|-------------|-------|\n| **Best Quality** | 4 | 5 | 0.5-0.8 | 0.4 | 10/10 | 5.3-5.4 | 15,856 | Optimal for most prompts |\n| **With Anatomy LoRA** | 4 | 5 | 1.0-1.2 | 0.4 | 10/10 | 5.4-5.8 | 15,857 | Best for anatomical accuracy |\n| **No LoRA** | 4 | 5 | N/A | 0.4 | 9.8/10 | 5.25 | 15,835 | Slightly lower detail but still excellent |\n| **With HighRes LoRA** | 4 | 5 | 0.5 | 0.4 | 10/10 | 6.0 | 15,917 | Best for portrait close-ups |\n\n**Key Insight**: flux2-klein achieves perfect scores with only 4 steps. Increasing steps doesn't improve quality but increases time linearly. The denoise=0.4 (img2img mode) is critical for photorealism.\n\n#### zimage (zimage-moody-v126)\n\n| Configuration | Steps | CFG | LoRA Scale | Size | Avg Score | Time (s) | Memory (MB) | Notes |\n|--------------|-------|-----|------------|------|-----------|----------|-------------|-------|\n| **Standard Portrait** | 9 | null | none | 640x960 | 9/10 | 12-13 | 7,838 | Consistent quality across seeds |\n| **High Resolution** | 8-9 | null | none | 1024x1536 | 9/10 | 46-109 | 7,835 | CFG=3 doubles time but same quality |\n| **With NSFW LoRA** | 9 | 2.5 | 0.65 | 640x960 | 9/10 | 30.5 | 8,461 | CFG=2.5 adds cinematic quality |\n| **Landscape** | 9 | null | none | 960x640 | 9/10 | 8-10 | 7,985 | Slightly faster than portrait |\n\n**Key Insight**: zimage with null CFG and 9 steps produces consistent 9/10 scores. Adding CFG values (2.5-3) increases time 2-3x without quality improvement. The model is seed-insensitive (seeds 42, 123, 777, 999 all produce identical scores).\n\n#### lens (Legacy Pipeline)\n\n| Configuration | Steps | Size | denoise | Avg Score | Time (s) | Memory (MB) | Notes |\n|--------------|-------|------|---------|-----------|----------|-------------|-------|\n| **Standard** | 20 | 640x960 | 0.4 | 9/10 | 35.5 | 16,834 | 7x slower than flux2-klein |\n| **High Resolution** | 20 | 1024x1024 | 0.4 | 9/10 | 79.1 | 16,840 | 15x slower than flux2-klein |\n\n**Key Insight**: lens pipeline is significantly slower and more memory-intensive than flux2-klein or zimage, with no quality advantage. Avoid unless you need specific lens pipeline features.\n\n### Top 5 Example Prompts with Explanations\n\n1. **\"slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus\"**\n   - **Score**: 10/10 | **Pipeline**: flux2-klein | **LoRA**: klein_slider_bodyweight_50 @ 0.5\n   - **Why it worked**: The prompt combines specific lighting (\"afternoon side lighting casting long shadows\") with anatomical detail (\"visible individual fingers\") and a quality anchor (\"photorealistic, detailed hands and face, ultra sharp focus\"). The \"slider, bodyweight\" prefix activates the LoRA's specific training domain. The narrow alley provides strong compositional leading lines.\n\n2. **\"anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus\"**\n   - **Score**: 10/10 | **Pipeline**: flux2-klein | **LoRA**: klein_slider_anatomy @ 1.0-1.2\n   - **Why it worked**: The \"anatomyfix\" prefix activates the anatomy-specific LoRA. The prompt explicitly enumerates every anatomical detail the model should resolve: finger count, joint definition, ribcage alignment. This eliminates the model's tendency to blur or merge body parts in complex poses.\n\n3. **\"ultra-detailed close-up portrait of a young woman with natural skin texture, visible pores and freckles, soft natural window lighting, photorealistic, sharp focus, high detail, no makeup, candid expression\"**\n   - **Score**: 9/10 | **Pipeline**: zimage | **LoRA**: none\n   - **Why it worked**: The \"visible pores and freckles\" + \"no makeup\" creates a specific texture target. \"Candid expression\" avoids the stiff portrait look. \"Soft natural window lighting\" provides a specific lighting reference that zimage excels at rendering. The \"ultra-detailed close-up\" framing forces the model to allocate resolution to facial features.\n\n4. **\"A photorealistic studio portrait of a young East Asian woman with shoulder-length black hair and a gentle smile, soft three-point studio lighting, natural freckles and detailed skin texture, wearing a deep emerald silk blouse, shallow depth of field, 85mm lens, cinematic color grading\"**\n   - **Score**: 9/10 | **Pipeline**: zimage | **LoRA**: none\n   - **Why it worked**: Technical photography terms (\"three-point lighting\", \"85mm lens\", \"shallow depth of field\") anchor the output in photographic realism. The specific fabric (\"deep emerald silk\") and color (\"emerald\") give the model concrete material properties. \"Cinematic color grading\" provides a post-processing style reference.\n\n5. **\"A stunning young woman in an opulent 18th-century European ballroom, dressed in an elaborate, satin-embroidered gown of gold and floral patterns with lace trim and puffed sleeves, adorned with a jeweled tiara accented by red and blue ribbons, holding a delicate ornate fan in one hand and gently touching her shoulder with the other. Her dark, voluminous curls cascade down her back, her makeup is dramatic and elegant with bold red lips and smoky eye makeup, and she gazes directly at the camera with a poised, regal expression. The setting is a grand, gilded ballroom with high ceilings, ornate frescoes, and multiple crystal chandeliers casting warm, golden light. The background features elegantly dressed figures in period attire, blurred to emphasize the central figure. The floor is covered in a richly patterned Persian rug. The lighting is soft and ambient, creating a luxurious, cinematic atmosphere with a romantic, historical grandeur. The style is hyper-realistic, detailed, and painterly, evoking the elegance of a Baroque or Rococo court.\"**\n   - **Score**: 9/10 | **Pipeline**: zimage | **LoRA**: none\n   - **Why it worked**: This is a masterclass in dense, multi-layered prompting. Every sentence adds a specific constraint: period (18th-century), fabric (satin-embroidered, lace), accessories (tiara, fan), pose (touching shoulder), setting (ballroom, chandeliers, frescoes), lighting (warm, golden), style (hyper-realistic, painterly, Baroque/Rococo). The model has no ambiguity to resolve, producing a highly coherent, detailed scene.",
+  "structured": {
+    "topStrategies": [
+      {
+        "template": "[subject] in [specific setting], wearing [detailed clothing], [specific pose with anatomical details], [lighting type] casting [specific effect], photorealistic, [detail focus], ultra sharp focus",
+        "avgScore": 10,
+        "sampleCount": 5,
+        "bestLora": "klein_slider_bodyweight_50.safetensors"
+      },
+      {
+        "template": "[pose] with [body part details], visible [joint/structural definition], [alignment description], photorealistic, detailed anatomy, ultra sharp focus",
+        "avgScore": 10,
+        "sampleCount": 5,
+        "bestLora": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "template": "ultra-detailed close-up portrait of [subject], [skin detail] with visible [textures], [lighting type], photorealistic, sharp focus, high detail, [constraints]",
+        "avgScore": 9,
+        "sampleCount": 20,
+        "bestLora": "HighResolutionFlux2-Kelien-9B.safetensors"
+      },
+      {
+        "template": "[subject] in [elaborate setting], wearing [detailed clothing], [pose], [setting details: architecture, lighting, background], [style reference: hyper-realistic, painterly, cinematic], [period/style reference]",
+        "avgScore": 9,
+        "sampleCount": 6,
+        "bestLora": "none"
+      },
+      {
+        "template": "[subject description], [lighting setup: three-point/soft studio], [lens/depth of field reference], [color grading/style reference], photorealistic, high detail",
+        "avgScore": 9,
+        "sampleCount": 4,
+        "bestLora": "none"
+      }
+    ],
+    "avoid": [
+      "Technical commands as prompts (e.g., 'BFS head face swap') - results in prompt_adherence=5",
+      "Overly generic prompts with no specific detail anchors - results in detail=8 vs 9-10",
+      "Contradictory style references (e.g., 'photograph' when output is clearly AI-generated render)",
+      "Excessive LoRA scale above 0.8 without testing - diminishing returns with higher memory usage",
+      "Very short prompts with fewer than 3 specific descriptors - consistently lower detail scores"
+    ],
+    "bestParams": [
+      {
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "cfgScale": 5,
+        "loraScale": 0.5,
+        "denoise": 0.4,
+        "avgScore": 10,
+        "avgTime": 5.35,
+        "avgMemory": 15856
+      },
+      {
+        "pipeline": "flux2-klein",
+        "steps": 4,
+        "cfgScale": 5,
+        "loraScale": 1,
+        "denoise": 0.4,
+        "avgScore": 10,
+        "avgTime": 5.41,
+        "avgMemory": 15857
+      },
+      {
+        "pipeline": "zimage",
+        "steps": 9,
+        "cfgScale": null,
+        "loraScale": 0,
+        "denoise": 0.4,
+        "avgScore": 9,
+        "avgTime": 12.3,
+        "avgMemory": 7838
+      },
+      {
+        "pipeline": "zimage",
+        "steps": 8,
+        "cfgScale": null,
+        "loraScale": 0,
+        "denoise": 0.4,
+        "avgScore": 9,
+        "avgTime": 53.3,
+        "avgMemory": 7836
+      },
+      {
+        "pipeline": "lens",
+        "steps": 20,
+        "cfgScale": null,
+        "loraScale": 0,
+        "denoise": 0.4,
+        "avgScore": 9,
+        "avgTime": 35.5,
+        "avgMemory": 16834
+      }
+    ],
+    "loraInsights": [
+      {
+        "lora": "klein_slider_bodyweight_50.safetensors",
+        "avgScore": 10,
+        "notes": "Optimal at scale 0.5-0.8. At 1.0, no quality improvement but higher memory. Best for full-body shots with specific body type requirements."
+      },
+      {
+        "lora": "klein_slider_anatomy.safetensors",
+        "avgScore": 10,
+        "notes": "Optimal at scale 1.0-1.2. At 0.5, slight detail reduction (9 vs 10). Essential for complex poses requiring anatomical accuracy."
+      },
+      {
+        "lora": "HighResolutionFlux2-Kelien-9B.safetensors",
+        "avgScore": 10,
+        "notes": "Tested at 0.5 only. Adds 0.6s to generation time. Best for portrait close-ups requiring exceptional skin texture."
+      },
+      {
+        "lora": "NSFW_master_ZIT_000017532.safetensors",
+        "avgScore": 9,
+        "notes": "Tested at 0.65 with CFG=2.5. Adds cinematic quality but increases time 2.5x. Memory usage 8461MB (higher than base)."
+      },
+      {
+        "lora": "bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors",
+        "avgScore": 5,
+        "notes": "Prompt was a technical command, not descriptive. LoRA itself may be capable but needs proper descriptive prompts to evaluate."
+      }
+    ],
+    "topExamples": [
+      {
+        "prompt": "slider, bodyweight, full body shot of a woman standing in a narrow cobblestone alley, wearing a flowing red dress, one hand raised to adjust her hair with visible individual fingers, natural afternoon side lighting casting long shadows, photorealistic, detailed hands and face, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Combines specific lighting direction with anatomical detail and quality anchors. The narrow alley provides strong compositional leading lines. LoRA activation prefix ensures domain-specific optimization.",
+        "loraPath": "klein_slider_bodyweight_50.safetensors"
+      },
+      {
+        "prompt": "anatomyfix, full body shot of a woman in a dramatic ballet arabesque pose on one leg, arms extended with five visible fingers on each hand, visible joint definition in wrists and elbows, torso twisted with clear ribcage and hip alignment, photorealistic, detailed anatomy, ultra sharp focus",
+        "score": 10,
+        "pipeline": "flux2-klein",
+        "why": "Explicitly enumerates every anatomical detail the model should resolve. The 'five visible fingers' constraint prevents the common 6-finger artifact. Joint and bone references force structural accuracy.",
+        "loraPath": "klein_slider_anatomy.safetensors"
+      },
+      {
+        "prompt": "ultra-detailed close-up portrait of a young woman with natural skin texture, visible pores and freckles, soft natural window lighting, photorealistic, sharp focus, high detail, no makeup, candid expression",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Creates a specific texture target with 'visible pores and freckles' + 'no makeup'. 'Candid expression' avoids stiff portrait look. 'Soft natural window lighting' provides a lighting reference zimage excels at.",
+        "loraPath": "none"
+      },
+      {
+        "prompt": "A photorealistic studio portrait of a young East Asian woman with shoulder-length black hair and a gentle smile, soft three-point studio lighting, natural freckles and detailed skin texture, wearing a deep emerald silk blouse, shallow depth of field, 85mm lens, cinematic color grading",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Technical photography terms ('three-point lighting', '85mm lens', 'shallow depth of field') anchor output in photographic realism. Specific fabric and color ('deep emerald silk') give concrete material properties.",
+        "loraPath": "none"
+      },
+      {
+        "prompt": "A stunning young woman in an opulent 18th-century European ballroom, dressed in an elaborate, satin-embroidered gown of gold and floral patterns with lace trim and puffed sleeves, adorned with a jeweled tiara accented by red and blue ribbons, holding a delicate ornate fan in one hand and gently touching her shoulder with the other. Her dark, voluminous curls cascade down her back, her makeup is dramatic and elegant with bold red lips and smoky eye makeup, and she gazes directly at the camera with a poised, regal expression. The setting is a grand, gilded ballroom with high ceilings, ornate frescoes, and multiple crystal chandeliers casting warm, golden light. The background features elegantly dressed figures in period attire, blurred to emphasize the central figure. The floor is covered in a richly patterned Persian rug. The lighting is soft and ambient, creating a luxurious, cinematic atmosphere with a romantic, historical grandeur. The style is hyper-realistic, detailed, and painterly, evoking the elegance of a Baroque or Rococo court.",
+        "score": 9,
+        "pipeline": "zimage",
+        "why": "Masterclass in dense, multi-layered prompting. Every sentence adds a specific constraint: period, fabric, accessories, pose, setting, lighting, style. The model has no ambiguity to resolve, producing a highly coherent, detailed scene.",
+        "loraPath": "none"
+      }
+    ]
+  }
+}

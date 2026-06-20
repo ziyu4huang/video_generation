@@ -261,7 +261,7 @@ def run_expansion(args: "argparse.Namespace") -> dict[str, str] | None:
     import mlx.core as mx
 
     # Resolve arguments ------------------------------------------------------
-    input_path = getattr(args, "input_image", None) or getattr(args, "input", None)
+    input_path = getattr(args, "input_image", None)
     if not input_path:
         print("ERROR: --input (source image) is required for expansion.", file=sys.stderr)
         sys.exit(1)

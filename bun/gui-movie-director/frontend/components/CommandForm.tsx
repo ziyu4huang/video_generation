@@ -281,16 +281,11 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
           {groupIntoRows(section.fields, state).map((row, ri) => {
             const single = row.length === 1 && isFullWidth(row[0]);
             if (single) {
-              // Full-width field — no form-row wrapper, or with toggles in flex column
-              const field = row[0];
-              if (field.type === "toggle") {
-                return (
-                  <div key={ri} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {row.map(renderField)}
-                  </div>
-                );
-              }
-              return <React.Fragment key={ri}>{renderField(field)}</React.Fragment>;
+              // Full-width field (prompt/image/images/loras) — render with no
+              // form-row wrapper. toggle is never full-width (see isFullWidth),
+              // so single-toggle rows fall through to the all-toggle branch
+              // below; this block never receives a toggle.
+              return <React.Fragment key={ri}>{renderField(row[0])}</React.Fragment>;
             }
             // Normal row with multiple fields
             if (row.every((f) => f.type === "toggle")) {

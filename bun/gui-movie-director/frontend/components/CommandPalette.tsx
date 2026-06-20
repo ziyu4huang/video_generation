@@ -61,6 +61,12 @@ export function CommandPalette({ open, onClose, commands, onSelect }: CommandPal
             onSelect({ type: "command", action: cmd.id });
             onClose();
           }
+        } else if (totalItems > filtered.length) {
+          // Highlighted item is a Recent Job (index ≥ filtered.length) — the
+          // command palette only has a "go to Job History" action for jobs, so
+          // navigate there rather than silently swallowing the Enter key.
+          onSelect({ type: "jobs" });
+          onClose();
         }
       }
     },
@@ -117,7 +123,10 @@ export function CommandPalette({ open, onClose, commands, onSelect }: CommandPal
                       key={job.id}
                       className={`palette-item${highlighted === idx ? " highlighted" : ""}`}
                       onMouseEnter={() => setHighlighted(idx)}
-                      onClick={() => onClose()}
+                      onClick={() => {
+                        onSelect({ type: "jobs" });
+                        onClose();
+                      }}
                     >
                       <span
                         className={`status-dot ${job.status === "running" ? "running" : job.status === "failed" ? "failed" : "ok"}`}

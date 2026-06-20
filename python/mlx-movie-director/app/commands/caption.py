@@ -1166,6 +1166,11 @@ _REVIEW_I18N = {
         "meta_across": "image(s) across", "meta_sets": "set(s)", "dimension": "Dimension",
         "tiebreak": " (by detail/sharpness)",
         "img_count": lambda n: f"{n} image{'s' if n != 1 else ''}",
+        "rating": "Rating", "copy": "Copy JSON", "copied": "JSON copied to clipboard!",
+        "copy_fallback": "Clipboard blocked — select the text below and press ⌘C/Ctrl+C",
+        "config_label": "Config", "cfg_model": "model", "cfg_vae": "VAE",
+        "cfg_lora": "LoRA", "cfg_params": "params", "cfg_seed": "seed",
+        "cfg_default": "default", "cfg_none": "none",
     },
     "zh_TW": {
         "best": "最佳", "export": "匯出回饋 JSON", "exported": "已匯出回饋！",
@@ -1176,6 +1181,11 @@ _REVIEW_I18N = {
         "meta_across": "張圖片，共", "meta_sets": "組", "dimension": "指標",
         "tiebreak": "（依細節/銳利度）",
         "img_count": lambda n: f"{n} 張圖片",
+        "rating": "評分", "copy": "複製 JSON", "copied": "JSON 已複製到剪貼簿！",
+        "copy_fallback": "剪貼簿被封鎖——請選取下方文字並按 ⌘C/Ctrl+C",
+        "config_label": "生成設定", "cfg_model": "模型", "cfg_vae": "VAE",
+        "cfg_lora": "LoRA", "cfg_params": "參數", "cfg_seed": "seed",
+        "cfg_default": "預設", "cfg_none": "無",
     },
 }
 
@@ -1199,6 +1209,29 @@ def _resolve_review_path(p: str, base_dir: str = "") -> str:
     return cands[0]
 
 
+def _load_run_config(caption_path: str, img_path: str) -> dict:
+    """Load generation config from the sibling <stem>.run.json.
+
+    Tries <image_stem>.run.json next to the image, then next to the caption JSON.
+    Returns {} when no run.json is found (old runs / external images) — graceful.
+    """
+    seen = set()
+    for base in (img_path, caption_path):
+        if not base:
+            continue
+        stem = os.path.splitext(base)[0]
+        cand = stem + ".run.json"
+        if cand in seen or not os.path.exists(cand):
+            continue
+        seen.add(cand)
+        try:
+            with open(cand) as f:
+                return json.load(f) or {}
+        except Exception:
+            return {}
+    return {}
+
+
 def _load_review_item(path: str) -> dict:
     """Load one caption JSON into a flat display item.
 
@@ -1209,6 +1242,10 @@ def _load_review_item(path: str) -> dict:
         data = json.load(f)
     caption_raw = _extract_caption_json(data.get("caption", "{}"))
     img_path = data.get("image", "")
+    # Generation config from the sibling <stem>.run.json (what model/VAE/LoRA/
+    # resolution/steps/seed produced THIS image). Robust for any run that emits
+    # a run.json — unlike the manifest reproducibility map (empty for self-test).
+    run_cfg = _load_run_config(path, img_path)
     # If a sibling video (.mp4) shares the first-frame PNG's basename, embed it
     # as a playable <video> (video A/B review). Pure-image reviews have no mp4
     # → video_src "" → card renders the usual <img>. Resolve relative to the
@@ -1243,6 +1280,7 @@ def _load_review_item(path: str) -> dict:
         "issues": caption_raw.get("issues", []),
         "strengths": caption_raw.get("strengths", []),
         "summary": caption_raw.get("summary", ""),
+        "config": run_cfg,
     }
 
 
@@ -1298,6 +1336,82 @@ def _build_reproducibility_html(item: dict) -> str:
     return '<div class="reproducibility">' + " · ".join(parts) + "</div>"
 
 
+def _short_name(p) -> str:
+    """Short model/VAE/LoRA identifier: basename without common suffixes."""
+    if not p:
+        return ""
+    s = os.path.basename(str(p))
+    for suf in (".safetensors", ".int8", ".bf16", ".fp32", ".mlx"):
+        if s.endswith(suf):
+            s = s[: -len(suf)]
+    return s
+
+
+def _build_config_html(item: dict, T: dict) -> str:
+    """Per-image generation config panel: pipeline/transformer · VAE · LoRA ·
+    resolution · steps · cfg · seed. Sourced from the sibling run.json (via
+    item["config"]). Returns "" when no run.json — graceful for external images.
+    Shows what model stack produced each image so A/B reviews are interpretable.
+    """
+    cfg = item.get("config") or {}
+    if not cfg:
+        return ""
+    rows = []
+
+    # Model: pipeline + transformer (the actual model dir)
+    pipeline = cfg.get("pipeline")
+    tf = cfg.get("transformer")
+    model_bits = []
+    if pipeline:
+        model_bits.append(html.escape(str(pipeline)))
+    if tf:
+        model_bits.append(html.escape(_short_name(tf)))
+    quant = cfg.get("quantize")
+    if quant:
+        model_bits.append(f'{html.escape(str(quant))}-bit')
+    if model_bits:
+        rows.append(f'<span class="cfg-model"><b>{T["cfg_model"]}:</b> {" · ".join(model_bits)}</span>')
+
+    # VAE (None = pipeline default — show explicitly so defaults are visible)
+    vae = cfg.get("vae_path")
+    vae_str = html.escape(_short_name(vae)) if vae else T["cfg_default"]
+    rows.append(f'<span class="cfg-vae"><b>{T["cfg_vae"]}:</b> {vae_str}</span>')
+
+    # LoRA: lora_paths (multi) wins over lora_path (single); pair with scales
+    lps = cfg.get("lora_paths") or []
+    lsc = cfg.get("lora_scales") or []
+    if not lps and cfg.get("lora_path"):
+        lps = [cfg.get("lora_path")]
+        lsc = [cfg.get("lora_scale")] if cfg.get("lora_scale") is not None else []
+    if lps:
+        lstrs = []
+        for i, lp in enumerate(lps):
+            name = html.escape(_short_name(lp))
+            scale = lsc[i] if i < len(lsc) else None
+            lstrs.append(f"{name}@{scale}" if scale is not None else name)
+        rows.append(f'<span class="cfg-lora"><b>{T["cfg_lora"]}:</b> {", ".join(lstrs)}</span>')
+    else:
+        rows.append(f'<span class="cfg-lora"><b>{T["cfg_lora"]}:</b> {T["cfg_none"]}</span>')
+
+    # Resolution + steps + cfg + seed (the param knobs)
+    w, h = cfg.get("width"), cfg.get("height")
+    param_bits = []
+    if w and h:
+        param_bits.append(f'{html.escape(str(w))}×{html.escape(str(h))}')
+    if cfg.get("steps") is not None:
+        param_bits.append(f'steps={cfg["steps"]}')
+    if cfg.get("cfg_scale") is not None:
+        param_bits.append(f'cfg={cfg["cfg_scale"]}')
+    if param_bits:
+        rows.append(f'<span class="cfg-params"><b>{T["cfg_params"]}:</b> {" ".join(param_bits)}</span>')
+    if cfg.get("seed") is not None:
+        rows.append(f'<span class="cfg-seed"><b>{T["cfg_seed"]}:</b> {cfg["seed"]}</span>')
+
+    if not rows:
+        return ""
+    return '<div class="config-panel"><b class="cfg-title">' + T["config_label"] + '</b> ' + " ".join(rows) + "</div>"
+
+
 def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) -> str:
     bars_html = _score_bars_html(item)
     captured_html = "".join(
@@ -1317,6 +1431,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
         if item["summary"] else ""
     )
     repro_html = _build_reproducibility_html(item)
+    config_html = _build_config_html(item, T)
     # Media: embed a playable <video> (poster = the captioned first frame) when a
     # sibling mp4 exists (video A/B review); otherwise the usual zoomable <img>.
     if item.get("video_src"):
@@ -1337,6 +1452,7 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
             <h3>{html.escape(item['filename'])}</h3>
             <label class="pick-label"><input type="radio" name="best_set{gi}" value="{li}"/> {T['best']}</label>
           </div>
+          {config_html}
           {variant_html}
           <div class="img-wrap">
             {media_html}
@@ -1356,6 +1472,10 @@ def _build_card_html(gi: int, li: int, item: dict, variant_label: str, T: dict) 
             </div>
           </details>
           <textarea class="comment-box" data-set="{gi}" data-idx="{li}" placeholder="{T['comment_ph']}"></textarea>
+          <div class="stars" data-set="{gi}" data-idx="{li}" data-rating="0">
+            <span class="stars-label">{T['rating']}:</span>
+            <span class="star-row">{''.join('<span class="star" data-val="%d">★</span>' % v for v in (1, 2, 3, 4, 5))}</span>
+          </div>
         </div>
         """
 
@@ -1593,6 +1713,19 @@ h1{{color:#fff;font-size:1.35rem;margin-bottom:.3rem}}
 .details-inner ul{{padding-left:1.2rem;margin:4px 0}}
 .comment-box{{width:100%;min-height:48px;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#ddd;padding:8px;font-size:.82rem;resize:vertical;margin-top:.5rem;font-family:inherit}}
 .comment-box:focus{{border-color:#4a9eff;outline:none}}
+.stars{{margin-top:.5rem;display:flex;align-items:center;gap:.4rem}}
+.stars-label{{color:#888;font-size:.78rem}}
+.star-row{{cursor:pointer;user-select:none;font-size:1.15rem;letter-spacing:2px;line-height:1}}
+.star{{color:#3a3a3a;transition:color .1s}}
+.star:hover{{color:#888}}
+.stars[data-rating="0"] .star:hover,
+.star.active{{color:#f5a623}}
+.modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;align-items:center;justify-content:center}}
+.modal.open{{display:flex}}
+.modal-box{{background:#222;border:1px solid #333;border-radius:8px;width:min(680px,92vw);max-height:86vh;display:flex;flex-direction:column}}
+.modal-bar{{display:flex;justify-content:space-between;align-items:center;padding:.6rem .9rem;border-bottom:1px solid #2e2e2e;color:#ccc;font-size:.85rem}}
+.modal-bar button{{background:none;border:none;color:#888;font-size:1.4rem;cursor:pointer;line-height:1}}
+.modal-box textarea{{flex:1;width:100%;min-height:340px;background:#1a1a1a;border:none;border-radius:0 0 8px 8px;color:#ddd;padding:.8rem;font-size:.78rem;font-family:monospace;resize:none}}
 table{{width:100%;border-collapse:collapse;background:#1e1e1e;border-radius:8px;overflow:hidden;border:1px solid #2a2a2a}}
 th{{text-align:center;padding:.5rem .8rem;background:#242424;color:#666;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em}}
 td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-size:.85rem}}
@@ -1613,6 +1746,11 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 #lb-img{{max-width:90vw;max-height:90vh;object-fit:contain;border-radius:4px;cursor:default}}
 .reproducibility{{font-size:.82em;color:#555;margin:4px 0 8px;padding:4px 6px;background:#f7f7f7;border-radius:3px;line-height:1.5}}
 .reproducibility b{{color:#333}}
+.config-panel{{font-size:.76rem;color:#9a9a9a;margin:0 0 .6rem;padding:.4rem .55rem;background:#181818;border:1px solid #2a2a2a;border-radius:5px;line-height:1.7;word-break:break-word}}
+.config-panel .cfg-title{{color:#4a9eff;margin-right:.15rem}}
+.config-panel b{{color:#bbb}}
+.config-panel span{{margin-right:.35rem;white-space:nowrap}}
+.config-panel span.cfg-params,.config-panel span.cfg-seed{{white-space:normal}}
 </style>
 </head>
 <body>
@@ -1636,7 +1774,15 @@ td{{text-align:center;padding:.45rem .8rem;border-bottom:1px solid #252525;font-
 
 <div class="bottom-bar">
   <button onclick="exportFeedback()">{T['export']}</button>
+  <button onclick="exportFeedback('copy')">{T['copy']}</button>
   <span class="status" id="status"></span>
+</div>
+
+<div class="modal" id="json-modal" onclick="if(event.target===this)closeJsonModal()">
+  <div class="modal-box">
+    <div class="modal-bar"><span>{T['copy_fallback']}</span><button onclick="closeJsonModal()">&times;</button></div>
+    <textarea id="json-modal-text" readonly></textarea>
+  </div>
 </div>
 
 <script>
@@ -1667,9 +1813,24 @@ function closeLb() {{
 document.querySelectorAll('.lb-bar button[data-z]').forEach(function(b) {{
   b.addEventListener('click', function() {{ setZoom(parseInt(b.dataset.z)); }});
 }});
-document.addEventListener('keydown', function(e) {{ if (e.key === 'Escape') closeLb(); }});
+document.addEventListener('keydown', function(e) {{
+  if (e.key === 'Escape') {{ closeLb(); closeJsonModal(); }}
+}});
 
-function exportFeedback() {{
+// ── 5-star rating (event delegation) ──────────────────────────────────────
+document.addEventListener('click', function(e) {{
+  var star = e.target.closest('.star');
+  if (!star) return;
+  var container = star.closest('.stars');
+  var val = parseInt(star.dataset.val);
+  container.dataset.rating = String(val);
+  container.querySelectorAll('.star').forEach(function(s) {{
+    s.classList.toggle('active', parseInt(s.dataset.val) <= val);
+  }});
+}});
+
+// ── Feedback export: 'copy' (clipboard + modal fallback) or download ──────
+function buildFeedbackData() {{
   var data = {{ timestamp: new Date().toISOString(), sets: [] }};
   document.querySelectorAll('section.set').forEach(function(set) {{
     var gi = set.dataset.set;
@@ -1683,10 +1844,12 @@ function exportFeedback() {{
     var best = set.querySelector('input[name="best_set' + gi + '"]:checked');
     var images = [];
     set.querySelectorAll('.img-card').forEach(function(card) {{
+      var starsEl = card.querySelector('.stars');
       images.push({{
         index: parseInt(card.dataset.idx),
         filename: card.dataset.filename || '',
         variant: card.dataset.variant || '',
+        rating: starsEl ? parseInt(starsEl.dataset.rating || '0') : 0,
         comment: card.querySelector('.comment-box').value
       }});
     }});
@@ -1697,15 +1860,44 @@ function exportFeedback() {{
       images: images
     }});
   }});
-  var blob = new Blob([JSON.stringify(data, null, 2)], {{type: 'application/json'}});
+  return data;
+}}
+function flashStatus(msg) {{
+  var s = document.getElementById('status');
+  s.textContent = msg;
+  setTimeout(function() {{ s.textContent = ''; }}, 3000);
+}}
+function showJsonModal(jsonStr) {{
+  var ta = document.getElementById('json-modal-text');
+  ta.value = jsonStr;
+  document.getElementById('json-modal').classList.add('open');
+  ta.focus(); ta.select();
+}}
+function closeJsonModal() {{
+  document.getElementById('json-modal').classList.remove('open');
+}}
+function exportFeedback(mode) {{
+  var jsonStr = JSON.stringify(buildFeedbackData(), null, 2);
+  if (mode === 'copy') {{
+    // file:// URLs may block the async Clipboard API → always offer the modal
+    // textarea as a reliable manual-copy fallback.
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+      navigator.clipboard.writeText(jsonStr).then(function() {{
+        flashStatus('{T['copied']}');
+      }}).catch(function() {{ showJsonModal(jsonStr); }});
+    }} else {{
+      showJsonModal(jsonStr);
+    }}
+    return;
+  }}
+  var blob = new Blob([jsonStr], {{type: 'application/json'}});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
   a.download = 'review_feedback.json';
   a.click();
   URL.revokeObjectURL(url);
-  document.getElementById('status').textContent = '{T['exported']}';
-  setTimeout(function() {{ document.getElementById('status').textContent = ''; }}, 3000);
+  flashStatus('{T['exported']}');
 }}
 </script>
 </body>

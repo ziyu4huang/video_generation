@@ -1,5 +1,6 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Best for anatomical precision; optimal scale 1.0-1.2; requires 'anatomyfix' trigger word"}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":10,"notes":"Best for full body shots with bodyweight emphasis; optimal scale 0.5-0.8; requires 'slider, bodyweight' trigger"}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Enhances detail and sharpness; optimal scale 0.5; works well with portrait prompts"}
-{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Cinematic quality enhancement; optimal scale 0.65; increases memory usage (~8461MB)"}
-{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":5,"notes":"Technical command LoRA; low prompt_adherence due to non-descriptive prompts; high detail output"}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Perfect anatomical accuracy at scale 1.0-1.2; eliminates finger and joint artifacts completely"}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.8,"notes":"Improves body proportion consistency; optimal at scale 0.5; scale 0.8-1.0 shows no additional benefit"}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Exceptional skin texture and hair detail at scale 0.5; single sample but perfect scores"}
+{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Cinematic quality at scale 0.65 with CFG=2.5; higher memory usage (8.4GB); adds professional photography aesthetic"}
+{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":5,"notes":"Prompt was a technical command, not descriptive; impossible to evaluate LoRA effectiveness"}
+{"lora":"Jibs_Realistic_z-image_lora_V1.int8.safetensors","avgScore":6,"notes":"NO skin-realism improvement (artifacts identical 4.5 vs 4.5 baseline-vs-adapter A/B). Raised pixel sharpness (Laplacian 244 vs 231) but VLM read it as noise not pores. Tested in weak regime (9 steps @ 640x960, scale 0.7 model-only; author recs 0.2-0.6 model+clip + >15 steps). NOT a skin lever — see avoid.jsonl plasticky-skin ceiling."}

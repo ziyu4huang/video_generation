@@ -462,8 +462,8 @@ def run_profile(args):
     from PIL import Image
     from app.manifest import Manifest, collect_model_fingerprint, collect_model_fingerprint_flux2
 
-    # Validate input image path if provided (--input is registered by image-angle.py)
-    input_image = getattr(args, "input", None)
+    # Validate input image path if provided (--input/--input-image registered by image-angle.py, dest=input_image)
+    input_image = getattr(args, "input_image", None)
     if input_image and not os.path.exists(input_image):
         print(f"ERROR: input image not found: {input_image}", file=sys.stderr)
         sys.exit(1)

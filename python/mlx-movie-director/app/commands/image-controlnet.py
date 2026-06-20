@@ -30,7 +30,7 @@ import mlx.nn as nn
 import numpy as np
 
 from app import config as cfg
-from app.commands._shared import make_output_paths, run_session
+from app.commands._shared import make_output_paths, run_session, _option_registered
 from app.controlnet import load_controlnet, build_control_input_33ch, _FLUX_SHIFT_FACTOR, _FLUX_SCALE_FACTOR
 from app.io_utils import load_image_rgb, require_file
 
@@ -56,13 +56,14 @@ _AB_VARIATIONS = [
 
 def add_controlnet_args(parser: argparse.ArgumentParser) -> None:
     """Register ControlNet-specific arguments (prompt/steps/seed come from common args)."""
-    parser.add_argument(
-        "--input-image", type=str, default=None, metavar="PATH",
-        help=(
-            "Reference image for ControlNet conditioning "
-            "(default: output/Z-image+Controlnet+V2.1-ref-image.png)"
-        ),
-    )
+    if not _option_registered(parser, "--input-image"):
+        parser.add_argument(
+            "--input-image", type=str, default=None, metavar="PATH", dest="input_image",
+            help=(
+                "Reference image for ControlNet conditioning "
+                "(default: output/Z-image+Controlnet+V2.1-ref-image.png)"
+            ),
+        )
     parser.add_argument(
         "--controlnet-type",
         choices=["canny"],

@@ -22,5 +22,9 @@
     "vae/zimage-ae"
   ],
   "size_bytes": 3848371806,
-  "created_at": "2026-06-13T00:00:00Z"
+  "created_at": "2026-06-13T00:00:00Z",
+  "recommended_steps": 8,
+  "recommended_cfg": 1.0,
+  "recommended_resolution": "1M-2M px (ZIT-distilled family typical)",
+  "author_notes": "PROVENANCE MISMATCH (2026-06-20): source_url 958009 is the RedCraft 'CADS' FLUX checkpoint page (F.1 DEV / Flux-based) — but this model's arch is zimage-turbo and the filename is ernie-redmix-redzit15 (='RedZ IT 1.5'). Dark Beast's card confirms 'DBZ IV is based on RedZ1.5', so RedZ1.5 IS a ZIT model — but its model card is NOT at 958009 (that's the Flux RedCraft page). recommended_* are INFERRED from the ZIT-distilled family (8 steps, CFG 1) — do NOT apply the Flux recs (CFG 3-3.5, 25 steps) shown at 958009. TODO: find the correct RedZ1.5 ZIT model card URL. NOT A/B tested."
 }

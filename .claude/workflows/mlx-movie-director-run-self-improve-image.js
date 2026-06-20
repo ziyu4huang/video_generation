@@ -441,6 +441,11 @@ function normalizeItem(item, defaultKind) {
       const k = item.kind === "i2i" ? "i2i" : (item.kind === "t2i" ? "t2i" : dk)
       return { type: "self-test", kind: k, id: typeof item.selfTest === "string" ? item.selfTest : null }
     }
+    // profile explicit (multi-view sheet: front/back/side): input_image + views.
+    // Must precede the i2i input_image check so a profile spec isn't swallowed by i2i.
+    if (item.kind === "profile" || (item.input_image && Array.isArray(item.views))) {
+      return { ...item, type: "profile", kind: "profile", views: item.views || ["front","back","side"] }
+    }
     // i2i explicit (input_image is the i2i discriminator); pipeline here = MODEL (zimage|flux2-klein)
     if (item.input_image) {
       return { ...item, type: "i2i", kind: "i2i" }
@@ -476,7 +481,7 @@ const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
 
 // `kind` selects the generation pipeline: "t2i" (default) or "i2i". `pipeline` stays the
 // MODEL pipeline (zimage|flux2-klein), identical to run.py --pipeline — no clash with kind.
-const defaultKind = (isObj(resolvedArgs) && resolvedArgs.kind === "i2i") ? "i2i" : "t2i"
+const defaultKind = (isObj(resolvedArgs) && ["i2i","profile"].includes(resolvedArgs.kind)) ? resolvedArgs.kind : "t2i"
 
 // i2i legacy: {mode:"debug"} aliases selfTest (only under kind:"i2i", so a t2i prompt never
 // collides — t2i has no `mode` field).
@@ -511,7 +516,7 @@ if (isObj(argsForSpecs) && argsForSpecs.finalize != null) {
     setsConfig.forEach((s, si) => {
       const setName = s.name || `Set ${si + 1}`
       const setPrompt = s.prompt || ""
-      const setKind = s.kind === "i2i" ? "i2i" : (s.kind === "t2i" ? "t2i" : defaultKind)
+      const setKind = ["i2i","profile"].includes(s.kind) ? s.kind : (s.kind === "t2i" ? "t2i" : defaultKind)
       ;(s.variants || []).forEach((v, vi) => {
         const cfg = { ...v }
         if (!cfg.prompt) cfg.prompt = setPrompt
@@ -567,6 +572,13 @@ if (mode === "finalize") {
 const wfLang = (isObj(resolvedArgs) && typeof resolvedArgs.lang === "string")
   ? resolvedArgs.lang : "zh_TW"
 
+// Generation resolution tier (default "benchmark"). The model-optimal 640×960 is
+// too small to benchmark rendering capacity (e.g. skin pores) on Apple Silicon —
+// M5 Max 128GB handles multi-MP easily. Pass through to t2i --resolution. Override
+// per-spec via spec.resolution, or globally via args.resolution ("model"|"benchmark"|"large"|"WxH").
+const wfResolution = (isObj(resolvedArgs) && typeof resolvedArgs.resolution === "string")
+  ? resolvedArgs.resolution : "benchmark"
+
 // GPU-gate config: before the Generate (GPU-requiring) phase, wait if another run.py
 // generation is already using the Apple-Silicon GPU. Review/caption is NOT gated (LM Studio
 // serves over HTTP on its own resources).
@@ -589,7 +601,7 @@ function buildCommand(spec) {
       // i2i self-test: NO --json-summary (run_i2i early-returns to _run_self_test)
       return `${PYTHON} ${RUN_PY} image i2i --self-test${idFlag}`
     }
-    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag} --json-summary`
+    return `${PYTHON} ${RUN_PY} t2i --self-test${idFlag} --resolution ${wfResolution} --json-summary`
   }
 
   if (spec.type === "replay") {
@@ -598,6 +610,7 @@ function buildCommand(spec) {
 
   if (spec.type === "t2i") return buildT2iCommand(spec)
   if (spec.type === "i2i") return buildI2iExplicitCommand(spec)
+  if (spec.type === "profile") return buildProfileCommand(spec)
 
   return null
 }
@@ -608,9 +621,18 @@ function buildT2iCommand(spec) {
   let cmd = `${PYTHON} ${RUN_PY} t2i --prompt '${safePrompt}' --json-summary`
   if (spec.pipeline)           cmd += ` --pipeline ${spec.pipeline}`
   if (spec.steps != null)      cmd += ` --steps ${spec.steps}`
+  if (spec.cfg_scale != null)  cmd += ` --cfg-scale ${spec.cfg_scale}`
   if (spec.seed != null)       cmd += ` --seed ${spec.seed}`
-  if (spec.width)              cmd += ` --width ${spec.width}`
-  if (spec.height)             cmd += ` --height ${spec.height}`
+  // Resolution: explicit spec.resolution wins; else explicit width/height; else
+  // the workflow default tier (benchmark). run.py --resolution overrides --width/--height.
+  if (spec.resolution) {
+    cmd += ` --resolution ${spec.resolution}`
+  } else if (spec.width || spec.height) {
+    if (spec.width)            cmd += ` --width ${spec.width}`
+    if (spec.height)           cmd += ` --height ${spec.height}`
+  } else {
+    cmd += ` --resolution ${wfResolution}`
+  }
   if (spec.lora_path)          cmd += ` --lora-path '${spec.lora_path}'`
   if (spec.lora_scale != null) cmd += ` --lora-scale ${spec.lora_scale}`
   if (spec.draft)              cmd += ` --draft`
@@ -632,10 +654,12 @@ function buildT2iCommand(spec) {
 function buildI2iExplicitCommand(spec) {
   const safeInput = (spec.input_image || "").replace(/'/g, "'\\''")
   const safePrompt = (spec.prompt || "").replace(/'/g, "'\\''")
-  let cmd = `${PYTHON} ${RUN_PY} image i2i --input-image '${safeInput}'`
+  let cmd = `${PYTHON} ${RUN_PY} image i2i --input '${safeInput}'`
   if (spec.prompt)                       cmd += ` --prompt '${safePrompt}'`
   if (spec.pipeline === "flux2-klein")   cmd += ` --pipeline flux2-klein`
   if (spec.denoise_strength != null)     cmd += ` --denoise-strength ${spec.denoise_strength}`
+  if (spec.lora_path)                    cmd += ` --lora-path '${spec.lora_path.replace(/'/g, "'\\''")}'`
+  if (spec.lora_scale != null)           cmd += ` --lora-scale ${spec.lora_scale}`
   if (spec.reference_image)              cmd += ` --reference-image '${spec.reference_image.replace(/'/g, "'\\''")}'`
   if (spec.controlnet_strength != null)  cmd += ` --controlnet-strength ${spec.controlnet_strength}`
   if (spec.preprocess_mode === "openpose") cmd += ` --skip-preprocess`
@@ -643,6 +667,27 @@ function buildI2iExplicitCommand(spec) {
   if (spec.steps != null)                cmd += ` --steps ${spec.steps}`
   if (spec.cnet_active_steps != null)    cmd += ` --cnet-active-steps ${spec.cnet_active_steps}`
   if (spec.pipeline === "flux2-klein")   cmd += ` --json-summary`
+  return cmd
+}
+
+// profile explicit spec → run.py image profile --input ... --views ... [flags].
+// `image profile` writes a FOLDER (front/back/side + reference + strip + manifest);
+// it does NOT support --json-summary, so the Generate parser uses "Saved:" lines.
+function buildProfileCommand(spec) {
+  const safeInput = (spec.input_image || "").replace(/'/g, "'\\''")
+  let cmd = `${PYTHON} ${RUN_PY} image profile --input '${safeInput}'`
+  if (Array.isArray(spec.views) && spec.views.length) cmd += ` --views ${spec.views.join(" ")}`
+  if (spec.base_prompt)          cmd += ` --base-prompt '${String(spec.base_prompt).replace(/'/g, "'\\''")}'`
+  if (spec.pipeline === "flux2-klein") cmd += ` --pipeline flux2-klein`
+  if (spec.ratio)                cmd += ` --ratio ${spec.ratio}`
+  if (spec.steps != null)        cmd += ` --steps ${spec.steps}`
+  if (spec.seed != null)         cmd += ` --seed ${spec.seed}`
+  if (spec.ref_count != null)    cmd += ` --ref-count ${spec.ref_count}`
+  if (spec.ref_strength != null) cmd += ` --ref-strength ${spec.ref_strength}`
+  if (spec.chain_ref)            cmd += ` --chain-ref`
+  if (spec.prompt_style)         cmd += ` --prompt-style ${spec.prompt_style}`
+  if (spec.vlm === false)        cmd += ` --no-vlm`
+  // NOTE: no --json-summary (profile doesn't support it); parser uses "Saved:" lines
   return cmd
 }
 
@@ -870,8 +915,13 @@ if (feedbackPath) {
 FEEDBACK FILE: ${feedbackAbs}
 
 The file may be in one of two formats — handle BOTH:
-- GROUPED (new, multi-set): { timestamp, sets: [{ name, prompt, best_image: <local idx|null>, images: [{ index, filename, variant, comment }] }] }
+- GROUPED (new, multi-set): { timestamp, sets: [{ name, prompt, best_image: <local idx|null>, images: [{ index, filename, variant, rating, comment }] }] }
 - FLAT (legacy, single-set): { timestamp, best_image: <idx|null>, images: [{ index, filename, comment }] }
+
+Each image entry MAY carry a "rating" field (1–5 stars the human assigned in the
+review HTML, 0 = unrated). Treat rating as a STRONGER per-image quality signal
+than best_image: rank guidance by rating (5★ = keep that config), and surface
+WHY top-rated images beat low-rated ones (infer from comments + caption scores).
 
 STEPS:
 1. Read the file: Bash("cat '${feedbackAbs}'")
@@ -1004,11 +1054,18 @@ for (let idx = 0; idx < runSpecs.length; idx++) {
   try {
     // Output form depends on spec: t2i/replay/i2i-flux2-klein emit JSON_SUMMARY;
     // i2i self-test and Z-Image i2i print only "Saved:" lines.
-    const expectJson = (spec.type === "t2i" || spec.type === "replay" ||
+    const isProfile = spec.type === "profile"
+    const expectJson = !isProfile && (spec.type === "t2i" || spec.type === "replay" ||
                         (spec.type === "i2i" && spec.pipeline === "flux2-klein"))
     const isI2iSelfTest = (spec.type === "self-test" && spec.kind === "i2i")
     const timeoutMs = isI2iSelfTest ? 1200000 : 600000   // i2i self-test: source + ref + N variations
-    const parseInstr = expectJson
+    const parseInstr = isProfile
+      ? `2. This command prints per-view PNG paths as "  Saved: <path>.png" lines (2-space indent).
+   Collect EVERY line matching "^\\s*Saved:\\s*(.+\\.png)$" as an output PNG — these are
+   front.png / back.png / side.png, the reviewable multi-view outputs.
+3. EXCLUDE any PNG whose filename is "reference.png" or "strip.png" (reference = the source
+   image, strip = the horizontal composite — neither is a reviewable view). runJsonPath = "".`
+      : expectJson
       ? `2. Parse the JSON_SUMMARY line from stdout. It looks like:
    JSON_SUMMARY:{"status":"success","run_json":"...","manifest_json":"...","outputs":["/path/to/img.png"]}
    Extract the JSON after "JSON_SUMMARY:" prefix → outputs[] (PNG paths) + run_json (run.json path).
@@ -1280,7 +1337,10 @@ const autoFixThreshold = (isObj(resolvedArgs) && typeof resolvedArgs.autoFixThre
 let fixCaptions = []
 let fixAnalysis = ""
 
-if (autoFix && vlmAvailable && mode !== "finalize") {
+if (autoFix && defaultKind === "profile") {
+  log("Self-Fix not yet supported for kind:'profile' (multi-view); skipping.")
+}
+if (autoFix && vlmAvailable && mode !== "finalize" && defaultKind !== "profile") {
   // Collect all scored captions from allResults
   const scoredCaptions = allResults
     .flatMap((r) => (r.captions || []).filter((c) => c.overall != null))
