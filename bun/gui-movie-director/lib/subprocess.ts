@@ -134,6 +134,13 @@ export class SubprocessManager {
 
     job.pid = proc.pid;
 
+    // Broadcast the "running" status now so WS clients (e.g. the useJobs hook)
+    // can revalidate their job list the instant a job starts. Previously only
+    // completed/failed transitions were broadcast (the finalize paths below),
+    // so the frontend's job_start listener was dead code and the job list lagged
+    // up to refreshInterval (5s) before showing a running job.
+    this.broadcastStatus(job);
+
     // Guard: Bun.spawn can return a proc whose stdout/stderr are null (e.g. a
     // spawn-level pipe failure the try/catch above didn't surface). The
     // getReader() calls below would throw synchronously OUTSIDE that try/catch,
