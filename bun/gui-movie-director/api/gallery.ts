@@ -67,7 +67,15 @@ function getMediaType(filename: string): "image" | "video" {
 }
 
 // Shared: scan raw filesystem entries across all output dirs
-type RawEntry = { name: string; dir: string; fullPath: string; mtime: number; size: number };
+type RawEntry = {
+  name: string;       // display + URL path relative to rootDir: "front.png" or "profile_TS/front.png"
+  base: string;       // filename stem for companion lookup: "front" (never includes the subpath)
+  dir: string;        // actual dir holding the file (subfolder for profile_*) — companion + dirFileCache lookups
+  rootDir: string;    // OUTPUT_DIR root — for dirIdx
+  fullPath: string;
+  mtime: number;
+  size: number;
+};
 
 const MEDIA_GLOB = new Bun.Glob("*.{png,jpg,jpeg,mp4,mov,webm,m4v}");
 
@@ -75,26 +83,46 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
   const entries: RawEntry[] = [];
   const dirFileCache = new Map<string, Set<string>>();
 
+  // Media files written DIRECTLY into a profile_* subfolder (output/profile_TS/front.png)
+  // are invisible to the flat glob below. Surface them one level deep. The serving side
+  // (handleGalleryImage) already serves subpath names like "profile_TS/front.png".
+  const PROFILE_SUBDIR_RE = /^profile_/;
+  const PROFILE_EXCLUDE = new Set(["reference.png", "strip.png"]);  // input ref + composite (redundant)
+
+  const addMedia = (fileDir: string, rootDir: string, sub: string) => {
+    if (!fs.existsSync(fileDir)) return;
+    dirFileCache.set(fileDir, new Set(fs.readdirSync(fileDir)));
+    const media = [...MEDIA_GLOB.scanSync({ cwd: fileDir, onlyFiles: true })]
+      .filter((f) => !f.endsWith("_relay.png"))
+      .filter((f) => !(sub && PROFILE_EXCLUDE.has(f)));
+    for (const f of media) {
+      const fullPath = path.join(fileDir, f);
+      try {
+        const stat = fs.statSync(fullPath);
+        entries.push({
+          name: sub ? `${sub}/${f}` : f,
+          base: f.replace(/\.[^.]+$/, ""),
+          dir: fileDir,
+          rootDir,
+          fullPath,
+          mtime: stat.mtimeMs,
+          size: stat.size,
+        });
+      } catch { /* skip unreadable */ }
+    }
+  };
+
   for (const dir of OUTPUT_DIRS) {
     if (!fs.existsSync(dir)) continue;
-    // dirFileCache needs all files (for thumbnail lookup), media scan uses Glob
-    const allFiles = fs.readdirSync(dir);
-    dirFileCache.set(dir, new Set(allFiles));
-
-    const mediaFiles = [...MEDIA_GLOB.scanSync({ cwd: dir, onlyFiles: true })]
-      .filter((f) => !f.endsWith("_relay.png"));
-
-    const dirEntries = mediaFiles
-      .map((f) => {
-        const fullPath = path.join(dir, f);
-        try {
-          const stat = fs.statSync(fullPath);
-          return { name: f, dir, fullPath, mtime: stat.mtimeMs, size: stat.size };
-        } catch { return null; }
-      })
-      .filter((e): e is RawEntry => e !== null);
-
-    entries.push(...dirEntries);
+    // Flat media directly in the output root
+    addMedia(dir, dir, "");
+    // One level into profile_* subfolders (multi-view: front/side/back)
+    let allFiles: string[] = [];
+    try { allFiles = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const ent of allFiles) {
+      if (!ent.isDirectory() || !PROFILE_SUBDIR_RE.test(ent.name)) continue;
+      addMedia(path.join(dir, ent.name), dir, ent.name);
+    }
   }
 
   entries.sort((a, b) => b.mtime - a.mtime);
@@ -102,7 +130,7 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
 }
 
 function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>): ImageEntry {
-    const base = entry.name.replace(/\.[^.]+$/, "");
+    const base = entry.base;
     const mediaType = getMediaType(entry.name);
 
     const manifestPath = findCompanionJson(entry.dir, base, ".manifest.json");
@@ -111,7 +139,7 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
     const runPath = findCompanionJson(entry.dir, base, ".run.json");
     const run = runPath ? readJsonFile(runPath) : null;
 
-    const dirIdx = OUTPUT_DIRS.indexOf(entry.dir);
+    const dirIdx = OUTPUT_DIRS.indexOf(entry.rootDir);
     let thumbnailUrl: string | null = null;
     if (mediaType === "video") {
       const fileIndex = dirFileCache.get(entry.dir) ?? new Set<string>();
@@ -283,9 +311,14 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
     return Response.json({ error: "Missing 'name' or 'dirIdx'" }, { status: 400 });
   }
 
-  // Restrict to actual gallery media files — blocks deleting arbitrary files
-  // (e.g. other companions, config) that were never surfaced by the gallery scan.
-  if (name.includes("/") || name.includes("\\") || !MEDIA_GLOB.match(name)) {
+  // Restrict to actual gallery media files — blocks deleting arbitrary files. Allow flat
+  // names ("front.png") and one-level profile_* subpaths ("profile_TS/front.png") surfaced
+  // by scanRawEntries; reject "..", backslashes, and unknown subfolders.
+  const subMatch = name.match(/^([^/]+)\/([^/]+)$/);  // sub/file
+  const fileName = subMatch ? subMatch[2] : name;
+  const subName = subMatch ? subMatch[1] : "";
+  if (name.includes("\\") || name.includes("..") || !MEDIA_GLOB.match(fileName) ||
+      (subName && !/^profile_\w+$/.test(subName))) {
     return Response.json({ error: "Invalid 'name': not a gallery media file" }, { status: 400 });
   }
 
@@ -293,6 +326,10 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   if (!dir) {
     return Response.json({ error: "Invalid dirIdx" }, { status: 400 });
   }
+  // Actual file dir: the profile_* subfolder if a subpath was given, else the output root.
+  // (actualDir is always under dir, so the tryDelete containment guard below still holds.)
+  const actualDir = subName ? path.join(dir, subName) : dir;
+  const base = fileName.replace(/\.[^.]+$/, "");
 
   const deleted: string[] = [];
   const failed: string[] = [];
@@ -312,7 +349,7 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   };
 
   // Delete the main image/video file
-  const mainPath = path.join(dir, name);
+  const mainPath = path.join(actualDir, fileName);
   tryDelete(mainPath);
 
   // Delete companion JSON files. Reuse findCompanionJson (the same multi-base
@@ -321,19 +358,18 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   // companions deleted too. Previously only the exact base was stripped, which
   // orphaned companion JSON whenever the media name carried _segNN/_relay
   // (findCompanionJson would still resolve and DISPLAY them on next scan).
-  const base = name.replace(/\.[^.]+$/, "");
   for (const suffix of [".manifest.json", ".run.json", ".caption.json"]) {
-    const companion = findCompanionJson(dir, base, suffix);
+    const companion = findCompanionJson(actualDir, base, suffix);
     if (companion) tryDelete(companion);
   }
 
   // Delete thumbnail if exists
-  tryDelete(path.join(dir, ".thumbs", `${base}_thumb.jpg`));
+  tryDelete(path.join(actualDir, ".thumbs", `${base}_thumb.jpg`));
 
   // Delete video relay thumbnail if exists
   for (const c of [`${base}_relay.png`, `${base}.png`]) {
-    const thumbPath = path.join(dir, c);
-    if (c !== name) tryDelete(thumbPath);
+    const thumbPath = path.join(actualDir, c);
+    if (c !== fileName) tryDelete(thumbPath);
   }
 
   return Response.json({ ok: failed.length === 0, deleted, failed });
