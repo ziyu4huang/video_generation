@@ -24,7 +24,19 @@ function _connect() {
 
   ws.onclose = () => {
     if (_handlers.size > 0) {
-      _reconnectTimer = window.setTimeout(_connect, _reconnectDelay);
+      // Clear any pending reconnect timer before scheduling a new one. Without
+      // this, a rapid connect/close cycle (e.g. server flapping) would stack
+      // timers — _reconnectTimer would track only the latest, leaking the rest.
+      // (_connect's readyState guard still prevents duplicate sockets, but the
+      // leaked timers each fire a redundant _connect.)
+      if (_reconnectTimer !== null) {
+        clearTimeout(_reconnectTimer);
+        _reconnectTimer = null;
+      }
+      _reconnectTimer = window.setTimeout(() => {
+        _reconnectTimer = null;
+        _connect();
+      }, _reconnectDelay);
       _reconnectDelay = Math.min(_reconnectDelay * 2, 30000);
     }
   };

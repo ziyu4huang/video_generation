@@ -315,10 +315,16 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   const mainPath = path.join(dir, name);
   tryDelete(mainPath);
 
-  // Delete companion JSON files
+  // Delete companion JSON files. Reuse findCompanionJson (the same multi-base
+  // resolver the gallery READS with) so segmented/relay media — e.g.
+  // base_seg01_relay.png whose companion is base.manifest.json — get their
+  // companions deleted too. Previously only the exact base was stripped, which
+  // orphaned companion JSON whenever the media name carried _segNN/_relay
+  // (findCompanionJson would still resolve and DISPLAY them on next scan).
   const base = name.replace(/\.[^.]+$/, "");
   for (const suffix of [".manifest.json", ".run.json", ".caption.json"]) {
-    tryDelete(path.join(dir, `${base}${suffix}`));
+    const companion = findCompanionJson(dir, base, suffix);
+    if (companion) tryDelete(companion);
   }
 
   // Delete thumbnail if exists
