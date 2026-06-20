@@ -1,6 +1,6 @@
 {"pipeline":"flux2-klein","steps":8,"cfgScale":null,"loraScale":1,"denoise":0.4,"size":"1024x1536","notes":"Best for anime style. ~24s, ~15.8GB. Avoid denoise >0.4."}
 {"pipeline":"zimage-moody-v126","steps":9,"cfgScale":null,"loraScale":1,"denoise":0.4,"size":"960x640","notes":"Best for landscapes. ~12-16s, ~8GB."}
-{"pipeline":"zimage","steps":8,"cfgScale":null,"loraScale":1,"denoiseStrength":0.4,"size":"1024x1536","avgTime":48.5,"avgMemory":7837,"avgScore":9}
-{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.5,"denoise":0.4,"size":"640x960","notes":"Best for fast, high-quality photorealism with LoRA. ~5.4s, ~15.8GB."}
+{"pipeline":"zimage","steps":8,"cfgScale":null,"loraScale":null,"denoise":0.4,"perfTime":12,"perfMemory":7838}
+{"pipeline":"flux2-klein","steps":4,"cfgScale":5,"loraScale":0.5,"denoise":0.4,"perfTime":5.4,"perfMemory":15857}
 {"pipeline":"zimage","steps":9,"cfgScale":null,"loraScale":0.65,"denoise":0.4,"notes":"Best for photorealistic portraits. Fast, low memory, exceptional detail. Avoid setting CFG."}
-{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":1,"denoise":0.4,"size":"640x960 or 1024x1024","notes":"Best for complex, multi-element scenes. ~43-79s, ~16.8GB."}
+{"pipeline":"lens","steps":20,"cfgScale":null,"loraScale":null,"denoise":0.4,"perfTime":43.6,"perfMemory":16836}

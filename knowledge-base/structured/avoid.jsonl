@@ -1,3 +1,8 @@
+{"item":"Style contradictions (e.g., 'anime style' + 'photorealistic') — model defaults to photorealism, ignoring style request"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap') — no descriptive content, impossible to verify adherence"}
+{"item":"Vague prompts (e.g., 'a beautiful woman') — yields generic results with lower detail scores"}
+{"item":"Overly complex single sentences exceeding 50 words without clear structure — model drops details"}
+{"item":"Mismatched aspect ratios for close-up portraits (e.g., 1024x1536) — can introduce compositional issues"}
 {"item":"Short, style-specific prompts without sufficient detail (e.g., 'anime style illustration, cel-shaded...' without a full scene description)"}
 {"item":"Technical/command prompts (e.g., 'BFS head face swap')"}
 {"item":"Over-reliance on base model for specialized tasks; use a matching LoRA"}
