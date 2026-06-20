@@ -1,5 +1,5 @@
-{"template":"anatomyfix, [pose description], [specific body parts with visible details], photorealistic, detailed anatomy, ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors @ 1.2"}
-{"template":"slider, bodyweight, [detailed scene description], [specific lighting], photorealistic, detailed [body parts], ultra sharp focus","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors @ 0.5"}
-{"template":"ultra-detailed close-up portrait of a [subject], natural skin with visible pores and fine texture, [lighting], photorealistic, sharp focus, high detail, [specific features]","avgScore":9.2,"sampleCount":12,"bestLora":"none"}
-{"template":"[narrative scene with specific props and text], [detailed setting], [atmospheric details], [style specification]","avgScore":9,"sampleCount":8,"bestLora":"none"}
-{"template":"[subject description], [camera/lens specs], [lighting setup], [photography style], high detail, ultra sharp focus","avgScore":9,"sampleCount":6,"bestLora":"none"}
+{"template":"[Trigger Word], [Subject Description with Anatomical Detail], [Scene/Setting], [Lighting], [Style Keywords: photorealistic, ultra sharp focus, high detail]","avgScore":9.8,"sampleCount":10,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"[Subject with Distinctive Features], [Lighting Style], [Quality Target: photorealistic, 8k uhd]","avgScore":9.5,"sampleCount":5,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
+{"template":"[Simple Subject], [Simple Pose], [Simple Background], [Studio Lighting], [Photography Style]","avgScore":9.3,"sampleCount":8,"bestLora":"none"}
+{"template":"[Subject], [Detailed Clothing/Accessories], [Detailed Setting/Environment], [Lighting/Atmosphere], [Style: hyper-realistic, painterly, cinematic]","avgScore":9,"sampleCount":6,"bestLora":"none"}
+{"template":"[Trigger Word], [Full Body Shot], [Action/Pose], [Anatomical Detail: fingers, joints], [Lighting], [Style Keywords]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}

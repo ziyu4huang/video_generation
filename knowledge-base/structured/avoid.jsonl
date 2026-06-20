@@ -1,8 +1,8 @@
-{"item":"Technical commands as prompts (e.g., 'BFS head face swap') — scores 5/10 on adherence"}
-{"item":"Claiming output is a specific medium (photograph, cinematography) when it's AI-generated — style mismatch penalizes adherence"}
-{"item":"Unstructured long prompts without clear subject/setting/style sections"}
-{"item":"Conflicting quality descriptors (8K + soft focus, hyperrealistic + painterly)"}
-{"item":"LoRA at low scale with no visible effect — wastes memory without improving quality"}
+{"item":"Using technical commands as prompts (e.g., 'BFS head face swap') - leads to prompt adherence failure."}
+{"item":"Specifying a style the model cannot perfectly replicate (e.g., 'photograph' or 'cinematography' for a 4-step generation) - causes style mismatch and low adherence scores."}
+{"item":"Overly complex or contradictory instructions in a single prompt - can confuse the model."}
+{"item":"Assuming a LoRA's effect is significant at very low scales (e.g., 0.5) without a proper trigger word - the LoRA's influence may be negligible."}
+{"item":"Neglecting to specify anatomical details in human subjects - increases risk of artifacts like extra fingers or distorted limbs."}
 {"item":"Plasticky/oversmoothed skin (no visible pores, artifacts 4-5) is PLATFORM-WIDE on MLX-quantized bases (zimage-moody 4-bit AND flux2-klein INT8) — NOT a LoRA side-effect. Do NOT A/B LoRAs expecting skin-realism gains on hard skin-heavy prompts."}
 {"item":"Skin-detail levers EXHAUSTED 2026-06-20 — do NOT burn GPU re-testing: LoRA scale 0.5-0.8, steps 9-24, seed, base swap (flux2-klein has identical artifacts), realism LoRAs (Jib-Mix, Luneva). All leave artifacts at 4-5."}
-{"item":"UltraFlux 4K VAE (app default) is 2.2x sharper than standard zimage-ae but noisier/blockier — neither clears the artifacts>=6 pore gate. VAE is NOT the skin fix. Standard zimage-ae would be softer/plasticky."}
+{"item":"UltraFlux 4K VAE (app default) is 2.2x sharper than standard zimage-ae but noisier/blockier — neither clears the artifacts>=6 pore gate. VAE is NOT the skin fix."}
