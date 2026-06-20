@@ -806,6 +806,18 @@ RUN DATA:
 - Scale failure reasons:
 ${failingScales.map((v) => `  scale=${v.scale}: gate=${v.score?.gate} activation=${v.score?.activation_level} symptoms=[${(v.score?.over_symptoms || []).join("; ")}]`).join("\n")}
 
+RECORD SCHEMA — every record MUST contain ONLY these top-level keys (any extra key,
+including run-specific *_runN keys, triggers check-workflow-patterns.mjs drift = exit 1):
+  id | type(metric|avoid|lever) | lora | value(metric only: optimal scale) |
+  note(human finding; put the per-run pass/fail narrative HERE) |
+  failing_scales(avoid only: array merged unique across ALL runs) |
+  passing_scales(lever only: array merged unique across runs) |
+  consistently_passing(lever only: scales passing in EVERY run) |
+  evidence_count(int: gate runs contributing) | updated(ISO date)
+NEVER emit run-specific top-level keys like failing_scales_run2 / passing_scales_run3 —
+merge this run's scales into the stable failing_scales / passing_scales arrays above and
+put the per-run narrative ("Run 3: passing=[...] failing=[...]") inside `note`.
+
 STEPS:
 1. Bash("test -f '${KB_FILE}' && cat '${KB_FILE}' || echo '__EMPTY__'")
 2. Parse existing records (non-empty lines, each a JSON object with "id" and "status" fields).
