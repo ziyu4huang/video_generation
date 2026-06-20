@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "lastUpdated": "2026-06-20T06:33:31.129Z",
-  "totalRuns": 21,
-  "lastRunId": "2026-06-20T06-07-03",
+  "lastUpdated": "2026-06-20T14:16:51.951Z",
+  "totalRuns": 25,
+  "lastRunId": "2026-06-20T13-08-51",
   "openIssuesTrend": [
     9,
     14,
@@ -23,6 +23,10 @@
     26,
     26,
     0,
+    0,
+    0,
+    2,
+    2,
     0,
     0
   ]
