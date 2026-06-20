@@ -55,12 +55,12 @@
 export const meta = {
   name: "gui-movie-director-self-improve",
   description:
-    "Unified self-improve loop for the Bun GUI Movie Director app — structural code review (correctness/types/error-handling/quality/security) via a child workflow AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) AND UX screenshot analysis (playwright→VLM→fix loop), both inlined as lanes, merging all into one health report with ONE persist per run. Lane-selectable; review-only by default (collision-safe).",
+    "Unified self-improve loop for the Bun GUI Movie Director app — structural code review (correctness/types/error-handling/quality/security) via a child workflow AND schema→CLI boundary validation (buildCliArgs→run.py, drift, coverage) AND UX screenshot analysis (playwright→VLM→fix loop) AND a deterministic ESLint lint gate (no-shadow/unused-vars — catches the FileUpload-style shadowing defect the other lanes structurally cannot), all inlined as lanes, merging into one health report with ONE persist per run. Lane-selectable; review-only by default (collision-safe).",
   whenToUse:
-    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema lane objective:runtime (buildCliArgs→run.py boundary). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'|'ux'] picks one or more; lanes:'all' runs all three; focus/files/target/objective narrow scope. UX lane requires GUI server at localhost:3099 + LM Studio; fails gracefully if server is down.",
+    "One workflow to improve gui-movie-director from every angle. Default = cheap routine scan: review-optimize effort:low (review-only) + schema lane objective:runtime (buildCliArgs→run.py boundary) + lint gate (eslint no-shadow/unused-vars). Escalate with effort:'medium'+fix:true to auto-apply verified fixes (refuses fix if the git tree is dirty, to avoid colliding with concurrent WIP). lanes:['review'|'schema'|'ux'|'lint'] picks one or more; lanes:'all' runs all four; focus/files/target/objective narrow scope. UX lane requires GUI server at localhost:3099 + LM Studio; fails gracefully if server is down.",
   phases: [
     { title: "Resolve", detail: "Normalize args, dirty-tree guard (refuse fix if dirty), timestamp, load ONE knowledge base" },
-    { title: "Run",     detail: "Lanes: structural review (child workflow) + schema→CLI boundary (inlined: runtime/drift/coverage) + UX screenshot analysis (inlined: survey/fix-loop); parallel when review-only" },
+    { title: "Run",     detail: "Lanes: structural review (child workflow) + schema→CLI boundary (inlined: runtime/drift/coverage) + UX screenshot analysis (inlined: survey/fix-loop) + ESLint lint gate (inlined: no-shadow/unused); parallel when review-only" },
     { title: "Persist", detail: "ONE unified history entry + extractKnowledge + code-knowledge append (full consolidation — no per-lane persists)" },
     { title: "Report",  detail: "Merged health report: review findings + drift + coverage + UX scores + fix status" },
   ],
@@ -83,14 +83,15 @@ const A = isObj(resolvedArgs) ? resolvedArgs : {}
 // Lanes: which sub-workflows to run. Default: review + schema. A bare string
 // lanes:"review" is accepted for convenience. lanes:"all" expands to all three.
 const LANES_RAW_INPUT = Array.isArray(A.lanes) ? A.lanes
-  : (A.lanes === "all" ? ["review", "schema", "ux"]
-  : (A.lanes ? [A.lanes] : ["review", "schema"]))
+  : (A.lanes === "all" ? ["review", "schema", "ux", "lint"]
+  : (A.lanes ? [A.lanes] : ["review", "schema", "lint"]))
 // UX_EXPLICIT: user passed a lanes arg → respect it exactly, no auto-detect.
 const UX_EXPLICIT = A.lanes !== undefined
-let LANES = LANES_RAW_INPUT.filter((l) => ["review", "schema", "ux"].includes(l))
+let LANES = LANES_RAW_INPUT.filter((l) => ["review", "schema", "ux", "lint"].includes(l))
 let DO_REVIEW = LANES.includes("review")
 let DO_SCHEMA  = LANES.includes("schema")
 let DO_UX      = LANES.includes("ux")
+let DO_LINT    = LANES.includes("lint")
 
 // Shared / forwarded knobs.
 const EFFORT    = ["low", "medium", "high"].includes(A.effort) ? A.effort : "low"
@@ -1120,6 +1121,91 @@ Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). R
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Lane: LINT (deterministic static-analysis gate)
+//
+// Runs `bun run check:lint` (ESLint: @typescript-eslint/no-shadow=error +
+// no-unused-vars=warn). This is the ONLY lane that deterministically catches the
+// FileUpload-style defect — a local binding SHADOWING an imported name — which the
+// other three lanes structurally cannot: LLM review misses it (subtle, "looks
+// fine"), the schema lane has zero frontend visibility, and the UX lane only
+// screenshots (the upload error only manifests on real interaction, never in a
+// static shot). Adding this lane is the direct fix for "the workflow can't catch
+// these command problems in the webui".
+//
+// Always read-only: eslint --fix cannot resolve no-shadow / no-unused-vars (those
+// need a rename/removal judgment), so this lane SURFACES regressions for the review
+// lane or a human to fix. Its value is detection + gating openIssues — the
+// "incremental resolve, avoid again" loop. errorCount feeds openIssues so any new
+// shadowing bug shows up as an openIssues ↑ in the trend.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+async function runLintLane(opts) {
+  const runId   = opts.runId || "run-1"
+  const fixMode = opts.fix === true // accepted for symmetry; lint is always read-only
+
+  const lintRun = await agent(
+    `Run the GUI ESLint gate and parse the result.
+Run: Bash("cd '${GUI_DIR}' && bun run check:lint 2>&1; echo EXIT=$?")
+ESLint prints one line per finding ("<file>" then "  <line>:<col>  <error|warning>  <message>  <rule>")
+then a summary "✖ N problems (E errors, W warnings)" when there are any, or nothing on success.
+Exit: 0 = clean, 1 = findings present, 2 = config/install error.
+
+Parse and return:
+- clean: true iff exit 0 (zero findings)
+- errorCount / warningCount: the numbers from the summary line (0 if absent)
+- findings: one entry per finding line → { file, line(number|null), severity, message, rule }
+  (skip the "✖ … problems" summary line and the trailing "EXIT=" line)
+- configError: true iff exit was 2 (eslint not installed / config broken)`,
+    { label: "lint-run", phase: "Lint", model: "haiku",
+      schema: { type: "object", properties: {
+        clean:        { type: "boolean" },
+        errorCount:   { type: "number" },
+        warningCount: { type: "number" },
+        configError:  { type: "boolean" },
+        findings: { type: "array", items: { type: "object", properties: {
+          file: { type: "string" }, line: { type: "number" },
+          severity: { type: "string" }, message: { type: "string" }, rule: { type: "string" },
+        }, required: ["file", "severity", "message"] } },
+      }, required: ["clean", "errorCount", "warningCount"] } },
+  )
+
+  const clean        = lintRun?.clean === true
+  const errorCount   = Number(lintRun?.errorCount) || 0
+  const warningCount = Number(lintRun?.warningCount) || 0
+  const configError  = lintRun?.configError === true
+  const findings     = (lintRun?.findings || []).filter((f) => f && f.file)
+  const errors       = findings.filter((f) => f.severity === "error")
+  const shadowing    = errors.filter((f) => (f.rule || "").includes("no-shadow"))
+
+  if (configError) {
+    log(`⚠ [lint] config/install error — is eslint installed in ${GUI_DIR}? (bun add -d eslint typescript-eslint)`)
+  } else if (clean) {
+    log(`[lint] clean — 0 errors, 0 warnings (gate holds)`)
+  } else {
+    const files = new Set(findings.map((f) => f.file))
+    log(`[lint] ${errorCount} error(s) [${shadowing.length} shadowing], ${warningCount} warning(s) across ${files.size} file(s)`)
+    for (const f of errors.slice(0, 12)) {
+      log(`  [${f.severity}] ${f.file}:${f.line ?? "?"} ${f.message} [${f.rule || "?"}]`)
+    }
+  }
+
+  return {
+    runId,
+    clean,
+    configError,
+    errorCount,
+    warningCount,
+    findings,
+    shadowingErrors: shadowing.length,
+    summary: configError
+      ? `Lint: CONFIG ERROR (eslint missing/broken)`
+      : clean
+        ? `Lint: clean (0 errors / 0 warnings)`
+        : `Lint: ${errorCount} error(s) [${shadowing.length} shadowing], ${warningCount} warning(s)`,
+  }
+}
+
 // ══ Phase: Resolve ════════════════════════════════════════════════════════════
 
 phase("Resolve")
@@ -1218,6 +1304,7 @@ phase("Run")
 
 let reviewResult = null
 let schemaResult = null
+let lintResult   = null
 let uxResult     = null
 
 const TOTAL_LANES = LANES.length
@@ -1233,31 +1320,39 @@ let laneIdx = 0
 // on disk. (See memory: workflow-name-caches-stale-script.)
 const REVIEW_OPTIMIZE = { scriptPath: `${PROJECT_ROOT}/.claude/workflows/gui-movie-director-review-optimize.js` }
 
-// Review + schema can run in parallel when fix is disabled — both are purely
-// read-only in that mode (no git-stash, no file edits). When fix:true, run
-// sequentially: review-optimize uses git-stash which would collide with
-// concurrent schema edits to the same working tree.
-if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
-  log(`▸ Lanes 1-2/${TOTAL_LANES}: review + schema in parallel (review-only — safe to fan out)`)
-  const [rr, sr] = await parallel([
-    () => workflow(REVIEW_OPTIMIZE, {
-      effort: EFFORT, fix: false, resume: RESUME,
-      ...(FOCUS ? { focus: FOCUS } : {}),
-      ...(FILES ? { files: FILES } : {}),
-    }).catch((e) => { log(`  review lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
-    () => runSchemaLane({
-      objective: OBJECTIVE,
-      ...(TARGET ? { target: TARGET } : {}),
-      knowledgeDigest, runId: RUN_ID,
-    }).catch((e) => { log(`  schema lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }),
-  ])
-  reviewResult = rr
-  schemaResult = sr
-  laneIdx = 2
-  log(`  review done — verified: ${reviewResult?.findings?.verified ?? "?"}`)
-  log(`  schema done — ${schemaResult?.summary ?? "(no summary)"}`)
+// Lint is read-only and NEVER edits (eslint --fix can't resolve no-shadow/unused —
+// those need a rename/removal judgment), so it always parallelizes safely, even in
+// fix mode. Fanned out alongside review/schema below.
+const runLint = () => runLintLane({ runId: RUN_ID, fix: fixEnabled })
+  .catch((e) => { log(`  lint lane FAILED: ${e?.message || e}`); return null })
+
+// Review + schema run in parallel when fix is disabled — both are purely read-only
+// in that mode (no git-stash, no file edits). When fix:true, run sequentially:
+// review-optimize uses git-stash which would collide with concurrent schema edits
+// to the same working tree. Lint joins the parallel fan-out (or runs standalone).
+if (!fixEnabled && (DO_REVIEW || DO_SCHEMA || DO_LINT)) {
+  const names = [DO_REVIEW && "review", DO_SCHEMA && "schema", DO_LINT && "lint"].filter(Boolean)
+  log(`▸ Lanes (review-only — fanning out): ${names.join(" + ")}`)
+  const thunks = []
+  if (DO_REVIEW) thunks.push(() => workflow(REVIEW_OPTIMIZE, {
+    effort: EFFORT, fix: false, resume: RESUME,
+    ...(FOCUS ? { focus: FOCUS } : {}),
+    ...(FILES ? { files: FILES } : {}),
+  }).catch((e) => { log(`  review lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }))
+  if (DO_SCHEMA) thunks.push(() => runSchemaLane({
+    objective: OBJECTIVE,
+    ...(TARGET ? { target: TARGET } : {}),
+    knowledgeDigest, runId: RUN_ID,
+  }).catch((e) => { log(`  schema lane FAILED: ${e?.message || e}`); markPhase("run", "failed"); return null }))
+  if (DO_LINT) thunks.push(runLint)
+  const results = await parallel(thunks)
+  let ri = 0
+  if (DO_REVIEW) { reviewResult = results[ri++]; log(`  review done — verified: ${reviewResult?.findings?.verified ?? "?"}`) }
+  if (DO_SCHEMA)  { schemaResult = results[ri++]; log(`  schema done — ${schemaResult?.summary ?? "(no summary)"}`) }
+  if (DO_LINT)    { lintResult = results[ri++];   log(`  lint done — ${lintResult?.summary ?? "(no summary)"}`) }
+  laneIdx = thunks.length
 } else {
-  // Sequential: fix:true, or only one of the two lanes is active.
+  // Sequential: fix:true, or a single lane is active.
   if (DO_REVIEW) {
     log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: structural code review (gui-movie-director-review-optimize)`)
     try {
@@ -1285,6 +1380,16 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
     } catch (e) {
       log(`  schema lane FAILED: ${e?.message || e}`)
       markPhase("run", "failed")
+    }
+  }
+
+  if (DO_LINT) {
+    log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: lint (deterministic static-analysis gate)`)
+    try {
+      lintResult = await runLintLane({ runId: RUN_ID, fix: fixEnabled })
+      log(`  lint lane done — ${lintResult?.summary ?? "(no summary)"}`)
+    } catch (e) {
+      log(`  lint lane FAILED: ${e?.message || e}`)
     }
   }
 }
@@ -1337,15 +1442,22 @@ const uxIssuesFixed = uxResult?.issuesFixed ?? 0
 const uxScoreBefore = uxResult?.avgUxScoreBefore ?? null
 const uxScoreAfter  = uxResult?.avgUxScoreAfter ?? null
 
+const lintErrors    = lintResult?.errorCount ?? 0
+const lintWarnings  = lintResult?.warningCount ?? 0
+const lintShadowing = lintResult?.shadowingErrors ?? 0
+const lintConfigErr = lintResult?.configError === true
+
 // Unified health scalar for trend tracking: ACTIONABLE code-health debt only
 // (lower = healthier) = review verified findings + schema runtime errors + remaining
 // drift. UX totalIssues is intentionally EXCLUDED: in the default review-only/dryRun
 // mode the UX lane surfaces issues but fixes none, so counting them made this scalar
 // (and its run-over-run trend) reflect UX screenshot variance instead of code health
 // (a prior 158-score was ~95% unfixed UX noise). UX debt is tracked separately as
-// uxOpenIssues + avgUxScore. Fix runs (review + schema drift) drive openIssues down.
+// uxOpenIssues + avgUxScore. Lint errors (shadowing = the FileUpload bug class) ARE
+// counted — they are deterministic, actionable, and the whole point of the lint gate.
+// Fix runs (review + schema drift) drive openIssues down.
 const uxOpenIssues = Math.max(0, uxTotalIssues - uxIssuesFixed)
-const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem
+const openIssues = reviewVerified + schemaRuntimeErr + schemaDriftRem + lintErrors
 
 // ── Delta from last run ─────────────────────────────────────────────────────
 // Read the most recent prior history entry to compute openIssues trend (↑/↓/=).
@@ -1358,8 +1470,9 @@ let deltaStr = null
 3. Bash("cat '${HISTORY_DIR}/<that filename>'")
 4. Parse JSON. Compute prevOpenIssues with the CURRENT (code-only) definition so the
    trend stays comparable across the formula change: sum result.review.verified +
-   result.schema.runtimeErrors + result.schema.driftRemaining (each defaults to 0 if
-   absent). ONLY if all three components are absent, fall back to result.openIssues or
+   result.schema.runtimeErrors + result.schema.driftRemaining + result.lint.errorCount
+   (each defaults to 0 if absent). ONLY if all those components are absent, fall back
+   to result.openIssues or
    parse signals.key_metric (format: "openIssues=N ...") for the leading N.
 Return { found: true, openIssues: <number> } or { found: false, openIssues: null }.`,
     { label: "prev-run-delta", phase: "Persist", model: "haiku",
@@ -1406,11 +1519,12 @@ const chronicCount = currentTopFindings.filter((f) => f.chronic).length
 
 const signals = {
   run_quality: phasesFailed.length === 0 ? (openIssues === 0 ? "clean" : "good") : "degraded",
-  key_metric: `openIssues=${openIssues} [code: review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem}]${DO_UX ? ` + uxOpen:${uxOpenIssues}/${uxTotalIssues}` : ""}`,
+  key_metric: `openIssues=${openIssues} [code: review:${reviewVerified} schemaErr:${schemaRuntimeErr} drift:${schemaDriftRem} lint:${lintErrors}]${DO_UX ? ` + uxOpen:${uxOpenIssues}/${uxTotalIssues}` : ""}`,
   delta_from_last: deltaStr,
   highlights: [
     DO_REVIEW  ? `review: ${reviewVerified} verified finding(s)${fixEnabled ? ` → ${reviewApplied} fix(es) applied, ${reviewRegress} regression(s)` : " (review-only)"}` : null,
     DO_SCHEMA  ? `schema: ${schemaRuntimeFind} runtime finding(s), ${schemaRuntimeErr} error(s), drift→${schemaDriftRem}${["coverage","both","all"].includes(OBJECTIVE) ? `, coverage Δ=${schemaCovDelta}` : ""}` : null,
+    DO_LINT    ? `lint: ${lintErrors} error(s) [${lintShadowing} shadowing], ${lintWarnings} warning(s)${lintConfigErr ? " — CONFIG ERROR" : ""}` : null,
     DO_UX && uxResult  ? `ux: ${uxTotalIssues} issue(s), ${uxIssuesFixed} fixed, score: ${uxScoreBefore?.toFixed(1) ?? "?"}→${uxScoreAfter?.toFixed(1) ?? "?"}` : null,
     DO_UX && !uxResult ? "ux: lane failed (server may be down) — skipped" : null,
     FIX_REQ && dirtyTree ? "fix:true DOWNGRADED to review-only (dirty tree)" : null,
@@ -1420,6 +1534,8 @@ const signals = {
   warnings: [
     ...(phasesFailed.length ? [`phases failed: ${phasesFailed.join(",")}`] : []),
     ...(FIX_REQ && dirtyTree ? ["concurrent WIP detected; fix deferred"] : []),
+    ...(DO_LINT && lintConfigErr ? ["lint: eslint config/install error — run `bun add -d eslint typescript-eslint` in bun/gui-movie-director"] : []),
+    ...(DO_LINT && lintErrors > 0 ? [`${lintErrors} lint error(s) [${lintShadowing} shadowing] — fix to clear the gate`] : []),
     ...(DO_UX && !uxResult ? ["ux lane did not complete (server down or crash)"] : []),
     ...(chronicCount > 0 ? [`${chronicCount} chronic finding(s) — consider fix:true to clear backlog`] : []),
   ],
@@ -1457,6 +1573,12 @@ const historyEntry = {
       avgScoreBefore: uxScoreBefore,
       avgScoreAfter:  uxScoreAfter,
     } : null,
+    lint: lintResult ? {
+      errorCount: lintErrors,
+      warningCount: lintWarnings,
+      shadowingErrors: lintShadowing,
+      configError: lintConfigErr,
+    } : null,
     reviewHistory: reviewResult?.history?.path || null,
   },
 }
@@ -1486,6 +1608,7 @@ const codeRecord = {
     driftRemaining: schemaDriftRem,
   },
   ux: uxResult ? { totalIssues: uxTotalIssues, issuesFixed: uxIssuesFixed } : null,
+  lint: lintResult ? { errors: lintErrors, shadowing: lintShadowing, warnings: lintWarnings } : null,
   // Files with verified findings this run — drives the "most bug-prone" trend
   // across runs (independent of whether they were fixed).
   filesTouched: reviewResult?.findings?.items
@@ -1597,6 +1720,19 @@ const report = {
       }
     : DO_UX
       ? { skipped: true, reason: "server not running or crash" }
+      : null,
+  lint: lintResult
+    ? {
+        clean: lintResult.clean,
+        errorCount: lintErrors,
+        shadowingErrors: lintShadowing,
+        warningCount: lintWarnings,
+        configError: lintConfigErr,
+        topErrors: (lintResult.findings || []).filter((f) => f.severity === "error").slice(0, 8)
+          .map((f) => ({ file: f.file, line: f.line, message: f.message, rule: f.rule })),
+      }
+    : DO_LINT
+      ? { skipped: true, reason: "lint lane did not complete" }
       : null,
   signals,
   knowledgeContribution: knowledgeAppended
