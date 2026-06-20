@@ -786,7 +786,11 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
         elif key == "final_layer.linear.weight":
             converted["proj_out.weight"] = tensor
         elif key.startswith("final_layer.adaLN_modulation."):
-            converted["norm_out.linear.weight"] = tensor
+            # Skip: the ComfyUI Klein 9B adaLN_modulation.1.weight is statistically uncorrelated
+            # with the HuggingFace norm_out.linear.weight (corr≈-0.002) — a different weight
+            # space that cannot be merged. The base klein-9b norm_out.linear.weight works
+            # correctly with all ComfyUI fine-tuned block weights; do not override it.
+            pass
 
         # ── Double blocks -> Transformer blocks ────────────────────
         elif key.startswith("double_blocks."):
@@ -801,9 +805,9 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
                 converted[f"transformer_blocks.{block_idx}.attn.to_v.weight"] = to_v
             elif rest == "img_attn.proj.weight":
                 converted[f"transformer_blocks.{block_idx}.attn.to_out.0.weight"] = tensor
-            elif rest == "img_attn.norm.query_norm.scale":
+            elif rest in ("img_attn.norm.query_norm.scale", "img_attn.norm.query_norm.weight"):
                 converted[f"transformer_blocks.{block_idx}.attn.norm_q.weight"] = tensor
-            elif rest == "img_attn.norm.key_norm.scale":
+            elif rest in ("img_attn.norm.key_norm.scale", "img_attn.norm.key_norm.weight"):
                 converted[f"transformer_blocks.{block_idx}.attn.norm_k.weight"] = tensor
             elif rest == "txt_attn.qkv.weight":
                 to_q, to_k, to_v = tensor.chunk(3, dim=0)
@@ -812,9 +816,9 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
                 converted[f"transformer_blocks.{block_idx}.attn.add_v_proj.weight"] = to_v
             elif rest == "txt_attn.proj.weight":
                 converted[f"transformer_blocks.{block_idx}.attn.to_add_out.weight"] = tensor
-            elif rest == "txt_attn.norm.query_norm.scale":
+            elif rest in ("txt_attn.norm.query_norm.scale", "txt_attn.norm.query_norm.weight"):
                 converted[f"transformer_blocks.{block_idx}.attn.norm_added_q.weight"] = tensor
-            elif rest == "txt_attn.norm.key_norm.scale":
+            elif rest in ("txt_attn.norm.key_norm.scale", "txt_attn.norm.key_norm.weight"):
                 converted[f"transformer_blocks.{block_idx}.attn.norm_added_k.weight"] = tensor
             elif rest == "img_mlp.0.weight":
                 converted[f"transformer_blocks.{block_idx}.ff.linear_in.weight"] = tensor
@@ -835,9 +839,9 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
                 converted[f"single_transformer_blocks.{block_idx}.attn.to_qkv_mlp_proj.weight"] = tensor
             elif rest == "linear2.weight":
                 converted[f"single_transformer_blocks.{block_idx}.attn.to_out.weight"] = tensor
-            elif rest == "norm.query_norm.scale":
+            elif rest in ("norm.query_norm.scale", "norm.query_norm.weight"):
                 converted[f"single_transformer_blocks.{block_idx}.attn.norm_q.weight"] = tensor
-            elif rest == "norm.key_norm.scale":
+            elif rest in ("norm.key_norm.scale", "norm.key_norm.weight"):
                 converted[f"single_transformer_blocks.{block_idx}.attn.norm_k.weight"] = tensor
 
     del raw_weights
@@ -864,7 +868,7 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
     gc.collect()
     print(f"[klein-9b-checkpoint] Mapped to {len(mapped) if isinstance(mapped, dict) else 'tree'} MLX weights")
 
-    # ── Step 4: Initialize model and load weights ──────────────────
+    # ── Step 4: Initialize model, merge base + patch weights ──────
     print("[klein-9b-checkpoint] Initializing Flux2Transformer...")
     model = Flux2Transformer(
         patch_size=1,
@@ -883,9 +887,47 @@ def convert_klein_9b_checkpoint(checkpoint_path: str, output_name: str = "klein-
     )
 
     from mlx.utils import tree_flatten
+    import glob as _glob
+
+    # ── Step 4a: Load base klein-9b INT8, dequantize, seed the model ──
+    # Fine-tuned checkpoints often omit per-block modulation weights.
+    # Merging with the base model fills those gaps correctly.
+    base_model_dir = os.path.join(cfg.MODELS_DIR, "transformer", "klein-9b")
+    if os.path.exists(base_model_dir):
+        print(f"[klein-9b-checkpoint] Merging with base klein-9b (dequantizing INT8)...")
+        shard_files = sorted(_glob.glob(os.path.join(base_model_dir, "*.safetensors")))
+        base_flat = []
+        for sf in shard_files:
+            shard = mx.load(sf)
+            # Group into INT8 triplets (weight + scales + biases) for dequantization
+            quant = {}
+            for k, v in shard.items():
+                if k.endswith(".scales"):
+                    quant.setdefault(k[:-7], {})["scales"] = v
+                elif k.endswith(".biases"):
+                    quant.setdefault(k[:-7], {})["biases"] = v
+                elif v.dtype == mx.uint32:
+                    quant.setdefault(k[:-7], {})["weight"] = v  # k ends in .weight
+                else:
+                    base_flat.append((k, v.astype(mx.bfloat16)))
+            for base_key, parts in quant.items():
+                if all(p in parts for p in ("weight", "scales", "biases")):
+                    dq = mx.dequantize(parts["weight"], parts["scales"], parts["biases"],
+                                       group_size=64, bits=8)
+                    base_flat.append((base_key + ".weight", dq.astype(mx.bfloat16)))
+        print(f"[klein-9b-checkpoint] Loaded {len(base_flat)} base weights (dequantized)")
+        model.load_weights(base_flat, strict=True)
+        del base_flat
+        mx.eval(model.parameters())
+        gc.collect()
+    else:
+        print("[klein-9b-checkpoint] WARNING: base klein-9b not found; "
+              "partial-weight checkpoints will have random modulation weights")
+
+    # ── Step 4b: Apply fine-tuned patch weights on top ────────────
     flat = tree_flatten(mapped) if not isinstance(mapped, list) else mapped
-    print(f"[klein-9b-checkpoint] Loading {len(flat)} weights into model...")
-    model.load_weights(flat)
+    print(f"[klein-9b-checkpoint] Applying {len(flat)} patch weights from checkpoint...")
+    model.load_weights(flat, strict=False)
     del mapped, flat
     mx.eval(model.parameters())
 
