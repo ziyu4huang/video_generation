@@ -1,4 +1,4 @@
-import { loadConfig } from "../lib/config";
+import { loadConfig, vlmModelIsAuto } from "../lib/config";
 
 interface VlmTestResult {
   ok: boolean;
@@ -61,7 +61,11 @@ export async function handleVlmTest(_req: Request): Promise<Response> {
 
   // OpenAI-compatible /v1/models returns { data: [{ id: "model-name", ... }] }
   const models: string[] = (data?.data || []).map((m: any) => m.id || m.name).filter(Boolean);
-  const modelLoaded = models.some((id) => id === cfg.vlmModel);
+  // "auto" resolves at caption time (Gemma-if-loaded else Qwen), so the test passes
+  // whenever any model is available; a concrete name must actually be present.
+  const modelLoaded = vlmModelIsAuto(cfg.vlmModel)
+    ? models.length > 0
+    : models.some((id) => id === cfg.vlmModel);
 
   const result: VlmTestResult = {
     ok: true,

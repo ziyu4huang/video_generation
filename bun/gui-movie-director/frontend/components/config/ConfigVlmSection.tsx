@@ -52,8 +52,12 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
             type="text"
             value={vlmModel}
             onChange={(e) => handleVlmFieldChange("vlmModel", e.target.value)}
-            placeholder="qwen/qwen3-vl-4b"
+            placeholder="auto"
           />
+          <small style={{ color: "var(--text-dim)", fontSize: 11 }}>
+            <code>auto</code> (default) = use the best loaded VLM (prefers Gemma 26B
+            when loaded, else Qwen 4B). Or paste a specific id (e.g. <code>google/gemma-4-26b-a4b-qat</code>) to force it.
+          </small>
         </div>
       </div>
       <div className="form-row" style={{ alignItems: "center", gap: 12 }}>
@@ -69,7 +73,9 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
           <span className={`vlm-test-badge ${testResult.ok ? (testResult.modelLoaded ? "ok" : "warn") : "fail"}`}>
             {testResult.ok
               ? testResult.modelLoaded
-                ? `✅ Model loaded (${testResult.models?.length ?? 0} models available)`
+                ? vlmModel.trim().toLowerCase() === "auto" || vlmModel.trim() === ""
+                  ? `✅ Auto-resolve OK (${testResult.models?.length ?? 0} models available)`
+                  : `✅ Model loaded (${testResult.models?.length ?? 0} models available)`
                 : `⚠️ Connected — model "${vlmModel}" not found (available: ${testResult.models?.join(", ") ?? "none"})`
               : `❌ ${testResult.error}`}
           </span>

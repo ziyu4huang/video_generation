@@ -22,9 +22,23 @@ const DEFAULTS: AppConfig = {
   outputDir: ["../video_generation__output", "comfyui_data/output"],
   modelsDir: "python/mlx-movie-director/models",
   vlmApiUrl: "http://localhost:1234/v1",
-  vlmModel: "qwen/qwen3-vl-4b",
+  // "auto" = don't force a model: run.py caption auto-resolves (prefers the heavier
+  // Gemma 26B when already loaded in LM Studio, else loads Qwen 4B). Set a concrete
+  // model id here only to force it. (caption.py _resolve_model does the detection.)
+  vlmModel: "auto",
   pythonPath: path.join(REPO_DIR, "python", "venv", "bin", "python"),
 };
+
+/**
+ * "auto"/empty vlmModel = let run.py caption pick the VLM (prefer Gemma 26B when
+ * already loaded, else Qwen 4B). Callers that build `run.py caption` args should
+ * OMIT `--model` in that case (passing --model auto bypasses caption.py's load
+ * detection and forces a load of that exact model).
+ */
+export function vlmModelIsAuto(vlmModel: string | undefined | null): boolean {
+  const m = (vlmModel ?? "").trim().toLowerCase();
+  return m === "" || m === "auto";
+}
 
 let _config: AppConfig | null = null;
 

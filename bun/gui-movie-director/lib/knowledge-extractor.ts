@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { OUTPUT_DIRS, RUN_PY } from "./paths";
-import { loadConfig } from "./config";
+import { loadConfig, vlmModelIsAuto } from "./config";
 import { readJsonFile, writeJsonFile } from "./fsUtils";
 import {
   saveReportToDb,
@@ -165,7 +165,9 @@ export async function generateMissingCaptions(
         "--style", "review",
         "--lang", "en",
         "--api-url", cfg.vlmApiUrl,
-        "--model", cfg.vlmModel,
+        // "auto" → omit --model so caption.py auto-resolves (prefers Gemma 26B
+        // when already loaded). See vlmModelIsAuto.
+        ...(vlmModelIsAuto(cfg.vlmModel) ? [] : ["--model", cfg.vlmModel]),
         ...(prompt ? ["--prompt", prompt] : []),
       ];
       const proc = Bun.spawn(

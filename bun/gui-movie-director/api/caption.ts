@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { loadConfig } from "../lib/config";
+import { loadConfig, vlmModelIsAuto } from "../lib/config";
 import { isPathAllowed, OUTPUT_DIRS, RUN_PY } from "../lib/paths";
 import { readJsonFile } from "../lib/fsUtils";
 import { parsePostJson } from "../lib/requestUtils";
@@ -63,9 +63,14 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
     image,
     "--style", style || "score",
     "--api-url", cfg.vlmApiUrl,
-    "--model", cfg.vlmModel,
     "--lang", "en",
   ];
+  // "auto" = omit --model so caption.py auto-resolves (prefers Gemma 26B when
+  // already loaded). Passing --model auto would force a load of a model literally
+  // named "auto" and bypass the load detection entirely.
+  if (!vlmModelIsAuto(cfg.vlmModel)) {
+    args.push("--model", cfg.vlmModel);
+  }
   if (prompt) {
     args.push("--prompt", prompt);
   }
