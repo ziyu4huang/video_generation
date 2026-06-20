@@ -1,9 +1,6 @@
 venv
 */output/
 
-# Large model weight files (reproduce via convert.py)
-*.safetensors
-
 # Slow tokenizer fallback (not needed at runtime)
 **/models/tokenizer/merges.txt
 **/models/tokenizer/vocab.json

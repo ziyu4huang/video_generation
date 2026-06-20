@@ -1,45 +1,39 @@
-# klein-9b-dark-beast-bfs — Flux2 Klein 9B Transformer (INT8)
+# Dark Beast KLEIN 9B V2.0 BFS
 
-Dark Beast KLEIN 9b V2.0 BFS — face-swap specialized variant of Flux2 Klein 9B.
-Converted from Civitai FP8 checkpoint to MLX INT8.
+Fine-tuned Flux2 Klein 9B checkpoint, face-swap specialized variant.
 
-Source: [Civitai — DBKleinV2 BFS](https://civitai.com/models/2242173/dark-beast-or?modelVersionId=2740209)
+## Source
 
-## Key Features
+- Model: [Dark Beast](https://civitai.com/models/2242173/dark-beast-or?modelVersionId=2740209)
+- Version: DBKleinV2BFS (modelVersionId=2740209)
+- Architecture: Flux2 Klein 9B (partial fine-tune, merged with base)
 
-- **BFS (Best Face Swap)** technology for seamless face replacement
-- Built on Flux2 Klein 9B accelerated architecture
-- Ultra-low steps (4-5), CFG=1 fixed
-- Converted from FP8 → BF16 → MLX INT8 for Apple Silicon
+## WARNING: Model is currently broken (needs re-download)
 
-## Files
+The original Klein 9B checkpoint (DBKleinV2BFS, modelVersionId=2740209) is no longer in
+Downloads. During the 2026-06-21 debugging session, the model directory was accidentally
+overwritten by running `convert.py` against the wrong file:
 
-| File | Size | Description |
-|------|------|-------------|
-| `0-4.safetensors` | ~9.2 GB | Sharded INT8 transformer weights |
-| `model.safetensors.index.json` | 36 KB | Shard mapping |
-| `config.json` | 467 B | Architecture config |
-| `manifest.json` | — | Model registry metadata |
+- `darkBeast_dbzit9DIMRclaw_fp8.safetensors` is a **ZIT (ZImage Turbo)** model, not Klein 9B.
+  Its keys use `layers.N.*` format with scalar `weight_scale` tensors only — incompatible
+  with the Klein 9B `double_blocks.*` / `single_blocks.*` key structure.
 
-## Shared Components (reuse from base Klein 9B)
+The current shards contain only base klein-9b weights (no dark-beast fine-tuning).
 
-This transformer reuses the architecture-compatible components from the base Klein 9B setup:
+## To restore
 
-| Component | Path |
-|-----------|------|
-| Text Encoder | `text_encoder/qwen3-8b/` |
-| VAE | `vae/flux2-klein/` |
-| Tokenizer | `tokenizer/qwen3-klein/` |
+1. Re-download DBKleinV2BFS from civitai.com/models/2242173 (modelVersionId=2740209)
+2. Re-convert:
+   ```bash
+   python/venv/bin/python python/mlx-movie-director/convert.py \
+     --klein-9b-checkpoint /path/to/darkBeastKlein9B_v20bfs.safetensors \
+     --name klein-9b-dark-beast-bfs
+   ```
+   The `norm_out.linear.weight` bug fix is already in `convert.py` — no extra steps needed.
 
-## Conversion
+## Conversion notes (for when restored)
 
-```bash
-# Convert from Civitai FP8 checkpoint
-./python/venv/bin/python python/mlx-movie-director/convert.py \
-  --klein-9b-checkpoint /path/to/darkBeast_dbkleinv2BFS.safetensors \
-  --name klein-9b-dark-beast-bfs
-```
-
-## Usage
-
-This model is used with the `flux2-klein` pipeline. Select it by pointing to the transformer directory.
+The `final_layer.adaLN_modulation.1.weight` from ComfyUI Klein 9B checkpoints is intentionally
+**not used** during conversion — it is statistically uncorrelated (r ≈ −0.002) with the
+HuggingFace `norm_out.linear.weight` and causes a severe burlap texture. The base `norm_out`
+is preserved. See `project_klein9b_normlayer_fix.md` in memory for details.
