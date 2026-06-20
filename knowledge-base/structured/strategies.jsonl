@@ -1,5 +1,5 @@
-{"template":"[trigger_word], [detailed_subject_description], [specific_lighting], [specific_pose_with_anatomy_details], photorealistic, [quality_modifiers]","avgScore":9.8,"sampleCount":10,"bestLora":"klein_slider_anatomy.safetensors"}
-{"template":"[trigger_word], [scene_description], [subject_with_clothing_details], [specific_action_with_hand_details], [lighting_conditions], photorealistic, detailed hands and face, ultra sharp focus","avgScore":9.7,"sampleCount":8,"bestLora":"klein_slider_bodyweight_50.safetensors"}
-{"template":"photorealistic portrait of a [subject_description], [specific_eye_and_skin_details], [lighting_conditions], [photography_terms], high detail, ultra sharp focus","avgScore":9,"sampleCount":20,"bestLora":"HighResolutionFlux2-Kelien-9B.safetensors"}
-{"template":"[structured_narrative_description_of_scene_and_subject], [style_modifiers]","avgScore":9,"sampleCount":5,"bestLora":"none"}
-{"template":"[simple_clear_subject], [simple_clear_pose], [simple_clear_background], [simple_clear_lighting], high quality portrait photography","avgScore":9.5,"sampleCount":5,"bestLora":"none"}
+{"template":"[Subject] in [specific setting], wearing [detailed clothing], [specific pose/action], [lighting conditions], [camera/lens specs], [quality modifiers]","avgScore":9.5,"sampleCount":12,"bestLora":"none"}
+{"template":"[Trigger word], [pose description], [visible joint/finger details], [anatomical alignment], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_anatomy.safetensors"}
+{"template":"[Subject] in [elaborate setting], [detailed clothing/accessories], [lighting/atmosphere], [background elements], [style reference]","avgScore":9.2,"sampleCount":8,"bestLora":"none"}
+{"template":"[Simple subject], [quality descriptors], [lighting], [style]","avgScore":9,"sampleCount":7,"bestLora":"none"}
+{"template":"[Trigger word], [detailed scene], [quality modifiers]","avgScore":10,"sampleCount":5,"bestLora":"klein_slider_bodyweight_50.safetensors"}

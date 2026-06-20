@@ -116,13 +116,17 @@ const UX_AUTO      = A.uxAuto === true
 // NOTE: the workflow runtime strips `export const meta` — top-level `meta.*`
 // refs throw "meta is not defined". Mirror the name into a plain const instead.
 const NAME         = "gui-movie-director-self-improve"
-const PROJECT_ROOT = "/Users/huangziyu/proj/video_generation"
-const GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
-const PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
-const RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
-const HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
-const INDEX_FILE   = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
-const KB_FILE      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
+// PROJECT_ROOT is resolved DYNAMICALLY in the Resolve phase (git rev-parse
+// --show-toplevel) so this workflow is worktree-correct: it edits the tree it
+// runs from, not a hardcoded sibling repo. `let` because Resolve reassigns them
+// once the real root is known; the values below are a fallback only.
+let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation"
+let GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
+let PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
+let RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
+let HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
+let INDEX_FILE   = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+let KB_FILE      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
 const SHOT_DIR     = `/tmp/gui-ux`
 
 // ── Phase tracking ───────────────────────────────────────────────────────────
@@ -217,6 +221,13 @@ THIS RUN'S DATA:
 - runId: ${runId}
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
+RECORD SCHEMA — every record MUST contain ONLY these 12 top-level keys; any extra key
+triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
+  schema_version(=1) | id | type | title | detail | tags | dimension | confidence |
+  status | superseded_by | evidence{occurrences,first_seen,last_seen,run_ids[<=8]} | extracted_at
+Review-finding fields NOT in this schema MUST be folded, never emitted as top-level keys:
+  severity → prepend "sev:<level>" to tags;  files / file:line → fold into detail
+  (line numbers go stale — name the module/locus instead).
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
@@ -710,9 +721,9 @@ Return: { "reverted": true }`,
     runId,
     objective: OBJECTIVE,
     dryRun: DRY_RUN,
-    baseline: baselineComposite.toFixed(2),
-    final:    currentBest.toFixed(2),
-    delta:    totalDelta.toFixed(2),
+    baseline: DO_COVERAGE ? baselineComposite.toFixed(2) : null,
+    final:    DO_COVERAGE ? currentBest.toFixed(2) : null,
+    delta:    DO_COVERAGE ? totalDelta.toFixed(2) : null,
     iters:    iterations.length,
     adopted,
     rejected: iterations.length - adopted,
@@ -1113,6 +1124,33 @@ Otherwise: Bash("cd '${GUI_DIR}' && git checkout -- '${issue.affectedFile}'"). R
 
 phase("Resolve")
 
+// ── Resolve PROJECT_ROOT dynamically (worktree-correct) ──────────────────────
+// A hardcoded root made this workflow edit a SIBLING repo when run from a
+// worktree (e.g. feat/gui worktree vs main) — fixes/paths landed on the wrong
+// branch. Resolve the actual tree we are in and re-derive every path from it.
+{
+  const rootResolve = await agent(
+    `Resolve the git repository root of the working tree we are running in.
+Bash("git rev-parse --show-toplevel")
+Return { root: "<the absolute path, whitespace-trimmed>" }.`,
+    { label: "resolve-project-root", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: { root: { type: "string" } }, required: ["root"] } },
+  )
+  const resolved = (rootResolve?.root || "").trim()
+  if (resolved && resolved.includes("video_generation")) {
+    PROJECT_ROOT = resolved
+    GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
+    PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
+    RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
+    HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
+    INDEX_FILE   = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
+    KB_FILE      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
+    log(`Resolved PROJECT_ROOT → ${PROJECT_ROOT} (worktree-correct)`)
+  } else {
+    log(`⚠ could not resolve repo root (got "${resolved}"); keeping fallback ${PROJECT_ROOT}`)
+  }
+}
+
 // Timestamp (no Date.now() in workflows).
 const RUN_TIMESTAMP = await agent(
   `Return the current timestamp in ISO format with colons replaced by dashes for filename safety.
@@ -1185,6 +1223,16 @@ let uxResult     = null
 const TOTAL_LANES = LANES.length
 let laneIdx = 0
 
+// Resolve review-optimize by scriptPath, NOT by name. The nested workflow(name)
+// call resolves from a registry that can serve a STALE cached parse of the
+// script — so edits to review-optimize.js (W3 USAGE_AWARE dimension prompts,
+// W4 consolidated low-effort verify gate) silently did NOT take effect in
+// routine scans. Validated 2026-06-20: the same 5 files at effort:low produced
+// 10 findings / ~5 FP via the name-call (stale, pre-W3/W4) but 2 findings / 0
+// FP via scriptPath (current file, gate ran). scriptPath always reads the file
+// on disk. (See memory: workflow-name-caches-stale-script.)
+const REVIEW_OPTIMIZE = { scriptPath: `${PROJECT_ROOT}/.claude/workflows/gui-movie-director-review-optimize.js` }
+
 // Review + schema can run in parallel when fix is disabled — both are purely
 // read-only in that mode (no git-stash, no file edits). When fix:true, run
 // sequentially: review-optimize uses git-stash which would collide with
@@ -1192,7 +1240,7 @@ let laneIdx = 0
 if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
   log(`▸ Lanes 1-2/${TOTAL_LANES}: review + schema in parallel (review-only — safe to fan out)`)
   const [rr, sr] = await parallel([
-    () => workflow("gui-movie-director-review-optimize", {
+    () => workflow(REVIEW_OPTIMIZE, {
       effort: EFFORT, fix: false, resume: RESUME,
       ...(FOCUS ? { focus: FOCUS } : {}),
       ...(FILES ? { files: FILES } : {}),
@@ -1213,7 +1261,7 @@ if (!fixEnabled && DO_REVIEW && DO_SCHEMA) {
   if (DO_REVIEW) {
     log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: structural code review (gui-movie-director-review-optimize)`)
     try {
-      reviewResult = await workflow("gui-movie-director-review-optimize", {
+      reviewResult = await workflow(REVIEW_OPTIMIZE, {
         effort: EFFORT, fix: fixEnabled, resume: RESUME,
         ...(FOCUS ? { focus: FOCUS } : {}),
         ...(FILES ? { files: FILES } : {}),
@@ -1247,7 +1295,10 @@ if (DO_UX) {
   log(`▸ Lane ${++laneIdx}/${TOTAL_LANES}: UX screenshot analysis (inlined ux lane)`)
   try {
     uxResult = await runUxLane({
-      dryRun:   UX_DRY_RUN,
+      // Collision-safe contract: when the orchestrator is review-only (fix not
+      // enabled), the UX lane must NOT edit either — force dry-run. UX_DRY_RUN
+      // is honored only when fixes are actually enabled.
+      dryRun:   fixEnabled ? UX_DRY_RUN : true,
       maxIters: UX_MAX_ITERS,
       ...(UX_VIEWS ? { views: UX_VIEWS } : {}),
       knowledgeDigest, runId: RUN_ID,
@@ -1460,18 +1511,26 @@ try {
 let knowledgeAppended = false
 try {
   const codeRecordJson = JSON.stringify(codeRecord)
-  await agent(
-    `Append this self-improve run as a code-knowledge record to the shared knowledge base.
+  const kbAppend = await agent(
+    `Append this self-improve run as a code-knowledge record to the shared knowledge base, then VERIFY it landed.
 1. Write the record JSON to a temp file:
    Write({ file_path: "/tmp/code-knowledge-record.json", content: <JSON below> })
    ${codeRecordJson}
-2. Append it via the canonical module (updates records.jsonl + index.json):
-   Bash("bun run '${PROJECT_ROOT}/bun/gui-movie-director/scripts/code-knowledge-append.ts' /tmp/code-knowledge-record.json")
-Return { appended: true }.`,
-    { label: "code-knowledge-append", phase: "Persist", model: "haiku" },
+2. Append it via the canonical module (capture combined output + exit marker):
+   Bash("bun run '${PROJECT_ROOT}/bun/gui-movie-director/scripts/code-knowledge-append.ts' /tmp/code-knowledge-record.json 2>&1; echo EXIT=$?")
+3. VERIFY the record actually landed — count this run's runId in records.jsonl:
+   Bash("grep -c '${RUN_ID}' '${PROJECT_ROOT}/knowledge-base/code/records.jsonl' 2>/dev/null || echo 0")
+   present = (the count from step 3 is >= 1). If the bun command in step 2 failed (non-zero EXIT), present is false.
+Return { appended: <present>, verified: <present>, output: "<the step 2 output>" }.`,
+    { label: "code-knowledge-append", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: { appended: { type: "boolean" }, verified: { type: "boolean" }, output: { type: "string" } }, required: ["appended", "verified"] } },
   )
-  log(`Code-knowledge: record appended to knowledge-base/code/ (openIssues=${openIssues})`)
-  knowledgeAppended = true
+  knowledgeAppended = kbAppend?.verified === true
+  if (knowledgeAppended) {
+    log(`Code-knowledge: record appended + verified in knowledge-base/code/ (openIssues=${openIssues})`)
+  } else {
+    log(`⚠ Code-knowledge append NOT verified (appended=${kbAppend?.appended}) — record may be missing. Output: ${(kbAppend?.output || "").slice(0, 200)}`)
+  }
 } catch (e) {
   log(`Code-knowledge append failed (non-fatal): ${e?.message || e}`)
 }

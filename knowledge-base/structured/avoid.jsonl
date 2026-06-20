@@ -1,5 +1,6 @@
-{"item":"Vague or single-word prompts (e.g., 'a girl')"}
-{"item":"Using technical commands as the prompt (e.g., 'BFS head face swap')"}
-{"item":"Style mismatches (e.g., asking for a 'photograph' but generating a 'render')"}
-{"item":"Overly complex or contradictory instructions"}
-{"item":"Neglecting to specify lighting, pose, and background details"}
+{"item":"Using technical commands instead of descriptive prompts (e.g., 'BFS head face swap')"}
+{"item":"Specifying 'photograph' when output is AI-generated (causes style mismatch)"}
+{"item":"Over-specifying medium with contradictory terms (e.g., 'hyperrealistic 8K cinematic' for AI)"}
+{"item":"Using LoRA at extreme scales (1.0+ causes artifacts, <0.3 has no effect)"}
+{"item":"Mixing conflicting style terms like 'painterly' with 'photorealistic'"}
+{"item":"Excessive length without clear structure or sectioning"}

@@ -35,9 +35,13 @@ export async function handleModelCheckRun(_req: Request): Promise<Response> {
     }
 
     const stderr = new TextDecoder().decode(proc.stderr).trim();
-    return Response.json({ ok: false, error: stderr || "check-model produced no output" });
+    // Log server-side detail, return generic message to avoid leaking paths/tracebacks
+    console.error("[handleModelCheckRun] check-model failed:", stderr);
+    return Response.json({ ok: false, error: "Model check failed — see server logs" }, { status: 500 });
   } catch (e: any) {
-    return Response.json({ ok: false, error: e.message || "Failed to run check-model" });
+    // Log server-side detail, return generic message
+    console.error("[handleModelCheckRun] spawn failed:", e.message);
+    return Response.json({ ok: false, error: "Failed to run check-model" }, { status: 500 });
   }
 }
 

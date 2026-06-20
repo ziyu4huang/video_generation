@@ -358,7 +358,11 @@ _ALL_TESTS = {
         "seed": 42,
         "steps": 9,
         "variants": [
-            {"label": "Default VAE",   "vae_path": None},
+            # vae_path MUST be explicit "zimage", NOT None. None falls back to the app
+            # default VAE (cfg.VAE_DIR = ultraflux-zimage-ae), making this A/B
+            # ultraflux-vs-ultraflux → byte-identical output, defeating the comparison
+            # (config drift hit 2026-06-20 when the app default was set to ultraflux).
+            {"label": "Default VAE",   "vae_path": "zimage"},
             {"label": "UltraFlux VAE", "vae_path": "ultraflux"},
         ],
     },

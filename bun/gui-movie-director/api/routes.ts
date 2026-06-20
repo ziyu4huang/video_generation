@@ -88,11 +88,29 @@ async function handleApi(req: Request, url: URL): Promise<Response> {
   // otherwise push files onto this server's filesystem via a plain <form> POST.
   // Same pattern as the WebSocket handler (api/ws.ts). An absent Origin (curl,
   // scripts, programmatic clients that don't set one) is allowed through.
+  //
+  // Security: Use a FIXED allowlist of permitted origins, NOT the request's own
+  // Host header (vulnerable to DNS rebinding). The server runs on a dynamic port,
+  // so we extract it from the Host header and construct the allowlist.
   const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (origin && host) {
-    const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
-    if (!sameOrigin) {
+  if (origin) {
+    const host = req.headers.get("host");
+    if (!host) {
+      return Response.json({ ok: false, error: "Invalid request" }, { status: 403 });
+    }
+
+    // Extract port from Host header (IPv6 addresses are bracketed)
+    const portMatch = host.match(/:(\d+)$/);
+    const port = portMatch ? portMatch[1] : "3099"; // default if missing
+
+    // Fixed allowlist of permitted origins for this port
+    const allowedOrigins = [
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+      `http://[::1]:${port}`,
+    ];
+
+    if (!allowedOrigins.includes(origin)) {
       return Response.json({ ok: false, error: "Cross-origin request blocked" }, { status: 403 });
     }
   }

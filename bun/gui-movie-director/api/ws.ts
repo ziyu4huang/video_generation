@@ -12,16 +12,31 @@ export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
   if (url.pathname !== "/ws") return false;
 
   // WSRF / cross-origin defense: browsers always send an Origin header on the
-  // WebSocket handshake. If present, it must be same-origin with this server
-  // (derived from the request's own Host header, so the check is port-agnostic).
+  // WebSocket handshake. If present, it must be same-origin with this server.
   // A malicious website (Origin: https://evil.com) could otherwise open a socket
   // to localhost:3099 and drive job submission. An absent Origin (curl, scripts,
   // programmatic clients that don't set one) is allowed through.
+  //
+  // Security: Use a FIXED allowlist of permitted origins, NOT the request's own
+  // Host header (vulnerable to DNS rebinding). The server runs on a dynamic port,
+  // so we extract it from the Host header and construct the allowlist.
   const origin = req.headers.get("origin");
-  const host = req.headers.get("host");
-  if (origin && host) {
-    const sameOrigin = origin === `http://${host}` || origin === `https://${host}`;
-    if (!sameOrigin) return false;
+  if (origin) {
+    const host = req.headers.get("host");
+    if (!host) return false;
+
+    // Extract port from Host header (IPv6 addresses are bracketed)
+    const portMatch = host.match(/:(\d+)$/);
+    const port = portMatch ? portMatch[1] : "3099"; // default if missing
+
+    // Fixed allowlist of permitted origins for this port
+    const allowedOrigins = [
+      `http://127.0.0.1:${port}`,
+      `http://localhost:${port}`,
+      `http://[::1]:${port}`,
+    ];
+
+    if (!allowedOrigins.includes(origin)) return false;
   }
 
   const success = server.upgrade(req, { data: { subscribedJobId: null } });
@@ -89,8 +104,15 @@ subprocessManager.onStatus((job) => {
   if (job.status === "completed") {
     import("../lib/gallery-index").then((m) => m.invalidateIndex()).catch(() => {});
   }
+  // Map job status to a WS message type. A freshly-spawned job broadcasts
+  // "running" → job_start so clients revalidate their job list immediately
+  // (useJobs listens for it) instead of waiting for the 5s poll. completed →
+  // job_complete, anything else (failed) → job_failed.
+  const type = job.status === "running" ? "job_start"
+             : job.status === "completed" ? "job_complete"
+             : "job_failed";
   const message = JSON.stringify({
-    type: job.status === "completed" ? "job_complete" : "job_failed",
+    type,
     jobId: job.id,
     exitCode: job.exitCode,
     outputFiles: job.outputFiles,

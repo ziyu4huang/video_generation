@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useJobs } from "../../hooks/useJobs";
 import { useNavigation } from "../../context/NavigationContext";
 import { LogViewer } from "../../components/LogViewer";
@@ -197,13 +197,21 @@ function JobRow({ job, expanded, onToggle, onRefresh }: JobRowProps) {
 
 export function JobHistoryView() {
   const { jobs, refresh } = useJobs();
-  const [expandedId, setExpandedId] = useState<string | null>(() => {
-    // Auto-expand the most recent failed job
-    const sorted = [...jobs].sort(
-      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-    );
-    return sorted.find((j) => j.status === "failed")?.id ?? null;
-  });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Auto-expand the most recent failed job — but only once jobs have loaded.
+  // `jobs` is SWR-backed and empty on first mount, so a lazy useState
+  // initializer ran before the fetch resolved and always computed null (the
+  // feature was dead on every page load). Run-once via a flag so a later SWR
+  // revalidation doesn't re-expand after the user collapses a row.
+  const [autoExpanded, setAutoExpanded] = useState(false);
+  useEffect(() => {
+    if (autoExpanded || jobs.length === 0) return;
+    const latestFailed = [...jobs]
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+      .find((j) => j.status === "failed");
+    if (latestFailed) setExpandedId(latestFailed.id);
+    setAutoExpanded(true);
+  }, [jobs, autoExpanded]);
   const [clearing, setClearing] = useState<"none" | "failed" | "all">("none");
 
   const sorted = [...jobs].sort(

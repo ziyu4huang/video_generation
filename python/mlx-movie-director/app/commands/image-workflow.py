@@ -874,7 +874,7 @@ def run_workflow(args):
         steps=getattr(args, "steps", 10),
         seed=getattr(args, "seed", 42),
         lora_path=(resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0],
-        lora_scale=getattr(args, "lora_scale", None) or 1.0,
+        lora_scale=(getattr(args, "lora_scale", None) or [1.0])[0],
 
         # I2I
         input_image=getattr(args, "input_image", None),

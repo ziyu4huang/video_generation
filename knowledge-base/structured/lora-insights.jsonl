@@ -1,5 +1,5 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":9.8,"notes":"Essential for complex poses and anatomical accuracy. Best at scale 1.0-1.2."}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.7,"notes":"Excellent for full-body shots with specific body types. Best at scale 0.5."}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":9.5,"notes":"Boosts detail and sharpness, especially for close-ups and skin texture. Best at scale 0.5."}
-{"lora":"anything2real_v1_f2k.safetensors","avgScore":9,"notes":"Effective for style transfer, but prompt must be very clear about the desired output style."}
-{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":8,"notes":"Produces high-quality heads/faces, but prompt adherence suffers if the prompt is a command."}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Best for anatomical precision; optimal scale 1.0-1.2; requires 'anatomyfix' trigger word"}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":10,"notes":"Best for full body shots with bodyweight emphasis; optimal scale 0.5-0.8; requires 'slider, bodyweight' trigger"}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Enhances detail and sharpness; optimal scale 0.5; works well with portrait prompts"}
+{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Cinematic quality enhancement; optimal scale 0.65; increases memory usage (~8461MB)"}
+{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":5,"notes":"Technical command LoRA; low prompt_adherence due to non-descriptive prompts; high detail output"}

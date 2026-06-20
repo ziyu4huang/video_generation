@@ -38,6 +38,26 @@ function isFullWidth(field: FieldDef): boolean {
 }
 
 /**
+ * Enumerate currently-visible required fields that are still empty,
+ * so the disabled submit button can explain what to do first.
+ */
+function missingRequiredFields(schema: CommandSchema, state: Record<string, any>): string[] {
+  const missing: string[] = [];
+  for (const section of schema.sections) {
+    for (const field of section.fields) {
+      // Only prompt/image fields declare `required` in FieldDef.
+      if (field.type !== "prompt" && field.type !== "image") continue;
+      if (!field.required) continue;
+      if (field.visible && !field.visible(state)) continue;
+      if (state[field.key]) continue;
+      // prompt fields render under the label "Prompt"; image fields carry field.label
+      missing.push(field.type === "prompt" ? "Prompt" : field.label);
+    }
+  }
+  return missing;
+}
+
+/**
  * Group fields into rows. Full-width fields get their own row.
  * Other fields are grouped up to 3 per row.
  * Fields with `visible` predicate that return false are filtered out.
@@ -304,6 +324,18 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
         </button>
         {extraActions}
       </div>
+      {(() => {
+        const disabled = !loading && schema.isDisabled(state);
+        if (!disabled) return null;
+        const missing = missingRequiredFields(schema, state);
+        if (missing.length === 0) return null;
+        const list = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} and ${missing[missing.length - 1]}`;
+        return (
+          <p className="submit-hint">
+            Add {list} to continue.
+          </p>
+        );
+      })()}
       <InlineError message={error} onDismiss={() => setError(null)} />
     </form>
   );

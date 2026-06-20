@@ -105,7 +105,14 @@ const EFFORT_CONFIG = {
   low: {
     dimensions: ["correctness", "security"],
     confidenceThreshold: 80,
-    adversarial: "skip",
+    // W4 (2026-06-20): was "skip". The filter below is fail-open
+    // (!verdict || upheld!==false), so skipping verify here meant EVERY
+    // dimension finding survived to "verified" at low effort — the ~50%
+    // false-positive rate that bit the bulk-autofix attempt. "consolidated"
+    // runs ONE skeptic agent over all findings (grep + localhost threat
+    // model) instead of skipping entirely; restores a cheap FP gate without
+    // the per-dimension sonnet cost of medium/high.
+    adversarial: "consolidated",
     fix: "skip",
     reVerify: "skip",
   },
@@ -523,6 +530,13 @@ THIS RUN'S DATA:
 - runId: ${runId}
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
+RECORD SCHEMA — every record MUST contain ONLY these 12 top-level keys; any extra key
+triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
+  schema_version(=1) | id | type | title | detail | tags | dimension | confidence |
+  status | superseded_by | evidence{occurrences,first_seen,last_seen,run_ids[<=8]} | extracted_at
+Review-finding fields NOT in this schema MUST be folded, never emitted as top-level keys:
+  severity → prepend "sev:<level>" to tags;  files / file:line → fold into detail
+  (line numbers go stale — name the module/locus instead).
 YOUR JOB — produce the NEW file contents (FULL rewrite, one JSON object per line):
 A. For each durable insight in this run (confirmed pattern, adopted lever, dead-end/
    regressor, false-positive class, metric ceiling), pick a stable id "<family>:<slug>".
@@ -880,10 +894,24 @@ if (priorHistory?.findings?.items) {
 
 phase("Review")
 
+// W3 (2026-06-20): usage-aware flagging discipline. The #1 false-positive cause
+// in this codebase is context-free pattern matching — flagging a shape ("prefix
+// check", "fire-and-forget write", "raw stderr", "check-then-build") without
+// verifying the surrounding guard, call-site usage, or deployment context.
+// Injected into correctness/error-handling/security prompts so the usage-check
+// happens at FLAG time, not fix time (was ~50% FP rate at effort:low; see
+// knowledge records lever-review-dimensions-usage-aware +
+// pattern-verify-usage-before-applying).
+const USAGE_AWARE = `USAGE-AWARE FLAGGING (mandatory — verify BEFORE flagging, or drop the finding):
+1. GREP for call-site usage of the flagged symbol/handler/endpoint (grep -rn "<name>" --include=*.ts .). Code that "could" throw/race but is never invoked with bad input is NOT a bug.
+2. SCAN ~70 lines around the site (and any auth/middleware wrapper) for an EXISTING guard, validation, or benign context. Many flagged "bugs" are already defended 30-70 lines up — e.g. a path.resolve+startsWith containment (not a naive prefix check), a synchronous build making check-then-build atomic on one thread, a null-stream guard, a try/catch in the caller.
+3. THREAT MODEL: this is a localhost dev server (127.0.0.1, single operator). Absolute paths / stderr / tracebacks shown to the operator are intentional debug behavior, not a "leak" — the only attacker already has a shell. Do not flag them as security issues.
+If a guard / benign context / non-applicable threat model applies: DO NOT flag it (or downgrade to info/low). QUOTE the guard line you found in the finding description. A finding backed by no grep/scan evidence is a false-positive.`
+
 // Dimension-specific review prompts
 const DIMENSION_PROMPTS = {
   correctness: `Review these TypeScript source files for CORRECTNESS BUGS in a Bun HTTP server + React SPA app.
-${priorPatternsCtx}
+${priorPatternsCtx}${USAGE_AWARE}
 Focus on:
 - Logic errors, off-by-one, wrong conditions (e.g. pathname matching in routes.ts)
 - Null/undefined dereferences: Map.get() without null check, optional chaining gaps
@@ -928,7 +956,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   "error-handling": `Review these TypeScript source files for ERROR HANDLING gaps.
-${priorPatternsCtx}
+${priorPatternsCtx}${USAGE_AWARE}
 Focus on:
 - Uncaught promise rejections: ws.ts message handler, subprocess.ts readStream and proc.exited, bundle build in routes.ts
 - Missing try/catch: JSON.parse on incoming requests, fs operations in serveFile/gallery, Bun.spawn failures
@@ -971,7 +999,7 @@ Use STABLE finding ID format: {dimension}-{fileBasename}-{lineNumber}.
 Return structured findings matching the schema.`,
 
   security: `Review these TypeScript source files for SECURITY vulnerabilities in this Bun HTTP server app.
-${priorPatternsCtx}
+${priorPatternsCtx}${USAGE_AWARE}
 Focus on:
 - Input validation gaps: API endpoints that accept POST bodies without schema validation (handleRunJob, handleUpload, handlePutConfig)
 - Path traversal: handleGalleryImage filename handling in gallery.ts, serveFile in routes.ts — can a crafted URL escape the output directory?
@@ -1091,10 +1119,14 @@ markPhase("review", "completed")
 // ══════════════════════════════════════════════════════════════════════════════
 
 // Determine which findings to adversarially verify
+const CONSOLIDATED_VERIFY = config.adversarial === "consolidated"
 let findingsToVerify = activeFindings
 if (config.adversarial === "skip") {
   log("Adversarial verify: SKIPPED (low effort)")
   findingsToVerify = []
+} else if (CONSOLIDATED_VERIFY) {
+  findingsToVerify = activeFindings
+  log(`Adversarial verify: CONSOLIDATED — 1 skeptic agent over all ${activeFindings.length} finding(s) (low-effort FP gate, was "skip")`)
 } else if (config.adversarial === "high-critical") {
   findingsToVerify = activeFindings.filter((f) => f.severity === "critical" || f.severity === "high")
   log(`Adversarial verify: ${findingsToVerify.length}/${activeFindings.length} findings (high/critical only)`)
@@ -1107,19 +1139,52 @@ let allVerdicts = []
 if (findingsToVerify.length > 0) {
   phase("Adversarial Verify")
 
-  // Group findings to verify by dimension for targeted verification
-  const byDim = {}
-  findingsToVerify.forEach((f) => {
-    if (!byDim[f.dimension]) byDim[f.dimension] = []
-    byDim[f.dimension].push(f)
-  })
+  if (CONSOLIDATED_VERIFY) {
+    // Low-effort FP gate: ONE skeptic agent over ALL findings. This is the
+    // cheap counterpart to the per-dimension verify at medium/high — without
+    // it the fail-open filter kept every context-free pattern match. The
+    // skeptic ACTUALLY runs grep + applies the localhost threat model rather
+    // than trusting the dimension reviewer's self-report (the dimension
+    // agents ignored USAGE_AWARE soft guidance ~50% of the time).
+    const filesToRead = [...new Set(findingsToVerify.map((f) => f.file))]
+    const result = await spawnAgent(
+      `You are a SKEPTICAL code reviewer. Your job is to REFUTE findings, not confirm them.
 
-  const adversarialResults = await parallel(
-    Object.entries(byDim).map(([dim, findings]) => () => {
-      const filesToRead = [...new Set(findings.map((f) => f.file))]
+For EACH finding below, VERIFY it against the actual source — do NOT take the dimension reviewer's word. Default to REJECT (upheld=false) unless you can point to a REAL unguarded path that is ACTUALLY reachable with real input.
 
-      return spawnAgent(
-        `You are a SKEPTICAL code reviewer. Your job is to REFUTE findings, not confirm them.
+Verify each finding THREE ways:
+1. GREP call-site usage of the flagged symbol/handler/endpoint:
+   Bash("grep -rn '<name>' --include='*.ts' '${GUI_DIR}' | head -20")
+   Code that COULD fail but is never invoked with bad input is a FALSE POSITIVE.
+2. SCAN ~70 lines around the site (and any auth/middleware wrapper) for an EXISTING guard/validation/benign context — a path.resolve+startsWith containment (NOT a naive prefix check), a null check, a try/catch in the caller. A finding that ignores a guard 30-70 lines up is a FALSE POSITIVE.
+3. THREAT MODEL: this is a localhost dev server (127.0.0.1, single operator). Absolute paths / raw stderr / tracebacks shown to the operator are intentional debug behavior, NOT a "leak" — the only attacker already has a shell. Flagging them as security issues is a FALSE POSITIVE.
+
+Also reject if: wrong line number, snippet doesn't match the file, the pattern is intentional, or severity is inflated.
+
+FINDINGS TO VERIFY:
+${JSON.stringify(findingsToVerify.map((f) => ({ id: f.id, dimension: f.dimension, severity: f.severity, file: f.file, line: f.line, title: f.title, description: f.description })), null, 2)}
+
+FILES TO READ (read each one to verify):
+${filesToRead.map((f) => `- ${GUI_DIR}/${f}`).join("\n")}
+
+Return a verdict for EACH finding: findingId, upheld (true/false), reason (CITE the guard line, grep result, or threat-model clause you used to decide).`,
+      { label: "adversarial-consolidated", phase: "Adversarial Verify", model: "sonnet", schema: VERIFY_SCHEMA },
+    )
+    allVerdicts = result?.verdicts || []
+  } else {
+    // Group findings to verify by dimension for targeted verification
+    const byDim = {}
+    findingsToVerify.forEach((f) => {
+      if (!byDim[f.dimension]) byDim[f.dimension] = []
+      byDim[f.dimension].push(f)
+    })
+
+    const adversarialResults = await parallel(
+      Object.entries(byDim).map(([dim, findings]) => () => {
+        const filesToRead = [...new Set(findings.map((f) => f.file))]
+
+        return spawnAgent(
+          `You are a SKEPTICAL code reviewer. Your job is to REFUTE findings, not confirm them.
 
 For each finding below, re-read the ACTUAL source file and determine if the finding is:
 - A REAL issue that should be fixed
@@ -1144,12 +1209,13 @@ For EACH finding:
 3. Determine if the finding is accurate and the severity is appropriate
 
 Return a verdict for EACH finding with findingId, upheld (true/false), and reason.`,
-        { label: `adversarial-${dim}`, phase: "Adversarial Verify", model: "sonnet", schema: VERIFY_SCHEMA },
-      )
-    }),
-  )
+          { label: `adversarial-${dim}`, phase: "Adversarial Verify", model: "sonnet", schema: VERIFY_SCHEMA },
+        )
+      }),
+    )
 
-  allVerdicts = adversarialResults.filter(Boolean).flatMap((r) => r.verdicts || [])
+    allVerdicts = adversarialResults.filter(Boolean).flatMap((r) => r.verdicts || [])
+  }
 }
 
 // Build verdict lookup

@@ -499,6 +499,15 @@ body {
   font-size: 15px;
 }
 
+/* Persistent view header: gives every command panel a visible identity so the
+   content area is never a title-less void (see CommandView empty-state guard). */
+.view-header {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
 /* Defensive empty-state for CommandViewShell when a view yields no form children,
    so the content area is never a dead blank panel. */
 .empty-view-state {

@@ -183,6 +183,10 @@ export async function handleGallery(req: Request): Promise<Response> {
 // are actually HTML/SVG) would be content-sniffed and executed in the
 // localhost:3099 origin — reachable from the network while the server bound
 // 0.0.0.0 and the API had no auth.
+// Keep in sync with VIDEO_EXTENSIONS + MEDIA_GLOB above — every extension the
+// glob scans / VIDEO_EXTENSIONS classifies must map here, else contentTypeFor
+// falls through to application/octet-stream and the browser forces a download
+// instead of inline playback (.webm/.m4v were missing → broken video preview).
 const GALLERY_MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -191,6 +195,8 @@ const GALLERY_MIME: Record<string, string> = {
   ".gif": "image/gif",
   ".mp4": "video/mp4",
   ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".m4v": "video/x-m4v",
 };
 function contentTypeFor(filename: string): string {
   return GALLERY_MIME[path.extname(filename).toLowerCase()] ?? "application/octet-stream";

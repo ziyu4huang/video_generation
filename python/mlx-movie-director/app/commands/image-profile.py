@@ -17,6 +17,7 @@ import traceback
 from datetime import datetime, timezone
 
 from app import config as cfg
+from app.commands._shared import resolve_lora_paths
 
 # ---------------------------------------------------------------------------
 # View definitions
@@ -698,8 +699,8 @@ def run_profile(args):
                     height=height,
                     steps=steps,
                     seed=view_seed,
-                    lora_path=getattr(args, "lora_path", None),
-                    lora_scale=getattr(args, "lora_scale", None) or 1.0,
+                    lora_path=(resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0],
+                    lora_scale=(getattr(args, "lora_scale", None) or [1.0])[0],
                     upscale=False,
                     upscale_model=None,
                 )
@@ -777,7 +778,7 @@ def run_profile(args):
             resolved_lora = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
             models = collect_model_fingerprint_flux2(lora_path=resolved_lora)
         else:
-            models = collect_model_fingerprint(lora_path=getattr(args, "lora_path", None))
+            models = collect_model_fingerprint(lora_path=resolved_lora)
         manifest = Manifest.from_success(
             run_file, start_time, end_time, all_timings, view_outputs, models
         )
