@@ -1,6 +1,6 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Essential for perfect anatomy. Best at scale 1.0-1.2. Trigger word 'anatomyfix' is required."}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.8,"notes":"Provides excellent control over body composition. Effective at scales 0.5-1.0. Trigger word 'slider, bodyweight' is required."}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Boosts detail and sharpness. Effective at scale 0.5."}
-{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Adds a cinematic, professional photography style. Effective at scale 0.65."}
-{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":5,"notes":"Technical command prompt made evaluation impossible. LoRA itself produced high-quality output but prompt_adherence suffered."}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Perfect for anatomical accuracy. Best at scale 1.0-1.2. No time/memory overhead."}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.8,"notes":"Excellent for body shape and photorealism. Best at scale 0.5-0.8. No time/memory overhead."}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Great for skin texture and hair detail. Best at scale 0.5. Slightly higher memory (~15.9GB)."}
+{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Good for cinematic portraits. Best at scale 0.65 with CFG 2.5. Higher memory (~8.5GB). Effect may be subtle at 640x960."}
+{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":5,"notes":"Prompt adherence score is low due to the prompt being a technical command. Image quality is high, but the prompt is not descriptive."}
 {"lora":"Jibs_Realistic_z-image_lora_V1.int8.safetensors","avgScore":6,"notes":"NO skin-realism improvement (artifacts identical 4.5 vs 4.5 baseline-vs-adapter A/B). Raised pixel sharpness (Laplacian 244 vs 231) but VLM read it as noise not pores. Tested in weak regime (9 steps @ 640x960, scale 0.7 model-only; author recs 0.2-0.6 model+clip + >15 steps). NOT a skin lever — see avoid.jsonl plasticky-skin ceiling."}

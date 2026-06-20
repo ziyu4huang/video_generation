@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-06-20T12:32:15.544Z",
+  "lastUpdated": "2026-06-20T13:01:19.771Z",
   "recordShards": [
     "records/records-0000.jsonl"
   ],
@@ -22,9 +22,11 @@
     "reports/20260620-144848.json",
     "reports/20260620-170423.json",
     "reports/20260620-193010.json",
-    "reports/20260620-203215.json"
+    "reports/20260620-203215.json",
+    "reports/20260620-205019.json",
+    "reports/20260620-210119.json"
   ],
-  "latestReport": "reports/20260620-203215.json",
+  "latestReport": "reports/20260620-210119.json",
   "stats": {
     "avgQualityScore": 9.2,
     "withCaption": 80,

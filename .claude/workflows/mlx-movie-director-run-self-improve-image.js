@@ -652,6 +652,8 @@ function buildI2iExplicitCommand(spec) {
   if (spec.prompt)                       cmd += ` --prompt '${safePrompt}'`
   if (spec.pipeline === "flux2-klein")   cmd += ` --pipeline flux2-klein`
   if (spec.denoise_strength != null)     cmd += ` --denoise-strength ${spec.denoise_strength}`
+  if (spec.lora_path)                    cmd += ` --lora-path '${spec.lora_path.replace(/'/g, "'\\''")}'`
+  if (spec.lora_scale != null)           cmd += ` --lora-scale ${spec.lora_scale}`
   if (spec.reference_image)              cmd += ` --reference-image '${spec.reference_image.replace(/'/g, "'\\''")}'`
   if (spec.controlnet_strength != null)  cmd += ` --controlnet-strength ${spec.controlnet_strength}`
   if (spec.preprocess_mode === "openpose") cmd += ` --skip-preprocess`

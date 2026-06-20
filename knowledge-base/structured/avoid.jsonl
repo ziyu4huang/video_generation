@@ -1,3 +1,13 @@
+{"item":"Short, style-specific prompts without sufficient detail (e.g., 'anime style illustration, cel-shaded...' without a full scene description)"}
+{"item":"Technical/command prompts (e.g., 'BFS head face swap')"}
+{"item":"Over-reliance on base model for specialized tasks; use a matching LoRA"}
+{"item":"Assuming LoRA effect is visible at small resolutions (640x960); verify at larger scales"}
+{"item":"Using 'photograph' when the output is a photorealistic render; be precise with medium terminology"}
+{"item":"Using style keywords that conflict with the desired output (e.g., 'anime' + 'photorealistic')"}
+{"item":"Using technical or command-like prompts (e.g., 'BFS head face swap')"}
+{"item":"Vague or generic prompts with low specificity (e.g., 'a beautiful woman')"}
+{"item":"Using LoRAs at a scale below 0.65, as their effect becomes negligible"}
+{"item":"Setting CFG to a non-null value on zimage pipeline, as it dramatically increases generation time without quality improvement"}
 {"item":"Mixing incompatible styles in the same prompt (e.g., 'anime' and 'photorealistic')"}
 {"item":"Using technical commands or non-descriptive prompts (e.g., 'BFS head face swap')"}
 {"item":"Overly simple prompts that lack detail (e.g., 'a beautiful woman')"}
