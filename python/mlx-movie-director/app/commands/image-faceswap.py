@@ -508,7 +508,7 @@ def run_faceswap(args: argparse.Namespace) -> None:
         return
 
     # ── Normal mode: require explicit images ───────────────────────────────
-    body_path = getattr(args, "input", None)
+    body_path = getattr(args, "input_image", None)
     face_path = getattr(args, "face", None)
 
     if not body_path:

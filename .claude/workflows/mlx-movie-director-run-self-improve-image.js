@@ -441,6 +441,11 @@ function normalizeItem(item, defaultKind) {
       const k = item.kind === "i2i" ? "i2i" : (item.kind === "t2i" ? "t2i" : dk)
       return { type: "self-test", kind: k, id: typeof item.selfTest === "string" ? item.selfTest : null }
     }
+    // profile explicit (multi-view sheet: front/back/side): input_image + views.
+    // Must precede the i2i input_image check so a profile spec isn't swallowed by i2i.
+    if (item.kind === "profile" || (item.input_image && Array.isArray(item.views))) {
+      return { ...item, type: "profile", kind: "profile", views: item.views || ["front","back","side"] }
+    }
     // i2i explicit (input_image is the i2i discriminator); pipeline here = MODEL (zimage|flux2-klein)
     if (item.input_image) {
       return { ...item, type: "i2i", kind: "i2i" }
@@ -476,7 +481,7 @@ const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
 
 // `kind` selects the generation pipeline: "t2i" (default) or "i2i". `pipeline` stays the
 // MODEL pipeline (zimage|flux2-klein), identical to run.py --pipeline — no clash with kind.
-const defaultKind = (isObj(resolvedArgs) && resolvedArgs.kind === "i2i") ? "i2i" : "t2i"
+const defaultKind = (isObj(resolvedArgs) && ["i2i","profile"].includes(resolvedArgs.kind)) ? resolvedArgs.kind : "t2i"
 
 // i2i legacy: {mode:"debug"} aliases selfTest (only under kind:"i2i", so a t2i prompt never
 // collides — t2i has no `mode` field).
@@ -511,7 +516,7 @@ if (isObj(argsForSpecs) && argsForSpecs.finalize != null) {
     setsConfig.forEach((s, si) => {
       const setName = s.name || `Set ${si + 1}`
       const setPrompt = s.prompt || ""
-      const setKind = s.kind === "i2i" ? "i2i" : (s.kind === "t2i" ? "t2i" : defaultKind)
+      const setKind = ["i2i","profile"].includes(s.kind) ? s.kind : (s.kind === "t2i" ? "t2i" : defaultKind)
       ;(s.variants || []).forEach((v, vi) => {
         const cfg = { ...v }
         if (!cfg.prompt) cfg.prompt = setPrompt
@@ -605,6 +610,7 @@ function buildCommand(spec) {
 
   if (spec.type === "t2i") return buildT2iCommand(spec)
   if (spec.type === "i2i") return buildI2iExplicitCommand(spec)
+  if (spec.type === "profile") return buildProfileCommand(spec)
 
   return null
 }
@@ -648,7 +654,7 @@ function buildT2iCommand(spec) {
 function buildI2iExplicitCommand(spec) {
   const safeInput = (spec.input_image || "").replace(/'/g, "'\\''")
   const safePrompt = (spec.prompt || "").replace(/'/g, "'\\''")
-  let cmd = `${PYTHON} ${RUN_PY} image i2i --input-image '${safeInput}'`
+  let cmd = `${PYTHON} ${RUN_PY} image i2i --input '${safeInput}'`
   if (spec.prompt)                       cmd += ` --prompt '${safePrompt}'`
   if (spec.pipeline === "flux2-klein")   cmd += ` --pipeline flux2-klein`
   if (spec.denoise_strength != null)     cmd += ` --denoise-strength ${spec.denoise_strength}`
@@ -661,6 +667,27 @@ function buildI2iExplicitCommand(spec) {
   if (spec.steps != null)                cmd += ` --steps ${spec.steps}`
   if (spec.cnet_active_steps != null)    cmd += ` --cnet-active-steps ${spec.cnet_active_steps}`
   if (spec.pipeline === "flux2-klein")   cmd += ` --json-summary`
+  return cmd
+}
+
+// profile explicit spec → run.py image profile --input ... --views ... [flags].
+// `image profile` writes a FOLDER (front/back/side + reference + strip + manifest);
+// it does NOT support --json-summary, so the Generate parser uses "Saved:" lines.
+function buildProfileCommand(spec) {
+  const safeInput = (spec.input_image || "").replace(/'/g, "'\\''")
+  let cmd = `${PYTHON} ${RUN_PY} image profile --input '${safeInput}'`
+  if (Array.isArray(spec.views) && spec.views.length) cmd += ` --views ${spec.views.join(" ")}`
+  if (spec.base_prompt)          cmd += ` --base-prompt '${String(spec.base_prompt).replace(/'/g, "'\\''")}'`
+  if (spec.pipeline === "flux2-klein") cmd += ` --pipeline flux2-klein`
+  if (spec.ratio)                cmd += ` --ratio ${spec.ratio}`
+  if (spec.steps != null)        cmd += ` --steps ${spec.steps}`
+  if (spec.seed != null)         cmd += ` --seed ${spec.seed}`
+  if (spec.ref_count != null)    cmd += ` --ref-count ${spec.ref_count}`
+  if (spec.ref_strength != null) cmd += ` --ref-strength ${spec.ref_strength}`
+  if (spec.chain_ref)            cmd += ` --chain-ref`
+  if (spec.prompt_style)         cmd += ` --prompt-style ${spec.prompt_style}`
+  if (spec.vlm === false)        cmd += ` --no-vlm`
+  // NOTE: no --json-summary (profile doesn't support it); parser uses "Saved:" lines
   return cmd
 }
 
@@ -1027,11 +1054,18 @@ for (let idx = 0; idx < runSpecs.length; idx++) {
   try {
     // Output form depends on spec: t2i/replay/i2i-flux2-klein emit JSON_SUMMARY;
     // i2i self-test and Z-Image i2i print only "Saved:" lines.
-    const expectJson = (spec.type === "t2i" || spec.type === "replay" ||
+    const isProfile = spec.type === "profile"
+    const expectJson = !isProfile && (spec.type === "t2i" || spec.type === "replay" ||
                         (spec.type === "i2i" && spec.pipeline === "flux2-klein"))
     const isI2iSelfTest = (spec.type === "self-test" && spec.kind === "i2i")
     const timeoutMs = isI2iSelfTest ? 1200000 : 600000   // i2i self-test: source + ref + N variations
-    const parseInstr = expectJson
+    const parseInstr = isProfile
+      ? `2. This command prints per-view PNG paths as "  Saved: <path>.png" lines (2-space indent).
+   Collect EVERY line matching "^\\s*Saved:\\s*(.+\\.png)$" as an output PNG — these are
+   front.png / back.png / side.png, the reviewable multi-view outputs.
+3. EXCLUDE any PNG whose filename is "reference.png" or "strip.png" (reference = the source
+   image, strip = the horizontal composite — neither is a reviewable view). runJsonPath = "".`
+      : expectJson
       ? `2. Parse the JSON_SUMMARY line from stdout. It looks like:
    JSON_SUMMARY:{"status":"success","run_json":"...","manifest_json":"...","outputs":["/path/to/img.png"]}
    Extract the JSON after "JSON_SUMMARY:" prefix → outputs[] (PNG paths) + run_json (run.json path).
@@ -1303,7 +1337,10 @@ const autoFixThreshold = (isObj(resolvedArgs) && typeof resolvedArgs.autoFixThre
 let fixCaptions = []
 let fixAnalysis = ""
 
-if (autoFix && vlmAvailable && mode !== "finalize") {
+if (autoFix && defaultKind === "profile") {
+  log("Self-Fix not yet supported for kind:'profile' (multi-view); skipping.")
+}
+if (autoFix && vlmAvailable && mode !== "finalize" && defaultKind !== "profile") {
   // Collect all scored captions from allResults
   const scoredCaptions = allResults
     .flatMap((r) => (r.captions || []).filter((c) => c.overall != null))

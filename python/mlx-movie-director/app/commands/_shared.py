@@ -251,11 +251,13 @@ def add_common_generation_args(parser: argparse.ArgumentParser) -> None:
                             help="VAE weights: full dir path or short name "
                                  "(e.g. 'zimage', 'ultraflux') — auto-resolved from models/vae/")
 
-    # img2img / I2I (unified with t2i via --input)
-    # NOTE: --input may already be registered by add_angle_args() with dest="input"
+    # img2img / I2I (--input, dest=input_image). --input may already be registered by
+    # add_angle_args() (image command, which also registers the --input-image alias); other
+    # commands (refine/animate/video) register --input-image themselves. Register --input here
+    # only if absent, so every command ends up accepting BOTH --input and --input-image (same dest).
     if not _option_registered(parser, "--input"):
         parser.add_argument("--input", type=str, default=None, dest="input_image",
-                            help="Input image for I2I / img2img mode")
+                            help="Input image for I2I / img2img mode (alias of --input-image)")
     if not _arg_registered(parser, "denoise_strength"):
         parser.add_argument("--denoise-strength", type=float, default=1.0,
                             help="Denoise strength for I2I (0.0 = keep input, 1.0 = full redraw)")
