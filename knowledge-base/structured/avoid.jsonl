@@ -1,3 +1,13 @@
+{"item":"Mixing contradictory styles (e.g., 'anime style' with 'photorealistic')"}
+{"item":"Using technical/command prompts (e.g., 'BFS head face swap')"}
+{"item":"Overly generic prompts (e.g., 'a beautiful woman')"}
+{"item":"Using 'photograph' as a style descriptor (use 'photorealistic' instead)"}
+{"item":"Using LoRAs at very low resolutions (e.g., 640x960) where their effect is not discernible"}
+{"item":"Mixing incompatible styles (e.g., 'anime style' with 'photorealistic') - causes model to ignore one style"}
+{"item":"Using technical commands as prompts (e.g., 'BFS head face swap') - results in low prompt_adherence"}
+{"item":"Vague or minimal prompts without specific details - scores lower on detail (8 vs 9-10)"}
+{"item":"Overly complex scenes without clear narrative focus - can confuse the model"}
+{"item":"Assuming LoRA trigger words work without proper context - LoRA effects may not be distinguishable at small scales"}
 {"item":"Style contradictions (e.g., 'anime style' + 'photorealistic') — model defaults to photorealism, ignoring style request"}
 {"item":"Technical commands as prompts (e.g., 'BFS head face swap') — no descriptive content, impossible to verify adherence"}
 {"item":"Vague prompts (e.g., 'a beautiful woman') — yields generic results with lower detail scores"}
