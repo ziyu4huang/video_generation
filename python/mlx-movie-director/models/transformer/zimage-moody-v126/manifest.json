@@ -19,5 +19,10 @@
   ],
   "source_url": "https://civitai.com/models/2253524/moody-simple-zimage-turbodistilled-workflow",
   "size_bytes": 3848371806,
-  "created_at": "2026-06-06T00:00:00Z"
+  "created_at": "2026-06-06T00:00:00Z",
+  "recommended_steps": 8,
+  "recommended_cfg": 1.0,
+  "recommended_resolution": "1M-2M px (ZIT-distilled family typical)",
+  "recommended_sampler": "Euler (Dual K-Sampler in author workflow)",
+  "author_notes": "PROVENANCE CAVEAT: source_url 2253524 is the author's (catlover1937) ZIT WORKFLOW page, not a model card — no explicit model-specific steps/cfg block. The moody models proper are civitai 620406/621441/2384856. recommended_* are INFERRED from the ZIT-distilled family (8 steps, CFG 1, zero-guidance). Our app default DIFFERS: 9 steps, CFG off (null). This is our most-tested transformer — A/B results in knowledge-base supersede these inferred recs."
 }
