@@ -588,6 +588,15 @@ def _run_generate_inner(args):
     distilled = args.distilled
     if transformer == "dasiwa":
         print("[video] Transformer: dasiwa (DaSiWa dev-architecture finetune — CFG/STG on)")
+        if not hq:
+            args.hq = True
+            hq = True
+            print("[video] dasiwa: --hq enabled by default (A/B-optimum: cfg=5+hq, composite=62.98 vs 58.5)")
+            if args.stage1_steps is None:
+                args.stage1_steps = 15
+                print("[video] dasiwa HQ: stage1_steps auto-set to 15 (res_2s sampler)")
+        if args.cfg_scale is None:
+            args.cfg_scale = 5.0
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
