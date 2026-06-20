@@ -1,5 +1,4 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":9.8,"notes":"Essential for complex poses and anatomical accuracy. Best at scale 1.0-1.2."}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.7,"notes":"Excellent for full-body shots with specific body types. Best at scale 0.5."}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":9.5,"notes":"Boosts detail and sharpness, especially for close-ups and skin texture. Best at scale 0.5."}
-{"lora":"anything2real_v1_f2k.safetensors","avgScore":9,"notes":"Effective for style transfer, but prompt must be very clear about the desired output style."}
-{"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":8,"notes":"Produces high-quality heads/faces, but prompt adherence suffers if the prompt is a command."}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Essential for anatomical accuracy. Best at scale 1.0-1.2 on flux2-klein pipeline."}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.8,"notes":"Effective for full-body shots. Provides a subtle detail boost even at low scale (0.5)."}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Excellent for enhancing detail and sharpness in portraits. Works well at scale 0.5."}
+{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Adds a specific cinematic style. Requires higher CFG (2.5) and increases generation time."}

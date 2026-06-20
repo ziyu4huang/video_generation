@@ -1,5 +1,5 @@
-{"item":"Vague or single-word prompts (e.g., 'a girl')"}
-{"item":"Using technical commands as the prompt (e.g., 'BFS head face swap')"}
-{"item":"Style mismatches (e.g., asking for a 'photograph' but generating a 'render')"}
-{"item":"Overly complex or contradictory instructions"}
-{"item":"Neglecting to specify lighting, pose, and background details"}
+{"item":"Using technical commands as descriptive prompts (e.g., 'BFS head face swap')"}
+{"item":"Claiming a style the model cannot perfectly replicate (e.g., calling an AI image a 'photograph')"}
+{"item":"Overly long, unstructured stream-of-consciousness prompts"}
+{"item":"Using LoRAs at low scales on incompatible pipelines (e.g., zimage with LoRA @ 0.5 for detail)"}
+{"item":"Ambiguous or conflicting style instructions (e.g., mixing 'photorealistic' and 'painterly')"}
