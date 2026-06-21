@@ -198,12 +198,14 @@ TRANSFORMER_DENOISE = {"purify": 0.35, "enhance": 0.55, "deartifact": 0.7, "redr
 _DEFAULT_TRANSFORMER_PROMPT = "highly detailed, sharp focus, high quality, professional"
 
 # --- Targeted removal (--remove) ---
-# SAM3 text-prompt phrasing per removal target. SAM3 is object-oriented, so the
-# prompts describe the text block as a region; recall on thin/small text is the
-# known weak spot (documented limitation — fall back to a manual mask later).
+# SAM3 matches SINGLE clean words best — a comma-joined phrase like
+# "subtitles, caption text" confuses it and returns 0 detections (smoke-tested:
+# "subtitles" scores ~0.59 @ thr 0.3; the old comma form scored 0.0). The plural
+# "subtitles" matters (singular "subtitle" → 0). Recall on thin/small text is
+# still the known weak spot (documented limitation — fall back to manual mask).
 REMOVE_SAM3_PROMPTS = {
-    "subtitle": "subtitles, caption text, closed captions",
-    "watermark": "watermark, logo, signature, stamp",
+    "subtitle": "subtitles",
+    "watermark": "watermark",
 }
 # The inpaint generate() prompt describes what to fill the removed region WITH
 # (background continuation), NOT the text being removed.
