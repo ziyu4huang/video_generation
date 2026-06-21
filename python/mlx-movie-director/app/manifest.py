@@ -112,18 +112,25 @@ def sharded_model_fingerprint(model_dir: str, basename: str = "model.safetensors
 
 def collect_model_fingerprint(lora_path: str | None = None,
                               upscale_model: str | None = None,
-                              extra_loras: list[str] | None = None) -> dict[str, Any]:
+                              extra_loras: list[str] | None = None,
+                              transformer_dir: str | None = None) -> dict[str, Any]:
     """Collect fingerprints for all model files used by the pipeline.
 
     extra_loras: additional LoRA paths (face_detail / fusion / etc.) fingerprinted
     into models["loras"] alongside the main lora_path.
+    transformer_dir: directory of the transformer actually loaded by the pipeline
+        (e.g. models/transformer/<name>). When None, falls back to cfg.TRANSFORMER_DIR
+        (the global default). Passing the real dir is required so the manifest's
+        models["transformer"] fingerprint matches the weights used at runtime —
+        otherwise a non-default --transformer is mis-recorded as the default.
     """
     from app import config as cfg
 
     models = {}
 
     # Transformer
-    tf_path = os.path.join(cfg.TRANSFORMER_DIR, "model.safetensors")
+    tf_dir = transformer_dir or cfg.TRANSFORMER_DIR
+    tf_path = os.path.join(tf_dir, "model.safetensors")
     models["transformer"] = file_fingerprint(tf_path)
 
     # Text encoder
@@ -159,11 +166,17 @@ def collect_model_fingerprint(lora_path: str | None = None,
 
 
 def collect_model_fingerprint_controlnet(lora_path: str | None = None,
-                                         extra_loras: list[str] | None = None) -> dict[str, Any]:
-    """Collect fingerprints for the ControlNet pipeline (ZImage + ControlNet weights)."""
+                                         extra_loras: list[str] | None = None,
+                                         transformer_dir: str | None = None) -> dict[str, Any]:
+    """Collect fingerprints for the ControlNet pipeline (ZImage + ControlNet weights).
+
+    transformer_dir is forwarded to collect_model_fingerprint so a non-default
+    --transformer is recorded correctly instead of the global default.
+    """
     from app import config as cfg
 
-    models = collect_model_fingerprint(lora_path=lora_path, extra_loras=extra_loras)
+    models = collect_model_fingerprint(lora_path=lora_path, extra_loras=extra_loras,
+                                       transformer_dir=transformer_dir)
     ctrl_path = os.path.join(cfg.CONTROLNET_DIR, "model.safetensors")
     models["controlnet"] = file_fingerprint(ctrl_path)
     return models

@@ -631,6 +631,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
         )
     else:
         transformer_name = getattr(run_config, "transformer", None)
+        transformer_dir = None
         if transformer_name:
             t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
             if not os.path.isdir(t_dir):
@@ -638,6 +639,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                 sys.exit(1)
             print(f"[Pipeline] Using transformer: {transformer_name}")
             pipeline = ZImagePipeline(transformer_dir=t_dir)
+            transformer_dir = t_dir
         else:
             pipeline = ZImagePipeline()
 
@@ -722,6 +724,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
                 lora_path=run_config.lora_path,
                 upscale_model=upscale_model,
                 extra_loras=extra_lora_paths,
+                transformer_dir=transformer_dir,
             )
         manifest = Manifest.from_success(run_file, start_time, end_time,
                                          last_timings, all_outputs, models,
