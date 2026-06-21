@@ -1,5 +1,6 @@
 import type { Server, ServerWebSocket } from "bun";
 import { subprocessManager } from "../lib/subprocess";
+import { originAllowed } from "../lib/origin";
 
 interface WsData {
   subscribedJobId: string | null;
@@ -17,27 +18,10 @@ export function handleWebSocketUpgrade(req: Request, server: Server): boolean {
   // to localhost:3099 and drive job submission. An absent Origin (curl, scripts,
   // programmatic clients that don't set one) is allowed through.
   //
-  // Security: Use a FIXED allowlist of permitted origins, NOT the request's own
-  // Host header (vulnerable to DNS rebinding). The server runs on a dynamic port,
-  // so we extract it from the Host header and construct the allowlist.
+  // Shared with the HTTP API (api/routes.ts) via lib/origin.ts so a security fix
+  // cannot drift between the two sites.
   const origin = req.headers.get("origin");
-  if (origin) {
-    const host = req.headers.get("host");
-    if (!host) return false;
-
-    // Extract port from Host header (IPv6 addresses are bracketed)
-    const portMatch = host.match(/:(\d+)$/);
-    const port = portMatch ? portMatch[1] : "3099"; // default if missing
-
-    // Fixed allowlist of permitted origins for this port
-    const allowedOrigins = [
-      `http://127.0.0.1:${port}`,
-      `http://localhost:${port}`,
-      `http://[::1]:${port}`,
-    ];
-
-    if (!allowedOrigins.includes(origin)) return false;
-  }
+  if (origin && !originAllowed(origin, req.headers.get("host"))) return false;
 
   const success = server.upgrade(req, { data: { subscribedJobId: null } });
   return success;
@@ -50,8 +34,11 @@ export const wsHandlers = {
 
   message(ws: ServerWebSocket<WsData>, msg: string | Buffer) {
     try {
-      const data = JSON.parse(typeof msg === "string" ? msg : msg.toString());
-      if (data.type === "subscribe" && data.jobId) {
+      const data = JSON.parse(typeof msg === "string" ? msg : msg.toString()) as {
+        type?: string;
+        jobId?: unknown;
+      };
+      if (data.type === "subscribe" && typeof data.jobId === "string" && data.jobId) {
         ws.data.subscribedJobId = data.jobId;
         // Replay buffered logs for the subscribed job only (recovers state across
         // reconnects/page reloads without flooding the client with unrelated jobs).

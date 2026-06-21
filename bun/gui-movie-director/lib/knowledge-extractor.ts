@@ -20,6 +20,16 @@ const REPORT_FILENAME = "knowledge-report.json";
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 const MAX_RECORDS_FOR_AI = 60;
 
+/**
+ * Minimal shape of a DeepSeek Chat Completions response. Only the fields we
+ * consume are typed; the `error` field surfaces upstream error bodies so we
+ * can include them in the thrown Error instead of masking them as "empty".
+ */
+interface DeepSeekChatResponse {
+  choices?: { message?: { content?: string } }[];
+  error?: { message?: string };
+}
+
 // --- Scanning ---
 
 function parseCaptionField(raw: string | object | null | undefined): ReviewCaption | null {
@@ -335,10 +345,10 @@ export async function callDeepSeek(
   options: { minScore?: number; maxRecords?: number } = {},
 ): Promise<KnowledgeReport> {
   const cfg = loadConfig();
-  const apiKey = (cfg as any).deepseekApiKey ?? process.env.DEEPSEEK_API_KEY;
+  const apiKey = cfg.deepseekApiKey ?? process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY not set — set it via env or config.json");
 
-  const model = (cfg as any).deepseekModel ?? "deepseek-chat";
+  const model = cfg.deepseekModel ?? "deepseek-chat";
   const minScore = options.minScore ?? 0;
   const maxRecs = options.maxRecords ?? MAX_RECORDS_FOR_AI;
 
@@ -390,9 +400,12 @@ export async function callDeepSeek(
     throw new Error(`DeepSeek API error ${res.status}: ${errText.slice(0, 200)}`);
   }
 
-  const data = await res.json() as any;
+  const data = (await res.json()) as DeepSeekChatResponse;
   const text: string = data.choices?.[0]?.message?.content ?? "";
-  if (!text) throw new Error("Empty response from DeepSeek");
+  if (!text) {
+    const upstreamErr = data.error?.message ? `: ${data.error.message}` : "";
+    throw new Error(`Empty response from DeepSeek${upstreamErr}`);
+  }
 
   const { markdown, structured } = parseDeepSeekResponse(text);
 
