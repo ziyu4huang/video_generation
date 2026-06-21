@@ -70,7 +70,7 @@ image [subcommand]   default: t2i
   anime2real, quality, workflow, expansion, purify, restore
 
 video [subcommand]   default: generate
-  generate, review, compare, quality, restore, vbvr, relay
+  generate, review, compare, quality, restore, vbvr, relay, segment, t2i2v
 
 caption <image>      VLM image analysis (see below)
 replay <manifest>    re-run from JSON manifest
@@ -89,6 +89,26 @@ python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test
 python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test t2i:portrait
 python/venv/bin/python python/mlx-movie-director/run.py image i2i --self-test i2i:pose i2i:style
 ```
+
+## Video T2I2V Pipeline (`video t2i2v`)
+
+3-stage end-to-end pipeline: ZImage T2I → VLM prompt assistant → LTX I2V.
+
+```bash
+# With VLM prompt expansion (recommended)
+python/venv/bin/python python/mlx-movie-director/run.py video t2i2v \
+  --prompt "a woman in a garden" \
+  --action "她微笑走向鏡頭，輕聲說「嗯…你來了」" \
+  --frames 97 --seed 99
+
+# Without VLM (use raw prompt directly for video)
+python/venv/bin/python python/mlx-movie-director/run.py video t2i2v \
+  --prompt "a woman in a garden" --frames 25
+```
+
+Key args: `--t2i-transformer` (default: `moody-pro-mix`), `--transformer` (LTX variant, default: `dasiwa`),
+`--action` (user's action intent in zh-TW; omit to skip VLM stage), `--t2i-width/height` (default: 640×960).
+Output: `<output>/t2i2v_YYYYMMDD_HHMMSS/` with `image.png`, `vlm_prompt.json`, video, and `t2i2v_manifest.json`.
 
 ## Lens T2I (`--pipeline lens`)
 
@@ -109,8 +129,13 @@ Use `run.py caption` for local images via Qwen3-VL 4B (LM Studio). **Prefer over
 python/venv/bin/python python/mlx-movie-director/run.py caption <IMAGE> [--style <style>] [--lang en]
 ```
 
-Styles: `default`, `photography`, `t2i`, `profile`, `style`, `score`, `compare`, `review`, `playwright`.
+Styles: `default`, `photography`, `t2i`, `profile`, `style`, `score`, `compare`, `review`, `playwright`, `ltx_i2v`.
 Output: `<image>.caption.json`. Requires LM Studio running locally.
+
+The `ltx_i2v` style takes `--action <intent>` and generates an LTX-optimized I2V prompt (motion + zh-TW voice lines):
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py caption <IMAGE> --style ltx_i2v --action "她微笑走向鏡頭"
+```
 
 ## Bun GUI Server
 
