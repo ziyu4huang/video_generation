@@ -143,7 +143,9 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
              "zimage: opt-in (default None=off, single forward/step; set >1.0 to enable CFG "
              "with a dual cond/uncond forward per step — ZImageTurbo was distilled at "
              "guidance 0.0, so CFG is empirical, see dark-beast-dbzit9/kb.jsonl). "
-             "flux2-klein: ignored (distilled, guidance=1.0).",
+             "flux2-klein edit-class (angle/faceswap/profile): opt-in (default off; "
+             "set >1.0 for a dual cond/uncond forward per step — distilled, so empirical). "
+             "flux2-klein t2i path: ignored (distilled, guidance=1.0).",
     )
 
 

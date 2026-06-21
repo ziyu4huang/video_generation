@@ -139,6 +139,7 @@ def run_angle(args: "argparse.Namespace") -> None:
                 width=width,
                 height=height,
                 steps=steps,
+                cfg_scale=getattr(args, "cfg_scale", None),
             )
 
             if args.upscale and upscale_model:

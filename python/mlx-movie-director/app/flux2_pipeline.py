@@ -138,6 +138,7 @@ class Flux2KleinPipeline:
         height: int = 1024,
         steps: int = 4,
         image_strength: float | None = None,
+        cfg_scale: float | None = None,
     ) -> GenerationResult:
         """Generate one image with reference image conditioning.
 
@@ -149,10 +150,18 @@ class Flux2KleinPipeline:
             steps:            Denoising steps (4 is typical for distilled Klein).
             image_strength:   Reference conditioning strength (None = mflux default).
                               Lower = less reference influence, higher = more.
+            cfg_scale:        Classifier-free guidance (None/≤1.0 = off, single forward).
+                              >1.0 enables a dual cond/uncond forward per step. Distilled Klein
+                              trains at guidance=1.0, so CFG is empirical — default off.
 
         Returns:
             GenerationResult with .image (PIL.Image) and .timings ({}).
         """
+        # Classifier-free guidance: distilled Klein defaults to guidance=1.0 (single forward).
+        # Opt-in via cfg_scale > 1.0 → mflux runs a dual cond/uncond forward per step (negative
+        # prompt = " "). Distilled models train at guidance=1.0, so CFG is empirical — default
+        # None keeps guidance=1.0, byte-identical to pre-CFG behavior.
+        guidance = float(cfg_scale) if (cfg_scale is not None and float(cfg_scale) > 1.0) else 1.0
         result = self._model.generate_image(
             seed=seed % (2 ** 32),
             prompt=prompt,
@@ -161,13 +170,13 @@ class Flux2KleinPipeline:
             width=width,
             height=height,
             num_inference_steps=steps,
-            guidance=1.0,  # Distilled Klein (4B/9B) must use guidance=1.0
+            guidance=guidance,
         )
         # mflux GeneratedImage has a single .image PIL attribute
         events = list(getattr(self, "_events", []) or [])
         events.append({
             "event": "denoise_config", "target": "denoise",
-            "detail": {"steps": steps, "guidance": 1.0,
+            "detail": {"steps": steps, "guidance": guidance,
                        "reference_conditioning": bool(reference_images),
                        "image_strength": image_strength,
                        "model": "flux2_klein_edit_distilled"},
