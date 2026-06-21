@@ -1,8 +1,26 @@
 import { RUN_PY } from "../lib/paths";
 import { resolvePythonBin } from "../lib/pythonBin";
 
-let _schemaCache: Record<string, any> | null = null;
-let _defaultsCache: Record<string, any> | null = null;
+// Schema caches MUST live on globalThis, NOT module scope. Bun's `--hot` reload
+// (any backend file change) re-evaluates this module, resetting module-level `let`
+// bindings to null. fetchCliSchema / fetchSchemaDefaults run only at cold start
+// (server.ts), so a module-level cache stays null after the first reload →
+// /api/cli-schema and /api/schema-defaults return 503. Persisting on globalThis
+// (same pattern as api/bundle.ts _guiBundle and server.ts _devServer) keeps the
+// cached schema alive across route swaps. See memory bun-hot-reload-resets-bundle-state.
+declare global {
+  var _guiSchemaCache: {
+    schema: Record<string, any> | null;
+    defaults: Record<string, any> | null;
+  } | undefined;
+}
+
+function schemaStore() {
+  if (!globalThis._guiSchemaCache) {
+    globalThis._guiSchemaCache = { schema: null, defaults: null };
+  }
+  return globalThis._guiSchemaCache;
+}
 
 interface FetchOptions {
   subcommand: string;
@@ -37,19 +55,20 @@ export async function fetchCliSchema(): Promise<void> {
   return _fetchFromRunPy({
     subcommand: "schema",
     extraFlags: ["--compact"],
-    cache: () => _schemaCache,
-    setCache: (v) => { _schemaCache = v; },
+    cache: () => schemaStore().schema,
+    setCache: (v) => { schemaStore().schema = v; },
     logOk: "📋 CLI schema loaded from run.py",
     logWarn: "⚠️  CLI schema unavailable:",
   });
 }
 
 export function getCliSchema(): Record<string, any> | null {
-  return _schemaCache;
+  return schemaStore().schema;
 }
 
 export async function handleGetCliSchema(_req: Request): Promise<Response> {
-  if (_schemaCache) return Response.json({ ok: true, schema: _schemaCache });
+  const schema = schemaStore().schema;
+  if (schema) return Response.json({ ok: true, schema });
   return Response.json({ ok: false, error: "CLI schema not loaded" }, { status: 503 });
 }
 
@@ -58,14 +77,15 @@ export async function handleGetCliSchema(_req: Request): Promise<Response> {
 export async function fetchSchemaDefaults(): Promise<void> {
   return _fetchFromRunPy({
     subcommand: "schema-defaults",
-    cache: () => _defaultsCache,
-    setCache: (v) => { _defaultsCache = v; },
+    cache: () => schemaStore().defaults,
+    setCache: (v) => { schemaStore().defaults = v; },
     logOk: "📋 Schema defaults loaded from Python",
     logWarn: "⚠️  schema-defaults unavailable:",
   });
 }
 
 export async function handleGetSchemaDefaults(_req: Request): Promise<Response> {
-  if (_defaultsCache) return Response.json({ ok: true, defaults: _defaultsCache });
+  const defaults = schemaStore().defaults;
+  if (defaults) return Response.json({ ok: true, defaults });
   return Response.json({ ok: false, error: "Schema defaults not loaded" }, { status: 503 });
 }
