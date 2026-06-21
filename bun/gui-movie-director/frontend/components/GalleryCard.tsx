@@ -114,7 +114,7 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
       {img.variants && img.variants.length > 0 && viewMode !== "s" && (
         <div className={s.variantStrip} onClick={(e) => e.stopPropagation()}>
           <img
-            src={img.url}
+            src={isVideo ? (img.thumbnailUrl || img.url) : img.url}
             alt="variant 1"
             className={`${s.variantThumb} ${s.variantThumbActive}`}
             onClick={(e) => { e.stopPropagation(); onClick?.(); }}

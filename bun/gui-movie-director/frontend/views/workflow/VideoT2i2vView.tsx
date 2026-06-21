@@ -84,7 +84,7 @@ export function VideoT2i2vView() {
       {/* ── Stage 1: ZImage T2I ── */}
       <FormSection title="Stage 1 — Image (ZImage T2I)">
         <TextField
-          label="Image Prompt *"
+          label="Image Prompt"
           value={state.prompt ?? ""}
           onChange={(v) => setField("prompt", v)}
           placeholder="Describe the character and scene for image generation..."

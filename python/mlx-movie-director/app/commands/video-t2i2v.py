@@ -2,7 +2,7 @@
 
 Chains three stages in a single command:
   Stage 1 (T2I)  — ZImage (moody-pro-mix) generates a high-quality image
-  Stage 2 (VLM)  — Qwen3-VL reads the image + user action intent → LTX-optimized I2V prompt
+  Stage 2 (VLM)  — VLM reads the image + user action intent → LTX-optimized I2V prompt
   Stage 3 (I2V)  — LTX-2.3 (dasiwa) animates the image with the VLM prompt
 
 Stage 2 is skipped when --action is omitted (raw --prompt used for video).
@@ -10,7 +10,7 @@ Stage 2 is skipped when --action is omitted (raw --prompt used for video).
 Usage:
   run.py video t2i2v --prompt "a woman in a garden"
   run.py video t2i2v --prompt "a woman" --action "她微笑走向鏡頭"
-  run.py video t2i2v --prompt "a woman" --action "她跳舞" --video-transformer dasiwa --frames 49
+  run.py video t2i2v --prompt "a woman" --action "她跳舞" --transformer dasiwa --frames 49
 """
 
 import glob
@@ -56,7 +56,10 @@ def add_t2i2v_args(parser):
                         help="LoRA scale for T2I stage (default: 1.0)")
 
     # --- VLM stage ---
+    # dest="vlm_action" avoids conflict with the positional `action` arg in video.py
+    # that dispatches to t2i2v/relay/restore/etc. Both share dest="action" otherwise.
     parser.add_argument("--action", type=str, default=None, metavar="TEXT",
+                        dest="vlm_action",
                         help="Action intent (zh-TW supported). VLM expands to full LTX I2V "
                              "prompt with motion + voice. Omit to skip VLM stage.")
     parser.add_argument("--vlm-api-url", type=str, default=None, metavar="URL",
@@ -123,7 +126,7 @@ def run_t2i2v(args):
     # =========================================================
     # Stage 2 — VLM: generate LTX-optimized I2V prompt
     # =========================================================
-    action = getattr(args, "action", None)
+    action = getattr(args, "vlm_action", None)
     video_prompt = prompt  # fallback: use raw T2I prompt
 
     if action:

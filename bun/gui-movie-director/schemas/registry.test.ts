@@ -2,8 +2,8 @@ import { describe, it, expect } from "bun:test";
 import { ALL_COMMANDS } from "./registry";
 
 describe("ALL_COMMANDS registry", () => {
-  it("has 19 command entries", () => {
-    expect(ALL_COMMANDS.length).toBe(19);
+  it("has 20 command entries", () => {
+    expect(ALL_COMMANDS.length).toBe(20);
   });
 
   it("all command actions are unique", () => {
@@ -23,7 +23,7 @@ describe("ALL_COMMANDS registry", () => {
     const expected = [
       "t2i", "i2i", "anime2real", "expansion", "faceswap", "swap",
       "controlnet", "angle", "profile", "quality", "workflow",
-      "video-generate", "video-relay", "video-restore", "restore", "purify",
+      "video-generate", "video-relay", "video-restore", "video-t2i2v", "restore", "purify",
     ];
     for (const action of expected) {
       expect(actions.has(action)).toBe(true);
