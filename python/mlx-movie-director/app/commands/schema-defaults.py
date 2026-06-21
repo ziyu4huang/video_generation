@@ -45,6 +45,7 @@ _TEST_TYPE_TO_ACTION = {
     "swap": "swap",
     "swap-all": "swap",
     "profile": "profile",
+    "angle": "angle",
     "expansion": "expansion",
     "video": "video-generate",
     "flf2v": "video-generate",
