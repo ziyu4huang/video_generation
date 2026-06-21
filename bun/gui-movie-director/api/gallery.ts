@@ -318,13 +318,14 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   }
 
   // Restrict to actual gallery media files — blocks deleting arbitrary files. Allow flat
-  // names ("front.png") and one-level profile_* subpaths ("profile_TS/front.png") surfaced
-  // by scanRawEntries; reject "..", backslashes, and unknown subfolders.
+  // names ("front.png") and one-level subpaths surfaced by scanRawEntries — the profile_*
+  // multi-view folders AND uploads/ (where tool outputs on an uploaded input land, e.g.
+  // image purify). Reject "..", backslashes, and unknown subfolders.
   const subMatch = name.match(/^([^/]+)\/([^/]+)$/);  // sub/file
   const fileName = subMatch ? subMatch[2] : name;
   const subName = subMatch ? subMatch[1] : "";
   if (name.includes("\\") || name.includes("..") || !MEDIA_GLOB.match(fileName) ||
-      (subName && !/^profile_\w+$/.test(subName))) {
+      (subName && subName !== "uploads" && !/^profile_\w+$/.test(subName))) {
     return Response.json({ error: "Invalid 'name': not a gallery media file" }, { status: 400 });
   }
 
