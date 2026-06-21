@@ -30,7 +30,7 @@ export const t2iCommand: UnifiedCommand = {
     // CFG scale (zimage only). Empty = off (single forward). Selecting a transformer
     // with a registered default (e.g. dark-beast-dbzit9) auto-fills this; the user
     // can still override. buildParams omits it when empty so the server treats it as off.
-    { key: "cfg_scale", cliFlag: "--cfg-scale", control: "number", label: "CFG Scale", min: 1, max: 8, step: 0.5, compact: true, section: "Generation", visible: (s) => s.pipeline === "zimage" },
+    { key: "cfg_scale", cliFlag: "--cfg-scale", control: "number", label: "CFG Scale", min: 1, max: 8, step: 0.5, placeholder: "off (default)", compact: true, section: "Generation", visible: (s) => s.pipeline === "zimage" },
     // Multi-LoRA editor (UI-only). buildParams derives lora_path/lora_scale
     // arrays → repeated --lora-path / --lora-scale flags (multiselect backend fields).
     // Microsoft Lens is a separate model family with no LoRA support — hide

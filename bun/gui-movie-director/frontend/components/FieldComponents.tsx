@@ -172,9 +172,10 @@ interface SelectFieldProps {
   onChange: (val: string) => void;
   options: SelectOption[];
   loading?: boolean;
+  hint?: string;
 }
 
-export function SelectField({ label, value, onChange, options, loading }: SelectFieldProps) {
+export function SelectField({ label, value, onChange, options, loading, hint }: SelectFieldProps) {
   return (
     <div className="form-group">
       <label>{label}</label>
@@ -201,6 +202,7 @@ export function SelectField({ label, value, onChange, options, loading }: Select
           )
         )}
       </select>
+      {hint && <span className="field-hint">{hint}</span>}
     </div>
   );
 }

@@ -260,6 +260,15 @@ body {
   color: var(--text-dim);
 }
 
+/* Small muted hint rendered after a field (e.g. Purify's computed output WxH) */
+.field-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
 .form-group input[type="text"],
 .form-group input[type="number"],
 .form-group textarea,

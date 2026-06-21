@@ -118,11 +118,15 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
     if (!fs.existsSync(dir)) continue;
     // Flat media directly in the output root
     addMedia(dir, dir, "");
-    // One level into profile_* subfolders (multi-view: front/side/back)
+    // One level into profile_* subfolders (multi-view: front/side/back) AND the
+    // uploads/ subdir — tool outputs on an uploaded input (e.g. image purify,
+    // faceswap) are saved next to the input in uploads/, so without this they'd
+    // never surface in the gallery.
     let allFiles: string[] = [];
     try { allFiles = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const ent of allFiles) {
-      if (!ent.isDirectory() || !PROFILE_SUBDIR_RE.test(ent.name)) continue;
+      if (!ent.isDirectory()) continue;
+      if (!PROFILE_SUBDIR_RE.test(ent.name) && ent.name !== "uploads") continue;
       addMedia(path.join(dir, ent.name), dir, ent.name);
     }
   }
@@ -314,13 +318,14 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   }
 
   // Restrict to actual gallery media files — blocks deleting arbitrary files. Allow flat
-  // names ("front.png") and one-level profile_* subpaths ("profile_TS/front.png") surfaced
-  // by scanRawEntries; reject "..", backslashes, and unknown subfolders.
+  // names ("front.png") and one-level subpaths surfaced by scanRawEntries — the profile_*
+  // multi-view folders AND uploads/ (where tool outputs on an uploaded input land, e.g.
+  // image purify). Reject "..", backslashes, and unknown subfolders.
   const subMatch = name.match(/^([^/]+)\/([^/]+)$/);  // sub/file
   const fileName = subMatch ? subMatch[2] : name;
   const subName = subMatch ? subMatch[1] : "";
   if (name.includes("\\") || name.includes("..") || !MEDIA_GLOB.match(fileName) ||
-      (subName && !/^profile_\w+$/.test(subName))) {
+      (subName && subName !== "uploads" && !/^profile_\w+$/.test(subName))) {
     return Response.json({ error: "Invalid 'name': not a gallery media file" }, { status: 400 });
   }
 

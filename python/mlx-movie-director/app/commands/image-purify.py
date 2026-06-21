@@ -81,6 +81,21 @@ def add_purify_args(parser):
         help="Override mode's default softness (0.0-1.0). Advanced users only.",
     )
 
+    # Backend: SeedVR2 (1-step upscale redraw, original behavior) vs transformer
+    # (flux2-klein I2I redraw — prompt-guided, multi-step, different look). The
+    # transformer backend delegates to `run.py image i2i --pipeline flux2-klein`.
+    parser.add_argument(
+        "--backend", dest="backend", choices=["seedvr2", "transformer"], default="seedvr2",
+        help="Redraw backend: seedvr2 (SeedVR2 1-step, default) or transformer (flux2-klein I2I).",
+    )
+    # Prompt (transformer backend only — SeedVR2 is prompt-free). When backend
+    # is transformer and no prompt is given, a neutral quality prompt is used.
+    if not _arg_registered(parser, "prompt"):
+        parser.add_argument(
+            "--prompt", dest="prompt", type=str, default=None,
+            help="Prompt guiding the transformer backend's I2I redraw (ignored by seedvr2).",
+        )
+
     # Seed (guard: _shared and others register --seed)
     if not _arg_registered(parser, "seed"):
         parser.add_argument(
@@ -136,6 +151,61 @@ def _parse_resolution(res_str: str) -> tuple[int | float, str]:
 
 
 # ---------------------------------------------------------------------------
+# Transformer backend (flux2-klein I2I redraw) — alternative to SeedVR2
+# ---------------------------------------------------------------------------
+
+# Mode → denoise mapping for the transformer backend, mirroring the SeedVR2
+# softness scale (purify < enhance < redraw). Higher denoise = more reinterpretation.
+TRANSFORMER_DENOISE = {"purify": 0.35, "enhance": 0.55, "redraw": 0.85}
+
+# SeedVR2 is prompt-free; the flux2-klein I2I redraw is prompt-guided, so the
+# transformer backend falls back to a neutral quality prompt when --prompt is unset.
+_DEFAULT_TRANSFORMER_PROMPT = "highly detailed, sharp focus, high quality, professional"
+
+
+def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt):
+    """Redraw via flux2-klein I2I by delegating to `run.py image i2i`.
+
+    Saves to cfg.OUTPUT_DIR with the i2i command's own naming (gallery-indexed).
+    Returns None — there is no single in-memory PIL result for the caller to
+    postprocess, so film-grain/sharpening are skipped for this backend.
+    """
+    import subprocess
+    import sys
+
+    denoise = TRANSFORMER_DENOISE.get(mode, 0.55)
+
+    # Compute explicit target dims from the parsed resolution value (mirror
+    # _parse_resolution): 1.0 → input size; float → scale; int → shortest-side
+    # pixel target. Round to 16-divisible (diffusion requirement).
+    if resolution == 1.0:
+        out_w, out_h = w0, h0
+    elif isinstance(resolution, float):
+        out_w, out_h = round(w0 * resolution), round(h0 * resolution)
+    else:
+        scale = float(resolution) / min(w0, h0)
+        out_w, out_h = round(w0 * scale), round(h0 * scale)
+    out_w = max(16, (out_w // 16) * 16)
+    out_h = max(16, (out_h // 16) * 16)
+
+    use_prompt = prompt or _DEFAULT_TRANSFORMER_PROMPT
+    run_py = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "run.py"
+
+    cmd = [
+        sys.executable, run_py, "image", "i2i",
+        "--pipeline", "flux2-klein",
+        "--input-image", input_path,
+        "--denoise-strength", str(denoise),
+        "--width", str(out_w), "--height", str(out_h),
+        "--seed", str(seed),
+        "--prompt", use_prompt,
+    ]
+    print(f"[purify] transformer backend -> flux2-klein I2I "
+          f"{out_w}x{out_h} denoise={denoise} mode={mode}")
+    subprocess.run(cmd, check=True)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -168,6 +238,16 @@ def run_purify(args) -> None:
     w0, h0 = image.size
     print(f"[purify] {input_path} ({w0}x{h0}) mode={mode} softness={softness} "
           f"resolution={resolution} seed={args.seed}")
+
+    # Backend branch: transformer delegates to flux2-klein I2I (saves itself to
+    # OUTPUT_DIR); seedvr2 is the original SeedVR2 path below.
+    backend = getattr(args, "backend", "seedvr2") or "seedvr2"
+    if backend == "transformer":
+        _run_transformer_backend(
+            input_path=input_path, mode=mode, resolution=resolution,
+            w0=w0, h0=h0, seed=args.seed, prompt=getattr(args, "prompt", None),
+        )
+        return  # i2i handled the save; skip SeedVR2 / postprocess / purify naming
 
     # Run SeedVR2
     upscaler = SeedVR2Upscaler(model_size="7b")

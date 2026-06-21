@@ -88,6 +88,10 @@ function groupIntoRows(fields: FieldDef[], state: Record<string, any>): FieldDef
 
 export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraActions }: CommandFormProps) {
   const { state, setField, serverDefaults } = useDefaultState(schema.action, buildDefaults(schema.sections));
+  // Input-image pixel dims (from FileUpload.onImageDimensions). Kept OUT of form
+  // state so it never reaches buildParams/CLI args — purely for UI hints (e.g.
+  // Purify's computed output-size hint next to the Resolution selector).
+  const [inputDims, setInputDims] = useState<{ w: number; h: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const promptFields = schema.sections.flatMap((s) =>
@@ -165,6 +169,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             min={field.min}
             max={field.max}
             step={field.step}
+            placeholder={field.placeholder}
             compact={field.compact}
           />
         );
@@ -208,6 +213,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             onChange={(v) => setField(field.key, v)}
             options={options}
             loading={isLoading}
+            hint={field.hint?.(state, { inputDims })}
           />
         );
       }
@@ -224,7 +230,11 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
         return (
           <div key={field.key} className="form-group">
             <label>{field.label}{field.required && " *"}</label>
-            <FileUpload value={state[field.key] ?? null} onChange={(v) => setField(field.key, v)} />
+            <FileUpload
+              value={state[field.key] ?? null}
+              onChange={(v) => { setField(field.key, v); if (!v) setInputDims(null); }}
+              onImageDimensions={(w, h) => setInputDims({ w, h })}
+            />
           </div>
         );
       case "loras": {
