@@ -4,14 +4,22 @@
   "type": "vae",
   "arch": "flux-ae",
   "format": "mlx-bf16",
-  "description": "Z-Image_clear_vae half-natural ZImage-Turbo VAE, converted to MLX BF16",
+  "description": "Z-Image Clear VAE (half-natural) — ZImage-Turbo 16-ch AutoencoderKL with improved clarity, converted to MLX BF16.",
+  "source": "https://civitai.com/models/2191617",
+  "source_url": "https://civitai.com/models/2191617",
+  "compatible_with": [
+    "transformer/zimage-moody-v126",
+    "transformer/moody-pro-mix",
+    "transformer/luciddreamer-z"
+  ],
   "pipeline": [
     "zimage-turbo"
   ],
   "cli": {
-    "note": "pass --vae z-imageclearvae to image t2i (not yet wired — use as vae_dir override)"
+    "action": "image t2i",
+    "vae_path": "z-imageclearvae",
+    "note": "use --vae-path z-imageclearvae to override the default zimage-ae VAE"
   },
-  "size_bytes": 0,
-  "created_at": "2026-06-21T04:08:59Z",
-  "source_url": "https://civitai.com/models/2191617"
+  "size_bytes": 167666894,
+  "created_at": "2026-06-21T04:08:59Z"
 }

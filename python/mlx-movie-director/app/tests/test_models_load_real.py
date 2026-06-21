@@ -370,6 +370,154 @@ class TestVAELoads:
 
 
 # ==========================================================================
+# Parametrized VAE tests (all ZImage-compatible VAEs)
+# ==========================================================================
+
+# Registry of installed ZImage VAEs: (short_name, manifest_relative_path)
+_ZIMAGE_VAES = [
+    ("zimage-ae",       os.path.join(_MODELS_DIR, "vae", "zimage-ae")),
+    ("z-imageclearvae", os.path.join(_MODELS_DIR, "vae", "z-imageclearvae")),
+    ("ultraflux-zimage-ae", os.path.join(_MODELS_DIR, "vae", "ultraflux-zimage-ae")),
+]
+
+
+def _weight_file_real(vae_dir: str) -> bool:
+    """Return True if model.safetensors exists (follows symlinks)."""
+    p = os.path.join(vae_dir, "model.safetensors")
+    return os.path.isfile(p)  # follows symlinks
+
+
+def _weight_is_symlink(vae_dir: str) -> bool:
+    p = os.path.join(vae_dir, "model.safetensors")
+    return os.path.islink(p)
+
+
+class TestZImageVAEsExternalized:
+    """Structural invariant: every installed ZImage VAE binary is a symlink."""
+
+    @pytest.mark.parametrize("name,vae_dir", _ZIMAGE_VAES)
+    def test_model_safetensors_is_symlink(self, name, vae_dir):
+        """model.safetensors must be a symlink to the external store.
+
+        A regular file means the binary was committed directly to git — this
+        bloats git history and breaks the content-addressed store invariant.
+        """
+        if not os.path.isdir(vae_dir):
+            pytest.skip(f"{name} not installed")
+        if not os.path.exists(os.path.join(vae_dir, "model.safetensors")):
+            pytest.skip(f"{name} weight file not present")
+        assert _weight_is_symlink(vae_dir), (
+            f"models/vae/{name}/model.safetensors is a regular file, "
+            "not a symlink to ../video_generation__models/<md5>.safetensors. "
+            "Re-import with `import-vae` or externalize manually."
+        )
+
+    @pytest.mark.parametrize("name,vae_dir", _ZIMAGE_VAES)
+    def test_symlink_target_is_in_external_store(self, name, vae_dir):
+        """Symlink must point to the sibling video_generation__models/ directory."""
+        if not os.path.isdir(vae_dir):
+            pytest.skip(f"{name} not installed")
+        p = os.path.join(vae_dir, "model.safetensors")
+        if not os.path.islink(p):
+            pytest.skip(f"{name} is not a symlink (covered by test_model_safetensors_is_symlink)")
+        real = os.path.realpath(p)
+        assert "video_generation__models" in real, (
+            f"Symlink target {real!r} is not inside video_generation__models/"
+        )
+
+
+class TestZImageClearVAELoads:
+    """GPU test: z-imageclearvae loads and produces valid encode/decode output."""
+
+    _VAE_DIR = os.path.join(_MODELS_DIR, "vae", "z-imageclearvae")
+    _SKIP = (
+        None if (_weight_file_real(_VAE_DIR) if os.path.isdir(_VAE_DIR) else False)
+        else "z-imageclearvae weights not installed"
+    )
+
+    @pytest.mark.skipif(not HAS_MLX, reason="mlx not available")
+    def test_weights_exist(self):
+        if not os.path.isdir(self._VAE_DIR):
+            pytest.skip("z-imageclearvae not installed")
+        assert _weight_file_real(self._VAE_DIR), "model.safetensors not accessible"
+
+    @pytest.mark.skipif(_weight_file_real(
+        os.path.join(_MODELS_DIR, "vae", "z-imageclearvae")
+    ) is False, reason="z-imageclearvae weights missing")
+    @pytest.mark.skipif(not HAS_MLX, reason="mlx not available")
+    def test_encode_decode_shapes(self):
+        """Load z-imageclearvae → encode → decode, verify shapes match zimage-ae."""
+        _mflux_src = os.path.join(_PROJECT_DIR, "vendor", "mflux", "src")
+        if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+            sys.path.insert(0, _mflux_src)
+
+        from mflux.models.z_image.model.z_image_vae.vae import VAE as ZImageVAE
+
+        vae = ZImageVAE()
+        vae.load_weights(os.path.join(self._VAE_DIR, "model.safetensors"))
+        mx.eval(vae.parameters())
+
+        img = mx.random.normal((1, 3, 256, 256)).astype(mx.bfloat16)
+        encoded = vae.encode(img)
+        assert encoded.shape == (1, 16, 1, 32, 32), (
+            f"Expected (1, 16, 1, 32, 32), got {encoded.shape}"
+        )
+        mx.eval(encoded)
+
+        decoded = vae.decode(encoded)
+        assert decoded.shape == (1, 3, 1, 256, 256), (
+            f"Expected (1, 3, 1, 256, 256), got {decoded.shape}"
+        )
+        mx.eval(decoded)
+
+        arr = np.array(decoded.astype(mx.float32))
+        assert not np.any(np.isnan(arr)), "Decoded output contains NaN"
+        assert not np.any(np.isinf(arr)), "Decoded output contains Inf"
+
+        _cleanup(vae)
+
+    @pytest.mark.skipif(not HAS_MLX, reason="mlx not available")
+    def test_output_differs_from_default_vae(self):
+        """z-imageclearvae should decode differently from the default zimage-ae.
+
+        If both VAEs produce bit-identical output for the same latent, the
+        weights were likely copied rather than independently converted.
+        """
+        if not os.path.isdir(self._VAE_DIR) or not _weight_file_real(self._VAE_DIR):
+            pytest.skip("z-imageclearvae not installed")
+        if not _weight_file_real(VAE_DIR):
+            pytest.skip("default zimage-ae not installed")
+
+        _mflux_src = os.path.join(_PROJECT_DIR, "vendor", "mflux", "src")
+        if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+            sys.path.insert(0, _mflux_src)
+
+        from mflux.models.z_image.model.z_image_vae.vae import VAE as ZImageVAE
+
+        mx.random.seed(42)
+        latent = mx.random.normal((1, 16, 1, 32, 32)).astype(mx.bfloat16)
+
+        vae_default = ZImageVAE()
+        vae_default.load_weights(os.path.join(VAE_DIR, "model.safetensors"))
+        mx.eval(vae_default.parameters())
+        out_default = np.array(vae_default.decode(latent).astype(mx.float32))
+        mx.eval(mx.array(out_default))
+        _cleanup(vae_default)
+
+        vae_clear = ZImageVAE()
+        vae_clear.load_weights(os.path.join(self._VAE_DIR, "model.safetensors"))
+        mx.eval(vae_clear.parameters())
+        out_clear = np.array(vae_clear.decode(latent).astype(mx.float32))
+        mx.eval(mx.array(out_clear))
+        _cleanup(vae_clear)
+
+        assert not np.allclose(out_default, out_clear, atol=1e-3), (
+            "z-imageclearvae and zimage-ae produce identical output — "
+            "the VAE weights may not have been correctly converted"
+        )
+
+
+# ==========================================================================
 # MLX Environment sanity
 # ==========================================================================
 

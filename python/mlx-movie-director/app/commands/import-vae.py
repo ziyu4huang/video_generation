@@ -54,11 +54,15 @@ _civitai_token_cache: dict = {}
 # ---------------------------------------------------------------------------
 
 def add_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("source", help="CivitAI URL for the VAE")
+    parser.add_argument("source", nargs="?", default=None,
+                        help="CivitAI URL for the VAE (omit with --self-test to run post-import check)")
     parser.add_argument("--name", default="", help="Override the registry name (default: sanitized model name)")
     parser.add_argument("--description", default="", help="Override the description")
     parser.add_argument("--no-ai", action="store_true", help="Skip AI metadata enrichment")
     parser.add_argument("--keep-source", action="store_true", help="Keep the downloaded safetensors after conversion")
+    parser.add_argument("--self-test", nargs="?", const=True, metavar="VAE_NAME",
+                        help="Run post-import check on the named VAE (or 'z-imageclearvae' by default). "
+                             "Verifies the symlink, manifest, and encode/decode shapes.")
     parser.add_argument(
         "--api-url", default="http://127.0.0.1:1234",
         help="LM Studio endpoint for AI metadata enrichment (default: http://127.0.0.1:1234)"
@@ -66,6 +70,19 @@ def add_args(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
+    self_test = getattr(args, "self_test", None)
+    source = getattr(args, "source", None)
+
+    if self_test and not source:
+        vae_name = self_test if isinstance(self_test, str) else "z-imageclearvae"
+        _run_self_test(vae_name)
+        return
+
+    if not source:
+        print("ERROR: source URL required (or use --self-test <name> to check an installed VAE)",
+              file=sys.stderr)
+        sys.exit(1)
+
     token = (getattr(args, "civitai_token", None)
              or os.environ.get("CIVITAI_TOKEN")
              or os.environ.get("CIVITAI_API_TOKEN"))
@@ -73,7 +90,121 @@ def run(args: argparse.Namespace) -> None:
         _civitai_token_cache["token"] = token
         os.environ["CIVITAI_TOKEN"] = token
 
-    _run_url_import(args.source, args)
+    _run_url_import(source, args)
+
+    if self_test:
+        vae_name = args.name or "z-imageclearvae"
+        _run_self_test(vae_name)
+
+
+# ---------------------------------------------------------------------------
+# Self-test: post-import structural + functional check
+# ---------------------------------------------------------------------------
+
+def _run_self_test(vae_name: str) -> None:
+    """Verify a just-imported (or existing) VAE passes all invariants.
+
+    Checks:
+    1. model.safetensors exists and is a symlink
+    2. Symlink target is inside video_generation__models/
+    3. manifest.json has type=vae and correct format
+    4. (GPU) encode/decode shapes are correct for ZImage 16-ch VAE
+    """
+    vae_dir = os.path.join(cfg.MODELS_DIR, "vae", vae_name)
+    print(f"\n[self-test] Checking {vae_name}...")
+    passed = 0
+    failed = 0
+
+    def ok(msg):
+        nonlocal passed
+        print(f"  PASS  {msg}")
+        passed += 1
+
+    def fail(msg):
+        nonlocal failed
+        print(f"  FAIL  {msg}", file=sys.stderr)
+        failed += 1
+
+    # 1. Directory exists
+    if not os.path.isdir(vae_dir):
+        fail(f"models/vae/{vae_name}/ not found")
+        sys.exit(1)
+    ok(f"models/vae/{vae_name}/ exists")
+
+    # 2. model.safetensors is a symlink
+    sf = os.path.join(vae_dir, "model.safetensors")
+    if not os.path.exists(sf):
+        fail("model.safetensors not found")
+    elif not os.path.islink(sf):
+        size = os.path.getsize(sf)
+        fail(f"model.safetensors is a regular file ({size // 1_048_576} MB) — not a symlink")
+    else:
+        ok("model.safetensors is a symlink")
+        real = os.path.realpath(sf)
+        if "video_generation__models" in real:
+            ok(f"symlink target is in external store: {os.path.basename(real)}")
+        else:
+            fail(f"symlink target not in video_generation__models/: {real}")
+
+    # 3. manifest.json
+    mf = os.path.join(vae_dir, "manifest.json")
+    if not os.path.exists(mf):
+        fail("manifest.json missing")
+    else:
+        with open(mf) as f:
+            doc = json.load(f)
+        if doc.get("type") == "vae":
+            ok("manifest.json: type=vae")
+        else:
+            fail(f"manifest.json: type={doc.get('type')!r}, expected 'vae'")
+        if doc.get("format") in ("mlx-bf16", "mlx-fp16", "mlx-fp32"):
+            ok(f"manifest.json: format={doc['format']}")
+        else:
+            fail(f"manifest.json: format={doc.get('format')!r} is not an MLX format")
+
+    # 4. GPU encode/decode test
+    try:
+        import mlx.core as mx
+        _mflux_src = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__)))), "vendor", "mflux", "src")
+        if os.path.isdir(_mflux_src) and _mflux_src not in sys.path:
+            sys.path.insert(0, _mflux_src)
+        from mflux.models.z_image.model.z_image_vae.vae import VAE as ZImageVAE
+
+        print("  INFO  Loading VAE weights for encode/decode test...")
+        vae = ZImageVAE()
+        vae.load_weights(sf)
+        mx.eval(vae.parameters())
+
+        img = mx.random.normal((1, 3, 128, 128)).astype(mx.bfloat16)
+        enc = vae.encode(img)
+        mx.eval(enc)
+        dec = vae.decode(enc)
+        mx.eval(dec)
+
+        if enc.shape[1] == 16:
+            ok(f"encode output: {list(enc.shape)} (16 latent channels)")
+        else:
+            fail(f"encode output has {enc.shape[1]} latent channels, expected 16")
+
+        if dec.shape[1] == 3:
+            ok(f"decode output: {list(dec.shape)} (3 RGB channels)")
+        else:
+            fail(f"decode output has {dec.shape[1]} channels, expected 3")
+
+        import numpy as np
+        arr = np.array(dec.astype(mx.float32))
+        if not (np.any(np.isnan(arr)) or np.any(np.isinf(arr))):
+            ok("no NaN/Inf in decoded output")
+        else:
+            fail("decoded output contains NaN or Inf")
+
+    except ImportError as e:
+        print(f"  SKIP  GPU test skipped ({e})")
+
+    print(f"\n[self-test] {passed} passed, {failed} failed")
+    if failed:
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +574,33 @@ def _externalize_weights(weights_path: str) -> None:
 # Manifest + README
 # ---------------------------------------------------------------------------
 
+_ZIMAGE_VAE_CONFIG_JSON = {
+    "_class_name": "AutoencoderKL",
+    "in_channels": 3,
+    "out_channels": 3,
+    "latent_channels": 16,
+    "block_out_channels": [128, 256, 512, 512],
+    "layers_per_block": 2,
+    "norm_num_groups": 32,
+    "scaling_factor": 0.3611,
+    "shift_factor": 0.1159,
+    "use_quant_conv": False,
+    "use_post_quant_conv": False,
+}
+
+
 def _write_manifest(*, target_dir: str, name: str, description: str,
                     source_url: str | None, size_bytes: int) -> None:
+    # Compute actual disk size through symlinks for accurate size_bytes
+    actual_size = 0
+    for dirpath, _, filenames in os.walk(target_dir):
+        for fn in filenames:
+            fp = os.path.join(dirpath, fn)
+            real = os.path.realpath(fp) if os.path.islink(fp) else fp
+            try:
+                actual_size += os.path.getsize(real)
+            except OSError:
+                pass
     manifest = {
         "_comment": "Private metadata for mlx-movie-director model registry. Validated by `run.py check-model`.",
         "name": name,
@@ -452,11 +608,15 @@ def _write_manifest(*, target_dir: str, name: str, description: str,
         "arch": "flux-ae",
         "format": "mlx-bf16",
         "description": description,
+        "source": source_url or "imported via import-vae",
+        "compatible_with": ["transformer/zimage-moody-v126"],
         "pipeline": ["zimage-turbo"],
         "cli": {
-            "note": f"pass --vae {name} to image t2i (not yet wired — use as vae_dir override)"
+            "action": "image t2i",
+            "vae_path": name,
+            "note": f"use --vae-path {name} to override the default VAE"
         },
-        "size_bytes": size_bytes,
+        "size_bytes": actual_size or size_bytes,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     if source_url:
@@ -465,6 +625,13 @@ def _write_manifest(*, target_dir: str, name: str, description: str,
     with open(out, "w") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")
+
+    # Write config.json (required by check-model for vae category)
+    config_out = os.path.join(target_dir, "config.json")
+    if not os.path.exists(config_out):
+        with open(config_out, "w") as f:
+            json.dump(_ZIMAGE_VAE_CONFIG_JSON, f, indent=2)
+            f.write("\n")
 
 
 def _write_readme(*, target_dir: str, name: str, description: str,

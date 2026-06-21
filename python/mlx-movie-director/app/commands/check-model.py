@@ -572,7 +572,25 @@ def _collect_models_data(models_dir: str) -> dict:
             else:
                 _validate_config(label, config_path, category, errors, warnings)
 
-        # 14. tmp/ folder notice
+        # 14. Weight file externalization invariant: model.safetensors must be a symlink
+        # Large binaries (> 10 MB) that live directly in the repo tree bloat git history.
+        # All import-* commands externalize to ../video_generation__models/ automatically.
+        _EXTERNALIZE_THRESHOLD = 10_000_000  # 10 MB
+        model_sf = os.path.join(inst_dir, "model.safetensors")
+        if os.path.exists(model_sf) and not os.path.islink(model_sf):
+            try:
+                sf_size = os.path.getsize(model_sf)
+            except OSError:
+                sf_size = 0
+            if sf_size > _EXTERNALIZE_THRESHOLD:
+                warnings.append(
+                    f"{label}: model.safetensors is a {_fmt_bytes(sf_size)} regular file "
+                    f"instead of a symlink to the external store "
+                    f"(../video_generation__models/<md5>.safetensors). "
+                    f"Re-import with `import-checkpoint` or externalize manually."
+                )
+
+        # 15. tmp/ folder notice
         tmp_dir = os.path.join(inst_dir, "tmp")
         if os.path.isdir(tmp_dir):
             tmp_size = _dir_size(tmp_dir)
