@@ -311,6 +311,15 @@ def _convert_zimage_checkpoint(src_file: str, dst_dir: str) -> None:
     print(f"\n[convert] Loading {os.path.basename(src_file)} ({mb:.0f} MB)...")
     pt_weights = load_pt_file(src_file)
 
+    # Dequantize ComfyUI FP8 (8-bit float) -> BF16 and drop FP8 metadata
+    # (.weight_scale / .comfy_quant) BEFORE the key remap. This was the missing
+    # step that crashed on FP8 sources: a stray 0-dim `.qkv.weight_scale` scalar
+    # reached _remap_qkv and broke weight.chunk(3). Shared helper from convert.py
+    # so --zit-checkpoint and import-checkpoint handle FP8 identically. No-op for
+    # BF16/FP16 sources (tensors pass through untouched).
+    from convert import dequant_comfyui_fp8
+    dequant_comfyui_fp8(pt_weights, log_prefix="import-checkpoint")
+
     # Drop unused key present in some ComfyUI exports
     pt_weights.pop("model.diffusion_model.norm_final.weight", None)
 
@@ -354,6 +363,14 @@ def _convert_zimage_checkpoint(src_file: str, dst_dir: str) -> None:
 def _remap_qkv(key: str, state_dict: dict) -> None:
     import torch
     weight = state_dict.pop(key)
+    # Defence in depth: a non-chunkable tensor here means stray metadata
+    # reached the remap (shouldn't happen after dequant_comfyui_fp8, but guards
+    # against unknown checkpoint formats). Drop with a warning instead of crash.
+    if not isinstance(weight, torch.Tensor) or weight.ndim < 1 or weight.shape[0] % 3 != 0:
+        shape = tuple(weight.shape) if isinstance(weight, torch.Tensor) else type(weight).__name__
+        print(f"[import-checkpoint] _remap_qkv: skipping non-chunkable tensor for "
+              f"{key} (shape={shape})", file=sys.stderr)
+        return
     to_q, to_k, to_v = weight.chunk(3, dim=0)
     state_dict[key.replace(".qkv.", ".to_q.")] = to_q
     state_dict[key.replace(".qkv.", ".to_k.")] = to_k

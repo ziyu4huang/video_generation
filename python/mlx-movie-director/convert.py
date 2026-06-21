@@ -52,6 +52,15 @@ _replace_keys = {
 
 def _remap_qkv(key: str, state_dict: dict[str, torch.Tensor]) -> None:
     weight = state_dict.pop(key)
+    # Only real fused-QKV weight matrices are 3-way chunkable along dim 0. A
+    # 0-dim scalar or a dim not divisible by 3 means stray metadata reached the
+    # remap (e.g. an un-dequantized `.qkv.weight_scale`). Drop it with a warning
+    # instead of crashing on `chunk` — defence in depth on top of dequant_comfyui_fp8.
+    if not isinstance(weight, torch.Tensor) or weight.ndim < 1 or weight.shape[0] % 3 != 0:
+        shape = tuple(weight.shape) if isinstance(weight, torch.Tensor) else type(weight).__name__
+        print(f"[convert] _remap_qkv: skipping non-chunkable tensor for {key} (shape={shape})",
+              file=sys.stderr)
+        return
     to_q, to_k, to_v = weight.chunk(3, dim=0)
     state_dict[key.replace(".qkv.", ".to_q.")] = to_q
     state_dict[key.replace(".qkv.", ".to_k.")] = to_k
@@ -1256,6 +1265,58 @@ def _mlx_format(bits: int, group_size: int) -> str:
     return f"mlx-{bits}bit-gs{group_size}"
 
 
+def dequant_comfyui_fp8(pt_weights: dict, log_prefix: str = "convert") -> None:
+    """Dequantize ComfyUI FP8 weights in-place and drop FP8 metadata keys.
+
+    ComfyUI FP8 stores each quantized linear as `<key>.weight` (float8_e4m3fn) +
+    `<key>.weight_scale` (per-tensor F32 scalar) + `<key>.comfy_quant` (U8 JSON
+    blob). Dequant = weight.float() * scale -> BF16. Plain FP8 sources without a
+    scale sibling fall back to a raw fp8->bf16 cast.
+
+    The metadata siblings (`.weight_scale`, `.comfy_quant`) are dropped here so
+    they never reach the key remap: a stray 0-dim `.qkv.weight_scale` scalar
+    would otherwise crash `_remap_qkv`'s `weight.chunk(3, dim=0)`. This is the
+    step the old import-checkpoint converter was missing — calling this makes any
+    ZImage checkpoint path (convert.py --zit-checkpoint AND import-checkpoint)
+    support FP8 (8-bit float) -> MLX conversion.
+
+    Also up-casts fp16/fp32 tensors to bf16. BF16/other tensors are untouched.
+    """
+    _FP8 = (torch.float8_e4m3fn, torch.float8_e5m2)
+    scales: dict[str, torch.Tensor] = {}
+    meta_keys: list[str] = []
+    for k in list(pt_weights.keys()):
+        if k.endswith(".comfy_quant"):
+            meta_keys.append(k)
+        elif k.endswith(".weight_scale"):
+            base = k[: -len(".weight_scale")]
+            t = pt_weights[k]
+            if isinstance(t, torch.Tensor):
+                scales[base] = t
+            meta_keys.append(k)
+    for k in list(pt_weights.keys()):
+        if k in meta_keys:
+            continue
+        t = pt_weights[k]
+        if isinstance(t, torch.Tensor):
+            if t.dtype in _FP8:
+                base = k[: -len(".weight")] if k.endswith(".weight") else k
+                if base in scales:
+                    t = (t.to(torch.float32) * scales[base]).to(torch.bfloat16)
+                else:
+                    t = t.to(torch.bfloat16)
+                pt_weights[k] = t
+            elif t.dtype in (torch.float16, torch.float32):
+                pt_weights[k] = t.to(torch.bfloat16)
+    for k in meta_keys:
+        pt_weights.pop(k, None)
+    if scales:
+        print(f"[{log_prefix}] Dequantized {len(scales)} ComfyUI FP8-scaled tensors "
+              f"(weight * weight_scale); dropped {len(meta_keys)} metadata keys")
+    elif meta_keys:
+        print(f"[{log_prefix}] Dropped {len(meta_keys)} metadata keys")
+
+
 def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmix-redzit15",
                            source: str | None = None, source_url: str | None = None,
                            bits: int = 4, group_size: int = 32):
@@ -1293,45 +1354,10 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     pt_weights = load_pt_file(checkpoint_path)
     print(f"[zit-checkpoint] Loaded {len(pt_weights)} tensors")
 
-    # ── Step 2: Dequantize ComfyUI FP8 (per-tensor scaled) -> BF16 ─
-    # ComfyUI FP8 stores each quantized linear as <key>.weight (float8_e4m3fn)
-    # + <key>.weight_scale (per-tensor F32 scalar) + <key>.comfy_quant (U8 JSON
-    # blob). Dequant = weight.float() * scale. Older/plain FP8 sources without
-    # a scale sibling fall back to a raw fp8->bf16 cast. The metadata siblings
-    # are dropped here so they don't flow into the key remap / weight loader.
-    _FP8 = (torch.float8_e4m3fn, torch.float8_e5m2)
-    scales: dict[str, torch.Tensor] = {}
-    meta_keys: list[str] = []
-    for k in list(pt_weights.keys()):
-        if k.endswith(".comfy_quant"):
-            meta_keys.append(k)
-        elif k.endswith(".weight_scale"):
-            base = k[: -len(".weight_scale")]
-            t = pt_weights[k]
-            if isinstance(t, torch.Tensor):
-                scales[base] = t
-            meta_keys.append(k)
-    for k in list(pt_weights.keys()):
-        if k in meta_keys:
-            continue
-        t = pt_weights[k]
-        if isinstance(t, torch.Tensor):
-            if t.dtype in _FP8:
-                base = k[: -len(".weight")] if k.endswith(".weight") else k
-                if base in scales:
-                    t = (t.to(torch.float32) * scales[base]).to(torch.bfloat16)
-                else:
-                    t = t.to(torch.bfloat16)
-                pt_weights[k] = t
-            elif t.dtype in (torch.float16, torch.float32):
-                pt_weights[k] = t.to(torch.bfloat16)
-    for k in meta_keys:
-        pt_weights.pop(k, None)
-    if scales:
-        print(f"[zit-checkpoint] Dequantized {len(scales)} ComfyUI FP8-scaled tensors "
-              f"(weight * weight_scale); dropped {len(meta_keys)} metadata keys")
-    elif meta_keys:
-        print(f"[zit-checkpoint] Dropped {len(meta_keys)} metadata keys")
+    # ── Step 2: Dequantize ComfyUI FP8 (per-tensor scaled) -> BF16 ──
+    # Shared helper handles FP8 dequant + metadata drop so neither this path nor
+    # import-checkpoint crashes on a stray `.qkv.weight_scale` scalar at remap.
+    dequant_comfyui_fp8(pt_weights, log_prefix="zit-checkpoint")
 
     # ── Step 3: Drop unused key ───────────────────────────────────
     if "model.diffusion_model.norm_final.weight" in pt_weights:
