@@ -45,6 +45,7 @@ _TEST_TYPE_TO_ACTION = {
     "swap": "swap",
     "swap-all": "swap",
     "profile": "profile",
+    "angle": "angle",
     "expansion": "expansion",
     "video": "video-generate",
     "flf2v": "video-generate",
@@ -57,6 +58,12 @@ def _build():
     _t2i = importlib.import_module("app.commands.image-t2i")
     pipeline_steps = dict(_t2i._PIPELINE_DEFAULT_STEPS)
     pipeline_resolution = {k: list(v) for k, v in _t2i._PIPELINE_DEFAULT_RESOLUTION.items()}
+
+    # Angle presets (named → [azimuth, elevation]) drive the GUI --angle dropdown.
+    # Loaded from the command module so the preset names can never drift from what
+    # the server resolves (never hardcode in the Bun schema).
+    _angle = importlib.import_module("app.commands.image-angle")
+    angle_presets = {k: list(v) for k, v in _angle.ANGLE_PRESETS.items()}
 
     # Build self-test metadata grouped by GUI action
     self_tests = _build_self_tests()
@@ -142,8 +149,16 @@ def _build():
             "self_tests": self_tests.get("expansion", []),
         },
         "angle": {
+            "angle": None,
             "azimuth": 90,
             "elevation": 0,
+            "ref_count": _angle._ANGLE_DEFAULT_REF_COUNT,
+            "transformer": "klein-9b",
+            "resolution": None,
+            "steps": _angle._ANGLE_DEFAULT_STEPS,
+            "seed": 777,
+            # Named (azimuth, elevation) presets — drives the GUI --angle dropdown.
+            "angle_presets": angle_presets,
             "self_tests": self_tests.get("angle", []),
         },
         "profile": {

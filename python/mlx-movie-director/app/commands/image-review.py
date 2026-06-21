@@ -359,9 +359,11 @@ def run_review_manifest(args):
 # Shared manifest HTML helper
 # ---------------------------------------------------------------------------
 
-def _open_manifest_review(manifest_paths: list, labels=None, output=None,
-                           auto_open: bool = True, auto_score: bool = False,
-                           group_names: dict = None, group_params: dict = None):
+def _open_manifest_review(manifest_paths: list[str], labels: list[str] | str | None = None,
+                           output: str | None = None, auto_open: bool = True,
+                           auto_score: bool = False,
+                           group_names: dict[str, Any] | None = None,
+                           group_params: dict[str, Any] | None = None) -> None:
     """Load manifests → optionally auto-score → render HTML → open in browser."""
     tests = [_load_test(f) for f in manifest_paths]
     if isinstance(labels, list):
@@ -2065,6 +2067,8 @@ def _run_one_test(args, test_name: str, test_cfg: dict):
         _run_selftest_swap_all(args, test_name, test_cfg)
     elif test_type == "expansion":
         _run_selftest_expansion(args, test_name, test_cfg)
+    elif test_type == "angle":
+        _run_selftest_angle(args, test_name, test_cfg)
     else:
         print(f"ERROR: unknown test type '{test_type}'", file=sys.stderr)
         sys.exit(1)
@@ -3885,6 +3889,122 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
           f"FLF2V {sum(v for k, v in timings.items() if k.startswith('flf2v') and isinstance(v, (int, float))):.0f}s = "
           f"{total_time:.0f}s total")
 
+    _open_report(html_path)
+
+
+def _run_selftest_angle(args, test_name: str, test_cfg: dict):
+    """Run a Flux2-Klein camera-angle reframe self-test.
+
+    Generates a reference portrait (ZImage T2I), then reframes it across the
+    configured --angle presets with multi-reference conditioning (ref-count),
+    reusing the angle command's prompt builder + ANGLE_PRESETS. Produces a grid
+    review (reference + one reframe per preset) via the unified renderer.
+
+    Test config fields (from _ALL_TESTS):
+        presets            — list of ANGLE_PRESETS names to reframe (default front/right/back)
+        generate_reference — True (default): ZImage-generate the reference; else use reference_image
+        reference_image    — path to a pre-existing reference (when generate_reference is False)
+        test_prompt        — prompt name for the generated reference (default "portrait")
+        steps_ref          — steps for the reference T2I (default 9)
+        steps              — steps for each reframe (default 6)
+        ref_count          — multi-reference conditioning count, clamped to [1,3] (default 3)
+        seed               — seed (default 42)
+    """
+    import gc
+    import time as _time
+
+    import mlx.core as mx
+
+    from app.pipeline import ZImagePipeline
+    from app.flux2_pipeline import Flux2KleinPipeline
+    from app.test_prompts_image import get_test_prompt
+
+    _angle = importlib.import_module("app.commands.image-angle")
+
+    presets = test_cfg.get("presets", ["front", "right", "back"])
+    ref_count = _angle._clamp_ref_count(test_cfg.get("ref_count", 3))
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 6)
+    seed = test_cfg.get("seed", 42)
+
+    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+    ts = _time.strftime("%Y%m%d_%H%M%S")
+    base = f"selftest_{test_name}_{ts}"
+
+    # Phase 1: reference portrait (ZImage T2I), or reuse an existing image.
+    width = height = None
+    ref_path = None
+    if test_cfg.get("generate_reference", True):
+        tp = get_test_prompt(test_cfg.get("test_prompt", "portrait"))
+        width, height = tp["width"], tp["height"]
+        ref_steps = test_cfg.get("steps_ref", 9)
+        print(f"\n[selftest] Generating reference portrait ({width}×{height}, {ref_steps} steps)...")
+        ref_pipeline = ZImagePipeline()
+        ref_result = ref_pipeline.generate(
+            prompt=tp["prompt"], width=width, height=height, steps=ref_steps, seed=seed)
+        ref_path = os.path.join(cfg.OUTPUT_DIR, f"{base}_reference.png")
+        ref_result.image.save(ref_path)
+        print(f"[selftest] Reference saved: {ref_path}")
+        del ref_pipeline
+        mx.clear_cache()
+        gc.collect()
+    else:
+        ref_path = test_cfg.get("reference_image")
+        if not ref_path or not os.path.exists(ref_path):
+            print("ERROR: angle selftest needs generate_reference=True or a valid reference_image",
+                  file=sys.stderr)
+            sys.exit(1)
+        from PIL import Image as _PILImage
+        with _PILImage.open(ref_path) as im:
+            width, height = im.size
+
+    # Phase 2: reframe across presets (single shared Flux2Klein load).
+    print(f"\n{'#' * 60}")
+    print(f"[selftest] Flux2-Klein Angle Self-Test: {test_name}")
+    print(f"[selftest] presets: {len(presets)} | ref-count: {ref_count} | "
+          f"steps: {steps} | {width}×{height}")
+    print(f"{'#' * 60}")
+
+    pipeline = Flux2KleinPipeline()
+    image_paths = [ref_path]
+    labels = ["Reference"]
+    for preset in presets:
+        if preset not in _angle.ANGLE_PRESETS:
+            print(f"WARNING: unknown preset '{preset}' in test cfg; skipping", file=sys.stderr)
+            continue
+        azimuth, elevation = _angle.ANGLE_PRESETS[preset]
+        angle_text = _angle._angle_to_text(azimuth, elevation)
+        prompt = _angle._build_angle_prompt(None, angle_text)
+        print(f"\n[selftest] {preset} (az={azimuth}°, elev={elevation}°) → \"{angle_text}\"")
+        result = pipeline.generate(
+            seed=seed,
+            prompt=prompt,
+            reference_images=[ref_path] * ref_count,
+            width=width,
+            height=height,
+            steps=steps,
+            cfg_scale=getattr(args, "cfg_scale", None),
+        )
+        out_path = os.path.join(cfg.OUTPUT_DIR, f"{base}_{preset}.png")
+        result.image.save(out_path)
+        print(f"[selftest]   saved: {out_path}")
+        image_paths.append(out_path)
+        labels.append(preset)
+
+    del pipeline
+    mx.clear_cache()
+    gc.collect()
+
+    # Phase 3: review section — unified multi-report, or standalone (a 1-section
+    # report rendered through the same unified HTML machinery, no custom HTML).
+    section = _section_from_paths(test_name, test_cfg, image_paths, labels)
+    if _UNIFIED_REPORT is not None:
+        _push_section(section)
+        return
+
+    standalone = UnifiedReport(out_dir=cfg.OUTPUT_DIR, title=test_name, names=[test_name])
+    standalone.push(section)
+    html_path = _render_unified_html(standalone)
+    print(f"\n[selftest] Angle review: {html_path}")
     _open_report(html_path)
 
 

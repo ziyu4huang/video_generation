@@ -9,10 +9,15 @@ Public API:
 """
 
 import argparse
-import re
 import sys
 
-from app.commands._shared import execute_generation, execute_ab_test, apply_draft_overrides
+from app.commands._shared import (
+    execute_generation,
+    execute_ab_test,
+    apply_draft_overrides,
+    _resolve_resolution,  # noqa: F401 (re-export: defined in _shared for cross-module import)
+    _RESOLUTION_TIERS,    # noqa: F401 (re-export)
+)
 from app.run_config import RunConfig
 
 _PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4, "lens": 20}
@@ -28,52 +33,9 @@ _PIPELINE_DEFAULT_RESOLUTION = {
     "auto": (640, 960),
 }
 
-# Resolution TIERS — decouple "what the model was trained on" from "what we want
-# to benchmark / self-learn at". The model-optimal tier (above) matches each
-# pipeline's training distribution (~1MP) and is the safe default. The benchmark
-# and large tiers exploit Apple-Silicon unified memory (M5 Max 128GB runs
-# multi-megapixel easily): the model-optimal 640×960 is too small to exercise
-# rendering capacity — e.g. skin micro-detail / pores — which biases self-learning
-# quality gates. All values are multiples of 16 (Flux2 VAE /8 × patchify /2).
-# Portrait models (zimage/flux2-klein) keep 2:3; lens keeps 1:1.
-_RESOLUTION_TIERS = {
-    # tier: { pipeline: (w, h) }; "auto"/unknown fall back to zimage portrait.
-    "model": {  # per-pipeline training-optimal (the historical default)
-        "zimage": (640, 960), "flux2-klein": (640, 960), "lens": (1024, 1024),
-    },
-    "benchmark": {  # ~1.5–1.6MP — the self-learning / quality-benchmark default
-        "zimage": (1024, 1536), "flux2-klein": (1024, 1536), "lens": (1280, 1280),
-    },
-    "large": {  # ~2.4MP — stress test (slower; watch for OOD artifacts on distilled models)
-        "zimage": (1280, 1920), "flux2-klein": (1280, 1920), "lens": (1536, 1536),
-    },
-}
-
-
-def _resolve_resolution(spec, pipeline):
-    """Resolve a --resolution spec to (width, height) or None.
-
-    Accepts a named tier ("model"|"benchmark"|"large") — resolved per-pipeline —
-    or an explicit "WxH"/"W:H" (e.g. "1024x1536"). Returns None if spec is
-    empty/invalid (caller then falls back to --width/--height / pipeline default).
-    All explicit dims are snapped up to a multiple of 16.
-    """
-    if not spec:
-        return None
-    s = str(spec).strip().lower()
-    if s in _RESOLUTION_TIERS:
-        tier = _RESOLUTION_TIERS[s]
-        key = pipeline if pipeline in tier else "zimage"
-        return tier[key]
-    # Explicit WxH or W:H
-    m = re.match(r"^(\d+)\s*[x:]\s*(\d+)$", s)
-    if not m:
-        return None
-    w, h = int(m.group(1)), int(m.group(2))
-    if w <= 0 or h <= 0:
-        return None
-    # Snap up to multiple of 16 (Flux2/zimage VAE constraint).
-    return (((w + 15) // 16) * 16, ((h + 15) // 16) * 16)
+# _RESOLUTION_TIERS + _resolve_resolution now live in app.commands._shared (so
+# image-angle.py, which is importlib-only due to its hyphen, can import them).
+# Re-exported above for this module's own call sites (lens/t2i resolution override).
 
 
 # Default prompt for bare `--self-test` (no test name). Named self-tests (e.g.

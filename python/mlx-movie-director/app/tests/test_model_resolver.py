@@ -1,4 +1,4 @@
-"""Regression tests for app/commands/_model_resolver.py — LoRA and VAE resolution.
+"""Regression tests for LoRA and VAE resolution (app/commands/_shared.py).
 
 Uses tmp_path for all filesystem operations — no real models needed.
 """
@@ -8,12 +8,12 @@ import sys
 
 import pytest
 
-# Patch MODELS_DIR before importing model_resolver so all path resolution
-# uses the temp directory. This is safe because _model_resolver uses
+# Patch MODELS_DIR before importing the resolver functions so all path
+# resolution uses the temp directory. This is safe because _shared uses
 # cfg.MODELS_DIR at function call time (not import time).
 from app import config as cfg
 
-from app.commands._model_resolver import (
+from app.commands._shared import (
     _find_safetensors_in_dir,
     resolve_lora_path,
     resolve_vae_path,

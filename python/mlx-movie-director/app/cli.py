@@ -81,11 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
         module_name = COMMAND_ALIASES.get(name, name)
         try:
             mod = importlib.import_module(f"app.commands.{module_name}")
-        except ImportError as e:
+        except Exception as e:
             # Graceful degradation: a broken subcommand is skipped so the rest of
             # the CLI stays usable, but the full traceback is printed so a real
             # import failure (SyntaxError after an edit, missing transitive dep)
             # is impossible to miss instead of silently vanishing from --help.
+            # Note: SyntaxError / NameError are NOT subclasses of ImportError,
+            # so we catch the broad Exception to honor the degradation contract.
             print(f"WARNING: skipping broken command module '{module_name}': {e}",
                   file=sys.stderr)
             traceback.print_exc(file=sys.stderr)

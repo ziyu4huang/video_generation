@@ -293,10 +293,15 @@ _LANG_INSTRUCTIONS = {
 
 _DEFAULT_API_URL = "http://localhost:1234/v1"
 _DEFAULT_MODEL = "qwen/qwen3-vl-4b"
-# Preferred VLM when it's already loaded in LM Studio (the user loaded it
-# deliberately — respect that and reuse it instead of loading Qwen on top).
-# This is used-only-when-loaded; we never auto-load the heavy 26B model here.
-_PREFERRED_MODEL = "google/gemma-4-26b-a4b-qat"
+# Preferred VLMs in priority order — first loaded one wins.
+# Gemma-4 variants outperform Qwen3-VL-4B on vision tasks; prefer any loaded
+# Gemma-4 over Qwen. Never auto-loaded (too large); only used if already loaded.
+_PREFERRED_MODELS = [
+    "google/gemma-4-31b-qat",      # best quality (31B)
+    "google/gemma-4-26b-a4b-qat",  # good quality (26B, faster)
+]
+# Keep for backward compat (single-model references elsewhere)
+_PREFERRED_MODEL = _PREFERRED_MODELS[0]
 
 # Per-request timeout for VLM chat completions. Large (26B) models can take well
 # over a minute on a COLD first inference (MLX graph compilation), which used to
@@ -315,9 +320,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--api-url", type=str, default=_DEFAULT_API_URL,
                         help=f"VLM API base URL (default: {_DEFAULT_API_URL})")
     parser.add_argument("--model", type=str, default=None,
-                        help="Model name. If omitted, use "
-                        f"{_PREFERRED_MODEL} if already loaded in LM Studio, "
-                        f"else fall back to {_DEFAULT_MODEL} (actively loaded).")
+                        help="Model name. If omitted, auto-select: first loaded Gemma-4 variant "
+                        f"({', '.join(_PREFERRED_MODELS)}) wins; fallback to {_DEFAULT_MODEL}.")
     parser.add_argument("--style", nargs="+", choices=list(_STYLE_PROMPTS.keys()), default=["t2i"],
                         help="Caption style(s) (default: t2i). Accepts ONE OR MORE styles; each is "
                         "a separate VLM call and all merge into the same <image>.caption.json "
@@ -495,7 +499,9 @@ def run(args: argparse.Namespace) -> None:
                 if not getattr(args, "action", None):
                     print("ERROR: --action TEXT is required for 'ltx_i2v' style", file=sys.stderr)
                     sys.exit(1)
-                prompt_text = prompt_text.format(action=args.action)
+                # Use replace() not format(): the template's JSON example
+                # contains literal {/} braces that confuse str.format().
+                prompt_text = prompt_text.replace("{action}", args.action or "")
             elif style == "lora_quality":
                 lora_name = getattr(args, "lora_name", None) or "unknown"
                 lora_desc = getattr(args, "lora_description", None) or "no description"
@@ -570,7 +576,11 @@ def run(args: argparse.Namespace) -> None:
 
 def _image_to_base64(image_path: str, max_size: int = 1024) -> str:
     """Load image, optionally downsize, convert to JPEG bytes, return base64 string."""
-    img = Image.open(image_path).convert("RGB")
+    try:
+        with Image.open(image_path) as _im:
+            img = _im.convert("RGB")
+    except (FileNotFoundError, OSError) as e:
+        raise ValueError(f"cannot read image {image_path}: {e}") from e
     # Downsize if largest dimension exceeds max_size (VLMs don't need huge images)
     w, h = img.size
     if max(w, h) > max_size:
@@ -805,10 +815,9 @@ def _resolve_model(api_url: str, explicit_model):
     if explicit_model:
         return explicit_model
     loaded = _loaded_model_keys(api_url) or set()
-    for candidate in (_PREFERRED_MODEL, _DEFAULT_MODEL):
+    for candidate in _PREFERRED_MODELS + [_DEFAULT_MODEL]:
         if candidate in loaded:
-            label = "Gemma 26B" if candidate == _PREFERRED_MODEL else "Qwen 4B"
-            print(f"[caption] Auto: {label} ({candidate}) already loaded — "
+            print(f"[caption] Auto: {candidate} already loaded — "
                   f"using it, no model load needed.", flush=True)
             return candidate
     print(f"[caption] Auto: no preferred VLM loaded — "

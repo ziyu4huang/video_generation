@@ -22,6 +22,7 @@ import { purifyCommand } from "./purify";
 import { videoCompareCommand } from "./video-compare";
 import { videoQualityCommand } from "./video-quality";
 import { videoVbvrCommand } from "./video-vbvr";
+import { videoT2i2vCommand } from "./video-t2i2v";
 
 export const ALL_COMMANDS: UnifiedCommand[] = [
   // Generate
@@ -34,6 +35,7 @@ export const ALL_COMMANDS: UnifiedCommand[] = [
   videoCompareCommand,
   videoQualityCommand,
   videoVbvrCommand,
+  videoT2i2vCommand,
   // Transform
   i2iCommand,
   imageRestoreCommand,

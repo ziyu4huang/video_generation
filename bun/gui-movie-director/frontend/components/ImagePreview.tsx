@@ -35,6 +35,7 @@ interface ImagePreviewProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  onOpenImage?: (path: string) => void;
 }
 
 // --- Shared helpers ---
@@ -386,7 +387,7 @@ function ParamValue({ value }: { value: unknown }): React.ReactElement {
   return <span className={s.jvString}>{String(value)}</span>;
 }
 
-function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] }) {
+function ParamGrid({ data, keys, onOpenImage }: { data: Record<string, any>; keys?: string[]; onOpenImage?: (path: string) => void }) {
   const entries = keys
     ? keys.filter((k) => data[k] !== undefined && data[k] !== null).map((k) => [k, data[k]])
     : Object.entries(data).filter(([, v]) => v !== null && v !== undefined);
@@ -397,6 +398,15 @@ function ParamGrid({ data, keys }: { data: Record<string, any>; keys?: string[] 
         <div key={key} className={s.mfParamRow}>
           <span className={s.mfParamKey}>{key.replace(/_/g, " ")}</span>
           <ParamValue value={val} />
+          {key === "input_image" && typeof val === "string" && val.length > 0 && onOpenImage && (
+            <button
+              className={s.mfCopyBtn}
+              onClick={() => onOpenImage(val)}
+              title="View input image in gallery"
+            >
+              🖼 View
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -428,7 +438,7 @@ function LoraRow({ lora }: { lora: Record<string, any> }) {
   );
 }
 
-function RunViewer({ data, runPath }: { data: Record<string, any>; runPath?: string | null }) {
+function RunViewer({ data, runPath, onOpenImage }: { data: Record<string, any>; runPath?: string | null; onOpenImage?: (path: string) => void }) {
   const { mutate } = useSWRConfig();
   const [rerunning, setRerunning] = useState(false);
 
@@ -521,7 +531,7 @@ function RunViewer({ data, runPath }: { data: Record<string, any>; runPath?: str
       )}
       {hasParams && (
         <Section title="Parameters">
-          <ParamGrid data={data} keys={paramKeys} />
+          <ParamGrid data={data} keys={paramKeys} onOpenImage={onOpenImage} />
         </Section>
       )}
       {Object.keys(extras).length > 0 && (
@@ -533,7 +543,48 @@ function RunViewer({ data, runPath }: { data: Record<string, any>; runPath?: str
   );
 }
 
+function T2i2vManifestViewer({ data }: { data: Record<string, any> }) {
+  const stages = data.stages ?? {};
+  const t2i = stages.t2i ?? {};
+  const vlm = stages.vlm ?? {};
+  const i2v = stages.i2v ?? {};
+  return (
+    <div className={s.manifestViewer}>
+      <Section title="Stage 1 — T2I (ZImage)">
+        <ParamGrid data={t2i} keys={["transformer", "prompt", "steps", "seed", "width", "height"]} />
+      </Section>
+      <Section title="Stage 2 — VLM Prompt">
+        {vlm.skipped ? (
+          <div style={{ color: "var(--text-dim)", padding: "4px 0" }}>Skipped (no --action)</div>
+        ) : (
+          <div className={s.mfParamGrid}>
+            {vlm.action && (
+              <div className={s.mfParamRow}>
+                <span className={s.mfParamKey}>action</span>
+                <span>{vlm.action}</span>
+              </div>
+            )}
+            {vlm.generated_prompt && (
+              <div className={s.mfParamRow}>
+                <span className={s.mfParamKey}>prompt</span>
+                <div className={s.mfPromptRow} style={{ flex: 1 }}>
+                  <div className={s.mfPromptBox}>{vlm.generated_prompt}</div>
+                  <CopyButton text={vlm.generated_prompt} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+      <Section title="Stage 3 — I2V (LTX-2.3)">
+        <ParamGrid data={i2v} keys={["transformer", "prompt", "frames", "fps", "seed"]} />
+      </Section>
+    </div>
+  );
+}
+
 function ManifestViewer({ data }: { data: Record<string, any> }) {
+  if (data.pipeline === "t2i2v") return <T2i2vManifestViewer data={data} />;
   const isNewFormat = !!data.status || !!data.models;
   const usedKeys = new Set<string>();
   const extras: Record<string, any> = {};
@@ -801,7 +852,7 @@ function pickCaptionStyle(file: Record<string, any> | null, style: string): Reco
   return { style, model: entry.model, elapsed_sec: entry.elapsed_sec, caption: entry.caption };
 }
 
-export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext }: ImagePreviewProps) {
+export function ImagePreview({ url, manifest, run, manifestPath, runPath, caption, captionPath, onClose, onPrev, onNext, hasPrev, hasNext, onOpenImage }: ImagePreviewProps) {
   const hasRun = !!run;
   const hasManifest = !!manifest;
   const [captionLoading, setCaptionLoading] = useState(false);
@@ -1157,7 +1208,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
                   title={activePath || "No JSON file"}
                 >📁 Path</button>
               </div>
-              {tab === "run" ? <RunViewer data={data} runPath={runPath} /> : <ManifestViewer data={data} />}
+              {tab === "run" ? <RunViewer data={data} runPath={runPath} onOpenImage={onOpenImage} /> : <ManifestViewer data={data} />}
             </>
           ) : (
             <div className="empty-state">

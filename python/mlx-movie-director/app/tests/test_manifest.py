@@ -178,6 +178,44 @@ class TestMultiLoraFingerprint:
         assert "lora" not in models
 
 
+class TestTransformerFingerprint:
+    """Regression: models["transformer"] must fingerprint the transformer the
+    pipeline ACTUALLY loaded, not the global default.
+
+    Bug: collect_model_fingerprint() ignored --transformer and always hashed
+    cfg.TRANSFORMER_DIR, so a run with --transformer dark-beast-dbzit9 was
+    mis-recorded as the default transformer in .manifest.json (the run.json
+    said one thing, the manifest's models.transformer said another).
+    """
+
+    def test_transformer_dir_overrides_default(self, tmp_path):
+        from app.manifest import collect_model_fingerprint
+        custom = tmp_path / "transformer" / "custom-model"
+        custom.mkdir(parents=True)
+        weights = custom / "model.safetensors"
+        weights.write_bytes(b"custom transformer weights" * 100)
+        models = collect_model_fingerprint(transformer_dir=str(custom))
+        tf = models["transformer"]
+        assert tf["path"] == str(weights)
+        assert tf["size_bytes"] == len(b"custom transformer weights" * 100)
+        assert "error" not in tf  # actually fingerprinted, not "file not found"
+
+    def test_transformer_dir_none_uses_global_default(self):
+        from app.manifest import collect_model_fingerprint
+        from app import config as cfg
+        models = collect_model_fingerprint()  # no transformer_dir -> default
+        assert models["transformer"]["path"] == os.path.join(
+            cfg.TRANSFORMER_DIR, "model.safetensors")
+
+    def test_controlnet_wrapper_forwards_transformer_dir(self, tmp_path):
+        from app.manifest import collect_model_fingerprint_controlnet
+        custom = tmp_path / "transformer" / "custom-model"
+        custom.mkdir(parents=True)
+        (custom / "model.safetensors").write_bytes(b"x" * 200)
+        models = collect_model_fingerprint_controlnet(transformer_dir=str(custom))
+        assert models["transformer"]["path"] == str(custom / "model.safetensors")
+
+
 class TestEvents:
     """Runtime events trace: what the pipeline ACTUALLY did (model loads, LoRA, denoise)."""
 

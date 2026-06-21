@@ -354,6 +354,13 @@ def _run_vbvr_inner(args):
     try:
         from app.ltx_pipeline import LTXVideoPipeline
 
+        # --lora-scale is registered with action="append" on the shared parser, so
+        # args.lora_scale is a list (e.g. [0.8]) when the flag is given. LTXVideoPipeline
+        # expects a scalar float. Peel the list the same way video-generate does.
+        lora_scale = args.lora_scale
+        if isinstance(lora_scale, list):
+            lora_scale = lora_scale[0] if lora_scale else 1.0
+
         pipeline = LTXVideoPipeline(
             model_dir=getattr(args, "video_model", None),
             low_ram=args.low_ram,
@@ -361,7 +368,7 @@ def _run_vbvr_inner(args):
             distilled=False,
             temporal_upscale=False,
             lora_path=lora_path,
-            lora_scale=args.lora_scale,
+            lora_scale=lora_scale,
         )
 
         timings = pipeline.generate(

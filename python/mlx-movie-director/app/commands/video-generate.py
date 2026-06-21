@@ -349,9 +349,10 @@ def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
     """
     try:
         from PIL import Image
-        img = Image.open(image_path)
-        img_w, img_h = img.size
-        img.close()
+        # Context manager guarantees fd release across the long generation run
+        # (memory-mapped weights + open image fds compound the fd pressure).
+        with Image.open(image_path) as img:
+            img_w, img_h = img.size
     except (ImportError, FileNotFoundError, OSError) as e:
         # Corrupt/missing --input-image must not crash here (this runs before
         # the main try/except). Degrade to the explicit dims with a warning so
@@ -412,12 +413,13 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
 
     try:
         from PIL import Image
-        begin_img = Image.open(begin_path)
-        end_img = Image.open(end_path)
-        begin_w, begin_h = begin_img.size
-        end_w, end_h = end_img.size
-        begin_img.close()
-        end_img.close()
+        # Context managers guarantee fd release even if the second open fails
+        # (a truncated keyframe from a prior crashed FLF2V save would otherwise
+        # leak the first fd across the long video generation run).
+        with Image.open(begin_path) as begin_img:
+            begin_w, begin_h = begin_img.size
+        with Image.open(end_path) as end_img:
+            end_w, end_h = end_img.size
     except (ImportError, FileNotFoundError, OSError) as e:
         print(f"[video] WARNING: cannot read begin/end image dims: {e}; "
               f"keeping {width}×{height}", file=sys.stderr)
@@ -1139,7 +1141,8 @@ def _boost_audio_volume(mp4_path: str, gain: float) -> None:
             os.unlink(tmp_path)
 
 
-def _override_args(args, variation_index: int, ab_params: dict | None):
+def _override_args(args: argparse.Namespace, variation_index: int,
+                   ab_params: dict[str, list] | None) -> argparse.Namespace:
     """Create a copy of args with per-variation parameter overrides applied."""
     import copy
     var_args = copy.copy(args)

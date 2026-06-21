@@ -214,7 +214,13 @@ def _run_swap_core(source_path: str, reference_path: str | None, args: argparse.
 
     # Load source image
     print(f"[swap] Source: {source_path}")
-    source = Image.open(source_path).convert("RGB")
+    try:
+        with Image.open(source_path) as _im:
+            source = _im.convert("RGB")
+    except (FileNotFoundError, OSError) as e:
+        print(f"ERROR: failed to load source image {source_path}: {e}",
+              file=sys.stderr)
+        sys.exit(1)
     W, H = source.size
 
     # Output paths
@@ -347,7 +353,13 @@ def _run_swap_core(source_path: str, reference_path: str | None, args: argparse.
         print(f"  Reference: {reference_path}")
         print(f"  Feather radius: {feather}px")
 
-        reference = Image.open(reference_path).convert("RGB")
+        try:
+            with Image.open(reference_path) as _im:
+                reference = _im.convert("RGB")
+        except (FileNotFoundError, OSError) as e:
+            print(f"ERROR: failed to load reference image {reference_path}: {e}",
+                  file=sys.stderr)
+            sys.exit(1)
 
         # Optionally segment the reference to extract just the object
         ref_mask = None
