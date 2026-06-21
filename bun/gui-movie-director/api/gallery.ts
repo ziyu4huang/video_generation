@@ -118,11 +118,15 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
     if (!fs.existsSync(dir)) continue;
     // Flat media directly in the output root
     addMedia(dir, dir, "");
-    // One level into profile_* subfolders (multi-view: front/side/back)
+    // One level into profile_* subfolders (multi-view: front/side/back) AND the
+    // uploads/ subdir — tool outputs on an uploaded input (e.g. image purify,
+    // faceswap) are saved next to the input in uploads/, so without this they'd
+    // never surface in the gallery.
     let allFiles: string[] = [];
     try { allFiles = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const ent of allFiles) {
-      if (!ent.isDirectory() || !PROFILE_SUBDIR_RE.test(ent.name)) continue;
+      if (!ent.isDirectory()) continue;
+      if (!PROFILE_SUBDIR_RE.test(ent.name) && ent.name !== "uploads") continue;
       addMedia(path.join(dir, ent.name), dir, ent.name);
     }
   }

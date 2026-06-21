@@ -165,6 +165,7 @@ export function CommandForm({ schema, onJobStart, loading, commandPrefix, extraA
             min={field.min}
             max={field.max}
             step={field.step}
+            placeholder={field.placeholder}
             compact={field.compact}
           />
         );
