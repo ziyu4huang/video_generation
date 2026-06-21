@@ -1,8 +1,10 @@
 # Convert Plan: Upgrade 4-bit Transformers → 8-bit MLX (from FP8/BF16 sources)
 
-> Status: **converter improved + plan written** (2026-06-21). The actual model
-> re-conversions are deferred — run them with the commands below using the
-> improved converter. Branch: `feat/models-8bit`.
+> Status: **DONE (2026-06-22)** on `feat/models-8bit`. dark-beast-dbzit9 and
+> seedvr2-7b re-derived to 8-bit; zimage-moody-v126 **retired** (its "V12.6 DPO"
+> source doesn't exist on CivitAI) and the default switched to the existing
+> 8-bit `moody-pro-mix`. ernie-redmix-redzit15 still pending (provenance broken).
+> See the "Completion log" section at the bottom.
 
 ## Context
 
@@ -147,3 +149,23 @@ cp models/transformer/dark-beast-dbzit9/manifest.json /tmp/dbzit9.bak.json   # B
 Keep the old 4-bit store blob until the new 8-bit file load-tests OK. Rollback =
 `scripts/externalize_models.py --relink` against the prior manifest, or re-add the
 old symlink by hand. Work on `feat/models-8bit`; merge via PR (not direct to main).
+
+## Completion log (2026-06-22)
+
+| Model | Outcome |
+|---|---|
+| `dark-beast-dbzit9` | ✅ 8-bit via `import-checkpoint` from civitai 2242173 bf16. `mlx-4bit-gs32`→`mlx-8bit`, 3.8→6.5 GB. New blob `300437ff`. Smoke-tested (loads 8-bit GS64, generates). Curated `recommended_*`/`author_notes` + 4-bit A/B history (`kb.jsonl`) preserved; `size_bytes` bug (488) fixed. |
+| `seedvr2-7b` | ✅ 8-bit via `convert.py --seedvr2-dit --bits 8 --group-size 64`. Source = **Comfy-Org/SeedVR2** `seedvr2_7b_fp16.safetensors` (16 GB, ComfyUI-repackaged safetensors — NOT the raw HF `.pth`, which is 33 GB fp32 with a container format `load_pt_file` can't read). 5.1→8.8 GB. New blob `96d45077`. Manifest hand-set to `mlx-8bit`. Upscale smoke-tested (1280×1920, 15.8 s). |
+| `zimage-moody-v126` | ❌ **retired** — the "V12.6 DPO" source does not exist on CivitAI (Moody Pro Mix jumps V12 DPO→V13), and dequantizing the existing 4-bit file to 8-bit yields no quality gain. Default switched to the **existing 8-bit `moody-pro-mix`** (Moody Pro Mix ZIT V13, already `mlx-8bit`, already the video t2i2v default). 13 `compatible_with` refs renamed; `config.py` + GUI defaults updated; dir deleted. |
+| `ernie-redmix-redzit15` | ⏳ **still pending** — provenance broken (`source_url` 958009 is a Flux model, not a ZIT checkpoint). Cannot re-derive correctly. |
+
+**Two corrections to the original plan:** (1) the HF `ByteDance-Seed/SeedVR2-7B`
+source is a 33 GB fp32 `.pth` that `convert.py`'s `load_pt_file`
+(= `safetensors.torch.load_file`) cannot read — the Comfy-Org fp16 safetensors is
+the clean source instead; (2) `convert.py --seedvr2-dit` does **not** `rmtree`
+the target dir before saving (unlike the zimage path), so the old store-blob
+symlink must be removed first or the save writes *through* it and corrupts the
+shared 4-bit blob in place.
+
+Orphaned 4-bit blobs pruned after load-tests passed: `f1198f38`, `0cbb9877`,
+`58518e08` (~12.7 GB reclaimed). Store now 64 tracked entries.
