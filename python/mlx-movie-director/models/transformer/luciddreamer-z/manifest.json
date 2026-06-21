@@ -1,0 +1,26 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "luciddreamer-z",
+  "type": "transformer",
+  "arch": "zimage-turbo",
+  "format": "mlx-8bit",
+  "description": "LucidDreamer Z v0.777A ZiT: Hyper-detailed, surreal, dreamlike image generator with cinematic lighting and imaginative surrealism.",
+  "source": "https://civitai.com/models/2229037",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "zimage",
+    "transformer": "luciddreamer-z",
+    "note": "use --transformer luciddreamer-z to select this checkpoint"
+  },
+  "compatible_with": [
+    "text_encoder/qwen3-4b",
+    "tokenizer/qwen3",
+    "vae/zimage-ae"
+  ],
+  "size_bytes": 6540687223,
+  "created_at": "2026-06-21T02:32:49Z",
+  "source_url": "https://civitai.com/models/2229037"
+}

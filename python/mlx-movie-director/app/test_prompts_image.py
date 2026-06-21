@@ -621,6 +621,22 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=t2i: LucidDreamer Z checkpoint — dreamlike surreal style verification
+    # -----------------------------------------------------------------------
+
+    "transformer:luciddreamer-z": {
+        "type": "t2i",
+        "description": (
+            "LucidDreamer Z checkpoint smoke-test: 3 seeds × portrait prompt — "
+            "verifies 8-bit MLX loading and dreamlike/surreal rendering quality."
+        ),
+        "test_prompt": "portrait",
+        "transformer": "luciddreamer-z",
+        "steps": 9,
+        "seeds": [42, 123, 777],
+    },
+
+    # -----------------------------------------------------------------------
     # type=lora: LoRA adapter A/B comparison (multi-seed paired)
     # -----------------------------------------------------------------------
 
@@ -2852,6 +2868,10 @@ _ALL_TESTS_ALIASES = {
     "velvet-gothic": "lora:velvet-gothic",
     "gothic-fantasy": "lora:velvet-gothic",
     "g0thicl1nes": "lora:velvet-gothic",
+    # LucidDreamer Z checkpoint aliases
+    "luciddreamer": "transformer:luciddreamer-z",
+    "lucid": "transformer:luciddreamer-z",
+    "luciddreamer-z": "transformer:luciddreamer-z",
 }
 
 
