@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 64,
+  "count": 65,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -207,6 +207,14 @@
       "md5": "82e7ef514f39e5d25c47302d3eb31d79",
       "size": 20597189549
     },
+    "transformer/luciddreamer-z/model.safetensors": {
+      "md5": "eee4087d49e8aec9abdb82f1493867d3",
+      "size": 6540686735
+    },
+    "transformer/moody-pro-mix/model.safetensors": {
+      "md5": "c18047add189029d859ea990ee595ca9",
+      "size": 6540686735
+    },
     "transformer/seedvr2-7b/model.safetensors": {
       "md5": "0cbb98776dd07cf136d1d7580cc1d7c7",
       "size": 5106997144
@@ -247,16 +255,12 @@
       "md5": "f06c6cdcedbb49f2b05ffc7967d1acac",
       "size": 167666894
     },
-    "vae/zimage-ae/model.safetensors": {
-      "md5": "55021fc9d44772075424c44f88585ad6",
-      "size": 167666894
-    },
-    "transformer/moody-pro-mix/model.safetensors": {
-      "md5": "c18047add189029d859ea990ee595ca9",
-      "size": 6540686735
-    },
     "vae/z-imageclearvae/model.safetensors": {
       "md5": "1be1dd16f6a5d694732ae99de974220f",
+      "size": 167666894
+    },
+    "vae/zimage-ae/model.safetensors": {
+      "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
     }
   }
