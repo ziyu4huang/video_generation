@@ -70,6 +70,11 @@ class SeedVR2Upscaler:
         self.vae = None
         self.txt_pos = None
         self.last_timings: dict[str, float] = {}  # populated by upscale(); read by callers (e.g. image-purify manifest)
+        # Resolved quantization the loader actually applied (None until _load_models
+        # runs). Recorded into the run manifest so 8-bit vs 4-bit-gs32 purify runs
+        # are auditable; diverges from the declared manifest `format` only when the
+        # manifest is missing/malformed and the (4,32) fallback fires.
+        self.quant_config: dict[str, int] | None = None
 
     def _load_models(self) -> None:
         """Lazy-load models on first use."""
@@ -87,6 +92,7 @@ class SeedVR2Upscaler:
             )
 
         quant_bits, quant_gs = _detect_quant_from_manifest(dit_dir)
+        self.quant_config = {"bits": quant_bits, "group_size": quant_gs}
         print(f"[SeedVR2] Loading transformer ({quant_bits}-bit GS{quant_gs})...")
         t0 = time.time()
         transformer_config = self._get_transformer_config()

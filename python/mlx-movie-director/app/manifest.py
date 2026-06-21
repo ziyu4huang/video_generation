@@ -228,6 +228,19 @@ def collect_model_fingerprint_seedvr2() -> dict[str, Any]:
     models: dict[str, Any] = {}
     dit_path = os.path.join(cfg.SEEDVR2_DIT_DIR, "model.safetensors")
     models["seedvr2_dit"] = file_fingerprint(dit_path)
+    # Declared precision (manifest.json `format`): "mlx-8bit" | "mlx-4bit-gs32" |
+    # "mlx-4bit". This is the STATIC declaration of what the model is; the loader's
+    # effective resolution (incl. the (4,32) fallback) is recorded separately by
+    # the caller from SeedVR2Upscaler.quant_config so a mismatch is visible.
+    dit_manifest = os.path.join(cfg.SEEDVR2_DIT_DIR, "manifest.json")
+    dit_format: str | None = None
+    if os.path.exists(dit_manifest):
+        try:
+            with open(dit_manifest) as f:
+                dit_format = json.load(f).get("format")
+        except Exception:
+            dit_format = None
+    models["seedvr2_dit_format"] = dit_format
     vae_path = os.path.join(cfg.SEEDVR2_VAE_DIR, "model.safetensors")
     models["seedvr2_vae"] = file_fingerprint(vae_path)
     models["seedvr2_pos_emb"] = file_fingerprint(cfg.SEEDVR2_POS_EMB)
