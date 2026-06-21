@@ -1157,6 +1157,27 @@ _ALL_TESTS = {
     },
 
     # -----------------------------------------------------------------------
+    # type=angle: Flux2-Klein camera-angle reframe (multi-reference conditioning)
+    # -----------------------------------------------------------------------
+
+    "angle:multi": {
+        "type": "angle",
+        "description": (
+            "Flux2-Klein angle reframe — generates a reference portrait (ZImage T2I), "
+            "then reframes it to front/right/back views with multi-reference conditioning "
+            "(ref-count 3, the validated identity lever). Verifies identity preservation "
+            "and angle differentiation across camera positions."
+        ),
+        "presets": ["front", "right", "back"],
+        "generate_reference": True,
+        "test_prompt": "portrait",
+        "steps_ref": 9,
+        "steps": 6,
+        "ref_count": 3,
+        "seed": 42,
+    },
+
+    # -----------------------------------------------------------------------
     # type=controlnet-i2i: I2I + ControlNet verification
     # -----------------------------------------------------------------------
 
