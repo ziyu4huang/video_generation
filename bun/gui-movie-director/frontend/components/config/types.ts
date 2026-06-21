@@ -18,7 +18,10 @@ export interface VlmTestResult {
   ok: boolean;
   error?: string;
   models?: string[];
+  loadedModels?: string[];
   modelLoaded?: boolean;
+  activeModel?: string;
+  willLoad?: boolean;
 }
 
 export interface ModelCheckResult {

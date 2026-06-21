@@ -14,3 +14,14 @@ export function runCaption(params: CaptionRunParams): Promise<{ ok: boolean; cap
     body: JSON.stringify(params),
   });
 }
+
+export interface ActiveVlmModel {
+  activeModel: string;
+  alreadyLoaded: boolean | null;
+  forced: boolean;
+  loadedModels?: string[];
+}
+
+export function getActiveVlmModel(): Promise<ActiveVlmModel> {
+  return apiFetch("/api/caption/model");
+}

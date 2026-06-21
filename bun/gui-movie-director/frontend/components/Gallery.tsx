@@ -80,9 +80,11 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   }, [loadData, searchQuery, typeFilter]);
 
   // Notify parent with loaded images (always — needed for keyboard navigation)
+  // Expand variants so arrow keys navigate through all seed variants, not just primaries.
   useEffect(() => {
     if (images.length === 0 || loading) return;
-    onImagesReady?.(images);
+    const expanded = images.flatMap((img) => [img, ...(img.variants ?? [])]);
+    onImagesReady?.(expanded);
 
     // Scroll to first highlighted card
     if (highlight?.length && gridRef.current) {
@@ -183,6 +185,7 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
             highlighted={highlightSet?.has(img.name) ?? false}
             viewMode={viewMode}
             onDelete={onDeleteImage}
+            onVariantClick={onImageClick}
           />
         ))}
       </div>

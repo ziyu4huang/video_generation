@@ -33,4 +33,5 @@ export interface GalleryImage {
   runPath?: string | null;
   caption?: Record<string, any> | null;
   captionPath?: string | null;
+  variants?: GalleryImage[];
 }
