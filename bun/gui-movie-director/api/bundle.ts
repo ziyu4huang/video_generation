@@ -5,10 +5,31 @@ import { broadcastMessage } from "./ws";
 
 const TEXT_CSS = { "Content-Type": "text/css; charset=utf-8" };
 
-let _bundle: Response | null = null;
-let _bundleCss: Response | null = null;
-let _bundleEtag = "";
-let _bundleCssEtag = "";
+// Bundle state MUST live on globalThis, NOT module scope. Bun's `--hot` reload
+// (triggered by any backend file change) re-evaluates this module, which resets
+// module-level `let` bindings back to `null`. The hot-reload branch in server.ts
+// (line ~80) only calls `reload()` and skips the first-start `buildFrontendBundle()`,
+// so a module-local `_bundle` would stay null forever after the first reload → the
+// next /frontend/bundle.js request 503s ("Bundle not ready") and the page goes blank.
+//
+// Persisting on globalThis mirrors server.ts's own _devServer / _devInitialized
+// pattern: the already-built bundle survives route swaps without a wasted rebuild.
+// See memory `bun-hot-reload-resets-bundle-state`.
+declare global {
+  var _guiBundle: {
+    js: Response | null;
+    css: Response | null;
+    jsEtag: string;
+    cssEtag: string;
+  } | undefined;
+}
+
+function bundleState() {
+  if (!globalThis._guiBundle) {
+    globalThis._guiBundle = { js: null, css: null, jsEtag: "", cssEtag: "" };
+  }
+  return globalThis._guiBundle;
+}
 
 async function _doBuild(silent?: boolean): Promise<boolean> {
   const entryPoint = path.join(FRONTEND_DIR, "app.tsx");
@@ -24,20 +45,21 @@ async function _doBuild(silent?: boolean): Promise<boolean> {
       external: [],
     });
     if (result.success && result.outputs.length > 0) {
+      const st = bundleState();
       let jsSize = 0;
       let cssSize = 0;
       for (const output of result.outputs) {
         const stat = fs.statSync(output.path);
         const etag = `"${Bun.hash(`${stat.mtimeMs}:${stat.size}`).toString(16)}"`;
         if (output.path.endsWith(".css")) {
-          _bundleCssEtag = etag;
-          _bundleCss = new Response(output, {
+          st.cssEtag = etag;
+          st.css = new Response(output, {
             headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
           });
           cssSize = output.size;
         } else if (output.path.endsWith(".js")) {
-          _bundleEtag = etag;
-          _bundle = new Response(output, {
+          st.jsEtag = etag;
+          st.js = new Response(output, {
             headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-cache", ETag: etag },
           });
           jsSize = output.size;
@@ -73,15 +95,17 @@ export async function rebuildFrontendBundle(): Promise<boolean> {
 }
 
 export function serveBundleJs(req: Request): Response | null {
-  if (!_bundle) return null;
-  if (req.headers.get("If-None-Match") === _bundleEtag)
-    return new Response(null, { status: 304, headers: { ETag: _bundleEtag } });
-  return _bundle.clone();
+  const st = bundleState();
+  if (!st.js) return null;
+  if (req.headers.get("If-None-Match") === st.jsEtag)
+    return new Response(null, { status: 304, headers: { ETag: st.jsEtag } });
+  return st.js.clone();
 }
 
 export function serveBundleCss(req: Request): Response {
-  if (!_bundleCss) return new Response("", { status: 200, headers: TEXT_CSS });
-  if (req.headers.get("If-None-Match") === _bundleCssEtag)
-    return new Response(null, { status: 304, headers: { ETag: _bundleCssEtag } });
-  return _bundleCss.clone();
+  const st = bundleState();
+  if (!st.css) return new Response("", { status: 200, headers: TEXT_CSS });
+  if (req.headers.get("If-None-Match") === st.cssEtag)
+    return new Response(null, { status: 304, headers: { ETag: st.cssEtag } });
+  return st.css.clone();
 }
