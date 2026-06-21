@@ -198,7 +198,11 @@ def _adjust_resolution(width: int, height: int) -> tuple[int, int]:
 
 def _adjust_frames(frames: int) -> int:
     if (frames - 1) % 8 == 0:
-        return frames
+        # Already aligned — but still enforce the minimum meaningful count.
+        # frames=1 satisfies (1-1)%8==0 yet is far below the 9-frame minimum; the
+        # minimum guard below only runs on the ELSE branch, so without this clamp
+        # frames=1 (and any aligned value < 9) would slip through unchanged.
+        return max(frames, 9)
     k = round((frames - 1) / 8)
     adjusted = max(9, 8 * k + 1)
     print(f"[vbvr] Frames adjusted: {frames} → {adjusted} (must satisfy 8k+1)")

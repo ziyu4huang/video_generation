@@ -11,6 +11,7 @@ import mlx.nn as nn
 import mlx.utils
 import numpy as np
 from PIL import Image
+from typing import Any
 
 from app import config as cfg
 from app.seedvr2.transformer import SeedVR2Transformer
@@ -78,7 +79,7 @@ class SeedVR2Upscaler:
         # Runtime trace mirroring the zimage/flux2 pipelines: model_loaded events
         # (quant + load seconds) and a vae_overflow event when the 4-bit decode
         # produces NaN/inf pixels. Read into Manifest.events by callers (purify).
-        self.events: list[dict] = []
+        self.events: list[dict[str, Any]] = []
 
     def _load_models(self) -> None:
         """Lazy-load models on first use."""
@@ -343,9 +344,8 @@ class SeedVR2Upscaler:
     def unload(self) -> None:
         """Free all loaded models from memory."""
         for attr in ('transformer', 'vae', 'txt_pos'):
-            obj = getattr(self, attr, None)
-            if obj is not None:
-                del obj
+            if hasattr(self, attr):
+                delattr(self, attr)
             setattr(self, attr, None)
         mx.clear_cache()
         gc.collect()

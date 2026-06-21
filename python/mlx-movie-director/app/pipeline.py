@@ -627,7 +627,7 @@ class ZImagePipeline:
                 from app.seedvr2.pipeline import SeedVR2Upscaler as _SV2
                 sv2 = _SV2(model_size="7b")
                 try:
-                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=seed or 777)
+                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=777 if seed is None else seed)
                 finally:
                     sv2.unload()
                 timings["seedvr2_seconds"] = time.time() - t_up

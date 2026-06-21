@@ -10,8 +10,8 @@ from PIL import Image
 
 def load_image_rgb(path: str) -> Image.Image:
     """Load an image and ensure RGB mode (strips alpha channel if present)."""
-    img = Image.open(path)
-    return img.convert("RGB") if img.mode != "RGB" else img
+    with Image.open(path) as img:
+        return img.convert("RGB") if img.mode != "RGB" else img.copy()
 
 
 def require_file(path: str | None, label: str = "input") -> str:

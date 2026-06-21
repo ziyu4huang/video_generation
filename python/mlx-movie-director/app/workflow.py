@@ -211,7 +211,7 @@ class WorkflowOrchestrator:
             sv2 = SeedVR2Upscaler(model_size="7b")
             try:
                 image = sv2.upscale(image, resolution=2.0, softness=0.5,
-                                    seed=self.config.seed or 42)
+                                    seed=self.config.seed)
             finally:
                 sv2.unload()
         else:
