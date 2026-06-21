@@ -196,7 +196,7 @@ def _make_purify_paths(input_path: str, mode: str, res_label: str, ext: str,
 
 def _build_purify_run_meta(args, input_path, mode, softness, resolution,
                            res_label, backend, output_path, seed,
-                           prompt=None) -> dict:
+                           prompt=None, softness_override=None) -> dict:
     """Build the run.json metadata dict for a purify run (full params for replay)."""
     return {
         "command": "image",
@@ -205,6 +205,10 @@ def _build_purify_run_meta(args, input_path, mode, softness, resolution,
         "input_image": input_path,
         "purify_mode": mode,
         "softness": softness,
+        # Store the raw override (not just the resolved `softness`) so replay
+        # reproduces an exact run; without it, replay re-derives softness from
+        # purify_mode and silently drops a --softness-override the user set.
+        "softness_override": softness_override,
         "resolution": res_label,
         "seed": seed,
         "film_grain": getattr(args, "film_grain", 0.0) or 0.0,
@@ -333,6 +337,7 @@ def run_purify(args) -> None:
         args, input_path, mode, softness, resolution, res_label,
         backend, paths.output_file, seed,
         prompt=getattr(args, "prompt", None) if backend == "transformer" else None,
+        softness_override=softness_override,
     )
     os.makedirs(os.path.dirname(os.path.abspath(paths.output_file)), exist_ok=True)
     _write_json(paths.run_file, run_meta)
