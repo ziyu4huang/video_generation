@@ -906,7 +906,12 @@ const USAGE_AWARE = `USAGE-AWARE FLAGGING (mandatory — verify BEFORE flagging,
 1. GREP for call-site usage of the flagged symbol/handler/endpoint (grep -rn "<name>" --include=*.ts .). Code that "could" throw/race but is never invoked with bad input is NOT a bug.
 2. SCAN ~70 lines around the site (and any auth/middleware wrapper) for an EXISTING guard, validation, or benign context. Many flagged "bugs" are already defended 30-70 lines up — e.g. a path.resolve+startsWith containment (not a naive prefix check), a synchronous build making check-then-build atomic on one thread, a null-stream guard, a try/catch in the caller.
 3. THREAT MODEL: this is a localhost dev server (127.0.0.1, single operator). Absolute paths / stderr / tracebacks shown to the operator are intentional debug behavior, not a "leak" — the only attacker already has a shell. Do not flag them as security issues.
-If a guard / benign context / non-applicable threat model applies: DO NOT flag it (or downgrade to info/low). QUOTE the guard line you found in the finding description. A finding backed by no grep/scan evidence is a false-positive.`
+4. CROSS-FILE DATA CONTRACT: if the finding claims a reader/writer, producer/consumer, or serialization asymmetry ACROSS files (e.g. "X reads key K but the writer stores it under Y"), open BOTH sides before flagging:
+   (a) READ THE WRITER and look for a deliberately-maintained compat path — a flat mirror/shim field, a fallback branch, type coercion (JSON.parse on a stringified value, a ?? fallback), or a comment stating the old read path is kept unchanged.
+   (b) READ THE READER normalization branches (string-vs-object handling, optional chaining, defaults).
+   (c) SAMPLE REAL DATA: list a few real files the reader consumes (find the data dir the reader opens, then: find <dir> -name '*.json' | head -5) and confirm the reader ACTUALLY fails on them.
+   A contract finding with no compat-path check AND no concrete failing real sample is a FALSE POSITIVE — drop it. (2026-06-21: this class survived verify as "knowledge-extractor.ts reads legacy .caption but writer uses styles map" — the writer kept a flat .caption mirror BY DESIGN and the reader JSON.parsed the string; both sides were never opened. See memory gui-review-verify-usage-before-applying.)
+If a guard / benign context / non-applicable threat model / intact contract applies: DO NOT flag it (or downgrade to info/low). QUOTE the guard line, compat-path line, or failing sample you found in the finding description. A finding backed by no grep/scan/real-data evidence is a false-positive.`
 
 // Dimension-specific review prompts
 const DIMENSION_PROMPTS = {
@@ -1152,14 +1157,15 @@ if (findingsToVerify.length > 0) {
 
 For EACH finding below, VERIFY it against the actual source — do NOT take the dimension reviewer's word. Default to REJECT (upheld=false) unless you can point to a REAL unguarded path that is ACTUALLY reachable with real input.
 
-Verify each finding THREE ways:
+Verify each finding FOUR ways:
 1. GREP call-site usage of the flagged symbol/handler/endpoint:
    Bash("grep -rn '<name>' --include='*.ts' '${GUI_DIR}' | head -20")
    Code that COULD fail but is never invoked with bad input is a FALSE POSITIVE.
 2. SCAN ~70 lines around the site (and any auth/middleware wrapper) for an EXISTING guard/validation/benign context — a path.resolve+startsWith containment (NOT a naive prefix check), a null check, a try/catch in the caller. A finding that ignores a guard 30-70 lines up is a FALSE POSITIVE.
 3. THREAT MODEL: this is a localhost dev server (127.0.0.1, single operator). Absolute paths / raw stderr / tracebacks shown to the operator are intentional debug behavior, NOT a "leak" — the only attacker already has a shell. Flagging them as security issues is a FALSE POSITIVE.
+4. CROSS-FILE DATA CONTRACT: if the finding claims a reader/writer or serialization asymmetry ACROSS files (reader reads key K, writer stores under Y), open BOTH sides. Grep the reader for the data source it opens, then Bash a few REAL files (find <that dir> -name '*.json' | head -5; then cat one) and check whether the reader ACTUALLY mishandles them. REJECT (upheld=false) unless you can show a CONCRETE real file that fails. If the writer deliberately keeps a compat field (flat mirror / shim / fallback) OR the reader normalizes (JSON.parse on a stringified value, a ?? fallback, a string-vs-object branch), the contract is INTACT — that is a FALSE POSITIVE. Contract claims backed only by code-shape inference (no real sample) are FALSE POSITIVES.
 
-Also reject if: wrong line number, snippet doesn't match the file, the pattern is intentional, or severity is inflated.
+Also reject if: wrong line number, snippet doesn't match the file, the pattern is intentional, severity is inflated, or a contract finding has no concrete failing real sample.
 
 FINDINGS TO VERIFY:
 ${JSON.stringify(findingsToVerify.map((f) => ({ id: f.id, dimension: f.dimension, severity: f.severity, file: f.file, line: f.line, title: f.title, description: f.description })), null, 2)}
@@ -1196,6 +1202,7 @@ Be STRICT. Default to rejecting if:
 - The suggested fix would change behavior or break existing callers
 - The line number is wrong or the code snippet doesn't match the actual file
 - The severity is inflated (e.g. "critical" for something that's actually "low")
+- The finding claims a cross-file reader/writer or format asymmetry but you did NOT open BOTH sides (writer + reader) AND sample a real data file the reader consumes — contract claims need a concrete failing sample, not code-shape inference. A writer that keeps a compat field (mirror/shim/fallback) or a reader that normalizes (JSON.parse on a string, ?? branch) means the contract is INTACT
 
 FINDINGS TO VERIFY (${dim} dimension):
 ${JSON.stringify(findings, null, 2)}
