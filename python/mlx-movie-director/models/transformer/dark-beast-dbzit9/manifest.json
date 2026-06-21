@@ -1,32 +1,32 @@
 {
-  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py --zit-checkpoint. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
   "name": "dark-beast-dbzit9",
   "type": "transformer",
   "arch": "zimage-turbo",
-  "format": "mlx-4bit-gs32",
-  "description": "ZImage Turbo finetune, 4-bit MLX. Converted from darkBeast_dbzit9DIMRclaw_fp8.safetensors via convert.py --zit-checkpoint.",
-  "source": "civitai.com/models/2242173",
-  "source_url": "https://civitai.com/models/2242173/dark-beast-or?modelVersionId=2788849",
-  "weight_file": "model.safetensors",
+  "format": "mlx-8bit",
+  "description": "Dark Beast | 黑兽 DBZiT9🟥DIM RClaw ZImage-Turbo transformer, 8-bit MLX",
+  "source": "https://civitai.com/models/2242173",
   "pipeline": [
     "zimage-turbo"
   ],
   "cli": {
     "action": "image t2i",
     "pipeline": "zimage",
-    "transformer": "dark-beast-dbzit9"
+    "transformer": "dark-beast-dbzit9",
+    "note": "use --transformer dark-beast-dbzit9 to select this checkpoint"
   },
   "compatible_with": [
     "text_encoder/qwen3-4b",
     "tokenizer/qwen3",
     "vae/zimage-ae"
   ],
-  "size_bytes": 3848371806,
-  "created_at": "2026-06-18T00:00:00Z",
+  "size_bytes": 6540686735,
+  "created_at": "2026-06-21T17:08:45Z",
+  "source_url": "https://civitai.com/models/2242173?modelVersionId=2788849",
   "recommended_steps": 8,
   "recommended_cfg": 1.0,
   "recommended_resolution": "1024-1536 long-edge (1M-2M px)",
   "recommended_sampler": "Euler + Simple (or SGM Uniform / ER SDE)",
   "recommended_vae": "Ultra Flux VAE (included)",
-  "author_notes": "Dark Beast 9 ZIT 'Fast & Reliable Edition' — fused DBZ style into Moody Porn Mix 8 base for faster inference / sharper coherence / fewer hallucinations. Author recs (civitai 2242173): CFG 1, Steps 8, Euler+Simple, 1M-2M px. ZIT-distilled → zero-CFG guidance at minimal steps. NOT yet A/B tested in our stack — recommended_* are AUTHOR recs, pending empirical verification."
+  "author_notes": "Dark Beast 9 ZIT 'Fast & Reliable Edition' — fused DBZ style into Moody Porn Mix 8 base for faster inference / sharper coherence / fewer hallucinations. Author recs (civitai 2242173): CFG 1, Steps 8, Euler+Simple, 1M-2M px. ZIT-distilled → zero-CFG guidance at minimal steps. Re-derived to 8-bit MLX (2026-06-22) from the bf16 source via run.py import-checkpoint; previously a 4-bit model converted from an fp8 checkpoint (double-quantization), so the 8-bit bf16-derived build halves the quantization error. NOT yet A/B tested in our stack — recommended_* are AUTHOR recs, pending empirical verification."
 }
