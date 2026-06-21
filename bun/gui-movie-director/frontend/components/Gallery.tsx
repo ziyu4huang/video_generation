@@ -67,7 +67,7 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
         setTotal(data.total || 0);
         setPage(p);
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to load gallery");
     } finally {
       setLoading(false);

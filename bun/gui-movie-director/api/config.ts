@@ -83,7 +83,7 @@ export async function handlePutConfig(req: Request): Promise<Response> {
     const merged: AppConfig = { ...loadConfig(), ...(filtered as Partial<AppConfig>) };
     saveConfig(merged);
     return Response.json({ ok: true, config: loadConfig() });
-  } catch (err) {
+  } catch {
     return Response.json({ ok: false, error: "Invalid config" }, { status: 400 });
   }
 }

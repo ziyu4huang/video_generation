@@ -15,7 +15,7 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const uploadFile = async (file: File) => {
+  const handleUpload = async (file: File) => {
     setUploading(true);
     setError(null);
     try {
@@ -38,9 +38,9 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
     if (!files || files.length === 0) return;
     if (multiple) {
       // Upload all files
-      Array.from(files).forEach(uploadFile);
+      Array.from(files).forEach(handleUpload);
     } else {
-      uploadFile(files[0]);
+      handleUpload(files[0]);
     }
   };
 
@@ -50,9 +50,9 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
     const files = e.dataTransfer.files;
     if (files.length === 0) return;
     if (multiple) {
-      Array.from(files).forEach(uploadFile);
+      Array.from(files).forEach(handleUpload);
     } else {
-      uploadFile(files[0]);
+      handleUpload(files[0]);
     }
   };
 

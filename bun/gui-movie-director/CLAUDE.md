@@ -18,7 +18,10 @@ This runs `bun --hot server.ts`. The `--hot` flag means:
 
 **Never use `bun run start`** — no file watching.
 
-If port 3099 is occupied: `lsof -ti :3099 | xargs kill -9`
+Port is per-worktree (concurrent dev): the primary worktree (real `.git`) uses **3099**;
+each linked worktree derives a stable port from its path (`lib/worktree.ts`). Discover yours
+with `bun run gui:port` (or `--all` to list every server). Kill a stuck server by its
+discovered port: `lsof -ti :<port> | xargs kill -9`.
 
 ## Project structure
 

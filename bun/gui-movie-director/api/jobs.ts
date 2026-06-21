@@ -36,7 +36,7 @@ export async function handleRunJob(req: Request): Promise<Response> {
   return spawnJobResponse(command, cliArgs, { action, params });
 }
 
-export async function handleListJobs(req: Request): Promise<Response> {
+export async function handleListJobs(_req: Request): Promise<Response> {
   const jobs = subprocessManager.listJobs();
   return Response.json({ jobs });
 }

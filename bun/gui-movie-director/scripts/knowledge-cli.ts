@@ -13,7 +13,6 @@ import {
   generateMissingCaptions,
   callDeepSeek,
   saveReport,
-  loadReport,
 } from "../lib/knowledge-extractor";
 import fs from "fs";
 

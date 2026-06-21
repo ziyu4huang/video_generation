@@ -39,7 +39,7 @@ function getFolderSize(dir: string): number {
   return total;
 }
 
-export async function handleListLoras(req: Request): Promise<Response> {
+export async function handleListLoras(_req: Request): Promise<Response> {
   const loraDir = path.join(MODELS_DIR, "lora");
   if (!fs.existsSync(loraDir)) {
     return Response.json([]);
@@ -85,7 +85,7 @@ export async function handleListLoras(req: Request): Promise<Response> {
   return Response.json(loras);
 }
 
-export async function handleListVaes(req: Request): Promise<Response> {
+export async function handleListVaes(_req: Request): Promise<Response> {
   const vaeDir = path.join(MODELS_DIR, "vae");
   if (!fs.existsSync(vaeDir)) {
     return Response.json([]);

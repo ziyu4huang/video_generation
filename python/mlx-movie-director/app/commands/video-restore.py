@@ -7,9 +7,9 @@ model to produce a cleaned-up version.
 
 Based on the ComfyUI workflow: 去水印，去字幕，去模糊，高清LTX2.3+iclora+insight
 
-Required LoRA files (download from Lightricks/CivitAI):
-  comfyui_data/models/loras/ltx2.3-video-restoration-general-lora.safetensors
-  comfyui_data/models/loras/ltx2.3-ic-video-upscale-general.safetensors
+Required LoRA files (download from Lightricks/CivitAI) — place in the MLX model tree:
+  models/lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors
+  models/lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors
 
 Usage:
   run.py video restore --restore-input input.mp4
@@ -59,8 +59,8 @@ PARSER_META = {
         "Video restoration using LTX-2.3 with IC-LoRA conditioning.\n"
         "The input video frames serve as the IC-LoRA reference guide; "
         "restoration and upscale LoRAs direct the model to output a cleaned version.\n\n"
-        "Required LoRA files (place in comfyui_data/models/loras/):\n"
-        "  ltx2.3-video-restoration-general-lora.safetensors\n"
+        "Required LoRA files (place in models/lora/ltx-2.3-restore/):\n"
+        "  ltx2.3-video-restoration-general.safetensors\n"
         "  ltx2.3-ic-video-upscale-general.safetensors\n\n"
         "Examples:\n"
         "  run.py video restore --input degraded.mp4\n"

@@ -114,7 +114,7 @@ For each model conversion, ensure:
 - `models--black-forest-labs--FLUX.2-klein-4B/` (15 GB) — not yet converted, may need later
 - `models--Tongyi-MAI--Z-Image-Turbo/` (160 MB) — tokenizer/VAE source
 - `comfyui_data/models/loras/zit_sda_v1.safetensors` (162 MB) — LoRA still used at runtime
-- `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` (28 MB) — ESRGAN still used
+- `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` (28 MB) — ESRGAN; relocated to `models/upscale/4x-nomos-webphoto-realplksr/` (`DEFAULT_UPSCALE_MODEL`) so the runtime no longer reads comfyui_data
 
 ---
 

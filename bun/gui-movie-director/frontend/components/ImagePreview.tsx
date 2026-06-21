@@ -668,7 +668,7 @@ function isVideoUrl(url: string): boolean {
 
 function StyleDropdown({ currentStyle, onPick, disabled }: { currentStyle: string; onPick: (style: string) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
-  const cur = CAPTION_STYLES.find((s) => s.id === currentStyle) || CAPTION_STYLES[0];
+  const cur = CAPTION_STYLES.find((style) => style.id === currentStyle) || CAPTION_STYLES[0];
   return (
     <div style={{ position: "relative" }}>
       <button
@@ -709,7 +709,7 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
   onStyleChange?: (style: string) => void;
 }) {
   const scores = parseCaptionScores(caption.caption);
-  const styleLabel = CAPTION_STYLES.find((s) => s.id === caption.style);
+  const styleLabel = CAPTION_STYLES.find((style) => style.id === caption.style);
   const label = styleLabel ? `${styleLabel.icon} ${styleLabel.label}` : "Image Analysis";
 
   const actionRow = (
@@ -913,12 +913,12 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
     }
     setCaptionLoading(true);
     try {
-      const data = await runCaption({ url, style });
-      if (data.ok && data.caption) {
-        setCaptionFile(data.caption);
+      const captionData = await runCaption({ url, style });
+      if (captionData.ok && captionData.caption) {
+        setCaptionFile(captionData.caption);
         toast.success(`Caption generated (${style})`);
       } else {
-        toast.error(data.error || "Caption failed");
+        toast.error(captionData.error || "Caption failed");
       }
     } catch (err) {
       toast.error(`Caption failed: ${err}`);

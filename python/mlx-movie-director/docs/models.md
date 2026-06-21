@@ -136,7 +136,7 @@ VAE_DIR            = models/vae/
 | Flag | Default | Source |
 |------|---------|--------|
 | `--lora-path` | None (no LoRA) | `models/lora/zit_sda_v1.safetensors` if used |
-| `--upscale-model` | `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` | `DEFAULT_UPSCALE_MODEL` in `run.py` |
+| `--upscale-model` | `models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth` | `DEFAULT_UPSCALE_MODEL` in `app/config.py` |
 
 #### `app/config.py` — Architecture Configs
 
@@ -325,7 +325,7 @@ VAE_DIR            = models/vae/
 | Flag | Default | Source |
 |------|---------|--------|
 | `--lora-path` | None (no LoRA) | `models/lora/zit_sda_v1.safetensors` if used |
-| `--upscale-model` | `comfyui_data/models/upscale_models/4xNomosWebPhoto_RealPLKSR.pth` | `DEFAULT_UPSCALE_MODEL` in `run.py` |
+| `--upscale-model` | `models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth` | `DEFAULT_UPSCALE_MODEL` in `app/config.py` |
 
 ### `app/config.py` — Architecture Configs
 
