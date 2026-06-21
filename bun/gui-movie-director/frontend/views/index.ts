@@ -4,6 +4,7 @@ export { GROUP_ORDER } from "./registry";
 import { t2iDescriptor } from "./generate/T2iView";
 import { imagePipelineDescriptor } from "./workflow/ImagePipelineView";
 import { videoGenerateDescriptor } from "./workflow/VideoGenerateView";
+import { videoT2i2vDescriptor } from "./workflow/VideoT2i2vView";
 import { videoRelayDescriptor } from "./workflow/VideoRelayView";
 import { videoRestoreDescriptor } from "./workflow/VideoRestoreView";
 import { videoCompareDescriptor } from "./workflow/VideoCompareView";
@@ -28,6 +29,7 @@ export const VIEWS: ViewDescriptor[] = [
   t2iDescriptor,
   imagePipelineDescriptor,
   videoGenerateDescriptor,
+  videoT2i2vDescriptor,
   videoRelayDescriptor,
   videoRestoreDescriptor,
   videoCompareDescriptor,

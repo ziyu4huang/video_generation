@@ -255,6 +255,32 @@ _STYLE_PROMPTS = {
         ' "summary": "one sentence verdict"}}\n'
         "Each score is an integer 1-10."
     ),
+    "ltx_i2v": (
+        "You are an expert LTX-2.3 video generation prompt engineer.\n\n"
+        "Analyze this image carefully: note the character's appearance (hair color/style, face, "
+        "clothing, body type, art style — realistic/anime/3D), the setting, and lighting.\n\n"
+        "The user wants the following action:\n"
+        "---\n"
+        "{action}\n"
+        "---\n\n"
+        "Generate an optimized LTX I2V (image-to-video) prompt in English that includes ALL of:\n"
+        "1. CHARACTER ANCHOR — 1-2 sentences describing the character's appearance as seen in "
+        "the image (hair color/style, clothing, body features). This anchors the video to the "
+        "input frame.\n"
+        "2. MOTION — detailed, physics-aware motion description matching the action intent. "
+        "Describe body movement, limb positions, speed, facial expressions, hair/clothing "
+        "movement from motion.\n"
+        "3. VOICE LINES — the character's spoken words or vocal sounds in Traditional Chinese "
+        "(zh-TW) by default, rendered as she says them (e.g., 她輕喘著說「嗯...啊...」). "
+        "Include vocal quality (husky / high-pitched / breathless / soft). "
+        "If the action contains no speaking, add natural breathing sounds instead.\n"
+        "4. AMBIENT AUDIO — background or impact sounds that fit the scene.\n\n"
+        "Output ONLY a JSON object (no markdown fences, no extra text):\n"
+        '{"prompt": "the full LTX I2V prompt as one English paragraph", '
+        '"voice_lang": "zh_TW", '
+        '"motion_summary": "one-sentence motion summary in English", '
+        '"estimated_seconds": <integer seconds>}'
+    ),
 }
 
 # Language instructions — appended to style prompt
@@ -311,6 +337,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                              "so multi-view images are scored on a common, view-appropriate yardstick "
                              "(otherwise front/side `captured` arrays are sparse/empty because the base "
                              "prompt names no view-specific elements). Used by the multi-view workflow.")
+    parser.add_argument("--action", type=str, default=None, metavar="TEXT",
+                        help="User action intent (used by 'ltx_i2v' style for VLM I2V prompt generation)")
     parser.add_argument("--lora-name", type=str, default=None, metavar="NAME",
                         help="LoRA name (used by 'lora_quality' style)")
     parser.add_argument("--lora-description", type=str, default=None, metavar="DESC",
@@ -463,6 +491,11 @@ def run(args: argparse.Namespace) -> None:
                     print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
                     sys.exit(1)
                 prompt_text = prompt_text.format(prompt=args.prompt)
+            elif style == "ltx_i2v":
+                if not getattr(args, "action", None):
+                    print("ERROR: --action TEXT is required for 'ltx_i2v' style", file=sys.stderr)
+                    sys.exit(1)
+                prompt_text = prompt_text.format(action=args.action)
             elif style == "lora_quality":
                 lora_name = getattr(args, "lora_name", None) or "unknown"
                 lora_desc = getattr(args, "lora_description", None) or "no description"
