@@ -75,6 +75,10 @@ class SeedVR2Upscaler:
         # are auditable; diverges from the declared manifest `format` only when the
         # manifest is missing/malformed and the (4,32) fallback fires.
         self.quant_config: dict[str, int] | None = None
+        # Runtime trace mirroring the zimage/flux2 pipelines: model_loaded events
+        # (quant + load seconds) and a vae_overflow event when the 4-bit decode
+        # produces NaN/inf pixels. Read into Manifest.events by callers (purify).
+        self.events: list[dict] = []
 
     def _load_models(self) -> None:
         """Lazy-load models on first use."""
@@ -111,7 +115,14 @@ class SeedVR2Upscaler:
         filtered = [(k, v) for k, v in saved.items() if k in model_keys]
         self.transformer.load_weights(filtered)
         mx.eval(self.transformer.parameters())
-        print(f"[SeedVR2] Transformer loaded ({time.time() - t0:.1f}s)")
+        tf_load_t = time.time() - t0
+        print(f"[SeedVR2] Transformer loaded ({tf_load_t:.1f}s)")
+        self.events.append({
+            "event": "model_loaded", "target": "transformer",
+            "detail": {"quant": f"{quant_bits}bit", "group_size": quant_gs,
+                       "model_size": self.model_size},
+            "seconds": round(tf_load_t, 3),
+        })
 
         # --- VAE ---
         vae_dir = self._vae_dir or cfg.SEEDVR2_VAE_DIR
@@ -144,7 +155,14 @@ class SeedVR2Upscaler:
                         class_predicate=_quantize_predicate)
         self.vae.load_weights(vae_path)
         mx.eval(self.vae.parameters())
-        print(f"[SeedVR2] VAE loaded ({time.time() - t0:.1f}s)")
+        vae_load_t = time.time() - t0
+        print(f"[SeedVR2] VAE loaded ({vae_load_t:.1f}s)")
+        self.events.append({
+            "event": "model_loaded", "target": "vae",
+            "detail": {"quant": "8bit" if is_quantized else "bf16",
+                       "group_size": 64 if is_quantized else None},
+            "seconds": round(vae_load_t, 3),
+        })
 
         # --- Text embeddings ---
         print("[SeedVR2] Loading text embeddings...")
@@ -295,6 +313,14 @@ class SeedVR2Upscaler:
         if bad:
             print(f"[SeedVR2] WARNING: {bad}/{img_np.size} pixels NaN/inf "
                   f"(4-bit VAE overflow) — sanitized to 0/1")
+            # Record the overflow in the runtime trace so the rate is observable
+            # across runs in Manifest.events (not just ephemeral stdout).
+            self.events.append({
+                "event": "vae_overflow", "target": "vae_decode",
+                "detail": {"nan_inf_pixels": bad, "total_pixels": int(img_np.size),
+                           "ratio": bad / img_np.size},
+                "seconds": None,
+            })
         img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
         img_np = np.clip(img_np, 0.0, 1.0)
         img_np = (img_np * 255.0).round().astype("uint8")

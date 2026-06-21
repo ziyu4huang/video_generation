@@ -121,7 +121,7 @@ def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_
     if run_config is not None:
         run_config.to_json(paths.run_file)
     start = datetime.now(timezone.utc).isoformat()
-    ctx: dict[str, Any] = {"timings": {}, "outputs": [], "models": {}}
+    ctx: dict[str, Any] = {"timings": {}, "outputs": [], "models": {}, "events": []}
     try:
         yield ctx
     except Exception as exc:
@@ -129,6 +129,7 @@ def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_
         manifest = Manifest.from_error(
             paths.run_file, start, end,
             ctx.get("timings", {}), exc, ctx.get("models", {}),
+            events=ctx.get("events") or None,
         )
         manifest.to_json(paths.manifest_file)
         print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -149,6 +150,7 @@ def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_
         manifest = Manifest.from_success(
             paths.run_file, start, end,
             ctx["timings"], ctx["outputs"], ctx["models"],
+            events=ctx.get("events") or None,
         )
         manifest.to_json(paths.manifest_file)
         print(f"Run config: {paths.run_file}")

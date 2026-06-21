@@ -403,3 +403,4 @@ def run_purify(args) -> None:
             models["seedvr2_quant_resolved"] = dict(upscaler.quant_config)
         ctx["models"] = models
         ctx["timings"] = dict(upscaler.last_timings)
+        ctx["events"] = list(upscaler.events)
