@@ -38,6 +38,7 @@ _restore = importlib.import_module("app.commands.video-restore")
 _vbvr = importlib.import_module("app.commands.video-vbvr")
 _relay = importlib.import_module("app.commands.video-relay")
 _segment = importlib.import_module("app.commands.video-segment")
+_t2i2v = importlib.import_module("app.commands.video-t2i2v")
 
 PARSER_META = {
     "help": "LTX-2.3 video generation, review, comparison, quality analysis, restoration, and VBVR",
@@ -52,7 +53,8 @@ PARSER_META = {
         "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n"
         "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
         "  relay              — Multi-segment Prompt-Relay short film + custom audio\n"
-        "  segment            — Scene detection + per-segment quality analysis\n\n"
+        "  segment            — Scene detection + per-segment quality analysis\n"
+        "  t2i2v              — ZImage T2I → VLM prompt → LTX I2V (end-to-end pipeline)\n\n"
         "Examples:\n"
         "  run.py video --test-prompt rainy-street\n"
         "  run.py video generate --test-prompt rainy-street\n"
@@ -86,8 +88,8 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         "action",
         nargs="?",
         default="generate",
-        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay", "segment"],
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', or 'segment'",
+        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay", "segment", "t2i2v"],
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'segment', or 't2i2v'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -125,6 +127,9 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Segment args: --segment-input, --threshold, --vlm-score, etc.
     _segment.add_segment_args(parser)
 
+    # T2I2V args: --t2i-transformer, --t2i-steps, --action, etc.
+    _t2i2v.add_t2i2v_args(parser)
+
 
 def run(args: "argparse.Namespace") -> None:
     # Normalize --self-test (shared nargs="*" → legacy scalar/bool form)
@@ -132,7 +137,9 @@ def run(args: "argparse.Namespace") -> None:
     normalize_self_test(args)
 
     action = getattr(args, "action", "generate") or "generate"
-    if action == "relay":
+    if action == "t2i2v":
+        _t2i2v.run_t2i2v(args)
+    elif action == "relay":
         _relay.run_relay(args)
     elif action == "segment":
         _segment.run_segment(args)
