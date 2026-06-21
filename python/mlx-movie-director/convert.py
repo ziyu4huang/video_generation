@@ -1265,7 +1265,7 @@ def _mlx_format(bits: int, group_size: int) -> str:
     return f"mlx-{bits}bit-gs{group_size}"
 
 
-def dequant_comfyui_fp8(pt_weights: dict, log_prefix: str = "convert") -> None:
+def dequant_comfyui_fp8(pt_weights: dict[str, torch.Tensor], log_prefix: str = "convert") -> None:
     """Dequantize ComfyUI FP8 weights in-place and drop FP8 metadata keys.
 
     ComfyUI FP8 stores each quantized linear as `<key>.weight` (float8_e4m3fn) +
@@ -1319,7 +1319,7 @@ def dequant_comfyui_fp8(pt_weights: dict, log_prefix: str = "convert") -> None:
 
 def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmix-redzit15",
                            source: str | None = None, source_url: str | None = None,
-                           bits: int = 4, group_size: int = 32):
+                           bits: int = 4, group_size: int = 32) -> bool:
     """Convert a third-party ZImage Turbo checkpoint (Civitai .safetensors) to MLX.
 
     bits / group_size control the output quantization (defaults 4 / 32 preserve

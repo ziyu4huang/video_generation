@@ -1,13 +1,14 @@
-"""Regression tests for app/commands/_output.py — output path utilities.
+"""Regression tests for output path utilities — path construction + naming.
 
-This module was split out of _shared.py; the logic here is CPU-pure (path
-construction + timestamp + dir creation) and never touches MLX/GPU/weights.
-Importing app.commands._output only pulls in `os`, `time`, `typing`, and
-app.config — no heavy pipelines.
+These symbols live in app/commands/_shared.py (the single source of truth).
+The logic is CPU-pure (path construction + timestamp + dir creation) and
+never touches MLX/GPU/weights. Importing app.commands._shared here only
+pulls in `os`, `time`, `typing`, and app.config — no heavy pipelines.
 
-The sibling test_shared_helpers.py covers the _duplicate_ copies still living
-in _shared.py; these tests target the _output.py module specifically (which
-otherwise stays at 0% coverage).
+The standalone app/commands/_output.py module that previously duplicated
+these symbols was removed (import-hygiene): the duplicate had drifted risk
+where a fix to _shared would not be reflected in _output, letting these
+tests pass against stale logic while production ran the other copy.
 """
 
 import os
@@ -16,7 +17,7 @@ import re
 import pytest
 
 from app import config as cfg
-from app.commands._output import (
+from app.commands._shared import (
     DEFAULT_UPSCALE_MODEL,
     RELAY_FINAL_MODE,
     OutputPaths,

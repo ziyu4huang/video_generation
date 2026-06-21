@@ -550,7 +550,11 @@ def run_profile(args):
     # Load reference image
     ref_image = None
     if input_image:
-        ref_image = Image.open(input_image).convert("RGB")
+        try:
+            with Image.open(input_image) as _im:
+                ref_image = _im.convert("RGB")
+        except (FileNotFoundError, OSError) as e:
+            raise ValueError(f"cannot read reference image {input_image}: {e}") from e
         ref_image.save(os.path.join(out_dir, "reference.png"))
         ref_note = "reference conditioning" if use_flux2 else "display only"
         print(f"Reference: {input_image} ({ref_image.width}×{ref_image.height}) — {ref_note}")
