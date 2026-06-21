@@ -298,6 +298,16 @@ def add_i2i_args(parser: argparse.ArgumentParser) -> None:
             "--denoise-strength", type=float, default=0.4, dest="denoise_strength",
             help="How much to change from source (0.0=keep, 1.0=redraw, default: 0.4)",
         )
+    # --transformer selects which flux2-klein-9b variant redraws the image
+    # (mirrors t2i's flag). RunConfig.from_args carries it through to
+    # Flux2KleinT2IPipeline(transformer_name=...). The zimage ControlNet path
+    # auto-nulls the "klein-9b" default in run_config.py, so this is a no-op there.
+    if not _arg_registered(parser, "transformer"):
+        parser.add_argument(
+            "--transformer", default="klein-9b", metavar="NAME", dest="transformer",
+            help="Transformer instance (models/transformer/<name>/) for the "
+                 "flux2-klein redraw (default: klein-9b). Ignored by zimage ControlNet.",
+        )
     # --controlnet-strength already registered by add_controlnet_args()
     # --skip-preprocess, --blur-ref, --cnet-active-steps, --scale already registered
     # No additional args needed — i2i reuses these shared flags.

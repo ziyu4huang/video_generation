@@ -10,7 +10,18 @@ import type { UnifiedCommand } from "./types";
 const PURIFY_MODE_CHOICES = [
   { value: "purify", label: "Purify — light cleanup, preserve detail (0.3)" },
   { value: "enhance", label: "Enhance — balanced (0.5)" },
+  { value: "deartifact", label: "Deartifact — stronger redraw + noise clean (0.65)" },
   { value: "redraw", label: "Redraw — reinterpret content (0.8)" },
+];
+
+// Targeted text removal (--remove). When set, this IS the operation: SAM3 detects
+// the text region and surgically inpaints it away (original pixels kept outside a
+// feathered mask). The seedvr2/transformer redraw below is skipped, so those
+// controls are hidden while a removal target is selected (see field `visible`).
+const REMOVE_CHOICES = [
+  { value: "none", label: "None" },
+  { value: "subtitle", label: "Subtitle / caption" },
+  { value: "watermark", label: "Watermark / logo" },
 ];
 
 const RESOLUTION_CHOICES = [
@@ -53,30 +64,49 @@ export const purifyCommand: UnifiedCommand = {
   isDisabled: (s) => !s.input_image,
   fields: [
     { key: "input_image", cliFlag: "--input-image", control: "image", label: "Image to Purify", required: true, section: "Input" },
-    { key: "purify_mode", cliFlag: "--purify-mode", control: "select", label: "Mode", choices: PURIFY_MODE_CHOICES, default: "enhance", section: "Purification" },
-    { key: "backend", cliFlag: "--backend", control: "select", label: "Backend", choices: BACKEND_CHOICES, default: "seedvr2", section: "Purification" },
+    // Targeted text removal (--remove). When set, this IS the operation: SAM3
+    // detects the text region and surgically inpaints it (original kept outside a
+    // feathered mask). The redraw controls below are hidden while active, since
+    // the cleaned image is the output and they'd be ignored by run.py.
+    { key: "remove", cliFlag: "--remove", control: "select", label: "Remove", choices: REMOVE_CHOICES, default: "none", section: "Targeted Removal" },
+    { key: "purify_mode", cliFlag: "--purify-mode", control: "select", label: "Mode", choices: PURIFY_MODE_CHOICES, default: "enhance", visible: (s) => (s.remove ?? "none") === "none", section: "Purification" },
+    { key: "backend", cliFlag: "--backend", control: "select", label: "Backend", choices: BACKEND_CHOICES, default: "seedvr2", visible: (s) => (s.remove ?? "none") === "none", section: "Purification" },
+    // Transformer instance for the transformer backend AND the --remove inpaint
+    // (both go through Flux2KleinT2IPipeline). Options come from the server-side
+    // purify.transformers list (flux2-klein-9b variants only).
+    { key: "transformer", cliFlag: "--transformer", control: "select", label: "Transformer", choicesFrom: "transformers", default: "klein-9b", visible: (s) => (s.remove ?? "none") !== "none" || s.backend === "transformer", section: "Purification" },
     // Prompt is transformer-backend-only (SeedVR2 is prompt-free). Visible only
-    // when backend=transformer; omitted from CLI when empty (run.py then uses a
-    // neutral quality prompt).
-    { key: "prompt", cliFlag: "--prompt", control: "text", label: "Prompt", placeholder: "Guides the transformer redraw (default: quality prompt)", visible: (s) => s.backend === "transformer", section: "Purification" },
-    { key: "resolution", cliFlag: "--resolution", control: "select", label: "Resolution", choices: RESOLUTION_CHOICES, default: "same", hint: (s, { inputDims }) => { if (!inputDims) return ""; const out = purifyOutputDims(inputDims.w, inputDims.h, (s.resolution as string) ?? "same"); return out ? `→ ${out.w}×${out.h}` : ""; }, section: "Purification" },
-    { key: "film_grain", cliFlag: "--film-grain", control: "range", label: "Film Grain", min: 0, max: 0.03, step: 0.005, default: 0, compact: true, section: "Post-Processing" },
-    { key: "sharpening", cliFlag: "--sharpening", control: "range", label: "Sharpening", min: 0, max: 0.3, step: 0.01, default: 0, compact: true, section: "Post-Processing" },
+    // when not removing and backend=transformer; omitted from CLI when empty
+    // (run.py then uses a neutral quality prompt).
+    { key: "prompt", cliFlag: "--prompt", control: "text", label: "Prompt", placeholder: "Guides the transformer redraw (default: quality prompt)", visible: (s) => (s.remove ?? "none") === "none" && s.backend === "transformer", section: "Purification" },
+    { key: "resolution", cliFlag: "--resolution", control: "select", label: "Resolution", choices: RESOLUTION_CHOICES, default: "same", visible: (s) => (s.remove ?? "none") === "none", hint: (s, { inputDims }) => { if (!inputDims) return ""; const out = purifyOutputDims(inputDims.w, inputDims.h, (s.resolution as string) ?? "same"); return out ? `→ ${out.w}×${out.h}` : ""; }, section: "Purification" },
+    { key: "film_grain", cliFlag: "--film-grain", control: "range", label: "Film Grain", min: 0, max: 0.03, step: 0.005, default: 0, compact: true, visible: (s) => (s.remove ?? "none") === "none", section: "Post-Processing" },
+    { key: "sharpening", cliFlag: "--sharpening", control: "range", label: "Sharpening", min: 0, max: 0.3, step: 0.01, default: 0, compact: true, visible: (s) => (s.remove ?? "none") === "none", section: "Post-Processing" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Post-Processing" },
     // NOTE: --softness-override (advanced; overrides the mode preset) is
     // intentionally omitted — a default 0 would silently override the chosen
     // mode's softness. Power users can pass it via CLI.
   ],
-  buildParams: (s) => ({
-    input_image: s.input_image,
-    purify_mode: s.purify_mode ?? "enhance",
-    backend: s.backend ?? "seedvr2",
-    // Prompt only meaningful for the transformer backend; omit otherwise so
-    // seedvr2 runs unaffected.
-    prompt: s.backend === "transformer" ? s.prompt : undefined,
-    resolution: s.resolution ?? "same",
-    film_grain: s.film_grain,
-    sharpening: s.sharpening,
-    seed: s.seed,
-  }),
+  buildParams: (s) => {
+    const removing = (s.remove ?? "none") !== "none";
+    return {
+      input_image: s.input_image,
+      remove: s.remove ?? "none",
+      // Mode/backend/resolution/film_grain/sharpening are no-ops when removing
+      // (run.py short-circuits to the inpaint path), but we still emit them so a
+      // user who toggles Remove off gets their prior redraw settings back.
+      purify_mode: s.purify_mode ?? "enhance",
+      backend: s.backend ?? "seedvr2",
+      // Transformer drives both the transformer redraw and the remove inpaint;
+      // only emit it when one of those paths is active.
+      transformer: removing || s.backend === "transformer" ? (s.transformer ?? "klein-9b") : undefined,
+      // Prompt only meaningful for the transformer backend (not remove); omit
+      // otherwise so seedvr2 / remove runs are unaffected.
+      prompt: !removing && s.backend === "transformer" ? s.prompt : undefined,
+      resolution: s.resolution ?? "same",
+      film_grain: s.film_grain,
+      sharpening: s.sharpening,
+      seed: s.seed,
+    };
+  },
 };
