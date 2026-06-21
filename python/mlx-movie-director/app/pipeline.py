@@ -81,6 +81,27 @@ def load_sharded_weights(model_path: str) -> dict[str, mx.array]:
     return weights
 
 
+def _detect_transformer_quant(trans_path: str) -> tuple[int, int]:
+    """Read manifest.json to detect quantization bits and group_size.
+
+    Returns (bits, group_size). Falls back to (4, 32) if manifest is missing
+    or format is unrecognised — preserving backward compatibility with the
+    existing moody-v126 and dark-beast models.
+    """
+    manifest_path = os.path.join(trans_path, "manifest.json")
+    if os.path.exists(manifest_path):
+        try:
+            with open(manifest_path) as f:
+                fmt = json.load(f).get("format", "")
+            if fmt == "mlx-8bit":
+                return 8, 64
+            if fmt in ("mlx-4bit-gs32", "mlx-4bit"):
+                return 4, 32
+        except Exception:
+            pass
+    return 4, 32  # backward-compatible default
+
+
 def _latent_upscale(latent_mx: mx.array, scale_factor: float) -> mx.array:
     """Bilinear upscale of latent tensor in spatial dims (keeps even dims for patchify)."""
     # MLX-native bilinear upscale using mx.nn.Upsample
@@ -353,18 +374,22 @@ class ZImagePipeline:
                   f"strength={seed_variance_strength}, switch at step {cutoff}/{steps}")
 
         # ----------------------------------------------------------------
-        # [Phase 2] Transformer Loading (4-bit)
+        # [Phase 2] Transformer Loading (quant params from manifest.json)
         # ----------------------------------------------------------------
         t_start = time.time()
         trans_path = self._transformer_dir
         trans_name = os.path.basename(trans_path)
-        print(f"[Phase 2] Loading Transformer '{trans_name}' (4-bit GS32)...", end=" ", flush=True)
+
+        # Detect quantization from manifest.json; fall back to 4-bit GS32
+        quant_bits, quant_gs = _detect_transformer_quant(trans_path)
+        print(f"[Phase 2] Loading Transformer '{trans_name}' ({quant_bits}-bit GS{quant_gs})...",
+              end=" ", flush=True)
 
         with open(os.path.join(trans_path, "config.json"), "r") as f:
             config = json.load(f)
 
         model = ZImageTransformerMLX(config)
-        nn.quantize(model, bits=4, group_size=32)
+        nn.quantize(model, bits=quant_bits, group_size=quant_gs)
 
         if os.path.exists(os.path.join(trans_path, "model.safetensors.index.json")):
             weights = load_sharded_weights(trans_path)
@@ -410,7 +435,7 @@ class ZImagePipeline:
         timings["transformer_load_seconds"] = time.time() - t_start
         events.append({
             "event": "model_loaded", "target": "transformer",
-            "detail": {"quant": "4bit", "group_size": 32,
+            "detail": {"quant": f"{quant_bits}bit", "group_size": quant_gs,
                        "weights": "sharded" if os.path.exists(os.path.join(trans_path, "model.safetensors.index.json")) else "single",
                        "fused": True, "dir": trans_name},
             "seconds": timings["transformer_load_seconds"],
