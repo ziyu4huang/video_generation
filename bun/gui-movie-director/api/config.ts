@@ -45,24 +45,37 @@ export async function handlePutConfig(req: Request): Promise<Response> {
   try {
     const body = await req.json();
     const allowedKeys = ["outputDir", "modelsDir", "vlmApiUrl", "vlmModel", "pythonPath"];
-    // Validate every value up front: all config keys are strings, so reject
-    // anything else instead of casting an unvalidated Record<string, unknown>
-    // straight into AppConfig (the old `as any` path).
-    const filtered: Record<string, string> = {};
+    // Validate every value up front: all config keys are strings (or string[] for
+    // outputDir), so reject anything else instead of casting an unvalidated
+    // Record<string, unknown> straight into AppConfig (the old `as any` path).
+    const filtered: Record<string, string | string[]> = {};
     for (const key of allowedKeys) {
       if (!(key in body)) continue;
       const v = body[key];
-      if (typeof v !== "string" || v.length === 0) {
-        return Response.json({ ok: false, error: `${key} must be a non-empty string` }, { status: 400 });
+      if (key === "outputDir") {
+        // Accept either a non-empty string or a non-empty array of non-empty strings
+        if (typeof v === "string" && v.length > 0) {
+          filtered[key] = v;
+        } else if (Array.isArray(v) && v.length > 0 && v.every((s: unknown) => typeof s === "string" && (s as string).length > 0)) {
+          filtered[key] = v as string[];
+        } else {
+          return Response.json({ ok: false, error: "outputDir must be a non-empty string or non-empty array of strings" }, { status: 400 });
+        }
+      } else {
+        if (typeof v !== "string" || v.length === 0) {
+          return Response.json({ ok: false, error: `${key} must be a non-empty string` }, { status: 400 });
+        }
+        filtered[key] = v;
       }
-      filtered[key] = v;
     }
-    if (filtered.pythonPath && !validatePythonPath(filtered.pythonPath)) {
+    const filteredPythonPath = filtered.pythonPath as string | undefined;
+    const filteredVlmApiUrl = filtered.vlmApiUrl as string | undefined;
+    if (filteredPythonPath && !validatePythonPath(filteredPythonPath)) {
       return Response.json({ ok: false, error: "Invalid pythonPath" }, { status: 400 });
     }
-    if (filtered.vlmApiUrl) {
+    if (filteredVlmApiUrl) {
       let parsed: URL;
-      try { parsed = new URL(filtered.vlmApiUrl); } catch {
+      try { parsed = new URL(filteredVlmApiUrl); } catch {
         return Response.json({ ok: false, error: "Invalid vlmApiUrl" }, { status: 400 });
       }
       // SSRF guard: vlmApiUrl is server-fetched by /api/vlm/test, so it must

@@ -30,8 +30,9 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
     setTesting(true);
     setTestResult(null);
     try {
-      // Save config first so the test uses current values
-      await putConfig(config);
+      // Save only VLM fields so the test uses current values without risking
+      // outputDir array serialisation failures in the full-config path.
+      await putConfig({ vlmApiUrl: config.vlmApiUrl, vlmModel: config.vlmModel });
       setTestResult(await testVlm());
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || "Test failed" });
