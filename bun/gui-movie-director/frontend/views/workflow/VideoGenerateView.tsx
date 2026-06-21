@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import type { ViewDescriptor } from "../registry";
 import { CommandViewShell } from "../../components/CommandViewShell";
 import { TextField, NumberField, RangeField, ToggleField } from "../../components/FieldComponents";
@@ -8,6 +8,47 @@ import { useCommandJob } from "../../hooks/useCommandJob";
 import { VideoLoraSection } from "./VideoLoraSection";
 
 type VideoMode = "t2v" | "i2v" | "a2v" | "flf2v";
+
+/**
+ * Port of Python _fit_to_image: find the best 64-aligned (w, h) that matches
+ * imgW/imgH aspect ratio, staying within 90–120% of the budgetW×budgetH
+ * pixel budget. Mirrors video-generate.py _fit_to_image exactly.
+ */
+function fitToImage(imgW: number, imgH: number, budgetW: number, budgetH: number): [number, number] {
+  const imgRatio = imgW / imgH;
+  const ratioDiff = Math.abs(imgRatio - budgetW / budgetH) / Math.max(imgRatio, budgetW / budgetH);
+  if (ratioDiff < 0.03) return [budgetW, budgetH];
+
+  const pixelBudget = budgetW * budgetH;
+  const baseW = Math.max(64, Math.round(Math.sqrt(pixelBudget * imgRatio) / 64) * 64);
+  const baseH = Math.max(64, Math.round(Math.sqrt(pixelBudget / imgRatio) / 64) * 64);
+
+  const candidates: [number, number][] = [];
+  for (const w of [baseW - 64, baseW, baseW + 64]) {
+    for (const h of [baseH - 64, baseH, baseH + 64]) {
+      if (w >= 64 && h >= 64 && pixelBudget * 0.90 <= w * h && w * h <= pixelBudget * 1.20) {
+        candidates.push([w, h]);
+      }
+    }
+  }
+  if (candidates.length === 0) return [baseW, baseH];
+  return candidates.reduce((best, cur) =>
+    Math.abs(cur[0] / cur[1] - imgRatio) < Math.abs(best[0] / best[1] - imgRatio) ? cur : best
+  );
+}
+
+/**
+ * Port of Python _fit_to_dual_images: uses geometric mean of both aspect
+ * ratios as the target. Mirrors video-generate.py _fit_to_dual_images.
+ */
+function fitToDualImages(
+  img1W: number, img1H: number,
+  img2W: number, img2H: number,
+  budgetW: number, budgetH: number,
+): [number, number] {
+  const avgRatio = Math.sqrt((img1W / img1H) * (img2W / img2H));
+  return fitToImage(Math.round(avgRatio * 1000), 1000, budgetW, budgetH);
+}
 
 const MODE_OPTIONS: { value: VideoMode; label: string; desc: string }[] = [
   { value: "t2v", label: "T2V", desc: "Text → Video" },
@@ -25,6 +66,38 @@ export function VideoGenerateView() {
   const { state, setField, job, loading, progress, handleJobStart, handleCancel, submit, error, setError } =
     useCommandJob("video-generate", "video generate", "video-generate", FALLBACK_DEFAULTS);
   const [mode, setMode] = useState<VideoMode>("t2v");
+
+  // Track FLF2V image dims so we can fit when both are available
+  const flfBeginDims = useRef<[number, number] | null>(null);
+  const flfEndDims = useRef<[number, number] | null>(null);
+
+  const applyFit = (w: number, h: number) => {
+    setField("width", w);
+    setField("height", h);
+  };
+
+  const handleI2VImageDims = (imgW: number, imgH: number) => {
+    const [w, h] = fitToImage(imgW, imgH, state.width ?? 704, state.height ?? 448);
+    applyFit(w, h);
+  };
+
+  const handleBeginImageDims = (imgW: number, imgH: number) => {
+    flfBeginDims.current = [imgW, imgH];
+    if (flfEndDims.current) {
+      const [ew, eh] = flfEndDims.current;
+      const [w, h] = fitToDualImages(imgW, imgH, ew, eh, state.width ?? 704, state.height ?? 448);
+      applyFit(w, h);
+    }
+  };
+
+  const handleEndImageDims = (imgW: number, imgH: number) => {
+    flfEndDims.current = [imgW, imgH];
+    if (flfBeginDims.current) {
+      const [bw, bh] = flfBeginDims.current;
+      const [w, h] = fitToDualImages(bw, bh, imgW, imgH, state.width ?? 704, state.height ?? 448);
+      applyFit(w, h);
+    }
+  };
 
   const handleQualityToggle = (key: string, value: boolean) => {
     if (value) {
@@ -127,7 +200,11 @@ export function VideoGenerateView() {
         {mode === "i2v" && (
           <div className="form-group">
             <label>Source Image *{state.input_image && " ✅"}</label>
-            <FileUpload value={state.input_image ?? null} onChange={(v) => setField("input_image", v)} />
+            <FileUpload
+              value={state.input_image ?? null}
+              onChange={(v) => setField("input_image", v)}
+              onImageDimensions={handleI2VImageDims}
+            />
           </div>
         )}
         {mode === "a2v" && (
@@ -141,11 +218,19 @@ export function VideoGenerateView() {
             <div className="form-row">
               <div className="form-group">
                 <label>First Frame *{state.begin_image && " ✅"}</label>
-                <FileUpload value={state.begin_image ?? null} onChange={(v) => setField("begin_image", v)} />
+                <FileUpload
+                  value={state.begin_image ?? null}
+                  onChange={(v) => setField("begin_image", v)}
+                  onImageDimensions={handleBeginImageDims}
+                />
               </div>
               <div className="form-group">
                 <label>Last Frame *{state.end_image && " ✅"}</label>
-                <FileUpload value={state.end_image ?? null} onChange={(v) => setField("end_image", v)} />
+                <FileUpload
+                  value={state.end_image ?? null}
+                  onChange={(v) => setField("end_image", v)}
+                  onImageDimensions={handleEndImageDims}
+                />
               </div>
             </div>
             <div className="form-row">
@@ -157,6 +242,11 @@ export function VideoGenerateView() {
       </FormSection>
 
       <FormSection title="Generation">
+        {(mode === "i2v" && state.input_image) || (mode === "flf2v" && (state.begin_image || state.end_image)) ? (
+          <div style={{ fontSize: 11, color: "var(--accent)", marginBottom: 6 }}>
+            ↕ Resolution auto-fitted to image aspect ratio — override below if needed
+          </div>
+        ) : null}
         <div className="form-row">
           <NumberField label="Width" value={state.width} onChange={(v) => setField("width", v)} min={256} max={2048} step={64} />
           <NumberField label="Height" value={state.height} onChange={(v) => setField("height", v)} min={256} max={2048} step={64} />

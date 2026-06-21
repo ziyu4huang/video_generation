@@ -5,10 +5,12 @@ import { uploadFile } from "../api/upload";
 interface FileUploadProps {
   value: string | null;
   onChange: (path: string | null) => void;
+  /** Called with (naturalWidth, naturalHeight) of the selected image before upload. */
+  onImageDimensions?: (w: number, h: number) => void;
   multiple?: boolean;
 }
 
-export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
+export function FileUpload({ value, onChange, onImageDimensions, multiple }: FileUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -18,6 +20,16 @@ export function FileUpload({ value, onChange, multiple }: FileUploadProps) {
   const handleUpload = async (file: File) => {
     setUploading(true);
     setError(null);
+
+    // Read image dimensions before upload so the caller can auto-fit resolution
+    if (onImageDimensions && file.type.startsWith("image/")) {
+      const url = URL.createObjectURL(file);
+      const img = new window.Image();
+      img.onload = () => { onImageDimensions(img.naturalWidth, img.naturalHeight); URL.revokeObjectURL(url); };
+      img.onerror = () => URL.revokeObjectURL(url);
+      img.src = url;
+    }
+
     try {
       const data = await uploadFile(file);
       if (data.path) {

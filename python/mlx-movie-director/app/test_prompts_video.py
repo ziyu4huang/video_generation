@@ -15,6 +15,15 @@ Usage:
   run.py video --test-prompt beach-walk
   run.py video --test-prompt beach-walk --variations 4 --ab-params '...'
   run.py video --test-prompt beach-walk --frames 49   # override default frames
+
+I2V workflow (dasiwa + ZImage portrait):
+  # Step 1: generate portrait with ZImage/Klein
+  run.py image t2i --pipeline zimage --prompt "..." --seed 42 --width 576 --height 768
+  # Step 2: animate with dasiwa I2V
+  run.py video generate --transformer dasiwa \\
+      --input-image <output.png> \\
+      --test-prompt portrait-voice   # or portrait-i2v
+  # Note: dasiwa auto-enables --hq, cfg=5.0, stg=1.5, stage1=20, stage2=5
 """
 
 VIDEO_TEST_PROMPTS = {
@@ -360,6 +369,80 @@ VIDEO_TEST_PROMPTS = {
             "stg_scale": 1.0,
             "stage1_steps": 16,
             "stage2_steps": 3,
+        },
+    },
+
+    # --- I2V / portrait prompts (optimised for --input-image + dasiwa) ---
+    # These run as T2V when no --input-image is given (useful for baseline).
+    # Portrait ratio 576×768 matches typical ZImage/Klein output dimensions.
+    # Pair with: run.py image t2i --pipeline zimage --width 576 --height 768
+
+    "portrait-voice": {
+        "name": "portrait-voice",
+        "description": (
+            "Close-up portrait — woman speaks warmly, subtle animation. "
+            "Designed for dasiwa I2V: use --input-image <zimage_output.png> "
+            "for best results (576×768 portrait ratio)."
+        ),
+        "prompt": (
+            "Style: cinematic realism. "
+            "Close-up of a young woman framed from the shoulders up. She sits in "
+            "a softly lit room with a warm cream wall slightly out of focus behind "
+            "her. She looks directly into the camera with calm, expressive eyes. "
+            "She inhales gently — a quiet, natural breath — then says warmly and "
+            "clearly, \"Every day is a chance to begin again.\" Her voice is soft, "
+            "unhurried, and warm, with natural breath between words. She pauses, a "
+            "faint smile forming at the corners of her mouth, and her eyes soften "
+            "slightly. Her head inclines very subtly to the right. The room is "
+            "nearly silent — only faint ambient room tone, the soft sound of her "
+            "breathing, and the distant hum of a quiet building. Soft diffused "
+            "window light from the left illuminates her face with warm, gentle "
+            "highlights. Her skin texture, hair detail, and expression remain "
+            "sharp throughout. The mood is intimate, serene, and unhurried."
+        ),
+        "defaults": {
+            "frames": 65,
+            "width": 576,
+            "height": 768,
+            "fps": 24.0,
+            "stage1_steps": 20,
+            "stage2_steps": 5,
+        },
+    },
+
+    "portrait-i2v": {
+        "name": "portrait-i2v",
+        "description": (
+            "Portrait animation — subtle breathing, eye movement, ambient light shift. "
+            "Designed for dasiwa I2V: provide --input-image <zimage_output.png> "
+            "to bring a still portrait to life (576×768 portrait ratio). "
+            "No dialog — pure visual motion for quality testing."
+        ),
+        "prompt": (
+            "Style: cinematic realism. "
+            "A close-up portrait of a person framed from the shoulders up, "
+            "photographed against a softly blurred background. The subject faces "
+            "slightly to the left, eyes alert and expressive. Their chest rises "
+            "and falls with slow, natural breathing — a subtle rhythm visible in "
+            "the movement of their shoulders and collarbone. Their eyes blink "
+            "naturally once, then shift their gaze a few degrees to the right, "
+            "a quiet, thoughtful movement. Fine hair strands near the temple lift "
+            "very slightly in a faint breeze and settle. The light — soft, "
+            "directional, from the upper left — shifts almost imperceptibly as "
+            "though a thin cloud passed outside, briefly softening the highlights "
+            "on their cheek before returning. The ambient sound is pure room "
+            "silence: faint low-frequency hum, the almost-inaudible sound of "
+            "breathing, and the deep quiet of an interior space. No music. No "
+            "dialog. The motion is minimal and lifelike — the stillness of a "
+            "portrait photograph becoming a living, breathing moment."
+        ),
+        "defaults": {
+            "frames": 49,
+            "width": 576,
+            "height": 768,
+            "fps": 24.0,
+            "stage1_steps": 20,
+            "stage2_steps": 5,
         },
     },
 }

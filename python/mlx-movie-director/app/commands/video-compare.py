@@ -29,11 +29,15 @@ _RUN_PY = os.path.normpath(
 # ---------------------------------------------------------------------------
 
 PIPELINE_MATRIX = {
+    # Each entry: flags, cfg_scale, stg_scale, stage1_steps_override,
+    # stage2_steps_override, use_image, label, description, color.
+    # None for steps_override means "inherit from CLI --stage1/2-steps".
     "i2v": {
         "flags": [],
         "cfg_scale": 5.0,
         "stg_scale": 1.0,
-        "stage1_steps_override": None,  # inherit from --stage1-steps
+        "stage1_steps_override": None,
+        "stage2_steps_override": None,
         "use_image": True,
         "label": "I2V",
         "description": "Standard I2V — dev + CFG + spatial 2x",
@@ -44,19 +48,21 @@ PIPELINE_MATRIX = {
         "cfg_scale": 1.0,
         "stg_scale": 0.0,
         "stage1_steps_override": 8,
+        "stage2_steps_override": 3,
         "use_image": True,
         "label": "Distilled-I2V",
-        "description": "Distilled I2V — fast, 8 steps, no CFG",
+        "description": "Distilled I2V — fast, 8+3 steps, no CFG",
         "color": "purple",
     },
     "hq-i2v": {
         "flags": ["--hq"],
         "cfg_scale": 5.0,
         "stg_scale": 1.0,
-        "stage1_steps_override": None,
+        "stage1_steps_override": 20,
+        "stage2_steps_override": None,
         "use_image": True,
         "label": "HQ-I2V",
-        "description": "HQ I2V — res_2s + CFG (slowest, best quality)",
+        "description": "HQ I2V — res_2s + CFG=5, 20 steps (best quality)",
         "color": "gold",
     },
     "t2v": {
@@ -64,6 +70,7 @@ PIPELINE_MATRIX = {
         "cfg_scale": 5.0,
         "stg_scale": 1.0,
         "stage1_steps_override": None,
+        "stage2_steps_override": None,
         "use_image": False,
         "label": "T2V",
         "description": "Standard T2V — text only, no reference image",
@@ -74,20 +81,44 @@ PIPELINE_MATRIX = {
         "cfg_scale": 1.0,
         "stg_scale": 0.0,
         "stage1_steps_override": 8,
+        "stage2_steps_override": 3,
         "use_image": False,
         "label": "Distilled-T2V",
-        "description": "Distilled T2V — fast, 8 steps, no CFG",
+        "description": "Distilled T2V — fast, 8+3 steps, no CFG",
         "color": "purple",
     },
     "hq-t2v": {
         "flags": ["--hq"],
         "cfg_scale": 5.0,
         "stg_scale": 1.0,
-        "stage1_steps_override": None,
+        "stage1_steps_override": 20,
+        "stage2_steps_override": None,
         "use_image": False,
         "label": "HQ-T2V",
-        "description": "HQ T2V — res_2s + CFG, text only",
+        "description": "HQ T2V — res_2s + CFG=5, 20 steps, text only",
         "color": "gold",
+    },
+    "dasiwa-i2v": {
+        "flags": ["--transformer", "dasiwa", "--hq"],
+        "cfg_scale": 5.0,
+        "stg_scale": 1.5,
+        "stage1_steps_override": 20,
+        "stage2_steps_override": 5,   # A/B-optimum: 5>3
+        "use_image": True,
+        "label": "DaSiWa-I2V",
+        "description": "DaSiWa Golden Lace v3 I2V — HQ + CFG=5 + STG=1.5, 20+5 steps",
+        "color": "teal",
+    },
+    "dasiwa-t2v": {
+        "flags": ["--transformer", "dasiwa", "--hq"],
+        "cfg_scale": 5.0,
+        "stg_scale": 1.5,
+        "stage1_steps_override": 20,
+        "stage2_steps_override": 5,
+        "use_image": False,
+        "label": "DaSiWa-T2V",
+        "description": "DaSiWa Golden Lace v3 T2V — HQ + CFG=5 + STG=1.5, 20+5 steps",
+        "color": "teal",
     },
 }
 
@@ -351,9 +382,11 @@ def _print_plan(args, selected, video_prompt_raw):
     print(f"  Resolution:    {args.width}x{args.height}")
     print(f"\n  Pipelines ({len(selected)}):")
     for name, pcfg in selected:
-        steps = pcfg["stage1_steps_override"] or args.stage1_steps
+        s1 = pcfg["stage1_steps_override"] or getattr(args, "stage1_steps", 8)
+        s2 = pcfg.get("stage2_steps_override") or getattr(args, "stage2_steps", None)
+        steps_str = f"stage1={s1}" + (f"+stage2={s2}" if s2 else "")
         img_tag = " + image" if pcfg["use_image"] and (source or needs_img) else ""
-        print(f"    [{pcfg['label']}] {pcfg['description']}{img_tag}  (stage1={steps}, cfg={pcfg['cfg_scale']})")
+        print(f"    [{pcfg['label']}] {pcfg['description']}{img_tag}  ({steps_str}, cfg={pcfg['cfg_scale']})")
     print()
 
 
@@ -445,11 +478,10 @@ def _run_pipeline_subprocess(
     """Run one video pipeline via subprocess, return new manifest path or None."""
     label = pcfg["label"]
     stage1_steps = pcfg["stage1_steps_override"] or getattr(args, "stage1_steps", 8)
+    stage2_steps = pcfg.get("stage2_steps_override") or getattr(args, "stage2_steps", None)
     needs_image = pcfg["use_image"] and image_path
 
-    n = step
-    total = total
-    print(f"\n[compare] Pipeline {n}/{total} [{label}]: {pcfg['description']}")
+    print(f"\n[compare] Pipeline {step}/{total} [{label}]: {pcfg['description']}")
 
     before = set(glob.glob(os.path.join(cfg.OUTPUT_DIR, "*.manifest.json")))
 
@@ -467,6 +499,9 @@ def _run_pipeline_subprocess(
         "--caption",
         "--yes",
     ) + pcfg["flags"]
+
+    if stage2_steps is not None:
+        cmd += ["--stage2-steps", str(stage2_steps)]
 
     if needs_image:
         cmd += ["--input-image", image_path]
