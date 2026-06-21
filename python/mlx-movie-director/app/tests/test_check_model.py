@@ -168,3 +168,55 @@ def test_missing_readme_is_an_error(tmp_path):
     _make_instance(tmp_path, "noreadme", with_readme=False)
     result = _run(tmp_path)
     assert any("README.md" in e for e in result["errors"])
+
+
+# ── Git-tracking invariant (the *.safetensors silent-skip backstop) ───────────
+# Regression for the 3d0c39b bug class: a weight symlink that exists on disk but
+# is not git-tracked ships a manifest with no weights to every other worktree.
+# `*.safetensors` is gitignored, so `git add` silently skips the symlink —
+# check #14b is the only thing that catches a forgotten `git add -f`.
+
+
+def test_git_tracking_context_resolves_real_repo():
+    """The helper returns the real repo toplevel + a tracked-path set that
+    contains a known-committed symlink (luciddreamer-z, commit dfdbf71) and
+    excludes a fabricated path."""
+    toplevel, tracked = check_model._git_tracking_context(check_model.cfg.MODELS_DIR)
+    assert toplevel is not None, "must resolve a git toplevel inside the repo"
+    assert tracked is not None, "must list tracked paths under models/"
+    committed = "python/mlx-movie-director/models/transformer/luciddreamer-z/model.safetensors"
+    assert committed in tracked, f"committed symlink missing from tracked set: {committed}"
+    fabricated = "python/mlx-movie-director/models/transformer/never-existed/model.safetensors"
+    assert fabricated not in tracked
+
+
+def test_git_tracking_context_none_outside_repo(tmp_path):
+    """Outside a git worktree the helper returns (None, None) so check #14b
+    degrades to a no-op — never a false positive in a standalone install."""
+    toplevel, tracked = check_model._git_tracking_context(str(tmp_path))
+    assert toplevel is None
+    assert tracked is None
+
+
+def test_untracked_weight_symlink_flagged(monkeypatch, tmp_path):
+    """check #14b: a weight symlink on disk but NOT in git's index is an error
+    that names the exact fix (`git add -f <relpath>`). Monkeypatch the tracking
+    context so the test is independent of the real repo's git state."""
+    inst = _make_instance(tmp_path, "leak", with_weight=False)
+    # Replace the placeholder weight with a symlink whose TARGET EXISTS (so
+    # _has_weight_file's os.path.exists finds it, matching the real bug where
+    # the store blob is present but the link is uncommitted).
+    blob = tmp_path / "blob.safetensors"
+    blob.write_bytes(b"\0" * 4096)
+    sf = inst / "model.safetensors"
+    sf.unlink(missing_ok=True)
+    sf.symlink_to(blob)
+    # Pretend git tracks nothing under tmp_path → the symlink is untracked.
+    monkeypatch.setattr(
+        check_model, "_git_tracking_context",
+        lambda models_dir: (str(tmp_path), set()),
+    )
+    result = _run(tmp_path)
+    flagged = [e for e in result["errors"] if "NOT git-tracked" in e]
+    assert flagged, "untracked weight symlink must produce a tracking error"
+    assert any("git add -f" in e for e in flagged), "error must name the fix"
