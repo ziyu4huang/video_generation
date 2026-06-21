@@ -47,7 +47,8 @@ python/venv/bin/python python/mlx-movie-director/run.py <args>
 
 (The FP8 `--supports-fp8-compute` patch, the Triton/decord stub, and the
 Face DetailerForEach bypass were ComfyUI-runtime concerns — see the deprecated
-section. `scripts/install_stubs.sh` is part of that abandoned path.)
+section. The Triton/decord stub installer and the ComfyUI bench scripts were
+removed with the abandoned ComfyUI path.)
 
 ## Startup
 
@@ -152,7 +153,6 @@ ComfyUI/                              # DEPRECATED submodule (abandoned)
 comfyui_data/custom_nodes/            # DEPRECATED (ComfyUI clones, gitignored)
 comfyui_data/user/default/workflows/  # DEPRECATED ComfyUI workflow JSONs
 patches/comfyui/                      # DEPRECATED git patches (applied by the removed run.sh)
-scripts/install_stubs.sh              # triton + decord stubs for the abandoned ComfyUI venv
 ```
 
 ## Known Issues & Fixes

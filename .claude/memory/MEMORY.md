@@ -19,7 +19,7 @@ Face/head swap workflow: PainterFluxImageEdit takes source person → bald gener
 |---|---|
 | No FP8 compute | `--supports-fp8-compute` → ValueError on MPS |
 | No CUDA attention | SageAttention ❌, Flash Attention ❌ — SDPA only |
-| Triton is stub | `scripts/install_stubs.sh` — import works, kernels don't |
+| Triton is stub | import works, kernels don't (ComfyUI-era; install script removed) |
 | No FP8 models | All safetensors must be bf16/fp16 |
 | SeedVR2 settings | device=mps, offload_device=none, cache_model=False, attention_mode=sdpa |
 | Face Detailer | Bypassed — MPS VAE INT_MAX tensor dim limit |
