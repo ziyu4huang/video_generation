@@ -41,7 +41,7 @@ export interface KnowledgeRecord {
     denoising_seconds?: number;
     avg_step_seconds?: number;
     step_count?: number;
-    transformer_model?: string;   // model dir basename, e.g. "zimage-moody-v126"
+    transformer_model?: string;   // model dir basename, e.g. "moody-pro-mix"
   } | null;
   caption: ReviewCaption | null;
   hasCaption: boolean;

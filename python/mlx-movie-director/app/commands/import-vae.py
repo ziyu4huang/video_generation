@@ -640,7 +640,7 @@ def _write_manifest(*, target_dir: str, name: str, description: str,
         "format": "mlx-bf16",
         "description": description,
         "source": source_url or "imported via import-vae",
-        "compatible_with": ["transformer/zimage-moody-v126"],
+        "compatible_with": ["transformer/moody-pro-mix"],
         "pipeline": ["zimage-turbo"],
         "cli": {
             "action": "image t2i",
@@ -833,5 +833,5 @@ def _print_summary(name: str, target_dir: str, description: str, source_url: str
         print(f"  Source:     {source_url}")
     print()
     print(f"Validate: run.py check-model")
-    print(f"Test:     run.py image t2i --pipeline zimage --transformer zimage-moody-v126 \\")
+    print(f"Test:     run.py image t2i --pipeline zimage --transformer moody-pro-mix \\")
     print(f"            --vae {name} --prompt 'a test image'")

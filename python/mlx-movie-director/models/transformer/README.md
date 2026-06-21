@@ -8,9 +8,9 @@ Core denoising transformer models (e.g. Z-Image, Flux). Each sub-directory is on
 
 | Directory | CLI command | Notes |
 |-----------|-------------|-------|
-| `zimage-moody-v126/` | `image t2i --pipeline zimage` | Default — no `--transformer` needed |
-| `dark-beast-dbzit9/` | `image t2i --pipeline zimage --transformer dark-beast-dbzit9` | Dark Beast ZIT9 DIMR finetune |
-| `ernie-redmix-redzit15/` | `image t2i --pipeline zimage --transformer ernie-redmix-redzit15` | Ernie Redmix ZIT15 finetune |
+| `moody-pro-mix/` | `image t2i --pipeline zimage` | Default — no `--transformer` needed. Moody Pro Mix ZIT V13, 8-bit MLX |
+| `dark-beast-dbzit9/` | `image t2i --pipeline zimage --transformer dark-beast-dbzit9` | Dark Beast ZIT9 DIMR finetune, 8-bit MLX |
+| `ernie-redmix-redzit15/` | `image t2i --pipeline zimage --transformer ernie-redmix-redzit15` | Ernie Redmix ZIT15 finetune (4-bit; provenance unresolved) |
 
 ### Flux2 Klein (`--pipeline flux2-klein`)
 

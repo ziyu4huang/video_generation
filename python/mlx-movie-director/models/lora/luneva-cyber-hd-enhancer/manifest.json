@@ -7,7 +7,7 @@
   "description": "Luneva Cyber HD Enhancer: ZImageTurbo LoRA R128, 21000 steps at 1536px — detail/HD enhancer",
   "source": "civitai/luneva-cyber-hd-enhancer",
   "compatible_with": [
-    "transformer/zimage-moody-v126"
+    "transformer/moody-pro-mix"
   ],
   "size_bytes": 680327016,
   "created_at": "2026-06-17T20:10:00Z",

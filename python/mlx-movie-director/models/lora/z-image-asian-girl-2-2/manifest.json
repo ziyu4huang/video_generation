@@ -7,7 +7,7 @@
   "description": "Z-Image-Asian girl 2（小红书女孩2） v1.0",
   "source": "civitai/z-image-asian-girl-2-2",
   "compatible_with": [
-    "transformer/zimage-moody-v126"
+    "transformer/moody-pro-mix"
   ],
   "size_bytes": 170128232,
   "created_at": "2026-06-18T15:15:19Z",

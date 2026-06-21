@@ -7,7 +7,7 @@
   "description": "Midjourney Luneva Cinematic Lora LORA: R128-5000step",
   "source": "civitai/midjourney-luneva-cinematic-lora",
   "compatible_with": [
-    "transformer/zimage-moody-v126"
+    "transformer/moody-pro-mix"
   ],
   "size_bytes": 680326960,
   "created_at": "2026-06-16T13:15:32Z",

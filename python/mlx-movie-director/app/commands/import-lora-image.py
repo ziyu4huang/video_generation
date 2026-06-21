@@ -68,7 +68,7 @@ PARSER_META = {
 ARCH_METADATA = {
     "zimage-turbo": {
         "pipeline": ["zimage-turbo"],
-        "compatible_with": ["transformer/zimage-moody-v126"],
+        "compatible_with": ["transformer/moody-pro-mix"],
     },
     "zimage-base": {
         "pipeline": ["zimage-turbo"],

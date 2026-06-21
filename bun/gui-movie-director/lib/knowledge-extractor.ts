@@ -103,7 +103,7 @@ export function scanOutputDirs(): KnowledgeRecord[] {
             const avgStep = stepTimes.length
               ? stepTimes.reduce((a: number, b: number) => a + b, 0) / stepTimes.length
               : undefined;
-            // transformer model identity = its containing dir basename (e.g. "zimage-moody-v126")
+            // transformer model identity = its containing dir basename (e.g. "moody-pro-mix")
             const txPath: string | undefined = mf?.models?.transformer?.path;
             const txModel = txPath ? path.basename(path.dirname(txPath)) : undefined;
             return {
@@ -254,7 +254,7 @@ function formatRecord(rec: KnowledgeRecord, index: number): string {
   const extraLine = extras.length ? ` | ${extras.join(", ")}` : "";
 
   // Perf profile from the manifest — lets knowledge correlate model/time/memory
-  // with quality (e.g. "moody-v126 + 12 steps = 16s / 7.8GB, scored 9").
+  // with quality (e.g. "moody-pro-mix + 12 steps = 16s / 7.8GB, scored 9").
   const mf = rec.manifest;
   const perfParts: string[] = [];
   if (mf) {

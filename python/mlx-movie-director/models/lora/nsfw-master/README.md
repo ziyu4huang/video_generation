@@ -40,7 +40,7 @@ Scale behaves **opposite** for SFW vs NSFW content:
 the base model's distribution toward SFW-style output. At scale=1.0 it fully activates
 and produces NSFW-appropriate results matching the base model's SFW quality level.
 
-> Note: skin oversmoothing (detail≈5–6) is a **base model (zimage-moody-v126) characteristic**,
+> Note: skin oversmoothing (detail≈5–6) is a **4-bit zimage base-model characteristic**,
 > not caused by this LoRA. Without LoRA, NSFW content scores detail=4; with LoRA at 1.0, detail=5.
 
 ## Usage

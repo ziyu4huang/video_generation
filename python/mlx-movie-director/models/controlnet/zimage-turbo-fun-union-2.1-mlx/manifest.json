@@ -8,7 +8,7 @@
   "source": "alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
   "source_url": "https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1",
   "pipeline": ["zimage-turbo"],
-  "compatible_with": ["transformer/zimage-moody-v126"],
+  "compatible_with": ["transformer/moody-pro-mix"],
   "size_bytes": 631166339,
   "created_at": "2026-06-13T00:00:00Z",
   "converted_from": {

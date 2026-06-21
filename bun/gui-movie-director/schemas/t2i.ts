@@ -13,7 +13,7 @@ export const t2iCommand: UnifiedCommand = {
     // run.py (serverDefaults.transformers) — never hardcoded — and filtered by the
     // selected pipeline. Per-transformer built-in params (e.g. dark-beast-dbzit9 →
     // cfg_scale 3.0) are applied on selection via serverDefaults.transformer_defaults.
-    { key: "transformer", cliFlag: "--transformer", control: "select", choicesFrom: "transformers", label: "Transformer", default: "zimage-moody-v126", section: "Generation", visible: (s) => s.pipeline === "zimage" || s.pipeline === "flux2-klein" || s.pipeline === "auto" },
+    { key: "transformer", cliFlag: "--transformer", control: "select", choicesFrom: "transformers", label: "Transformer", default: "moody-pro-mix", section: "Generation", visible: (s) => s.pipeline === "zimage" || s.pipeline === "flux2-klein" || s.pipeline === "auto" },
     // Resolution picker — a "WxH" key (UI-only, no CLI flag). The key expands to
     // width/height, which is what run.py receives. Switching pipeline auto-selects
     // the per-model preference (lens→1024², zimage/flux2-klein→640×960).
