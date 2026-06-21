@@ -251,8 +251,20 @@ class SeedVR2Upscaler:
         img = decoded[0]  # (C, H, W)
         img = mx.transpose(img, (1, 2, 0))  # (H, W, C)
         img = (img.astype(mx.float32) + 1.0) / 2.0
-        img = mx.clip(img, 0.0, 1.0)
-        img_np = np.array(img * 255).round().astype("uint8")
+        # The 4-bit SeedVR2 transformer can overflow a few pixels to NaN/inf in
+        # the VAE-decoded tensor. mx.clip() does NOT neutralize NaN (every
+        # comparison with NaN is False), so the original clip silently passed
+        # NaN into the uint8 cast -> RuntimeWarning + black specks. Sanitize in
+        # numpy instead and report the bad-pixel ratio so the overflow rate is
+        # observable across runs.
+        img_np = np.array(img)
+        bad = int(np.isnan(img_np).sum() + np.isinf(img_np).sum())
+        if bad:
+            print(f"[SeedVR2] WARNING: {bad}/{img_np.size} pixels NaN/inf "
+                  f"(4-bit VAE overflow) — sanitized to 0/1")
+        img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
+        img_np = np.clip(img_np, 0.0, 1.0)
+        img_np = (img_np * 255.0).round().astype("uint8")
         pil_image = Image.fromarray(img_np)
 
         del decoded, style, img, processed_image
