@@ -16,7 +16,7 @@
     "tokenizer/qwen3-klein",
     "vae/flux2-klein"
   ],
-  "size_bytes": 9646067090,
+  "size_bytes": 9645771148,
   "source": "civitai/NRDX/DBKleinV2BFS",
   "source_url": "https://civitai.com/models/2242173/dark-beast-or?modelVersionId=2740209",
   "created_at": "2026-06-08T00:00:00Z"
