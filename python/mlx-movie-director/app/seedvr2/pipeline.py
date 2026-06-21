@@ -32,6 +32,28 @@ def _quantize_predicate(path: str, module) -> bool:
     return True
 
 
+def _detect_quant_from_manifest(model_dir: str, default_bits: int = 4,
+                                default_gs: int = 32) -> tuple[int, int]:
+    """Read bits/group_size from a model dir's manifest.json `format` field.
+
+    Mirrors app.pipeline._detect_transformer_quant so the SeedVR2 loader stays
+    decoupled from the zimage pipeline module. Falls back to (4, 32) — matching
+    the original 4-bit SeedVR2 weights — when the manifest is missing or the
+    format is unrecognised."""
+    manifest = os.path.join(model_dir, "manifest.json")
+    if os.path.exists(manifest):
+        try:
+            with open(manifest) as f:
+                fmt = json.load(f).get("format", "")
+            if fmt == "mlx-8bit":
+                return 8, 64
+            if fmt in ("mlx-4bit-gs32", "mlx-4bit"):
+                return 4, 32
+        except Exception:
+            pass
+    return default_bits, default_gs
+
+
 class SeedVR2Upscaler:
     """Diffusion-based AI upscaler using SeedVR2 (3B/7B).
 
@@ -63,13 +85,14 @@ class SeedVR2Upscaler:
                 f"Run: python/venv/bin/python python/mlx-movie-director/convert.py --seedvr2-dit"
             )
 
-        print("[SeedVR2] Loading transformer (4-bit)...")
+        quant_bits, quant_gs = _detect_quant_from_manifest(dit_dir)
+        print(f"[SeedVR2] Loading transformer ({quant_bits}-bit GS{quant_gs})...")
         t0 = time.time()
         transformer_config = self._get_transformer_config()
         self.transformer = SeedVR2Transformer(**transformer_config)
         # Quantize model structure to match pre-converted weights (skip small dims)
         nn.quantize(
-            self.transformer, bits=4, group_size=32,
+            self.transformer, bits=quant_bits, group_size=quant_gs,
             class_predicate=_quantize_predicate,
         )
         # Load weights, ignoring params that don't belong to current config
