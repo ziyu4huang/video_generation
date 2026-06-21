@@ -662,12 +662,22 @@ def _sanitize_name(raw: str) -> str:
 
 
 def _dir_size(path: str) -> int:
+    """Total size of all files under `path`, following symlinks to their real target.
+
+    Externalized weights (`model.safetensors`) are symlinks into the shared
+    external store, so the manifest's size_bytes must record the real model size,
+    not the symlink stub. Dereference via realpath so the result is correct
+    whether this runs before or after _externalize_weights — previously it skipped
+    symlinks and a freshly externalized model came back as ~488 B (config + readme)
+    instead of its multi-GB weight size.
+    """
     total = 0
     for dirpath, _, filenames in os.walk(path):
         for fn in filenames:
             fp = os.path.join(dirpath, fn)
-            if not os.path.islink(fp):
-                total += os.path.getsize(fp)
+            real = os.path.realpath(fp)
+            if os.path.isfile(real):
+                total += os.path.getsize(real)
     return total
 
 
