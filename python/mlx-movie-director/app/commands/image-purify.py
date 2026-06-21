@@ -22,10 +22,13 @@ Examples:
   run.py image purify --input-image photo.png --purify-mode enhance --resolution 2x --film-grain 0.02 --sharpening 0.1
 """
 
+import json
 import os
+import subprocess
 import sys
 
-from app.commands._shared import _arg_registered
+from app.commands._shared import _arg_registered, build_run_py_cmd, run_session, OutputPaths
+from app.manifest import collect_model_fingerprint_seedvr2
 
 # ---------------------------------------------------------------------------
 # Mode presets — softness controls pre-downsampling before diffusion
@@ -163,21 +166,67 @@ TRANSFORMER_DENOISE = {"purify": 0.35, "enhance": 0.55, "redraw": 0.85}
 _DEFAULT_TRANSFORMER_PROMPT = "highly detailed, sharp focus, high quality, professional"
 
 
-def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt):
+def _write_json(path: str, data: dict) -> None:
+    """Write a JSON file (controlnet-style run.json helper)."""
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def _make_purify_paths(input_path: str, mode: str, res_label: str, ext: str,
+                       explicit_output: str | None = None) -> OutputPaths:
+    """Build OutputPaths with manifest/run siblings next to the purify output.
+
+    Preserves the existing custom output naming (next to input, NOT the
+    OUTPUT_DIR/output_XXX convention) so existing gallery indexes keep working.
+    """
+    if explicit_output is None:
+        base, _ = os.path.splitext(input_path)
+        explicit_output = f"{base}_purify_{mode}_{res_label}{ext or '.png'}"
+    out_abs = os.path.abspath(explicit_output)
+    out_dir = os.path.dirname(out_abs) or "."
+    stem = os.path.splitext(os.path.basename(out_abs))[0]
+    return OutputPaths(
+        base_name=stem,
+        run_file=os.path.join(out_dir, f"{stem}.run.json"),
+        manifest_file=os.path.join(out_dir, f"{stem}.manifest.json"),
+        output_file=explicit_output,
+    )
+
+
+def _build_purify_run_meta(args, input_path, mode, softness, resolution,
+                           res_label, backend, output_path, seed,
+                           prompt=None) -> dict:
+    """Build the run.json metadata dict for a purify run (full params for replay)."""
+    return {
+        "command": "image",
+        "action": "purify",
+        "backend": backend,  # "seedvr2" | "transformer"
+        "input_image": input_path,
+        "purify_mode": mode,
+        "softness": softness,
+        "resolution": res_label,
+        "seed": seed,
+        "film_grain": getattr(args, "film_grain", 0.0) or 0.0,
+        "sharpening": getattr(args, "sharpening", 0.0) or 0.0,
+        "output": output_path,
+        "prompt": prompt,
+        "denoise_strength": TRANSFORMER_DENOISE.get(mode, 0.55) if backend == "transformer" else None,
+    }
+
+
+def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt,
+                             json_summary: bool = False) -> str:
     """Redraw via flux2-klein I2I by delegating to `run.py image i2i`.
 
-    Saves to cfg.OUTPUT_DIR with the i2i command's own naming (gallery-indexed).
-    Returns None — there is no single in-memory PIL result for the caller to
-    postprocess, so film-grain/sharpening are skipped for this backend.
+    Returns the i2i output path (parsed from i2i's JSON_SUMMARY line, with a
+    `Saved:` fallback). Uses build_run_py_cmd so --force auto-propagates to the
+    child (prevents GPU-lock deadlock). Streams stdout live while capturing it.
     """
-    import subprocess
-    import sys
-
     denoise = TRANSFORMER_DENOISE.get(mode, 0.55)
 
-    # Compute explicit target dims from the parsed resolution value (mirror
-    # _parse_resolution): 1.0 → input size; float → scale; int → shortest-side
-    # pixel target. Round to 16-divisible (diffusion requirement).
+    # Compute explicit target dims: 1.0 → input size; float → scale;
+    # int → shortest-side pixel target. Round to 16-divisible (diffusion req.).
     if resolution == 1.0:
         out_w, out_h = w0, h0
     elif isinstance(resolution, float):
@@ -189,20 +238,49 @@ def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt)
     out_h = max(16, (out_h // 16) * 16)
 
     use_prompt = prompt or _DEFAULT_TRANSFORMER_PROMPT
-    run_py = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "run.py"
-
-    cmd = [
-        sys.executable, run_py, "image", "i2i",
+    cmd = build_run_py_cmd(
+        "image", "i2i",
         "--pipeline", "flux2-klein",
         "--input-image", input_path,
         "--denoise-strength", str(denoise),
         "--width", str(out_w), "--height", str(out_h),
         "--seed", str(seed),
         "--prompt", use_prompt,
-    ]
+        "--json-summary",
+    )
     print(f"[purify] transformer backend -> flux2-klein I2I "
           f"{out_w}x{out_h} denoise={denoise} mode={mode}")
-    subprocess.run(cmd, check=True)
+
+    # Stream stdout live AND capture it (so we can parse JSON_SUMMARY afterwards).
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    captured: list[str] = []
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        captured.append(line)
+    rc = proc.wait()
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, cmd)
+
+    blob = "".join(captured)
+    # Prefer the last JSON_SUMMARY line (outputs[0]); fall back to "Saved: <path>".
+    for line in reversed(blob.splitlines()):
+        line = line.strip()
+        if line.startswith("JSON_SUMMARY:"):
+            try:
+                summary = json.loads(line[len("JSON_SUMMARY:"):])
+                outputs = summary.get("outputs") or []
+                if outputs:
+                    return outputs[0]
+            except json.JSONDecodeError:
+                pass
+    for line in reversed(blob.splitlines()):
+        if line.strip().startswith("Saved:"):
+            return line.strip()[len("Saved:"):].strip()
+    print("ERROR: could not determine i2i output path from subprocess output",
+          file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +288,7 @@ def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt)
 # ---------------------------------------------------------------------------
 
 def run_purify(args) -> None:
-    """Run SeedVR2 purification / redraw / upscale."""
+    """Run SeedVR2 purification / redraw / upscale (writes a manifest per run)."""
     from PIL import Image
     from app.seedvr2.pipeline import SeedVR2Upscaler
 
@@ -219,7 +297,6 @@ def run_purify(args) -> None:
     if not input_path:
         print("ERROR: provide --input-image PATH", file=sys.stderr)
         sys.exit(1)
-
     if not os.path.exists(input_path):
         print(f"ERROR: input image not found: {input_path}", file=sys.stderr)
         sys.exit(1)
@@ -232,58 +309,86 @@ def run_purify(args) -> None:
     # Parse resolution
     res_str = getattr(args, "resolution", "same") or "same"
     resolution, res_label = _parse_resolution(res_str)
+    seed = getattr(args, "seed", None)
+    if seed is None:
+        seed = 42  # default; --seed may be registered with default=None by a sibling subcommand
 
     # Load image
     image = Image.open(input_path).convert("RGB")
     w0, h0 = image.size
     print(f"[purify] {input_path} ({w0}x{h0}) mode={mode} softness={softness} "
-          f"resolution={resolution} seed={args.seed}")
+          f"resolution={resolution} seed={seed}")
 
-    # Backend branch: transformer delegates to flux2-klein I2I (saves itself to
-    # OUTPUT_DIR); seedvr2 is the original SeedVR2 path below.
     backend = getattr(args, "backend", "seedvr2") or "seedvr2"
-    if backend == "transformer":
-        _run_transformer_backend(
-            input_path=input_path, mode=mode, resolution=resolution,
-            w0=w0, h0=h0, seed=args.seed, prompt=getattr(args, "prompt", None),
-        )
-        return  # i2i handled the save; skip SeedVR2 / postprocess / purify naming
 
-    # Run SeedVR2
-    upscaler = SeedVR2Upscaler(model_size="7b")
-    try:
-        result = upscaler.upscale(
-            image=image,
-            resolution=resolution,
-            softness=softness,
-            seed=args.seed,
-        )
-    finally:
-        upscaler.unload()
-
-    # Optional postprocessing
-    film_grain = getattr(args, "film_grain", 0.0) or 0.0
-    sharpening = getattr(args, "sharpening", 0.0) or 0.0
-    if film_grain > 0 or sharpening > 0:
-        from app.postprocess import PostProcessChain
-
-        chain = PostProcessChain.from_config({
-            "sharpening": sharpening,
-            "film_grain": film_grain,
-        })
-        result, pp_timings = chain.apply(result, seed=args.seed)
-        if chain.has_filters():
-            for name, elapsed in pp_timings.items():
-                print(f"  [postprocess] {name}: {elapsed:.2f}s")
-
-    # Output path
+    # Output path + sibling run/manifest paths (CUSTOM location next to input,
+    # preserved from the pre-manifest behavior).
+    ext = os.path.splitext(input_path)[1]
     output_path = getattr(args, "output", None)
-    if output_path is None:
-        base, ext = os.path.splitext(input_path)
-        output_path = f"{base}_purify_{mode}_{res_label}{ext or '.png'}"
+    paths = _make_purify_paths(input_path, mode, res_label, ext, explicit_output=output_path)
 
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    result.save(output_path)
+    # Write run.json BEFORE entering run_session (run_config=None path, since
+    # RunConfig is t2i-specific and doesn't fit purify's mode/softness/resolution).
+    run_meta = _build_purify_run_meta(
+        args, input_path, mode, softness, resolution, res_label,
+        backend, paths.output_file, seed,
+        prompt=getattr(args, "prompt", None) if backend == "transformer" else None,
+    )
+    os.makedirs(os.path.dirname(os.path.abspath(paths.output_file)), exist_ok=True)
+    _write_json(paths.run_file, run_meta)
 
-    w1, h1 = result.size
-    print(f"[purify] Saved: {output_path} ({w1}x{h1})")
+    json_summary = getattr(args, "json_summary", False)
+    with run_session(paths, run_config=None, json_summary=json_summary) as ctx:
+        if backend == "transformer":
+            # Delegate to flux2-klein i2i (writes its own manifest too); capture
+            # its output path for the purify-side manifest.
+            i2i_output = _run_transformer_backend(
+                input_path=input_path, mode=mode, resolution=resolution,
+                w0=w0, h0=h0, seed=seed, prompt=getattr(args, "prompt", None),
+                json_summary=True,
+            )
+            with Image.open(i2i_output) as _im:
+                ow, oh = _im.size
+            ctx["outputs"] = [{
+                "path": i2i_output,
+                "seed": seed,
+                "size_bytes": os.path.getsize(i2i_output),
+                "width": ow, "height": oh,
+            }]
+            ctx["models"] = {}   # flux2-klein weights fingerprinted in i2i's own manifest
+            ctx["timings"] = {}  # subprocess boundary — i2i child manifest has the detail
+            return
+
+        # --- seedvr2 backend ---
+        upscaler = SeedVR2Upscaler(model_size="7b")
+        try:
+            result = upscaler.upscale(
+                image=image, resolution=resolution, softness=softness, seed=seed,
+            )
+        finally:
+            upscaler.unload()
+
+        film_grain = getattr(args, "film_grain", 0.0) or 0.0
+        sharpening = getattr(args, "sharpening", 0.0) or 0.0
+        if film_grain > 0 or sharpening > 0:
+            from app.postprocess import PostProcessChain
+            chain = PostProcessChain.from_config({
+                "sharpening": sharpening, "film_grain": film_grain,
+            })
+            result, pp_timings = chain.apply(result, seed=seed)
+            if chain.has_filters():
+                for name, elapsed in pp_timings.items():
+                    print(f"  [postprocess] {name}: {elapsed:.2f}s")
+
+        result.save(paths.output_file)
+        w1, h1 = result.size
+        print(f"[purify] Saved: {paths.output_file} ({w1}x{h1})")
+
+        ctx["outputs"] = [{
+            "path": paths.output_file,
+            "seed": seed,
+            "size_bytes": os.path.getsize(paths.output_file),
+            "width": w1, "height": h1,
+        }]
+        ctx["models"] = collect_model_fingerprint_seedvr2()
+        ctx["timings"] = dict(upscaler.last_timings)
