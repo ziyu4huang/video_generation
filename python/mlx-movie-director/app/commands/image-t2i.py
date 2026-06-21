@@ -91,9 +91,11 @@ _T2I_DEFAULT_PROMPT = (
 def add_t2i_args(parser: argparse.ArgumentParser) -> None:
     """Register T2I-specific arguments on an argparse parser."""
     parser.add_argument("--width", type=int, default=None,
-                        help="Image width in pixels (default: 640)")
+                        help="Image width in pixels (overridden by --resolution; "
+                             "pipeline default if unset)")
     parser.add_argument("--height", type=int, default=None,
-                        help="Image height in pixels (default: 960)")
+                        help="Image height in pixels (overridden by --resolution; "
+                             "pipeline default if unset)")
     parser.add_argument(
         "--resolution", default=None, metavar="TIER|WxH",
         help="Resolution shortcut — overrides --width/--height. Named tier: "

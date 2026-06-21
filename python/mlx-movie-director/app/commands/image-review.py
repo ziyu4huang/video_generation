@@ -220,7 +220,9 @@ def run_review_angle(args):
         sys.exit(1)
 
     steps = args.steps if args.steps is not None else _REVIEW_DEFAULT_STEPS
-    seed = args.seed % (2 ** 32)
+    # --seed defaults to None (profile registers it as a sentinel); fall back to
+    # the shared default 777 so bare `image review angle IMG` doesn't TypeError.
+    seed = (args.seed if args.seed is not None else 777) % (2 ** 32)
     elevations = _parse_elevations(getattr(args, "elevations", "normal"))
 
     user_prompt = getattr(args, "prompt", None)
