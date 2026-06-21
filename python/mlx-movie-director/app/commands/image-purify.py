@@ -387,8 +387,16 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
     if union.shape != (h0, w0):
         union_pil = Image.fromarray((union.astype(np.uint8) * 255))
         union = np.array(union_pil.resize((w0, h0), Image.NEAREST)).astype(bool)
+    # Dilate the mask a few px: SAM3's text masks are tight to the glyph centres
+    # and miss thin strokes/edges (smoke-tested: ~43% bbox coverage on a
+    # semi-transparent watermark, leaving residual text after inpaint). Expanding
+    # the region before inpaint+blend covers those edges — strict recall win for
+    # both subtitles and watermarks, with no downside outside the feathered area.
+    from scipy.ndimage import binary_dilation
+    raw_px = int(union.sum())
+    union = binary_dilation(union, iterations=5)
     print(f"[purify] --remove: {len(result.scores)} detection(s) → "
-          f"{int(union.sum())} px to inpaint")
+          f"{raw_px} px (dilated to {int(union.sum())} px) to inpaint")
 
     # Pre-fill the text region with the median colour of pixels just outside it,
     # so the model does NOT see the original text (same trick as swap inpaint).
