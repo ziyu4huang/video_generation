@@ -8,6 +8,10 @@ import { parsePostJson } from "../lib/requestUtils";
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 
+const T2I2V_SUBDIR_RE = /^t2i2v_\d/;
+// Exclude the downscaled LTX input image (intermediate file, not for display)
+const T2I2V_LTX_RESCALE_RE = /^output_.*_ltx_\d+x\d+\.\w+$/;
+
 function gzipJsonResponse(req: Request, json: unknown): Response {
   const body = JSON.stringify(json);
   if (req.headers.get("Accept-Encoding")?.includes("gzip")) {
@@ -79,6 +83,7 @@ type RawEntry = {
   fullPath: string;
   mtime: number;
   size: number;
+  t2i2vManifestPath?: string | null;  // set for files in t2i2v_* subdirs; used as group key
 };
 
 const MEDIA_GLOB = new Bun.Glob("*.{png,jpg,jpeg,mp4,mov,webm,m4v}");
@@ -93,12 +98,16 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
   const PROFILE_SUBDIR_RE = /^profile_/;
   const PROFILE_EXCLUDE = new Set(["reference.png", "strip.png"]);  // input ref + composite (redundant)
 
-  const addMedia = (fileDir: string, rootDir: string, sub: string) => {
+  const addMedia = (fileDir: string, rootDir: string, sub: string, opts?: {
+    excludeRe?: RegExp;
+    t2i2vManifestPath?: string | null;
+  }) => {
     if (!fs.existsSync(fileDir)) return;
     dirFileCache.set(fileDir, new Set(fs.readdirSync(fileDir)));
     const media = [...MEDIA_GLOB.scanSync({ cwd: fileDir, onlyFiles: true })]
       .filter((f) => !f.endsWith("_relay.png"))
-      .filter((f) => !(sub && PROFILE_EXCLUDE.has(f)));
+      .filter((f) => !(sub && PROFILE_EXCLUDE.has(f)))
+      .filter((f) => !opts?.excludeRe?.test(f));
     for (const f of media) {
       const fullPath = path.join(fileDir, f);
       try {
@@ -111,6 +120,7 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
           fullPath,
           mtime: stat.mtimeMs,
           size: stat.size,
+          t2i2vManifestPath: opts?.t2i2vManifestPath ?? null,
         });
       } catch { /* skip unreadable */ }
     }
@@ -128,8 +138,19 @@ function scanRawEntries(): { entries: RawEntry[]; dirFileCache: Map<string, Set<
     try { allFiles = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const ent of allFiles) {
       if (!ent.isDirectory()) continue;
-      if (!PROFILE_SUBDIR_RE.test(ent.name) && ent.name !== "uploads") continue;
-      addMedia(path.join(dir, ent.name), dir, ent.name);
+      const isProfile = PROFILE_SUBDIR_RE.test(ent.name) || ent.name === "uploads";
+      const isT2i2v = T2I2V_SUBDIR_RE.test(ent.name);
+      if (!isProfile && !isT2i2v) continue;
+      const subPath = path.join(dir, ent.name);
+      if (isT2i2v) {
+        const t2i2vManPath = path.join(subPath, "t2i2v_manifest.json");
+        addMedia(subPath, dir, ent.name, {
+          excludeRe: T2I2V_LTX_RESCALE_RE,
+          t2i2vManifestPath: fs.existsSync(t2i2vManPath) ? t2i2vManPath : null,
+        });
+      } else {
+        addMedia(subPath, dir, ent.name);
+      }
     }
   }
 
@@ -141,7 +162,8 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
     const base = entry.base;
     const mediaType = getMediaType(entry.name);
 
-    const manifestPath = findCompanionJson(entry.dir, base, ".manifest.json");
+    // T2I2V entries: use t2i2v_manifest.json as the primary manifest (shows full pipeline info)
+    const manifestPath = entry.t2i2vManifestPath ?? findCompanionJson(entry.dir, base, ".manifest.json");
     const manifest = manifestPath ? readJsonFile(manifestPath) : null;
 
     const runPath = findCompanionJson(entry.dir, base, ".run.json");
@@ -151,8 +173,17 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
     let thumbnailUrl: string | null = null;
     if (mediaType === "video") {
       const fileIndex = dirFileCache.get(entry.dir) ?? new Set<string>();
-      for (const c of [`${base}_relay.png`, `${base}.png`]) {
-        if (fileIndex.has(c)) { thumbnailUrl = `/output/${dirIdx}/${c}`; break; }
+      if (entry.t2i2vManifestPath) {
+        // T2I2V video: use the T2I image (the PNG without _ltx_ rescale suffix) as thumbnail
+        const pngName = [...fileIndex].find(f => f.endsWith(".png") && !T2I2V_LTX_RESCALE_RE.test(f));
+        if (pngName) {
+          const subPrefix = entry.name.includes("/") ? entry.name.split("/")[0] + "/" : "";
+          thumbnailUrl = `/output/${dirIdx}/${subPrefix}${pngName}`;
+        }
+      } else {
+        for (const c of [`${base}_relay.png`, `${base}.png`]) {
+          if (fileIndex.has(c)) { thumbnailUrl = `/output/${dirIdx}/${c}`; break; }
+        }
       }
     }
 
@@ -181,7 +212,8 @@ function groupEntries(entries: RawEntry[], dirFileCache: Map<string, Set<string>
   // entries are already sorted newest-first
   const manifestGroups = new Map<string, RawEntry[]>();
   const entryManifestPaths: (string | null)[] = entries.map((e) =>
-    findCompanionJson(e.dir, e.base, ".manifest.json")
+    // T2I2V entries share t2i2v_manifest.json as group key so image + video appear together
+    e.t2i2vManifestPath ?? findCompanionJson(e.dir, e.base, ".manifest.json")
   );
 
   for (let i = 0; i < entries.length; i++) {
@@ -367,7 +399,7 @@ export async function handleGalleryDelete(req: Request): Promise<Response> {
   const fileName = subMatch ? subMatch[2] : name;
   const subName = subMatch ? subMatch[1] : "";
   if (name.includes("\\") || name.includes("..") || !MEDIA_GLOB.match(fileName) ||
-      (subName && subName !== "uploads" && !/^profile_\w+$/.test(subName))) {
+      (subName && subName !== "uploads" && !/^profile_\w+$/.test(subName) && !T2I2V_SUBDIR_RE.test(subName))) {
     return Response.json({ error: "Invalid 'name': not a gallery media file" }, { status: 400 });
   }
 

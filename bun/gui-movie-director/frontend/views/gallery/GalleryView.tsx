@@ -45,6 +45,16 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     setPreviewImage(img);
   }, []);
 
+  const handleOpenImage = useCallback((path: string) => {
+    const filename = path.split("/").pop();
+    const img = allImages.find((i) => i.url.split("/").pop() === filename);
+    if (img) {
+      setPreviewImage(img);
+    } else {
+      toast.info("Input image not found in gallery");
+    }
+  }, [allImages]);
+
   const handleClose = useCallback(() => setPreviewImage(null), []);
 
   // Keyboard navigation
@@ -182,6 +192,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
           }}
           hasPrev={allImages.findIndex((img) => img.url === previewImage.url) > 0}
           hasNext={allImages.findIndex((img) => img.url === previewImage.url) < allImages.length - 1}
+          onOpenImage={handleOpenImage}
         />
       )}
     </>
