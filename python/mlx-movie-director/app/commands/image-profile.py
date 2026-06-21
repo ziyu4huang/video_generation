@@ -715,6 +715,7 @@ def run_profile(args):
                     height=height,
                     steps=steps,
                     image_strength=ref_strength,
+                    cfg_scale=getattr(args, "cfg_scale", None),
                 )
             else:
                 result = pipeline.generate(

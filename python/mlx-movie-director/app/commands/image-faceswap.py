@@ -450,6 +450,7 @@ def _run_faceswap_core(body_path: str, face_path: str, args: argparse.Namespace)
             width=width,
             height=height,
             steps=steps,
+            cfg_scale=getattr(args, "cfg_scale", None),
         )
 
         result.image.save(out_path)
