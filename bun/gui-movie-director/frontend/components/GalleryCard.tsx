@@ -16,7 +16,7 @@ export function getManifestSummary(manifest: any): string | null {
   return parts.join(" · ") || null;
 }
 
-export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelete }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode; onDelete?: (img: GalleryImage) => void }) {
+export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelete, onVariantClick }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode; onDelete?: (img: GalleryImage) => void; onVariantClick?: (v: GalleryImage) => void }) {
   const summary = getManifestSummary(img.manifest);
   const isVideo = img.mediaType === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,6 +88,9 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
         ) : (
           <img src={img.url} alt={img.name} loading="lazy" />
         )}
+        {img.variants && img.variants.length > 0 && (
+          <span className={s.variantBadge}>×{img.variants.length + 1}</span>
+        )}
         {avgScore !== null && (
           <Tip label={`Caption quality: ${avgScore.toFixed(1)}/10`}>
             <span style={{
@@ -108,6 +111,25 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
           </Tip>
         )}
       </div>
+      {img.variants && img.variants.length > 0 && viewMode !== "s" && (
+        <div className={s.variantStrip} onClick={(e) => e.stopPropagation()}>
+          <img
+            src={img.url}
+            alt="variant 1"
+            className={`${s.variantThumb} ${s.variantThumbActive}`}
+            onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+          />
+          {img.variants.map((v, i) => (
+            <img
+              key={v.name}
+              src={v.url}
+              alt={`variant ${i + 2}`}
+              className={s.variantThumb}
+              onClick={(e) => { e.stopPropagation(); onVariantClick?.(v); }}
+            />
+          ))}
+        </div>
+      )}
       <div className={s.galleryCardInfo}>
         <div className={s.galleryCardName}>{img.name}</div>
         <div className={s.galleryCardMeta}>

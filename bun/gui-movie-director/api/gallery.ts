@@ -38,6 +38,7 @@ interface ImageEntry {
   runPath?: string | null;
   caption?: Record<string, any> | null;
   captionPath?: string | null;
+  variants?: ImageEntry[];
 }
 
 /**
@@ -49,6 +50,7 @@ function findCompanionJson(dir: string, base: string, suffix: ".manifest.json" |
     base,                              // full base: output_20260611_193630_seg01
     base.replace(/_relay$/, ""),       // strip _relay
     base.replace(/_seg\d+$/, ""),      // strip _segXX
+    base.replace(/_s\d+$/, ""),        // strip _s42 / _s43 (seed suffix)
     base.replace(/_relay$/, "").replace(/_seg\d+$/, ""),  // strip both
     base.replace(/_seg\d+_relay$/, ""),                    // strip _segXX_relay in one go
   ];
@@ -173,7 +175,48 @@ function buildImageEntry(entry: RawEntry, dirFileCache: Map<string, Set<string>>
     };
 }
 
-// Scan all images without pagination — used by the search index builder
+// Group raw entries by shared manifest path. Returns primaries (newest first)
+// with siblings attached as `variants`. Entries with no manifest are standalone.
+function groupEntries(entries: RawEntry[], dirFileCache: Map<string, Set<string>>): ImageEntry[] {
+  // entries are already sorted newest-first
+  const manifestGroups = new Map<string, RawEntry[]>();
+  const entryManifestPaths: (string | null)[] = entries.map((e) =>
+    findCompanionJson(e.dir, e.base, ".manifest.json")
+  );
+
+  for (let i = 0; i < entries.length; i++) {
+    const mPath = entryManifestPaths[i];
+    if (!mPath) continue;
+    if (!manifestGroups.has(mPath)) manifestGroups.set(mPath, []);
+    manifestGroups.get(mPath)!.push(entries[i]);
+  }
+
+  const seenManifest = new Set<string>();
+  const result: ImageEntry[] = [];
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const mPath = entryManifestPaths[i];
+
+    if (!mPath) {
+      result.push(buildImageEntry(entry, dirFileCache));
+      continue;
+    }
+    if (seenManifest.has(mPath)) continue;
+    seenManifest.add(mPath);
+
+    const group = manifestGroups.get(mPath)!;
+    const primary = buildImageEntry(group[0], dirFileCache);
+    if (group.length > 1) {
+      primary.variants = group.slice(1).map((e) => buildImageEntry(e, dirFileCache));
+    }
+    result.push(primary);
+  }
+
+  return result;
+}
+
+// Scan all images without pagination — used by the search index builder (flat, no grouping)
 export function scanAllImages(): ImageEntry[] {
   const { entries, dirFileCache } = scanRawEntries();
   return entries.map((e) => buildImageEntry(e, dirFileCache));
@@ -201,11 +244,10 @@ export async function handleGallery(req: Request): Promise<Response> {
   const limit = parseInt(url.searchParams.get("limit") || "50", 10);
 
   const { entries, dirFileCache } = scanRawEntries();
+  const grouped = groupEntries(entries, dirFileCache);
 
-  const total = entries.length;
-  const paged = entries.slice((page - 1) * limit, page * limit);
-
-  const images: ImageEntry[] = paged.map((entry) => buildImageEntry(entry, dirFileCache));
+  const total = grouped.length;
+  const images = grouped.slice((page - 1) * limit, page * limit);
 
   return gzipJsonResponse(req, { images, total, page, limit });
 }

@@ -6,7 +6,7 @@ import { CaptionScoreBar, parseCaptionScores } from "./CaptionScoreBar";
 import { toast } from "../utils/toast";
 import s from "./ImagePreview.module.css";
 import { replayJob } from "../api/jobs";
-import { runCaption } from "../api/caption";
+import { runCaption, getActiveVlmModel } from "../api/caption";
 
 type Tab = "run" | "manifest" | "scores";
 
@@ -700,13 +700,21 @@ function StyleDropdown({ currentStyle, onPick, disabled }: { currentStyle: strin
   );
 }
 
-function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, onStyleChange }: {
+function shortVlmName(id?: string): string {
+  if (!id) return "";
+  if (id.includes("gemma")) return "Gemma 26B";
+  if (id.includes("qwen3-vl-4b")) return "Qwen 4B";
+  return id.split("/").pop() || id;
+}
+
+function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, onStyleChange, vlmHint }: {
   caption: Record<string, any>;
   onRerun?: () => void;
   onRefresh?: () => void;
   rerunning?: boolean;
   captionStyle?: string;
   onStyleChange?: (style: string) => void;
+  vlmHint?: { model: string; loaded: boolean | null } | null;
 }) {
   const scores = parseCaptionScores(caption.caption);
   const styleLabel = CAPTION_STYLES.find((style) => style.id === caption.style);
@@ -717,7 +725,12 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
       {onStyleChange && (
         <StyleDropdown currentStyle={captionStyle || "default"} onPick={onStyleChange} disabled={rerunning} />
       )}
-      <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+      <div style={{ display: "flex", gap: 4, alignItems: "center", marginLeft: "auto" }}>
+        {vlmHint && (
+          <span style={{ fontSize: 11, color: vlmHint.loaded === false ? "var(--text-dim)" : "var(--accent)", whiteSpace: "nowrap" }}>
+            {vlmHint.loaded === false ? "🔄" : "🤖"} {shortVlmName(vlmHint.model)}{vlmHint.loaded === false ? " (will load)" : ""}
+          </span>
+        )}
         {onRefresh && (
           <button className={s.mfCopyBtn} onClick={onRefresh} disabled={rerunning} title="Reload from file">↻</button>
         )}
@@ -797,6 +810,7 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const effectiveCaption = pickCaptionStyle(captionFile, captionStyle);
   const [tab, setTab] = useState<Tab>(hasRun ? "run" : hasManifest ? "manifest" : "run");
   const [showRaw, setShowRaw] = useState(false);
+  const [activeVlm, setActiveVlm] = useState<{ model: string; loaded: boolean | null } | null>(null);
   const data = tab === "run" ? run : manifest;
   const effectiveCaptionPath = captionPath ?? null;
   const activePath = tab === "run" ? runPath : tab === "manifest" ? manifestPath : effectiveCaptionPath;
@@ -903,6 +917,16 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
   const handleStylePick = useCallback((style: string) => {
     setCaptionStyle(style);
   }, []);
+
+  // Fetch active VLM model once when the scores tab opens (shows user which model auto will pick).
+  useEffect(() => {
+    if (tab !== "scores") return;
+    let cancelled = false;
+    getActiveVlmModel().then((info) => {
+      if (!cancelled) setActiveVlm({ model: info.activeModel, loaded: info.alreadyLoaded });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [tab]);
 
   const handleRerunCaption = useCallback(async () => {
     const style = captionStyle;
@@ -1103,15 +1127,20 @@ export function ImagePreview({ url, manifest, run, manifestPath, runPath, captio
         </div>
         <div className={s.imagePreviewPanelBody}>
           {tab === "scores" && effectiveCaption ? (
-            <ScoresViewer caption={effectiveCaption} onRerun={handleRerunCaption} rerunning={captionLoading} captionStyle={captionStyle} onStyleChange={handleStylePick} />
+            <ScoresViewer caption={effectiveCaption} onRerun={handleRerunCaption} rerunning={captionLoading} captionStyle={captionStyle} onStyleChange={handleStylePick} vlmHint={activeVlm} />
           ) : tab === "scores" ? (
             <div className={s.captionPickPrompt}>
               <div className={s.captionPickLabel}>Choose a caption style, then click Rerun</div>
               <StyleDropdown currentStyle={captionStyle} onPick={(style) => { handleStylePick(style); }} disabled={captionLoading} />
-              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+              <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
                 <button className={s.captionPrimaryBtn} onClick={handleRerunCaption} disabled={captionLoading}>
                   {captionLoading ? "⏳ Generating…" : "✨ Generate"}
                 </button>
+                {activeVlm && (
+                  <span style={{ fontSize: 11, color: activeVlm.loaded ? "var(--accent)" : "var(--text-dim)", whiteSpace: "nowrap" }}>
+                    {activeVlm.loaded === false ? "🔄" : "🤖"} {shortVlmName(activeVlm.model)}{activeVlm.loaded === false ? " (will load)" : ""}
+                  </span>
+                )}
               </div>
             </div>
           ) : data ? (

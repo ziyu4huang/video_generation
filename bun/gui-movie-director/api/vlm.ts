@@ -1,10 +1,49 @@
 import { loadConfig, vlmModelIsAuto } from "../lib/config";
 
+// Mirror caption.py constants — kept in sync manually.
+const PREFERRED_VLM = "google/gemma-4-26b-a4b-qat";  // Gemma 26B (better, never auto-loaded)
+const DEFAULT_VLM   = "qwen/qwen3-vl-4b";              // Qwen 4B  (default, auto-loaded when needed)
+
 interface VlmTestResult {
   ok: boolean;
   error?: string;
-  models?: string[];
+  models?: string[];       // all OpenAI-listed models (indexed in LM Studio)
+  loadedModels?: string[]; // actually-loaded models (native /api/v1/models check)
   modelLoaded?: boolean;
+  activeModel?: string;    // which model `auto` would pick (mirrors _resolve_model)
+  willLoad?: boolean;      // true if auto would need to trigger a model load
+}
+
+/**
+ * Query LM Studio's NATIVE /api/v1/models endpoint which includes
+ * `loaded_instances` — unlike /v1/models which lists ALL indexed models
+ * regardless of whether they are loaded. Returns the list of loaded model
+ * keys, or an empty array when LM Studio is unreachable.
+ */
+async function getLoadedModels(apiUrl: string): Promise<string[]> {
+  try {
+    const base = apiUrl.replace(/\/v1\/?$/, "");
+    const res = await fetch(`${base}/api/v1/models`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.models ?? [])
+      .filter((m: any) => Array.isArray(m.loaded_instances) && m.loaded_instances.length > 0)
+      .map((m: any) => (m.key as string) || "")
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Mirror caption.py's _resolve_model: walk priority list, return whichever
+ * candidate is already loaded (Gemma preferred); fall back to Qwen + willLoad.
+ */
+function resolveAutoModel(loadedModels: string[]): { model: string; alreadyLoaded: boolean } {
+  for (const candidate of [PREFERRED_VLM, DEFAULT_VLM]) {
+    if (loadedModels.includes(candidate)) return { model: candidate, alreadyLoaded: true };
+  }
+  return { model: DEFAULT_VLM, alreadyLoaded: false };
 }
 
 export async function handleVlmTest(_req: Request): Promise<Response> {
@@ -61,16 +100,42 @@ export async function handleVlmTest(_req: Request): Promise<Response> {
 
   // OpenAI-compatible /v1/models returns { data: [{ id: "model-name", ... }] }
   const models: string[] = (data?.data || []).map((m: any) => m.id || m.name).filter(Boolean);
-  // "auto" resolves at caption time (Gemma-if-loaded else Qwen), so the test passes
-  // whenever any model is available; a concrete name must actually be present.
+
+  // Native /api/v1/models: accurate loaded state (has `loaded_instances`).
+  // Run in parallel with the OpenAI call above; fetch here after it resolves.
+  const loadedModels = await getLoadedModels(cfg.vlmApiUrl);
+
+  // Resolve which model `auto` would actually use
+  const { model: activeModel, alreadyLoaded } = resolveAutoModel(loadedModels);
+
+  // modelLoaded: for a forced model, it must be in loadedModels; for auto,
+  // at least one known VLM must be loaded (or we can load Qwen).
   const modelLoaded = vlmModelIsAuto(cfg.vlmModel)
-    ? models.length > 0
-    : models.some((id) => id === cfg.vlmModel);
+    ? loadedModels.length > 0 || models.length > 0  // backward compat: loaded or indexable
+    : loadedModels.includes(cfg.vlmModel);
 
   const result: VlmTestResult = {
     ok: true,
     models,
+    loadedModels,
     modelLoaded,
+    activeModel: vlmModelIsAuto(cfg.vlmModel) ? activeModel : cfg.vlmModel,
+    willLoad: vlmModelIsAuto(cfg.vlmModel) ? !alreadyLoaded : !loadedModels.includes(cfg.vlmModel),
   };
   return Response.json(result);
+}
+
+/**
+ * Lightweight endpoint: returns which VLM model `auto` would pick right now,
+ * without running a full caption. Used by the caption panel to show the active
+ * model without re-triggering the full VLM test.
+ */
+export async function handleCaptionModel(_req: Request): Promise<Response> {
+  const cfg = loadConfig();
+  if (!vlmModelIsAuto(cfg.vlmModel)) {
+    return Response.json({ activeModel: cfg.vlmModel, alreadyLoaded: null, forced: true });
+  }
+  const loadedModels = await getLoadedModels(cfg.vlmApiUrl);
+  const { model, alreadyLoaded } = resolveAutoModel(loadedModels);
+  return Response.json({ activeModel: model, alreadyLoaded, forced: false, loadedModels });
 }
