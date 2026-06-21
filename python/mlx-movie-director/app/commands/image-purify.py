@@ -521,7 +521,11 @@ def run_purify(args) -> None:
         seed = 42  # default; --seed may be registered with default=None by a sibling subcommand
 
     # Load image
-    image = Image.open(input_path).convert("RGB")
+    try:
+        with Image.open(input_path) as _im:
+            image = _im.convert("RGB")
+    except (FileNotFoundError, OSError) as e:
+        raise ValueError(f"cannot read input image {input_path}: {e}") from e
     w0, h0 = image.size
     print(f"[purify] {input_path} ({w0}x{h0}) mode={mode} softness={softness} "
           f"resolution={resolution} seed={seed}")

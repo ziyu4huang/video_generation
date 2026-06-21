@@ -359,9 +359,11 @@ def run_review_manifest(args):
 # Shared manifest HTML helper
 # ---------------------------------------------------------------------------
 
-def _open_manifest_review(manifest_paths: list, labels=None, output=None,
-                           auto_open: bool = True, auto_score: bool = False,
-                           group_names: dict = None, group_params: dict = None):
+def _open_manifest_review(manifest_paths: list[str], labels: list[str] | str | None = None,
+                           output: str | None = None, auto_open: bool = True,
+                           auto_score: bool = False,
+                           group_names: dict[str, Any] | None = None,
+                           group_params: dict[str, Any] | None = None) -> None:
     """Load manifests → optionally auto-score → render HTML → open in browser."""
     tests = [_load_test(f) for f in manifest_paths]
     if isinstance(labels, list):

@@ -104,12 +104,15 @@ class TestSeedSequence:
         assert seed_sequence(args) == [42]
 
     def test_seed_zero(self):
-        """Seed 0 is falsy in Python, should still work (use the getattr-or-777 pattern)."""
+        """Seed 0 is a valid explicit seed — honored as 0, not coerced to 777.
+
+        Fixed 2026-06-22: the old `getattr(..., 'seed', None) or 777` idiom treated
+        seed=0 as falsy and silently replaced an explicit --seed 0 with 777 (the
+        silent-override anti-pattern). Now uses an explicit None check so seed=0
+        is respected, matching the argparse-sentinel-for-user-override invariant.
+        """
         args = argparse.Namespace(count=1, seed=0, seed_start=None)
-        result = seed_sequence(args)
-        # WARNING: getattr(args, 'seed', None) or 777 → None or 777 → 777 for seed=0
-        # This is a known quirk: seed=0 is treated as "no seed" because 0 is falsy.
-        assert result == [777], f"seed=0 quirk: got {result}"
+        assert seed_sequence(args) == [0]
 
     def test_works_with_runconfig(self):
         """seed_sequence accepts RunConfig objects too.

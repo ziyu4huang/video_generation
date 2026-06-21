@@ -570,7 +570,11 @@ def run(args: argparse.Namespace) -> None:
 
 def _image_to_base64(image_path: str, max_size: int = 1024) -> str:
     """Load image, optionally downsize, convert to JPEG bytes, return base64 string."""
-    img = Image.open(image_path).convert("RGB")
+    try:
+        with Image.open(image_path) as _im:
+            img = _im.convert("RGB")
+    except (FileNotFoundError, OSError) as e:
+        raise ValueError(f"cannot read image {image_path}: {e}") from e
     # Downsize if largest dimension exceeds max_size (VLMs don't need huge images)
     w, h = img.size
     if max(w, h) > max_size:

@@ -137,7 +137,8 @@ def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]
     fallbacks for subcommands whose Namespace may lack these attributes.
     """
     count = max(1, getattr(args_or_config, "count", 1) or 1)
-    seed = getattr(args_or_config, "seed", None) or 777
+    _seed = getattr(args_or_config, "seed", None)
+    seed = 777 if _seed is None else _seed
     seed_start = getattr(args_or_config, "seed_start", None)
     if seed_start is not None:
         return [seed_start + i for i in range(count)]
@@ -776,10 +777,10 @@ def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_mode
     if upscale_method == "seedvr2":
         from app.seedvr2.pipeline import SeedVR2Upscaler
         res_str = str(upscale_resolution)
-        if res_str.lower().endswith("x"):
-            resolution = float(res_str.lower().rstrip("x"))
-        else:
-            resolution = int(res_str)
+        try:
+            resolution = int(res_str) if not res_str.lower().endswith("x") else float(res_str.lower().rstrip("x"))
+        except ValueError as e:
+            raise ValueError(f"Invalid upscale_resolution '{upscale_resolution}': use an int pixel count or 'Nx' scale") from e
         upscaler = SeedVR2Upscaler(model_size="7b")
         try:
             upscaled = upscaler.upscale(

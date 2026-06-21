@@ -102,8 +102,15 @@ def run_t2i2v(args):
         t2i_cmd += ["--lora-path", t2i_lora_path,
                     "--lora-scale", str(t2i_lora_scale)]
 
-    result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]))
+    try:
+        # Stream (no capture): T2I runs minutes-to-tens-of-minutes, and capturing
+        # would swallow MLX's live step progress. timeout still guards a hang.
+        result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]), timeout=7200)
+    except subprocess.TimeoutExpired:
+        print("[t2i2v] ERROR: T2I stage timed out after 7200s", file=sys.stderr)
+        sys.exit(124)
     if result.returncode != 0:
+        # Child stderr already streamed live; just surface the exit summary.
         print(f"[t2i2v] ERROR: T2I stage failed (exit {result.returncode})", file=sys.stderr)
         sys.exit(result.returncode)
 
@@ -112,7 +119,12 @@ def run_t2i2v(args):
     if not manifests:
         print("[t2i2v] ERROR: no manifest found after T2I stage", file=sys.stderr)
         sys.exit(1)
-    t2i_manifest = json.load(open(sorted(manifests)[0]))
+    try:
+        with open(sorted(manifests)[0]) as f:
+            t2i_manifest = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[t2i2v] ERROR: cannot read T2I manifest ({e})", file=sys.stderr)
+        sys.exit(1)
     output_files = t2i_manifest.get("output_files", [])
     if not output_files:
         print("[t2i2v] ERROR: T2I manifest has no output_files", file=sys.stderr)
@@ -140,8 +152,15 @@ def run_t2i2v(args):
         if getattr(args, "vlm_api_url", None):
             vlm_cmd += ["--api-url", args.vlm_api_url]
 
-        result = subprocess.run(vlm_cmd, cwd=os.path.dirname(vlm_cmd[1]))
-        if result.returncode != 0:
+        try:
+            result = subprocess.run(vlm_cmd, cwd=os.path.dirname(vlm_cmd[1]), timeout=7200)
+        except subprocess.TimeoutExpired:
+            print("[t2i2v] WARNING: VLM stage timed out after 7200s — falling back to raw prompt",
+                  file=sys.stderr)
+            result = None
+        if result is None:
+            pass  # timed out — already warned, fall back to raw prompt
+        elif result.returncode != 0:
             print(f"[t2i2v] WARNING: VLM stage failed — falling back to raw prompt",
                   file=sys.stderr)
         else:
@@ -221,7 +240,13 @@ def run_t2i2v(args):
     if lora_path:
         video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
 
-    result = subprocess.run(video_cmd, cwd=os.path.dirname(video_cmd[1]))
+    try:
+        # Stream (no capture): I2V is the longest stage; capturing would hide MLX
+        # progress for tens of minutes. timeout guards a hang.
+        result = subprocess.run(video_cmd, cwd=os.path.dirname(video_cmd[1]), timeout=7200)
+    except subprocess.TimeoutExpired:
+        print("[t2i2v] ERROR: I2V stage timed out after 7200s", file=sys.stderr)
+        sys.exit(124)
     if result.returncode != 0:
         print(f"[t2i2v] ERROR: I2V stage failed (exit {result.returncode})", file=sys.stderr)
         sys.exit(result.returncode)
