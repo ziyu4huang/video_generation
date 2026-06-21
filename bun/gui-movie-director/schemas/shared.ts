@@ -14,16 +14,32 @@ export const T2I_PIPELINE_OPTIONS = [
   { value: "auto", label: "Auto" },
 ];
 
-// Common resolutions offered as a quick picker in the T2I form. The value is a
-// "WxH" key; RESOLUTION_MAP expands it to [width, height]. Per-pipeline
-// preference (which key auto-selects on pipeline switch) comes from the server
-// via schema-defaults `pipeline_resolution` ([w, h] per pipeline).
+// Common resolutions offered as a quick picker in the T2I form, grouped by
+// aspect ratio (SelectField renders each `group` as an <optgroup>). The value
+// is a "WxH" key; RESOLUTION_MAP expands it to [width, height]. Each ratio
+// offers an HD and a 2K tier (2K = each side ×2 of the HD base, QHD-class —
+// the "two-times HD" high-def option). All dimensions are multiples of 16
+// (Flux2/zimage VAE /8 × patchify /2 constraint). Per-pipeline preference
+// (which key auto-selects on pipeline switch) comes from the server via
+// schema-defaults `pipeline_resolution` ([w, h] per pipeline). `custom` has no
+// group so it renders outside the optgroups.
 export const RESOLUTION_CHOICES = [
-  { value: "512x512", label: "512×512 (fast)" },
-  { value: "640x960", label: "640×960 (portrait)" },
-  { value: "960x640", label: "960×640 (landscape)" },
-  { value: "1024x1024", label: "1024×1024 (square HD)" },
-  { value: "1440x1440", label: "1440×1440 (gallery)" },
+  // Portrait (taller than wide)
+  { value: "640x960", label: "640×960 · 2:3 HD", group: "Portrait" },
+  { value: "1024x1536", label: "1024×1536 · 2:3 2K", group: "Portrait" },
+  { value: "720x1280", label: "720×1280 · 9:16 mobile HD", group: "Portrait" },
+  { value: "1440x2560", label: "1440×2560 · 9:16 mobile 2K", group: "Portrait" },
+  // Landscape (wider than tall)
+  { value: "960x640", label: "960×640 · 3:2 HD", group: "Landscape" },
+  { value: "1536x1024", label: "1536×1024 · 3:2 2K", group: "Landscape" },
+  { value: "1280x720", label: "1280×720 · 16:9 video HD", group: "Landscape" },
+  { value: "2560x1440", label: "2560×1440 · 16:9 video 2K", group: "Landscape" },
+  // Square
+  { value: "512x512", label: "512×512 · fast", group: "Square" },
+  { value: "1024x1024", label: "1024×1024 · HD", group: "Square" },
+  { value: "1440x1440", label: "1440×1440 · gallery", group: "Square" },
+  { value: "2048x2048", label: "2048×2048 · 2K", group: "Square" },
+  // Ungrouped
   { value: "custom", label: "Custom…" },
 ];
 
@@ -41,11 +57,21 @@ export const PIPELINE_TO_LORA_TAGS: Record<string, string[] | undefined> = {
 };
 
 export const RESOLUTION_MAP: Record<string, [number, number]> = {
+  // Square (1:1)
   "512x512": [512, 512],
-  "640x960": [640, 960],
-  "960x640": [960, 640],
   "1024x1024": [1024, 1024],
   "1440x1440": [1440, 1440],
+  "2048x2048": [2048, 2048],
+  // 2:3 portrait / 3:2 landscape
+  "640x960": [640, 960],
+  "960x640": [960, 640],
+  "1024x1536": [1024, 1536],
+  "1536x1024": [1536, 1024],
+  // 9:16 mobile portrait / 16:9 video landscape
+  "720x1280": [720, 1280],
+  "1280x720": [1280, 720],
+  "1440x2560": [1440, 2560],
+  "2560x1440": [2560, 1440],
 };
 
 /** Inverse lookup: [width, height] → "WxH" key, or undefined if not a preset. */
