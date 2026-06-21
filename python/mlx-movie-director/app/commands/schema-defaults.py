@@ -94,6 +94,13 @@ def _build():
             "pipeline_steps": pipeline_steps,
             "self_tests": self_tests.get("i2i", []),
         },
+        "purify": {
+            "seed": 42,
+            # flux2-klein-9b variants for the transformer backend + --remove inpaint
+            # (drives the GUI Transformer dropdown — never hardcoded in the Bun schema).
+            "transformers": _build_purify_transformers(),
+            "self_tests": self_tests.get("purify", []),
+        },
         "workflow": {
             "pipeline": "zimage",
             "width": 640,
@@ -289,6 +296,28 @@ def _build_t2i_transformers():
                 continue
             name = m.get("name", "")
             out.append({"value": name, "label": name, "arch": arch, "pipeline": pipeline})
+    except Exception:
+        pass
+    return out
+
+
+def _build_purify_transformers():
+    """Enumerate transformers usable by Purify's transformer backend + --remove inpaint.
+
+    Both paths go through Flux2KleinT2IPipeline, so only the flux2-klein-9b arch
+    variants are offered (klein-9b, klein-9b-dark-beast-bfs, kleinova-nsfw-v3).
+    Each entry: {"value", "label"}. Local imports keep schema-defaults mlx-free.
+    """
+    from app import config as cfg
+    from app.model_registry import ModelRegistry
+
+    out = []
+    try:
+        for m in ModelRegistry(cfg.MODELS_DIR).list("transformer"):
+            if m.get("arch", "") != "flux2-klein-9b":
+                continue
+            name = m.get("name", "")
+            out.append({"value": name, "label": name})
     except Exception:
         pass
     return out
