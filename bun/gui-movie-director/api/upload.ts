@@ -59,8 +59,12 @@ export async function handleUpload(req: Request): Promise<Response> {
     const filename = `upload_${timestamp}_${random}${ext}`;
     const filePath = path.join(UPLOAD_DIR, filename);
 
-    // Enforce upload size limit (50 MB)
+    // Enforce size limits: reject empty/truncated files and files > 50 MB
+    const MIN_UPLOAD_SIZE = 100;  // anything below 100 B is a truncated/corrupt header
     const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
+    if (file.size < MIN_UPLOAD_SIZE) {
+      return Response.json({ ok: false, error: "File is too small or corrupted" }, { status: 400 });
+    }
     if (file.size > MAX_UPLOAD_SIZE) {
       return Response.json({ ok: false, error: "File too large" }, { status: 413 });
     }

@@ -11,7 +11,7 @@ import { handleUpload } from "./upload";
 import { handleListLoras, handleListVaes } from "./models";
 import { handleGetConfig, handlePutConfig, handleVerifyPython } from "./config";
 import { handleServerInfo } from "./server-info";
-import { handleVlmTest } from "./vlm";
+import { handleVlmTest, handleCaptionModel } from "./vlm";
 import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from "./model-check";
 import { handleGetCliSchema, handleGetSchemaDefaults } from "./schema";
 import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
@@ -125,8 +125,9 @@ const STATIC_ROUTES: StaticRoute[] = [
   { method: "PUT", pathname: "/api/config", handler: (req) => handlePutConfig(req) },
   { method: "POST", pathname: "/api/config/verify-python", handler: (req) => handleVerifyPython(req) },
 
-  // VLM test
+  // VLM test + active-model query
   { method: "GET", pathname: "/api/vlm/test", handler: (req) => handleVlmTest(req) },
+  { method: "GET", pathname: "/api/caption/model", handler: (req) => handleCaptionModel(req) },
 
   // Model check
   { method: "POST", pathname: "/api/model-check/run", handler: (req) => handleModelCheckRun(req) },

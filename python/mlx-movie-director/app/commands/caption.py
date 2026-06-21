@@ -761,22 +761,25 @@ def _resolve_model(api_url: str, explicit_model):
     """Pick which VLM to use for captioning.
 
     - An explicit --model always wins (no LM Studio query is issued).
-    - Otherwise prefer _PREFERRED_MODEL (Gemma 26B) when it is ALREADY LOADED
-      in LM Studio — the user loaded it deliberately, so reuse it rather than
-      loading Qwen on top.
-    - Otherwise fall back to _DEFAULT_MODEL (Qwen), which _lmstudio_ensure_model
-      actively loads.
+    - Otherwise walk the priority list (Gemma 26B > Qwen 4B): the first one
+      that is ALREADY LOADED in LM Studio is used — no new model is loaded.
+    - If neither is loaded, fall back to _DEFAULT_MODEL (Qwen 4B) which
+      _lmstudio_ensure_model then auto-loads.
 
-    Gemma is never auto-loaded here; it is used-only-when-loaded. Returns the
-    chosen model id string.
+    Gemma is NEVER auto-loaded here; it is used only when already loaded.
+    Returns the chosen model id string.
     """
     if explicit_model:
         return explicit_model
-    loaded = _loaded_model_keys(api_url)
-    if loaded and _PREFERRED_MODEL in loaded:
-        print(f"[caption] {_PREFERRED_MODEL} is loaded — using it "
-              f"(not loading Qwen).", flush=True)
-        return _PREFERRED_MODEL
+    loaded = _loaded_model_keys(api_url) or set()
+    for candidate in (_PREFERRED_MODEL, _DEFAULT_MODEL):
+        if candidate in loaded:
+            label = "Gemma 26B" if candidate == _PREFERRED_MODEL else "Qwen 4B"
+            print(f"[caption] Auto: {label} ({candidate}) already loaded — "
+                  f"using it, no model load needed.", flush=True)
+            return candidate
+    print(f"[caption] Auto: no preferred VLM loaded — "
+          f"will auto-load {_DEFAULT_MODEL}.", flush=True)
     return _DEFAULT_MODEL
 
 

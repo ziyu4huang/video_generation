@@ -104,9 +104,10 @@ export async function handleCaptionRun(req: Request): Promise<Response> {
       }, { status: 500 });
     }
 
-    // Parse the output to find the saved caption JSON path
-    const savedMatch = stdout.match(/Saved:\s+(.+)/);
-    const captionPath = savedMatch ? savedMatch[1].trim() : null;
+    // Parse the output to find the saved caption JSON path.
+    // run.py outputs "Saved: /path/file.caption.json (N style(s): ...)" — stop at .json
+    const savedMatch = stdout.match(/Saved:\s+(\/[^\s]+\.json)/);
+    const captionPath = savedMatch ? savedMatch[1] : null;
 
     const rawCaption = captionPath && fs.existsSync(captionPath)
       ? readJsonFile(captionPath)

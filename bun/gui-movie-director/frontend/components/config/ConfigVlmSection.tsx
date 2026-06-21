@@ -3,6 +3,13 @@ import { FormSection } from "../FormSection";
 import type { ConfigData, VlmTestResult } from "./types";
 import { putConfig, testVlm } from "../../api/config";
 
+function shortModelName(id?: string): string {
+  if (!id) return "unknown";
+  if (id.includes("gemma")) return "Gemma 26B";
+  if (id.includes("qwen3-vl-4b")) return "Qwen 4B";
+  return id.split("/").pop() || id;
+}
+
 interface Props {
   vlmApiUrl: string;
   vlmModel: string;
@@ -23,8 +30,9 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
     setTesting(true);
     setTestResult(null);
     try {
-      // Save config first so the test uses current values
-      await putConfig(config);
+      // Save only VLM fields so the test uses current values without risking
+      // outputDir array serialisation failures in the full-config path.
+      await putConfig({ vlmApiUrl: config.vlmApiUrl, vlmModel: config.vlmModel });
       setTestResult(await testVlm());
     } catch (err: any) {
       setTestResult({ ok: false, error: err.message || "Test failed" });
@@ -74,9 +82,9 @@ export function ConfigVlmSection({ vlmApiUrl, vlmModel, config, onUpdate }: Prop
             {testResult.ok
               ? testResult.modelLoaded
                 ? vlmModel.trim().toLowerCase() === "auto" || vlmModel.trim() === ""
-                  ? `✅ Auto-resolve OK (${testResult.models?.length ?? 0} models available)`
-                  : `✅ Model loaded (${testResult.models?.length ?? 0} models available)`
-                : `⚠️ Connected — model "${vlmModel}" not found (available: ${testResult.models?.join(", ") ?? "none"})`
+                  ? `✅ Auto → ${shortModelName(testResult.activeModel)}${testResult.willLoad ? " (will load)" : " ✓ loaded"}`
+                  : `✅ Model loaded: ${shortModelName(testResult.activeModel)}`
+                : `⚠️ Connected — model "${vlmModel}" not loaded (loaded: ${testResult.loadedModels?.join(", ") || "none"})`
               : `❌ ${testResult.error}`}
           </span>
         )}

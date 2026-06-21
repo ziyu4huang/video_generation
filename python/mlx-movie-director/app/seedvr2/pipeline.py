@@ -69,6 +69,12 @@ class SeedVR2Upscaler:
         self.transformer = None
         self.vae = None
         self.txt_pos = None
+        self.last_timings: dict[str, float] = {}  # populated by upscale(); read by callers (e.g. image-purify manifest)
+        # Resolved quantization the loader actually applied (None until _load_models
+        # runs). Recorded into the run manifest so 8-bit vs 4-bit-gs32 purify runs
+        # are auditable; diverges from the declared manifest `format` only when the
+        # manifest is missing/malformed and the (4,32) fallback fires.
+        self.quant_config: dict[str, int] | None = None
 
     def _load_models(self) -> None:
         """Lazy-load models on first use."""
@@ -86,6 +92,7 @@ class SeedVR2Upscaler:
             )
 
         quant_bits, quant_gs = _detect_quant_from_manifest(dit_dir)
+        self.quant_config = {"bits": quant_bits, "group_size": quant_gs}
         print(f"[SeedVR2] Loading transformer ({quant_bits}-bit GS{quant_gs})...")
         t0 = time.time()
         transformer_config = self._get_transformer_config()
@@ -207,7 +214,8 @@ class SeedVR2Upscaler:
         print("[SeedVR2] VAE encoding...")
         initial_latent = self.vae.encode(processed_image)
         mx.eval(initial_latent)
-        print(f"[SeedVR2] VAE encode done ({time.time() - t0:.1f}s) → latent {list(initial_latent.shape)}")
+        vae_encode_t = time.time() - t0
+        print(f"[SeedVR2] VAE encode done ({vae_encode_t:.1f}s) → latent {list(initial_latent.shape)}")
 
         # 3. Create conditioning
         static_condition = SeedVR2LatentCreator.create_condition(encoded_latent=initial_latent)
@@ -243,7 +251,8 @@ class SeedVR2Upscaler:
         # s == 0, so next_sample = pred_x_0 directly
         latents = pred_x_0
         mx.eval(latents)
-        print(f"[SeedVR2] Denoising done ({time.time() - t0:.1f}s)")
+        denoise_t = time.time() - t0
+        print(f"[SeedVR2] Denoising done ({denoise_t:.1f}s)")
 
         # Free transformer memory before VAE decode
         del model_input, static_condition, noise_pred
@@ -258,7 +267,8 @@ class SeedVR2Upscaler:
         del latents
         mx.clear_cache()
         gc.collect()
-        print(f"[SeedVR2] VAE decode done ({time.time() - t0:.1f}s)")
+        vae_decode_t = time.time() - t0
+        print(f"[SeedVR2] VAE decode done ({vae_decode_t:.1f}s)")
 
         # 7. Crop to true dimensions and squeeze temporal dim
         decoded = decoded[:, :, :, :true_height, :true_width]
@@ -295,6 +305,12 @@ class SeedVR2Upscaler:
         gc.collect()
 
         total_elapsed = time.time() - total_start
+        self.last_timings = {
+            "seedvr2_total": total_elapsed,
+            "seedvr2_vae_encode": vae_encode_t,
+            "seedvr2_denoise": denoise_t,
+            "seedvr2_vae_decode": vae_decode_t,
+        }
         print(f"[SeedVR2] Done ({total_elapsed:.1f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
         return pil_image
 

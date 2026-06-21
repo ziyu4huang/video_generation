@@ -28,8 +28,9 @@ import mlx.nn as nn
 import numpy as np
 
 from app import config as cfg
-from app.commands._shared import _arg_registered, _option_registered
+from app.commands._shared import _arg_registered, _option_registered, run_session, OutputPaths
 from app.io_utils import load_image_rgb, require_file
+from app.manifest import collect_model_fingerprint, collect_model_fingerprint_controlnet
 from app.controlnet import (
     load_controlnet, build_control_input_33ch,
 )
@@ -306,6 +307,13 @@ def add_i2i_args(parser: argparse.ArgumentParser) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _write_json(path: str, data: dict) -> None:
+    """Write a JSON file (controlnet-style run.json helper)."""
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
 def run_i2i(args: argparse.Namespace) -> None:
     """Execute I2I generation. Called by image.py dispatcher."""
     # Self-test mode (Z-Image only for now)
@@ -394,27 +402,66 @@ def run_i2i(args: argparse.Namespace) -> None:
 
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
     out_path = os.path.join(cfg.OUTPUT_DIR, f"{out_label}.png")
+    # Build OutputPaths by hand to preserve the existing i2i_dn{...} naming in
+    # OUTPUT_DIR (make_output_paths() would use a timestamp base instead).
+    paths = OutputPaths(
+        base_name=out_label,
+        run_file=os.path.join(cfg.OUTPUT_DIR, f"{out_label}.run.json"),
+        manifest_file=os.path.join(cfg.OUTPUT_DIR, f"{out_label}.manifest.json"),
+        output_file=out_path,
+    )
+    # run.json: RunConfig is t2i-specific, so write a plain i2i meta dict here
+    # (mirrors the controlnet pattern — run_config=None + manual run.json).
+    _write_json(paths.run_file, {
+        "command": "image",
+        "action": "i2i",
+        "pipeline": "zimage",
+        "input_image": input_image_path,
+        "reference_image": ref_image_path,
+        "prompt": prompt,
+        "denoise_strength": denoise_strength,
+        "controlnet_strength": ctrl_strength if ctrl_33ch is not None else None,
+        "skip_preprocess": skip_preprocess,
+        "blur_ref": blur_ref,
+        "cnet_active_steps": cnet_active_steps,
+        "steps": steps,
+        "seed": seed,
+        "width": out_w,
+        "height": out_h,
+    })
 
     print(f"  Output    : {out_w}×{out_h}")
     print(f"  Denoise   : {denoise_strength}")
     print(f"  ControlNet: {'on (strength=' + str(ctrl_strength) + ')' if ctrl_33ch is not None else 'off'}")
     print(f"  Steps/seed: {steps} / {seed}")
 
-    pil_image = _generate(
-        prompt=prompt,
-        out_w=out_w,
-        out_h=out_h,
-        steps=steps,
-        seed=seed,
-        clean_latent=clean_latent,
-        denoise_strength=denoise_strength,
-        ctrl_33ch=ctrl_33ch,
-        controlnet_strength=ctrl_strength,
-        cnet_active_steps=cnet_active_steps,
-    )
+    json_summary = getattr(args, "json_summary", False)
+    with run_session(paths, run_config=None, json_summary=json_summary) as ctx:
+        pil_image = _generate(
+            prompt=prompt,
+            out_w=out_w,
+            out_h=out_h,
+            steps=steps,
+            seed=seed,
+            clean_latent=clean_latent,
+            denoise_strength=denoise_strength,
+            ctrl_33ch=ctrl_33ch,
+            controlnet_strength=ctrl_strength,
+            cnet_active_steps=cnet_active_steps,
+        )
 
-    pil_image.save(out_path)
-    print(f"Saved: {out_path}")
+        pil_image.save(out_path)
+        print(f"Saved: {out_path}")
+        ctx["outputs"] = [{
+            "path": out_path,
+            "seed": seed,
+            "size_bytes": os.path.getsize(out_path),
+            "width": pil_image.width,
+            "height": pil_image.height,
+        }]
+        ctx["models"] = (collect_model_fingerprint_controlnet()
+                         if ctrl_33ch is not None else collect_model_fingerprint())
+        ctx["timings"] = {}  # Z-Image _generate() returns PIL only; no phase timings today
 
 
 # ---------------------------------------------------------------------------
