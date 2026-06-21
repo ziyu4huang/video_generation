@@ -242,8 +242,11 @@ def _quantize_predicate(path: str, module) -> bool:
     return True
 
 
-def convert_seedvr2_dit() -> bool:
-    """Convert SeedVR2 7B DiT from fp16 safetensors → 4-bit MLX."""
+def convert_seedvr2_dit(bits: int = 4, group_size: int = 32) -> bool:
+    """Convert SeedVR2 7B DiT from fp16 safetensors → quantized MLX.
+
+    bits / group_size control the output quantization (defaults 4 / 32 preserve
+    the original 4-bit behaviour; pass bits=8, group_size=64 for an 8-bit build)."""
     src = cfg.SRC_SEEDVR2_DIT_7B
     dst_dir = cfg.SEEDVR2_DIT_DIR
 
@@ -310,8 +313,8 @@ def convert_seedvr2_dit() -> bool:
     del model_params
     mx.eval(model.parameters())
 
-    print("[seedvr2-dit] Quantizing to 4-bit (group_size=32, skipping small dims)...")
-    nn.quantize(model, bits=4, group_size=32, class_predicate=_quantize_predicate)
+    print(f"[seedvr2-dit] Quantizing to {bits}-bit (group_size={group_size}, skipping small dims)...")
+    nn.quantize(model, bits=bits, group_size=group_size, class_predicate=_quantize_predicate)
 
     out_weights = os.path.join(dst_dir, "model.safetensors")
     print(f"[seedvr2-dit] Saving to {dst_dir}...")
@@ -1244,9 +1247,22 @@ def convert_ltx_checkpoint(checkpoint_path: str, output_name: str = "ltx-2.3-das
     return True
 
 
+def _mlx_format(bits: int, group_size: int) -> str:
+    """Map (bits, group_size) -> the manifest `format` string the MLX loaders
+    recognise. bits=8 -> "mlx-8bit" (the zimage loader maps this to 8/64);
+    bits=4 -> "mlx-4bit-gs{group_size}". Other widths use the general form."""
+    if bits == 8:
+        return "mlx-8bit"
+    return f"mlx-{bits}bit-gs{group_size}"
+
+
 def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmix-redzit15",
-                           source: str | None = None, source_url: str | None = None):
-    """Convert a third-party ZImage Turbo checkpoint (Civitai .safetensors) to 4-bit MLX.
+                           source: str | None = None, source_url: str | None = None,
+                           bits: int = 4, group_size: int = 32):
+    """Convert a third-party ZImage Turbo checkpoint (Civitai .safetensors) to MLX.
+
+    bits / group_size control the output quantization (defaults 4 / 32 preserve
+    the original 4-bit behaviour; pass bits=8, group_size=64 for an 8-bit build).
 
     Handles ComfyUI-format safetensors (FP8 or BF16) by reusing the existing
     key remapping (_remap_qkv, _remap_keys, _map_key_and_convert) and 4-bit
@@ -1273,7 +1289,7 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
 
     # ── Step 1: Load checkpoint ────────────────────────────────────
     print(f"[zit-checkpoint] Loading {os.path.basename(checkpoint_path)}...")
-    print(f"[zit-checkpoint] (Requires ~12 GB RAM for BF16 -> 4-bit)")
+    print(f"[zit-checkpoint] (Requires ~12 GB RAM for BF16 -> {bits}-bit)")
     pt_weights = load_pt_file(checkpoint_path)
     print(f"[zit-checkpoint] Loaded {len(pt_weights)} tensors")
 
@@ -1343,9 +1359,9 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     del mlx_weights
     mx.eval(model.parameters())
 
-    # ── Step 7: Quantize to 4-bit (group_size=32) ──────────────────
-    print("[zit-checkpoint] Quantizing to 4-bit (group_size=32)...")
-    nn.quantize(model, bits=4, group_size=32)
+    # ── Step 7: Quantize (bits / group_size from args) ─────────────
+    print(f"[zit-checkpoint] Quantizing to {bits}-bit (group_size={group_size})...")
+    nn.quantize(model, bits=bits, group_size=group_size)
 
     # ── Step 8: Save output ────────────────────────────────────────
     if os.path.exists(dst_dir):
@@ -1375,9 +1391,9 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
         "name": output_name,
         "type": "transformer",
         "arch": "zimage-turbo",
-        "format": "mlx-4bit-gs32",
+        "format": _mlx_format(bits, group_size),
         "description": (
-            f"ZImage Turbo finetune, 4-bit MLX. Converted from "
+            f"ZImage Turbo finetune, {bits}-bit MLX. Converted from "
             f"{os.path.basename(checkpoint_path)} via convert.py --zit-checkpoint."
         ),
         "source": src_id,
@@ -1399,12 +1415,12 @@ def convert_zit_checkpoint(checkpoint_path: str, output_name: str = "ernie-redmi
     size_gb = weight_size / 1e9
     readme = (
         f"# {output_name}\n\n"
-        f"ZImage Turbo finetune, 4-bit MLX.\n\n"
+        f"ZImage Turbo finetune, {bits}-bit MLX.\n\n"
         f"- **Source**: CivitAI ({src_url}) (baseModel ZImageTurbo)\n"
         f"- **Converted**: `convert.py --zit-checkpoint "
         f"{os.path.basename(checkpoint_path)}`\n"
         f"- **Size**: {size_gb:.1f} GB\n"
-        f"- **Quantization**: 4-bit, group_size=32\n"
+        f"- **Quantization**: {bits}-bit, group_size={group_size}\n"
         f"- **Sampler**: EULER/DEIS | Simple | CFG=1 | 10 Steps\n\n"
         f"Shares text encoder (qwen3-4b), tokenizer (qwen3), "
         f"and VAE (zimage-ae) with the built-in ZImage models.\n"
@@ -1686,9 +1702,11 @@ Examples:
                         help="Quantize any MLX .safetensors file in-place (no model class needed). "
                              "Backup saved as <file>.bf16.bak. Use --bits and --group-size to control precision.")
     parser.add_argument("--bits", type=int, default=None, choices=[4, 8],
-                        help="Quantization bits for --quantize-file (default: 8)")
+                        help="Quantization bits for --quantize-file (default 8), "
+                             "or --zit-checkpoint / --seedvr2-dit (default 4)")
     parser.add_argument("--group-size", type=int, default=None,
-                        help="Quantization group size for --quantize-file (default: 64)")
+                        help="Quantization group size for --quantize-file (default 64), "
+                             "or --zit-checkpoint / --seedvr2-dit (default 32)")
     args = parser.parse_args()
 
     if not any(vars(args).values()):
@@ -1704,7 +1722,7 @@ Examples:
     if args.all or args.transformer:
         convert_transformer()
     if args.seedvr2_dit:
-        convert_seedvr2_dit()
+        convert_seedvr2_dit(bits=args.bits or 4, group_size=args.group_size or 32)
     if args.seedvr2_vae:
         convert_seedvr2_vae()
     if args.klein_9b:
@@ -1715,7 +1733,8 @@ Examples:
         convert_ltx_checkpoint(args.ltx_checkpoint, args.name or "ltx-2.3-dasiwa-golden-lace-v3-q8")
     if args.zit_checkpoint:
         convert_zit_checkpoint(args.zit_checkpoint, args.name or "ernie-redmix-redzit15",
-                               source=args.source, source_url=args.source_url)
+                               source=args.source, source_url=args.source_url,
+                               bits=args.bits or 4, group_size=args.group_size or 32)
     if args.vae_mlx:
         convert_vae_to_mlx()
     if args.ltx_connector:
