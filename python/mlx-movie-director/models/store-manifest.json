@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 57,
+  "count": 62,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -63,6 +63,10 @@
       "md5": "80583be6d7ba058958502a6290345e5c",
       "size": 680326960
     },
+    "lora/nsfw-master/NSFW_master_ZIT_000017532.safetensors": {
+      "md5": "34f03b2e1fb95d8888502790c2bc7179",
+      "size": 621346936
+    },
     "lora/singularity-omnicine-v1/Singularity-LTX-2.3_OmniCine_V1.int8.safetensors": {
       "md5": "a8e78019eaf2fc9dd4cb568b0cd9034d",
       "size": 1348506844
@@ -86,6 +90,10 @@
     "lora/vbvr-ltx2.3/Video-Reason_VBVR-LTX2.3-diffsynth_comfyui.int8.safetensors": {
       "md5": "b916ef7faa9d9cdf2af8d7ce647b50e8",
       "size": 214607595
+    },
+    "lora/velvet-s-mythic-fantasy-styles-flux-pony-illustrious-zit-anima/ZiTMythG0thicL1nes.safetensors": {
+      "md5": "c9159759b32af133863d4241359c353b",
+      "size": 170129464
     },
     "lora/z-image-asian-girl-2-2/Z-xhs888.safetensors": {
       "md5": "d3c250c4436dbc22bdcea0484905f7a9",
@@ -148,23 +156,43 @@
       "size": 1194893301
     },
     "transformer/klein-9b-dark-beast-bfs/0.safetensors": {
-      "md5": "9c206e371925deee0613d7c75a238dfb",
+      "md5": "32058004c2281407b9366e04d0a34139",
       "size": 2140791069
     },
     "transformer/klein-9b-dark-beast-bfs/1.safetensors": {
-      "md5": "fbbe1e6a78b014c33e284a047ace97c6",
+      "md5": "a33741970ffaa783cb042ae42b77473c",
       "size": 2139119960
     },
     "transformer/klein-9b-dark-beast-bfs/2.safetensors": {
-      "md5": "4c71e7d0f119211e83a2bcc35bf7a29c",
+      "md5": "3cfce3ece317d8745dd4873e43f43874",
       "size": 2085631345
     },
     "transformer/klein-9b-dark-beast-bfs/3.safetensors": {
-      "md5": "a28659666dcd174276360ae9dc562822",
+      "md5": "626a841294125b40a55ae28260498a8a",
       "size": 2085631415
     },
     "transformer/klein-9b-dark-beast-bfs/4.safetensors": {
-      "md5": "8df649812062cbf907d1d1b82a399bb0",
+      "md5": "2a754fb07e2173e8c33d0a2bf0d52566",
+      "size": 1194597359
+    },
+    "transformer/kleinova-nsfw-v3/0.safetensors": {
+      "md5": "285ab47b5daaf6ed90106e4f102e7d5f",
+      "size": 2140791069
+    },
+    "transformer/kleinova-nsfw-v3/1.safetensors": {
+      "md5": "9c0ba0666d09dff06ab225082e2742b4",
+      "size": 2139119960
+    },
+    "transformer/kleinova-nsfw-v3/2.safetensors": {
+      "md5": "aab1d51152916e08f902f0a0d9260eb9",
+      "size": 2085631345
+    },
+    "transformer/kleinova-nsfw-v3/3.safetensors": {
+      "md5": "661454b0f9bfaeb535b4b7254c832ad9",
+      "size": 2085631415
+    },
+    "transformer/kleinova-nsfw-v3/4.safetensors": {
+      "md5": "018255af62ff4d0b0b92c961c23d7cc3",
       "size": 1194893301
     },
     "transformer/kleinova-nsfw-v3/0.safetensors": {
@@ -242,14 +270,6 @@
     "vae/zimage-ae/model.safetensors": {
       "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
-    },
-    "lora/nsfw-master/NSFW_master_ZIT_000017532.safetensors": {
-      "md5": "34f03b2e1fb95d8888502790c2bc7179",
-      "size": 621346936
-    },
-    "lora/velvet-s-mythic-fantasy-styles-flux-pony-illustrious-zit-anima/ZiTMythG0thicL1nes.safetensors": {
-      "md5": "c9159759b32af133863d4241359c353b",
-      "size": 170129464
     }
   }
 }

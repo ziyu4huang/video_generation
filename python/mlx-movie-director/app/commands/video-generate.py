@@ -27,6 +27,7 @@ Exports: add_generate_args(), run_generate().
 """
 
 import argparse
+import math
 import os
 import shutil
 import subprocess
@@ -371,23 +372,30 @@ def _fit_to_image(image_path: str, width: int, height: int) -> tuple[int, int]:
         print(f"[video] Video target: {width}×{height} — aspect match ✓")
         return width, height
 
-    # Auto-fit: keep the shorter dimension, adjust the other to match image ratio
-    if width >= height:
-        # Landscape: keep height, adjust width
-        new_w = round(height * img_ratio / 64) * 64
-        new_w = max(64, new_w)
-        if new_w != width:
-            print(f"[video] Auto-fit to image: {width}×{height} → {new_w}×{height} "
-                  f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
-        return new_w, height
-    else:
-        # Portrait: keep width, adjust height
-        new_h = round(width / img_ratio / 64) * 64
-        new_h = max(64, new_h)
-        if new_h != height:
-            print(f"[video] Auto-fit to image: {width}×{height} → {width}×{new_h} "
-                  f"(aspect {img_ratio:.2f}:1, was {video_ratio:.2f}:1)")
-        return width, new_h
+    # Pixel-budget approach: find the 64-aligned (width, height) closest in
+    # aspect ratio to the input image while staying within 120% of the default
+    # pixel budget. Handles orientation flips (portrait in → portrait video).
+    #
+    # Strategy: start from the analytical optimum, then check all 9 neighbors
+    # (±64 in each dim) to find the exact pair with minimal ratio divergence.
+    pixel_budget = width * height
+    base_w = max(64, round(math.sqrt(pixel_budget * img_ratio) / 64) * 64)
+    base_h = max(64, round(math.sqrt(pixel_budget / img_ratio) / 64) * 64)
+
+    candidates = [
+        (w, h)
+        for w in (base_w - 64, base_w, base_w + 64)
+        for h in (base_h - 64, base_h, base_h + 64)
+        if w >= 64 and h >= 64
+        and pixel_budget * 0.90 <= w * h <= pixel_budget * 1.20
+    ]
+    if not candidates:
+        candidates = [(base_w, base_h)]  # analytical fallback
+    new_w, new_h = min(candidates, key=lambda wh: abs(wh[0] / wh[1] - img_ratio))
+
+    print(f"[video] Auto-fit to image: {width}×{height} → {new_w}×{new_h} "
+          f"(aspect {img_ratio:.3f}:1 → {new_w/new_h:.3f}:1, budget {pixel_budget}→{new_w*new_h}px)")
+    return new_w, new_h
 
 
 def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int) -> tuple[int, int]:
@@ -437,21 +445,25 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
         print(f"[video] Video target: {width}×{height} — aspect match ✓")
         return width, height
 
-    # Auto-fit: keep the shorter dimension, adjust the other
-    if width >= height:
-        new_w = round(height * avg_ratio / 64) * 64
-        new_w = max(64, new_w)
-        if new_w != width:
-            print(f"[video] Auto-fit to dual images: {width}×{height} → {new_w}×{height} "
-                  f"(avg aspect {avg_ratio:.2f}:1)")
-        return new_w, height
-    else:
-        new_h = round(width / avg_ratio / 64) * 64
-        new_h = max(64, new_h)
-        if new_h != height:
-            print(f"[video] Auto-fit to dual images: {width}×{height} → {width}×{new_h} "
-                  f"(avg aspect {avg_ratio:.2f}:1)")
-        return width, new_h
+    # Same neighbor-search as _fit_to_image.
+    pixel_budget = width * height
+    base_w = max(64, round(math.sqrt(pixel_budget * avg_ratio) / 64) * 64)
+    base_h = max(64, round(math.sqrt(pixel_budget / avg_ratio) / 64) * 64)
+
+    candidates = [
+        (w, h)
+        for w in (base_w - 64, base_w, base_w + 64)
+        for h in (base_h - 64, base_h, base_h + 64)
+        if w >= 64 and h >= 64
+        and pixel_budget * 0.90 <= w * h <= pixel_budget * 1.20
+    ]
+    if not candidates:
+        candidates = [(base_w, base_h)]
+    new_w, new_h = min(candidates, key=lambda wh: abs(wh[0] / wh[1] - avg_ratio))
+
+    print(f"[video] Auto-fit to dual images: {width}×{height} → {new_w}×{new_h} "
+          f"(avg aspect {avg_ratio:.3f}:1 → {new_w/new_h:.3f}:1, budget {pixel_budget}→{new_w*new_h}px)")
+    return new_w, new_h
 
 
 def run_generate(args):
@@ -785,6 +797,13 @@ def _run_single(args, prompt: str) -> None:
     paths = make_output_paths(ext=".mp4")
     output_mp4 = paths.output_file
 
+    # Pre-resize I2V input image to video target dimensions.
+    # The vendor pipeline does its own resize_and_center_crop, but pre-resizing
+    # here ensures no quality is lost to cropping and the H.264 CRF round-trip
+    # runs at the correct target resolution.
+    if image_path:
+        image_path = _prepare_i2v_image(image_path, args.width, args.height)
+
     mode = _mode_label(args)
 
     flf2v_info = ""
@@ -904,6 +923,10 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
     mode = _mode_label(args)
     print(f"[video] A/B Test: {variations} variations  Mode: {mode}  "
           f"Resolution: {args.width}×{args.height}  Frames: {args.frames}  FPS: {args.fps}")
+
+    # Pre-resize I2V input image to video target dimensions (shared across all variations)
+    if args.input_image:
+        args.input_image = _prepare_i2v_image(args.input_image, args.width, args.height)
 
     from app.ltx_pipeline import LTXVideoPipeline
 
@@ -1209,6 +1232,72 @@ def _apply_prompt_defaults(args, defaults: dict) -> None:
             current = getattr(args, prompt_key, sentinel)
             if current is not sentinel and current == _ARGPARSE_DEFAULTS[prompt_key]:
                 setattr(args, prompt_key, value)
+
+
+def _prepare_i2v_image(image_path: str, width: int, height: int) -> str:
+    """Pre-resize input image to LTX target dimensions before I2V conditioning.
+
+    The vendor pipeline does resize_and_center_crop internally, but pre-resizing
+    here ensures:
+      1. The H.264 CRF round-trip (vendor preprocessing) runs at target resolution.
+      2. The vendor's center-crop becomes a no-op (no quality loss from cropping).
+      3. We control the crop region explicitly (centered, highest-quality Lanczos).
+
+    Returns the original path if already at target size, otherwise saves a
+    resized copy alongside the original and returns that path.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return image_path  # PIL unavailable — let vendor handle it
+
+    try:
+        img = Image.open(image_path)
+        img_w, img_h = img.size
+    except (FileNotFoundError, OSError):
+        return image_path  # bad path — surface error later at generate time
+
+    if img_w == width and img_h == height:
+        img.close()
+        return image_path  # Already correct — no-op
+
+    # Cache check: skip re-processing if the resized file is already up-to-date
+    stem, _ext = os.path.splitext(image_path)
+    resized_path = f"{stem}_ltx_{width}x{height}.png"
+    if (os.path.exists(resized_path)
+            and os.path.getmtime(resized_path) >= os.path.getmtime(image_path)):
+        print(f"[video] I2V image pre-resize: cached {os.path.basename(resized_path)}")
+        img.close()
+        return resized_path
+
+    img_ratio = img_w / img_h
+    target_ratio = width / height
+    ratio_diff = abs(img_ratio - target_ratio) / max(img_ratio, target_ratio)
+
+    print(f"[video] I2V image pre-resize: {img_w}×{img_h} → {width}×{height} "
+          f"(ratio diff {ratio_diff*100:.1f}%, Lanczos)")
+
+    # Center-crop to target aspect ratio before downscaling (preserves detail)
+    if ratio_diff > 0.01:
+        if img_ratio > target_ratio:
+            # Image is wider — crop horizontal margins
+            new_w = int(round(img_h * target_ratio))
+            x = (img_w - new_w) // 2
+            img = img.crop((x, 0, x + new_w, img_h))
+        else:
+            # Image is taller — crop vertical margins
+            new_h = int(round(img_w / target_ratio))
+            y = (img_h - new_h) // 2
+            img = img.crop((0, y, img_w, y + new_h))
+
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img = img.resize((width, height), Image.LANCZOS)
+
+    # Save alongside original (not in /tmp) so the path stays stable per session
+    img.save(resized_path, format="PNG")
+    img.close()
+    return resized_path
 
 
 def _extract_first_frame(video_path: str, png_path: str) -> bool:
