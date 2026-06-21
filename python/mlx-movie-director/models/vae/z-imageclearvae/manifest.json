@@ -1,0 +1,17 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Validated by `run.py check-model`.",
+  "name": "z-imageclearvae",
+  "type": "vae",
+  "arch": "flux-ae",
+  "format": "mlx-bf16",
+  "description": "Z-Image_clear_vae half-natural ZImage-Turbo VAE, converted to MLX BF16",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "cli": {
+    "note": "pass --vae z-imageclearvae to image t2i (not yet wired — use as vae_dir override)"
+  },
+  "size_bytes": 0,
+  "created_at": "2026-06-21T04:08:59Z",
+  "source_url": "https://civitai.com/models/2191617"
+}

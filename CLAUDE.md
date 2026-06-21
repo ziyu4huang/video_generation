@@ -142,11 +142,46 @@ Browser automation: use `playwright-cli` skill. Before automating, capture a scr
 `run.py caption <shot> --style playwright --lang en` — the text snapshot shows structure but not
 current field values or selected state; the caption fills that gap.
 
+## Model Import Commands
+
+### import-checkpoint (ZImage transformer)
+
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py import-checkpoint \
+  'https://civitai.com/models/...' [--name my-model]
+```
+
+Downloads bf16 safetensors from CivitAI, remaps ComfyUI keys, quantizes to 8-bit MLX,
+**externalizes** `model.safetensors` to `../video_generation__models/<md5>.safetensors`,
+and replaces it with a relative symlink. Only metadata files (`manifest.json`, `config.json`,
+`README.md`) are committed to git — the large binary lives outside the repo.
+
+### import-lora-image (ZImage LoRA)
+
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py import-lora-image \
+  'https://civitai.com/models/...' [--name my-lora]
+```
+
+Same externalization pattern: binary → `../video_generation__models/<md5>.safetensors`,
+symlink committed to git.
+
+### External model store invariant
+
+Every `model.safetensors` (and LoRA `.safetensors`) **must** be a symlink pointing to
+`../../../../../../video_generation__models/<md5>.safetensors`. The store index is tracked
+in `python/mlx-movie-director/models/store-manifest.json`.
+
+Both `import-checkpoint` and `import-lora-image` enforce this automatically. If you ever
+add a model manually, run the same externalization step — never commit a raw binary.
+
 ## Key Directories
 
 ```
 python/mlx-movie-director/            # ACTIVE — MLX pipeline
 python/mlx-movie-director/models/     # ACTIVE — MLX-owned model tree (runtime paths live here)
+python/mlx-movie-director/models/store-manifest.json  # tracks all externalized model files
+../video_generation__models/          # EXTERNAL binary store (outside repo, gitignored)
 bun/gui-movie-director/               # ACTIVE — Bun + React GUI
 comfyui_data/models/                  # raw sources for convert.py (BUILD-TIME ONLY) — NOT a runtime dep
 ComfyUI/                              # DEPRECATED submodule (abandoned)

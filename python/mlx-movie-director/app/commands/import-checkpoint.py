@@ -22,6 +22,7 @@ Examples:
 
 import argparse
 import gc
+import hashlib
 import json
 import math
 import os
@@ -217,6 +218,12 @@ def _run_url_import(url: str, args) -> None:
         os.makedirs(target_dir, exist_ok=True)
         _convert_zimage_checkpoint(tmp_file, target_dir)
 
+        # Externalize large weights file to ../video_generation__models/ store
+        weights_path = os.path.join(target_dir, "model.safetensors")
+        if os.path.isfile(weights_path) and not os.path.islink(weights_path):
+            print("\n  Externalizing weights to model store...")
+            _externalize_weights(weights_path)
+
         # Write manifest + README
         source_url = f"https://civitai.com/models/{version_data.get('modelId', model_id)}"
         size_bytes = _dir_size(target_dir)
@@ -268,7 +275,13 @@ def _run_local_import(src: str, args) -> None:
         sys.exit(1)
 
     print(f"[import-checkpoint] Copying local directory → {name}")
-    shutil.copytree(src, target_dir)
+    shutil.copytree(src, target_dir, symlinks=True)
+
+    # Externalize large weights file if not already a symlink
+    weights_path = os.path.join(target_dir, "model.safetensors")
+    if os.path.isfile(weights_path) and not os.path.islink(weights_path):
+        print("  Externalizing weights to model store...")
+        _externalize_weights(weights_path)
 
     description = args.description or f"ZImage-Turbo transformer (imported from {os.path.basename(src)})"
     size_bytes = _dir_size(target_dir)
@@ -638,6 +651,68 @@ def _dir_size(path: str) -> int:
             if not os.path.islink(fp):
                 total += os.path.getsize(fp)
     return total
+
+
+# ---------------------------------------------------------------------------
+# External model store (mirrors import-lora-image.py pattern)
+# ---------------------------------------------------------------------------
+
+def _md5_file(path: str, chunk: int = 1 << 20) -> str:
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def _external_store_dir() -> str:
+    """Return abs path to the external model store (../video_generation__models/)."""
+    manifest_file = os.path.join(cfg.MODELS_DIR, "store-manifest.json")
+    if os.path.exists(manifest_file):
+        with open(manifest_file) as f:
+            rel = json.load(f).get("store_relative_to_repo_root", "../video_generation__models")
+    else:
+        rel = "../video_generation__models"
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(cfg.MODELS_DIR)))
+    return os.path.normpath(os.path.join(repo_root, rel))
+
+
+def _externalize_weights(weights_path: str) -> None:
+    """Move model.safetensors to external store and replace with a relative symlink."""
+    store_dir = _external_store_dir()
+    os.makedirs(store_dir, exist_ok=True)
+
+    print("    Computing MD5...")
+    md5 = _md5_file(weights_path)
+    store_path = os.path.join(store_dir, f"{md5}.safetensors")
+    file_size = os.path.getsize(weights_path)
+
+    if os.path.exists(store_path):
+        os.remove(weights_path)  # dedup: identical file already in store
+    else:
+        shutil.move(weights_path, store_path)
+        if _md5_file(store_path) != md5:
+            raise RuntimeError(f"MD5 mismatch after move to external store: {store_path}")
+
+    rel = os.path.relpath(store_path, os.path.dirname(weights_path))
+    os.symlink(rel, weights_path)
+
+    # Update store-manifest.json
+    manifest_file = os.path.join(cfg.MODELS_DIR, "store-manifest.json")
+    if os.path.exists(manifest_file):
+        with open(manifest_file) as f:
+            doc = json.load(f)
+    else:
+        doc = {"version": 1, "store_relative_to_repo_root": "../video_generation__models",
+               "count": 0, "files": {}}
+    key = os.path.relpath(weights_path, cfg.MODELS_DIR)
+    doc["files"][key] = {"md5": md5, "size": file_size}
+    doc["count"] = len(doc["files"])
+    with open(manifest_file, "w") as f:
+        json.dump(doc, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+    print(f"    Externalized → {os.path.basename(store_path)}")
 
 
 def _print_summary(name: str, target_dir: str, description: str,
