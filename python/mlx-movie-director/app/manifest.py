@@ -214,6 +214,26 @@ def collect_model_fingerprint_flux2(lora_path: str | None = None,
     return models
 
 
+def collect_model_fingerprint_seedvr2() -> dict[str, Any]:
+    """Collect fingerprints for SeedVR2 upscaler model files.
+
+    SeedVR2 uses three single-file weight artifacts (no text encoder, no LoRA):
+      - DiT transformer  (cfg.SEEDVR2_DIT_DIR/model.safetensors)
+      - VAE              (cfg.SEEDVR2_VAE_DIR/model.safetensors)
+      - positive text embedding (cfg.SEEDVR2_POS_EMB, a .pt tensor)
+    All are single-file, so file_fingerprint() is the right primitive.
+    """
+    from app import config as cfg
+
+    models: dict[str, Any] = {}
+    dit_path = os.path.join(cfg.SEEDVR2_DIT_DIR, "model.safetensors")
+    models["seedvr2_dit"] = file_fingerprint(dit_path)
+    vae_path = os.path.join(cfg.SEEDVR2_VAE_DIR, "model.safetensors")
+    models["seedvr2_vae"] = file_fingerprint(vae_path)
+    models["seedvr2_pos_emb"] = file_fingerprint(cfg.SEEDVR2_POS_EMB)
+    return models
+
+
 @dataclass
 class Manifest:
     """Post-run audit record: timing, memory, models, output files, or error details."""
