@@ -142,11 +142,35 @@ export function RangeField({ label, value, onChange, min = 0, max = 1, step = 0.
   );
 }
 
+type SelectOption = { value: string; label: string; group?: string };
+
+// Partition options into ordered groups + an ungrouped tail. Each `group`
+// becomes an <optgroup>; options without a group render as bare <option>s.
+// When nothing carries a group this returns a single ungrouped segment, so
+// selects without groups render exactly as before (backward-compatible).
+function groupSelectOptions(options: SelectOption[]): { name: string; options: SelectOption[] }[] {
+  const order: string[] = [];
+  const byGroup = new Map<string, SelectOption[]>();
+  const ungrouped: SelectOption[] = [];
+  for (const opt of options) {
+    if (opt.group) {
+      let bucket = byGroup.get(opt.group);
+      if (!bucket) { bucket = []; byGroup.set(opt.group, bucket); order.push(opt.group); }
+      bucket.push(opt);
+    } else {
+      ungrouped.push(opt);
+    }
+  }
+  const segments = order.map((name) => ({ name, options: byGroup.get(name)! }));
+  if (ungrouped.length) segments.push({ name: "", options: ungrouped });
+  return segments;
+}
+
 interface SelectFieldProps {
   label: string;
   value: string;
   onChange: (val: string) => void;
-  options: { value: string; label: string }[];
+  options: SelectOption[];
   loading?: boolean;
 }
 
@@ -158,11 +182,23 @@ export function SelectField({ label, value, onChange, options, loading }: Select
         {loading ? (
           <option value="">Loading…</option>
         ) : (
-          options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))
+          groupSelectOptions(options).map((seg) =>
+            seg.name ? (
+              <optgroup key={seg.name} label={seg.name}>
+                {seg.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </optgroup>
+            ) : (
+              seg.options.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))
+            ),
+          )
         )}
       </select>
     </div>
