@@ -390,5 +390,11 @@ def run_purify(args) -> None:
             "size_bytes": os.path.getsize(paths.output_file),
             "width": w1, "height": h1,
         }]
-        ctx["models"] = collect_model_fingerprint_seedvr2()
+        models = collect_model_fingerprint_seedvr2()
+        # Effective quant the loader resolved (incl. fallback) — pairs with the
+        # static seedvr2_dit_format so an 8-bit vs 4-bit-gs32 run is auditable
+        # and a manifest-missing fallback is detectable.
+        if upscaler.quant_config:
+            models["seedvr2_quant_resolved"] = dict(upscaler.quant_config)
+        ctx["models"] = models
         ctx["timings"] = dict(upscaler.last_timings)
