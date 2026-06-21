@@ -86,9 +86,10 @@ For each model conversion, ensure:
 
 | Model | Category | Format | Size | Status | Source Deleted |
 |-------|----------|--------|------|--------|---------------|
-| zimage-moody-v126 | transformer | mlx-4bit-gs32 | 3.6 GB | ✅ Pre-quantized | ✅ ComfyUI source (11 GB) deleted |
+| moody-pro-mix | transformer | mlx-8bit | 6.5 GB | ✅ Pre-quantized (default; replaced retired zimage-moody-v126) | ✅ ComfyUI source deleted |
 | klein-9b | transformer | mlx-8bit | 9.6 GB | ✅ Pre-quantized | ✅ HF cache (32 GB) deleted |
-| seedvr2-7b | transformer | mlx-4bit-gs32 | 4.8 GB | ✅ Pre-quantized | ✅ ComfyUI source (15 GB) deleted |
+| dark-beast-dbzit9 | transformer | mlx-8bit | 6.5 GB | ✅ Re-derived 8-bit (bf16 source; was fp8→4bit) | ✅ CivitAI source deleted |
+| seedvr2-7b | transformer | mlx-8bit | 8.8 GB | ✅ Re-derived 8-bit (Comfy-Org fp16 source; was 4bit) | ✅ ComfyUI source deleted |
 | ltx-2.3-connector | text_encoder | mlx-4bit-gs32 | 6.3 GB → 1.9 GB | ✅ Pre-quantized | ✅ ComfyUI source deleted |
 | qwen3-4b | text_encoder | mlx-4bit-gs32 | 2.3 GB | ✅ Pre-quantized | ✅ ComfyUI source (7.5 GB) deleted |
 | qwen3-8b | text_encoder | mlx-8bit | 8.0 GB | ✅ Pre-quantized | ✅ HF cache (via klein-9b) deleted |

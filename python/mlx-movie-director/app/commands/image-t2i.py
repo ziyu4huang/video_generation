@@ -85,8 +85,9 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
         help="Klein model variant (default: 9b; use 4b for lower memory)",
     )
     parser.add_argument(
-        "--transformer", default="klein-9b", metavar="NAME",
-        help="Transformer instance dir under models/transformer/ (default: klein-9b)",
+        "--transformer", default=None, metavar="NAME",
+        help="Transformer instance dir under models/transformer/ (default: per-pipeline — "
+             "zimage uses cfg.TRANSFORMER_DIR [moody-pro-mix], flux2-klein uses klein-9b)",
     )
     parser.add_argument(
         "--flux2-model-path", default=None, metavar="PATH",

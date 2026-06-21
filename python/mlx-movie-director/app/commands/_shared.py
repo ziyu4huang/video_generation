@@ -627,7 +627,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
         pipeline = Flux2KleinT2IPipeline(
             lora_paths=lora_paths,
             lora_scales=lora_scales,
-            transformer_name=getattr(run_config, "transformer", "klein-9b"),
+            transformer_name=getattr(run_config, "transformer", None) or "klein-9b",
         )
     else:
         transformer_name = getattr(run_config, "transformer", None)
@@ -926,7 +926,7 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
             print(f"A/B Test — Flux2 Klein (batch {i+1}/{count}, seed={seed})")
             print(f"{'='*60}")
             pipeline_f = Flux2KleinT2IPipeline(
-                transformer_name=getattr(run_config, "transformer", "klein-9b"),
+                transformer_name=getattr(run_config, "transformer", None) or "klein-9b",
             )
             result_f = pipeline_f.generate(
                 prompt=prompt,
