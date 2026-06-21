@@ -28,6 +28,7 @@ import math
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -712,7 +713,37 @@ def _externalize_weights(weights_path: str) -> None:
         json.dump(doc, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
+    # *.safetensors is gitignored, so the symlink must be force-staged or the
+    # commit ships a manifest with no weights (the 3d0c39b bug class).
+    _git_add_force(weights_path)
     print(f"    Externalized → {os.path.basename(store_path)}")
+
+
+def _git_add_force(path: str) -> None:
+    """Force-stage *path* so a gitignored file still lands in the commit.
+
+    Weight symlinks need this: ``*.safetensors`` is gitignored (safety net so
+    the real blobs never commit), which also matches the symlink — a plain
+    ``git add`` silently skips it and the commit ships a manifest with no
+    weights, breaking every other worktree. Best-effort: warns on failure
+    (e.g. not a git repo) rather than aborting the import. check-model's
+    tracking invariant is the backstop that catches a missed stage regardless
+    of how the symlink was created.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "add", "-f", "--", path],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError) as e:
+        print(f"    ⚠ could not run `git add -f` ({e}) — stage the symlink manually")
+        return
+    if result.returncode != 0:
+        print(f"    ⚠ `git add -f` failed (rc={result.returncode}): "
+              f"{result.stderr.strip() or 'unknown error'}")
+        print("      stage the symlink manually or the commit will ship no weights")
+    else:
+        print("    Staged weight symlink (git add -f)")
 
 
 def _print_summary(name: str, target_dir: str, description: str,

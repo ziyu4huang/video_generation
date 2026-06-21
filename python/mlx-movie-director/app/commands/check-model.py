@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 from collections.abc import Iterator
 from datetime import datetime
@@ -296,6 +297,40 @@ def _has_weight_file(inst_dir: str, declared: str | None = None) -> str | None:
     return None
 
 
+def _git_tracking_context(models_dir: str) -> tuple[str | None, set[str] | None]:
+    """Return ``(repo_toplevel, tracked_paths)`` for the git-tracking invariant.
+
+    ``tracked_paths`` is the set of repo-relative paths under *models_dir* that
+    git currently tracks (index + HEAD), as reported by ``git ls-files
+    --full-name``. Returns ``(None, None)`` when git is unavailable or
+    *models_dir* is outside a git worktree — callers MUST skip the tracking
+    check in that case so check-model never raises a false positive in a
+    non-repo / standalone install. One subprocess pair total (not per model).
+    """
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=models_dir, capture_output=True, text=True, timeout=15,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return None, None
+    if root.returncode != 0:
+        return None, None
+    toplevel = root.stdout.strip()
+    try:
+        rel_models = os.path.relpath(models_dir, toplevel)
+        res = subprocess.run(
+            ["git", "ls-files", "--full-name", "--", rel_models],
+            cwd=toplevel, capture_output=True, text=True, timeout=60,
+        )
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        return toplevel, None
+    if res.returncode != 0:
+        return toplevel, None
+    tracked = {line for line in res.stdout.splitlines() if line}
+    return toplevel, tracked
+
+
 def _dir_size(path: str) -> int:
     """Total bytes of all files under a directory (recursive).
 
@@ -418,6 +453,11 @@ def _collect_models_data(models_dir: str) -> dict:
 
     # Progress: announce scan start
     print(f"📂 Scanning {len(manifests)} manifests in {models_dir}...", file=sys.stderr)
+
+    # Git-tracking context for the weight-symlink invariant (check #14b).
+    # Resolved once (two subprocess calls) and reused for every model; None when
+    # git is unavailable so the check degrades to a no-op rather than erroring.
+    git_toplevel, tracked_paths = _git_tracking_context(models_dir)
 
     for category, instance, mf_path in manifests:
         inst_dir = os.path.dirname(mf_path)
@@ -589,6 +629,28 @@ def _collect_models_data(models_dir: str) -> dict:
                     f"(../video_generation__models/<md5>.safetensors). "
                     f"Re-import with `import-checkpoint` or externalize manually."
                 )
+
+        # 14b. Tracking invariant: a weight SYMLINK must be git-tracked.
+        # *.safetensors is gitignored (safety net so ~133GB of real blobs never
+        # commit), but that rule ALSO matches the symlink — a plain `git add`
+        # silently skips it, shipping a manifest with no weights to every other
+        # worktree. Check #14 only verifies the symlink exists on DISK; this
+        # check verifies it is COMMITTED, catching a forgotten `git add -f`
+        # (the exact bug that shipped moody-pro-mix + z-imageclearvae
+        # manifest-only in commit 3d0c39b). Skipped for .downloading/.disabled
+        # and when git is unavailable (tracked_paths is None).
+        if (tracked_paths is not None and weight_file
+                and not downloading_flag and not disabled_flag):
+            wf_path = os.path.join(inst_dir, weight_file)
+            if os.path.islink(wf_path):
+                wf_rel = os.path.relpath(wf_path, git_toplevel)
+                if wf_rel not in tracked_paths:
+                    errors.append(
+                        f"{label}: weight symlink '{weight_file}' exists on disk "
+                        f"but is NOT git-tracked — *.safetensors is gitignored so "
+                        f"`git add` silently skipped it; other worktrees will pull a "
+                        f"manifest with no weights. Fix: `git add -f {wf_rel}`"
+                    )
 
         # 15. tmp/ folder notice
         tmp_dir = os.path.join(inst_dir, "tmp")
