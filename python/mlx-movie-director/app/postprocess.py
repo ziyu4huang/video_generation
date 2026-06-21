@@ -143,8 +143,7 @@ class Sharpening:
     @staticmethod
     def _unsharp(img: np.ndarray, radius: int, amount: float) -> np.ndarray:
         """Unsharp mask: original + amount * (original - blurred)."""
-        from PIL import Image as PILImage
-        pil = PILImage.fromarray(img.round().astype("uint8"))
+        pil = Image.fromarray(img.round().astype("uint8"))
         blurred = pil.filter(Image.GaussianBlur(radius=radius))
         blurred_arr = np.array(blurred, dtype=np.float32)
         return img + amount * (img - blurred_arr)

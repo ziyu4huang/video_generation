@@ -568,9 +568,8 @@ class ZImagePipeline:
         t_dec = time.time()
 
         del model, scheduler, step_fn, cos_cached, sin_cached
-        for _ in range(3):
-            mx.clear_cache()
-            gc.collect()
+        mx.clear_cache()
+        gc.collect()
 
         if _vae_mlx_available(vae_dir):
             # MLX-native VAE decode

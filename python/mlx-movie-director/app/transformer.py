@@ -209,8 +209,8 @@ class ZImageTransformerMLX(nn.Module):
                                           nn.Linear(config['cap_feat_dim'], dim, bias=True))
         self.final_layer = FinalLayer(dim, config['in_channels'] * 4)
 
-        self.x_pad_token = mx.zeros((1, dim))
-        self.cap_pad_token = mx.zeros((1, dim))
+        self.x_pad_token = mx.zeros((1, dim), dtype=mx.bfloat16)
+        self.cap_pad_token = mx.zeros((1, dim), dtype=mx.bfloat16)
 
         self.noise_refiner = [ZImageTransformerBlock(config, i, True) for i in range(config['n_refiner_layers'])]
         self.context_refiner = [ZImageTransformerBlock(config, i, False) for i in range(config['n_refiner_layers'])]
