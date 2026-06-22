@@ -381,8 +381,12 @@ let lintResult   = null
 const thunks = []
 if (DO_REVIEW) {
   thunks.push(() =>
-    workflow("mlx-movie-director-review-optimize", {
+    // scriptPath (not workflow name) so we always load the canonical child source —
+    // workflow({name}) resolves to a session-cached copy that ignores live edits
+    // (see workflow-caches-stale-script). The child now reads projectRoot from args.
+    workflow({ scriptPath: `${PROJECT_ROOT}/.claude/workflows/mlx-movie-director-review-optimize.js` }, {
       effort: EFFORT, fix: fixEnabled, resume: RESUME,
+      projectRoot: PROJECT_ROOT,   // injected so the child skips its fragile resolve-paths probe (which looped on this runtime)
       ...(FOCUS ? { focus: FOCUS } : {}),
       ...(FILES ? { files: FILES } : {}),
     }).then((r) => {

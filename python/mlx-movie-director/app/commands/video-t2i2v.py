@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import Any
 
 from app.commands._shared import build_run_py_cmd
 from app import config as cfg
@@ -82,7 +83,7 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
                              "video but no quality_report.json (requires LM Studio)")
 
 
-def _print_run_table(rows: list, col_run: int = 28) -> None:
+def _print_run_table(rows: list[dict[str, Any]], col_run: int = 28) -> None:
     """Print the t2i2v quality comparison table."""
     print(f"  {'Run':<{col_run}} Verdict   Overall  Artifacts  Coherence  Sharp(sig)  Flicker  "
           f"i2v-xfmr  Frames  Seed  VLM-ok  Static")
@@ -112,7 +113,7 @@ def _print_run_table(rows: list, col_run: int = 28) -> None:
         )
 
 
-def _review_t2i2v_runs(args) -> None:
+def _review_t2i2v_runs(args: argparse.Namespace) -> None:
     """Scan past t2i2v_* output dirs and print a quality comparison table."""
     scan_dir = getattr(args, "review_dir", None) or cfg.OUTPUT_DIR
     run_dirs = sorted(glob.glob(os.path.join(scan_dir, "t2i2v_*")))
@@ -228,7 +229,7 @@ def _review_t2i2v_runs(args) -> None:
         print("  Tip: add --rescore to retroactively score unscored runs (requires LM Studio)")
 
 
-def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict:
+def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, out_dir: str) -> dict[str, Any]:
     """Stage 4: VLM multi-frame scoring + signal metrics on the generated video."""
     print(f"\n[t2i2v] ── Stage 4: Quality Check ──")
     threshold = getattr(args, "quality_threshold", 5.5)
@@ -527,8 +528,10 @@ def run_t2i2v(args: argparse.Namespace) -> None:
 
     # Resolve LTX transformer: use --transformer if explicitly passed, else dasiwa
     ltx_transformer = getattr(args, "transformer", None) or "dasiwa"
-    frames = getattr(args, "frames", 97) or 97
-    fps = getattr(args, "fps", 24) or 24
+    _f = getattr(args, "frames", None)
+    frames = 97 if _f is None else int(_f)
+    _fp = getattr(args, "fps", None)
+    fps = 24.0 if _fp is None else float(_fp)
     cfg_scale = getattr(args, "cfg_scale", None)
     stg_scale = getattr(args, "stg_scale", None)
     stage1_steps = getattr(args, "stage1_steps", None)

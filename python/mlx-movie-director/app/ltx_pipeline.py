@@ -307,7 +307,7 @@ class LTXVideoPipeline:
         modality_scale: float | None = None,
         enable_teacache: bool = False,
         teacache_thresh: float | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate a video and write to output_path.
 
         cfg_scale controls TEXT guidance only (scales cond - uncond prediction).
@@ -336,7 +336,7 @@ class LTXVideoPipeline:
             self._pipeline_mode = mode
 
         t0 = time.time()
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             prompt=prompt,
             output_path=output_path,
             height=height,
@@ -398,7 +398,7 @@ class LTXVideoPipeline:
         stg_scale: float = 1.0,
         begin_strength: float = 1.0,
         end_strength: float = 1.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate FLF2V video (First-Last Frame to Video / 首尾帧视频生成).
 
         Uses the KeyframeInterpolationPipeline from the vendor with
@@ -607,7 +607,7 @@ class LTXVideoPipeline:
         })
         return {"generate_seconds": time.time() - t0, "events": _events}
 
-    def _build_flf2v_pipeline(self):
+    def _build_flf2v_pipeline(self) -> Any:
         """Build a KeyframeInterpolationPipeline for FLF2V mode."""
         from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
 
@@ -660,7 +660,7 @@ class LTXVideoPipeline:
             "seconds": None,
         })
 
-    def _build_pipeline(self, mode: str):
+    def _build_pipeline(self, mode: str) -> Any:
         t0 = time.time()
         # --temporal-upscale relies on the _TemporalUpscaleMixin (applied below for
         # the hq + standard t2v_i2v branches only). DistilledPipeline and

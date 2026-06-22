@@ -82,6 +82,7 @@ let doFix = true                // true = apply fixes; false = review-only
 let effort = "medium"           // "low" | "medium" | "high"
 let resumeMode = "auto"         // "auto" | "fresh" | "continue"
 let seedKnowledge = false       // one-time: seed <wf>.knowledge.jsonl from accumulated history
+let projectRootFromArgs = null  // injected by parent (mlx-movie-director-self-improve); see PROJECT_ROOT below
 
 if (isObj(resolvedArgs)) {
   if (Array.isArray(resolvedArgs.files)) targetFiles = resolvedArgs.files
@@ -90,6 +91,7 @@ if (isObj(resolvedArgs)) {
   if (["low", "medium", "high"].includes(resolvedArgs.effort)) effort = resolvedArgs.effort
   if (["auto", "fresh", "continue"].includes(resolvedArgs.resume)) resumeMode = resolvedArgs.resume
   if (resolvedArgs.seedKnowledge === true) seedKnowledge = true
+  if (typeof resolvedArgs.projectRoot === "string" && resolvedArgs.projectRoot.trim()) projectRootFromArgs = resolvedArgs.projectRoot.trim()
 }
 
 const VALID_DIMENSIONS = ["correctness", "argparse-integrity", "type-safety", "error-handling", "import-hygiene"]
@@ -164,13 +166,8 @@ function markPhase(name, status) {
 
 // ── Schemas ──────────────────────────────────────────────────────────────────
 
-const PATH_SCHEMA = {
-  type: "object",
-  properties: {
-    projectRoot: { type: "string", description: "Absolute path to the git project root" },
-  },
-  required: ["projectRoot"],
-}
+// NOTE: PATH_SCHEMA (projectRoot) was removed — the resolve-paths probe that used it
+// was deleted (see PROJECT_ROOT above). projectRoot now comes from the parent arg.
 
 const TIMESTAMP_SCHEMA = {
   type: "object",
@@ -379,24 +376,20 @@ const REVERIFY_SCHEMA = {
 
 phase("Resolve")
 
-const pathResolution = await agent(
-  `Detect the absolute path of the git project root for the video_generation project.
-
-  Run: Bash("git rev-parse --show-toplevel")
-
-  Return it as { projectRoot: "<the-path>" }.
-  IMPORTANT: Return ONLY the JSON object. Normalize backslashes to forward slashes.`,
-  { label: "resolve-paths", phase: "Resolve", model: "haiku", schema: PATH_SCHEMA },
-)
-
-const PROJECT_ROOT = (pathResolution?.projectRoot || "").replace(/\\/g, "/")
-if (!PROJECT_ROOT) {
-  log("ERROR: Could not resolve project root. Absolute paths unavailable — CWD drift may cause failures.")
-}
+// Project root is injected by the parent (mlx-movie-director-self-improve), which
+// hardcodes it. The previous resolve-paths Haiku probe was REMOVED: on this runtime
+// a schema-bound Haiku agent does not reliably terminate its turn after emitting the
+// StructuredOutput tool — it re-read the task prompt and looped indefinitely
+// (Bash "git rev-parse" → StructuredOutput → re-read prompt, 479×), dead-locking the
+// entire review lane. No per-agent iteration cap exists to break such a loop, so the
+// robust fix is to not delegate a value the caller already knows. The hardcoded
+// fallback mirrors the parent's PROJECT_ROOT for standalone runs.
+const PROJECT_ROOT = (projectRootFromArgs || "/Users/huangziyu/proj/video_generation").replace(/\\/g, "/")
+log(`Project root: ${PROJECT_ROOT}${projectRootFromArgs ? " (from parent)" : " (hardcoded fallback)"}`)
 
 const WORKFLOW_NAME = "mlx-movie-director-review-optimize"
 const PYTHON_DIR = `${PROJECT_ROOT}/python/mlx-movie-director`
-const VENV_PYTHON = `${PROJECT_ROOT}/ComfyUI/.venv/bin/python`
+const VENV_PYTHON = `${PROJECT_ROOT}/python/venv/bin/python`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
