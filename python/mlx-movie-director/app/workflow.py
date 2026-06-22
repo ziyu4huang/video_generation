@@ -229,7 +229,7 @@ class WorkflowOrchestrator:
         gc.collect()
 
     @staticmethod
-    def save_outputs(result: WorkflowResult, run_config: RunConfig, base_name: str | None = None):
+    def save_outputs(result: WorkflowResult, run_config: RunConfig, base_name: str | None = None) -> str:
         """Save all workflow outputs to a per-generation subfolder.
 
         Creates:

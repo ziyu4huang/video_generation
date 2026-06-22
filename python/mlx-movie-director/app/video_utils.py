@@ -14,11 +14,20 @@ import numpy as np
 
 
 def require_ffmpeg() -> str:
-    """Return ffmpeg path or exit with a clear error."""
+    """Return ffmpeg path or raise FileNotFoundError.
+
+    Library-layer helper: raises (not sys.exit) so callers — the caption
+    pipeline, GUI job runner, tests, multi-variation loops — can catch the
+    missing-binary failure instead of having the whole process killed mid-run.
+    Mirrors the raise-not-exit contract used by get_video_info (RuntimeError),
+    io_utils.require_file, and gpu_monitor.GpuLock. A missing-binary
+    environment error surfaces here; run.py's (ValueError, FileNotFoundError)
+    handler prints a clean one-line error and exits(1) for CLI callers that
+    don't catch it themselves.
+    """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
-        print("ERROR: ffmpeg not found in PATH. Install it: brew install ffmpeg", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError("ffmpeg not found in PATH. Install it: brew install ffmpeg")
     return ffmpeg
 
 

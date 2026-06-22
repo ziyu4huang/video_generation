@@ -65,7 +65,7 @@ class Attention(nn.Module):
         self.splits = [0, 32, 80]
         self.freqs_cache = {}
 
-    def fuse_qkv(self):
+    def fuse_qkv(self) -> None:
         if self.to_qkv is not None:
             return
 
@@ -216,12 +216,12 @@ class ZImageTransformerMLX(nn.Module):
         self.context_refiner = [ZImageTransformerBlock(config, i, False) for i in range(config['n_refiner_layers'])]
         self.layers = [ZImageTransformerBlock(config, i, True) for i in range(config['n_layers'])]
 
-    def prepare_rope(self, positions):
+    def prepare_rope(self, positions: mx.array) -> tuple[mx.array, mx.array]:
         dummy_attn = self.layers[0].attention
         args = dummy_attn._get_fused_args_cached(positions)
         return mx.cos(args), mx.sin(args)
 
-    def fuse_model(self):
+    def fuse_model(self) -> None:
         for layer in self.noise_refiner: layer.attention.fuse_qkv()
         for layer in self.context_refiner: layer.attention.fuse_qkv()
         for layer in self.layers: layer.attention.fuse_qkv()

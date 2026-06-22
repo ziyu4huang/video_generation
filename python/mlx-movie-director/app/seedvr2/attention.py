@@ -51,7 +51,13 @@ class MMAttention(nn.Module):
 
         self.rope = RoPEModule(dim=rope_dim, freqs_for=rope_freqs_for)
 
-    def __call__(self, vid, txt, vid_shape, txt_shape):
+    def __call__(
+        self,
+        vid: mx.array,
+        txt: mx.array,
+        vid_shape: mx.array,
+        txt_shape: mx.array,
+    ) -> tuple[mx.array, mx.array]:
         B, L, Bt, Lt = vid.shape[0], vid.shape[1], txt.shape[0], txt.shape[1]
 
         # 1. Project to QKV and partition
@@ -122,20 +128,33 @@ class MMAttention(nn.Module):
         )
 
     @staticmethod
-    def _repeat_text_for_windows(txt, txt_len, counts):
+    def _repeat_text_for_windows(
+        txt: mx.array, txt_len: mx.array, counts: list[int]
+    ) -> mx.array:
         B, L = len(counts), int(txt_len[0])
         txt = txt.reshape(B, L, *txt.shape[1:])
         return mx.repeat(txt, mx.array(counts), axis=0).reshape(-1, *txt.shape[2:])
 
     @staticmethod
-    def _concat_with_text(vid, txt, vid_lens, txt_len, counts):
+    def _concat_with_text(
+        vid: mx.array,
+        txt: mx.array,
+        vid_lens: mx.array,
+        txt_len: mx.array,
+        counts: list[int],
+    ) -> mx.array:
         v_parts = mx.split(vid, mx.cumsum(vid_lens[:-1]).tolist())
         t_parts = mx.split(txt, mx.arange(int(txt_len[0]), txt.shape[0], int(txt_len[0])).tolist())
         parts = [p for pair in zip(v_parts, t_parts) for p in pair]
         return mx.concatenate(parts, axis=0)
 
     @staticmethod
-    def _unconcat_and_coalesce(combined, vid_lens, txt_len, counts):
+    def _unconcat_and_coalesce(
+        combined: mx.array,
+        vid_lens: mx.array,
+        txt_len: mx.array,
+        counts: list[int],
+    ) -> tuple[mx.array, mx.array]:
         win_to_batch = mx.repeat(mx.arange(len(txt_len)), mx.array(counts))
         lens = mx.stack([vid_lens, txt_len[win_to_batch]], axis=1).reshape(-1)
         parts = mx.split(combined, mx.cumsum(lens[:-1]).tolist())

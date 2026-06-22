@@ -32,6 +32,7 @@ Examples:
   run.py image purify --input-image photo.png --purify-mode enhance --resolution 2x --film-grain 0.02 --sharpening 0.1
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -515,7 +516,8 @@ def _run_self_test(args) -> None:
             failures.append(f"_parse_resolution({res!r})={got} != {want}")
 
     for name, default in [("backend", "seedvr2"), ("remove", "none"), ("transformer", "klein-9b")]:
-        val = getattr(args, name, None) or default
+        raw = getattr(args, name, None)
+        val = default if raw is None else raw
         print(f"  default {name}={val} OK")
 
     if failures:
@@ -525,7 +527,7 @@ def _run_self_test(args) -> None:
     sys.exit(0)
 
 
-def run_purify(args) -> None:
+def run_purify(args: argparse.Namespace) -> None:
     """Run SeedVR2 purification / redraw / upscale (writes a manifest per run)."""
     if getattr(args, "self_test", False):
         _run_self_test(args)

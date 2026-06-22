@@ -391,7 +391,7 @@ class GpuLock:
 
     def __init__(self, skip: bool = False, force: bool = False,
                  poll_interval: int = 10, threshold: float = 0.5,
-                 max_wait: int = 3600):
+                 max_wait: int = 3600) -> None:
         self.skip = skip
         self.force = force
         self.poll_interval = poll_interval
@@ -399,7 +399,7 @@ class GpuLock:
         self.max_wait = max_wait
         self._lock_fd = None
 
-    def __enter__(self):
+    def __enter__(self) -> "GpuLock":
         if self.skip or self.force:
             return self
 
@@ -448,7 +448,7 @@ class GpuLock:
                 self._lock_fd = None
             raise
 
-    def __exit__(self, *_):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         if self._lock_fd:
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)

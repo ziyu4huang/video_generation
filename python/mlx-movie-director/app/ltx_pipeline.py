@@ -18,9 +18,12 @@ import shutil
 import sys
 import tempfile
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app import config as cfg
+
+if TYPE_CHECKING:
+    import mlx.core as mx
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +147,10 @@ class _TemporalUpscaleMixin:
         upsampler.load_weights(list(raw.items()))
         return upsampler
 
-    def generate_two_stage(self, *args, **kwargs):
+    def generate_two_stage(self, *args, audio_stage1_only: bool = False, **kwargs) -> tuple["mx.array", "mx.array"]:
         import mlx.core as mx
 
-        video_latent, audio_latent = super().generate_two_stage(*args, **kwargs)
+        video_latent, audio_latent = super().generate_two_stage(*args, audio_stage1_only=audio_stage1_only, **kwargs)
 
         if self._temporal_upsampler is None:
             self._temporal_upsampler = self._load_temporal_upsampler()
@@ -368,7 +371,20 @@ class LTXVideoPipeline:
         if teacache_thresh is not None:
             kwargs["teacache_thresh"] = teacache_thresh
 
-        self._pipeline.generate_and_save(**kwargs)
+        try:
+            self._pipeline.generate_and_save(**kwargs)
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC
+            # pass so the ~17GB LTX transformer / VAE tensors are released before the
+            # next run, rather than staying resident behind a stale graph. Parity with
+            # app/pipeline.py:657-668 and app/seedvr2/pipeline.py:354-365.
+            import gc
+            import mlx.core as mx
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
         _events = list(self._pipeline_events)
         _events.append({
             "event": "denoise_config", "target": f"ltx_{mode}",
