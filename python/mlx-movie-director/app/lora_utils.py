@@ -49,7 +49,7 @@ def _apply_lokr_delta(module: nn.Module, delta_w: mx.array) -> bool:
     return True
 
 
-def _apply_lokr(model: nn.Module, tensors: dict[str, mx.array], user_scale: float) -> None:
+def _apply_lokr(model: nn.Module, tensors: dict[str, mx.array], user_scale: float) -> tuple[nn.Module, dict[str, Any]]:
     """Apply LoKR (Kronecker LoRA) weights to model in-place."""
     # Group keys by base module path (strip .lokr_w1/.lokr_w2/.alpha)
     groups = {}
@@ -122,9 +122,18 @@ def get_module_by_name(model: nn.Module, module_name: str) -> nn.Module | None:
             if part.isdigit():
                 idx = int(part)
                 if isinstance(obj, list):
-                    obj = obj[idx]
+                    obj = obj[idx] if idx < len(obj) else None
                 elif isinstance(obj, dict):
                     obj = obj[idx] if idx in obj else obj[part]
+                elif not isinstance(obj, str) and hasattr(obj, '__getitem__'):
+                    # Covers MLX list-like containers (e.g. nn.Sequential and
+                    # custom Module subclasses that expose integer indexing but
+                    # are not Python lists) so numeric path parts resolve
+                    # correctly instead of falling through to getattr.
+                    try:
+                        obj = obj[idx]
+                    except (IndexError, KeyError, TypeError):
+                        obj = getattr(obj, part) if hasattr(obj, part) else None
                 else:
                     obj = getattr(obj, part) if hasattr(obj, part) else None
             else:

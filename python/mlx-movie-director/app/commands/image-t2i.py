@@ -134,7 +134,7 @@ def run_t2i(args: argparse.Namespace) -> None:
             args.width, args.height = lens_res
         for dim in ("width", "height"):
             val = getattr(args, dim)
-            if val <= 0 or val % 16 != 0:
+            if val is None or not isinstance(val, int) or val <= 0 or val % 16 != 0:
                 print(f"ERROR [lens]: --{dim}={val} must be a positive multiple of 16.",
                       file=sys.stderr)
                 sys.exit(1)

@@ -158,7 +158,7 @@ def seed_sequence(args_or_config: argparse.Namespace | "RunConfig") -> list[int]
 # ---------------------------------------------------------------------------
 
 @contextmanager
-def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_summary: bool = False) -> "Generator[dict, None, None]":
+def run_session(paths: OutputPaths, run_config: "RunConfig | None" = None, json_summary: bool = False) -> "Generator[dict[str, Any], None, None]":
     """Write run.json, record timing, write manifest on success/error.
 
     Yields a mutable dict (ctx) the caller fills with generation results:

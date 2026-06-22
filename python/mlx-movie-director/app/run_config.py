@@ -21,6 +21,27 @@ def _lora_manifest_recommended_scale(lora_path: str) -> float:
     return 1.0
 
 
+def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, Any] | None":
+    """Resolve the A/B-params metadata to serialize into run.json.
+
+    Variation runs set ``args.ab_params_json`` to the already-parsed dict (see
+    ``_run_variations``). For a single (non-variation) run, only the raw JSON
+    string is available on ``args.ab_params`` — parse it here so the run.json
+    keeps its ab_params metadata. Only dict-shaped values are kept, matching the
+    RunConfig.ab_params annotation; anything else (lists, scalars, invalid JSON)
+    falls back to None rather than violating the type.
+    """
+    _ab = getattr(args, "ab_params_json", None)
+    if _ab is None:
+        _raw = getattr(args, "ab_params", None)
+        if _raw:
+            try:
+                _ab = json.loads(_raw)
+            except (json.JSONDecodeError, TypeError):
+                _ab = None
+    return _ab if isinstance(_ab, dict) else None
+
+
 # v2 action names → v3 command names
 _ACTION_TO_COMMAND = {
     "text2img": "generate",
@@ -189,7 +210,7 @@ class RunConfig:
             control_type=getattr(args, "control_type", None),
             control_strength=getattr(args, "control_strength", None),
             variation_index=getattr(args, "variation_index", None),
-            ab_params=getattr(args, "ab_params_json", None),
+            ab_params=_resolve_ab_params(args),
             draft=getattr(args, "draft", False),
             seed_variance=getattr(args, "seed_variance", False),
             seed_variance_percent=getattr(args, "seed_variance_percent", 50.0),
