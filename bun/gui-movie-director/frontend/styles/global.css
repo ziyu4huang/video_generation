@@ -60,13 +60,25 @@ body {
 }
 
 .sidebar-logo-git {
-  display: block;
-  margin-top: 3px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0;
+}
+
+.sidebar-logo-folder {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.sidebar-logo-ref {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-dim);
+  opacity: 0.7;
 }
 
 .sidebar-section {
