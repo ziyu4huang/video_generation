@@ -400,6 +400,11 @@ const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${WORKFLOW_NAME}.knowledge.jsonl`
+// Operation-lessons: CURATED, append-only rules about how THIS workflow operates.
+// Loaded verbatim and injected into fix/restore/report prompts by phase. NOT
+// touched by extractKnowledge (only rewrites KB_FILE) and exempt from the
+// *.knowledge.jsonl manifest check (different suffix) — do not rename it.
+const OP_FILE = `${PROJECT_ROOT}/.claude/workflows/${WORKFLOW_NAME}.operation-lessons.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -504,6 +509,47 @@ Return { found: true, records: <active records array>, digest: <the string> }.`,
   const n = Array.isArray(load?.records) ? load.records.length : 0
   log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
   return load
+}
+
+// ── loadOperationLessons — curated, high-trust rules about how this workflow operates ──
+// Returns rule text VERBATIM grouped by phase (no summarization, no drift). Records
+// are {id, phase, severity, rule, why, source}; phase ∈ fix|restore|review|report.
+// Injected into the matching agent prompt so the workflow's operating posture
+// persists across runs independently of any operator's project-memory.
+async function loadOperationLessons(opFile) {
+  const load = await agent(
+    `Read the workflow operation-lessons file and return its rules grouped by phase.
+1. Bash("test -f '${opFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, byPhase: {} }.
+3. If EXISTS: Bash("cat '${opFile}'")
+4. Parse each non-empty line as JSON. Keep records where status is absent or "active".
+5. Group by the "phase" field (fix|restore|review|report). For each record output
+   ONLY {id, severity, rule} — copy "rule" VERBATIM (do not rephrase/truncate/invent).
+   Drop any record whose phase is not one of the four above.
+Return { found: true, byPhase: { "<phase>": [{id,severity,rule}, ...], ... } }.`,
+    { label: "load-operation-lessons", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        byPhase: { type: "object", description: "phase -> array of {id,severity,rule}",
+          additionalProperties: { type: "array", items: { type: "object",
+            properties: { id: { type: "string" }, severity: { type: "string" }, rule: { type: "string" } },
+            required: ["id", "rule"] } } },
+      }, required: ["found", "byPhase"] } },
+  )
+  const counts = load?.byPhase || {}
+  const total = Object.values(counts).reduce((a, arr) => a + (Array.isArray(arr) ? arr.length : 0), 0)
+  const phSummary = Object.entries(counts).map(([p, arr]) => `${p}:${arr.length}`).join(" ") || "(empty)"
+  log(`Operation-lessons: loaded ${total} rule(s) [${phSummary}] ← ${opFile}`)
+  return load
+}
+
+// Render a phase's rules as an injection block (hard rules first). Empty -> "".
+function operationRulesBlock(byPhase, phase) {
+  const rules = (byPhase && byPhase[phase]) || []
+  if (!rules.length) return ""
+  const sorted = [...rules].sort((a, b) => (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1))
+  return `\n## OPERATION RULES (${phase} phase) — follow exactly, these are hard-won workflow truths:\n` +
+    sorted.map((r) => `- [${r.severity || "soft"}] ${r.rule}`).join("\n")
 }
 
 // ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
@@ -736,6 +782,12 @@ if (resumeMode !== "fresh") {
 // Load committed knowledge base (colocated .knowledge.jsonl) — highest-trust, curated.
 // Injected FIRST so committed knowledge wins over ephemeral reflection on conflict.
 const knowledge = await loadKnowledge(KB_FILE)
+// Load curated operation-lessons and render per-phase injection blocks consumed
+// by the fix/restore/report prompts below.
+const operationLessons = await loadOperationLessons(OP_FILE)
+const _opByPhase = operationLessons?.byPhase || {}
+const fixRulesBlock = operationRulesBlock(_opByPhase, "fix")
+const reportRulesBlock = operationRulesBlock(_opByPhase, "report")
 const knowledgeDigest = knowledge?.digest || ""
 
 // Build prior-patterns injection string for Review prompts (knowledge prepended below)
@@ -1414,6 +1466,7 @@ RULES:
    Put it in fileHashes as { "${file}": "<the hash>" }. This lets Restore tell
    our own fix apart from a concurrent edit landing on the same file later — do
    not skip this step or auto-revert-on-regression silently degrades to a no-op.
+${fixRulesBlock}
 
 FINDINGS FOR ${file} (apply from bottom to top):
 ${JSON.stringify(fileFindings, null, 2)}
@@ -1843,7 +1896,8 @@ ${doFix ? `## Fix Results
 - Failed: ${failedCount}
 - Files changed: ${fixResults.filesChanged.join(", ") || "none"}
 ${reVerifyFindings.length > 0 ? `- Regressions: ${reVerifyFindings.length}` : "- Regressions: none"}
-${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.reverted?.length || 0} file(s) reverted${restoreResult.skippedConcurrent?.length ? `, ${restoreResult.skippedConcurrent.length} left (concurrent edit)` : ""}` : ""}
+${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}\n  - Reverted (caused regression): ${restoreResult.reverted?.join(", ") || "none"}${restoreResult.skippedConcurrent?.length ? `\n  - Left for manual review (concurrent edit): ${restoreResult.skippedConcurrent.join(", ")}` : ""}` : "- Restore: not needed"}
+${reportRulesBlock}
 ` : "## Fix Phase: SKIPPED (review-only mode)"}
 ${priorRunContext}
 

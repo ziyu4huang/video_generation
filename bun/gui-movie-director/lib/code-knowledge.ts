@@ -104,6 +104,13 @@ export function ensureCodeKbDirs(): void {
 
 export function appendCodeRecord(rec: CodeKnowledgeRecord): void {
   ensureCodeKbDirs();
+  // Idempotent on runId. The gui self-improve Persist phase can reach this more
+  // than once per run (agent retry / re-entry); before this guard that produced
+  // 2–4× duplicate records + an inflated index (data was hand-deduped in PR #16,
+  // but the persist path stayed unguarded). Skip silently if already recorded.
+  if (readAllCodeRecords().some((r) => r.runId === rec.runId)) {
+    return;
+  }
   fs.appendFileSync(recordsPath(), JSON.stringify(rec) + "\n", "utf-8");
 
   const idx = readCodeIndex() ?? emptyIndex();
