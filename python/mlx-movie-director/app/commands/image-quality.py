@@ -196,7 +196,8 @@ def _run_self_test(args):
     from app.commands._shared import _stitch_horizontal, generate_base_name
 
     tp_name = getattr(args, "test_prompt", None) or "portrait"
-    seed = getattr(args, "seed", 42) or 42
+    _seed = getattr(args, "seed", None)
+    seed = 42 if _seed is None else _seed  # honor explicit --seed 0 (argparse-sentinel)
 
     tp = get_test_prompt(tp_name)
     prompt = tp["prompt"]
@@ -315,7 +316,8 @@ def _run_steps_sweep(args):
     from app.commands._shared import _stitch_horizontal, generate_base_name
 
     tp_name = getattr(args, "test_prompt", None) or "portrait"
-    seed = getattr(args, "seed", 42) or 42
+    _seed = getattr(args, "seed", None)
+    seed = 42 if _seed is None else _seed  # honor explicit --seed 0 (argparse-sentinel)
 
     tp = get_test_prompt(tp_name)
     prompt = tp["prompt"]
