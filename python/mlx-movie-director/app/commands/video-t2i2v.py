@@ -50,6 +50,8 @@ def add_t2i2v_args(parser):
                         help="T2I image width (default: 640)")
     parser.add_argument("--t2i-height", type=int, default=960,
                         help="T2I image height (default: 960)")
+    parser.add_argument("--t2i-cfg-scale", type=float, default=None,
+                        help="cfg-scale for T2I stage (default: model default)")
     parser.add_argument("--t2i-lora-path", type=str, default=None, metavar="PATH",
                         help="LoRA path for T2I stage")
     parser.add_argument("--t2i-lora-scale", type=float, default=1.0,
@@ -65,11 +67,19 @@ def add_t2i2v_args(parser):
     parser.add_argument("--vlm-api-url", type=str, default=None, metavar="URL",
                         help="VLM API base URL override (default: http://localhost:1234/v1)")
 
+    # --- T2I skip / reuse ---
+    parser.add_argument("--from-image", type=str, default=None, metavar="PATH",
+                        help="Skip T2I stage; use this image directly for VLM + I2V. "
+                             "Useful for iterating on animation without regenerating the image.")
+
     # --- Quality gate (Stage 4) ---
     parser.add_argument("--quality-check", action="store_true",
                         help="Run VLM + signal quality gate after I2V (requires LM Studio)")
     parser.add_argument("--quality-threshold", type=float, default=5.5,
                         help="VLM score below which a dimension is flagged (default: 5.5)")
+    parser.add_argument("--max-retries", type=int, default=0,
+                        help="Auto-retry I2V up to N times when quality is WARN, "
+                             "incrementing seed by 1 each attempt (requires --quality-check)")
 
     # --- Run review / comparison ---
     parser.add_argument("--review-runs", action="store_true",
@@ -395,60 +405,72 @@ def run_t2i2v(args):
     print(f"[t2i2v] Output dir: {out_dir}")
 
     # =========================================================
-    # Stage 1 — T2I: ZImage generates base image
+    # Stage 1 — T2I: ZImage generates base image (or reuse --from-image)
     # =========================================================
-    print(f"\n[t2i2v] ── Stage 1/3: T2I (ZImage) ──")
     prompt = args.prompt
+    from_image = getattr(args, "from_image", None)
     t2i_transformer = getattr(args, "t2i_transformer", "moody-pro-mix")
     t2i_steps = getattr(args, "t2i_steps", 9)
     t2i_width = getattr(args, "t2i_width", 640)
     t2i_height = getattr(args, "t2i_height", 960)
+    t2i_cfg_scale = getattr(args, "t2i_cfg_scale", None)
     t2i_lora_path = getattr(args, "t2i_lora_path", None)
     t2i_lora_scale = getattr(args, "t2i_lora_scale", 1.0)
 
-    t2i_cmd = build_run_py_cmd(
-        "image", "t2i",
-        "--prompt", prompt,
-        "--transformer", t2i_transformer,
-        "--steps", str(t2i_steps),
-        "--seed", str(t2i_seed),
-        "--width", str(t2i_width),
-        "--height", str(t2i_height),
-        "--gen-output-dir", out_dir,
-    )
-    if t2i_lora_path:
-        t2i_cmd += ["--lora-path", t2i_lora_path,
-                    "--lora-scale", str(t2i_lora_scale)]
+    if from_image:
+        if not os.path.isfile(from_image):
+            print(f"[t2i2v] ERROR: --from-image path not found: {from_image}", file=sys.stderr)
+            sys.exit(1)
+        image_path = from_image
+        print(f"\n[t2i2v] ── Stage 1/3: T2I skipped (--from-image) ──")
+        print(f"[t2i2v] Using existing image: {image_path}")
+    else:
+        print(f"\n[t2i2v] ── Stage 1/3: T2I (ZImage) ──")
+        t2i_cmd = build_run_py_cmd(
+            "image", "t2i",
+            "--prompt", prompt,
+            "--transformer", t2i_transformer,
+            "--steps", str(t2i_steps),
+            "--seed", str(t2i_seed),
+            "--width", str(t2i_width),
+            "--height", str(t2i_height),
+            "--gen-output-dir", out_dir,
+        )
+        if t2i_cfg_scale is not None:
+            t2i_cmd += ["--cfg-scale", str(t2i_cfg_scale)]
+        if t2i_lora_path:
+            t2i_cmd += ["--lora-path", t2i_lora_path,
+                        "--lora-scale", str(t2i_lora_scale)]
 
-    try:
-        # Stream (no capture): T2I runs minutes-to-tens-of-minutes, and capturing
-        # would swallow MLX's live step progress. timeout still guards a hang.
-        result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]), timeout=7200)
-    except subprocess.TimeoutExpired:
-        print("[t2i2v] ERROR: T2I stage timed out after 7200s", file=sys.stderr)
-        sys.exit(124)
-    if result.returncode != 0:
-        # Child stderr already streamed live; just surface the exit summary.
-        print(f"[t2i2v] ERROR: T2I stage failed (exit {result.returncode})", file=sys.stderr)
-        sys.exit(result.returncode)
+        try:
+            # Stream (no capture): T2I runs minutes-to-tens-of-minutes, and capturing
+            # would swallow MLX's live step progress. timeout still guards a hang.
+            result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]), timeout=7200)
+        except subprocess.TimeoutExpired:
+            print("[t2i2v] ERROR: T2I stage timed out after 7200s", file=sys.stderr)
+            sys.exit(124)
+        if result.returncode != 0:
+            # Child stderr already streamed live; just surface the exit summary.
+            print(f"[t2i2v] ERROR: T2I stage failed (exit {result.returncode})", file=sys.stderr)
+            sys.exit(result.returncode)
 
-    # Find the generated image via its manifest
-    manifests = glob.glob(os.path.join(out_dir, "*.manifest.json"))
-    if not manifests:
-        print("[t2i2v] ERROR: no manifest found after T2I stage", file=sys.stderr)
-        sys.exit(1)
-    try:
-        with open(sorted(manifests)[0]) as f:
-            t2i_manifest = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"[t2i2v] ERROR: cannot read T2I manifest ({e})", file=sys.stderr)
-        sys.exit(1)
-    output_files = t2i_manifest.get("output_files", [])
-    if not output_files:
-        print("[t2i2v] ERROR: T2I manifest has no output_files", file=sys.stderr)
-        sys.exit(1)
-    image_path = output_files[0]["path"]
-    print(f"[t2i2v] T2I image: {image_path}")
+        # Find the generated image via its manifest
+        manifests = glob.glob(os.path.join(out_dir, "*.manifest.json"))
+        if not manifests:
+            print("[t2i2v] ERROR: no manifest found after T2I stage", file=sys.stderr)
+            sys.exit(1)
+        try:
+            with open(sorted(manifests)[0]) as f:
+                t2i_manifest = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[t2i2v] ERROR: cannot read T2I manifest ({e})", file=sys.stderr)
+            sys.exit(1)
+        output_files = t2i_manifest.get("output_files", [])
+        if not output_files:
+            print("[t2i2v] ERROR: T2I manifest has no output_files", file=sys.stderr)
+            sys.exit(1)
+        image_path = output_files[0]["path"]
+        print(f"[t2i2v] T2I image: {image_path}")
 
     # =========================================================
     # Stage 2 — VLM: generate LTX-optimized I2V prompt
@@ -508,7 +530,7 @@ def run_t2i2v(args):
                         print(f"[t2i2v] Motion: {motion_summary}")
                 else:
                     print(f"[t2i2v] WARNING: VLM ({vlm_model}) returned empty prompt — "
-                          "using raw prompt (is Qwen3-VL loaded in LM Studio?)",
+                          "using raw prompt (check LM Studio: is the VLM loaded and responding?)",
                           file=sys.stderr)
             except (OSError, json.JSONDecodeError, KeyError) as e:
                 print(f"[t2i2v] WARNING: failed to parse VLM output ({e}) — using raw prompt",
@@ -578,11 +600,61 @@ def run_t2i2v(args):
     video_path = sorted(video_files)[0] if video_files else None
 
     # =========================================================
-    # Stage 4 (optional) — Quality: VLM + signal gate
+    # Stage 4 (optional) — Quality: VLM + signal gate  [+ auto-retry on WARN]
     # =========================================================
     quality_result = None
+    max_retries = getattr(args, "max_retries", 0)
     if getattr(args, "quality_check", False) and video_path:
         quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
+        # Auto-retry I2V with incremented seed when quality is WARN
+        for attempt in range(1, max_retries + 1):
+            if quality_result and quality_result.get("verdict") in ("PASS", "SKIP"):
+                break
+            retry_seed = video_seed + attempt
+            print(f"\n[t2i2v] ── Auto-retry {attempt}/{max_retries}: I2V with seed={retry_seed} ──")
+            retry_video_cmd = build_run_py_cmd(
+                "video", "generate",
+                "--input-image", image_path,
+                "--prompt", video_prompt,
+                "--transformer", ltx_transformer,
+                "--frames", str(frames),
+                "--fps", str(fps),
+                "--seed", str(retry_seed),
+                "--gen-output-dir", out_dir,
+            )
+            if cfg_scale is not None:
+                retry_video_cmd += ["--cfg-scale", str(cfg_scale)]
+            if stg_scale is not None:
+                retry_video_cmd += ["--stg-scale", str(stg_scale)]
+            if stage1_steps is not None:
+                retry_video_cmd += ["--stage1-steps", str(stage1_steps)]
+            if stage2_steps is not None:
+                retry_video_cmd += ["--stage2-steps", str(stage2_steps)]
+            if hq:
+                retry_video_cmd.append("--hq")
+            if distilled:
+                retry_video_cmd.append("--distilled")
+            if teacache:
+                retry_video_cmd.append("--teacache")
+            if lora_path:
+                retry_video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
+            try:
+                result = subprocess.run(retry_video_cmd, cwd=os.path.dirname(retry_video_cmd[1]),
+                                        timeout=7200)
+            except subprocess.TimeoutExpired:
+                print(f"[t2i2v] WARNING: retry {attempt} I2V timed out — stopping retries",
+                      file=sys.stderr)
+                break
+            if result.returncode != 0:
+                print(f"[t2i2v] WARNING: retry {attempt} I2V failed — stopping retries",
+                      file=sys.stderr)
+                break
+            # Pick the newest .mp4 (retry outputs a new file)
+            retry_videos = sorted(glob.glob(os.path.join(out_dir, "*.mp4")))
+            if retry_videos:
+                video_path = retry_videos[-1]
+                video_seed = retry_seed
+            quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
     elif getattr(args, "quality_check", False) and not video_path:
         print("[t2i2v] WARNING: --quality-check skipped — no .mp4 found in output dir",
               file=sys.stderr)
@@ -590,19 +662,25 @@ def run_t2i2v(args):
     # =========================================================
     # Write combined manifest
     # =========================================================
+    if from_image:
+        t2i_section = {"skipped": True, "from_image": image_path}
+    else:
+        t2i_section = {
+            "transformer": t2i_transformer,
+            "prompt": prompt,
+            "steps": t2i_steps,
+            "seed": t2i_seed,
+            "width": t2i_width,
+            "height": t2i_height,
+            "cfg_scale": t2i_cfg_scale,
+            "image_path": image_path,
+        }
+
     combined_manifest = {
         "pipeline": "t2i2v",
         "output_dir": out_dir,
         "stages": {
-            "t2i": {
-                "transformer": t2i_transformer,
-                "prompt": prompt,
-                "steps": t2i_steps,
-                "seed": t2i_seed,
-                "width": t2i_width,
-                "height": t2i_height,
-                "image_path": image_path,
-            },
+            "t2i": t2i_section,
             "vlm": {
                 "action": action,
                 "generated_prompt": video_prompt if action else None,
@@ -614,7 +692,7 @@ def run_t2i2v(args):
                 "prompt": video_prompt,
                 "frames": frames,
                 "fps": fps,
-                "seed": video_seed,
+                "seed": video_seed,  # final seed (may differ from base_seed after auto-retry)
             },
             "quality": quality_result if quality_result else {"skipped": True},
         },
