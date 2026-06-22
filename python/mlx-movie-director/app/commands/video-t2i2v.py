@@ -713,7 +713,10 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     video_seed = base_seed
 
     # --- Create dedicated output subfolder ---
-    base_dir = getattr(args, "gen_output_dir", None) or cfg.OUTPUT_DIR
+    # Always use cfg.OUTPUT_DIR (already resolved to an absolute path by run.py before
+    # dispatch). Using args.gen_output_dir raw here would give a relative path that
+    # resolves to the wrong directory when the caller's CWD differs from REPO_DIR.
+    base_dir = cfg.OUTPUT_DIR
     run_name = f"t2i2v_{time.strftime('%Y%m%d_%H%M%S')}"
     out_dir = os.path.join(base_dir, run_name)
     os.makedirs(out_dir, exist_ok=True)
