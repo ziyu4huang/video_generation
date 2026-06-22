@@ -628,7 +628,11 @@ def _adjust_resolution(width: int, height: int, distilled: bool = False) -> tupl
 
 def _adjust_frames(frames: int) -> int:
     if (frames - 1) % 8 == 0:
-        return frames
+        # Mirror video-generate._adjust_frames: enforce the min-9 clamp on the
+        # aligned branch too. The current caller (_adjust_frames(max(9, raw)))
+        # already guarantees >=9, so this is defensive + keeps the two copies in
+        # sync (drift here let the workflow re-flag a missing clamp each iter).
+        return max(frames, 9)
     k = round((frames - 1) / 8)
     adjusted = max(9, 8 * k + 1)
     print(f"[relay] Frames adjusted: {frames} → {adjusted} (must satisfy 8k+1)")

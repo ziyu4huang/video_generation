@@ -524,11 +524,11 @@ def _run_generate_self_test(args, st):
         test_args = copy.copy(args)
         test_args.test_prompt = name
         test_args.prompt = tp["prompt"]
-        defaults = tp.get("defaults", {})
-        for k, v in defaults.items():
-            # Only set if the arg exists and wasn't explicitly given
-            if hasattr(test_args, k) and getattr(args, k, None) is None:
-                setattr(test_args, k, v)
+        # Apply recommended defaults for params still at their argparse defaults.
+        # Use the magic-number compare in _apply_prompt_defaults (not `is None`):
+        # argparse gives concrete defaults (frames=97 etc.), so the old `is None`
+        # check was never true and the recommended defaults were silently dropped.
+        _apply_prompt_defaults(test_args, tp.get("defaults") or {})
 
         print(f"\n  {'='*56}")
         print(f"  [{name}] {tp.get('description', '')}")
