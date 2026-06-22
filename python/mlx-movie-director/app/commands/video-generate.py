@@ -888,7 +888,11 @@ def _run_single(args, prompt: str) -> None:
         allow_noise = getattr(args, "allow_noise", False)
         _check_audio_noise(output_mp4, allow_noise=allow_noise)
 
+        # LTX pipeline returns events inside the timings dict; lift them out so
+        # timings stays clean (floats only) and events land in the manifest.
+        _video_events = timings.pop("events", None)
         ctx["timings"] = timings
+        ctx["events"] = _video_events or []
         ctx["outputs"] = [{
             "path": output_mp4,
             "mode": mode,

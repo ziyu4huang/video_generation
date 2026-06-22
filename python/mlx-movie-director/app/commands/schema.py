@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import sys
+from typing import Any
 
 from app.cli import build_parser, DEPRECATED_ALIASES
 
@@ -53,7 +54,7 @@ def run(args: argparse.Namespace) -> None:
 _NO_VALUE_DESTS = {"help"}
 
 
-def _json_safe(value):
+def _json_safe(value: Any) -> Any:
     """Coerce a default to something json.dump accepts (defaults are usually scalars)."""
     try:
         json.dumps(value)
@@ -62,19 +63,19 @@ def _json_safe(value):
         return repr(value)
 
 
-def _type_name(action):
+def _type_name(action: argparse.Action):
     t = getattr(action, "type", None)
     if t is None:
         return None
     return getattr(t, "__name__", str(t))
 
 
-def _nargs(action):
+def _nargs(action: argparse.Action):
     n = getattr(action, "nargs", None)
     return None if n is None else (n if isinstance(n, str) else int(n))
 
 
-def _arg_dict(action):
+def _arg_dict(action: argparse.Action) -> dict[str, Any]:
     """Extract the JSON contract for a single argparse action."""
     d = {
         "flags": list(action.option_strings),   # [] for positionals
@@ -97,7 +98,9 @@ def _arg_dict(action):
     return d
 
 
-def _collect(parser):
+def _collect(
+    parser: argparse.ArgumentParser,
+) -> tuple[list[argparse.Action], list[argparse.Action], "argparse._SubParsersAction | None"]:
     """Split a parser's actions into optionals, positionals, and (optional) subparsers action."""
     optionals, positionals = [], []
     sub_action = None
@@ -113,7 +116,7 @@ def _collect(parser):
     return optionals, positionals, sub_action
 
 
-def _parser_to_dict(parser):
+def _parser_to_dict(parser: argparse.ArgumentParser) -> dict[str, Any]:
     optionals, positionals, sub_action = _collect(parser)
     result = {
         "args": [_arg_dict(a) for a in optionals],
@@ -127,7 +130,7 @@ def _parser_to_dict(parser):
     return result
 
 
-def build():
+def build() -> dict[str, Any]:
     """Build the full schema dict by introspecting the run.py parser.
 
     Top-level: {"commands": {<name>: {args, positionals, [subcommands]}}}

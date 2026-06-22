@@ -21,6 +21,7 @@ Usage:
 import argparse
 import os
 import sys
+from typing import Any
 
 from app import config as cfg
 from app.commands._shared import make_output_paths, run_session, seed_sequence
@@ -141,8 +142,8 @@ def run_lens(args: argparse.Namespace, json_summary: bool = False) -> str:
 
         pipe = LensPipeline(num_steps=args.steps, cfg_scale=cfg_scale)
 
-        outputs: list[dict] = []
-        last_timings: dict = {}
+        outputs: list[dict[str, Any]] = []
+        last_timings: dict[str, float] = {}
         for i, seed in enumerate(seeds):
             print(f"[lens] === generating {i + 1}/{batch}  seed={seed} ===")
             result = pipe.generate(

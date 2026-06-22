@@ -323,19 +323,21 @@ def _run_restore_self_test(args):
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         out = cv2.VideoWriter(degraded_video, fourcc, fps, (320, 240))
 
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            # Gaussian blur
-            blurred = cv2.GaussianBlur(frame, (9, 9), 2.0)
-            # Add noise
-            noise = np.random.normal(0, 25, blurred.shape).astype(np.uint8)
-            degraded = cv2.add(blurred, noise)
-            out.write(degraded)
-
-        cap.release()
-        out.release()
+        try:
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                # Gaussian blur
+                blurred = cv2.GaussianBlur(frame, (9, 9), 2.0)
+                # Add noise
+                noise = np.random.normal(0, 25, blurred.shape).astype(np.uint8)
+                degraded = cv2.add(blurred, noise)
+                out.write(degraded)
+        finally:
+            # Always release cv2 handles even if the loop raises mid-frame.
+            cap.release()
+            out.release()
 
         if not os.path.exists(degraded_video):
             print("ERROR: failed to create degraded video", file=sys.stderr)

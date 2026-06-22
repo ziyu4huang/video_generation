@@ -88,14 +88,14 @@ def _apply_lokr(model: nn.Module, tensors: dict[str, mx.array], user_scale: floa
 
 
 class LoRALinearWrapper(nn.Module):
-    def __init__(self, base_layer, lora_a, lora_b, scale=1.0):
+    def __init__(self, base_layer: nn.Module, lora_a: mx.array, lora_b: mx.array, scale: float = 1.0) -> None:
         super().__init__()
         self.base_layer = base_layer
         self.lora_a = lora_a
         self.lora_b = lora_b
         self.scale = scale
 
-    def __call__(self, x):
+    def __call__(self, x: mx.array) -> mx.array:
         base_out = self.base_layer(x)
 
         dtype = x.dtype

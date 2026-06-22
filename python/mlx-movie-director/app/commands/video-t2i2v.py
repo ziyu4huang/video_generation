@@ -13,6 +13,7 @@ Usage:
   run.py video t2i2v --prompt "a woman" --action "她跳舞" --transformer dasiwa --frames 49
 """
 
+import argparse
 import glob
 import json
 import os
@@ -37,7 +38,7 @@ PARSER_META = {
 }
 
 
-def add_t2i2v_args(parser):
+def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
     # --- T2I stage ---
     parser.add_argument("--t2i-transformer", type=str, default="moody-pro-mix",
                         metavar="NAME",
@@ -377,14 +378,17 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
     return report
 
 
-def run_t2i2v(args):
+def run_t2i2v(args: argparse.Namespace) -> None:
     if getattr(args, "review_runs", False):
         _review_t2i2v_runs(args)
         return
 
     # --- Resolve shared seed ---
-    base_seed = getattr(args, "seed", 99) or 99
-    t2i_seed = getattr(args, "t2i_seed", None) or base_seed
+    # Use explicit None-checks (never `or`) so a legitimate seed of 0 is honored.
+    _s = getattr(args, "seed", None)
+    base_seed = 99 if _s is None else int(_s)
+    _t = getattr(args, "t2i_seed", None)
+    t2i_seed = base_seed if _t is None else int(_t)
     video_seed = base_seed
 
     # --- Create dedicated output subfolder ---

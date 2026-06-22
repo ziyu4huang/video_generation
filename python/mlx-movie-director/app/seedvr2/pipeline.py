@@ -21,7 +21,7 @@ from app.seedvr2.latent_creator import SeedVR2LatentCreator
 from app.seedvr2 import upscaler as sv2_util
 
 
-def _quantize_predicate(path: str, module) -> bool:
+def _quantize_predicate(path: str, module: nn.Module) -> bool:
     """Skip quantization for Conv layers and small Linear layers (last dim not divisible by 64)."""
     if isinstance(module, (nn.Conv2d, nn.Conv3d)):
         return False
@@ -213,12 +213,26 @@ class SeedVR2Upscaler:
         Args:
             image: Input PIL image (RGB).
             resolution: Target shortest-side pixels (e.g. 2160) or scale factor (e.g. 2.0, 3.0).
+                Contract: an ``int`` (or a ``float`` >= 100) is treated as a target
+                shortest-side pixel count; a ``float`` < 100 is treated as a scale
+                factor. This mirrors ``_shared._apply_upscale`` which parses
+                ``"2160"`` -> int (pixels) vs ``"2x"`` -> float (scale).
             softness: Input pre-downsampling factor 0.0-1.0 (0 = none, 0.5 = moderate).
             seed: Random seed for reproducibility.
 
         Returns:
             Upscaled PIL image.
         """
+        # Contract enforcement for the int|float union: an int (or float >= 100)
+        # is a target shortest-side pixel count; a float < 100 is a scale factor.
+        # Without this guard a float pixel-count like 2160.0 from a JSON config
+        # would be silently misread as a 2160x scale factor by preprocess_image.
+        if isinstance(resolution, float) and not resolution.is_integer() and resolution >= 100:
+            raise ValueError(
+                f"resolution={resolution} is ambiguous: a float >= 100 is "
+                f"treated as a pixel count but looks like a scale factor. "
+                f"Pass an int for pixels (e.g. 2160) or a float < 100 for scale."
+            )
         self._load_models()
         total_start = time.time()
 

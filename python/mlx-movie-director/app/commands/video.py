@@ -40,6 +40,20 @@ _relay = importlib.import_module("app.commands.video-relay")
 _segment = importlib.import_module("app.commands.video-segment")
 _t2i2v = importlib.import_module("app.commands.video-t2i2v")
 
+# Single source of truth for the video sub-actions. Referenced by both
+# add_argument(choices=...) and the run() dispatcher so they cannot drift.
+VIDEO_ACTIONS = (
+    "generate",
+    "review",
+    "compare",
+    "quality",
+    "restore",
+    "vbvr",
+    "relay",
+    "segment",
+    "t2i2v",
+)
+
 PARSER_META = {
     "help": "LTX-2.3 video generation, review, comparison, quality analysis, restoration, and VBVR",
     "description": (
@@ -87,8 +101,8 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     parser.add_argument(
         "action",
         nargs="?",
-        default="generate",
-        choices=["generate", "review", "compare", "quality", "restore", "vbvr", "relay", "segment", "t2i2v"],
+        default=VIDEO_ACTIONS[0],
+        choices=list(VIDEO_ACTIONS),
         help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'segment', or 't2i2v'",
     )
 

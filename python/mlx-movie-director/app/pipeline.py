@@ -442,212 +442,226 @@ class ZImagePipeline:
         })
         print(f"Done ({timings['transformer_load_seconds']:.2f}s)")
 
-        # ----------------------------------------------------------------
-        # [Phase 3] Denoising (Fully MLX & Compiled)
-        # ----------------------------------------------------------------
-        print(f"[Phase 3] Denoising (MLX Scheduler & Compiled)...", end="\n")
+        try:
+            # ----------------------------------------------------------------
+            # [Phase 3] Denoising (Fully MLX & Compiled)
+            # ----------------------------------------------------------------
+            print(f"[Phase 3] Denoising (MLX Scheduler & Compiled)...", end="\n")
 
-        scheduler = MLXFlowMatchEulerScheduler(shift=3.0, use_dynamic_shifting=True)
+            scheduler = MLXFlowMatchEulerScheduler(shift=3.0, use_dynamic_shifting=True)
 
-        if seed is not None:
-            np.random.seed(seed)
+            if seed is not None:
+                np.random.seed(seed)
 
-        if clean_latent is not None:
-            # img2img: use clean latent shape
-            noise = mx.array(np.random.randn(*clean_latent.shape)).astype(mx.bfloat16)
-        else:
-            noise = mx.array(np.random.randn(1, 16, height // 8, width // 8)).astype(mx.bfloat16)
-
-        # Use latent shape as ground truth for spatial dims
-        _, C_lat, H_lat, W_lat = noise.shape if clean_latent is None else clean_latent.shape
-        H_tok, W_tok = H_lat // 2, W_lat // 2
-
-        mu = calculate_shift(H_tok * W_tok)
-        scheduler.set_timesteps(steps, mu=mu)
-
-        # Determine start step for img2img
-        # Use steps×strength to decide how many steps to run (matches ComfyUI denoise semantics).
-        # Dynamic mu-shifting compresses timesteps near 1.0, so searching by t value is unreliable.
-        start_step = 0
-        if clean_latent is not None and denoise_strength < 1.0:
-            steps_to_run = max(1, round(steps * denoise_strength))
-            start_step = steps - steps_to_run
-            t_mix = float(scheduler.timesteps[start_step])
-            latents = (1.0 - t_mix) * clean_latent + t_mix * noise
-            print(f"   img2img: {steps_to_run} steps from step {start_step + 1}/{steps} (t_mix={t_mix:.3f})")
-        elif clean_latent is not None:
-            # denoise_strength=1.0 → full re-denoise from noise
-            latents = noise
-        else:
-            latents = noise
-
-        total_len = cap_feats_mx.shape[1]
-
-        cache_key = (W_lat, H_lat, total_len)
-        if self._pos_cache_key == cache_key and self._pos_cache is not None:
-            img_pos, cap_pos = self._pos_cache
-            cos_cached, sin_cached = self._rope_cache
-        else:
-            img_pos = mx.array(
-                create_coordinate_grid((1, H_tok, W_tok), (total_len + 1, 0, 0)).reshape(-1, 3)[None]).astype(mx.bfloat16)
-            cap_pos = mx.array(create_coordinate_grid((total_len, 1, 1), (1, 0, 0)).reshape(-1, 3)[None]).astype(mx.bfloat16)
-
-            unified_pos_all = mx.concatenate([img_pos, cap_pos], axis=1)
-            cos_cached, sin_cached = model.prepare_rope(unified_pos_all)
-            cos_cached = cos_cached.astype(mx.bfloat16)
-            sin_cached = sin_cached.astype(mx.bfloat16)
-
-            self._pos_cache_key = cache_key
-            self._pos_cache = (img_pos, cap_pos)
-            self._rope_cache = (cos_cached, sin_cached)
-
-        @mx.compile
-        def step_fn(x, t, feats, i_pos, c_pos, cos, sin):
-            B, C, H, W = x.shape
-            x_reshaped = x.reshape(C, 1, 1, H_tok, 2, W_tok, 2).transpose(1, 2, 3, 5, 4, 6, 0).reshape(1, -1, C * 4)
-            out = model(x_reshaped, t, feats, i_pos, c_pos, cos, sin, cap_mask=None)
-            noise_pred = -out.reshape(1, 1, H_tok, W_tok, 2, 2, C).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
-            return noise_pred
-
-        denoise_start = time.time()
-        step_times = []
-
-        # Pre-compute seed variance cutoff step
-        sv_cutoff = -1
-        if noisy_cap_feats is not None:
-            from app.seed_variance import SeedVarianceEnhancer
-            sv_cutoff = int(steps * seed_variance_switchover / 100.0)
-
-        events.append({
-            "event": "denoise_config", "target": "denoise",
-            "detail": {"steps": steps, "start_step": start_step, "steps_run": steps - start_step,
-                       "img2img": clean_latent is not None,
-                       "denoise_strength": denoise_strength if clean_latent is not None else None,
-                       "seed_variance": noisy_cap_feats is not None,
-                       "sv_cutoff_step": sv_cutoff if noisy_cap_feats is not None else None,
-                       "cfg_scale": float(cfg_scale) if cfg_active else None,
-                       "scheduler": "flowmatch_euler", "shift": 3.0},
-            "seconds": None,
-        })
-
-        for i in range(start_step, steps):
-            step_start = time.time()
-
-            t_curr = scheduler.timesteps[i]
-            t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
-
-            # Seed variance: use noisy embedding for early steps, clean for later
-            feats = cap_feats_mx
-            if noisy_cap_feats is not None and i < sv_cutoff:
-                feats = noisy_cap_feats
-
-            if uncond_feats_mx is not None:
-                # Classifier-free guidance: blend conditional + unconditional velocity.
-                cond = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
-                uncond = step_fn(latents, t_input, uncond_feats_mx, img_pos, cap_pos, cos_cached, sin_cached)
-                noise_pred = uncond + cfg_scale * (cond - uncond)
+            if clean_latent is not None:
+                # img2img: use clean latent shape
+                noise = mx.array(np.random.randn(*clean_latent.shape)).astype(mx.bfloat16)
             else:
-                noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
-            latents = scheduler.step(noise_pred, i, latents)
-            mx.eval(latents)
+                noise = mx.array(np.random.randn(1, 16, height // 8, width // 8)).astype(mx.bfloat16)
 
-            step_elapsed = time.time() - step_start
-            step_times.append(step_elapsed)
-            print(f"   Step {i + 1}/{steps}: {step_elapsed:.2f}s")
+            # Use latent shape as ground truth for spatial dims
+            _, C_lat, H_lat, W_lat = noise.shape if clean_latent is None else clean_latent.shape
+            H_tok, W_tok = H_lat // 2, W_lat // 2
 
-        steps_run = steps - start_step
-        timings["denoising_seconds"] = time.time() - denoise_start
-        timings["denoising_step_times"] = step_times
-        if steps_run > 0:
-            print(f"   Avg Speed: {timings['denoising_seconds'] / steps_run:.2f} s/it")
+            mu = calculate_shift(H_tok * W_tok)
+            scheduler.set_timesteps(steps, mu=mu)
 
-        # ----------------------------------------------------------------
-        # [Phase 4] Decoding (VAE with Memory Cleanup)
-        # ----------------------------------------------------------------
-        print("[Phase 4] Decoding...", end=" ", flush=True)
-        t_dec = time.time()
+            # Determine start step for img2img
+            # Use steps×strength to decide how many steps to run (matches ComfyUI denoise semantics).
+            # Dynamic mu-shifting compresses timesteps near 1.0, so searching by t value is unreliable.
+            start_step = 0
+            if clean_latent is not None and denoise_strength < 1.0:
+                steps_to_run = max(1, round(steps * denoise_strength))
+                start_step = steps - steps_to_run
+                t_mix = float(scheduler.timesteps[start_step])
+                latents = (1.0 - t_mix) * clean_latent + t_mix * noise
+                print(f"   img2img: {steps_to_run} steps from step {start_step + 1}/{steps} (t_mix={t_mix:.3f})")
+            elif clean_latent is not None:
+                # denoise_strength=1.0 → full re-denoise from noise
+                latents = noise
+            else:
+                latents = noise
 
-        del model, scheduler, step_fn, cos_cached, sin_cached
-        mx.clear_cache()
-        gc.collect()
+            total_len = cap_feats_mx.shape[1]
 
-        if _vae_mlx_available(vae_dir):
-            # MLX-native VAE decode
-            vae_mlx = _load_mlx_vae(vae_dir)
-            latents_mx = latents.astype(mx.bfloat16)
-            decoded = vae_mlx.decode(latents_mx)  # (1, C, 1, H, W)
-            if decoded.ndim == 5:
-                decoded = decoded[:, :, 0, :, :]  # squeeze temporal dim
-            image_np = np.array(mx.clip(decoded.astype(mx.float32) / 2.0 + 0.5, 0, 1))
-            image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
-            image_np = image_np[0].transpose(1, 2, 0)  # (C, H, W) → (H, W, C)
-            pil_image = Image.fromarray((image_np * 255).round().astype("uint8"))
-            del vae_mlx, decoded
-        else:
-            # PyTorch fallback
-            import torch
-            from diffusers import AutoencoderKL
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            cache_key = (W_lat, H_lat, total_len)
+            if self._pos_cache_key == cache_key and self._pos_cache is not None:
+                img_pos, cap_pos = self._pos_cache
+                cos_cached, sin_cached = self._rope_cache
+            else:
+                img_pos = mx.array(
+                    create_coordinate_grid((1, H_tok, W_tok), (total_len + 1, 0, 0)).reshape(-1, 3)[None]).astype(mx.bfloat16)
+                cap_pos = mx.array(create_coordinate_grid((total_len, 1, 1), (1, 0, 0)).reshape(-1, 3)[None]).astype(mx.bfloat16)
 
-            vae = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device)
-            vae.enable_tiling()
+                unified_pos_all = mx.concatenate([img_pos, cap_pos], axis=1)
+                cos_cached, sin_cached = model.prepare_rope(unified_pos_all)
+                cos_cached = cos_cached.astype(mx.bfloat16)
+                sin_cached = sin_cached.astype(mx.bfloat16)
 
-            latents_pt = torch.from_numpy(np.array(latents.astype(mx.float32))).to(device)
-            latents_pt = (latents_pt / vae.config.scaling_factor) + getattr(vae.config, "shift_factor", 0.0)
+                self._pos_cache_key = cache_key
+                self._pos_cache = (img_pos, cap_pos)
+                self._rope_cache = (cos_cached, sin_cached)
 
-            with torch.no_grad():
-                image = vae.decode(latents_pt).sample
+            @mx.compile
+            def step_fn(x, t, feats, i_pos, c_pos, cos, sin):
+                B, C, H, W = x.shape
+                x_reshaped = x.reshape(C, 1, 1, H_tok, 2, W_tok, 2).transpose(1, 2, 3, 5, 4, 6, 0).reshape(1, -1, C * 4)
+                out = model(x_reshaped, t, feats, i_pos, c_pos, cos, sin, cap_mask=None)
+                noise_pred = -out.reshape(1, 1, H_tok, W_tok, 2, 2, C).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
+                return noise_pred
 
-            image_np = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
-            image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
-            pil_image = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
+            denoise_start = time.time()
+            step_times = []
 
-            del vae, latents_pt, image, image_np
+            # Pre-compute seed variance cutoff step
+            sv_cutoff = -1
+            if noisy_cap_feats is not None:
+                from app.seed_variance import SeedVarianceEnhancer
+                sv_cutoff = int(steps * seed_variance_switchover / 100.0)
 
-        gc.collect()
+            events.append({
+                "event": "denoise_config", "target": "denoise",
+                "detail": {"steps": steps, "start_step": start_step, "steps_run": steps - start_step,
+                           "img2img": clean_latent is not None,
+                           "denoise_strength": denoise_strength if clean_latent is not None else None,
+                           "seed_variance": noisy_cap_feats is not None,
+                           "sv_cutoff_step": sv_cutoff if noisy_cap_feats is not None else None,
+                           "cfg_scale": float(cfg_scale) if cfg_active else None,
+                           "scheduler": "flowmatch_euler", "shift": 3.0},
+                "seconds": None,
+            })
 
-        timings["vae_decode_seconds"] = time.time() - t_dec
-        _vae_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
-        events.append({
-            "event": "model_loaded", "target": "vae",
-            "detail": {"backend": _vae_backend, "dir": vae_dir or cfg.VAE_DIR,
-                       "tiled": _vae_backend != "mlx"},
-            "seconds": timings["vae_decode_seconds"],
-        })
-        print(f"Done ({timings['vae_decode_seconds']:.2f}s)")
+            for i in range(start_step, steps):
+                step_start = time.time()
 
-        # ----------------------------------------------------------------
-        # [Phase 5] Upscale (optional)
-        # ----------------------------------------------------------------
-        if upscale:
-            if upscale_method == "seedvr2":
-                t_up = time.time()
-                w0, h0 = pil_image.size
-                print(f"[Phase 5] SeedVR2 upscale ({w0}×{h0})...", end=" ", flush=True)
-                from app.seedvr2.pipeline import SeedVR2Upscaler as _SV2
-                sv2 = _SV2(model_size="7b")
-                try:
-                    pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=777 if seed is None else seed)
-                finally:
-                    sv2.unload()
-                timings["seedvr2_seconds"] = time.time() - t_up
-                events.append({"event": "stage", "target": "seedvr2",
-                               "detail": {"model_size": "7b", "resolution": 2.0},
-                               "seconds": timings["seedvr2_seconds"]})
-                print(f"Done ({timings['seedvr2_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
-            elif upscale_model:
-                if not os.path.exists(upscale_model):
-                    print(f"[Phase 5] ESRGAN model not found: {upscale_model} — skipping")
+                t_curr = scheduler.timesteps[i]
+                t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
+
+                # Seed variance: use noisy embedding for early steps, clean for later
+                feats = cap_feats_mx
+                if noisy_cap_feats is not None and i < sv_cutoff:
+                    feats = noisy_cap_feats
+
+                if uncond_feats_mx is not None:
+                    # Classifier-free guidance: blend conditional + unconditional velocity.
+                    cond = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
+                    uncond = step_fn(latents, t_input, uncond_feats_mx, img_pos, cap_pos, cos_cached, sin_cached)
+                    noise_pred = uncond + cfg_scale * (cond - uncond)
                 else:
+                    noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
+                latents = scheduler.step(noise_pred, i, latents)
+                mx.eval(latents)
+
+                step_elapsed = time.time() - step_start
+                step_times.append(step_elapsed)
+                print(f"   Step {i + 1}/{steps}: {step_elapsed:.2f}s")
+
+            steps_run = steps - start_step
+            timings["denoising_seconds"] = time.time() - denoise_start
+            timings["denoising_step_times"] = step_times
+            if steps_run > 0:
+                print(f"   Avg Speed: {timings['denoising_seconds'] / steps_run:.2f} s/it")
+
+            # ----------------------------------------------------------------
+            # [Phase 4] Decoding (VAE with Memory Cleanup)
+            # ----------------------------------------------------------------
+            print("[Phase 4] Decoding...", end=" ", flush=True)
+            t_dec = time.time()
+
+            del model, scheduler, step_fn, cos_cached, sin_cached
+            mx.clear_cache()
+            gc.collect()
+
+            if _vae_mlx_available(vae_dir):
+                # MLX-native VAE decode
+                vae_mlx = _load_mlx_vae(vae_dir)
+                latents_mx = latents.astype(mx.bfloat16)
+                decoded = vae_mlx.decode(latents_mx)  # (1, C, 1, H, W)
+                if decoded.ndim == 5:
+                    decoded = decoded[:, :, 0, :, :]  # squeeze temporal dim
+                image_np = np.array(mx.clip(decoded.astype(mx.float32) / 2.0 + 0.5, 0, 1))
+                image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+                image_np = image_np[0].transpose(1, 2, 0)  # (C, H, W) → (H, W, C)
+                pil_image = Image.fromarray((image_np * 255).round().astype("uint8"))
+                del vae_mlx, decoded
+            else:
+                # PyTorch fallback
+                import torch
+                from diffusers import AutoencoderKL
+                device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+                vae = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device)
+                vae.enable_tiling()
+
+                latents_pt = torch.from_numpy(np.array(latents.astype(mx.float32))).to(device)
+                latents_pt = (latents_pt / vae.config.scaling_factor) + getattr(vae.config, "shift_factor", 0.0)
+
+                with torch.no_grad():
+                    image = vae.decode(latents_pt).sample
+
+                image_np = (image / 2 + 0.5).clamp(0, 1).cpu().permute(0, 2, 3, 1).numpy()
+                image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+                pil_image = Image.fromarray((image_np[0] * 255).round().astype("uint8"))
+
+                del vae, latents_pt, image, image_np
+
+            gc.collect()
+
+            timings["vae_decode_seconds"] = time.time() - t_dec
+            _vae_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
+            events.append({
+                "event": "model_loaded", "target": "vae",
+                "detail": {"backend": _vae_backend, "dir": vae_dir or cfg.VAE_DIR,
+                           "tiled": _vae_backend != "mlx"},
+                "seconds": timings["vae_decode_seconds"],
+            })
+            print(f"Done ({timings['vae_decode_seconds']:.2f}s)")
+
+            # ----------------------------------------------------------------
+            # [Phase 5] Upscale (optional)
+            # ----------------------------------------------------------------
+            if upscale:
+                if upscale_method == "seedvr2":
                     t_up = time.time()
                     w0, h0 = pil_image.size
-                    print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
-                    pil_image = self.upscale_esrgan(pil_image, upscale_model)
-                    timings["esrgan_seconds"] = time.time() - t_up
-                    events.append({"event": "stage", "target": "esrgan",
-                                   "detail": {"model": os.path.basename(upscale_model)},
-                                   "seconds": timings["esrgan_seconds"]})
-                    print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+                    print(f"[Phase 5] SeedVR2 upscale ({w0}×{h0})...", end=" ", flush=True)
+                    from app.seedvr2.pipeline import SeedVR2Upscaler as _SV2
+                    sv2 = _SV2(model_size="7b")
+                    try:
+                        pil_image = sv2.upscale(pil_image, resolution=2.0, softness=0.5, seed=777 if seed is None else seed)
+                    finally:
+                        sv2.unload()
+                    timings["seedvr2_seconds"] = time.time() - t_up
+                    events.append({"event": "stage", "target": "seedvr2",
+                                   "detail": {"model_size": "7b", "resolution": 2.0},
+                                   "seconds": timings["seedvr2_seconds"]})
+                    print(f"Done ({timings['seedvr2_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
+                elif upscale_model:
+                    if not os.path.exists(upscale_model):
+                        print(f"[Phase 5] ESRGAN model not found: {upscale_model} — skipping")
+                    else:
+                        t_up = time.time()
+                        w0, h0 = pil_image.size
+                        print(f"[Phase 5] ESRGAN upscale ({w0}×{h0})...", end=" ", flush=True)
+                        pil_image = self.upscale_esrgan(pil_image, upscale_model)
+                        timings["esrgan_seconds"] = time.time() - t_up
+                        events.append({"event": "stage", "target": "esrgan",
+                                       "detail": {"model": os.path.basename(upscale_model)},
+                                       "seconds": timings["esrgan_seconds"]})
+                        print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
 
-        print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
-        return GenerationResult(image=pil_image, timings=timings, events=events or None)
+            print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
+            return GenerationResult(image=pil_image, timings=timings, events=events or None)
+
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC pass
+            # so the ~8GB transformer / VAE tensors backing this frame are released before
+            # the next run, rather than staying resident behind a stale graph. The frame's
+            # local references ('model', 'vae_mlx', 'latents', ...) are reclaimed when this
+            # frame tears down on re-raise; explicit del + locals() mutation is a no-op in
+            # CPython, so clearing the MX caches is the load-bearing step here.
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
