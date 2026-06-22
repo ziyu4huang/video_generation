@@ -22,16 +22,20 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
     refresh();
   };
 
-  // Git branch@commit for the title/header (undefined when not a git repo)
-  const [serverInfo, setServerInfo] = useState<{ branch?: string; commit?: string }>({});
+  // Git branch@commit + worktree folder for the title/header (undefined when not a git repo)
+  const [serverInfo, setServerInfo] = useState<{ folder?: string; branch?: string; commit?: string }>({});
   useEffect(() => {
     getServerInfo().then(setServerInfo).catch(() => {});
   }, []);
   const branchLabel = serverInfo.branch && serverInfo.branch !== "HEAD" ? serverInfo.branch : undefined;
   const gitLabel = [branchLabel, serverInfo.commit].filter(Boolean).join("@");
+  const folderLabel = serverInfo.folder;
+  // Surface BOTH the worktree folder (the multi-worktree identity) and branch@commit
+  // so browser tabs stay disambiguated across worktrees.
+  const titleParts = [folderLabel, gitLabel].filter(Boolean).join(" · ");
   useEffect(() => {
-    document.title = gitLabel ? `Movie Director · ${gitLabel}` : "Movie Director";
-  }, [gitLabel]);
+    document.title = titleParts ? `Movie Director · ${titleParts}` : "Movie Director";
+  }, [titleParts]);
 
   // Lightweight WebSocket connection monitor (separate from useWebSocket singleton)
   const [wsConnected, setWsConnected] = useState(true);
@@ -63,7 +67,12 @@ export function Layout({ currentView, onViewChange, children }: LayoutProps) {
       <aside className="sidebar">
         <div className="sidebar-logo">
           🎬 Movie Director
-          {gitLabel && <span className="sidebar-logo-git">{gitLabel}</span>}
+          {(folderLabel || gitLabel) && (
+            <span className="sidebar-logo-git">
+              {folderLabel && <span className="sidebar-logo-folder">{folderLabel}</span>}
+              {gitLabel && <span className="sidebar-logo-ref">{gitLabel}</span>}
+            </span>
+          )}
         </div>
 
         {/* Gallery link */}

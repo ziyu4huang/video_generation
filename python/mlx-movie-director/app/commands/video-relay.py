@@ -43,7 +43,7 @@ import types
 from datetime import datetime, timezone
 
 from app import config as cfg
-from app.commands._shared import generate_base_name, resolve_lora_path, RELAY_FINAL_MODE
+from app.commands._shared import generate_base_name, resolve_lora_path, RELAY_FINAL_MODE, _adjust_frames_for_ltx
 from app.manifest import Manifest
 from app.run_config import RunConfig
 
@@ -627,12 +627,8 @@ def _adjust_resolution(width: int, height: int, distilled: bool = False) -> tupl
 
 
 def _adjust_frames(frames: int) -> int:
-    if (frames - 1) % 8 == 0:
-        return frames
-    k = round((frames - 1) / 8)
-    adjusted = max(9, 8 * k + 1)
-    print(f"[relay] Frames adjusted: {frames} → {adjusted} (must satisfy 8k+1)")
-    return adjusted
+    """Thin wrapper over the canonical shared aligner (see _shared._adjust_frames_for_ltx)."""
+    return _adjust_frames_for_ltx(frames, label="relay")
 
 
 def _duration_to_frames(duration_secs: float, fps: float) -> int:

@@ -81,6 +81,25 @@ def _resolve_resolution(spec: str | None, pipeline: str) -> tuple[int, int] | No
     return (((w + 15) // 16) * 16, ((h + 15) // 16) * 16)
 
 
+def _adjust_frames_for_ltx(frames: int, label: str = "video") -> int:
+    """Align a frame count to LTX-2.3's (frames-1) % 8 == 0 constraint (8k+1).
+
+    Single canonical copy shared by video-generate / video-relay / video-vbvr.
+    Enforces the min-9 clamp on BOTH branches: frames=1 satisfies (1-1)%8==0
+    yet is below the 9-frame minimum, so the clamp must run on the aligned
+    branch too — this drift bit video-relay across iters before the logic was
+    deduped here.
+
+    Valid counts: 9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, ...
+    """
+    if (frames - 1) % 8 == 0:
+        return max(frames, 9)
+    k = round((frames - 1) / 8)
+    adjusted = max(9, 8 * k + 1)
+    print(f"[{label}] Frames adjusted: {frames} → {adjusted} (must satisfy 8k+1)")
+    return adjusted
+
+
 # ---------------------------------------------------------------------------
 # Output naming (defined early — used by make_output_paths below)
 # ---------------------------------------------------------------------------
@@ -978,21 +997,23 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
             all_events.extend(result_f.events or [])
 
             # --- Side-by-side comparison ---
-            zimg = Image.open(zimg_path)
-            fimg = Image.open(fimg_path)
-            compare = _stitch_horizontal(
-                [zimg, fimg], gap=4, labels=["ZImage Turbo", "Flux2 Klein 9B"]
-            )
-            compare_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_compare{suffix}.png")
-            compare.save(compare_path)
-            print(f"Comparison: {compare_path}")
-            all_outputs.append({
-                "path": compare_path, "pipeline": "compare",
-                "size_bytes": os.path.getsize(compare_path),
-                "width": compare.width, "height": compare.height,
-            })
+            # Use context managers so the file descriptors close even if an
+            # exception fires mid-stitch (this block runs inside the seed loop,
+            # so unmanaged opens would leak fds across iterations).
+            with Image.open(zimg_path) as zimg, Image.open(fimg_path) as fimg:
+                compare = _stitch_horizontal(
+                    [zimg, fimg], gap=4, labels=["ZImage Turbo", "Flux2 Klein 9B"]
+                )
+                compare_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_compare{suffix}.png")
+                compare.save(compare_path)
+                print(f"Comparison: {compare_path}")
+                all_outputs.append({
+                    "path": compare_path, "pipeline": "compare",
+                    "size_bytes": os.path.getsize(compare_path),
+                    "width": compare.width, "height": compare.height,
+                })
 
-            del pipeline_f, result_f, zimg, fimg, compare
+            del pipeline_f, result_f, compare
             mx.clear_cache()
             gc.collect()
 

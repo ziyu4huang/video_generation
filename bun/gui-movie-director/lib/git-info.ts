@@ -1,6 +1,8 @@
+import path from "path";
 import { REPO_DIR } from "./config";
 
 export interface GitInfo {
+  folder: string; // worktree dir basename — stable identity across multi-worktree servers
   branch?: string;
   commit?: string; // short hash
 }
@@ -21,20 +23,22 @@ function runGit(args: string[]): string | undefined {
   }
 }
 
-let _cached: GitInfo | null = null;
+// The worktree dir basename never changes during a server's lifetime, so it's a
+// cheap const (no subprocess). branch/commit are read LIVE on every call so the
+// UI title tracks branch switches without a server restart — the only caller is
+// the page-mount /api/server-info fetch, so the per-call git cost is negligible.
+const WORKTREE_FOLDER = path.basename(REPO_DIR);
 
 /**
- * Git branch + short commit, captured once at first call (startup). Both fields
- * are undefined when this isn't a git repo or git is unavailable — callers MUST
- * handle the missing case (never assume a value). `branch` is "HEAD" on a
- * detached HEAD; the UI collapses that to just the commit.
+ * Worktree folder + git branch + short commit. branch/commit are read live on
+ * every call (no caching) — callers MUST handle a missing branch/commit (not a
+ * git repo / git unavailable); `folder` is always present. `branch` is "HEAD" on
+ * a detached HEAD; the UI collapses that to just the commit.
  */
 export function getGitInfo(): GitInfo {
-  if (_cached === null) {
-    _cached = {
-      branch: runGit(["rev-parse", "--abbrev-ref", "HEAD"]),
-      commit: runGit(["rev-parse", "--short", "HEAD"]),
-    };
-  }
-  return _cached;
+  return {
+    folder: WORKTREE_FOLDER,
+    branch: runGit(["rev-parse", "--abbrev-ref", "HEAD"]),
+    commit: runGit(["rev-parse", "--short", "HEAD"]),
+  };
 }

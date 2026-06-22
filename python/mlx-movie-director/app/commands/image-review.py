@@ -3711,7 +3711,10 @@ def _run_selftest_flf2v(args: argparse.Namespace, test_name: str, test_cfg: dict
     print(f"  Prompt: {end_prompt[:80]}...")
     t0 = _time.time()
 
-    begin_pil = Image.open(begin_path).convert("RGB")
+    # Context manager so the file handle closes even if generate() raises;
+    # .convert("RGB") materializes an independent in-memory image before close.
+    with Image.open(begin_path) as _begin_fh:
+        begin_pil = _begin_fh.convert("RGB")
     end_result = img_pipeline.generate(
         prompt=end_prompt,
         width=width,
@@ -4725,7 +4728,10 @@ def _run_selftest_expansion(args: argparse.Namespace, test_name: str, test_cfg: 
             width=sc.get("width", src_w),
             height=sc.get("height", src_h),
         )
-        source = Image.open(source_path).convert("RGB")
+        # Loop body: close the file handle each iteration (sources accumulate
+        # in source_infos below); .convert materializes an independent image.
+        with Image.open(source_path) as _src_fh:
+            source = _src_fh.convert("RGB")
         snippet = sc["prompt"][:60] + "…" if len(sc["prompt"]) > 60 else sc["prompt"]
         source_infos.append({
             "path": source_path,

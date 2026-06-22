@@ -66,6 +66,12 @@ const FAKE_RUN = (transformer: string) => ({
   prompt: "a portrait", transformer,
 });
 
+// A cfg_scale A/B (the real run that surfaced the tie/hint gaps): identical
+// except cfg 1.0 vs 3.0 → lever "cfg_scale".
+const CFG_A = { ...FAKE_RUN("m"), cfg_scale: 1.0 };
+const CFG_B = { ...FAKE_RUN("m"), cfg_scale: 3.0 };
+const CFG_LEVER = detectLever(CFG_A, CFG_B);
+
 describe("buildAbFeedback", () => {
   const baseArgs = {
     intent: "Does 8-bit beat 4-bit?",
@@ -122,5 +128,50 @@ describe("buildAbFeedback", () => {
     expect(f.analysis.pixel_diff).toEqual({ ssim: 0.87, psnr_db: 21.5 });
     expect(f.analysis.signal_metrics.winners.sharpness).toBe("B");
     expect(f.diff_heatmap_url).toBe("/output/0/ab_analysis/ab_diff_x.png");
+  });
+});
+
+// cfg_scale A/B — the real-run case that exposed (a) the nonsensical "tune toward
+// the winner" hint on a VLM tie and (b) regen_command hardcoding A's cfg value.
+describe("buildAbFeedback — cfg lever (real-run case)", () => {
+  const cfgArgs = {
+    intent: "Does cfg 3 beat cfg 1?",
+    lever: CFG_LEVER,
+    a: { name: "a.png", url: "/output/0/a.png", runPath: "/abs/a.run.json", manifestPath: "/abs/a.manifest.json", run: CFG_A },
+    b: { name: "b.png", url: "/output/0/b.png", runPath: "/abs/b.run.json", manifestPath: "/abs/b.manifest.json", run: CFG_B },
+    signalMetrics: {
+      A: { sharpness: 81.6, noise_sigma: 2.97 },
+      B: { sharpness: 138.2, noise_sigma: 5.93 },
+      winners: { sharpness: "B", noise_sigma: "A" },
+    },
+    pixelDiff: { ssim: 0.7378, psnr_db: 19.665 },
+    vlmScores: null as any,
+    heatmapUrl: "/output/0/ab_analysis/ab_diff_cfg.png",
+  } as const;
+
+  it("tie hint names the lever range + signal tradeoff (not 'tune toward the winner')", () => {
+    const f = buildAbFeedback({ ...cfgArgs, vlmScores: { A: { overall: 8 }, B: { overall: 8 } } });
+    expect(f.verdict.winner).toBe("tie");
+    const w = f.action_hints.what_to_do;
+    expect(w).toContain("cfg_scale' (A=1 vs B=3)");
+    expect(w).toContain("did not produce a clear VLM winner");
+    expect(w).toContain("B wins sharpness");
+    expect(w).toContain("A wins noise_sigma");
+    // The old buggy phrasing must be gone on a tie:
+    expect(w).not.toContain("tune toward");
+  });
+
+  it("non-tie hint points at the winner's concrete value", () => {
+    const f = buildAbFeedback({ ...cfgArgs, vlmScores: { A: { overall: 9 }, B: { overall: 7 } } });
+    expect(f.verdict.winner).toBe("A");
+    expect(f.action_hints.what_to_do).toContain("A wins (move toward 1)");
+  });
+
+  it("regen_command marks the cfg lever as an <A|B> placeholder, not A's hardcoded value", () => {
+    const f = buildAbFeedback({ ...cfgArgs, vlmScores: { A: { overall: 8 }, B: { overall: 8 } } });
+    expect(f.action_hints.regen_command).toContain("--cfg-scale <1|3>");
+    // Shared params still reproduce concretely:
+    expect(f.action_hints.regen_command).toContain("--seed 777");
+    expect(f.action_hints.regen_command).toContain("--transformer m");
   });
 });

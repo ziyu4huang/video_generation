@@ -197,7 +197,7 @@ export function buildAbFeedback(args: {
     },
     diff_heatmap_url: args.heatmapUrl,
     action_hints: {
-      what_to_do: deriveWhatToDo(lever, winner, aModel, bModel),
+      what_to_do: deriveWhatToDo(lever, winner, aModel, bModel, a.run, b.run, args.signalMetrics),
       regen_command: regen,
       model_dirs: modelDirs,
       read_for_full_detail:
@@ -228,12 +228,45 @@ function deriveWinner(
   return { winner: "tie", rationale: "no VLM; signal metrics tied" };
 }
 
+/** A/B values of the primary lever field, so the hint can name the actual range. */
+function leverValues(
+  lever: LeverResult,
+  aRun: Record<string, any> | null,
+  bRun: Record<string, any> | null,
+): { field: string; aVal: any; bVal: any } | null {
+  const f = lever.diff_fields[0];
+  if (!f || !aRun || !bRun) return null;
+  return { field: f, aVal: aRun[f], bVal: bRun[f] };
+}
+
+/** Group signal metrics by winner → "B wins sharpness, edge_density; A wins contrast, …". */
+function signalWinnerSummary(signalMetrics: Record<string, any> | null): string {
+  const winners: Record<string, any> = signalMetrics?.winners ?? {};
+  const groups: Record<string, string[]> = { A: [], B: [] };
+  for (const [metric, w] of Object.entries(winners)) {
+    if (w === "A" || w === "B") groups[w].push(metric);
+  }
+  const parts: string[] = [];
+  for (const w of ["A", "B"] as const) {
+    if (groups[w].length) parts.push(`${w} wins ${groups[w].join(", ")}`);
+  }
+  return parts.join("; ") || "metrics tied";
+}
+
 function deriveWhatToDo(
   lever: LeverResult,
   winner: { winner: string },
   aModel: ModelInfo,
   bModel: ModelInfo,
+  aRun: Record<string, any> | null,
+  bRun: Record<string, any> | null,
+  signalMetrics: Record<string, any> | null,
 ): string {
+  const lv = leverValues(lever, aRun, bRun);
+  const range =
+    lv && lv.aVal != null && lv.bVal != null && String(lv.aVal) !== String(lv.bVal)
+      ? ` (A=${lv.aVal} vs B=${lv.bVal})`
+      : "";
   if (lever.lever === "transformer-quant") {
     if (winner.winner === "tie") {
       const lower = (aModel.format?.includes("4bit") ? "A" : bModel.format?.includes("4bit") ? "B" : null);
@@ -242,7 +275,14 @@ function deriveWhatToDo(
     return `Quant depth moved quality (${winner.winner} wins). If the winner is the higher-bit model and the gain justifies the +memory, switch; else keep 4-bit.`;
   }
   if (lever.lever === "none") return "No param differs between A and B — these may be near-duplicates; check seeds/run identity before drawing conclusions.";
-  return `Lever '${lever.lever}' changed quality (${winner.winner} wins). Tune that param in the direction of the winner; see regen_command to reproduce.`;
+  if (winner.winner === "tie") {
+    // Generic-lever tie: there is no winner to "tune toward", so name the
+    // signal tradeoff instead and let the user pick by priority.
+    return `Lever '${lever.lever}'${range} did not produce a clear VLM winner (tie). Signal tradeoff — ${signalWinnerSummary(signalMetrics)}. No single best: pick by your priority (e.g. sharpness vs cleanliness) or re-run with a wider lever range for a decisive result.`;
+  }
+  const w = winner.winner === "A" ? "A" : "B";
+  const target = lv ? (winner.winner === "A" ? lv.aVal : lv.bVal) : null;
+  return `Lever '${lever.lever}'${range} → ${w} wins${target != null ? ` (move toward ${target})` : ""}. See regen_command to reproduce the winning arm.`;
 }
 
 function buildRegenCommand(
@@ -252,22 +292,33 @@ function buildRegenCommand(
 ): string {
   const base = aRun ?? bRun;
   if (!base) return "(no run.json — cannot reconstruct command)";
+  const diff = new Set(lever.diff_fields);
   const pipeline = base.pipeline ?? "zimage";
   const sub = pipeline === "zimage" ? "t2i" : "t2i";
-  const t = lever.diff_fields.includes("transformer")
-    ? "<A-transformer|B-transformer>"
-    : base.transformer ?? "<transformer>";
+  // For the lever field under test, emit an <A-val|B-val> placeholder so the
+  // varied param (and both arms) is obvious; otherwise reproduce the shared
+  // value. Previously only `transformer` got this treatment — now every scalar
+  // lever (seed/steps/cfg_scale/width/height) surfaces its A/B range too.
+  const val = (field: string): string => {
+    const av = aRun?.[field];
+    const bv = bRun?.[field];
+    if (diff.has(field) && av != null && bv != null && String(av) !== String(bv)) {
+      return `<${av}|${bv}>`;
+    }
+    return String(base[field] ?? "");
+  };
+  const t = val("transformer") || "<transformer>";
   const parts = [
     "python/venv/bin/python",
     "python/mlx-movie-director/run.py",
     "image",
     sub,
-    "--transformer", String(t),
+    "--transformer", t,
   ];
-  if (base.seed != null) parts.push("--seed", String(base.seed));
-  if (base.steps != null) parts.push("--steps", String(base.steps));
-  if (base.cfg_scale != null) parts.push("--cfg-scale", String(base.cfg_scale));
-  if (base.width != null && base.height != null) parts.push("--width", String(base.width), "--height", String(base.height));
+  if (base.seed != null) parts.push("--seed", val("seed") || "<seed>");
+  if (base.steps != null) parts.push("--steps", val("steps") || "<steps>");
+  if (base.cfg_scale != null) parts.push("--cfg-scale", val("cfg_scale") || "<cfg>");
+  if (base.width != null && base.height != null) parts.push("--width", val("width"), "--height", val("height"));
   if (base.prompt) parts.push("--prompt", `'${String(base.prompt).replace(/'/g, "'\\''")}'`);
   return parts.join(" ");
 }

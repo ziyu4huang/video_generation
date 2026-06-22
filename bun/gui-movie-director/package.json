@@ -8,7 +8,7 @@
     "dev:debug": "bun --inspect-wait --hot server.ts",
     "start": "bun run server.ts",
     "gui:port": "bun run scripts/gui-port.ts",
-    "test": "bun test",
+    "test": "bun run check:lint && bun test",
     "test:coverage": "bun test --coverage",
     "check:schema": "bun run scripts/check-schema.ts",
     "check:runtime": "bun run scripts/check-runtime.ts",
