@@ -18,6 +18,7 @@ Public API:
   run_review_lora(args)            — LoRA A/B: baseline vs adapter, multi-seed HTML review
 """
 
+import argparse
 import copy
 import html as _html
 import importlib
@@ -2026,7 +2027,7 @@ def run_review_selftest(args):
           f"sections): {html_path}")
 
 
-def _run_one_test(args, test_name: str, test_cfg: dict):
+def _run_one_test(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Dispatch a single resolved test to its type runner."""
     test_type = test_cfg["type"]
     if test_type != "nomodel":
@@ -2085,7 +2086,9 @@ def _unified_metrics(image_file: str | None) -> dict | None:
     try:
         _qm = _quality_module()
         report = _qm.analyze_image(image_file)
-        return report.get("metrics", report) if isinstance(report, dict) else report
+        if isinstance(report, dict):
+            return report.get("metrics", report)
+        return None
     except Exception:
         return None
 
@@ -2160,7 +2163,7 @@ def _unified_item_from_path(image_file: str | None, label: str, out_dir: str,
     )
 
 
-def _section_titles(name: str, test_cfg: dict):
+def _section_titles(name: str, test_cfg: dict[str, Any]) -> tuple[str, str, str, str]:
     desc = (test_cfg.get("description") or "").strip()
     return f"測試：{name}", f"Test: {name}", desc, desc
 
@@ -2569,7 +2572,7 @@ load(); applyLang();
     return html_path
 
 
-def _run_selftest_controlnet_i2i(args, test_name: str, test_cfg: dict):
+def _run_selftest_controlnet_i2i(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run I2I + ControlNet self-test by delegating to image-i2i._run_self_test().
 
     mode="debug"       → _I2I_DEBUG_VARIATIONS (1 variation, ~3 min)
@@ -3073,7 +3076,7 @@ def _vlm_verify_controlnet_pose(image_path: str):
         print("[verify] Start LM Studio with Qwen3-VL to enable automatic pose verification")
 
 
-def _run_selftest_nomodel(test_name: str, test_cfg: dict):
+def _run_selftest_nomodel(test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run an in-process smoke test that requires no model loading."""
     if test_name == "workflow-postprocess":
         _selftest_postprocess_smoke()
@@ -3110,7 +3113,7 @@ def _selftest_postprocess_smoke():
     print("[selftest] PostProcessChain smoke test PASSED")
 
 
-def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
+def _run_selftest_workflow(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run WorkflowOrchestrator for each variation, then generate HTML review."""
     import gc
     import mlx.core as mx
@@ -3191,7 +3194,7 @@ def _run_selftest_workflow(args, test_name: str, test_cfg: dict):
         print("[selftest] WARNING: no manifests found; skipping HTML review", file=sys.stderr)
 
 
-def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
+def _run_selftest_t2i(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Generate T2I images across multiple seeds, then open HTML review."""
     import gc
     import mlx.core as mx
@@ -3283,7 +3286,7 @@ def _run_selftest_t2i(args, test_name: str, test_cfg: dict):
         _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
 
 
-def _run_selftest_multi_lora(args, test_name: str, test_cfg: dict):
+def _run_selftest_multi_lora(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Stacked multi-LoRA self-test: one Z-Image generation per variant, passing
     lora_paths/lora_scales lists so the pipeline applies each adapter.
 
@@ -3430,7 +3433,7 @@ def _run_selftest_multi_lora(args, test_name: str, test_cfg: dict):
         _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
 
 
-def _run_selftest_video(args, test_name: str, test_cfg: dict):
+def _run_selftest_video(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Delegate to the video-generate pipeline, then open HTML review."""
     _video_gen = importlib.import_module("app.commands.video-generate")
 
@@ -3445,7 +3448,7 @@ def _run_selftest_video(args, test_name: str, test_cfg: dict):
     _video_gen.run_generate(args)
 
 
-def _run_selftest_profile(args, test_name: str, test_cfg: dict):
+def _run_selftest_profile(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Generate multi-view character profiles, run VLM view-angle verification, open HTML review."""
     import gc
     import json as _json
@@ -3621,7 +3624,7 @@ def _run_selftest_profile(args, test_name: str, test_cfg: dict):
 # FLF2V self-test handler (type="flf2v" in _ALL_TESTS)
 # ---------------------------------------------------------------------------
 
-def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
+def _run_selftest_flf2v(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run a 3-step FLF2V self-test: T2I begin → T2I end (with reference) → FLF2V.
 
     Best practice (from docs and proven across experiments):
@@ -3892,7 +3895,7 @@ def _run_selftest_flf2v(args, test_name: str, test_cfg: dict):
     _open_report(html_path)
 
 
-def _run_selftest_angle(args, test_name: str, test_cfg: dict):
+def _run_selftest_angle(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run a Flux2-Klein camera-angle reframe self-test.
 
     Generates a reference portrait (ZImage T2I), then reframes it across the
@@ -4008,7 +4011,7 @@ def _run_selftest_angle(args, test_name: str, test_cfg: dict):
     _open_report(html_path)
 
 
-def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
+def _run_selftest_faceswap(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run a BFS faceswap self-test: generate body + face images, then swap.
 
     Delegates to image-faceswap._generate_body_zimage(),
@@ -4113,8 +4116,8 @@ def _run_selftest_faceswap(args, test_name: str, test_cfg: dict):
     _open_manifest_review(manifest_files, labels=labels)
 
 
-def _run_selftest_swap(args, test_name: str, test_cfg: dict,
-                       return_manifests: bool = False):
+def _run_selftest_swap(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any],
+                       return_manifests: bool = False) -> None:
     """Run a SAM3 text-prompted swap self-test.
 
     Generates source + reference images via ZImagePipeline, runs SAM3
@@ -4523,7 +4526,7 @@ def _run_selftest_swap(args, test_name: str, test_cfg: dict,
     _open_manifest_review(manifest_files, labels=labels)
 
 
-def _run_selftest_swap_all(args, test_name: str, test_cfg: dict):
+def _run_selftest_swap_all(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run ALL swap self-tests sequentially and combine into one HTML review.
 
     Iterates through each sub-test in ``test_cfg["tests"]``, calls
@@ -4631,7 +4634,7 @@ def _run_selftest_swap_all(args, test_name: str, test_cfg: dict):
                           group_params=group_params)
 
 
-def _run_selftest_expansion(args, test_name: str, test_cfg: dict):
+def _run_selftest_expansion(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
     """Run a Flux2 Klein outpaint (image expansion) self-test.
 
     Generates one or more source images, expands each across the configured

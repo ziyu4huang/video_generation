@@ -18,9 +18,12 @@ import shutil
 import sys
 import tempfile
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app import config as cfg
+
+if TYPE_CHECKING:
+    import mlx.core as mx
 
 
 # ---------------------------------------------------------------------------
@@ -144,10 +147,10 @@ class _TemporalUpscaleMixin:
         upsampler.load_weights(list(raw.items()))
         return upsampler
 
-    def generate_two_stage(self, *args, **kwargs):
+    def generate_two_stage(self, *args, audio_stage1_only: bool = False, **kwargs) -> tuple["mx.array", "mx.array"]:
         import mlx.core as mx
 
-        video_latent, audio_latent = super().generate_two_stage(*args, **kwargs)
+        video_latent, audio_latent = super().generate_two_stage(*args, audio_stage1_only=audio_stage1_only, **kwargs)
 
         if self._temporal_upsampler is None:
             self._temporal_upsampler = self._load_temporal_upsampler()
@@ -307,7 +310,7 @@ class LTXVideoPipeline:
         modality_scale: float | None = None,
         enable_teacache: bool = False,
         teacache_thresh: float | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate a video and write to output_path.
 
         cfg_scale controls TEXT guidance only (scales cond - uncond prediction).
@@ -336,7 +339,7 @@ class LTXVideoPipeline:
             self._pipeline_mode = mode
 
         t0 = time.time()
-        kwargs: dict = dict(
+        kwargs: dict[str, Any] = dict(
             prompt=prompt,
             output_path=output_path,
             height=height,
@@ -368,7 +371,20 @@ class LTXVideoPipeline:
         if teacache_thresh is not None:
             kwargs["teacache_thresh"] = teacache_thresh
 
-        self._pipeline.generate_and_save(**kwargs)
+        try:
+            self._pipeline.generate_and_save(**kwargs)
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC
+            # pass so the ~17GB LTX transformer / VAE tensors are released before the
+            # next run, rather than staying resident behind a stale graph. Parity with
+            # app/pipeline.py:657-668 and app/seedvr2/pipeline.py:354-365.
+            import gc
+            import mlx.core as mx
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
         _events = list(self._pipeline_events)
         _events.append({
             "event": "denoise_config", "target": f"ltx_{mode}",
@@ -398,7 +414,7 @@ class LTXVideoPipeline:
         stg_scale: float = 1.0,
         begin_strength: float = 1.0,
         end_strength: float = 1.0,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate FLF2V video (First-Last Frame to Video / 首尾帧视频生成).
 
         Uses the KeyframeInterpolationPipeline from the vendor with
@@ -607,7 +623,7 @@ class LTXVideoPipeline:
         })
         return {"generate_seconds": time.time() - t0, "events": _events}
 
-    def _build_flf2v_pipeline(self):
+    def _build_flf2v_pipeline(self) -> Any:
         """Build a KeyframeInterpolationPipeline for FLF2V mode."""
         from ltx_pipelines_mlx.keyframe_interpolation import KeyframeInterpolationPipeline
 
@@ -660,7 +676,7 @@ class LTXVideoPipeline:
             "seconds": None,
         })
 
-    def _build_pipeline(self, mode: str):
+    def _build_pipeline(self, mode: str) -> Any:
         t0 = time.time()
         # --temporal-upscale relies on the _TemporalUpscaleMixin (applied below for
         # the hq + standard t2v_i2v branches only). DistilledPipeline and

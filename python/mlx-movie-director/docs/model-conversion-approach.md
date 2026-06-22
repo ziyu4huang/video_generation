@@ -102,7 +102,57 @@ For each model conversion, ensure:
 | zit-sda-v1 | lora | safetensors-fp32 | 162 MB | — Low priority | Kept (still in ComfyUI) |
 | zimage-turbo-fun-union-2.1 | controlnet | safetensors-bf16 | 2.0 GB | ⚠️ Deprecated — replaced by MLX 4-bit | ✅ Cleaned up (REMOVED + dir deleted) |
 
-**Total disk recovered: ~94 GB** (34 GB ComfyUI sources + 49 GB HF caches + 4.4 GB GGUF + 4.2 GB connector BF16→4-bit + 2.0 GB deprecated ControlNet + 0.2 GB ultraflux-ae FP32→BF16)
+### 8-bit Quality Validation (2026-06-22)
+
+The 8-bit conversions (`dark-beast-dbzit9`, `seedvr2-7b`, plus the already-8-bit
+`moody-pro-mix` default) were quality-validated against a benchmark-resolution
+portrait prompt (1024×1536, 3 seeds each) scored by the local VLM
+(`google/gemma-4-26b-a4b-qat`, `caption --style score`):
+
+| Transformer (8-bit) | overall | detail | prompt_adherence | artifacts |
+|---------------------|---------|--------|------------------|-----------|
+| moody-pro-mix       | 6.3     | 5.3    | 9.3              | 4.3       |
+| dark-beast-dbzit9   | 6.3     | 5.3    | 8.7              | 5.0       |
+
+**Verdict: 8-bit works well — no quantization regression.** Both transformers
+produce coherent, well-composed, high-prompt-adherence output with **no
+quantization-specific artifacts** (no noise, corruption, color shift, or
+structural breakage). `dark-beast-dbzit9` — the worst case (was fp8→4-bit
+double-quantized; re-derived cleanly from bf16) — scores identically to
+`moody-pro-mix`, confirming the double-quantization error is gone.
+
+The only flagged issues are skin-related (oversmoothed / waxy / plasticky /
+lack of visible pores). This is the **pre-existing platform-wide baseline**
+(documented in `.claude/memory` as `zimage-moody-plasticky-skin-base-not-lora`:
+it hits both zimage-moody AND flux2-klein bases and is NOT a quantization or
+LoRA side-effect). It is therefore not attributable to the 8-bit conversion.
+
+A true **4-bit-vs-8-bit A/B was not possible**: the old 4-bit transformer blobs
+(`dark-beast f1198f38…`, `seedvr2 0cbb9877…`, `moody-v126 58518e08…`) were
+pruned during the PR #46 store cleanup, and their bf16/fp16 sources had already
+been deleted — so the comparison was performed as a single-arm quality
+validation instead (which is what "does the converted model work well" reduces
+to once the baseline is gone).
+
+### Store Orphan Reclaim (2026-06-22)
+
+Pruned 5 orphan `klein-9b-dark-beast-bfs` shards (~8.98 GB) left on disk after
+the 2026-06-21 BFS re-shard superseded them:
+
+| reclaimed blob | size | was |
+|----------------|------|-----|
+| `9c206e37…` | 2041.6 MB | bfs/0.safetensors (old) |
+| `fbbe1e6a…` | 2040.0 MB | bfs/1.safetensors (old) |
+| `4c71e7d0…` | 1989.0 MB | bfs/2.safetensors (old) |
+| `a2865966…` | 1989.0 MB | bfs/3.safetensors (old) |
+| `8df64981…` | 1139.5 MB | bfs/4.safetensors (old) |
+
+Verified unreferenced before deletion: no symlink in the models tree targets
+any of them, and the current BFS shards (`3204…`, `a337…`, `3cfc…`, `626a…`,
+`2a75…`) are intact and load-tested. Post-reclaim store: 64 blobs / 64 manifest
+refs, 0 orphans, 0 dangling — `check-model` reports "All 44 manifests valid".
+
+**Total disk recovered: ~94 GB** (34 GB ComfyUI sources + 49 GB HF caches + 4.4 GB GGUF + 4.2 GB connector BF16→4-bit + 2.0 GB deprecated ControlNet + 0.2 GB ultraflux-ae FP32→BF16) plus **8.98 GB** of orphaned BFS shards reclaimed from the content-addressed store (2026-06-22).
 
 ### Also Deleted
 

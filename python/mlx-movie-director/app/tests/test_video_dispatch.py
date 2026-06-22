@@ -121,27 +121,24 @@ class TestReplayRun:
         replay_mod.run(type("Args", (), {"file": str(run_json)})())
         assert len(executed) == 1
 
-    def test_replay_missing_file(self, tmp_path, capsys):
+    def test_replay_missing_file(self, tmp_path):
+        # replay.run raises FileNotFoundError (not sys.exit) so library callers
+        # (GUI job runner, tests) survive; run.py's boundary converts it to a
+        # clean CLI exit. The message lives on the exception, not stderr.
         import app.commands.replay as replay_mod
-        with pytest.raises(SystemExit):
+        with pytest.raises(FileNotFoundError, match="not found"):
             replay_mod.run(type("Args", (), {"file": str(tmp_path / "missing.json")})())
-        err = capsys.readouterr().err
-        assert "not found" in err
 
-    def test_replay_bad_json(self, tmp_path, capsys):
+    def test_replay_bad_json(self, tmp_path):
         run_json = tmp_path / "bad.run.json"
         run_json.write_text("not json")
         import app.commands.replay as replay_mod
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="loading run config"):
             replay_mod.run(type("Args", (), {"file": str(run_json)})())
-        err = capsys.readouterr().err
-        assert "loading run config" in err
 
-    def test_replay_unsupported_command(self, tmp_path, capsys):
+    def test_replay_unsupported_command(self, tmp_path):
         run_json = tmp_path / "test.run.json"
         run_json.write_text(self._valid_json(command="unknown_cmd"))
         import app.commands.replay as replay_mod
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="not supported"):
             replay_mod.run(type("Args", (), {"file": str(run_json)})())
-        err = capsys.readouterr().err
-        assert "not supported" in err

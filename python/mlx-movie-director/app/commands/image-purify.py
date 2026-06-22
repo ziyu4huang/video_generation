@@ -32,10 +32,12 @@ Examples:
   run.py image purify --input-image photo.png --purify-mode enhance --resolution 2x --film-grain 0.02 --sharpening 0.1
 """
 
+import argparse
 import json
 import os
 import subprocess
 import sys
+import time
 
 from app.commands._shared import _arg_registered, build_run_py_cmd, run_session, OutputPaths
 from app.manifest import collect_model_fingerprint_seedvr2
@@ -82,11 +84,20 @@ def add_purify_args(parser):
              f"redraw=softness {MODE_PRESETS['redraw']}",
     )
 
-    # Resolution (guard: image-expansion registers --resolution too)
+    # Resolution. NOTE: image.py registers add_t2i_args() BEFORE add_purify_args()
+    # on the same parser, and image-t2i.py registers --resolution (default=None)
+    # unguarded — so that registration wins and this block is skipped. The shared
+    # --resolution dest is owned by t2i; run_purify() applies `or "same"` so the
+    # purify effective default is still "same". default="same" below only applies
+    # if purify ever gets a standalone parser. The help text deliberately omits
+    # "(default: same)" because argparse introspection (run.py schema, GUI
+    # schema-defaults) reports default=None from the winning t2i registration.
     if not _arg_registered(parser, "resolution"):
         parser.add_argument(
             "--resolution", type=str, default="same",
-            help='Target resolution: "same" (no resize), pixels (e.g. 2160), or scale (e.g. 2x, 3x) (default: same)',
+            help='Target resolution: "same" (no resize), pixels (e.g. 2160), or scale (e.g. 2x, 3x). '
+                 'Defaults to "same" at runtime (run_purify applies `or "same"`); '
+                 'the shared dest is owned by t2i (default=None).',
         )
 
     # Softness override (unique to purify — no guard needed)
@@ -307,13 +318,38 @@ def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt,
           f"{out_w}x{out_h} denoise={denoise} mode={mode} transformer={transformer_name}")
 
     # Stream stdout live AND capture it (so we can parse JSON_SUMMARY afterwards).
+    # Guard against a hung/crashed child (OOM, stuck Metal compile, MLX graph
+    # hang) blocking forever: enforce a deadline via timed readline + kill.
+    _SUBPROC_TIMEOUT = 1800  # 30 min upper bound for one i2i redraw
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
     captured: list[str] = []
     assert proc.stdout is not None
-    for line in proc.stdout:
-        sys.stdout.write(line)
-        captured.append(line)
+    deadline = time.monotonic() + _SUBPROC_TIMEOUT
+    timed_out = False
+    while True:
+        line = proc.stdout.readline()
+        if line:
+            sys.stdout.write(line)
+            captured.append(line)
+            continue
+        # No data right now — check if the child has exited.
+        if proc.poll() is not None:
+            break
+        if time.monotonic() > deadline:
+            timed_out = True
+            break
+        time.sleep(0.1)
+    if timed_out:
+        proc.kill()
+        try:
+            proc.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            pass
+        raise RuntimeError(
+            f"transformer-backend i2i subprocess timed out after "
+            f"{_SUBPROC_TIMEOUT}s; killed child to unblock purify run"
+        )
     rc = proc.wait()
     if rc != 0:
         raise subprocess.CalledProcessError(rc, cmd)
@@ -480,7 +516,8 @@ def _run_self_test(args) -> None:
             failures.append(f"_parse_resolution({res!r})={got} != {want}")
 
     for name, default in [("backend", "seedvr2"), ("remove", "none"), ("transformer", "klein-9b")]:
-        val = getattr(args, name, None) or default
+        raw = getattr(args, name, None)
+        val = default if raw is None else raw
         print(f"  default {name}={val} OK")
 
     if failures:
@@ -490,7 +527,7 @@ def _run_self_test(args) -> None:
     sys.exit(0)
 
 
-def run_purify(args) -> None:
+def run_purify(args: argparse.Namespace) -> None:
     """Run SeedVR2 purification / redraw / upscale (writes a manifest per run)."""
     if getattr(args, "self_test", False):
         _run_self_test(args)

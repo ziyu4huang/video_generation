@@ -327,7 +327,7 @@ class LensPipeline:
         """
         from PIL import Image
 
-        steps = num_steps or self.num_steps
+        steps = self.num_steps if num_steps is None else num_steps
         cfg = cfg_scale if cfg_scale is not None else self.cfg_scale
 
         self._ensure_loaded()

@@ -391,7 +391,7 @@ class GpuLock:
 
     def __init__(self, skip: bool = False, force: bool = False,
                  poll_interval: int = 10, threshold: float = 0.5,
-                 max_wait: int = 3600):
+                 max_wait: int = 3600) -> None:
         self.skip = skip
         self.force = force
         self.poll_interval = poll_interval
@@ -399,7 +399,7 @@ class GpuLock:
         self.max_wait = max_wait
         self._lock_fd = None
 
-    def __enter__(self):
+    def __enter__(self) -> "GpuLock":
         if self.skip or self.force:
             return self
 
@@ -428,15 +428,18 @@ class GpuLock:
                 status = detect_gpu_busy(self.threshold)
                 _print_busy(status)
                 time.sleep(self.poll_interval)
-        except (Exception, KeyboardInterrupt, SystemExit):
+        except (GpuLockTimeout, KeyboardInterrupt, SystemExit):
             # __exit__ does NOT run if __enter__ raises, so close the lock fd
-            # here on ANY failure (unexpected error, or the GpuLockTimeout above)
-            # to avoid leaking it. The raise-based timeout contract (vs the old
-            # sys.exit, whose process death reclaimed fds) makes this leak
-            # persist in the surviving process, so explicit cleanup is required.
-            # Narrowed from BaseException to the explicit exit/abort classes so
-            # the intent (clean up fd, then re-raise) is clear; GeneratorExit
-            # alone (the remaining BaseException subclass) is not expected here.
+            # here on the intended failure modes (timeout raised above, or an
+            # explicit process exit/abort) to avoid leaking it. The raise-based
+            # timeout contract (vs the old sys.exit, whose process death
+            # reclaimed fds) makes this leak persist in the surviving process,
+            # so explicit cleanup is required. Genuine unexpected exceptions are
+            # intentionally NOT caught here — they propagate, and the process
+            # death (or __del__) reclaims the flock/fd. Narrowed from the broad
+            # Exception catch so the contract (clean up fd, then re-raise only
+            # the listed types) is explicit; GeneratorExit alone (the remaining
+            # BaseException subclass) is not expected here.
             if self._lock_fd is not None:
                 try:
                     self._lock_fd.close()
@@ -445,7 +448,7 @@ class GpuLock:
                 self._lock_fd = None
             raise
 
-    def __exit__(self, *_):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
         if self._lock_fd:
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)

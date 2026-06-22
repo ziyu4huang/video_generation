@@ -59,10 +59,10 @@ def test_selftest_lora_refs_resolve():
     unresolved: list[str] = []
     for name, cfg_ in _ALL_TESTS.items():
         for raw in _iter_lora_refs(cfg_):
-            # resolve_lora_path calls sys.exit(1) on failure — treat as unresolved.
+            # resolve_lora_path raises ValueError on failure — treat as unresolved.
             try:
                 resolved = resolve_lora_path(raw)
-            except SystemExit:
+            except ValueError:
                 resolved = None
             if not resolved:
                 unresolved.append(f"{name}: lora_path={raw!r}")

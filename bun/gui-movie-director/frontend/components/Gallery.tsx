@@ -4,6 +4,7 @@ import { GalleryCard } from "./GalleryCard";
 import { SkeletonCard } from "./Skeleton";
 import type { ViewMode } from "./GalleryCard";
 import { toast } from "../utils/toast";
+import { groupByTransformer } from "../utils/galleryGroup";
 
 const GRID_COLS: Record<ViewMode, string> = {
   s:    "repeat(auto-fill, minmax(80px, 1fr))",
@@ -22,9 +23,16 @@ interface GalleryProps {
   typeFilter?: GalleryTypeFilter;
   key?: number; // for refresh
   onDeleteImage?: (img: GalleryImage) => void;
+  compareMode?: boolean;
+  onCompareModeChange?: (v: boolean) => void;
+  selectedNames?: Set<string>;
+  onToggleCompare?: (img: GalleryImage) => void;
+  onStartCompare?: () => void;
+  selectedCount?: number;
+  onCompareLatest?: (pair: GalleryImage[]) => void;
 }
 
-export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage }: GalleryProps) {
+export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage, compareMode, onCompareModeChange, selectedNames, onToggleCompare, onStartCompare, selectedCount = 0, onCompareLatest }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -32,6 +40,13 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => (localStorage.getItem("gallery-view-mode") as ViewMode) ?? "m"
+  );
+  // Group cards by normalized transformer base (4-bit vs 8-bit A/B pairs cluster
+  // together). Default OFF — pure render-time transform, the `images` array
+  // (newest-first) is never mutated, so ⚡ latest-2, keyboard nav, infinite scroll
+  // and the default chronological grid are all unaffected.
+  const [groupByTransform, setGroupByTransform] = useState<boolean>(
+    () => localStorage.getItem("gallery-group-by-transformer") === "1"
   );
   const PAGE_SIZE = 100;
   const gridRef = useRef<HTMLDivElement>(null);
@@ -41,6 +56,14 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
   const handleViewMode = (m: ViewMode) => {
     setViewMode(m);
     localStorage.setItem("gallery-view-mode", m);
+  };
+
+  const handleToggleGroup = () => {
+    setGroupByTransform((prev) => {
+      const next = !prev;
+      localStorage.setItem("gallery-group-by-transformer", next ? "1" : "0");
+      return next;
+    });
   };
 
   const highlightSet = highlight ? new Set(highlight) : null;
@@ -151,6 +174,36 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
     );
   }
 
+  // Shared card renderer — used by both the flat grid and each grouped section,
+  // so grouped + ungrouped rendering can never drift apart.
+  const renderCard = (img: GalleryImage) => (
+    <GalleryCard
+      key={img.name}
+      img={img}
+      onClick={() => onImageClick(img)}
+      highlighted={highlightSet?.has(img.name) ?? false}
+      viewMode={viewMode}
+      onDelete={onDeleteImage}
+      onVariantClick={onImageClick}
+      compareMode={compareMode}
+      selected={selectedNames?.has(img.name) ?? false}
+      onToggleCompare={onToggleCompare}
+    />
+  );
+
+  const gridStyle: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: GRID_COLS[viewMode],
+    gap: viewMode === "list" ? 2 : 16,
+  };
+
+  // Only group when at least one loaded image carries a transformer — avoids a
+  // lone "(no model)" header on upload-only / orphan-only views.
+  const hasAnyTransformer = images.some((i) => i.run?.transformer);
+  const groups = groupByTransform && hasAnyTransformer
+    ? groupByTransformer(images)
+    : null;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -159,7 +212,7 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
             ? `${total} result${total !== 1 ? "s" : ""}`
             : `Gallery (${total} images)`}
         </h2>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {(["s", "m", "l", "list"] as ViewMode[]).map((m) => (
             <button
               key={m}
@@ -170,24 +223,113 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
               {m === "list" ? "≡" : m.toUpperCase()}
             </button>
           ))}
+          {onCompareModeChange && (
+            <button
+              className={`btn btn-sm${compareMode ? " active" : ""}`}
+              onClick={() => onCompareModeChange(!compareMode)}
+              style={{ minWidth: 32, marginLeft: 6 }}
+              title="Compare two images side by side"
+              aria-label="Toggle compare mode"
+            >⚖</button>
+          )}
+          {onCompareLatest && (
+            <button
+              className="btn btn-sm"
+              disabled={images.length < 2}
+              onClick={() => onCompareLatest(images.slice(0, 2))}
+              style={{ minWidth: 32, marginLeft: 4 }}
+              title="Compare the two most recent images"
+              aria-label="Compare latest two images"
+            >⚡</button>
+          )}
+          <button
+            className={`btn btn-sm${groupByTransform ? " active" : ""}`}
+            onClick={handleToggleGroup}
+            style={{ minWidth: 32, marginLeft: 4 }}
+            title="Group cards by transformer (clusters 4-bit/8-bit A/B pairs together)"
+            aria-label="Toggle group by transformer"
+            aria-pressed={groupByTransform}
+          >▦</button>
         </div>
       </div>
-      <div
-        className="gallery-grid"
-        style={{ display: "grid", gridTemplateColumns: GRID_COLS[viewMode], gap: viewMode === "list" ? 2 : 16 }}
-        ref={gridRef}
-      >
-        {images.map((img) => (
-          <GalleryCard
-            key={img.name}
-            img={img}
-            onClick={() => onImageClick(img)}
-            highlighted={highlightSet?.has(img.name) ?? false}
-            viewMode={viewMode}
-            onDelete={onDeleteImage}
-            onVariantClick={onImageClick}
-          />
-        ))}
+      {compareMode && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 5,
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "8px 12px", marginBottom: 12,
+          background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)",
+        }}>
+          <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+            Compare mode — pick 2 images ({selectedCount}/2)
+          </span>
+          <button
+            className="btn btn-sm"
+            disabled={selectedCount !== 2}
+            onClick={() => onStartCompare?.()}
+            style={{ marginLeft: "auto" }}
+          >
+            Compare →
+          </button>
+        </div>
+      )}
+      <div ref={gridRef}>
+        {groups ? (
+          groups.map((group) => (
+            <section key={group.key} style={{ marginBottom: 28 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  marginBottom: 10,
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderLeft: "3px solid var(--accent)",
+                  borderRadius: "var(--radius)",
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 4,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: group.isNoModel ? "var(--text-dim)" : "var(--text)",
+                  }}
+                >
+                  {group.label}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    background: "var(--bg)",
+                    padding: "1px 7px",
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                  }}
+                  title={`${group.items.length} image${group.items.length !== 1 ? "s" : ""} in this group (of the loaded set — scroll to load more)`}
+                >
+                  {group.items.length}
+                </span>
+                {group.isNoModel && (
+                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                    — no run.json (uploads / orphan outputs)
+                  </span>
+                )}
+              </div>
+              <div className="gallery-grid" style={gridStyle}>
+                {group.items.map(renderCard)}
+              </div>
+            </section>
+          ))
+        ) : (
+          <div className="gallery-grid" style={gridStyle}>
+            {images.map(renderCard)}
+          </div>
+        )}
       </div>
 
       {/* Infinite scroll sentinel + fallback Load More button */}

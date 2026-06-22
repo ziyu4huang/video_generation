@@ -32,33 +32,30 @@ class TestFindSafetensorsInDir:
         result = _find_safetensors_in_dir(str(tmp_path))
         assert result == str(p)
 
-    def test_no_file_exits(self, tmp_path):
-        with pytest.raises(SystemExit) as exc:
+    def test_no_file_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="no .safetensors file"):
             _find_safetensors_in_dir(str(tmp_path))
-        assert exc.value.code == 1
 
-    def test_multiple_files_exits(self, tmp_path):
+    def test_multiple_files_raises(self, tmp_path):
         (tmp_path / "a.safetensors").write_bytes(b"a")
         (tmp_path / "b.safetensors").write_bytes(b"b")
-        with pytest.raises(SystemExit) as exc:
+        with pytest.raises(ValueError, match="multiple"):
             _find_safetensors_in_dir(str(tmp_path))
-        assert exc.value.code == 1
 
-    def test_no_file_stderr_message(self, tmp_path, capsys):
-        with pytest.raises(SystemExit):
+    def test_no_file_error_message(self, tmp_path):
+        with pytest.raises(ValueError) as exc:
             _find_safetensors_in_dir(str(tmp_path))
-        err = capsys.readouterr().err
-        assert "no .safetensors file" in err
+        assert "no .safetensors file" in str(exc.value)
 
-    def test_multiple_files_stderr_message(self, tmp_path, capsys):
+    def test_multiple_files_error_message(self, tmp_path):
         (tmp_path / "a.safetensors").write_bytes(b"a")
         (tmp_path / "b.safetensors").write_bytes(b"b")
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError) as exc:
             _find_safetensors_in_dir(str(tmp_path))
-        err = capsys.readouterr().err
-        assert "multiple" in err
-        assert "a.safetensors" in err
-        assert "b.safetensors" in err
+        msg = str(exc.value)
+        assert "multiple" in msg
+        assert "a.safetensors" in msg
+        assert "b.safetensors" in msg
 
     def test_extension_filtered(self, tmp_path):
         """Only .safetensors files are counted."""
@@ -112,25 +109,24 @@ class TestResolveLoraPath:
         assert result is not None
         assert "klein-slider-anatomy" in result
 
-    def test_ambiguous_name_exits(self, monkeypatch, tmp_path):
-        """If multiple dirs start with the prefix, exit with error."""
+    def test_ambiguous_name_raises(self, monkeypatch, tmp_path):
+        """If multiple dirs start with the prefix, raise ValueError."""
         monkeypatch.setattr(cfg, "MODELS_DIR", str(tmp_path))
         lora_base = tmp_path / "lora"
         lora_base.mkdir(parents=True)
         (lora_base / "klein-a").mkdir()
         (lora_base / "klein-b").mkdir()
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="ambiguous LoRA name"):
             resolve_lora_path("klein")
 
-    def test_unresolvable_name_exits(self, monkeypatch, tmp_path, capsys):
-        """No match anywhere → exit."""
+    def test_unresolvable_name_raises(self, monkeypatch, tmp_path):
+        """No match anywhere → raise ValueError."""
         monkeypatch.setattr(cfg, "MODELS_DIR", str(tmp_path))
         lora_base = tmp_path / "lora"
         lora_base.mkdir(parents=True)
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError) as exc:
             resolve_lora_path("nonexistent-lora")
-        err = capsys.readouterr().err
-        assert "cannot resolve LoRA" in err
+        assert "cannot resolve LoRA" in str(exc.value)
 
     def test_exact_short_name_returns_path(self, monkeypatch, tmp_path):
         """Exact short name match (no partial prefix) returns the path directly."""
@@ -143,10 +139,10 @@ class TestResolveLoraPath:
         assert result == str(f)
 
     def test_directory_path_uses_find_safetensors(self, tmp_path):
-        """If raw is a dir without .safetensors, should exit."""
+        """If raw is a dir without .safetensors, should raise ValueError."""
         empty_dir = tmp_path / "empty-lora"
         empty_dir.mkdir()
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError):
             resolve_lora_path(str(empty_dir))
 
     def test_non_safetensors_file_ignored(self, tmp_path):
@@ -189,21 +185,20 @@ class TestResolveVaePath:
         result = resolve_vae_path("ultra")
         assert result == str(vae_base / "ultraflux-vae")
 
-    def test_ambiguous_name_exits(self, monkeypatch, tmp_path):
+    def test_ambiguous_name_raises(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cfg, "MODELS_DIR", str(tmp_path))
         vae_base = tmp_path / "vae"
         vae_base.mkdir(parents=True)
         (vae_base / "flux-a").mkdir()
         (vae_base / "flux-b").mkdir()
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError, match="ambiguous VAE name"):
             resolve_vae_path("flux")
 
-    def test_unresolvable_exits(self, monkeypatch, tmp_path, capsys):
+    def test_unresolvable_raises(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cfg, "MODELS_DIR", str(tmp_path))
-        with pytest.raises(SystemExit):
+        with pytest.raises(ValueError) as exc:
             resolve_vae_path("nonexistent")
-        err = capsys.readouterr().err
-        assert "cannot resolve VAE" in err
+        assert "cannot resolve VAE" in str(exc.value)
 
     def test_exact_short_name_returns_path(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cfg, "MODELS_DIR", str(tmp_path))

@@ -13,12 +13,14 @@ Usage:
   run.py video t2i2v --prompt "a woman" --action "她跳舞" --transformer dasiwa --frames 49
 """
 
+import argparse
 import glob
 import json
 import os
 import subprocess
 import sys
 import time
+from typing import Any
 
 from app.commands._shared import build_run_py_cmd
 from app import config as cfg
@@ -124,11 +126,10 @@ PARSER_META = {
 }
 
 
-def add_t2i2v_args(parser):
+def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
     # NOTE: --self-test is defined in add_generate_args (video-generate.py) and
     # shared here via the common parser in video.py. Do NOT add it again here.
     # In t2i2v context it selects from T2I2V_SELF_TESTS (not VIDEO_TEST_PROMPTS).
-
     # --- T2I stage ---
     parser.add_argument("--t2i-transformer", type=str, default="moody-pro-mix",
                         metavar="NAME",
@@ -189,7 +190,7 @@ def add_t2i2v_args(parser):
                              "video but no quality_report.json (requires LM Studio)")
 
 
-def _print_run_table(rows: list, col_run: int = 28) -> None:
+def _print_run_table(rows: list[dict[str, Any]], col_run: int = 28) -> None:
     """Print the t2i2v quality comparison table."""
     print(f"  {'Run':<{col_run}} Verdict   Overall  Artifacts  Coherence  Sharp(sig)  Flicker  "
           f"i2v-xfmr  Frames  Seed  Audio  VLM-ok  Static")
@@ -223,7 +224,7 @@ def _print_run_table(rows: list, col_run: int = 28) -> None:
         )
 
 
-def _review_t2i2v_runs(args) -> None:
+def _review_t2i2v_runs(args: argparse.Namespace) -> None:
     """Scan past t2i2v_* output dirs and print a quality comparison table."""
     scan_dir = getattr(args, "review_dir", None) or cfg.OUTPUT_DIR
     run_dirs = sorted(glob.glob(os.path.join(scan_dir, "t2i2v_*")))
@@ -504,7 +505,7 @@ def _run_audio_asr_gate(video_path: str, prompt: str) -> dict:
     }
 
 
-def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict:
+def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, out_dir: str) -> dict[str, Any]:
     """Stage 4: VLM multi-frame scoring + signal metrics on the generated video."""
     print(f"\n[t2i2v] ── Stage 4: Quality Check ──")
     threshold = getattr(args, "quality_threshold", 5.5)
@@ -689,7 +690,7 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
     return report
 
 
-def run_t2i2v(args):
+def run_t2i2v(args: argparse.Namespace) -> None:
     if getattr(args, "review_runs", False):
         _review_t2i2v_runs(args)
         return
@@ -704,8 +705,11 @@ def run_t2i2v(args):
         return
 
     # --- Resolve shared seed ---
-    base_seed = getattr(args, "seed", 99) or 99
-    t2i_seed = getattr(args, "t2i_seed", None) or base_seed
+    # Use explicit None-checks (never `or`) so a legitimate seed of 0 is honored.
+    _s = getattr(args, "seed", None)
+    base_seed = 99 if _s is None else int(_s)
+    _t = getattr(args, "t2i_seed", None)
+    t2i_seed = base_seed if _t is None else int(_t)
     video_seed = base_seed
 
     # --- Create dedicated output subfolder ---
@@ -854,13 +858,13 @@ def run_t2i2v(args):
     # =========================================================
     print(f"\n[t2i2v] ── Stage 3/3: I2V (LTX-2.3) ──")
 
-    # Resolve LTX transformer: use --transformer if explicitly passed, else dev.
-    # dev is the default for t2i2v: produces correct zh audio + higher signal
-    # sharpness (279 vs 165). dasiwa/distilled both generate Japanese-sounding
-    # audio for zh-TW prompts (Whisper detects 'ja') due to finetuning side-effects.
-    ltx_transformer = getattr(args, "transformer", None) or "dev"
-    frames = getattr(args, "frames", 97) or 97
-    fps = getattr(args, "fps", 24) or 24
+    # Resolve LTX transformer: use --transformer if explicitly passed, else dasiwa.
+    # dasiwa produces better visual quality; use --dev-audio to fix zh speech audio.
+    ltx_transformer = getattr(args, "transformer", None) or "dasiwa"
+    _f = getattr(args, "frames", None)
+    frames = 97 if _f is None else int(_f)
+    _fp = getattr(args, "fps", None)
+    fps = 24.0 if _fp is None else float(_fp)
     cfg_scale = getattr(args, "cfg_scale", None)
     stg_scale = getattr(args, "stg_scale", None)
     stage1_steps = getattr(args, "stage1_steps", None)

@@ -21,7 +21,7 @@ from app.seedvr2.latent_creator import SeedVR2LatentCreator
 from app.seedvr2 import upscaler as sv2_util
 
 
-def _quantize_predicate(path: str, module) -> bool:
+def _quantize_predicate(path: str, module: nn.Module) -> bool:
     """Skip quantization for Conv layers and small Linear layers (last dim not divisible by 64)."""
     if isinstance(module, (nn.Conv2d, nn.Conv3d)):
         return False
@@ -213,12 +213,26 @@ class SeedVR2Upscaler:
         Args:
             image: Input PIL image (RGB).
             resolution: Target shortest-side pixels (e.g. 2160) or scale factor (e.g. 2.0, 3.0).
+                Contract: an ``int`` (or a ``float`` >= 100) is treated as a target
+                shortest-side pixel count; a ``float`` < 100 is treated as a scale
+                factor. This mirrors ``_shared._apply_upscale`` which parses
+                ``"2160"`` -> int (pixels) vs ``"2x"`` -> float (scale).
             softness: Input pre-downsampling factor 0.0-1.0 (0 = none, 0.5 = moderate).
             seed: Random seed for reproducibility.
 
         Returns:
             Upscaled PIL image.
         """
+        # Contract enforcement for the int|float union: an int (or float >= 100)
+        # is a target shortest-side pixel count; a float < 100 is a scale factor.
+        # Without this guard a float pixel-count like 2160.0 from a JSON config
+        # would be silently misread as a 2160x scale factor by preprocess_image.
+        if isinstance(resolution, float) and not resolution.is_integer() and resolution >= 100:
+            raise ValueError(
+                f"resolution={resolution} is ambiguous: a float >= 100 is "
+                f"treated as a pixel count but looks like a scale factor. "
+                f"Pass an int for pixels (e.g. 2160) or a float < 100 for scale."
+            )
         self._load_models()
         total_start = time.time()
 
@@ -228,108 +242,127 @@ class SeedVR2Upscaler:
             image, resolution, softness,
         )
 
-        # 2. VAE encode
-        t0 = time.time()
-        print("[SeedVR2] VAE encoding...")
-        initial_latent = self.vae.encode(processed_image)
-        mx.eval(initial_latent)
-        vae_encode_t = time.time() - t0
-        print(f"[SeedVR2] VAE encode done ({vae_encode_t:.1f}s) → latent {list(initial_latent.shape)}")
+        # Wrap the heavy Metal-allocation body (VAE encode → denoise → decode →
+        # PIL conversion, ~8-17GB resident) in a RuntimeError/MemoryError guard
+        # mirroring app/pipeline.py:645-667. On MLX OOM (RuntimeError from Metal
+        # allocation on Apple Silicon) this flushes the compiled-graph / weight
+        # caches and forces a GC pass so the frame's tensors are released before
+        # the next run, rather than staying resident behind a stale graph.
+        try:
+            # 2. VAE encode
+            t0 = time.time()
+            print("[SeedVR2] VAE encoding...")
+            initial_latent = self.vae.encode(processed_image)
+            mx.eval(initial_latent)
+            vae_encode_t = time.time() - t0
+            print(f"[SeedVR2] VAE encode done ({vae_encode_t:.1f}s) → latent {list(initial_latent.shape)}")
 
-        # 3. Create conditioning
-        static_condition = SeedVR2LatentCreator.create_condition(encoded_latent=initial_latent)
+            # 3. Create conditioning
+            static_condition = SeedVR2LatentCreator.create_condition(encoded_latent=initial_latent)
 
-        # 4. Create noise latents
-        h_lat = initial_latent.shape[3]
-        w_lat = initial_latent.shape[4]
-        latents = SeedVR2LatentCreator.create_noise_latents(
-            seed=seed, height=h_lat, width=w_lat,
-        )
+            # 4. Create noise latents
+            h_lat = initial_latent.shape[3]
+            w_lat = initial_latent.shape[4]
+            latents = SeedVR2LatentCreator.create_noise_latents(
+                seed=seed, height=h_lat, width=w_lat,
+            )
 
-        # 5. Denoise (1 step — SeedVR2 is designed for single-step)
-        t0 = time.time()
-        print("[SeedVR2] Denoising (1 step)...")
-        model_input = mx.concatenate([latents, static_condition], axis=1)
+            # 5. Denoise (1 step — SeedVR2 is designed for single-step)
+            t0 = time.time()
+            print("[SeedVR2] Denoising (1 step)...")
+            model_input = mx.concatenate([latents, static_condition], axis=1)
 
-        # Raw timestep from SeedVR2EulerScheduler (num_train_timesteps=1000, 1 inference step)
-        # The transformer's TimeEmbedding expects raw values 0–1000, not normalized 0–1.
-        timestep = mx.array(1000.0)
+            # Raw timestep from SeedVR2EulerScheduler (num_train_timesteps=1000, 1 inference step)
+            # The transformer's TimeEmbedding expects raw values 0–1000, not normalized 0–1.
+            timestep = mx.array(1000.0)
 
-        noise_pred = self.transformer(
-            vid=model_input,
-            txt=self.txt_pos,
-            timestep=timestep,
-        )
+            noise_pred = self.transformer(
+                vid=model_input,
+                txt=self.txt_pos,
+                timestep=timestep,
+            )
 
-        # Euler step matching mflux SeedVR2EulerScheduler
-        # For 1 step: t=1000, s=0 → pred_x_0 = latents - noise_pred
-        T = 1000.0
-        t_norm = 1000.0 / T  # 1.0
-        s_norm = 0.0 / T     # 0.0
-        pred_x_0 = latents - t_norm * noise_pred
-        # s == 0, so next_sample = pred_x_0 directly
-        latents = pred_x_0
-        mx.eval(latents)
-        denoise_t = time.time() - t0
-        print(f"[SeedVR2] Denoising done ({denoise_t:.1f}s)")
+            # Euler step matching mflux SeedVR2EulerScheduler
+            # For 1 step: t=1000, s=0 → pred_x_0 = latents - noise_pred
+            T = 1000.0
+            t_norm = 1000.0 / T  # 1.0
+            s_norm = 0.0 / T     # 0.0
+            pred_x_0 = latents - t_norm * noise_pred
+            # s == 0, so next_sample = pred_x_0 directly
+            latents = pred_x_0
+            mx.eval(latents)
+            denoise_t = time.time() - t0
+            print(f"[SeedVR2] Denoising done ({denoise_t:.1f}s)")
 
-        # Free transformer memory before VAE decode
-        del model_input, static_condition, noise_pred
-        mx.clear_cache()
-        gc.collect()
+            # Free transformer memory before VAE decode
+            del model_input, static_condition, noise_pred
+            mx.clear_cache()
+            gc.collect()
 
-        # 6. VAE decode
-        t0 = time.time()
-        print("[SeedVR2] VAE decoding...")
-        decoded = self.vae.decode(latents)
-        mx.eval(decoded)
-        del latents
-        mx.clear_cache()
-        gc.collect()
-        vae_decode_t = time.time() - t0
-        print(f"[SeedVR2] VAE decode done ({vae_decode_t:.1f}s)")
+            # 6. VAE decode
+            t0 = time.time()
+            print("[SeedVR2] VAE decoding...")
+            decoded = self.vae.decode(latents)
+            mx.eval(decoded)
+            del latents
+            mx.clear_cache()
+            gc.collect()
+            vae_decode_t = time.time() - t0
+            print(f"[SeedVR2] VAE decode done ({vae_decode_t:.1f}s)")
 
-        # 7. Crop to true dimensions and squeeze temporal dim
-        decoded = decoded[:, :, :, :true_height, :true_width]
-        # Squeeze temporal dim: (B, C, 1, H, W) → (B, C, H, W)
-        decoded = decoded[:, :, 0, :, :]
+            # 7. Crop to true dimensions and squeeze temporal dim
+            decoded = decoded[:, :, :, :true_height, :true_width]
+            # Squeeze temporal dim: (B, C, 1, H, W) → (B, C, H, W)
+            decoded = decoded[:, :, 0, :, :]
 
-        # 8. Color correction — match decoded colors to original preprocessed input
-        print("[SeedVR2] Color correction...")
-        style = processed_image[:, :, :true_height, :true_width]
-        decoded = sv2_util.apply_color_correction(decoded, style)
+            # 8. Color correction — match decoded colors to original preprocessed input
+            print("[SeedVR2] Color correction...")
+            style = processed_image[:, :, :true_height, :true_width]
+            decoded = sv2_util.apply_color_correction(decoded, style)
 
-        # 9. Convert to PIL
-        img = decoded[0]  # (C, H, W)
-        img = mx.transpose(img, (1, 2, 0))  # (H, W, C)
-        img = (img.astype(mx.float32) + 1.0) / 2.0
-        # The 4-bit SeedVR2 transformer can overflow a few pixels to NaN/inf in
-        # the VAE-decoded tensor. mx.clip() does NOT neutralize NaN (every
-        # comparison with NaN is False), so the original clip silently passed
-        # NaN into the uint8 cast -> RuntimeWarning + black specks. Sanitize in
-        # numpy instead and report the bad-pixel ratio so the overflow rate is
-        # observable across runs.
-        img_np = np.array(img)
-        bad = int(np.isnan(img_np).sum() + np.isinf(img_np).sum())
-        if bad:
-            print(f"[SeedVR2] WARNING: {bad}/{img_np.size} pixels NaN/inf "
-                  f"(4-bit VAE overflow) — sanitized to 0/1")
-            # Record the overflow in the runtime trace so the rate is observable
-            # across runs in Manifest.events (not just ephemeral stdout).
-            self.events.append({
-                "event": "vae_overflow", "target": "vae_decode",
-                "detail": {"nan_inf_pixels": bad, "total_pixels": int(img_np.size),
-                           "ratio": bad / img_np.size},
-                "seconds": None,
-            })
-        img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
-        img_np = np.clip(img_np, 0.0, 1.0)
-        img_np = (img_np * 255.0).round().astype("uint8")
-        pil_image = Image.fromarray(img_np)
+            # 9. Convert to PIL
+            img = decoded[0]  # (C, H, W)
+            img = mx.transpose(img, (1, 2, 0))  # (H, W, C)
+            img = (img.astype(mx.float32) + 1.0) / 2.0
+            # The 4-bit SeedVR2 transformer can overflow a few pixels to NaN/inf in
+            # the VAE-decoded tensor. mx.clip() does NOT neutralize NaN (every
+            # comparison with NaN is False), so the original clip silently passed
+            # NaN into the uint8 cast -> RuntimeWarning + black specks. Sanitize in
+            # numpy instead and report the bad-pixel ratio so the overflow rate is
+            # observable across runs.
+            img_np = np.array(img)
+            bad = int(np.isnan(img_np).sum() + np.isinf(img_np).sum())
+            if bad:
+                print(f"[SeedVR2] WARNING: {bad}/{img_np.size} pixels NaN/inf "
+                      f"(4-bit VAE overflow) — sanitized to 0/1")
+                # Record the overflow in the runtime trace so the rate is observable
+                # across runs in Manifest.events (not just ephemeral stdout).
+                self.events.append({
+                    "event": "vae_overflow", "target": "vae_decode",
+                    "detail": {"nan_inf_pixels": bad, "total_pixels": int(img_np.size),
+                               "ratio": bad / img_np.size},
+                    "seconds": None,
+                })
+            img_np = np.nan_to_num(img_np, nan=0.0, posinf=1.0, neginf=0.0)
+            img_np = np.clip(img_np, 0.0, 1.0)
+            img_np = (img_np * 255.0).round().astype("uint8")
+            pil_image = Image.fromarray(img_np)
 
-        del decoded, style, img, processed_image
-        mx.clear_cache()
-        gc.collect()
+            del decoded, style, img, processed_image
+            mx.clear_cache()
+            gc.collect()
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC
+            # pass so the frame's ~8-17GB transformer / VAE tensors are released
+            # before the next run, rather than staying resident behind a stale
+            # graph. The frame's local references are reclaimed when this frame
+            # tears down on re-raise; clearing the MX caches is the load-bearing
+            # step here. Parity with app/pipeline.py:645-667.
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
 
         total_elapsed = time.time() - total_start
         self.last_timings = {

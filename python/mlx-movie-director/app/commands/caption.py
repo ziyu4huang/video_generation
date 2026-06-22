@@ -1002,7 +1002,14 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
         else:
             raise first_err
 
-    content = data["choices"][0]["message"]["content"]
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as e:
+        raw_excerpt = json.dumps(data, ensure_ascii=False)[:500]
+        raise RuntimeError(
+            f"VLM response missing expected OpenAI chat-completion shape "
+            f"({type(e).__name__}: {e}); raw response excerpt: {raw_excerpt}"
+        ) from e
 
     # Strip Qwen3 <think/> reasoning blocks if present
     content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()

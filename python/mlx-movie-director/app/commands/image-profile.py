@@ -512,6 +512,16 @@ def run_profile(args):
     out_dir = os.path.join(cfg.OUTPUT_DIR, base_name)
     os.makedirs(out_dir, exist_ok=True)
 
+    # Normalize lora_scale for run.json: args.lora_scale is list-typed
+    # (action="append"); peel to scalar, default 1.0, and preserve an explicit
+    # 0.0 — the old `... or 1.0` falsy-coerced both None and 0.0 and recorded a
+    # list (e.g. [0.8]) instead of the scalar.
+    _lora_scale = getattr(args, "lora_scale", None)
+    if isinstance(_lora_scale, list):
+        _lora_scale = _lora_scale[0] if _lora_scale else 1.0
+    elif _lora_scale is None:
+        _lora_scale = 1.0
+
     # Write run.json
     run_meta = {
         "command": "image",
@@ -527,7 +537,7 @@ def run_profile(args):
         "height": height,
         "ratio": args.ratio,
         "lora_path": getattr(args, "lora_path", None),
-        "lora_scale": getattr(args, "lora_scale", None) or 1.0,
+        "lora_scale": _lora_scale,
         "strip_gap": args.strip_gap,
         "no_strip": args.no_strip,
         "flux2_model_path": getattr(args, "flux2_model_path", None),
