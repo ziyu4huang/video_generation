@@ -1,5 +1,22 @@
 # Dasiwa Hyperparameter Sweep: stage1_steps, teacache, audio knobs
 
+## Progress Checklist
+
+| Status | Item | Date |
+|--------|------|------|
+| [x] | Sweep script created (`scripts/sweep_dasiwa_params.sh`) | 2026-06-23 |
+| [x] | Analyzer script created (`scripts/analyze_dasiwa_sweep.py`) | 2026-06-23 |
+| [x] | `zh-speech-portrait` preset added to `test_prompts_video.py` | 2026-06-23 |
+| [x] | SFW prompt designed — white dress, zh-TW dialog, 49 frames minimum | 2026-06-23 |
+| [x] | Base image ready (`t2i2v_20260623_044947/output_20260623_045419_ltx_448x704.png`) | 2026-06-23 |
+| [x] | Smoke test: s1_8 PASS — lang=zh✓, content=73%, sharpness=863, SNR=26.6dB, VLM=9/10 | 2026-06-23 |
+| [ ] | Full 7-condition sweep run (`SEEDS="42 100 200"`) | — |
+| [ ] | Results Table filled (paste `analyze_dasiwa_sweep.py` output) | — |
+| [ ] | Outcome actions applied (update defaults, help text, READMEs) | — |
+| [x] | PR #67 merged | 2026-06-23 |
+
+---
+
 ## Background
 
 The current `run.py` default for `--transformer dasiwa` is `stage1_steps=16`, with this
