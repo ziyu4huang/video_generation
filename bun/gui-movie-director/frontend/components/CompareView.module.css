@@ -1,0 +1,172 @@
+/* === Compare View Overlay (mirrors ImagePreview.module.css conventions) === */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  display: flex;
+  flex-direction: column;
+  z-index: 110; /* above ImagePreview (100) — compare is a deliberate action */
+  cursor: pointer;
+}
+
+/* Top header: title + swap + close */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 5;
+}
+
+.headerTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright, #eee);
+  margin-right: auto;
+}
+
+.headerBtn {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: var(--text-dim, #999);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.headerBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-bright, #eee);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Two-pane surface with shared zoom/pan */
+.surface {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  overflow: hidden;
+  cursor: zoom-in;
+  user-select: none;
+  min-height: 0; /* allow flex child overflow clipping */
+}
+
+.zoomed {
+  cursor: grab;
+}
+
+.panning {
+  cursor: grabbing;
+}
+
+.pane {
+  flex: 1 1 50%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 24px 16px 44px;
+}
+
+.divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.14);
+  flex-shrink: 0;
+}
+
+.media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  transition: transform 0.1s ease;
+  pointer-events: auto;
+}
+
+.panning .media {
+  transition: none;
+}
+
+.paneLabel {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  background: rgba(0, 0, 0, 0.66);
+  color: var(--text-bright, #eee);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+/* Bottom zoom toolbar (mirrors ImagePreview zoomToolbar) */
+.toolbar {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 20px;
+  padding: 4px;
+  backdrop-filter: blur(8px);
+  z-index: 10;
+}
+
+.zoomBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim, #999);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.zoomBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-bright, #eee);
+}
+
+.zoomBtnActive {
+  background: var(--accent, #6c8aff);
+  color: #fff;
+}
+
+.zoomLabel {
+  color: var(--text-dim, #999);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 8px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.zoomDivider {
+  width: 1px;
+  height: 18px;
+  align-self: center;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}

@@ -22,9 +22,15 @@ interface GalleryProps {
   typeFilter?: GalleryTypeFilter;
   key?: number; // for refresh
   onDeleteImage?: (img: GalleryImage) => void;
+  compareMode?: boolean;
+  onCompareModeChange?: (v: boolean) => void;
+  selectedNames?: Set<string>;
+  onToggleCompare?: (img: GalleryImage) => void;
+  onStartCompare?: () => void;
+  selectedCount?: number;
 }
 
-export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage }: GalleryProps) {
+export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage, compareMode, onCompareModeChange, selectedNames, onToggleCompare, onStartCompare, selectedCount = 0 }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -159,7 +165,7 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
             ? `${total} result${total !== 1 ? "s" : ""}`
             : `Gallery (${total} images)`}
         </h2>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {(["s", "m", "l", "list"] as ViewMode[]).map((m) => (
             <button
               key={m}
@@ -170,8 +176,37 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
               {m === "list" ? "≡" : m.toUpperCase()}
             </button>
           ))}
+          {onCompareModeChange && (
+            <button
+              className={`btn btn-sm${compareMode ? " active" : ""}`}
+              onClick={() => onCompareModeChange(!compareMode)}
+              style={{ minWidth: 32, marginLeft: 6 }}
+              title="Compare two images side by side"
+              aria-label="Toggle compare mode"
+            >⚖</button>
+          )}
         </div>
       </div>
+      {compareMode && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 5,
+          display: "flex", alignItems: "center", gap: 12,
+          padding: "8px 12px", marginBottom: 12,
+          background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)",
+        }}>
+          <span style={{ fontSize: 13, color: "var(--text-dim)" }}>
+            Compare mode — pick 2 images ({selectedCount}/2)
+          </span>
+          <button
+            className="btn btn-sm"
+            disabled={selectedCount !== 2}
+            onClick={() => onStartCompare?.()}
+            style={{ marginLeft: "auto" }}
+          >
+            Compare →
+          </button>
+        </div>
+      )}
       <div
         className="gallery-grid"
         style={{ display: "grid", gridTemplateColumns: GRID_COLS[viewMode], gap: viewMode === "list" ? 2 : 16 }}
@@ -186,6 +221,9 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
             viewMode={viewMode}
             onDelete={onDeleteImage}
             onVariantClick={onImageClick}
+            compareMode={compareMode}
+            selected={selectedNames?.has(img.name) ?? false}
+            onToggleCompare={onToggleCompare}
           />
         ))}
       </div>

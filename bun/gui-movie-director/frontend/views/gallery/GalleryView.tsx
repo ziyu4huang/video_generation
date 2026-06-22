@@ -3,6 +3,7 @@ import { Gallery } from "../../components/Gallery";
 import { GallerySearchBar } from "../../components/GallerySearchBar";
 import type { GalleryTypeFilter } from "../../components/Gallery";
 import { ImagePreview } from "../../components/ImagePreview";
+import { CompareView } from "../../components/CompareView";
 import type { GalleryImage } from "../../types";
 import { toast } from "../../utils/toast";
 import { deleteGalleryItem, captionMissingGallery } from "../../api/gallery";
@@ -20,6 +21,11 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<GalleryTypeFilter>("all");
   const [captioning, setCaptioning] = useState(false);
+
+  // Compare-mode: pick up to 2 images, then open them side-by-side.
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSel, setCompareSel] = useState<GalleryImage[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const refreshTimer = useRef<number | null>(null);
   const highlightConsumedRef = useRef(false);
@@ -57,15 +63,30 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
 
   const handleClose = useCallback(() => setPreviewImage(null), []);
 
+  const handleToggleCompare = useCallback((img: GalleryImage) => {
+    setCompareSel((prev) => {
+      if (prev.some((p) => p.name === img.name)) {
+        return prev.filter((p) => p.name !== img.name);
+      }
+      if (prev.length >= 2) return [prev[1], img]; // keep the latest two
+      return [...prev, img];
+    });
+  }, []);
+
+  const handleStartCompare = useCallback(() => {
+    if (compareSel.length === 2) setCompareOpen(true);
+  }, [compareSel.length]);
+
   // Keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (!allImages.length) return;
-      if (e.key === "Escape" && previewImage) {
-        setPreviewImage(null);
+      if (e.key === "Escape") {
+        if (compareOpen) { setCompareOpen(false); return; }
+        if (previewImage) { setPreviewImage(null); return; }
+        if (compareMode) { setCompareMode(false); setCompareSel([]); return; }
         return;
       }
-      if (!previewImage) return;
+      if (!allImages.length || !previewImage) return;
       const idx = allImages.findIndex((img) => img.url === previewImage.url);
       if (e.key === "ArrowRight") {
         setPreviewImage(allImages[(idx + 1) % allImages.length]);
@@ -77,7 +98,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [allImages, previewImage]);
+  }, [allImages, previewImage, compareOpen, compareMode]);
 
   const handleDeleteImage = useCallback(async (img: GalleryImage) => {
     if (!confirm(`Delete ${img.name}?`)) return;
@@ -171,6 +192,12 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
         searchQuery={searchQuery}
         typeFilter={typeFilter}
         onDeleteImage={handleDeleteImage}
+        compareMode={compareMode}
+        onCompareModeChange={(v) => { setCompareMode(v); if (!v) setCompareSel([]); }}
+        selectedNames={new Set(compareSel.map((i) => i.name))}
+        onToggleCompare={handleToggleCompare}
+        onStartCompare={handleStartCompare}
+        selectedCount={compareSel.length}
       />
       {previewImage && (
         <ImagePreview
@@ -193,6 +220,13 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
           hasPrev={allImages.findIndex((img) => img.url === previewImage.url) > 0}
           hasNext={allImages.findIndex((img) => img.url === previewImage.url) < allImages.length - 1}
           onOpenImage={handleOpenImage}
+        />
+      )}
+      {compareOpen && compareSel.length === 2 && (
+        <CompareView
+          left={compareSel[0]}
+          right={compareSel[1]}
+          onClose={() => setCompareOpen(false)}
         />
       )}
     </>
