@@ -219,6 +219,69 @@ patches/comfyui/                      # DEPRECATED git patches (applied by the r
 
 See [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md) for lessons learned across sessions.
 
+## Dynamic Workflow Self-Improve — Execution SOP
+
+Verified procedure for the self-improve dynamic workflows (`mlx-movie-director-self-improve`
+for `python/mlx-movie-director/`, `gui-movie-director-self-improve` for `bun/gui-movie-director/`).
+These are multi-agent `Workflow` runs; the SOP keeps them reproducible and collision-safe across
+concurrent sessions. Every step below is verified against the live workflow code + iters 1–7.
+
+### 1. Branch + clean tree (before triggering)
+- Branch off `origin/main` only (`dev` is retired — never a shared working branch):
+  `git fetch origin && git switch -c mlx-selfimprove-iterN`.
+- **`fix:true` refuses a dirty tree.** The parent's Resolve phase runs a dirty-tree check (haiku
+  agent inspects `git status`); if any tracked file is modified/staged, `fix:true` is downgraded to
+  review-only to avoid colliding with concurrent WIP. Commit/stash first, then re-run.
+- The workflow `git stash`-checkpoints before applying fixes and selectively
+  `git checkout HEAD -- <file>`-restores on regression — so its git ops sweep `python/mlx-movie-director/`
+  (or `bun/...`). **Do not edit files in that subtree while a run is in progress** (the run's stash/commit
+  flow absorbs your WIP — `concurrent-session-sweeps-working-tree`).
+
+### 2. Trigger via `scriptPath` (never `{name}`)
+```js
+Workflow({ scriptPath: "<repo>/.claude/workflows/mlx-movie-director-self-improve.js" },
+          { effort: "medium", fix: true })
+```
+`Workflow({name})` serves a stale cached copy — always `{scriptPath}`. `effort`: `low` = routine
+scan (~20 min, review-only); `medium` = applies verified fixes (~40–90 min, needs clean tree);
+`high` = exhaustive. `fix:true` gates fixes behind adversarial verify + git-stash rollback +
+post-restore full pytest.
+
+### 3. Trust posture — verify before applying
+- **Lint lane** (pyflakes / check-model / self-test): deterministic, trustworthy.
+- **Review lane** (correctness / argparse-integrity / type-safety / error-handling / import-hygiene):
+  has false positives. A finding can have a real symptom but a misdiagnosed root cause, or a fully
+  fabricated runtime claim. **Trace the real code path before believing a behavior claim**; findings
+  that mis-state a language primitive (`__exit__` always runs, `finally` runs) are FP
+  (`mlx-self-improve-review-verify-before-applying`).
+- The report names the **actual** reverted files — but still spot-check `git diff --stat` against
+  the prose; a restore can be narrated wrong.
+
+### 4. Ship the run's fixes (the workflow does NOT commit)
+The workflow leaves verified fixes in the working tree (uncommitted). You commit + PR them:
+1. `git add -A && git commit` (English message; end with the `Co-Authored-By: Claude` line).
+2. `git push -u origin <branch>` then `gh pr create --base main --head <branch>`.
+3. **Before merge — collision check** (multi-session repo; `origin/main` keeps moving):
+   `git fetch origin && git rev-list --left-right --count origin/main...HEAD` (left=main-only,
+   right=branch-only) and `git log HEAD..origin/main --oneline`. Another session may have fixed the
+   same bug (2026-06-21: two sessions wrote byte-identical SeedVR2 NaN guards). If behind/colliding:
+   `git rebase origin/main` (auto-skips identical patches) → `git push --force-with-lease`
+   (**never** bare `--force`).
+4. `gh pr merge <n> --squash` — **do NOT add `--delete-branch`** (`main` is checked out in the
+   `video_generation__gui` worktree; `--delete-branch` fails the local step after the GitHub merge
+   succeeds). Delete manually: `git push origin --delete <branch>`.
+5. After merge, squash leaves `main` with a commit your branch lacks — realign:
+   `git fetch origin && git reset --hard origin/main`. **Verify with `git rev-parse --short HEAD
+   origin/main`** — don't trust the merge output alone (a race once left the pointer unmoved).
+
+### Known machinery limits (don't try to "fix" in-script)
+- **AGENT_CAP** (90/40/20 by effort) bounds total agent *spawns*, not a single agent looping
+  internally past `StructuredOutput` (the iter-4 ~48-min haiku hang). That false-progress loop is a
+  runtime-layer limit, not fixable from the workflow script — watch a run's live progress; one
+  ballooning agent is the signature.
+- **Operation-memory** (`<wf>.operation-lessons.jsonl`) injects curated fix/restore/report rules each
+  run — the workflow's behavior posture self-corrects across runs, independent of project-memory.
+
 ## Vendor patches (active)
 
 **Vendor patches** (ltx-2-mlx / mflux): live in `python/mlx-movie-director/app/vendor_patches.py`
