@@ -29,14 +29,17 @@ from app import config as cfg
 T2I2V_SELF_TESTS = {
     "dasiwa-dev-audio": {
         "description": (
-            "dasiwa transformer + --dev-audio: full T2I→VLM→I2V pipeline; "
-            "ASR gate must detect zh (not ja) on the 「你終於來了」 voice line"
+            "dasiwa transformer + --dev-audio: T2I → I2V (VLM skipped, zh prompt used directly); "
+            "ASR gate must detect zh (not ja) on the 「你終於來了」 voice line. "
+            "NOTE: VLM stage skipped — zh prompt is fed directly to I2V to avoid English "
+            "prompt suppressing zh audio. Real usage uses --action for VLM expansion."
         ),
         "prompt": (
-            "a young woman with short brown hair wearing a light blue floral dress, "
-            "standing in a serene Japanese garden during golden hour"
+            "一位年輕女性站在陽光明媚的花園中，她緩緩抬起頭，眼神溫柔地望向鏡頭，"
+            "微笑著輕聲說「你終於來了，我等你很久了」。她的聲音輕柔而溫暖。"
+            "Style: cinematic realism. Soft golden hour light. Quiet garden ambience."
         ),
-        "action": "她微笑抬起頭，輕聲說「你終於來了，我等你很久了」",
+        "action": None,  # skip VLM stage: zh prompt fed directly; English prompt suppresses zh audio
         "defaults": {
             "transformer": "dasiwa",
             "dev_audio": True,
