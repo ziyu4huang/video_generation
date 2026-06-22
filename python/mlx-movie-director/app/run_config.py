@@ -163,7 +163,16 @@ class RunConfig:
 
     @classmethod
     def from_args(cls, args: "argparse.Namespace", command: str = "generate") -> "RunConfig":
-        """Build a RunConfig from a parsed argparse Namespace, filling defaults."""
+        """Build a RunConfig from a parsed argparse Namespace, filling defaults.
+
+        The concrete defaults in the getattr calls below are a SECOND source of
+        truth and can drift from the argparse registrations in app/cli.py — they
+        MUST mirror those defaults. They are fallbacks for sub-Namespace shapes
+        where a flag is genuinely absent (not a sentinel None), so an explicit
+        ``--seed 0`` reaches here as 0 and is kept correctly. Never replace the
+        getattr default with ``... or <default>`` (that would turn ``--seed 0``
+        into the default and silently override an explicit value).
+        """
         from app.commands._shared import resolve_lora_path, resolve_vae_path
         rc = cls(
             schema_version=SCHEMA_VERSION,

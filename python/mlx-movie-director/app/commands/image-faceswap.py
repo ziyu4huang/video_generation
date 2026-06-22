@@ -328,10 +328,12 @@ def _score_with_vlm(image_path: str, label: str) -> dict[str, Any] | None:
 
     import requests as http_requests
 
-    # Check if VLM server is reachable (quick HEAD request, 2s timeout)
+    # Check if VLM server is reachable (quick HEAD request, 2s timeout).
+    # Narrow the catch so unexpected config/programming errors (TypeError,
+    # ValueError) propagate instead of being silently masked as "VLM unreachable".
     try:
         http_requests.head("http://localhost:1234/v1/models", timeout=2)
-    except Exception:
+    except (http_requests.RequestException, OSError):
         return None
 
     # Lazy-import caption helpers (avoids import at module level)
