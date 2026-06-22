@@ -94,9 +94,9 @@ def add_t2i2v_args(parser):
 def _print_run_table(rows: list, col_run: int = 28) -> None:
     """Print the t2i2v quality comparison table."""
     print(f"  {'Run':<{col_run}} Verdict   Overall  Artifacts  Coherence  Sharp(sig)  Flicker  "
-          f"i2v-xfmr  Frames  Seed  VLM-ok  Static")
+          f"i2v-xfmr  Frames  Seed  Audio  VLM-ok  Static")
     print(f"  {'─' * col_run}  {'─' * 7}  {'─' * 7}  {'─' * 9}  {'─' * 9}  {'─' * 10}  "
-          f"{'─' * 7}  {'─' * 8}  {'─' * 6}  {'─' * 4}  {'─' * 6}  {'─' * 6}")
+          f"{'─' * 7}  {'─' * 8}  {'─' * 6}  {'─' * 4}  {'─' * 5}  {'─' * 6}  {'─' * 6}")
     for r in rows:
         def _fmt(v, fmt=".1f"):
             return f"{v:{fmt}}" if v is not None else "  —  "
@@ -105,6 +105,9 @@ def _print_run_table(rows: list, col_run: int = 28) -> None:
         )
         vlm_ok_str = "yes" if r["vlm_ok"] else ("no" if r["vlm_ok"] is False else "—")
         static_str = "⚠ yes" if r.get("static") else ("no" if r.get("static") is False else "—")
+        audio_lang = r.get("audio_lang") or "—"
+        audio_ok = r.get("audio_lang_ok")
+        audio_str = f"{'✓' if audio_ok else '⚠'}{audio_lang}" if audio_ok is not None else audio_lang
         print(
             f"  {r['run']:<{col_run}}"
             f"  {verdict_icon:<7}"
@@ -116,6 +119,7 @@ def _print_run_table(rows: list, col_run: int = 28) -> None:
             f"  {str(r['i2v_xfmr']):<8}"
             f"  {str(r['frames'] or '—'):>6}"
             f"  {str(r['seed'] or '—'):>4}"
+            f"  {audio_str:<5}"
             f"  {vlm_ok_str:<6}"
             f"  {static_str}"
         )
@@ -163,6 +167,7 @@ def _review_t2i2v_runs(args) -> None:
         signal = report.get("signal", {})
         verdict = report.get("verdict", "—" if not report else "?")
 
+        audio_asr = report.get("audio_asr", {})
         row = {
             "run": name,
             "verdict": verdict,
@@ -179,6 +184,9 @@ def _review_t2i2v_runs(args) -> None:
             "seed": t2i.get("seed"),
             "vlm_ok": vlm.get("vlm_ok"),
             "static": report.get("static_flag"),
+            "audio_lang": audio_asr.get("detected_lang"),
+            "audio_lang_ok": audio_asr.get("lang_ok"),
+            "audio_transcript": audio_asr.get("transcript", "")[:30],
             "has_video": bool(glob.glob(os.path.join(d, "*.mp4"))),
             "has_quality": bool(report),
         }
@@ -237,6 +245,90 @@ def _review_t2i2v_runs(args) -> None:
         print("  Tip: add --rescore to retroactively score unscored runs (requires LM Studio)")
 
 
+_CHINESE_LANG_CODES = {"zh", "yue", "wuu"}  # Mandarin, Cantonese, Wu dialects
+
+
+def _extract_expected_speech(prompt: str) -> tuple:
+    """Return (speech_text, expected_lang) from prompt speech markers.
+
+    Looks for text inside 「」 brackets. Falls back to empty strings if none found.
+    """
+    import re
+    m = re.search(r'「([^」]+)」', prompt)
+    speech = m.group(1).strip() if m else ""
+    lang = ""
+    if speech:
+        if re.search(r'[一-鿿㐀-䶿]', speech):
+            lang = "zh"
+        elif re.search(r'[ぁ-ゟ゠-ヿ]', speech):
+            lang = "ja"
+    return speech, lang
+
+
+def _run_audio_asr_gate(video_path: str, prompt: str) -> dict:
+    """ASR-based audio quality gate using mlx_whisper.
+
+    Checks:
+    1. Language detection — audio must be in the expected language (zh for Chinese).
+    2. Content match — if expected speech extracted from prompt, transcript must
+       overlap ≥ 50 % at the CJK character level.
+
+    Returns dict with: detected_lang, expected_lang, transcript, expected_speech,
+    lang_ok, content_match, content_ratio.  On error: {"error": "<reason>"}.
+    """
+    import re as _re
+    import os as _os
+
+    wav_path = video_path.replace(".mp4", "_asr_tmp.wav")
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", wav_path],
+        capture_output=True, timeout=30,
+    )
+    if r.returncode != 0 or not _os.path.exists(wav_path):
+        return {"error": "ffmpeg audio extraction failed"}
+
+    try:
+        import mlx_whisper
+        result = mlx_whisper.transcribe(
+            wav_path,
+            path_or_hf_repo="mlx-community/whisper-large-v3-mlx",
+            language=None,  # auto-detect — critical for catching wrong-language output
+        )
+        detected_lang = result.get("language", "")
+        transcript = result.get("text", "").strip()
+    finally:
+        if _os.path.exists(wav_path):
+            _os.unlink(wav_path)
+
+    expected_speech, expected_lang = _extract_expected_speech(prompt)
+    if not expected_lang:
+        expected_lang = "zh"  # t2i2v default assumes zh-TW voice
+
+    lang_ok = detected_lang in _CHINESE_LANG_CODES if expected_lang == "zh" else (
+        detected_lang == expected_lang
+    )
+
+    content_match = None
+    content_ratio = None
+    if expected_speech and transcript:
+        exp = _re.sub(r'[^一-鿿㐀-䶿\w]', '', expected_speech)
+        trn = _re.sub(r'[^一-鿿㐀-䶿\w]', '', transcript)
+        if exp:
+            matched = sum(1 for c in exp if c in trn)
+            content_ratio = round(matched / len(exp), 3)
+            content_match = content_ratio >= 0.5
+
+    return {
+        "detected_lang": detected_lang,
+        "expected_lang": expected_lang,
+        "transcript": transcript,
+        "expected_speech": expected_speech,
+        "lang_ok": lang_ok,
+        "content_match": content_match,
+        "content_ratio": content_ratio,
+    }
+
+
 def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict:
     """Stage 4: VLM multi-frame scoring + signal metrics on the generated video."""
     print(f"\n[t2i2v] ── Stage 4: Quality Check ──")
@@ -274,7 +366,18 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
     except Exception as e:
         print(f"[t2i2v] WARNING: VLM quality scoring failed ({e}) — skipped", file=sys.stderr)
 
-    # Step B — Signal metrics (direct import from quality_metrics, no subprocess)
+    # Step B2 — Audio ASR gate (language + content check via mlx_whisper)
+    audio_asr: dict = {}
+    try:
+        audio_asr = _run_audio_asr_gate(video_path, prompt)
+    except ImportError:
+        audio_asr = {"error": "mlx_whisper not installed"}
+    except subprocess.TimeoutExpired:
+        audio_asr = {"error": "ffmpeg audio extraction timed out"}
+    except Exception as e:
+        audio_asr = {"error": str(e)}
+
+    # Step C — Signal metrics (direct import from quality_metrics, no subprocess)
     signal: dict = {}
     try:
         import cv2
@@ -311,9 +414,13 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
     except Exception as e:
         print(f"[t2i2v] WARNING: signal metrics failed ({e}) — skipped", file=sys.stderr)
 
-    # Step C — Verdict (only count gates where we have data)
+    # Step D — Verdict (only count gates where we have data)
     gates: list[tuple[str, bool]] = []
     static_flag = False  # True when video is detected as nearly static
+    if audio_asr and not audio_asr.get("error"):
+        gates.append(("audio lang", audio_asr.get("lang_ok", False)))
+        if audio_asr.get("content_match") is not None:
+            gates.append(("audio content", audio_asr["content_match"]))
     if vlm_scores:
         gates.append(("VLM overall",    vlm_scores.get("overall", 0) >= threshold))
         gates.append(("VLM artifacts",  vlm_scores.get("artifacts", 0) >= threshold))
@@ -333,7 +440,26 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
             gates.append(("has motion", False))
     verdict = "SKIP" if not gates else ("PASS" if all(ok for _, ok in gates) else "WARN")
 
-    # Step D — Print summary
+    # Step E — Print summary
+    if audio_asr and not audio_asr.get("error"):
+        lang_icon = _CHECK if audio_asr.get("lang_ok") else _WARN
+        det = audio_asr.get("detected_lang", "?")
+        exp = audio_asr.get("expected_lang", "zh")
+        trn = audio_asr.get("transcript", "")[:50]
+        content_part = ""
+        if audio_asr.get("content_match") is not None:
+            cok = audio_asr["content_match"]
+            content_part = f"  content={'OK' if cok else 'MISMATCH'}{_CHECK if cok else _WARN} ({audio_asr.get('content_ratio',0):.0%})"
+        print(f"[Quality] Audio   lang={det}{lang_icon} (expected: {exp})"
+              f"{content_part}  transcript={repr(trn)}")
+        if not audio_asr.get("lang_ok"):
+            print(f"[Quality] ⚠ AUDIO LANG FAIL: got '{det}', expected '{exp}' — "
+                  f"try --transformer dev for correct zh speech")
+    elif audio_asr.get("error"):
+        print(f"[Quality] Audio   skipped ({audio_asr['error']})")
+    else:
+        print("[Quality] Audio   (no result)")
+
     if vlm_scores:
         dims = [
             ("overall", vlm_scores.get("overall")),
@@ -371,10 +497,11 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
     verdict_icon = "✓ PASS" if verdict == "PASS" else ("— SKIP" if verdict == "SKIP" else "⚠ WARN")
     print(f"[Quality] → {verdict_icon}")
 
-    # Step E — Write quality_report.json
+    # Step F — Write quality_report.json
     report = {
         "verdict": verdict,
         "static_flag": static_flag,
+        "audio_asr": audio_asr,
         "vlm": vlm_scores,
         "signal": signal,
         "video_path": video_path,
