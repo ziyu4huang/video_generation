@@ -537,6 +537,17 @@ def _parse_civitai_version_id(url: str) -> str | None:
     return vids[0] if vids else None
 
 
+def _is_gguf_file(f: dict) -> bool:
+    """True if a CivitAI file entry is a GGUF (not loadable as an MLX LoRA source).
+
+    GGUF shares fp=="bf16" with safetensors in CivitAI metadata, so the format
+    tag (and extension) must be checked explicitly to avoid picking a GGUF when
+    a safetensors is wanted.
+    """
+    meta = f.get("metadata", {}) or {}
+    return meta.get("format", "") == "GGUF" or f.get("name", "").endswith(".gguf")
+
+
 def _resolve_civitai_import(url: str, model_id: str,
                             include_raw: bool = False) -> dict | None:
     """Resolve CivitAI import: get version metadata, find download URL and arch."""
@@ -596,7 +607,7 @@ def _fetch_civitai_version_metadata(version_id: str,
     download_url = _CIVITAI_DOWNLOAD.format(version_id=version_id)
     filename = ""
     for f in files:
-        if f.get("type") == "Model" and f.get("primary"):
+        if f.get("type") == "Model" and f.get("primary") and not _is_gguf_file(f):
             filename = f.get("name", "")
             # Use the file's download URL if available (may include token)
             if f.get("downloadUrl"):
