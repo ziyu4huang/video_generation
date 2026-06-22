@@ -47,12 +47,21 @@ def get_video_info(video_path: str) -> dict[str, float | int]:
     has_audio = False
     ffprobe = shutil.which("ffprobe")
     if ffprobe:
-        result = subprocess.run(
-            [ffprobe, "-i", video_path, "-show_streams",
-             "-select_streams", "a", "-loglevel", "error"],
-            capture_output=True, timeout=30,
-        )
-        has_audio = bool(result.stdout.strip())
+        try:
+            result = subprocess.run(
+                [ffprobe, "-i", video_path, "-show_streams",
+                 "-select_streams", "a", "-loglevel", "error"],
+                capture_output=True, timeout=30,
+            )
+            has_audio = bool(result.stdout.strip())
+        except (FileNotFoundError, subprocess.SubprocessError) as e:
+            # ffprobe is best-effort metadata for audio detection (not
+            # load-bearing for frame extraction). If it's missing / a dangling
+            # symlink / removed between which() and run / otherwise fails,
+            # degrade to has_audio=False instead of propagating uncaught.
+            print(f"[video_utils] WARNING: ffprobe audio detection failed: {e}",
+                  file=sys.stderr)
+            has_audio = False
 
     return {
         "total_frames": total_frames,

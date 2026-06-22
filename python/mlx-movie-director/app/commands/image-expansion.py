@@ -33,6 +33,7 @@ from PIL import Image, ImageFilter
 from app import config as cfg
 from app.commands._shared import (
     DEFAULT_UPSCALE_MODEL,
+    _parse_resolution_spec,
     execute_upscale,
     generate_base_name,
     resolve_lora_paths,
@@ -376,11 +377,7 @@ def _run_upscale(input_path: str, args) -> str | None:
     print(f"\n[expansion] Upscaling via {method} ({res_str})...")
     if method == "seedvr2":
         from app.seedvr2.pipeline import SeedVR2Upscaler
-        res_str_s = str(res_str)
-        if res_str_s.lower().endswith("x"):
-            resolution = float(res_str_s.lower().rstrip("x"))
-        else:
-            resolution = int(res_str_s)
+        resolution = _parse_resolution_spec(res_str)
         with Image.open(input_path) as _im:
             image = _im.convert("RGB")
         upscaler = SeedVR2Upscaler(model_size="7b")

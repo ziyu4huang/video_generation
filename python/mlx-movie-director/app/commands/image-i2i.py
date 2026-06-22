@@ -292,11 +292,14 @@ def add_i2i_args(parser: argparse.ArgumentParser) -> None:
             "When provided, ControlNet conditioning is enabled."
         ),
     )
-    # --denoise-strength may be registered by _shared.py; override default for I2I
+    # --denoise-strength is registered with default=None so the unified image
+    # parser uses _shared's default (1.0) for non-i2i sub-actions. I2I applies
+    # its own 0.4 default at runtime in run_i2i(). Register only if absent.
     if not _arg_registered(parser, "denoise_strength"):
         parser.add_argument(
-            "--denoise-strength", type=float, default=0.4, dest="denoise_strength",
-            help="How much to change from source (0.0=keep, 1.0=redraw, default: 0.4)",
+            "--denoise-strength", type=float, default=None, dest="denoise_strength",
+            help="How much to change from source (0.0=keep, 1.0=redraw). "
+                 "I2I default: 0.4; otherwise defaults to 1.0 (full redraw).",
         )
     # --transformer selects which flux2-klein-9b variant redraws the image
     # (mirrors t2i's flag). Only the flux2-klein path reads it (via
@@ -327,6 +330,13 @@ def _write_json(path: str, data: dict) -> None:
 
 def run_i2i(args: argparse.Namespace) -> None:
     """Execute I2I generation. Called by image.py dispatcher."""
+    # --denoise-strength is registered with default=None so that
+    # _shared.add_common_generation_args() default (1.0) wins on the unified
+    # image parser (otherwise i2i's 0.4 leaks to ALL sub-actions like t2i
+    # img2img). Apply the I2I-specific 0.4 default at runtime instead.
+    if getattr(args, "denoise_strength", None) is None:
+        args.denoise_strength = 0.4
+
     # Self-test mode (Z-Image only for now)
     if getattr(args, "self_test", False):
         _run_self_test(args)
@@ -1091,39 +1101,50 @@ def _generate_t2i(prompt, out_w, out_h, steps, seed):
     cos_cached = cos_cached.astype(mx.bfloat16)
     sin_cached = sin_cached.astype(mx.bfloat16)
 
-    for i in range(steps):
-        step_start = time.time()
-        t_curr = scheduler.timesteps[i]
-        t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
-        B, C, H, W = latents.shape
-        x_reshaped = latents.reshape(
-            C, 1, 1, H_tok, 2, W_tok, 2
-        ).transpose(1, 2, 3, 5, 4, 6, 0).reshape(1, -1, C * 4)
-        out = model(x_reshaped, t_input, cap_feats_mx, img_pos, cap_pos,
-                    cos_cached, sin_cached, cap_mask=None)
-        noise_pred = -out.reshape(
-            1, 1, H_tok, W_tok, 2, 2, C
-        ).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
-        latents = scheduler.step(noise_pred, i, latents)
-        mx.eval(latents)
-        print(f"   Step {i + 1}/{steps}: {time.time() - step_start:.2f}s")
+    # Mirror pipeline.py (lines 656-667): on Metal allocation failure (MLX raises
+    # RuntimeError on OOM) or a Python MemoryError, flush MLX's compiled-graph /
+    # weight caches and force a GC pass so the transformer / VAE tensors backing
+    # this frame are released before the next i2i variation, rather than staying
+    # resident behind a stale graph.
+    try:
+        for i in range(steps):
+            step_start = time.time()
+            t_curr = scheduler.timesteps[i]
+            t_input = (1.0 - t_curr)[None].astype(mx.bfloat16)
+            B, C, H, W = latents.shape
+            x_reshaped = latents.reshape(
+                C, 1, 1, H_tok, 2, W_tok, 2
+            ).transpose(1, 2, 3, 5, 4, 6, 0).reshape(1, -1, C * 4)
+            out = model(x_reshaped, t_input, cap_feats_mx, img_pos, cap_pos,
+                        cos_cached, sin_cached, cap_mask=None)
+            noise_pred = -out.reshape(
+                1, 1, H_tok, W_tok, 2, 2, C
+            ).transpose(6, 0, 1, 2, 4, 3, 5).reshape(1, C, H, W)
+            latents = scheduler.step(noise_pred, i, latents)
+            mx.eval(latents)
+            print(f"   Step {i + 1}/{steps}: {time.time() - step_start:.2f}s")
 
-    print("[T2I Source] Decoding...", end=" ", flush=True)
-    del model, cos_cached, sin_cached
-    _gc()
+        print("[T2I Source] Decoding...", end=" ", flush=True)
+        del model, cos_cached, sin_cached
+        _gc()
 
-    vae_dec = _load_mlx_vae()
-    decoded = vae_dec.decode(latents.astype(mx.bfloat16))
-    if decoded.ndim == 5:
-        decoded = decoded[:, :, 0, :, :]
-    image_np = np.array(mx.clip(decoded.astype(mx.float32) / 2.0 + 0.5, 0, 1))
-    image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
-    image_np = image_np[0].transpose(1, 2, 0)
-    pil_image = Image.fromarray((image_np * 255).round().astype("uint8"))
-    del vae_dec, decoded
-    _gc()
-    print("Done")
-    return pil_image
+        vae_dec = _load_mlx_vae()
+        decoded = vae_dec.decode(latents.astype(mx.bfloat16))
+        if decoded.ndim == 5:
+            decoded = decoded[:, :, 0, :, :]
+        image_np = np.array(mx.clip(decoded.astype(mx.float32) / 2.0 + 0.5, 0, 1))
+        image_np = np.nan_to_num(image_np, nan=0.0, posinf=1.0, neginf=0.0)
+        image_np = image_np[0].transpose(1, 2, 0)
+        pil_image = Image.fromarray((image_np * 255).round().astype("uint8"))
+        del vae_dec, decoded
+        _gc()
+        print("Done")
+        return pil_image
+    except (RuntimeError, MemoryError):
+        if hasattr(mx, "clear_cache"):
+            mx.clear_cache()
+        gc.collect()
+        raise
 
 
 # ---------------------------------------------------------------------------

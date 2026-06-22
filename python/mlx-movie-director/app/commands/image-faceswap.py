@@ -391,9 +391,12 @@ def _run_faceswap_core(body_path: str, face_path: str, args: argparse.Namespace)
     # Resolve LoRA path from short name or absolute path
     lora_name = getattr(args, "lora", _DEFAULT_LORA)
     lora_path = resolve_lora_path(lora_name)
-    lora_scale = getattr(args, "lora_scale", None)
-    if lora_scale is None:
-        lora_scale = 1.0
+    # Unwrap consistently: --lora-scale is registered as action='append'
+    # (list[float] | None) by add_common_generation_args, so a non-empty list
+    # (the normal multi-LoRA case) must be unwrapped to its first element to
+    # avoid passing [[scale]] (nested list) into Flux2KleinPipeline. Matches
+    # image-expansion / image-profile which use `(_raw or [1.0])[0]`.
+    lora_scale = (getattr(args, "lora_scale", None) or [1.0])[0]
 
     print(f"[FaceSwap] Mode: {mode}")
     print(f"[FaceSwap] Body: {body_path}")

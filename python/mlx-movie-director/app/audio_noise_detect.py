@@ -53,7 +53,14 @@ def _extract_audio_pcm(mp4_path: str, sample_rate: int | None = None) -> np.ndar
     if sample_rate is not None:
         cmd.insert(cmd.index("-ac") + 1, "-ar")
         cmd.insert(cmd.index("-ac") + 2, str(sample_rate))
-    result = subprocess.run(cmd, capture_output=True, timeout=30)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+    except subprocess.SubprocessError:
+        # ffmpeg spawn failed or timed out (e.g. TimeoutExpired) — treat as no
+        # audio (not noise), matching the existing 'no audio' fallback semantics.
+        # NOTE: FileNotFoundError is deliberately NOT caught — a missing ffmpeg
+        # binary is an environment error the caller must see, not silent "no audio".
+        return np.array([], dtype=np.float32)
     if result.returncode != 0:
         # No audio track or ffmpeg error — treat as no audio (not noise)
         return np.array([], dtype=np.float32)

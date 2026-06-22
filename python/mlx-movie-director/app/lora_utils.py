@@ -116,7 +116,7 @@ class LoRALinearWrapper(nn.Module):
 
 def get_module_by_name(model: nn.Module, module_name: str) -> nn.Module | None:
     parts = module_name.split('.')
-    obj = model
+    obj: nn.Module | list | dict | None = model
     for part in parts:
         try:
             if part.isdigit():
