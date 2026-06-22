@@ -2086,7 +2086,9 @@ def _unified_metrics(image_file: str | None) -> dict | None:
     try:
         _qm = _quality_module()
         report = _qm.analyze_image(image_file)
-        return report.get("metrics", report) if isinstance(report, dict) else report
+        if isinstance(report, dict):
+            return report.get("metrics", report)
+        return None
     except Exception:
         return None
 
