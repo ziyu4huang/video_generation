@@ -1,6 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { GalleryImage } from "../types";
+import { runAbTest } from "../api/abTest";
+import type { AbTestFeedback } from "../api/abTest";
+import { JsonViewer } from "./JsonViewer";
+import { toast } from "../utils/toast";
 import s from "./CompareView.module.css";
 
 interface CompareViewProps {
@@ -56,6 +60,14 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
   // Wipe divider position (percent across the surface, 0-100).
   const [dividerX, setDividerX] = useState(50);
   const [isWiping, setIsWiping] = useState(false);
+
+  // A/B test: runs metrics + pixel diff + (optional) VLM and emits a feedback
+  // JSON (a lean pointer-manifest) the user copies to hand to Claude Code.
+  const [abRunning, setAbRunning] = useState(false);
+  const [abSkipVlm, setAbSkipVlm] = useState(false);
+  const [abResult, setAbResult] = useState<AbTestFeedback | null>(null);
+  const [abPanelOpen, setAbPanelOpen] = useState(false);
+  const [abIntent, setAbIntent] = useState("");
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -141,6 +153,40 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
     });
   }, []);
 
+  // A/B analysis. A = left, B = right (stable — independent of the visual Swap).
+  // Full (incl VLM) is ~1-3 min; Skip-VLM is ~5s. The result is a lean
+  // pointer-manifest the user copies to hand to Claude Code.
+  const handleRunAb = useCallback(async () => {
+    if (abRunning) return;
+    setAbRunning(true);
+    setAbResult(null);
+    toast.info(`🔬 A/B analyzing${abSkipVlm ? "" : " (incl VLM — ~1-3 min)"}…`);
+    try {
+      const r = await runAbTest({ a: { url: left.url }, b: { url: right.url }, skipVlm: abSkipVlm });
+      if (!r.ok || !r.feedback) {
+        toast.error(`A/B failed: ${r.error || "unknown"}`);
+      } else {
+        setAbResult(r.feedback);
+        setAbIntent(r.feedback.intent);
+        setAbPanelOpen(true);
+        toast.success(`A/B done — lever: ${r.feedback.lever}, verdict: ${r.feedback.verdict.winner}`);
+      }
+    } catch (err: any) {
+      toast.error(`A/B failed: ${err?.message || err}`);
+    } finally {
+      setAbRunning(false);
+    }
+  }, [abRunning, abSkipVlm, left.url, right.url]);
+
+  const handleCopyAb = useCallback(() => {
+    if (!abResult) return;
+    // fold the (possibly edited) intent back into the copied JSON
+    const out = { ...abResult, intent: abIntent || abResult.intent };
+    navigator.clipboard.writeText(JSON.stringify(out, null, 2))
+      .then(() => toast.success("Feedback JSON copied — paste into Claude Code"))
+      .catch(() => toast.error("Clipboard copy failed"));
+  }, [abResult, abIntent]);
+
   const cursorMod = zoom > 1 ? (isPanning ? s.panning : s.zoomed) : "";
   const transform = `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`;
 
@@ -173,6 +219,20 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
               </div>
             </div>
             <div className={s.headerRight}>
+              <label className={s.abSkip} title="Skip the slow VLM perceptual scoring (metrics + diff only, ~5s)">
+                <input type="checkbox" checked={abSkipVlm} onChange={(e) => setAbSkipVlm(e.target.checked)} />
+                Skip VLM
+              </label>
+              <button
+                className={s.headerBtn}
+                onClick={handleRunAb}
+                disabled={abRunning || left.mediaType === "video" || right.mediaType === "video"}
+                title={
+                  left.mediaType === "video" || right.mediaType === "video"
+                    ? "A/B analysis is image-only — pick two images"
+                    : "Run A/B analysis (metrics + pixel diff + VLM) and emit a feedback JSON for Claude Code"
+                }
+              >{abRunning ? "⏳ A/B…" : "🔬 A/B"}</button>
               <button className={s.headerBtn} onClick={() => setSwapped((v) => !v)} title="Swap left/right">⇄ Swap</button>
               <button className={s.headerBtn} onClick={onClose} title="Close (Esc)">✕ Close</button>
             </div>
@@ -232,6 +292,109 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
               title="Reset (1×)"
             >1×</button>
           </div>
+
+          {abPanelOpen && abResult && (() => {
+            const sm = abResult.analysis.signal_metrics || {};
+            const pd = abResult.analysis.pixel_diff;
+            const vlm = abResult.analysis.vlm_scores;
+            const vlmKeys = vlm?.A ? Object.keys(vlm.A).filter((k) => typeof (vlm.A as any)[k] === "number") : [];
+            const smKeys = sm.A ? Object.keys(sm.A) : [];
+            const win = abResult.verdict.winner;
+            return (
+              <div className={s.abPanel} onMouseDown={(e) => e.stopPropagation()}>
+                <div className={s.abPanelHead}>
+                  <span className={s.abPanelTitle}>🔬 A/B Results</span>
+                  <span className={s.abBadge} title="auto-detected differing param">lever: {abResult.lever}</span>
+                  <span className={`${s.abBadge} ${win === "A" ? s.abWinA : win === "B" ? s.abWinB : s.abWinTie}`}>
+                    winner: {win}
+                  </span>
+                  <button className={s.abClose} onClick={() => setAbPanelOpen(false)} title="Collapse panel">✕</button>
+                </div>
+
+                <div className={s.abSection}>
+                  <div className={s.abVerdict}>{abResult.verdict.rationale}</div>
+                  <div className={s.abWhatToDo}>{abResult.action_hints.what_to_do}</div>
+                </div>
+
+                {smKeys.length > 0 && (
+                  <div className={s.abSection}>
+                    <div className={s.abSectionTitle}>Signal metrics · A=left, B=right</div>
+                    <table className={s.abTable}>
+                      <thead><tr><th>metric</th><th>A</th><th>B</th><th>win</th></tr></thead>
+                      <tbody>
+                        {smKeys.map((k) => {
+                          const av = (sm.A as any)[k], bv = (sm.B as any)[k], w = (sm.winners as any)?.[k];
+                          const fmt = (v: any) => (typeof v === "number" ? v.toFixed(2) : v ?? "—");
+                          return (
+                            <tr key={k}>
+                              <td>{k}</td>
+                              <td className={w === "A" ? s.abCellWin : ""}>{fmt(av)}</td>
+                              <td className={w === "B" ? s.abCellWin : ""}>{fmt(bv)}</td>
+                              <td>{w ?? "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {pd && (
+                  <div className={s.abSection}>
+                    <div className={s.abSectionTitle}>Pixel diff (A vs B)</div>
+                    <div className={s.abMetrics}>
+                      SSIM <b>{pd.ssim ?? "—"}</b> · PSNR <b>{pd.psnr_db ?? "—"} dB</b> ·
+                      mean|Δ| <b>{pd.mean_abs_diff_per255 ?? "—"}/255</b> · %px&gt;20 <b>{pd.pct_gt20 ?? "—"}%</b>
+                    </div>
+                  </div>
+                )}
+
+                {vlm && (
+                  <div className={s.abSection}>
+                    <div className={s.abSectionTitle}>VLM scores{vlm.A?.cached || vlm.B?.cached ? " (cached)" : ""}</div>
+                    {vlmKeys.length > 0 ? (
+                      <table className={s.abTable}>
+                        <thead><tr><th>dim</th><th>A</th><th>B</th></tr></thead>
+                        <tbody>
+                          {vlmKeys.map((k) => (
+                            <tr key={k}>
+                              <td>{k}</td>
+                              <td>{(vlm.A as any)[k]}</td>
+                              <td>{(vlm.B as any)?.[k] ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : <div className={s.abMetrics}>VLM scores unavailable.</div>}
+                  </div>
+                )}
+
+                {abResult.diff_heatmap_url && (
+                  <div className={s.abSection}>
+                    <div className={s.abSectionTitle}>Diff heatmap · A | |A-B|×4 | B</div>
+                    <img className={s.abThumb} src={abResult.diff_heatmap_url} alt="A/B diff heatmap" />
+                  </div>
+                )}
+
+                <div className={s.abSection}>
+                  <div className={s.abSectionTitle}>Feedback JSON for Claude Code</div>
+                  <input
+                    className={s.abIntent}
+                    value={abIntent}
+                    onChange={(e) => setAbIntent(e.target.value)}
+                    placeholder="one-line goal (optional — folded into the JSON)"
+                  />
+                  <div className={s.abCopyRow}>
+                    <button className={s.abCopyBtn} onClick={handleCopyAb}>📋 Copy JSON</button>
+                    <span className={s.abHint}>paste into Claude Code — it follows run_path / model_dir for full detail</span>
+                  </div>
+                  <div className={s.abJson}>
+                    <JsonViewer data={{ ...abResult, intent: abIntent || abResult.intent }} defaultOpen={3} />
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
