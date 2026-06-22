@@ -23,6 +23,90 @@ import time
 from app.commands._shared import build_run_py_cmd
 from app import config as cfg
 
+# ---------------------------------------------------------------------------
+# Self-test registry
+# ---------------------------------------------------------------------------
+T2I2V_SELF_TESTS = {
+    "dasiwa-dev-audio": {
+        "description": (
+            "dasiwa transformer + --dev-audio: full T2I→VLM→I2V pipeline; "
+            "ASR gate must detect zh (not ja) on the 「你終於來了」 voice line"
+        ),
+        "prompt": (
+            "a young woman with short brown hair wearing a light blue floral dress, "
+            "standing in a serene Japanese garden during golden hour"
+        ),
+        "action": "她微笑抬起頭，輕聲說「你終於來了，我等你很久了」",
+        "defaults": {
+            "transformer": "dasiwa",
+            "dev_audio": True,
+            "frames": 49,
+            "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+    "default": {
+        "description": (
+            "dev transformer (default): full T2I→VLM→I2V pipeline; "
+            "ASR gate must detect zh on 「你終於來了」"
+        ),
+        "prompt": (
+            "a young woman standing in a sunlit garden, elegant and serene"
+        ),
+        "action": "她微笑走向鏡頭，輕聲說「你終於來了」",
+        "defaults": {
+            "transformer": "dev",
+            "frames": 49,
+            "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+}
+
+
+def _run_t2i2v_self_test(args, st) -> None:
+    """Run one or more named t2i2v self-tests."""
+    import copy
+
+    if st is True:
+        names = list(T2I2V_SELF_TESTS.keys())
+    elif isinstance(st, str):
+        names = [st]
+    elif isinstance(st, list):
+        names = st
+    else:
+        print(f"[t2i2v self-test] ERROR: unexpected type: {type(st)}")
+        return
+
+    print(f"[t2i2v self-test] Running {len(names)} test(s): {', '.join(names)}")
+    passed, failed = [], []
+    for name in names:
+        tc = T2I2V_SELF_TESTS.get(name)
+        if tc is None:
+            print(f"  [SKIP] Unknown self-test: {name!r}  "
+                  f"(choices: {', '.join(T2I2V_SELF_TESTS)})")
+            continue
+        print(f"\n  {'='*60}")
+        print(f"  [t2i2v:{name}] {tc['description']}")
+        print(f"  {'='*60}")
+
+        test_args = copy.copy(args)
+        test_args.self_test = None  # prevent re-dispatch when run_t2i2v is called
+        test_args.prompt = tc["prompt"]
+        test_args.vlm_action = tc.get("action", None)
+        for k, v in tc.get("defaults", {}).items():
+            setattr(test_args, k, v)
+
+        run_t2i2v(test_args)  # run_t2i2v prints its own outcome
+        passed.append(name)  # any exception would propagate up
+
+    print(f"\n[t2i2v self-test] Done: {len(passed)}/{len(names)} completed")
+
+
 PARSER_META = {
     "help": "T2I2V: ZImage T2I → VLM prompt assistant → LTX I2V in one command",
     "description": (
@@ -38,6 +122,10 @@ PARSER_META = {
 
 
 def add_t2i2v_args(parser):
+    # NOTE: --self-test is defined in add_generate_args (video-generate.py) and
+    # shared here via the common parser in video.py. Do NOT add it again here.
+    # In t2i2v context it selects from T2I2V_SELF_TESTS (not VIDEO_TEST_PROMPTS).
+
     # --- T2I stage ---
     parser.add_argument("--t2i-transformer", type=str, default="moody-pro-mix",
                         metavar="NAME",
@@ -601,6 +689,15 @@ def _run_quality_stage(args, video_path: str, prompt: str, out_dir: str) -> dict
 def run_t2i2v(args):
     if getattr(args, "review_runs", False):
         _review_t2i2v_runs(args)
+        return
+
+    # --self-test dispatch
+    st = getattr(args, "self_test", None)
+    if st is not None:
+        resolved = st if st else True  # bare --self-test → run all
+        if isinstance(resolved, list) and len(resolved) == 1:
+            resolved = resolved[0]
+        _run_t2i2v_self_test(args, resolved)
         return
 
     # --- Resolve shared seed ---
