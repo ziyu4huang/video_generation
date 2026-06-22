@@ -25,6 +25,93 @@ from typing import Any
 from app.commands._shared import build_run_py_cmd
 from app import config as cfg
 
+# ---------------------------------------------------------------------------
+# Self-test registry
+# ---------------------------------------------------------------------------
+T2I2V_SELF_TESTS = {
+    "dasiwa-dev-audio": {
+        "description": (
+            "dasiwa transformer + --dev-audio: T2I → I2V (VLM skipped, zh prompt used directly); "
+            "ASR gate must detect zh (not ja) on the 「你終於來了」 voice line. "
+            "NOTE: VLM stage skipped — zh prompt is fed directly to I2V to avoid English "
+            "prompt suppressing zh audio. Real usage uses --action for VLM expansion."
+        ),
+        "prompt": (
+            "一位年輕女性站在陽光明媚的花園中，她緩緩抬起頭，眼神溫柔地望向鏡頭，"
+            "微笑著輕聲說「你終於來了，我等你很久了」。她的聲音輕柔而溫暖。"
+            "Style: cinematic realism. Soft golden hour light. Quiet garden ambience."
+        ),
+        "action": None,  # skip VLM stage: zh prompt fed directly; English prompt suppresses zh audio
+        "defaults": {
+            "transformer": "dasiwa",
+            "dev_audio": True,
+            "frames": 49,
+            "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+    "default": {
+        "description": (
+            "dev transformer (default): full T2I→VLM→I2V pipeline; "
+            "ASR gate must detect zh on 「你終於來了」"
+        ),
+        "prompt": (
+            "a young woman standing in a sunlit garden, elegant and serene"
+        ),
+        "action": "她微笑走向鏡頭，輕聲說「你終於來了」",
+        "defaults": {
+            "transformer": "dev",
+            "frames": 49,
+            "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+}
+
+
+def _run_t2i2v_self_test(args, st) -> None:
+    """Run one or more named t2i2v self-tests."""
+    import copy
+
+    if st is True:
+        names = list(T2I2V_SELF_TESTS.keys())
+    elif isinstance(st, str):
+        names = [st]
+    elif isinstance(st, list):
+        names = st
+    else:
+        print(f"[t2i2v self-test] ERROR: unexpected type: {type(st)}")
+        return
+
+    print(f"[t2i2v self-test] Running {len(names)} test(s): {', '.join(names)}")
+    passed, failed = [], []
+    for name in names:
+        tc = T2I2V_SELF_TESTS.get(name)
+        if tc is None:
+            print(f"  [SKIP] Unknown self-test: {name!r}  "
+                  f"(choices: {', '.join(T2I2V_SELF_TESTS)})")
+            continue
+        print(f"\n  {'='*60}")
+        print(f"  [t2i2v:{name}] {tc['description']}")
+        print(f"  {'='*60}")
+
+        test_args = copy.copy(args)
+        test_args.self_test = None  # prevent re-dispatch when run_t2i2v is called
+        test_args.prompt = tc["prompt"]
+        test_args.vlm_action = tc.get("action", None)
+        for k, v in tc.get("defaults", {}).items():
+            setattr(test_args, k, v)
+
+        run_t2i2v(test_args)  # run_t2i2v prints its own outcome
+        passed.append(name)  # any exception would propagate up
+
+    print(f"\n[t2i2v self-test] Done: {len(passed)}/{len(names)} completed")
+
+
 PARSER_META = {
     "help": "T2I2V: ZImage T2I → VLM prompt assistant → LTX I2V in one command",
     "description": (
@@ -40,10 +127,20 @@ PARSER_META = {
 
 
 def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
+    # NOTE: --self-test is defined in add_generate_args (video-generate.py) and
+    # shared here via the common parser in video.py. Do NOT add it again here.
+    # In t2i2v context it selects from T2I2V_SELF_TESTS (not VIDEO_TEST_PROMPTS).
     # --- T2I stage ---
     parser.add_argument("--t2i-transformer", type=str, default="moody-pro-mix",
                         metavar="NAME",
                         help="ZImage transformer for T2I stage (default: moody-pro-mix)")
+    # --- Audio fix ---
+    parser.add_argument("--tts-voice", type=str, default=None, metavar="VOICE",
+                        help="macOS TTS voice to overlay on video when audio language gate fails "
+                             "(e.g. 'Mei-Jia' for zh-TW, 'Ting-Ting' for zh-CN). "
+                             "Requires --quality-check. Mixed at 85%% TTS + 15%% original.")
+    # NOTE: --dev-audio is defined in add_generate_args (video-generate.py) and
+    # shared here via the common parser in video.py. Do NOT add it again here.
     parser.add_argument("--t2i-steps", type=int, default=9,
                         help="T2I denoising steps (default: 9)")
     parser.add_argument("--t2i-seed", type=int, default=None,
@@ -52,6 +149,8 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
                         help="T2I image width (default: 640)")
     parser.add_argument("--t2i-height", type=int, default=960,
                         help="T2I image height (default: 960)")
+    parser.add_argument("--t2i-cfg-scale", type=float, default=None,
+                        help="cfg-scale for T2I stage (default: model default)")
     parser.add_argument("--t2i-lora-path", type=str, default=None, metavar="PATH",
                         help="LoRA path for T2I stage")
     parser.add_argument("--t2i-lora-scale", type=float, default=1.0,
@@ -67,11 +166,19 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--vlm-api-url", type=str, default=None, metavar="URL",
                         help="VLM API base URL override (default: http://localhost:1234/v1)")
 
+    # --- T2I skip / reuse ---
+    parser.add_argument("--from-image", type=str, default=None, metavar="PATH",
+                        help="Skip T2I stage; use this image directly for VLM + I2V. "
+                             "Useful for iterating on animation without regenerating the image.")
+
     # --- Quality gate (Stage 4) ---
     parser.add_argument("--quality-check", action="store_true",
                         help="Run VLM + signal quality gate after I2V (requires LM Studio)")
     parser.add_argument("--quality-threshold", type=float, default=5.5,
                         help="VLM score below which a dimension is flagged (default: 5.5)")
+    parser.add_argument("--max-retries", type=int, default=0,
+                        help="Auto-retry I2V up to N times when quality is WARN, "
+                             "incrementing seed by 1 each attempt (requires --quality-check)")
 
     # --- Run review / comparison ---
     parser.add_argument("--review-runs", action="store_true",
@@ -86,9 +193,9 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
 def _print_run_table(rows: list[dict[str, Any]], col_run: int = 28) -> None:
     """Print the t2i2v quality comparison table."""
     print(f"  {'Run':<{col_run}} Verdict   Overall  Artifacts  Coherence  Sharp(sig)  Flicker  "
-          f"i2v-xfmr  Frames  Seed  VLM-ok  Static")
+          f"i2v-xfmr  Frames  Seed  Audio  VLM-ok  Static")
     print(f"  {'─' * col_run}  {'─' * 7}  {'─' * 7}  {'─' * 9}  {'─' * 9}  {'─' * 10}  "
-          f"{'─' * 7}  {'─' * 8}  {'─' * 6}  {'─' * 4}  {'─' * 6}  {'─' * 6}")
+          f"{'─' * 7}  {'─' * 8}  {'─' * 6}  {'─' * 4}  {'─' * 5}  {'─' * 6}  {'─' * 6}")
     for r in rows:
         def _fmt(v, fmt=".1f"):
             return f"{v:{fmt}}" if v is not None else "  —  "
@@ -97,6 +204,9 @@ def _print_run_table(rows: list[dict[str, Any]], col_run: int = 28) -> None:
         )
         vlm_ok_str = "yes" if r["vlm_ok"] else ("no" if r["vlm_ok"] is False else "—")
         static_str = "⚠ yes" if r.get("static") else ("no" if r.get("static") is False else "—")
+        audio_lang = r.get("audio_lang") or "—"
+        audio_ok = r.get("audio_lang_ok")
+        audio_str = f"{'✓' if audio_ok else '⚠'}{audio_lang}" if audio_ok is not None else audio_lang
         print(
             f"  {r['run']:<{col_run}}"
             f"  {verdict_icon:<7}"
@@ -108,6 +218,7 @@ def _print_run_table(rows: list[dict[str, Any]], col_run: int = 28) -> None:
             f"  {str(r['i2v_xfmr']):<8}"
             f"  {str(r['frames'] or '—'):>6}"
             f"  {str(r['seed'] or '—'):>4}"
+            f"  {audio_str:<5}"
             f"  {vlm_ok_str:<6}"
             f"  {static_str}"
         )
@@ -155,6 +266,7 @@ def _review_t2i2v_runs(args: argparse.Namespace) -> None:
         signal = report.get("signal", {})
         verdict = report.get("verdict", "—" if not report else "?")
 
+        audio_asr = report.get("audio_asr", {})
         row = {
             "run": name,
             "verdict": verdict,
@@ -171,6 +283,9 @@ def _review_t2i2v_runs(args: argparse.Namespace) -> None:
             "seed": t2i.get("seed"),
             "vlm_ok": vlm.get("vlm_ok"),
             "static": report.get("static_flag"),
+            "audio_lang": audio_asr.get("detected_lang"),
+            "audio_lang_ok": audio_asr.get("lang_ok"),
+            "audio_transcript": audio_asr.get("transcript", "")[:30],
             "has_video": bool(glob.glob(os.path.join(d, "*.mp4"))),
             "has_quality": bool(report),
         }
@@ -229,6 +344,167 @@ def _review_t2i2v_runs(args: argparse.Namespace) -> None:
         print("  Tip: add --rescore to retroactively score unscored runs (requires LM Studio)")
 
 
+_CHINESE_LANG_CODES = {"zh", "yue", "wuu"}  # Mandarin, Cantonese, Wu dialects
+_TTS_VOICE_ZH = "Mei-Jia"  # macOS default zh-TW voice
+
+
+def _apply_tts_fix(video_path: str, speech_text: str, tts_voice: str) -> bool:
+    """Overlay macOS TTS speech onto video when audio language gate fails.
+
+    Mixes: TTS at full volume + original video audio at 15 % (preserves
+    background ambient sounds). Replaces the video file in-place.
+
+    Returns True on success, False on any error.
+    """
+    if not speech_text:
+        print("[t2i2v] TTS fix: no expected speech in prompt — skipped")
+        return False
+
+    base = video_path[:-4]  # strip .mp4
+    aiff_path = base + "_tts.aiff"
+    wav_path  = base + "_tts.wav"
+    fixed_path = base + "_ttsfixed.mp4"
+
+    try:
+        # 1. Generate TTS via macOS say
+        r = subprocess.run(
+            ["say", "-v", tts_voice, speech_text, "-o", aiff_path],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode != 0:
+            print(f"[t2i2v] TTS fix: say({tts_voice}) failed — {r.stderr.decode()[:80]}",
+                  file=sys.stderr)
+            return False
+
+        # 2. Convert AIFF → 48 kHz stereo WAV (matches LTX output)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", aiff_path, "-ar", "48000", "-ac", "2", wav_path],
+            capture_output=True, timeout=30,
+        )
+
+        # 3. Get video duration for trim
+        dur_r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True,
+        )
+        dur = float(dur_r.stdout.strip() or "4.0")
+
+        # 4. Mix: original @ 0.15 (background) + TTS @ 1.0, trim to video length
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", wav_path,
+            "-filter_complex",
+            (f"[0:a]volume=0.15[bg];"
+             f"[1:a]atrim=0:{dur},asetpts=PTS-STARTPTS,adelay=300|300[tts];"
+             "[bg][tts]amix=inputs=2:duration=first[aout]"),
+            "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            fixed_path,
+        ], capture_output=True, timeout=60)
+
+        if r.returncode != 0:
+            print(f"[t2i2v] TTS fix: ffmpeg mux failed — {r.stderr.decode()[-120:]}",
+                  file=sys.stderr)
+            return False
+
+        os.replace(fixed_path, video_path)
+        print(f"[t2i2v] TTS fix applied: voice={tts_voice!r}, text={speech_text!r}")
+        return True
+
+    except Exception as e:
+        print(f"[t2i2v] TTS fix error: {e}", file=sys.stderr)
+        return False
+    finally:
+        for p in [aiff_path, wav_path]:
+            if os.path.exists(p):
+                os.unlink(p)
+        if os.path.exists(fixed_path):
+            os.unlink(fixed_path)
+
+
+def _extract_expected_speech(prompt: str) -> tuple:
+    """Return (speech_text, expected_lang) from prompt speech markers.
+
+    Looks for text inside 「」 brackets. Falls back to empty strings if none found.
+    """
+    import re
+    m = re.search(r'「([^」]+)」', prompt)
+    speech = m.group(1).strip() if m else ""
+    lang = ""
+    if speech:
+        if re.search(r'[一-鿿㐀-䶿]', speech):
+            lang = "zh"
+        elif re.search(r'[ぁ-ゟ゠-ヿ]', speech):
+            lang = "ja"
+    return speech, lang
+
+
+def _run_audio_asr_gate(video_path: str, prompt: str) -> dict:
+    """ASR-based audio quality gate using mlx_whisper.
+
+    Checks:
+    1. Language detection — audio must be in the expected language (zh for Chinese).
+    2. Content match — if expected speech extracted from prompt, transcript must
+       overlap ≥ 50 % at the CJK character level.
+
+    Returns dict with: detected_lang, expected_lang, transcript, expected_speech,
+    lang_ok, content_match, content_ratio.  On error: {"error": "<reason>"}.
+    """
+    import re as _re
+    import os as _os
+
+    wav_path = video_path.replace(".mp4", "_asr_tmp.wav")
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", wav_path],
+        capture_output=True, timeout=30,
+    )
+    if r.returncode != 0 or not _os.path.exists(wav_path):
+        return {"error": "ffmpeg audio extraction failed"}
+
+    try:
+        import mlx_whisper
+        result = mlx_whisper.transcribe(
+            wav_path,
+            path_or_hf_repo="mlx-community/whisper-large-v3-mlx",
+            language=None,  # auto-detect — critical for catching wrong-language output
+        )
+        detected_lang = result.get("language", "")
+        transcript = result.get("text", "").strip()
+    finally:
+        if _os.path.exists(wav_path):
+            _os.unlink(wav_path)
+
+    expected_speech, expected_lang = _extract_expected_speech(prompt)
+    if not expected_lang:
+        expected_lang = "zh"  # t2i2v default assumes zh-TW voice
+
+    lang_ok = detected_lang in _CHINESE_LANG_CODES if expected_lang == "zh" else (
+        detected_lang == expected_lang
+    )
+
+    content_match = None
+    content_ratio = None
+    if expected_speech and transcript:
+        exp = _re.sub(r'[^一-鿿㐀-䶿\w]', '', expected_speech)
+        trn = _re.sub(r'[^一-鿿㐀-䶿\w]', '', transcript)
+        if exp:
+            matched = sum(1 for c in exp if c in trn)
+            content_ratio = round(matched / len(exp), 3)
+            content_match = content_ratio >= 0.5
+
+    return {
+        "detected_lang": detected_lang,
+        "expected_lang": expected_lang,
+        "transcript": transcript,
+        "expected_speech": expected_speech,
+        "lang_ok": lang_ok,
+        "content_match": content_match,
+        "content_ratio": content_ratio,
+    }
+
+
 def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, out_dir: str) -> dict[str, Any]:
     """Stage 4: VLM multi-frame scoring + signal metrics on the generated video."""
     print(f"\n[t2i2v] ── Stage 4: Quality Check ──")
@@ -266,7 +542,18 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
     except Exception as e:
         print(f"[t2i2v] WARNING: VLM quality scoring failed ({e}) — skipped", file=sys.stderr)
 
-    # Step B — Signal metrics (direct import from quality_metrics, no subprocess)
+    # Step B2 — Audio ASR gate (language + content check via mlx_whisper)
+    audio_asr: dict = {}
+    try:
+        audio_asr = _run_audio_asr_gate(video_path, prompt)
+    except ImportError:
+        audio_asr = {"error": "mlx_whisper not installed"}
+    except subprocess.TimeoutExpired:
+        audio_asr = {"error": "ffmpeg audio extraction timed out"}
+    except Exception as e:
+        audio_asr = {"error": str(e)}
+
+    # Step C — Signal metrics (direct import from quality_metrics, no subprocess)
     signal: dict = {}
     try:
         import cv2
@@ -303,9 +590,13 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
     except Exception as e:
         print(f"[t2i2v] WARNING: signal metrics failed ({e}) — skipped", file=sys.stderr)
 
-    # Step C — Verdict (only count gates where we have data)
+    # Step D — Verdict (only count gates where we have data)
     gates: list[tuple[str, bool]] = []
     static_flag = False  # True when video is detected as nearly static
+    if audio_asr and not audio_asr.get("error"):
+        gates.append(("audio lang", audio_asr.get("lang_ok", False)))
+        if audio_asr.get("content_match") is not None:
+            gates.append(("audio content", audio_asr["content_match"]))
     if vlm_scores:
         gates.append(("VLM overall",    vlm_scores.get("overall", 0) >= threshold))
         gates.append(("VLM artifacts",  vlm_scores.get("artifacts", 0) >= threshold))
@@ -325,7 +616,26 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
             gates.append(("has motion", False))
     verdict = "SKIP" if not gates else ("PASS" if all(ok for _, ok in gates) else "WARN")
 
-    # Step D — Print summary
+    # Step E — Print summary
+    if audio_asr and not audio_asr.get("error"):
+        lang_icon = _CHECK if audio_asr.get("lang_ok") else _WARN
+        det = audio_asr.get("detected_lang", "?")
+        exp = audio_asr.get("expected_lang", "zh")
+        trn = audio_asr.get("transcript", "")[:50]
+        content_part = ""
+        if audio_asr.get("content_match") is not None:
+            cok = audio_asr["content_match"]
+            content_part = f"  content={'OK' if cok else 'MISMATCH'}{_CHECK if cok else _WARN} ({audio_asr.get('content_ratio',0):.0%})"
+        print(f"[Quality] Audio   lang={det}{lang_icon} (expected: {exp})"
+              f"{content_part}  transcript={repr(trn)}")
+        if not audio_asr.get("lang_ok"):
+            print(f"[Quality] ⚠ AUDIO LANG FAIL: got '{det}', expected '{exp}' — "
+                  f"try --transformer dev for correct zh speech")
+    elif audio_asr.get("error"):
+        print(f"[Quality] Audio   skipped ({audio_asr['error']})")
+    else:
+        print("[Quality] Audio   (no result)")
+
     if vlm_scores:
         dims = [
             ("overall", vlm_scores.get("overall")),
@@ -363,10 +673,11 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
     verdict_icon = "✓ PASS" if verdict == "PASS" else ("— SKIP" if verdict == "SKIP" else "⚠ WARN")
     print(f"[Quality] → {verdict_icon}")
 
-    # Step E — Write quality_report.json
+    # Step F — Write quality_report.json
     report = {
         "verdict": verdict,
         "static_flag": static_flag,
+        "audio_asr": audio_asr,
         "vlm": vlm_scores,
         "signal": signal,
         "video_path": video_path,
@@ -382,6 +693,15 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
 def run_t2i2v(args: argparse.Namespace) -> None:
     if getattr(args, "review_runs", False):
         _review_t2i2v_runs(args)
+        return
+
+    # --self-test dispatch
+    st = getattr(args, "self_test", None)
+    if st is not None:
+        resolved = st if st else True  # bare --self-test → run all
+        if isinstance(resolved, list) and len(resolved) == 1:
+            resolved = resolved[0]
+        _run_t2i2v_self_test(args, resolved)
         return
 
     # --- Resolve shared seed ---
@@ -400,60 +720,72 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     print(f"[t2i2v] Output dir: {out_dir}")
 
     # =========================================================
-    # Stage 1 — T2I: ZImage generates base image
+    # Stage 1 — T2I: ZImage generates base image (or reuse --from-image)
     # =========================================================
-    print(f"\n[t2i2v] ── Stage 1/3: T2I (ZImage) ──")
     prompt = args.prompt
+    from_image = getattr(args, "from_image", None)
     t2i_transformer = getattr(args, "t2i_transformer", "moody-pro-mix")
     t2i_steps = getattr(args, "t2i_steps", 9)
     t2i_width = getattr(args, "t2i_width", 640)
     t2i_height = getattr(args, "t2i_height", 960)
+    t2i_cfg_scale = getattr(args, "t2i_cfg_scale", None)
     t2i_lora_path = getattr(args, "t2i_lora_path", None)
     t2i_lora_scale = getattr(args, "t2i_lora_scale", 1.0)
 
-    t2i_cmd = build_run_py_cmd(
-        "image", "t2i",
-        "--prompt", prompt,
-        "--transformer", t2i_transformer,
-        "--steps", str(t2i_steps),
-        "--seed", str(t2i_seed),
-        "--width", str(t2i_width),
-        "--height", str(t2i_height),
-        "--gen-output-dir", out_dir,
-    )
-    if t2i_lora_path:
-        t2i_cmd += ["--lora-path", t2i_lora_path,
-                    "--lora-scale", str(t2i_lora_scale)]
+    if from_image:
+        if not os.path.isfile(from_image):
+            print(f"[t2i2v] ERROR: --from-image path not found: {from_image}", file=sys.stderr)
+            sys.exit(1)
+        image_path = from_image
+        print(f"\n[t2i2v] ── Stage 1/3: T2I skipped (--from-image) ──")
+        print(f"[t2i2v] Using existing image: {image_path}")
+    else:
+        print(f"\n[t2i2v] ── Stage 1/3: T2I (ZImage) ──")
+        t2i_cmd = build_run_py_cmd(
+            "image", "t2i",
+            "--prompt", prompt,
+            "--transformer", t2i_transformer,
+            "--steps", str(t2i_steps),
+            "--seed", str(t2i_seed),
+            "--width", str(t2i_width),
+            "--height", str(t2i_height),
+            "--gen-output-dir", out_dir,
+        )
+        if t2i_cfg_scale is not None:
+            t2i_cmd += ["--cfg-scale", str(t2i_cfg_scale)]
+        if t2i_lora_path:
+            t2i_cmd += ["--lora-path", t2i_lora_path,
+                        "--lora-scale", str(t2i_lora_scale)]
 
-    try:
-        # Stream (no capture): T2I runs minutes-to-tens-of-minutes, and capturing
-        # would swallow MLX's live step progress. timeout still guards a hang.
-        result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]), timeout=7200)
-    except subprocess.TimeoutExpired:
-        print("[t2i2v] ERROR: T2I stage timed out after 7200s", file=sys.stderr)
-        sys.exit(124)
-    if result.returncode != 0:
-        # Child stderr already streamed live; just surface the exit summary.
-        print(f"[t2i2v] ERROR: T2I stage failed (exit {result.returncode})", file=sys.stderr)
-        sys.exit(result.returncode)
+        try:
+            # Stream (no capture): T2I runs minutes-to-tens-of-minutes, and capturing
+            # would swallow MLX's live step progress. timeout still guards a hang.
+            result = subprocess.run(t2i_cmd, cwd=os.path.dirname(t2i_cmd[1]), timeout=7200)
+        except subprocess.TimeoutExpired:
+            print("[t2i2v] ERROR: T2I stage timed out after 7200s", file=sys.stderr)
+            sys.exit(124)
+        if result.returncode != 0:
+            # Child stderr already streamed live; just surface the exit summary.
+            print(f"[t2i2v] ERROR: T2I stage failed (exit {result.returncode})", file=sys.stderr)
+            sys.exit(result.returncode)
 
-    # Find the generated image via its manifest
-    manifests = glob.glob(os.path.join(out_dir, "*.manifest.json"))
-    if not manifests:
-        print("[t2i2v] ERROR: no manifest found after T2I stage", file=sys.stderr)
-        sys.exit(1)
-    try:
-        with open(sorted(manifests)[0]) as f:
-            t2i_manifest = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        print(f"[t2i2v] ERROR: cannot read T2I manifest ({e})", file=sys.stderr)
-        sys.exit(1)
-    output_files = t2i_manifest.get("output_files", [])
-    if not output_files:
-        print("[t2i2v] ERROR: T2I manifest has no output_files", file=sys.stderr)
-        sys.exit(1)
-    image_path = output_files[0]["path"]
-    print(f"[t2i2v] T2I image: {image_path}")
+        # Find the generated image via its manifest
+        manifests = glob.glob(os.path.join(out_dir, "*.manifest.json"))
+        if not manifests:
+            print("[t2i2v] ERROR: no manifest found after T2I stage", file=sys.stderr)
+            sys.exit(1)
+        try:
+            with open(sorted(manifests)[0]) as f:
+                t2i_manifest = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"[t2i2v] ERROR: cannot read T2I manifest ({e})", file=sys.stderr)
+            sys.exit(1)
+        output_files = t2i_manifest.get("output_files", [])
+        if not output_files:
+            print("[t2i2v] ERROR: T2I manifest has no output_files", file=sys.stderr)
+            sys.exit(1)
+        image_path = output_files[0]["path"]
+        print(f"[t2i2v] T2I image: {image_path}")
 
     # =========================================================
     # Stage 2 — VLM: generate LTX-optimized I2V prompt
@@ -513,7 +845,7 @@ def run_t2i2v(args: argparse.Namespace) -> None:
                         print(f"[t2i2v] Motion: {motion_summary}")
                 else:
                     print(f"[t2i2v] WARNING: VLM ({vlm_model}) returned empty prompt — "
-                          "using raw prompt (is Qwen3-VL loaded in LM Studio?)",
+                          "using raw prompt (check LM Studio: is the VLM loaded and responding?)",
                           file=sys.stderr)
             except (OSError, json.JSONDecodeError, KeyError) as e:
                 print(f"[t2i2v] WARNING: failed to parse VLM output ({e}) — using raw prompt",
@@ -526,7 +858,8 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     # =========================================================
     print(f"\n[t2i2v] ── Stage 3/3: I2V (LTX-2.3) ──")
 
-    # Resolve LTX transformer: use --transformer if explicitly passed, else dasiwa
+    # Resolve LTX transformer: use --transformer if explicitly passed, else dasiwa.
+    # dasiwa produces better visual quality; use --dev-audio to fix zh speech audio.
     ltx_transformer = getattr(args, "transformer", None) or "dasiwa"
     _f = getattr(args, "frames", None)
     frames = 97 if _f is None else int(_f)
@@ -568,6 +901,14 @@ def run_t2i2v(args: argparse.Namespace) -> None:
         video_cmd.append("--teacache")
     if lora_path:
         video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
+    if getattr(args, "dev_audio", False) and ltx_transformer != "dev":
+        video_cmd.append("--dev-audio")
+        _dev_audio_path = getattr(args, "dev_audio_path", None)
+        if _dev_audio_path:
+            video_cmd += ["--dev-audio-path", _dev_audio_path]
+            print(f"[t2i2v] --dev-audio: will transplant audio stream from {_dev_audio_path} into {ltx_transformer}")
+        else:
+            print(f"[t2i2v] --dev-audio: will transplant dev audio stream into {ltx_transformer} transformer")
 
     try:
         # Stream (no capture): I2V is the longest stage; capturing would hide MLX
@@ -585,31 +926,105 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     video_path = sorted(video_files)[0] if video_files else None
 
     # =========================================================
-    # Stage 4 (optional) — Quality: VLM + signal gate
+    # Stage 4 (optional) — Quality: VLM + signal gate  [+ auto-retry on WARN]
     # =========================================================
     quality_result = None
+    max_retries = getattr(args, "max_retries", 0)
     if getattr(args, "quality_check", False) and video_path:
         quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
+        # Auto-retry I2V with incremented seed when quality is WARN
+        for attempt in range(1, max_retries + 1):
+            if quality_result and quality_result.get("verdict") in ("PASS", "SKIP"):
+                break
+            retry_seed = video_seed + attempt
+            print(f"\n[t2i2v] ── Auto-retry {attempt}/{max_retries}: I2V with seed={retry_seed} ──")
+            retry_video_cmd = build_run_py_cmd(
+                "video", "generate",
+                "--input-image", image_path,
+                "--prompt", video_prompt,
+                "--transformer", ltx_transformer,
+                "--frames", str(frames),
+                "--fps", str(fps),
+                "--seed", str(retry_seed),
+                "--gen-output-dir", out_dir,
+            )
+            if cfg_scale is not None:
+                retry_video_cmd += ["--cfg-scale", str(cfg_scale)]
+            if stg_scale is not None:
+                retry_video_cmd += ["--stg-scale", str(stg_scale)]
+            if stage1_steps is not None:
+                retry_video_cmd += ["--stage1-steps", str(stage1_steps)]
+            if stage2_steps is not None:
+                retry_video_cmd += ["--stage2-steps", str(stage2_steps)]
+            if hq:
+                retry_video_cmd.append("--hq")
+            if distilled:
+                retry_video_cmd.append("--distilled")
+            if teacache:
+                retry_video_cmd.append("--teacache")
+            if lora_path:
+                retry_video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
+            try:
+                result = subprocess.run(retry_video_cmd, cwd=os.path.dirname(retry_video_cmd[1]),
+                                        timeout=7200)
+            except subprocess.TimeoutExpired:
+                print(f"[t2i2v] WARNING: retry {attempt} I2V timed out — stopping retries",
+                      file=sys.stderr)
+                break
+            if result.returncode != 0:
+                print(f"[t2i2v] WARNING: retry {attempt} I2V failed — stopping retries",
+                      file=sys.stderr)
+                break
+            # Pick the newest .mp4 (retry outputs a new file)
+            retry_videos = sorted(glob.glob(os.path.join(out_dir, "*.mp4")))
+            if retry_videos:
+                video_path = retry_videos[-1]
+                video_seed = retry_seed
+            quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
     elif getattr(args, "quality_check", False) and not video_path:
         print("[t2i2v] WARNING: --quality-check skipped — no .mp4 found in output dir",
               file=sys.stderr)
 
     # =========================================================
+    # Stage 4b (optional) — TTS audio fix when audio lang gate fails
+    # =========================================================
+    tts_voice = getattr(args, "tts_voice", None)
+    if (tts_voice and video_path and quality_result and
+            not quality_result.get("audio_asr", {}).get("lang_ok", True)):
+        asr = quality_result.get("audio_asr", {})
+        expected_speech = asr.get("expected_speech", "")
+        if not expected_speech:
+            # Try to extract from the prompt directly
+            expected_speech, _ = _extract_expected_speech(video_prompt)
+        print(f"\n[t2i2v] ── Stage 4b: TTS audio fix (lang={asr.get('detected_lang')} → zh) ──")
+        fixed = _apply_tts_fix(video_path, expected_speech, tts_voice)
+        if fixed and getattr(args, "quality_check", False):
+            # Re-run quality stage to verify fix
+            print("[t2i2v] Re-running quality check after TTS fix...")
+            quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
+
+    # =========================================================
     # Write combined manifest
     # =========================================================
+    if from_image:
+        t2i_section = {"skipped": True, "from_image": image_path}
+    else:
+        t2i_section = {
+            "transformer": t2i_transformer,
+            "prompt": prompt,
+            "steps": t2i_steps,
+            "seed": t2i_seed,
+            "width": t2i_width,
+            "height": t2i_height,
+            "cfg_scale": t2i_cfg_scale,
+            "image_path": image_path,
+        }
+
     combined_manifest = {
         "pipeline": "t2i2v",
         "output_dir": out_dir,
         "stages": {
-            "t2i": {
-                "transformer": t2i_transformer,
-                "prompt": prompt,
-                "steps": t2i_steps,
-                "seed": t2i_seed,
-                "width": t2i_width,
-                "height": t2i_height,
-                "image_path": image_path,
-            },
+            "t2i": t2i_section,
             "vlm": {
                 "action": action,
                 "generated_prompt": video_prompt if action else None,
@@ -621,7 +1036,7 @@ def run_t2i2v(args: argparse.Namespace) -> None:
                 "prompt": video_prompt,
                 "frames": frames,
                 "fps": fps,
-                "seed": video_seed,
+                "seed": video_seed,  # final seed (may differ from base_seed after auto-retry)
             },
             "quality": quality_result if quality_result else {"skipped": True},
         },

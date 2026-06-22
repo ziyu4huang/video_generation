@@ -9,38 +9,60 @@ Comparison guide: [DaSiWa | Major LTX23 Model Comparison Part 1](https://civitai
 - `quantize_config.json` — quantization config
 - `split_model.json` — shard config
 
+## Performance — 10 s video (241 frames @ 704×448)
+
+| Mode | stage1 | stage2 | Est. time |
+|------|--------|--------|-----------|
+| Default (T2V/I2V) | 8 | 3 | **~6 min** |
+| FLF2V | 20 | 3 | **~13 min** |
+| `--hq` | 20 | 5 | **~26 min** |
+
+Common frame counts: 97 (4s), 121 (5s), 241 (10s), 361 (15s) — all 8n+1.
+
 ## Usage
 
 ```bash
+# T2V (text-to-video)
 python/venv/bin/python python/mlx-movie-director/run.py video generate \
     --prompt "..." \
-    --stage1-steps 30 --cfg-scale 5.0 --stg-scale 1.0 \
-    --frames 97 --fps 24 --width 704 --height 448
+    --frames 241 --fps 24 --width 704 --height 448
+
+# I2V (image-to-video) — --transformer dev can be omitted (dev is the default)
+python/venv/bin/python python/mlx-movie-director/run.py video generate \
+    --image input.png --prompt "..." \
+    --frames 241 --fps 24 --width 704 --height 448
+
+# FLF2V (begin + end keyframe interpolation)
+python/venv/bin/python python/mlx-movie-director/run.py video generate \
+    --image begin.png --begin-image end.png \
+    --prompt "..." --frames 241
 ```
 
-`--transformer dev` can be omitted (dev is the default).
-
-## Recommended Parameters
+## Default Parameters
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `--stage1-steps` | 30 | 20 for faster / 8 for quick draft |
-| `--stage2-steps` | 3 | default; keep as-is |
-| `--cfg-scale` | 5.0 | T2V / I2V; use 3.0 for FLF2V |
-| `--stg-scale` | 1.0 | spatial-temporal guidance |
-| `--frames` | 97 | 4 s at 24 fps (must be 8k+1) |
+| `--stage1-steps` | 8 | T2V/I2V default; 20 for FLF2V; 30 for max quality |
+| `--stage2-steps` | 3 | standard; keep as-is |
+| `--cfg-scale` | 5.0 | T2V/I2V; auto-set to 3.0 for FLF2V (softer guidance) |
+| `--stg-scale` | 1.0 | spatial-temporal guidance; 0.0 disables |
 | `--fps` | 24 | training standard |
 | `--width` | 704 | balanced quality / speed |
 | `--height` | 448 | balanced quality / speed |
 
 Higher resolutions (e.g. 768×512) are supported but require more RAM and slow down generation.
-`--hq` mode uses res_2s second-order sampler for better quality (~2× slower); default stage1_steps becomes 15.
+`--hq` uses res_2s second-order sampler (~2× slower per step); auto-sets stage1_steps=20.
 
 ## CFG / STG Notes
 
 - `cfg_scale` controls text guidance only — does not affect keyframe enforcement (FLF2V) or image conditioning (I2V).
 - `stg_scale` applies spatial-temporal guidance; 1.0 is a good default, 0.0 disables it.
-- FLF2V: use `--cfg-scale 3.0` (softer guidance → smoother interpolation between keyframes).
+- FLF2V: auto-set to `cfg_scale=3.0` (softer guidance → smoother interpolation between keyframes).
+
+## Audio
+
+dev has the original unmodified audio stream — native zh/en speech support without any
+transplant. Use zh-TW prompts for Chinese speech; no `--dev-audio` needed.
 
 ## Download
 

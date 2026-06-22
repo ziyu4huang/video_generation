@@ -120,7 +120,7 @@ def add_generate_args(parser):
                         help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
     parser.add_argument("--hq", action="store_true", default=False,
                         help="Use HQ pipeline with res_2s second-order sampler — higher quality, "
-                             "~2× slower per step. Default stage1_steps becomes 15.")
+                             "~2× slower per step. Default stage1_steps becomes 20.")
     parser.add_argument("--distilled", action="store_true", default=False,
                         help="Use distilled transformer (8 steps, CFG=1) — faster generation, "
                              "no LoRA stage. Auto-sets stage1_steps=8, cfg_scale=1.0. "
@@ -131,6 +131,16 @@ def add_generate_args(parser):
                              "--distilled). 'dasiwa' = a DaSiWa dev-architecture finetune "
                              "(converted via convert.py --ltx-checkpoint); behaves like dev "
                              "(CFG/STG on) but loads models/ltx-mlx/dasiwa/.")
+    parser.add_argument("--dev-audio", action="store_true", default=False, dest="dev_audio",
+                        help="Transplant dev audio stream into the loaded transformer before "
+                             "inference — gives dasiwa/distilled visual quality with dev's "
+                             "correct zh-TW audio (fixes Japanese-sounding speech). "
+                             "No-op when --transformer dev (already dev audio). "
+                             "Not compatible with --low-ram.")
+    parser.add_argument("--dev-audio-path", default=None, dest="dev_audio_path", metavar="PATH",
+                        help="Override the audio source safetensors for --dev-audio transplant "
+                             "(default: ltx-2.3-dev-q8/transformer-dev.safetensors). "
+                             "Useful for testing audio from other transformers, e.g. distilled.")
     parser.add_argument("--teacache", action="store_true", default=False,
                         help="Enable TeaCache timestep-aware caching — ~1.46× speedup "
                              "with minimal quality loss (vendor calibrated for LTX-2)")
@@ -223,6 +233,13 @@ def add_generate_args(parser):
 # T2V/I2V (distilled pipeline):
 #   Calibrated from 1216×704×241 run: stage1=48.8s/step, stage2=102s/step,
 #   decode=51.8s. Linear model accurate to ~5% for long generations.
+#
+# T2V/I2V (dasiwa/dev transformer, bench_mult=1.28):
+#   10 s video (241 frames @ 704×448, 76 Mpx):
+#     dasiwa default (s1=16, s2=3, no-HQ): ~9 min  — sharpness 754–849
+#     dasiwa --hq    (s1=20, s2=5, ×2/step): ~20 min — sharpness 165–279
+#     dev default    (s1=8,  s2=3, no-HQ): ~6 min
+#     distilled      (s1=8,  s2=3, ×1.0): ~5 min
 #
 # FLF2V (dev transformer pipeline):
 #   Calibrated from 640×960×241 (148.1 Mpx) runs with stage1=16, stage2=3:
@@ -607,13 +624,6 @@ def _run_generate_inner(args):
     distilled = args.distilled
     if transformer == "dasiwa":
         print("[video] Transformer: dasiwa (DaSiWa dev-architecture finetune — CFG/STG on)")
-        if not hq:
-            args.hq = True
-            hq = True
-            print("[video] dasiwa: --hq enabled by default (A/B-optimum: cfg=5+hq, composite=62.98 vs 58.5)")
-            if args.stage1_steps is None:
-                args.stage1_steps = 20
-                print("[video] dasiwa HQ: stage1_steps auto-set to 20 (A/B-optimum: 20>15, composite 69.12)")
         if args.cfg_scale is None:
             args.cfg_scale = 5.0
         if getattr(args, "audio_modality_scale", None) is None:
@@ -621,10 +631,17 @@ def _run_generate_inner(args):
             print("[video] dasiwa: audio_modality_scale=5.0 (A/B-optimum: composite 63.93 vs 62.98 at default 3.0)")
         if args.stg_scale is None:
             args.stg_scale = 1.5
-            print("[video] dasiwa: stg_scale=1.5 (A/B-optimum: composite 66.61 vs 63.93 at stg=1.0)")
+            print("[video] dasiwa: stg_scale=1.5 (A/B-optimum: 7.61 vs 7.03@stg=2.0, 6.39@stg=1.0)")
         if args.stage2_steps is None:
-            args.stage2_steps = 5
-            print("[video] dasiwa: stage2_steps=5 (A/B-optimum: composite 69.12 vs 66.61 at stage2=3)")
+            if hq:
+                args.stage2_steps = 5
+                print("[video] dasiwa HQ: stage2_steps=5 (A/B-optimum for res_2s sampler)")
+            else:
+                args.stage2_steps = 3
+                print("[video] dasiwa: stage2_steps=3 (standard sampler default; use --hq for res_2s+stage2=5)")
+        if args.stage1_steps is None and not hq:
+            args.stage1_steps = 16
+            print("[video] dasiwa: stage1_steps=16 (speech minimum; pass --hq for quality mode with 20 steps)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
@@ -660,6 +677,22 @@ def _run_generate_inner(args):
     # above; FLF2V set it to 3.0; an explicit user value was already non-None).
     if args.cfg_scale is None:
         args.cfg_scale = 5.0
+
+    # --- Audio stream transplant: set env var so vendor_patches.py injects dev audio ---
+    if getattr(args, "dev_audio", False) and transformer != "dev":
+        from app import config as _cfg
+        _custom_audio_path = getattr(args, "dev_audio_path", None)
+        dev_safetensors = _custom_audio_path if _custom_audio_path else \
+            os.path.join(_cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors")
+        if not os.path.exists(dev_safetensors):
+            print(f"[video] WARNING: --dev-audio: dev transformer not found at {dev_safetensors} — skipping")
+        elif getattr(args, "low_ram", False):
+            print("[video] WARNING: --dev-audio is not compatible with --low-ram — skipping audio transplant")
+        else:
+            os.environ["LTX_DEV_AUDIO"] = dev_safetensors
+            print(f"[video] --dev-audio: will transplant dev audio stream (4775 keys) from {dev_safetensors}")
+    elif "LTX_DEV_AUDIO" in os.environ:
+        del os.environ["LTX_DEV_AUDIO"]  # clear from any previous call in same process
 
     audio_path = args.audio
 

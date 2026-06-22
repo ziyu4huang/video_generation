@@ -9,7 +9,9 @@ Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
   3. AudioVAEDecoder.decode — causal frame crop (T*4-3)
   4. LTXModelConfig         — av_ca_timestep_scale_multiplier 1.0→1000.0
                                + from_checkpoint_config classmethod
-  5. _orchestration          — _load_transformer_config reads embedded_config.json
+  5. _orchestration          — _load_transformer_config reads embedded_config.json;
+                               load_transformer: LTX_DEV_AUDIO env var → audio stream
+                               transplant (replace dasiwa/distilled audio keys with dev)
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
   10. _fuse_distilled_lora   — dequantize int8 LoRA weights before fusion
   11. PromptEncoder.load +   — quantize connector to match pre-quantized weights
@@ -29,7 +31,48 @@ Patches for vendor/mflux (upstream filipstrand/mflux):
 from __future__ import annotations
 
 import json as _json
+import os as _os
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Audio stream transplant helper (used by Patch 5)
+# ---------------------------------------------------------------------------
+
+
+def _transplant_audio_from_dev(weights: dict, dev_path: Path) -> None:
+    """Replace audio stream weights in-place with those from the dev transformer.
+
+    Uses mx.load() which lazily mmaps the safetensors file and natively handles
+    all dtypes (bfloat16, int8, float32) — only accessed tensors are read from
+    disk, so peak extra RAM is O(audio stream) not O(full dev checkpoint).
+
+    Audio stream keys: anything containing "audio" or "video_to_audio"
+    (covers audio_attn, audio_ff, audio_adaln_single, audio_patchify_proj,
+    audio_proj_out, audio_to_video_attn, video_to_audio_attn and the
+    AV cross-attention AdaLN gates).
+    """
+    import mlx.core as mx
+
+    if not dev_path.exists():
+        print(
+            f"[load_transformer] WARNING: LTX_DEV_AUDIO path not found: {dev_path} — skipping transplant",
+            flush=True,
+        )
+        return
+
+    audio_keys = [k for k in weights if "audio" in k or "video_to_audio" in k]
+    dev_weights = mx.load(str(dev_path))  # lazy mmap — no full file load
+    n_ok = 0
+    for k in audio_keys:
+        dev_key = "transformer." + k
+        if dev_key in dev_weights:
+            weights[k] = dev_weights[dev_key]
+            n_ok += 1
+    print(
+        f"[load_transformer] Audio transplant from dev: {n_ok}/{len(audio_keys)} keys replaced",
+        flush=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -269,11 +312,24 @@ def _patch_orchestration() -> None:
         """Build an LTXModel from safetensors with optional block streaming.
 
         Reads embedded_config.json from the model directory to load
-        checkpoint-specific config.
+        checkpoint-specific config.  If LTX_DEV_AUDIO is set to the dev
+        transformer safetensors path, replaces all audio stream keys in the
+        loaded weights dict with those from the dev checkpoint before building
+        the model — giving dasiwa/distilled video quality with dev zh audio.
         """
         config = _load_transformer_config(transformer_path.parent)
         dit = LTXModel(config=config)
         weights = load_split_safetensors(transformer_path, prefix="transformer.")
+        dev_audio_path_str = _os.environ.get("LTX_DEV_AUDIO", "")
+        if dev_audio_path_str and str(transformer_path) != dev_audio_path_str:
+            if low_ram_streaming:
+                print(
+                    "[load_transformer] WARNING: --dev-audio not supported with --low-ram "
+                    "(block streaming bypasses weight dict) — audio transplant skipped",
+                    flush=True,
+                )
+            else:
+                _transplant_audio_from_dev(weights, Path(dev_audio_path_str))
         if low_ram_streaming:
             from ltx_core_mlx.loader.block_streaming import BlockStreamer, StreamingLTXModel
 
@@ -963,7 +1019,7 @@ def apply_all_patches() -> None:
     _patch_int8_lora()
     _patch_connector_apply_quantization()
     _patch_mflux_int8_lora()
-    print("[vendor_patches] Applied 12 patches (8 ltx-2-mlx + 4 mflux)")
+    print("[vendor_patches] Applied 12 patches (8 ltx-2-mlx + 4 mflux) + audio transplant helper")
 
 
 apply_all_patches()

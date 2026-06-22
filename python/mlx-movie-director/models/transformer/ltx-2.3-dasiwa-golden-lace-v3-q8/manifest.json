@@ -4,7 +4,7 @@
   "type": "transformer",
   "arch": "ltx-2.3",
   "format": "mlx-int8",
-  "description": "DaSiWa LTX-2.3 finetune, int8 MLX. Converted from DasiwaLTX23_goldenLaceV3.safetensors via convert.py --ltx-checkpoint.",
+  "description": "DaSiWa LTX-2.3 finetune, int8 MLX. Converted from DasiwaLTX23_goldenLaceV3.safetensors via convert.py --ltx-checkpoint. KNOWN ISSUE: audio AV-CA weights disrupted by finetuning — generates Japanese-sounding speech for zh-TW prompts. Use 'dev' transformer for correct zh audio, or --tts-voice Mei-Jia to overlay macOS TTS.",
   "source": "civitai:2543443@2967331",
   "weight_file": "transformer-dev.safetensors",
   "pipeline": [
