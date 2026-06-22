@@ -471,27 +471,47 @@ def _civitai_api_get(url: str) -> dict:
 def _pick_download_file(version_data: dict) -> tuple[str | None, str | None, str]:
     """Return (bf16_url, primary_url, filename).
 
-    Prefers the bf16 variant for conversion quality; falls back to the primary file.
+    Prefers a bf16 SafeTensor for conversion quality; falls back to the primary
+    file. Only SafeTensor sources are convertible to MLX here, so GGUF/zip
+    entries are excluded even though CivitAI tags them with fp=="bf16".
+
+    Among multiple bf16 safetensors, prefers size=="pruned" (inference weights,
+    the CivitAI default for converted checkpoints) over "full". Regression: a
+    version whose last bf16-tagged file is a GGUF (e.g. RedZiT 1.5 AIO) was
+    silently mis-selected, then failed to load as a safetensors transformer.
     """
     files = version_data.get("files", [])
-    bf16_url = None
-    bf16_name = ""
+    bf16_pruned = None   # (url, name)
+    bf16_full = None
+    bf16_other = None    # bf16 safetensors with no/other size tag
     primary_url = None
     primary_name = ""
 
     for f in files:
         meta = f.get("metadata", {}) or {}
+        fmt = meta.get("format", "")
         fp = meta.get("fp", "")
+        size_tag = meta.get("size", "")
         name = f.get("name", "")
         dl_url = f.get("downloadUrl", "")
-        if fp == "bf16":
-            bf16_url = dl_url
-            bf16_name = name
+
         if f.get("primary") and not primary_url:
             primary_url = dl_url
             primary_name = name
 
-    return bf16_url, primary_url, bf16_name or primary_name
+        if fmt != "SafeTensor" or fp != "bf16" or not dl_url:
+            continue
+        if size_tag == "pruned" and not bf16_pruned:
+            bf16_pruned = (dl_url, name)
+        elif size_tag == "full" and not bf16_full:
+            bf16_full = (dl_url, name)
+        elif not bf16_other:
+            bf16_other = (dl_url, name)
+
+    chosen = bf16_pruned or bf16_full or bf16_other
+    if chosen:
+        return chosen[0], primary_url, chosen[1]
+    return None, primary_url, primary_name
 
 
 def _estimate_gb(version_data: dict, target_url: str | None) -> float:

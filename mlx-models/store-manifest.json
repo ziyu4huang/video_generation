@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 101,
+  "count": 102,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -246,6 +246,10 @@
     "transformer/ernie-redmix-redzit15/model.safetensors": {
       "md5": "2ca2147c655b7bd4b1daca6d52ca274d",
       "size": 3848371806
+    },
+    "transformer/ernie-redmix-redzit15-8bit/model.safetensors": {
+      "md5": "9de50fea3224870e387a7c461458b328",
+      "size": 6540686735
     },
     "transformer/klein-9b/0.safetensors": {
       "md5": "1b65b4111fe714ac4f5240bf8d2e0ba4",

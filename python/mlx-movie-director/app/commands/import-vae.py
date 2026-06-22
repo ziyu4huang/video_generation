@@ -734,10 +734,24 @@ def _civitai_api_get(url: str) -> dict:
 
 
 def _pick_primary_file(version_data: dict) -> tuple[str | None, str]:
-    for f in version_data.get("files", []):
-        if f.get("primary"):
-            return f.get("downloadUrl"), f.get("name", "model.safetensors")
+    """Return (download_url, name) for the primary file.
+
+    Skips GGUF entries — a GGUF primary is not a valid MLX VAE source. CivitAI
+    tags GGUF with fp=="bf16" just like safetensors, so the format/extension
+    must be checked explicitly. Preserves the existing primary-then-first
+    fallback for all other formats (safetensors, .sft, etc.).
+    """
+    def _is_gguf(f: dict) -> bool:
+        meta = f.get("metadata", {}) or {}
+        return meta.get("format", "") == "GGUF" or f.get("name", "").endswith(".gguf")
+
     files = version_data.get("files", [])
+    for f in files:
+        if f.get("primary") and not _is_gguf(f):
+            return f.get("downloadUrl"), f.get("name", "model.safetensors")
+    non_gguf = [f for f in files if not _is_gguf(f)]
+    if non_gguf:
+        return non_gguf[0].get("downloadUrl"), non_gguf[0].get("name", "model.safetensors")
     if files:
         return files[0].get("downloadUrl"), files[0].get("name", "model.safetensors")
     return None, "model.safetensors"
