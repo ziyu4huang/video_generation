@@ -4,9 +4,22 @@ import argparse
 import json
 import os
 from dataclasses import asdict, dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 SCHEMA_VERSION = 14
+
+
+class LoraEntry(TypedDict, total=False):
+    """Structured LoRA entry: {path, scale, stage}.
+
+    ``total=False`` keeps the entry loadable from older run.json files that may
+    omit ``scale``/``stage``; consumers still index defensively. New entries are
+    always built with all three keys (see RunConfig.from_args).
+    """
+
+    path: str
+    scale: float | None
+    stage: str
 
 
 def _lora_manifest_recommended_scale(lora_path: str) -> float:
@@ -21,7 +34,7 @@ def _lora_manifest_recommended_scale(lora_path: str) -> float:
     return 1.0
 
 
-def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, Any] | None":
+def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, list[Any]] | None":
     """Resolve the A/B-params metadata to serialize into run.json.
 
     Variation runs set ``args.ab_params_json`` to the already-parsed dict (see
@@ -142,7 +155,7 @@ class RunConfig:
 
     # A/B variation tracking
     variation_index: int | None = None      # 1-based index within an A/B test
-    ab_params: dict[str, Any] | None = None           # the full ab-params JSON (for reference)
+    ab_params: dict[str, list[Any]] | None = None           # the full ab-params JSON (for reference)
 
     # Draft mode (quick preview: fewer steps, smaller resolution)
     draft: bool = False
@@ -168,7 +181,7 @@ class RunConfig:
     # Structured LoRA usage: [{path, scale, stage}], stage ∈
     # main / face_detail / anime2real / faceswap / fusion. lora_path/lora_scale
     # (the "main" LoRA) stay authoritative for replay + backward-compat readers.
-    loras: list[dict[str, Any]] | None = None
+    loras: list[LoraEntry] | None = None
 
     # ------------------------------------------------------------------
     # Factories
@@ -203,7 +216,10 @@ class RunConfig:
             vae_path=resolve_vae_path(getattr(args, "vae_path", None)),
             input_image=getattr(args, "input_image", None) or getattr(args, "input", None),
             latent_upscale=getattr(args, "latent_upscale", 1.0),
-            denoise_strength=getattr(args, "denoise_strength", 1.0),
+            denoise_strength=(
+                args.denoise_strength if getattr(args, "denoise_strength", None) is not None
+                else 1.0
+            ),
             upscale=getattr(args, "upscale", False),
             upscale_model=getattr(args, "upscale_model", None),
             upscale_method=getattr(args, "upscale_method", "esrgan"),
@@ -274,7 +290,16 @@ class RunConfig:
             _raw_scales = list(getattr(args, "lora_scale", None) or [])
             while len(_raw_scales) < len(rc.lora_paths):
                 _raw_scales.append(_lora_manifest_recommended_scale(rc.lora_paths[len(_raw_scales)]))
-            rc.lora_scales = _raw_scales[:len(rc.lora_paths)]
+            # Coerce defensively so a programmatic caller (tests, replay Namespace
+            # rebuild) injecting a non-float into args.lora_scale can't reach
+            # apply_lora — fall back to 1.0 per entry on any coercion failure.
+            _coerced: list[float] = []
+            for _s in _raw_scales[:len(rc.lora_paths)]:
+                try:
+                    _coerced.append(float(_s))
+                except (TypeError, ValueError):
+                    _coerced.append(1.0)
+            rc.lora_scales = _coerced
             rc.lora_path = rc.lora_paths[0]
             rc.lora_scale = rc.lora_scales[0]
         else:
@@ -283,7 +308,7 @@ class RunConfig:
         # Structured LoRA list: main LoRA(s) + face-detail LoRA (anime2real /
         # faceswap / fusion are appended by their own command paths). lora_path /
         # lora_scale remain the source of truth for the "main" LoRA + replay.
-        _lora_entries: list[dict[str, Any]] = []
+        _lora_entries: list[LoraEntry] = []
         if rc.lora_paths:
             for _p, _s in zip(rc.lora_paths, rc.lora_scales or []):
                 _lora_entries.append({"path": _p, "scale": _s, "stage": "main"})

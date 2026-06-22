@@ -369,7 +369,8 @@ def resolve_lora_path(raw: str | None) -> str | None:
       4. Partial name (e.g. "klein-slider")
          → matches if exactly one lora dir starts with it
 
-    Returns None if raw is None. Exits with error if unresolvable.
+    Returns None if raw is None. Raises ValueError if unresolvable (run.py
+    converts it to a clean CLI exit).
     """
     if raw is None:
         return None
@@ -399,15 +400,16 @@ def resolve_lora_path(raw: str | None) -> str | None:
             print(f"  LoRA resolved: {raw} → {matches[0]}")
             return _find_safetensors_in_dir(os.path.join(lora_base, matches[0]))
         elif len(matches) > 1:
-            print(f"ERROR: ambiguous LoRA name '{raw}' matches: {', '.join(matches)}",
-                  file=sys.stderr)
-            print(f"  Use a more specific name.", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(
+                f"ambiguous LoRA name '{raw}' matches: {', '.join(matches)}"
+                " — use a more specific name"
+            )
 
-    print(f"ERROR: cannot resolve LoRA '{raw}'", file=sys.stderr)
-    print(f"  Searched: file path, models/lora/{raw}, partial match in models/lora/",
-          file=sys.stderr)
-    sys.exit(1)
+    raise ValueError(
+        f"cannot resolve LoRA '{raw}'"
+        f" (searched: file path, models/lora/{raw},"
+        " partial match in models/lora/)"
+    )
 
 
 def resolve_lora_paths(raw_list: list[str] | None) -> list[str]:
@@ -425,7 +427,7 @@ def resolve_lora_paths(raw_list: list[str] | None) -> list[str]:
             continue
         try:
             resolved = resolve_lora_path(raw)
-        except SystemExit:
+        except ValueError:
             resolved = None
         if resolved:
             out.append(resolved)
@@ -483,7 +485,8 @@ def resolve_vae_path(raw: str | None) -> str | None:
          → search models/vae/ for a matching subdirectory
       3. Partial name prefix match
 
-    Returns None if raw is None. Exits with error if unresolvable.
+    Returns None if raw is None. Raises ValueError if unresolvable (run.py
+    converts it to a clean CLI exit).
     """
     if raw is None:
         return None
@@ -506,29 +509,33 @@ def resolve_vae_path(raw: str | None) -> str | None:
             print(f"  VAE resolved: {raw} → {matches[0]}")
             return os.path.abspath(os.path.join(vae_base, matches[0]))
         elif len(matches) > 1:
-            print(f"ERROR: ambiguous VAE name '{raw}' matches: {', '.join(matches)}",
-                  file=sys.stderr)
-            print(f"  Use a more specific name.", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(
+                f"ambiguous VAE name '{raw}' matches: {', '.join(matches)}"
+                " — use a more specific name"
+            )
 
-    print(f"ERROR: cannot resolve VAE '{raw}'", file=sys.stderr)
-    print(f"  Searched: directory path, models/vae/{raw}, partial match in models/vae/",
-          file=sys.stderr)
-    sys.exit(1)
+    raise ValueError(
+        f"cannot resolve VAE '{raw}'"
+        f" (searched: directory path, models/vae/{raw},"
+        " partial match in models/vae/)"
+    )
 
 
 def _find_safetensors_in_dir(directory: str) -> str:
-    """Find the single .safetensors file in a directory. Exit if 0 or >1."""
+    """Find the single .safetensors file in a directory. Raise ValueError if 0 or >1.
+
+    A pure library helper — it raises (never sys.exit) so test/programmatic
+    callers can catch the error; run.py converts ValueError to a clean CLI exit.
+    """
     files = [f for f in os.listdir(directory) if f.endswith(".safetensors")]
     if len(files) == 1:
         return os.path.abspath(os.path.join(directory, files[0]))
     if not files:
-        print(f"ERROR: no .safetensors file found in {directory}", file=sys.stderr)
-        sys.exit(1)
-    print(f"ERROR: multiple .safetensors files in {directory}: {', '.join(files)}",
-          file=sys.stderr)
-    print(f"  Use full path to specify which one.", file=sys.stderr)
-    sys.exit(1)
+        raise ValueError(f"no .safetensors file found in {directory}")
+    raise ValueError(
+        f"multiple .safetensors files in {directory}: {', '.join(files)}"
+        " — use full path to specify which one"
+    )
 
 
 def resolve_prompt(args: argparse.Namespace) -> str:
@@ -770,6 +777,25 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
 # Upscale helper (shared between pipeline dispatch and standalone)
 # ---------------------------------------------------------------------------
 
+def _parse_resolution_spec(res_str: str) -> int | float:
+    """Parse an upscale resolution spec into either an int pixel count (e.g.
+    ``"2160"``) or a float scale (e.g. ``"2x"`` -> 2.0).
+
+    Shared by :func:`_apply_upscale` and ``image-expansion._run_upscale`` so the
+    'Nx' vs pixel-count parsing logic lives in exactly one place.
+    """
+    s = str(res_str).lower()
+    try:
+        if s.endswith("x"):
+            return float(s.rstrip("x"))
+        return int(s)
+    except ValueError as e:
+        raise ValueError(
+            f"Invalid resolution '{res_str}': use an int pixel count (e.g. 2160) "
+            f"or an 'Nx' scale (e.g. 2x)"
+        ) from e
+
+
 def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_model: str,
                    upscale_resolution: str = "2x", upscale_softness: float = 0.5,
                    seed: int = 777) -> "GenerationResult":
@@ -779,11 +805,7 @@ def _apply_upscale(result: "GenerationResult", upscale_method: str, upscale_mode
 
     if upscale_method == "seedvr2":
         from app.seedvr2.pipeline import SeedVR2Upscaler
-        res_str = str(upscale_resolution)
-        try:
-            resolution = int(res_str) if not res_str.lower().endswith("x") else float(res_str.lower().rstrip("x"))
-        except ValueError as e:
-            raise ValueError(f"Invalid upscale_resolution '{upscale_resolution}': use an int pixel count or 'Nx' scale") from e
+        resolution: int | float = _parse_resolution_spec(upscale_resolution)
         upscaler = SeedVR2Upscaler(model_size="7b")
         try:
             upscaled = upscaler.upscale(

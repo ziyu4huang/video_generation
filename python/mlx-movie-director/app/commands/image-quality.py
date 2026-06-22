@@ -40,6 +40,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 import cv2
 import numpy as np
@@ -584,7 +585,7 @@ def _run_degradation_test(args):
 # Core image analysis (uses shared analyze_frame)
 # ---------------------------------------------------------------------------
 
-def analyze_image(image_path: str) -> dict:
+def analyze_image(image_path: str) -> dict[str, Any]:
     """Analyze a single image and return quality metrics dict."""
     img_bgr = cv2.imread(image_path)
     if img_bgr is None:
@@ -609,7 +610,7 @@ def analyze_image(image_path: str) -> dict:
 # HTML data preparation
 # ---------------------------------------------------------------------------
 
-def _prepare_html_data(report_data: dict) -> dict:
+def _prepare_html_data(report_data: dict[str, Any]) -> dict[str, Any]:
     """Prepare image data for HTML report — adapt to chart-compatible format."""
     images = []
     for img in report_data.get("images", []):

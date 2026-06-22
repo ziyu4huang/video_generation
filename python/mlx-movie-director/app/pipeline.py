@@ -122,7 +122,7 @@ class MLXFlowMatchEulerScheduler:
     def __init__(self, shift: float = 3.0, use_dynamic_shifting: bool = True):
         self.shift = shift
         self.use_dynamic_shifting = use_dynamic_shifting
-        self.timesteps = None
+        self.timesteps: mx.array | None = None
 
     def set_timesteps(self, num_inference_steps: int, mu: float | None = None) -> None:
         ts = np.linspace(1.0, 0.0, num_inference_steps + 1)
@@ -139,6 +139,7 @@ class MLXFlowMatchEulerScheduler:
         return res
 
     def step(self, model_output: mx.array, timestep_idx: int, sample: mx.array) -> mx.array:
+        assert self.timesteps is not None, "set_timesteps() must be called before step()"
         t_curr = self.timesteps[timestep_idx]
         t_prev = self.timesteps[timestep_idx + 1]
         dt = t_prev - t_curr

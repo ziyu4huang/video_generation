@@ -16,7 +16,7 @@ Add an entry only after an A/B test confirms the value — record the test in
 
 # transformer instance name → {param: value, ...}
 # Only params that differ from the global RunConfig defaults belong here.
-TRANSFORMER_DEFAULTS: dict[str, dict] = {
+TRANSFORMER_DEFAULTS: dict[str, dict[str, float]] = {
     "dark-beast-dbzit9": {
         # cfg≈3.0 proven optimal on this ZImageTurbo finetune: overall 4→6,
         # prompt_adherence 8→10, sharpness 7→8 (kb.jsonl group D, 2026-06-18).
@@ -26,11 +26,11 @@ TRANSFORMER_DEFAULTS: dict[str, dict] = {
 }
 
 
-def get_transformer_defaults(name: str | None) -> dict:
+def get_transformer_defaults(name: str | None) -> dict[str, float]:
     """Return built-in defaults for a transformer instance, or {} if none registered."""
     return TRANSFORMER_DEFAULTS.get(name or "", {})
 
 
-def all_transformer_defaults() -> dict[str, dict]:
+def all_transformer_defaults() -> dict[str, dict[str, float]]:
     """Return the full registry (used by schema-defaults to publish to the GUI)."""
     return {k: dict(v) for k, v in TRANSFORMER_DEFAULTS.items()}
