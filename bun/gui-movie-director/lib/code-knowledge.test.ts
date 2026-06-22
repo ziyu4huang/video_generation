@@ -117,4 +117,23 @@ describe("code-knowledge", () => {
     expect(report.latestRun?.runId).toBe("r2");
     expect(report.latestRun?.openIssues).toBe(4);
   });
+
+  it("appendCodeRecord is idempotent on runId (guards the double-persist bug)", () => {
+    // Same runId appended twice (Persist-phase retry/re-entry) → recorded once.
+    appendCodeRecord(makeRecord({ runId: "dup", openIssues: 5 }));
+    appendCodeRecord(makeRecord({ runId: "dup", openIssues: 5 }));
+    expect(readAllCodeRecords().length).toBe(1);
+    const idx = readCodeIndex()!;
+    expect(idx.totalRuns).toBe(1); // not inflated by the duplicate
+    expect(idx.lastRunId).toBe("dup");
+    expect(idx.openIssuesTrend).toEqual([5]); // trend not double-counted
+  });
+
+  it("appendCodeRecord idempotency distinguishes different runIds", () => {
+    appendCodeRecord(makeRecord({ runId: "r1" }));
+    appendCodeRecord(makeRecord({ runId: "r1" })); // dup → skip
+    appendCodeRecord(makeRecord({ runId: "r2" })); // new → append
+    expect(readAllCodeRecords().length).toBe(2);
+    expect(readCodeIndex()!.totalRuns).toBe(2);
+  });
 });

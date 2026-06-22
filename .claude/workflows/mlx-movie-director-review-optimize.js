@@ -394,6 +394,13 @@ const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 const KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${WORKFLOW_NAME}.knowledge.jsonl`
+// Operation-lessons: CURATED, append-only rules about how THIS workflow should
+// operate (distinct from KB_FILE's auto-distilled code-finding records). Loaded
+// verbatim and injected into fix/restore/report prompts by phase. NOT touched by
+// extractKnowledge (it only rewrites KB_FILE) and NOT subject to the
+// *.knowledge.jsonl manifest check (different suffix) — do not rename to
+// *.knowledge.jsonl or it falls under the 12-key schema guard.
+const OP_FILE = `${PROJECT_ROOT}/.claude/workflows/${WORKFLOW_NAME}.operation-lessons.jsonl`
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
@@ -469,6 +476,48 @@ Return { found: true, records: <active records array>, digest: <the string> }.`,
   const n = Array.isArray(load?.records) ? load.records.length : 0
   log(`Knowledge: loaded ${n} active record(s)${load?.digest ? "" : " (empty/new)"} ← ${kbFile}`)
   return load
+}
+
+// ── loadOperationLessons — curated, high-trust rules about how this workflow operates ──
+// Unlike loadKnowledge (which builds a distilled digest), this returns the rule
+// text VERBATIM grouped by phase — no summarization, no drift. Records are
+// {id, phase, severity, rule, why, source}; phase ∈ fix|restore|review|report.
+// Injected into the matching agent prompt so the workflow's operating posture
+// persists across runs independently of any operator's project-memory.
+async function loadOperationLessons(opFile) {
+  const load = await agent(
+    `Read the workflow operation-lessons file and return its rules grouped by phase.
+1. Bash("test -f '${opFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, byPhase: {} }.
+3. If EXISTS: Bash("cat '${opFile}'")
+4. Parse each non-empty line as JSON. Keep records where status is absent or "active".
+5. Group by the "phase" field (fix|restore|review|report). For each record output
+   ONLY {id, severity, rule} — copy "rule" VERBATIM (do not rephrase, do not truncate,
+   do not invent). Drop any record whose phase is not one of the four above.
+Return { found: true, byPhase: { "<phase>": [{id,severity,rule}, ...], ... } }.`,
+    { label: "load-operation-lessons", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        byPhase: { type: "object", description: "phase -> array of {id,severity,rule}",
+          additionalProperties: { type: "array", items: { type: "object",
+            properties: { id: { type: "string" }, severity: { type: "string" }, rule: { type: "string" } },
+            required: ["id", "rule"] } } },
+      }, required: ["found", "byPhase"] } },
+  )
+  const counts = load?.byPhase || {}
+  const total = Object.values(counts).reduce((a, arr) => a + (Array.isArray(arr) ? arr.length : 0), 0)
+  const phSummary = Object.entries(counts).map(([p, arr]) => `${p}:${arr.length}`).join(" ") || "(empty)"
+  log(`Operation-lessons: loaded ${total} rule(s) [${phSummary}] ← ${opFile}`)
+  return load
+}
+
+// Render a phase's rules as an injection block (hard rules first). Empty -> "".
+function operationRulesBlock(byPhase, phase) {
+  const rules = (byPhase && byPhase[phase]) || []
+  if (!rules.length) return ""
+  const sorted = [...rules].sort((a, b) => (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1))
+  return `\n## OPERATION RULES (${phase} phase) — follow exactly, these are hard-won workflow truths:\n` +
+    sorted.map((r) => `- [${r.severity || "soft"}] ${r.rule}`).join("\n")
 }
 
 // ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
@@ -682,6 +731,14 @@ if (resumeMode !== "fresh") {
 // Injected FIRST so committed knowledge wins over ephemeral reflection on conflict.
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
+
+// Load curated operation-lessons (how this workflow should operate) and render
+// per-phase injection blocks consumed by the fix/restore/report prompts below.
+const operationLessons = await loadOperationLessons(OP_FILE)
+const _opByPhase = operationLessons?.byPhase || {}
+const fixRulesBlock = operationRulesBlock(_opByPhase, "fix")
+const restoreRulesBlock = operationRulesBlock(_opByPhase, "restore")
+const reportRulesBlock = operationRulesBlock(_opByPhase, "report")
 
 // Build prior-patterns injection string for Review prompts (knowledge prepended below)
 const _reflectionPatternsCtx = priorReflection?.patterns
@@ -1272,6 +1329,7 @@ RULES:
 5. If a fix would change the public API surface or break existing callers, mark it "skipped"
 6. If two fixes conflict, apply the first and mark the second "skipped"
 7. After ALL fixes for a file, read the file back to verify it still looks syntactically valid
+${fixRulesBlock}
 
 FINDINGS FOR ${file} (apply from bottom to top):
 ${JSON.stringify(fileFindings, null, 2)}
@@ -1497,6 +1555,7 @@ Stash ref from checkpoint: ${stashRef || "none"}
 Stash was created: ${stashCreated}
 
 STRATEGY — selective file restore:
+${restoreRulesBlock}
 1. For each file to REVERT, restore from git HEAD:
    ${filesToRevert.map((f) => `Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'python/mlx-movie-director/${f}'")`).join("\n   ")}
 2. If stash was created, drop it (we already cherry-picked what to keep):
@@ -1516,7 +1575,39 @@ Return { restored: bool, method: "checkout"|"stash-pop"|"none", filesReverted: [
         restoreResult = { triggered: true, reason: restoreReason, stashRestored: false, filesReverted: [] }
       }
 
-      markPhase("restore", restoreResult.triggered && restoreResult.filesReverted?.length > 0 ? "completed" : "failed")
+      // §3-B: deterministically re-run the FULL pytest suite after restore to CONFIRM
+      // the regression is actually gone — do NOT assume checkout → baseline-green.
+      // (iter-6 reverted the right file but never re-verified; "success" was assumed.)
+      if (restoreResult.triggered && (restoreResult.filesReverted?.length || 0) > 0) {
+        const postRestore = await agent(
+          `Post-restore verification: re-run the FULL pytest suite to confirm the regression is gone after the selective file restore.
+Bash("cd '${PYTHON_DIR}' && find app -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null; ${VENV_PYTHON} -m pytest app/tests/ -q -p no:cacheprovider 2>&1 | tail -40; echo EXIT_CODE=$?")
+Parse EXIT_CODE: verified = (EXIT_CODE == 0). Count "failed" occurrences if any.
+Return { verified, pytestResult, pytestFailed, note }.`,
+          { label: "restore-verify", phase: "Restore", model: "haiku",
+            schema: { type: "object", properties: {
+              verified: { type: "boolean" },
+              pytestResult: { type: "string", enum: ["pass", "fail", "error"] },
+              pytestFailed: { type: "number" },
+              note: { type: "string" },
+            }, required: ["verified", "pytestResult"] } },
+        )
+        restoreResult.postRestoreVerified = postRestore?.verified === true
+        restoreResult.postRestorePytest = postRestore?.pytestResult || "unknown"
+        restoreResult.postRestoreFailed = postRestore?.pytestFailed || 0
+        if (restoreResult.postRestoreVerified) {
+          log(`Restore: post-restore pytest PASS — regression confirmed gone ✓`)
+        } else {
+          log(`Restore: WARNING — post-restore pytest ${restoreResult.postRestorePytest} (${restoreResult.postRestoreFailed} failed); regression NOT confirmed gone — surfacing in report`)
+        }
+      }
+
+      // Restore only counts as completed when files were reverted AND the post-restore
+      // suite is green (or no verify ran). A red post-restore = the tree is still broken.
+      const restoreOk = restoreResult.triggered
+        && (restoreResult.filesReverted?.length || 0) > 0
+        && restoreResult.postRestoreVerified !== false
+      markPhase("restore", restoreOk ? "completed" : "failed")
     } else if (reVerifyFindings.length > 0) {
       log(`Restore: skipped — ${reVerifyFindings.length} non-critical regression(s) (below threshold)`)
       restoreResult = { triggered: false, reason: null, stashRestored: false, filesReverted: [] }
@@ -1830,7 +1921,8 @@ ${baselineTestResults ? `- Baseline: smoke ${baselineTestResults.smokePassed}/${
 ${smokeTestResults ? `- Argparse smoke: ${smokeTestResults.commandsPassed || 0}/${(smokeTestResults.commandsPassed || 0) + (smokeTestResults.commandsFailed || 0)} commands passed` : ""}
 ${smokeTestResults ? `- Pytest: ${smokeTestResults.pytestResult || "unknown"}` : ""}
 ${reVerifyFindings.length > 0 ? `- NEW regressions (baseline-filtered): ${reVerifyFindings.length}` : "- Regressions: none (baseline-filtered)"}
-${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}, ${restoreResult.filesReverted?.length || 0} file(s) reverted, ${restoreResult.filesKept?.length || 0} safe fix(es) preserved` : "- Restore: not needed"}
+${restoreResult.triggered ? `- RESTORE triggered: ${restoreResult.reason}\n  - Reverted (caused regression): ${restoreResult.filesReverted?.join(", ") || "none"}\n  - Preserved (safe fixes): ${restoreResult.filesKept?.join(", ") || "none"}\n  - Post-restore full pytest: ${restoreResult.postRestorePytest || "not run"}${restoreResult.postRestoreVerified === false ? ` — STILL RED (${restoreResult.postRestoreFailed || 0} failed), regression NOT confirmed gone` : " — PASS"}` : "- Restore: not needed"}
+${reportRulesBlock}
 ` : "## Fix Phase: SKIPPED (review-only mode)"}
 ${priorRunContext}
 
