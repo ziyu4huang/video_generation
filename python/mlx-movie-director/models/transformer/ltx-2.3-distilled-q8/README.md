@@ -11,53 +11,67 @@ Comparison guide: [DaSiWa | Major LTX23 Model Comparison Part 1](https://civitai
 - `quantize_config.json` — quantization config
 - `split_model.json` — shard config
 
+## Performance — 10 s video (241 frames @ 704×448)
+
+| Mode | stage1 | stage2 | Est. time |
+|------|--------|--------|-----------|
+| Default | 8 | 3 | **~5 min** |
+
+Note: `--hq` is incompatible with `--distilled` (mutually exclusive).
+
+Common frame counts: 97 (4s), 121 (5s), 241 (10s), 361 (15s) — all 8n+1.
+
 ## Usage
 
 ```bash
 # Shorthand — auto-sets stage1_steps=8 and cfg_scale=1.0
 python/venv/bin/python python/mlx-movie-director/run.py video generate \
     --distilled --prompt "..." \
-    --frames 97 --fps 24 --width 704 --height 448
+    --frames 241 --fps 24 --width 704 --height 448
 
 # Explicit form (equivalent)
 python/venv/bin/python python/mlx-movie-director/run.py video generate \
     --transformer distilled --prompt "..." \
-    --stage1-steps 8 --cfg-scale 1.0 --stg-scale 0.0 \
-    --frames 97 --fps 24 --width 704 --height 448
+    --frames 241 --fps 24 --width 704 --height 448
 ```
 
-## Recommended Parameters
+## Default Parameters
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | `--stage1-steps` | 8 | predefined sigma schedule; more steps don't help |
-| `--stage2-steps` | 3 | default; keep as-is |
-| `--cfg-scale` | 1.0 | no classifier-free guidance needed (distilled) |
-| `--stg-scale` | 0.0 | STG not needed for distilled; set to 0 |
-| `--frames` | 97 | 4 s at 24 fps (must be 8k+1) |
+| `--stage2-steps` | 3 | standard; keep as-is |
+| `--cfg-scale` | 1.0 | no CFG needed (distilled) |
+| `--stg-scale` | 0.0 | STG disabled in distilled mode |
 | `--fps` | 24 | training standard |
 | `--width` | 704 | or higher — distilled tolerates 720×1280 well |
 | `--height` | 448 | |
 
 ## Key Differences vs Dev
 
-- **Speed**: 3–4× faster (fewer steps, no CFG/STG overhead)
+- **Speed**: ~17% faster per step (smaller per-step compute), same step count → ~5 min vs ~6 min
 - **Quality**: Slightly lower than dev — good for drafts and iteration
-- **No LoRA support**: distilled transformer is a standalone checkpoint (incompatible with distilled LoRA stage)
-- **No STG/CFG needed**: distilled was trained to generate in one pass without guidance amplification
+- **No CFG/STG overhead**: distilled was trained to generate in one pass without guidance amplification
 
 ## Notes
 
 - The `--distilled` flag is shorthand — it sets `--transformer distilled --stage1-steps 8 --cfg-scale 1.0` automatically.
 - Do NOT mix with `lora/ltx-2.3-distilled` — that LoRA is for the dev transformer, not this distilled checkpoint.
 
-## Known Issue: Audio Language (zh-TW → Japanese)
+## Audio — `--dev-audio` Recommended for zh Speech
 
-**The distillation finetuning disrupted the AV cross-attention weights** responsible for speech generation. Same issue as `ltx-2.3-dasiwa-golden-lace-v3-q8` — only the base `dev` transformer generates correct zh audio.
+The distillation finetuning disrupted AV cross-attention weights. zh-TW prompts produce
+Japanese-sounding audio by default (Whisper detects `ja`).
 
-**Confirmed 2026-06-22** via `mlx_whisper` (Whisper detected `ja`, transcript "二層獣雷霊" for a zh-TW "你終於來了" prompt).
+**Fix**: pass `--dev-audio` to transplant the dev audio stream (4775 keys) at load time.
+With a zh-TW prompt, this restores correct Mandarin speech — confirmed equivalent to dev audio
+(both derived from the same base weights before distillation).
 
-**Workarounds:**
-1. Use `--transformer dev` for correct zh audio (no speed advantage, but correct speech)
-2. Use `--tts-voice Mei-Jia` with `--quality-check` to auto-overlay macOS TTS when audio lang gate fails
-3. For video-only generation (no speech in prompt), distilled still works well
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py video generate \
+    --distilled --dev-audio \
+    --prompt "她說「你終於來了，我等你好久了」" \
+    --frames 241
+```
+
+For video-only generation (no speech in prompt), distilled works well without `--dev-audio`.

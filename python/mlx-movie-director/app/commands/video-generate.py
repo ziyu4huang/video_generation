@@ -234,6 +234,13 @@ def add_generate_args(parser):
 #   Calibrated from 1216×704×241 run: stage1=48.8s/step, stage2=102s/step,
 #   decode=51.8s. Linear model accurate to ~5% for long generations.
 #
+# T2V/I2V (dasiwa/dev transformer, bench_mult=1.28):
+#   10 s video (241 frames @ 704×448, 76 Mpx):
+#     dasiwa default (s1=16, s2=3, no-HQ): ~9 min  — sharpness 754–849
+#     dasiwa --hq    (s1=20, s2=5, ×2/step): ~20 min — sharpness 165–279
+#     dev default    (s1=8,  s2=3, no-HQ): ~6 min
+#     distilled      (s1=8,  s2=3, ×1.0): ~5 min
+#
 # FLF2V (dev transformer pipeline):
 #   Calibrated from 640×960×241 (148.1 Mpx) runs with stage1=16, stage2=3:
 #     Run 1: stage1 avg 42.4 s/it, stage2 avg 80.2 s/it, decode=39.4s → 967.5s
