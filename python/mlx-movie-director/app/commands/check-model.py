@@ -1282,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', init);
 </html>"""
 
 
-def run(args: "argparse.Namespace") -> None:
+def run(args: argparse.Namespace) -> None:
     models_dir = cfg.MODELS_DIR
     collected = _collect_models_data(models_dir)
 

@@ -133,7 +133,7 @@ def add_faceswap_args(parser: argparse.ArgumentParser) -> None:
 # Source image generators (test mode only)
 # ---------------------------------------------------------------------------
 
-def _generate_body_zimage(prompt: str, seed: int, label: str, base: str):
+def _generate_body_zimage(prompt: str, seed: int, label: str, base: str) -> tuple[str, str]:
     """Generate body source image using ZImagePipeline (Moody V12.6 DPO).
 
     Uses 640×960 portrait (2:3 ratio) at 9 denoising steps.
@@ -214,7 +214,7 @@ def _generate_body_zimage(prompt: str, seed: int, label: str, base: str):
     return img_path, manifest_file
 
 
-def _generate_face_flux2(prompt: str, seed: int, label: str, base: str):
+def _generate_face_flux2(prompt: str, seed: int, label: str, base: str) -> tuple[str, str]:
     """Generate face source image using Flux2KleinT2IPipeline.
 
     Uses 640×960 portrait (2:3 ratio) at 4 denoising steps (distilled Klein).
@@ -382,7 +382,7 @@ def _run_faceswap_core(body_path: str, face_path: str, args: argparse.Namespace)
     from app.flux2_pipeline import Flux2KleinPipeline
 
     mode = getattr(args, "mode", "face")
-    seed = getattr(args, "seed", 42)
+    seed = getattr(args, "seed", 777)
     steps = getattr(args, "steps", None) or 4
     width = getattr(args, "width", None) or 1024
     height = getattr(args, "height", None) or 1536  # 2:3 portrait to match source
@@ -532,7 +532,7 @@ def run_faceswap(args: argparse.Namespace) -> None:
     _run_faceswap_core(body_path, face_path, args)
 
 
-def _run_test_mode(args):
+def _run_test_mode(args: argparse.Namespace) -> None:
     """Run the full faceswap test pipeline and open an HTML review.
 
     Phase 1: ZImagePipeline → generate body image (Asian JK girl, seed=42)

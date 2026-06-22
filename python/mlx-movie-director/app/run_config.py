@@ -30,6 +30,12 @@ def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, Any] | None":
     keeps its ab_params metadata. Only dict-shaped values are kept, matching the
     RunConfig.ab_params annotation; anything else (lists, scalars, invalid JSON)
     falls back to None rather than violating the type.
+
+    The documented contract is ``dict[str, list]`` (each key maps to one value
+    per variation, see ``--ab-params`` in video-generate.py). We validate that
+    inner shape here too: a dict containing non-list values is dropped to None
+    rather than persisted as malformed metadata, matching the rejection already
+    enforced by the variation driver in video-generate._generate.
     """
     _ab = getattr(args, "ab_params_json", None)
     if _ab is None:
@@ -39,7 +45,14 @@ def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, Any] | None":
                 _ab = json.loads(_raw)
             except (json.JSONDecodeError, TypeError):
                 _ab = None
-    return _ab if isinstance(_ab, dict) else None
+    if not isinstance(_ab, dict):
+        return None
+    # Enforce dict[str, list]: a dict with any non-list value is malformed
+    # (variation driver indexes each value as values[variation_index]) and is
+    # dropped rather than serialized into run.json.
+    if not all(isinstance(_v, list) for _v in _ab.values()):
+        return None
+    return _ab
 
 
 # v2 action names → v3 command names

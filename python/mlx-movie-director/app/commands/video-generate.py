@@ -468,7 +468,7 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
     return new_w, new_h
 
 
-def run_generate(args):
+def run_generate(args: argparse.Namespace) -> None:
     """Entry point for video generation."""
     _run_generate_inner(args)
 

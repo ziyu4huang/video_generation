@@ -111,7 +111,7 @@ _CUSTOM_NODE_PREFIXES = (
 # Parsing
 # ---------------------------------------------------------------------------
 
-def _parse_node(node_data: dict) -> NodeInfo:
+def _parse_node(node_data: dict[str, Any]) -> NodeInfo:
     """Parse a single node from workflow JSON."""
     node_id = str(node_data.get("id", ""))
     node_type = node_data.get("type", "")
@@ -289,7 +289,7 @@ def _extract_prompts(nodes: list[NodeInfo]) -> list[str]:
     return prompts
 
 
-def parse_workflow(workflow_json: dict, name: str = "") -> WorkflowSummary:
+def parse_workflow(workflow_json: dict[str, Any], name: str = "") -> WorkflowSummary:
     """Parse a ComfyUI workflow JSON into a structured summary.
 
     Args:

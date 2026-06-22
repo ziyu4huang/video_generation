@@ -55,7 +55,7 @@ _RESOLUTION_TIERS = {
 }
 
 
-def _resolve_resolution(spec, pipeline):
+def _resolve_resolution(spec: str | None, pipeline: str) -> tuple[int, int] | None:
     """Resolve a --resolution spec to (width, height) or None.
 
     Accepts a named tier ("model"|"benchmark"|"large") — resolved per-pipeline —
