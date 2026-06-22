@@ -16,8 +16,10 @@ export function getManifestSummary(manifest: any): string | null {
   return parts.join(" · ") || null;
 }
 
-export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelete, onVariantClick }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode; onDelete?: (img: GalleryImage) => void; onVariantClick?: (v: GalleryImage) => void }) {
+export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelete, onVariantClick, compareMode, selected, onToggleCompare }: { img: GalleryImage; onClick?: () => void; highlighted?: boolean; viewMode?: ViewMode; onDelete?: (img: GalleryImage) => void; onVariantClick?: (v: GalleryImage) => void; compareMode?: boolean; selected?: boolean; onToggleCompare?: (img: GalleryImage) => void }) {
   const summary = getManifestSummary(img.manifest);
+  // In compare mode, clicking a card toggles its selection instead of opening the preview.
+  const handleCardClick = compareMode ? () => onToggleCompare?.(img) : onClick;
   const isVideo = img.mediaType === "video";
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -40,10 +42,10 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
   if (viewMode === "list") {
     return (
       <div
-        className={`${s.galleryCardList}${highlighted ? " " + s.galleryCardHighlighted : ""}`}
+        className={`${s.galleryCardList}${highlighted ? " " + s.galleryCardHighlighted : ""}${selected ? " " + s.galleryCardSelected : ""}`}
         data-image-name={img.name}
-        onClick={onClick}
-        style={{ cursor: onClick ? "pointer" : undefined }}
+        onClick={handleCardClick}
+        style={{ cursor: handleCardClick ? "pointer" : undefined }}
       >
         <img src={img.url} alt={img.name} loading="lazy" className={s.galleryCardListThumb} />
         <span className={s.galleryCardListName}>{img.name}</span>
@@ -54,10 +56,10 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
 
   return (
     <div
-      className={`${s.galleryCard}${highlighted ? " " + s.galleryCardHighlighted : ""}${isVideo ? " " + s.galleryCardVideo : ""}${viewMode === "s" ? " " + s.galleryCardSmall : ""}`}
+      className={`${s.galleryCard}${highlighted ? " " + s.galleryCardHighlighted : ""}${isVideo ? " " + s.galleryCardVideo : ""}${viewMode === "s" ? " " + s.galleryCardSmall : ""}${selected ? " " + s.galleryCardSelected : ""}`}
       data-image-name={img.name}
-      onClick={onClick}
-      style={{ cursor: onClick ? "pointer" : undefined }}
+      onClick={handleCardClick}
+      style={{ cursor: handleCardClick ? "pointer" : undefined }}
     >
       <div className={s.galleryCardImage}>
         {onDelete && (
@@ -69,6 +71,9 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
           >
             🗑️
           </button>
+        )}
+        {selected && (
+          <span className={s.galleryCardSelectedBadge} title="Selected for compare">✓</span>
         )}
         {isVideo ? (
           <>
@@ -111,7 +116,7 @@ export function GalleryCard({ img, onClick, highlighted, viewMode = "m", onDelet
           </Tip>
         )}
       </div>
-      {img.variants && img.variants.length > 0 && viewMode !== "s" && (
+      {img.variants && img.variants.length > 0 && viewMode !== "s" && !compareMode && (
         <div className={s.variantStrip} onClick={(e) => e.stopPropagation()}>
           <img
             src={isVideo ? (img.thumbnailUrl || img.url) : img.url}
