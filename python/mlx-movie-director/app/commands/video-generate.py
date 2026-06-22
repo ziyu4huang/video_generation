@@ -120,7 +120,7 @@ def add_generate_args(parser):
                         help="Block-streaming mode — ~75%% lower peak Metal RAM, slower per step")
     parser.add_argument("--hq", action="store_true", default=False,
                         help="Use HQ pipeline with res_2s second-order sampler — higher quality, "
-                             "~2× slower per step. Default stage1_steps becomes 15.")
+                             "~2× slower per step. Default stage1_steps becomes 20.")
     parser.add_argument("--distilled", action="store_true", default=False,
                         help="Use distilled transformer (8 steps, CFG=1) — faster generation, "
                              "no LoRA stage. Auto-sets stage1_steps=8, cfg_scale=1.0. "
@@ -137,6 +137,10 @@ def add_generate_args(parser):
                              "correct zh-TW audio (fixes Japanese-sounding speech). "
                              "No-op when --transformer dev (already dev audio). "
                              "Not compatible with --low-ram.")
+    parser.add_argument("--dev-audio-path", default=None, dest="dev_audio_path", metavar="PATH",
+                        help="Override the audio source safetensors for --dev-audio transplant "
+                             "(default: ltx-2.3-dev-q8/transformer-dev.safetensors). "
+                             "Useful for testing audio from other transformers, e.g. distilled.")
     parser.add_argument("--teacache", action="store_true", default=False,
                         help="Enable TeaCache timestep-aware caching — ~1.46× speedup "
                              "with minimal quality loss (vendor calibrated for LTX-2)")
@@ -613,13 +617,6 @@ def _run_generate_inner(args):
     distilled = args.distilled
     if transformer == "dasiwa":
         print("[video] Transformer: dasiwa (DaSiWa dev-architecture finetune — CFG/STG on)")
-        if not hq:
-            args.hq = True
-            hq = True
-            print("[video] dasiwa: --hq enabled by default (A/B-optimum: cfg=5+hq, composite=62.98 vs 58.5)")
-            if args.stage1_steps is None:
-                args.stage1_steps = 20
-                print("[video] dasiwa HQ: stage1_steps auto-set to 20 (A/B-optimum: 20>15, composite 69.12)")
         if args.cfg_scale is None:
             args.cfg_scale = 5.0
         if getattr(args, "audio_modality_scale", None) is None:
@@ -631,6 +628,9 @@ def _run_generate_inner(args):
         if args.stage2_steps is None:
             args.stage2_steps = 5
             print("[video] dasiwa: stage2_steps=5 (A/B-optimum: stage2=7 no gain, stage2=3 worse)")
+        if args.stage1_steps is None and not hq:
+            args.stage1_steps = 16
+            print("[video] dasiwa: stage1_steps=16 (speech minimum; pass --hq for quality mode with 20 steps)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
@@ -670,7 +670,9 @@ def _run_generate_inner(args):
     # --- Audio stream transplant: set env var so vendor_patches.py injects dev audio ---
     if getattr(args, "dev_audio", False) and transformer != "dev":
         from app import config as _cfg
-        dev_safetensors = os.path.join(_cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors")
+        _custom_audio_path = getattr(args, "dev_audio_path", None)
+        dev_safetensors = _custom_audio_path if _custom_audio_path else \
+            os.path.join(_cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors")
         if not os.path.exists(dev_safetensors):
             print(f"[video] WARNING: --dev-audio: dev transformer not found at {dev_safetensors} — skipping")
         elif getattr(args, "low_ram", False):

@@ -899,7 +899,12 @@ def run_t2i2v(args):
         video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
     if getattr(args, "dev_audio", False) and ltx_transformer != "dev":
         video_cmd.append("--dev-audio")
-        print(f"[t2i2v] --dev-audio: will transplant dev audio stream into {ltx_transformer} transformer")
+        _dev_audio_path = getattr(args, "dev_audio_path", None)
+        if _dev_audio_path:
+            video_cmd += ["--dev-audio-path", _dev_audio_path]
+            print(f"[t2i2v] --dev-audio: will transplant audio stream from {_dev_audio_path} into {ltx_transformer}")
+        else:
+            print(f"[t2i2v] --dev-audio: will transplant dev audio stream into {ltx_transformer} transformer")
 
     try:
         # Stream (no capture): I2V is the longest stage; capturing would hide MLX
