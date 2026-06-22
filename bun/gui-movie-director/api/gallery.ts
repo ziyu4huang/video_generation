@@ -49,7 +49,7 @@ interface ImageEntry {
  * Try progressively shorter base names to find companion manifest/run JSON.
  * Handles: base, base_seg01, base_relay, base_seg01_relay patterns.
  */
-function findCompanionJson(dir: string, base: string, suffix: ".manifest.json" | ".run.json" | ".caption.json"): string | null {
+export function findCompanionJson(dir: string, base: string, suffix: ".manifest.json" | ".run.json" | ".caption.json"): string | null {
   const candidates = [
     base,                              // full base: output_20260611_193630_seg01
     base.replace(/_relay$/, ""),       // strip _relay

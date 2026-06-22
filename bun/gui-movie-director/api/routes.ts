@@ -16,6 +16,7 @@ import { handleModelCheckRun, handleModelCheckCache, handleModelCheckScan } from
 import { handleGetCliSchema, handleGetSchemaDefaults } from "./schema";
 import { handleRunSelfTest, handleSelfTestResults } from "./selftest";
 import { handleCaptionRun, handleCaptionGet } from "./caption";
+import { handleAbTest } from "./abTest";
 import { handleKnowledgeScan, handleKnowledgeCaptionMissing, handleKnowledgeAnalyze, handleKnowledgeGetReport, handleKnowledgeDeleteReport } from "./knowledge";
 import { handleCodeKnowledgeReport } from "./code-knowledge";
 import { handleWebSocketUpgrade } from "./ws";
@@ -100,6 +101,7 @@ const STATIC_ROUTES: StaticRoute[] = [
   { method: "GET", pathname: "/api/gallery", handler: (req) => handleGallery(req) },
   { method: "DELETE", pathname: "/api/gallery", handler: (req) => handleGalleryDelete(req) },
   { method: "POST", pathname: "/api/gallery/caption-missing", handler: (req) => handleGalleryCaptionMissing(req) },
+  { method: "POST", pathname: "/api/gallery/ab-test", handler: (req) => handleAbTest(req) },
 
   // Jobs (static routes — the /api/jobs/last GET and /api/jobs/all DELETE must
   // stay ABOVE the /api/jobs/ prefix routes below; static-first matching ensures

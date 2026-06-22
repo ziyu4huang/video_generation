@@ -293,3 +293,110 @@
 
 .wipeLabelLeft { left: 12px; }
 .wipeLabelRight { right: 12px; }
+
+/* ── A/B test ───────────────────────────────────────────────────────────── */
+
+/* Skip-VLM checkbox in the header */
+.abSkip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim, #999);
+  cursor: pointer;
+  user-select: none;
+}
+.abSkip input { cursor: pointer; }
+
+/* Centered scrollable results panel (overlays the surface, inside the Dialog) */
+.abPanel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, 92vw);
+  max-height: 82vh;
+  overflow-y: auto;
+  background: var(--bg-surface, #1c1c1f);
+  border: 1px solid var(--border, #333);
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  padding: 16px 18px;
+  z-index: 50;
+}
+.abPanelHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.abPanelTitle { font-size: 14px; font-weight: 600; color: var(--text-bright, #eee); margin-right: auto; }
+.abBadge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #333);
+  background: var(--bg, #111);
+  color: var(--text-dim, #999);
+}
+.abWinA { color: #7ec8ff; border-color: #2f5a7a; }
+.abWinB { color: #ffb87a; border-color: #7a5232; }
+.abWinTie { color: var(--text-dim, #999); }
+.abClose {
+  background: none; border: none; color: var(--text-dim, #999);
+  font-size: 16px; cursor: pointer; padding: 0 4px;
+}
+.abClose:hover { color: var(--text-bright, #eee); }
+
+.abSection { margin-bottom: 14px; }
+.abSectionTitle {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-dim, #888); margin-bottom: 6px;
+}
+.abVerdict { font-size: 13px; color: var(--text, #ddd); margin-bottom: 4px; }
+.abWhatToDo {
+  font-size: 13px; color: var(--accent, #6ab7ff);
+  background: var(--bg, #111); border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px; padding: 8px 10px;
+}
+
+.abTable {
+  width: 100%; border-collapse: collapse; font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.abTable th, .abTable td {
+  text-align: left; padding: 4px 8px;
+  border-bottom: 1px solid var(--border, #2a2a2a);
+}
+.abTable th { color: var(--text-dim, #888); font-weight: 500; }
+.abCellWin { color: var(--accent, #6ab7ff); font-weight: 600; }
+
+.abMetrics { font-size: 13px; color: var(--text, #ddd); }
+.abThumb {
+  width: 100%; max-height: 200px; object-fit: contain;
+  border: 1px solid var(--border, #333); border-radius: 8px;
+  background: #000;
+}
+
+.abIntent {
+  width: 100%; box-sizing: border-box;
+  background: var(--bg, #111); border: 1px solid var(--border, #333);
+  color: var(--text, #ddd); font-size: 13px; padding: 7px 10px;
+  border-radius: 8px; margin-bottom: 8px;
+}
+.abIntent:focus { outline: none; border-color: var(--accent, #6ab7ff); }
+.abCopyRow { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.abCopyBtn {
+  background: var(--accent, #6ab7ff); color: #061018; border: none;
+  font-size: 13px; font-weight: 600; padding: 7px 14px; border-radius: 8px;
+  cursor: pointer;
+}
+.abCopyBtn:hover { filter: brightness(1.1); }
+.abHint { font-size: 11px; color: var(--text-dim, #888); }
+.abJson {
+  background: var(--bg, #0e0e10); border: 1px solid var(--border, #2a2a2a);
+  border-radius: 8px; padding: 8px; max-height: 260px; overflow: auto;
+  font-size: 12px;
+}
