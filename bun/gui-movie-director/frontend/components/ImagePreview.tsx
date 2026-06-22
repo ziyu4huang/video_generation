@@ -770,6 +770,10 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
   const scores = parseCaptionScores(caption.caption);
   const styleLabel = CAPTION_STYLES.find((style) => style.id === caption.style);
   const label = styleLabel ? `${styleLabel.icon} ${styleLabel.label}` : "Image Analysis";
+  // Show the model that ACTUALLY produced this caption (recorded in the caption
+  // JSON), not the live LM Studio model — an old caption may have been made by a
+  // different model than whatever is loaded in LM Studio right now.
+  const displayModel = caption?.model || vlmHint?.model;
 
   const actionRow = (
     <div className={s.captionActionsRow}>
@@ -777,9 +781,9 @@ function ScoresViewer({ caption, onRerun, onRefresh, rerunning, captionStyle, on
         <StyleDropdown currentStyle={captionStyle || "default"} onPick={onStyleChange} disabled={rerunning} />
       )}
       <div style={{ display: "flex", gap: 4, alignItems: "center", marginLeft: "auto" }}>
-        {vlmHint && (
-          <span style={{ fontSize: 11, color: vlmHint.loaded === false ? "var(--text-dim)" : "var(--accent)", whiteSpace: "nowrap" }}>
-            {vlmHint.loaded === false ? "🔄" : "🤖"} {shortVlmName(vlmHint.model)}{vlmHint.loaded === false ? " (will load)" : ""}
+        {displayModel && (
+          <span style={{ fontSize: 11, color: "var(--accent)", whiteSpace: "nowrap" }} title={`Captioned by ${displayModel}`}>
+            🤖 {shortVlmName(displayModel)}
           </span>
         )}
         {onRefresh && (
