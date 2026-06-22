@@ -342,6 +342,37 @@ VIDEO_TEST_PROMPTS = {
         },
     },
 
+    "zh-speech-portrait": {
+        "name": "zh-speech-portrait",
+        "description": (
+            "Close-up portrait — zh-TW speaker in white dress, verifiable dialog. "
+            "Designed for dasiwa parameter sweeps: fully clothed (SFW-safe), "
+            "known expected speech for content_match gate. "
+            "Use with --transformer dasiwa --dev-audio --quality-check."
+        ),
+        "prompt": (
+            "Style: cinematic realism. "
+            "Close-up of a young woman in a white floral dress with a simple pearl "
+            "necklace, framed from the shoulders up against a softly blurred sunlit "
+            "garden background. She smiles gently and says clearly, "
+            "「你終於來了，我等你好久了。」"
+            "Her voice is warm, unhurried, and naturally paced. "
+            "Soft natural daylight from the left. No music. No background noise."
+        ),
+        # The CJK substring Whisper must reproduce for content_match to pass.
+        "expected_speech": "你終於來了，我等你好久了",
+        "defaults": {
+            "frames": 49,
+            "width": 448,
+            "height": 704,
+            "fps": 24.0,
+            "cfg_scale": 5.0,
+            "stg_scale": 1.0,
+            "stage1_steps": 16,
+            "stage2_steps": 3,
+        },
+    },
+
     "frog-yoga": {
         "name": "frog-yoga",
         "description": (
