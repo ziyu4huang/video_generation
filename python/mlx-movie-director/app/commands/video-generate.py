@@ -39,7 +39,8 @@ from typing import Any
 from app import config as cfg
 from app.commands._shared import (generate_base_name, make_output_paths,
                                    normalize_self_test, resolve_prompt,
-                                   run_session, _option_registered)
+                                   run_session, _option_registered,
+                                   _adjust_frames_for_ltx)
 from app.ltx_variants import get_variant
 from app.manifest import Manifest, file_fingerprint
 from app.run_config import RunConfig
@@ -328,26 +329,12 @@ def _adjust_resolution(width: int, height: int) -> tuple[int, int]:
 def _adjust_frames(frames: int) -> int:
     """Auto-adjust frame count to nearest valid value for LTX-2.3.
 
-    Constraint: frames must satisfy (frames-1) % 8 == 0 (i.e. 8k+1 pattern).
-    Adjusts to the nearest valid value and prints what changed.
+    Delegates to the canonical shared copy (8k+1 constraint + min-9 clamp on
+    both branches). Kept as a thin wrapper so existing callers and the
+    relay/generate parity tests resolve to one implementation — see
+    _shared._adjust_frames_for_ltx.
     """
-    if (frames - 1) % 8 == 0:
-        # Already aligned — but still enforce the minimum meaningful count.
-        # frames=1 satisfies (1-1)%8==0 yet is far below the 9-frame minimum; the
-        # minimum guard below only runs on the ELSE branch, so without this clamp
-        # frames=1 (and any aligned value < 9) would slip through unchanged.
-        return max(frames, 9)
-
-    # Find nearest valid value (round to nearest 8k+1)
-    k = round((frames - 1) / 8)
-    adjusted = 8 * k + 1
-    if adjusted < 9:
-        adjusted = 9  # minimum meaningful frame count
-
-    print(f"[video] Frames adjusted: {frames} → {adjusted} "
-          f"(must satisfy 8k+1: 9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, ...)")
-
-    return adjusted
+    return _adjust_frames_for_ltx(frames, label="video")
 
 
 # Argparse defaults for detecting user overrides (must match add_generate_args)
