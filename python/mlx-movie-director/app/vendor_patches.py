@@ -43,10 +43,9 @@ from pathlib import Path
 def _transplant_audio_from_dev(weights: dict, dev_path: Path) -> None:
     """Replace audio stream weights in-place with those from the dev transformer.
 
-    Reads keys one-by-one via safetensors mmap so peak extra memory is
-    O(one tensor) rather than O(full dev checkpoint).  Both dev and the
-    finetuned checkpoints use identical MLX int8 quantisation, so the
-    tensors are drop-in compatible.
+    Uses mx.load() which lazily mmaps the safetensors file and natively handles
+    all dtypes (bfloat16, int8, float32) — only accessed tensors are read from
+    disk, so peak extra RAM is O(audio stream) not O(full dev checkpoint).
 
     Audio stream keys: anything containing "audio" or "video_to_audio"
     (covers audio_attn, audio_ff, audio_adaln_single, audio_patchify_proj,
@@ -54,7 +53,6 @@ def _transplant_audio_from_dev(weights: dict, dev_path: Path) -> None:
     AV cross-attention AdaLN gates).
     """
     import mlx.core as mx
-    import safetensors  # already in venv (used by load_split_safetensors)
 
     if not dev_path.exists():
         print(
@@ -64,15 +62,13 @@ def _transplant_audio_from_dev(weights: dict, dev_path: Path) -> None:
         return
 
     audio_keys = [k for k in weights if "audio" in k or "video_to_audio" in k]
+    dev_weights = mx.load(str(dev_path))  # lazy mmap — no full file load
     n_ok = 0
-    with safetensors.safe_open(str(dev_path), framework="numpy") as f:
-        for k in audio_keys:
-            dev_key = "transformer." + k
-            try:
-                weights[k] = mx.array(f.get_tensor(dev_key))
-                n_ok += 1
-            except Exception:
-                pass
+    for k in audio_keys:
+        dev_key = "transformer." + k
+        if dev_key in dev_weights:
+            weights[k] = dev_weights[dev_key]
+            n_ok += 1
     print(
         f"[load_transformer] Audio transplant from dev: {n_ok}/{len(audio_keys)} keys replaced",
         flush=True,
