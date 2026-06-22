@@ -621,10 +621,10 @@ def _run_generate_inner(args):
             print("[video] dasiwa: audio_modality_scale=5.0 (A/B-optimum: composite 63.93 vs 62.98 at default 3.0)")
         if args.stg_scale is None:
             args.stg_scale = 1.5
-            print("[video] dasiwa: stg_scale=1.5 (A/B-optimum: composite 66.61 vs 63.93 at stg=1.0)")
+            print("[video] dasiwa: stg_scale=1.5 (A/B-optimum: 7.61 vs 7.03@stg=2.0, 6.39@stg=1.0)")
         if args.stage2_steps is None:
             args.stage2_steps = 5
-            print("[video] dasiwa: stage2_steps=5 (A/B-optimum: composite 69.12 vs 66.61 at stage2=3)")
+            print("[video] dasiwa: stage2_steps=5 (A/B-optimum: stage2=7 no gain, stage2=3 worse)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
