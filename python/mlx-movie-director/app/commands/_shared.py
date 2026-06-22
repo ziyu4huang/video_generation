@@ -978,21 +978,23 @@ def execute_ab_test(run_config: "RunConfig", json_summary: bool = False) -> str:
             all_events.extend(result_f.events or [])
 
             # --- Side-by-side comparison ---
-            zimg = Image.open(zimg_path)
-            fimg = Image.open(fimg_path)
-            compare = _stitch_horizontal(
-                [zimg, fimg], gap=4, labels=["ZImage Turbo", "Flux2 Klein 9B"]
-            )
-            compare_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_compare{suffix}.png")
-            compare.save(compare_path)
-            print(f"Comparison: {compare_path}")
-            all_outputs.append({
-                "path": compare_path, "pipeline": "compare",
-                "size_bytes": os.path.getsize(compare_path),
-                "width": compare.width, "height": compare.height,
-            })
+            # Use context managers so the file descriptors close even if an
+            # exception fires mid-stitch (this block runs inside the seed loop,
+            # so unmanaged opens would leak fds across iterations).
+            with Image.open(zimg_path) as zimg, Image.open(fimg_path) as fimg:
+                compare = _stitch_horizontal(
+                    [zimg, fimg], gap=4, labels=["ZImage Turbo", "Flux2 Klein 9B"]
+                )
+                compare_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_compare{suffix}.png")
+                compare.save(compare_path)
+                print(f"Comparison: {compare_path}")
+                all_outputs.append({
+                    "path": compare_path, "pipeline": "compare",
+                    "size_bytes": os.path.getsize(compare_path),
+                    "width": compare.width, "height": compare.height,
+                })
 
-            del pipeline_f, result_f, zimg, fimg, compare
+            del pipeline_f, result_f, compare
             mx.clear_cache()
             gc.collect()
 
