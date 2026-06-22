@@ -33,7 +33,16 @@ SWEEP_DATE="$(date +%Y%m%d_%H%M%S)"
 SWEEP_ROOT="${SWEEP_ROOT:-../video_generation__output/sweep_dasiwa_params_${SWEEP_DATE}}"
 SWEEP_LOG="${SWEEP_ROOT}/sweep.log"
 
-FIXED_PROMPT="一位年輕女性站在陽光明媚的花園中，她溫柔微笑，輕聲說「你終於來了，我等你好久了。」Style: cinematic realism."
+# Sweep prompt — requirements:
+#   (1) Fully clothed subject (white dress + necklace) → prevents NSFW drift
+#   (2) Close-up framing → LTX speech best practice (<100 tokens)
+#   (3) Quoted dialog in zh-TW + voice descriptor → enables content_match gate
+#   (4) Simple background → reduces scene complexity that competes with audio
+#
+# Expected speech for content_match: 你終於來了，我等你好久了
+# Change EXPECTED_SPEECH below if you change the dialog line.
+FIXED_PROMPT="Style: cinematic realism. Close-up of a young woman in a white floral dress with a simple pearl necklace, framed from the shoulders up against a softly blurred sunlit garden background. She smiles gently and says clearly, 「你終於來了，我等你好久了。」Her voice is warm, unhurried, and naturally paced. Soft natural daylight from the left. No music."
+EXPECTED_SPEECH="你終於來了，我等你好久了"
 
 # ── Validate ────────────────────────────────────────────────────────────────
 if [ -z "$BASE_IMAGE" ]; then
@@ -54,10 +63,11 @@ mkdir -p "$SWEEP_ROOT"
 
 echo "================================================================" | tee -a "$SWEEP_LOG"
 echo "sweep_dasiwa_params — $(date)"                                     | tee -a "$SWEEP_LOG"
-echo "  BASE_IMAGE : $BASE_IMAGE"                                         | tee -a "$SWEEP_LOG"
-echo "  SEEDS      : $SEEDS"                                              | tee -a "$SWEEP_LOG"
-echo "  FRAMES     : $FRAMES"                                             | tee -a "$SWEEP_LOG"
-echo "  SWEEP_ROOT : $SWEEP_ROOT"                                         | tee -a "$SWEEP_LOG"
+echo "  BASE_IMAGE       : $BASE_IMAGE"                                    | tee -a "$SWEEP_LOG"
+echo "  SEEDS            : $SEEDS"                                         | tee -a "$SWEEP_LOG"
+echo "  FRAMES           : $FRAMES"                                        | tee -a "$SWEEP_LOG"
+echo "  EXPECTED_SPEECH  : $EXPECTED_SPEECH"                               | tee -a "$SWEEP_LOG"
+echo "  SWEEP_ROOT       : $SWEEP_ROOT"                                    | tee -a "$SWEEP_LOG"
 echo "================================================================" | tee -a "$SWEEP_LOG"
 
 # ── Conditions ───────────────────────────────────────────────────────────────
@@ -90,6 +100,8 @@ run_condition() {
   fi
 
   mkdir -p "$out_dir"
+  # Write expected speech so analyze_dasiwa_sweep.py can compute content_match accuracy
+  echo "$EXPECTED_SPEECH" > "$out_dir/expected_speech.txt"
   local t_start=$SECONDS
 
   # shellcheck disable=SC2086

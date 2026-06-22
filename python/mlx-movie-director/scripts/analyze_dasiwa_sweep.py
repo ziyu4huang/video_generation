@@ -120,6 +120,26 @@ def _find_mp4(report_path: str) -> str | None:
     return mp4s[0] if mp4s else None
 
 
+def _expected_speech(sweep_root: str, cell: str) -> str | None:
+    """Read expected_speech.txt written by sweep_dasiwa_params.sh, if present."""
+    path = os.path.join(sweep_root, cell, "expected_speech.txt")
+    if os.path.isfile(path):
+        return open(path).read().strip()
+    return None
+
+
+def _cjk_overlap(expected: str, actual: str) -> float:
+    """Fraction of CJK chars in expected that appear in actual (order-independent)."""
+    import unicodedata
+    def cjk_chars(s: str) -> list[str]:
+        return [c for c in s if unicodedata.category(c) in ("Lo",) and ord(c) > 0x2E7F]
+    exp_chars = cjk_chars(expected)
+    if not exp_chars:
+        return 0.0
+    act_set = set(cjk_chars(actual))
+    return sum(1 for c in exp_chars if c in act_set) / len(exp_chars)
+
+
 def _timing_from_log(sweep_root: str, cell: str) -> str:
     """Read elapsed time from results_index.txt if available."""
     idx = os.path.join(sweep_root, "results_index.txt")
@@ -157,6 +177,18 @@ def analyze(sweep_root: str, n_frames: int = 5, with_voice: bool = False, csv_ou
     frame_data: list[tuple[str, dict]] = []
     voice_data: list[tuple[str, dict]] = []
 
+    # Collect expected speech once (shared across all cells in the sweep)
+    expected_speech: str | None = None
+    for cell, rpath in reports:
+        es = _expected_speech(sweep_root, cell)
+        if es:
+            expected_speech = es
+            break
+
+    if expected_speech:
+        print(f"Expected speech : {expected_speech}")
+        print()
+
     for cell, rpath in reports:
         with open(rpath) as f:
             r = json.load(f)
@@ -165,6 +197,13 @@ def analyze(sweep_root: str, n_frames: int = 5, with_voice: bool = False, csv_ou
         sig   = r.get("signal") or {}
         vlm   = r.get("vlm") or {}
 
+        transcript = audio.get("transcript") or ""
+        # Re-compute overlap against known expected speech (more precise than ASR's own ratio)
+        if expected_speech and transcript:
+            precise_ratio = _cjk_overlap(expected_speech, transcript)
+        else:
+            precise_ratio = audio.get("content_ratio")
+
         row = {
             "cell":            cell,
             "verdict":         r.get("verdict", "—"),
@@ -172,8 +211,8 @@ def analyze(sweep_root: str, n_frames: int = 5, with_voice: bool = False, csv_ou
             # Audio
             "lang_ok":         "✓" if audio.get("lang_ok") else ("✗" if audio.get("lang_ok") is False else "?"),
             "content_match":   "✓" if audio.get("content_match") else ("✗" if audio.get("content_match") is False else "?"),
-            "content_ratio":   f"{audio.get('content_ratio', 0):.2f}" if audio.get("content_ratio") is not None else "—",
-            "transcript":      (audio.get("transcript") or "")[:40],
+            "content_ratio":   f"{precise_ratio:.2f}" if precise_ratio is not None else "—",
+            "transcript":      transcript[:40],
             # Signal (video frames)
             "sharpness":       f"{sig.get('sharpness_mean', 0):.0f}" if sig.get("sharpness_mean") is not None else "—",
             "snr_db":          f"{sig.get('snr_db_mean', 0):.1f}" if sig.get("snr_db_mean") is not None else "—",
@@ -283,6 +322,20 @@ def analyze(sweep_root: str, n_frames: int = 5, with_voice: bool = False, csv_ou
             writer.writerows(rows)
         print(f"\nCSV saved: {csv_path}")
 
+    # ── Transcript vs expected speech ────────────────────────────────────────
+    if expected_speech:
+        print(f"\n## Transcript Comparison (expected: 「{expected_speech}」)\n")
+        for row in rows:
+            transcript = row["transcript"].strip()
+            if not transcript:
+                transcript = "(no transcript)"
+            ratio = row["content_ratio"]
+            lang  = row["lang_ok"]
+            match = row["content_match"]
+            indicator = "✓" if match == "✓" and lang == "✓" else "✗"
+            print(f"  {indicator} [{row['cell']}] ratio={ratio}  「{transcript}」")
+        print()
+
     # ── Decision helper ───────────────────────────────────────────────────────
     print("\n## Pass/Fail Summary\n")
     pass_cells = [r["cell"] for r in rows if r["lang_ok"] == "✓" and r["content_match"] == "✓"]
@@ -298,6 +351,13 @@ def analyze(sweep_root: str, n_frames: int = 5, with_voice: bool = False, csv_ou
             print(f"Highest sharpness among passing cells:       {best['cell']} ({best['sharpness']})")
         except (ValueError, TypeError):
             pass
+
+    # Cost-efficiency: fastest passing cell
+    if passing_rows:
+        timed = [(r["cell"], r["time"]) for r in passing_rows if r["time"] not in ("—", "")]
+        if timed:
+            timed.sort(key=lambda x: x[1])
+            print(f"Fastest passing cell:                        {timed[0][0]} ({timed[0][1]})")
 
 
 def main() -> None:
