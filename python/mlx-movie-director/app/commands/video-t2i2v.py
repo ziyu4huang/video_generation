@@ -47,6 +47,8 @@ def add_t2i2v_args(parser):
                         help="macOS TTS voice to overlay on video when audio language gate fails "
                              "(e.g. 'Mei-Jia' for zh-TW, 'Ting-Ting' for zh-CN). "
                              "Requires --quality-check. Mixed at 85%% TTS + 15%% original.")
+    # NOTE: --dev-audio is defined in add_generate_args (video-generate.py) and
+    # shared here via the common parser in video.py. Do NOT add it again here.
     parser.add_argument("--t2i-steps", type=int, default=9,
                         help="T2I denoising steps (default: 9)")
     parser.add_argument("--t2i-seed", type=int, default=None,
@@ -795,6 +797,9 @@ def run_t2i2v(args):
         video_cmd.append("--teacache")
     if lora_path:
         video_cmd += ["--lora-path", lora_path, "--lora-scale", str(lora_scale)]
+    if getattr(args, "dev_audio", False) and ltx_transformer != "dev":
+        video_cmd.append("--dev-audio")
+        print(f"[t2i2v] --dev-audio: will transplant dev audio stream into {ltx_transformer} transformer")
 
     try:
         # Stream (no capture): I2V is the longest stage; capturing would hide MLX

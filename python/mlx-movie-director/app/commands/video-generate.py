@@ -131,6 +131,12 @@ def add_generate_args(parser):
                              "--distilled). 'dasiwa' = a DaSiWa dev-architecture finetune "
                              "(converted via convert.py --ltx-checkpoint); behaves like dev "
                              "(CFG/STG on) but loads models/ltx-mlx/dasiwa/.")
+    parser.add_argument("--dev-audio", action="store_true", default=False, dest="dev_audio",
+                        help="Transplant dev audio stream into the loaded transformer before "
+                             "inference — gives dasiwa/distilled visual quality with dev's "
+                             "correct zh-TW audio (fixes Japanese-sounding speech). "
+                             "No-op when --transformer dev (already dev audio). "
+                             "Not compatible with --low-ram.")
     parser.add_argument("--teacache", action="store_true", default=False,
                         help="Enable TeaCache timestep-aware caching — ~1.46× speedup "
                              "with minimal quality loss (vendor calibrated for LTX-2)")
@@ -660,6 +666,20 @@ def _run_generate_inner(args):
     # above; FLF2V set it to 3.0; an explicit user value was already non-None).
     if args.cfg_scale is None:
         args.cfg_scale = 5.0
+
+    # --- Audio stream transplant: set env var so vendor_patches.py injects dev audio ---
+    if getattr(args, "dev_audio", False) and transformer != "dev":
+        from app import config as _cfg
+        dev_safetensors = os.path.join(_cfg.LTX_TRANSFORMER_DIR, "transformer-dev.safetensors")
+        if not os.path.exists(dev_safetensors):
+            print(f"[video] WARNING: --dev-audio: dev transformer not found at {dev_safetensors} — skipping")
+        elif getattr(args, "low_ram", False):
+            print("[video] WARNING: --dev-audio is not compatible with --low-ram — skipping audio transplant")
+        else:
+            os.environ["LTX_DEV_AUDIO"] = dev_safetensors
+            print(f"[video] --dev-audio: will transplant dev audio stream (4608 keys) from {dev_safetensors}")
+    elif "LTX_DEV_AUDIO" in os.environ:
+        del os.environ["LTX_DEV_AUDIO"]  # clear from any previous call in same process
 
     audio_path = args.audio
 
