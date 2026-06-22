@@ -626,8 +626,12 @@ def _run_generate_inner(args):
             args.stg_scale = 1.5
             print("[video] dasiwa: stg_scale=1.5 (A/B-optimum: 7.61 vs 7.03@stg=2.0, 6.39@stg=1.0)")
         if args.stage2_steps is None:
-            args.stage2_steps = 5
-            print("[video] dasiwa: stage2_steps=5 (A/B-optimum: stage2=7 no gain, stage2=3 worse)")
+            if hq:
+                args.stage2_steps = 5
+                print("[video] dasiwa HQ: stage2_steps=5 (A/B-optimum for res_2s sampler)")
+            else:
+                args.stage2_steps = 3
+                print("[video] dasiwa: stage2_steps=3 (standard sampler default; use --hq for res_2s+stage2=5)")
         if args.stage1_steps is None and not hq:
             args.stage1_steps = 16
             print("[video] dasiwa: stage1_steps=16 (speech minimum; pass --hq for quality mode with 20 steps)")
