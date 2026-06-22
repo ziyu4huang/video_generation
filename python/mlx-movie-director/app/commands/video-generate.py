@@ -677,7 +677,7 @@ def _run_generate_inner(args):
             print("[video] WARNING: --dev-audio is not compatible with --low-ram — skipping audio transplant")
         else:
             os.environ["LTX_DEV_AUDIO"] = dev_safetensors
-            print(f"[video] --dev-audio: will transplant dev audio stream (4608 keys) from {dev_safetensors}")
+            print(f"[video] --dev-audio: will transplant dev audio stream (4775 keys) from {dev_safetensors}")
     elif "LTX_DEV_AUDIO" in os.environ:
         del os.environ["LTX_DEV_AUDIO"]  # clear from any previous call in same process
 
