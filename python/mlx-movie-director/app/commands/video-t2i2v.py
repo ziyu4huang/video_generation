@@ -42,6 +42,11 @@ def add_t2i2v_args(parser):
     parser.add_argument("--t2i-transformer", type=str, default="moody-pro-mix",
                         metavar="NAME",
                         help="ZImage transformer for T2I stage (default: moody-pro-mix)")
+    # --- Audio fix ---
+    parser.add_argument("--tts-voice", type=str, default=None, metavar="VOICE",
+                        help="macOS TTS voice to overlay on video when audio language gate fails "
+                             "(e.g. 'Mei-Jia' for zh-TW, 'Ting-Ting' for zh-CN). "
+                             "Requires --quality-check. Mixed at 85%% TTS + 15%% original.")
     parser.add_argument("--t2i-steps", type=int, default=9,
                         help="T2I denoising steps (default: 9)")
     parser.add_argument("--t2i-seed", type=int, default=None,
@@ -246,6 +251,83 @@ def _review_t2i2v_runs(args) -> None:
 
 
 _CHINESE_LANG_CODES = {"zh", "yue", "wuu"}  # Mandarin, Cantonese, Wu dialects
+_TTS_VOICE_ZH = "Mei-Jia"  # macOS default zh-TW voice
+
+
+def _apply_tts_fix(video_path: str, speech_text: str, tts_voice: str) -> bool:
+    """Overlay macOS TTS speech onto video when audio language gate fails.
+
+    Mixes: TTS at full volume + original video audio at 15 % (preserves
+    background ambient sounds). Replaces the video file in-place.
+
+    Returns True on success, False on any error.
+    """
+    if not speech_text:
+        print("[t2i2v] TTS fix: no expected speech in prompt — skipped")
+        return False
+
+    base = video_path[:-4]  # strip .mp4
+    aiff_path = base + "_tts.aiff"
+    wav_path  = base + "_tts.wav"
+    fixed_path = base + "_ttsfixed.mp4"
+
+    try:
+        # 1. Generate TTS via macOS say
+        r = subprocess.run(
+            ["say", "-v", tts_voice, speech_text, "-o", aiff_path],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode != 0:
+            print(f"[t2i2v] TTS fix: say({tts_voice}) failed — {r.stderr.decode()[:80]}",
+                  file=sys.stderr)
+            return False
+
+        # 2. Convert AIFF → 48 kHz stereo WAV (matches LTX output)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", aiff_path, "-ar", "48000", "-ac", "2", wav_path],
+            capture_output=True, timeout=30,
+        )
+
+        # 3. Get video duration for trim
+        dur_r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True,
+        )
+        dur = float(dur_r.stdout.strip() or "4.0")
+
+        # 4. Mix: original @ 0.15 (background) + TTS @ 1.0, trim to video length
+        r = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", wav_path,
+            "-filter_complex",
+            (f"[0:a]volume=0.15[bg];"
+             f"[1:a]atrim=0:{dur},asetpts=PTS-STARTPTS,adelay=300|300[tts];"
+             "[bg][tts]amix=inputs=2:duration=first[aout]"),
+            "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+            fixed_path,
+        ], capture_output=True, timeout=60)
+
+        if r.returncode != 0:
+            print(f"[t2i2v] TTS fix: ffmpeg mux failed — {r.stderr.decode()[-120:]}",
+                  file=sys.stderr)
+            return False
+
+        os.replace(fixed_path, video_path)
+        print(f"[t2i2v] TTS fix applied: voice={tts_voice!r}, text={speech_text!r}")
+        return True
+
+    except Exception as e:
+        print(f"[t2i2v] TTS fix error: {e}", file=sys.stderr)
+        return False
+    finally:
+        for p in [aiff_path, wav_path]:
+            if os.path.exists(p):
+                os.unlink(p)
+        if os.path.exists(fixed_path):
+            os.unlink(fixed_path)
 
 
 def _extract_expected_speech(prompt: str) -> tuple:
@@ -670,8 +752,11 @@ def run_t2i2v(args):
     # =========================================================
     print(f"\n[t2i2v] ── Stage 3/3: I2V (LTX-2.3) ──")
 
-    # Resolve LTX transformer: use --transformer if explicitly passed, else dasiwa
-    ltx_transformer = getattr(args, "transformer", None) or "dasiwa"
+    # Resolve LTX transformer: use --transformer if explicitly passed, else dev.
+    # dev is the default for t2i2v: produces correct zh audio + higher signal
+    # sharpness (279 vs 165). dasiwa/distilled both generate Japanese-sounding
+    # audio for zh-TW prompts (Whisper detects 'ja') due to finetuning side-effects.
+    ltx_transformer = getattr(args, "transformer", None) or "dev"
     frames = getattr(args, "frames", 97) or 97
     fps = getattr(args, "fps", 24) or 24
     cfg_scale = getattr(args, "cfg_scale", None)
@@ -785,6 +870,24 @@ def run_t2i2v(args):
     elif getattr(args, "quality_check", False) and not video_path:
         print("[t2i2v] WARNING: --quality-check skipped — no .mp4 found in output dir",
               file=sys.stderr)
+
+    # =========================================================
+    # Stage 4b (optional) — TTS audio fix when audio lang gate fails
+    # =========================================================
+    tts_voice = getattr(args, "tts_voice", None)
+    if (tts_voice and video_path and quality_result and
+            not quality_result.get("audio_asr", {}).get("lang_ok", True)):
+        asr = quality_result.get("audio_asr", {})
+        expected_speech = asr.get("expected_speech", "")
+        if not expected_speech:
+            # Try to extract from the prompt directly
+            expected_speech, _ = _extract_expected_speech(video_prompt)
+        print(f"\n[t2i2v] ── Stage 4b: TTS audio fix (lang={asr.get('detected_lang')} → zh) ──")
+        fixed = _apply_tts_fix(video_path, expected_speech, tts_voice)
+        if fixed and getattr(args, "quality_check", False):
+            # Re-run quality stage to verify fix
+            print("[t2i2v] Re-running quality check after TTS fix...")
+            quality_result = _run_quality_stage(args, video_path, video_prompt, out_dir)
 
     # =========================================================
     # Write combined manifest

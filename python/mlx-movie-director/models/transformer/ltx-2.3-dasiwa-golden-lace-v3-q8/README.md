@@ -50,3 +50,20 @@ LoRA strength: most LoRAs work at 0.3–1.2; start at 0.3. Compatible with `lora
 - **Not a distilled model**: requires full dev-model step counts and CFG; `--distilled` flag is NOT compatible.
 - **LoRA compatible**: accepts LTX-2.3 LoRAs (including the distilled LoRA used for the dev pipeline).
 - **LTX-2.3 stability caveat**: LTX23 outputs are sensitive to workflow settings; results vary significantly with prompt quality and parameter tuning. See comparison guide for per-model behavior differences.
+
+## Known Issue: Audio Language (zh-TW → Japanese)
+
+**The dasiwa finetuning disrupted the AV cross-attention weights** responsible for speech generation. When the prompt contains Chinese (zh-TW) speech markers, this transformer generates **Japanese-sounding audio** (Whisper detects `ja`, e.g. "二層陣内路") instead of Mandarin.
+
+**Confirmed 2026-06-22** via `mlx_whisper` on 4 independent dasiwa runs:
+
+| Transformer | Whisper lang | Transcript |
+|-------------|-------------|------------|
+| dasiwa | `ja` ✗ | "二層陣内路" / "2丁変な色" |
+| distilled | `ja` ✗ | "二層獣雷霊" |
+| **dev** | `zh` ✓ | "你终于来了" |
+
+**Workarounds:**
+1. Use `--transformer dev` for correct zh audio (recommended for t2i2v)
+2. Use `--tts-voice Mei-Jia` with `--quality-check` to auto-overlay macOS TTS when audio lang gate fails
+3. For video-only use cases (background, no speech), dasiwa visual quality remains good

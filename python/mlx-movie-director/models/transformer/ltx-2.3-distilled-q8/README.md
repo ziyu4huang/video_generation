@@ -50,3 +50,14 @@ python/venv/bin/python python/mlx-movie-director/run.py video generate \
 
 - The `--distilled` flag is shorthand — it sets `--transformer distilled --stage1-steps 8 --cfg-scale 1.0` automatically.
 - Do NOT mix with `lora/ltx-2.3-distilled` — that LoRA is for the dev transformer, not this distilled checkpoint.
+
+## Known Issue: Audio Language (zh-TW → Japanese)
+
+**The distillation finetuning disrupted the AV cross-attention weights** responsible for speech generation. Same issue as `ltx-2.3-dasiwa-golden-lace-v3-q8` — only the base `dev` transformer generates correct zh audio.
+
+**Confirmed 2026-06-22** via `mlx_whisper` (Whisper detected `ja`, transcript "二層獣雷霊" for a zh-TW "你終於來了" prompt).
+
+**Workarounds:**
+1. Use `--transformer dev` for correct zh audio (no speed advantage, but correct speech)
+2. Use `--tts-voice Mei-Jia` with `--quality-check` to auto-overlay macOS TTS when audio lang gate fails
+3. For video-only generation (no speech in prompt), distilled still works well

@@ -4,7 +4,7 @@
   "type": "transformer",
   "arch": "ltx-2.3",
   "format": "mlx-int8",
-  "description": "LTX-2.3 22B distilled transformer v1.1 (8 steps, CFG=1), int8 MLX quantized. From dgrauet/ltx-2.3-mlx-q8. Use with --distilled flag for faster generation.",
+  "description": "LTX-2.3 22B distilled transformer v1.1 (8 steps, CFG=1), int8 MLX quantized. From dgrauet/ltx-2.3-mlx-q8. Use with --distilled flag for faster generation. KNOWN ISSUE: same audio language problem as dasiwa — generates Japanese-sounding speech for zh-TW prompts (AV-CA weights disrupted by distillation finetuning). Use 'dev' for correct zh audio.",
   "source": "dgrauet/ltx-2.3-mlx-q8",
   "weight_file": "transformer-distilled-1.1.safetensors",
   "pipeline": [
