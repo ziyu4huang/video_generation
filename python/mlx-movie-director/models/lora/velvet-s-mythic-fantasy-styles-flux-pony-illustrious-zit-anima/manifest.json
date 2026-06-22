@@ -7,7 +7,7 @@
   "description": "Velvet's Mythic Fantasy Styles | Flux + Pony + illustrious + ZiT + Anima ZiT Gothic Lines",
   "source": "civitai/velvet-s-mythic-fantasy-styles-flux-pony-illustrious-zit-anima",
   "compatible_with": [
-    "transformer/zimage-moody-v126"
+    "transformer/moody-pro-mix"
   ],
   "size_bytes": 170129464,
   "created_at": "2026-06-20T14:01:44Z",

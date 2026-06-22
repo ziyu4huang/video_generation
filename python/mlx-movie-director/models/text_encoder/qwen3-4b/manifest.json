@@ -8,7 +8,7 @@
   "source": "Qwen/Qwen3-4B",
   "pipeline": ["zimage-turbo"],
   "compatible_with": [
-    "transformer/zimage-moody-v126",
+    "transformer/moody-pro-mix",
     "tokenizer/qwen3"
   ],
   "size_bytes": 2514414621,

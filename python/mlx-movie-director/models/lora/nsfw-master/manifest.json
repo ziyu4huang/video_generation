@@ -7,7 +7,7 @@
   "description": "NSFW MASTER Z-Image Turbo V2",
   "source": "civitai/nsfw-master",
   "compatible_with": [
-    "transformer/zimage-moody-v126"
+    "transformer/moody-pro-mix"
   ],
   "size_bytes": 621346936,
   "created_at": "2026-06-19T17:39:46Z",

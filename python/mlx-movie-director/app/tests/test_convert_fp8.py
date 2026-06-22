@@ -6,9 +6,11 @@ the `.qkv.weight_scale` scalar crash (the original import-checkpoint failure on
 the dark-beast fp8 checkpoint).
 """
 
+import os
+
 import torch
 
-from convert import dequant_comfyui_fp8, _remap_qkv
+from convert import dequant_comfyui_fp8, _remap_qkv, _prepare_weights_output
 
 
 def test_dequant_fp8_with_scale_drops_metadata():
@@ -76,3 +78,61 @@ def test_remap_qkv_skips_non_chunkable_scalar():
     sd2 = {"blk.qkv.weight": torch.randn(9, 4)}
     _remap_qkv("blk.qkv.weight", sd2)
     assert sorted(sd2.keys()) == ["blk.to_k.weight", "blk.to_q.weight", "blk.to_v.weight"]
+
+
+# ---------------------------------------------------------------------------
+# _prepare_weights_output — must remove a store-blob symlink (not write through it)
+# ---------------------------------------------------------------------------
+
+def test_prepare_output_removes_symlink_without_touching_target(tmp_path):
+    """A pre-existing store-blob symlink must be unlinked, not written through.
+
+    model.save_weights() writes *through* a symlink and would corrupt the shared
+    store blob in place; _prepare_weights_output removes the link first. Crucially
+    os.remove on a symlink must NOT delete (or truncate) the target it points to.
+    """
+    store = tmp_path / "store"
+    store.mkdir()
+    blob = store / "deadbeef.safetensors"
+    blob.write_bytes(b"ORIGINAL-STORE-BLOB")
+    inst = tmp_path / "model"
+    inst.mkdir()
+    rel = os.path.relpath(str(blob), str(inst))
+    link = inst / "model.safetensors"
+    os.symlink(rel, str(link))
+
+    _prepare_weights_output(str(link))
+
+    assert not os.path.lexists(str(link)), "symlink itself must be gone"
+    assert blob.read_bytes() == b"ORIGINAL-STORE-BLOB", (
+        "store blob must be untouched (not corrupted/truncated)"
+    )
+
+
+def test_prepare_output_removes_real_file(tmp_path):
+    """A pre-existing real weights file is removed before the fresh save."""
+    inst = tmp_path / "model"
+    inst.mkdir()
+    weights = inst / "model.safetensors"
+    weights.write_bytes(b"old 4-bit weights")
+    _prepare_weights_output(str(weights))
+    assert not weights.exists()
+
+
+def test_prepare_output_noop_when_absent(tmp_path):
+    """Nothing to remove — must not raise when no weights exist yet."""
+    inst = tmp_path / "model"
+    inst.mkdir()
+    weights = inst / "model.safetensors"
+    _prepare_weights_output(str(weights))  # must not raise
+    assert not weights.exists()
+
+
+def test_prepare_output_clears_dangling_symlink(tmp_path):
+    """A dangling symlink (target already gone) is also removed via lexists."""
+    inst = tmp_path / "model"
+    inst.mkdir()
+    link = inst / "model.safetensors"
+    os.symlink("does-not-exist", str(link))
+    _prepare_weights_output(str(link))
+    assert not os.path.lexists(str(link))

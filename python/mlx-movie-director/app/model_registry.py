@@ -5,7 +5,7 @@ Directory convention:
 
 Each manifest.json describes one model instance.  The registry scans subdirectories
 under each type and reads their manifests, allowing multiple instances per type
-(e.g. transformer/zimage-moody-v126/ and transformer/flux2-klein-9b/).
+(e.g. transformer/moody-pro-mix/ and transformer/flux2-klein-9b/).
 """
 
 import json

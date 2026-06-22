@@ -30,5 +30,5 @@ python/venv/bin/python python/mlx-movie-director/run.py image t2i \
 
 ## Compatibility
 
-- `transformer/zimage-moody-v126` ✅
+- `transformer/moody-pro-mix` ✅
 - Flux2 Klein / LTX: ❌ (different architecture)

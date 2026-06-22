@@ -39,7 +39,7 @@ SRC_TEXT_ENCODER = os.path.join(COMFY_MODELS, "text_encoders", "qwen_3_4b.safete
 MODELS_DIR = os.path.join(PROJECT_DIR, "models")
 
 # Default ZImage model instance paths (named subdirectories under each type)
-TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "zimage-moody-v126")
+TRANSFORMER_DIR  = os.path.join(MODELS_DIR, "transformer",   "moody-pro-mix")
 TEXT_ENCODER_DIR = os.path.join(MODELS_DIR, "text_encoder",  "qwen3-4b")
 TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer",     "qwen3")
 VAE_DIR              = os.path.join(MODELS_DIR, "vae", "ultraflux-zimage-ae")

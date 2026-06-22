@@ -169,6 +169,45 @@ class TestExternalizeWeights:
 
 
 # ---------------------------------------------------------------------------
+# _dir_size — must follow symlinks (regression for the size_bytes bug)
+# ---------------------------------------------------------------------------
+
+class TestDirSizeFollowsSymlinks:
+    """_dir_size must report the REAL model size, dereferencing store symlinks.
+
+    Regression: the old impl skipped symlinks, so after externalization
+    (model.safetensors -> store blob) size_bytes came back as the sum of tiny
+    config/readme files (~488 B) instead of the multi-GB weight size, and the
+    manifest recorded a bogus 488.
+    """
+
+    def test_real_file_size(self, tmp_path):
+        d = tmp_path / "model"
+        d.mkdir()
+        (d / "model.safetensors").write_bytes(b"\0" * 5000)
+        (d / "config.json").write_text("{}")  # 2 bytes
+        assert _ckpt_mod._dir_size(str(d)) == 5000 + 2
+
+    def test_externalized_symlink_reports_blob_size(self, tmp_path):
+        """The post-externalization case: model.safetensors is a store symlink."""
+        store = tmp_path / "store"
+        store.mkdir()
+        blob = store / "deadbeef.safetensors"
+        blob.write_bytes(b"\0" * 9_000_000)  # 9 MB "weights"
+
+        inst = tmp_path / "model"
+        inst.mkdir()
+        rel = os.path.relpath(str(blob), str(inst))
+        os.symlink(rel, str(inst / "model.safetensors"))
+        cfg_bytes = b'{"n":1}'  # 7 bytes
+        (inst / "config.json").write_bytes(cfg_bytes)
+
+        # Must follow the symlink and count the 9 MB blob, not skip it.
+        assert _ckpt_mod._dir_size(str(inst)) == 9_000_000 + len(cfg_bytes)
+
+
+
+# ---------------------------------------------------------------------------
 # check-model: non-symlink binary produces a warning
 # ---------------------------------------------------------------------------
 

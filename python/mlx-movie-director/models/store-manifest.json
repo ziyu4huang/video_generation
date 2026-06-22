@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 65,
+  "count": 64,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -128,8 +128,8 @@
       "size": 1693615932
     },
     "transformer/dark-beast-dbzit9/model.safetensors": {
-      "md5": "f1198f38c6db50205f0ff0ffa9b39d78",
-      "size": 3848371806
+      "md5": "300437ff9eb4534db70e4dce219b003c",
+      "size": 6540686735
     },
     "transformer/ernie-redmix-redzit15/model.safetensors": {
       "md5": "2ca2147c655b7bd4b1daca6d52ca274d",
@@ -216,12 +216,8 @@
       "size": 6540686735
     },
     "transformer/seedvr2-7b/model.safetensors": {
-      "md5": "0cbb98776dd07cf136d1d7580cc1d7c7",
-      "size": 5106997144
-    },
-    "transformer/zimage-moody-v126/model.safetensors": {
-      "md5": "58518e0893f38989e1c3c3065a9e1319",
-      "size": 3848371806
+      "md5": "96d45077b90e4db61fb2bd3a442a9332",
+      "size": 8762469765
     },
     "vae/flux2-klein/0.safetensors": {
       "md5": "eaf7057121c0080584fefa1f04704d8a",

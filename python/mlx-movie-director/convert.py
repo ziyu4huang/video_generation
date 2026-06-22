@@ -251,6 +251,22 @@ def _quantize_predicate(path: str, module) -> bool:
     return True
 
 
+def _prepare_weights_output(out_weights: str) -> None:
+    """Remove any existing weights file/symlink before save_weights writes a fresh one.
+
+    model.save_weights() writes *through* an existing symlink, which would corrupt
+    a shared external-store blob in place — the seedvr2 output dirs hold a
+    store-blob symlink alongside a hand-curated manifest.json, so unlike
+    convert_zit_checkpoint we must NOT rmtree the whole dir (that would drop the
+    manifest). os.remove on a symlink removes only the link, never its target;
+    os.path.lexists also catches a dangling symlink whose target is already gone.
+    """
+    if os.path.lexists(out_weights):
+        kind = "symlink" if os.path.islink(out_weights) else "file"
+        print(f"  Removing existing {os.path.basename(out_weights)} ({kind})...")
+        os.remove(out_weights)
+
+
 def convert_seedvr2_dit(bits: int = 4, group_size: int = 32) -> bool:
     """Convert SeedVR2 7B DiT from fp16 safetensors → quantized MLX.
 
@@ -326,6 +342,7 @@ def convert_seedvr2_dit(bits: int = 4, group_size: int = 32) -> bool:
     nn.quantize(model, bits=bits, group_size=group_size, class_predicate=_quantize_predicate)
 
     out_weights = os.path.join(dst_dir, "model.safetensors")
+    _prepare_weights_output(out_weights)
     print(f"[seedvr2-dit] Saving to {dst_dir}...")
     model.save_weights(out_weights)
 
@@ -469,6 +486,7 @@ def convert_seedvr2_vae() -> bool:
     mx.eval(model.parameters())
 
     out_weights = os.path.join(dst_dir, "model.safetensors")
+    _prepare_weights_output(out_weights)
     print(f"[seedvr2-vae] Saving to {dst_dir}...")
     model.save_weights(out_weights)
 

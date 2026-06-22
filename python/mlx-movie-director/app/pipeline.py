@@ -85,8 +85,8 @@ def _detect_transformer_quant(trans_path: str) -> tuple[int, int]:
     """Read manifest.json to detect quantization bits and group_size.
 
     Returns (bits, group_size). Falls back to (4, 32) if manifest is missing
-    or format is unrecognised — preserving backward compatibility with the
-    existing moody-v126 and dark-beast models.
+    or format is unrecognised — preserving backward compatibility with any
+    legacy 4-bit models and manifests without an explicit `format`.
     """
     manifest_path = os.path.join(trans_path, "manifest.json")
     if os.path.exists(manifest_path):

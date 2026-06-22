@@ -41,7 +41,7 @@ class RunConfig:
 
     # Pipeline selection
     pipeline: str = "zimage"            # "zimage" or "flux2-klein"
-    transformer: str | None = "klein-9b"       # Transformer instance dir under models/transformer/
+    transformer: str | None = None       # Transformer instance dir; None = pipeline default (zimage→cfg, flux2→klein-9b)
 
     # Prompt
     prompt: str | None = None
@@ -148,7 +148,7 @@ class RunConfig:
             schema_version=SCHEMA_VERSION,
             command=command,
             pipeline=getattr(args, "pipeline", "zimage"),
-            transformer=getattr(args, "transformer", "klein-9b"),
+            transformer=getattr(args, "transformer", None),
             prompt=getattr(args, "prompt", None),
             prompt_file=getattr(args, "prompt_file", None),
             width=getattr(args, "width", 640),
@@ -206,13 +206,6 @@ class RunConfig:
             skin_contrast=getattr(args, "skin_contrast", False),
             noise_clean=getattr(args, "noise_clean", False),
         )
-        # Clear the flux2-klein default when using zimage without an explicit
-        # --transformer override (avoid serializing a misleading "klein-9b" name).
-        # ZImagePipeline now supports --transformer for selecting alternative
-        # ZImage Turbo checkpoints (e.g. ernie-redmix-redzit15).
-        if rc.pipeline == "zimage" and rc.transformer == "klein-9b":
-            rc.transformer = None
-
         # Per-transformer built-in defaults (app/transformer_defaults.py). Applied
         # ONLY when the user did NOT pass the flag — detected via the argparse
         # default=None sentinel (getattr(args,key) is None ⇒ not passed), so an

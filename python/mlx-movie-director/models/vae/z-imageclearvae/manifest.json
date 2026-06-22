@@ -8,7 +8,7 @@
   "source": "https://civitai.com/models/2191617",
   "source_url": "https://civitai.com/models/2191617",
   "compatible_with": [
-    "transformer/zimage-moody-v126",
+    "transformer/moody-pro-mix",
     "transformer/moody-pro-mix",
     "transformer/luciddreamer-z"
   ],

@@ -7,9 +7,9 @@ import { RESOLUTION_MAP, resolutionKey } from "../../../schemas/shared";
 // pipeline's default model (the user re-picks if they want another). Defaults
 // match the server's config.py / argparse defaults so untouched behavior is unchanged.
 const PIPELINE_DEFAULT_TRANSFORMER: Record<string, string> = {
-  zimage: "zimage-moody-v126",
+  zimage: "moody-pro-mix",
   "flux2-klein": "klein-9b",
-  auto: "zimage-moody-v126",
+  auto: "moody-pro-mix",
 };
 
 // serverDefaults keys that are METADATA (not form field values) — never merged into state.
