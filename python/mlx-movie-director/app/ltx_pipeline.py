@@ -492,23 +492,36 @@ class LTXVideoPipeline:
         )
 
         t0 = time.time()
-        self._pipeline.generate_and_save(
-            prompt=prompt,
-            output_path=output_path,
-            keyframe_images=[begin_image, end_image],
-            keyframe_indices=[0, last_pixel_frame],
-            keyframe_strengths=[begin_strength, end_strength],
-            height=height,
-            width=width,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            seed=seed,
-            stage1_steps=stage1_steps,
-            stage2_steps=stage2_steps,
-            cfg_scale=cfg_scale,
-            video_guider_params=video_gp,
-            audio_guider_params=audio_gp,
-        )
+        try:
+            self._pipeline.generate_and_save(
+                prompt=prompt,
+                output_path=output_path,
+                keyframe_images=[begin_image, end_image],
+                keyframe_indices=[0, last_pixel_frame],
+                keyframe_strengths=[begin_strength, end_strength],
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                seed=seed,
+                stage1_steps=stage1_steps,
+                stage2_steps=stage2_steps,
+                cfg_scale=cfg_scale,
+                video_guider_params=video_gp,
+                audio_guider_params=audio_gp,
+            )
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC
+            # pass so the ~17GB LTX transformer / VAE tensors are released before the
+            # next run, rather than staying resident behind a stale graph. Parity with
+            # generate() above (lines 374-387), app/pipeline.py, app/seedvr2/pipeline.py.
+            import gc
+            import mlx.core as mx
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
         _events = list(self._pipeline_events)
         _events.append({
             "event": "denoise_config", "target": "ltx_flf2v",
@@ -584,20 +597,33 @@ class LTXVideoPipeline:
         )
 
         t0 = time.time()
-        pipeline.generate_and_save(
-            prompt=prompt,
-            output_path=output_path,
-            video_conditioning=video_conditioning,
-            height=height,
-            width=width,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            seed=seed,
-            stage1_steps=stage1_steps,
-            stage2_steps=stage2_steps,
-            images=images,
-            conditioning_attention_strength=conditioning_attention_strength,
-        )
+        try:
+            pipeline.generate_and_save(
+                prompt=prompt,
+                output_path=output_path,
+                video_conditioning=video_conditioning,
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                seed=seed,
+                stage1_steps=stage1_steps,
+                stage2_steps=stage2_steps,
+                images=images,
+                conditioning_attention_strength=conditioning_attention_strength,
+            )
+        except (RuntimeError, MemoryError):
+            # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
+            # MemoryError: flush MLX's compiled-graph / weight caches and force a GC
+            # pass so the ~17GB LTX transformer / VAE tensors are released before the
+            # next run, rather than staying resident behind a stale graph. Parity with
+            # generate() above (lines 374-387), app/pipeline.py, app/seedvr2/pipeline.py.
+            import gc
+            import mlx.core as mx
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
         # IC-LoRA builds a fresh pipeline (not via _build_pipeline), so emit its
         # runtime trace locally: model load + each LoRA fused at init + denoise config.
         _events = [{

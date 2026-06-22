@@ -1377,8 +1377,25 @@ def _run_caption(png_path: str, style: str = "default", prompt: str = "") -> Non
         extra += ["--prompt", prompt]
     try:
         print(f"[video] Captioning {os.path.basename(png_path)} (style={style})…")
-        subprocess.run(build_run_py_cmd("caption", png_path, *extra), timeout=180)
-    except Exception as exc:
+        completed = subprocess.run(
+            build_run_py_cmd("caption", png_path, *extra),
+            timeout=180,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            # Child run.py raised a real error — surface it (distinguishable from
+            # a timeout/missing-VLM) instead of silently producing an un-scored
+            # comparison HTML.
+            tail = (completed.stderr or "").strip().splitlines()[-3:]
+            print(
+                f"[video] Caption failed (returncode={completed.returncode}): "
+                + " | ".join(tail),
+                file=sys.stderr,
+            )
+    except subprocess.TimeoutExpired:
+        print(f"[video] Caption skipped: timed out after 180s", file=sys.stderr)
+    except (subprocess.SubprocessError, OSError) as exc:
         print(f"[video] Caption skipped: {exc}", file=sys.stderr)
 
 

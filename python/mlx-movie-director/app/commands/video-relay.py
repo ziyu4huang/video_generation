@@ -762,7 +762,8 @@ def _run_relay_self_test(args):
         low_ram=getattr(args, "low_ram", False),
         hq=False,
         distilled=True,               # best overall: distilled+vbvr-siraxe
-        lora_path=getattr(args, "lora_path", "vbvr-ltx2.3"),  # default to siraxe (3★ both presets)
+        # --lora-path is action="append" (None | list[str]); peel to scalar for the LTX pipeline.
+        lora_path=(lambda v: v[0] if isinstance(v, list) and v else ("vbvr-ltx2.3" if v is None else v))(getattr(args, "lora_path", None)),  # default to siraxe (3★ both presets)
         lora_scale=1.0,
         video_model=None,             # use default distilled dir
         teacache=False,
@@ -1015,7 +1016,12 @@ def _run_relay_inner(args):
     stg_scale = getattr(args, "stg_scale", 1.0)
     base_seed = getattr(args, "seed", 42)
     low_ram = getattr(args, "low_ram", False)
-    lora_path = resolve_lora_path(getattr(args, "lora_path", None))
+    # --lora-path uses action="append" -> args.lora_path is None | list[str], never a bare str.
+    # Peel the first entry before resolving (matches video-generate.py's _first_or pattern).
+    _raw_lora = getattr(args, "lora_path", None)
+    if isinstance(_raw_lora, list):
+        _raw_lora = _raw_lora[0] if _raw_lora else None
+    lora_path = resolve_lora_path(_raw_lora)
     lora_scale = getattr(args, "lora_scale", 1.0)
 
     segment_images = _resolve_segment_images(args, n)
