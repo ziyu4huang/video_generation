@@ -803,24 +803,39 @@ def _loaded_model_keys(api_url: str):
 def _resolve_model(api_url: str, explicit_model):
     """Pick which VLM to use for captioning.
 
-    - An explicit --model always wins (no LM Studio query is issued).
-    - Otherwise walk the priority list (Gemma 26B > Qwen 4B): the first one
-      that is ALREADY LOADED in LM Studio is used — no new model is loaded.
-    - If neither is loaded, fall back to _DEFAULT_MODEL (Qwen 4B) which
-      _lmstudio_ensure_model then auto-loads.
+    Priority:
+    1. Explicit --model arg → use it immediately (no LM Studio query).
+    2. Any preferred model (Gemma 31B > 26B) already loaded → use it.
+    3. Any model already loaded in LM Studio → use it (avoids forcing a
+       Qwen auto-load when the user already has something running).
+    4. Nothing loaded → auto-load _DEFAULT_MODEL (Qwen 4B, lightweight).
 
-    Gemma is NEVER auto-loaded here; it is used only when already loaded.
+    Gemma is NEVER auto-loaded — only used when already running.
     Returns the chosen model id string.
     """
     if explicit_model:
         return explicit_model
     loaded = _loaded_model_keys(api_url) or set()
-    for candidate in _PREFERRED_MODELS + [_DEFAULT_MODEL]:
+    # Step 1: preferred models in priority order (Gemma 31B > 26B)
+    for candidate in _PREFERRED_MODELS:
         if candidate in loaded:
             print(f"[caption] Auto: {candidate} already loaded — "
                   f"using it, no model load needed.", flush=True)
             return candidate
-    print(f"[caption] Auto: no preferred VLM loaded — "
+    # Step 2: use any already-loaded model — avoid forcing a Qwen auto-load
+    # when the user already has something running in LM Studio.
+    available = {k for k in loaded if k}
+    if available:
+        if _DEFAULT_MODEL in available:
+            print(f"[caption] Auto: {_DEFAULT_MODEL} already loaded — "
+                  f"using it, no model load needed.", flush=True)
+            return _DEFAULT_MODEL
+        chosen = next(iter(available))
+        print(f"[caption] Auto: using already-loaded model {chosen} "
+              f"(no preferred model found, skipping Qwen auto-load).", flush=True)
+        return chosen
+    # Step 3: nothing loaded at all — auto-load the lightweight default
+    print(f"[caption] Auto: no VLM loaded — "
           f"will auto-load {_DEFAULT_MODEL}.", flush=True)
     return _DEFAULT_MODEL
 
