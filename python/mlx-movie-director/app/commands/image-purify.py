@@ -279,7 +279,8 @@ def _build_purify_run_meta(args, input_path, mode, softness, resolution,
     }
 
 
-def _run_transformer_backend(input_path, mode, resolution, w0, h0, seed, prompt,
+def _run_transformer_backend(input_path: str, mode: str, resolution: str | int | float,
+                             w0: int, h0: int, seed: int, prompt: str | None,
                              transformer_name: str = "klein-9b",
                              json_summary: bool = False) -> str:
     """Redraw via flux2-klein I2I by delegating to `run.py image i2i`.

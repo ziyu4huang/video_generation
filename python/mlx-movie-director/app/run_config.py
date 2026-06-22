@@ -270,6 +270,15 @@ class RunConfig:
         # default=None sentinel (getattr(args,key) is None ⇒ not passed), so an
         # explicit CLI flag always wins. Never a magic-number compare vs the global
         # default (see memory argparse-sentinel-for-user-override).
+        #
+        # Invariant: every key in TRANSFORMER_DEFAULTS MUST be a field whose
+        # argparse registration uses default=None (the sentinel). Registering a
+        # default for a field whose argparse default is a concrete value (so
+        # getattr(args,key) is never None) would silently let the transformer
+        # default clobber values — and conversely a field resolved to a concrete
+        # value during RC construction above could be overwritten here. The guard
+        # checks the args sentinel, so keep transformer_defaults keys confined to
+        # sentinel-defaulted fields (today: cfg_scale for the t2i path).
         if rc.transformer:
             from app.transformer_defaults import get_transformer_defaults
             for _key, _val in get_transformer_defaults(rc.transformer).items():
@@ -334,7 +343,14 @@ class RunConfig:
 
         raw = _migrate(raw)
         known = set(cls.__dataclass_fields__)
-        return cls(**{k: v for k, v in raw.items() if k in known})
+        rc = cls(**{k: v for k, v in raw.items() if k in known})
+        # Coerce scalar numeric fields against their annotations. A run.json may
+        # be hand-edited, written by an older binary, or produced by the
+        # variation driver which setattr's ab-params values; without this pass a
+        # "steps": "9" or "cfg_scale": null would flow untyped into MLX pipeline
+        # calls expecting int/float and surface as a confusing downstream error.
+        _coerce_typed_fields(rc)
+        return rc
 
     # ------------------------------------------------------------------
     # Serialization
@@ -348,6 +364,67 @@ class RunConfig:
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
         os.replace(tmp_path, path)
+
+
+def _coerce_typed_fields(rc: "RunConfig") -> None:
+    """Coerce the scalar numeric RunConfig fields to their declared types in-place.
+
+    Drives off the dataclass annotations: for each field whose annotation is (or
+    contains) ``int`` or ``float``, coerce the loaded JSON value into the declared
+    type. ``None`` is preserved on Optional fields (``int | None`` / ``float | None``)
+    but rejected on non-Optional scalar fields with a clear ValueError naming the
+    field, so a malformed run.json fails loudly at load time rather than deep
+    inside a pipeline call. Non-scalar fields (str, bool, lists, dicts) are left
+    untouched — JSON already yields the right native Python type for those and
+    bool must not be int-coerced.
+    """
+    import dataclasses
+    import typing
+    for _f in dataclasses.fields(rc):
+        _ann = _f.type
+        # Normalize to a set of leaf types (handles "int | None" whether the
+        # annotation is a string or a runtime types.UnionType / typing.Union).
+        if isinstance(_ann, str):
+            _ann_clean = _ann.strip()
+            _leaves: set = set()
+            for _tok in _ann_clean.replace("|", " ").split():
+                _tok = _tok.strip()
+                if _tok == "None" or _tok == "NoneType":
+                    _leaves.add(type(None))
+                elif _tok == "int":
+                    _leaves.add(int)
+                elif _tok == "float":
+                    _leaves.add(float)
+            _is_optional = type(None) in _leaves
+        else:
+            _args = typing.get_args(_ann)
+            _leaves = set(_args) if _args else {_ann}
+            _is_optional = type(None) in _leaves
+        # Pick the numeric target: prefer float if both int+float are declared
+        # (a float field may be written as an int in JSON); skip non-numeric.
+        if int in _leaves and float not in _leaves:
+            _target = int
+        elif float in _leaves:
+            _target = float
+        else:
+            continue
+        # Never int-coerce a field that also allows bool (bool is a subclass of
+        # int in Python); RunConfig bool fields are skipped via the `continue`.
+        _val = getattr(rc, _f.name)
+        if _val is None:
+            if not _is_optional:
+                raise ValueError(
+                    f"RunConfig field '{_f.name}' is non-Optional but the "
+                    f"run.json carried null."
+                )
+            continue
+        try:
+            setattr(rc, _f.name, _target(_val))
+        except (TypeError, ValueError) as _e:
+            raise ValueError(
+                f"RunConfig field '{_f.name}' could not be coerced to "
+                f"{_target.__name__} from {type(_val).__name__} ({_val!r}): {_e}"
+            ) from _e
 
 
 def _migrate(raw: dict[str, Any]) -> dict[str, Any]:

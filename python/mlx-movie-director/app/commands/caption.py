@@ -1044,9 +1044,10 @@ def _parse_score_dict(text: str) -> dict | None:
     if start < 0 or end <= start:
         return None
     try:
-        return json.loads(s[start:end + 1])
+        parsed = json.loads(s[start:end + 1])
     except json.JSONDecodeError:
         return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def median_score_caption(raws: list[str]) -> str:
@@ -1142,7 +1143,14 @@ def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str
         else:
             raise first_err
 
-    content = data["choices"][0]["message"]["content"]
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as e:
+        raw_excerpt = json.dumps(data, ensure_ascii=False)[:500]
+        raise RuntimeError(
+            f"VLM response missing expected OpenAI chat-completion shape "
+            f"({type(e).__name__}: {e}); raw response excerpt: {raw_excerpt}"
+        ) from e
     content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
     return content
 

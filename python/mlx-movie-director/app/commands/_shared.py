@@ -455,6 +455,20 @@ def resolve_lora_paths(raw_list: list[str] | None) -> list[str]:
     return out
 
 
+def first_or(values: list[Any] | None, default: Any) -> Any:
+    """First element of a repeatable-arg list (action='append'), else ``default``.
+
+    --lora-path / --lora-scale are ``None | list`` (repeatable, for image multi-LoRA).
+    Several pipelines take a single scalar path/scale, so this peels off the first
+    entry. Centralized here so the list->scalar contract is expressed once instead
+    of via the drift-prone ``(values or [default])[0]`` idiom duplicated across
+    image-workflow / image-profile / image-review.
+    """
+    if isinstance(values, list):
+        return values[0] if values else default
+    return default if values is None else values
+
+
 def list_available_loras(pipeline_filter: str | None = None) -> None:
     """List available LoRAs from the model registry, optionally filtered by pipeline.
 
