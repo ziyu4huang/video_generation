@@ -51,10 +51,46 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
   const didDrag = useRef(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
 
+  // View mode: side-by-side (split) or draggable wipe overlay.
+  const [mode, setMode] = useState<"split" | "wipe">("split");
+  // Wipe divider position (percent across the surface, 0-100).
+  const [dividerX, setDividerX] = useState(50);
+  const [isWiping, setIsWiping] = useState(false);
+
   const resetView = useCallback(() => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
   }, []);
+
+  // Wipe divider drag. Uses window listeners so the handle keeps tracking even
+  // when the pointer leaves the surface; mousedown also jumps the divider to the
+  // click position for click-to-position.
+  const moveDividerTo = useCallback((clientX: number) => {
+    const el = surfaceRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const pct = ((clientX - rect.left) / rect.width) * 100;
+    setDividerX(Math.max(0, Math.min(100, pct)));
+  }, []);
+
+  const startWipe = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    moveDividerTo(e.clientX);
+    setIsWiping(true);
+  }, [moveDividerTo]);
+
+  useEffect(() => {
+    if (!isWiping) return;
+    const onMove = (e: MouseEvent) => moveDividerTo(e.clientX);
+    const onUp = () => setIsWiping(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isWiping, moveDividerTo]);
 
   // Wheel zoom (non-passive to allow preventDefault)
   useEffect(() => {
@@ -121,9 +157,25 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
           <Dialog.Title className="sr-only">Compare images</Dialog.Title>
 
           <div className={s.header} onMouseDown={(e) => e.stopPropagation()}>
-            <span className={s.headerTitle}>⚖ Compare</span>
-            <button className={s.headerBtn} onClick={() => setSwapped((v) => !v)} title="Swap left/right">⇄ Swap</button>
-            <button className={s.headerBtn} onClick={onClose} title="Close (Esc)">✕ Close</button>
+            <div className={s.headerLeft}>
+              <span className={s.headerTitle}>⚖ Compare</span>
+              <div className={s.modeToggle} role="group" aria-label="Compare layout">
+                <button
+                  className={`${s.modeBtn}${mode === "split" ? " " + s.modeBtnActive : ""}`}
+                  onClick={() => setMode("split")}
+                  title="Two panes side by side"
+                >Side by side</button>
+                <button
+                  className={`${s.modeBtn}${mode === "wipe" ? " " + s.modeBtnActive : ""}`}
+                  onClick={() => setMode("wipe")}
+                  title="Draggable wipe overlay (same coordinates)"
+                >Wipe</button>
+              </div>
+            </div>
+            <div className={s.headerRight}>
+              <button className={s.headerBtn} onClick={() => setSwapped((v) => !v)} title="Swap left/right">⇄ Swap</button>
+              <button className={s.headerBtn} onClick={onClose} title="Close (Esc)">✕ Close</button>
+            </div>
           </div>
 
           <div
@@ -135,15 +187,38 @@ export function CompareView({ left, right, onClose }: CompareViewProps) {
             onMouseLeave={handleMouseUp}
             onDoubleClick={handleDoubleClick}
           >
-            <div className={s.pane}>
-              <img src={paneSrc(a)} alt={a.name} className={s.media} style={{ transform }} draggable={false} />
-              <div className={s.paneLabel}>{getCompareLabel(a)}</div>
-            </div>
-            <div className={s.divider} aria-hidden="true" />
-            <div className={s.pane}>
-              <img src={paneSrc(b)} alt={b.name} className={s.media} style={{ transform }} draggable={false} />
-              <div className={s.paneLabel}>{getCompareLabel(b)}</div>
-            </div>
+            {mode === "split" ? (
+              <>
+                <div className={s.pane}>
+                  <img src={paneSrc(a)} alt={a.name} className={s.media} style={{ transform }} draggable={false} />
+                  <div className={s.paneLabel}>{getCompareLabel(a)}</div>
+                </div>
+                <div className={s.divider} aria-hidden="true" />
+                <div className={s.pane}>
+                  <img src={paneSrc(b)} alt={b.name} className={s.media} style={{ transform }} draggable={false} />
+                  <div className={s.paneLabel}>{getCompareLabel(b)}</div>
+                </div>
+              </>
+            ) : (
+              <div className={s.wipeStage}>
+                {/* base = right image (b), shown in full */}
+                <img src={paneSrc(b)} alt={b.name} className={s.wipeImg} style={{ transform }} draggable={false} />
+                {/* top = left image (a), clipped to the left of the divider so the
+                    same screen coordinate shows a on the left, b on the right */}
+                <img
+                  src={paneSrc(a)}
+                  alt={a.name}
+                  className={s.wipeImg}
+                  style={{ transform, clipPath: `inset(0 ${100 - dividerX}% 0 0)` }}
+                  draggable={false}
+                />
+                <div className={s.wipeLabelLeft}>{getCompareLabel(a)}</div>
+                <div className={s.wipeLabelRight}>{getCompareLabel(b)}</div>
+                <div className={s.wipeHandle} style={{ left: `${dividerX}%` }} onMouseDown={startWipe}>
+                  <div className={s.wipeGrip} aria-hidden="true">⇄</div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className={s.toolbar} onMouseDown={(e) => e.stopPropagation()}>

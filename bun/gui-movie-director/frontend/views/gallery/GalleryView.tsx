@@ -77,6 +77,15 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
     if (compareSel.length === 2) setCompareOpen(true);
   }, [compareSel.length]);
 
+  // One-click: open the two most-recent images in the compare view directly,
+  // skipping manual selection (common case: just generated two variants).
+  const handleCompareLatest = useCallback((pair: GalleryImage[]) => {
+    if (pair.length === 2) {
+      setCompareSel(pair);
+      setCompareOpen(true);
+    }
+  }, []);
+
   // Keyboard navigation
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -198,6 +207,7 @@ export function GalleryView({ highlight, onHighlightConsumed }: GalleryViewProps
         onToggleCompare={handleToggleCompare}
         onStartCompare={handleStartCompare}
         selectedCount={compareSel.length}
+        onCompareLatest={handleCompareLatest}
       />
       {previewImage && (
         <ImagePreview

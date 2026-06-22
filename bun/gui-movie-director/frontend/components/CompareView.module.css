@@ -10,10 +10,11 @@
   cursor: pointer;
 }
 
-/* Top header: title + swap + close */
+/* Top header: title + mode toggle + swap + close */
 .header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 10px 16px;
   background: rgba(0, 0, 0, 0.4);
@@ -21,11 +22,53 @@
   z-index: 5;
 }
 
+.headerLeft,
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.headerLeft {
+  gap: 12px;
+}
+
 .headerTitle {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-bright, #eee);
-  margin-right: auto;
+}
+
+/* Segmented control for split vs wipe layout */
+.modeToggle {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.modeBtn {
+  background: none;
+  border: none;
+  color: var(--text-dim, #999);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.modeBtn:hover {
+  color: var(--text-bright, #eee);
+}
+
+.modeBtnActive {
+  background: var(--accent, #6c8aff);
+  color: #fff;
 }
 
 .headerBtn {
@@ -170,3 +213,83 @@
   background: rgba(255, 255, 255, 0.18);
   flex-shrink: 0;
 }
+
+/* === Wipe mode: two images stacked at the same coordinates, left one clipped
+   by a draggable divider so the same screen position shows a on the left and
+   b on the right. Shares zoom/pan with split mode. === */
+
+.wipeStage {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+}
+
+.wipeImg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  /* let pointer events pass through to the surface for shared pan/zoom */
+  pointer-events: none;
+  user-select: none;
+}
+
+.panning .wipeImg {
+  transition: none;
+}
+
+.wipeHandle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent, #6c8aff);
+  cursor: ew-resize;
+  z-index: 4;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+}
+
+.wipeGrip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent, #6c8aff);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.wipeLabelLeft,
+.wipeLabelRight {
+  position: absolute;
+  top: 12px;
+  max-width: 45%;
+  background: rgba(0, 0, 0, 0.66);
+  color: var(--text-bright, #eee);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.wipeLabelLeft { left: 12px; }
+.wipeLabelRight { right: 12px; }

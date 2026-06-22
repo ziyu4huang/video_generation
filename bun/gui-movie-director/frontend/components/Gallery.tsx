@@ -28,9 +28,10 @@ interface GalleryProps {
   onToggleCompare?: (img: GalleryImage) => void;
   onStartCompare?: () => void;
   selectedCount?: number;
+  onCompareLatest?: (pair: GalleryImage[]) => void;
 }
 
-export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage, compareMode, onCompareModeChange, selectedNames, onToggleCompare, onStartCompare, selectedCount = 0 }: GalleryProps) {
+export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, typeFilter, onDeleteImage, compareMode, onCompareModeChange, selectedNames, onToggleCompare, onStartCompare, selectedCount = 0, onCompareLatest }: GalleryProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -184,6 +185,16 @@ export function Gallery({ onImageClick, highlight, onImagesReady, searchQuery, t
               title="Compare two images side by side"
               aria-label="Toggle compare mode"
             >⚖</button>
+          )}
+          {onCompareLatest && (
+            <button
+              className="btn btn-sm"
+              disabled={images.length < 2}
+              onClick={() => onCompareLatest(images.slice(0, 2))}
+              style={{ minWidth: 32, marginLeft: 4 }}
+              title="Compare the two most recent images"
+              aria-label="Compare latest two images"
+            >⚡</button>
           )}
         </div>
       </div>
