@@ -34,6 +34,27 @@ def _lora_manifest_recommended_scale(lora_path: str) -> float:
     return 1.0
 
 
+def lora_entry_scale(entry: LoraEntry) -> float:
+    """Resolve a structured LoRA entry's effective scale as a non-None float.
+
+    ``LoraEntry.scale`` is typed ``float | None`` because some stages (notably
+    ``face_detail``) are built with ``"scale": None`` and defer to the LoRA
+    manifest's ``recommended_scale`` at apply time. Downstream consumers that
+    treat scale as a plain float would otherwise index ``entry["scale"]`` and
+    get a ``float | None`` with no narrowing. Route every read through this
+    helper so the None branch is resolved in one typed place: a None scale
+    falls back to the manifest ``recommended_scale`` (and ultimately 1.0),
+    never propagating None to a pipeline call that expects a float.
+    """
+    _scale = entry.get("scale")
+    if _scale is None:
+        _path = entry.get("path")
+        if _path:
+            return _lora_manifest_recommended_scale(_path)
+        return 1.0
+    return _scale
+
+
 def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, list[Any]] | None":
     """Resolve the A/B-params metadata to serialize into run.json.
 
@@ -366,6 +387,19 @@ class RunConfig:
         os.replace(tmp_path, path)
 
 
+class _RunConfigTypeHintsCache:
+    """Mutable singleton holding the resolved typing.get_type_hints cache.
+
+    A class (not a module global) so the cache attribute lives next to its use
+    site and is trivially reset-friendly in tests by setting ``_cache = None``.
+    """
+
+    _cache: "dict[str, Any] | None" = None
+
+
+cls_run_config_type_hints_cache = _RunConfigTypeHintsCache()
+
+
 def _coerce_typed_fields(rc: "RunConfig") -> None:
     """Coerce the scalar numeric RunConfig fields to their declared types in-place.
 
@@ -380,10 +414,22 @@ def _coerce_typed_fields(rc: "RunConfig") -> None:
     """
     import dataclasses
     import typing
+    # Resolve annotations once via typing.get_type_hints (against module globals)
+    # rather than tokenizing the string form. This handles 'int | None',
+    # 'builtins.int', extra whitespace, and forward references uniformly — the
+    # manual tokenizer below only recognized the bare tokens 'int'/'float'/
+    # 'None'/'NoneType' and would silently bypass coercion for any other form
+    # (e.g. a field annotated 'builtins.int | None'). Cached on the class to
+    # avoid repeat resolution cost across loads.
+    _hints = getattr(cls_run_config_type_hints_cache, "_cache", None)
+    if _hints is None:
+        _hints = typing.get_type_hints(type(rc))
+        cls_run_config_type_hints_cache._cache = _hints
     for _f in dataclasses.fields(rc):
-        _ann = _f.type
+        _ann = _hints.get(_f.name, _f.type)
         # Normalize to a set of leaf types (handles "int | None" whether the
-        # annotation is a string or a runtime types.UnionType / typing.Union).
+        # annotation is a resolved types.UnionType / typing.Union, or — as a
+        # fallback for unresolved string annotations — the raw string).
         if isinstance(_ann, str):
             _ann_clean = _ann.strip()
             _leaves: set = set()

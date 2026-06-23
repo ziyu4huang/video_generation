@@ -1573,7 +1573,11 @@ def _load_and_preprocess(path: str, out_w: int, out_h: int,
     """
     from PIL import Image, ImageFilter
 
-    img = Image.open(path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    try:
+        with Image.open(path) as im:
+            img = im.convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    except (FileNotFoundError, OSError) as e:
+        raise ValueError(f"cannot read image {path}: {e}") from e
     if blur_ref is not None:
         radius = max(1, int(blur_ref))
         img = img.filter(ImageFilter.GaussianBlur(radius=radius))

@@ -687,7 +687,7 @@ class LTXVideoPipeline:
         print(f"[LTXVideoPipeline] Pipeline ready ({_elapsed:.1f}s)")
         return pipeline
 
-    def _apply_lora(self, pipeline) -> None:
+    def _apply_lora(self, pipeline: Any) -> None:
         """Fuse user LoRA into pipeline via vendor _pending_loras mechanism."""
         if not self.lora_path:
             return

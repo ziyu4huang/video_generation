@@ -147,7 +147,7 @@ def compute_frame_reference(ref_bgr: np.ndarray, test_bgr: np.ndarray) -> dict[s
     return {"psnr": psnr, "ssim": ssim}
 
 
-def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 1) -> dict:
+def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 1) -> dict[str, Any]:
     """Frame-by-frame full-reference comparison of test_path against ref_path.
 
     Frame alignment: if both videos have the same frame count, pairs are 1:1.

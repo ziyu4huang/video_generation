@@ -241,7 +241,13 @@ def _is_quantized_weights(model_path: str) -> bool:
             v.get("dtype") in ("uint32", "U32") for v in header.values()
             if isinstance(v, dict)
         )
-    except Exception:
+    except (json.JSONDecodeError, OSError, struct.error, TypeError, AttributeError) as exc:
+        # Narrow to header-parse/format errors only. A genuinely broken or
+        # unreadable safetensors file is surfaced via stderr so a wrong-format
+        # silent fallback is visible rather than masked as "non-quantized".
+        print(f"[ControlNet] WARNING: could not read safetensors header for "
+              f"quant detection ({type(exc).__name__}: {exc}); "
+              f"assuming non-quantized: {model_path}", file=sys.stderr)
         return False
 
 

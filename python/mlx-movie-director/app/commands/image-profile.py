@@ -822,9 +822,12 @@ def run_profile(args):
             print(f"Strip: {strip_path}  ({strip.width}×{strip.height})")
 
         end_time = datetime.now(timezone.utc).isoformat()
+        # Resolve once for BOTH branches; import stays lazy (run_profile is the
+        # only caller) but MUST precede the call (hoisting the call above the
+        # branch without the import reintroduces a NameError on use_flux2=False).
+        from app.commands._shared import resolve_lora_paths
+        resolved_lora = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
         if use_flux2:
-            from app.commands._shared import resolve_lora_paths
-            resolved_lora = (resolve_lora_paths(getattr(args, "lora_path", None)) or [None])[0]
             models = collect_model_fingerprint_flux2(lora_path=resolved_lora)
         else:
             models = collect_model_fingerprint(lora_path=resolved_lora)
