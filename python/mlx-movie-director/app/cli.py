@@ -17,7 +17,7 @@ import traceback
 
 COMMAND_NAMES = [
     "image", "refine", "animate", "upscale", "caption", "replay",
-    "video", "import-lora", "import-checkpoint", "import-vae", "import-workflow", "check-model",
+    "video", "import-lora", "import-checkpoint", "import-vae", "import-ideogram4", "import-workflow", "check-model",
     "schema-defaults", "schema",
 ]
 

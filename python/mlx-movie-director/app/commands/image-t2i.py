@@ -20,7 +20,7 @@ from app.commands._shared import (
 )
 from app.run_config import RunConfig
 
-_PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4, "lens": 20}
+_PIPELINE_DEFAULT_STEPS = {"zimage": 9, "flux2-klein": 4, "lens": 20, "ideogram4": 20}
 
 # Per-pipeline preferred resolution [width, height]. Lens is a high-res model
 # (gallery all >=1440^2, near-square) so it defaults to 1024^2 — the documented
@@ -30,6 +30,7 @@ _PIPELINE_DEFAULT_RESOLUTION = {
     "zimage": (640, 960),
     "flux2-klein": (640, 960),
     "lens": (1024, 1024),
+    "ideogram4": (1024, 1024),
     "auto": (640, 960),
 }
 
@@ -69,10 +70,14 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
              "multi-MP; 640x960 is too small to benchmark.",
     )
     parser.add_argument(
-        "--pipeline", choices=["zimage", "flux2-klein", "lens", "auto"], default="zimage",
+        "--pipeline",
+        choices=["zimage", "flux2-klein", "lens", "ideogram4", "auto"],
+        default="zimage",
         help="Pipeline: 'zimage' (Moody 12.6 DPO, ~14s/9steps), "
              "'flux2-klein' (Klein 9B, ~40s/4steps, better for consistent characters), "
-             "or 'lens' (Microsoft Lens 3.8B, pure MLX, ~7s/20steps, high-res best)",
+             "'lens' (Microsoft Lens 3.8B, pure MLX, ~7s/20steps, high-res best), or "
+             "'ideogram4' (Ideogram 4, fork-free NF4, ~9 GB peak, best for legible text "
+             "in posters/slides)",
     )
     parser.add_argument(
         "--ab-test", action="store_true", default=False,
@@ -110,6 +115,24 @@ def add_t2i_args(parser: argparse.ArgumentParser) -> None:
              "set >1.0 for a dual cond/uncond forward per step — distilled, so empirical). "
              "flux2-klein t2i path: ignored (distilled, guidance=1.0).",
     )
+    # Ideogram4-only: the preset drives step count AND the asymmetric per-step
+    # guidance schedule (low early, high late) that sharpens rendered text.
+    parser.add_argument(
+        "--ideogram-preset",
+        choices=["V4_DEFAULT_20", "V4_QUALITY_48", "V4_TURBO_12"],
+        default="V4_DEFAULT_20",
+        help="Ideogram4 preset (step count + asymmetric CFG schedule): "
+             "V4_DEFAULT_20 (balanced, default), V4_QUALITY_48 (best text fidelity, "
+             "slow), V4_TURBO_12 (fast preview). Ignored by other pipelines.",
+    )
+    parser.add_argument(
+        "--ideogram-aspect",
+        default=None,
+        metavar="slide|poster|square|WxH",
+        help="Ideogram4 aspect-ratio shortcut (overrides --width/--height, snapped "
+             "to /16): slide (1920x1080), poster (1248x1664), square (1024x1024), or "
+             "explicit WxH / W:H. Ignored by other pipelines.",
+    )
 
 
 def run_t2i(args: argparse.Namespace) -> None:
@@ -140,6 +163,38 @@ def run_t2i(args: argparse.Namespace) -> None:
                 sys.exit(1)
         from app.commands.lens import run_lens
         run_lens(args, json_summary=getattr(args, "json_summary", False))
+        return
+
+    # ── Ideogram4 pipeline: poster/slide-optimized t2i (fork-free NF4). Like
+    # lens it's a separate model family (no LoRA/ControlNet/i2i) with its own
+    # execution path. Defaults: 1024×1024 (safe even on 16 GB — dual-NF4 peak
+    # ≈ 9 GB). Step count + the asymmetric guidance schedule come from
+    # --ideogram-preset, so do NOT set args.steps here (run_ideogram4 resolves
+    # it; --steps is an optional override).
+    if pipeline_type == "ideogram4":
+        if args.width is None:
+            args.width = 1024
+        if args.height is None:
+            args.height = 1024
+        from app.commands.ideogram4 import resolve_aspect
+
+        args.width, args.height = resolve_aspect(
+            getattr(args, "ideogram_aspect", None), args.width, args.height
+        )
+        res_override = _resolve_resolution(getattr(args, "resolution", None), "ideogram4")
+        if res_override:
+            args.width, args.height = res_override
+        for dim in ("width", "height"):
+            val = getattr(args, dim)
+            if val is None or not isinstance(val, int) or val <= 0 or val % 16 != 0:
+                print(
+                    f"ERROR [ideogram4]: --{dim}={val} must be a positive multiple of 16.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+        from app.commands.ideogram4 import run_ideogram4
+
+        run_ideogram4(args, json_summary=getattr(args, "json_summary", False))
         return
 
     apply_draft_overrides(args)

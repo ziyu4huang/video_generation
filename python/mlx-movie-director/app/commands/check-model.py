@@ -114,6 +114,7 @@ KNOWN_PIPELINES = {
     "flux2-klein",
     "flux2-klein-edit",
     "lens",
+    "ideogram4",
     "ltx-2.3",
     "seedvr2-upscale",
 }
@@ -136,6 +137,7 @@ KNOWN_FORMATS = {
     "safetensors-fp32",
     "safetensors-fp16",
     "safetensors-bf16",
+    "bnb-nf4",
     "hf-tokenizer",
 }
 
