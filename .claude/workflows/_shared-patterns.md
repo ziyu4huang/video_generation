@@ -348,6 +348,58 @@ await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj o
 markPhase("persist", "completed")
 ```
 
+### Operation-lessons (curated, injected) + self-learning propose step
+
+Beside the distilled `.knowledge.jsonl`, a workflow may own an **operation-lessons**
+store `<wf>.operation-lessons.jsonl` — high-trust rules about HOW this workflow
+operates (its fix/restore/review/report posture), hand-curated from post-mortems.
+One JSON object per line: `{id, phase ∈ fix|restore|review|report, severity ∈
+hard|soft, rule, why, source}`.
+
+- **`loadOperationLessons(opFile)` + `operationRulesBlock(byPhase, phase)`** — copy
+  VERBATIM (as with the knowledge helpers). Loaded at Resolve; the block is injected
+  into the matching phase's agent prompt so operating posture persists across runs
+  independent of any operator's project-memory. Empty file → empty block (no-op).
+- The orchestrator injects its OWN store into its inlined fix agents; a review child
+  injects ITS store into the child's fix/restore/report agents. Two fix contexts →
+  two (possibly overlapping) stores.
+
+**Self-learning (propose → human-gate).** The single structural gap this closes: a
+run's failures (regression+restore, adversarial-verify-upheld-but-fabricated, recurring
+runtime-error pattern) used to teach nothing automatically — every operation-lesson was
+hand-written post-mortem (mlx iter-8's `fix-relocate-call-relocate-import` is the
+canonical example). `proposeOperationLessons(inboxFile, opFile, runId, runResult)`
+(sonnet, modeled on `extractKnowledge`: gather existing ids → extract ≤2 candidates
+each citing a CONCRETE signal from this run → dedup in JS → append + jq-validate) writes
+candidates to a **staging inbox** `<wf>.operation-lessons.proposed.jsonl` (gitignored),
+**never** the approved store.
+
+```javascript
+// Paths (let — Resolve reassigns once PROJECT_ROOT is known):
+let OP_FILE  = `${PROJECT_ROOT}/.claude/workflows/${meta.name}.operation-lessons.jsonl`
+let OP_INBOX = `${PROJECT_ROOT}/.claude/workflows/${meta.name}.operation-lessons.proposed.jsonl`
+
+// Resolve — load the APPROVED store only (the inbox is NEVER loaded/injected):
+const operationLessons = await loadOperationLessons(OP_FILE)
+const opFixBlock = operationRulesBlock(operationLessons?.byPhase || {}, "fix")
+// ... interpolate ${opFixBlock} into the inlined fix-agent prompts ...
+
+// Persist — AFTER extractKnowledge, non-fatal:
+let proposedLessons = []
+try { proposedLessons = await proposeOperationLessons(OP_INBOX, OP_FILE, RUN_ID, historyEntry.result) }
+catch (e) { log(`propose-lessons failed (non-fatal): ${e?.message || e}`) }
+// Auto-refresh MANIFEST.md (generator resolves paths from its own __dirname):
+try { /* agent runs: node '<PROJECT_ROOT>/scripts/workflow-knowledge-manifest.mjs' */ }
+catch (e) { log(`manifest refresh failed (non-fatal): ${e?.message || e}`) }
+```
+
+**Trust invariant (do not violate):** the approved store is 100% human-curated. The
+propose step ONLY writes the gitignored inbox; `loadOperationLessons` ONLY reads the
+approved store; an unapproved lesson is therefore NEVER injected into a fix prompt. A
+human reviews the inbox and copy-promotes winners into the matching `*.operation-lessons.jsonl`
+(promoting `severity` to `hard` where warranted). Surface `proposedLessons` + the inbox
+path in the report so the operator knows to review.
+
 ### Seed / backfill (one-time)
 
 A workflow with accumulated gitignored history can seed its knowledge file in one
@@ -620,6 +672,11 @@ that fills organically on first real run. State is tracked in `MANIFEST.md`
    redundant per-lane persists (4→1 per run). The lane return-shapes were kept identical,
    so the orchestrator's Persist/Report logic needed no change. Merge-precondition for
    this shape: shares the harness contract AND is already orchestrated as a lane.
+7. Operation-lessons + self-learning (2026-06-24, gui self-improve first): when porting
+   the `loadOperationLessons` / `operationRulesBlock` / `proposeOperationLessons`
+   trio to a sibling, also create its `<wf>.operation-lessons.jsonl` (0-byte or seeded)
+   and gitignore `<wf>.operation-lessons.proposed.jsonl`. The propose step is non-fatal
+   and gated by dedup; the approved store stays human-curated. Mirror to mlx next.
 
 ## History Dashboard
 
