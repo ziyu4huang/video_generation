@@ -55,7 +55,7 @@ def lora_entry_scale(entry: LoraEntry) -> float:
     return _scale
 
 
-def _resolve_ab_params(args: "argparse.Namespace") -> "dict[str, list[Any]] | None":
+def _resolve_ab_params(args: argparse.Namespace) -> dict[str, list[Any]] | None:
     """Resolve the A/B-params metadata to serialize into run.json.
 
     Variation runs set ``args.ab_params_json`` to the already-parsed dict (see
@@ -308,8 +308,13 @@ class RunConfig:
 
         # Inline prompt-file content so run.json is self-contained
         if rc.prompt_file and not rc.prompt:
-            with open(rc.prompt_file, "r") as f:
-                rc.prompt = f.read().strip()
+            try:
+                with open(rc.prompt_file, "r") as f:
+                    rc.prompt = f.read().strip()
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                raise ValueError(
+                    f"Cannot read prompt file {rc.prompt_file}: {e}"
+                ) from e
 
         # Multi-LoRA: --lora-path / --lora-scale are now lists (action="append").
         # Resolve each, pad scales to match paths (default 1.0), and keep legacy
@@ -340,7 +345,18 @@ class RunConfig:
         # lora_scale remain the source of truth for the "main" LoRA + replay.
         _lora_entries: list[LoraEntry] = []
         if rc.lora_paths:
-            for _p, _s in zip(rc.lora_paths, rc.lora_scales or []):
+            # Narrow explicitly rather than `rc.lora_scales or []`: the `or []`
+            # would silently substitute an empty list when lora_scales is None
+            # (its typed value when no scales were resolved), truncating zip to
+            # zero pairs and dropping every main-LoRA entry. Pad to match paths
+            # so a programmatic caller that leaves lora_scales None still gets
+            # one entry per path (default scale 1.0 via the manifest helper).
+            _scales = rc.lora_scales
+            if _scales is None:
+                _scales = [
+                    _lora_manifest_recommended_scale(_p) for _p in rc.lora_paths
+                ]
+            for _p, _s in zip(rc.lora_paths, _scales):
                 _lora_entries.append({"path": _p, "scale": _s, "stage": "main"})
         elif rc.lora_path:
             _lora_entries.append({"path": rc.lora_path, "scale": rc.lora_scale, "stage": "main"})
@@ -441,6 +457,18 @@ def _coerce_typed_fields(rc: "RunConfig") -> None:
                     _leaves.add(int)
                 elif _tok == "float":
                     _leaves.add(float)
+            # typing.get_type_hints above should resolve all real annotations;
+            # an empty _leaves here means the string fallback could not tokenize
+            # the form (e.g. 'Optional[int]', 'builtins.int'), so coercion is
+            # silently skipped. Surface it as a warning so the gap is observable
+            # rather than a silent type-safety hole.
+            if not _leaves:
+                import sys
+                print(
+                    f"[run_config] warning: RunConfig field '{_f.name}' has an "
+                    f"unresolved string annotation {_ann!r}; numeric coercion skipped.",
+                    file=sys.stderr,
+                )
             _is_optional = type(None) in _leaves
         else:
             _args = typing.get_args(_ann)

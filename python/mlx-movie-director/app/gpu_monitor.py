@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from types import TracebackType
 from typing import IO
 
 
@@ -398,14 +399,14 @@ class GpuLock:
         self.poll_interval = poll_interval
         self.threshold = threshold
         self.max_wait = max_wait
-        self._lock_fd: IO[str] | None = None
+        self._lock_fd: IO[bytes] | None = None
 
     def __enter__(self) -> "GpuLock":
         if self.skip or self.force:
             return self
 
         os.makedirs(_LOCK_DIR, exist_ok=True)
-        self._lock_fd = open(_LOCK_FILE, "w")
+        self._lock_fd = open(_LOCK_FILE, "wb")
         try:
             deadline = time.time() + self.max_wait
 
@@ -449,7 +450,9 @@ class GpuLock:
                 self._lock_fd = None
             raise
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool | None:
+    def __exit__(self, exc_type: type[BaseException] | None,
+                 exc_val: BaseException | None,
+                 exc_tb: TracebackType | None) -> bool | None:
         if self._lock_fd:
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_UN)

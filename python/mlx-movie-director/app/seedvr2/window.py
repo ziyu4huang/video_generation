@@ -11,6 +11,17 @@ class WindowPartitioner:
         window_size: tuple[int, int, int],
         shift: bool = False,
     ):
+        """Precompute window partition indices.
+
+        Args:
+            shape: A 2D tensor of per-element prefix shapes with shape
+                ``(B, ndim)`` (e.g. stacked ``(t, h, w)`` vectors). Each row
+                describes the leading dims of one element; the trailing dim is
+                left for the feature channel. This is NOT a single tensor's
+                ``.shape`` tuple.
+            window_size: Per-axis ``(t, h, w)`` target window counts.
+            shift: Whether to use shifted (overlapping) windows.
+        """
         self.forward_idx, self.reverse_idx, self.window_shapes, self.window_counts = (
             WindowPartitioner._create_window_indices(
                 shape, lambda size: WindowPartitioner._make_windows(size, window_size, shift)
@@ -107,7 +118,7 @@ class WindowPartitioner:
     def _create_window_indices(
         cls,
         shape: mx.array,
-        window_fn: Callable,
+        window_fn: Callable[[tuple[int, int, int]], list[tuple[slice, slice, slice]]],
     ) -> tuple[mx.array, mx.array, mx.array, list[int]]:
         total_len = int(mx.sum(mx.prod(shape, axis=1)))
         idx = mx.arange(total_len).reshape(-1, 1)

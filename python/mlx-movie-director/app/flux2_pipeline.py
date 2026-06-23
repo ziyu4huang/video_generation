@@ -161,7 +161,7 @@ class Flux2KleinPipeline:
         # Opt-in via cfg_scale > 1.0 → mflux runs a dual cond/uncond forward per step (negative
         # prompt = " "). Distilled models train at guidance=1.0, so CFG is empirical — default
         # None keeps guidance=1.0, byte-identical to pre-CFG behavior.
-        guidance = float(cfg_scale) if (cfg_scale is not None and float(cfg_scale) > 1.0) else 1.0
+        guidance = float(cfg_scale) if (cfg_scale is not None and cfg_scale > 1.0) else 1.0
         result = self._model.generate_image(
             seed=seed % (2 ** 32),
             prompt=prompt,
