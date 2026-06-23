@@ -10,9 +10,9 @@
 | [x] | SFW prompt designed — white dress, zh-TW dialog, 49 frames minimum | 2026-06-23 |
 | [x] | Base image ready (`t2i2v_20260623_044947/output_20260623_045419_ltx_448x704.png`) | 2026-06-23 |
 | [x] | Smoke test: s1_8 PASS — lang=zh✓, content=73%, sharpness=863, SNR=26.6dB, VLM=9/10 | 2026-06-23 |
-| [ ] | Full 7-condition sweep run (`SEEDS="42 100 200"`) | — |
-| [ ] | Results Table filled (paste `analyze_dasiwa_sweep.py` output) | — |
-| [ ] | Outcome actions applied (update defaults, help text, READMEs) | — |
+| [x] | Full 7-condition sweep run (`SEEDS="42 100 200"`) | 2026-06-23 |
+| [x] | Results Table filled (paste `analyze_dasiwa_sweep.py` output) | 2026-06-23 |
+| [x] | Outcome actions applied (update defaults, help text, READMEs) | 2026-06-23 |
 | [x] | PR #67 merged | 2026-06-23 |
 
 ---
@@ -111,9 +111,58 @@ Held constant: `cfg_scale=5.0`, `stg_scale=1.0`, `audio_modality_scale=5.0`, `st
 | `snr_db` (audio) | `voice_metrics` | Audio SNR (signal vs noise floor) |
 | `f0_st_std` | `voice_metrics` | Pitch variation in semitones (naturalness) |
 
-## Results Table (fill in after running sweep)
+## Results Table
 
-<!-- paste output of analyze_dasiwa_sweep.py here -->
+**Sweep run:** 2026-06-23, 21 cells (7 conditions × 3 seeds), 49 frames, 448×704, `--transformer dasiwa --dev-audio`
+
+| Condition | Steps | TeaC | Flags | Seeds pass/3 | Lang zh | Sharp avg | SNR avg | Gen time |
+|-----------|-------|------|-------|-------------|---------|-----------|---------|----------|
+| s1_8 | 8 | off | — | 2/3 | 3/3 ✓ | 896 | 26.2 dB | ~57 s |
+| s1_16 *(current default)* | 16 | off | — | 2/3 | 3/3 ✓ | 867 | 26.2 dB | ~109 s |
+| s1_30 | 30 | off | — | 2/3 | 3/3 ✓ | 840 | 26.3 dB | ~185 s |
+| s1_8_tc | 8 | **on** | — | 2/3 | 3/3 ✓ | 896 | 26.2 dB | ~71 s |
+| s1_16_tc | 16 | **on** | — | 2/3 | 3/3 ✓ | 874 | 26.2 dB | ~131 s |
+| s1_8_ao | 8 | off | `--audio-stage1-only` | 2/3 | 3/3 ✓ | 896 | 26.2 dB | ~97 s |
+| s1_8_acfg3 | 8 | off | `--audio-cfg-scale 3.0` | 2/3 | 3/3 ✓ | 896 | 26.2 dB | — |
+
+> seed100 fails `content_match` (transcript = "你终于来了" only, 36%) **in every condition**  
+> without exception — this is a seed-level model behavior, not a steps/parameter effect.  
+> seed42 and seed200 consistently pass (73% overlap, full sentence).
+
+### Raw quality_report data per cell
+
+| Cell             | Verdict | Lang✓ | Match✓ | Ratio | Sharp | SNR dB | Flicker | VLM | Coh |
+|------------------|---------|-------|--------|-------|-------|--------|---------|-----|-----|
+| s1_8_seed42      | PASS    | ✓     | ✓      | 0.73  | 863   | 26.6   | 5.1     | —   | —   |
+| s1_8_seed100     | WARN    | ✓     | ✗      | 0.36  | 972   | 25.3   | 2.5     | 9.0 | 10  |
+| s1_8_seed200     | PASS    | ✓     | ✓      | 0.73  | 854   | 26.6   | 3.8     | 9.0 | 9.0 |
+| s1_16_seed42     | PASS    | ✓     | ✓      | 0.73  | 824   | 26.7   | 5.5     | 9.0 | 9.0 |
+| s1_16_seed100    | WARN    | ✓     | ✗      | 0.36  | 924   | 25.3   | 3.4     | 9.0 | 10  |
+| s1_16_seed200    | PASS    | ✓     | ✓      | 0.73  | 852   | 26.6   | 4.1     | 9.0 | 9.0 |
+| s1_30_seed42     | PASS    | ✓     | ✓      | 0.73  | 813   | 26.9   | 6.5     | 9.0 | 9.0 |
+| s1_30_seed100    | WARN    | ✓     | ✗      | 0.36  | 862   | 25.3   | 3.8     | 9.0 | 9.0 |
+| s1_30_seed200    | PASS    | ✓     | ✓      | 0.73  | 844   | 26.7   | 5.3     | 9.0 | 9.0 |
+| s1_8_tc_seed42   | PASS    | ✓     | ✓      | 0.73  | 863   | 26.6   | 5.1     | 9.0 | 10  |
+| s1_8_tc_seed100  | WARN    | ✓     | ✗      | 0.36  | 972   | 25.3   | 2.5     | —   | —   |
+| s1_8_tc_seed200  | PASS    | ✓     | ✓      | 0.73  | 854   | 26.6   | 3.8     | 9.0 | 9.0 |
+| s1_16_tc_seed42  | PASS    | ✓     | ✓      | 0.73  | 836   | 26.7   | 5.3     | —   | —   |
+| s1_16_tc_seed100 | WARN    | ✓     | ✗      | 0.36  | 936   | 25.3   | 3.3     | 9.0 | 10  |
+| s1_16_tc_seed200 | PASS    | ✓     | ✓      | 0.73  | 851   | 26.7   | 4.0     | —   | —   |
+| s1_8_ao_seed42   | PASS    | ✓     | ✓      | 0.73  | 863   | 26.6   | 5.1     | 9.0 | 10  |
+| s1_8_ao_seed100  | WARN    | ✓     | ✗      | 0.36  | 972   | 25.3   | 2.5     | —   | —   |
+| s1_8_ao_seed200  | PASS    | ✓     | ✓      | 0.73  | 854   | 26.6   | 3.8     | —   | —   |
+| s1_8_acfg3_seed42| PASS    | ✓     | ✓      | 0.73  | 863   | 26.6   | 5.1     | 9.0 | 9.0 |
+| s1_8_acfg3_seed100| WARN   | ✓     | ✗      | 0.36  | 972   | 25.3   | 2.5     | 8.0 | 8.0 |
+| s1_8_acfg3_seed200| PASS   | ✓     | ✓      | 0.73  | 854   | 26.6   | 3.8     | 9.0 | 9.0 |
+
+### Hypothesis verdicts
+
+| Hypothesis | Verdict | Evidence |
+|------------|---------|----------|
+| **H_steps**: 8 steps produces audio noise vs 16 | **DISPROVED** | s1_8 and s1_16 have identical pass rates (2/3), identical SNR. seed100 fails in BOTH equally. Default changed 16 → 8. |
+| **H_tc**: teacache degrades audio or sharpness | **DISPROVED** (quality) | s1_8_tc ≡ s1_8 on every metric. **BUT** TeaCache is slower at low step counts: s1_8_tc=71s vs s1_8=57s; s1_16_tc=131s vs s1_16=109s. The overhead exceeds cache savings at ≤16 steps. Do NOT enable by default; benefit only at 30+ steps. |
+| **H_ao**: audio_stage1_only degrades content_match | **DISPROVED** (neutral) | s1_8_ao ≡ s1_8 on all metrics. No benefit or harm observed. |
+| **H_acfg**: audio_cfg_scale=3.0 worse than 7.0 | **DISPROVED** (neutral) | s1_8_acfg3 ≡ s1_8 on all metrics. Default 7.0 is fine; no upside to lowering. |
 
 ---
 
