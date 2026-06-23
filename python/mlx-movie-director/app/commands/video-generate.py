@@ -110,10 +110,9 @@ def add_generate_args(parser):
     parser.add_argument("--stg-scale", type=float, default=None, dest="stg_scale",
                         help="Spatial-temporal guidance scale (default: 1.5 for dasiwa, 0.0 for distilled, 1.0 otherwise)")
     parser.add_argument("--stage1-steps", type=int, default=None,
-                        help="Stage 1 denoising steps (default: 8 standard/distilled, "
-                             "15 for --hq, 20 for FLF2V). Use 30 for max quality — slower on MPS. "
-                             "For VOICE/speech quality use 16 (8 steps produces audio noise); "
-                             "see docs/ltx-voice.md.")
+                        help="Stage 1 denoising steps (default: 8 for dasiwa/standard/distilled, "
+                             "20 for FLF2V, 15 for --hq). Use 30 for max quality — slower on MPS. "
+                             "A/B sweep (2026-06-23) confirmed 8 steps ≡ 16 steps in zh speech quality.")
     parser.add_argument("--stage2-steps", type=int, default=None,
                         help="Stage 2 refinement steps (default: 3)")
 
@@ -237,7 +236,7 @@ def add_generate_args(parser):
 #
 # T2V/I2V (dasiwa/dev transformer, bench_mult=1.28):
 #   10 s video (241 frames @ 704×448, 76 Mpx):
-#     dasiwa default (s1=16, s2=3, no-HQ): ~9 min  — sharpness 754–849
+#     dasiwa default (s1=8,  s2=3, no-HQ): ~4.5 min — sharpness 850–970 (A/B 2026-06-23)
 #     dasiwa --hq    (s1=20, s2=5, ×2/step): ~20 min — sharpness 165–279
 #     dev default    (s1=8,  s2=3, no-HQ): ~6 min
 #     distilled      (s1=8,  s2=3, ×1.0): ~5 min
@@ -627,8 +626,8 @@ def _run_generate_inner(args):
                 args.stage2_steps = 3
                 print("[video] dasiwa: stage2_steps=3 (standard sampler default; use --hq for res_2s+stage2=5)")
         if args.stage1_steps is None and not hq:
-            args.stage1_steps = 16
-            print("[video] dasiwa: stage1_steps=16 (speech minimum; pass --hq for quality mode with 20 steps)")
+            args.stage1_steps = 8
+            print("[video] dasiwa: stage1_steps=8 (A/B sweep 2026-06-23: 8==16==30 steps audio quality; pass --hq for 20 steps)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:

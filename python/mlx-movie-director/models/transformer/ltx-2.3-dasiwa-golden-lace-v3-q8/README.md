@@ -24,7 +24,7 @@ python/venv/bin/python python/mlx-movie-director/convert.py --ltx-checkpoint Das
 
 | Mode | stage1 | stage2 | Est. time | Sharpness |
 |------|--------|--------|-----------|-----------|
-| Default (no `--hq`) | 16 | 3 | **~9 min** | 754–849 ✓ |
+| Default (no `--hq`) | 8 | 3 | **~4.5 min** | 850–970 ✓ |
 | `--hq` (res_2s sampler) | 20 | 5 | **~20 min** | 165–279 |
 
 Counter-intuitively, no-HQ produces higher sharpness — res_2s smooths edges in favour of
@@ -61,7 +61,7 @@ These are auto-applied by `run.py` when `--transformer dasiwa` is used — no ne
 
 | Parameter | Default | Reason |
 |-----------|---------|--------|
-| `--stage1-steps` | 16 | Speech minimum — ≤8 steps causes audio noise (vendor docs). `--hq` uses 20. |
+| `--stage1-steps` | 8 | A/B sweep 2026-06-23 (21 cells × 3 seeds): 8 steps ≡ 16 steps in zh speech quality. `--hq` uses 20. |
 | `--stage2-steps` | 3 | Standard sampler default. `--hq` uses 5 (res_2s A/B-optimum). |
 | `--cfg-scale` | 5.0 | A/B-optimum for text guidance (T2V/I2V) |
 | `--stg-scale` | 1.5 | A/B-optimum: 7.61 vs 7.03@2.0, 6.39@1.0 |
