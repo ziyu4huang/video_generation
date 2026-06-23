@@ -1,0 +1,15 @@
+{
+  "_comment": "Minimal stub for check-model; runtime arch is in app/ideogram4_transformer.py / app/ideogram4_vae.py.",
+  "num_layers": 34,
+  "emb_dim": 4608,
+  "num_heads": 18,
+  "intermediate_size": 12288,
+  "in_channels": 128,
+  "head_dim": 256,
+  "rope_theta": 5000000,
+  "mrope_section": [
+    24,
+    20,
+    20
+  ]
+}

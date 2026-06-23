@@ -1,0 +1,6 @@
+{
+  "_comment": "Minimal stub for check-model; runtime arch is in app/ideogram4_transformer.py / app/ideogram4_vae.py.",
+  "in_channels": 3,
+  "out_channels": 3,
+  "latent_channels": 16
+}

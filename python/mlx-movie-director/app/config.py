@@ -84,7 +84,7 @@ KLEIN_9B_TOKENIZER_DIR    = os.path.join(MODELS_DIR, "tokenizer", "qwen3-klein")
 # Flux2 KL-VAE. NF4 weights loaded as-is (no re-quantization). Populated by the
 # `run.py import-ideogram4` command (HF download + content-addressed externalize).
 IDEOGRAM4_TEXT_ENCODER_DIR       = os.path.join(MODELS_DIR, "text_encoder", "qwen3vl-ideogram4")
-IDEOGRAM4_TOKENIZER_DIR          = os.path.join(MODELS_DIR, "tokenizer",    "qwen3vl-ideogram4")
+IDEOGRAM4_TOKENIZER_DIR          = os.path.join(MODELS_DIR, "tokenizer",    "qwen3vl-ideogram4-tok")
 IDEOGRAM4_COND_TRANSFORMER_DIR   = os.path.join(MODELS_DIR, "transformer",  "ideogram4-cond")
 IDEOGRAM4_UNCOND_TRANSFORMER_DIR = os.path.join(MODELS_DIR, "transformer",  "ideogram4-uncond")
 IDEOGRAM4_VAE_DIR                = os.path.join(MODELS_DIR, "vae",          "ideogram4-vae")

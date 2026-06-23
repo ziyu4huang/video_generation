@@ -1,7 +1,0 @@
-{
-  "name": "qwen3vl-ideogram4-tokenizer",
-  "pipeline": "ideogram4",
-  "source_repo": "ideogram-ai/ideogram-4-nf4",
-  "format": "tokenizer",
-  "note": "NF4 loaded as-is; app.ideogram4_nf4 dequantizes at load (fork-free, stock mlx)."
-}

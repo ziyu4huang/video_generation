@@ -57,6 +57,54 @@ _COMPONENTS = [
     ("vae", "vae/diffusion_pytorch_model.safetensors", cfg.IDEOGRAM4_VAE_DIR, "diffusion_pytorch_model.safetensors", True),
 ]
 
+# Per-component metadata for manifest.json (full check-model REQUIRED_FIELDS schema)
+# + config.json stubs (transformer/vae require config.json; text_encoder ships its own).
+_COMMON_COMPAT = [
+    "text_encoder/qwen3vl-ideogram4",
+    "tokenizer/qwen3vl-ideogram4-tok",
+    "vae/ideogram4-vae",
+]
+_COMPONENT_META: dict[str, dict] = {
+    cfg.IDEOGRAM4_TEXT_ENCODER_DIR: {
+        "type": "text_encoder", "arch": "qwen3-vl", "format": "bnb-nf4",
+        "description": ("Modified Qwen3-VL 8.8B text encoder for Ideogram4 — extracts 13-layer "
+                        "deep hidden states concatenated to the 53248-dim llm_features the DiT "
+                        "consumes. NF4 bnb; dequantized at load by app.ideogram4_nf4 (fork-free)."),
+        "compatible_with": ["transformer/ideogram4-cond", "transformer/ideogram4-uncond"],
+    },
+    cfg.IDEOGRAM4_TOKENIZER_DIR: {
+        "type": "tokenizer", "arch": "qwen3-vl", "format": "hf-tokenizer",
+        "description": "Qwen3-VL tokenizer + chat template for the Ideogram4 text encoder.",
+        "compatible_with": ["text_encoder/qwen3vl-ideogram4",
+                            "transformer/ideogram4-cond", "transformer/ideogram4-uncond"],
+    },
+    cfg.IDEOGRAM4_COND_TRANSFORMER_DIR: {
+        "type": "transformer", "arch": "ideogram4-dit", "format": "bnb-nf4",
+        "description": ("Ideogram4 conditional 9.3B flow-matching DiT (poster/slide-optimized t2i, "
+                        "legible rendered text). NF4 bnb; dequantized at load by app.ideogram4_nf4."),
+        "compatible_with": _COMMON_COMPAT,
+        "config": {"num_layers": 34, "emb_dim": 4608, "num_heads": 18,
+                   "intermediate_size": 12288, "in_channels": 128, "head_dim": 256,
+                   "rope_theta": 5_000_000, "mrope_section": [24, 20, 20]},
+    },
+    cfg.IDEOGRAM4_UNCOND_TRANSFORMER_DIR: {
+        "type": "transformer", "arch": "ideogram4-dit", "format": "bnb-nf4",
+        "description": ("Ideogram4 unconditional 9.3B flow-matching DiT (the CFG negative branch). "
+                        "NF4 bnb; dequantized at load by app.ideogram4_nf4."),
+        "compatible_with": _COMMON_COMPAT,
+        "config": {"num_layers": 34, "emb_dim": 4608, "num_heads": 18,
+                   "intermediate_size": 12288, "in_channels": 128, "head_dim": 256,
+                   "rope_theta": 5_000_000, "mrope_section": [24, 20, 20]},
+    },
+    cfg.IDEOGRAM4_VAE_DIR: {
+        "type": "vae", "arch": "flux2-kl", "format": "safetensors-bf16",
+        "description": ("Flux2 KL-VAE decoder for Ideogram4 (latents → pixels) with the vendored "
+                        "128-dim LATENT_SHIFT/LATENT_SCALE. bf16 safetensors, decoder-only."),
+        "compatible_with": ["transformer/ideogram4-cond", "transformer/ideogram4-uncond"],
+        "config": {"in_channels": 3, "out_channels": 3, "latent_channels": 16},
+    },
+}
+
 
 def add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
@@ -179,27 +227,134 @@ def run(args: argparse.Namespace) -> None:
             sizes[label] = os.path.getsize(dest)
             print(f"    placed {target_name} ({sizes[label]} bytes)")
 
-    # Per-component manifest.json (format bnb-nf4 for the NF4 safetensors).
-    _write_manifest(cfg.IDEOGRAM4_TEXT_ENCODER_DIR, "qwen3vl-ideogram4-text-encoder", repo, "bnb-nf4")
-    _write_manifest(cfg.IDEOGRAM4_TOKENIZER_DIR, "qwen3vl-ideogram4-tokenizer", repo, "tokenizer")
-    _write_manifest(cfg.IDEOGRAM4_COND_TRANSFORMER_DIR, "ideogram4-cond-transformer", repo, "bnb-nf4")
-    _write_manifest(cfg.IDEOGRAM4_UNCOND_TRANSFORMER_DIR, "ideogram4-uncond-transformer", repo, "bnb-nf4")
-    _write_manifest(cfg.IDEOGRAM4_VAE_DIR, "ideogram4-vae", repo, "safetensors-bf16")
+    # Per-component manifest.json (full check-model schema) + config.json stubs
+    # (transformer/vae require config.json; text_encoder ships its own from HF).
+    _write_manifest(cfg.IDEOGRAM4_TEXT_ENCODER_DIR, "qwen3vl-ideogram4-text-encoder", repo)
+    _write_manifest(cfg.IDEOGRAM4_TOKENIZER_DIR, "qwen3vl-ideogram4-tokenizer", repo)
+    _write_manifest(cfg.IDEOGRAM4_COND_TRANSFORMER_DIR, "ideogram4-cond-transformer", repo)
+    _write_manifest(cfg.IDEOGRAM4_UNCOND_TRANSFORMER_DIR, "ideogram4-uncond-transformer", repo)
+    _write_manifest(cfg.IDEOGRAM4_VAE_DIR, "ideogram4-vae", repo)
+    # config.json stubs for categories that require it (transformer/vae),
+    # + lift the text_encoder's nested text_config fields to top level for the schema check.
+    # (tokenizer is CONFIG_OPTIONAL — skip it.)
+    for model_dir, meta in _COMPONENT_META.items():
+        if "config" in meta or meta.get("type") == "text_encoder":
+            _write_config_stub(model_dir, meta.get("config", {}))
 
     total_gb = sum(sizes.values()) / 1e9
     print(f"\n[import-ideogram4] done. ~{total_gb:.1f} GB across {len(sizes)} files.")
     print("  Generate with: run.py image t2i --pipeline ideogram4 --self-test")
 
 
-def _write_manifest(model_dir: str, name: str, repo: str, fmt: str) -> None:
+def _dir_size_bytes(model_dir: str) -> int:
+    """Mirror check-model's size computation exactly:
+    - sum *.safetensors (the weight files, following symlinks to the store), else
+    - the single primary weight file for non-safetensors dirs (tokenizer.json).
+    Excludes manifest.json/config.json/README.md (metadata, not weights).
+    """
+    import glob
+    safetensors = glob.glob(os.path.join(model_dir, "*.safetensors"))
+    if safetensors:
+        total = 0
+        for p in safetensors:
+            try:
+                total += os.path.getsize(p)  # getsize follows symlinks
+            except OSError:
+                pass
+        return total
+    # Non-safetensors dir (tokenizer): match check-model's single-weight-file path.
+    for primary in ("tokenizer.json", "model.safetensors"):
+        p = os.path.join(model_dir, primary)
+        if os.path.exists(p):
+            try:
+                return os.path.getsize(p)
+            except OSError:
+                pass
+    return 0
+
+
+def _write_readme(model_dir: str, repo: str) -> None:
+    """check-model requires a README.md per instance. Minimal provenance stub."""
+    readme_path = os.path.join(model_dir, "README.md")
+    if os.path.exists(readme_path):
+        return
+    name = os.path.basename(model_dir.rstrip("/"))
+    body = (
+        f"# {name}\n\n"
+        f"Ideogram 4 component (poster/slide-optimized t2i). Source: "
+        f"[{repo}](https://huggingface.co/{repo}).\n\n"
+        "NF4 (bitsandbytes) weights are loaded as-is and dequantized at load by "
+        "`app/ideogram4_nf4` (fork-free, stock mlx — no `lyonsno/mlx@nf4` dependency). "
+        "Runtime architecture lives in `app/ideogram4_{transformer,vae,pipeline}.py`. "
+        "See `manifest.json` for metadata and the project root `CLAUDE.md` / "
+        "`docs/` for the full pipeline description.\n"
+    )
+    with open(readme_path, "w") as f:
+        f.write(body)
+    _git_add_force(readme_path)
+
+
+def _write_manifest(model_dir: str, name: str, repo: str) -> None:
+    """Emit a manifest.json satisfying check-model's REQUIRED_FIELDS schema.
+
+    `name` MUST equal the directory basename (check-model enforces this) — so the
+    passed name is overridden with basename. Pulls type/arch/format/description/
+    compatible_with from _COMPONENT_META; computes size_bytes from the dir's files;
+    stamps created_at (UTC ISO); writes the required README.md.
+    """
+    from datetime import datetime, timezone
+
+    meta = _COMPONENT_META.get(model_dir, {})
+    basename = os.path.basename(model_dir.rstrip("/"))
     doc = {
-        "name": name,
-        "pipeline": "ideogram4",
-        "source_repo": repo,
-        "format": fmt,
-        "note": "NF4 loaded as-is; app.ideogram4_nf4 dequantizes at load (fork-free, stock mlx).",
+        "name": basename,
+        "type": meta.get("type", "unknown"),
+        "arch": meta.get("arch", "ideogram4"),
+        "format": meta.get("format", "bnb-nf4"),
+        "description": meta.get("description", "Ideogram4 model component."),
+        "source": repo,
+        "source_url": f"https://huggingface.co/{repo}",
+        "hf_repo": repo,
+        "pipeline": ["ideogram4"],
+        "compatible_with": meta.get("compatible_with", []),
+        "size_bytes": _dir_size_bytes(model_dir),
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "note": ("NF4 bnb weights loaded as-is; app.ideogram4_nf4 dequantizes at load "
+                 "(fork-free, stock mlx). See app/ideogram4_*.py."),
     }
     with open(os.path.join(model_dir, "manifest.json"), "w") as f:
         json.dump(doc, f, indent=2)
         f.write("\n")
     _git_add_force(os.path.join(model_dir, "manifest.json"))
+    _write_readme(model_dir, repo)
+
+
+def _write_config_stub(model_dir: str, fields: dict) -> None:
+    """Ensure config.json satisfies the category's CONFIG_SCHEMAS check
+    (transformer: layer count + dim; vae: in/out/latent channels).
+
+    For dirs with a real config (the HF text_encoder), MERGE only the missing
+    schema fields to top level (its `text_config` sub-dict is read by the runtime,
+    so adding top-level hidden_size/num_hidden_layers is harmless). For dirs
+    without one (transformer/vae), write a minimal stub. Metadata only — the
+    runtime reads architecture from the vendored app/ideogram4_*.py classes.
+    """
+    cfg_path = os.path.join(model_dir, "config.json")
+    if os.path.exists(cfg_path):
+        with open(cfg_path) as f:
+            existing = json.load(f)
+    else:
+        existing = {"_comment": "Minimal stub for check-model; runtime arch is in app/ideogram4_transformer.py / app/ideogram4_vae.py."}
+    # If the config nests text_config (HF Qwen3-VL), lift hidden_size /
+    # num_hidden_layers to top level so the text_encoder schema check passes.
+    tc = existing.get("text_config") if isinstance(existing.get("text_config"), dict) else None
+    if tc:
+        for k in ("hidden_size", "num_hidden_layers", "num_attention_heads"):
+            if k in tc and k not in existing:
+                existing[k] = tc[k]
+    for k, v in fields.items():
+        existing.setdefault(k, v)
+    with open(cfg_path, "w") as f:
+        json.dump(existing, f, indent=2)
+        f.write("\n")
+    _git_add_force(cfg_path)

@@ -76,5 +76,8 @@
     "temporal_patch_size": 2
   },
   "vision_end_token_id": 151653,
-  "vision_start_token_id": 151652
+  "vision_start_token_id": 151652,
+  "hidden_size": 4096,
+  "num_hidden_layers": 36,
+  "num_attention_heads": 32
 }

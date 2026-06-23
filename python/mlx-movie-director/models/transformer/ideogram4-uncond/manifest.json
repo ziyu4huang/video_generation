@@ -1,7 +1,21 @@
 {
-  "name": "ideogram4-uncond-transformer",
-  "pipeline": "ideogram4",
-  "source_repo": "ideogram-ai/ideogram-4-nf4",
+  "name": "ideogram4-uncond",
+  "type": "transformer",
+  "arch": "ideogram4-dit",
   "format": "bnb-nf4",
-  "note": "NF4 loaded as-is; app.ideogram4_nf4 dequantizes at load (fork-free, stock mlx)."
+  "description": "Ideogram4 unconditional 9.3B flow-matching DiT (the CFG negative branch). NF4 bnb; dequantized at load by app.ideogram4_nf4.",
+  "source": "ideogram-ai/ideogram-4-nf4",
+  "source_url": "https://huggingface.co/ideogram-ai/ideogram-4-nf4",
+  "hf_repo": "ideogram-ai/ideogram-4-nf4",
+  "pipeline": [
+    "ideogram4"
+  ],
+  "compatible_with": [
+    "text_encoder/qwen3vl-ideogram4",
+    "tokenizer/qwen3vl-ideogram4-tok",
+    "vae/ideogram4-vae"
+  ],
+  "size_bytes": 5221703035,
+  "created_at": "2026-06-23T14:33:50Z",
+  "note": "NF4 bnb weights loaded as-is; app.ideogram4_nf4 dequantizes at load (fork-free, stock mlx). See app/ideogram4_*.py."
 }
