@@ -275,11 +275,19 @@ def _start_server(out_js: str):
 
     log_fd, log_path = tempfile.mkstemp(prefix="quality-report-", suffix=".log")
     os.close(log_fd)
-    proc = subprocess.Popen(
-        [bun, "run", out_js],
-        stdout=open(log_path, "w"),
-        stderr=subprocess.STDOUT,
-    )
+    log_file = open(log_path, "w")
+    try:
+        proc = subprocess.Popen(
+            [bun, "run", out_js],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+        )
+    finally:
+        # The child dup'd the fd at exec, so closing the parent's copy does not
+        # affect the detached server's log writes — but it does stop this process
+        # from leaking the handle (the inline `open(...)` form dropped the only
+        # reference and relied on GC `__del__`).
+        log_file.close()
     url = None
     for _ in range(50):
         time.sleep(0.1)
