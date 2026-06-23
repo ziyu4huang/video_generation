@@ -224,24 +224,27 @@ def extract_keyframes_from_range(video_path: str, start_frame: int, end_frame: i
     cap = cv2.VideoCapture(video_path)
     extracted = []
     frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame_idx in indices:
-            h, w = frame.shape[:2]
-            if max_size > 0 and max(h, w) > max_size:
-                scale = max_size / max(h, w)
-                new_w, new_h = int(w * scale), int(h * scale)
-                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
-            out_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
-            cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            extracted.append(os.path.abspath(out_path))
-        frame_idx += 1
-        if frame_idx > end_frame:
-            break
-
-    cap.release()
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_idx in indices:
+                h, w = frame.shape[:2]
+                if max_size > 0 and max(h, w) > max_size:
+                    scale = max_size / max(h, w)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                out_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
+                cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                extracted.append(os.path.abspath(out_path))
+            frame_idx += 1
+            if frame_idx > end_frame:
+                break
+    finally:
+        # Release even if cv2.resize/imwrite raise mid-loop (cv2.VideoCapture has
+        # no context manager); without this an exception leaks the capture fd.
+        cap.release()
     return extracted
 
 
