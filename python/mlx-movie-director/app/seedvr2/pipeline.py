@@ -169,7 +169,7 @@ class SeedVR2Upscaler:
         print("[SeedVR2] Loading text embeddings...")
         self.txt_pos = SeedVR2TextEmbeddings.load_positive()
 
-    def _get_transformer_config(self) -> dict:
+    def _get_transformer_config(self) -> dict[str, Any]:
         if self.model_size == "7b":
             return dict(
                 vid_dim=3072,

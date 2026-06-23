@@ -153,9 +153,11 @@ class ZImagePipeline:
         self.text_encoder_path = cfg.TEXT_ENCODER_DIR
         self._transformer_dir = transformer_dir or cfg.TRANSFORMER_DIR
 
-        self._pos_cache_key = None
-        self._pos_cache = None
-        self._rope_cache = None
+        # Cache contract: set lazily on first denoise; guarded by
+        # `self._pos_cache is not None` (see line ~489).
+        self._pos_cache_key: tuple[int, int, int] | None = None
+        self._pos_cache: tuple["mx.array", "mx.array"] | None = None
+        self._rope_cache: tuple["mx.array", "mx.array"] | None = None
 
         for required_dir in [self._transformer_dir, cfg.TEXT_ENCODER_DIR, cfg.TOKENIZER_DIR, cfg.VAE_DIR]:
             if not cfg.check_model_available(required_dir):

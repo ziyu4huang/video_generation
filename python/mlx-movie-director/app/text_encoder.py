@@ -12,7 +12,7 @@ class RMSNorm(nn.Module):
         self.weight = mx.ones(dims)
         self.eps = eps
 
-    def __call__(self, x):
+    def __call__(self, x: mx.array) -> mx.array:
         return mx.fast.rms_norm(x, self.weight, self.eps)
 
 
@@ -33,7 +33,7 @@ class Attention(nn.Module):
         self.q_norm = RMSNorm(self.head_dim, eps=config.get("rms_norm_eps", 1e-6))
         self.k_norm = RMSNorm(self.head_dim, eps=config.get("rms_norm_eps", 1e-6))
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x: mx.array, mask: mx.array | None = None) -> mx.array:
         B, L, D = x.shape
 
         q = self.q_proj(x)
@@ -72,38 +72,38 @@ class Attention(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.gate_proj = nn.Linear(config["hidden_size"], config["intermediate_size"], bias=False)
         self.up_proj = nn.Linear(config["hidden_size"], config["intermediate_size"], bias=False)
         self.down_proj = nn.Linear(config["intermediate_size"], config["hidden_size"], bias=False)
 
-    def __call__(self, x):
+    def __call__(self, x: mx.array) -> mx.array:
         return self.down_proj(nn.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.self_attn = Attention(config)
         self.mlp = MLP(config)
         self.input_layernorm = RMSNorm(config["hidden_size"], eps=config["rms_norm_eps"])
         self.post_attention_layernorm = RMSNorm(config["hidden_size"], eps=config["rms_norm_eps"])
 
-    def __call__(self, x, mask=None):
+    def __call__(self, x: mx.array, mask: mx.array | None = None) -> mx.array:
         h = x + self.self_attn(self.input_layernorm(x), mask)
         out = h + self.mlp(self.post_attention_layernorm(h))
         return out
 
 
 class Qwen3Model(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.embed_tokens = nn.Embedding(config["vocab_size"], config["hidden_size"])
         self.layers = [TransformerBlock(config) for _ in range(config["num_hidden_layers"])]
         self.norm = RMSNorm(config["hidden_size"], eps=config["rms_norm_eps"])
 
-    def __call__(self, input_ids):
+    def __call__(self, input_ids: mx.array) -> mx.array:
         x = self.embed_tokens(input_ids)
         B, L = input_ids.shape
 
@@ -121,9 +121,9 @@ class Qwen3Model(nn.Module):
 
 
 class TextEncoderMLX(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: dict[str, Any]):
         super().__init__()
         self.model = Qwen3Model(config)
 
-    def __call__(self, input_ids):
+    def __call__(self, input_ids: mx.array) -> mx.array:
         return self.model(input_ids)

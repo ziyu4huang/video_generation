@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from typing import Any
 
 # Allow `python app/ab_diff.py …` (absolute path) to import the sibling app pkg.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,14 +29,18 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps  # noqa: E402
 
 def load_rgb(path: str) -> np.ndarray:
     """Load an image as an HxWx3 float32 RGB array in [0, 255]."""
-    return np.asarray(Image.open(path).convert("RGB"), dtype=np.float32)
+    try:
+        with Image.open(path) as im:
+            return np.asarray(im.convert("RGB"), dtype=np.float32)
+    except (FileNotFoundError, OSError) as exc:
+        raise ValueError(f"load_rgb: cannot read image {path!r}: {exc}") from exc
 
 
 def _to_bgr(rgb: np.ndarray) -> np.ndarray:
     return rgb[:, :, ::-1]
 
 
-def compute_diff(img_a: np.ndarray, img_b: np.ndarray) -> dict:
+def compute_diff(img_a: np.ndarray, img_b: np.ndarray) -> dict[str, Any]:
     """Pairwise diff of two HxWx3 float32 RGB arrays.
 
     Returns ``{identical_size, ssim, psnr_db, mean_abs_diff_per255, pct_gt5,
@@ -43,7 +48,7 @@ def compute_diff(img_a: np.ndarray, img_b: np.ndarray) -> dict:
     meaningful and the rest are ``None``.
     """
     identical_size = img_a.shape == img_b.shape
-    metrics: dict = {
+    metrics: dict[str, Any] = {
         "identical_size": bool(identical_size),
         "ssim": None,
         "psnr_db": None,

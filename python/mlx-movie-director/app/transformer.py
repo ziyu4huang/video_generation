@@ -186,7 +186,7 @@ class ZImageTransformerBlock(nn.Module):
 
 
 class FinalLayer(nn.Module):
-    def __init__(self, dim, out_channels):
+    def __init__(self, dim: int, out_channels: int):
         super().__init__()
         self.norm_final = nn.LayerNorm(dim, eps=1e-6, affine=False)
         self.linear = nn.Linear(dim, out_channels, bias=True)
