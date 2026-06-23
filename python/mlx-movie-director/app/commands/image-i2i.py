@@ -851,7 +851,10 @@ def _run_self_test(args: argparse.Namespace) -> None:
     # ── Step 4: VAE encode source + all needed ControlNet reference modes ──
     print(f"\n[Self-Test] VAE encoding source image...", end=" ", flush=True)
     vae = _load_vae()
-    source_pil = Image.open(source_path).convert("RGB").resize((out_w, out_h), Image.LANCZOS)
+    # Open under a context manager so the file handle closes; .convert()/.resize()
+    # return new memory-backed images that stay valid after the with-block.
+    with Image.open(source_path) as _src:
+        source_pil = _src.convert("RGB").resize((out_w, out_h), Image.LANCZOS)
     # VAE.encode() already applies shift*scale — skip double-norm.
     clean_latent = _vae_encode(vae, source_pil)
     print(f"Done → {list(clean_latent.shape)}")

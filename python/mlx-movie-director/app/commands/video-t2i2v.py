@@ -559,6 +559,7 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
 
     # Step C — Signal metrics (direct import from quality_metrics, no subprocess)
     signal: dict = {}
+    cap = None
     try:
         import cv2
         import numpy as np
@@ -580,7 +581,6 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
                 if prev_gray is not None:
                     flicker_v.append(float(np.abs(gray - prev_gray).mean()))
                 prev_gray = gray.copy()
-            cap.release()
             _m = lambda v: float(np.mean(v)) if v else 0.0
             signal = {
                 "sharpness_mean": _m(sharpness_v),
@@ -593,6 +593,11 @@ def _run_quality_stage(args: argparse.Namespace, video_path: str, prompt: str, o
             }
     except Exception as e:
         print(f"[t2i2v] WARNING: signal metrics failed ({e}) — skipped", file=sys.stderr)
+    finally:
+        # Release the capture handle whether metrics succeeded, raised, or the
+        # video wasn't openable (cv2.VideoCapture has no context manager).
+        if cap is not None:
+            cap.release()
 
     # Step D — Verdict (only count gates where we have data)
     gates: list[tuple[str, bool]] = []
@@ -828,7 +833,8 @@ def run_t2i2v(args: argparse.Namespace) -> None:
                   file=sys.stderr)
         else:
             try:
-                vlm_data = json.load(open(vlm_output))
+                with open(vlm_output) as _vlm_f:
+                    vlm_data = json.load(_vlm_f)
                 # ltx_i2v returns JSON inside caption; parse it
                 ltx_caption = vlm_data.get("styles", {}).get("ltx_i2v", {}).get("caption", "")
                 vlm_model = vlm_data.get("styles", {}).get("ltx_i2v", {}).get("model", "unknown")

@@ -500,28 +500,32 @@ def _run_degradation_test(args):
         sys.exit(1)
 
     cap = cv2.VideoCapture(resolved)
-    if not cap.isOpened():
-        print(f"ERROR: cannot open video: {resolved}", file=sys.stderr)
-        sys.exit(1)
+    try:
+        if not cap.isOpened():
+            print(f"ERROR: cannot open video: {resolved}", file=sys.stderr)
+            sys.exit(1)
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
 
-    print(f"[quality] ═══ Video Degradation Test ═══")
-    print(f"[quality] Source: {os.path.basename(resolved)} ({width}×{height}, {total_frames} frames)")
-    print(f"[quality] Variants: {len(_VIDEO_DEGRADATION_VARIANTS)}")
+        print(f"[quality] ═══ Video Degradation Test ═══")
+        print(f"[quality] Source: {os.path.basename(resolved)} ({width}×{height}, {total_frames} frames)")
+        print(f"[quality] Variants: {len(_VIDEO_DEGRADATION_VARIANTS)}")
 
-    # Read all frames
-    frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-    cap.release()
+        # Read all frames
+        frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+    finally:
+        # Release on every path — incl. the sys.exit(1) above (SystemExit still
+        # runs finally) and any cap.get/read raise. cv2.VideoCapture has no CM.
+        cap.release()
 
     if not frames:
         print("ERROR: no frames read from video", file=sys.stderr)
@@ -565,9 +569,12 @@ def _run_degradation_test(args):
         safe_label = label.lower().replace(" ", "_").replace("=", "").replace("×", "x")
         out_path = os.path.join(cfg.OUTPUT_DIR, f"{base_name}_{safe_label}.mp4")
         writer = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
-        for df in degraded_frames:
-            writer.write(df)
-        writer.release()
+        try:
+            for df in degraded_frames:
+                writer.write(df)
+        finally:
+            # Release even if writer.write() raises mid-variant (no CM).
+            writer.release()
         variant_paths.append(out_path)
 
         # Analyze
@@ -686,19 +693,23 @@ def _run_restore_loop(args):
 
     # Probe + read source frames
     cap = cv2.VideoCapture(src_path)
-    if not cap.isOpened():
-        print(f"ERROR: cannot open video: {src_path}", file=sys.stderr)
-        sys.exit(1)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    frames = []
-    while True:
-        ret, f = cap.read()
-        if not ret:
-            break
-        frames.append(f)
-    cap.release()
+    try:
+        if not cap.isOpened():
+            print(f"ERROR: cannot open video: {src_path}", file=sys.stderr)
+            sys.exit(1)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        frames = []
+        while True:
+            ret, f = cap.read()
+            if not ret:
+                break
+            frames.append(f)
+    finally:
+        # Release on every path — incl. sys.exit(1) above and any cap.get/read
+        # raise. cv2.VideoCapture has no context manager.
+        cap.release()
     if not frames:
         print("ERROR: no frames read from baseline", file=sys.stderr)
         sys.exit(1)
@@ -827,9 +838,12 @@ def _write_video(path: str, frames: list, fps: float, w: int, h: int) -> None:
     """Write BGR frames to an mp4v video file."""
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(path, fourcc, fps, (w, h))
-    for f in frames:
-        writer.write(f)
-    writer.release()
+    try:
+        for f in frames:
+            writer.write(f)
+    finally:
+        # Release even if writer.write() raises (cv2.VideoWriter has no CM).
+        writer.release()
 
 
 def _degrade_frame_realistic(frame: np.ndarray, w: int, h: int) -> np.ndarray:
@@ -951,67 +965,70 @@ def _print_reference_verdict(ref_deg: dict, ref_res: dict, d_ssim: float,
 def analyze_video(video_path: str, sample_every: int = 1) -> dict:
     """Analyze a single video and return quality metrics report."""
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
-        sys.exit(1)
+    try:
+        if not cap.isOpened():
+            print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
+            sys.exit(1)
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    print(f"[quality]   {total_frames} frames, {width}×{height}, {fps:.1f}fps")
-    if sample_every > 1:
-        print(f"[quality]   Sampling every {sample_every} frames")
+        print(f"[quality]   {total_frames} frames, {width}×{height}, {fps:.1f}fps")
+        if sample_every > 1:
+            print(f"[quality]   Sampling every {sample_every} frames")
 
-    # Accumulators for 7 per-frame metrics + temporal
-    per_frame_acc = {k: [] for k in (
-        "sharpness", "edge_density", "contrast", "noise_sigma",
-        "snr_db", "blockiness", "saturation_std",
-    )}
-    flicker_list = []
-    consistency_list = []
+        # Accumulators for 7 per-frame metrics + temporal
+        per_frame_acc = {k: [] for k in (
+            "sharpness", "edge_density", "contrast", "noise_sigma",
+            "snr_db", "blockiness", "saturation_std",
+        )}
+        flicker_list = []
+        consistency_list = []
 
-    prev_gray = None
-    frame_idx = 0
-    analyzed = 0
+        prev_gray = None
+        frame_idx = 0
+        analyzed = 0
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        if frame_idx % sample_every == 0:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float64)
+            if frame_idx % sample_every == 0:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float64)
 
-            # Shared per-frame metrics (7 metrics)
-            metrics = analyze_frame(gray, frame)
-            for k, v in metrics.items():
-                per_frame_acc[k].append(v)
+                # Shared per-frame metrics (7 metrics)
+                metrics = analyze_frame(gray, frame)
+                for k, v in metrics.items():
+                    per_frame_acc[k].append(v)
 
-            # Temporal metrics (video-only)
-            if prev_gray is not None:
-                flicker = float(np.abs(gray - prev_gray).mean())
-                flicker_list.append(flicker)
+                # Temporal metrics (video-only)
+                if prev_gray is not None:
+                    flicker = float(np.abs(gray - prev_gray).mean())
+                    flicker_list.append(flicker)
 
-                result = cv2.matchTemplate(
-                    gray.astype(np.float32),
-                    prev_gray.astype(np.float32),
-                    cv2.TM_CCOEFF_NORMED,
-                )
-                consistency_list.append(float(result[0, 0]))
+                    result = cv2.matchTemplate(
+                        gray.astype(np.float32),
+                        prev_gray.astype(np.float32),
+                        cv2.TM_CCOEFF_NORMED,
+                    )
+                    consistency_list.append(float(result[0, 0]))
 
-            prev_gray = gray.copy()
-            analyzed += 1
+                prev_gray = gray.copy()
+                analyzed += 1
 
-            # Progress
-            if analyzed % 10 == 0 or frame_idx == total_frames - 1:
-                pct = min(100, int(frame_idx / max(1, total_frames) * 100))
-                print(f"\r[quality]   Progress: {analyzed} frames analyzed ({pct}%)", end="", flush=True)
+                # Progress
+                if analyzed % 10 == 0 or frame_idx == total_frames - 1:
+                    pct = min(100, int(frame_idx / max(1, total_frames) * 100))
+                    print(f"\r[quality]   Progress: {analyzed} frames analyzed ({pct}%)", end="", flush=True)
 
-        frame_idx += 1
-
-    cap.release()
+            frame_idx += 1
+    finally:
+        # Release on every path — incl. sys.exit(1) above and any cap.get/read
+        # raise. cv2.VideoCapture has no context manager.
+        cap.release()
     if analyzed > 0:
         print(f"\r[quality]   Done: {analyzed} frames analyzed          ")
 
