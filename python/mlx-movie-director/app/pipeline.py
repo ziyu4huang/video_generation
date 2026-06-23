@@ -92,13 +92,20 @@ def _detect_transformer_quant(trans_path: str) -> tuple[int, int]:
     if os.path.exists(manifest_path):
         try:
             with open(manifest_path) as f:
-                fmt = json.load(f).get("format", "")
+                manifest = json.load(f)
+            fmt = manifest.get("format", "") if isinstance(manifest, dict) else ""
             if fmt == "mlx-8bit":
                 return 8, 64
             if fmt in ("mlx-4bit-gs32", "mlx-4bit"):
                 return 4, 32
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError, KeyError, TypeError) as exc:
+            # A corrupt/invalid manifest must be observable — fall back but warn
+            # so an 8-bit model is not silently loaded as 4-bit (garbage weights).
+            print(
+                f"warning: failed to read quant format from {manifest_path} "
+                f"({type(exc).__name__}: {exc}); falling back to 4-bit/32",
+                file=sys.stderr,
+            )
     return 4, 32  # backward-compatible default
 
 
@@ -139,7 +146,8 @@ class MLXFlowMatchEulerScheduler:
         return res
 
     def step(self, model_output: mx.array, timestep_idx: int, sample: mx.array) -> mx.array:
-        assert self.timesteps is not None, "set_timesteps() must be called before step()"
+        if self.timesteps is None:
+            raise RuntimeError("set_timesteps() must be called before step()")
         t_curr = self.timesteps[timestep_idx]
         t_prev = self.timesteps[timestep_idx + 1]
         dt = t_prev - t_curr
@@ -466,9 +474,10 @@ class ZImagePipeline:
             # 4D invariant: (N, C, H, W). Assert loudly so a 5D latent (e.g. video)
             # fails with a clear message instead of a confusing unpack ValueError.
             _shape_src = noise if clean_latent is None else clean_latent
-            assert _shape_src.ndim == 4, (
-                f"expected 4D latent (N, C, H, W), got shape {_shape_src.shape}"
-            )
+            if _shape_src.ndim != 4:
+                raise ValueError(
+                    f"expected 4D latent (N, C, H, W), got shape {_shape_src.shape}"
+                )
             _, C_lat, H_lat, W_lat = _shape_src.shape
             H_tok, W_tok = H_lat // 2, W_lat // 2
 

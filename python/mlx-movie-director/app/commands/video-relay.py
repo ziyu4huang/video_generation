@@ -528,7 +528,16 @@ def _mux_audio_track(video_path: str, audio_path: str, output_path: str,
             tmp_path,
         ]
 
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+        # ffmpeg vanished between _require_ffmpeg()'s shutil.which() check and exec
+        # (dangling symlink / race), or the call timed out. Degrade to 'no audio'
+        # rather than letting the error abort the whole relay run.
+        print(f"[relay] WARNING: audio mux exec failed — output has no audio.\n{exc}",
+              file=sys.stderr)
+        shutil.move(video_path, output_path) if video_path != output_path else None
+        return
     if result.returncode != 0:
         stderr = result.stderr.decode(errors="replace")
         print(f"[relay] WARNING: audio mux failed — output has no audio.\n{stderr}",

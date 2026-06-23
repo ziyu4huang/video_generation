@@ -719,6 +719,9 @@ def _run_generate_inner(args):
         args.caption = True
 
     # --- Pre-flight summary ---
+    if not args.fps or args.fps <= 0:
+        print("ERROR: --fps must be > 0", file=sys.stderr)
+        sys.exit(1)
     duration_s = args.frames / args.fps
     print(f"[video] Resolution: {args.width}×{args.height}  "
           f"Duration: {args.frames} frames @ {args.fps:.0f}fps = {duration_s:.1f}s")

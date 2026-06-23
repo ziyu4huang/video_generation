@@ -116,7 +116,11 @@ class LoRALinearWrapper(nn.Module):
 
 def get_module_by_name(model: nn.Module, module_name: str) -> nn.Module | None:
     parts = module_name.split('.')
-    obj: nn.Module | list | dict | None = model
+    # `obj` is reassigned inside the loop to results of getattr()/__getitem__,
+    # which can yield arbitrary attribute types (mx.array, submodules, list
+    # elements of any type). It is typed `Any` to honestly reflect the dynamic
+    # traversal; the isinstance(obj, list|dict) branches below are NOT exhaustive.
+    obj: Any = model
     for part in parts:
         try:
             if part.isdigit():

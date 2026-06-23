@@ -250,7 +250,10 @@ def collect_model_fingerprint_seedvr2() -> dict[str, Any]:
     if os.path.exists(dit_manifest):
         try:
             with open(dit_manifest) as f:
-                dit_format = json.load(f).get("format")
+                # Narrow explicitly: a malformed manifest could put any JSON type
+                # under "format" (number/list/dict); only a str is a valid precision tag.
+                _raw = json.load(f).get("format")
+                dit_format = _raw if isinstance(_raw, str) else None
         except Exception:
             dit_format = None
     models["seedvr2_dit_format"] = dit_format
@@ -285,7 +288,7 @@ class Manifest:
     def from_success(cls, run_file: str, start_time: str, end_time: str,
                      timings: dict[str, Any], output_files: list[dict[str, Any]] | None,
                      models: dict[str, Any],
-                     stage_timings: dict[str, Any] | None = None,
+                     stage_timings: dict[str, dict[str, float]] | None = None,
                      events: list[dict[str, Any]] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
@@ -307,7 +310,7 @@ class Manifest:
     def from_error(cls, run_file: str, start_time: str, end_time: str,
                    timings: dict[str, Any], exception: Exception,
                    models: dict[str, Any],
-                   stage_timings: dict[str, Any] | None = None,
+                   stage_timings: dict[str, dict[str, float]] | None = None,
                    events: list[dict[str, Any]] | None = None) -> "Manifest":
         elapsed = _parse_iso(end_time) - _parse_iso(start_time)
         return cls(
@@ -344,7 +347,7 @@ class Manifest:
 
 
 def _build_pipeline_steps(timings: dict[str, Any] | None,
-                          stage_timings: dict[str, Any] | None = None) -> list[dict[str, Any]] | None:
+                          stage_timings: dict[str, dict[str, float]] | None = None) -> list[dict[str, Any]] | None:
     """Build an ordered execution-trace list from pipeline timings.
 
     Multi-stage workflows prepend one summary row per stage; pipeline phase
@@ -352,11 +355,30 @@ def _build_pipeline_steps(timings: dict[str, Any] | None,
     per-step denoise list is collapsed into a single row carrying a `detail`
     field (avoids 30+ noise rows). Returns None when nothing was recorded
     (e.g. Flux2Klein/LTX fill no phase timings).
+
+    Each stage value is expected to be a flat ``dict[str, float]`` (the
+    GenerationResult.timings shape). A malformed/nested stage value (one whose
+    leaves are not numeric) is summed to 0 and logged to stderr so the stage
+    row's ``seconds: 0.0`` is explainable rather than silent.
     """
     steps: list[dict[str, Any]] = []
     if stage_timings:
         for stage_name, t_dict in stage_timings.items():
-            total = sum(v for v in (t_dict or {}).values() if isinstance(v, (int, float)))
+            # Sum numeric leaves; recurse one level so a nested dict (e.g. a
+            # per-phase breakdown) still contributes instead of silently
+            # summing to 0. Non-numeric leaves (str/list/None) are dropped.
+            leaves: list[float] = []
+            for v in (t_dict or {}).values():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    leaves.append(v)
+                elif isinstance(v, dict):
+                    leaves.extend(sv for sv in v.values()
+                                  if isinstance(sv, (int, float)) and not isinstance(sv, bool))
+            if not leaves and (t_dict or {}):
+                print(f"[manifest] stage '{stage_name}' has no numeric timing "
+                      f"leaves (got {type(t_dict).__name__}); seconds recorded as 0.0",
+                      file=sys.stderr)
+            total = sum(leaves)
             steps.append({"step": f"stage:{stage_name}", "seconds": round(float(total), 3)})
     for key, val in (timings or {}).items():
         if key == "denoising_step_times":

@@ -145,6 +145,12 @@ class SeedVR2Upscaler:
             with open(vae_path, "rb") as f:
                 header_len = struct.unpack("<Q", f.read(8))[0]
                 header = json.loads(f.read(header_len))
+            # A corrupt/truncated file can make json.loads return a list or
+            # scalar instead of the expected dict[str, Any]; guard the
+            # .values() call so a malformed header degrades to "not quantized"
+            # rather than raising AttributeError out of the try block.
+            if not isinstance(header, dict):
+                header = {}
             is_quantized = any(
                 v.get("dtype") in ("uint32", "U32") for v in header.values()
                 if isinstance(v, dict)
