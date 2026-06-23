@@ -55,7 +55,7 @@ const A = isObj(args) ? args : {}
 const objective   = A.objective   || "both"          // "voice" | "quality" | "both"
 const transformer = A.transformer || "dasiwa"        // dev | distilled | dasiwa
 const budget      = Number(A.budget) || 4            // max iterations
-const dryRun      = A.dryRun === true                // default: false (run); pass dryRun:true for plan-only
+const dryRun      = A.dryRun === true || String(A.dryRun).toLowerCase() === "true"  // tolerate string "true" from Workflow runtime serialization
 const resumeMode  = A.resume || "auto"               // auto | fresh | continue
 const margin      = Number(A.margin) || 1.5          // adopt threshold (composite pts)
 const convergeK   = Number(A.convergeK) || 2         // stop after K non-improving iters
