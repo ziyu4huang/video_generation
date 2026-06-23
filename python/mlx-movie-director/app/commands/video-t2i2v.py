@@ -377,10 +377,14 @@ def _apply_tts_fix(video_path: str, speech_text: str, tts_voice: str) -> bool:
             return False
 
         # 2. Convert AIFF → 48 kHz stereo WAV (matches LTX output)
-        subprocess.run(
+        wav_r = subprocess.run(
             ["ffmpeg", "-y", "-i", aiff_path, "-ar", "48000", "-ac", "2", wav_path],
             capture_output=True, timeout=30,
         )
+        if wav_r.returncode != 0:
+            print(f"[t2i2v] TTS fix: ffmpeg AIFF->WAV failed - "
+                  f"{wav_r.stderr.decode()[-120:]}", file=sys.stderr)
+            return False
 
         # 3. Get video duration for trim
         dur_r = subprocess.run(
