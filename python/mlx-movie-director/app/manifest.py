@@ -273,7 +273,7 @@ class Manifest:
     timings: dict[str, Any]           # phase-level breakdown from GenerationResult
     models: dict[str, Any]            # model fingerprints: {name: {path, size_bytes, md5_partial}}
     output_files: list[dict[str, Any]] | None   # [{path, seed, size_bytes, width, height}] or None
-    error: dict[str, str | None] | None          # {type, message, traceback} or None
+    error: dict[str, str] | None          # {type, message, traceback} or None
     pipeline_steps: list[dict[str, Any]] | None  # ordered execution trace from timings (+stage_timings)
     events: list[dict[str, Any]] | None  # runtime trace: what the pipeline ACTUALLY did (model loads w/ quant+format, LoRA apply, denoise config, VAE backend, fallbacks)
 

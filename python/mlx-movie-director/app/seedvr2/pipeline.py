@@ -67,9 +67,11 @@ class SeedVR2Upscaler:
     def __init__(self, model_size: str = "7b", vae_dir: str | None = None):
         self.model_size = model_size
         self._vae_dir = vae_dir  # override VAE dir if provided
-        self.transformer = None
-        self.vae = None
-        self.txt_pos = None
+        # Lazy-loaded by _load_models(); annotated so static checkers narrow the
+        # None → module transition instead of inferring the fields as None-typed.
+        self.transformer: SeedVR2Transformer | None = None
+        self.vae: SeedVR2VAE | None = None
+        self.txt_pos: mx.array | None = None
         self.last_timings: dict[str, float] = {}  # populated by upscale(); read by callers (e.g. image-purify manifest)
         # Resolved quantization the loader actually applied (None until _load_models
         # runs). Recorded into the run manifest so 8-bit vs 4-bit-gs32 purify runs

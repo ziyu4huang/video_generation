@@ -933,8 +933,12 @@ def _run_single(args, prompt: str) -> None:
                 if args.caption:
                     _run_caption(png_path, getattr(args, "caption_style", None) or "default", prompt)
             else:
-                print("[video] WARNING: first-frame extraction failed (ffmpeg not found?)",
-                      file=sys.stderr)
+                if _last_ffmpeg_error is None:
+                    print("[video] WARNING: first-frame extraction failed "
+                          "(ffmpeg not found)", file=sys.stderr)
+                else:
+                    print("[video] WARNING: first-frame extraction failed "
+                          f"(ffmpeg error: {_last_ffmpeg_error})", file=sys.stderr)
 
 
 def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) -> None:
@@ -1343,10 +1347,20 @@ def _prepare_i2v_image(image_path: str, width: int, height: int) -> str:
     return resized_path
 
 
+# Tail of ffmpeg stderr from the most recent _extract_first_frame failure that
+# ran ffmpeg (i.e. ffmpeg was found but returned non-zero / produced no png).
+# ``None`` means "ffmpeg not found" (or no call yet). Read by the caller to
+# distinguish a missing-binary failure from a real encode error without changing
+# the bool return type this helper shares across call sites.
+_last_ffmpeg_error: str | None = None
+
+
 def _extract_first_frame(video_path: str, png_path: str) -> bool:
     """Extract first frame of video to png_path using ffmpeg."""
+    global _last_ffmpeg_error
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
+        _last_ffmpeg_error = None  # missing-binary failure, not an encode error
         return False
     # Non-critical (frame is for captioning only): a ffmpeg timeout must degrade
     # to False, not raise TimeoutExpired out of this bool-typed helper.
@@ -1356,8 +1370,15 @@ def _extract_first_frame(video_path: str, png_path: str) -> bool:
             capture_output=True, timeout=30,
         )
     except subprocess.TimeoutExpired:
+        _last_ffmpeg_error = "ffmpeg timed out after 30s"
         return False
-    return result.returncode == 0 and os.path.exists(png_path)
+    if result.returncode == 0 and os.path.exists(png_path):
+        _last_ffmpeg_error = None
+        return True
+    # ffmpeg ran but failed — capture the real reason for diagnosability.
+    tail = (result.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-3:]
+    _last_ffmpeg_error = " | ".join(tail) if tail else f"returncode={result.returncode}"
+    return False
 
 
 def _run_caption(png_path: str, style: str = "default", prompt: str = "") -> None:
@@ -1440,7 +1461,13 @@ def _collect_model_fingerprints(model_dir: str, args: argparse.Namespace | None 
 
     # User-supplied LoRA (--lora-path) — fingerprint into models["loras"].
     # The built-in distilled LoRA is already captured above as its own key.
-    lora_path = getattr(args, "lora_path", None) if args is not None else None
-    if lora_path and os.path.exists(lora_path):
-        models["loras"] = [file_fingerprint(lora_path)]
+    # ``args.lora_path`` may be a str (video-generate path) or None|list[str]
+    # (the shared `--lora-path action='append'` registration used by image/
+    # relay/vbvr). Peel the list defensively so an append-style Namespace does
+    # not crash manifest writing with a TypeError AFTER generation succeeded.
+    lora_raw = getattr(args, "lora_path", None) if args is not None else None
+    if isinstance(lora_raw, list):
+        lora_raw = lora_raw[0] if lora_raw else None
+    if lora_raw and os.path.exists(lora_raw):
+        models["loras"] = [file_fingerprint(lora_raw)]
     return models

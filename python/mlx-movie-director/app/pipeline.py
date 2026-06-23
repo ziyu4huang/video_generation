@@ -463,7 +463,13 @@ class ZImagePipeline:
                 noise = mx.array(np.random.randn(1, 16, height // 8, width // 8)).astype(mx.bfloat16)
 
             # Use latent shape as ground truth for spatial dims
-            _, C_lat, H_lat, W_lat = noise.shape if clean_latent is None else clean_latent.shape
+            # 4D invariant: (N, C, H, W). Assert loudly so a 5D latent (e.g. video)
+            # fails with a clear message instead of a confusing unpack ValueError.
+            _shape_src = noise if clean_latent is None else clean_latent
+            assert _shape_src.ndim == 4, (
+                f"expected 4D latent (N, C, H, W), got shape {_shape_src.shape}"
+            )
+            _, C_lat, H_lat, W_lat = _shape_src.shape
             H_tok, W_tok = H_lat // 2, W_lat // 2
 
             mu = calculate_shift(H_tok * W_tok)

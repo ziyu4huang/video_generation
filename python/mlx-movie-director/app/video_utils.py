@@ -31,7 +31,7 @@ def require_ffmpeg() -> str:
     return ffmpeg
 
 
-def get_video_info(video_path: str) -> dict[str, float | int]:
+def get_video_info(video_path: str) -> dict[str, float | int | bool]:
     """Probe a video file and return metadata.
 
     Returns dict with: total_frames, fps, duration_sec, width, height, has_audio.
@@ -45,32 +45,40 @@ def get_video_info(video_path: str) -> dict[str, float | int]:
         # audio-noise precedent (gpu_monitor.py, audio_noise_detect.py).
         raise RuntimeError(f"cannot open video: {video_path}")
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    duration_sec = total_frames / fps if fps > 0 else 0
-    cap.release()
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        # Guard fps is None: cap.get may return None on a corrupt file, and
+        # `None > 0` raises TypeError mid-expression. Treat None as 0 fps.
+        duration_sec = total_frames / fps if (fps and fps > 0) else 0
 
-    # Audio detection via ffprobe
-    has_audio = False
-    ffprobe = shutil.which("ffprobe")
-    if ffprobe:
-        try:
-            result = subprocess.run(
-                [ffprobe, "-i", video_path, "-show_streams",
-                 "-select_streams", "a", "-loglevel", "error"],
-                capture_output=True, timeout=30,
-            )
-            has_audio = bool(result.stdout.strip())
-        except (FileNotFoundError, subprocess.SubprocessError) as e:
-            # ffprobe is best-effort metadata for audio detection (not
-            # load-bearing for frame extraction). If it's missing / a dangling
-            # symlink / removed between which() and run / otherwise fails,
-            # degrade to has_audio=False instead of propagating uncaught.
-            print(f"[video_utils] WARNING: ffprobe audio detection failed: {e}",
-                  file=sys.stderr)
-            has_audio = False
+        # Audio detection via ffprobe
+        has_audio = False
+        ffprobe = shutil.which("ffprobe")
+        if ffprobe:
+            try:
+                result = subprocess.run(
+                    [ffprobe, "-i", video_path, "-show_streams",
+                     "-select_streams", "a", "-loglevel", "error"],
+                    capture_output=True, timeout=30,
+                )
+                has_audio = bool(result.stdout.strip())
+            except (FileNotFoundError, subprocess.SubprocessError) as e:
+                # ffprobe is best-effort metadata for audio detection (not
+                # load-bearing for frame extraction). If it's missing / a dangling
+                # symlink / removed between which() and run / otherwise fails,
+                # degrade to has_audio=False instead of propagating uncaught.
+                print(f"[video_utils] WARNING: ffprobe audio detection failed: {e}",
+                      file=sys.stderr)
+                has_audio = False
+    finally:
+        # Release the native capture handle even if cap.get() or the fps
+        # division raises (cv2.VideoCapture has no context manager); without
+        # this an exception between isOpened() and the old release() would
+        # leak the capture fd. Mirrors extract_keyframes_from_range's try/finally.
+        cap.release()
 
     return {
         "total_frames": total_frames,
