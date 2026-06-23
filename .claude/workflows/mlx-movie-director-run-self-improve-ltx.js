@@ -37,7 +37,8 @@ export const meta = {
     { title: "Resolve",  detail: "resolve paths, stamp runId, load history (resume) + KB known-dead-ends/good-knobs" },
     { title: "Baseline", detail: "measure the base config (reuse existing mp4 if present) → currentBest" },
     { title: "Improve",  detail: "loop ≤budget: propose one knob change → generate+measure (self-fix retry) → adopt/revert" },
-    { title: "Knowledge", detail: "graduate confirmed levers to the colocated <wf>.knowledge.jsonl, dedup" },
+    { title: "Reflect",  detail: "lightweight per-iteration self-reflection after each rejection (haiku, feeds next proposal)" },
+    { title: "Knowledge", detail: "graduate confirmed levers + failed-experiment avoids to the colocated <wf>.knowledge.jsonl" },
     { title: "Persist",  detail: "write run summary JSON + update cross-workflow index" },
     { title: "Report",   detail: "trajectory HTML (iter→composite) + stdout verdict" },
   ],
@@ -133,6 +134,16 @@ const PROPOSE_SCHEMA = {
     predictedDelta:{ type: "number", description: "Predicted composite change" },
   },
   required: ["knob", "to", "rationale"],
+}
+
+const REFLECT_SCHEMA = {
+  type: "object",
+  required: ["insight", "hypothesisClass"],
+  properties: {
+    insight:          { type: "string", description: "What this failure tells us about system behavior (1 sentence)" },
+    hypothesisClass:  { type: "string", description: "What class of change might help next — not a specific value (1 sentence)" },
+  },
+  additionalProperties: false,
 }
 
 const PLAN_SCHEMA = {  // dry-run output
@@ -408,12 +419,17 @@ const baseKey = JSON.stringify(baseCfg)
 let currentBest = null
 
 const _baseCfgKey = cfgKey(baseCfg)
+// If caller explicitly overrides seed via args.base.seed, skip the voice_runs.txt cache — they
+// want a fresh measurement, and haiku LLMs fuzzy-match entries and can silently reuse a
+// different-seed mp4 (confirmed bug: ltx:stale-baseline-cache-bug in KB).
+const forceFreshBaseline = A.base?.seed != null
+if (forceFreshBaseline) log(`Baseline: args.base.seed=${baseCfg.seed} explicitly set → forcing fresh generation (cache bypass)`)
 const baseline = await agent(
   `Establish the BASELINE measurement for the base config (transformer=${transformer},
 stage1=${baseCfg.stage1}, cfg=${baseCfg.cfg}, stg=${baseCfg.stg}, modality=${baseCfg.modalityScale},
 hq=${baseCfg.hq}, avCa=${baseCfg.avCa}, seed=${baseCfg.seed}, frames=${baseCfg.frames}).
 Config key: ${_baseCfgKey}
-
+${forceFreshBaseline ? `⚠ FORCE-FRESH BASELINE: Skip STEP A entirely — go directly to STEP C and generate fresh with seed=${baseCfg.seed}.\n` : ""}
 STEP A — look for a REUSABLE baseline mp4 (DO NOT SKIP the config verification):
   1. Bash("cd '${R.mlxDir}' && cat output/.voice_runs.txt 2>/dev/null || echo MISSING")
   2. If MISSING or empty → go to STEP C.
@@ -451,6 +467,10 @@ phase("Improve")
 const iterations = []
 let noImprove = 0
 let lastMeasure = currentBest
+// In-run self-learning: track tested hypotheses so the proposer NEVER re-proposes a rejected value
+const triedThisRun = new Map()  // key="knob:value" → {composite, delta, i}
+let consecutiveFailures = 0
+const reflections = []          // per-iteration insights from the Reflect agent
 
 function cfgWith(cfg, knob, val) {
   const c = { ...cfg }
@@ -472,11 +492,20 @@ function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/
 
 for (let i = 1; i <= budget; i++) {
   // --- Propose one knob change ---
-  // Track which av_ca values have been tried this run
-  const triedAvCa = new Set(iterations.filter(it => it.proposal?.knob === "av_ca").map(it => String(it.proposal?.to)))
-  const untriedAvCa = KNOBS.av_ca.filter(v => !triedAvCa.has(String(v)) && v !== (currentBest?.config?.avCa ?? 1000))
-  const avCaPriority = untriedAvCa.length > 0
-    ? `\nPRIORITY (FIRST CHOICE): av_ca=${untriedAvCa[0]} — this is a BRAND NEW code-lever (av_ca_timestep_scale_multiplier) never properly tested on the correct baseline. It modifies audio-visual cross-attention gating strength. Untried values: [${untriedAvCa.join(", ")}]. Propose this UNLESS it is already in dead-ends.`
+  // Build context blocks for the proposer: what we already tested this session
+  const testedBlock = triedThisRun.size === 0
+    ? "(none yet — this is the first proposal)"
+    : [...triedThisRun.entries()].map(([k, v]) =>
+        `  - ${k}: composite=${v.composite.toFixed(2)} (Δ${v.delta >= 0 ? '+' : ''}${v.delta.toFixed(2)}, iter ${v.i}) → REJECTED`
+      ).join('\n')
+  const reflectBlock = reflections.length > 0
+    ? `\nITERATION INSIGHTS (self-reflection on prior failures):\n` +
+      reflections.slice(-3).map((r, idx) => `  [${idx + 1}] ${r.insight} → next direction: ${r.hypothesisClass}`).join('\n')
+    : ""
+  const innovationBlock = consecutiveFailures >= 2 && triedThisRun.size >= 3
+    ? `\n⚠ INNOVATION REQUIRED: Direct parameter sweeps have stalled (${consecutiveFailures} consecutive failures, ${triedThisRun.size} values tried). ` +
+      `Propose a second-order interaction (e.g., does stg_scale behave differently at lower stage1_steps?), ` +
+      `a seed-family change, or a structural pivot. DO NOT propose any value in ALREADY_TESTED_THIS_RUN or KB dead-ends.`
     : ""
   const proposal = await agent(
     `You are the PROPOSER for an autonomous LTX tuning loop (iteration ${i}/${budget}).
@@ -486,7 +515,11 @@ Objective: ${vw}-voice + ${qw}-quality composite for transformer=${transformer}.
 Current best config: ${currentBest ? cfgKey(currentBest.config) : cfgKey(baseCfg)}
 Last measurement: composite=${lastMeasure?.composite?.toFixed?.(1) ?? "?"}, weakest=${lastMeasure?.weakest ?? "?"}
 ${lastMeasure?.metrics ? "metrics: " + lastMeasure.metrics : ""}
-${avCaPriority}
+
+ALREADY_TESTED_THIS_RUN (DO NOT re-propose any of these — empirically rejected this session):
+${testedBlock}
+${reflectBlock}${innovationBlock}
+
 Allowed knobs (pick one): ${JSON.stringify(KNOBS)}
 Dead-ends (do NOT re-propose): ${[...deadEnds].join("; ") || "(none)"}
 Known-good (build on these): ${knownGood.join("; ") || "(none)"}
@@ -494,7 +527,8 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder; 'seed' = re-roll to a new
 random int (cheap, fixes stochastic garble per the ltx-voice memory). Avoid any
-move already in dead-ends. Prefer the highest-EV single change. Return the proposal.`,
+move already in dead-ends OR in ALREADY_TESTED_THIS_RUN above. Prefer the highest-EV
+single change.${innovationBlock ? " INNOVATION MODE: explore second-order interactions or pivot strategy." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
   if (!proposal) { log(`iter ${i}: propose failed — skipping`); continue }
@@ -559,11 +593,34 @@ ${retryNote}
   if (adopted) {
     currentBest = { config: { ...cfg }, composite: gm.composite, voice_score: gm.voice_score, quality_score: gm.quality_score, weakest: gm.weakest, mp4: gm.mp4, metrics: gm.metrics }
     noImprove = 0
+    consecutiveFailures = 0
     log(`iter ${i}: ✅ ADOPTED ${proposal.knob}=${proposal.to} → composite ${gm.composite.toFixed(1)} (best)`)
   } else {
     noImprove++
     if (regressed) { deadEnds.add(`${proposal.knob}=${proposal.to}`); log(`iter ${i}: ❌ regressed (${gm.composite.toFixed(1)}) → dead-end`) }
-    else log(`iter ${i}: · no improvement (${gm.composite.toFixed(1)} vs best ${currentBest.composite.toFixed(1)})`)
+    else log(`iter ${i}: · no improvement (${gm.composite.toFixed(1)} vs best ${(currentBest?.composite ?? 0).toFixed(1)})`)
+    // Track for in-run dedup — prevents proposer re-proposing the same value next iteration
+    const iterKey = `${proposal.knob}:${proposal.to}`
+    triedThisRun.set(iterKey, { composite: gm.composite, delta: gm.composite - (currentBest?.composite ?? 0), i })
+    consecutiveFailures++
+    // Lightweight self-reflection: feeds insight into the NEXT proposal
+    const reflection = await agent(
+      `Scientific observer: analyze ONE failed LTX generation quality experiment and extract insight.
+
+Failed: ${iterKey} — composite=${gm.composite.toFixed(2)} vs best=${(currentBest?.composite ?? 0).toFixed(2)} (Δ${(gm.composite - (currentBest?.composite ?? 0)).toFixed(2)})
+Weakest dimension: ${gm.weakest || "unknown"}
+All rejected this session: ${JSON.stringify([...triedThisRun.keys()])}
+KB context: ${knowledgeDigest.slice(0, 400)}
+
+Answer in 2 sentences:
+1. What does this failure tell us about how ${proposal.knob} affects model output?
+2. What CLASS of change might break the plateau next (not a specific value)?`,
+      { label: `reflect-${i}`, phase: "Reflect", schema: REFLECT_SCHEMA, model: "haiku", effort: "low" }
+    )
+    if (reflection) {
+      reflections.push(reflection)
+      log(`iter ${i}: reflect → ${reflection.insight}`)
+    }
   }
   iterations.push({ i, proposal, cfg: cfgKey(cfg), composite: gm.composite, adopted, weakest: gm.weakest })
   lastMeasure = { ...gm, config: { ...cfg } }
@@ -577,6 +634,7 @@ ${retryNote}
 // no longer written from here (avoid dual-write divergence; regenerate from JSONL later).
 phase("Knowledge")
 const adoptedMoves = iterations.filter((it) => it.adopted)
+const failedExperiments = iterations.filter((it) => !it.adopted && it.composite != null)
 const ltxRunResult = {
   runId: R.runId,
   objective,
@@ -585,11 +643,22 @@ const ltxRunResult = {
   best: currentBest ? { composite: currentBest.composite, config: cfgKey(currentBest.config) } : null,
   adoptedMoves: adoptedMoves.map((m) => ({ knob: m.proposal.knob, to: m.proposal.to, composite: m.composite })),
   iterations: iterations.map((m) => ({ i: m.i, knob: m.proposal?.knob, to: m.proposal?.to, composite: m.composite, adopted: m.adopted })),
+  // Explicit failed-experiment list so extractKnowledge writes avoid records per rejected value
+  failedExperiments: failedExperiments.map((m) => ({
+    knob: m.proposal?.knob,
+    value: m.proposal?.to,
+    composite: m.composite,
+    baseline: currentBest?.composite ?? null,
+    delta: m.composite != null && currentBest?.composite != null ? +(m.composite - currentBest.composite).toFixed(2) : null,
+    weakest: m.weakest,
+  })),
+  reflections: reflections.map((r) => r.insight),
   deadEnds: [...deadEnds],
   margin,
   priorKbDigest: R.kbDigest || null,
 }
-const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult, null)
+const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult,
+  reflections.length > 0 ? reflections.map((r) => r.insight).join('; ') : null)
 if (knowledge) log(`Knowledge: ${knowledge.new_ids?.length || 0} new record(s) (active≈${knowledge.active ?? "?"})`)
 
 // ── Phase 4: Persist (run summary JSON + cross-workflow index) ───────────────
@@ -614,7 +683,7 @@ const ltxHistEntry = {
   run_id: R.runId,
   workflow: _WF_NAME,
   started_at: R.runId,
-  args: { objective, transformer, dryRun, budget },
+  args: { objective, transformer, dryRun, budget, base: A.base || null },
   phases_completed: ["Baseline", "Improve", "Knowledge"],
   phases_failed: [],
   status: "complete",
