@@ -26,7 +26,7 @@ class SeedVR2Transformer(nn.Module):
         use_output_ada: bool = True,
         last_layer_vid_only: bool = True,
         norm_eps: float = 1e-5,
-        patch_size: tuple = (1, 2, 2),
+        patch_size: tuple[int, int, int] = (1, 2, 2),
         num_layers: int = 32,
         mm_layers: int = 10,
         rope_dim: int = 128,

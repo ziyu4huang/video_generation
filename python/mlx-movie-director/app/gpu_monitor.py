@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
+from typing import IO
 
 
 # ---------------------------------------------------------------------------
@@ -397,7 +398,7 @@ class GpuLock:
         self.poll_interval = poll_interval
         self.threshold = threshold
         self.max_wait = max_wait
-        self._lock_fd = None
+        self._lock_fd: IO[str] | None = None
 
     def __enter__(self) -> "GpuLock":
         if self.skip or self.force:

@@ -10,7 +10,7 @@ import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Generator, NamedTuple
+from typing import Any, Generator, NamedTuple, TypeVar
 
 from app import config as cfg
 
@@ -455,7 +455,10 @@ def resolve_lora_paths(raw_list: list[str] | None) -> list[str]:
     return out
 
 
-def first_or(values: list[Any] | None, default: Any) -> Any:
+T = TypeVar("T")
+
+
+def first_or(values: list[T] | None, default: T) -> T:
     """First element of a repeatable-arg list (action='append'), else ``default``.
 
     --lora-path / --lora-scale are ``None | list`` (repeatable, for image multi-LoRA).
@@ -646,8 +649,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
         # the generation try/except, so an unguarded failure would surface as a
         # raw PIL traceback at the top level rather than a readable error.
         if not os.path.exists(run_config.input_image):
-            print(f"ERROR: input image not found: {run_config.input_image}", file=sys.stderr)
-            sys.exit(1)
+            raise FileNotFoundError(f"input image not found: {run_config.input_image}")
         # .convert("RGB") materializes pixels into a new in-memory image, so close
         # the file handle immediately — otherwise it stays open across the whole
         # batch loop (fd leak / source-file lock on macOS until GC runs).
@@ -655,9 +657,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
             with Image.open(run_config.input_image) as _im:
                 input_image = _im.convert("RGB")
         except Exception as exc:
-            print(f"ERROR: cannot open input image '{run_config.input_image}': {exc}",
-                  file=sys.stderr)
-            sys.exit(1)
+            raise ValueError(f"cannot open input image '{run_config.input_image}': {exc}") from exc
 
     # Instantiate the selected pipeline
     if pipeline_type == "flux2-klein":
@@ -675,8 +675,7 @@ def execute_generation(run_config: "RunConfig", pipeline_type: str = "zimage",
         if transformer_name:
             t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
             if not os.path.isdir(t_dir):
-                print(f"ERROR: Transformer '{transformer_name}' not found at {t_dir}")
-                sys.exit(1)
+                raise FileNotFoundError(f"Transformer '{transformer_name}' not found at {t_dir}")
             print(f"[Pipeline] Using transformer: {transformer_name}")
             pipeline = ZImagePipeline(transformer_dir=t_dir)
             transformer_dir = t_dir
@@ -1091,19 +1090,15 @@ def execute_upscale(input_path: str, model_path: str, output_path: str | None) -
     from PIL import Image
 
     if not os.path.exists(input_path):
-        print(f"ERROR: input image not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"input image not found: {input_path}")
 
     if not os.path.exists(model_path):
-        print(f"ERROR: ESRGAN model not found: {model_path}", file=sys.stderr)
-        print(f"  Expected at: {model_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"ESRGAN model not found: {model_path} (expected at: {model_path})")
 
     try:
         image = Image.open(input_path).convert("RGB")
     except Exception as exc:
-        print(f"ERROR: cannot open image (corrupt or unsupported format): {input_path}\n  {exc}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"cannot open image (corrupt or unsupported format): {input_path}: {exc}") from exc
     w0, h0 = image.size
 
     print(f"Upscaling {input_path} ({w0}×{h0}) with {os.path.basename(model_path)}...")

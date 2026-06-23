@@ -223,7 +223,7 @@ class WorkflowOrchestrator:
         print(f"    {w0}x{h0} → {w1}x{h1} ({timings['upscale_seconds']:.2f}s)")
         return image, timings
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         """Free MLX memory between stages."""
         mx.clear_cache()
         gc.collect()
