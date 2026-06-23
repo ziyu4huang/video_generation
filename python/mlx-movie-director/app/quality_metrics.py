@@ -204,16 +204,19 @@ def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 
 def _read_all_frames(video_path: str) -> list[np.ndarray]:
     """Read all BGR frames from a video into a list."""
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        return []
-    frames = []
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-    cap.release()
-    return frames
+    try:
+        if not cap.isOpened():
+            return []
+        frames = []
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frames.append(frame)
+        return frames
+    finally:
+        # Release on every path (cv2.VideoCapture has no context manager).
+        cap.release()
 
 
 # ---------------------------------------------------------------------------

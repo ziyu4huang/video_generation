@@ -274,42 +274,46 @@ def extract_keyframes_cv(video_path: str, n_frames: int = 8,
         os.makedirs(output_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
-        return []
+    try:
+        if not cap.isOpened():
+            print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
+            return []
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames <= 1:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 1:
+            return []
+
+        n_frames = min(max(1, n_frames), total_frames)
+        indices = set(
+            int(i * total_frames / n_frames) for i in range(n_frames)
+        )
+
+        extracted = []
+        frame_idx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if frame_idx in indices:
+                # Resize to max_size on longest edge
+                h, w = frame.shape[:2]
+                if max_size > 0 and max(h, w) > max_size:
+                    scale = max_size / max(h, w)
+                    new_w, new_h = int(w * scale), int(h * scale)
+                    frame = cv2.resize(frame, (new_w, new_h),
+                                       interpolation=cv2.INTER_AREA)
+
+                out_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
+                cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                extracted.append(os.path.abspath(out_path))
+            frame_idx += 1
+
+        return extracted
+    finally:
+        # Release the native capture handle on EVERY path — the not-opened
+        # early return, the <=1-frame return, and any cv2.read/imwrite raise
+        # (cv2.VideoCapture has no context manager). Mirrors get_video_info.
         cap.release()
-        return []
-
-    n_frames = min(max(1, n_frames), total_frames)
-    indices = set(
-        int(i * total_frames / n_frames) for i in range(n_frames)
-    )
-
-    extracted = []
-    frame_idx = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame_idx in indices:
-            # Resize to max_size on longest edge
-            h, w = frame.shape[:2]
-            if max_size > 0 and max(h, w) > max_size:
-                scale = max_size / max(h, w)
-                new_w, new_h = int(w * scale), int(h * scale)
-                frame = cv2.resize(frame, (new_w, new_h),
-                                   interpolation=cv2.INTER_AREA)
-
-            out_path = os.path.join(output_dir, f"frame_{frame_idx:06d}.jpg")
-            cv2.imwrite(out_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            extracted.append(os.path.abspath(out_path))
-        frame_idx += 1
-
-    cap.release()
-    return extracted
 
 
 def detect_scenes(video_path: str, threshold: float = 0.4,
@@ -335,48 +339,50 @@ def detect_scenes(video_path: str, threshold: float = 0.4,
     import numpy as np
 
     cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
-        return []
+    try:
+        if not cap.isOpened():
+            print(f"ERROR: cannot open video: {video_path}", file=sys.stderr)
+            return []
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames <= 1:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 1:
+            return [(0, max(0, total_frames - 1))]
+
+        # HSV histogram params (32 bins per channel, H only for speed)
+        hist_size = [32]
+        hist_range = [0, 180]  # Hue range
+
+        scene_starts = [0]
+        prev_hist = None
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            hist = cv2.calcHist([hsv], [0], None, hist_size, hist_range)
+            cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+
+            if prev_hist is not None:
+                # Use correlation: 1 = identical, lower = different
+                corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
+                if corr < threshold:
+                    # Scene change candidate
+                    frames_since_last = frame_idx - scene_starts[-1]
+                    if frames_since_last >= min_scene_frames:
+                        scene_starts.append(frame_idx)
+                        prev_hist = hist
+                        frame_idx += 1
+                        continue
+
+            prev_hist = hist
+            frame_idx += 1
+    finally:
+        # Release the native capture handle on every path (no context manager);
+        # scene_starts / total_frames stay in scope after finally (same frame).
         cap.release()
-        return [(0, max(0, total_frames - 1))]
-
-    # HSV histogram params (32 bins per channel, H only for speed)
-    hist_size = [32]
-    hist_range = [0, 180]  # Hue range
-
-    scene_starts = [0]
-    prev_hist = None
-    frame_idx = 0
-
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        hist = cv2.calcHist([hsv], [0], None, hist_size, hist_range)
-        cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
-
-        if prev_hist is not None:
-            # Use correlation: 1 = identical, lower = different
-            corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
-            if corr < threshold:
-                # Scene change candidate
-                frames_since_last = frame_idx - scene_starts[-1]
-                if frames_since_last >= min_scene_frames:
-                    scene_starts.append(frame_idx)
-                    prev_hist = hist
-                    frame_idx += 1
-                    continue
-
-        prev_hist = hist
-        frame_idx += 1
-
-    cap.release()
 
     if not scene_starts or scene_starts[-1] == 0:
         return [(0, max(0, total_frames - 1))]

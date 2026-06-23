@@ -79,11 +79,14 @@ def run_segment(args):
 
     # Get video info
     cap = cv2.VideoCapture(input_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    cap.release()
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    finally:
+        # Release even if a cap.get() raises (cv2.VideoCapture has no CM).
+        cap.release()
 
     print(f"[segment] {os.path.basename(input_path)}")
     print(f"[segment] {total_frames} frames, {width}×{height}, {fps:.1f}fps")
