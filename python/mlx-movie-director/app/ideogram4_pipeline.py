@@ -27,6 +27,7 @@ import os
 import time
 
 import mlx.core as mx
+import mlx.nn as nn
 import numpy as np
 from PIL import Image
 
@@ -139,32 +140,44 @@ class Ideogram4Pipeline:
         load_nf4_weights(self.te_weight_file, tm, sanitize_key=True, verbose=True)
         print(f"[ideogram4] text encoder loaded ({num_text_tokens} tokens)", flush=True)
 
-        # Inline 13-layer hidden-state extraction (generate.py:192-208) — NOT the
-        # dead text_encoder.py monkey-patch. Cache activation-layer outputs, concat.
+        # Capture the 13 activation-layer hidden states by wrapping those layers,
+        # then run the model's OWN forward (mlx_vlm 0.6.2 builds the correct
+        # attention mask via create_attention_mask and handles MRoPE internally).
+        # The reference generate.py hand-rolled a -1e9 causal mask + a manual
+        # layer loop — that mask DIVERGES with 0.6.2's Qwen3VL attention (hidden
+        # states blow up → garbage 53248-dim features → white images). Using the
+        # model's blessed forward is the robust fix; we only intercept to record.
         ids = mx.array(ids_np[None, :])
         B, L = ids.shape
-        pos = mx.broadcast_to(mx.arange(L).reshape(1, 1, -1), (3, B, L))
         ln = tm.language_model.model
-        h = ln.embed_tokens(ids)
-        cm = mx.where(
-            mx.tril(mx.ones((L, L))),
-            mx.array(0.0, dtype=mx.bfloat16),
-            mx.array(-1e9, dtype=mx.bfloat16),
-        )[None, None]
-        cap = {}
-        act = set(ACTIVATION_LAYERS)
-        for i, layer in enumerate(ln.layers):
-            h = layer(h, cm, None, pos)
-            if i in act:
-                cap[i] = h
-            if i % 9 == 0:
-                mx.eval(h)
-        mx.eval(h)
-        fs = [cap[i] for i in ACTIVATION_LAYERS]
+
+        captured: dict[int, mx.array] = {}
+
+        class _Cap(nn.Module):
+            def __init__(self, inner, idx):
+                super().__init__()
+                self.inner = inner
+                self.idx = idx
+
+            def __call__(self, *a, **k):
+                out = self.inner(*a, **k)
+                captured[self.idx] = out
+                return out
+
+        original_layers = list(ln.layers)
+        for i in ACTIVATION_LAYERS:
+            ln.layers[i] = _Cap(original_layers[i], i)
+        try:
+            mx.eval(ln(inputs=ids))
+        finally:
+            for i, orig in enumerate(original_layers):
+                ln.layers[i] = orig
+
+        fs = [captured[i] for i in ACTIVATION_LAYERS]
         st = mx.transpose(mx.stack(fs, axis=0), (1, 2, 3, 0))
         features = mx.reshape(st, (B, L, -1)).astype(mx.bfloat16)
         mx.eval(features)
-        del tm, ln, cap, fs, st, h
+        del tm, ln, captured, fs, st
         gc.collect()
         print(
             f"[ideogram4] text features {features.shape} ({time.time() - t0:.1f}s)",

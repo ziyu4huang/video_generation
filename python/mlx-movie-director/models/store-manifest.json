@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 64,
+  "count": 68,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -258,6 +258,22 @@
     "vae/zimage-ae/model.safetensors": {
       "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
+    },
+    "text_encoder/qwen3vl-ideogram4/model.safetensors": {
+      "md5": "4dac22db9490be7febed22f63fb1fdae",
+      "size": 5483794772
+    },
+    "transformer/ideogram4-cond/diffusion_pytorch_model.safetensors": {
+      "md5": "790def7238865846295959f16c441708",
+      "size": 5221703035
+    },
+    "transformer/ideogram4-uncond/diffusion_pytorch_model.safetensors": {
+      "md5": "4fda89b02327861a77de08b20bb196e7",
+      "size": 5221703035
+    },
+    "vae/ideogram4-vae/diffusion_pytorch_model.safetensors": {
+      "md5": "890e5856e3d6db7c654ce897c7a1beaa",
+      "size": 168120878
     }
   }
 }

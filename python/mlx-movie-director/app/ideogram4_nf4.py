@@ -104,6 +104,16 @@ class NF4Linear(nn.Module):
         return wq * scales
 
     def __call__(self, x: mx.array) -> mx.array:
+        # Blocksize-aligned input_dims (NF4 groups are 64-wide). bitsandbytes pads
+        # non-aligned weights with zeros before quantizing, so a padded layer has
+        # input_dims > the true feature count; zero-pad the input to match — the
+        # padded weight cols dequant to ~0, so they contribute nothing and the
+        # matmul equals the original unpadded one. Needed for Qwen3-VL visual blocks
+        # (e.g. in_dim 4304) — dormant in the text-only ideogram flow, but correct
+        # regardless.
+        if x.shape[-1] != self.input_dims:
+            pad = self.input_dims - x.shape[-1]
+            x = mx.pad(x, [(0, 0)] * (x.ndim - 1) + [(0, pad)])
         w = self._dequant().astype(x.dtype)
         out = x @ w.T
         if self.bias is not None:
@@ -202,18 +212,41 @@ def load_nf4_weights(safetensors_path: str, model: nn.Module, *,
                 )
             rows, cols = meta["shape"]
             blocksize = meta.get("blocksize", 64)
-            if cols % blocksize != 0:
-                # Ideogram4 transformer + Qwen3-VL Linears are all 64-aligned, so this
-                # should never fire. Reject loudly rather than inherit the reference's
-                # dubious col-padding branch (which also has the [lo,hi] nibble bug).
-                raise NotImplementedError(
-                    f"NF4 in_dim {cols} not divisible by blocksize {blocksize} for {base}; "
-                    "padding path not implemented (Ideogram4 dims are 64-aligned)."
-                )
             packed = sf.get_tensor(base)
             absmax = sf.get_tensor(absmax_key)
-            mlx_packed = _repack_bnb_nf4_to_mlx(packed, [rows, cols])
-            absmax_reshaped = absmax.reshape(rows, cols // blocksize)
+            if cols % blocksize != 0:
+                # bitsandbytes pads non-blocksize-aligned weights with zeros before
+                # quantizing (e.g. Qwen3-VL visual blocks, in_dim 4304). Repack the
+                # nibble indices to the padded width and pad absmax to match. The
+                # NF4Linear zero-pads its input to input_dims, so the padded weight
+                # cols (which dequant to ~0) contribute nothing — the result equals
+                # the original unpadded matmul. (The reference's text-encoder padding
+                # branch used [lo,hi] nibble order — a latent bug; we use [hi,lo].)
+                cols_padded = ((cols + blocksize - 1) // blocksize) * blocksize
+                flat = packed.ravel()
+                lo = flat & 0x0F
+                hi = (flat >> 4) & 0x0F
+                indices = np.stack([hi, lo], axis=-1).ravel().astype(np.uint32)
+                total = rows * cols_padded
+                if len(indices) < total:
+                    indices = np.pad(indices, (0, total - len(indices)))
+                else:
+                    indices = indices[:total]
+                grouped = indices.reshape(-1, 8)
+                shifts = np.array([0, 4, 8, 12, 16, 20, 24, 28], dtype=np.uint32)
+                mlx_packed = (
+                    np.sum(grouped << shifts, axis=1)
+                    .astype(np.uint32)
+                    .reshape(rows, cols_padded // 8)
+                )
+                n_groups = cols_padded // blocksize
+                total_groups = rows * n_groups
+                if absmax.size < total_groups:
+                    absmax = np.pad(absmax, (0, total_groups - absmax.size))
+                absmax_reshaped = absmax[:total_groups].reshape(rows, n_groups)
+            else:
+                mlx_packed = _repack_bnb_nf4_to_mlx(packed, [rows, cols])
+                absmax_reshaped = absmax.reshape(rows, cols // blocksize)
             quantized_layers[base] = (mx.array(mlx_packed), mx.array(absmax_reshaped), blocksize)
 
         consumed = set()
