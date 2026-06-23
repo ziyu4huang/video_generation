@@ -2040,6 +2040,8 @@ def _run_one_test(args: argparse.Namespace, test_name: str, test_cfg: dict[str, 
         run_review_vae(args)
     elif test_type == "lora":
         run_review_lora(args)
+    elif test_type == "transformer-ab":
+        _run_selftest_transformer_ab(args, test_name, test_cfg)
     elif test_type == "workflow":
         _run_selftest_workflow(args, test_name, test_cfg)
     elif test_type == "t2i":
@@ -3284,6 +3286,141 @@ def _run_selftest_t2i(args: argparse.Namespace, test_name: str, test_cfg: dict[s
     if manifest_paths:
         html_path = os.path.join(cfg.OUTPUT_DIR, f"selftest-{test_name}-{ts}.html")
         _open_manifest_review(manifest_paths, labels=labels, output=html_path, auto_score=True)
+
+
+def _run_selftest_transformer_ab(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:
+    """Transformer A/B: same tailored prompts × seeds generated with two transformers side-by-side."""
+    import gc
+    import json as _json
+    import mlx.core as mx
+    from datetime import datetime as _dt, timezone as _tz
+    from app.pipeline import ZImagePipeline
+    from app.test_prompts_image import get_test_prompt
+    from app.manifest import Manifest, collect_model_fingerprint
+    from app import config as cfg
+
+    variants = test_cfg["variants"]
+    if len(variants) != 2:
+        print(f"ERROR: transformer-ab expects exactly 2 variants, got {len(variants)}", file=sys.stderr)
+        sys.exit(1)
+
+    prompt_names = test_cfg.get("test_prompts", [test_cfg.get("test_prompt", "portrait")])
+    seeds = test_cfg.get("seeds", [42, 777])
+    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    label_a = variants[0]["label"]
+    label_b = variants[1]["label"]
+
+    print(f"\n{'='*60}")
+    print(f"Transformer A/B — {test_name}")
+    print(f"  Prompts:  {prompt_names}")
+    print(f"  Seeds:    {seeds}")
+    print(f"  Steps:    {steps}")
+    print(f"  A: {label_a}")
+    print(f"  B: {label_b}")
+    print(f"  Total images: {len(prompt_names) * len(seeds) * 2}")
+    print()
+
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    pairs = []
+    manifest_paths = []
+    manifest_labels = []
+
+    for pname in prompt_names:
+        tp = get_test_prompt(pname)
+        prompt = tp["prompt"]
+        width = tp["width"]
+        height = tp["height"]
+
+        for seed in seeds:
+            group_label = f"{pname} | seed={seed}"
+            pair_paths = []
+            pair_timings = []
+
+            for vcfg in variants:
+                transformer_name = vcfg.get("transformer")
+                vlabel = vcfg["label"]
+                print(f"\n[selftest] {group_label} | {vlabel}...")
+
+                if transformer_name:
+                    t_dir = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+                    pipeline = ZImagePipeline(transformer_dir=t_dir)
+                else:
+                    pipeline = ZImagePipeline()
+
+                t0 = time.time()
+                result = pipeline.generate(
+                    prompt=prompt, width=width, height=height, steps=steps, seed=seed,
+                )
+                elapsed = time.time() - t0
+
+                safe_pname = pname.replace(":", "_").replace("/", "_").replace("-", "_")
+                safe_vlabel = vlabel.lower().replace(" ", "_")
+                base = f"selftest_{test_name}_{ts}_{safe_pname}_s{seed}_{safe_vlabel}"
+                out_path = os.path.join(cfg.OUTPUT_DIR, base + ".png")
+                result.image.save(out_path)
+                print(f"[selftest] Saved: {out_path} ({elapsed:.1f}s)")
+
+                run_file = os.path.join(cfg.OUTPUT_DIR, base + ".run.json")
+                manifest_file = os.path.join(cfg.OUTPUT_DIR, base + ".manifest.json")
+                run_data = {"command": "image", "action": "t2i", "prompt": prompt,
+                            "width": width, "height": height, "steps": steps,
+                            "seed": seed, "pipeline": "zimage",
+                            "transformer": transformer_name or "default"}
+                with open(run_file, "w") as f:
+                    _json.dump(run_data, f, indent=2)
+                now = _dt.now(_tz.utc).isoformat()
+                mf = Manifest.from_success(
+                    run_file=run_file, start_time=now, end_time=now,
+                    timings=getattr(result, "timings", {}),
+                    output_files=[{"path": out_path, "seed": seed, "width": width, "height": height}],
+                    models=collect_model_fingerprint(),
+                )
+                mf.to_json(manifest_file)
+                manifest_paths.append(manifest_file)
+                manifest_labels.append(f"{pname} | {vlabel} | seed={seed}")
+
+                pair_paths.append(out_path)
+                pair_timings.append(round(elapsed, 1))
+
+                del pipeline, result
+                mx.clear_cache()
+                gc.collect()
+
+            pairs.append({
+                "seed": group_label,
+                "paths": pair_paths,
+                "timings": pair_timings,
+                "prompt": prompt,
+            })
+
+    if _UNIFIED_REPORT is not None:
+        _push_section(_section_from_pairs(
+            test_name, test_cfg, pairs, [], label_a, label_b))
+        return
+
+    html_path = _render_lora_html(
+        output_dir=cfg.OUTPUT_DIR,
+        base_name=f"transformer-ab-{ts}",
+        test_name=test_name,
+        test_cfg=test_cfg,
+        prompt=f"{len(prompt_names)} prompt(s) × {len(seeds)} seed(s)",
+        steps=steps,
+        width=640,
+        height=960,
+        lora_scale=1.0,
+        label_a=label_a,
+        label_b=label_b,
+        pairs=pairs,
+        ts=ts,
+        metrics_by_pair=None,
+    )
+
+    print(f"\n{'='*60}")
+    print(f"Transformer A/B Complete — {test_name}")
+    print(f"{'='*60}")
+    print(f"  HTML review: {html_path}")
+    print(f"  Images: {len(pairs) * 2} ({len(pairs)} pairs)")
+    _open_report(html_path)
 
 
 def _run_selftest_multi_lora(args: argparse.Namespace, test_name: str, test_cfg: dict[str, Any]) -> None:

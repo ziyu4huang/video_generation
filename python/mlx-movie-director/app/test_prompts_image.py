@@ -58,6 +58,40 @@ _PROMPTS = {
         "width": 640,
         "height": 960,
     },
+    # --- beyond-reality tailored prompts (photorealistic Asian portrait) ---
+    "beyond-portrait": {
+        "prompt": (
+            "photorealistic close-up portrait of a young East Asian woman, "
+            "natural light makeup with subtle blush and glossy lips, "
+            "porcelain skin with fine natural texture, bright clear eyes, "
+            "soft window light, blurred background, shallow depth of field, "
+            "ultra sharp focus, professional beauty photography"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "beyond-halfbody": {
+        "prompt": (
+            "photorealistic half-body portrait of an elegant East Asian woman, "
+            "natural everyday makeup, wearing a fitted off-white blouse, "
+            "graceful pose with hands in frame, detailed fabric texture, "
+            "soft indoor lighting, shallow depth of field, blurred background, "
+            "ultra sharp focus, editorial fashion photography"
+        ),
+        "width": 640,
+        "height": 960,
+    },
+    "beyond-fullbody": {
+        "prompt": (
+            "photorealistic full body portrait of a young East Asian woman, "
+            "natural minimal makeup, wearing a stylish casual outfit, "
+            "relaxed standing pose, detailed shoes and hands, "
+            "clean light studio background, soft diffused lighting, "
+            "ultra sharp focus, full-length fashion photography"
+        ),
+        "width": 640,
+        "height": 960,
+    },
     "anime-portrait": {
         "prompt": (
             "anime girl with long pink hair, big sparkling eyes, wearing a school uniform, "
@@ -634,6 +668,27 @@ _ALL_TESTS = {
         "transformer": "luciddreamer-z",
         "steps": 9,
         "seeds": [42, 123, 777],
+    },
+
+    # -----------------------------------------------------------------------
+    # type=transformer-ab: Beyond Reality 超越真实 3.0 — A/B vs default transformer
+    # portrait / half-body / full-body, 2 seeds each
+    # -----------------------------------------------------------------------
+
+    "transformer:beyond-reality": {
+        "type": "transformer-ab",
+        "description": (
+            "Beyond Reality 超越真实 3.0 A/B: default (moody-pro-mix) vs beyond-reality — "
+            "side-by-side comparison across portrait, half-body, and full-body compositions, "
+            "2 seeds each. Tailored prompts highlight photorealistic East Asian skin and makeup."
+        ),
+        "test_prompts": ["beyond-portrait", "beyond-halfbody", "beyond-fullbody"],
+        "seeds": [42, 777],
+        "steps": 9,
+        "variants": [
+            {"label": "Moody Pro Mix", "transformer": None},
+            {"label": "Beyond Reality", "transformer": "beyond-reality"},
+        ],
     },
 
     # -----------------------------------------------------------------------
@@ -2893,6 +2948,9 @@ _ALL_TESTS_ALIASES = {
     "luciddreamer": "transformer:luciddreamer-z",
     "lucid": "transformer:luciddreamer-z",
     "luciddreamer-z": "transformer:luciddreamer-z",
+    # Beyond Reality 超越真实 3.0 aliases
+    "beyond-reality": "transformer:beyond-reality",
+    "beyond": "transformer:beyond-reality",
 }
 
 

@@ -1,0 +1,26 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "beyond-reality",
+  "type": "transformer",
+  "arch": "zimage-turbo",
+  "format": "mlx-8bit",
+  "description": "BEYOND REALITY 3.0 FP8: Ultra-realistic image generation with enhanced detail and dynamic lighting in FP8 precision.",
+  "source": "https://civitai.com/models/1090420",
+  "pipeline": [
+    "zimage-turbo"
+  ],
+  "cli": {
+    "action": "image t2i",
+    "pipeline": "zimage",
+    "transformer": "beyond-reality",
+    "note": "use --transformer beyond-reality to select this checkpoint"
+  },
+  "compatible_with": [
+    "text_encoder/qwen3-4b",
+    "tokenizer/qwen3",
+    "vae/zimage-ae"
+  ],
+  "size_bytes": 6540687223,
+  "created_at": "2026-06-23T12:18:07Z",
+  "source_url": "https://civitai.com/models/1090420"
+}
