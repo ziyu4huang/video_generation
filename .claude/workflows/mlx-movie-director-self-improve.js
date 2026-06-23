@@ -284,7 +284,16 @@ STEP 3 — self-test registry integrity (CPU-only pytest, guards hardcoded-name 
   Bash("cd '${MLX_DIR}' && '${PYTHON}' -m pytest app/tests/test_selftest_integrity.py -q 2>&1 | tail -25 || true")
   selftestOk = true if all tests pass; false if any fail. Capture a short selftestMsg.
 
-Then summarize in <=200 chars: how many pyflakes real bugs, whether the two gates passed.
+STEP 4 — use-before-import detector (deterministic backstop for the iter-8 class: a
+  fix that relocates a call above its own lazy import -> runtime NameError that
+  pyflakes + CPU pytest both miss — PR #77/#79). Runs the AST checker on app modules:
+  Bash("cd '${MLX_DIR}' && '${PYTHON}' scripts/check_use_before_import.py $(find app -name '*.py' -not -path '*/tests/*') 2>&1 || true")
+  The output is a JSON array of {file,function,line,name,kind} (empty array = clean).
+  Put the parsed array verbatim into useBeforeImportIssues. If the script is missing
+  or errors, set useBeforeImportIssues to [] (advisory; never fail the lane on it).
+
+Then summarize in <=200 chars: pyflakes real-bug count, use-before-import count,
+whether the two gates passed.
 Never EDIT anything — this lane is read-only. If a command is missing/nonexistent, report
 that gate as ok:false with a clear msg rather than failing.
 Return the structured object.`,
@@ -302,13 +311,22 @@ Return the structured object.`,
         checkModelMsg: { type: "string" },
         selftestOk: { type: "boolean" },
         selftestMsg: { type: "string" },
+        useBeforeImportIssues: {
+          type: "array",
+          items: { type: "object", properties: {
+            file: { type: "string" }, function: { type: "string" },
+            line: { type: "number" }, name: { type: "string" }, kind: { type: "string" },
+          }, required: ["file", "name"] },
+          description: "use-before-import findings (iter-8 class); empty = clean",
+        },
         summary: { type: "string", description: "<=200 char summary" },
       }, required: ["pyflakesRealCount", "checkModelOk", "selftestOk", "summary"] } },
   )
   const real = lint?.pyflakesRealCount ?? 0
   const cm = lint?.checkModelOk ? "ok" : "FAIL"
   const st = lint?.selftestOk ? "ok" : "FAIL"
-  log(`Lint lane: pyflakes real bugs=${real} | check-model=${cm} | self-test=${st}`)
+  const ubi = lint?.useBeforeImportIssues?.length ?? 0
+  log(`Lint lane: pyflakes real bugs=${real} | use-before-import=${ubi} | check-model=${cm} | self-test=${st}`)
   return lint
 }
 
