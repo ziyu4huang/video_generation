@@ -1601,6 +1601,18 @@ const reviewNew      = reviewResult?.findings?.newFindings ?? reviewVerified
 const reviewApplied  = reviewResult?.fixes?.applied ?? 0
 const reviewRegress  = reviewResult?.fixes?.regressions ?? 0
 const reviewOnly     = reviewResult?.fixes?.mode === "review-only"
+// Report honesty: when fix:true actually ran but applied 0 of N>0 verified findings
+// with NO explicit skip/fail/regress reason, the only explanation is the fix severity
+// threshold gating everything out (no high/critical -> adversarialVerify skipped,
+// totalVerdicts:0). Surface this so openIssues=N doesn't read as "N things to fix"
+// when none were eligible. (Code action for the lesson the self-learning propose
+// step surfaced in iter-1; the report-honesty gap it flagged.)
+const fixSkipReason  = (fixEnabled && reviewApplied === 0 && reviewVerified > 0
+                        && (reviewResult?.fixes?.skipped ?? 0) === 0
+                        && (reviewResult?.fixes?.failed ?? 0) === 0
+                        && reviewRegress === 0)
+  ? `0 of ${reviewVerified} verified finding(s) eligible to fix — all below the fix severity threshold (no high/critical), so adversarialVerify was skipped (totalVerdicts:0). Triage the medium/low backlog manually, or re-run fix:true once a high-severity finding appears.`
+  : null
 
 const schemaRuntimeErr   = schemaResult?.runtimeErrors ?? 0
 const schemaRuntimeFind  = schemaResult?.runtimeFindings ?? 0
@@ -1698,6 +1710,7 @@ const signals = {
     DO_UX && uxResult  ? `ux: ${uxTotalIssues} issue(s), ${uxIssuesFixed} fixed, score: ${uxScoreBefore?.toFixed(1) ?? "?"}→${uxScoreAfter?.toFixed(1) ?? "?"}` : null,
     DO_UX && !uxResult ? "ux: lane failed (server may be down) — skipped" : null,
     FIX_REQ && dirtyTree ? "fix:true DOWNGRADED to review-only (dirty tree)" : null,
+    fixSkipReason ? `fix: 0 of ${reviewVerified} eligible — severity threshold gated all (no high/critical); adversarialVerify skipped, 0 regressions` : null,
     chronicCount > 0 ? `chronic: ${chronicCount} finding(s) recurring from prior run (unfixed)` : null,
     deltaStr ? `trend: ${deltaStr} vs last run` : null,
   ].filter(Boolean),
@@ -1864,6 +1877,7 @@ const report = {
   effort: EFFORT,
   fixApplied: fixEnabled,
   fixDowngraded: FIX_REQ && dirtyTree,
+  fixSkipReason,
   openIssues,
   review: reviewResult
     ? {
@@ -1943,7 +1957,9 @@ const report = {
   proposedInbox: OP_INBOX,
   nextStep:
     (fixEnabled
-      ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-reverted the offending files via git checkout/rm. Inspect the tree." : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
+      ? (reviewRegress > 0 ? "Regressions detected — review-optimize should have auto-reverted the offending files via git checkout/rm. Inspect the tree."
+        : reviewApplied === 0 && reviewVerified > 0 ? `fix:true applied 0 of ${reviewVerified} verified finding(s) — all below the fix severity threshold (no high/critical), so none were eligible. Triage the medium/low backlog manually, or re-run fix:true once a high-severity finding appears.`
+        : "Fixes applied. Re-run routine scan to confirm openIssues dropped.")
       : FIX_REQ && dirtyTree
         ? "Tree was dirty so fixes were skipped. Commit/stash concurrent WIP, then re-run with fix:true to apply the verified findings above."
         : DO_UX && !uxResult
