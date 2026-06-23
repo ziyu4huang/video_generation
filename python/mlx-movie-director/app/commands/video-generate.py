@@ -131,12 +131,17 @@ def add_generate_args(parser):
                              "--distilled). 'dasiwa' = a DaSiWa dev-architecture finetune "
                              "(converted via convert.py --ltx-checkpoint); behaves like dev "
                              "(CFG/STG on) but loads models/ltx-mlx/dasiwa/.")
-    parser.add_argument("--dev-audio", action="store_true", default=False, dest="dev_audio",
-                        help="Transplant dev audio stream into the loaded transformer before "
-                             "inference — gives dasiwa/distilled visual quality with dev's "
-                             "correct zh-TW audio (fixes Japanese-sounding speech). "
-                             "No-op when --transformer dev (already dev audio). "
-                             "Not compatible with --low-ram.")
+    parser.set_defaults(dev_audio=None)  # None = auto (on for dasiwa/distilled, off otherwise)
+    _da_group = parser.add_mutually_exclusive_group()
+    _da_group.add_argument("--dev-audio", action="store_true", dest="dev_audio",
+                           help="Transplant dev audio stream into the loaded transformer before "
+                                "inference — gives dasiwa/distilled visual quality with dev's "
+                                "correct zh-TW audio (fixes Japanese-sounding speech). "
+                                "No-op when --transformer dev (already dev audio). "
+                                "Not compatible with --low-ram. "
+                                "Auto-enabled by default for dasiwa/distilled; use --no-dev-audio to opt-out.")
+    _da_group.add_argument("--no-dev-audio", action="store_false", dest="dev_audio",
+                           help="Disable automatic dev-audio transplant (opt-out for dasiwa/distilled).")
     parser.add_argument("--dev-audio-path", default=None, dest="dev_audio_path", metavar="PATH",
                         help="Override the audio source safetensors for --dev-audio transplant "
                              "(default: ltx-2.3-dev-q8/transformer-dev.safetensors). "
@@ -628,6 +633,9 @@ def _run_generate_inner(args):
         if args.stage1_steps is None and not hq:
             args.stage1_steps = 8
             print("[video] dasiwa: stage1_steps=8 (A/B sweep 2026-06-23: 8==16==30 steps audio quality; pass --hq for 20 steps)")
+        if args.dev_audio is None:
+            args.dev_audio = True
+            print("[video] dasiwa: auto-enabling --dev-audio (fixes zh-TW audio; use --no-dev-audio to opt-out)")
 
     # --- Distilled mode: auto-adjust defaults ---
     if distilled:
@@ -640,6 +648,9 @@ def _run_generate_inner(args):
             args.stage1_steps = 8
         if args.stage2_steps is None:
             args.stage2_steps = 3
+        if args.dev_audio is None:
+            args.dev_audio = True
+            print("[video] distilled: auto-enabling --dev-audio (fixes zh-TW audio; use --no-dev-audio to opt-out)")
         print(f"[video] Distilled mode: cfg_scale=1.0, stg_scale=0.0, "
               f"stage1_steps={args.stage1_steps}, stage2_steps={args.stage2_steps}")
 
@@ -651,6 +662,11 @@ def _run_generate_inner(args):
         if args.cfg_scale is None:  # None = user did not pass --cfg-scale
             args.cfg_scale = 3.0
             print("[video] FLF2V mode: cfg_scale auto-set to 3.0 (dev transformer)")
+
+    # Dev transformer in T2V/I2V standard mode: non-distilled 22B needs more steps than 8
+    if transformer == "dev" and not begin_image and args.stage1_steps is None:
+        args.stage1_steps = 20
+        print("[video] dev T2V/I2V: stage1_steps=20 (non-distilled 22B; use --stage1-steps to override)")
 
     # --- Base defaults for T2V/I2V standard mode ---
     if args.stage1_steps is None:
