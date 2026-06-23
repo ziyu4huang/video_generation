@@ -149,11 +149,11 @@ Iterations 3–4 on the mlx side, now applied to gui):
 | gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 70 | 40 | 2026-06-21T03-54-14 |
 | gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 51 | 40 | 2026-06-21T03-52-50 |
 | lora-quality-gate | — | ✓ | — | — | ✓ | 3 | 0 | — |
-| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 69 | 40 | 2026-06-23T14-01-20 |
+| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 70 | 40 | 2026-06-23T21-29-09 |
 | mlx-movie-director-run-self-improve-image | mlx | ✓ | ✓ | ✓ | ✓ | 22 | 22 | 2026-06-20T04-24-28 |
 | mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 19 | 18 | — |
-| mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 27 | 27 | 2026-06-23T11-49-32 |
+| mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 31 | 31 | 2026-06-23T22-40-15 |
 
-**Totals:** 7 workflows · 7 load / 6 extract wired · 7 knowledge files · 261 records (187 active)
+**Totals:** 7 workflows · 7 load / 6 extract wired · 7 knowledge files · 266 records (191 active)
 
 <!-- END KNOWLEDGE MATRIX -->
