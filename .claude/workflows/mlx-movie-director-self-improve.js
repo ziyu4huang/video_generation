@@ -100,6 +100,14 @@ const MLX_DIR      = `${PROJECT_ROOT}/python/mlx-movie-director`
 const HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
 const INDEX_FILE   = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 const KB_FILE      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
+// operation-lessons: curated, high-trust workflow-operation rules (fix|restore|review|report).
+// OP_FILE = the APPROVED store (human-curated; loaded for the Report count + propose dedup).
+// OP_INBOX = the staging queue the propose step WRITES candidates to (never auto-merged; human
+// reviews + promotes). The mlx parent has NO inlined fix agent (its only lane is read-only lint),
+// so the approved store is NOT injected here — the review-optimize child injects ITS own store.
+// See _shared-patterns.md ("Operation-lessons"). Mirrors gui-movie-director-self-improve (PR #85).
+const OP_FILE       = `${PROJECT_ROOT}/.claude/workflows/${NAME}.operation-lessons.jsonl`
+const OP_INBOX      = `${PROJECT_ROOT}/.claude/workflows/${NAME}.operation-lessons.proposed.jsonl`
 
 // ── Phase tracking ───────────────────────────────────────────────────────────
 
@@ -245,6 +253,166 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   return extract
 }
 
+// ── loadOperationLessons — curated, high-trust rules about how this workflow operates ──
+// Returns rule text VERBATIM grouped by phase (no summarization, no drift). Records
+// are {id, phase, severity, rule, why, source}; phase ∈ fix|restore|review|report.
+// The APPROVED store (OP_FILE) is loaded here for the Report's operationRules count +
+// propose-step dedup. NOTE: the mlx parent has no inlined fix agent (only read-only lint),
+// so unlike the gui orchestrator these rules are NOT injected into a fix prompt — the
+// review-optimize child injects ITS own store. The staging inbox (OP_INBOX) is NEVER
+// loaded here; only the approved store is read. Identical to the child + gui orchestrator
+// + _shared-patterns.md ("Operation-lessons").
+async function loadOperationLessons(opFile) {
+  const load = await agent(
+    `Read the workflow operation-lessons file and return its rules grouped by phase.
+1. Bash("test -f '${opFile}' && echo EXISTS || echo MISSING")
+2. If MISSING → return { found: false, byPhase: {} }.
+3. If EXISTS: Bash("cat '${opFile}'")
+4. Parse each non-empty line as JSON. Keep records where status is absent or "active".
+5. Group by the "phase" field (fix|restore|review|report). For each record output
+   ONLY {id, severity, rule} — copy "rule" VERBATIM (do not rephrase/truncate/invent).
+   Drop any record whose phase is not one of the four above.
+Return { found: true, byPhase: { "<phase>": [{id,severity,rule}, ...], ... } }.`,
+    { label: "load-operation-lessons", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        byPhase: { type: "object", description: "phase -> array of {id,severity,rule}",
+          additionalProperties: { type: "array", items: { type: "object",
+            properties: { id: { type: "string" }, severity: { type: "string" }, rule: { type: "string" } },
+            required: ["id", "rule"] } } },
+      }, required: ["found", "byPhase"] } },
+  )
+  const counts = load?.byPhase || {}
+  const total = Object.values(counts).reduce((a, arr) => a + (Array.isArray(arr) ? arr.length : 0), 0)
+  const phSummary = Object.entries(counts).map(([p, arr]) => `${p}:${arr.length}`).join(" ") || "(empty)"
+  log(`Operation-lessons: loaded ${total} rule(s) [${phSummary}] ← ${opFile}`)
+  return load
+}
+
+// Render a phase's rules as an injection block (hard rules first). Empty -> "".
+// Currently UNUSED by the mlx parent (no inlined fix agent to inject into), but kept
+// verbatim per _shared-patterns.md so the helper trio stays identical across workflows
+// (and is ready if the parent ever gains a fix-capable lane).
+function operationRulesBlock(byPhase, phase) {
+  const rules = (byPhase && byPhase[phase]) || []
+  if (!rules.length) return ""
+  const sorted = [...rules].sort((a, b) => (a.severity === "hard" ? 0 : 1) - (b.severity === "hard" ? 0 : 1))
+  return `\n## OPERATION RULES (${phase} phase) — follow exactly, these are hard-won workflow truths:\n` +
+    sorted.map((r) => `- [${r.severity || "soft"}] ${r.rule}`).join("\n")
+}
+
+// ── proposeOperationLessons — SELF-LEARNING (propose → human-gate) ──
+// Distills THIS run's failures (a regression that fired a restore, an adversarial-verify
+// that upheld a fabricated/wrong-location finding, a recurring lint/runtime-error pattern,
+// a fix that skipped/crashed) into ≤2 NEW operation-lesson CANDIDATES, written to the
+// staging inbox (OP_INBOX). The APPROVED store (opFile) is NEVER written here — a human
+// reviews the inbox and promotes winners. The mlx family is the most-iterated loop, and
+// every prior lesson was hand-curated post-mortem (iter-8 relocate-import, iter-10 +2);
+// this step automates that capture. Modeled on extractKnowledge: gather existing ids
+// (dedup) → sonnet agent → enforce dedup in JS → append + jq-validate.
+async function proposeOperationLessons(inboxFile, opFile, runId, runResult) {
+  const resultJson = JSON.stringify(runResult)
+  // Gather existing ids (approved + inbox) for dedup; best-effort busy check.
+  const guard = await agent(
+    `Gather existing operation-lesson ids for dedup, and check the inbox isn't mid-write.
+1. Bash("git status --porcelain '${inboxFile}' 2>/dev/null || true") → busy=true ONLY if the
+   output shows this path as a MODIFIED tracked file (leading " M"/"MM"); an untracked "??"
+   or absent entry is NOT busy (the inbox is new or gitignored).
+2. Approved ids: Bash("test -f '${opFile}' && cat '${opFile}' || echo __EMPTY__"); parse each
+   non-empty line as JSON, collect "id".
+3. Inbox ids: Bash("test -f '${inboxFile}' && cat '${inboxFile}' || echo __EMPTY__"); parse each
+   non-empty line as JSON, collect "id".
+Return { busy: <bool>, existingIds: [<deduped ids from both files>] }.`,
+    { label: "propose-lessons-guard", phase: "Persist", model: "haiku",
+      schema: { type: "object", properties: {
+        busy: { type: "boolean" },
+        existingIds: { type: "array", items: { type: "string" } },
+      }, required: ["busy", "existingIds"] } },
+  )
+  if (guard?.busy) {
+    log(`propose-lessons: inbox busy (concurrent run) → skipping write`)
+    return []
+  }
+  const existingIds = new Set(guard?.existingIds || [])
+  const existingIdsBlock = existingIds.size ? `[${[...existingIds].join(", ")}]` : "(none yet)"
+
+  const propose = await agent(
+    `Propose NEW operation-lesson candidates distilled from THIS run's failures.
+THIS RUN'S RESULT (json):
+${resultJson}
+EXISTING lesson ids (do NOT re-propose any): ${existingIdsBlock}
+
+An operation-lesson is a CURATED, high-trust rule about HOW this workflow operates — the
+kind a human hand-writes after a post-mortem (e.g. "when a fix moves a statement, move its
+lazy import too", "restoreTriggered is not a success signal", "openIssues ↑ is thoroughness
+not regression"). Phase ∈ fix|restore|review|report; severity hard|soft.
+
+Find at MOST 2 candidates THIS run genuinely surfaced:
+- A regression that fired a restore / a fix that skipped or crashed → "fix" lesson.
+- An adversarial verify that UPHELD a fabricated or wrong-location finding → "review" lesson.
+- A restore/report that mis-stated the reverted files → "restore"/"report" lesson.
+- A recurring runtime-error pattern (e.g. a lint-gate or pyflakes class) → "fix"/"gotcha" lesson.
+For EACH candidate:
+  - id: stable "mlx-selfimprove:<slug>"; MUST differ from every existing id above.
+  - phase, severity (default "soft" — stays conservative until a human promotes to hard).
+  - rule: ONE imperative sentence — the actionable rule, not the story.
+  - why: 1-2 sentences naming the CONCRETE signal in THIS run (cite the finding/restore/regression).
+  - source: "${runId}".
+  - signal: short trigger tag (e.g. "regression+restore", "adversarial-upheld-fabricated").
+  - target_hint: which file a human should promote into — "self-improve" (parent Resolve/
+    Persist/Report posture) or "review-optimize" (child fix/restore/review/report) — + phase.
+Do NOT invent a failure not present in THIS run's result. If the run had no instructive failure,
+return proposed:0, candidates:[].
+Return { proposed: <count>, candidates: [{id, phase, severity, rule, why, source, signal, target_hint}, ...] }.`,
+    { label: "propose-operation-lessons", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        proposed: { type: "number" },
+        candidates: { type: "array", items: { type: "object", properties: {
+          id: { type: "string" }, phase: { type: "string" }, severity: { type: "string" },
+          rule: { type: "string" }, why: { type: "string" }, source: { type: "string" },
+          signal: { type: "string" }, target_hint: { type: "string" },
+        }, required: ["id", "phase", "severity", "rule", "why"] } },
+      }, required: ["proposed", "candidates"] } },
+  )
+
+  // Enforce dedup in JS (the agent is told, but never trust it). Cap at 2.
+  const fresh = (propose?.candidates || [])
+    .filter((c) => c && c.id && !existingIds.has(c.id))
+    .slice(0, 2)
+  if (!fresh.length) {
+    log(`propose-lessons: no new candidates (run had no instructive failure, or all deduped)`)
+    return []
+  }
+
+  // Append survivors to the inbox with provenance + status:"proposed".
+  const newLines = fresh
+    .map((c) => JSON.stringify({ ...c, status: "proposed", proposed_from_run: runId }))
+    .join("\n")
+  const append = await agent(
+    `Append ${fresh.length} proposed operation-lesson candidate(s) to the staging inbox.
+1. Read current inbox (may not exist): Bash("test -f '${inboxFile}' && cat '${inboxFile}' || echo __EMPTY__")
+2. Build the NEW full inbox = existing lines VERBATIM + the ${fresh.length} new JSON lines below
+   (one JSON object per line; no array wrapper; no trailing comma):
+${newLines}
+3. Write({ file_path: "${inboxFile}", content: <the full new inbox, newline-separated JSON> })
+4. Validate EVERY line parses: Bash("jq -c . '${inboxFile}' >/dev/null && echo VALID || echo INVALID")
+5. Bash("wc -l < '${inboxFile}'") → total
+Return { appended: <true iff VALID>, total: <wc -l>, newIds: [${fresh.map((c) => `"${c.id}"`).join(", ")}] }.`,
+    { label: "propose-lessons-write", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        appended: { type: "boolean" }, total: { type: "number" },
+        newIds: { type: "array", items: { type: "string" } },
+      }, required: ["appended"] } },
+  )
+
+  if (append?.appended) {
+    log(`propose-lessons: appended ${fresh.length} candidate(s) → ${inboxFile} (total ${append.total ?? "?"}; HUMAN-GATED, not auto-merged)`)
+    return fresh
+  }
+  log(`propose-lessons: write did not verify (appended=${append?.appended}) — candidates not persisted`)
+  return []
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Lane: LINT (inlined — MLX-specific structural integrity)
 // Complementary to review-optimize's semantic review: pyflakes catches NameError-class
@@ -349,6 +517,13 @@ const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 // ONE knowledge base for the whole run.
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
+
+// Operation-lessons (approved store) — loaded for the Report's operationRules count +
+// the propose-step dedup baseline. NOT injected (the mlx parent's only inlined lane is
+// read-only lint; the review-optimize child injects ITS own store). The inbox (OP_INBOX)
+// is never loaded — untrusted lessons are never read.
+const operationLessons = await loadOperationLessons(OP_FILE)
+const _opByPhase = operationLessons?.byPhase || {}
 
 // Dirty-tree guard: if the user requested fixes but the git working tree has
 // uncommitted changes, DOWNGRADE to review-only. A concurrent session's WIP
@@ -533,10 +708,30 @@ const historyEntry = {
   },
 }
 
+let proposedLessons = []
 try {
   await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
   log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
   await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, null)
+  // Self-learning: propose operation-lesson candidates from this run's failures →
+  // staging inbox (OP_INBOX). NEVER writes the approved store. Non-fatal.
+  try {
+    proposedLessons = await proposeOperationLessons(OP_INBOX, OP_FILE, RUN_ID, historyEntry.result)
+  } catch (e) { log(`propose-lessons failed (non-fatal): ${e?.message || e}`) }
+  // Auto-refresh the workflow knowledge coverage matrix (MANIFEST.md) so the self-kb
+  // dashboard stays current. The generator resolves paths from its own __dirname, so
+  // invoke by absolute path from any cwd. Non-fatal.
+  try {
+    const mf = await agent(
+      `Refresh the workflow knowledge coverage matrix (MANIFEST.md), then report whether it succeeded.
+Bash("node '${PROJECT_ROOT}/scripts/workflow-knowledge-manifest.mjs' 2>&1 | tail -4; echo EXIT=$?")
+refreshed = true iff the EXIT marker is 0.
+Return { refreshed: <bool>, tail: "<the last few output lines>" }.`,
+      { label: "manifest-refresh", phase: "Persist", model: "haiku",
+        schema: { type: "object", properties: { refreshed: { type: "boolean" }, tail: { type: "string" } }, required: ["refreshed"] } })
+    if (mf?.refreshed) log("MANIFEST.md coverage matrix refreshed")
+    else log(`⚠ MANIFEST refresh not confirmed (refreshed=${mf?.refreshed}): ${(mf?.tail || "").slice(0, 160)}`)
+  } catch (e) { log(`manifest refresh failed (non-fatal): ${e?.message || e}`) }
   markPhase("persist", "completed")
 } catch (e) {
   log(`Persist failed: ${e?.message || e}`)
@@ -546,6 +741,8 @@ try {
 // ══ Phase: Report ════════════════════════════════════════════════════════════
 
 phase("Report")
+
+const _opLoaded = Object.values(_opByPhase).reduce((a, arr) => a + (Array.isArray(arr) ? arr.length : 0), 0)
 
 const report = {
   workflow: NAME,
@@ -586,8 +783,17 @@ const report = {
   status: phasesFailed.length === 0 ? "complete" : "partial",
   phasesCompleted,
   phasesFailed,
+  operationRules: {
+    loaded: _opLoaded,
+    byPhase: Object.fromEntries(Object.entries(_opByPhase).map(([p, arr]) => [p, Array.isArray(arr) ? arr.length : 0])),
+  },
+  proposedLessons: proposedLessons.length
+    ? proposedLessons.map((l) => ({ id: l.id, phase: l.phase, severity: l.severity, target: l.target_hint || null, why: l.why }))
+    : [],
+  proposedInbox: OP_INBOX,
 }
 
 log(`═ MLX self-improve ${RUN_ID} — openIssues=${openIssues}${deltaStr ? ` (${deltaStr})` : ""} | review:${reviewVerified}${fixEnabled ? `→${reviewApplied}fix` : ""} | pyflakes:${lintRealCount} | gates:${checkModelOk === null ? "-" : checkModelOk ? "cm✓" : "cm✗"}${selftestOk === null ? "" : selftestOk ? " st✓" : " st✗"}`)
+if (proposedLessons.length) log(`📬 ${proposedLessons.length} proposed operation-lesson(s) → ${OP_INBOX} (HUMAN-GATED; promote winners into the matching *.operation-lessons.jsonl, e.g. review-optimize:fix)`)
 
 return report
