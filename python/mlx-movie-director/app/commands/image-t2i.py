@@ -15,6 +15,7 @@ from app.commands._shared import (
     execute_generation,
     execute_ab_test,
     apply_draft_overrides,
+    apply_transformer_defaults,
     _resolve_resolution,  # noqa: F401 (re-export: defined in _shared for cross-module import)
     _RESOLUTION_TIERS,    # noqa: F401 (re-export)
 )
@@ -150,6 +151,10 @@ def run_t2i(args: argparse.Namespace) -> None:
     if getattr(args, "self_test", False) is True and not getattr(args, "prompt", None) \
             and not getattr(args, "prompt_file", None):
         args.prompt = _T2I_DEFAULT_PROMPT
+
+    # Apply per-transformer recommended params (steps, cfg) before pipeline defaults.
+    # Only fills args that are still None (not explicitly set by the user).
+    apply_transformer_defaults(args, getattr(args, "transformer", None))
 
     if args.steps is None:
         args.steps = _PIPELINE_DEFAULT_STEPS.get(pipeline_type, 9)

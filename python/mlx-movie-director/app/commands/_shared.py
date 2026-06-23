@@ -512,6 +512,79 @@ def list_available_loras(pipeline_filter: str | None = None) -> None:
     print(f"\n{len(lorals)} LoRA(s) found" + (f" (pipeline={pipeline_filter})" if pipeline_filter else ""))
 
 
+def load_transformer_recommended_params(transformer_name: str | None) -> dict[str, Any]:
+    """Load recommended generation params from a transformer's manifest.json.
+
+    Returns a dict with keys "steps" and/or "cfg_scale" when the manifest
+    specifies them (non-None). Returns {} if the transformer is unknown,
+    the manifest is missing, or no recommended fields are set.
+
+    These values fill the gap between pipeline-level defaults and explicit CLI
+    flags — they override the pipeline default but yield to any user-supplied arg.
+    """
+    if not transformer_name:
+        return {}
+    manifest_path = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name, "manifest.json")
+    if not os.path.exists(manifest_path):
+        return {}
+    try:
+        import json as _json
+        with open(manifest_path) as f:
+            data = _json.load(f)
+    except Exception:
+        return {}
+    params: dict[str, Any] = {}
+    steps = data.get("recommended_steps")
+    if steps is not None:
+        try:
+            params["steps"] = int(steps)
+        except (TypeError, ValueError):
+            pass
+    cfg_scale = data.get("recommended_cfg")
+    if cfg_scale is not None:
+        try:
+            params["cfg_scale"] = float(cfg_scale)
+        except (TypeError, ValueError):
+            pass
+    return params
+
+
+def apply_transformer_defaults(args: argparse.Namespace, transformer_name: str | None,
+                                user_provided: set[str] | None = None) -> None:
+    """Apply transformer manifest recommended params as defaults for unset args.
+
+    Only fills args.steps / args.cfg_scale when they are still None (i.e. not
+    explicitly provided by the user via CLI). Prints a one-line notice so the
+    user knows which values came from the manifest.
+
+    user_provided: set of dest names that were explicitly set by the user. When
+    None, falls back to checking `getattr(args, dest) is None`.
+    """
+    params = load_transformer_recommended_params(transformer_name)
+    if not params:
+        return
+    applied: list[str] = []
+    if "steps" in params:
+        if user_provided is not None:
+            steps_unset = "steps" not in user_provided
+        else:
+            steps_unset = getattr(args, "steps", None) is None
+        if steps_unset:
+            args.steps = params["steps"]
+            applied.append(f"steps={params['steps']}")
+    if "cfg_scale" in params:
+        if user_provided is not None:
+            cfg_unset = "cfg_scale" not in user_provided
+        else:
+            cfg_unset = getattr(args, "cfg_scale", None) is None
+        if cfg_unset:
+            args.cfg_scale = params["cfg_scale"]
+            applied.append(f"cfg={params['cfg_scale']}")
+    if applied:
+        print(f"[Transformer defaults] {transformer_name}: {', '.join(applied)} "
+              f"(from manifest — override with --steps/--cfg-scale)")
+
+
 def resolve_vae_path(raw: str | None) -> str | None:
     """Resolve a --vae-path value to an absolute directory path.
 

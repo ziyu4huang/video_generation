@@ -1548,7 +1548,7 @@ function renderAll() {{
   const prompt=TESTS.map(t=>t.prompt).find(p=>p)||L('noPrompt');
   document.getElementById('shared-prompt').textContent=prompt;
   const grid=document.getElementById('grid'); grid.innerHTML='';
-  let currentGroup=null, rowEl=null;
+  let currentGroup=undefined, rowEl=null;
   TESTS.forEach((t,i)=>{{
     const label=t.label.split('|')[0];
     const m=label.match(/^([A-Z])-/);
