@@ -30,7 +30,7 @@ BASE_IMAGE="${BASE_IMAGE:-}"
 SEEDS="${SEEDS:-42}"
 FRAMES="${FRAMES:-49}"
 SWEEP_DATE="$(date +%Y%m%d_%H%M%S)"
-SWEEP_ROOT="${SWEEP_ROOT:-../video_generation__output/sweep_dasiwa_params_${SWEEP_DATE}}"
+SWEEP_ROOT="${SWEEP_ROOT:-../../../video_generation__output/sweep_dasiwa_params_${SWEEP_DATE}}"
 SWEEP_LOG="${SWEEP_ROOT}/sweep.log"
 
 # Sweep prompt — requirements:
