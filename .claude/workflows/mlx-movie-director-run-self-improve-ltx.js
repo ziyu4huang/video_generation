@@ -63,12 +63,12 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best as of 2026-06-24 (composite=76.37, iter-5):
+// Base config — confirmed best as of 2026-06-24 (composite=76.37, iter-5/iter-6):
 //   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=3053, avCa=1000, audioVolume=15
-// History: seed=42→3053 (+2.39 pts, KB: ltx:seed-3053-lever);
-//          audioVolume=50→15 (+4.43 pts, KB: ltx:audio-volume-15-lever) — root cause was
-//          volume=50,alimiter=0.95 compressing audio crest factor.
-// New bottleneck: quality.edge (Sobel edge density). Iter-6 targets this dimension.
+// History: seed=42→3053 (+2.39 pts); audioVolume=50→15 (+4.43 pts, KB: ltx:audio-volume-15-lever)
+// stg_scale: ladder fully exhausted — 1.5=best, 0.5/1.0 regress/neutral, 2.0 crashes (KB: ltx:stg-scale-plateau-exhausted)
+// Bottleneck: quality.edge (Sobel edge density=26, score 32%). Iter-7 targets via cfg_scale=9.
+// Max edge-score potential: +6.8 composite pts if edge_density reaches ≥60.
 // frames=25: KB confirms 25 frames sufficient for quality judgment; keeps iterations fast.
 const baseCfg = {
   stage1: 20, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 3053,
@@ -84,9 +84,9 @@ const baseCfg = {
 // not seed exploration (seed=42 is fixed as baseline; seed-3053 lever already in KB).
 const KNOBS = {
   stage1_steps:       [12, 20, 25],                   // 20=confirmed best; 25=crash risk (KB); 12=lower bound
-  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; 7=ceiling (DR bottleneck, not denoising)
-  cfg_scale:          [3, 5, 7],
-  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; 2.0=dead-end; 0.5/1.0=unexplored
+  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end (KB: ltx:stage2-steps-10-avoid)
+  cfg_scale:          [3, 5, 7, 9],                   // 7=confirmed best; 9=unexplored — higher guidance → sharper edges (quality.edge bottleneck)
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; ladder fully exhausted (KB: ltx:stg-scale-plateau-exhausted)
   audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses per KB
   modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 4=dead-end; resonance-curve pattern (KB)
   audio_stage1_only:  [false, true],
@@ -546,13 +546,13 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
-PRIORITY GUIDANCE — current ceiling 76.37, new bottleneck is quality.edge (Sobel edge density):
-  • stg_scale=1.0: STG controls spatial coherence vs freedom; 1.0 may sharpen edges vs 1.5 (0.5 regressed).
-  • cfg_scale=9 (if in ladder): stronger guidance may sharpen edge fidelity.
-  • audio_volume=5: even lower volume → less limiting, but risk of inaudible audio (15 is current best).
-  • stage2_steps=7: previously tested under vol=50 (condition mismatch); re-test under vol=15 is valid.
-  • stage2_steps=1: minimal refinement — quality.edge can sometimes improve with fewer smoothing passes.
-  NOTE: audio_volume=15 is the new base; do NOT re-propose audio_volume=30 or 50 (dead-ends at lower ceiling).
+PRIORITY GUIDANCE — ceiling 76.37, bottleneck quality.edge (Sobel edge_density=26, only 32% score):
+  • cfg_scale=9 (HIGHEST PRIORITY): stronger CFG guidance sharpens edges in diffusion models by
+    increasing adherence to the text/structure signal → directly targets quality.edge. Unexplored.
+  • audio_volume=5: even lower limiting → DR improvement, but risk of inaudible audio.
+  • stage1_steps=12: fewer stage1 passes may preserve higher-frequency edge structure.
+  EXHAUSTED (do NOT re-propose): stg_scale ladder (fully characterized), stage2_steps ladder (all neutral/avoid),
+    modality_scale (resonance at 5), audio_volume 30/50 (higher volumes always worse).
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
