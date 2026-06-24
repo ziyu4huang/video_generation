@@ -1,3 +1,7 @@
+{"item":"Style contradictions (e.g., requesting anime while using photorealistic pipelines)"}
+{"item":"Vague prompts with no specific details (e.g., 'a beautiful woman')"}
+{"item":"Overly complex single-sentence prompts without structure"}
+{"item":"Using LoRA at inappropriate scales where effects are imperceptible"}
 {"item":"Stylistic contradictions (e.g., 'anime style' on a photorealistic model)"}
 {"item":"Vague or overly simple prompts (e.g., 'a beautiful woman')"}
 {"item":"Technical commands as prompts (e.g., 'BFS head face swap')"}

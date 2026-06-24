@@ -111,10 +111,14 @@ def add_purify_args(parser):
     # IS the operation — the seedvr2/transformer redraw below is skipped and the
     # cleaned image is the output. --transformer selects the inpaint model.
     parser.add_argument(
-        "--remove", dest="remove", choices=["none", "subtitle", "watermark"],
+        "--remove", dest="remove",
+        choices=["none", "subtitle", "watermark", "screen-ui"],
         default="none",
-        help="Surgically remove burned-in text: subtitle (captions), watermark "
-             "(logos/stamps), or none (default). Uses SAM3 detection + inpaint.",
+        help="Surgically remove an overlay then inpaint it away: subtitle "
+             "(captions), watermark (logos/stamps), screen-ui (player bars/"
+             "icons/buttons/timestamps from a screen capture), or none "
+             "(default). Uses SAM3 detection + inpaint; screen-ui unions masks "
+             "from several UI prompts.",
     )
     # Remove-path tunables (only affect --remove subtitle|watermark). default=None
     # sentinel so the function defaults (below) preserve byte-identical behavior when
@@ -242,10 +246,82 @@ _DEFAULT_TRANSFORMER_PROMPT = "highly detailed, sharp focus, high quality, profe
 REMOVE_SAM3_PROMPTS = {
     "subtitle": "subtitles",
     "watermark": "watermark",
+    # UI chrome is visually diverse (player bars, icons, buttons, toolbars,
+    # timestamps, notifications), so a single SAM3 prompt under-segments it.
+    # Instead union the masks from several concrete prompts — the same union
+    # machinery as the text targets, just fed more than one prompt.
+    "screen-ui": [
+        # discrete controls
+        "button", "icon", "play button", "progress bar",
+        "toolbar", "status bar", "notification", "timestamp",
+        "menu bar", "cursor arrow",
+        # burned-in text overlays (REC dot, timecodes, captions) — a screen
+        # capture usually carries text too, so union it in one pass rather than
+        # forcing the user to also run --remove subtitle separately.
+        "subtitle", "caption", "text",
+    ],
 }
 # The inpaint generate() prompt describes what to fill the removed region WITH
-# (background continuation), NOT the text being removed.
-_REMOVE_FILL_PROMPT = "clean unobstructed background, seamlessly blended, no text"
+# (background continuation), NOT the element being removed. Per-target so the
+# subtitle/watermark fill string stays byte-identical while screen-ui also
+# forbids interface elements (not just text).
+REMOVE_FILL_PROMPTS = {
+    "subtitle": "clean unobstructed background, seamlessly blended, no text",
+    "watermark": "clean unobstructed background, seamlessly blended, no text",
+    "screen-ui": ("clean unobstructed background, seamlessly blended, "
+                  "no text, no interface elements, no icons, no buttons"),
+}
+
+# Face-touch warning for --remove. The remove-path inpaint regenerates the
+# masked region; if the mask crosses a face, that face skin is synthesized and
+# MAY be altered. We deliberately do NOT cap denoise to "protect" the face:
+# at this 4-step inpaint the schedule quantizes coarsely, so 0.5/0.8/0.95 land
+# on the SAME bin (measured byte-identical output) and the only value that
+# shifts it (~0.3) would preserve the pre-filled patch UNDER the overlay,
+# defeating the removal. The empirical result confirms the inpaint handles
+# face regions well (a LIVE badge over the left eye/cheek was removed at 9/10
+# face integrity). So we surface the overlap as a *verify-this* signal instead
+# of fake-protecting. For BODY breakage (hands/limbs) there is no precise
+# detector — the real breakage risk is the REDRAW path's transformer backend,
+# not the remove path; see the mode/backend levers in MODE_PRESETS.
+FACE_WARN_OVERLAP = 0.05   # warn if ≥5% of a detected face is under the mask
+
+
+def _face_overlap_ratio(predictor, image, removal_mask) -> float:
+    """Fraction of the detected face BBOX area covered by the removal mask.
+
+    Uses the face *bounding boxes* (filled), not the tight segmentation masks:
+    an overlay that OCCLUDES part of the face shrinks the visible mask SAM3 can
+    segment, so the tight mask would under-count exactly when protection
+    matters most. The bbox captures the face's full spatial extent (including
+    the occluded region under the overlay), so any removal mask landing on the
+    face registers. Bbox-based overlap errs toward OVER-protection (a removal
+    near — but not on — a face may also cap), which is the safe direction for a
+    face-integrity guard. Reuses the SAM3 predictor already loaded for the
+    remove path. Returns 0.0 on no-face / error (guard fails OPEN).
+    """
+    import numpy as np
+    from app.sam3_predictor import segment_image
+    try:
+        result = segment_image(predictor, image, "face", score_threshold=0.3)
+    except Exception as e:  # a SAM3 failure must not abort the removal
+        print(f"[purify] face-overlap check skipped (SAM3 error: {e})")
+        return 0.0
+    boxes = getattr(result, "boxes", None)
+    # `boxes` is a numpy (N,4) array — never use `not boxes` (ambiguous truth
+    # value on a multi-element array); test None / length explicitly.
+    if boxes is None or len(result.scores) == 0 or len(boxes) == 0:
+        return 0.0
+    H, W = removal_mask.shape
+    face_region = np.zeros((H, W), dtype=bool)
+    for b in boxes:
+        x1, y1, x2, y2 = (int(v) for v in b)
+        x1, y1 = max(0, x1), max(0, y1)
+        x2, y2 = min(W, x2), min(H, y2)
+        if x2 > x1 and y2 > y1:
+            face_region[y1:y2, x1:x2] = True
+    total = int(face_region.sum())
+    return (int((removal_mask & face_region).sum()) / total) if total else 0.0
 
 
 def _write_json(path: str, data: dict) -> None:
@@ -437,19 +513,41 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
     from app.flux2_t2i_pipeline import Flux2KleinT2IPipeline
 
     w0, h0 = image.size
-    sam_prompt = REMOVE_SAM3_PROMPTS[target]
-    print(f"[purify] --remove {target}: SAM3 segmenting '{sam_prompt}'...")
+    # A target may carry a single SAM3 prompt or a list (screen-ui unions several
+    # concrete prompts). Normalize to a list; a one-element list yields a union
+    # byte-identical to the old single-segment path.
+    sam_prompts = REMOVE_SAM3_PROMPTS[target]
+    if isinstance(sam_prompts, str):
+        sam_prompts = [sam_prompts]
 
     predictor = get_sam3_predictor(threshold=score_threshold)
-    result = segment_image(predictor, image, sam_prompt, score_threshold=score_threshold)
-    if len(result.scores) == 0:
+    union = None
+    total_hits = 0
+    for sp in sam_prompts:
+        print(f"[purify] --remove {target}: SAM3 segmenting '{sp}'...")
+        result = segment_image(predictor, image, sp, score_threshold=score_threshold)
+        if len(result.scores) == 0:
+            continue
+        total_hits += len(result.scores)
+        # Union all detections for THIS prompt (subtitles/watermarks often span
+        # several boxes).
+        mask_stack = np.asarray(result.masks)           # (N, Hm, Wm)
+        this = np.any(mask_stack > 0, axis=0)           # (Hm, Wm) bool
+        if union is None:
+            union = this
+        else:
+            # Same input image ⇒ SAM3 internal res is constant across prompts,
+            # so shapes match; guard anyway against a future res change.
+            if this.shape != union.shape:
+                this = np.array(
+                    Image.fromarray((this.astype(np.uint8) * 255))
+                    .resize((union.shape[1], union.shape[0]), Image.NEAREST)
+                ).astype(bool)
+            union |= this
+    if union is None:
         print(f"[purify] --remove: SAM3 found no '{target}' regions; "
               f"returning original unchanged")
         return image
-
-    # Union all detections (subtitles/watermarks often span several boxes).
-    mask_stack = np.asarray(result.masks)               # (N, Hm, Wm)
-    union = np.any(mask_stack > 0, axis=0)              # (Hm, Wm) bool
     # Align to input resolution if SAM3 ran at a different one.
     if union.shape != (h0, w0):
         union_pil = Image.fromarray((union.astype(np.uint8) * 255))
@@ -462,8 +560,17 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
     from scipy.ndimage import binary_dilation
     raw_px = int(union.sum())
     union = binary_dilation(union, iterations=dilate_iters)
-    print(f"[purify] --remove: {len(result.scores)} detection(s) → "
+    print(f"[purify] --remove: {total_hits} detection(s) → "
           f"{raw_px} px (dilated to {int(union.sum())} px, iters={dilate_iters}) to inpaint")
+
+    # Face-touch warning (not a denoise cap — see FACE_WARN_OVERLAP): if the
+    # removal mask crosses a face, the synthesized skin there may be altered, so
+    # tell the user to verify rather than silently regenerate it.
+    fov = _face_overlap_ratio(predictor, image, union)
+    if fov > FACE_WARN_OVERLAP:
+        print(f"[purify] --remove: ⚠ mask covers {fov * 100:.0f}% of a detected "
+              f"face — face skin there is regenerated and may be altered; verify "
+              f"the result or use a tighter mask / lower dilation.")
 
     # Pre-fill the text region with the median colour of pixels just outside it,
     # so the model does NOT see the original text (same trick as swap inpaint).
@@ -485,7 +592,7 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
     pipeline = Flux2KleinT2IPipeline(transformer_name=transformer_name)
     try:
         regenerated = pipeline.generate(
-            prompt=_REMOVE_FILL_PROMPT,
+            prompt=REMOVE_FILL_PROMPTS[target],
             input_image=masked_pil,
             denoise_strength=denoise,
             width=w0, height=h0,
@@ -535,10 +642,16 @@ def _run_self_test(args) -> None:
     print(f"  TRANSFORMER_DENOISE covers all modes: "
           f"{'OK' if len(failures) == 0 else 'FAIL'}")
 
-    if set(REMOVE_SAM3_PROMPTS) != {"subtitle", "watermark"}:
+    _expected_remove_keys = {"subtitle", "watermark", "screen-ui"}
+    if set(REMOVE_SAM3_PROMPTS) != _expected_remove_keys:
         failures.append(f"REMOVE_SAM3_PROMPTS keys={list(REMOVE_SAM3_PROMPTS)}")
+    # Fill prompts must cover every remove target (inpaint reads per-target).
+    if set(REMOVE_FILL_PROMPTS) != _expected_remove_keys:
+        failures.append(f"REMOVE_FILL_PROMPTS keys={list(REMOVE_FILL_PROMPTS)}")
     print(f"  REMOVE_SAM3_PROMPTS: {REMOVE_SAM3_PROMPTS} "
-          f"{'OK' if set(REMOVE_SAM3_PROMPTS) == {'subtitle', 'watermark'} else 'FAIL'}")
+          f"{'OK' if set(REMOVE_SAM3_PROMPTS) == _expected_remove_keys else 'FAIL'}")
+    print(f"  REMOVE_FILL_PROMPTS keys: {sorted(REMOVE_FILL_PROMPTS)} "
+          f"{'OK' if set(REMOVE_FILL_PROMPTS) == _expected_remove_keys else 'FAIL'}")
 
     for res, want in [("same", (1.0, "same")), ("2x", (2.0, "2.0x")), ("2160", (2160, "2160"))]:
         got = _parse_resolution(res)

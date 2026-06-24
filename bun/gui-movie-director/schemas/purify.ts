@@ -14,14 +14,15 @@ const PURIFY_MODE_CHOICES = [
   { value: "redraw", label: "Redraw — reinterpret content (0.8)" },
 ];
 
-// Targeted text removal (--remove). When set, this IS the operation: SAM3 detects
-// the text region and surgically inpaints it away (original pixels kept outside a
+// Targeted overlay removal (--remove). When set, this IS the operation: SAM3 detects
+// the overlay region and surgically inpaints it away (original pixels kept outside a
 // feathered mask). The seedvr2/transformer redraw below is skipped, so those
 // controls are hidden while a removal target is selected (see field `visible`).
 const REMOVE_CHOICES = [
   { value: "none", label: "None" },
   { value: "subtitle", label: "Subtitle / caption" },
   { value: "watermark", label: "Watermark / logo" },
+  { value: "screen-ui", label: "Screen UI — player bar / icons / timestamps" },
 ];
 
 const RESOLUTION_CHOICES = [
