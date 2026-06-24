@@ -76,16 +76,17 @@ const baseCfg = {
 }
 
 // Allowed knobs + their discrete value ladders (the proposer picks from these).
+// Seed is intentionally EXCLUDED — this run focuses on control-parameter interactions,
+// not seed exploration (seed=42 is fixed as baseline; seed-3053 lever already in KB).
 const KNOBS = {
-  stage1_steps:       [12, 20, 25],              // 8=too few for HQ; 20=confirmed best; 25=crash risk (KB)
-  stage2_steps:       [1, 3, 5],                 // 5=confirmed best (composite 69.12)
+  stage1_steps:       [12, 20, 25],                   // 20=confirmed best; 25=crash risk (KB); 12=lower bound
+  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; 7/10=unexplored (interaction with stage1)
   cfg_scale:          [3, 5, 7],
-  stg_scale:          [0.5, 1.0, 1.5, 2.0],    // 1.5=confirmed best; 2.0=dead-end (KB)
-  audio_cfg_scale:    [null, 5, 9],              // 3=dead-end (KB); null=best (any explicit val regresses per KB)
-  modality_scale:     [5.0, 7.0, 10.0],         // 5=confirmed best; 1.0/2.0=dead-ends
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; 2.0=dead-end; 0.5/1.0=unexplored
+  audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses per KB
+  modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 7=dead-end (KB); 4/6/10=unexplored
   audio_stage1_only:  [false, true],
-  av_ca:              [200, 500, 1000, 2000, 5000], // av_ca_timestep_scale_multiplier; 1000=current best; code-lever (embedded_config.json)
-  seed:               "int",                     // any int (re-roll)
+  av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=current best; code-lever (embedded_config.json)
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","seed"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -484,7 +485,6 @@ function cfgWith(cfg, knob, val) {
     case "audio_stage1_only": c.audioStage1Only = val; break
     case "hq":                c.hq = val; break
     case "av_ca":             c.avCa = val; break
-    case "seed":              c.seed = val; break
   }
   return c
 }
@@ -504,8 +504,8 @@ for (let i = 1; i <= budget; i++) {
     : ""
   const innovationBlock = consecutiveFailures >= 2 && triedThisRun.size >= 3
     ? `\n⚠ INNOVATION REQUIRED: Direct parameter sweeps have stalled (${consecutiveFailures} consecutive failures, ${triedThisRun.size} values tried). ` +
-      `Propose a second-order interaction (e.g., does stg_scale behave differently at lower stage1_steps?), ` +
-      `a seed-family change, or a structural pivot. DO NOT propose any value in ALREADY_TESTED_THIS_RUN or KB dead-ends.`
+      `Propose a second-order interaction (e.g., does stg_scale behave differently at lower stage1_steps? does modality_scale=6 interact differently with stg_scale=1.0?). ` +
+      `DO NOT propose any value in ALREADY_TESTED_THIS_RUN or KB dead-ends.`
     : ""
   const proposal = await agent(
     `You are the PROPOSER for an autonomous LTX tuning loop (iteration ${i}/${budget}).
@@ -525,10 +525,10 @@ Dead-ends (do NOT re-propose): ${[...deadEnds].join("; ") || "(none)"}
 Known-good (build on these): ${knownGood.join("; ") || "(none)"}
 KB digest: ${R.kbDigest || "(none)"}
 
-Rules: change exactly ONE knob to a value in its ladder; 'seed' = re-roll to a new
-random int (cheap, fixes stochastic garble per the ltx-voice memory). Avoid any
-move already in dead-ends OR in ALREADY_TESTED_THIS_RUN above. Prefer the highest-EV
-single change.${innovationBlock ? " INNOVATION MODE: explore second-order interactions or pivot strategy." : ""} Return the proposal.`,
+Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
+dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run) —
+focus on control parameters: stg_scale (0.5/1.0 unexplored), stage2_steps (7/10 unexplored),
+modality_scale (4.0/6.0/10.0 unexplored). Prefer the highest-EV single change.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
   if (!proposal) { log(`iter ${i}: propose failed — skipping`); continue }
