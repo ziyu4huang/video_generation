@@ -57,9 +57,11 @@ const transformer = A.transformer || "dasiwa"        // dev | distilled | dasiwa
 const budget      = Number(A.budget) || 4            // max iterations
 const dryRun      = A.dryRun === true || String(A.dryRun).toLowerCase() === "true"  // tolerate string "true" from Workflow runtime serialization
 const resumeMode  = A.resume || "auto"               // auto | fresh | continue
-const margin      = Number(A.margin) || 1.5          // adopt threshold (composite pts)
+const margin      = Number(A.margin) || 0.75         // adopt threshold (0.75 = fine-tuning mode; use 1.5 for early exploration)
 const convergeK   = Number(A.convergeK) || 2         // stop after K non-improving iters
-const target      = A.target || "Time to create"
+// Complex test target — longer phrase exercises voice.dynamic_range (natural cadence, emotional peaks).
+// Changed from "Time to create" (3 words, no DR) to a full sentence with expressive delivery.
+const target      = A.target || "Every moment matters when you're building something that lasts"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
@@ -76,7 +78,7 @@ const baseCfg = {
   width: 768, height: 512, lowRam: true, audioVolume: 5,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   avCa: 1000.0,  // av_ca_timestep_scale_multiplier — patched in embedded_config.json
-  promptFile: A.promptFile || "/tmp/voice-optimized.txt",
+  promptFile: A.promptFile || null,  // resolved after Resolve phase using R.projectRoot
   ...A.base,
 }
 
@@ -225,6 +227,12 @@ const R = resolve
 const HIST_FILE = `${R.historyDir}/${R.runId}.jsonl`
 const _ltx_INDEX_FILE = `${R.projectRoot}/.claude/workflows/history/_index.json`
 const KB_FILE = `${R.projectRoot}/.claude/workflows/${_WF_NAME}.knowledge.jsonl`
+
+// Resolve promptFile now that we have projectRoot.
+// Complex-scene prompt: architect + city skyline → dense edges + full sentence for voice DR.
+if (!baseCfg.promptFile) {
+  baseCfg.promptFile = `${R.projectRoot}/.claude/workflows/ltx-test-complex-prompt.txt`
+}
 
 // ── saveHistory — identical in every workflow; update _shared-patterns.md first ──
 // Writes history JSON then VERIFIES (test -s) and rewrites via a quoted heredoc if the Write
