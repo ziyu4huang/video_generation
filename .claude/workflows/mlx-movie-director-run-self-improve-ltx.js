@@ -85,19 +85,19 @@ const baseCfg = {
 }
 
 // Allowed knobs + their discrete value ladders (the proposer picks from these).
-// Seed is intentionally EXCLUDED — this run focuses on control-parameter interactions,
-// not seed exploration (seed=42 is fixed as baseline; seed-3053 lever already in KB).
 const KNOBS = {
-  stage1_steps:       [8, 12, 16, 20, 25],             // 12=best simple; 8=avoid; 16=unexplored; 20=avoid@stg=0.5; 25=crash
+  stage1_steps:       [8, 12, 16, 20, 25],             // 12=best simple; 8=avoid; 16=avoid@stg=0.5; 20=avoid@stg=0.5 (catastrophic); 25=crash
   stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end (KB: ltx:stage2-steps-10-avoid)
   cfg_scale:          [3, 5, 7, 9],                   // 7=confirmed best; 9=dead-end (regresses voice.DR, KB: ltx:cfg-scale-nonmonotonic-pattern)
-  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; ladder fully exhausted (KB: ltx:stg-scale-plateau-exhausted)
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 0.5=complex-scene best; 1.0=avoid@stg=0.5-base; 1.5=simple-face best; 2.0=crash
   audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses per KB
   modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 4/6=dead-ends; resonance-curve pattern (KB)
   audio_stage1_only:  [false, true],
   av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=current best; code-lever (embedded_config.json)
   audio_volume:       [1, 5, 15, 30, 50],             // 5=confirmed best (vol=50→5 total +5.22 pts); 1=unexplored (risk: inaudible)
                                                        // mechanism: lower volume → less alimiter=0.95 compression → higher crest factor
+  seed:               [3053, 1234, 7777, 5555],       // 3053=current best; others unexplored for complex scene
+                                                       // complex scene may benefit from different noise seed → better quality.noise+quality.snr balance
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","audio_volume"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","audio_volume","seed"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -515,6 +515,7 @@ function cfgWith(cfg, knob, val) {
     case "hq":                c.hq = val; break
     case "av_ca":             c.avCa = val; break
     case "audio_volume":      c.audioVolume = val; break
+    case "seed":              c.seed = val; break
   }
   return c
 }
@@ -557,15 +558,20 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
-PRIORITY GUIDANCE — complex-scene ceiling 64.47 (stg=0.5 adopted), bottlenecks: quality.noise + voice.asr:
-  CONTEXT: switched to complex scene (architect+city skyline). Prior simple-face levers may
-  not transfer directly — re-test under new conditions is valid (condition field in KB tracks this).
-  • stg_scale=1.0: intermediate between 0.5 (current) and 1.5 (prior best); balance noise vs edge.
-  • stage1_steps=16: between 12 (current) and 20 (confirmed over-smooths in complex scene). UNEXPLORED.
-  • audio_volume=3: between 1 (risk inaudible) and 5 (current). May help voice.asr.
-  • seed change: new seed may find a configuration that generates clearer audio for complex scene.
-  DEAD-ENDS for THIS config: stage1=8 (under-denoises), stage1=20 (56.07 catastrophic on stg=0.5),
-    cfg_scale=9 (voice.DR regression), audio_cfg_scale non-null, stage2_steps ladder exhausted.
+PRIORITY GUIDANCE — complex-scene ceiling 73.62 (stg=0.5, target="Every moment matters"),
+  bottlenecks: quality.noise (2.97) + quality.snr (30.8) alternating; no single knob fixes both:
+  • seed=1234/7777/5555: seed 3053 was optimized for simple face; complex city/architect
+    scene may benefit from a different noise seed that generates cleaner frames — HIGH EV,
+    unexplored. When noise and SNR are both bottlenecks simultaneously, seed is usually the
+    lever since it randomizes both the diffusion trajectory and the audio synthesis path.
+  • av_ca=500 or 2000: cross-attention timestep scale affects temporal coherence.
+    Not re-tested at current complex-scene base (stg=0.5, stage1=12). UNEXPLORED here.
+  • cfg_scale=5: lower CFG may allow more natural noise distribution for complex scenes.
+    Only 7 and 9 have been tested; 5 and 3 are unexplored.
+  DEAD-ENDS (DO NOT re-propose at current base stg=0.5):
+    stage1_steps=16 (71.19 regress, quality.snr↓), stage1_steps=20 (56.07 catastrophic),
+    stage1_steps=8 (under-denoises), stg_scale=1.0 (72.72 regress from 73.62),
+    cfg_scale=9, audio_cfg_scale non-null, stage2_steps ladder exhausted.
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
