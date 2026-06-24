@@ -132,7 +132,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","audio_volume"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -555,7 +555,7 @@ Prefer the highest-EV single change targeting the weakest dimension.${innovation
   if (!proposal) { log(`iter ${i}: propose failed — skipping`); continue }
   const rawTo = String(proposal.to).replace(/^["']|["']$/g, "")
   const val = rawTo === "null" ? null : (rawTo === "true" ? true : (rawTo === "false" ? false : (!isNaN(Number(rawTo)) && rawTo !== "" ? Number(rawTo) : rawTo)))
-  let cfg = cfgWith(lastMeasure?.config || baseCfg, proposal.knob, val)
+  let cfg = cfgWith(currentBest?.config || baseCfg, proposal.knob, val)
   log(`iter ${i}: propose ${proposal.knob} → ${proposal.to} (Δ~${proposal.predictedDelta}) — ${proposal.rationale}`)
 
   // --- Generate + Measure, with one self-fix retry on failure/noise ---
