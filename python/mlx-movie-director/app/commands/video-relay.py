@@ -1031,7 +1031,14 @@ def _run_relay_inner(args):
     if isinstance(_raw_lora, list):
         _raw_lora = _raw_lora[0] if _raw_lora else None
     lora_path = resolve_lora_path(_raw_lora)
-    lora_scale = getattr(args, "lora_scale", 1.0)
+    # --lora-scale uses action="append" -> args.lora_scale is None | list[float]
+    # (e.g. [0.8] for --lora-scale 0.8). Peel to the first scalar so the LOCAL
+    # `lora_scale` stays a float for LTXVideoPipeline(lora_scale: float), and
+    # so RunConfig.from_args gets a clean scalar to wrap. Mirrors video-vbvr.py.
+    _lora_scale = getattr(args, "lora_scale", 1.0)
+    if isinstance(_lora_scale, list):
+        _lora_scale = _lora_scale[0] if _lora_scale else 1.0
+    lora_scale = _lora_scale
 
     segment_images = _resolve_segment_images(args, n)
     relay_audio = getattr(args, "relay_audio", None)
@@ -1109,7 +1116,13 @@ def _run_relay_inner(args):
     args.prompt = prompts[0]
     args.input_image = segment_images[0]
     args.lora_path = lora_path
-    args.lora_scale = lora_scale
+    # RunConfig.from_args does list(getattr(args, 'lora_scale', None) or []) then
+    # float(_s) per entry; a raw scalar float (e.g. 1.0 from the variant path at
+    # line 918 / the getattr default at line 1034) would be iterated char-wise by
+    # list(float) -> TypeError when rc.lora_paths is truthy. Normalize to a list
+    # here. The LOCAL scalar `lora_scale` stays a float and is passed to
+    # LTXVideoPipeline (which expects a float) below.
+    args.lora_scale = [lora_scale] if not isinstance(lora_scale, list) else lora_scale
 
     run_file = base_path + ".run.json"
     manifest_file = base_path + ".manifest.json"

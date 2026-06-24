@@ -100,7 +100,7 @@ def _run_vbvr_self_test(args):
     args.stg_scale = 1.0
     args.width = 448
     args.height = 256
-    args.lora_scale = 1.0
+    args.lora_scale = [1.0]
     args.hq = False
     args.teacache = False
     args.first_frame = False
@@ -396,7 +396,7 @@ def _run_vbvr_inner(args):
             "frames": args.frames,
             "fps": args.fps,
             "lora": os.path.basename(lora_path),
-            "lora_scale": args.lora_scale,
+            "lora_scale": lora_scale,
         }]
 
         # Fingerprint the key model files

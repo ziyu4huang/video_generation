@@ -6633,9 +6633,14 @@ def run_review_lora(args):
     tp_name = test_cfg["test_prompt"]
     tp = get_test_prompt(tp_name)
     prompt = getattr(args, "prompt", None) or tp["prompt"]
-    width = getattr(args, "width", None) or tp["width"]
-    height = getattr(args, "height", None) or tp["height"]
-    steps = getattr(args, "steps", None) or test_cfg.get("steps", 9)
+    # Explicit None-sentinel: an explicit --width 0 / --height 0 / --steps 0
+    # must NOT be silently overridden by the test-config fallback (0 is falsy).
+    width = getattr(args, "width", None)
+    width = tp["width"] if width is None else width
+    height = getattr(args, "height", None)
+    height = tp["height"] if height is None else height
+    steps = getattr(args, "steps", None)
+    steps = test_cfg.get("steps", 9) if steps is None else steps
     # --lora-scale registers with action=append (multi-LoRA) → args.lora_scale is a
     # Python list [0.7]. Unwrap to scalar at the boundary (matches e8e4456's pattern in
     # image-profile/expansion/workflow), else apply_lora's `scale * scale_factor` crashes

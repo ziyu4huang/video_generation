@@ -547,8 +547,11 @@ def _run_flux2_klein_i2i(args):
 # Core generation: I2I with optional ControlNet (Z-Image only)
 # ---------------------------------------------------------------------------
 
-def _generate(prompt, out_w, out_h, steps, seed, clean_latent, denoise_strength,
-              ctrl_33ch=None, controlnet_strength=0.6, cnet_active_steps=None) -> "Image.Image":
+def _generate(prompt: str, out_w: int, out_h: int, steps: int, seed: int,
+              clean_latent: mx.array, denoise_strength: float,
+              ctrl_33ch: "mx.array | None" = None,
+              controlnet_strength: float = 0.6,
+              cnet_active_steps: "int | None" = None) -> "Image.Image":
     """Run full I2I denoising loop with optional ControlNet. Returns PIL Image.
 
     Args:

@@ -40,7 +40,7 @@ from app import config as cfg
 from app.commands._shared import (generate_base_name, make_output_paths,
                                    normalize_self_test, resolve_prompt,
                                    run_session, _option_registered,
-                                   _adjust_frames_for_ltx)
+                                   _adjust_frames_for_ltx, first_or)
 from app.ltx_variants import get_variant
 from app.manifest import Manifest, file_fingerprint
 from app.run_config import RunConfig
@@ -872,8 +872,8 @@ def _run_single(args, prompt: str) -> None:
             distilled=distilled,
             transformer=getattr(args, "transformer", None),
             temporal_upscale=temporal_upscale,
-            lora_path=_first_or(getattr(args, "lora_path", None), None),
-            lora_scale=_first_or(getattr(args, "lora_scale", None), 1.0),
+            lora_path=first_or(getattr(args, "lora_path", None), None),
+            lora_scale=first_or(getattr(args, "lora_scale", None), 1.0),
         )
 
         if begin_image:
@@ -988,8 +988,8 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
         hq=hq,
         distilled=distilled,
         transformer=getattr(args, "transformer", None),
-        lora_path=_first_or(getattr(args, "lora_path", None), None),
-        lora_scale=_first_or(getattr(args, "lora_scale", None), 1.0),
+        lora_path=first_or(getattr(args, "lora_path", None), None),
+        lora_scale=first_or(getattr(args, "lora_scale", None), 1.0),
         # Previously omitted: --temporal-upscale was silently dropped in A/B mode
         # (the pipeline defaulted to temporal_upscale=False even when the user set
         # the flag). Plumb it through like the main generation path does.
@@ -1264,18 +1264,6 @@ def _enhance_prompt(prompt: str, *, image_path: str | None = None) -> str:
     print(f"[video]   Enhanced: {enhanced[:100]}{'…' if len(enhanced) > 100 else ''}")
 
     return enhanced
-
-
-def _first_or(values, default):
-    """First element of a repeatable-arg list (action='append'), else `default`.
-
-    --lora-path / --lora-scale are None | list (repeatable, for image multi-LoRA).
-    The LTX *video* pipeline takes a single scalar path/scale, so peel off the
-    first entry (video uses at most one user LoRA).
-    """
-    if isinstance(values, list):
-        return values[0] if values else default
-    return default if values is None else values
 
 
 def _apply_prompt_defaults(args, defaults: dict) -> None:
