@@ -28,12 +28,13 @@ const RECORD_SCHEMA = [
   { name: "title",          type: "string", desc: "headline" },
   { name: "detail",         type: "string", desc: "what was learned, actionable, <=~160 chars" },
   { name: "tags",           type: "array",  desc: "free-form tags" },
-  { name: "dimension",      type: "string", desc: "optional review-family dimension" },
+  { name: "dimension",      type: "string", desc: "most-impacted metric dimension (e.g. quality.edge, voice.snr, composite) or null" },
   { name: "confidence",     type: "number", desc: "0..1" },
   { name: "status",         type: "string", desc: "active | superseded | retired" },
   { name: "superseded_by",  type: "string", desc: "id of the replacing record, or null" },
   { name: "evidence",       type: "object", desc: "{ run_ids:[<=8 newest], occurrences, first_seen, last_seen }" },
   { name: "extracted_at",   type: "string", desc: "runId of the last extraction (NO Date.now — threaded from RUN_ID)" },
+  { name: "condition",      type: "object", desc: "optional: knob→value map for the config held constant during this experiment (marks avoid/lever as conditional, not universal). null = universal finding." },
 ];
 
 function workflowManifest(wfName) {
