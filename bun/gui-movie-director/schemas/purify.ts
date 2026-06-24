@@ -69,6 +69,18 @@ export const purifyCommand: UnifiedCommand = {
     // feathered mask). The redraw controls below are hidden while active, since
     // the cleaned image is the output and they'd be ignored by run.py.
     { key: "remove", cliFlag: "--remove", control: "select", label: "Remove", choices: REMOVE_CHOICES, default: "none", section: "Targeted Removal" },
+    // Removal tuning (PR #94): the --remove inpaint path's real levers. Mask
+    // dilation grows the detected region before inpaint (catch text edges SAM3
+    // missed); detect threshold lowers to catch fainter text (0.3→0.15 in A/B);
+    // inpaint denoise is how freely flux2-klein synthesizes replacement texture
+    // (higher = stronger fill); inpaint steps add detail to the fill. Visible
+    // only while a removal target is selected — meaningless otherwise. run.py
+    // applies these same defaults when --remove is set but the flags are absent,
+    // so omitting them keeps bare-`--remove` behavior byte-identical.
+    { key: "remove_dilate", cliFlag: "--remove-dilate", control: "range", label: "Mask Dilation", min: 0, max: 20, step: 1, default: 5, compact: true, visible: (s) => (s.remove ?? "none") !== "none", section: "Removal Tuning" },
+    { key: "remove_score_threshold", cliFlag: "--remove-score-threshold", control: "range", label: "Detect Threshold", min: 0.1, max: 0.7, step: 0.05, default: 0.3, compact: true, visible: (s) => (s.remove ?? "none") !== "none", section: "Removal Tuning" },
+    { key: "remove_denoise", cliFlag: "--remove-denoise", control: "range", label: "Inpaint Denoise", min: 0.3, max: 1, step: 0.05, default: 0.8, compact: true, visible: (s) => (s.remove ?? "none") !== "none", section: "Removal Tuning" },
+    { key: "remove_steps", cliFlag: "--remove-steps", control: "range", label: "Inpaint Steps", min: 1, max: 12, step: 1, default: 4, compact: true, visible: (s) => (s.remove ?? "none") !== "none", section: "Removal Tuning" },
     { key: "purify_mode", cliFlag: "--purify-mode", control: "select", label: "Mode", choices: PURIFY_MODE_CHOICES, default: "enhance", visible: (s) => (s.remove ?? "none") === "none", section: "Purification" },
     { key: "backend", cliFlag: "--backend", control: "select", label: "Backend", choices: BACKEND_CHOICES, default: "seedvr2", visible: (s) => (s.remove ?? "none") === "none", section: "Purification" },
     // Transformer instance for the transformer backend AND the --remove inpaint
@@ -79,7 +91,20 @@ export const purifyCommand: UnifiedCommand = {
     // when not removing and backend=transformer; omitted from CLI when empty
     // (run.py then uses a neutral quality prompt).
     { key: "prompt", cliFlag: "--prompt", control: "text", label: "Prompt", placeholder: "Guides the transformer redraw (default: quality prompt)", visible: (s) => (s.remove ?? "none") === "none" && s.backend === "transformer", section: "Purification" },
-    { key: "resolution", cliFlag: "--resolution", control: "select", label: "Resolution", choices: RESOLUTION_CHOICES, default: "same", visible: (s) => (s.remove ?? "none") === "none", hint: (s, { inputDims }) => { if (!inputDims) return ""; const out = purifyOutputDims(inputDims.w, inputDims.h, (s.resolution as string) ?? "same"); return out ? `→ ${out.w}×${out.h}` : ""; }, section: "Purification" },
+    { key: "resolution", cliFlag: "--resolution", control: "select", label: "Resolution", choices: RESOLUTION_CHOICES, default: "same", visible: (s) => (s.remove ?? "none") === "none", hint: (s, { inputDims }) => {
+        if (!inputDims) return "";
+        const out = purifyOutputDims(inputDims.w, inputDims.h, (s.resolution as string) ?? "same");
+        if (!out) return "";
+        const base = `→ ${out.w}×${out.h}`;
+        // seedvr2 is a full-image restoration model whose VRAM scales with output
+        // pixels: 2x / 2160 can exceed Metal memory and page-fault (hard GPU
+        // crash, exit 134) on larger inputs. Surface it so users don't hit a
+        // crash expecting a quality gain — and note resolution does NOT fix the
+        // plasticky-skin base artifact (that needs a higher-res SOURCE render).
+        const res = (s.resolution as string) ?? "same";
+        const warn = (res === "2x" || res === "2160") ? "  ⚠ may exceed Metal memory" : "";
+        return base + warn;
+      }, section: "Purification" },
     { key: "film_grain", cliFlag: "--film-grain", control: "range", label: "Film Grain", min: 0, max: 0.03, step: 0.005, default: 0, compact: true, visible: (s) => (s.remove ?? "none") === "none", section: "Post-Processing" },
     { key: "sharpening", cliFlag: "--sharpening", control: "range", label: "Sharpening", min: 0, max: 0.3, step: 0.01, default: 0, compact: true, visible: (s) => (s.remove ?? "none") === "none", section: "Post-Processing" },
     { key: "seed", cliFlag: "--seed", control: "number", label: "Seed", default: 42, compact: true, section: "Post-Processing" },
@@ -107,6 +132,16 @@ export const purifyCommand: UnifiedCommand = {
       film_grain: s.film_grain,
       sharpening: s.sharpening,
       seed: s.seed,
+      // Removal-path tunables (PR #94): only meaningful during the --remove
+      // inpaint; emit them solely then so seedvr2/redraw runs stay byte-identical
+      // to a bare invocation (run.py ignores them when remove=="none" anyway).
+      // The ?? guards against an ever-unset form value (String(undefined) would
+      // otherwise inject a literal "undefined" arg), falling back to run.py's
+      // effective default.
+      remove_dilate: removing ? (s.remove_dilate ?? 5) : undefined,
+      remove_score_threshold: removing ? (s.remove_score_threshold ?? 0.3) : undefined,
+      remove_denoise: removing ? (s.remove_denoise ?? 0.8) : undefined,
+      remove_steps: removing ? (s.remove_steps ?? 4) : undefined,
     };
   },
 };
