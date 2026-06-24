@@ -21,6 +21,35 @@ from app.seedvr2.latent_creator import SeedVR2LatentCreator
 from app.seedvr2 import upscaler as sv2_util
 
 
+# Pre-flight VRAM guard for SeedVR2 upscale. The 7B transformer + VAE peak
+# working set scales with the OUTPUT pixel count; above a machine-dependent
+# ceiling Metal evicts resident GPU pages and the command buffer page-faults
+# mid-eval (kIOGPUCommandBufferCallbackErrorPageFault) → SIGABRT exit 134 — a
+# HARD crash Python's try/except CANNOT catch (the process dies inside mx.eval
+# before the RuntimeError propagates). So refuse BEFORE any GPU/model work
+# instead of letting the buffer abort. Empirically 720×1280 "same" (≈0.9 M px)
+# is fine and 2× (≈3.7 M px) page-faults; 2 M px is a conservative default
+# with headroom. Override via SEEDVR2_MAX_PIXELS on machines with more free
+# unified memory.
+SEEDVR2_MAX_OUTPUT_PIXELS = int(os.environ.get("SEEDVR2_MAX_PIXELS", "2000000"))
+
+
+def _target_output_pixels(w: int, h: int, resolution: int | float) -> tuple[int, int, int]:
+    """Predict the processed-image pixel count (the peak-memory driver) WITHOUT
+    running preprocess_image, mirroring its sizing exactly: scale → round to
+    even → pad to a multiple of 16. Returns (padded_w, padded_h, pixels). Must
+    stay in lockstep with ``upscaler.preprocess_image`` or the guard drifts."""
+    if isinstance(resolution, float) and resolution < 100:
+        scale = resolution
+    else:
+        scale = resolution / min(w, h)
+    tw = (int(w * scale) // 2) * 2
+    th = (int(h * scale) // 2) * 2
+    tw += (16 - (tw % 16)) % 16
+    th += (16 - (th % 16)) % 16
+    return tw, th, tw * th
+
+
 def _quantize_predicate(path: str, module: nn.Module) -> bool:
     """Skip quantization for Conv layers and small Linear layers (last dim not divisible by 64)."""
     if isinstance(module, (nn.Conv2d, nn.Conv3d)):
@@ -240,6 +269,23 @@ class SeedVR2Upscaler:
                 f"resolution={resolution} is ambiguous: a float >= 100 is "
                 f"treated as a pixel count but looks like a scale factor. "
                 f"Pass an int for pixels (e.g. 2160) or a float < 100 for scale."
+            )
+        # Pre-flight VRAM guard: refuse an oversized target BEFORE loading
+        # models / touching the GPU. The alternative is an uncatchable Metal
+        # page-fault crash (SIGABRT 134) once the 7B transformer + VAE working
+        # set evicts GPU pages mid-eval — see SEEDVR2_MAX_OUTPUT_PIXELS.
+        _tw, _th, _target_px = _target_output_pixels(image.size[0], image.size[1], resolution)
+        if _target_px > SEEDVR2_MAX_OUTPUT_PIXELS:
+            raise ValueError(
+                f"SeedVR2 target output {_tw}×{_th} ({_target_px:,} px) exceeds "
+                f"the safe Metal memory budget ({SEEDVR2_MAX_OUTPUT_PIXELS:,} px). "
+                f"At this resolution the 7B transformer + VAE working set evicts "
+                f"GPU pages and the command buffer page-faults "
+                f"(kIOGPUCommandBufferCallbackErrorPageFault → SIGABRT 134, "
+                f"uncatchable). Lower --resolution (e.g. 'same' or a smaller "
+                f"scale / pixel target), use a smaller input, or raise the "
+                f"budget via the SEEDVR2_MAX_PIXELS env var if your machine "
+                f"has more free unified memory."
             )
         self._load_models()
         total_start = time.time()
