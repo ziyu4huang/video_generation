@@ -41,7 +41,7 @@
     {
       "name": "dimension",
       "type": "string",
-      "desc": "optional review-family dimension"
+      "desc": "most-impacted metric dimension (e.g. quality.edge, voice.snr, composite) or null"
     },
     {
       "name": "confidence",
@@ -67,6 +67,11 @@
       "name": "extracted_at",
       "type": "string",
       "desc": "runId of the last extraction (NO Date.now — threaded from RUN_ID)"
+    },
+    {
+      "name": "condition",
+      "type": "object",
+      "desc": "optional: knob→value map for the config held constant during this experiment (marks avoid/lever as conditional, not universal). null = universal finding."
     }
   ],
   "enums": {

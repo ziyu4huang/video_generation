@@ -63,11 +63,12 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best from 2026-06-20 sweep (composite=69.55):
-//   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=42, avCa=1000
+// Base config — confirmed best as of 2026-06-24 (composite=71.94, seed=3053):
+//   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=3053, avCa=1000
+// seed=42 was prior best (69.55); seed=3053 raised composite +2.39 pts (KB: ltx:seed-3053-lever).
 // frames=25: KB confirms 25 frames sufficient for quality judgment; keeps iterations fast.
 const baseCfg = {
-  stage1: 20, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 42,
+  stage1: 20, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 3053,
   width: 768, height: 512, lowRam: true, audioVolume: 50,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   avCa: 1000.0,  // av_ca_timestep_scale_multiplier — patched in embedded_config.json
@@ -275,7 +276,9 @@ async function loadKnowledge(kbFile) {
 3. If EXISTS: Bash("cat '${kbFile}'")
 4. Parse each non-empty line as JSON. Keep ONLY records where status === "active".
 5. Build a compact digest (<= 1200 chars), grouped by type — skip empty groups:
-   - AVOID/GOTCHA: "- AVOID: <title> — <detail>"   (highest-value injections)
+   - AVOID/GOTCHA: "- AVOID: <title> — <detail> [cond: <condition_json_compact>]"
+     If condition is null, omit the [cond:] suffix. Include condition so the proposer
+     knows whether an avoid is universal or only applies at a specific base config.
    - PATTERN:      "- CHECK: <title>"
    - LEVER:        "- LEVER: <title> (x<evidence.occurrences>, last <evidence.last_seen>)"
    - FALSE_POSITIVE: list titles only under "SUPPRESS: <t1>; <t2>"
@@ -313,10 +316,20 @@ THIS RUN'S DATA:
 - runId: ${runId}
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
-RECORD SCHEMA — every record MUST contain ONLY these 12 top-level keys; any extra key
+- base config (held constant except for the tested knob): stage1_steps=${baseCfg.stage1}, stage2_steps=${baseCfg.stage2}, cfg_scale=${baseCfg.cfg}, stg_scale=${baseCfg.stg}, modality_scale=${baseCfg.modalityScale}, hq=${baseCfg.hq}, seed=${baseCfg.seed}, av_ca=${baseCfg.avCa}
+  Use this as the `condition` value for new avoid/lever records from this run (list the OTHER knobs, not the one being varied).
+RECORD SCHEMA — every record MUST use ONLY these 13 top-level keys; any extra key
 triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
   schema_version(=1) | id | type | title | detail | tags | dimension | confidence |
-  status | superseded_by | evidence{occurrences,first_seen,last_seen,run_ids[<=8]} | extracted_at
+  status | superseded_by | evidence{occurrences,first_seen,last_seen,run_ids[<=8]} | extracted_at | condition
+Field guidance for LTX tuning records:
+  dimension: set to the most-impacted metric (e.g. "quality.edge", "voice.snr",
+    "voice.dynamic_range", "composite"). null only if truly cross-dimensional.
+  condition: for avoid/lever records, emit the OTHER key knob values held constant
+    during this experiment, as a JSON object: {"stg_scale":1.5,"modality_scale":5.0,...}
+    This marks the avoid as CONDITIONAL — e.g. stage2_steps=7 may fail at stg=1.5 but
+    could work at stg=1.0. null = universal finding (holds regardless of base config).
+    Use condition for ALL new avoid/lever records from this run.
 Review-finding fields NOT in this schema MUST be folded, never emitted as top-level keys:
   severity → prepend "sev:<level>" to tags;  files / file:line → fold into detail
   (line numbers go stale — name the module/locus instead).
