@@ -1,10 +1,12 @@
 // mlx-movie-director-run-self-improve-image — Unified iterative T2I/I2I generation + VLM review + self-fix
 //
 // ONE workflow for BOTH text-to-image and image-to-image on GPU-limited Apple Silicon.
-// Select the pipeline via the `kind` dimension: "t2i" (default) or "i2i".
+// Select the pipeline via the `kind` dimension: "t2i" (default), "i2i", "profile", or "purify".
 //   - kind:"t2i" → run.py t2i (text-to-image; emits JSON_SUMMARY + <base>.manifest/run.json siblings)
 //   - kind:"i2i" → run.py image i2i (image-to-image; Z-Image prints only "Saved:" lines;
 //                  pipeline:"flux2-klein" routes through execute_generation like t2i)
+//   - kind:"purify" → run.py image purify (SeedVR2 redraw/upscale OR --remove text/watermark;
+//                  emits JSON_SUMMARY; prompt-free so the Review phase uses --style score)
 //
 // Loop:
 //   1. Generation — run specs sequentially (one model process at a time, GPU-safe).
@@ -51,6 +53,17 @@
 //       (manifest/run.json siblings + JSON_SUMMARY → reproducibility panels populated).
 //   Workflow({ scriptPath: "...", args: { kind:"i2i" } })            // bare string also works
 //   Workflow({ scriptPath: "...", args: "debug" })                  //   treated as i2i mode under kind:"i2i"
+//
+// GENERATION (kind:"purify") — SeedVR2 redraw/upscale or burned-in text removal. Requires
+// an explicit input_image via specs/sets (purify's self-test is nomodel — no PNG to score).
+// Two sub-paths: redraw (purify/enhance/deartifact/redraw via seedvr2, or --backend transformer)
+// and remove (--remove subtitle|watermark via SAM3 + inpaint). Remove-path tunables:
+// remove_dilate, remove_score_threshold, remove_denoise, remove_steps.
+//   Workflow({ scriptPath: "...", args: { kind:"purify", sets:[{ name:"dilation sweep",
+//     input_image:"x.png", variants:[ {remove:"subtitle", remove_dilate:5},
+//                                     {remove:"subtitle", remove_dilate:12} ] }] } })
+//   Workflow({ scriptPath: "...", args: { kind:"purify", specs:[{ input_image:"x.png",
+//     purify_mode:"enhance", softness_override:0.4, seed:42 }] } })
 //
 // MULTI-SET A/B GENERATION — NAMED comparison sets, all bundled into ONE review HTML.
 // Each set compares ONE variable across 2+ variants (sequential — GPU-safe). Gen mode
@@ -424,6 +437,44 @@ function i2iGuide(set, lang) {
     : "Compare I2I output quality: source identity preservation, style transfer, pose match, artifacts."
 }
 
+// Variant label for a purify spec. Two branches: the --remove path (text/watermark
+// removal — key params are dilate/threshold/denoise/steps) vs. the redraw path
+// (purify/enhance/deartifact/redraw — key params are mode/softness/backend/resolution).
+function variantLabelForPurify(c) {
+  const parts = ["purify"]
+  if (c.remove && c.remove !== "none") {
+    parts.push(`remove-${c.remove}`)
+    if (c.remove_dilate != null) parts.push(`dil${c.remove_dilate}`)
+    if (c.remove_score_threshold != null) parts.push(`thr${c.remove_score_threshold}`)
+    if (c.remove_denoise != null) parts.push(`dn${c.remove_denoise}`)
+    if (c.remove_steps != null) parts.push(`${c.remove_steps}st`)
+  } else {
+    if (c.purify_mode) parts.push(c.purify_mode)
+    if (c.softness_override != null) parts.push(`soft${c.softness_override}`)
+    if (c.backend && c.backend !== "seedvr2") parts.push(c.backend)
+    if (c.resolution && c.resolution !== "same") parts.push(`res${c.resolution}`)
+  }
+  if (c.seed != null) parts.push(`s${c.seed}`)
+  return parts.join(" · ")
+}
+
+// purify comparison guide. Remove path → judge text/watermark removal completeness;
+// redraw path → judge purification quality vs. source. set.guide (user-authored) wins.
+function purifyGuide(set, lang) {
+  if (typeof set.guide === "string" && set.guide.trim()) return set.guide
+  const zh = lang === "zh_TW"
+  // Detect remove vs. redraw from the variants' labels (a remove set carries remove-*).
+  const isRemove = (set.variants || []).some((v) => v && (v.remove || (typeof v.label === "string" && /remove[-_]/.test(v.label))))
+  if (isRemove) {
+    return zh
+      ? "比較文字/浮水印移除：燒錄文字是否完全消失？檢查邊緣、角落、筆畫末端有無殘留。dilation 與偵測閾值應消除所有字元；殘留文字即為失敗。"
+      : "Compare text/watermark removal: is burned-in text fully gone? Check edges, corners, stroke ends for residue. Dilation + detection threshold should eliminate all glyphs; residual text = failure."
+  }
+  return zh
+    ? "比較淨化品質：細節保留 vs. 重新詮釋、偽影、人物特徵保留、塑化皮膚。"
+    : "Compare purification quality: detail preservation vs. reinterpretation, artifacts, identity retention, plasticky skin."
+}
+
 function normalizeItem(item, defaultKind) {
   const dk = defaultKind || "t2i"
   if (!item) return null
@@ -440,6 +491,13 @@ function normalizeItem(item, defaultKind) {
     if (item.selfTest !== undefined) {
       const k = item.kind === "i2i" ? "i2i" : (item.kind === "t2i" ? "t2i" : dk)
       return { type: "self-test", kind: k, id: typeof item.selfTest === "string" ? item.selfTest : null }
+    }
+    // purify explicit (SeedVR2 redraw / --remove text removal): input_image + a purify
+    // discriminator. Must precede the i2i input_image check so a purify spec isn't
+    // swallowed by i2i (both carry input_image). Discriminator: explicit kind:"purify",
+    // OR input_image + any purify-only field (purify_mode / remove / backend / softness_override).
+    if (item.kind === "purify" || (item.input_image && (item.purify_mode || item.remove || item.backend || item.softness_override != null))) {
+      return { ...item, type: "purify", kind: "purify" }
     }
     // profile explicit (multi-view sheet: front/back/side): input_image + views.
     // Must precede the i2i input_image check so a profile spec isn't swallowed by i2i.
@@ -481,7 +539,7 @@ const isObj = (x) => typeof x === "object" && x !== null && !Array.isArray(x)
 
 // `kind` selects the generation pipeline: "t2i" (default) or "i2i". `pipeline` stays the
 // MODEL pipeline (zimage|flux2-klein), identical to run.py --pipeline — no clash with kind.
-const defaultKind = (isObj(resolvedArgs) && ["i2i","profile"].includes(resolvedArgs.kind)) ? resolvedArgs.kind : "t2i"
+const defaultKind = (isObj(resolvedArgs) && ["i2i","profile","purify"].includes(resolvedArgs.kind)) ? resolvedArgs.kind : "t2i"
 
 // i2i legacy: {mode:"debug"} aliases selfTest (only under kind:"i2i", so a t2i prompt never
 // collides — t2i has no `mode` field).
@@ -516,9 +574,13 @@ if (isObj(argsForSpecs) && argsForSpecs.finalize != null) {
     setsConfig.forEach((s, si) => {
       const setName = s.name || `Set ${si + 1}`
       const setPrompt = s.prompt || ""
-      const setKind = ["i2i","profile"].includes(s.kind) ? s.kind : (s.kind === "t2i" ? "t2i" : defaultKind)
+      const setKind = ["i2i","profile","purify"].includes(s.kind) ? s.kind : (s.kind === "t2i" ? "t2i" : defaultKind)
       ;(s.variants || []).forEach((v, vi) => {
         const cfg = { ...v }
+        // Set-level input_image (purify/i2i A/B: one source image, varying params) spreads
+        // to each variant — without this a purify set's variants lack input_image and
+        // normalizeItem can't classify them as purify (returns null → variant dropped).
+        if (s.input_image && !cfg.input_image) cfg.input_image = s.input_image
         if (!cfg.prompt) cfg.prompt = setPrompt
         const norm = normalizeItem(cfg, setKind)
         if (!norm) return
@@ -529,7 +591,10 @@ if (isObj(argsForSpecs) && argsForSpecs.finalize != null) {
           setPrompt,
           kind: setKind,
           variantIdx: vi,
-          variantLabel: typeof v.label === "string" && v.label ? v.label : variantLabelFor(v),
+          variantLabel: typeof v.label === "string" && v.label ? v.label
+            : setKind === "i2i" ? variantLabelForI2i(v)
+            : setKind === "purify" ? variantLabelForPurify(v)
+            : variantLabelFor(v),
         })
       })
     })
@@ -550,8 +615,14 @@ if (isObj(argsForSpecs) && argsForSpecs.finalize != null) {
     runSpecs = norm ? [norm] : [{ type: "self-test", kind: defaultKind, id: null }]
   }
   if (runSpecs.length === 0) {
-    log("WARNING: No valid run specs from args — falling back to self-test.")
-    runSpecs = [{ type: "self-test", kind: defaultKind, id: null }]
+    if (defaultKind === "purify") {
+      // purify's self-test is nomodel (no PNG output) → nothing to VLM-score. Require an
+      // explicit input_image via specs/sets instead of silently falling back to self-test.
+      log("ERROR: kind:'purify' needs explicit specs:[{input_image,...}] or sets:[{input_image, variants:[...]}] — purify self-test is nomodel (no PNG to score). Nothing to generate.")
+    } else {
+      log("WARNING: No valid run specs from args — falling back to self-test.")
+      runSpecs = [{ type: "self-test", kind: defaultKind, id: null }]
+    }
   }
 }
 
@@ -611,6 +682,7 @@ function buildCommand(spec) {
   if (spec.type === "t2i") return buildT2iCommand(spec)
   if (spec.type === "i2i") return buildI2iExplicitCommand(spec)
   if (spec.type === "profile") return buildProfileCommand(spec)
+  if (spec.type === "purify") return buildPurifyCommand(spec)
 
   return null
 }
@@ -688,6 +760,34 @@ function buildProfileCommand(spec) {
   if (spec.prompt_style)         cmd += ` --prompt-style ${spec.prompt_style}`
   if (spec.vlm === false)        cmd += ` --no-vlm`
   // NOTE: no --json-summary (profile doesn't support it); parser uses "Saved:" lines
+  return cmd
+}
+
+// purify explicit spec → run.py image purify --input-image ... [flags]. purify's
+// run_session emits JSON_SUMMARY:{outputs,run_json} when --json-summary is set (verified
+// in _shared.run_session + image.py registers --json-summary via add_common_generation_args),
+// so the Generate parser uses the JSON_SUMMARY branch — NOT the "[purify] Saved:" line,
+// which the Saved-regex would miss (it carries a "[purify] " prefix).
+function buildPurifyCommand(spec) {
+  const safeInput = (spec.input_image || "").replace(/'/g, "'\\''")
+  let cmd = `${PYTHON} ${RUN_PY} image purify --input-image '${safeInput}'`
+  if (spec.purify_mode)               cmd += ` --purify-mode ${spec.purify_mode}`
+  if (spec.softness_override != null) cmd += ` --softness-override ${spec.softness_override}`
+  if (spec.resolution)                cmd += ` --resolution ${spec.resolution}`
+  if (spec.backend)                   cmd += ` --backend ${spec.backend}`
+  if (spec.remove && spec.remove !== "none") cmd += ` --remove ${spec.remove}`
+  if (spec.transformer)               cmd += ` --transformer ${spec.transformer}`
+  if (spec.seed != null)              cmd += ` --seed ${spec.seed}`
+  if (spec.film_grain != null)        cmd += ` --film-grain ${spec.film_grain}`
+  if (spec.sharpening != null)        cmd += ` --sharpening ${spec.sharpening}`
+  // remove-path tunables (only meaningful with --remove; harmless otherwise — run.py
+  // ignores them when remove=="none"). Sentinel: buildCommand omits absent fields so
+  // run.py applies its CLI defaults, matching a bare `purify --remove` invocation.
+  if (spec.remove_dilate != null)          cmd += ` --remove-dilate ${spec.remove_dilate}`
+  if (spec.remove_score_threshold != null) cmd += ` --remove-score-threshold ${spec.remove_score_threshold}`
+  if (spec.remove_denoise != null)         cmd += ` --remove-denoise ${spec.remove_denoise}`
+  if (spec.remove_steps != null)           cmd += ` --remove-steps ${spec.remove_steps}`
+  cmd += ` --json-summary`
   return cmd
 }
 
@@ -1056,7 +1156,8 @@ for (let idx = 0; idx < runSpecs.length; idx++) {
     // i2i self-test and Z-Image i2i print only "Saved:" lines.
     const isProfile = spec.type === "profile"
     const expectJson = !isProfile && (spec.type === "t2i" || spec.type === "replay" ||
-                        (spec.type === "i2i" && spec.pipeline === "flux2-klein"))
+                        (spec.type === "i2i" && spec.pipeline === "flux2-klein") ||
+                        spec.type === "purify")
     const isI2iSelfTest = (spec.type === "self-test" && spec.kind === "i2i")
     const timeoutMs = isI2iSelfTest ? 1200000 : 600000   // i2i self-test: source + ref + N variations
     const parseInstr = isProfile
@@ -1416,6 +1517,18 @@ if (autoFix && vlmAvailable && mode !== "finalize" && defaultKind !== "profile")
               controlnet_strength: { type: "number" },
               preprocess_mode: { type: "string" },
               cnet_active_steps: { type: "number" },
+              // purify fix fields (remove path uses remove_* + remove; redraw path uses
+              // purify_mode/softness_override/backend). input_image reused from i2i above.
+              purify_mode: { type: "string" },
+              softness_override: { type: "number" },
+              backend: { type: "string" },
+              remove: { type: "string" },
+              transformer: { type: "string" },
+              resolution: { type: "string" },
+              remove_dilate: { type: "number" },
+              remove_score_threshold: { type: "number" },
+              remove_denoise: { type: "number" },
+              remove_steps: { type: "number" },
             },
           },
         },
@@ -1427,6 +1540,7 @@ if (autoFix && vlmAvailable && mode !== "finalize" && defaultKind !== "profile")
     // kind-aware self-fix: i2i fixes need input_image (source/ref for self-test runs);
     // t2i fixes need prompt. Default source/ref paths match _run_self_test's seed=42.
     const isI2i = (defaultKind === "i2i")
+    const isPurify = (defaultKind === "purify")
     const i2iSourceImg = isI2i && runSpecs[0]?.type === "self-test"
       ? `${OUT_DIR}/i2i_selftest_source-s42.png`
       : (runSpecs[0]?.input_image || "")
@@ -1460,6 +1574,28 @@ Each i2i fixSpec MUST include: label, rationale, input_image ("${i2iSourceImg}")
 worst-scoring output's prompt, APPEND a source-fidelity anchor like "wearing the original <garment>
 from the source image, <garment> detail preserved", and a style anchor when pushing denoise hard), and
 ONLY the fields that change. reference_image: "${i2iRefImg}" if pose guidance applies.`
+      : isPurify
+      ? `## Fix Rules (Purify pipeline)
+Purify has TWO sub-paths with different levers — identify which from the spec's \`remove\` field:
+- REMOVE path (remove: "subtitle"|"watermark"): the goal is ZERO residual text. If the VLM
+  issues[] / summary mention residual text, leftover glyphs, or an unreadable region:
+    • raise remove_dilate by +3 (5 → 8 → 12) — covers thin strokes/edges SAM3's tight glyph
+      masks miss (the MAIN residual-text lever)
+    • OR lower remove_score_threshold 0.3 → 0.2 (higher recall on faint/small text)
+    • OR raise remove_denoise 0.8 → 0.95 (more complete fill of the masked region)
+  Pick ONE lever per fix (diversity for the score-gate). Do NOT change seed for a removal
+  fix (deterministic SAM3 + inpaint). Target dimension = "artifacts" (residual text IS an
+  artifact). A removal success is often a HIGH overall image that merely has a localized
+  defect, so the score-gate may NOT trigger on overall — rely on the artifacts dimension.
+- REDRAW path (purify_mode purify|enhance|deartifact|redraw, seedvr2 backend): softness is
+  the lever. plasticky/over-smooth skin, lost detail, or identity drift → LOWER softness
+  (toward 0.3 / mode "purify", MORE source preservation). Not enough cleanup → raise
+  softness toward 0.65/0.8 OR switch backend "seedvr2"→"transformer" (flux2-klein I2I,
+  prompt-guided, different look). Target dimension = "detail" or "overall".
+Each purify fixSpec MUST include: label, rationale, input_image (reuse the worst output's
+source: spec.input_image, else runSpecs[0].input_image), targetDimension, remove (for a
+remove-path fix) OR purify_mode (for a redraw fix), and ONLY the ONE lever field that
+changes. Unchanged fields inherit the baseline spec automatically.`
       : `## Fix Rules (T2I pipeline)
 - detail < 5 → increase steps by 3–5 (helps with fine texture rendering)
 - sharpness < 5 → try a different seed (stochastic quality variation)
@@ -1494,7 +1630,7 @@ ${wfKnowledgeDigest}
 ` : "")
 
     const fixProposalResult = await agent(
-      `Analyze ${isI2i ? "I2I" : "T2I"} quality scores and propose 1–2 targeted parameter fixes.
+      `Analyze ${isI2i ? "I2I" : isPurify ? "Purify" : "T2I"} quality scores and propose 1–2 targeted parameter fixes.
 
 ${kbBlock}## Scored Outputs (below threshold ${autoFixThreshold})
 ${JSON.stringify(worstCaptions.map(leanCaption), null, 2)}
@@ -1558,6 +1694,27 @@ Return JSON: { "fixSpecs": [...], "analysis": "..." }`,
           steps: spec.steps || baselineSteps,
           cnet_active_steps: spec.cnet_active_steps,
           pipeline: spec.pipeline || runSpecs[0]?.pipeline,
+        })
+      } else if (defaultKind === "purify") {
+        // purify fix: overlay the ONE changed lever onto the baseline spec (?? so unchanged
+        // fields inherit the baseline — a remove_dilate fix keeps the baseline remove target,
+        // score_threshold, etc.; buildPurifyCommand omits null fields, so without ?? a fix
+        // would fall back to run.py CLI defaults and diverge from a non-default baseline).
+        const b = runSpecs[0] || {}
+        fixCmd = buildCommand({
+          type: "purify", kind: "purify",
+          input_image: spec.input_image || b.input_image || "",
+          purify_mode: spec.purify_mode ?? b.purify_mode,
+          softness_override: spec.softness_override ?? b.softness_override,
+          backend: spec.backend ?? b.backend,
+          remove: spec.remove ?? b.remove,
+          transformer: spec.transformer ?? b.transformer,
+          resolution: spec.resolution ?? b.resolution,
+          seed: spec.seed ?? b.seed,
+          remove_dilate: spec.remove_dilate ?? b.remove_dilate,
+          remove_score_threshold: spec.remove_score_threshold ?? b.remove_score_threshold,
+          remove_denoise: spec.remove_denoise ?? b.remove_denoise,
+          remove_steps: spec.remove_steps ?? b.remove_steps,
         })
       } else {
         fixCmd = buildCommand({
@@ -1716,7 +1873,7 @@ const setsSection = setsConfig
   : ""
 
 const reportResult = await agent(
-  `Generate a concise quality report for this ${defaultKind === "i2i" ? "I2I" : "T2I"} workflow run.
+  `Generate a concise quality report for this ${defaultKind === "i2i" ? "I2I" : defaultKind === "purify" ? "Purify" : "T2I"} workflow run.
 
 ## Run Configuration (${runSpecs.length} spec(s))
 ${JSON.stringify(runSpecs, null, 2)}
@@ -1756,7 +1913,12 @@ let reviewHtml = ""
 const noHtml = isObj(resolvedArgs) && resolvedArgs.noHtml === true
 if (captionFiles.length > 0 && !noHtml) {
   phase("Review HTML")
-  const setsWithGuide = captionSets.map((s) => ({ ...s, guide: (s.kind === "i2i" ? i2iGuide(s, wfLang) : guideFor(s, wfLang)) }))
+  const setsWithGuide = captionSets.map((s) => ({
+    ...s,
+    guide: s.kind === "i2i" ? i2iGuide(s, wfLang)
+         : s.kind === "purify" ? purifyGuide(s, wfLang)
+         : guideFor(s, wfLang),
+  }))
   // ── Enrich manifest with per-image reproducibility (events/models/argv from sibling manifests) ──
   const reproMap = {}
   for (const capPath of captionFiles) {
