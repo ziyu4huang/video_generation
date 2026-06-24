@@ -1,3 +1,8 @@
+{"item":"Stylistic contradictions (e.g., 'anime style' on a photorealistic model)"}
+{"item":"Vague or overly simple prompts (e.g., 'a beautiful woman')"}
+{"item":"Technical commands as prompts (e.g., 'BFS head face swap')"}
+{"item":"Using LoRAs without their specific trigger words in the prompt"}
+{"item":"Overly complex prompts on very small image sizes"}
 {"item":"Style mismatch prompts mixing anime/cel-shaded with photorealistic terms"}
 {"item":"Technical/command prompts like 'BFS head face swap'"}
 {"item":"Vague short prompts with fewer than 10 descriptive words"}

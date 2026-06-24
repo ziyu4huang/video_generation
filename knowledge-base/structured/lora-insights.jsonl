@@ -1,6 +1,6 @@
-{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Perfect anatomical correction at scale 1.0-1.2. Essential for full-body poses with complex anatomy. Adds no noticeable time or memory overhead."}
-{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":9.8,"notes":"Improves body proportions and detail by ~1 point over base model. Best at scale 0.5-0.8. Scale 1.0 shows no additional benefit."}
-{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Enhances detail and sharpness in portraits. Best at scale 0.5. Adds ~60MB memory but no time overhead."}
-{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Adds ~620MB memory with no quality improvement over base zimage model. Not recommended for general use."}
+{"lora":"klein_slider_anatomy.safetensors","avgScore":10,"notes":"Essential for anatomical accuracy. Best at scale 1.0-1.2. Trigger word 'anatomyfix' is required."}
+{"lora":"klein_slider_bodyweight_50.safetensors","avgScore":10,"notes":"Improves body and clothing detail. Works well at scales 0.5-1.0. Trigger word 'slider, bodyweight' is required."}
+{"lora":"HighResolutionFlux2-Kelien-9B.safetensors","avgScore":10,"notes":"Boosts detail and sharpness. Effective at scale 0.5."}
+{"lora":"NSFW_master_ZIT_000017532.safetensors","avgScore":9,"notes":"Provides a cinematic, professional photography style. Effective at scale 0.65. Slightly higher memory usage (~8.4GB)."}
 {"lora":"bfs_head_v1_flux-klein_9b_step3750_rank64.safetensors","avgScore":7.5,"notes":"Technical LoRA with unclear purpose. Prompt adherence suffers (5/10) due to non-descriptive prompt. Not recommended."}
 {"lora":"Jibs_Realistic_z-image_lora_V1.int8.safetensors","avgScore":6,"notes":"NO skin-realism improvement (artifacts identical 4.5 vs 4.5 baseline-vs-adapter A/B). Raised pixel sharpness (Laplacian 244 vs 231) but VLM read it as noise not pores. Tested in weak regime (9 steps @ 640x960, scale 0.7 model-only; author recs 0.2-0.6 model+clip + >15 steps). NOT a skin lever — see avoid.jsonl plasticky-skin ceiling."}
