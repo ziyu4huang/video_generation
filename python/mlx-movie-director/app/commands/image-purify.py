@@ -116,6 +116,31 @@ def add_purify_args(parser):
         help="Surgically remove burned-in text: subtitle (captions), watermark "
              "(logos/stamps), or none (default). Uses SAM3 detection + inpaint.",
     )
+    # Remove-path tunables (only affect --remove subtitle|watermark). default=None
+    # sentinel so the function defaults (below) preserve byte-identical behavior when
+    # a flag is absent; an explicit 0 / 0.0 is honoured (never `or`-clobbered).
+    parser.add_argument(
+        "--remove-dilate", dest="remove_dilate", type=int, default=None, metavar="N",
+        help="Mask dilation iterations before inpaint (default 5). More iterations "
+             "cover thin strokes/edges SAM3's tight glyph masks miss — the main lever "
+             "for residual-text after --remove.",
+    )
+    parser.add_argument(
+        "--remove-score-threshold", dest="remove_score_threshold", type=float,
+        default=None, metavar="FLOAT",
+        help="SAM3 detection score threshold (default 0.3). Lower → more detections "
+             "(higher recall, esp. faint/small text) at the cost of false positives.",
+    )
+    parser.add_argument(
+        "--remove-denoise", dest="remove_denoise", type=float, default=None,
+        metavar="FLOAT",
+        help="Inpaint denoise_strength for the removed region (default 0.8). Higher → "
+             "more complete regeneration of the masked area (less residual bleed-through).",
+    )
+    parser.add_argument(
+        "--remove-steps", dest="remove_steps", type=int, default=None, metavar="N",
+        help="Inpaint diffusion steps for the removed region (default 4).",
+    )
 
     # Backend: SeedVR2 (1-step upscale redraw, original behavior) vs transformer
     # (flux2-klein I2I redraw — prompt-guided, multi-step, different look). The
@@ -254,7 +279,8 @@ def _make_purify_paths(input_path: str, mode: str, res_label: str, ext: str,
 def _build_purify_run_meta(args, input_path, mode, softness, resolution,
                            res_label, backend, output_path, seed,
                            prompt=None, softness_override=None,
-                           remove="none", transformer="klein-9b") -> dict:
+                           remove="none", transformer="klein-9b",
+                           remove_params: dict | None = None) -> dict:
     """Build the run.json metadata dict for a purify run (full params for replay)."""
     return {
         "command": "image",
@@ -276,6 +302,9 @@ def _build_purify_run_meta(args, input_path, mode, softness, resolution,
         "remove": remove,                     # targeted removal target (none|subtitle|watermark)
         "transformer": transformer,           # flux2-klein variant for redraw/inpaint
         "denoise_strength": TRANSFORMER_DENOISE.get(mode, 0.55) if backend == "transformer" else None,
+        # Effective remove-path tunables (None when remove=="none"). Pairs with the
+        # CLI sentinel defaults so replay reproduces an exact removal run.
+        "remove_params": remove_params,
     }
 
 
@@ -380,7 +409,8 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
 # ---------------------------------------------------------------------------
 
 def _run_remove_target(image, target: str, transformer_name: str, seed: int,
-                       denoise: float = 0.8, score_threshold: float = 0.3):
+                       denoise: float = 0.8, score_threshold: float = 0.3,
+                       dilate_iters: int = 5, inpaint_steps: int = 4):
     """Surgically remove burned-in text: SAM3 segment → inpaint → mask composite.
 
     Unlike object swap (which regenerates the whole scene at high denoise),
@@ -431,9 +461,9 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
     # both subtitles and watermarks, with no downside outside the feathered area.
     from scipy.ndimage import binary_dilation
     raw_px = int(union.sum())
-    union = binary_dilation(union, iterations=5)
+    union = binary_dilation(union, iterations=dilate_iters)
     print(f"[purify] --remove: {len(result.scores)} detection(s) → "
-          f"{raw_px} px (dilated to {int(union.sum())} px) to inpaint")
+          f"{raw_px} px (dilated to {int(union.sum())} px, iters={dilate_iters}) to inpaint")
 
     # Pre-fill the text region with the median colour of pixels just outside it,
     # so the model does NOT see the original text (same trick as swap inpaint).
@@ -459,7 +489,7 @@ def _run_remove_target(image, target: str, transformer_name: str, seed: int,
             input_image=masked_pil,
             denoise_strength=denoise,
             width=w0, height=h0,
-            steps=4,
+            steps=inpaint_steps,
             seed=seed,
         ).image
     finally:
@@ -572,12 +602,44 @@ def run_purify(args: argparse.Namespace) -> None:
     remove = getattr(args, "remove", "none") or "none"
     transformer_name = getattr(args, "transformer", "klein-9b") or "klein-9b"
 
+    # Remove-path tunables: sentinel default=None → resolve to the function defaults
+    # so an absent flag is byte-identical to the pre-flag behavior (never `or`, which
+    # would clobber a legit 0 / 0.0). Captured into remove_params for run.json replay.
+    _rdn = getattr(args, "remove_denoise", None)
+    _rsh = getattr(args, "remove_score_threshold", None)
+    _rdl = getattr(args, "remove_dilate", None)
+    _rst = getattr(args, "remove_steps", None)
+    remove_denoise = 0.8 if _rdn is None else _rdn
+    remove_score_threshold = 0.3 if _rsh is None else _rsh
+    remove_dilate = 5 if _rdl is None else _rdl
+    remove_steps = 4 if _rst is None else _rst
+    remove_params = None if remove == "none" else {
+        "dilate_iters": remove_dilate,
+        "score_threshold": remove_score_threshold,
+        "denoise": remove_denoise,
+        "inpaint_steps": remove_steps,
+    }
+
     # Output path + sibling run/manifest paths (CUSTOM location next to input,
     # preserved from the pre-manifest behavior). --remove gets its own label so
     # cleaned outputs don't collide with redraw outputs.
     ext = os.path.splitext(input_path)[1]
     output_path = getattr(args, "output", None)
     path_mode = f"remove-{remove}" if remove != "none" else mode
+    if remove != "none":
+        # Disambiguate remove-path VARIANTS: the tunables are now CLI flags, so two runs
+        # that differ only in dilate/threshold/denoise/steps must NOT share a filename —
+        # each would overwrite the last and collapse an A/B sweep to one image (caught by
+        # the iteration workflow: dil5/dil10/dil16 all wrote remove-subtitle_same.png).
+        # Only NON-default values are encoded, so a default run stays byte-identical to
+        # the pre-flag filename (and output).
+        _suffix = []
+        if remove_dilate != 5:              _suffix.append(f"dil{remove_dilate}")
+        if remove_score_threshold != 0.3:   _suffix.append(f"thr{remove_score_threshold}")
+        if remove_denoise != 0.8:           _suffix.append(f"dn{remove_denoise}")
+        if remove_steps != 4:               _suffix.append(f"st{remove_steps}")
+        if _suffix:
+            path_mode = f"{path_mode}-" + "_".join(_suffix)
     paths = _make_purify_paths(input_path, path_mode, res_label, ext, explicit_output=output_path)
 
     # Write run.json BEFORE entering run_session (run_config=None path, since
@@ -588,6 +650,7 @@ def run_purify(args: argparse.Namespace) -> None:
         prompt=getattr(args, "prompt", None) if backend == "transformer" else None,
         softness_override=softness_override,
         remove=remove, transformer=transformer_name,
+        remove_params=remove_params,
     )
     os.makedirs(os.path.dirname(os.path.abspath(paths.output_file)), exist_ok=True)
     _write_json(paths.run_file, run_meta)
@@ -598,7 +661,13 @@ def run_purify(args: argparse.Namespace) -> None:
             # --remove IS the operation: SAM3 + inpaint produce the cleaned image
             # (same resolution); the seedvr2/transformer redraw is skipped. The
             # chosen transformer drives the inpaint model.
-            cleaned = _run_remove_target(image, remove, transformer_name, seed)
+            cleaned = _run_remove_target(
+                image, remove, transformer_name, seed,
+                denoise=remove_denoise,
+                score_threshold=remove_score_threshold,
+                dilate_iters=remove_dilate,
+                inpaint_steps=remove_steps,
+            )
             cleaned.save(paths.output_file)
             w1, h1 = cleaned.size
             print(f"[purify] Saved: {paths.output_file} ({w1}x{h1})")
