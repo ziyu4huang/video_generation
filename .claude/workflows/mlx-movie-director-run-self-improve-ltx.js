@@ -81,13 +81,16 @@ const baseCfg = {
 // not seed exploration (seed=42 is fixed as baseline; seed-3053 lever already in KB).
 const KNOBS = {
   stage1_steps:       [12, 20, 25],                   // 20=confirmed best; 25=crash risk (KB); 12=lower bound
-  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; 7/10=unexplored (interaction with stage1)
+  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; 7=ceiling (DR bottleneck, not denoising)
   cfg_scale:          [3, 5, 7],
   stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; 2.0=dead-end; 0.5/1.0=unexplored
   audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses per KB
-  modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 7=dead-end (KB); 4/6/10=unexplored
+  modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 4=dead-end; resonance-curve pattern (KB)
   audio_stage1_only:  [false, true],
   av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=current best; code-lever (embedded_config.json)
+  audio_volume:       [5, 15, 30, 50],                // 50=current baseline; lower → less alimiter compression → higher DR
+                                                       // root cause of voice.dynamic_range bottleneck: volume=50,alimiter=0.95
+                                                       // compresses crest factor; DR score = (peak/RMS - 6dB) / 12dB
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -316,7 +319,7 @@ THIS RUN'S DATA:
 - runId: ${runId}
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
-- base config (held constant except for the tested knob): stage1_steps=${baseCfg.stage1}, stage2_steps=${baseCfg.stage2}, cfg_scale=${baseCfg.cfg}, stg_scale=${baseCfg.stg}, modality_scale=${baseCfg.modalityScale}, hq=${baseCfg.hq}, seed=${baseCfg.seed}, av_ca=${baseCfg.avCa}
+- base config (held constant except for the tested knob): stage1_steps=${baseCfg.stage1}, stage2_steps=${baseCfg.stage2}, cfg_scale=${baseCfg.cfg}, stg_scale=${baseCfg.stg}, modality_scale=${baseCfg.modalityScale}, hq=${baseCfg.hq}, seed=${baseCfg.seed}, av_ca=${baseCfg.avCa}, audio_volume=${baseCfg.audioVolume}
   Use this as the \`condition\` value for new avoid/lever records from this run (list the OTHER knobs, not the one being varied).
 RECORD SCHEMA — every record MUST use ONLY these 13 top-level keys; any extra key
 triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
@@ -498,10 +501,11 @@ function cfgWith(cfg, knob, val) {
     case "audio_stage1_only": c.audioStage1Only = val; break
     case "hq":                c.hq = val; break
     case "av_ca":             c.avCa = val; break
+    case "audio_volume":      c.audioVolume = val; break
   }
   return c
 }
-function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/avca${c.avCa??1000}/seed${c.seed}` }
+function cfgKey(c) { return `${c.stage1}/${c.stage2}/cfg${c.cfg}/stg${c.stg??1}/acfg${c.audioCfg}/modsca${c.modalityScale}/s1o${c.audioStage1Only}/hq${c.hq||false}/avca${c.avCa??1000}/vol${c.audioVolume??50}/seed${c.seed}` }
 
 for (let i = 1; i <= budget; i++) {
   // --- Propose one knob change ---
@@ -539,9 +543,13 @@ Known-good (build on these): ${knownGood.join("; ") || "(none)"}
 KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
-dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run) —
-focus on control parameters: stg_scale (0.5/1.0 unexplored), stage2_steps (7/10 unexplored),
-modality_scale (4.0/6.0/10.0 unexplored). Prefer the highest-EV single change.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
+dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
+PRIORITY GUIDANCE — weakest dimension is voice.dynamic_range (DR bottleneck):
+  • audio_volume (ROOT CAUSE): volume=50 drives alimiter=0.95 hard, compressing crest factor
+    (peak/RMS). Lowering to 15 or 30 reduces limiter action → higher DR. Try FIRST if DR is weakest.
+  • stg_scale=1.0 or 0.5: STG affects cross-modal attention; may shift audio energy envelope.
+  • Other unexplored: stage2_steps=10, av_ca=500/2000, audio_cfg_scale=5.
+Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
   if (!proposal) { log(`iter ${i}: propose failed — skipping`); continue }
