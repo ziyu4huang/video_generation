@@ -317,7 +317,7 @@ THIS RUN'S DATA:
 - result: ${resultJson}
 - reflection (optional): ${reflectJson}
 - base config (held constant except for the tested knob): stage1_steps=${baseCfg.stage1}, stage2_steps=${baseCfg.stage2}, cfg_scale=${baseCfg.cfg}, stg_scale=${baseCfg.stg}, modality_scale=${baseCfg.modalityScale}, hq=${baseCfg.hq}, seed=${baseCfg.seed}, av_ca=${baseCfg.avCa}
-  Use this as the `condition` value for new avoid/lever records from this run (list the OTHER knobs, not the one being varied).
+  Use this as the \`condition\` value for new avoid/lever records from this run (list the OTHER knobs, not the one being varied).
 RECORD SCHEMA — every record MUST use ONLY these 13 top-level keys; any extra key
 triggers check-workflow-patterns.mjs schema drift (HARD exit 1):
   schema_version(=1) | id | type | title | detail | tags | dimension | confidence |
