@@ -796,7 +796,8 @@ def _loaded_model_keys(api_url: str):
             m.get("key", "") for m in data.get("models", [])
             if m.get("loaded_instances")
         }
-    except Exception:
+    except (requests.RequestException, ValueError) as e:
+        print(f"[caption] LM Studio model query failed: {e}", file=sys.stderr)
         return None
 
 

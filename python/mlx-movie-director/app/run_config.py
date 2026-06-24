@@ -4,22 +4,28 @@ import argparse
 import json
 import os
 from dataclasses import asdict, dataclass
-from typing import Any, TypedDict
+from typing import Any, NotRequired, Required, TypedDict
 
 SCHEMA_VERSION = 14
 
 
-class LoraEntry(TypedDict, total=False):
+class LoraEntry(TypedDict):
     """Structured LoRA entry: {path, scale, stage}.
 
-    ``total=False`` keeps the entry loadable from older run.json files that may
-    omit ``scale``/``stage``; consumers still index defensively. New entries are
-    always built with all three keys (see RunConfig.from_args).
+    ``path`` and ``stage`` are Required (every entry built by RunConfig.from_args
+    carries both), so direct ``entry["path"]`` reads cannot raise KeyError. Only
+    ``scale`` is NotRequired: some stages (notably ``face_detail``) defer the
+    effective scale to the LoRA manifest's ``recommended_scale`` at apply time
+    (built as ``"scale": None``) and older run.json files may omit the key
+    entirely. Consumers that read scale MUST route through lora_entry_scale(),
+    which resolves the None/missing branch to a non-None float in one typed
+    place — direct ``entry["scale"]`` reads would otherwise get ``float | None``
+    with no narrowing.
     """
 
-    path: str
-    scale: float | None
-    stage: str
+    path: Required[str]
+    scale: NotRequired[float | None]
+    stage: Required[str]
 
 
 def _lora_manifest_recommended_scale(lora_path: str) -> float:

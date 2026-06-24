@@ -105,7 +105,7 @@ class Attention(nn.Module):
 
         del self.to_q, self.to_k, self.to_v
 
-    def _get_fused_args_cached(self, positions):
+    def _get_fused_args_cached(self, positions: mx.array) -> mx.array:
         B, L, _ = positions.shape
         if L in self.freqs_cache:
             freqs_tuple = self.freqs_cache[L]
@@ -127,7 +127,8 @@ class Attention(nn.Module):
 
         return mx.concatenate([args_h, args_w, args_t], axis=-1)
 
-    def __call__(self, x, mask=None, positions=None, cos=None, sin=None):
+    def __call__(self, x: mx.array, mask: mx.array | None = None, positions: mx.array | None = None,
+                 cos: mx.array | None = None, sin: mx.array | None = None) -> mx.array:
         B, L, D = x.shape
         if self.to_qkv is not None:
             qkv = self.to_qkv(x).reshape(B, L, 3, self.nheads, self.head_dim)
@@ -166,7 +167,9 @@ class ZImageTransformerBlock(nn.Module):
         self.ffn_norm2 = RMSNorm(dim)
         if modulation: self.adaLN_modulation = nn.Linear(256, 4 * dim, bias=True)
 
-    def __call__(self, x, mask, positions, adaln_input=None, cos=None, sin=None):
+    def __call__(self, x: mx.array, mask: mx.array | None, positions: mx.array | None,
+                 adaln_input: mx.array | None = None, cos: mx.array | None = None,
+                 sin: mx.array | None = None) -> mx.array:
         if self.modulation:
             chunks = self.adaLN_modulation(adaln_input)
             scale_msa, gate_msa, scale_mlp, gate_mlp = mx.split(chunks, 4, axis=-1)
@@ -226,9 +229,12 @@ class ZImageTransformerMLX(nn.Module):
         for layer in self.context_refiner: layer.attention.fuse_qkv()
         for layer in self.layers: layer.attention.fuse_qkv()
 
-    def __call__(self, x, t, cap_feats, x_pos, cap_pos, cos, sin, x_mask=None, cap_mask=None,
-                 controlnet_samples=None, controlnet_model=None, controlnet_context=None,
-                 controlnet_strength=1.0):
+    def __call__(self, x: mx.array, t: mx.array, cap_feats: mx.array, x_pos: mx.array,
+                 cap_pos: mx.array, cos: mx.array, sin: mx.array,
+                 x_mask: mx.array | None = None, cap_mask: mx.array | None = None,
+                 controlnet_samples: list | None = None, controlnet_model: Any | None = None,
+                 controlnet_context: mx.array | None = None,
+                 controlnet_strength: float = 1.0) -> mx.array:
         """Forward pass with optional interleaved ControlNet injection.
 
         Args:
