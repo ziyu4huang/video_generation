@@ -84,6 +84,7 @@ _workflow = importlib.import_module("app.commands.image-workflow")
 _expansion = importlib.import_module("app.commands.image-expansion")
 _purify = importlib.import_module("app.commands.image-purify")
 _restore = importlib.import_module("app.commands.image-restore")
+_multicouple = importlib.import_module("app.commands.image-multicouple")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -280,6 +281,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Restore-specific args: none (reuses i2i + common args)
     _restore.add_restore_args(parser)
 
+    # Multicouple-specific args: --prompt-a/--prompt-b/--merge-prompt/--merge-denoise/etc.
+    # (shares --transformer/--width/--height/--steps/--cfg-scale from t2i + common args)
+    _multicouple.add_multicouple_args(parser)
+
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
     # with different defaults before add_common_generation_args() runs.  The
@@ -356,5 +361,7 @@ def run(args: "argparse.Namespace") -> None:
         _purify.run_purify(args)
     elif action == "restore":
         _restore.run_restore(args)
+    elif action == "multicouple":
+        _multicouple.run_multicouple(args)
     else:
         _t2i.run_t2i(args)

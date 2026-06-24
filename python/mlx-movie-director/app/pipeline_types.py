@@ -14,6 +14,12 @@ class GenerationResult:
     # LoRA apply with type/scale/applied_count, denoise config, VAE backend, fallbacks).
     # Each event: {"event", "target", "detail", "seconds"}. None when nothing recorded.
     events: list[dict[str, Any]] | None = None
+    # The final denoised latent (mx.array, shape [1, C, H//8, W//8]) BEFORE VAE
+    # decode. Only populated when the caller passes return_latent=True (e.g. the
+    # multi-character latent-couple path, which composites two latents in latent
+    # space and resume-denoises the merge). None otherwise — keeps the field
+    # optional/CPU-import-safe (typed Any so this module need not import mlx).
+    latent: Any = None
 
 
 @dataclass
