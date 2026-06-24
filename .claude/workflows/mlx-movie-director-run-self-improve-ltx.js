@@ -59,22 +59,24 @@ const dryRun      = A.dryRun === true || String(A.dryRun).toLowerCase() === "tru
 const resumeMode  = A.resume || "auto"               // auto | fresh | continue
 const margin      = Number(A.margin) || 0.75         // adopt threshold (0.75 = fine-tuning mode; use 1.5 for early exploration)
 const convergeK   = Number(A.convergeK) || 2         // stop after K non-improving iters
-// Complex test target — longer phrase exercises voice.dynamic_range (natural cadence, emotional peaks).
-// Changed from "Time to create" (3 words, no DR) to a full sentence with expressive delivery.
-const target      = A.target || "Every moment matters when you're building something that lasts"
+// Complex test target — shortened to 3 key words after iter-9 revealed 14-word phrase
+// exceeded LTX audio capacity (voice.asr=15.79). "Every moment matters" is short
+// enough for reliable audio synthesis while retaining expressive inflection for DR testing.
+const target      = A.target || "Every moment matters"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best as of 2026-06-24 (composite=79.73, iter-7):
-//   stage1=12, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=3053, avCa=1000, audioVolume=5
-// History: seed→3053 (+2.39); vol=50→15 (+4.43); vol=15→5 (+0.79); stage1=20→12 (+2.57)
-//          cfg_scale=9 dead-end (regresses voice.DR, KB: ltx:cfg-scale-nonmonotonic-pattern)
-//          audio_cfg_scale=9 dead-end (confirmed null=best)
-// Total improvement from original: +10.18 pts (69.55→79.73)
-// Bottleneck: quality.edge (Sobel edge density). Remaining potential: +4–5 pts if edge↑ to 60+.
+// Base config — confirmed best for COMPLEX SCENE as of 2026-06-25 (composite=64.47, iter-9):
+//   stage1=12, stage2=5, cfg=7, stg=0.5, modality=5, hq=true, seed=3053, avCa=1000, audioVolume=5
+// NOTE: stg=0.5 was adopted in iter-9 (complex scene) despite being a dead-end for simple face.
+//       Condition field in KB correctly captures this: stg=0.5 was avoid at vol=50+stage1=20,
+//       but improves at vol=5+stage1=12. This validates the conditional KB architecture.
+// Complex scene baseline: ~62 (vs simple face 79.73) — harder test, more meaningful.
+// Bottleneck: quality.noise + voice.asr (audio capacity for complex scene).
+// Target shortened: "Every moment matters" (3 words, reliable synthesis, still expressive).
 // frames=25: KB confirms 25 frames sufficient for quality judgment; keeps iterations fast.
 const baseCfg = {
-  stage1: 12, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 3053,
+  stage1: 12, stage2: 5, cfg: 7, stg: 0.5, frames: 25, fps: 24, seed: 3053,
   width: 768, height: 512, lowRam: true, audioVolume: 5,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   avCa: 1000.0,  // av_ca_timestep_scale_multiplier — patched in embedded_config.json
@@ -86,7 +88,7 @@ const baseCfg = {
 // Seed is intentionally EXCLUDED — this run focuses on control-parameter interactions,
 // not seed exploration (seed=42 is fixed as baseline; seed-3053 lever already in KB).
 const KNOBS = {
-  stage1_steps:       [8, 12, 20, 25],                // 12=confirmed best (iter-7, +2.57 pts); 20=prior best; 25=crash; 8=unexplored
+  stage1_steps:       [8, 12, 16, 20, 25],             // 12=best simple; 8=avoid; 16=unexplored; 20=avoid@stg=0.5; 25=crash
   stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end (KB: ltx:stage2-steps-10-avoid)
   cfg_scale:          [3, 5, 7, 9],                   // 7=confirmed best; 9=dead-end (regresses voice.DR, KB: ltx:cfg-scale-nonmonotonic-pattern)
   stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 1.5=confirmed best; ladder fully exhausted (KB: ltx:stg-scale-plateau-exhausted)
@@ -555,13 +557,15 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
-PRIORITY GUIDANCE — ceiling 79.73, bottleneck quality.edge (Sobel edge_density, score ~32%):
-  • stage1_steps=8: fewer stage1 passes than 12 may further reduce over-smoothing → sharper edges. UNEXPLORED.
-  • audio_volume=1: even lower volume → less limiting → higher DR. But risk inaudible audio.
-  • av_ca=500 or 2000: cross-attention timestep scale may affect frame-level edge coherence. UNEXPLORED with current base.
-  DEAD-ENDS (do NOT re-propose): cfg_scale=9 (regresses voice.DR), audio_cfg_scale non-null,
-    stg_scale (fully characterized), stage2_steps (all neutral/avoid), modality_scale (resonance at 5),
-    audio_volume 15/30/50, stage1_steps=20 (over-smooths).
+PRIORITY GUIDANCE — complex-scene ceiling 64.47 (stg=0.5 adopted), bottlenecks: quality.noise + voice.asr:
+  CONTEXT: switched to complex scene (architect+city skyline). Prior simple-face levers may
+  not transfer directly — re-test under new conditions is valid (condition field in KB tracks this).
+  • stg_scale=1.0: intermediate between 0.5 (current) and 1.5 (prior best); balance noise vs edge.
+  • stage1_steps=16: between 12 (current) and 20 (confirmed over-smooths in complex scene). UNEXPLORED.
+  • audio_volume=3: between 1 (risk inaudible) and 5 (current). May help voice.asr.
+  • seed change: new seed may find a configuration that generates clearer audio for complex scene.
+  DEAD-ENDS for THIS config: stage1=8 (under-denoises), stage1=20 (56.07 catastrophic on stg=0.5),
+    cfg_scale=9 (voice.DR regression), audio_cfg_scale non-null, stage2_steps ladder exhausted.
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
