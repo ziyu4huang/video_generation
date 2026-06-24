@@ -236,6 +236,45 @@ class ZImagePipeline:
         result_np = np.clip(result_np * 255, 0, 255).round().astype("uint8")
         return Image.fromarray(result_np)
 
+    def vae_encode_image(self, image: Image.Image, vae_dir: str | None = None) -> "mx.array":
+        """VAE-encode a PIL image to a latent [1, C, H//8, W//8] (bfloat16).
+
+        The pure-encode half of Phase 0 — used by the img2img path (``input_image``)
+        and by callers that re-encode a pixel-space-edited image before compositing
+        in latent space (e.g. color-temperature-matched character images for
+        latent-couple). Resizes to a multiple of 16 for clean latent dims; prefers
+        the MLX VAE, falls back to PyTorch ``AutoencoderKL``.
+        """
+        # Resize to a multiple of 16 for clean latent dims.
+        iw, ih = image.size
+        iw = (iw // 16) * 16
+        ih = (ih // 16) * 16
+        if (iw, ih) != image.size:
+            image = image.resize((iw, ih), Image.LANCZOS)
+        img_np = np.array(image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
+
+        vae_enc_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
+        if vae_enc_backend == "mlx":
+            vae_mlx = _load_mlx_vae(vae_dir)
+            img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)
+            encoded = vae_mlx.encode(img_mx)  # (1, C, 1, H_lat, W_lat)
+            latent = encoded[:, :, 0, :, :]   # squeeze temporal dim
+            del vae_mlx
+        else:
+            import torch
+            from diffusers import AutoencoderKL
+            device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
+            vae_enc = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device_pt)
+            img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
+            with torch.no_grad():
+                enc = vae_enc.encode(img_pt).latent_dist.mean
+            shift = getattr(vae_enc.config, "shift_factor", 0.0)
+            enc = (enc - shift) * vae_enc.config.scaling_factor
+            latent = mx.array(enc.cpu().numpy()).astype(mx.bfloat16)
+            del vae_enc, img_pt, enc
+        gc.collect()
+        return latent
+
     def generate(
         self,
         prompt: str,
@@ -273,6 +312,14 @@ class ZImagePipeline:
         #     generations in latent space (see composite_latents_side_by_side).
         init_latent: "mx.array | None" = None,
         return_latent: bool = False,
+        # Latent inpainting mask (Repaint): a soft [0,1] array, 1 on pixels to
+        # LOCK to the init latent (e.g. characters), 0 on pixels to freely
+        # re-denoise (e.g. background). After every sampler step the locked
+        # region is re-injected from the forward-noised init latent, so the
+        # free region can be denoised HARD (full background repaint) with zero
+        # drift in the locked region. Requires init_latent. Shape is broadcast
+        # against the latent: (1,1,H_lat,W_lat) or (1,C,H_lat,W_lat).
+        mask: "mx.array | None" = None,
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
@@ -302,40 +349,34 @@ class ZImagePipeline:
             width = W_lat0 * 8
             print(f"[Phase 0] Using provided init latent {list(clean_latent.shape)} "
                   f"(latent-couple resume → {width}x{height})")
+            if mask is not None:
+                # Normalize the inpaint mask to the latent's channel count so the
+                # per-step Repaint re-injection broadcasts cleanly. A (1,1,H,W)
+                # mask (the common case) expands to (1,C,H,W); shape mismatches
+                # fail loudly here rather than as a cryptic broadcast error later.
+                if mask.shape[2:] != clean_latent.shape[2:]:
+                    raise ValueError(
+                        f"mask spatial {list(mask.shape[2:])} != latent spatial "
+                        f"{list(clean_latent.shape[2:])}"
+                    )
+                if mask.shape[1] == 1:
+                    mask = mx.broadcast_to(mask, clean_latent.shape)
+                elif mask.shape != clean_latent.shape:
+                    raise ValueError(
+                        f"mask {list(mask.shape)} not broadcastable to latent "
+                        f"{list(clean_latent.shape)}"
+                    )
+                mask = mask.astype(clean_latent.dtype)
+                print(f"[Phase 0] Inpaint mask active (mean={float(mx.mean(mask)):.3f}) "
+                      f"— locked region pinned to init latent each step")
+        elif mask is not None:
+            raise ValueError("mask requires init_latent (nothing to lock without an init latent).")
         elif input_image is not None:
             t0 = time.time()
             print("[Phase 0] VAE Encoding input image...", end=" ", flush=True)
 
-            # Resize to multiple of 16 for clean latent dims
-            iw, ih = input_image.size
-            iw = (iw // 16) * 16
-            ih = (ih // 16) * 16
-            if (iw, ih) != input_image.size:
-                input_image = input_image.resize((iw, ih), Image.LANCZOS)
-
-            img_np = np.array(input_image.convert("RGB")).astype(np.float32) / 127.5 - 1.0
-
             vae_enc_backend = "mlx" if _vae_mlx_available(vae_dir) else "pytorch_AutoencoderKL"
-            if vae_enc_backend == "mlx":
-                # MLX-native VAE encode
-                vae_mlx = _load_mlx_vae(vae_dir)
-                img_mx = mx.array(img_np.transpose(2, 0, 1)[None]).astype(mx.bfloat16)  # (1, C, H, W)
-                encoded = vae_mlx.encode(img_mx)  # (1, C, 1, H_lat, W_lat)
-                clean_latent = encoded[:, :, 0, :, :]  # squeeze temporal dim → (1, C, H_lat, W_lat)
-                del vae_mlx
-            else:
-                # PyTorch fallback
-                import torch
-                from diffusers import AutoencoderKL
-                device_pt = "mps" if torch.backends.mps.is_available() else "cpu"
-                vae_enc = AutoencoderKL.from_pretrained(vae_dir or cfg.VAE_DIR).to(device_pt)
-                img_pt = torch.from_numpy(img_np).permute(2, 0, 1).unsqueeze(0).to(device_pt)
-                with torch.no_grad():
-                    enc = vae_enc.encode(img_pt).latent_dist.mean
-                shift = getattr(vae_enc.config, "shift_factor", 0.0)
-                enc = (enc - shift) * vae_enc.config.scaling_factor
-                clean_latent = mx.array(enc.cpu().numpy()).astype(mx.bfloat16)
-                del vae_enc, img_pt, enc
+            clean_latent = self.vae_encode_image(input_image, vae_dir)
 
             gc.collect()
             timings["vae_encode_seconds"] = time.time() - t0
@@ -612,6 +653,8 @@ class ZImagePipeline:
                            "seed_variance": noisy_cap_feats is not None,
                            "sv_cutoff_step": sv_cutoff if noisy_cap_feats is not None else None,
                            "cfg_scale": float(cfg_scale) if cfg_active else None,
+                           "inpaint_mask": mask is not None,
+                           "mask_mean": (float(mx.mean(mask)) if mask is not None else None),
                            "scheduler": "flowmatch_euler", "shift": 3.0},
                 "seconds": None,
             })
@@ -636,6 +679,19 @@ class ZImagePipeline:
                     noise_pred = step_fn(latents, t_input, feats, img_pos, cap_pos, cos_cached, sin_cached)
                 latents = scheduler.step(noise_pred, i, latents)
                 mx.eval(latents)
+
+                # Repaint (latent inpainting): re-inject the LOCKED region (mask=1,
+                # e.g. characters) from the forward-noised init latent at the new
+                # timestep, so only the background (mask=0) is free to re-denoise.
+                # The flow-match interpolant is linear — x_t = (1-t)*clean + t*noise,
+                # the same mix the init used — so no sqrt(alpha) bookkeeping.
+                # Lets callers denoise the background HARD (full tone unify) with
+                # zero drift in the locked region.
+                if mask is not None:
+                    t_next = scheduler.timesteps[i + 1]
+                    locked = (1.0 - t_next) * clean_latent + t_next * noise
+                    latents = mask * locked + (1.0 - mask) * latents
+                    mx.eval(latents)
 
                 step_elapsed = time.time() - step_start
                 step_times.append(step_elapsed)

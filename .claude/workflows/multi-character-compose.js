@@ -24,7 +24,8 @@
 // Usage:
 //   Workflow({ scriptPath: ".../multi-character-compose.js" })
 //     → defaults: two dreamlike girls (luciddreamer-z), A=raven/petite/19 (seed 42),
-//       B=auburn/athletic/26 (seed 777), merge-denoise 0.6, feather 8 — the samples shipped with this PR.
+//       B=auburn/athletic/26 (seed 777), merge-denoise 0.85 + color-match + lock-chars
+//       (the combo — best background unity; see docs "Why the combo wins").
 //   Workflow({ scriptPath: "...", args: {
 //       transformer:"luciddreamer-z", width:640, height:960, steps:9,
 //       mergeDenoise:0.6, mergeFeather:8,
@@ -74,9 +75,12 @@ const DEFAULTS = {
   style:
     "cinematic lighting, hyperdetailed, imaginative, soft ethereal glow, painterly fantasy atmosphere",
   // Latent-Couple resume knobs:
-  mergeDenoise: 0.6, // resume strength: 0.5–0.7 unifies the two backgrounds into one (higher = harder unify, more drift)
+  mergeDenoise: 0.85, // combo (color-match + lock-chars) pins characters, so the bg repaints hard for max unity
   mergeFeather: 8, // latent-space seam feather (latent cols; image px = ×8 = 64px band)
   mergeSeed: 42,
+  // Background-unity levers (see docs "Why the split happens, and why the combo wins"):
+  colorMatch: true, // DEFAULT ON: equalize the two characters' background color temperature at the source
+  lockChars: true, // pin characters (Repaint) so the hard resume regenerates one coherent bg — best WITH colorMatch
   mergePrompt:
     "two young women standing together in a dreamlike surreal fantasy scene, one on the left, one on the " +
     "right, facing each other, unified cinematic lighting, hyperdetailed, imaginative, soft ethereal glow, " +
@@ -147,6 +151,8 @@ const cmd = [
   `--merge-seed ${cfg.mergeSeed}`,
   `--merge-denoise ${cfg.mergeDenoise}`,
   `--merge-feather ${cfg.mergeFeather}`,
+  `${cfg.colorMatch === false ? "--no-color-match" : "--color-match"}`,
+  `${cfg.lockChars ? "--lock-chars" : ""}`,
   `--style "${cfg.style}"`,
   `--merge-prompt "${cfg.mergePrompt}"`,
   `--prompt-a "${cfg.charA.prompt}"`,
@@ -214,6 +220,8 @@ return {
     mergeDenoise: cfg.mergeDenoise,
     mergeFeather: cfg.mergeFeather,
     mergeSeed: cfg.mergeSeed,
+    colorMatch: cfg.colorMatch !== false,
+    lockChars: cfg.lockChars !== false,
     reflect: cfg.reflect !== false,
     captionStyle: cfg.captionStyle || "review",
   },
