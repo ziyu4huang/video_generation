@@ -559,19 +559,18 @@ KB digest: ${R.kbDigest || "(none)"}
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
 PRIORITY GUIDANCE — complex-scene ceiling 73.62 (stg=0.5, target="Every moment matters"),
-  bottlenecks: quality.noise (2.97) + quality.snr (30.8) alternating; no single knob fixes both:
-  • seed=1234/7777/5555: seed 3053 was optimized for simple face; complex city/architect
-    scene may benefit from a different noise seed that generates cleaner frames — HIGH EV,
-    unexplored. When noise and SNR are both bottlenecks simultaneously, seed is usually the
-    lever since it randomizes both the diffusion trajectory and the audio synthesis path.
-  • av_ca=500 or 2000: cross-attention timestep scale affects temporal coherence.
-    Not re-tested at current complex-scene base (stg=0.5, stage1=12). UNEXPLORED here.
-  • cfg_scale=5: lower CFG may allow more natural noise distribution for complex scenes.
-    Only 7 and 9 have been tested; 5 and 3 are unexplored.
-  DEAD-ENDS (DO NOT re-propose at current base stg=0.5):
-    stage1_steps=16 (71.19 regress, quality.snr↓), stage1_steps=20 (56.07 catastrophic),
-    stage1_steps=8 (under-denoises), stg_scale=1.0 (72.72 regress from 73.62),
-    cfg_scale=9, audio_cfg_scale non-null, stage2_steps ladder exhausted.
+  bottleneck: quality.noise persistently around 51-54 — may be inherent to complex visual scene.
+  • cfg_scale=5: HIGHEST EV UNEXPLORED. Lower CFG reduces over-saturation → may reduce
+    perceived noise artifacts in architectural details and city lights. Only 7 and 9 tested;
+    5 and 3 are both unexplored on this complex scene base.
+  • seed=7777 or 5555: seed=1234 was a catastrophic -6.82 (voice.centroid), so seed exploration
+    has risk. BUT seed=7777 and seed=5555 are untested — try one of these.
+  • av_ca=2000: av_ca=500 borderline missed (+voice -quality). av_ca=2000 is the
+    other direction — may balance the audio-visual trade-off differently. Unexplored at stg=0.5 base.
+  DEAD-ENDS (DO NOT re-propose):
+    seed=1234 (-6.82 voice.centroid), stage1=16 (71.19 quality.snr↓), stage1=20 (catastrophic),
+    stage1=8 (under-denoises), stg_scale=1.0 (72.72 regress from 73.62), stg_scale>0.5,
+    cfg_scale=9, audio_cfg_scale non-null, stage2_steps ladder exhausted, av_ca=500 (borderline miss).
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
