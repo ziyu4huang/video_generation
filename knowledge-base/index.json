@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-06-21T04:23:07.537Z",
+  "lastUpdated": "2026-06-24T11:52:28.557Z",
   "recordShards": [
     "records/records-0000.jsonl"
   ],
@@ -28,15 +28,16 @@
     "reports/20260620-230822.json",
     "reports/20260621-033703.json",
     "reports/20260621-044827.json",
-    "reports/20260621-122307.json"
+    "reports/20260621-122307.json",
+    "reports/20260624-195228.json"
   ],
-  "latestReport": "reports/20260621-122307.json",
+  "latestReport": "reports/20260624-195228.json",
   "stats": {
     "avgQualityScore": 9.2,
     "withCaption": 80,
     "pipelines": {
-      "flux2-klein": 3,
-      "zimage": 2
+      "flux2-klein": 2,
+      "zimage": 3
     }
   }
 }
