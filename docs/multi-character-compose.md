@@ -29,9 +29,58 @@ pixel, so the two subjects bleed together (hair/eye/outfit swaps). It works
 text-token may attend to, per region) has simply never been ported. See
 **Planned follow-up** below — the hook point turns out to be unusually clean.
 
-**This PR** therefore uses the third approach: generate each character
-separately with a **shared style anchor**, composite them side-by-side, then
-seam-blend. It is the most robust path given what MLX implements today.
+## Latent-Couple (current approach)
+
+The current approach composites in **latent space**, not pixel space:
+
+1. generate charA and charB each with a shared style anchor, but **return the
+   latent** (pre-VAE-decode) instead of decoding to pixels;
+2. composite the two latents side-by-side with a feathered vertical seam
+   (`composite_latents_side_by_side`); then
+3. **resume-denoise** the merged latent from a mid timestep — the DiT's joint
+   self-attention crosses the seam and regenerates ONE coherent background.
+
+**Why latent, not pixel?** Each source latent already encodes *character + its
+own background*. Compositing in pixel space bakes two incompatible backgrounds
+in — the VAE encode of a hard seam is a fact a low-denoise i2i pass cannot undo,
+so the central seam stayed visible (the v1 pixel pipeline scored ~**2/5**
+background continuity: left half = sharp brown dappled shadows, right half =
+soft green ethereal mist — two different environments pasted together). In
+latent space there is no decode→encode round-trip, and the resume denoise gives
+the model's self-attention the freedom to propagate background texture/lighting
+across the join into a single scene.
+
+```bash
+# Two dreamlike girls (luciddreamer-z), merged in latent space.
+python/venv/bin/python python/mlx-movie-director/run.py image multicouple \
+  --pipeline zimage --transformer luciddreamer-z \
+  --width 640 --height 960 --steps 9 \
+  --prompt-a "<appearance A, left of frame, gaze right>" \
+  --prompt-b "<appearance B, right of frame, gaze left>" \
+  --merge-denoise 0.6 --merge-feather 8 --merge-seed 42 \
+  --json-summary
+```
+
+Knobs:
+- `--merge-denoise` (0.5–0.7): resume strength. Higher unifies the two
+  backgrounds harder, at more character drift. 0.6 is the default sweet spot.
+- `--merge-feather` (latent cols; image px = ×8): the seam feather width.
+- `--cfg-scale`: ON by default at 3.0 for every pass (CFG is the biggest Z-Image
+  quality lever); override with `--cfg-scale 0` to disable.
+- `--style`: trailing tags appended to BOTH prompts (the style-consistency lever).
+
+This is implemented in `app/commands/image-multicouple.py`, on top of two small
+`ZImagePipeline.generate()` additions: an `init_latent` param (start from a
+latent, skip VAE encode) and `return_latent` (capture the pre-decode latent).
+The latent composite lives in `app/pipeline.composite_latents_side_by_side`.
+
+## v1: pixel composite + seam-blend (legacy baseline)
+
+The first attempt used the third classic approach: generate each character
+separately with a **shared style anchor**, composite them side-by-side in
+**pixels**, then seam-blend with a low-denoise i2i. It works but cannot unify
+two genuinely different backgrounds (see above) — kept here as the comparison
+baseline and as the fallback if a future model lacks the `init_latent` path.
 
 ## The pipeline (4 phases)
 
@@ -110,7 +159,7 @@ fantasy atmosphere" \
   --denoise-strength 0.35 --seed 42 --steps 9 --json-summary
 
 # 4. Reflect — VLM understands + explains the result (default-on self-reflection)
-python/venv/bin/python python/mlx-movie-director/run.py caption <final>.png --style review --lang en
+python/venv/bin/python python/mlx-movie-director/run.py caption <final>.png --style default --lang en
 ```
 
 ### Why these choices
@@ -130,20 +179,26 @@ python/venv/bin/python python/mlx-movie-director/run.py caption <final>.png --st
 
 Reference style anchor: the run at
 `../video_generation__output/output_20260621_103926.run.json`
-(`zimage` / `luciddreamer-z`, dreamlike surreal portrait). Samples produced by
-this PR live in `../video_generation__output/` (externalized, not committed):
+(`zimage` / `luciddreamer-z`, dreamlike surreal portrait). Samples live in
+`../video_generation__output/` (externalized, not committed). Same two girls
+(A=raven-hair/white-dress seed 42, B=auburn-hair/green-gown seed 777) generated
+both ways for a direct comparison:
 
-| File | What |
-|---|---|
-| `output_20260624_204658.png` | charA (seed 42) |
-| `output_20260624_205000.png` | charB (seed 777) |
-| `multichar_compose.png` | side-by-side composite (pre-harmonize) |
-| `i2i_dn0.35_9st-s42.png` | **final** two-character portrait (post-harmonize) |
+| File | Approach | Background continuity (VLM) |
+|---|---|---|
+| `i2i_dn0.35_9st-s42.png` | **v1** pixel composite + low-denoise i2i | **2 / 5** — visible hard seam; left = dappled brown shadows, right = green ethereal mist (two environments) |
+| `multicouple_dn0.6_f8_9st-s42.png` | **v2** Latent-Couple (this PR) | **3.5 / 5** — seam eliminated; one bright gradient environment, only a soft cool→warm shift |
 
-VLM assessment of the final: both identities intact (black-hair/white-dress
-left, auburn-hair/green-gown right); central seam **0–1 / 5** (effectively
-invisible); lighting unified across both halves; the two are looking toward each
-other; reads as a single coherent dreamlike portrait — not two pasted images.
+**v2 VLM assessment:** the two halves no longer meet at a hard line — the
+background reads as a single bright gradient environment; the only residual is a
+subtle cool→warm color shift (read as a stylistic choice complementing the
+dark-haired vs red-haired characters, not a composite artifact). Both characters
+remain clearly distinct people with intact, undistorted faces. The latent-space
+resume (t_mix=0.81, 5 steps) gave the model's self-attention enough freedom to
+regenerate one coherent background that pixel-composite + low-denoise i2i could
+not. v1's per-character files (`output_20260624_204658.png`,
+`output_20260624_205000.png`) and composite (`multichar_compose.png`) are kept
+as the legacy baseline.
 
 ## The dynamic workflow
 
@@ -160,7 +215,7 @@ Or parameterize (`charA`/`charB` prompts, transformer, dimensions, denoise,
 ```js
 Workflow({ scriptPath: ".../multi-character-compose.js", args: {
   transformer: "luciddreamer-z", width: 640, height: 960, steps: 9,
-  denoise: 0.35, feather: 60, reflect: true, captionStyle: "review",
+  denoise: 0.35, feather: 60, reflect: true, captionStyle: "default",
   charA: { prompt: "<appearance A>", seed: 42 },
   charB: { prompt: "<appearance B>", seed: 777 },
 }})

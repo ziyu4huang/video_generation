@@ -125,6 +125,51 @@ def _latent_upscale(latent_mx: mx.array, scale_factor: float) -> mx.array:
     return scaled[:, :, :new_H, :new_W].astype(mx.bfloat16)
 
 
+def composite_latents_side_by_side(
+    latent_a: mx.array, latent_b: mx.array, feather_cols: int = 8
+) -> mx.array:
+    """Merge two character latents side-by-side in LATENT space (Latent-Couple).
+
+    Why latent space (not pixels): each source latent already encodes a character
+    + its own background. Compositing in latent space and then resume-denoising
+    lets the DiT's joint self-attention cross the seam and regenerate ONE coherent
+    background — impossible with pixel compositing + low-denoise i2i, where the
+    VAE encode of a hard seam bakes the two backgrounds in as fact.
+
+    Both inputs: [1, C, H, W] (Flux/Z-Image VAE, /8 downsample). Output:
+    [1, C, H, 2*W - feather_cols] — A fills the left, B the right, blended across
+    a `feather_cols`-wide band centered on the join. Output width stays even so
+    patchify (which needs even latent spatial dims) is happy.
+    """
+    if latent_a.shape != latent_b.shape:
+        raise ValueError(
+            f"latent_a and latent_b must share shape; got {list(latent_a.shape)} "
+            f"vs {list(latent_b.shape)}"
+        )
+    _, _, H, W = latent_a.shape
+    o = max(0, min(int(feather_cols), W))  # clamp feather to [0, W]
+    a = latent_a.astype(mx.float32)
+    b = latent_b.astype(mx.float32)
+    out_W = 2 * W - o
+    # Keep output width even (patchify invariant); if odd, shave one column off B.
+    if out_W % 2 != 0:
+        out_W -= 1
+    right_w = out_W - W
+    # A fills the left [0, W); B fills the right [W, out_W). A feather band of
+    # width `o` straddles the join: it is a linear blend of A's right edge and
+    # B's left edge, replacing the hard boundary so the seam heals smoothly.
+    left = a[:, :, :, 0:W]
+    right = b[:, :, :, o:o + right_w]
+    canvas = mx.concatenate([left, right], axis=3)  # [1, C, H, out_W]
+    if o > 0:
+        alpha = mx.linspace(mx.array(0.0), mx.array(1.0), o).reshape(1, 1, 1, o)
+        blended = (1.0 - alpha) * a[:, :, :, W - o:W] + alpha * b[:, :, :, 0:o]
+        canvas = mx.concatenate(
+            [canvas[:, :, :, 0:W - o], blended, canvas[:, :, :, W:]], axis=3
+        )
+    return canvas.astype(mx.bfloat16)
+
+
 class MLXFlowMatchEulerScheduler:
     def __init__(self, shift: float = 3.0, use_dynamic_shifting: bool = True):
         self.shift = shift
@@ -218,6 +263,16 @@ class ZImagePipeline:
         upscale_method: str = "esrgan",
         # VAE override (None = use default cfg.VAE_DIR)
         vae_dir: str | None = None,
+        # Latent-couple (multi-character) support:
+        #   init_latent — start denoising from this latent instead of encoding
+        #     `input_image` (skip Phase 0 VAE encode). Used by the resume pass that
+        #     unifies two composited latent halves into one coherent background.
+        #     Shape [1, C, H//8, W//8]; pixel W/H are derived from it.
+        #   return_latent — also capture the final denoised latent (pre-decode) on
+        #     the returned GenerationResult.latent, so a caller can composite two
+        #     generations in latent space (see composite_latents_side_by_side).
+        init_latent: "mx.array | None" = None,
+        return_latent: bool = False,
     ) -> "GenerationResult":
         mx.set_cache_limit(0)
         timings = {}
@@ -235,7 +290,19 @@ class ZImagePipeline:
         # [Phase 0] VAE Encode input image (img2img only)
         # ----------------------------------------------------------------
         clean_latent = None
-        if input_image is not None:
+        if init_latent is not None:
+            # Latent passthrough (latent-couple resume): skip VAE encode entirely
+            # and start from the caller-supplied latent (e.g. a side-by-side merge
+            # of two character latents). Pixel dims are derived from the latent.
+            if input_image is not None:
+                raise ValueError("Pass either init_latent or input_image, not both.")
+            clean_latent = init_latent
+            _, _, H_lat0, W_lat0 = clean_latent.shape
+            height = H_lat0 * 8
+            width = W_lat0 * 8
+            print(f"[Phase 0] Using provided init latent {list(clean_latent.shape)} "
+                  f"(latent-couple resume → {width}x{height})")
+        elif input_image is not None:
             t0 = time.time()
             print("[Phase 0] VAE Encoding input image...", end=" ", flush=True)
 
@@ -586,6 +653,11 @@ class ZImagePipeline:
             print("[Phase 4] Decoding...", end=" ", flush=True)
             t_dec = time.time()
 
+            # Capture the final denoised latent for latent-couple callers that
+            # asked for it (return_latent). `latents` is the post-sampler output;
+            # we grab a reference before the decode's own dels release tensors.
+            captured_latent = latents if return_latent else None
+
             del model, scheduler, step_fn, cos_cached, sin_cached
             mx.clear_cache()
             gc.collect()
@@ -669,7 +741,10 @@ class ZImagePipeline:
                         print(f"Done ({timings['esrgan_seconds']:.2f}s) → {pil_image.size[0]}×{pil_image.size[1]}")
 
             print(f"Pipeline Finished in {time.time() - global_start:.2f}s")
-            return GenerationResult(image=pil_image, timings=timings, events=events or None)
+            return GenerationResult(
+                image=pil_image, timings=timings, events=events or None,
+                latent=captured_latent,
+            )
 
         except (RuntimeError, MemoryError):
             # Metal allocation failure (MLX raises RuntimeError on OOM) or a Python
