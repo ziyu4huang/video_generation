@@ -63,13 +63,16 @@ const target      = A.target || "Time to create"
 const vw = objective === "quality" ? 0 : (A.voiceWeight != null ? Number(A.voiceWeight) : 0.5)
 const qw = objective === "voice"   ? 0 : (A.qualityWeight != null ? Number(A.qualityWeight) : 0.5)
 
-// Base config — confirmed best as of 2026-06-24 (composite=71.94, seed=3053):
-//   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=3053, avCa=1000
-// seed=42 was prior best (69.55); seed=3053 raised composite +2.39 pts (KB: ltx:seed-3053-lever).
+// Base config — confirmed best as of 2026-06-24 (composite=76.37, iter-5):
+//   stage1=20, stage2=5, cfg=7, stg=1.5, modality=5, hq=true, seed=3053, avCa=1000, audioVolume=15
+// History: seed=42→3053 (+2.39 pts, KB: ltx:seed-3053-lever);
+//          audioVolume=50→15 (+4.43 pts, KB: ltx:audio-volume-15-lever) — root cause was
+//          volume=50,alimiter=0.95 compressing audio crest factor.
+// New bottleneck: quality.edge (Sobel edge density). Iter-6 targets this dimension.
 // frames=25: KB confirms 25 frames sufficient for quality judgment; keeps iterations fast.
 const baseCfg = {
   stage1: 20, stage2: 5, cfg: 7, stg: 1.5, frames: 25, fps: 24, seed: 3053,
-  width: 768, height: 512, lowRam: true, audioVolume: 50,
+  width: 768, height: 512, lowRam: true, audioVolume: 15,
   audioCfg: null, audioStage1Only: false, modalityScale: 5.0, hq: true,
   avCa: 1000.0,  // av_ca_timestep_scale_multiplier — patched in embedded_config.json
   promptFile: A.promptFile || "/tmp/voice-optimized.txt",
@@ -88,9 +91,8 @@ const KNOBS = {
   modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 4=dead-end; resonance-curve pattern (KB)
   audio_stage1_only:  [false, true],
   av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=current best; code-lever (embedded_config.json)
-  audio_volume:       [5, 15, 30, 50],                // 50=current baseline; lower → less alimiter compression → higher DR
-                                                       // root cause of voice.dynamic_range bottleneck: volume=50,alimiter=0.95
-                                                       // compresses crest factor; DR score = (peak/RMS - 6dB) / 12dB
+  audio_volume:       [5, 15, 30, 50],                // 15=confirmed best (+4.43 pts over 50); 5=unexplored (risk: inaudible)
+                                                       // mechanism: lower volume → less alimiter=0.95 compression → higher crest factor
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -544,11 +546,13 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
-PRIORITY GUIDANCE — weakest dimension is voice.dynamic_range (DR bottleneck):
-  • audio_volume (ROOT CAUSE): volume=50 drives alimiter=0.95 hard, compressing crest factor
-    (peak/RMS). Lowering to 15 or 30 reduces limiter action → higher DR. Try FIRST if DR is weakest.
-  • stg_scale=1.0 or 0.5: STG affects cross-modal attention; may shift audio energy envelope.
-  • Other unexplored: stage2_steps=10, av_ca=500/2000, audio_cfg_scale=5.
+PRIORITY GUIDANCE — current ceiling 76.37, new bottleneck is quality.edge (Sobel edge density):
+  • stg_scale=1.0: STG controls spatial coherence vs freedom; 1.0 may sharpen edges vs 1.5 (0.5 regressed).
+  • cfg_scale=9 (if in ladder): stronger guidance may sharpen edge fidelity.
+  • audio_volume=5: even lower volume → less limiting, but risk of inaudible audio (15 is current best).
+  • stage2_steps=7: previously tested under vol=50 (condition mismatch); re-test under vol=15 is valid.
+  • stage2_steps=1: minimal refinement — quality.edge can sometimes improve with fewer smoothing passes.
+  NOTE: audio_volume=15 is the new base; do NOT re-propose audio_volume=30 or 50 (dead-ends at lower ceiling).
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
