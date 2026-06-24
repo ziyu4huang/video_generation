@@ -280,6 +280,57 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   return extract
 }
 
+// ── pruneKnowledge — DETECT stale active records whose referenced SOURCE file is gone ──
+// The 12-key lifecycle (status: active|superseded|retired) is WRITE-ONLY: extractKnowledge
+// supersedes on contradiction and retires on cap-overflow, but NEVER on code-deletion — so
+// records about deleted/renamed source files linger as "active", polluting loadKnowledge
+// injections and crowding the 40-active cap during active GUI development. This step
+// surfaces them every Persist: it scans ACTIVE records, extracts literal SOURCE-code path
+// tokens, and flags those whose referenced file is verifiably absent (test -e). It is
+// DETECT-ONLY — it NEVER writes/retires (an earlier auto-retire variant mis-tokenized a
+// .jsonl log path and retired a high-value occ-17 record on a false positive; auto-retire
+// via free-form agent path extraction is not trustworthy, so v1 reports only and the
+// operator manually retires confirmed-stale records). Source-only extraction (frontend/...
+// .ts/.tsx/.py) excludes data/log/config paths (.jsonl/.json/.md/iterations/records), whose
+// absence does not imply the knowledge is stale. Identical-in-every-workflow; update
+// _shared-patterns.md first.
+async function pruneKnowledge(kbFile, runId) {
+  const prune = await agent(
+    `DETECT-ONLY (never write/modify the file) active knowledge records whose referenced
+SOURCE file no longer exists in the tree, so the operator can manually retire stale ones.
+1. Bash("test -f '${kbFile}' && echo EXISTS || echo MISSING")
+2. If MISSING -> return { scanned: 0, candidates: [] }.
+3. Bash("cat '${kbFile}'"). Parse each non-empty line as JSON.
+4. Keep ONLY records where status === "active" (scanned = that count).
+5. For each active record, scan title + detail + tags for LITERAL SOURCE-CODE file tokens
+   ONLY — paths matching (frontend|api|lib|scripts|python|bun)/<dirs>/<name>.<ext> where ext
+   in ts|tsx|py (e.g. "frontend/views/gallery/GalleryView.tsx", "api/config.ts"). Strip any
+   ":<line>" suffix. Use ONLY paths that LITERALLY appear — do NOT invent or guess.
+   EXCLUDE data/log/config files: .jsonl, .json, .md, .log, .txt, and ANY path under
+   history/, records, iterations, manifest, knowledge-base/, models/ — those are not source
+   code and their absence does NOT mean the knowledge is stale. A record with no SOURCE
+   token is KEPT (not a candidate).
+6. For each SOURCE token test existence (GUI app dir first, then repo root):
+   Bash("test -e '${PROJECT_ROOT}/bun/gui-movie-director/<path>' || test -e '${PROJECT_ROOT}/<path>' && echo PRESENT || echo ABSENT")
+   A token is PRESENT if EITHER resolution exists.
+7. STALE CANDIDATE = a record with >=1 SOURCE token AND EVERY token ABSENT. Collect
+   { id, paths: [<absent tokens>], reason: "source locus absent" }. Records with no source
+   token, or any PRESENT token, are KEPT.
+8. Do NOT write or modify the file. Detect-only.
+Return { scanned, candidates: [...] }.`,
+    { label: "prune-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        scanned: { type: "number" },
+        candidates: { type: "array", items: { type: "object", properties: {
+          id: { type: "string" }, paths: { type: "array", items: { type: "string" } },
+          reason: { type: "string" } } } },
+      }, required: ["scanned", "candidates"] } },
+  )
+  const candidates = Array.isArray(prune?.candidates) ? prune.candidates : []
+  if (candidates.length) log(`Prune (detect-only): ${candidates.length} stale-active candidate(s) — source locus absent (review; manually retire confirmed ones)`)
+  return { scanned: Number(prune?.scanned) || 0, candidates }
+}
+
 // ── loadOperationLessons — curated, high-trust rules about how this workflow operates ──
 // Returns rule text VERBATIM grouped by phase (no summarization, no drift). Records
 // are {id, phase, severity, rule, why, source}; phase ∈ fix|restore|review|report.
@@ -1801,10 +1852,16 @@ const codeRecord = {
 }
 
 let proposedLessons = []
+let pruneResult = null
 try {
   await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
   log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
   await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, null)
+  // Prune stale-active knowledge (DETECT-ONLY): flag records whose referenced source file
+  // is gone, every run. Never writes/retires — operator manually retires confirmed ones.
+  try {
+    pruneResult = await pruneKnowledge(KB_FILE, RUN_ID)
+  } catch (e) { log(`prune-knowledge failed (non-fatal): ${e?.message || e}`) }
   // Self-learning: propose operation-lesson candidates from this run's failures →
   // staging inbox (OP_INBOX). NEVER writes the approved store. Non-fatal.
   try {
@@ -1868,6 +1925,9 @@ phase("Report")
 const _opLoaded = Object.values(_opByPhase).reduce((a, arr) => a + (Array.isArray(arr) ? arr.length : 0), 0)
 const proposedNote = proposedLessons.length
   ? ` Review ${proposedLessons.length} proposed operation-lesson(s) in the staging inbox (${OP_INBOX}); promote approved ones into the matching *.operation-lessons.jsonl (human-gated).`
+  : ""
+const pruneNote = pruneResult?.candidates?.length
+  ? ` ${pruneResult.candidates.length} stale-active knowledge candidate(s) flagged for review (referenced source file absent) — manually retire confirmed ones in ${KB_FILE}.`
   : ""
 
 const report = {
@@ -1951,6 +2011,12 @@ const report = {
     loaded: _opLoaded,
     byPhase: Object.fromEntries(Object.entries(_opByPhase).map(([p, arr]) => [p, Array.isArray(arr) ? arr.length : 0])),
   },
+  prune: pruneResult
+    ? {
+        scanned: pruneResult.scanned,
+        candidates: (pruneResult.candidates || []).slice(0, 8).map((c) => ({ id: c.id, reason: c.reason })),
+      }
+    : null,
   proposedLessons: proposedLessons.length
     ? proposedLessons.map((l) => ({ id: l.id, phase: l.phase, severity: l.severity, target: l.target_hint || null, why: l.why }))
     : [],
@@ -1964,7 +2030,7 @@ const report = {
         ? "Tree was dirty so fixes were skipped. Commit/stash concurrent WIP, then re-run with fix:true to apply the verified findings above."
         : DO_UX && !uxResult
           ? "UX lane did not run (GUI server may be down). Start the server with `cd bun/gui-movie-director && bun run dev`, then re-run with lanes:'all'."
-          : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.") + proposedNote,
+          : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.") + proposedNote + pruneNote,
 }
 
 return report

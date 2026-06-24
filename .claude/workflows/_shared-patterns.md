@@ -348,6 +348,43 @@ await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj o
 markPhase("persist", "completed")
 ```
 
+### Knowledge lifecycle — prune stale-active records (detect-only, every run)
+
+The 12-key schema carries a lifecycle (`status: active|superseded|retired`,
+`evidence.{occurrences,last_seen}`) that was **write-only**: `extractKnowledge`
+supersedes on contradiction and retires on cap-overflow (`MAX_ACTIVE`) but **never
+on code-deletion** — so records about deleted/renamed source files linger as `active`,
+polluting `loadKnowledge` injections and crowding the cap during active development.
+`pruneKnowledge(kbFile, runId)` surfaces them every Persist **right after
+`extractKnowledge`**. Sonnet: Bash `cat` → filter active → extract literal SOURCE path
+tokens → `test -e` → collect candidates. **DETECT-ONLY — it never writes/retires.**
+
+- **Why detect-only:** an earlier auto-retire variant let a free-form agent extract
+  paths; it mis-tokenized a `.jsonl` log path (read `iterations.jsonl` as `iterations.js`)
+  and **retired a high-value occ-17 record** whose only "staleness" was a moved log path
+  (knowledge still valid). Free-form agent path extraction is not trustworthy enough for a
+  destructive auto-retire, so v1 reports candidates and the operator manually retires
+  confirmed-stale records in `KB_FILE`.
+- **Source-only extraction:** tokens must match `(frontend|api|lib|scripts|python|bun)/…
+  .{ts,tsx,py}` (strip `:line`). EXCLUDE data/log/config (`.jsonl/.json/.md/.log`,
+  `history/`, `records`, `iterations`, `manifest`, `knowledge-base/`, `models/`) — their
+  absence does not imply the knowledge is stale. A record with no source token is KEPT.
+- **Candidate rule:** active record with **≥1 source token AND every token absent**
+  (`test -e` under `<PROJECT_ROOT>/bun/gui-movie-director/<path>` OR `<PROJECT_ROOT>/<path>`).
+  Any PRESENT token → KEPT. `test -e`, not judgment.
+- **Scoped:** the workflow's own `KB_FILE` only. Non-fatal. Surface `prune.candidates`
+  in the report + a `nextStep` note so the operator reviews.
+
+```javascript
+// Paste pruneKnowledge after extractKnowledge (identical-in-every-workflow).
+
+// Persist — AFTER extractKnowledge, non-fatal:
+let pruneResult = null
+try { pruneResult = await pruneKnowledge(KB_FILE, RUN_ID) }
+catch (e) { log(`prune-knowledge failed (non-fatal): ${e?.message || e}`) }
+// Report: prune: { scanned, candidates:[{id, reason}] } + a nextStep note (detect-only).
+```
+
 ### Operation-lessons (curated, injected) + self-learning propose step
 
 Beside the distilled `.knowledge.jsonl`, a workflow may own an **operation-lessons**
@@ -677,6 +714,14 @@ that fills organically on first real run. State is tracked in `MANIFEST.md`
    trio to a sibling, also create its `<wf>.operation-lessons.jsonl` (0-byte or seeded)
    and gitignore `<wf>.operation-lessons.proposed.jsonl`. The propose step is non-fatal
    and gated by dedup; the approved store stays human-curated. Mirror to mlx next.
+8. Knowledge prune (2026-06-24, gui self-improve first): when porting `pruneKnowledge`,
+   wire it in Persist right after `extractKnowledge` — `pruneKnowledge(KB_FILE, RUN_ID)`.
+   It is **DETECT-ONLY**: every run it reports active records whose referenced SOURCE file
+   (`frontend/api/lib/scripts/python/bun` ….{ts,tsx,py}) is verifiably absent (`test -e`),
+   excluding data/log paths (`.jsonl/.json/.md/…`). It NEVER writes/retires — an auto-retire
+   variant mis-tokenized a `.jsonl` log and wrongly retired an occ-17 record, so the operator
+   manually retires confirmed candidates in `KB_FILE`. Scoped to the workflow's own `KB_FILE`;
+   never touches operation-lessons or `structured/*.jsonl`. Non-fatal. Mirror to mlx next.
 
 ## History Dashboard
 
