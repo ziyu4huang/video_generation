@@ -437,6 +437,7 @@ def run_i2i(args: argparse.Namespace) -> None:
         "command": "image",
         "action": "i2i",
         "pipeline": "zimage",
+        "transformer": getattr(args, "transformer", None) or "moody-pro-mix",
         "input_image": input_image_path,
         "reference_image": ref_image_path,
         "prompt": prompt,
@@ -469,6 +470,7 @@ def run_i2i(args: argparse.Namespace) -> None:
             ctrl_33ch=ctrl_33ch,
             controlnet_strength=ctrl_strength,
             cnet_active_steps=cnet_active_steps,
+            transformer_name=getattr(args, "transformer", None),
         )
 
         pil_image.save(out_path)
@@ -551,7 +553,8 @@ def _generate(prompt: str, out_w: int, out_h: int, steps: int, seed: int,
               clean_latent: mx.array, denoise_strength: float,
               ctrl_33ch: "mx.array | None" = None,
               controlnet_strength: float = 0.6,
-              cnet_active_steps: "int | None" = None) -> "Image.Image":
+              cnet_active_steps: "int | None" = None,
+              transformer_name: str | None = None) -> "Image.Image":
     """Run full I2I denoising loop with optional ControlNet. Returns PIL Image.
 
     Args:
@@ -614,17 +617,36 @@ def _generate(prompt: str, out_w: int, out_h: int, steps: int, seed: int,
     print("Done")
 
     # ── Phase 3: Transformer loading ──────────────────────────────────────
-    print("[I2I] Loading transformer (4-bit)...", end=" ", flush=True)
-    with open(os.path.join(cfg.TRANSFORMER_DIR, "config.json")) as f:
+    # Resolve the transformer dir from --transformer (mirrors _shared's
+    # execute_generation), falling back to cfg.TRANSFORMER_DIR. Detect quant
+    # bits/group_size from the model manifest instead of hardcoding 4-bit — the
+    # repo's default (moody-pro-mix) and most Z-Image variants are now mlx-8bit,
+    # which the old hardcoded 4-bit/32 quant crashed on
+    # (ValueError: t_embedder.linear1.weight shape (1024,32) vs (1024,64)).
+    from app.pipeline import _detect_transformer_quant
+    if transformer_name:
+        trans_path = os.path.join(cfg.MODELS_DIR, "transformer", transformer_name)
+        if not os.path.isdir(trans_path):
+            raise FileNotFoundError(
+                f"Transformer '{transformer_name}' not found at {trans_path}"
+            )
+        print(f"[Pipeline] Using transformer: {transformer_name}", flush=True)
+    else:
+        trans_path = cfg.TRANSFORMER_DIR
+
+    quant_bits, quant_gs = _detect_transformer_quant(trans_path)
+    print(f"[I2I] Loading transformer ({quant_bits}-bit/gs{quant_gs})...",
+          end=" ", flush=True)
+    with open(os.path.join(trans_path, "config.json")) as f:
         t_config = json.load(f)
     model = ZImageTransformerMLX(t_config)
-    nn.quantize(model, bits=4, group_size=32)
-    if os.path.exists(os.path.join(cfg.TRANSFORMER_DIR, "model.safetensors.index.json")):
-        weights = load_sharded_weights(cfg.TRANSFORMER_DIR)
+    nn.quantize(model, bits=quant_bits, group_size=quant_gs)
+    if os.path.exists(os.path.join(trans_path, "model.safetensors.index.json")):
+        weights = load_sharded_weights(trans_path)
         model.load_weights(list(weights.items()))
         del weights
     else:
-        model.load_weights(os.path.join(cfg.TRANSFORMER_DIR, "model.safetensors"))
+        model.load_weights(os.path.join(trans_path, "model.safetensors"))
     model.fuse_model()
     model.eval()
     _gc()
@@ -1067,11 +1089,14 @@ def _generate_t2i(prompt, out_w, out_h, steps, seed):
     _gc()
     print("Done")
 
-    print("[T2I Source] Loading transformer (4-bit)...", end=" ", flush=True)
+    from app.pipeline import _detect_transformer_quant
+    quant_bits, quant_gs = _detect_transformer_quant(cfg.TRANSFORMER_DIR)
+    print(f"[T2I Source] Loading transformer ({quant_bits}-bit/gs{quant_gs})...",
+          end=" ", flush=True)
     with open(os.path.join(cfg.TRANSFORMER_DIR, "config.json")) as f:
         t_config = json.load(f)
     model = ZImageTransformerMLX(t_config)
-    nn.quantize(model, bits=4, group_size=32)
+    nn.quantize(model, bits=quant_bits, group_size=quant_gs)
     if os.path.exists(os.path.join(cfg.TRANSFORMER_DIR, "model.safetensors.index.json")):
         weights = load_sharded_weights(cfg.TRANSFORMER_DIR)
         model.load_weights(list(weights.items()))
