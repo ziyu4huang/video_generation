@@ -151,10 +151,10 @@ Iterations 3–4 on the mlx side, now applied to gui):
 | lora-quality-gate | — | ✓ | — | — | ✓ | 3 | 0 | — |
 | mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 72 | 42 | 2026-06-25T13-22-18 |
 | mlx-movie-director-run-self-improve-image | mlx | ✓ | ✓ | ✓ | ✓ | 22 | 22 | 2026-06-20T04-24-28 |
-| mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 42 | 41 | — |
+| mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 43 | 42 | — |
 | mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 31 | 31 | 2026-06-23T22-40-15 |
 | multi-character-compose | — | — | — | — | pending | 0 | 0 | pending |
 
-**Totals:** 8 workflows · 7 load / 6 extract wired · 7 knowledge files · 295 records (216 active)
+**Totals:** 8 workflows · 7 load / 6 extract wired · 7 knowledge files · 296 records (217 active)
 
 <!-- END KNOWLEDGE MATRIX -->
