@@ -94,12 +94,34 @@ python/venv/bin/python python/mlx-movie-director/run.py image multicouple \
 ```
 
 Knobs:
-- `--merge-denoise` (0.5–0.7): resume strength. Higher unifies the two
-  backgrounds harder, at more character drift. 0.6 is the default sweet spot.
+- `--merge-denoise` (0.5–0.85): resume strength. Sentinel default — 0.6 normally,
+  auto-bumps to 0.8 when `--lock-chars` is on (characters are pinned, so the
+  background can repaint harder). Higher unifies the background more, at more
+  character drift *unless* `--lock-chars` pins them.
 - `--merge-feather` (latent cols; image px = ×8): the seam feather width.
 - `--cfg-scale`: ON by default at 3.0 for every pass (CFG is the biggest Z-Image
   quality lever); override with `--cfg-scale 0` to disable.
 - `--style`: trailing tags appended to BOTH prompts (the style-consistency lever).
+- `--color-match` (DEFAULT ON; `--no-color-match` to disable): SAM3-segment each
+  character, measure each image's BACKGROUND color temperature, and shift both
+  images so their bg means land on a shared midpoint, then re-encode. **The fix
+  for the cool-left/warm-right background split** — each character is generated in
+  its own color-temperature world, baked into the latent; matching them at the
+  source is the only lever (see "Why the split happens" below).
+- `--lock-chars` (masked Repaint variant): pin the character region every resume
+  step so the background can be denoised HARD (denoise auto→0.8) with zero
+  character drift. On its own it does NOT fix the tone split (locking cold/warm
+  characters re-injects their tones via attention), but combined with
+  `--color-match` it is the strongest configuration (see below). Reuses the same
+  SAM3 segmentation as `--color-match`.
+- `--lock-dilate` (px, default 4): expand each character mask before locking, so
+  the character's feather edge is pinned (no char-edge bleed into the repainted
+  background).
+
+**Recommended (best background unity): `--color-match --lock-chars` (the combo).**
+Color-match unifies the source color-temperatures → lock-chars pins the now-
+non-conflicting characters → the hard resume regenerates ONE coherent background.
+This is the workflow default and produces the best samples.
 
 This is implemented in `app/commands/image-multicouple.py`, on top of two small
 `ZImagePipeline.generate()` additions: an `init_latent` param (start from a
@@ -216,21 +238,40 @@ Reference style anchor: the run at
 (A=raven-hair/white-dress seed 42, B=auburn-hair/green-gown seed 777) generated
 both ways for a direct comparison:
 
-| File | Approach | Background continuity (VLM) |
-|---|---|---|
-| `i2i_dn0.35_9st-s42.png` | **v1** pixel composite + low-denoise i2i | **2 / 5** — visible hard seam; left = dappled brown shadows, right = green ethereal mist (two environments) |
-| `multicouple_dn0.6_f8_9st-s42.png` | **v2** Latent-Couple (this PR) | **3.5 / 5** — seam eliminated; one bright gradient environment, only a soft cool→warm shift |
+| File | Approach | bg edge-split | bg corner-split | brightness-gap |
+|---|---|---|---|---|
+| `i2i_dn0.35_9st-s42.png` | **v1** pixel composite + low-denoise i2i | — (hard seam) | — | — |
+| `multicouple_dn0.6_f8_9st-s42.png` | **v2** Latent-Couple (plain resume) | +22.7 | +40.7 | 107 |
+| `multicouple_masked_dn0.8_f8_9st-s42.png` | **v3** + `--lock-chars` (Repaint) | +21.6 | +36.5 | 113 |
+| `multicouple_cm_dn0.6_f8_9st-s42.png` | **v4** + `--color-match` | +12.7 | +27.3 | 90 |
+| `multicouple_masked_cm_dn0.85_f8_9st-s42.png` | **v5** + `--color-match --lock-chars` (combo) | **+8.3** | **−0.5** | 76 |
 
-**v2 VLM assessment:** the two halves no longer meet at a hard line — the
-background reads as a single bright gradient environment; the only residual is a
-subtle cool→warm color shift (read as a stylistic choice complementing the
-dark-haired vs red-haired characters, not a composite artifact). Both characters
-remain clearly distinct people with intact, undistorted faces. The latent-space
-resume (t_mix=0.81, 5 steps) gave the model's self-attention enough freedom to
-regenerate one coherent background that pixel-composite + low-denoise i2i could
-not. v1's per-character files (`output_20260624_204658.png`,
-`output_20260624_205000.png`) and composite (`multichar_compose.png`) are kept
-as the legacy baseline.
+(splits = `warm(R−B)_right − warm(R−B)_left` over background edge/corner strips;
+0 = unified. brightness-gap = `|lum_right − lum_left|`.)
+
+### Why the split happens, and why the combo wins
+
+The v2 plain resume left a cool-left / warm-right background split. Three
+follow-up variants were measured objectively (background edge/corner color split
++ brightness gap), and the diagnosis refines with each:
+
+- **`--lock-chars` alone (v3) does NOT help** (+22→+22 edge). The split is not a
+  compositing seam — it is each character generated in its own color-temperature
+  *world* (cool for the black-hair/white-dress/pale subject, warm for the
+  orange-hair/green-gown/tan subject), baked into the latent. Locking the
+  characters re-injects those conflicting tones into the adjacent background via
+  the DiT's spatial self-attention every step, so the hard background repaint
+  cannot unify them. Locking *preserves* (even reinforces) the split.
+- **`--color-match` alone (v4) halves it** (+22→+13 edge). Shifting both source
+  images so their background means land on a shared midpoint removes the
+  temperature gap *at the source*, before the resume. Residual remains because
+  the two worlds also differ in **brightness/lighting structure** (dappled
+  spotlight vs flat wash), which a mean-shift cannot equalize.
+- **The combo (v5) wins** (+22→+8 edge, **+41→0 corner**). The three levers
+  complement: color-match unifies the source temperature → lock-chars now pins
+  *non-conflicting* characters → the hard resume (denoise 0.85) is free to
+  regenerate one coherent background/lighting. The residual reads as a natural
+  single-source gradient, not a pasted seam.
 
 ## The dynamic workflow
 
