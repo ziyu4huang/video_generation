@@ -85,19 +85,19 @@ const baseCfg = {
 }
 
 // Allowed knobs + their discrete value ladders (the proposer picks from these).
+// NOTE: seed is NOT here — seed changes via args.seed or baseCfg directly, not via proposer.
+// Reason: seed proposal caused unannounced multi-knob tests in iter-12 (av_ca=2000+seed=4067
+// vs baseCfg seed=3053). Keep proposals strictly single-knob.
 const KNOBS = {
-  stage1_steps:       [8, 12, 16, 20, 25],             // 12=best simple; 8=avoid; 16=avoid@stg=0.5; 20=avoid@stg=0.5 (catastrophic); 25=crash
-  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end (KB: ltx:stage2-steps-10-avoid)
-  cfg_scale:          [3, 5, 7, 9],                   // 7=confirmed best; 9=dead-end (regresses voice.DR, KB: ltx:cfg-scale-nonmonotonic-pattern)
-  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 0.5=complex-scene best; 1.0=avoid@stg=0.5-base; 1.5=simple-face best; 2.0=crash
-  audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses per KB
-  modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=confirmed best; 4/6=dead-ends; resonance-curve pattern (KB)
+  stage1_steps:       [8, 12, 16, 20, 25],             // 12=best; 8/16/20=avoid@stg=0.5; 25=crash
+  stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end
+  cfg_scale:          [3, 5, 7, 9],                   // 7=best; 5=avoid@stg=0.5; 9=avoid (voice.DR)
+  stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 0.5=complex-best; 1.0=avoid; 1.5=simple-best; 2.0=crash
+  audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses
+  modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=best; resonance peak; 4/6=avoid
   audio_stage1_only:  [false, true],
-  av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=current best; code-lever (embedded_config.json)
-  audio_volume:       [1, 5, 15, 30, 50],             // 5=confirmed best (vol=50→5 total +5.22 pts); 1=unexplored (risk: inaudible)
-                                                       // mechanism: lower volume → less alimiter=0.95 compression → higher crest factor
-  seed:               [3053, 1234, 7777, 5555],       // 3053=current best; others unexplored for complex scene
-                                                       // complex scene may benefit from different noise seed → better quality.noise+quality.snr balance
+  av_ca:              [200, 500, 1000, 2000, 5000],   // 1000=best; 500=borderline; 2000=avoid (may be training constant)
+  audio_volume:       [1, 5, 15, 30, 50],             // 5=best; mechanism: lower vol → less alimiter compression
 }
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ const GENMEASURE_SCHEMA = {
 const PROPOSE_SCHEMA = {
   type: "object",
   properties: {
-    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","audio_volume","seed"] },
+    knob:          { type: "string", enum: ["stage1_steps","stage2_steps","cfg_scale","stg_scale","audio_cfg_scale","modality_scale","audio_stage1_only","av_ca","audio_volume"] },
     from:          { type: "string", description: "Current value (stringified)" },
     to:            { type: "string", description: "Proposed value (stringified; null/true/false allowed)" },
     rationale:     { type: "string" },
@@ -515,7 +515,6 @@ function cfgWith(cfg, knob, val) {
     case "hq":                c.hq = val; break
     case "av_ca":             c.avCa = val; break
     case "audio_volume":      c.audioVolume = val; break
-    case "seed":              c.seed = val; break
   }
   return c
 }
@@ -558,19 +557,23 @@ KB digest: ${R.kbDigest || "(none)"}
 
 Rules: change exactly ONE knob to a value in its ladder. Avoid any move already in
 dead-ends OR in ALREADY_TESTED_THIS_RUN above. Seed is FIXED (not a knob this run).
-PRIORITY GUIDANCE — complex-scene ceiling 73.62 (stg=0.5, target="Every moment matters"),
-  bottleneck: quality.noise persistently around 51-54 — may be inherent to complex visual scene.
-  • cfg_scale=5: HIGHEST EV UNEXPLORED. Lower CFG reduces over-saturation → may reduce
-    perceived noise artifacts in architectural details and city lights. Only 7 and 9 tested;
-    5 and 3 are both unexplored on this complex scene base.
-  • seed=7777 or 5555: seed=1234 was a catastrophic -6.82 (voice.centroid), so seed exploration
-    has risk. BUT seed=7777 and seed=5555 are untested — try one of these.
-  • av_ca=2000: av_ca=500 borderline missed (+voice -quality). av_ca=2000 is the
-    other direction — may balance the audio-visual trade-off differently. Unexplored at stg=0.5 base.
-  DEAD-ENDS (DO NOT re-propose):
-    seed=1234 (-6.82 voice.centroid), stage1=16 (71.19 quality.snr↓), stage1=20 (catastrophic),
-    stage1=8 (under-denoises), stg_scale=1.0 (72.72 regress from 73.62), stg_scale>0.5,
-    cfg_scale=9, audio_cfg_scale non-null, stage2_steps ladder exhausted, av_ca=500 (borderline miss).
+PRIORITY GUIDANCE — complex-scene ceiling 73.62 (LIKELY PLATEAU: knob space nearly exhausted).
+  quality.noise/quality.snr bottleneck (~51-54) appears inherent to complex architectural scene.
+  Remaining unexplored single-knob moves (try in this order):
+  • cfg_scale=3: cfg=5 already failed (-1.40), cfg=3 is the last unexplored CFG step.
+    Lower CFG = less over-saturation, but risk of structural collapse.
+  • av_ca=200 or av_ca=5000: av_ca=500 and av_ca=2000 both regressed; 200 and 5000 remain
+    untested. av_ca is suspected to be a training constant at 1000 (KB: ltx:av-ca-training-constant-gotcha)
+    so these may not help either.
+  • audio_volume=1: known to be prompt-dependent (KB: ltx:audio-volume-prompt-dependence).
+    May help or hurt — lower risk than seed changes.
+  • audio_stage1_only=true: unexplored on complex scene (was false=best on simple scene).
+  CONFIRMED DEAD-ENDS (NEVER re-propose):
+    stage1=8/16/20 (all avoid@stg=0.5), stg_scale=1.0/1.5/2.0 (avoid), cfg_scale=5/9 (avoid),
+    audio_cfg_scale non-null, stage2_steps ladder exhausted, modality_scale≠5 (resonance peak),
+    av_ca=500/2000 (avoid), seed (removed from KNOBS — caused multi-knob tests in iter-12).
+  ACCEPT PLATEAU: if 2 consecutive proposals fail, this config may be at ceiling for this scene.
+  Consider reporting convergence rather than continuing to explore exhausted territory.
 Prefer the highest-EV single change targeting the weakest dimension.${innovationBlock ? " INNOVATION MODE: explore second-order interactions." : ""} Return the proposal.`,
     { label: `propose-${i}`, phase: "Improve", schema: PROPOSE_SCHEMA },
   )
