@@ -391,8 +391,11 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
     """Redraw via flux2-klein I2I by delegating to `run.py image i2i`.
 
     Returns the i2i output path (parsed from i2i's JSON_SUMMARY line, with a
-    `Saved:` fallback). Uses build_run_py_cmd so --force auto-propagates to the
-    child (prevents GPU-lock deadlock). Streams stdout live while capturing it.
+    `Saved:` fallback). The child cmd is built with force=True so the spawned
+    i2i process SKIPS the GpuLock: purify is GPU-heavy, so run.py already wraps
+    this call in `with GpuLock()`, and the child re-entering it would
+    self-deadlock (parent holds the lock for the whole redraw op, covering the
+    child). Streams stdout live while capturing it.
     """
     denoise = TRANSFORMER_DENOISE.get(mode, 0.55)
 
@@ -409,6 +412,9 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
     out_h = max(16, (out_h // 16) * 16)
 
     use_prompt = prompt or _DEFAULT_TRANSFORMER_PROMPT
+    # force=True is MANDATORY: this redraw runs inside run.py's GpuLock (purify
+    # is GPU-heavy). Without it the spawned i2i child re-enters `with GpuLock()`
+    # and blocks forever on the lock the parent already holds -> self-deadlock.
     cmd = build_run_py_cmd(
         "image", "i2i",
         "--pipeline", "flux2-klein",
@@ -419,6 +425,7 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
         "--seed", str(seed),
         "--prompt", use_prompt,
         "--json-summary",
+        force=True,
     )
     print(f"[purify] transformer backend -> flux2-klein I2I "
           f"{out_w}x{out_h} denoise={denoise} mode={mode} transformer={transformer_name}")
