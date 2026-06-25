@@ -149,11 +149,12 @@ Iterations 3–4 on the mlx side, now applied to gui):
 | gui-movie-director-review-optimize | gui | ✓ | ✓ | ✓ | ✓ | 73 | 40 | 2026-06-23T22-35-42 |
 | gui-movie-director-self-improve | gui | ✓ | ✓ | ✓ | ✓ | 52 | 40 | 2026-06-23T22-34-02 |
 | lora-quality-gate | — | ✓ | — | — | ✓ | 3 | 0 | — |
-| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 70 | 40 | 2026-06-23T21-29-09 |
+| mlx-movie-director-review-optimize | mlx | ✓ | ✓ | ✓ | ✓ | 72 | 42 | 2026-06-25T13-22-18 |
 | mlx-movie-director-run-self-improve-image | mlx | ✓ | ✓ | ✓ | ✓ | 22 | 22 | 2026-06-20T04-24-28 |
-| mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 21 | 20 | — |
+| mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 42 | 41 | — |
 | mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 31 | 31 | 2026-06-23T22-40-15 |
+| multi-character-compose | — | — | — | — | pending | 0 | 0 | pending |
 
-**Totals:** 7 workflows · 7 load / 6 extract wired · 7 knowledge files · 272 records (193 active)
+**Totals:** 8 workflows · 7 load / 6 extract wired · 7 knowledge files · 295 records (216 active)
 
 <!-- END KNOWLEDGE MATRIX -->
