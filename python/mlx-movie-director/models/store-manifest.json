@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 65,
+  "count": 70,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -262,6 +262,26 @@
     "transformer/beyond-reality/model.safetensors": {
       "md5": "6fccca8507e5fff9104bba37367e2cf9",
       "size": 6540686735
+    },
+    "transformer/moody-desire-mix/0.safetensors": {
+      "md5": "8ead1aad8708716b74f68277fc24ac09",
+      "size": 2140791069
+    },
+    "transformer/moody-desire-mix/1.safetensors": {
+      "md5": "b9f5ffe02936b777b3a1ea6f578abebd",
+      "size": 2139119960
+    },
+    "transformer/moody-desire-mix/2.safetensors": {
+      "md5": "5d8b524e49999d956d0cce500227ec2a",
+      "size": 2085631345
+    },
+    "transformer/moody-desire-mix/3.safetensors": {
+      "md5": "cffa2789cea24b51a30bf98021181728",
+      "size": 2085631415
+    },
+    "transformer/moody-desire-mix/4.safetensors": {
+      "md5": "724c424ac34de526c3660e79e4029700",
+      "size": 1194893301
     }
   }
 }

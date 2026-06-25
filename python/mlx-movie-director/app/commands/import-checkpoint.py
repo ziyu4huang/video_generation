@@ -171,8 +171,9 @@ def _run_url_import(url: str, args) -> None:
     version_data = _civitai_api_get(_CIVITAI_API_VERSION.format(version_id=version_id))
 
     base_model = version_data.get("baseModel", "")
-    if "ZImage" not in base_model:
-        print(f"WARNING: baseModel is '{base_model}', expected ZImageTurbo. "
+    klein_9b = "Klein" in base_model and "9" in base_model
+    if "ZImage" not in base_model and not klein_9b:
+        print(f"WARNING: baseModel is '{base_model}', expected ZImageTurbo or Flux.2 Klein 9B. "
               f"Conversion may fail.", file=sys.stderr)
 
     model_info = version_data.get("model", {})
@@ -202,7 +203,10 @@ def _run_url_import(url: str, args) -> None:
     # Description from CivitAI + optional AI enrichment
     description = args.description
     if not description:
-        description = f"{model_name} {version_name} ZImage-Turbo transformer, converted to 8-bit MLX"
+        if klein_9b:
+            description = f"{model_name} {version_name} Flux2 Klein 9B transformer, converted to INT8 MLX"
+        else:
+            description = f"{model_name} {version_name} ZImage-Turbo transformer, converted to 8-bit MLX"
         if not args.no_ai:
             ai_desc = _try_ai_description(version_data, model_name, args)
             if ai_desc:
@@ -215,34 +219,35 @@ def _run_url_import(url: str, args) -> None:
         print(f"\n  Downloading {fmt_tag} safetensors (~{_estimate_gb(version_data, bf16_url):.0f} GB)...")
         _download_file(download_url, tmp_file)
 
-        # Convert
-        os.makedirs(target_dir, exist_ok=True)
-        _convert_zimage_checkpoint(tmp_file, target_dir)
-
-        # Externalize large weights file to ../video_generation__models/ store
-        weights_path = os.path.join(target_dir, "model.safetensors")
-        if os.path.isfile(weights_path) and not os.path.islink(weights_path):
-            print("\n  Externalizing weights to model store...")
-            _externalize_weights(weights_path)
-
-        # Write manifest + README
         source_url = f"https://civitai.com/models/{version_data.get('modelId', model_id)}"
-        size_bytes = _dir_size(target_dir)
-        _write_manifest(
-            target_dir=target_dir,
-            name=name,
-            description=description,
-            source_url=source_url,
-            size_bytes=size_bytes,
-        )
-        _write_readme(
-            target_dir=target_dir,
-            name=name,
-            description=description,
-            source_url=source_url,
-        )
 
-        _print_summary(name, target_dir, description, source_url)
+        if klein_9b:
+            # Klein 9B: convert_klein_9b_checkpoint creates and populates target_dir itself
+            from convert import convert_klein_9b_checkpoint
+            ok = convert_klein_9b_checkpoint(tmp_file, output_name=name)
+            if not ok:
+                raise RuntimeError("Klein 9B conversion failed")
+            _externalize_sharded_weights(target_dir)
+            size_bytes = _dir_size(target_dir)
+            _write_manifest_klein(target_dir=target_dir, name=name, description=description,
+                                  source_url=source_url, size_bytes=size_bytes)
+            _write_readme_klein(target_dir=target_dir, name=name, description=description,
+                                source_url=source_url)
+            _print_summary(name, target_dir, description, source_url, arch="flux2-klein-9b")
+        else:
+            # ZImageTurbo: standard single-file conversion
+            os.makedirs(target_dir, exist_ok=True)
+            _convert_zimage_checkpoint(tmp_file, target_dir)
+            weights_path = os.path.join(target_dir, "model.safetensors")
+            if os.path.isfile(weights_path) and not os.path.islink(weights_path):
+                print("\n  Externalizing weights to model store...")
+                _externalize_weights(weights_path)
+            size_bytes = _dir_size(target_dir)
+            _write_manifest(target_dir=target_dir, name=name, description=description,
+                            source_url=source_url, size_bytes=size_bytes)
+            _write_readme(target_dir=target_dir, name=name, description=description,
+                          source_url=source_url)
+            _print_summary(name, target_dir, description, source_url)
 
     except Exception:
         # Clean up partial target on failure
@@ -290,6 +295,22 @@ def _run_local_import(src: str, args) -> None:
                     source_url=None, size_bytes=size_bytes)
     _write_readme(target_dir=target_dir, name=name, description=description, source_url=None)
     _print_summary(name, target_dir, description, None)
+
+
+# ---------------------------------------------------------------------------
+# Klein 9B sharded externalization
+# ---------------------------------------------------------------------------
+
+def _externalize_sharded_weights(target_dir: str) -> None:
+    """Externalize all *.safetensors shards in target_dir to the external model store."""
+    import glob
+    shards = sorted(s for s in glob.glob(os.path.join(target_dir, "*.safetensors"))
+                    if not os.path.islink(s))
+    if not shards:
+        return
+    print(f"\n  Externalizing {len(shards)} weight shards to model store...")
+    for shard_path in shards:
+        _externalize_weights(shard_path)
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +631,69 @@ def _write_manifest(*, target_dir: str, name: str, description: str,
         f.write("\n")
 
 
+def _write_manifest_klein(*, target_dir: str, name: str, description: str,
+                          source_url: str | None, size_bytes: int) -> None:
+    manifest = {
+        "_comment": _MANIFEST_COMMENT,
+        "name": name,
+        "type": "transformer",
+        "arch": "flux2-klein-9b",
+        "format": "mlx-8bit",
+        "description": description,
+        "source": source_url or "manual-import",
+        "pipeline": ["flux2-klein", "flux2-klein-edit"],
+        "cli": {
+            "action": "image t2i",
+            "pipeline": "flux2-klein",
+            "transformer": name,
+            "note": f"use --transformer {name} to select this checkpoint",
+        },
+        "compatible_with": [
+            "text_encoder/qwen3-8b",
+            "tokenizer/qwen3-klein",
+            "vae/flux2-klein",
+        ],
+        "size_bytes": size_bytes,
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    if source_url:
+        manifest["source_url"] = source_url
+    path = os.path.join(target_dir, "manifest.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def _write_readme_klein(*, target_dir: str, name: str, description: str,
+                        source_url: str | None) -> None:
+    lines = [
+        f"# {name} — Flux2 Klein 9B Transformer (INT8 MLX)",
+        "",
+        description + ".",
+        "",
+    ]
+    if source_url:
+        lines += [f"Source: [{source_url}]({source_url})", ""]
+    lines += [
+        "## Usage",
+        "",
+        "```bash",
+        "python/venv/bin/python python/mlx-movie-director/run.py \\",
+        f"  image t2i --pipeline flux2-klein --transformer {name} \\",
+        "  --prompt 'your prompt here'",
+        "```",
+        "",
+        "## Notes",
+        "",
+        "- Format: INT8 quantized MLX (group_size=64, sharded)",
+        "- Converted from CivitAI safetensors via `import-checkpoint`",
+        "- Compatible with: text_encoder/qwen3-8b, tokenizer/qwen3-klein, vae/flux2-klein",
+        "",
+    ]
+    with open(os.path.join(target_dir, "README.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+
 def _write_readme(*, target_dir: str, name: str, description: str,
                   source_url: str | None) -> None:
     lines = [
@@ -774,16 +858,19 @@ def _git_add_force(path: str) -> None:
 
 
 def _print_summary(name: str, target_dir: str, description: str,
-                   source_url: str | None) -> None:
+                   source_url: str | None, arch: str = "zimage-turbo") -> None:
     size_mb = _dir_size(target_dir) / 1_048_576
     print(f"\n[import-checkpoint] Imported: {name}")
     print(f"  Directory:  {target_dir}")
     print(f"  Size:       {size_mb:.0f} MB (8-bit MLX)")
-    print(f"  Arch:       zimage-turbo")
+    print(f"  Arch:       {arch}")
     print(f"  Format:     mlx-8bit")
     if source_url:
         print(f"  Source:     {source_url}")
     print()
     print(f"Validate: run.py check-model")
-    print(f"Test:     run.py image t2i --pipeline zimage --transformer {name} \\")
+    if arch == "flux2-klein-9b":
+        print(f"Test:     run.py image t2i --pipeline flux2-klein --transformer {name} \\")
+    else:
+        print(f"Test:     run.py image t2i --pipeline zimage --transformer {name} \\")
     print(f"            --prompt 'a dreamlike portrait'")
