@@ -527,9 +527,9 @@ def run(args: argparse.Namespace) -> None:
             # Time only the VLM call(s) — the meaningful cold/warm cost (b64 is
             # encoded once above). Recorded per-style as elapsed_sec.
             t0 = time.perf_counter()
-            # Thinking models (Gemma-4) consume extra tokens on reasoning; give
-            # JSON-output styles more budget so the answer fits after the think block.
-            _max_tokens = 4096 if style in _JSON_OUTPUT_STYLES else 2048
+            # Thinking models (Gemma-4) consume large token budgets on reasoning;
+            # give JSON-output styles 40k so complex scenes have room to think + answer.
+            _max_tokens = 40000 if style in _JSON_OUTPUT_STYLES else 2048
             if n_samples > 1:
                 # Multi-sample denoising: N VLM calls in-process (model stays
                 # loaded), then median the numeric score dims in Python.
