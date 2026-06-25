@@ -599,3 +599,60 @@ class TestBuildRunPyCmd:
             assert "--force" not in cmd
         finally:
             sys.argv = original
+
+
+# ---------------------------------------------------------------------------
+# Test: purify transformer backend must force the i2i child past the GpuLock
+# ---------------------------------------------------------------------------
+# Regression: `image purify` is GPU-heavy, so run.py wraps it in `with GpuLock()`.
+# _run_transformer_backend spawns `image i2i --pipeline flux2-klein` as a child;
+# that child cmd MUST be built with force=True, or the child re-enters
+# `with GpuLock()` and self-deadlocks against the lock the parent already holds
+# (the bug hung every `--backend transformer` run that wasn't started --force).
+
+class _FakePopen:
+    """Stand-in for subprocess.Popen: yields one JSON_SUMMARY line then EOF."""
+    def __init__(self, cmd, *args, **kwargs):
+        self._lines = ['JSON_SUMMARY:{"outputs":["/tmp/fake_out.png"]}\n']
+        self.stdout = self
+        self.returncode = 0
+
+    def readline(self):
+        return self._lines.pop(0) if self._lines else ""
+
+    def poll(self):
+        return 0
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        pass
+
+
+class TestPurifyTransformerBackendGpuLock:
+    def test_child_cmd_forces_gpu_lock(self, monkeypatch):
+        import importlib
+        image_purify = importlib.import_module("app.commands.image-purify")
+
+        captured = {}
+
+        def fake_build_run_py_cmd(*args, **kwargs):
+            captured["force"] = kwargs.get("force")
+            return ["python", "run.py"] + list(args)
+
+        monkeypatch.setattr(image_purify, "build_run_py_cmd", fake_build_run_py_cmd)
+        monkeypatch.setattr(image_purify.subprocess, "Popen", _FakePopen)
+
+        out = image_purify._run_transformer_backend(
+            input_path="/tmp/fake_in.png",
+            mode="redraw",
+            resolution=1.0,  # run_purify parses "same" → 1.0 before calling
+            w0=640, h0=960, seed=42, prompt=None,
+        )
+
+        assert captured["force"] is True, (
+            "purify must pass force=True to the i2i child cmd — without it the "
+            "child re-enters GpuLock and self-deadlocks (parent holds the lock)."
+        )
+        assert out == "/tmp/fake_out.png"

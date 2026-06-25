@@ -1197,9 +1197,16 @@ def execute_upscale(input_path: str, model_path: str, output_path: str | None) -
 def build_run_py_cmd(*args: str, force: bool | None = None) -> list[str]:
     """Build a subprocess command invoking run.py.
 
-    Automatically appends --force when the current process was started with
-    --force (prevents GPU lock deadlock in child processes). All subprocess
-    calls to run.py should use this helper instead of building cmd lists by hand.
+    All subprocess calls to run.py should use this helper instead of building
+    cmd lists by hand. By default (force=None) it appends --force ONLY when the
+    current process was itself started with --force/--skip-gpu-lock.
+
+    ⚠️ Deadlock warning: if the caller is a GPU-heavy command (wrapped by run.py
+    in `with GpuLock()`) that spawns a GPU-heavy run.py child, you MUST pass
+    force=True — otherwise the child re-enters `with GpuLock()` and deadlocks
+    against the lock the parent already holds. (Lightweight callers spawning a
+    GPU-heavy child must NOT pass force=True: the child needs to acquire the
+    lock to serialize against other GPU jobs.)
 
     Args:
         *args: Positional arguments for run.py (e.g. "video", "generate", "--prompt", "test").
