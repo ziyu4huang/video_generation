@@ -283,6 +283,10 @@ _STYLE_PROMPTS = {
     ),
 }
 
+# Styles that require strict JSON output — response_format=json_object is set
+# to prevent thinking-only models (Gemma-4) from producing an empty response.
+_JSON_OUTPUT_STYLES = frozenset({"ltx_i2v"})
+
 # Language instructions — appended to style prompt
 _LANG_INSTRUCTIONS = {
     "zh_TW": "請用繁體中文回答。",
@@ -523,18 +527,23 @@ def run(args: argparse.Namespace) -> None:
             # Time only the VLM call(s) — the meaningful cold/warm cost (b64 is
             # encoded once above). Recorded per-style as elapsed_sec.
             t0 = time.perf_counter()
+            # Thinking models (Gemma-4) consume large token budgets on reasoning;
+            # give JSON-output styles 40k so complex scenes have room to think + answer.
+            _max_tokens = 40000 if style in _JSON_OUTPUT_STYLES else 2048
             if n_samples > 1:
                 # Multi-sample denoising: N VLM calls in-process (model stays
                 # loaded), then median the numeric score dims in Python.
                 raws = [
                     _call_vlm(args.api_url, model, b64, prompt_text,
-                              auto_load=not getattr(args, "no_auto_load", False))
+                              auto_load=not getattr(args, "no_auto_load", False),
+                              max_tokens=_max_tokens)
                     for _ in range(n_samples)
                 ]
                 caption_value = median_score_caption(raws)
             else:
                 caption_value = _call_vlm(args.api_url, model, b64, prompt_text,
-                                          auto_load=not getattr(args, "no_auto_load", False))
+                                          auto_load=not getattr(args, "no_auto_load", False),
+                                          max_tokens=_max_tokens)
             elapsed_sec = round(time.perf_counter() - t0, 2)
             preview_text = caption_value
             entry = {"model": model, "elapsed_sec": elapsed_sec, "caption": caption_value}
@@ -957,7 +966,7 @@ def _lmstudio_ensure_model(api_url: str, model_id: str, timeout: int = 180) -> b
 
 
 def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
-              auto_load: bool = True) -> str:
+              auto_load: bool = True, max_tokens: int = 2048) -> str:
     """Call OpenAI-compatible chat completions API with image + text.
 
     When auto_load is True (default), ensures the model is loaded in LM Studio
@@ -981,7 +990,7 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
                 },
             ],
         }],
-        "max_tokens": 2048,
+        "max_tokens": max_tokens,
         "temperature": 0.3,
         "stream": False,
     }
@@ -1012,8 +1021,17 @@ def _call_vlm(api_url: str, model: str, b64_image: str, prompt: str,
             f"({type(e).__name__}: {e}); raw response excerpt: {raw_excerpt}"
         ) from e
 
-    # Strip Qwen3 <think/> reasoning blocks if present
+    # Strip Qwen3 / Gemma-4 <think/> reasoning blocks if present
+    raw_content = content
     content = re.sub(r"<think.*?</think\s*>", "", content, flags=re.DOTALL).strip()
+
+    # Gemma-4 thinking models sometimes put the structured answer INSIDE the
+    # <think> block rather than after it — strip leaves an empty string. Recover
+    # by extracting the inner text of all <think> blocks as a fallback.
+    if not content and "<think" in raw_content:
+        inner = re.sub(r"</?think\s*>", "", raw_content, flags=re.DOTALL).strip()
+        if inner:
+            content = inner
 
     return content
 
