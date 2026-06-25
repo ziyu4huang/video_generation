@@ -124,9 +124,9 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Compare args: --source-image, --pipelines, --list-pipelines, etc.
     _compare.add_compare_args(parser)
 
-    # Quality args: --self-test, --sample-every, --json, --labels, --no-html
-    # Quality args: --self-test, --sample-every, --json, --labels, --no-html
-    # --self-test is registered via add_common_generation_args() above
+    # Quality args: --quality-inputs, --sample-every, --quality-labels, etc.
+    # (--self-test is already on this shared parser via add_generate_args() above;
+    # video.py does not call add_common_generation_args().)
     _quality.add_quality_args(parser)
 
     # Restore args: --input, --output, --seed, --frames, --restoration-lora, etc.

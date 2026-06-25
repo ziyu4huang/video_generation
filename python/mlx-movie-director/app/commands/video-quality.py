@@ -109,7 +109,8 @@ def add_quality_args(parser):
         help="Video file(s) or manifest.json(s) to analyze",
     )
 
-    # --self-test is registered via add_common_generation_args() in video.py
+    # --self-test is registered on the shared video parser by add_generate_args()
+    # (video-generate.py); video.py does not call add_common_generation_args().
     # Quality-specific modes: steps-sweep, degradation, restore-loop
     # Usage: --self-test [steps-sweep|degradation|restore-loop] --test-prompt NAME
 
