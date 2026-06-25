@@ -85,6 +85,7 @@ _expansion = importlib.import_module("app.commands.image-expansion")
 _purify = importlib.import_module("app.commands.image-purify")
 _restore = importlib.import_module("app.commands.image-restore")
 _multicouple = importlib.import_module("app.commands.image-multicouple")
+_twosubject = importlib.import_module("app.commands.image-twosubject")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -228,7 +229,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -284,6 +285,11 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Multicouple-specific args: --prompt-a/--prompt-b/--merge-prompt/--merge-denoise/etc.
     # (shares --transformer/--width/--height/--steps/--cfg-scale from t2i + common args)
     _multicouple.add_multicouple_args(parser)
+
+    # TwoSubject-specific args: --char-a/--char-b/--ref-a/--ref-b/--candidates/--rounds/etc.
+    # (VLM-driven single-prompt two-character; shares t2i/common args + --style from
+    # multicouple + --vlm-api-url/--vlm-model from profile)
+    _twosubject.add_twosubject_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -363,5 +369,7 @@ def run(args: "argparse.Namespace") -> None:
         _restore.run_restore(args)
     elif action == "multicouple":
         _multicouple.run_multicouple(args)
+    elif action == "twosubject":
+        _twosubject.run_twosubject(args)
     else:
         _t2i.run_t2i(args)

@@ -29,6 +29,38 @@ pixel, so the two subjects bleed together (hair/eye/outfit swaps). It works
 text-token may attend to, per region) has simply never been ported. See
 **Planned follow-up** below — the hook point turns out to be unusually clean.
 
+## `image twosubject` — single-prompt + local VLM (recommended today)
+
+The composite below (`image multicouple`) hits a structural ceiling: each
+character is baked with its own lighting/scale/pose, and the resume pass only
+repaints the background, so the result reads as "two photos pasted together"
+no matter how low the measured color split. `image twosubject` instead generates
+**both characters in a single coherent pass** (one shared light/scale/scene —
+the source of naturalness) and lets the **local VLM** (Qwen3-VL via LM Studio)
+beat the single-prompt weakness (token bleeding) automatically:
+
+1. **Prompt master** — the VLM composes ONE anti-bleeding two-subject prompt from
+   two descriptions (or two reference images via i2t caption): a shared
+   scene+lighting prefix, each subject anchored to FAR LEFT / FAR RIGHT, attributes
+   grouped so the DiT binds them to the right subject.
+2. **Best-of-N** — generate N seeds with that one prompt (serial, GPU-safe).
+3. **VLM judge** — score every seed (both present? distinct? natural?) and pick the
+   best; an objective background edge-split is the final tiebreak.
+4. **Revise (opt)** — below `--min-overall` with `--rounds>1`, the VLM diagnoses the
+   bleeding and rewrites the prompt.
+
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py image twosubject \
+  --char-a "<appearance A>" --char-b "<appearance B>" \
+  --candidates 12 --detail      # --detail = 768x1152/20 for max facial/fabric detail
+```
+
+`--ref-a` / `--ref-b` feed two reference images (the VLM captions them and SEES
+them while composing). Fully automatic — no human feedback. Validated 2026-06-25:
+the `--detail` winner's per-face detail matches the single-subject benchmark, and
+the single-prompt winner beats the composite on naturalness, distinctness, AND
+background split simultaneously.
+
 ## Latent-Couple (current approach)
 
 The current approach composites in **latent space**, not pixel space:
@@ -263,8 +295,10 @@ the manifest-driven detection the loader now relies on.
 - **Gaze/pose alignment is not guaranteed** per-character (a character may
   generate centered/facing viewer despite the prompt). Mitigated by the
   harmonize prompt ("facing each other") and by best-of-N seed selection.
-- **Planned R&D (separate PR): regional / attention-couple for the Z-Image DiT.**
-  The hook point is clean: `app/transformer.py:152`
+- **Planned R&D (separate PR): regional / attention-couple for the Z-Image DiT** —
+  the long-term goal that supersedes BOTH the composite (`image multicouple`) and
+  the single-prompt + VLM approach (`image twosubject`). The hook point is clean:
+  `app/transformer.py:152`
   `mx.fast.scaled_dot_product_attention(q, k, v, scale=…, mask=mask)` already
   accepts a `mask` (currently always `None`), the joint attention concatenates
   `[image_tokens, text_tokens]` (`transformer.py:278`) so a 2D region maps
@@ -272,10 +306,11 @@ the manifest-driven detection the loader now relies on.
   monkey-patching MLX attention. A regional-attention patch behind a `--regional`
   flag — split the prompt on `BREAK`/`AND`, build an additive attention bias so
   each region's text tokens attend mainly to their spatial region — would give
-  true single-pass two-character generation. The code is a few hundred lines;
-  the real cost is empirical tuning (mask strength, timestep gating, common-prompt
-  ratio) and will be driven by the `self-improve-image` workflow against this
-  composite pipeline as the baseline.
+  true single-pass two-character generation (natural AND distinct, deterministically).
+  Full design, knobs (`--bias-strength`/`--t-gate`/`--common-ratio`), and success
+  criteria: [`docs/regional-attention-rd.md`](regional-attention-rd.md). The real
+  cost is empirical tuning, driven by the `self-improve-image` workflow against the
+  `image twosubject` winner as the baseline.
 
 ## ComfyUI technique reference
 
