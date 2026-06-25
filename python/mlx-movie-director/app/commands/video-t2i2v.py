@@ -37,9 +37,9 @@ T2I2V_SELF_TESTS = {
             "prompt suppressing zh audio. Real usage uses --action for VLM expansion."
         ),
         "prompt": (
-            "一位年輕女性站在陽光明媚的花園中，她緩緩抬起頭，眼神溫柔地望向鏡頭，"
-            "微笑著輕聲說「你終於來了，我等你很久了」。她的聲音輕柔而溫暖。"
-            "Style: cinematic realism. Soft golden hour light. Quiet garden ambience."
+            "一位穿著淡藍色雪紡連衣裙的年輕女性站在陽光明媚的花園中，她緩緩抬起頭，"
+            "眼神溫柔地望向鏡頭，微笑著輕聲說「你終於來了，我等你很久了」。"
+            "她的聲音輕柔而溫暖。Style: cinematic realism. Soft golden hour light. Quiet garden ambience."
         ),
         "action": None,  # skip VLM stage: zh prompt fed directly; English prompt suppresses zh audio
         "defaults": {
@@ -58,13 +58,54 @@ T2I2V_SELF_TESTS = {
             "ASR gate must detect zh on 「你終於來了」"
         ),
         "prompt": (
-            "a young woman standing in a sunlit garden, elegant and serene"
+            "a young woman standing in a sunlit garden, wearing an elegant floral summer dress, "
+            "serene and confident, beautiful detailed face"
         ),
         "action": "她微笑走向鏡頭，輕聲說「你終於來了」",
         "defaults": {
             "transformer": "dev",
             "frames": 49,
             "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+    "business": {
+        "description": (
+            "Business style clothing test: white blazer + office setting → I2V. "
+            "Validates clothing variety and professional scene generation."
+        ),
+        "prompt": (
+            "a professional woman in her 30s wearing a tailored white blazer and charcoal trousers, "
+            "standing in a modern office with large windows, confident posture, beautiful detailed face, "
+            "cinematic lighting, photorealistic"
+        ),
+        "action": "她點頭微笑，輕聲說「我們開始吧」",
+        "defaults": {
+            "transformer": "dasiwa",
+            "frames": 49,
+            "seed": 42,
+            "t2i_width": 448,
+            "t2i_height": 704,
+            "quality_check": True,
+        },
+    },
+    "traditional": {
+        "description": (
+            "Traditional qipao clothing test: Chinese dress → I2V. "
+            "Validates traditional garment generation and face detail quality."
+        ),
+        "prompt": (
+            "a graceful woman wearing a deep red qipao with gold embroidery patterns, "
+            "standing in a classical Chinese courtyard with stone lanterns, "
+            "beautiful detailed face, elegant posture, soft afternoon light, photorealistic"
+        ),
+        "action": "她輕輕一笑，說「歡迎光臨」",
+        "defaults": {
+            "transformer": "dasiwa",
+            "frames": 49,
+            "seed": 99,
             "t2i_width": 448,
             "t2i_height": 704,
             "quality_check": True,
@@ -165,6 +206,21 @@ def add_t2i2v_args(parser: argparse.ArgumentParser) -> None:
                              "prompt with motion + voice. Omit to skip VLM stage.")
     parser.add_argument("--vlm-api-url", type=str, default=None, metavar="URL",
                         help="VLM API base URL override (default: http://localhost:1234/v1)")
+
+    # --- T2I face quality ---
+    parser.add_argument("--t2i-face-detail", action="store_true",
+                        help="Apply face detailer to T2I output before I2V stage "
+                             "(mediapipe + ZImage re-denoise at denoise=0.15; improves face sharpness "
+                             "and corrects blemishes without changing identity).")
+    parser.add_argument("--t2i-face-detail-denoise", type=float, default=0.15,
+                        help="Face detailer denoise strength (default: 0.15 = subtle; 0.25 = noticeable)")
+
+    # --- Clothing / style injection ---
+    parser.add_argument("--t2i-clothing", type=str, default=None, metavar="DESC",
+                        help="Clothing description appended to T2I prompt to prevent undressed output. "
+                             "Examples: 'wearing a white blazer and black trousers', "
+                             "'穿著淡藍色雪紡連衣裙', 'casual denim jacket and jeans'. "
+                             "Always specify clothing when the main prompt does not describe attire.")
 
     # --- T2I skip / reuse ---
     parser.add_argument("--from-image", type=str, default=None, metavar="PATH",
@@ -735,6 +791,9 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     # Stage 1 — T2I: ZImage generates base image (or reuse --from-image)
     # =========================================================
     prompt = args.prompt
+    # Inject clothing description into T2I prompt to prevent undressed output.
+    t2i_clothing = getattr(args, "t2i_clothing", None)
+    t2i_prompt = f"{prompt}, {t2i_clothing}" if t2i_clothing else prompt
     from_image = getattr(args, "from_image", None)
     t2i_transformer = getattr(args, "t2i_transformer", "moody-pro-mix")
     t2i_steps = getattr(args, "t2i_steps", 9)
@@ -755,7 +814,7 @@ def run_t2i2v(args: argparse.Namespace) -> None:
         print(f"\n[t2i2v] ── Stage 1/3: T2I (ZImage) ──")
         t2i_cmd = build_run_py_cmd(
             "image", "t2i",
-            "--prompt", prompt,
+            "--prompt", t2i_prompt,
             "--transformer", t2i_transformer,
             "--steps", str(t2i_steps),
             "--seed", str(t2i_seed),
@@ -798,6 +857,37 @@ def run_t2i2v(args: argparse.Namespace) -> None:
             sys.exit(1)
         image_path = output_files[0]["path"]
         print(f"[t2i2v] T2I image: {image_path}")
+
+    # =========================================================
+    # Stage 1b (optional) — Face Detail: sharpen T2I face before I2V
+    # =========================================================
+    if getattr(args, "t2i_face_detail", False) and image_path:
+        print(f"\n[t2i2v] ── Stage 1b/3: Face Detail ──")
+        try:
+            from PIL import Image as _PILImage
+            from app.face_detailer import detail_faces
+            _t2i_img = _PILImage.open(image_path).convert("RGB")
+            _denoise = getattr(args, "t2i_face_detail_denoise", 0.15)
+            _fd_prompt = t2i_prompt  # use same prompt as T2I for context
+            _detailed_img, _fd_timings = detail_faces(
+                _t2i_img, _fd_prompt,
+                seed=t2i_seed,
+                denoise_strength=_denoise,
+                steps=9,
+            )
+            _face_detail_path = image_path.replace(".png", "_face_detail.png")
+            if not _face_detail_path.endswith(".png"):
+                _face_detail_path = image_path + "_face_detail.png"
+            _detailed_img.save(_face_detail_path)
+            image_path = _face_detail_path
+            print(f"[t2i2v] Face detail done → {image_path}  "
+                  f"(denoise={_denoise}, {_fd_timings.get('face_detailer_total', 0):.1f}s)")
+        except ImportError as _e:
+            print(f"[t2i2v] WARNING: face detail skipped — {_e} "
+                  "(install mediapipe: pip install mediapipe)", file=sys.stderr)
+        except Exception as _e:
+            print(f"[t2i2v] WARNING: face detail failed ({_e}) — using original T2I image",
+                  file=sys.stderr)
 
     # =========================================================
     # Stage 2 — VLM: generate LTX-optimized I2V prompt
@@ -1024,13 +1114,15 @@ def run_t2i2v(args: argparse.Namespace) -> None:
     else:
         t2i_section = {
             "transformer": t2i_transformer,
-            "prompt": prompt,
+            "prompt": t2i_prompt,
             "steps": t2i_steps,
             "seed": t2i_seed,
             "width": t2i_width,
             "height": t2i_height,
             "cfg_scale": t2i_cfg_scale,
             "image_path": image_path,
+            "face_detail": getattr(args, "t2i_face_detail", False),
+            "clothing_injected": t2i_clothing,
         }
 
     combined_manifest = {
