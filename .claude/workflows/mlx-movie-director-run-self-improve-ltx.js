@@ -91,7 +91,7 @@ const baseCfg = {
 const KNOBS = {
   stage1_steps:       [8, 12, 16, 20, 25],             // 12=best; 8/16/20=avoid@stg=0.5; 25=crash
   stage2_steps:       [1, 3, 5, 7, 10],               // 5=confirmed best; all others neutral/dead-end
-  cfg_scale:          [3, 5, 7, 9],                   // 7=best; 5=avoid@stg=0.5; 9=avoid (voice.DR)
+  cfg_scale:          [3, 5, 7, 9],                   // 7=best (sole viable); 3=avoid(catastrophic -11.89, iter-14); 5=avoid@stg=0.5; 9=avoid (voice.DR)
   stg_scale:          [0.5, 1.0, 1.5, 2.0],           // 0.5=complex-best; 1.0=avoid; 1.5=simple-best; 2.0=crash
   audio_cfg_scale:    [null, 5, 9],                   // null=best; any explicit val regresses
   modality_scale:     [3.0, 4.0, 5.0, 6.0, 10.0],    // 5=best; resonance peak; 4/6=avoid
