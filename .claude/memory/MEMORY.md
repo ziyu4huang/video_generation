@@ -13,6 +13,9 @@ SeedVR2 on Apple Silicon MPS: `offload_device` must be `"none"` (NOT `"cpu"`). T
 ### [Flux2 Klein Face/Head Swap](flux2-klein-face-head-swap.md)
 Face/head swap workflow: PainterFluxImageEdit takes source person → bald generation → AutoCropFaces → face/head swap. Key fix: original prompts said "remove the hair" causing bald results. Fixed to "replace the person's face in Image 1 with the face from Image 2, while keeping the natural hairstyle of Image 1". Also fixed SeedVR2 offload_device config.
 
+### [Purify Source-Dependent](purify-source-dependent.md)
+`image purify` (SeedVR2) is source-dependent: rescues soft/under-detailed images (s45 overall 6→8 via detail+sharpness) but degrades already-sharp ones (s43 9→7). Skin plastic artifact is unfixable by purify OR restore (platform-level, no gen-side lever). Run purify on soft images, never on already-sharp ones. ⚠️ VLM (Gemma) over-praises the result — visually verify the skin dimension.
+
 ## Quick Reference: MPS Constraints
 
 | Constraint | Details |
