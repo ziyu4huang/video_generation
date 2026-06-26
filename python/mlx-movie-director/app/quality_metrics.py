@@ -23,6 +23,7 @@ Metric Limitations (validated via degradation self-test):
 
 import json
 import os
+import sys
 from typing import Any
 import shutil
 import subprocess
@@ -178,7 +179,7 @@ def compare_videos_reference(ref_path: str, test_path: str, sample_every: int = 
         print(
             f"[quality]   WARNING: frame count mismatch (ref={n_ref}, test={n_test}); "
             f"evenly sampling {k} pairs. For exact alignment use an 8k+1-frame baseline.",
-            file=__import__('sys').stderr,
+            file=sys.stderr,
         )
         ref_idx = [round(i * (n_ref - 1) / (k - 1)) for i in range(k)] if k > 1 else [0]
         test_idx = [round(i * (n_test - 1) / (k - 1)) for i in range(k)] if k > 1 else [0]
@@ -231,8 +232,8 @@ def generate_html_report(report_data: dict[str, Any], reference_path: str) -> No
         reference_path: file path used to determine output directory.
     """
     if not os.path.exists(_STATIC_TEMPLATE):
-        print(f"[quality] HTML template not found: {_STATIC_TEMPLATE}", file=__import__('sys').stderr)
-        print("[quality] Skipping HTML report (run from project root)", file=__import__('sys').stderr)
+        print(f"[quality] HTML template not found: {_STATIC_TEMPLATE}", file=sys.stderr)
+        print("[quality] Skipping HTML report (run from project root)", file=sys.stderr)
         return
 
     out_dir = os.path.dirname(os.path.abspath(reference_path))
@@ -265,12 +266,12 @@ def generate_html_report(report_data: dict[str, Any], reference_path: str) -> No
     _start_server(out_js)
 
 
-def _start_server(out_js: str):
+def _start_server(out_js: str) -> None:
     """Launch the Bun HTTP server and open browser."""
     bun = shutil.which("bun")
     if not bun:
-        print("[quality] bun not found — install from https://bun.sh", file=__import__('sys').stderr)
-        print(f"[quality] Run manually: bun run {out_js}", file=__import__('sys').stderr)
+        print("[quality] bun not found — install from https://bun.sh", file=sys.stderr)
+        print(f"[quality] Run manually: bun run {out_js}", file=sys.stderr)
         return
 
     log_fd, log_path = tempfile.mkstemp(prefix="quality-report-", suffix=".log")
@@ -311,10 +312,10 @@ def _start_server(out_js: str):
 # ---------------------------------------------------------------------------
 
 def validate_metric_trends(
-    results: list,
-    metrics_def: list,
-    labels: list,
-) -> list:
+    results: list[dict[str, Any]],
+    metrics_def: list[tuple[str, str]],
+    labels: list[str],
+) -> list[dict[str, Any]]:
     """Validate metric trends across ordered results (index 0 = lowest quality).
 
     Args:

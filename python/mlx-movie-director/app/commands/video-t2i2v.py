@@ -114,7 +114,7 @@ T2I2V_SELF_TESTS = {
 }
 
 
-def _run_t2i2v_self_test(args, st) -> None:
+def _run_t2i2v_self_test(args: argparse.Namespace, st: bool | str | list[str] | None) -> None:
     """Run one or more named t2i2v self-tests."""
     import copy
 
@@ -448,7 +448,13 @@ def _apply_tts_fix(video_path: str, speech_text: str, tts_voice: str) -> bool:
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
             capture_output=True, text=True,
         )
-        dur = float(dur_r.stdout.strip() or "4.0")
+        # ffprobe is best-effort metadata here (only used to trim TTS to video
+        # length). A malformed/non-zero probe should degrade to the 4.0s default,
+        # matching the surrounding 'return False' error paths, not crash.
+        try:
+            dur = float(dur_r.stdout.strip()) if dur_r.returncode == 0 else 4.0
+        except (ValueError, AttributeError):
+            dur = 4.0
 
         # 4. Mix: original @ 0.15 (background) + TTS @ 1.0, trim to video length
         r = subprocess.run([
