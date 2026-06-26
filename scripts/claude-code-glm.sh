@@ -30,7 +30,7 @@
 # Override these environment variables if needed:
 #   Z_AI_MODEL_DEFAULT="glm-5.2[1m]"   # Sonnet-tier model (also the main ANTHROPIC_MODEL)
 #   Z_AI_MODEL_OPUS="glm-5.2[1m]"      # Opus-tier model
-#   Z_AI_MODEL_AIR="glm-4.5-air"       # Haiku-tier model (fast/cheap)
+#   Z_AI_MODEL_AIR="glm-4.7"           # Haiku-tier model (fast/cheap)
 #   Z_AI_MODE="ZAI"                    # API mode
 ########################################
 
@@ -39,7 +39,7 @@
 : "${Z_AI_MODE:="ZAI"}"
 : "${Z_AI_MODEL_OPUS:="glm-5.2[1m]"}"
 : "${Z_AI_MODEL_DEFAULT:="glm-5.2[1m]"}"
-: "${Z_AI_MODEL_AIR:="glm-4.5-air"}"
+: "${Z_AI_MODEL_AIR:="glm-4.7"}"
 : "${Z_AI_MODEL_ALTERNATIVE:="glm-5.2[1m]"}"
 
 glm()
