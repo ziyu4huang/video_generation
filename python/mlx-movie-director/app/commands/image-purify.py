@@ -35,8 +35,10 @@ Examples:
 import argparse
 import json
 import os
+import queue
 import subprocess
 import sys
+import threading
 import time
 
 from app.commands._shared import _arg_registered, build_run_py_cmd, run_session, OutputPaths
@@ -232,6 +234,12 @@ def _parse_resolution(res_str: str) -> tuple[int | float, str]:
 # softness scale (purify < enhance < deartifact < redraw). Higher denoise = more
 # reinterpretation.
 TRANSFORMER_DENOISE = {"purify": 0.35, "enhance": 0.55, "deartifact": 0.7, "redraw": 0.85}
+
+# Upper bound (seconds) for one transformer-backend i2i redraw subprocess. A
+# hung/crashed child (OOM, stuck Metal compile, MLX graph hang) is killed past
+# this deadline so a single purify run cannot hang forever. Module-level so
+# tests can shorten it.
+_TRANSFORMER_SUBPROC_TIMEOUT = 1800
 
 # SeedVR2 is prompt-free; the flux2-klein I2I redraw is prompt-guided, so the
 # transformer backend falls back to a neutral quality prompt when --prompt is unset.
@@ -432,27 +440,45 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
 
     # Stream stdout live AND capture it (so we can parse JSON_SUMMARY afterwards).
     # Guard against a hung/crashed child (OOM, stuck Metal compile, MLX graph
-    # hang) blocking forever: enforce a deadline via timed readline + kill.
-    _SUBPROC_TIMEOUT = 1800  # 30 min upper bound for one i2i redraw
+    # hang): a reader thread performs the blocking readline() — a bare
+    # readline() on the main thread would block FOREVER on a silently-hung
+    # child (alive, no output, no EOF) and defeat the deadline below. The main
+    # thread drains the queue with a short timeout so the deadline stays
+    # reachable, then kills the child.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, bufsize=1)
     captured: list[str] = []
-    assert proc.stdout is not None
-    deadline = time.monotonic() + _SUBPROC_TIMEOUT
+    out = proc.stdout
+    assert out is not None
+
+    _line_q = queue.Queue()
+
+    def _stream_reader() -> None:
+        while True:
+            line = out.readline()
+            if not line:  # EOF — child closed stdout
+                break
+            _line_q.put(line)
+        _line_q.put(None)  # sentinel: lets the main loop tell EOF apart from idle
+
+    _reader = threading.Thread(target=_stream_reader, daemon=True)
+    _reader.start()
+
+    deadline = time.monotonic() + _TRANSFORMER_SUBPROC_TIMEOUT
     timed_out = False
     while True:
-        line = proc.stdout.readline()
-        if line:
-            sys.stdout.write(line)
-            captured.append(line)
+        try:
+            line = _line_q.get(timeout=0.5)
+        except queue.Empty:
+            # No output for 0.5s — child is idle or hung. Enforce the deadline.
+            if time.monotonic() > deadline:
+                timed_out = True
+                break
             continue
-        # No data right now — check if the child has exited.
-        if proc.poll() is not None:
+        if line is None:  # EOF sentinel from the reader thread
             break
-        if time.monotonic() > deadline:
-            timed_out = True
-            break
-        time.sleep(0.1)
+        sys.stdout.write(line)
+        captured.append(line)
     if timed_out:
         proc.kill()
         try:
@@ -461,7 +487,7 @@ def _run_transformer_backend(input_path: str, mode: str, resolution: str | int |
             pass
         raise RuntimeError(
             f"transformer-backend i2i subprocess timed out after "
-            f"{_SUBPROC_TIMEOUT}s; killed child to unblock purify run"
+            f"{_TRANSFORMER_SUBPROC_TIMEOUT}s; killed child to unblock purify run"
         )
     rc = proc.wait()
     if rc != 0:

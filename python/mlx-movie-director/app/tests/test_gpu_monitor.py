@@ -656,3 +656,36 @@ class TestPurifyTransformerBackendGpuLock:
             "child re-enters GpuLock and self-deadlocks (parent holds the lock)."
         )
         assert out == "/tmp/fake_out.png"
+
+
+# ---------------------------------------------------------------------------
+# Test: purify transformer backend must enforce the deadline on a silent hang
+# ---------------------------------------------------------------------------
+# Regression: the streaming loop used a bare blocking readline() on the main
+# thread. A child that hangs SILENTLY (alive, no stdout, no EOF — e.g. an MLX
+# graph hang or stuck Metal compile) made readline() block forever, so the
+# 30-min deadline below it was unreachable and the whole purify run hung. The
+# reader-thread fix drains a queue with a timeout so the deadline can fire.
+
+class TestPurifyTransformerBackendDeadline:
+    def test_silent_hang_trips_deadline_and_kills_child(self, monkeypatch):
+        import importlib
+        image_purify = importlib.import_module("app.commands.image-purify")
+        # Short deadline so the test runs in seconds, not 30 minutes.
+        monkeypatch.setattr(image_purify, "_TRANSFORMER_SUBPROC_TIMEOUT", 2)
+        # Real subprocess that sleeps silently (no stdout) — emulates an
+        # MLX/Metal hang. Sleeps long enough that a WORKING deadline (2s) fires
+        # first; if the deadline regresses, the child exits at 8s (EOF) and
+        # pytest.raises fails fast instead of hanging the suite.
+        hang_cmd = [sys.executable, "-c", "import time; time.sleep(8)"]
+        monkeypatch.setattr(image_purify, "build_run_py_cmd", lambda *a, **k: hang_cmd)
+
+        start = time.monotonic()
+        with pytest.raises(RuntimeError, match="timed out"):
+            image_purify._run_transformer_backend(
+                input_path="x.png", mode="purify", resolution=1.0,
+                w0=64, h0=64, seed=1, prompt=None,
+            )
+        elapsed = time.monotonic() - start
+        # Deadline (2s) fired — the call did NOT wait for the child's 8s sleep.
+        assert elapsed < 6, f"deadline did not fire; waited {elapsed:.1f}s"
