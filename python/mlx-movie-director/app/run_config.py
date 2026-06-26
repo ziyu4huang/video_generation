@@ -242,7 +242,10 @@ class RunConfig:
             lora_scale=1.0,        # set by multi-LoRA normalize below
             vae_path=resolve_vae_path(getattr(args, "vae_path", None)),
             input_image=getattr(args, "input_image", None) or getattr(args, "input", None),
-            latent_upscale=getattr(args, "latent_upscale", 1.0),
+            latent_upscale=(
+                args.latent_upscale if getattr(args, "latent_upscale", None) is not None
+                else 1.0
+            ),
             denoise_strength=(
                 args.denoise_strength if getattr(args, "denoise_strength", None) is not None
                 else 1.0
@@ -267,8 +270,14 @@ class RunConfig:
             enhance_prompt=getattr(args, "enhance_prompt", False),
             begin_image=getattr(args, "begin_image", None),
             end_image=getattr(args, "end_image", None),
-            begin_strength=getattr(args, "begin_strength", 1.0),
-            end_strength=getattr(args, "end_strength", 1.0),
+            begin_strength=(
+                args.begin_strength if getattr(args, "begin_strength", None) is not None
+                else 1.0
+            ),
+            end_strength=(
+                args.end_strength if getattr(args, "end_strength", None) is not None
+                else 1.0
+            ),
             distilled=getattr(args, "distilled", False),
             temporal_upscale=getattr(args, "temporal_upscale", False),
             control_image=getattr(args, "control_image", None),

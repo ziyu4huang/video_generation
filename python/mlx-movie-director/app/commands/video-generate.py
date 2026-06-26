@@ -51,7 +51,7 @@ _VALID_FRAMES_MSG = (
 )
 
 
-def add_generate_args(parser):
+def add_generate_args(parser: argparse.ArgumentParser) -> None:
     """Register video generation arguments."""
     prompt_grp = parser.add_mutually_exclusive_group()
     prompt_grp.add_argument("--prompt", type=str, help="Text prompt")
@@ -492,7 +492,7 @@ def run_generate(args: argparse.Namespace) -> None:
     _run_generate_inner(args)
 
 
-def _run_generate_self_test(args, st):
+def _run_generate_self_test(args: argparse.Namespace, st: bool | str | list[str] | None) -> None:
     """Run self-test: generate video(s) for each named test prompt.
 
     Args:
