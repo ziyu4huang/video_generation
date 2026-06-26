@@ -476,6 +476,17 @@ def _fit_to_dual_images(begin_path: str, end_path: str, width: int, height: int)
     return new_w, new_h
 
 
+def _output_frame_count(frames, temporal_upscale):
+    """Actual number of frames in the rendered output video.
+
+    ``frames`` is the input ``--frames`` value (a generation PARAM, recorded in
+    the manifest as-is so ``replay`` reproduces the run). Temporal-upscale
+    expands F → 2F-1; without it the rendered count equals the input. Use this
+    for the manifest's ``output_frames`` field — never overwrite ``frames``.
+    """
+    return (frames * 2 - 1) if (temporal_upscale and frames) else frames
+
+
 def run_generate(args: argparse.Namespace) -> None:
     """Entry point for video generation."""
     _run_generate_inner(args)
@@ -939,6 +950,7 @@ def _run_single(args, prompt: str) -> None:
             "width": args.width,
             "height": args.height,
             "frames": frames,
+            "output_frames": _output_frame_count(frames, temporal_upscale),
             "fps": args.fps,
         }]
         ctx["models"] = _collect_model_fingerprints(pipeline._model_dir, args=args)
@@ -1089,6 +1101,7 @@ def _run_variations(args, prompt: str, variations: int, ab_params: dict | None) 
                 "width": args.width,
                 "height": args.height,
                 "frames": args.frames,
+                "output_frames": _output_frame_count(args.frames, getattr(args, "temporal_upscale", False)),
                 "fps": args.fps,
             }]
 
