@@ -214,7 +214,8 @@ extension ZImageCLI {
             )
             let manifest = Manifest.success(
                 runFile: paths.runJSON, startTime: startTime, endTime: endTime,
-                timings: [:], models: [:], outputFiles: [outInfo], quality: nil
+                timings: [:], models: [:], outputFiles: [outInfo], quality: nil,
+                perf: pipeline.lastPerf
             )
             if outputOptions.writeManifest {
                 try manifest.write(to: paths.manifestJSON)

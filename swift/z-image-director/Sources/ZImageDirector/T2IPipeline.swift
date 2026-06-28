@@ -21,6 +21,10 @@ public final class T2IPipeline {
     public let vaeEncoder: ZImageVAEEncoder?
     public let config: TransformerConfig
 
+    /// Last generate() performance breakdown (nil before first run). Read this
+    /// after generate() returns to embed per-step it/s + memory into the manifest.
+    public private(set) var lastPerf: GenerationPerf?
+
     public init(transformerWeights: [String: MLXArray], vaeWeights: [String: MLXArray],
                 config: TransformerConfig, groupSize: Int = 64, bits: Int = 8) {
         self.config = config
@@ -272,9 +276,20 @@ public final class T2IPipeline {
         }
         let runSteps = steps - startStep
         let totalMs = stepTimes.reduce(0, +)
-        let totalSec = String(format: "%.2f", totalMs / 1000)
-        let perStep = String(format: "%.2f", totalMs / 1000 / Double(runSteps))
-        print("   denoise total: \(totalSec)s, avg \(perStep)s/it")
+        let totalSec = totalMs / 1000
+        let perStep = String(format: "%.2f", totalSec / Double(runSteps))
+        print("   denoise total: \(String(format: "%.2f", totalSec))s, avg \(perStep)s/it")
+
+        // Capture per-step perf for the manifest (it/s, memory, total).
+        lastPerf = GenerationPerf(
+            steps: runSteps,
+            startStep: startStep,
+            stepTimesMs: stepTimes,
+            totalSeconds: totalSec,
+            peakMemoryMB: peakRSSMB(),
+            width: width,
+            height: height
+        )
 
         // VAE decode → (1, 3, H, W) float32 [0,1].
         guard let vae = vae else {
