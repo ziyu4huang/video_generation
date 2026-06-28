@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 70,
+  "count": 72,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -282,6 +282,14 @@
     "transformer/moody-desire-mix/4.safetensors": {
       "md5": "724c424ac34de526c3660e79e4029700",
       "size": 1194893301
+    },
+    "transformer/z-image-base/model.safetensors": {
+      "md5": "34f7959ba2560e9e3efea80a4e7034ba",
+      "size": 6540686735
+    },
+    "transformer/redcraft-agile/model.safetensors": {
+      "md5": "ee89e961d614cbf646cbb04a2944caab",
+      "size": 6540686735
     }
   }
 }
