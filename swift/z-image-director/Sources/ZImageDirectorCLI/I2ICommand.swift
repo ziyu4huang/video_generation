@@ -179,8 +179,7 @@ extension ZImageCLI {
                 seed: seed, width: validated.width, height: validated.height,
                 steps: resolvedSteps, cfgScale: resolvedCfg,
                 cleanLatent: cleanLatent, denoiseStrength: effectiveStrength,
-                mask: maskArray,
-                useCompile: outputOptions.useCompile
+                mask: maskArray
             )
 
             // --- Save ---
