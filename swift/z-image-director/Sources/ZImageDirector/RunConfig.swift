@@ -45,6 +45,9 @@ public struct RunConfig: Codable {
     public let cfgScale: Float
     public let loraPaths: [String]?
     public let loraScale: Float
+    /// Per-LoRA scales (one per entry in `loraPaths`); nil when the single
+    /// `loraScale` broadcast was used. Matches python's `lora_scales` list.
+    public let loraScales: [Float]?
     public let textEncoder: String
     public let tokenizer: String
     public let vae: String
@@ -56,11 +59,13 @@ public struct RunConfig: Codable {
         transformer: String, prompt: String, width: Int, height: Int,
         steps: Int, seed: UInt64, cfgScale: Float,
         loraPaths: [String]?, loraScale: Float,
+        loraScales: [Float]? = nil,
         textEncoder: String, tokenizer: String, vae: String,
-        quantBits: Int, quantGroupSize: Int
+        quantBits: Int, quantGroupSize: Int,
+        command: String = "t2i"
     ) {
         self.schemaVersion = 3
-        self.command = "t2i"
+        self.command = command
         self.pipeline = "zimage"
         self.transformer = transformer
         self.prompt = prompt
@@ -71,6 +76,7 @@ public struct RunConfig: Codable {
         self.cfgScale = cfgScale
         self.loraPaths = loraPaths?.isEmpty == false ? loraPaths : nil
         self.loraScale = loraScale
+        self.loraScales = loraScales?.isEmpty == false ? loraScales : nil
         self.textEncoder = textEncoder
         self.tokenizer = tokenizer
         self.vae = vae
@@ -88,6 +94,7 @@ public struct RunConfig: Codable {
         case cfgScale = "cfg_scale"
         case loraPaths = "lora_paths"
         case loraScale = "lora_scale"
+        case loraScales = "lora_scales"
         case textEncoder = "text_encoder"
         case tokenizer, vae
         case quantBits = "quant_bits"

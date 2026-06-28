@@ -200,6 +200,50 @@ final class VAEUpDecoderBlock: Module {
     }
 }
 
+// MARK: - VAE encoder blocks (i2i: image → latent)
+
+/// Stride-2 conv downsampler with asymmetric spatial padding.
+/// Port of mflux DownSampler: pad H,W by (0,1) each, transpose to NHWC,
+/// Conv2d(k3, s2, p0), transpose back. Halves spatial dims.
+final class VAEDownSampler: Module {
+    let conv: LoadedConv2d
+
+    init(conv: LoadedConv2d) {
+        self.conv = conv
+        super.init()
+    }
+
+    func callAsFunction(_ inputArray: MLXArray) -> MLXArray {
+        // Input NCHW. Pad spatial dims (axes 2,3) by 1 on the bottom/right,
+        // matching Python mx.pad(input, ((0,0),(0,0),(0,1),(0,1)))).
+        let widths: [IntOrPair] = [0, 0, [0, 1], [0, 1]]
+        let padded = MLX.padded(inputArray, widths: widths)
+        // NCHW → NHWC, conv stride 2 (no padding), NHWC → NCHW
+        let hidden = padded.transposed(0, 2, 3, 1)
+        return conv(hidden).transposed(0, 3, 1, 2)
+    }
+}
+
+/// Encoder down block: 2 ResnetBlock2D + optional DownSampler.
+/// Mirror of VAEUpDecoderBlock but with 2 resnets (not 3) and downsampling.
+final class VAEDownEncoderBlock: Module {
+    let resnets: [VAEResnetBlock2D]
+    let downsamplers: [VAEDownSampler]?
+
+    init(resnets: [VAEResnetBlock2D], downsamplers: [VAEDownSampler]?) {
+        self.resnets = resnets
+        self.downsamplers = downsamplers
+        super.init()
+    }
+
+    func callAsFunction(_ hidden: MLXArray) -> MLXArray {
+        var state = hidden
+        for resnet in resnets { state = resnet(state) }
+        if let downs = downsamplers { for d in downs { state = d(state) } }
+        return state
+    }
+}
+
 // MARK: - Full decoder + weight builder
 
 public final class ZImageVAEDecoder: Module {
@@ -297,5 +341,128 @@ public final class ZImageVAEDecoder: Module {
         hidden = MLXNN.silu(hidden)
         hidden = convOutApply(hidden)
         return hidden
+    }
+}
+
+// MARK: - VAE Encoder (i2i: image → latent)
+
+/// Z-Image VAE encoder. Port of mflux z_image_vae.encoder.Encoder.
+///
+/// Path: ConvIn(3→128) → Down×3 (128→128→256→512, stride-2) →
+///       Down×1 (512→512, no-down) → UNetMidBlock(512, +attn) →
+///       GroupNorm → SiLU → ConvOut(512→32) → split mean → scale.
+///
+/// Weight-key note: encoder conv_in/conv_out use `.conv2d.{weight,bias}`
+/// (decoder uses `.conv.`); resnets/downsamplers share the same `.conv1/`conv2`/
+/// `.conv` naming as the decoder. Input pixels are in [-1, 1] (normalized).
+public final class ZImageVAEEncoder: Module {
+
+    let convIn: LoadedConv2d
+    let downBlocks: [VAEDownEncoderBlock]
+    let midBlock: VAEMidBlock
+    let convNormOut: LoadedGroupNorm
+    let convOut: LoadedConv2d
+
+    /// Same NHWC-wrappers as the decoder.
+    func convInCall(_ input: MLXArray) -> MLXArray {
+        let hidden = input.transposed(0, 2, 3, 1)   // NCHW → NHWC
+        return convIn(hidden).transposed(0, 3, 1, 2)
+    }
+
+    func convNormOutApply(_ input: MLXArray) -> MLXArray {
+        let hidden = input.transposed(0, 2, 3, 1).asType(.float32)  // NHWC, float32
+        return convNormOut(hidden).asType(input.dtype).transposed(0, 3, 1, 2)
+    }
+
+    func convOutApply(_ input: MLXArray) -> MLXArray {
+        let hidden = input.transposed(0, 2, 3, 1)
+        return convOut(hidden).transposed(0, 3, 1, 2)
+    }
+
+    /// Load from the same weights dict as the decoder (keys prefixed `encoder.`).
+    /// NOTE: conv_in/conv_out use `.conv2d.` (not `.conv.`) in the encoder keys.
+    public init(weights: [String: MLXArray]) {
+        func weightLookup(_ key: String) -> MLXArray { weights["encoder." + key]! }
+        func conv2d(_ path: String, padding: Int) -> LoadedConv2d {
+            LoadedConv2d(weight: weightLookup("\(path).weight"),
+                         bias: weightLookup("\(path).bias"), padding: padding)
+        }
+        func norm(_ path: String) -> LoadedGroupNorm {
+            LoadedGroupNorm(weight: weightLookup("\(path).weight"),
+                            bias: weightLookup("\(path).bias"))
+        }
+        func lin(_ path: String) -> Linear {
+            Linear(weight: weightLookup("\(path).weight"), bias: weightLookup("\(path).bias"))
+        }
+        // Resnets in the encoder use the same .conv1/.conv2 key names as decoder.
+        func conv(_ path: String, padding: Int, stride: Int = 1) -> LoadedConv2d {
+            LoadedConv2d(weight: weightLookup("\(path).weight"),
+                         bias: weightLookup("\(path).bias"), stride: stride, padding: padding)
+        }
+        func resnet(_ path: String) -> VAEResnetBlock2D {
+            let shortcutConv: LoadedConv2d? = weights["encoder.\(path).conv_shortcut.weight"].map { _ in
+                conv("\(path).conv_shortcut", padding: 0)
+            }
+            return VAEResnetBlock2D(
+                norm1: norm("\(path).norm1"), conv1: conv("\(path).conv1", padding: 1),
+                norm2: norm("\(path).norm2"), conv2: conv("\(path).conv2", padding: 1),
+                convShortcut: shortcutConv
+            )
+        }
+
+        // conv_in uses the `.conv2d` key suffix (encoder-specific).
+        self.convIn = conv2d("conv_in.conv2d", padding: 1)
+
+        // 4 down blocks: (128→128,down), (128→256,down), (256→512,down), (512→512,no down).
+        // Each has 2 resnets; downsampler present on blocks 0-2 only.
+        let downConfigs: [(out: Int, addDown: Bool)] = [
+            (out: 128, addDown: true),
+            (out: 256, addDown: true),
+            (out: 512, addDown: true),
+            (out: 512, addDown: false),
+        ]
+        self.downBlocks = downConfigs.enumerated().map { (blockIdx, cfg) in
+            VAEDownEncoderBlock(
+                resnets: (0..<2).map { layerIdx in resnet("down_blocks.\(blockIdx).resnets.\(layerIdx)") },
+                downsamplers: cfg.addDown
+                    ? [VAEDownSampler(conv: conv("down_blocks.\(blockIdx).downsamplers.0.conv", padding: 0, stride: 2))]
+                    : nil
+            )
+        }
+
+        self.midBlock = VAEMidBlock(
+            resnet1: resnet("mid_block.resnets.0"),
+            attention: VAEAttention(
+                groupNorm: norm("mid_block.attentions.0.group_norm"),
+                toq: lin("mid_block.attentions.0.to_q"),
+                tok: lin("mid_block.attentions.0.to_k"),
+                tov: lin("mid_block.attentions.0.to_v"),
+                too: lin("mid_block.attentions.0.to_out.0")
+            ),
+            resnet2: resnet("mid_block.resnets.1")
+        )
+
+        self.convNormOut = norm("conv_norm_out.norm")
+        // conv_out uses the `.conv2d` key suffix (encoder-specific).
+        self.convOut = conv2d("conv_out.conv2d", padding: 1)
+        super.init()
+    }
+
+    /// Encode pixels (1, 3, H, W) → raw 32-channel output, then take the mean
+    /// half (first 16 channels) and apply the VAE shift/scale.
+    /// Matches VAE.encode: latent = (mean - 0.1159) * 0.3611.
+    /// Input pixels are expected normalized to [-1, 1].
+    public func callAsFunction(_ pixels: MLXArray) -> MLXArray {
+        var hidden = convInCall(pixels)
+        for downBlock in downBlocks { hidden = downBlock(hidden) }
+        hidden = midBlock(hidden)
+        hidden = convNormOutApply(hidden)
+        hidden = MLXNN.silu(hidden)
+        hidden = convOutApply(hidden)   // (1, 32, H/8, W/8)
+        // Split into (mean, logvar); take mean (first 16 channels).
+        let mean = hidden[0..<1, 0..<16, 0..., 0...]
+        let scalingFactor: Float = 0.3611
+        let shiftFactor: Float = 0.1159
+        return (mean - shiftFactor) * scalingFactor
     }
 }
