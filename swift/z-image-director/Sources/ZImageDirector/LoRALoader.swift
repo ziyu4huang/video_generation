@@ -12,6 +12,16 @@
 //  LoRA files are int8-quantized: lora_A.weight + lora_A.weight.scale (scalar).
 //  Standard z-image LoRAs: rank=32, no alpha key, scale = user_scale.
 //
+//  Parity with python `app/lora_utils.py:apply_lora` (as of 2026-06):
+//  ✅ lora_A/lora_B key detection + int8 dequant (value × scalar scale)
+//  ✅ Standard float LoRA passthrough + key remapping (diffusion_model. strip, ...)
+//  ✅ delta = loraB @ loraA × scale baking (equivalent to runtime LoRALinearWrapper)
+//  ✅ Multi-LoRA stacking with PER-LoRA scale (T2ICommand pairs --lora / --lora-scale by index)
+//  ⚠️ KNOWN GAPS (do not affect the zimage-turbo LoRA family, which uses lora_A/B, no alpha):
+//     - alpha scaling (python: scale_factor = alpha/rank) — z-image LoRAs carry no alpha key
+//     - lora_down/lora_up naming (older ComfyUI convention) — only lora_A/lora_B handled
+//     - LoKR (Kronecker) format dispatch — not implemented
+//
 
 import Foundation
 import MLX

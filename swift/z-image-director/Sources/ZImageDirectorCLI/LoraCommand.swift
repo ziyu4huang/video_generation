@@ -2,7 +2,7 @@
 //  LoraCommand.swift
 //  ZImageDirectorCLI
 //
-//  `zimage lora` — LoRA discovery (list / info).
+//  `zimage lora` — LoRA discovery (list / info), backed by ModelRegistry.
 //
 
 import ArgumentParser
@@ -21,69 +21,81 @@ extension ZImageCLI {
 }
 
 extension ZImageCLI.Lora {
-    /// `zimage lora list` — enumerate all LoRAs in models/lora/.
+    /// `zimage lora list` — enumerate all LoRAs via the registry.
     struct List: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "list", abstract: "List all available LoRA adapters."
         )
-        func run() throws {
-            let loraDir = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/lora")
-            let contents = (try? FileManager.default.contentsOfDirectory(atPath: loraDir.path)) ?? []
-            let dirs = contents.filter { name in
-                var isDir: ObjCBool = false
-                let path = loraDir.appendingPathComponent(name).path
-                return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
-            }.sorted()
 
-            print("Available LoRA adapters (\(dirs.count) found):")
+        @OptionGroup var globals: GlobalOptions
+
+        @Flag(help: "Show only Z-Image (arch=zimage-turbo) LoRAs.")
+        var zimage: Bool = false
+
+        func run() throws {
+            globals.apply()
+            var manifests = ModelRegistry.list("lora")
+            if zimage {
+                manifests = manifests.filter { $0.arch == "zimage-turbo" }
+            }
+            print("Available LoRA adapters (\(manifests.count) found under \(ModelPaths.loraRoot.path)):")
             print("")
-            for name in dirs {
-                let manifestURL = loraDir.appendingPathComponent(name).appendingPathComponent("manifest.json")
-                var desc = ""
-                var arch = ""
-                var fmt = ""
-                if let data = try? Data(contentsOf: manifestURL),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    desc = (json["description"] as? String) ?? ""
-                    arch = (json["arch"] as? String) ?? "?"
-                    fmt = (json["format"] as? String) ?? "?"
+            for manifest in manifests {
+                let present = manifest.isPresent ? "✓" : "✗"
+                let descSuffix = manifest.description.isEmpty
+                    ? ""
+                    : " — \(manifest.description.prefix(60))"
+                print("  \(present) \(manifest.name)  [\(manifest.arch)/\(manifest.format)]\(descSuffix)")
+                if !manifest.triggerWords.isEmpty {
+                    print("      triggers: \(manifest.triggerWords.joined(separator: ", "))")
                 }
-                let descSuffix = desc.isEmpty ? "" : " — \(desc.prefix(60))"
-                print("  \(name)  [\(arch)/\(fmt)]\(descSuffix)")
+                if let scale = manifest.recommendedScale {
+                    print("      recommended scale: \(scale)")
+                }
             }
             print("")
             print("Use: zimage t2i --lora <name> --lora-scale 1.0")
         }
     }
 
-    /// `zimage lora info NAME` — inspect a specific LoRA.
+    /// `zimage lora info NAME` — inspect a specific LoRA via the registry.
     struct Info: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "info", abstract: "Show details + target layers for a LoRA."
         )
+
+        @OptionGroup var globals: GlobalOptions
+
         @Argument(help: "LoRA name (under models/lora/).")
         var name: String
 
         func run() throws {
-            let loraDir = ModelPaths.repoRoot
-                .appendingPathComponent("python/mlx-movie-director/models/lora/\(name)")
+            globals.apply()
+            // Registry first; fall back to a direct path so loose .safetensors
+            // files without a manifest.json still inspect usefully.
+            let manifest = ModelRegistry.manifest(forType: "lora", name: name)
+            let loraDir = manifest?.directory ?? ModelPaths.lora(name)
             guard FileManager.default.fileExists(atPath: loraDir.path) else {
                 throw ValidationError("LoRA not found: \(name) (try 'zimage lora list')")
             }
-            let manifestURL = loraDir.appendingPathComponent("manifest.json")
-            if let data = try? Data(contentsOf: manifestURL),
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let manifest {
                 print("LoRA: \(name)")
-                print("  description : \(json["description"] as? String ?? "-")")
-                print("  arch        : \(json["arch"] as? String ?? "-")")
-                print("  format      : \(json["format"] as? String ?? "-")")
-                let compat = (json["compatible_with"] as? [String])?.joined(separator: ", ") ?? "-"
-                print("  compatible  : \(compat)")
-                print("  source      : \(json["source_url"] as? String ?? "-")")
-                if let size = json["size_bytes"] as? Int {
+                print("  description : \(manifest.description.isEmpty ? "-" : manifest.description)")
+                print("  arch        : \(manifest.arch.isEmpty ? "-" : manifest.arch)")
+                print("  format      : \(manifest.format.isEmpty ? "-" : manifest.format)")
+                print("  compatible  : \(manifest.compatibleWith.isEmpty ? "-" : manifest.compatibleWith.joined(separator: ", "))")
+                print("  source      : \(manifest.source.isEmpty ? "-" : manifest.source)")
+                if let size = manifest.sizeBytes {
                     print("  size        : \(String(format: "%.1f", Double(size) / 1e6)) MB")
                 }
+                if !manifest.triggerWords.isEmpty {
+                    print("  triggers    : \(manifest.triggerWords.joined(separator: ", "))")
+                }
+                if let scale = manifest.recommendedScale {
+                    print("  rec. scale  : \(scale)")
+                }
+            } else {
+                print("LoRA: \(name)  (no manifest.json — inspecting files directly)")
             }
             let contents = (try? FileManager.default.contentsOfDirectory(atPath: loraDir.path)) ?? []
             guard let safetensorsFile = contents.first(
