@@ -148,8 +148,11 @@ public final class ZImageTransformer: Module {
         let unifiedOriginalImg = useCnet ? unified[0..., 0..<xLen, 0...] : nil
 
         // ControlNet stride-2 injection: control_layer[k] → main_layer[k * div].
+        // Python: div = max(1, round(len(layers) / n_control_layers)) — banker's rounding.
         let nCnetLayers = useCnet ? (controlnet?.nControlLayers ?? 0) : 0
-        let div = nCnetLayers > 0 ? max(1, (layers.count + nCnetLayers/2) / nCnetLayers) : 2
+        let div = nCnetLayers > 0
+            ? max(1, Int((Float(layers.count) / Float(nCnetLayers)).rounded(.toNearestOrEven)))
+            : 2
         var cnetLayerIdx = 0
 
         for (i, blk) in layers.enumerated() {

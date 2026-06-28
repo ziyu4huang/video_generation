@@ -91,7 +91,7 @@ extension ZImageCLI {
 
             let defaults = TransformerDefaultsRegistry.resolve(forTransformer: transformer)
             let resolvedSteps = steps ?? defaults.steps ?? 9
-            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 4.0
+            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 1.0
 
             print("zimage inpaint-cn — ControlNet 2.1 inpainting")
             print("  transformer : \(transformer) (Turbo)")

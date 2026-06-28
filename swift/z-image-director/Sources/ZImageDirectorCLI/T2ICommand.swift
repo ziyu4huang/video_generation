@@ -135,7 +135,7 @@ extension ZImageCLI {
             // Applied only to fields the user left nil.
             let defaults = TransformerDefaultsRegistry.resolve(forTransformer: transformer)
             let resolvedSteps = steps ?? defaults.steps ?? 9
-            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 4.0
+            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 1.0
             // Skip the "using manifest default" note under --self-test: the preset
             // carries its own fixed steps/cfg and overrides these, so the note
             // would be misleading. It's accurate for real (no-self-test) runs.

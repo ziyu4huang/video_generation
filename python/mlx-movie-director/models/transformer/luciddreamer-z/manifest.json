@@ -22,5 +22,7 @@
   ],
   "size_bytes": 6540686735,
   "created_at": "2026-06-21T02:32:49Z",
-  "source_url": "https://civitai.com/models/2229037"
+  "source_url": "https://civitai.com/models/2229037",
+  "recommended_steps": 9,
+  "recommended_cfg": 1.0
 }

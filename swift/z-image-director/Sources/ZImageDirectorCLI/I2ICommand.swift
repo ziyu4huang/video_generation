@@ -97,7 +97,7 @@ extension ZImageCLI {
             // Resolve steps/cfg from manifest defaults when omitted.
             let defaults = TransformerDefaultsRegistry.resolve(forTransformer: transformer)
             let resolvedSteps = steps ?? defaults.steps ?? 9
-            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 4.0
+            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 1.0
 
             let strength = max(0.0, min(1.0, denoiseStrength))
 
