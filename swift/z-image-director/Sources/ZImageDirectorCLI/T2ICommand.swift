@@ -5,6 +5,7 @@
 //  `zimage t2i` — text-to-image generation (mirrors `run.py image t2i`).
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import ImageGenUtils
@@ -186,7 +187,7 @@ extension ZImageCLI {
             // --resolution is given, the explicit --width/--height (default
             // 640×960 = zimage 'model' tier) stand.
             if let resolution {
-                guard let preset = ZImageDirector.Resolution.resolvePreset(
+                guard let preset = CommonImageDirector.Resolution.resolvePreset(
                     resolution, pipeline: .zimage
                 ) else {
                     throw ValidationError("Unknown resolution preset: \(resolution)")
@@ -198,7 +199,7 @@ extension ZImageCLI {
                 )
                 print("  resolution : \(resolution) → \(preset.w)×\(preset.h)")
             }
-            let validated = ZImageDirector.Resolution.validate(width: params.width, height: params.height)
+            let validated = CommonImageDirector.Resolution.validate(width: params.width, height: params.height)
             return GenParams(
                 prompt: params.prompt, width: validated.width, height: validated.height,
                 steps: params.steps, seed: params.seed, cfgScale: params.cfgScale,

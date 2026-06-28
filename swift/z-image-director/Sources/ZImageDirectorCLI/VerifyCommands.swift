@@ -6,6 +6,7 @@
 //  against Python reference dumps.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import MLX

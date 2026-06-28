@@ -7,6 +7,7 @@
 //  Mirrors the discovery half of python/mlx-movie-director/app/model_registry.py.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import ZImageDirector

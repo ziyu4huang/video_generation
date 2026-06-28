@@ -15,6 +15,7 @@
 //  trap; see memory `argparse-sentinel-for-user-override`).
 //
 
+import CommonImageDirector
 import Foundation
 
 /// Effective per-transformer recommended parameters, resolved manifest-first.

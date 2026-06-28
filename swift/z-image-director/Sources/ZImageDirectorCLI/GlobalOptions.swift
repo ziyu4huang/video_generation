@@ -15,6 +15,7 @@
 //  flag at all and works everywhere.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import ZImageDirector

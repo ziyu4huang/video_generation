@@ -62,11 +62,12 @@ public struct RunConfig: Codable {
         loraScales: [Float]? = nil,
         textEncoder: String, tokenizer: String, vae: String,
         quantBits: Int, quantGroupSize: Int,
-        command: String = "t2i"
+        command: String = "t2i",
+        pipeline: String = "zimage"
     ) {
         self.schemaVersion = 3
         self.command = command
-        self.pipeline = "zimage"
+        self.pipeline = pipeline
         self.transformer = transformer
         self.prompt = prompt
         self.width = width

@@ -7,6 +7,7 @@
 //  Text embeddings come from the embedding-exchange file (Phase 3 deferred).
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 import MLXRandom

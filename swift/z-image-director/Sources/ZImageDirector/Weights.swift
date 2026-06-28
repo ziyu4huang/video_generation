@@ -7,6 +7,7 @@
 //  ZImageTransformerMLX consumes weights via mlx.nn.Module.load_weights().
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 import MLXNN

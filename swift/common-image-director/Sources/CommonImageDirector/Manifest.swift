@@ -278,7 +278,7 @@ public struct Manifest: Codable {
 }
 
 /// Peak resident memory (mach task_basic_info resident_size).
-func peakRSSMB() -> Double {
+public func peakRSSMB() -> Double {
     var info = mach_task_basic_info()
     var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<integer_t>.size)
     let result = withUnsafeMutablePointer(to: &info) {

@@ -7,6 +7,7 @@
 //  `run.py schema-defaults`: safe to call at GUI startup — no model loading.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import ZImageDirector

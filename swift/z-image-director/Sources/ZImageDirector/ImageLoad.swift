@@ -6,6 +6,7 @@
 //  Mirrors ImageSave conventions — RGB, CHW layout, [0,1] range.
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 import ImageIO

@@ -14,6 +14,7 @@
 //    1.00      → full regeneration (ignore input image)
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import MLX

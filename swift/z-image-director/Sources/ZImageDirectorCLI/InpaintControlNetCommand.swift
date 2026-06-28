@@ -12,6 +12,7 @@
 //  (same image — anchors appearance in the preserved region).
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import MLX

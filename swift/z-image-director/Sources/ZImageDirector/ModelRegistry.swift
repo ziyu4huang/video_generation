@@ -16,6 +16,7 @@
 //  so newly-added metadata does not require a registry rebuild.
 //
 
+import CommonImageDirector
 import Foundation
 
 /// One model instance's manifest, decoded loosely so unknown keys survive.

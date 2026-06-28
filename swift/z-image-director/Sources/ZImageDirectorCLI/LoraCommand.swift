@@ -5,6 +5,7 @@
 //  `zimage lora` — LoRA discovery (list / info), backed by ModelRegistry.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import MLX
