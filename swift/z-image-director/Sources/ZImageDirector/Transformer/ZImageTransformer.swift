@@ -94,26 +94,44 @@ public final class ZImageTransformer: Module {
     public func callAsFunction(
         x: MLXArray, t: MLXArray, capFeats: MLXArray,
         xPos: MLXArray, capPos: MLXArray, cos: MLXArray, sin: MLXArray,
-        xMask: MLXArray? = nil, capMask: MLXArray? = nil
+        xMask: MLXArray? = nil, capMask: MLXArray? = nil,
+        controlnet: ZImageControlNet? = nil,
+        controlnetContext: MLXArray? = nil,
+        controlnetStrength: Float = 1.0
     ) -> MLXArray {
+        let useCnet = controlnet != nil && controlnetContext != nil
         let temb = tEmbedder(t * tScale)
         var xi = xEmbedder(x)
         if let xMask = xMask {
             xi = MLX.where(xMask.expandedDimensions(axis: -1), xPadToken, xi)
         }
 
+        // Save original embedded x for ControlNet (ComfyUI passes original, not current).
+        let xOriginal = useCnet ? xi : nil
+
         var cap = capEmbedderLinear(capEmbedderNorm(capFeats))
         if let capMask = capMask {
             cap = MLX.where(capMask.expandedDimensions(axis: -1), capPadToken, cap)
         }
 
-        // Noise refiners (image tokens).
+        // Noise refiners — interleaved with ControlNet noise refiner blocks.
+        var cnetCtx = controlnetContext
         var cosImg = cos[0..., 0..<xi.dim(1)]
         var sinImg = sin[0..., 0..<xi.dim(1)]
-        for blk in noiseRefiner {
+        for (refI, blk) in noiseRefiner.enumerated() {
             xi = blk(xi, mask: nil, positions: xPos, adalnInput: temb, cos: cosImg, sin: sinImg)
             cosImg = cos[0..., 0..<xi.dim(1)]
             sinImg = sin[0..., 0..<xi.dim(1)]
+
+            if useCnet, let cnet = controlnet, let ctx = cnetCtx, let xOrig = xOriginal {
+                let cosC = cosImg[0..., 0..<ctx.dim(1)]
+                let sinC = sinImg[0..., 0..<ctx.dim(1)]
+                let (residual, newCtx) = cnet.forwardNoiseRefiner(
+                    layerId: refI, controlContext: ctx, mainHidden: xOrig,
+                    temb: temb, cos: cosC, sin: sinC)
+                cnetCtx = newCtx
+                xi = xi + residual * controlnetStrength
+            }
         }
 
         // Context refiners (caption tokens).
@@ -126,7 +144,31 @@ public final class ZImageTransformer: Module {
         var unified = MLX.concatenated([xi, cap], axis: 1)
         let unifiedPos = MLX.concatenated([xPos, capPos], axis: 1)
 
-        for blk in layers {
+        // Save original image tokens for ControlNet (captured once).
+        let unifiedOriginalImg = useCnet ? unified[0..., 0..<xLen, 0...] : nil
+
+        // ControlNet stride-2 injection: control_layer[k] → main_layer[k * div].
+        let nCnetLayers = useCnet ? (controlnet?.nControlLayers ?? 0) : 0
+        let div = nCnetLayers > 0 ? max(1, (layers.count + nCnetLayers/2) / nCnetLayers) : 2
+        var cnetLayerIdx = 0
+
+        for (i, blk) in layers.enumerated() {
+            if useCnet, let cnet = controlnet, let ctx = cnetCtx, let mainImg = unifiedOriginalImg {
+                let cnetIdx = i / div
+                while cnetLayerIdx <= cnetIdx && cnetLayerIdx < nCnetLayers {
+                    let cosC = cos[0..., 0..<ctx.dim(1)]
+                    let sinC = sin[0..., 0..<ctx.dim(1)]
+                    let (residual, newCtx) = cnet.forwardControlLayer(
+                        layerId: cnetLayerIdx, controlContext: ctx, mainHidden: mainImg,
+                        temb: temb, cos: cosC, sin: sinC)
+                    cnetCtx = newCtx
+                    // Inject residual into image tokens only.
+                    let img = unified[0..., 0..<xLen, 0...] + residual * controlnetStrength
+                    let cap2 = unified[0..., xLen..., 0...]
+                    unified = MLX.concatenated([img, cap2], axis: 1)
+                    cnetLayerIdx += 1
+                }
+            }
             unified = blk(unified, mask: nil, positions: unifiedPos, adalnInput: temb, cos: cos, sin: sin)
         }
 
