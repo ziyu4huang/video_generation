@@ -146,7 +146,17 @@ public final class T2IPipeline {
         cleanLatent: MLXArray? = nil, denoiseStrength: Float = 1.0,
         mask: MLXArray? = nil,
         controlnet: ZImageControlNet? = nil, controlImage33ch: MLXArray? = nil,
-        controlnetStrength: Float = 1.0
+        controlnetStrength: Float = 1.0,
+        /// Compile the denoise step closure (MLX graph reuse). OFF by default.
+        ///
+        /// WARNING: measured REGRESSION in this codebase — compile makes denoise
+        /// ~21% SLOWER (26.3s vs 21.7s) AND triples peak memory (5.8GB→17.5GB)
+        /// because MLX-Swift retains the full compiled graph cache, destroying
+        /// Swift's memory advantage vs Python. Swift WITHOUT compile is already
+        /// at speed parity with Python (21.7s vs 21.5s, <1% gap). The earlier
+        /// "rising tail" attributed to missing compile was actually thermal
+        /// throttling, not architectural. Kept opt-in for future experimentation.
+        useCompile: Bool = false
     ) -> MLXArray {
         let cfgActive = uncondFeats != nil
         let img2img = cleanLatent != nil && denoiseStrength < 1.0
@@ -221,7 +231,55 @@ public final class T2IPipeline {
             print("   controlnet: context \(cnetContext!.shape), strength=\(controlnetStrength)")
         }
 
-        print("   denoising \(img2img ? (steps - startStep) : steps) steps (cfg=\(cfgScale), mu=\(String(format: "%.3f", mu)))\(inpaintActive ? ", inpaint=on" : "")\(useCnet ? ", controlnet=on" : "")...")
+        print("   denoising \(img2img ? (steps - startStep) : steps) steps (cfg=\(cfgScale), mu=\(String(format: "%.3f", mu)))\(inpaintActive ? ", inpaint=on" : "")\(useCnet ? ", controlnet=on" : "")\(useCompile && !useCnet ? ", compiled" : "")...")
+
+        // Compile the noise-pred closure for graph reuse (mirrors Python @mx.compile
+        // step_fn). Only the plain + cfg paths are compiled — controlnet defers
+        // (it shares the transformer but adds injection hooks that complicate
+        // capture). CONSTANT captures: transformer, capFeats (+ uncondFeats for
+        // cfg), cfgScale, inputs (StepInputs with pos/cos/sin caches). VARIABLE
+        // per-step inputs: latent, timestep. Built once here, reused every step;
+        // first call pays the compile penalty, then times flatten out.
+        // NOTE: controlnet must NOT take this path — its cnetContext/strength are
+        // handled by stepFnControlnet (eager). The ternary below guards it.
+        var compiledPlain: ((MLXArray, MLXArray) -> MLXArray)? = nil
+        if useCompile && !useCnet {
+            // Capture the constants for the closure (Swift requires explicit let).
+            let cap = capFeats
+            let inp = stepInputs
+            if cfgActive, let uncond = uncondFeats {
+                // CFG path: cond + uncond forwards + weighted merge, all in one
+                // compiled graph. Captures cap (cond) + uncond + cfgScale.
+                let cfg = cfgScale
+                compiledPlain = compile { (latent, timestep) -> MLXArray in
+                    let xTokens = LatentOps.patchify(latent, hTok: inp.hTok, wTok: inp.wTok)
+                    let condOut = self.transformer(
+                        x: xTokens, t: timestep, capFeats: cap,
+                        xPos: inp.xPos, capPos: inp.capPos, cos: inp.cos, sin: inp.sin,
+                        capMask: nil)
+                    let cond = LatentOps.unpack(
+                        condOut, hTok: inp.hTok, wTok: inp.wTok, channels: self.config.inChannels)
+                    let uncondOut = self.transformer(
+                        x: xTokens, t: timestep, capFeats: uncond,
+                        xPos: inp.xPos, capPos: inp.capPos, cos: inp.cos, sin: inp.sin,
+                        capMask: nil)
+                    let uncondP = LatentOps.unpack(
+                        uncondOut, hTok: inp.hTok, wTok: inp.wTok, channels: self.config.inChannels)
+                    return uncondP + cfg * (cond - uncondP)
+                }
+            } else {
+                // Plain path (cfg off): single forward.
+                compiledPlain = compile { (latent, timestep) -> MLXArray in
+                    let xTokens = LatentOps.patchify(latent, hTok: inp.hTok, wTok: inp.wTok)
+                    let out = self.transformer(
+                        x: xTokens, t: timestep, capFeats: cap,
+                        xPos: inp.xPos, capPos: inp.capPos, cos: inp.cos, sin: inp.sin,
+                        capMask: nil)
+                    return LatentOps.unpack(
+                        out, hTok: inp.hTok, wTok: inp.wTok, channels: self.config.inChannels)
+                }
+            }
+        }
         var stepTimes: [Double] = []
         for idx in startStep..<steps {
             let tCurr = scheduler.timesteps![idx]
@@ -237,6 +295,10 @@ public final class T2IPipeline {
                 } else {
                     noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
                 }
+            } else if let compiled = compiledPlain {
+                // Compiled graph path (plain + cfg): one compiled call handles
+                // both — cfg forwards + merge are baked into the closure.
+                noisePred = compiled(latents, tInput)
             } else if cfgActive, let uncond = uncondFeats {
                 let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
                 let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs)

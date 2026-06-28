@@ -373,7 +373,8 @@ extension ZImageCLI {
                     uncondFeats: ctx.cfgActive ? ctx.uncondFeats : nil,
                     seed: attemptSeed, width: params.width, height: params.height,
                     steps: attemptSteps, cfgScale: params.cfgScale,
-                    fixedNoise: ctx.fixedNoise
+                    fixedNoise: ctx.fixedNoise,
+                    useCompile: outputOptions.useCompile
                 )
                 try ImageSave.savePNG(img, to: outURL)
                 finalSeed = attemptSeed

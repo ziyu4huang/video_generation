@@ -56,7 +56,21 @@ struct OutputOptions: ParsableArguments {
     )
     var noRunJSON = false
 
+    @Flag(
+        name: .customLong("compile"),
+        help: ArgumentHelp(
+            "Enable MLX graph compilation for the denoise loop (experimental).",
+            discussion: "OFF by default. Measured REGRESSION: compile makes denoise ~21% slower " +
+                "(26s vs 21s) AND triples peak memory (5.8GB→17.5GB) because MLX-Swift " +
+                "retains the compiled graph cache. Swift without compile is already at " +
+                "speed parity with Python. Use only to experiment with graph reuse."
+        )
+    )
+    var compile = false
+
     /// True unless explicitly opted out — shorthand for "write the run config?".
     var writeRunJSON: Bool { !noRunJSON }
     var writeManifest: Bool { !noManifest }
+    /// Compile the denoise graph? Opt-in (default off — it's a measured regression).
+    var useCompile: Bool { compile }
 }
