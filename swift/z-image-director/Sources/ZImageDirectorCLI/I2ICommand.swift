@@ -27,6 +27,7 @@ extension ZImageCLI {
         )
 
         @OptionGroup var globals: GlobalOptions
+        @OptionGroup var outputOptions: OutputOptions
 
         @Option(help: "Input image path (PNG/JPEG) — the image to refine/restyle.")
         var inputImage: String
@@ -202,7 +203,9 @@ extension ZImageCLI {
                 quantBits: loaded.config.quantBits, quantGroupSize: loaded.config.quantGroupSize,
                 command: "i2i"
             )
-            try runConfig.write(to: paths.runJSON)
+            if outputOptions.writeRunJSON {
+                try runConfig.write(to: paths.runJSON)
+            }
             let attrs = try FileManager.default.attributesOfItem(atPath: paths.png)
             let sizeBytes = (attrs[.size] as? Int64) ?? 0
             let outInfo = ManifestOutput(
@@ -213,9 +216,11 @@ extension ZImageCLI {
                 runFile: paths.runJSON, startTime: startTime, endTime: endTime,
                 timings: [:], models: [:], outputFiles: [outInfo], quality: nil
             )
-            try manifest.write(to: paths.manifestJSON)
-            print("Run config: \(paths.runJSON)")
-            print("Manifest:   \(paths.manifestJSON)")
+            if outputOptions.writeManifest {
+                try manifest.write(to: paths.manifestJSON)
+            }
+            if outputOptions.writeRunJSON { print("Run config: \(paths.runJSON)") }
+            if outputOptions.writeManifest { print("Manifest:   \(paths.manifestJSON)") }
         }
 
         // MARK: - Helpers (mirrors T2ICommand)

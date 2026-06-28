@@ -37,3 +37,26 @@ struct GlobalOptions: ParsableArguments {
         }
     }
 }
+
+/// Output-metadata sidecar controls. By default every generation command
+/// writes BOTH `.run.json` (reproducible params) and `.manifest.json`
+/// (timing/files/status) alongside the PNG — matching run.py, essential for
+/// debugging and replay. These flags let you opt OUT when you only want the
+/// image (e.g. batch/scripted runs).
+struct OutputOptions: ParsableArguments {
+    @Flag(
+        name: .customLong("no-manifest"),
+        help: "Do not write the .manifest.json sidecar (timing/files/status)."
+    )
+    var noManifest = false
+
+    @Flag(
+        name: .customLong("no-run-json"),
+        help: "Do not write the .run.json sidecar (reproducible params)."
+    )
+    var noRunJSON = false
+
+    /// True unless explicitly opted out — shorthand for "write the run config?".
+    var writeRunJSON: Bool { !noRunJSON }
+    var writeManifest: Bool { !noManifest }
+}

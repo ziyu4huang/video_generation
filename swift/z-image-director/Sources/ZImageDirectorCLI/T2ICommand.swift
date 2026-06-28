@@ -42,6 +42,7 @@ extension ZImageCLI {
         )
 
         @OptionGroup var globals: GlobalOptions
+        @OptionGroup var outputOptions: OutputOptions
 
         @Option(help: "Text prompt (required unless --self-test is used).")
         var prompt: String = ""
@@ -392,7 +393,12 @@ extension ZImageCLI {
                 attemptSeed = attemptSeed &+ 1
             }
 
-            // Write run.py-compatible .run.json + .manifest.json siblings.
+            // Write run.py-compatible .run.json + .manifest.json siblings
+            // (default ON for debug; --no-manifest / --no-run-json opt out).
+            if outputOptions.noRunJSON && outputOptions.noManifest {
+                print("(--no-manifest --no-run-json: skipped audit files)")
+                return
+            }
             try writeRunArtifacts(paths: paths, params: params, finalSeed: finalSeed,
                                   startTime: startTime, ctx: ctx,
                                   finalImage: finalImage, outURL: outURL)
@@ -415,7 +421,9 @@ extension ZImageCLI {
                 textEncoder: encoder, tokenizer: tokenizerDir, vae: vae,
                 quantBits: ctx.quantBits, quantGroupSize: ctx.quantGroupSize
             )
-            try runConfig.write(to: paths.runJSON)
+            if outputOptions.writeRunJSON {
+                try runConfig.write(to: paths.runJSON)
+            }
 
             let attrs = try FileManager.default.attributesOfItem(atPath: paths.png)
             let sizeBytes = (attrs[.size] as? Int64) ?? 0
@@ -430,9 +438,11 @@ extension ZImageCLI {
                 runFile: paths.runJSON, startTime: startTime, endTime: endTime,
                 timings: [:], models: [:], outputFiles: [output], quality: quality
             )
-            try manifest.write(to: paths.manifestJSON)
-            print("Run config: \(paths.runJSON)")
-            print("Manifest:   \(paths.manifestJSON)")
+            if outputOptions.writeManifest {
+                try manifest.write(to: paths.manifestJSON)
+            }
+            if outputOptions.writeRunJSON { print("Run config: \(paths.runJSON)") }
+            if outputOptions.writeManifest { print("Manifest:   \(paths.manifestJSON)") }
         }
 
         /// Build the dual quality report (programmatic metrics + optional VLM review).
