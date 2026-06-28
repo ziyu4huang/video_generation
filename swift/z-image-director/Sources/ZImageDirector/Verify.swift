@@ -8,6 +8,7 @@
 //  Driven by `zimage verify` (see main.swift).
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 import MLXNN

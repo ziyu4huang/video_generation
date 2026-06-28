@@ -23,7 +23,7 @@ struct Flux2CLI: ParsableCommand {
         abstract: "Flux2 Klein image generation + SAM3 segmentation (pure Swift MLX).",
         version: "0.1.0",
         subcommands: [
-            T2I.self, Models.self,
+            T2I.self, Models.self, VerifyVAE.self,
         ]
     )
 }
