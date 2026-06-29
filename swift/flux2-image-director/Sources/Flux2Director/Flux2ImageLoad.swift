@@ -12,6 +12,22 @@ import ImageIO
 import CoreGraphics
 
 public enum Flux2ImageLoad {
+    /// Read the native pixel size (width, height) of an image file.
+    public static func imageSize(at url: URL) throws -> (width: Int, height: Int) {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else {
+            throw NSError(domain: "Flux2ImageLoad", code: 7,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not read image size at \(url.path)"])
+        }
+        let w = (props[kCGImagePropertyPixelWidth] as? Int) ?? 0
+        let h = (props[kCGImagePropertyPixelHeight] as? Int) ?? 0
+        guard w > 0, h > 0 else {
+            throw NSError(domain: "Flux2ImageLoad", code: 8,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid image size at \(url.path)"])
+        }
+        return (w, h)
+    }
+
     /// Load an image file to (1, 3, H, W) float32 in [0,1], resized to targetSize.
     public static func loadArray(from url: URL, targetSize: (width: Int, height: Int)) throws -> MLXArray {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),

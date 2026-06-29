@@ -58,6 +58,49 @@ LoRA names resolve to `models/lora/<name>/*.safetensors` (prefers `*.int8.*`).
 Every output is self-gated by the shared `ImageGate` (noise / blank / NaN check).
 `--strict-gate` aborts (exit 1) on a FAIL.
 
+## `flux2 expand` — outpaint / 擴圖 (Phase 8 v3)
+
+Extends an image beyond its borders via **latent-mask re-injection** (Flux2 has
+no Fill variant). The original is centered on a larger canvas (edge-replicated
+fill); during denoising the kept region's latent is forced back to its
+VAE-encoded value each step, so the **original survives bit-perfect** while the
+padded margins generate from the prompt. A final pixel composite locks the kept
+region exact. (Verified: interior max-abs-diff = 1 vs original.)
+
+```bash
+flux2 expand --input photo.png --expand all --pixels 160 --feather 16 \
+  --prompt "continue the background scene naturally" --steps 6 --seed 42
+```
+
+`--expand`: `all` (every side), a comma list (`left,right,top,bottom`), or an
+aspect ratio (`16:9`, `4:3`, `3:2` — expands the shorter axis). `--pixels` is
+the per-side margin (ignored for aspect presets). Canvas is rounded to a 16-multiple.
+
+## The 12-LoRA "卡通转真人工厂" stack
+
+The ComfyUI workflow stacks 12 Flux2 Klein 9B LoRAs. WS2's `Flux2LoRALoader.merge`
+rank-stacks them into one adapter, so `flux2 scene`/`style` can apply the full
+stack with one `--lora` per entry. Download via `run.py import-lora --arch
+flux2-klein-9b` + `convert_lora_mlx.py`.
+
+| # | workflow filename | scale | installed name | status |
+|---|---|---|---|---|
+| 1 | f2k_anything2real_a_patched | 0.5 | `anything2real-a` | ✅ |
+| 2 | Flux2 Klein…AnythingtoRealCharacters | 0.8 | `anything2real-characters` | ✅ |
+| 3 | Chest_9B | 1.0 | `chest-9b` | ✅ |
+| 4 | skin tone | 1.0 | `skin-tone` | ✅ |
+| 5 | Lips_9B | 1.0 | `lips-9b` | ✅ |
+| 6 | Eye_9B | 0.5 | `eye-9b` | ✅ |
+| 7 | details (Realistic Detail) | 0.8 | `details-9b` | ✅ |
+| 8 | LongFace_9B | 0.5 | — | ❌ not on CivitAI (no NO8D longface slider) |
+| 9 | Colorful | 0.5 | — | ❌ only a 4B/SDXL match exists |
+| 10 | qualitya | 0.8 | — | ❌ not found (generic name) |
+| 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | — | ❌ custom extract, not public |
+| 12 | Kook_Flux_klein_亚洲人像 | 0.8 | — | ❌ not found (likely private) |
+
+7/12 downloaded automatically; the 5 ❌ need a CivitAI URL supplied manually
+(`run.py import-lora '<url>' --arch flux2-klein-9b --name <slug>`).
+
 ## Reproduce the full workflow
 
 ```bash

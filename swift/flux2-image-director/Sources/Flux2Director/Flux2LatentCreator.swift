@@ -96,22 +96,29 @@ public enum Flux2LatentCreator {
         // 1. Load + normalize to [-1,1] at the target gen resolution.
         let pixels = try! Flux2ImageLoad.loadArray(
             from: imagePath, targetSize: (width: width, height: height))
+        return encodeInitLatent(pixels: pixels, vaeEncoder: vaeEncoder, bn: bn,
+                                height: height, width: width)
+    }
+
+    /// In-memory variant: encode already-loaded pixels (1, 3, H, W) [0,1] — used
+    /// by outpaint where the canvas is built in memory (padded), not read from a
+    /// file. Same BN-normalized packed-latent output as the path variant.
+    public static func encodeInitLatent(pixels: MLXArray, vaeEncoder: Flux2VAEEncoder,
+                                        bn: Flux2BatchNormStats, height: Int, width: Int)
+        -> MLXArray
+    {
         let normalized = Flux2ImageLoad.normalizeForVAE(pixels).asType(.bfloat16)
 
-        // 2. VAE-encode → (1, 32, H/8, W/8).
+        // VAE-encode → (1, 32, H/8, W/8).
         var encoded = vaeEncoder(normalized)
 
-        // 3. crop_to_even_spatial (handle odd latent dims).
+        // crop_to_even_spatial (handle odd latent dims).
         if encoded.dim(2) % 2 != 0 { encoded = encoded[0..., 0..., 0..<(encoded.dim(2) - 1), 0...] }
         if encoded.dim(3) % 2 != 0 { encoded = encoded[0..., 0..., 0..., 0..<(encoded.dim(3) - 1)] }
 
-        // 4. patchify (32 → 128ch, 2× spatial downsample).
+        // patchify (32 → 128ch, 2× spatial downsample) → bn-normalize → pack.
         encoded = patchifyLatents(encoded)
-
-        // 5. bn-normalize (encode direction: (x-mean)/std) — into denoise space.
         encoded = bnNormalizeEncoded(encoded, mean: bn.runningMean, var_: bn.runningVar, eps: bn.eps)
-
-        // 6. pack to sequence tokens (B, C, H, W) → (B, H*W, C).
         return packLatents(encoded).asType(.float32)
     }
 

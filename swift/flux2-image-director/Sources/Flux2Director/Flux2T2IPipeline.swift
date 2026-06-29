@@ -214,4 +214,86 @@ public struct Flux2EditPipeline {
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
         return (pixels, elapsed)
     }
+
+    /// Outpaint / image expansion (擴圖) via latent-mask re-injection. The original
+    /// is centered on a larger canvas (edge-replicated fill); its VAE-encoded
+    /// latent is re-injected into the kept region every step (mask 0) so the
+    /// original survives bit-for-bit, while the padded margins (mask 1) denoise
+    /// from the prompt. A final pixel composite makes the kept region exact.
+    /// `inputPixels` is the loaded source (1,3,iH,iW) [0,1]; canvas size is derived
+    /// from `expand`/`pixels`. Returns (pixels (1,3,cH,cW) [0,1], elapsed seconds).
+    public func outpaint(prompt: String, inputPixels: MLXArray,
+                         inputWidth: Int, inputHeight: Int,
+                         expand: String, pixels: Int, feather: Int,
+                         seed: UInt64, steps: Int, guidance: Float)
+        -> (MLXArray, Double)
+    {
+        let start = DispatchTime.now()
+
+        // 1. Plan + padded canvas + latent/pixel masks.
+        let plan = Flux2Outpaint.plan(expand: expand, pixels: pixels,
+                                      inputWidth: inputWidth, inputHeight: inputHeight)
+        let padded = Flux2Outpaint.buildPaddedCanvas(input: inputPixels, plan: plan)
+        let (latentMask, pixelMask) = Flux2Outpaint.buildMasks(plan: plan, feather: feather)
+        let height = plan.canvasHeight, width = plan.canvasWidth
+        print("   canvas: \(inputWidth)×\(inputHeight) → \(width)×\(height)  "
+              + "(L\(plan.left) R\(plan.right) T\(plan.top) B\(plan.bottom), feather=\(feather))")
+
+        // 2. Text encode.
+        var tok = tokenizer
+        let (ids, mask) = tok.tokenize(prompt, maxLength: 512)
+        let promptEmbeds = textEncoder.getPromptEmbeds(
+            MLXArray(ids.map { Int32($0) }).reshaped([1, -1]),
+            attentionMask: MLXArray(mask.map { Int32($0) }).reshaped([1, -1]),
+            hiddenStateLayers: [9, 18, 27]).asType(.bfloat16)
+        let textIds = Flux2LatentCreator.prepareTextIds(seqLen: promptEmbeds.dim(1), batchSize: 1)
+
+        // 3. Noise latents + init latent (BN-normalized packed — same denoise space).
+        let (latents, latentIds, latentH, latentW) = Flux2LatentCreator.preparePackedLatents(
+            seed: seed, height: height, width: width, batchSize: 1)
+        let noiseLen = latents.dim(1)
+        let initLatent = Flux2LatentCreator.encodeInitLatent(
+            pixels: padded, vaeEncoder: vaeEncoder, bn: bn,
+            height: height, width: width).asType(latents.dtype)
+
+        // 4. Reference conditioning on the padded canvas (content coherence for the
+        //    generated margins). Write the in-memory canvas to a temp PNG (prepare
+        //    reads paths); cleaned up after.
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("flux2_outpaint_\(seed)_canvas.png")
+        try? Flux2T2IPipeline.saveImage(padded, to: tmpURL)
+        defer { try? FileManager.default.removeItem(at: tmpURL) }
+        let (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
+            imagePaths: [tmpURL], vaeEncoder: vaeEncoder, bn: bn,
+            height: height, width: width, batchSize: 1)
+
+        // 5. Scheduler.
+        let scheduler = Flux2Scheduler(
+            imageSeqLen: (height / 16) * (width / 16), numInferenceSteps: steps)
+
+        // 6. Denoise with per-step mask re-injection:
+        //    margins (mask 1) take the denoised step; kept region (mask 0) is forced
+        //    back to the encoded original latent.
+        var current = latents
+        for t in 0..<steps {
+            let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
+            let hiddenStates = MLX.concatenated([current, imageLatents!], axis: 1)
+            let imgIds = MLX.concatenated([latentIds, imageLatentIds!], axis: 1)
+            var noise = transformer(
+                hiddenStates: hiddenStates, encoderHiddenStates: promptEmbeds,
+                timestep: ts, imgIds: imgIds, txtIds: textIds)
+            noise = noise[0..., 0..<noiseLen, 0...]
+            let stepped = scheduler.step(noise: noise, timestep: t, latents: current)
+            current = (latentMask * stepped + (1.0 - latentMask) * initLatent).asType(.bfloat16)
+            MLX.eval(current)
+        }
+
+        // 7. Decode → generated, then composite the true original back (bit-perfect).
+        let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)]).transposed(0, 3, 1, 2)
+        let generated = (vaeDecoder.decodePackedLatents(unpacked, bn: bn) * 0.5 + 0.5).asType(.float32)
+        let final = Flux2Outpaint.composite(generated: generated, padded: padded, pixelMask: pixelMask)
+        MLX.eval(final)
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
+        return (final, elapsed)
+    }
 }

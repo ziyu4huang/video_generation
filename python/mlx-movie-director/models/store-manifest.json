@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 72,
+  "count": 86,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -290,6 +290,62 @@
     "transformer/redcraft-agile/model.safetensors": {
       "md5": "ee89e961d614cbf646cbb04a2944caab",
       "size": 6540686735
+    },
+    "lora/eye-9b/Eye_9B.safetensors": {
+      "md5": "adc90b5dea2fb7538d9744bc5027732c",
+      "size": 41447640
+    },
+    "lora/anything2real-a/f2k_anything2real_a_patched.safetensors": {
+      "md5": "1b0c4260ffc982db46b44eba44eb6bc9",
+      "size": 285246040
+    },
+    "lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.safetensors": {
+      "md5": "0bc9dd6fc317d48470e57d5b20f4b45c",
+      "size": 165704392
+    },
+    "lora/chest-9b/Chest_9B.safetensors": {
+      "md5": "c04a23c83ae6917387b17b78ccb73d06",
+      "size": 41447640
+    },
+    "lora/skin-tone/skin tone.safetensors": {
+      "md5": "1ed4adbaa25dc92649e3f3d58b978a81",
+      "size": 41447648
+    },
+    "lora/lips-9b/Lips_9B.safetensors": {
+      "md5": "cca3ba2905475557a8a0a7ca8e8b6494",
+      "size": 41447640
+    },
+    "lora/details-9b/Flux2 Klein 9B Realistic Detail LoRA.safetensors": {
+      "md5": "b1c96a69349a5eafe9ee1503a3175155",
+      "size": 165704488
+    },
+    "python/mlx-movie-director/models/lora/anything2real-a/f2k_anything2real_a_patched.int8.safetensors": {
+      "md5": "e1f4ab920253b2eab6ad544671f24c07",
+      "size": 142672511
+    },
+    "python/mlx-movie-director/models/lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.int8.safetensors": {
+      "md5": "2dd4bbbb1ac1cdc5862b694625f1a34a",
+      "size": 82894998
+    },
+    "python/mlx-movie-director/models/lora/chest-9b/Chest_9B.int8.safetensors": {
+      "md5": "abe8c7b5acb35488332c318029979590",
+      "size": 20766278
+    },
+    "python/mlx-movie-director/models/lora/details-9b/Flux2 Klein 9B Realistic Detail LoRA.int8.safetensors": {
+      "md5": "c1478225ff44414505b7c42788db66a8",
+      "size": 82894998
+    },
+    "python/mlx-movie-director/models/lora/eye-9b/Eye_9B.int8.safetensors": {
+      "md5": "516d5be56ca5b6bdb4c3a82c7e9dd80a",
+      "size": 20766278
+    },
+    "python/mlx-movie-director/models/lora/lips-9b/Lips_9B.int8.safetensors": {
+      "md5": "01e745d80234c8a082ce7102f54737d5",
+      "size": 20766278
+    },
+    "python/mlx-movie-director/models/lora/skin-tone/skin tone.int8.safetensors": {
+      "md5": "0f64c92f43b9601a7897e1c21c086ca8",
+      "size": 20766278
     }
   }
 }
