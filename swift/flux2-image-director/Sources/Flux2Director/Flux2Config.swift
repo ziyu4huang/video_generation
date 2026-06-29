@@ -54,23 +54,3 @@ public enum Flux2Variant: String, Sendable {
     public var axesDim: [Int] { [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4] }
 }
 
-/// Full resolved config for a Flux2 transformer instance.
-public struct Flux2TransformerConfig: Sendable {
-    public let variant: Flux2Variant
-    public let quantBits: Int
-    public let quantGroupSize: Int
-
-    public init(variant: Flux2Variant = .klein9b, quantBits: Int = 8, quantGroupSize: Int = 64) {
-        self.variant = variant
-        self.quantBits = quantBits
-        self.quantGroupSize = quantGroupSize
-    }
-
-    public var hiddenSize: Int { variant.hiddenSize }
-    public var numLayers: Int { variant.numLayers }
-    public var numSingleLayers: Int { variant.numSingleLayers }
-    public var numHeads: Int { variant.numHeads }
-    public var headDim: Int { variant.headDim }
-    public var inChannels: Int { variant.inChannels }
-    public var patchSize: Int { variant.patchSize }
-}
