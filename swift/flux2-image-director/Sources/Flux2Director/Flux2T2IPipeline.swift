@@ -89,7 +89,9 @@ public struct Flux2T2IPipeline {
         // packed latents (1, lh*lw, 128) → (1, 128, lh, lw) via unpack then transpose.
         let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)])
             .transposed(0, 3, 1, 2)   // (1, 128, lh, lw)
-        let pixels = vaeDecoder.decodePackedLatents(unpacked, bn: bn)
+        // VAE decode outputs [-1,1] (diffusers convention, symmetric with encoder);
+        // convert to [0,1] for the image contract (matches loadArray/composite).
+        let pixels = (vaeDecoder.decodePackedLatents(unpacked, bn: bn) * 0.5 + 0.5)
             .asType(.float32)
         MLX.eval(pixels)
 
@@ -175,10 +177,11 @@ public struct Flux2EditPipeline {
             MLX.eval(current)
         }
 
-        // 6. VAE decode.
+        // 6. VAE decode. VAE outputs [-1,1]; convert to [0,1] (see T2IPipeline).
         let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)])
             .transposed(0, 3, 1, 2)
-        let pixels = vaeDecoder.decodePackedLatents(unpacked, bn: bn).asType(.float32)
+        let pixels = (vaeDecoder.decodePackedLatents(unpacked, bn: bn) * 0.5 + 0.5)
+            .asType(.float32)
         MLX.eval(pixels)
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
         return (pixels, elapsed)
