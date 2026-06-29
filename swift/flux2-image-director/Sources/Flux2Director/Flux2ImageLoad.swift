@@ -57,4 +57,37 @@ public enum Flux2ImageLoad {
     public static func normalizeForVAE(_ image: MLXArray) -> MLXArray {
         image * 2.0 - 1.0
     }
+
+    /// Load a mask PNG to (1, 1, H, W) float32 in [0,1] at targetSize.
+    public static func loadMaskAsChannel(from url: URL, width: Int, height: Int) throws -> MLXArray {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(src, 0, nil) else {
+            throw NSError(domain: "Flux2ImageLoad", code: 4,
+                          userInfo: [NSLocalizedDescriptionKey: "Could not read mask at \(url.path)"])
+        }
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+        guard let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: colorSpace, bitmapInfo: bitmapInfo
+        ) else {
+            throw NSError(domain: "Flux2ImageLoad", code: 5,
+                          userInfo: [NSLocalizedDescriptionKey: "Mask CGContext failed"])
+        }
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let ptr = ctx.data?.assumingMemoryBound(to: UInt8.self) else {
+            throw NSError(domain: "Flux2ImageLoad", code: 6,
+                          userInfo: [NSLocalizedDescriptionKey: "Mask bitmap unavailable"])
+        }
+        var lum = [Float](repeating: 0, count: width * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let p = (y * width + x) * 4
+                lum[y * width + x] = (Float(ptr[p]) + Float(ptr[p + 1]) + Float(ptr[p + 2])) / (3.0 * 255.0)
+            }
+        }
+        let arr = MLXArray(lum, [1, 1, height, width]).asType(.float32)
+        MLX.eval(arr)
+        return arr
+    }
 }
