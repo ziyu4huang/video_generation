@@ -15,12 +15,22 @@ import ImageIO
 public enum Flux2Composite {
     /// Composite reference content onto source using a feathered mask.
     /// The reference is resized to fill the mask's bounding box, then alpha-blended.
-    /// All inputs are (1, 3, H, W) float32 in [0,1]; mask is (1, 1, H, W) float32 [0,1].
+    /// All image inputs are (1, 3, H, W) float32 in [0,1]; mask is (1, 1, H, W) [0,1].
+    ///
+    /// Options (seamless-swap enhancements):
+    ///   - preserveAspectRatio: resize the reference to FIT the bbox keeping its
+    ///     aspect ratio (letterboxed, centered) instead of stretching to fill.
+    ///   - maskDilate: expand the source mask by N px before compositing.
     public static func composite(source: MLXArray, reference: MLXArray, mask: MLXArray,
-                                  featherRadius: Int = 10) -> MLXArray {
+                                  featherRadius: Int = 10,
+                                  preserveAspectRatio: Bool = false,
+                                  maskDilate: Int = 0) -> MLXArray {
         let h = source.dim(2), w = source.dim(3)
-        // Find the mask bounding box (rows/cols with any non-zero value).
-        let maskFlat = mask.reshaped([h, w]).asType(.float32)
+        // Optionally dilate the source mask (expand the swap region).
+        var maskFlat = mask.reshaped([h, w]).asType(.float32)
+        if maskDilate > 0 {
+            maskFlat = Flux2Outpaint.dilateMask(mask, radius: maskDilate).reshaped([h, w]).asType(.float32)
+        }
         MLX.eval(maskFlat)
         let maskArr = maskFlat.asArray(Float.self)
         var minY = h, maxY = -1, minX = w, maxX = -1
@@ -38,11 +48,21 @@ public enum Flux2Composite {
         guard maxY >= 0 else { return source }
 
         let boxH = maxY - minY + 1, boxW = maxX - minX + 1
-        // Resize the reference to the box size via CGContext (simple bilinear).
-        let refResized = resizeBilinear(reference, targetW: boxW, targetH: boxH)
-        // Place the resized reference into a full-size canvas.
-        var refCanvas = MLX.zeros([1, 3, h, w])
-        refCanvas[0..., 0..., minY..<(minY + boxH), minX..<(minX + boxW)] = refResized[0..., 0..., 0..<boxH, 0..<boxW]
+        // Start from a copy of the source so any unplaced bands (letterbox) keep
+        // the source pixels — the feathered blend then only swaps the object.
+        var refCanvas = source
+        if preserveAspectRatio {
+            let srcH = reference.dim(2), srcW = reference.dim(3)
+            let scale = min(Double(boxW) / Double(srcW), Double(boxH) / Double(srcH))
+            let rw = max(1, Int((Double(srcW) * scale).rounded()))
+            let rh = max(1, Int((Double(srcH) * scale).rounded()))
+            let fitted = resizeBilinear(reference, targetW: rw, targetH: rh)
+            let offY = minY + (boxH - rh) / 2, offX = minX + (boxW - rw) / 2
+            refCanvas[0..., 0..., offY..<(offY + rh), offX..<(offX + rw)] = fitted[0..., 0..., 0..<rh, 0..<rw]
+        } else {
+            let refResized = resizeBilinear(reference, targetW: boxW, targetH: boxH)
+            refCanvas[0..., 0..., minY..<(minY + boxH), minX..<(minX + boxW)] = refResized[0..., 0..., 0..<boxH, 0..<boxW]
+        }
 
         // Feather the mask (gaussian-ish via repeated box blur approximation).
         let feathered = featherMask(maskFlat, radius: featherRadius)

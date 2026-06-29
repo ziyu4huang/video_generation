@@ -76,6 +76,24 @@ flux2 expand --input photo.png --expand all --pixels 160 --feather 16 \
 aspect ratio (`16:9`, `4:3`, `3:2` — expands the shorter axis). `--pixels` is
 the per-side margin (ignored for aspect presets). Canvas is rounded to a 16-multiple.
 
+## `flux2 swap` — object/face swap (无痕换脸)
+
+Replaces an object in the source (SAM3-segmented) with a reference. Two paths:
+
+- **`--inpaint` (seamless / 无痕, recommended)** — regenerates the masked region
+  via Flux2KleinEdit masked denoise (latent re-injection): the source outside the
+  mask is locked bit-perfect, the object region is regenerated from the prompt +
+  reference identity, blended across a feathered seam. No paste seam. Verified:
+  VLM sees no hard seam, background intact, reads as a natural single photo.
+  ```bash
+  flux2 swap --source a.png --reference b.png --prompt "person" --inpaint --feather 20 --steps 6
+  ```
+- **paste path (default)** — feathered composite of the reference into the mask
+  bbox, with `--preserve-aspect-ratio` (no stretch) and `--mask-dilate` (expand
+  the region). Add `--harmonize` for a light KleinEdit blend pass.
+
+`--prompt` is the SAM3 text prompt for the object to replace (person, face, …).
+
 ## The 12-LoRA "卡通转真人工厂" stack
 
 The ComfyUI workflow stacks 12 Flux2 Klein 9B LoRAs. WS2's `Flux2LoRALoader.merge`

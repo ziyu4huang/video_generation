@@ -144,6 +144,31 @@ public enum Flux2Outpaint {
         return (1.0 - m) * padded + m * generated
     }
 
+    /// Block-mean downsample a pixel mask (1,1,H,W) [0,1] to the packed latent
+    /// grid (1, latentH*latentW, 1), matching the row-major token order. Shared
+    /// by outpaint (canvas margins) and inpaint (object region) — anywhere a
+    /// pixel-space keep/regenerate mask must map to packed latent tokens.
+    public static func downsampleMaskToLatent(_ pixelMask: MLXArray, latentH: Int, latentW: Int)
+        -> MLXArray
+    {
+        let cH = pixelMask.dim(2), cW = pixelMask.dim(3)
+        let bh = cH / latentH, bw = cW / latentW
+        // If the canvas isn't an exact multiple of the latent grid, fall back to a
+        // safe integer block size (floor) — callers pass 16-multiple canvases.
+        let m = pixelMask.reshaped([1, 1, latentH, max(1, bh), latentW, max(1, bw)]).asType(.float32)
+        return m.mean(axis: 3).mean(axis: 4).reshaped([1, latentH * latentW, 1]).asType(.float32)
+    }
+
+    /// Dilate a binary pixel mask (1,1,H,W) [0,1] by `radius` px (max-filter via
+    /// repeated box-blur threshold). Used to expand the swap region before composite.
+    public static func dilateMask(_ mask: MLXArray, radius: Int) -> MLXArray {
+        guard radius > 0 else { return mask }
+        let h = mask.dim(2), w = mask.dim(3)
+        // Reuse the composite feather (box-blur) then re-threshold to a dilated binary.
+        let blurred = Flux2Composite.featherMask(mask.reshaped([h, w]).asType(.float32), radius: radius)
+        return MLX.clip(blurred.reshaped([1, 1, h, w]), min: 0.0, max: 1.0)
+    }
+
     // MARK: - internals
 
     private static func parseAspect(_ s: String) -> (Int, Int)? {

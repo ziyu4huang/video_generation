@@ -37,6 +37,15 @@ extension Flux2CLI {
         @Option(help: "Feather radius for the composite edge (px).")
         var feather: Int = 10
 
+        @Option(help: "Dilate the source mask by N px before compositing (expand the swap region). Default 0.")
+        var maskDilate: Int = 0
+
+        @Flag(help: "Preserve the reference's aspect ratio when fitting it into the mask (no stretch).")
+        var preserveAspectRatio: Bool = false
+
+        @Flag(help: "Seamless mode (无痕): regenerate the masked region via Flux2KleinEdit masked denoise (no paste seam). Uses --reference for identity. Overrides the feathered paste.")
+        var inpaint: Bool = false
+
         @Flag(help: "After compositing, harmonize via Flux2KleinEdit (uses source as reference).")
         var harmonize: Bool = false
 
@@ -79,48 +88,49 @@ extension Flux2CLI {
             }
             print("  mask      : \(count) detection(s) → \(maskPath)")
 
-            // 2. Load source + reference + mask at the target size.
+            // 2. Load source + mask at the target size. Reference loaded only for
+            //    the paste path (inpaint reads it via reference conditioning).
             let srcArr = try Flux2ImageLoad.loadArray(
                 from: URL(fileURLWithPath: source), targetSize: (width: width, height: height))
-            let refArr = try Flux2ImageLoad.loadArray(
-                from: URL(fileURLWithPath: reference), targetSize: (width: width, height: height))
             let maskArr = try Flux2ImageLoad.loadMaskAsChannel(
                 from: URL(fileURLWithPath: maskPath), width: width, height: height)
 
-            // 3. Composite (Swift, feathered).
-            var pixels = Flux2Composite.composite(
-                source: srcArr, reference: refArr, mask: maskArr, featherRadius: feather)
-            MLX.eval(pixels)
-            print("  composited (feather=\(feather))")
+            var pixels: MLXArray
+            if inpaint {
+                // Seamless (无痕): regenerate the masked region via Flux2KleinEdit
+                // masked denoise — no paste seam. Reference supplies identity.
+                print("  inpaint (seamless): regenerating masked region via Flux2KleinEdit...")
+                let pipeline = try buildEditPipeline(transformer: transformer)
+                let (img, elapsed) = pipeline.inpaint(
+                    prompt: prompt, sourcePixels: srcArr, sourceMask: maskArr,
+                    referencePath: URL(fileURLWithPath: reference),
+                    seed: seed, steps: steps, guidance: 1.0,
+                    width: width, height: height, feather: feather)
+                pixels = img
+                print("  inpaint done (\(String(format: "%.1f", elapsed))s)")
+            } else {
+                // Paste path: feathered composite (+ optional harmonize).
+                let refArr = try Flux2ImageLoad.loadArray(
+                    from: URL(fileURLWithPath: reference), targetSize: (width: width, height: height))
+                pixels = Flux2Composite.composite(
+                    source: srcArr, reference: refArr, mask: maskArr, featherRadius: feather,
+                    preserveAspectRatio: preserveAspectRatio, maskDilate: maskDilate)
+                MLX.eval(pixels)
+                print("  composited (feather=\(feather), dilate=\(maskDilate), aspect=\(preserveAspectRatio))")
 
-            // 4. Optionally harmonize via KleinEdit (use composited as reference).
-            if harmonize {
-                print("  harmonizing via Flux2KleinEdit...")
-                let harmPath = NSTemporaryDirectory() + "flux2_swap_src_\(getpid()).png"
-                try Flux2T2IPipeline.saveImage(pixels, to: URL(fileURLWithPath: harmPath))
-                let tfW = try Flux2TransformerWeights.load(
-                    dir: ModelPaths.transformerRoot.appendingPathComponent(transformer))
-                let tf = Flux2Transformer.build(weights: tfW)
-                let teW = try Flux2TextEncoderWeights.load(
-                    dir: ModelPaths.textEncoderRoot.appendingPathComponent("qwen3-8b"))
-                let te = Flux2TextEncoder.build(weights: teW)
-                let tok = Flux2Tokenizer(jsonURL: ModelPaths.tokenizerRoot
-                    .appendingPathComponent("qwen3-klein").appendingPathComponent("tokenizer.json"))!
-                let vaeURL = ModelPaths.vaeRoot.appendingPathComponent("flux2-klein")
-                let vaeWeights = try loadAllShards(url: vaeURL)
-                let bn = Flux2BatchNormStats(
-                    runningMean: vaeWeights["bn.running_mean"]!,
-                    runningVar: vaeWeights["bn.running_var"]!)
-                let pipeline = Flux2EditPipeline(
-                    transformer: tf, textEncoder: te, tokenizer: tok,
-                    vaeEncoder: Flux2VAEEncoder(weights: vaeWeights),
-                    vaeDecoder: Flux2VAEDecoder(weights: vaeWeights), bn: bn)
-                pixels = pipeline.generate(
-                    prompt: prompt, imagePaths: [URL(fileURLWithPath: harmPath)],
-                    seed: seed, height: height, width: width, steps: steps, guidance: 1.0).0
+                if harmonize {
+                    print("  harmonizing via Flux2KleinEdit...")
+                    let harmPath = NSTemporaryDirectory() + "flux2_swap_src_\(getpid()).png"
+                    try Flux2T2IPipeline.saveImage(pixels, to: URL(fileURLWithPath: harmPath))
+                    let pipeline = try buildEditPipeline(transformer: transformer)
+                    pixels = pipeline.generate(
+                        prompt: prompt, imagePaths: [URL(fileURLWithPath: harmPath)],
+                        seed: seed, height: height, width: width, steps: steps, guidance: 1.0).0
+                }
             }
 
-            // 5. Save.
+            // 5. Self-gate + save.
+            try ImageGate.check(pixels, label: "swap", strict: false)
             let paths = try OutputPathResolver.makePaths(
                 explicitOutput: output.isEmpty ? nil : output,
                 outputDir: outputDir, customName: name)
@@ -128,6 +138,27 @@ extension Flux2CLI {
             print("")
             print("✅ saved \(URL(fileURLWithPath: paths.png).lastPathComponent)")
             print("   \(paths.png)")
+        }
+
+        /// Build a Flux2KleinEdit pipeline (transformer + encoder + tokenizer + VAE).
+        private func buildEditPipeline(transformer: String) throws -> Flux2EditPipeline {
+            let tfW = try Flux2TransformerWeights.load(
+                dir: ModelPaths.transformerRoot.appendingPathComponent(transformer))
+            let tf = Flux2Transformer.build(weights: tfW)
+            let teW = try Flux2TextEncoderWeights.load(
+                dir: ModelPaths.textEncoderRoot.appendingPathComponent("qwen3-8b"))
+            let te = Flux2TextEncoder.build(weights: teW)
+            let tok = Flux2Tokenizer(jsonURL: ModelPaths.tokenizerRoot
+                .appendingPathComponent("qwen3-klein").appendingPathComponent("tokenizer.json"))!
+            let vaeURL = ModelPaths.vaeRoot.appendingPathComponent("flux2-klein")
+            let vaeWeights = try loadAllShards(url: vaeURL)
+            let bn = Flux2BatchNormStats(
+                runningMean: vaeWeights["bn.running_mean"]!,
+                runningVar: vaeWeights["bn.running_var"]!)
+            return Flux2EditPipeline(
+                transformer: tf, textEncoder: te, tokenizer: tok,
+                vaeEncoder: Flux2VAEEncoder(weights: vaeWeights),
+                vaeDecoder: Flux2VAEDecoder(weights: vaeWeights), bn: bn)
         }
 
         private func runSAM3Bridge(repoRoot: String, image: String, prompt: String,

@@ -296,4 +296,82 @@ public struct Flux2EditPipeline {
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
         return (final, elapsed)
     }
+
+    /// Seamless inpaint / swap (无痕换脸). Regenerates the masked region of the
+    /// source (mask 1 = regenerate, e.g. a face/object) guided by `prompt` + an
+    /// optional reference image (identity), while locking the rest of the source
+    /// bit-for-bit via latent re-injection + a final pixel composite. This is the
+    /// model-driven seamless path (vs SwapCommand's feathered paste): no hard seam.
+    /// `sourcePixels` (1,3,H,W) [0,1], `sourceMask` (1,1,H,W) [0,1] (1=regenerate).
+    public func inpaint(prompt: String, sourcePixels: MLXArray, sourceMask: MLXArray,
+                        referencePath: URL?, seed: UInt64, steps: Int, guidance: Float,
+                        width: Int, height: Int, feather: Int)
+        -> (MLXArray, Double)
+    {
+        let start = DispatchTime.now()
+
+        // 1. Text encode.
+        var tok = tokenizer
+        let (ids, mask) = tok.tokenize(prompt, maxLength: 512)
+        let promptEmbeds = textEncoder.getPromptEmbeds(
+            MLXArray(ids.map { Int32($0) }).reshaped([1, -1]),
+            attentionMask: MLXArray(mask.map { Int32($0) }).reshaped([1, -1]),
+            hiddenStateLayers: [9, 18, 27]).asType(.bfloat16)
+        let textIds = Flux2LatentCreator.prepareTextIds(seqLen: promptEmbeds.dim(1), batchSize: 1)
+
+        // 2. Noise latents + init latent (the SOURCE is the canvas; outside-mask kept).
+        let (latents, latentIds, latentH, latentW) = Flux2LatentCreator.preparePackedLatents(
+            seed: seed, height: height, width: width, batchSize: 1)
+        let noiseLen = latents.dim(1)
+        let initLatent = Flux2LatentCreator.encodeInitLatent(
+            pixels: sourcePixels, vaeEncoder: vaeEncoder, bn: bn,
+            height: height, width: width).asType(latents.dtype)
+
+        // 3. Latent mask: 1 over the object (regenerate), 0 elsewhere (keep).
+        let latentMask = Flux2Outpaint.downsampleMaskToLatent(
+            sourceMask, latentH: latentH, latentW: latentW).asType(latents.dtype)
+
+        // 4. Reference conditioning (identity for the regenerated content), optional.
+        var imageLatents: MLXArray? = nil
+        var imageLatentIds: MLXArray? = nil
+        if let ref = referencePath {
+            (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
+                imagePaths: [ref], vaeEncoder: vaeEncoder, bn: bn,
+                height: height, width: width, batchSize: 1)
+        }
+
+        // 5. Scheduler + denoise with re-injection (object denoised, rest locked).
+        let scheduler = Flux2Scheduler(
+            imageSeqLen: (height / 16) * (width / 16), numInferenceSteps: steps)
+        var current = latents
+        for t in 0..<steps {
+            let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
+            let hiddenStates: MLXArray, imgIds: MLXArray
+            if let imgLat = imageLatents, let imgIds2 = imageLatentIds {
+                hiddenStates = MLX.concatenated([current, imgLat], axis: 1)
+                imgIds = MLX.concatenated([latentIds, imgIds2], axis: 1)
+            } else {
+                hiddenStates = current; imgIds = latentIds
+            }
+            var noise = transformer(
+                hiddenStates: hiddenStates, encoderHiddenStates: promptEmbeds,
+                timestep: ts, imgIds: imgIds, txtIds: textIds)
+            noise = noise[0..., 0..<noiseLen, 0...]
+            let stepped = scheduler.step(noise: noise, timestep: t, latents: current)
+            current = (latentMask * stepped + (1.0 - latentMask) * initLatent).asType(.bfloat16)
+            MLX.eval(current)
+        }
+
+        // 6. Decode → generated; composite the true source back outside the mask.
+        let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)]).transposed(0, 3, 1, 2)
+        let generated = (vaeDecoder.decodePackedLatents(unpacked, bn: bn) * 0.5 + 0.5).asType(.float32)
+        let h = sourceMask.dim(2), w = sourceMask.dim(3)
+        let seamMask = MLX.clip(
+            Flux2Composite.featherMask(sourceMask.reshaped([h, w]).asType(.float32), radius: feather)
+                .reshaped([1, 1, h, w]), min: 0.0, max: 1.0)
+        let final = Flux2Outpaint.composite(generated: generated, padded: sourcePixels, pixelMask: seamMask)
+        MLX.eval(final)
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
+        return (final, elapsed)
+    }
 }
