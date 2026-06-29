@@ -31,6 +31,7 @@
 //    base + loraScale * matmul(matmul(x, loraA), loraB)
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 
@@ -51,8 +52,78 @@ public struct Flux2LoRAAdapters {
     public func adapter(for key: String) -> Flux2LoRAAdapter? { adapters[key] }
 }
 
+/// Errors thrown by `Flux2LoRALoader.resolveFile`.
+public enum Flux2LoRAError: Error, CustomStringConvertible {
+    case directoryNotFound(name: String, path: String)
+    case noSafetensors(name: String)
+
+    public var description: String {
+        switch self {
+        case let .directoryNotFound(name, path): return "LoRA directory not found: \(name) (\(path))"
+        case let .noSafetensors(name): return "no .safetensors in LoRA dir '\(name)'"
+        }
+    }
+}
+
 /// Loads a Flux2 BFL-named LoRA safetensors file and computes per-target adapters.
 public enum Flux2LoRALoader {
+
+    /// Resolve the single LoRA safetensors file inside models/lora/<name>/.
+    /// Prefers an `*.int8.safetensors`, falls back to the first safetensors.
+    /// Shared by all CLI commands that accept LoRA names (style/scene/...).
+    public static func resolveFile(name: String) throws -> URL {
+        let dir = ModelPaths.loraRoot.appendingPathComponent(name)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir),
+              isDir.boolValue else {
+            throw Flux2LoRAError.directoryNotFound(name: name, path: dir.path)
+        }
+        let files = (try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
+            .filter { $0.pathExtension == "safetensors" && !$0.lastPathComponent.hasPrefix("._") }
+        guard !files.isEmpty else {
+            throw Flux2LoRAError.noSafetensors(name: name)
+        }
+        if let int8 = files.first(where: { $0.lastPathComponent.contains("int8") }) {
+            return int8
+        }
+        return files.sorted { $0.lastPathComponent < $1.lastPathComponent }[0]
+    }
+
+    /// Merge N loaded adapters into a single higher-rank adapter, so the
+    /// single-adapter runtime path (`base + scale·(x@A)@B`) applies the sum of
+    /// all LoRAs. Per the rank-stacking identity, for each target key present in
+    /// ≥1 input:
+    ///   A_merged = hstack(sqrt(s_i) · A_i)   shape (in, Σr)
+    ///   B_merged = vstack(sqrt(s_i) · B_i)   shape (Σr, out)
+    /// so that  (x @ A_merged) @ B_merged = Σ_i s_i · (x @ A_i) @ B_i.
+    /// Each input's `scale` is baked into A/B; the merged adapter's scale = 1.0.
+    /// A merge of ONE adapter is numerically identical to loading it directly
+    /// (scale folded into sqrt·A, sqrt·B). Keys present in only some inputs are
+    /// simply omitted from the others (each contributes only its own blocks).
+    public static func merge(_ inputs: [Flux2LoRAAdapters]) -> Flux2LoRAAdapters {
+        guard inputs.count > 1 else {
+            // 0 or 1 input: nothing to stack; return as-is (or none).
+            return inputs.first ?? Flux2LoRAAdapters.none()
+        }
+        var keys = Set<String>()
+        for a in inputs { keys.formUnion(a.adapters.keys) }
+        var merged: [String: Flux2LoRAAdapter] = [:]
+        for key in keys {
+            var aParts: [MLXArray] = []
+            var bParts: [MLXArray] = []
+            for a in inputs {
+                guard let ad = a.adapter(for: key) else { continue }
+                let s = MLXArray(a.scale.squareRoot()).asType(ad.loraA.dtype)
+                aParts.append(ad.loraA * s)   // (in, r)
+                bParts.append(ad.loraB * s)   // (r, out)
+            }
+            guard !aParts.isEmpty else { continue }
+            let A = MLX.concatenated(aParts, axis: 1)   // (in, Σr)
+            let B = MLX.concatenated(bParts, axis: 0)   // (Σr, out)
+            merged[key] = Flux2LoRAAdapter(loraA: A, loraB: B)
+        }
+        return Flux2LoRAAdapters(adapters: merged, scale: 1.0)
+    }
 
     /// Load + compute adapters from an int8-quantized BFL-named LoRA file.
     /// `scale` is the user LoRA scale (mflux effective_scale, default 1.0).

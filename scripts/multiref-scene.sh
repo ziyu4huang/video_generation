@@ -4,6 +4,8 @@
 #   z-image (moody-pro-mix, photoreal T2I) generates 3 reference images
 #     ref1 = character A,  ref2 = character B,  ref3 = background scene
 #   flux2 scene consumes them (+ a composition prompt) to compose the final scene.
+# v2: ref3 is passed as the --bg CANVAS (SDEdit init latent) so the classroom
+#   layout/POV is the actual backdrop, and two quality LoRAs are stacked.
 # Every image is self-gated (shared ImageGate); refs use --strict-gate so a noise /
 # blank ref aborts before flux2 wastes GPU. Finally writes scene-relations.json and
 # builds a self-contained, badged gallery HTML.
@@ -35,9 +37,12 @@ echo "==> [3/4] z-image: generate ref3 (background)"
 "$ZIMAGE" t2i --prompt "$PROMPT_BG" --transformer moody-pro-mix \
   --width 1024 --height 1024 --seed 303 --strict-gate --name ref3_bg
 
-echo "==> [4/4] flux2: compose scene from 3 references"
+echo "==> [4/4] flux2: compose scene — ref3 as --bg canvas + 2 stacked LoRAs"
 "$FLUX2" scene \
-  --ref "$OUT/ref1_charA.png" --ref "$OUT/ref2_charB.png" --ref "$OUT/ref3_bg.png" \
+  --ref "$OUT/ref1_charA.png" --ref "$OUT/ref2_charB.png" \
+  --bg "$OUT/ref3_bg.png" --bg-strength 0.55 \
+  --lora highresolutionflux2-kelien-9b --lora anime-girl-turned-into-real-person \
+  --lora-scale 1.0 --lora-scale 0.7 \
   --prompt "$SCENE_PROMPT" \
   --width 1024 --height 1024 --steps 6 --seed 42 --name scene_multiref_real
 
@@ -46,17 +51,17 @@ SCENE_PNG="$OUT/scene_multiref_real.png"
 REL="$OUT/scene-relations.json"
 cat > "$REL" <<JSON
 {
-  "title": "z-image refs → flux2 scene (two-stage, real refs)",
+  "title": "z-image refs → flux2 scene (v2: --bg canvas + 2 LoRAs)",
   "root": "$OUT",
   "refs": [
     {"id":"ref1","label":"ref1_charA (z-image)","path":"ref1_charA.png","note":"character A — short bob hair, navy uniform"},
     {"id":"ref2","label":"ref2_charB (z-image)","path":"ref2_charB.png","note":"character B — glasses, white shirt"},
-    {"id":"ref3","label":"ref3_bg (z-image)","path":"ref3_bg.png","note":"background — empty classroom (v1: steers environment)"}
+    {"id":"ref3","label":"ref3_bg (z-image)","path":"ref3_bg.png","note":"background — empty classroom (now the --bg canvas, not just a steer)"}
   ],
   "outputs": [
-    {"id":"scene","label":"flux2 scene — 3 refs (1024²/6)","path":"scene_multiref_real.png",
+    {"id":"scene","label":"flux2 scene — 2 refs + bg canvas + 2 LoRAs (1024²/6)","path":"scene_multiref_real.png",
      "sources":["ref1","ref2","ref3"],"runJson":"scene_multiref_real.run.json",
-     "note":"ref3 is a 3rd reference steering environment (not a literal composited backdrop in v1)"}
+     "note":"ref3 is the SDEdit init canvas (inherits layout/POV); LoRAs stacked via Flux2LoRALoader.merge"}
   ]
 }
 JSON

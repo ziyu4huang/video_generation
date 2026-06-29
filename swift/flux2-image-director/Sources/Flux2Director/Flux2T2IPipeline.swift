@@ -126,9 +126,16 @@ public struct Flux2EditPipeline {
     }
 
     /// Generate via reference conditioning. imagePaths provide the conditioning
-    /// reference(s). Returns (pixels, elapsed seconds).
+    /// reference(s) (identity). When `initImagePath` is set with
+    /// `denoiseStrength < 1.0`, that image becomes the **denoise canvas**
+    /// (SDEdit-style partial denoise): its VAE-encoded latent is forward-mixed
+    /// with the flow-match noise at sigma(steps*(1-strength)) and the loop runs
+    /// only the last `steps*strength` steps — so the background's layout/POV is
+    /// inherited as the actual canvas while identities still come from refs.
+    /// Returns (pixels, elapsed seconds).
     public func generate(prompt: String, imagePaths: [URL], seed: UInt64,
-                         height: Int, width: Int, steps: Int, guidance: Float)
+                         height: Int, width: Int, steps: Int, guidance: Float,
+                         initImagePath: URL? = nil, denoiseStrength: Float = 1.0)
         -> (MLXArray, Double)
     {
         let start = DispatchTime.now()
@@ -147,7 +154,7 @@ public struct Flux2EditPipeline {
             seed: seed, height: height, width: width, batchSize: 1)
         let noiseLen = latents.dim(1)
 
-        // 3. Reference image conditioning.
+        // 3. Reference image conditioning (identity tokens, concatenated each step).
         let (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
             imagePaths: imagePaths, vaeEncoder: vaeEncoder, bn: bn,
             height: height, width: width, batchSize: 1)
@@ -156,9 +163,30 @@ public struct Flux2EditPipeline {
         let scheduler = Flux2Scheduler(
             imageSeqLen: (height / 16) * (width / 16), numInferenceSteps: steps)
 
-        // 5. Denoise: concat [noise, ref] tokens, slice output to noise tokens.
-        var current = latents
-        for t in 0..<steps {
+        // 4b. SDEdit init canvas (background-as-canvas). Encode the init image
+        // into the same BN-normalized denoise space as the noise, then flow-mix:
+        //   x_{t0} = (1 - sigma[startStep]) * init + sigma[startStep] * noise
+        // and denoise only the last `stepsToRun` steps (mirrors z-image's
+        // cleanLatent/denoiseStrength: pipeline.py:595-604). strength 0.3=light
+        // refine, 0.5=restyle keeping layout, 0.7=loose redraw. No init image
+        // (or strength >= 1.0) falls back to the v1 pure-noise path.
+        var startStep = 0
+        var current: MLXArray
+        if let bgPath = initImagePath, denoiseStrength < 1.0 {
+            let stepsToRun = max(1, Int((Float(steps) * denoiseStrength).rounded(.toNearestOrEven)))
+            startStep = max(0, steps - stepsToRun)
+            let sigmaMix = scheduler.sigmas[startStep]
+            let initPacked = Flux2LatentCreator.encodeInitLatent(
+                imagePath: bgPath, vaeEncoder: vaeEncoder, bn: bn,
+                height: height, width: width).asType(latents.dtype)
+            current = ((1.0 - sigmaMix) * initPacked + sigmaMix * latents).asType(.bfloat16)
+            print("   canvas: init=\(bgPath.lastPathComponent), \(stepsToRun)/\(steps) steps from step \(startStep + 1) (strength=\(denoiseStrength), sigma_mix=\(String(format: "%.3f", sigmaMix.item(Float.self))))")
+        } else {
+            current = latents
+        }
+
+        // 5. Denoise: concat [working, ref] tokens, slice output to working tokens.
+        for t in startStep..<steps {
             let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
             let (hiddenStates, imgIds): (MLXArray, MLXArray)
             if let imgLat = imageLatents, let imgIds2 = imageLatentIds {

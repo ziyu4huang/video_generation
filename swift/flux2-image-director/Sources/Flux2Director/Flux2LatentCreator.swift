@@ -78,6 +78,43 @@ public enum Flux2LatentCreator {
         return x.reshaped([b, c * 4, h / 2, w / 2])
     }
 
+    /// VAE-encode an image into a packed, BN-normalized latent usable as the
+    /// **denoise canvas** (SDEdit init latent). This is the SAME encode pipeline
+    /// as `Flux2ReferenceConditioning.prepare` steps 1–6 — the denoise loop
+    /// operates in BN-normalized latent space (only `decodePackedLatents`
+    /// denormalizes at the end), so the init latent must live in that same space
+    /// to mix linearly with the flow-match noise. The difference vs a reference
+    /// conditioning token is purely how the caller uses the result: this latent
+    /// is the denoise `current` (sharing the t=0 noise latent ids), not a
+    /// concatenated conditioning token.
+    ///
+    /// Returns packed (1, latent_H*latent_W, 128) float32, BN-normalized.
+    public static func encodeInitLatent(imagePath: URL, vaeEncoder: Flux2VAEEncoder,
+                                        bn: Flux2BatchNormStats, height: Int, width: Int)
+        -> MLXArray
+    {
+        // 1. Load + normalize to [-1,1] at the target gen resolution.
+        let pixels = try! Flux2ImageLoad.loadArray(
+            from: imagePath, targetSize: (width: width, height: height))
+        let normalized = Flux2ImageLoad.normalizeForVAE(pixels).asType(.bfloat16)
+
+        // 2. VAE-encode → (1, 32, H/8, W/8).
+        var encoded = vaeEncoder(normalized)
+
+        // 3. crop_to_even_spatial (handle odd latent dims).
+        if encoded.dim(2) % 2 != 0 { encoded = encoded[0..., 0..., 0..<(encoded.dim(2) - 1), 0...] }
+        if encoded.dim(3) % 2 != 0 { encoded = encoded[0..., 0..., 0..., 0..<(encoded.dim(3) - 1)] }
+
+        // 4. patchify (32 → 128ch, 2× spatial downsample).
+        encoded = patchifyLatents(encoded)
+
+        // 5. bn-normalize (encode direction: (x-mean)/std) — into denoise space.
+        encoded = bnNormalizeEncoded(encoded, mean: bn.runningMean, var_: bn.runningVar, eps: bn.eps)
+
+        // 6. pack to sequence tokens (B, C, H, W) → (B, H*W, C).
+        return packLatents(encoded).asType(.float32)
+    }
+
     /// BN-normalize VAE-encoded latents for reference conditioning (encode path):
     ///   (encoded - mean) / sqrt(var + eps)
     /// This is the INVERSE of the decode denorm (packed * std + mean).

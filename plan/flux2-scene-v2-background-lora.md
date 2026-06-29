@@ -1,5 +1,17 @@
 # Plan (next iteration): flux2 scene v2 — background-as-canvas + multi-LoRA stack
 
+> **Status (2026-06-29):** WS1 + WS2 IMPLEMENTED & verified end-to-end on the
+> release binary (gate PASS both). WS3 (per-ref strength + timestep gating) stays
+> deferred. Smoke tests:
+> - WS1: `flux2 scene --ref X --bg Y --bg-strength 0.55` → `canvas: 3/6 steps
+>   from step 4 (sigma_mix=0.893)`, gate PASS (12.4s).
+> - WS2: `flux2 scene --ref ... --lora A --lora B --lora-scale 1.0 --lora-scale 0.7`
+>   → `merged 144 adapters from 2 LoRA(s)`, gate PASS (30.8s).
+>   NOTE: the plan's "adapter count ≈ 2× single" was a misstatement — `merge`
+>   stacks RANK per key; the key count is the UNION of both LoRAs' target keys
+>   (same target set → unchanged). The math `(x@A_merged)@B_merged = Σ sᵢ(x@Aᵢ@Bᵢ)`
+>   is unaffected.
+
 > Continuation of the ComfyUI "三參考圖全能王" port. v1 (done 2026-06-29): z-image
 > generates refs → `flux2 scene` composes via reference conditioning; shared `ImageGate`
 > self-gates all outputs. This file = the three deferred TODOs, prioritized.

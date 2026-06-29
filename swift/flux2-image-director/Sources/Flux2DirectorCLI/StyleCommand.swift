@@ -45,11 +45,13 @@ extension Flux2CLI {
         @Option var tokenizerDir: String = Flux2ModelRegistry.defaultTokenizer
         @Flag var noArtifacts: Bool = false
 
-        /// LoRA name (directory under models/lora/). Empty = no LoRA (prompt-only bias).
-        @Option(help: "LoRA name under models/lora/ (e.g. anime-girl-turned-into-real-person). Empty = none.")
-        var lora: String = ""
-        @Option(help: "LoRA scale (effective strength, mflux default 1.0).")
-        var loraScale: Float = 1.0
+        /// LoRA name(s) (directories under models/lora/), repeatable. Multiple
+        /// are rank-stacked into one merged adapter (see Flux2LoRALoader.merge).
+        /// Empty = no LoRA (prompt-only bias).
+        @Option(help: "LoRA name under models/lora/ (repeatable: --lora A --lora B stacks them).")
+        var lora: [String] = []
+        @Option(help: "Per-LoRA scale (repeatable, one per --lora; trailing ones default to 1.0).")
+        var loraScale: [Float] = []
 
         func run() throws {
             setbuf(stdout, nil)
@@ -70,13 +72,13 @@ extension Flux2CLI {
             let inputURL = URL(fileURLWithPath: input)
             let refPaths = Array(repeating: inputURL, count: useRef)
 
-            // Load LoRA adapters (optional). Resolves the single .safetensors inside
-            // models/lora/<name>/ and computes per-target BFL→model_path adapters.
-            var loraAdapters = Flux2LoRAAdapters.none()
-            if !lora.isEmpty {
-                let loraURL = try Self.resolveLoRAFile(name: lora)
-                loraAdapters = try Flux2LoRALoader.load(url: loraURL, scale: loraScale)
-                print("  lora     : \(lora)  (scale=\(loraScale), \(loraAdapters.adapters.count) adapters)")
+            // Load + merge LoRA adapters (optional, stackable). Each --lora name
+            // resolves to one .safetensors under models/lora/<name>/; multiple are
+            // rank-stacked into a single merged adapter (Flux2LoRALoader.merge).
+            let (loraAdapters, loraNames, _) = try Flux2LoRALoaderCLI.loadMerged(
+                names: lora, scales: loraScale, logPrefix: "  lora     : ")
+            if !loraNames.isEmpty {
+                print("               merged \(loraAdapters.adapters.count) adapters from \(loraNames.count) LoRA(s)")
             }
 
             let tfW = try Flux2TransformerWeights.load(
@@ -109,29 +111,9 @@ extension Flux2CLI {
             print("")
             print("✅ generated \(URL(fileURLWithPath: paths.png).lastPathComponent)  (\(String(format: "%.1f", elapsed))s)")
             print("   \(paths.png)")
-            if lora.isEmpty {
+            if loraNames.isEmpty {
                 print("   note: no LoRA loaded (prompt-only style bias).")
             }
-        }
-
-        /// Resolve the single LoRA safetensors file inside models/lora/<name>/.
-        /// Prefers an `*.int8.safetensors`, falls back to the first safetensors.
-        private static func resolveLoRAFile(name: String) throws -> URL {
-            let dir = ModelPaths.loraRoot.appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir),
-                  isDir.boolValue else {
-                throw ValidationError("LoRA directory not found: \(dir.path)")
-            }
-            let files = (try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
-                .filter { $0.pathExtension == "safetensors" && !$0.lastPathComponent.hasPrefix("._") }
-            guard !files.isEmpty else {
-                throw ValidationError("no .safetensors in LoRA dir '\(name)'")
-            }
-            if let int8 = files.first(where: { $0.lastPathComponent.contains("int8") }) {
-                return int8
-            }
-            return files.sorted { $0.lastPathComponent < $1.lastPathComponent }[0]
         }
 
         private func loadAllShards(url: URL) throws -> [String: MLXArray] {
