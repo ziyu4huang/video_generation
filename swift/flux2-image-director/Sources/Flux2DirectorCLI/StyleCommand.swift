@@ -45,6 +45,12 @@ extension Flux2CLI {
         @Option var tokenizerDir: String = Flux2ModelRegistry.defaultTokenizer
         @Flag var noArtifacts: Bool = false
 
+        /// LoRA name (directory under models/lora/). Empty = no LoRA (prompt-only bias).
+        @Option(help: "LoRA name under models/lora/ (e.g. anime-girl-turned-into-real-person). Empty = none.")
+        var lora: String = ""
+        @Option(help: "LoRA scale (effective strength, mflux default 1.0).")
+        var loraScale: Float = 1.0
+
         func run() throws {
             setbuf(stdout, nil)
             globals.apply()
@@ -64,9 +70,18 @@ extension Flux2CLI {
             let inputURL = URL(fileURLWithPath: input)
             let refPaths = Array(repeating: inputURL, count: useRef)
 
+            // Load LoRA adapters (optional). Resolves the single .safetensors inside
+            // models/lora/<name>/ and computes per-target BFL→model_path adapters.
+            var loraAdapters = Flux2LoRAAdapters.none()
+            if !lora.isEmpty {
+                let loraURL = try Self.resolveLoRAFile(name: lora)
+                loraAdapters = try Flux2LoRALoader.load(url: loraURL, scale: loraScale)
+                print("  lora     : \(lora)  (scale=\(loraScale), \(loraAdapters.adapters.count) adapters)")
+            }
+
             let tfW = try Flux2TransformerWeights.load(
                 dir: ModelPaths.transformerRoot.appendingPathComponent(transformer))
-            let tf = Flux2Transformer.build(weights: tfW)
+            let tf = Flux2Transformer.build(weights: tfW, lora: loraAdapters)
             let teW = try Flux2TextEncoderWeights.load(
                 dir: ModelPaths.textEncoderRoot.appendingPathComponent(encoder))
             let te = Flux2TextEncoder.build(weights: teW)
@@ -94,7 +109,29 @@ extension Flux2CLI {
             print("")
             print("✅ generated \(URL(fileURLWithPath: paths.png).lastPathComponent)  (\(String(format: "%.1f", elapsed))s)")
             print("   \(paths.png)")
-            print("   note: LoRA-augmented style bias is deferred (uses prompt-only bias).")
+            if lora.isEmpty {
+                print("   note: no LoRA loaded (prompt-only style bias).")
+            }
+        }
+
+        /// Resolve the single LoRA safetensors file inside models/lora/<name>/.
+        /// Prefers an `*.int8.safetensors`, falls back to the first safetensors.
+        private static func resolveLoRAFile(name: String) throws -> URL {
+            let dir = ModelPaths.loraRoot.appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir),
+                  isDir.boolValue else {
+                throw ValidationError("LoRA directory not found: \(dir.path)")
+            }
+            let files = (try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))
+                .filter { $0.pathExtension == "safetensors" && !$0.lastPathComponent.hasPrefix("._") }
+            guard !files.isEmpty else {
+                throw ValidationError("no .safetensors in LoRA dir '\(name)'")
+            }
+            if let int8 = files.first(where: { $0.lastPathComponent.contains("int8") }) {
+                return int8
+            }
+            return files.sorted { $0.lastPathComponent < $1.lastPathComponent }[0]
         }
 
         private func loadAllShards(url: URL) throws -> [String: MLXArray] {

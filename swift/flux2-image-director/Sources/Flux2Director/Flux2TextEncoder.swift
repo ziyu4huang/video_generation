@@ -21,16 +21,27 @@ import MLXFast
 // MARK: - Quantized primitives (8-bit, group_size=64)
 
 /// Quantized linear: y = x @ W^T. Pre-quantized weights (U32 + scales/biases).
+/// Optionally carries a LoRA adapter: y = base + scale * x @ A @ B
 struct F2QLinear {
     let weight: MLXArray   // (out, in_packed) U32
     let scales: MLXArray   // (out, in/groupSize)
     let biases: MLXArray   // (out, in/groupSize)
     let groupSize: Int
     let bits: Int
+    var loraA: MLXArray? = nil   // (in, r) float32 — nil = no LoRA
+    var loraB: MLXArray? = nil   // (r, out) float32
+    var loraScale: Float = 1.0   // user scale (default 1.0)
 
     func callAsFunction(_ x: MLXArray) -> MLXArray {
-        quantizedMM(x, weight, scales: scales, biases: biases,
-                    transpose: true, groupSize: groupSize, bits: bits, mode: .affine)
+        let base = quantizedMM(x, weight, scales: scales, biases: biases,
+                               transpose: true, groupSize: groupSize, bits: bits, mode: .affine)
+        if let a = loraA, let b = loraB {
+            // LoRA branch: base + scale * matmul(matmul(x, A), B)
+            let xf = x.asType(.float32)
+            let branch = MLX.matmul(MLX.matmul(xf, a), b)
+            return base + (loraScale * branch).asType(base.dtype)
+        }
+        return base
     }
 }
 

@@ -578,7 +578,8 @@ public struct Flux2TransformerWeights {
 }
 
 public extension Flux2Transformer {
-    static func build(weights: Flux2TransformerWeights) -> Flux2Transformer {
+    static func build(weights: Flux2TransformerWeights,
+                      lora: Flux2LoRAAdapters = Flux2LoRAAdapters.none()) -> Flux2Transformer {
         let cfg = weights.config
         let gs = cfg.groupSize, bits = cfg.bits
         let w = weights.arrays
@@ -586,8 +587,14 @@ public extension Flux2Transformer {
         let mlpHidden = Int(Float(innerDim) * cfg.mlpRatio)
 
         func ql(_ key: String) -> F2QLinear {
-            F2QLinear(weight: w["\(key).weight"]!, scales: w["\(key).scales"]!,
+            var lin = F2QLinear(weight: w["\(key).weight"]!, scales: w["\(key).scales"]!,
                       biases: w["\(key).biases"]!, groupSize: gs, bits: bits)
+            if let ad = lora.adapter(for: key) {
+                lin.loraA = ad.loraA
+                lin.loraB = ad.loraB
+                lin.loraScale = lora.scale
+            }
+            return lin
         }
         func rmsn(_ key: String, eps: Float) -> F2RMSNormW {
             F2RMSNormW(weight: w["\(key).weight"]!, eps: eps)
