@@ -65,6 +65,29 @@ public enum Flux2LatentCreator {
         return latents.reshaped([b, c, h * w]).transposed(0, 2, 1)
     }
 
+    /// Patchify: (B, 32, H, W) → (B, 128, H/2, W/2).
+    /// Groups 2x2 spatial cells into channels (4x expansion): reshape
+    /// (B, 32, H/2, 2, W/2, 2) → transpose (0,1,3,5,2,4) → reshape (B, 128, H/2, W/2).
+    /// Port of Flux2LatentCreator.patchify_latents.
+    public static func patchifyLatents(_ latents: MLXArray) -> MLXArray {
+        var x = latents
+        if x.ndim == 5 && x.dim(2) == 1 { x = x[0..., 0..., 0, 0..., 0...] }
+        let (b, c, h, w) = (x.dim(0), x.dim(1), x.dim(2), x.dim(3))
+        x = x.reshaped([b, c, h / 2, 2, w / 2, 2])
+        x = x.transposed(0, 1, 3, 5, 2, 4)
+        return x.reshaped([b, c * 4, h / 2, w / 2])
+    }
+
+    /// BN-normalize VAE-encoded latents for reference conditioning (encode path):
+    ///   (encoded - mean) / sqrt(var + eps)
+    /// This is the INVERSE of the decode denorm (packed * std + mean).
+    public static func bnNormalizeEncoded(_ encoded: MLXArray, mean: MLXArray, var_: MLXArray,
+                                          eps: Float) -> MLXArray {
+        let m = mean.reshaped([1, -1, 1, 1]).asType(encoded.dtype)
+        let s = MLX.sqrt(var_.reshaped([1, -1, 1, 1]).asType(.float32) + eps).asType(encoded.dtype)
+        return (encoded - m) / s
+    }
+
     /// Build text ids: (batch, seq_len, 4) = [t=0, h=0, w=0, token_idx].
     public static func prepareTextIds(seqLen: Int, batchSize: Int = 1) -> MLXArray {
         let tokenIds = MLX.arange(0, seqLen, dtype: .int32)          // (seq,)

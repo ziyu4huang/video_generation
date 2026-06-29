@@ -103,3 +103,84 @@ public struct Flux2T2IPipeline {
         try ImageSave.savePNG(clamped, to: url)
     }
 }
+
+/// Flux2 Klein Edit pipeline: reference image conditioning (i2i / multi-ref).
+/// Same transformer + scheduler, but reference image tokens are concatenated to
+/// the noisy latents and the output is sliced to the noise tokens only.
+public struct Flux2EditPipeline {
+    public let transformer: Flux2Transformer
+    public let textEncoder: Flux2TextEncoder
+    public let tokenizer: Flux2Tokenizer
+    public let vaeEncoder: Flux2VAEEncoder
+    public let vaeDecoder: Flux2VAEDecoder
+    public let bn: Flux2BatchNormStats
+
+    public init(transformer: Flux2Transformer, textEncoder: Flux2TextEncoder,
+                tokenizer: Flux2Tokenizer, vaeEncoder: Flux2VAEEncoder,
+                vaeDecoder: Flux2VAEDecoder, bn: Flux2BatchNormStats) {
+        self.transformer = transformer; self.textEncoder = textEncoder
+        self.tokenizer = tokenizer; self.vaeEncoder = vaeEncoder
+        self.vaeDecoder = vaeDecoder; self.bn = bn
+    }
+
+    /// Generate via reference conditioning. imagePaths provide the conditioning
+    /// reference(s). Returns (pixels, elapsed seconds).
+    public func generate(prompt: String, imagePaths: [URL], seed: UInt64,
+                         height: Int, width: Int, steps: Int, guidance: Float)
+        -> (MLXArray, Double)
+    {
+        let start = DispatchTime.now()
+
+        // 1. Text encode.
+        var tok = tokenizer
+        let (ids, mask) = tok.tokenize(prompt, maxLength: 512)
+        let promptEmbeds = textEncoder.getPromptEmbeds(
+            MLXArray(ids.map { Int32($0) }).reshaped([1, -1]),
+            attentionMask: MLXArray(mask.map { Int32($0) }).reshaped([1, -1]),
+            hiddenStateLayers: [9, 18, 27]).asType(.bfloat16)
+        let textIds = Flux2LatentCreator.prepareTextIds(seqLen: promptEmbeds.dim(1), batchSize: 1)
+
+        // 2. Noise latents + ids.
+        let (latents, latentIds, latentH, latentW) = Flux2LatentCreator.preparePackedLatents(
+            seed: seed, height: height, width: width, batchSize: 1)
+        let noiseLen = latents.dim(1)
+
+        // 3. Reference image conditioning.
+        let (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
+            imagePaths: imagePaths, vaeEncoder: vaeEncoder, bn: bn,
+            height: height, width: width, batchSize: 1)
+
+        // 4. Scheduler.
+        let scheduler = Flux2Scheduler(
+            imageSeqLen: (height / 16) * (width / 16), numInferenceSteps: steps)
+
+        // 5. Denoise: concat [noise, ref] tokens, slice output to noise tokens.
+        var current = latents
+        for t in 0..<steps {
+            let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
+            let (hiddenStates, imgIds): (MLXArray, MLXArray)
+            if let imgLat = imageLatents, let imgIds2 = imageLatentIds {
+                hiddenStates = MLX.concatenated([current, imgLat], axis: 1)
+                imgIds = MLX.concatenated([latentIds, imgIds2], axis: 1)
+            } else {
+                hiddenStates = current
+                imgIds = latentIds
+            }
+            var noise = transformer(
+                hiddenStates: hiddenStates, encoderHiddenStates: promptEmbeds,
+                timestep: ts, imgIds: imgIds, txtIds: textIds)
+            // Keep only the noise for the actual latents (discard ref-token output).
+            noise = noise[0..., 0..<noiseLen, 0...]
+            current = scheduler.step(noise: noise, timestep: t, latents: current)
+            MLX.eval(current)
+        }
+
+        // 6. VAE decode.
+        let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)])
+            .transposed(0, 3, 1, 2)
+        let pixels = vaeDecoder.decodePackedLatents(unpacked, bn: bn).asType(.float32)
+        MLX.eval(pixels)
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
+        return (pixels, elapsed)
+    }
+}
