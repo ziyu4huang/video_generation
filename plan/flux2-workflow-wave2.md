@@ -40,8 +40,25 @@ Resolution notes (what the deep-dig found):
 
 All 5 int8 files externalized to `../video_generation__models/<md5>.safetensors`
 (store-manifest count 91→96). Reproducible full-stack invocation is in
-`swift/flux2-image-director/README.md`. **No code change** — only model files +
-README/plan status.
+`swift/flux2-image-director/README.md`.
+
+**Verified end-to-end (2026-06-30):** the full 12-LoRA stack runs in pure Swift
+via `scripts/flux2-full-lora-stack.sh`. Each LoRA logs `adapters=N>0`; output
+VLM-scored overall 9 / prompt_adherence 10 / artifacts 10. **Required two code
+fixes** beyond download (all 3 Flux2 LoRA key conventions now load):
+
+- **`convert_lora_mlx.py`** — added `remap_lora_keys()`: WebUI/ComfyUI keys
+  (`lora_unet_*_lora_down/up.weight`) → BFL at int8 time. Fixed **nexblend-asian**
+  + **darkklein-v2bfs-r256** (both shipped WebUI; were silently loading 0 adapters).
+- **`Flux2LoRALoader.load`** (Swift) — now also accepts diffusers-format keys
+  (`transformer.<runtime_path>.lora_A/B.weight`), using the path directly with no
+  QKV split. Fixed **anything2real-a** (shipped diffusers; partial 88-adapter
+  LoRA — was silently 0 adapters in the original 7).
+- **`Flux2LoRALoaderCLI.loadMerged`** — logs `adapters=N` per LoRA + warns on 0
+  (the silent no-op that hid all three).
+
+Lesson: the BFL-only loader silently dropped every adapter for non-BFL LoRAs —
+"downloaded" ≠ "works". The adapter-count log is now the smoke test.
 
 ### 2. ESRGAN tiled inference (`flux2 upscale`)
 RealPLKSR currently runs whole-image. Verified for 1024²→4096², but the

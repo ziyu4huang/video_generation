@@ -170,6 +170,23 @@ pack); #9/#10 are two files from the same K-Slider "imaging control" pack
 rank-256 BFS extract from the `redcraft-exported-loras` pack; #12 is NexBlend
 Asian Semi-Realistic (the real-world model behind the workflow's "亚洲人像" node).
 
+### LoRA key-format handling (all three Flux2 LoRA conventions)
+
+Authors ship Flux2 Klein LoRAs in three key-naming conventions; all three now
+load (verified: each logs `adapters=N>0`):
+
+| format | key example | where handled |
+|---|---|---|
+| **BFL native** | `diffusion_model.double_blocks.0.img_attn.qkv.lora_A.weight` | loader (always) |
+| **WebUI/ComfyUI** | `lora_unet_double_blocks_0_img_attn_proj.lora_down.weight` | `convert_lora_mlx.py` remaps → BFL at int8 time |
+| **diffusers** | `transformer.single_transformer_blocks.0.attn.to_qkv_mlp_proj.lora_A.weight` | loader (runtime path used directly, no split) |
+
+The CLI prints each LoRA's resolved adapter count (`adapters=N`) and warns on
+`0 adapters` (a silent no-op = key-format mismatch). WebUI→BFL remapping lives
+in `convert_lora_mlx.py` (`remap_lora_keys`); the diffusers path is recognized
+directly by `Flux2LoRALoader.load`. Of the 12, 9 are BFL, 2 WebUI (nexblend,
+darkklein), 1 diffusers (anything2real-a — a partial 88-adapter LoRA).
+
 ## Known limitations / open decisions
 
 1. **12-LoRA stack complete** (2026-06-30) — all 12 of the workflow's
@@ -185,5 +202,10 @@ Asian Semi-Realistic (the real-world model behind the workflow's "亚洲人像" 
 ## Reproduce the full workflow
 
 ```bash
-bash scripts/multiref-scene.sh   # z-image refs → flux2 scene (--bg + LoRAs) → gallery
+# z-image refs → flux2 scene with the FULL 12-LoRA 卡通转真人工场 stack → gallery
+bash scripts/flux2-full-lora-stack.sh            # regenerates refs via z-image
+bash scripts/flux2-full-lora-stack.sh --reuse-refs  # reuse any existing ref*.png
+bash scripts/multiref-scene.sh                   # lighter: 2-LoRA variant
 ```
+The full-stack run logs each LoRA's adapter count (proves the key-format remap
+held) and self-gates every image into `full-stack-gallery.html`.

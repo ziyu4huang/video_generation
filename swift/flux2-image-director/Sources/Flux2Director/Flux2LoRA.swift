@@ -131,14 +131,24 @@ public enum Flux2LoRALoader {
         let raw = try loadArrays(url: url)
         var adapters: [String: Flux2LoRAAdapter] = [:]
 
-        // Group raw keys by source target: "double_blocks.3.img_attn.qkv" → {A, B, A.scale, B.scale}
-        // Strip the "diffusion_model." prefix and the trailing ".lora_{A,B}.weight[.scale]".
+        // Group raw keys by source target. Two supported source formats:
+        //   BFL:       "diffusion_model.<bfl_target>.lora_{A,B}.weight[.scale]"
+        //   diffusers: "transformer.<diffusers_runtime_path>.lora_{A,B}.weight[.scale]"
+        // The diffusers runtime path (e.g. "single_transformer_blocks.0.attn.to_qkv_mlp_proj")
+        // is already an individual model path — no QKV split needed. BFL targets are
+        // resolved via bflToModelPaths (which may split a fused qkv into 3 paths).
         struct Matrices { var aInt8: MLXArray?; var aScale: MLXArray?
                           var bInt8: MLXArray?; var bScale: MLXArray? }
         var grouped: [String: Matrices] = [:]
         for (key, val) in raw {
-            guard key.hasPrefix("diffusion_model.") else { continue }
-            let body = String(key.dropFirst("diffusion_model.".count))
+            let body: String
+            if key.hasPrefix("diffusion_model.") {
+                body = String(key.dropFirst("diffusion_model.".count))
+            } else if key.hasPrefix("transformer.") {
+                body = String(key.dropFirst("transformer.".count))
+            } else {
+                continue
+            }
             // Match suffix patterns.
             if let m = matchSuffix(body, ".lora_A.weight") {
                 grouped[m, default: Matrices()].aInt8 = val
@@ -162,8 +172,13 @@ public enum Flux2LoRALoader {
             let loraAfull = aInt8.asType(.float32) * aScale   // (r, in_dims)
             let loraBfull = bInt8.asType(.float32) * bScale   // (out_dims_total, r)
 
-            // Resolve BFL source target → list of (modelPath, splitIndex or nil).
-            let targets = bflToModelPaths(srcTarget)
+            // Resolve source target → list of (modelPath, splitIndex or nil).
+            // Diffusers-format targets ARE the runtime path (already individual,
+            // no fused QKV to split). BFL targets go through bflToModelPaths.
+            let isDiffusers = srcTarget.hasPrefix("transformer_blocks.")
+                || srcTarget.hasPrefix("single_transformer_blocks.")
+            let targets: [(String, Int?)] = isDiffusers
+                ? [(srcTarget, nil)] : bflToModelPaths(srcTarget)
             for (modelPath, splitIdx) in targets {
                 let a: MLXArray
                 let b: MLXArray

@@ -9,8 +9,8 @@
   "compatible_with": [
     "transformer/klein-9b"
   ],
-  "size_bytes": 82918102,
-  "created_at": "2026-06-29T23:16:31Z",
+  "size_bytes": 82894996,
+  "created_at": "2026-06-29T23:33:30Z",
   "pipeline": [
     "flux2-klein"
   ],

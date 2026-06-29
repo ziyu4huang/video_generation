@@ -376,12 +376,12 @@
       "size": 20766278
     },
     "models/lora/nexblend-asian/NexBlend Asian Semi Realistic Flux 2 Klein 9B.int8.safetensors": {
-      "md5": "e36227d5e29dc9ccbfd6fa97fd700ea3",
-      "size": 82918102
+      "md5": "4ed3480bd8d2e4a6c5df59b5428600ba",
+      "size": 82894996
     },
     "models/lora/darkklein-v2bfs-r256/DarkKlein9b_v2BFS_extracted_lora_r256.int8.safetensors": {
-      "md5": "4e543a15ed46fa0a54035faf6e5b941e",
-      "size": 662756777
+      "md5": "96167154642ff429246e1180607368ef",
+      "size": 662758631
     },
     "models/lora/longface-9b/LongFace_9B.int8.safetensors": {
       "md5": "bac8c2e88b28e6b9aa0d53e57f66b30b",
