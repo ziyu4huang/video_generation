@@ -11,6 +11,7 @@
 //    swap / remove— Phase 4 (SAM3 mask + inpaint)
 //    style        — Phase 5 (comic↔real style transfer)
 //    story        — Phase 6 (character-story director workflow)
+//    scene        — Phase 8 (multi-reference prompt-directed composition)
 //    models       — list installed Flux2 variants (available now)
 //
 
@@ -24,7 +25,7 @@ struct Flux2CLI: ParsableCommand {
         version: "0.1.0",
         subcommands: [
             T2I.self, Edit.self, Angle.self, Segment.self, Swap.self, Style.self,
-            Story.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
+            Story.self, Scene.self, Gate.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
             VerifyTokenizer.self, VerifyTransformer.self, VerifyE2E.self,
             VerifyEdit.self,
         ]

@@ -23,7 +23,7 @@ struct ZImageCLI: ParsableCommand {
         subcommands: [
             T2I.self, I2I.self, InpaintCN.self, Verify.self, VerifyVAE.self, VerifyT2I.self,
             VerifyVAEEncoder.self, VerifyTokenizer.self, VerifyControlNet.self,
-            Lora.self, Caption.self, Models.self, SchemaDefaults.self, Upscale.self,
+            Lora.self, Caption.self, Models.self, SchemaDefaults.self, Upscale.self, Gate.self,
         ]
     )
 }

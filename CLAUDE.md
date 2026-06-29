@@ -50,6 +50,23 @@ Face DetailerForEach bypass were ComfyUI-runtime concerns — see the deprecated
 section. The Triton/decord stub installer and the ComfyUI bench scripts were
 removed with the abandoned ComfyUI path.)
 
+### Data types (dtypes) — MLX, not torch
+
+The "BF16 gold standard" guidance belongs to **ComfyUI/torch** (`_compute_dtype =
+torch.bfloat16`, M3/M4 native). This repo runs **MLX**, so the equivalent
+truth is MLX-shaped:
+
+- **`bfloat16` (`mx.bfloat16`) is the native full-precision compute dtype** for
+  transformer inference on Apple Silicon. `mflux` and the MLX pipelines
+  load/store bf16 weights. Prefer bf16 over fp16: it shares fp16's range without
+  the overflow risk in attention scores / large activations.
+- **Quantize for memory, not speed.** `import-checkpoint` / `import-lora-image`
+  quantize to **8-bit MLX (`mlx-8bit`)** by default; some transformers ship
+  **4-bit** (e.g. `dark-beast-dbzit9`). Mixed bit/group-size exists per module
+  (e.g. LTX transformer `int8/g64`, connector `int4/g32` — see Patch 11).
+- **No FP8 path.** FP8 fused matmul (`torch._scaled_mm`, `--supports-fp8-compute`)
+  is torch/ComfyUI only; MLX has no FP8 kernel. Do not port FP8 recipes here.
+
 ## Startup
 
 ```bash

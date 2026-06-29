@@ -1,0 +1,13 @@
+# Swift build artifacts
+.build/
+.swiftpm/
+
+# Xcode
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# Regenerable Swift-port golden references (see verify_refs/README.md).
+# Run python/mlx-movie-director/app/tests/gen_flux2_*_ref.py to materialize.
+verify_refs/*.safetensors
+verify_refs/ref_image.png

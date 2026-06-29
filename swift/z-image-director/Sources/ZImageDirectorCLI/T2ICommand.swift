@@ -111,6 +111,11 @@ extension ZImageCLI {
         @Flag(help: "Generate a VLM review (prompt adherence, issues, summary) and write to manifest.")
         var review: Bool = false
 
+        /// Cheap deterministic gate (noise / blank / NaN) that always runs. With
+        /// --strict-gate a FAIL aborts before saving.
+        @Flag(help: "Abort (exit 1) if the output FAILs the image gate.")
+        var strictGate: Bool = false
+
         @Option(help: "VLM score threshold for --self-critique (overall AND artifacts must both >= this).")
         var critiqueThreshold: Int = 7
 
@@ -376,6 +381,8 @@ extension ZImageCLI {
                     steps: attemptSteps, cfgScale: params.cfgScale,
                     fixedNoise: ctx.fixedNoise
                 )
+                // Cheap deterministic self-gate (noise / blank / NaN) before saving.
+                try ImageGate.check(img, label: "t2i", strict: strictGate)
                 try ImageSave.savePNG(img, to: outURL)
                 finalSeed = attemptSeed
                 finalImage = img
