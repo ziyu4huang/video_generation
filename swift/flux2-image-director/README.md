@@ -130,45 +130,51 @@ rank-stacks them into one adapter, so `flux2 scene`/`style` can apply the full
 stack with one `--lora` per entry. Download via `run.py import-lora --arch
 flux2-klein-9b` + `convert_lora_mlx.py`.
 
-| # | workflow filename | scale | installed name | status |
-|---|---|---|---|---|
-| 1 | f2k_anything2real_a_patched | 0.5 | `anything2real-a` | ✅ |
-| 2 | Flux2 Klein…AnythingtoRealCharacters | 0.8 | `anything2real-characters` | ✅ |
-| 3 | Chest_9B | 1.0 | `chest-9b` | ✅ |
-| 4 | skin tone | 1.0 | `skin-tone` | ✅ |
-| 5 | Lips_9B | 1.0 | `lips-9b` | ✅ |
-| 6 | Eye_9B | 0.5 | `eye-9b` | ✅ |
-| 7 | details (Realistic Detail) | 0.8 | `details-9b` | ✅ |
-| 8 | LongFace_9B | 0.5 | — | ❌ not on CivitAI (no NO8D longface slider) |
-| 9 | Colorful | 0.5 | — | ❌ only a 4B/SDXL match exists |
-| 10 | qualitya | 0.8 | — | ❌ not found (generic name) |
-| 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | — | ❌ custom extract, not public |
-| 12 | Kook_Flux_klein_亚洲人像 | 0.8 | — | ❌ not found (likely private) |
+| # | workflow filename | scale | installed name | source | status |
+|---|---|---|---|---|---|
+| 1 | f2k_anything2real_a_patched | 0.5 | `anything2real-a` | civitai | ✅ |
+| 2 | Flux2 Klein…AnythingtoRealCharacters | 0.8 | `anything2real-characters` | civitai | ✅ |
+| 3 | Chest_9B | 1.0 | `chest-9b` | civitai | ✅ |
+| 4 | skin tone | 1.0 | `skin-tone` | civitai | ✅ |
+| 5 | Lips_9B | 1.0 | `lips-9b` | civitai | ✅ |
+| 6 | Eye_9B | 0.5 | `eye-9b` | civitai | ✅ |
+| 7 | details (Realistic Detail) | 0.8 | `details-9b` | civitai | ✅ |
+| 8 | LongFace_9B | 0.5 | `longface-9b` | HF NO8D/FaceControl | ✅ |
+| 9 | Colorful | 0.5 | `colorful` | civitai 2425555 v2779689 | ✅ |
+| 10 | qualitya | 0.8 | `qualitya` | civitai 2425555 v2727111 | ✅ |
+| 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | `darkklein-v2bfs-r256` | civitai 964312 v2742432 | ✅ |
+| 12 | Kook_Flux_klein_亚洲人像 | 0.8 | `nexblend-asian` | civitai 2535707 v2849806 | ✅ |
 
-7/12 downloaded automatically. **The 5 ❌ are open** (decision pending) — supply a
-CivitAI URL to add one:
+**12/12 downloaded** (2026-06-30). The full stack is now reproducible — apply it
+all in one `flux2 scene`/`style` call:
+```bash
+flux2 scene --ref ... --prompt "..." \
+  --lora anything2real-a --lora anything2real-characters --lora chest-9b \
+  --lora skin-tone --lora lips-9b --lora eye-9b --lora details-9b \
+  --lora longface-9b --lora colorful --lora qualitya \
+  --lora darkklein-v2bfs-r256 --lora nexblend-asian \
+  --lora-scale 0.5 --lora-scale 0.8 --lora-scale 1.0 --lora-scale 1.0 \
+  --lora-scale 1.0 --lora-scale 0.5 --lora-scale 0.8 --lora-scale 0.5 \
+  --lora-scale 0.5 --lora-scale 0.8 --lora-scale 0.25 --lora-scale 0.8
+```
+`Flux2LoRALoader.merge` rank-stacks all 12 into one adapter. Add a single one:
 ```bash
 python/venv/bin/python python/mlx-movie-director/run.py import-lora \
-  '<https://civitai.com/models/ID?modelVersionId=VID>' --arch flux2-klein-9b --name <slug>
+  '<https://civitai.com/models/ID?modelVersionId=VID>&token=$CIVITAI_API_TOKEN' \
+  --arch flux2-klein-9b --name <slug> --no-ai
 python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name <slug>
 ```
-- **LongFace_9B** — no NO8D face-slider "longface" version exists publicly (the
-  series covers eyes/lips/nose/eyebrow/chin/ear/hair/freckles). Need the original
-  author's source or a substitute.
-- **Colorful** — the only public match (`2637760`) is Flux.2 Klein **4B**-base /
-  SDXL, not 9B. Confirm whether 4B works on 9B or find the 9B original.
-- **qualitya** / **details** (✅ details-9b covers Realistic Detail) — `qualitya`
-  is a generic name with no confident match; needs the source URL.
-- **DarkKlein9b_v2BFS_extracted_lora_r256** — a custom LoRA-extract (rank 256)
-  of the DarkKlein BFS model; not public. Possibly re-derivable from the BFS
-  checkpoint (`bfs-head-v1-klein-9b` is installed) via extraction.
-- **Kook_Flux_klein_亚洲人像** — not found; likely a private Asian-portrait LoRA.
+Source notes (provenance): #8 from NO8D `FaceControl` repo (the face-slider
+pack); #9/#10 are two files from the same K-Slider "imaging control" pack
+(`Colorful.safetensors` v2779689, `quality.safetensors` v2727111); #11 is the
+rank-256 BFS extract from the `redcraft-exported-loras` pack; #12 is NexBlend
+Asian Semi-Realistic (the real-world model behind the workflow's "亚洲人像" node).
 
 ## Known limitations / open decisions
 
-1. **5/12 LoRAs not downloaded** — see the table above. The full 12-LoRA stack
-   reproduces the workflow only once these are supplied (the 7 installed +
-   `Flux2LoRALoader.merge` already support arbitrary stacks). *Decision pending.*
+1. **12-LoRA stack complete** (2026-06-30) — all 12 of the workflow's
+   `卡通转真人工厂` LoRAs are installed + int8-converted + externalized. See the
+   table above for the full reproducible `flux2 scene` invocation.
 2. **ESRGAN runs whole-image** (no tiling). Fine for typical inputs (e.g. 1024² →
    4096² verified), but very large inputs may OOM on the (1,H,W,64) intermediates
    across 28 blocks. Add tiled inference (overlap-and-blend) if 4K+ sources are

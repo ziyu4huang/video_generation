@@ -7,45 +7,41 @@
 > decision-pending items documented in `swift/flux2-image-director/README.md`
 > "Known limitations". Each is independent and individually mergeable.
 
+> **Status (2026-06-30): Item 1 DONE — 12/12 LoRAs installed.** Only items 2
+> (ESRGAN tiling) and 3 (WS3) remain open (decision-gated, not needed for the
+> current workflow).
+
 ## Scope (decision-gated — pick any subset)
 
-### 1. Complete the 12-LoRA "卡通转真人工厂" stack (5 remaining)
-7/12 downloaded. The 5 missing — **4/5 now have user-supplied sources**
-(2026-06-30); only `qualitya` is still unresolved.
+### 1. ✅ DONE — Complete the 12-LoRA "卡通转真人工场" stack
 
-| # | workflow name | scale | resolved source | installed name | status |
-|---|---|---|---|---|---|
-| 8 | LongFace_9B | 0.5 | `https://huggingface.co/NO8D/FaceControl` | `longface-9b` | 🔗 source |
-| 9 | Colorful | 0.5 | `https://civitai.com/models/2425555/k-slider-imaging-control` | `colorful` | 🔗 source |
-| 10 | qualitya | 0.8 | — (generic name, no match) | — | ❌ open |
-| 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | `https://civitai.com/models/964312/redcraft-exported-loras` | `darkklein-v2bfs-r256` | 🔗 source |
-| 12 | Kook_Flux_klein_亚洲人像 | 0.8 | `https://civitai.com/models/2535707/nexblend-asian-semi-realistic-flux-2-klein-9b` | `nexblend-asian` | 🔗 source |
+**12/12 downloaded + int8-converted + externalized** (2026-06-30). The final 5
+resolved sources (user-supplied 2026-06-30):
 
-**Source notes (verify before import):**
-- **LongFace_9B** → NO8D `FaceControl` HF repo. The NO8D face-slider series covers
-  many controls; confirm `FaceControl` is the long-face one (or the closest
-  available). HF download path differs from CivitAI — import via HF URL form.
-- **Colorful** → `k-slider-imaging-control` is a **K-slider** (imaging control),
-  not an obvious "colorful" saturation booster. Verify it maps to the workflow's
-  `Colorful` node before treating scale 0.5 as correct.
-- **DarkKlein9b_v2BFS_extracted_lora_r256** → `redcraft-exported-loras` is a
-  pack of LoRA-extracts. The specific r256 BFS file must be located inside it;
-  the installed `bfs-head-v1-klein-9b` checkpoint remains the re-extract fallback.
-- **亚洲人像** → `nexblend-asian-semi-realistic-flux-2-klein-9b` — a semi-realistic
-  Asian-portrait LoRA (good match for the workflow's intent), likely the
-  real-world model behind the "Kook 亚洲人像" node.
-- **qualitya** — still no source. May be a private/retracted LoRA; the installed
-  `details-9b` + the above quality stack may cover its intent. Decide: skip
-  (11/12) or keep hunting.
+| # | workflow name | scale | resolved source | installed name |
+|---|---|---|---|---|
+| 8 | LongFace_9B | 0.5 | `huggingface.co/NO8D/FaceControl` (`LongFace_9B.safetensors`) | `longface-9b` |
+| 9 | Colorful | 0.5 | civitai 2425555 v2779689 (`Colorful.safetensors`, K-Slider pack) | `colorful` |
+| 10 | qualitya | 0.8 | civitai 2425555 v2727111 (`quality.safetensors`, K-Slider pack) | `qualitya` |
+| 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | civitai 964312 v2742432 (redcraft pack, 632 MB int8) | `darkklein-v2bfs-r256` |
+| 12 | Kook_Flux_klein_亚洲人像 | 0.8 | civitai 2535707 v2849806 (NexBlend Asian Semi-Realistic) | `nexblend-asian` |
 
-**Add one (CivitAI form):**
-```bash
-python/venv/bin/python python/mlx-movie-director/run.py import-lora \
-  '<civitai-url>?modelVersionId=<VID>' --arch flux2-klein-9b --name <slug> --no-ai
-python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name <slug>
-```
-HF (`LongFace_9B`) uses the HF URL form directly. No code change — only model
-files + README table status.
+Resolution notes (what the deep-dig found):
+- **LongFace_9B** — found in NO8D `FaceControl` HF repo (exact filename match);
+  the repo also has Ear/Head/Eye/Lips/Nose/eyebrows/freckles/hair siblings.
+- **Colorful + qualitya** — both are files inside the **same** K-Slider
+  "imaging control" pack (civitai 2425555): `Colorful.safetensors` (v2779689,
+  79 MB) and `quality.safetensors` (v2727111, 39 MB). The generic-name "misses"
+  were never separate models.
+- **DarkKlein9b r256** — exact file in the `redcraft-exported-loras` pack; no
+  BFS re-extraction needed. Largest of the 5 (632 MB int8).
+- **亚洲人像** — NexBlend Asian Semi-Realistic; the real-world model behind the
+  workflow's "Kook 亚洲人像" node.
+
+All 5 int8 files externalized to `../video_generation__models/<md5>.safetensors`
+(store-manifest count 91→96). Reproducible full-stack invocation is in
+`swift/flux2-image-director/README.md`. **No code change** — only model files +
+README/plan status.
 
 ### 2. ESRGAN tiled inference (`flux2 upscale`)
 RealPLKSR currently runs whole-image. Verified for 1024²→4096², but the
