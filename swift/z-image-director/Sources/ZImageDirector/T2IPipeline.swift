@@ -7,6 +7,7 @@
 //  Text embeddings come from the embedding-exchange file (Phase 3 deferred).
 //
 
+import CommonImageDirector
 import Foundation
 import MLX
 import MLXRandom
@@ -16,7 +17,14 @@ public final class T2IPipeline {
 
     public let transformer: ZImageTransformer
     public let vae: ZImageVAEDecoder?
+    /// VAE encoder for i2i (image → latent). Built from the same weights as the
+    /// decoder; nil when the pipeline was constructed with empty vaeWeights.
+    public let vaeEncoder: ZImageVAEEncoder?
     public let config: TransformerConfig
+
+    /// Last generate() performance breakdown (nil before first run). Read this
+    /// after generate() returns to embed per-step it/s + memory into the manifest.
+    public private(set) var lastPerf: GenerationPerf?
 
     public init(transformerWeights: [String: MLXArray], vaeWeights: [String: MLXArray],
                 config: TransformerConfig, groupSize: Int = 64, bits: Int = 8) {
@@ -24,7 +32,24 @@ public final class T2IPipeline {
         self.transformer = ZImageTransformer(
             weights: transformerWeights, config: config, groupSize: groupSize, bits: bits
         )
-        self.vae = vaeWeights.isEmpty ? nil : ZImageVAEDecoder(weights: vaeWeights)
+        if vaeWeights.isEmpty {
+            self.vae = nil
+            self.vaeEncoder = nil
+        } else {
+            self.vae = ZImageVAEDecoder(weights: vaeWeights)
+            self.vaeEncoder = ZImageVAEEncoder(weights: vaeWeights)
+        }
+    }
+
+    /// Encode a pixel image (1, 3, H, W) normalized to [-1, 1] into a latent
+    /// (1, 16, H/8, W/8) for the img2img path. Fatal if no encoder was loaded.
+    public func encodeImage(_ pixels: MLXArray) -> MLXArray {
+        guard let encoder = vaeEncoder else {
+            fatalError("encodeImage() requires VAE weights; build pipeline with non-empty vaeWeights")
+        }
+        let latent = encoder(pixels.asType(.bfloat16))
+        MLX.eval(latent)
+        return latent
     }
 
     // MARK: - Phase 5: end-to-end latent (fixed noise)
@@ -90,6 +115,25 @@ public final class T2IPipeline {
         return LatentOps.unpack(out, hTok: inputs.hTok, wTok: inputs.wTok, channels: channels)
     }
 
+    /// One transformer forward step WITH ControlNet injection. The controlnet
+    /// context is pre-computed once from the 33-channel control image and reused
+    /// every step (it doesn't depend on the timestep or current latent).
+    public func stepFnControlnet(
+        latent: MLXArray, timestep: MLXArray, capFeats: MLXArray, inputs: StepInputs,
+        controlnet: ZImageControlNet, controlContext: MLXArray, strength: Float
+    ) -> MLXArray {
+        let channels = config.inChannels
+        let xTokens = LatentOps.patchify(latent, hTok: inputs.hTok, wTok: inputs.wTok)
+        let out = transformer(
+            x: xTokens, t: timestep, capFeats: capFeats,
+            xPos: inputs.xPos, capPos: inputs.capPos, cos: inputs.cos, sin: inputs.sin,
+            capMask: nil,
+            controlnet: controlnet, controlnetContext: controlContext,
+            controlnetStrength: strength
+        )
+        return LatentOps.unpack(out, hTok: inputs.hTok, wTok: inputs.wTok, channels: channels)
+    }
+
     /// Generate pixel image (1, 3, H, W) float32 in [0,1] from a prompt embedding.
     ///
     /// - Parameters:
@@ -99,9 +143,30 @@ public final class T2IPipeline {
     public func generate(
         capFeats: MLXArray, uncondFeats: MLXArray? = nil,
         seed: UInt64, width: Int, height: Int, steps: Int, cfgScale: Float,
-        fixedNoise: MLXArray? = nil
+        fixedNoise: MLXArray? = nil,
+        cleanLatent: MLXArray? = nil, denoiseStrength: Float = 1.0,
+        mask: MLXArray? = nil,
+        controlnet: ZImageControlNet? = nil, controlImage33ch: MLXArray? = nil,
+        controlnetStrength: Float = 1.0
+        // NOTE on MLX compile: this pipeline does NOT use MLX.compile for the
+        // denoise step, despite Python's @mx.compile step_fn. Measured verdict
+        // (4-run interleaved benchmark, 2026-06-29): compile gave ZERO speed
+        // benefit (32.93s vs 32.51s, diff < σ=2.8s thermal noise) while tripling
+        // peak memory (17.4GB vs 5.7GB, σ=0). MLX-Swift's compile retains the
+        // full compiled graph cache without Python's graph-fusion payoff — a
+        // pure cost with no upside. The denoise loop runs eagerly. Do NOT
+        // re-add compile without re-proving a speed win on a fresh interleaved
+        // benchmark; the historical evidence is uniformly negative.
     ) -> MLXArray {
         let cfgActive = uncondFeats != nil
+        let img2img = cleanLatent != nil && denoiseStrength < 1.0
+        let useCnet = controlnet != nil && controlImage33ch != nil
+        // Inpainting (Repaint): mask is a soft [0,1] latent-space array.
+        //   1 = LOCK to init latent (keep original), 0 = free to re-denoise.
+        //   Requires cleanLatent (the init). When active, after each scheduler
+        //   step the locked region is re-injected from the forward-noised init
+        //   latent so the free region can denoise hard with zero drift in the
+        //   locked region. Port of pipeline.py:683-693.
 
         // Latent spatial dims: /8 downsample, then H_tok = H_lat/2.
         let hLat = height / 8
@@ -110,13 +175,15 @@ public final class T2IPipeline {
         let wTok = wLat / 2
 
         // Noise: either the provided fixed array (for reproducible comparison
-        // against Python) or freshly seeded MLX noise.
+        // against Python) or freshly seeded MLX noise. For img2img the noise
+        // must match the clean-latent shape (already H/8 × W/8).
         let noise: MLXArray
         if let fixed = fixedNoise {
             noise = fixed.asType(.bfloat16)
         } else {
             MLXRandom.seed(seed)
-            noise = MLXRandom.normal([1, config.inChannels, hLat, wLat]).asType(.bfloat16)
+            let noiseShape = cleanLatent?.shape ?? [1, config.inChannels, hLat, wLat]
+            noise = MLXRandom.normal(noiseShape).asType(.bfloat16)
         }
 
         // Scheduler.
@@ -137,16 +204,51 @@ public final class T2IPipeline {
         let stepInputs = StepInputs(xPos: imgPos, capPos: capPos, cos: cosBf, sin: sinBf, hTok: hTok, wTok: wTok)
 
         var latents = noise
+        let inpaintActive = mask != nil && cleanLatent != nil
 
-        print("   denoising \(steps) steps (cfg=\(cfgScale), mu=\(String(format: "%.3f", mu)))...")
+        // img2img (SDEdit): mix clean latent with noise at t_mix, then denoise
+        // only the last `stepsToRun` steps. Matches pipeline.py:595-604.
+        // NOTE: when inpainting (mask present), we denoise from FULL noise so the
+        // free region (mask=0) regenerates completely; the locked region is
+        // pinned each step by the Repaint logic above.
+        var startStep = 0
+        if img2img, let clean = cleanLatent {
+            // Match Python's round() (banker's rounding, round-half-to-even):
+            // round(9*0.5)=4, not 5. Swift's .rounded() defaults to half-up,
+            // so use .toNearestOrEven to align with pipeline.py:598.
+            let stepsToRun = max(1, Int((Float(steps) * denoiseStrength).rounded(.toNearestOrEven)))
+            startStep = steps - stepsToRun
+            let tMix = scheduler.timesteps![startStep]
+            latents = ((1.0 - tMix) * clean + tMix * noise).asType(.bfloat16)
+            let tMixVal = tMix.item(Float.self)
+            print("   img2img: \(stepsToRun) steps from step \(startStep + 1)/\(steps) (t_mix=\(String(format: "%.3f", tMixVal)))")
+        }
+
+        // Pre-compute the ControlNet context once (independent of timestep/latent).
+        var cnetContext: MLXArray? = nil
+        if useCnet, let cnet = controlnet, let ctrl33 = controlImage33ch {
+            cnetContext = cnet.embedControl(ctrl33)
+            print("   controlnet: context \(cnetContext!.shape), strength=\(controlnetStrength)")
+        }
+
+        print("   denoising \(img2img ? (steps - startStep) : steps) steps (cfg=\(cfgScale), mu=\(String(format: "%.3f", mu)))\(inpaintActive ? ", inpaint=on" : "")\(useCnet ? ", controlnet=on" : "")...")
+
         var stepTimes: [Double] = []
-        for idx in 0..<steps {
+        for idx in startStep..<steps {
             let tCurr = scheduler.timesteps![idx]
             // t_input = (1.0 - t_curr)[None] as bfloat16
             let tInput = (1.0 - tCurr).expandedDimensions(axis: -1).asType(.bfloat16)
 
             let noisePred: MLXArray
-            if cfgActive, let uncond = uncondFeats {
+            if useCnet, let cnet = controlnet, let ctx = cnetContext {
+                if cfgActive, let uncond = uncondFeats {
+                    let cond = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
+                    let uncondPred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
+                    noisePred = uncondPred + cfgScale * (cond - uncondPred)
+                } else {
+                    noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
+                }
+            } else if cfgActive, let uncond = uncondFeats {
                 let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
                 let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs)
                 noisePred = uncondPred + cfgScale * (cond - uncondPred)
@@ -154,6 +256,25 @@ public final class T2IPipeline {
                 noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
             }
             latents = scheduler.step(modelOutput: noisePred, timestepIdx: idx, sample: latents)
+
+            // Repaint (latent inpainting): re-inject the LOCKED region (mask=1,
+            // e.g. a subject) from the forward-noised init latent at the NEXT
+            // timestep, so only the background (mask=0) is free to re-denoise.
+            // Flow-match interpolant is linear: x_t = (1-t)*clean + t*noise.
+            // Matches pipeline.py:690-693.
+            if let inpaintMask = mask, let clean = cleanLatent {
+                // t_next is the NEXT timestep (the one we just stepped INTO).
+                // On the final step there is no next — lock at t=0 (full clean).
+                let tNext: MLXArray
+                if idx + 1 < scheduler.timesteps!.shape[0] {
+                    tNext = scheduler.timesteps![idx + 1]
+                } else {
+                    tNext = MLXArray(0.0)
+                }
+                let locked = ((1.0 - tNext) * clean + tNext * noise).asType(latents.dtype)
+                latents = inpaintMask * locked + (1.0 - inpaintMask) * latents
+            }
+
             let stepStart = Date()
             MLX.eval(latents)
             let stepMs = stepStart.distance(to: Date()) * 1000
@@ -164,10 +285,22 @@ public final class T2IPipeline {
                 "avg \(String(format: "%.0f", avgMs)) ms)"
             print(stepMsg)
         }
+        let runSteps = steps - startStep
         let totalMs = stepTimes.reduce(0, +)
-        let totalSec = String(format: "%.2f", totalMs / 1000)
-        let perStep = String(format: "%.2f", totalMs / 1000 / Double(steps))
-        print("   denoise total: \(totalSec)s, avg \(perStep)s/it")
+        let totalSec = totalMs / 1000
+        let perStep = String(format: "%.2f", totalSec / Double(runSteps))
+        print("   denoise total: \(String(format: "%.2f", totalSec))s, avg \(perStep)s/it")
+
+        // Capture per-step perf for the manifest (it/s, memory, total).
+        lastPerf = GenerationPerf(
+            steps: runSteps,
+            startStep: startStep,
+            stepTimesMs: stepTimes,
+            totalSeconds: totalSec,
+            peakMemoryMB: peakRSSMB(),
+            width: width,
+            height: height
+        )
 
         // VAE decode → (1, 3, H, W) float32 [0,1].
         guard let vae = vae else {

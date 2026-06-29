@@ -22,6 +22,14 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift.git", exact: "0.31.4"),
         // Argument parsing for the CLI (mirrors run.py argparse surface).
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        // Shared LM-Studio VLM caption/score utilities (sibling package).
+        // Extracted so the future flux2-image-director reuses the same client.
+        .package(path: "../image-gen-utils"),
+        // Shared model-AGNOSTIC infra (Manifest, RunConfig, OutputPaths,
+        // ModelPaths, FlowMatchEuler scheduler, ImageSave, QualityMetrics).
+        // Both z-image-director and flux2-image-director depend on this so the
+        // manifest/audit/plumbing is identical across apps.
+        .package(path: "../common-image-director"),
         // NOTE: Phase 1 will add `swift-huggingface` (Hub, for HF downloads) and
         // a safetensors reader. Phase 4 will add PNG/image writing. Kept out of
         // the Phase 0 scaffold to keep the dependency closure minimal.
@@ -31,6 +39,8 @@ let package = Package(
             name: "ZImageDirectorCLI",
             dependencies: [
                 "ZImageDirector",
+                .product(name: "CommonImageDirector", package: "common-image-director"),
+                .product(name: "ImageGenUtils", package: "image-gen-utils"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/ZImageDirectorCLI"
@@ -42,6 +52,8 @@ let package = Package(
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXRandom", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "ImageGenUtils", package: "image-gen-utils"),
+                .product(name: "CommonImageDirector", package: "common-image-director"),
             ],
             path: "Sources/ZImageDirector"
         ),

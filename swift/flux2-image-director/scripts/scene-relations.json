@@ -1,0 +1,44 @@
+{
+  "title": "flux2 scene — multi-reference A/B relations (2026-06-29)",
+  "root": "/Users/huangziyu/proj/video_generation__output",
+  "refs": [
+    {
+      "id": "ref1",
+      "label": "ref_image.png",
+      "path": "/Users/huangziyu/proj/video_generation/swift/flux2-image-director/verify_refs/ref_image.png",
+      "note": "512×512 character reference (Swift verify fixture)"
+    },
+    {
+      "id": "ref2",
+      "label": "talkshow-lust-girl.png",
+      "path": "/Users/huangziyu/proj/video_generation/comfyui_data/input/talkshow-lust-girl.png",
+      "note": "960×1728 second character reference (female)"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "smoke",
+      "label": "smoke — 2 refs, 512²/4 steps",
+      "path": "scene_multiref_smoke.png",
+      "sources": ["ref1", "ref2"],
+      "runJson": "scene_multiref_smoke.run.json",
+      "note": "10.4s — end-to-end pipeline sanity check"
+    },
+    {
+      "id": "A",
+      "label": "A — 1 ref only (1024²/6)",
+      "path": "scene_A_1ref.png",
+      "sources": ["ref1"],
+      "runJson": "scene_A_1ref.run.json",
+      "note": "39.7s — control: prompt yields one male + one female"
+    },
+    {
+      "id": "B",
+      "label": "B — 2 refs (1024²/6, same seed/prompt as A)",
+      "path": "scene_B_2ref.png",
+      "sources": ["ref1", "ref2"],
+      "runJson": "scene_B_2ref.run.json",
+      "note": "80.0s — both figures shifted female; 2nd ref traits (long wavy hair, jewelry, embellished top) appear → 2nd reference IS injected"
+    }
+  ]
+}

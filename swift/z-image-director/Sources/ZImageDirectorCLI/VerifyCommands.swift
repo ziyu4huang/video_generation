@@ -6,6 +6,7 @@
 //  against Python reference dumps.
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
 import MLX
@@ -85,6 +86,64 @@ extension ZImageCLI {
             } else {
                 print("❌ \(failed.count) VAE CHECKS FAILED")
             }
+        }
+    }
+
+    /// `zimage verify-vae-encoder` — i2i checkpoint: encode an image with the
+    /// Swift VAE encoder and save the latent for comparison against the Python
+    /// mflux reference. Usage:
+    ///   zimage verify-vae-encoder --image foo.png --output /tmp/swift_latent.safetensors
+    struct VerifyVAEEncoder: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "verify-vae-encoder",
+            abstract: "Encode an image with the Swift VAE encoder; save latent for Python comparison."
+        )
+
+        @Option(help: "Input image (PNG/JPEG).")
+        var image: String
+
+        @Option(help: "Output latent file (.safetensors).")
+        var output: String
+
+        @Option(help: "VAE weights directory (under models/vae/).")
+        var vae: String = "ultraflux-zimage-ae"
+
+        @Option(help: "Target width (must match Python; divisible by 64).")
+        var width: Int = 640
+
+        @Option(help: "Target height (must match Python; divisible by 64).")
+        var height: Int = 960
+
+        @Option(help: "Debug: dump normalized input pixels (.safetensors) for comparison.")
+        var dumpInput: String? = nil
+
+        func run() throws {
+            print("zimage verify-encoder — i2i VAE encoder checkpoint")
+            let vaeURL = ModelPaths.repoRoot
+                .appendingPathComponent("python/mlx-movie-director/models/vae/\(vae)")
+            let weights = try loadArrays(url: vaeURL.appendingPathComponent("model.safetensors"))
+            print("loaded \(weights.count) VAE weights from \(vae)")
+
+            // Use the encoder directly — no transformer needed for this checkpoint.
+            let encoder = ZImageVAEEncoder(weights: weights)
+            let imgURL = URL(fileURLWithPath: image)
+            let pixels = try ImageLoad.loadArray(from: imgURL, targetSize: (width, height))
+            let normalized = ImageLoad.normalizeForVAE(pixels)
+            // Debug: dump normalized input for pixel-level comparison with Python.
+            if let dumpIn = dumpInput {
+                try MLX.save(arrays: ["input": normalized.asType(.float32)],
+                             url: URL(fileURLWithPath: dumpIn))
+                print("dumped normalized input → \(dumpIn)")
+            }
+            print("encoding \(width)x\(height) image → latent...")
+            let latent = encoder(normalized.asType(.bfloat16)).asType(.float32)
+            MLX.eval(latent)
+            print("latent shape: \(latent.shape)  dtype: \(latent.dtype)")
+
+            // Save as safetensors for Python-side comparison.
+            let outURL = URL(fileURLWithPath: output)
+            try MLX.save(arrays: ["latent": latent], url: outURL)
+            print("saved \(outURL.path)")
         }
     }
 
@@ -281,6 +340,83 @@ extension ZImageCLI {
                 print("✅ TOKENIZER MATCHES PYTHON")
             } else {
                 print("❌ \(mismatches) token mismatches")
+            }
+        }
+    }
+
+    /// `zimage verify-controlnet` — load Union ControlNet 2.1 weights and run
+    /// embedControl + one forward block on a dummy 33-channel input, to verify
+    /// the architecture port (weight keys + shapes + matmul dims).
+    struct VerifyControlNet: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "verify-controlnet",
+            abstract: "Load Union ControlNet 2.1 weights and run a forward sanity pass."
+        )
+
+        @Option(help: "ControlNet variant directory (under models/controlnet/).")
+        var controlnet: String = "zimage-turbo-fun-union-2.1-mlx"
+
+        @Option(help: "Latent H (pixels/8).")
+        var height: Int = 1024
+
+        @Option(help: "Latent W (pixels/8).")
+        var width: Int = 1024
+
+        func run() throws {
+            print("zimage verify-controlnet — Union ControlNet 2.1 sanity check")
+            let dir = ModelPaths.repoRoot
+                .appendingPathComponent("python/mlx-movie-director/models/controlnet/\(controlnet)")
+            let file = dir.appendingPathComponent("model.safetensors")
+            guard FileManager.default.fileExists(atPath: file.path) else {
+                throw ValidationError("controlnet weights not found: \(file.path)")
+            }
+            let arrays = try loadArrays(url: file)
+            print("loaded \(arrays.count) controlnet weights from \(controlnet)")
+
+            // Inspect quantization from a quantized key.
+            let sampleW = arrays["control_noise_refiner.0.attention.to_q.weight"]!
+            let sampleS = arrays["control_noise_refiner.0.attention.to_q.scales"]!
+            let bits = sampleW.dtype == .uint32 ? 4 : 8
+            let gs = sampleW.dim(1) * 32 / sampleS.dim(1)  // heuristic
+            print("quantization: ~\(bits)-bit, groupSize~\(gs); embedder=unquantized bf16")
+
+            let cnet = ZImageControlNet(weights: arrays, groupSize: 32, bits: 4)
+            print("controlnet built: \(cnet.nControlLayers) control layers, 2 noise refiners")
+
+            // Build a dummy 33-channel control input: [1, 33, H, W].
+            let hLat = height / 8, wLat = width / 8
+            let ctrl33 = MLX.zeros([1, 33, hLat, wLat]).asType(.float16)
+            print("control input: [1, 33, \(hLat), \(wLat)]")
+
+            // Embed control image → control context tokens.
+            let ctx = cnet.embedControl(ctrl33)
+            print("control context: \(ctx.shape)")
+
+            // Run one noise refiner + one control layer to verify matmul dims.
+            let temb = MLX.zeros([1, 256]).asType(.float16)
+            let mainHidden = MLX.zeros(ctx.shape).asType(.float16)
+            let cos = MLX.zeros([1, ctx.dim(1), 1, 64]).asType(.float16)
+            let sin = MLX.zeros([1, ctx.dim(1), 1, 64]).asType(.float16)
+
+            let (residualNr, ctxAfterNr) = cnet.forwardNoiseRefiner(
+                layerId: 0, controlContext: ctx, mainHidden: mainHidden,
+                temb: temb, cos: cos, sin: sin)
+            print("noise_refiner[0]: residual=\(residualNr.shape), ctx=\(ctxAfterNr.shape)")
+
+            let (residualCl, ctxAfterCl) = cnet.forwardControlLayer(
+                layerId: 0, controlContext: ctxAfterNr, mainHidden: mainHidden,
+                temb: temb, cos: cos, sin: sin)
+            print("control_layer[0]: residual=\(residualCl.shape), ctx=\(ctxAfterCl.shape)")
+
+            // Verify residuals are finite (no NaN/Inf from bad quant keys).
+            let rMax: Float = residualCl.max().item(Float.self)
+            let rMin: Float = residualCl.min().item(Float.self)
+            let finite = rMax.isFinite && rMin.isFinite
+            print("")
+            if finite {
+                print("✅ CONTROLNET FORWARD PASS OK (residual range [\(String(format: "%.4f", rMin)), \(String(format: "%.4f", rMax))])")
+            } else {
+                print("❌ CONTROLNET FORWARD HAS NaN/Inf (residual max=\(rMax))")
             }
         }
     }

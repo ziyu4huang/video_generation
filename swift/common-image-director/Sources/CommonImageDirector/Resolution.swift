@@ -38,6 +38,40 @@ public enum Resolution {
         "4k": (3840, 2160),     // will be capped to maxDimension unless raised
     ]
 
+    /// Pipeline family for per-model resolution tiers. Mirrors python's
+    /// `_PIPELINE_DEFAULT_RESOLUTION` / `_RESOLUTION_TIERS` so Swift and the
+    /// Bun GUI resolve the same training-optimal size for a given checkpoint.
+    public enum Pipeline: String, Sendable {
+        case zimage
+        case flux2Klein = "flux2-klein"
+        case lens
+        case auto
+
+        /// Canonical family used for tier lookup when the pipeline is `auto`
+        /// or unknown (falls back to the zimage portrait default).
+        var tierKey: Pipeline { self == .auto ? .zimage : self }
+    }
+
+    /// Resolution tiers, decoupling "what the model was trained on" from
+    /// "what we want to benchmark / self-learn at". Mirrors python
+    /// `app/commands/_shared.py:_RESOLUTION_TIERS`. All values are multiples
+    /// of 16 (Flux2 / zimage VAE /8 × patchify /2).
+    public static let tiers: [String: [Pipeline: (w: Int, h: Int)]] = [
+        // tier: { pipeline: (w, h) }
+        "model": [  // per-pipeline training-optimal (the historical default)
+            .zimage: (640, 960), .flux2Klein: (640, 960), .lens: (1024, 1024),
+            .auto: (640, 960),
+        ],
+        "benchmark": [  // ~1.5–1.6MP — the self-learning / quality-benchmark default
+            .zimage: (1024, 1536), .flux2Klein: (1024, 1536), .lens: (1280, 1280),
+            .auto: (1024, 1536),
+        ],
+        "large": [  // ~2.4MP — stress test (slower; watch for OOD artifacts on distilled models)
+            .zimage: (1280, 1920), .flux2Klein: (1280, 1920), .lens: (1536, 1536),
+            .auto: (1280, 1920),
+        ],
+    ]
+
     /// Align a single dimension to the nearest valid multiple of `alignment`.
     /// Returns the aligned value and whether it was changed.
     public static func align(_ value: Int) -> (aligned: Int, changed: Bool) {
@@ -59,8 +93,19 @@ public enum Resolution {
 
     /// Resolve a `--resolution` preset string into concrete (width, height).
     /// Returns nil if the string is not a known preset.
-    public static func resolvePreset(_ name: String) -> (w: Int, h: Int)? {
-        if let preset = presets[name.lowercased()] {
+    ///
+    /// Accepts: a named preset (portrait|landscape|1024|...), a tier
+    /// (`model`|`benchmark`|`large`, resolved per-pipeline), or explicit `WxH`.
+    public static func resolvePreset(_ name: String, pipeline: Pipeline = .zimage) -> (w: Int, h: Int)? {
+        let lower = name.lowercased()
+        // Tier lookup takes precedence over the bare-preset table so a pipeline's
+        // training-optimal size wins even if "model"/"large" aren't in `presets`.
+        if let tier = tiers[lower], let size = tier[pipeline.tierKey] {
+            let (wAligned, _) = align(size.w)
+            let (hAligned, _) = align(size.h)
+            return (wAligned, hAligned)
+        }
+        if let preset = presets[lower] {
             let (wAligned, _) = align(preset.w)
             let (hAligned, _) = align(preset.h)
             return (wAligned, hAligned)

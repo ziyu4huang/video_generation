@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import ImageGenUtils
 import ZImageDirector
 
 extension ZImageCLI {
@@ -26,10 +27,10 @@ extension ZImageCLI {
         var prompt: String?
 
         @Option(help: "LM Studio API URL.")
-        var apiUrl: String = ZImageDirector.CaptionClient.defaultAPIURL
+        var apiUrl: String = CaptionClient.defaultAPIURL
 
         @Option(help: "VLM model id (in LM Studio).")
-        var model: String = ZImageDirector.CaptionClient.defaultModel
+        var model: String = CaptionClient.defaultModel
 
         @Option(help: "Max output tokens.")
         var maxTokens: Int = 2048
@@ -50,7 +51,7 @@ extension ZImageCLI {
             }
             let fileName = URL(fileURLWithPath: image).lastPathComponent
             print("caption: \(fileName) [style=\(style), model=\(model)]")
-            let raw = try ZImageDirector.CaptionClient.caption(
+            let raw = try CaptionClient.caption(
                 imageURL: imageURL, style: style, prompt: prompt,
                 apiURL: apiUrl, model: model, maxTokens: maxTokens
             )
@@ -69,7 +70,7 @@ extension ZImageCLI {
         /// Parse + pretty-print a score/review JSON response, optionally
         /// writing it to disk and enforcing a pass/fail exit code.
         private func printScore(_ raw: String) throws {
-            guard let parsed = ZImageDirector.CaptionClient.parseScore(raw) else {
+            guard let parsed = CaptionClient.parseScore(raw) else {
                 print("⚠️ could not parse JSON; raw response:")
                 print(raw)
                 return

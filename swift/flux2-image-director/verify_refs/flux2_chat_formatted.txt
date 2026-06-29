@@ -1,0 +1,7 @@
+<|im_start|>user
+a woman in a garden, professional photo, sharp focus<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+

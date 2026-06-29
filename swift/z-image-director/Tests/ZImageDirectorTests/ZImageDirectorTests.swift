@@ -72,16 +72,16 @@ final class ZImageDirectorTests: XCTestCase {
         XCTAssertTrue(loaded.keyAudit.unexpectedPrefixes.isEmpty)
 
         // Per-group expected counts.
-        let g = loaded.keyAudit.groupCounts
-        XCTAssertEqual(g["t_embedder"], 8)
-        XCTAssertEqual(g["x_embedder"], 4)
-        XCTAssertEqual(g["cap_embedder"], 5)
-        XCTAssertEqual(g["noise_refiner"], 62, "2 modulated blocks × 31 keys")
-        XCTAssertEqual(g["context_refiner"], 54, "2 non-modulated blocks × 27 keys")
-        XCTAssertEqual(g["layers"], 930, "30 modulated blocks × 31 keys")
-        XCTAssertEqual(g["final_layer"], 8)
-        XCTAssertEqual(g["x_pad_token"], 1)
-        XCTAssertEqual(g["cap_pad_token"], 1)
+        let groups = loaded.keyAudit.groupCounts
+        XCTAssertEqual(groups["t_embedder"], 8)
+        XCTAssertEqual(groups["x_embedder"], 4)
+        XCTAssertEqual(groups["cap_embedder"], 5)
+        XCTAssertEqual(groups["noise_refiner"], 62, "2 modulated blocks × 31 keys")
+        XCTAssertEqual(groups["context_refiner"], 54, "2 non-modulated blocks × 27 keys")
+        XCTAssertEqual(groups["layers"], 930, "30 modulated blocks × 31 keys")
+        XCTAssertEqual(groups["final_layer"], 8)
+        XCTAssertEqual(groups["x_pad_token"], 1)
+        XCTAssertEqual(groups["cap_pad_token"], 1)
 
         // Spot-check representative quantized-linear shapes (8-bit / group 64).
         XCTAssertEqual(loaded.arrays["layers.0.attention.to_q.weight"]?.shape, [3840, 960])
@@ -98,5 +98,81 @@ final class ZImageDirectorTests: XCTestCase {
         XCTAssertNotNil(loaded.arrays["noise_refiner.0.adaLN_modulation.weight"])
 
         print("\n" + loaded.keyAudit.summary + "\n")
+    }
+
+    // MARK: - Model registry (axis 2)
+
+    func testRegistryDiscoversTransformerTypes() {
+        let types = ModelRegistry.listTypes()
+        XCTAssertTrue(types.contains("transformer"), "expected transformer in types: \(types)")
+        XCTAssertTrue(types.contains("lora"), "expected lora in types: \(types)")
+        XCTAssertTrue(types.contains("vae"), "expected vae in types: \(types)")
+    }
+
+    func testRegistryFindsKnownTransformer() throws {
+        let manifest = ModelRegistry.manifest(forType: "transformer", name: "moody-pro-mix")
+        // Skipped if the repo models tree isn't present (e.g. fresh checkout).
+        guard let manifest else {
+            let modelsRoot = ModelPaths.modelsRoot.path
+            throw XCTSkip("moody-pro-mix manifest not found under \(modelsRoot)")
+        }
+        XCTAssertEqual(manifest.name, "moody-pro-mix")
+        XCTAssertEqual(manifest.type, "transformer")
+        XCTAssertEqual(manifest.arch, "zimage-turbo")
+        XCTAssertEqual(manifest.weightFile, "model.safetensors")
+        XCTAssertTrue(manifest.pipelines.contains("zimage-turbo"))
+        XCTAssertTrue(manifest.compatibleWith.contains("tokenizer/qwen3"))
+    }
+
+    func testRegistryFindByArchFiltersZimageOnly() throws {
+        let zimageT = ModelRegistry.findByArch("transformer", arch: "zimage-turbo")
+        let kleinT = ModelRegistry.findByArch("transformer", arch: "flux2-klein-9b")
+        // Both groups are non-empty in the repo; ensure arch filter actually
+        // separates them (no klein leaks into zimage and vice versa).
+        guard !(zimageT.isEmpty && kleinT.isEmpty) else {
+            throw XCTSkip("no transformer manifests present")
+        }
+        for manifest in zimageT { XCTAssertEqual(manifest.arch, "zimage-turbo") }
+        for manifest in kleinT { XCTAssertEqual(manifest.arch, "flux2-klein-9b") }
+    }
+
+    func testRegistryManifestForUnknownReturnsNil() {
+        XCTAssertNil(ModelRegistry.manifest(forType: "transformer", name: "does-not-exist-xyz"))
+    }
+
+    // MARK: - Transformer defaults (axis 4)
+
+    func testResolutionTiersResolvePerPipeline() {
+        // zimage tiers
+        XCTAssertEqual(Resolution.resolvePreset("model", pipeline: .zimage)?.w, 640)
+        XCTAssertEqual(Resolution.resolvePreset("model", pipeline: .zimage)?.h, 960)
+        XCTAssertEqual(Resolution.resolvePreset("benchmark", pipeline: .zimage)?.w, 1024)
+        XCTAssertEqual(Resolution.resolvePreset("large", pipeline: .zimage)?.w, 1280)
+        // lens tiers differ (near-square high-res)
+        XCTAssertEqual(Resolution.resolvePreset("model", pipeline: .lens)?.w, 1024)
+        XCTAssertEqual(Resolution.resolvePreset("model", pipeline: .lens)?.h, 1024)
+        // auto falls back to zimage portrait
+        XCTAssertEqual(Resolution.resolvePreset("benchmark", pipeline: .auto)?.w, 1024)
+        // explicit WxH still works alongside tiers
+        XCTAssertEqual(Resolution.resolvePreset("800x1200", pipeline: .zimage)?.0, 800)
+        // unknown returns nil
+        XCTAssertNil(Resolution.resolvePreset("nonexistent-tier", pipeline: .zimage))
+    }
+
+    func testTransformerDefaultsBuiltInWinsOverManifest() throws {
+        // dark-beast-dbzit9: built-in table says cfg=3.0 (A/B tested);
+        // manifest says cfg=1.0 (stale). Built-in must win.
+        let resolved = TransformerDefaultsRegistry.resolve(forTransformer: "dark-beast-dbzit9")
+        guard resolved.cfgScale != nil else {
+            throw XCTSkip("dark-beast-dbzit9 not present in this models tree")
+        }
+        XCTAssertEqual(resolved.cfgScale, 3.0, "built-in A/B-tested cfg must beat stale manifest")
+        // steps not in built-in table → falls through to manifest (8)
+        XCTAssertEqual(resolved.steps, 8)
+    }
+
+    func testTransformerDefaultsUnknownModelIsEmpty() {
+        let resolved = TransformerDefaultsRegistry.resolve(forTransformer: "no-such-model-xyz")
+        XCTAssertTrue(resolved.isEmpty)
     }
 }

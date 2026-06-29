@@ -5,8 +5,10 @@
 //  `zimage t2i` — text-to-image generation (mirrors `run.py image t2i`).
 //
 
+import CommonImageDirector
 import ArgumentParser
 import Foundation
+import ImageGenUtils
 import MLX
 import ZImageDirector
 
@@ -19,7 +21,7 @@ private struct GenParams {
     let seed: UInt64
     let cfgScale: Float
     let loraList: [String]
-    let loraScale: Float
+    let loraScales: [Float]
 }
 
 /// Loaded model context passed from load to generate phase.
@@ -40,6 +42,9 @@ extension ZImageCLI {
             abstract: "Generate an image from a text prompt."
         )
 
+        @OptionGroup var globals: GlobalOptions
+        @OptionGroup var outputOptions: OutputOptions
+
         @Option(help: "Text prompt (required unless --self-test is used).")
         var prompt: String = ""
 
@@ -55,14 +60,14 @@ extension ZImageCLI {
         @Option(help: "Output image height (px; auto-aligned to multiple of 16).")
         var height: Int = 960
 
-        @Option(help: "Resolution preset: portrait|landscape|1080p|9:16|16:9|1024|WxH.")
+        @Option(help: "Resolution tier or preset: model|benchmark|large|portrait|landscape|1080p|9:16|16:9|1024|WxH. 'model' = per-checkpoint training-optimal (default).")
         var resolution: String?
 
-        @Option(help: "Number of denoising steps.")
-        var steps: Int = 9
+        @Option(help: "Number of denoising steps. Omit for the transformer's recommended value (manifest recommended_steps, else 9).")
+        var steps: Int?
 
-        @Option(help: "Classifier-free guidance scale.")
-        var cfgScale: Float = 4.0
+        @Option(help: "Classifier-free guidance scale. Omit for the transformer's recommended value (manifest recommended_cfg, else 4.0).")
+        var cfgScale: Float?
 
         @Option(help: "Output PNG path. Empty = auto-generate run.py-style output_YYYYMMDD_HHMMSS in the output dir.")
         var output: String = ""
@@ -91,8 +96,8 @@ extension ZImageCLI {
         @Option(help: "LoRA name (under models/lora/) or path to .safetensors. May be repeated.")
         var lora: [String] = []
 
-        @Option(help: "LoRA strength (0.0-2.0). Applies to all LoRAs if single value.")
-        var loraScale: Float = 1.0
+        @Option(help: "LoRA strength (0.0-2.0). Repeatable — one per --lora, in order; a single value broadcasts to all LoRAs.")
+        var loraScale: [Float] = []
 
         @Option(help: "Built-in test preset: portrait|landscape|complex-girl|lora:jibmix|lora:asian-girl.")
         var selfTest: String?
@@ -106,6 +111,11 @@ extension ZImageCLI {
         @Flag(help: "Generate a VLM review (prompt adherence, issues, summary) and write to manifest.")
         var review: Bool = false
 
+        /// Cheap deterministic gate (noise / blank / NaN) that always runs. With
+        /// --strict-gate a FAIL aborts before saving.
+        @Flag(help: "Abort (exit 1) if the output FAILs the image gate.")
+        var strictGate: Bool = false
+
         @Option(help: "VLM score threshold for --self-critique (overall AND artifacts must both >= this).")
         var critiqueThreshold: Int = 7
 
@@ -113,6 +123,7 @@ extension ZImageCLI {
         var critiqueRetries: Int = 2
 
         func run() throws {
+            globals.apply()
             let params = try resolveParams()
             let ctx = try loadPipeline(params: params)
             try generateWithCritique(params: params, ctx: ctx)
@@ -121,43 +132,83 @@ extension ZImageCLI {
         // MARK: - Param resolution
 
         /// Resolve all generation params from flags + presets.
+        ///
+        /// Sentinel pattern (mirrors python RunConfig.from_args): `steps` / `cfgScale`
+        /// default to nil so we can tell "user passed a flag" from "user accepted the
+        /// default". Transformer manifest defaults fill nils BEFORE the global
+        /// fallbacks (9 steps / 4.0 cfg) — an explicit user flag always wins.
         private func resolveParams() throws -> GenParams {
-            var p = GenParams(
+            // Per-checkpoint recommended params (manifest-first, built-in fallback).
+            // Applied only to fields the user left nil.
+            let defaults = TransformerDefaultsRegistry.resolve(forTransformer: transformer)
+            let resolvedSteps = steps ?? defaults.steps ?? 9
+            let resolvedCfg = cfgScale ?? defaults.cfgScale ?? 1.0
+            // Skip the "using manifest default" note under --self-test: the preset
+            // carries its own fixed steps/cfg and overrides these, so the note
+            // would be misleading. It's accurate for real (no-self-test) runs.
+            if selfTest == nil {
+                if defaults.steps != nil && steps == nil {
+                    print("  steps      : using manifest default \(resolvedSteps)")
+                }
+                if defaults.cfgScale != nil && cfgScale == nil {
+                    print("  cfg-scale  : using manifest default \(resolvedCfg)")
+                }
+            }
+
+            // Resolve per-LoRA scales: broadcast a single value across all
+            // LoRAs (python also supports a list — `--lora-scale` is repeatable
+            // here, paired by index; a lone value broadcasts).
+            let loraCount = lora.count
+            let resolvedLoraScales: [Float] = {
+                if loraScale.isEmpty { return [Float](repeating: 1.0, count: loraCount) }
+                if loraScale.count == 1 { return [Float](repeating: loraScale[0], count: loraCount) }
+                return loraScale
+            }()
+
+            var params = GenParams(
                 prompt: prompt, width: width, height: height,
-                steps: steps, seed: seed, cfgScale: cfgScale,
-                loraList: lora, loraScale: loraScale
+                steps: resolvedSteps, seed: seed, cfgScale: resolvedCfg,
+                loraList: lora, loraScales: resolvedLoraScales
             )
             if let selfTest {
                 guard let preset = SelfTestPresets.find(selfTest) else {
                     let names = SelfTestPresets.all.map { $0.name }.joined(separator: ", ")
                     throw ValidationError("Unknown self-test: \(selfTest) (available: \(names))")
                 }
-                p = GenParams(
+                let presetLoraList = preset.lora.map { [$0] } ?? lora
+                let presetScales = preset.lora.map { _ in [preset.loraScale] } ?? resolvedLoraScales
+                params = GenParams(
                     prompt: preset.prompt, width: preset.width, height: preset.height,
                     steps: preset.steps, seed: preset.seed, cfgScale: preset.cfgScale,
-                    loraList: preset.lora.map { [$0] } ?? lora, loraScale: preset.loraScale
+                    loraList: presetLoraList, loraScales: presetScales
                 )
                 print("  self-test  : \(selfTest) — \(preset.description)")
             }
-            if p.prompt.isEmpty && selfTest == nil {
+            if params.prompt.isEmpty && selfTest == nil {
                 throw ValidationError("--prompt is required (or use --self-test)")
             }
+            // Resolution tier/preset takes precedence over --width/--height so
+            // benchmark/self-learning can run at model-optimal or larger. When no
+            // --resolution is given, the explicit --width/--height (default
+            // 640×960 = zimage 'model' tier) stand.
             if let resolution {
-                guard let preset = ZImageDirector.Resolution.resolvePreset(resolution) else {
+                guard let preset = CommonImageDirector.Resolution.resolvePreset(
+                    resolution, pipeline: .zimage
+                ) else {
                     throw ValidationError("Unknown resolution preset: \(resolution)")
                 }
-                p = GenParams(
-                    prompt: p.prompt, width: preset.w, height: preset.h,
-                    steps: p.steps, seed: p.seed, cfgScale: p.cfgScale,
-                    loraList: p.loraList, loraScale: p.loraScale
+                params = GenParams(
+                    prompt: params.prompt, width: preset.w, height: preset.h,
+                    steps: params.steps, seed: params.seed, cfgScale: params.cfgScale,
+                    loraList: params.loraList, loraScales: params.loraScales
                 )
                 print("  resolution : \(resolution) → \(preset.w)×\(preset.h)")
             }
-            let validated = ZImageDirector.Resolution.validate(width: p.width, height: p.height)
+            let validated = CommonImageDirector.Resolution.validate(width: params.width, height: params.height)
             return GenParams(
-                prompt: p.prompt, width: validated.width, height: validated.height,
-                steps: p.steps, seed: p.seed, cfgScale: p.cfgScale,
-                loraList: p.loraList, loraScale: p.loraScale
+                prompt: params.prompt, width: validated.width, height: validated.height,
+                steps: params.steps, seed: params.seed, cfgScale: params.cfgScale,
+                loraList: params.loraList, loraScales: params.loraScales
             )
         }
 
@@ -178,9 +229,12 @@ extension ZImageCLI {
             let (capFeats, uncondFeats, cfgActive) = try encodePrompt(params: params)
 
             var transformerArrays = loaded.arrays
-            for loraName in params.loraList {
+            for (index, loraName) in params.loraList.enumerated() {
+                let scale = index < params.loraScales.count
+                    ? params.loraScales[index]
+                    : (params.loraScales.last ?? 1.0)
                 try applySingleLoRA(
-                    name: loraName, scale: params.loraScale,
+                    name: loraName, scale: scale,
                     config: loaded.config, arrays: &transformerArrays
                 )
             }
@@ -263,15 +317,26 @@ extension ZImageCLI {
             if name.hasSuffix(".safetensors") || FileManager.default.fileExists(atPath: name) {
                 loraPath = name
             } else {
-                let loraDir = ModelPaths.repoRoot
-                    .appendingPathComponent("python/mlx-movie-director/models/lora/\(name)")
-                let contents = (try? FileManager.default.contentsOfDirectory(atPath: loraDir.path)) ?? []
-                guard let stFile = contents.first(
-                    where: { $0.hasSuffix(".safetensors") && !$0.hasPrefix(".") }
-                ) else {
-                    throw ValidationError("No .safetensors found in LoRA dir: \(loraDir.path)")
+                // Resolve via ModelPaths.lora() so --models-root / $MLX_MODELS_DIR
+                // is honored; prefer the registry's declared weight_file.
+                let loraDir = ModelPaths.lora(name)
+                let weightName = ModelRegistry.manifest(forType: "lora", name: name)?.weightFile
+                if let weightName {
+                    let direct = loraDir.appendingPathComponent(weightName)
+                    if FileManager.default.fileExists(atPath: direct.path) {
+                        loraPath = direct.path
+                    } else {
+                        loraPath = loraDir.appendingPathComponent(weightName).path
+                    }
+                } else {
+                    let contents = (try? FileManager.default.contentsOfDirectory(atPath: loraDir.path)) ?? []
+                    guard let safetensorsFile = contents.first(
+                        where: { $0.hasSuffix(".safetensors") && !$0.hasPrefix(".") }
+                    ) else {
+                        throw ValidationError("No .safetensors found in LoRA dir: \(loraDir.path)")
+                    }
+                    loraPath = loraDir.appendingPathComponent(safetensorsFile).path
                 }
-                loraPath = loraDir.appendingPathComponent(stFile).path
             }
             print("applying LoRA: \(name) (scale=\(scale))...")
             let info = try LoRALoader.apply(
@@ -316,6 +381,8 @@ extension ZImageCLI {
                     steps: attemptSteps, cfgScale: params.cfgScale,
                     fixedNoise: ctx.fixedNoise
                 )
+                // Cheap deterministic self-gate (noise / blank / NaN) before saving.
+                try ImageGate.check(img, label: "t2i", strict: strictGate)
                 try ImageSave.savePNG(img, to: outURL)
                 finalSeed = attemptSeed
                 finalImage = img
@@ -334,7 +401,12 @@ extension ZImageCLI {
                 attemptSeed = attemptSeed &+ 1
             }
 
-            // Write run.py-compatible .run.json + .manifest.json siblings.
+            // Write run.py-compatible .run.json + .manifest.json siblings
+            // (default ON for debug; --no-manifest / --no-run-json opt out).
+            if outputOptions.noRunJSON && outputOptions.noManifest {
+                print("(--no-manifest --no-run-json: skipped audit files)")
+                return
+            }
             try writeRunArtifacts(paths: paths, params: params, finalSeed: finalSeed,
                                   startTime: startTime, ctx: ctx,
                                   finalImage: finalImage, outURL: outURL)
@@ -351,11 +423,15 @@ extension ZImageCLI {
                 transformer: transformer, prompt: params.prompt,
                 width: params.width, height: params.height,
                 steps: params.steps, seed: finalSeed, cfgScale: params.cfgScale,
-                loraPaths: params.loraList, loraScale: params.loraScale,
+                loraPaths: params.loraList,
+                loraScale: params.loraScales.first ?? 1.0,
+                loraScales: params.loraScales.count > 1 ? params.loraScales : nil,
                 textEncoder: encoder, tokenizer: tokenizerDir, vae: vae,
                 quantBits: ctx.quantBits, quantGroupSize: ctx.quantGroupSize
             )
-            try runConfig.write(to: paths.runJSON)
+            if outputOptions.writeRunJSON {
+                try runConfig.write(to: paths.runJSON)
+            }
 
             let attrs = try FileManager.default.attributesOfItem(atPath: paths.png)
             let sizeBytes = (attrs[.size] as? Int64) ?? 0
@@ -368,11 +444,14 @@ extension ZImageCLI {
             )
             let manifest = Manifest.success(
                 runFile: paths.runJSON, startTime: startTime, endTime: endTime,
-                timings: [:], models: [:], outputFiles: [output], quality: quality
+                timings: [:], models: [:], outputFiles: [output], quality: quality,
+                perf: ctx.pipeline.lastPerf
             )
-            try manifest.write(to: paths.manifestJSON)
-            print("Run config: \(paths.runJSON)")
-            print("Manifest:   \(paths.manifestJSON)")
+            if outputOptions.writeManifest {
+                try manifest.write(to: paths.manifestJSON)
+            }
+            if outputOptions.writeRunJSON { print("Run config: \(paths.runJSON)") }
+            if outputOptions.writeManifest { print("Manifest:   \(paths.manifestJSON)") }
         }
 
         /// Build the dual quality report (programmatic metrics + optional VLM review).
@@ -422,12 +501,12 @@ extension ZImageCLI {
         private func critiqueScore(imageURL: URL) throws -> CaptionScore? {
             print("\n[self-critique] scoring via Qwen3-VL...")
             do {
-                let raw = try ZImageDirector.CaptionClient.caption(
+                let raw = try CaptionClient.caption(
                     imageURL: imageURL, style: "score",
-                    apiURL: ZImageDirector.CaptionClient.defaultAPIURL,
-                    model: ZImageDirector.CaptionClient.defaultModel
+                    apiURL: CaptionClient.defaultAPIURL,
+                    model: CaptionClient.defaultModel
                 )
-                return ZImageDirector.CaptionClient.parseScore(raw)
+                return CaptionClient.parseScore(raw)
             } catch {
                 print("  ⚠️ VLM unavailable (\(error)); skipping critique.")
                 return nil
