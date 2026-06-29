@@ -29,6 +29,49 @@ import mlx.core as mx
 from app import config as cfg
 
 
+# Flux2 Klein LoRA keys in WebUI/ComfyUI format use `lora_unet_` prefix with
+# `lora_down/lora_up` matrices and `_`-separated paths; the Swift loader
+# (Flux2LoRALoader) expects BFL format (`diffusion_model.` prefix, `lora_A/B`,
+# `.`-separated). This remaps WebUI->BFL so any LoRA source works regardless of
+# the format its author shipped. BFL keys pass through unchanged; unknown keys
+# (e.g. `.alpha`) are dropped.
+_DOUBLE = re.compile(
+    r"^double_blocks_(\d+)_(img_attn|txt_attn|img_mlp|txt_mlp)_(proj|qkv|0|2)$")
+_SINGLE = re.compile(r"^single_blocks_(\d+)_(linear1|linear2)$")
+
+
+def _remap_webui_path(body: str) -> str | None:
+    """`single_blocks_0_linear1` -> `single_blocks.0.linear1` (or None)."""
+    if (m := _DOUBLE.match(body)):
+        return f"double_blocks.{m.group(1)}.{m.group(2)}.{m.group(3)}"
+    if (m := _SINGLE.match(body)):
+        return f"single_blocks.{m.group(1)}.{m.group(2)}"
+    return None
+
+
+def remap_lora_keys(weights: dict) -> dict:
+    """Remap WebUI/ComfyUI LoRA keys to BFL format (no-op if already BFL).
+
+    Drops non-quant-matrix keys (`.alpha`, etc.) the loader does not consume.
+    """
+    has_webui = any(k.startswith("lora_unet_") for k in weights)
+    has_bfl = any(k.startswith("diffusion_model.") for k in weights)
+    if not has_webui or has_bfl:
+        return weights  # already BFL, or a format we can't remap
+    out: dict = {}
+    for key, arr in weights.items():
+        m = re.match(r"^lora_unet_(.+)\.(lora_down|lora_up)\.weight(?:\.scale)?$", key)
+        if not m:
+            continue  # drop .alpha and anything unrecognized
+        path = _remap_webui_path(m.group(1))
+        if path is None:
+            print(f"    [remap] SKIP unparseable key: {key}")
+            continue
+        suffix = "lora_A" if m.group(2) == "lora_down" else "lora_B"
+        out[f"diffusion_model.{path}.{suffix}.weight"] = arr
+    return out
+
+
 def _quantize_tensor(arr: mx.array) -> tuple[mx.array, mx.array]:
     """Quantize a float array to int8 with per-tensor max-abs scaling.
 
@@ -150,6 +193,12 @@ def convert_lora_instance(name: str, verbose: bool = True) -> None:
         n_tensors = len(weights)
         if verbose:
             print(f"    Loaded {n_tensors} tensors")
+
+        # Remap WebUI/ComfyUI keys -> BFL (no-op if already BFL). Must happen
+        # before quantization so the int8 output is directly loadable by Swift.
+        weights = remap_lora_keys(weights)
+        if verbose and len(weights) != n_tensors:
+            print(f"    [remap] {n_tensors} -> {len(weights)} BFL keys")
 
         # Quantize each tensor
         quantized = {}

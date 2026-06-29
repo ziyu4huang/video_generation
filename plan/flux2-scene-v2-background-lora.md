@@ -11,8 +11,9 @@
 >
 > **Open (decision pending, documented in swift/flux2-image-director/README.md
 > "Known limitations"):**
-> 1. 5/12 LoRAs need user-supplied CivitAI URLs (LongFace_9B, Colorful [only 4B
->    public], qualitya, DarkKlein9b_v2BFS_extracted_lora_r256, Kook 亚洲人像).
+> 1. ~~5/12 LoRAs~~ → **DONE 2026-06-30: 12/12 installed.** All 5 resolved
+>    (LongFace_9B from NO8D/FaceControl; Colorful+qualitya from K-Slider pack;
+>    DarkKlein r256 from redcraft pack; 亚洲人像 = NexBlend). See wave-2 plan.
 > 2. ESRGAN has no tiled inference — whole-image only; very large inputs may OOM.
 > 3. WS3 (per-ref strength + timestep gating) still deferred — not needed now.
 

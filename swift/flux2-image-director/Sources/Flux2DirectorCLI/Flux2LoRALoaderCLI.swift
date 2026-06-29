@@ -34,11 +34,20 @@ enum Flux2LoRALoaderCLI {
         for (i, name) in names.enumerated() {
             let s = i < scales.count ? scales[i] : 1.0
             let url = try Flux2LoRALoader.resolveFile(name: name)
-            loaded.append(try Flux2LoRALoader.load(url: url, scale: s))
+            let ad = try Flux2LoRALoader.load(url: url, scale: s)
+            // Surface silent no-ops: 0 adapters means the safetensors keys did
+            // not match the BFL format the loader expects (e.g. a WebUI-format
+            // LoRA that needs remapping via convert_lora_mlx.py).
+            if ad.adapters.isEmpty {
+                FileHandle.standardError.write(
+                    Data("⚠️  \(name): loaded 0 adapters — key format mismatch (WebUI vs BFL)?\n".utf8))
+            }
+            loaded.append(ad)
             resolvedScales.append(s)
-            print("\(logPrefix)\(name)  (scale=\(s))")
+            print("\(logPrefix)\(name)  (scale=\(s), adapters=\(ad.adapters.count))")
         }
         let merged = Flux2LoRALoader.merge(loaded)
+        print("\(logPrefix)merged: \(merged.adapters.count) adapters across \(loaded.count) LoRA(s)")
         return (merged, names, resolvedScales)
     }
 }

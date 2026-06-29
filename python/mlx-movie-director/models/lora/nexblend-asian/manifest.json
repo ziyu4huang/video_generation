@@ -1,0 +1,28 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "nexblend-asian",
+  "type": "lora",
+  "arch": "flux2-klein-9b",
+  "format": "mlx-int8",
+  "description": "NexBlend Asian Semi Realistic Flux 2 Klein 9B Flux 2 Klein 9B",
+  "source": "civitai/nexblend-asian",
+  "compatible_with": [
+    "transformer/klein-9b"
+  ],
+  "size_bytes": 82894996,
+  "created_at": "2026-06-29T23:33:30Z",
+  "pipeline": [
+    "flux2-klein"
+  ],
+  "source_url": "https://civitai.com/models/2535707",
+  "converted_from": {
+    "format": "safetensors-bf16",
+    "size_bytes": 165717176
+  },
+  "convert_method": {
+    "tool": "MLX per-tensor int8 quantization",
+    "bits": 8,
+    "type": "max-abs per-tensor scale"
+  },
+  "convert_script": "scripts/convert_lora_mlx.py"
+}
