@@ -145,8 +145,36 @@ flux2-klein-9b` + `convert_lora_mlx.py`.
 | 11 | DarkKlein9b_v2BFS_extracted_lora_r256 | 0.25 | — | ❌ custom extract, not public |
 | 12 | Kook_Flux_klein_亚洲人像 | 0.8 | — | ❌ not found (likely private) |
 
-7/12 downloaded automatically; the 5 ❌ need a CivitAI URL supplied manually
-(`run.py import-lora '<url>' --arch flux2-klein-9b --name <slug>`).
+7/12 downloaded automatically. **The 5 ❌ are open** (decision pending) — supply a
+CivitAI URL to add one:
+```bash
+python/venv/bin/python python/mlx-movie-director/run.py import-lora \
+  '<https://civitai.com/models/ID?modelVersionId=VID>' --arch flux2-klein-9b --name <slug>
+python/venv/bin/python python/mlx-movie-director/scripts/convert_lora_mlx.py --name <slug>
+```
+- **LongFace_9B** — no NO8D face-slider "longface" version exists publicly (the
+  series covers eyes/lips/nose/eyebrow/chin/ear/hair/freckles). Need the original
+  author's source or a substitute.
+- **Colorful** — the only public match (`2637760`) is Flux.2 Klein **4B**-base /
+  SDXL, not 9B. Confirm whether 4B works on 9B or find the 9B original.
+- **qualitya** / **details** (✅ details-9b covers Realistic Detail) — `qualitya`
+  is a generic name with no confident match; needs the source URL.
+- **DarkKlein9b_v2BFS_extracted_lora_r256** — a custom LoRA-extract (rank 256)
+  of the DarkKlein BFS model; not public. Possibly re-derivable from the BFS
+  checkpoint (`bfs-head-v1-klein-9b` is installed) via extraction.
+- **Kook_Flux_klein_亚洲人像** — not found; likely a private Asian-portrait LoRA.
+
+## Known limitations / open decisions
+
+1. **5/12 LoRAs not downloaded** — see the table above. The full 12-LoRA stack
+   reproduces the workflow only once these are supplied (the 7 installed +
+   `Flux2LoRALoader.merge` already support arbitrary stacks). *Decision pending.*
+2. **ESRGAN runs whole-image** (no tiling). Fine for typical inputs (e.g. 1024² →
+   4096² verified), but very large inputs may OOM on the (1,H,W,64) intermediates
+   across 28 blocks. Add tiled inference (overlap-and-blend) if 4K+ sources are
+   common. *Decision pending.*
+3. **WS3 (per-reference strength + timestep gating for `scene`)** — still deferred
+   from the v2 plan; not needed for the current workflow.
 
 ## Reproduce the full workflow
 
