@@ -24,7 +24,7 @@ struct Flux2CLI: ParsableCommand {
         version: "0.1.0",
         subcommands: [
             T2I.self, Edit.self, Angle.self, Segment.self, Swap.self, Style.self,
-            Models.self, VerifyVAE.self, VerifyEncoder.self,
+            Story.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
             VerifyTokenizer.self, VerifyTransformer.self, VerifyE2E.self,
             VerifyEdit.self,
         ]
