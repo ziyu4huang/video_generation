@@ -59,6 +59,17 @@ extension Flux2CLI {
             let textIds = ref["text_ids"]!.asType(.int32)
             let timestep = ref["timestep"]!.asType(.bfloat16)
 
+            print("=== initial latent RNG check ===")
+            let (genLat, _, _, _) = Flux2LatentCreator.preparePackedLatents(
+                seed: 777, height: 512, width: 512)
+            MLX.eval(genLat)
+            if let refLat = ref["latents"] {
+                let c = cosine(genLat.asType(.float32), refLat.asType(.float32))
+                print("  generated-vs-ref cos=\(String(format: "%.5f", c))  "
+                      + "(gen sum=\(String(format: "%.2f", genLat.sum().item(Float.self))) "
+                      + "ref sum=\(String(format: "%.2f", refLat.sum().item(Float.self))))")
+            }
+
             print("=== intermediate comparison ===")
             let inter = model.diagnose(hiddenStates: latents, encoderHiddenStates: promptEmbeds,
                                        timestep: timestep, imgIds: latentIds, txtIds: textIds)
