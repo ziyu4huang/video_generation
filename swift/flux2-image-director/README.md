@@ -94,6 +94,35 @@ Replaces an object in the source (SAM3-segmented) with a reference. Two paths:
 
 `--prompt` is the SAM3 text prompt for the object to replace (person, face, …).
 
+## `flux2 upscale` — 4× super-resolution (4K修復, Phase D)
+
+Native Swift/MLX port of **RealPLKSR** (the arch behind `4xNomosWebPhoto_RealPLKSR`).
+Pure convolutional 4× upscaler — no diffusion model loaded, sub-second on a 256²
+input. Verified bit-accurate against the torch/spandrel reference: **PSNR 37.7 dB,
+cosine 0.99988** (fp32 numerical noise only).
+
+```bash
+flux2 upscale --input photo.png            # → 4× (e.g. 1024² → 4096²)
+```
+
+The model weights are **not committed** (gitignored, ~30 MB raw download). Set up:
+
+```bash
+# 1. download the .pth (GitHub release)
+curl -L -o python/mlx-movie-director/models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth \
+  https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_RealPLKSR/4xNomosWebPhoto_RealPLKSR.pth
+# 2. convert to MLX safetensors (Swift can't read torch pickles)
+python/venv/bin/python -c "import spandrel; from safetensors.torch import save_file; \
+  m=spandrel.ModelLoader(device='cpu').load_from_file('python/mlx-movie-director/models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth').model; \
+  save_file({k:v.contiguous() for k,v in m.state_dict().items()}, \
+  'python/mlx-movie-director/models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.safetensors')"
+```
+
+The port (`swift/common-image-director/.../ESRGAN.swift`) runs the whole net in
+channels-last (NHWC), permuting torch NCHW weights at load, with GroupNorm /
+EA attention / PixelShuffle implemented via reshape+permute to match PyTorch's
+exact layout. Tiled inference for very large inputs is a follow-up.
+
 ## The 12-LoRA "卡通转真人工厂" stack
 
 The ComfyUI workflow stacks 12 Flux2 Klein 9B LoRAs. WS2's `Flux2LoRALoader.merge`

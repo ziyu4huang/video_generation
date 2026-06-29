@@ -77,6 +77,11 @@ public enum ModelPaths {
         modelsRoot.appendingPathComponent("vae")
     }
 
+    /// `{modelsRoot}/upscale/` (ESRGAN/RealPLKSR super-resolution models).
+    public static var upscaleRoot: URL {
+        modelsRoot.appendingPathComponent("upscale")
+    }
+
     /// `{modelsRoot}/text_encoder/`
     public static var textEncoderRoot: URL {
         modelsRoot.appendingPathComponent("text_encoder")
