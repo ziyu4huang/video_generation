@@ -13,23 +13,34 @@
  *   ../../dist/pi-agent/theme/           asset dir copied alongside binary
  *   ../../dist/pi-agent/export-html/     asset dir copied alongside binary
  *   ../../dist/pi-agent/assets/          asset dir copied alongside binary
+ *   ../../dist/pi-agent/node_modules     symlink → pi's bun-store deps (bundle)
  *
- * Asset handling (two separate mechanisms):
+ * Three separate mechanisms, one per execution mode:
  *
- *   Bundle (.js): pi's getPackageDir() walks up from __dirname and wrongly
- *   finds the monorepo root instead of pi-coding-agent. We resolve the real
- *   package dir at build time and bake it into src/generated/pi-pkg-dir.ts,
- *   which the set-package-dir patch reads and sets as PI_PACKAGE_DIR.
+ *   Bundle (.js): isBunBinary is false, so pi's extension loader takes the
+ *   `alias: getAliases()` branch, which calls require.resolve("typebox") et al.
+ *   relative to the bundle file. We (a) bake PI_PACKAGE_DIR into
+ *   src/generated/pi-pkg-dir.ts for asset/theme resolution, and (b) symlink
+ *   node_modules → pi's bun-store so the loader can resolve typebox +
+ *   @earendil-works/* at runtime. Without the symlink, extensions importing
+ *   typebox fail with "Cannot find package 'typebox'".
  *
- *   Binary: pi's isBunBinary flag is true, so getPackageDir() = dirname(exe).
- *   We copy theme/, export-html/, and assets/ alongside the exe.
+ *   Binary: pi's isBunBinary flag is true → loader uses virtualModules
+ *   (typebox supplied in-memory), and getPackageDir() = dirname(exe).
+ *   We copy theme/, export-html/, and assets/ alongside the exe. No symlink
+ *   needed — virtualModules needs no filesystem resolution.
+ *
+ *   Source (`bun src/cli.ts`): no build step. pi resolves everything via the
+ *   real node_modules tree; the set-package-dir patch skips entirely.
  */
 import {
   appendFileSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -103,6 +114,41 @@ async function stageBundle() {
   console.log(`  ✓ ${MAPFILE}`);
 }
 
+// ── Stage 2: symlink node_modules for extension runtime resolution ───────────
+// The bundle inlines pi-coding-agent, but extensions are .ts files loaded at
+// runtime via jiti. In bundle mode isBunBinary is false, so pi's loader calls
+// getAliases() → require.resolve("typebox") / import.meta.resolve("@earendil-works/...")
+// relative to the bundle file. Those bare specifiers resolve from the bundle's
+// nearest node_modules — which doesn't exist under dist/pi-agent/. Symlinking
+// to pi's bun-store node_modules (which holds typebox, jiti, and the
+// @earendil-works/* workspace pkgs) makes getAliases resolve correctly.
+//
+// Binary mode does NOT need this: isBunBinary=true → virtualModules supplies
+// these in-memory. We symlink unconditionally because the .js bundle always
+// exists and it is harmless alongside the binary.
+function stageLinkDeps(piPkgDir: string) {
+  console.log(`▶ symlink dist/${APP_NAME}/node_modules → pi deps store`);
+  // piPkgDir = <store-root>/node_modules/@earendil-works/pi-coding-agent
+  //   → "../.." = <store-root>/node_modules  (typebox, jiti, @earendil-works/* …)
+  const storeNodeModules = resolve(piPkgDir, "..", "..");
+  const link = `${OUTDIR}/node_modules`;
+  if (!existsSync(storeNodeModules)) {
+    console.log(`  · skipping (deps store not found at ${storeNodeModules})`);
+    return;
+  }
+  if (existsSync(link) || lstatSyncSafe(link)) rmSync(link, { recursive: true });
+  symlinkSync(storeNodeModules, link);
+  console.log(`  ✓ node_modules → ${storeNodeModules}`);
+}
+
+function lstatSyncSafe(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 // ── Stage 2: compile to standalone executable ─────────────────────────────────
 async function stageCompile() {
   console.log(`▶ compile → dist/${APP_NAME}/${APP_NAME}  (standalone binary)`);
@@ -160,12 +206,14 @@ function formatSize(path: string): string {
 const piPkgDir = resolvePiPkgDir();
 stageGeneratePkgDir(piPkgDir);
 await stageBundle();
+stageLinkDeps(piPkgDir);
 if (DO_COMPILE) {
   await stageCompile();
   stageCopyAssets(piPkgDir);
 }
-// Clean up generated file — it's only needed during bundling.
-clean(GENERATED_PKG_DIR);
+// Keep the generated pi-pkg-dir.ts on disk (gitignored — machine-specific).
+// Source mode never needs it: the set-package-dir patch loads it via a
+// try/catch'd dynamic import and skips when the file is absent.
 
 console.log("▶ done");
 if (existsSync(MAPFILE)) {
