@@ -1,8 +1,7 @@
 node_modules
-package.json
-package-lock.json
-bun.lock
-.gitignore
+.pi/agent/auth.json
+.pi/agent/trust.json
+bun-apps/pi-dynamic-workflows/docs/media/*.gif
 .DS_Store
 .claude/workflows/history/
 .claude/workflows/*.operation-lessons.proposed.jsonl

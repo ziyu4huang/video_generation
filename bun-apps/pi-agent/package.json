@@ -1,0 +1,20 @@
+{
+  "name": "pi-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive pi TUI with monkey-patch hooks — forces model loading from .pi/agent/models.json, delegates everything else to the official pi main().",
+  "type": "module",
+  "bin": {
+    "pi-agent": "src/cli.ts"
+  },
+  "scripts": {
+    "cli": "bun src/cli.ts",
+    "list": "bun src/cli.ts --list-models"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

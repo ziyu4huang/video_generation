@@ -2014,7 +2014,7 @@ log(`History: ${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json`)
 
 // KB auto-regen: refresh T2I knowledge base so the next iteration's Knowledge phase
 // gets an up-to-date report reflecting all newly captioned images.
-const _t2i_GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
+const _t2i_GUI_DIR = `${PROJECT_ROOT}/bun-apps/gui-movie-director`
 if (captionFiles.length > 0) {
   const kbRegen = await agent(
     `Refresh the T2I knowledge base by running the learn command.

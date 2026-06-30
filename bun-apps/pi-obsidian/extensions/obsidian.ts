@@ -1,0 +1,3748 @@
+/**
+ * Obsidian Extension (project-local vault)
+ *
+ * Defaults to a vault located at `<cwd>/vault/` (auto-created). This keeps the
+ * knowledge base next to the code project. Override the subfolder name with
+ * OB_VAULT_DIR (relative to cwd) or point elsewhere with OB_VAULT_PATH
+ * (absolute) / OB_VAULT (registered vault name from obsidian.json).
+ *
+ * Tools:
+ *   - obsidian_list           : list notes under a folder
+ *   - obsidian_read           : read a note
+ *   - obsidian_create         : create or overwrite a note
+ *   - obsidian_append         : append text to a note
+ *   - obsidian_append_section : insert text under a specific heading (creates heading if missing)
+ *   - obsidian_search         : full-text grep across the vault (returns file:line matches)
+ *   - obsidian_open           : open a note / vault in the Obsidian app
+ *   - obsidian_distill        : distill input markdown into Zettelkasten notes (subagent)
+ *   - obsidian_garden          : audit/repair vault health (subagent)
+ *
+ * Commands:
+ *   - /obsidian [note]        : open vault or note in Obsidian
+ *   - /obsidian-init          : register the project vault with the Obsidian app
+ *
+ * Wiki-link syntax ([[Target]]) works natively because notes are plain markdown.
+ */
+
+import { execFile, spawn } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
+import {
+	join,
+	resolve,
+	normalize,
+	sep,
+	relative,
+	isAbsolute,
+	dirname,
+} from "node:path";
+import { promisify } from "node:util";
+import {
+	readFile,
+	writeFile,
+	mkdir,
+	readdir,
+	cp,
+	mkdtemp,
+	rm,
+	lstat,
+	realpath,
+	stat,
+} from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+const execFileP = promisify(execFile);
+
+const OBSIDIAN_JSON = join(
+	homedir(),
+	"Library",
+	"Application Support",
+	"obsidian",
+	"obsidian.json",
+);
+
+function _findMonorepoRoot(from: string | undefined): string {
+	if (!from) return "(repo root)";
+	let dir = from;
+	while (dir !== dirname(dir)) {
+		try {
+			const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+			if (pkg.workspaces) return dir;
+		} catch {
+			/* no package.json or unreadable — keep walking up */
+		}
+		dir = dirname(dir);
+	}
+	return "(repo root)";
+}
+
+function _missingDeps(deps: string[], from: string | undefined): string[] {
+	if (!from) return [];
+	return deps.filter((dep) => {
+		const pkgName = dep.startsWith("@")
+			? dep.split("/").slice(0, 2).join("/")
+			: dep.split("/")[0];
+		let dir = from;
+		while (true) {
+			if (existsSync(join(dir, "node_modules", pkgName, "package.json")))
+				return false;
+			const parent = dirname(dir);
+			if (parent === dir) break;
+			dir = parent;
+		}
+		return true;
+	});
+}
+
+interface VaultEntry {
+	path: string;
+	ts?: number;
+	open?: boolean;
+}
+interface ObsidianConfig {
+	vaults: Record<string, VaultEntry>;
+}
+
+/** Where a resolved vault came from. Mirrors the 3-tier resolution order:
+ *  - "env"    : OB_VAULT_PATH env (Tier 1, explicit)
+ *  - "config" : .pi/obsidian_config.json vault_path (Tier 1, explicit)
+ *  - "app"    : obsidian.json vault marked open:true (Tier 2, auto-follow app)
+ *  - "local"  : project-local <cwd>/<OB_VAULT_DIR|"vault"> auto-seeded (Tier 3, fallback)
+ *  - "global" : OB_USE_GLOBAL / OB_VAULT named vault (legacy global resolver)
+ */
+type VaultSource = "env" | "config" | "app" | "local" | "global";
+
+interface ResolvedVault {
+	path: string;
+	name: string;
+	/** true if the vault is registered in the Obsidian app's obsidian.json. */
+	registered: boolean;
+	/** which tier produced this vault (for transparency / display). */
+	source: VaultSource;
+	/** set when a Tier-1 target was configured but missing/stale; lets the
+	 *  UI surface a warning without aborting resolution. */
+	staleReason?: string;
+}
+
+/** Shape of `.pi/obsidian_config.json` (the persistent, user-editable config).
+ *  Backwards compatible with the legacy `{ "vault_path": "..." }` form. */
+interface VaultConfigFile {
+	/** Absolute or cwd-relative path to the vault (Tier 1, explicit). */
+	vault_path?: string;
+	/** Resolution mode:
+	 *  - "explicit" (default when vault_path is set): use vault_path directly
+	 *  - "app": ignore vault_path and follow the Obsidian app's open vault (Tier 2)
+	 *  Setting mode:"app" is what `/obsidian-config --use-app` persists. */
+	mode?: "explicit" | "app";
+}
+
+/** Path to the persistent per-project config file. */
+function vaultConfigPath(cwd: string): string {
+	return resolve(cwd, ".pi", "obsidian_config.json");
+}
+
+/** Read `.pi/obsidian_config.json` (returns {} when absent / unparseable). */
+async function readVaultConfig(cwd: string): Promise<VaultConfigFile> {
+	try {
+		return JSON.parse(await readFile(vaultConfigPath(cwd), "utf8"));
+	} catch {
+		return {};
+	}
+}
+
+/** Merge a patch into `.pi/obsidian_config.json` (atomic write, mkdir -p). */
+async function writeVaultConfig(
+	cwd: string,
+	patch: VaultConfigFile,
+): Promise<void> {
+	const current = await readVaultConfig(cwd);
+	const next: VaultConfigFile = { ...current, ...patch };
+	// Drop empty `vault_path` rather than persisting "".
+	if (next.vault_path != null && next.vault_path.trim() === "") {
+		delete next.vault_path;
+	}
+	const dir = resolve(cwd, ".pi");
+	await mkdir(dir, { recursive: true });
+	await atomicWriteFile(
+		vaultConfigPath(cwd),
+		JSON.stringify(next, null, 2) + "\n",
+	);
+}
+
+/** Parse obsidian.json (the Obsidian app's registry). Returns [] if absent. */
+async function readObsidianVaults(): Promise<
+	Array<{ path: string; open: boolean }>
+> {
+	try {
+		const config = JSON.parse(
+			await readFile(OBSIDIAN_JSON, "utf8"),
+		) as ObsidianConfig;
+		return Object.values(config.vaults ?? {}).map((v) => ({
+			path: v.path,
+			open: v.open === true,
+		}));
+	} catch {
+		return [];
+	}
+}
+
+/** True if directory contains no visible entries. */
+async function isDirEmpty(dir: string): Promise<boolean> {
+	try {
+		const entries = await readdir(dir);
+		return entries.filter((e) => !e.startsWith(".")).length === 0;
+	} catch {
+		return true;
+	}
+}
+
+/** Copy bundled `vault-template/` into a fresh vault. Skips files that already exist. */
+async function seedFromTemplate(target: string): Promise<void> {
+	// Resolve template relative to this extension file: ../../vault-template
+	// (extension is in <pkg>/extensions/, template in <pkg>/vault-template/).
+	const here = fileURLToPath(import.meta.url);
+	const templateDir = resolve(here, "..", "..", "vault-template");
+	if (!existsSync(templateDir)) return;
+	await cp(templateDir, target, {
+		recursive: true,
+		// Skip files that already exist; always allow directories.
+		filter: (src, dest) => {
+			if (src === templateDir) return true;
+			return !existsSync(dest);
+		},
+	});
+}
+
+function basenameOf(p: string): string {
+	return normalize(p).split(sep).pop() ?? "vault";
+}
+
+/** Resolve the vault. Resolution order (3 tiers, top-down):
+ *
+ *   Tier 1 — explicit (user said exactly this):
+ *     1a. OB_VAULT_PATH env (absolute path)
+ *     1b. .pi/obsidian_config.json { vault_path } when mode != "app"
+ *
+ *   Tier 2 — auto-follow app (what the user sees in Obsidian):
+ *     2. obsidian.json vault marked open:true
+ *        (also reached when config mode:"app", or when OB_USE_GLOBAL is set)
+ *
+ *   Tier 3 — fallback (zero-config, project-local):
+ *     3. <cwd>/<OB_VAULT_DIR || "vault"> — auto-created + seeded
+ *
+ *  Stale-config handling: if a Tier-1 target is configured but the path no
+ *  longer exists, resolution does NOT abort — it records a `staleReason` and
+ *  falls through to Tier 2 / 3, so the agent keeps working instead of silently
+ *  pointing at a ghost path (or creating an empty ./vault and confusing the
+ *  user). Tier 1 env always wins over config; OB_VAULT_PATH can override
+ *  everything for CI / one-off runs.
+ */
+export async function resolveVault(cwd: string): Promise<ResolvedVault> {
+	const stale: string[] = [];
+
+	// ---- Tier 1a: OB_VAULT_PATH env (absolute path) ----------------------
+	const envPath = process.env.OB_VAULT_PATH;
+	if (envPath) {
+		if (existsSync(envPath)) {
+			return {
+				path: envPath,
+				name: basenameOf(envPath),
+				registered: true,
+				source: "env",
+			};
+		}
+		stale.push(`OB_VAULT_PATH="${envPath}" does not exist`);
+	}
+
+	const cfg = await readVaultConfig(cwd);
+
+	// ---- Tier 1b: config file vault_path (unless mode:"app") --------------
+	if (cfg.mode !== "app" && cfg.vault_path) {
+		const p = isAbsolute(cfg.vault_path)
+			? cfg.vault_path
+			: resolve(cwd, cfg.vault_path);
+		if (existsSync(p)) {
+			return {
+				path: p,
+				name: basenameOf(p),
+				registered: true,
+				source: "config",
+			};
+		}
+		stale.push(`config vault_path="${cfg.vault_path}" does not exist`);
+	}
+
+	// ---- Tier 2: auto-follow Obsidian app open vault ---------------------
+	const appVaults = await readObsidianVaults();
+	const openVault = appVaults.find((v) => v.open);
+	if (openVault) {
+		return {
+			path: openVault.path,
+			name: basenameOf(openVault.path),
+			registered: true,
+			source: "app",
+			staleReason: stale.length ? stale.join("; ") : undefined,
+		};
+	}
+
+	// OB_VAULT named-vault (legacy) — honor only in global mode, after open.
+	if (process.env.OB_USE_GLOBAL) {
+		const byName = process.env.OB_VAULT
+			? appVaults.find((v) => basenameOf(v.path) === process.env.OB_VAULT)
+			: undefined;
+		const picked = byName ?? appVaults[0];
+		if (picked) {
+			return {
+				path: picked.path,
+				name: basenameOf(picked.path),
+				registered: true,
+				source: "global",
+				staleReason: stale.length ? stale.join("; ") : undefined,
+			};
+		}
+	}
+
+	// ---- Tier 3: project-local fallback (auto-created + seeded) ----------
+	const dir = process.env.OB_VAULT_DIR ?? "vault";
+	const localPath = resolve(cwd, dir);
+	const fresh = !existsSync(localPath);
+	await mkdir(localPath, { recursive: true });
+	if (fresh || (await isDirEmpty(localPath))) {
+		await seedFromTemplate(localPath).catch(() => {
+			/* template optional */
+		});
+	}
+	return {
+		path: localPath,
+		name: dir,
+		registered: false,
+		source: "local",
+		staleReason: stale.length ? stale.join("; ") : undefined,
+	};
+}
+
+/** Enumerate all vault candidates for `/obsidian-config` display:
+ *  env path, config path, app-registered vaults, local folder. */
+export async function listVaultCandidates(
+	cwd: string,
+): Promise<
+	Array<{ path: string; source: VaultSource; open?: boolean; exists: boolean }>
+> {
+	const out: Array<{
+		path: string;
+		source: VaultSource;
+		open?: boolean;
+		exists: boolean;
+	}> = [];
+	const envPath = process.env.OB_VAULT_PATH;
+	if (envPath)
+		out.push({ path: envPath, source: "env", exists: existsSync(envPath) });
+	const cfg = await readVaultConfig(cwd);
+	if (cfg.vault_path) {
+		const p = isAbsolute(cfg.vault_path)
+			? cfg.vault_path
+			: resolve(cwd, cfg.vault_path);
+		out.push({ path: p, source: "config", exists: existsSync(p) });
+	}
+	for (const v of await readObsidianVaults()) {
+		out.push({
+			path: v.path,
+			source: "app",
+			open: v.open,
+			exists: existsSync(v.path),
+		});
+	}
+	const dir = process.env.OB_VAULT_DIR ?? "vault";
+	const localPath = resolve(cwd, dir);
+	out.push({ path: localPath, source: "local", exists: existsSync(localPath) });
+	return out;
+}
+
+/** Resolve and guard a vault-relative note path. */
+export function safeNotePath(vaultPath: string, note: string): string {
+	if (typeof note !== "string" || note.length === 0) {
+		throw new Error(`Invalid note path (empty): ${JSON.stringify(note)}`);
+	}
+	// A1.4: reject control chars (NUL injection, newlines, etc.)
+	if (/[\u0000-\u001f]/.test(note)) {
+		throw new Error(
+			`Invalid note path (control chars): ${JSON.stringify(note)}`,
+		);
+	}
+	const cleaned = note.replace(/^[/\\]+/, "").replace(/\.md$/i, "") + ".md";
+	const vaultReal = resolve(vaultPath);
+	const abs = resolve(vaultReal, cleaned);
+	const rel = relative(vaultReal, abs);
+	// rel must be a non-empty, in-vault relative path. "" means the vault root
+	// itself (not a file); ".." prefix or absolute means escape.
+	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+		throw new Error(`Invalid note path (escapes vault): ${note}`);
+	}
+	return abs;
+}
+
+const fsLstat = lstat;
+const fsRealpath = realpath;
+
+/** Atomic write: write to `<path>.<pid>.tmp` then rename. Prevents partial
+ *  writes from being observed by the Obsidian app or a concurrent search if
+ *  the process is killed mid-write (A2.1). Temp file is cleaned up on failure. */
+export async function atomicWriteFile(
+	absPath: string,
+	data: string,
+): Promise<void> {
+	const tmp = `${absPath}.${process.pid}.tmp`;
+	try {
+		await writeFile(tmp, data, "utf8");
+		await renameOverwrite(tmp, absPath);
+	} catch (e) {
+		await rm(tmp, { force: true }).catch(() => {});
+		throw e;
+	}
+}
+
+/** rename with fallback to copy+delete if cross-device (rare, same vault fs). */
+const renameOverwrite = async (from: string, to: string) => {
+	const { rename } = await import("node:fs/promises");
+	try {
+		await rename(from, to);
+	} catch (e: any) {
+		if (e && e.code === "EXDEV") {
+			await cp(from, to, { force: true });
+			await rm(from, { force: true });
+		} else throw e;
+	}
+};
+
+/** Segments that must never be written via note tools. Reading is allowed
+ *  (e.g. obsidian_read of app config for diagnostics), but create/append/move
+ *  must refuse, so an agent cannot corrupt Obsidian app state or VCS internals. */
+const WRITE_BLOCKLIST = [".obsidian", ".git"];
+
+/** Async symlink-escape check (A1.2). Walks path components from the vault root
+ *  to `absPath`; if any component is a symlink, resolves its realpath and
+ *  confirms it still lives inside the vault. Catches both file-symlink escapes
+ *  (`vault/evil.md -> /etc/passwd`) and directory-symlink escapes
+ *  (`vault/linkdir -> /tmp/outside`).
+ *
+ *  `safeNotePath` handles the lexical (`../`) containment synchronously; this
+ *  complements it for paths whose resolution depends on the filesystem. */
+export async function assertWithinVault(
+	vaultPath: string,
+	absPath: string,
+): Promise<void> {
+	const vaultReal = resolve(vaultPath);
+	const target = resolve(absPath);
+	// Walk ancestors of `target` that are strictly inside the vault.
+	const rel = relative(vaultReal, target);
+	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+		throw new Error(`Path escapes vault (lexical): ${rel}`);
+	}
+	const parts = rel.split(sep).filter(Boolean);
+	// Drop the final component if the file doesn't exist yet (create case):
+	// we still want to check that every existing ancestor is real.
+	let cur = vaultReal;
+	for (let i = 0; i < parts.length; i++) {
+		cur = join(cur, parts[i]);
+		let st;
+		try {
+			st = await fsLstat(cur);
+		} catch {
+			break; /* missing — create path */
+		}
+		if (st.isSymbolicLink()) {
+			const real = await fsRealpath(cur);
+			const r = relative(vaultReal, real);
+			if (r === "" || r.startsWith("..") || isAbsolute(r)) {
+				throw new Error(`Symlink escapes vault: ${cur} -> ${real}`);
+			}
+		}
+	}
+}
+
+/** Throw if `absPath` falls under a write-blocked top-level segment of the vault. */
+export function assertWritablePath(vaultPath: string, absPath: string): void {
+	const rel = relative(resolve(vaultPath), absPath);
+	const first = rel.split(sep)[0];
+	if (WRITE_BLOCKLIST.includes(first)) {
+		throw new Error(
+			`Refusing to write inside blocklisted segment '${first}/' (vault internals): ${rel}`,
+		);
+	}
+}
+
+/** Open an obsidian:// URI via macOS `open`. */
+/** Open an obsidian:// URI via the platform launcher (C2.1).
+ *  macOS: `open`; Linux: `xdg-open`; Windows: `start` (via cmd /c). */
+async function openObsidianUri(uri: string): Promise<void> {
+	const platform =
+		(typeof process !== "undefined" && process.platform) || "darwin";
+	if (platform === "win32") {
+		await execFileP("cmd", ["/c", "start", "", uri]);
+	} else if (platform === "linux") {
+		await execFileP("xdg-open", [uri]);
+	} else {
+		await execFileP("open", [uri]);
+	}
+}
+
+/** Exposed for tests: returns the launcher command + args for a platform. */
+export function launcherForUri(
+	uri: string,
+	platform: string = (typeof process !== "undefined" && process.platform) ||
+		"darwin",
+): { command: string; args: string[] } {
+	if (platform === "win32")
+		return { command: "cmd", args: ["/c", "start", "", uri] };
+	if (platform === "linux") return { command: "xdg-open", args: [uri] };
+	return { command: "open", args: [uri] };
+}
+
+/** Extract a human-readable message from any thrown value (Error, string, or unknown). */
+function errMsg(e: unknown): string {
+	if (e instanceof Error) return e.message;
+	if (typeof e === "string") return e;
+	const m = (e as Record<string, unknown>)?.message;
+	return typeof m === "string" ? m : String(e);
+}
+
+// ---- Session-scoped read cache (Phase 3) ----------------------------------
+// Caches file content + derived structures keyed by absolute path, invalidated
+// by mtime or explicitly via invalidateCache(). Write tools call invalidateCache
+// for the path they touched so a subsequent search reflects the change at once.
+interface CacheEntry {
+	mtime: number;
+	content: string;
+	lines: string[];
+}
+const fileCache = new Map<string, CacheEntry>();
+const FILE_CACHE_MAX = Number(process.env.OB_CACHE_MAX ?? 500);
+
+/** Read a file through the cache. Re-reads only when mtime changed. */
+export async function readCached(absPath: string): Promise<CacheEntry | null> {
+	let stat;
+	try {
+		stat = await (await import("node:fs/promises")).stat(absPath);
+	} catch {
+		// vanished: drop any stale entry
+		fileCache.delete(absPath);
+		return null;
+	}
+	const mtime = stat.mtimeMs;
+	const cached = fileCache.get(absPath);
+	if (cached && cached.mtime === mtime) return cached;
+	let content: string;
+	try {
+		content = await readFile(absPath, "utf8");
+	} catch {
+		fileCache.delete(absPath);
+		return null;
+	}
+	const entry: CacheEntry = { mtime, content, lines: content.split("\n") };
+	fileCache.set(absPath, entry);
+	// B1.3: LRU cap — evict oldest when over limit.
+	if (fileCache.size > FILE_CACHE_MAX) {
+		const oldest = fileCache.keys().next().value;
+		if (oldest !== undefined) fileCache.delete(oldest);
+	}
+	return entry;
+}
+
+/** Invalidate a single path (pass the vault-relative note path) or the whole cache.
+ *  Safe to call with a path that was never cached. */
+export function invalidateCache(absPath?: string): void {
+	if (absPath) fileCache.delete(absPath);
+	else fileCache.clear();
+}
+
+/** Read up to `concurrency` files in parallel via readCached. Returns entries
+ *  in the SAME order as the input paths (null for unreadable). */
+async function readBatched(
+	paths: string[],
+	concurrency = 32,
+): Promise<(CacheEntry | null)[]> {
+	const out: (CacheEntry | null)[] = new Array(paths.length);
+	let idx = 0;
+	async function worker() {
+		while (idx < paths.length) {
+			const i = idx++;
+			out[i] = await readCached(paths[i]);
+		}
+	}
+	const n = Math.min(concurrency, paths.length);
+	await Promise.all(Array.from({ length: n }, () => worker()));
+	return out;
+}
+
+/** Recursively list .md files under a folder, relative to the vault root. */
+async function listNotes(vaultPath: string, folder: string): Promise<string[]> {
+	const root = resolve(vaultPath, folder);
+	const out: string[] = [];
+	async function walk(dir: string) {
+		let entries: import("node:fs").Dirent<string>[];
+		try {
+			entries = await readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			if (e.name === ".obsidian" || e.name.startsWith(".")) continue;
+			const full = join(dir, e.name);
+			if (e.isDirectory()) await walk(full);
+			else if (e.isFile() && e.name.endsWith(".md")) {
+				out.push(full.slice(vaultPath.length).replace(/^[/\\]+/, ""));
+			}
+		}
+	}
+	await walk(root);
+	return out.sort();
+}
+
+/** Count markdown notes in a vault (best-effort: 0 on any FS error). */
+async function countNotes(vaultPath: string): Promise<number> {
+	try {
+		return (await listNotes(vaultPath, "")).length;
+	} catch {
+		return 0;
+	}
+}
+
+export type MatchMode = "substring" | "regex" | "words" | "fuzzy";
+export type NoteField = "all" | "title" | "tags" | "body" | "frontmatter";
+
+/** True if `needle`'s characters appear in `hay` in order (not necessarily contiguous). */
+function isSubsequence(hay: string, needle: string): boolean {
+	if (!needle) return true;
+	let i = 0;
+	for (const ch of hay) {
+		if (ch === needle[i]) i++;
+		if (i === needle.length) return true;
+	}
+	return i === needle.length;
+}
+
+/** Standard iterative Levenshtein edit distance with O(min(m,n)) rolling rows. */
+function levenshtein(a: string, b: string): number {
+	const m = a.length;
+	const n = b.length;
+	if (m === 0) return n;
+	if (n === 0) return m;
+	let prev = new Array<number>(n + 1);
+	let curr = new Array<number>(n + 1);
+	for (let j = 0; j <= n; j++) prev[j] = j;
+	for (let i = 1; i <= m; i++) {
+		curr[0] = i;
+		const ca = a.charCodeAt(i - 1);
+		for (let j = 1; j <= n; j++) {
+			const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+			curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+		}
+		const tmp = prev;
+		prev = curr;
+		curr = tmp;
+	}
+	return prev[n];
+}
+
+/** Fuzzy line match. Exact substring → true; else (tol 0) ordered subsequence;
+ *  else (tol ≥ 1) sliding-window edit distance ≤ tol over windows of length
+ *  [len-tol, len+tol]. Used for typo-tolerant search. */
+export function fuzzyMatch(line: string, q: string, tol: number): boolean {
+	if (!q) return false;
+	if (line.includes(q)) return true;
+	if (tol <= 0) return isSubsequence(line, q);
+	const m = q.length;
+	for (let wlen = Math.max(1, m - tol); wlen <= m + tol; wlen++) {
+		for (let i = 0; i + wlen <= line.length; i++) {
+			if (levenshtein(line.slice(i, i + wlen), q) <= tol) return true;
+		}
+	}
+	return false;
+}
+
+/** Compile a query + mode + case-sensitivity into a per-line predicate.
+ *  Returns { error } on invalid regex so the caller can surface a clean message
+ *  instead of throwing.
+ *
+ *  Modes:
+ *  - substring: literal substring (the historical default; byte-identical to
+ *    the old lowercased-`includes` implementation when caseSensitive=false).
+ *  - regex:     JS regular expression (`new RegExp(query, flags)`).
+ *  - words:     boolean. Whitespace-split tokens; `-word` = NOT (file-level:
+ *    excludes any file where the term appears anywhere, not just per-line);
+ *    `|` separates OR groups; tokens within a group are AND.
+ *  - fuzzy:     typo-tolerant via fuzzyMatch; tolerance scales with query
+ *    length (≤3 chars → 0, ≤6 → 1, else 2).
+ *
+ *  `fileFilter` (when present) must be applied to the entire file content
+ *  before per-line matching — currently emitted only by `words` mode for NOT
+ *  terms so they exclude files regardless of which line the term appears on. */
+/**
+ * Strip backslashes before grouping/alternation regex metacharacters. Weak LLMs
+ * frequently OVER-ESCAPE (e.g. `SEARCH\(WORD\|TERM\)` meaning `SEARCH(WORD|TERM)`),
+ * which compiles fine but matches the literal string and yields 0 hits. Used only
+ * as a 0-match fallback in regex mode, gated on the query containing an alternation
+ * `|` (a literal `|` in note prose is rare, and `|` in regex is almost always OR).
+ */
+function deescapeRegex(q: string): string {
+	return q.replace(/\\([()|])/g, "$1");
+}
+
+export function buildMatcher(
+	query: string,
+	mode: MatchMode,
+	caseSensitive: boolean,
+): {
+	match?: (line: string) => boolean;
+	fileFilter?: (content: string) => boolean;
+	error?: string;
+} {
+	const ci = !caseSensitive;
+	const norm = (s: string) => (ci ? s.toLowerCase() : s);
+	switch (mode) {
+		case "substring": {
+			const needle = norm(query);
+			return { match: (line) => norm(line).includes(needle) };
+		}
+		case "regex": {
+			try {
+				const re = new RegExp(query, ci ? "i" : "");
+				return { match: (line) => re.test(line) };
+			} catch (e) {
+				return { error: `Invalid regex /${query}/: ${(e as Error).message}` };
+			}
+		}
+		case "words": {
+			const tokens = query.trim().split(/\s+/).filter(Boolean);
+			const negatives = tokens
+				.filter((t) => t.startsWith("-") && t.length > 1)
+				.map((t) => norm(t.slice(1)));
+			const positives = tokens.filter(
+				(t) => !(t.startsWith("-") && t.length > 1),
+			);
+			const groups = positives
+				.join(" ")
+				.split("|")
+				.map((g) =>
+					g
+						.trim()
+						.split(/\s+/)
+						.filter(Boolean)
+						.map((t) => norm(t)),
+				);
+			// NOT terms are checked at file level so a term in frontmatter/title
+			// correctly excludes the whole file, not just individual lines.
+			const fileFilter =
+				negatives.length > 0
+					? (content: string) =>
+							!negatives.some((neg) => norm(content).includes(neg))
+					: undefined;
+			return {
+				match: (line) => {
+					const lc = norm(line);
+					// groups.some with an empty inner array ([].every) is vacuously true,
+					// which is the desired behaviour for a NOT-only query: all lines of
+					// non-excluded files are returned.
+					return groups.some((g) => g.every((t) => lc.includes(t)));
+				},
+				fileFilter,
+			};
+		}
+		case "fuzzy": {
+			const q = norm(query);
+			const tol = q.length <= 3 ? 0 : q.length <= 6 ? 1 : 2;
+			return { match: (line) => fuzzyMatch(norm(line), q, tol) };
+		}
+		default:
+			return { error: `Unknown matchMode: ${mode}` };
+	}
+}
+
+/** Per-line (0-indexed) classification into note-section labels.
+ *  - frontmatter block (incl. `---` fences) → "frontmatter"; a `tags:`/`tag:`
+ *    line inside it also → "tags".
+ *  - first H1 (`# ...`) → "title".
+ *  - other lines → "body"; body lines with an inline `#tag` also → "tags". */
+export function computeFieldLabels(lines: string[]): Set<NoteField>[] {
+	const labels: Set<NoteField>[] = new Array(lines.length);
+	let fmStart = -1;
+	let fmEnd = -1;
+	if (lines.length > 0 && lines[0].trim() === "---") {
+		fmStart = 0;
+		for (let i = 1; i < lines.length; i++) {
+			if (lines[i].trim() === "---") {
+				fmEnd = i;
+				break;
+			}
+		}
+		if (fmEnd === -1) fmStart = -1; // unterminated → no frontmatter
+	}
+	let titleIdx = -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (/^#\s+\S/.test(lines[i])) {
+			titleIdx = i;
+			break;
+		}
+	}
+	const inlineTagRe = /(^|\s)#[A-Za-z0-9_-]+/;
+	for (let i = 0; i < lines.length; i++) {
+		const s = new Set<NoteField>();
+		if (fmStart !== -1 && i >= fmStart && i <= fmEnd) {
+			s.add("frontmatter");
+			if (/^\s*tags?\s*:/.test(lines[i])) s.add("tags");
+		} else if (i === titleIdx) {
+			s.add("title");
+		} else {
+			s.add("body");
+			if (inlineTagRe.test(lines[i])) s.add("tags");
+		}
+		labels[i] = s;
+	}
+	return labels;
+}
+
+/** One search hit, possibly enriched with field label and relevance score. */
+export interface SearchMatch {
+	file: string;
+	line: number;
+	text: string;
+	/** Which note section this hit fell in (only when `enrich` / scoring is on). */
+	field?: NoteField;
+	/** Relevance weight of this hit (only when scoring is on). */
+	score?: number;
+}
+
+/** Parse frontmatter `created:` (YYYY-MM-DD) → epoch days; 0 if absent/invalid. */
+function noteRecencyDays(content: string): number {
+	const m = content.match(
+		/^---\n[\s\S]*?\ncreated:\s*["']?(\d{4}-\d{2}-\d{2})/m,
+	);
+	if (!m) return 0;
+	const t = Date.parse(m[1]);
+	return Number.isNaN(t) ? 0 : Math.floor(t / 86_400_000);
+}
+
+/** Relevance weight of a hit by field. Per plan: title +10 | tag +6 | frontmatter +3 | body +1. */
+function fieldWeight(field: NoteField | undefined): number {
+	switch (field) {
+		case "title":
+			return 10;
+		case "tags":
+			return 6;
+		case "frontmatter":
+			return 3;
+		default:
+			return 1; // body / unknown
+	}
+}
+
+/** Pick the most specific field label on a line for scoring. */
+function pickField(labels: Set<NoteField> | undefined): NoteField | undefined {
+	if (!labels) return undefined;
+	if (labels.has("title")) return "title";
+	if (labels.has("tags")) return "tags";
+	if (labels.has("frontmatter")) return "frontmatter";
+	return "body";
+}
+
+/** Full-text search across the vault. Returns matches, optionally enriched
+ *  with field labels, relevance scores, and sorted/grouped.
+ *
+ *  Options:
+ *  - match:       per-line predicate (build via buildMatcher).
+ *  - fields:      restrict eligible note sections; null/["all"] = everywhere.
+ *  - folder:      restrict to a sub-tree; "" = whole vault.
+ *  - context:     lines of surrounding context per match (0 = single line).
+ *                When >0, the match `text` is replaced by an indented `> ` block
+ *                showing [lo..hi] lines with the hit line marked `> `.
+ *  - sort:        "file" (default: alphabetical traversal order) | "relevance"
+ *                | "recency". relevance ranks by summed field weight per file
+ *                then by per-hit weight; recency by frontmatter `created:` desc.
+ *  - groupByFile: collapse to at most `perFile` matches per file (default false).
+ *  - perFile:     max matches to keep per file when groupByFile (default 3).
+ *  - max:         hard cap on total returned matches; early return.
+ *  - enrich:      populate `field` + `score` on each match. Auto-enabled when
+ *                sort is "relevance". Default false keeps results lean.
+ *
+ *  Default behavior (match + fields:null + folder:"" + context:0 + sort:"file"
+ *  + groupByFile:false + enrich:false) is byte-identical to the historical
+ *  implementation: {file,line,text} in alphabetical traversal order, hard-capped. */
+export async function searchVault(
+	vaultPath: string,
+	opts: {
+		match: (line: string) => boolean;
+		/** Optional file-level pre-filter. When present, files for which this
+		 *  returns false are skipped entirely before per-line matching. Used by
+		 *  `words` mode to apply NOT exclusions at file scope. */
+		fileFilter?: (content: string) => boolean;
+		fields: NoteField[] | null;
+		folder: string;
+		context?: number;
+		sort?: "file" | "relevance" | "recency";
+		groupByFile?: boolean;
+		perFile?: number;
+		max: number;
+		enrich?: boolean;
+		/** B4.3: restrict matching to this exact set of vault-relative paths
+		 *  (e.g. pipe in queryNotes() output). When set, `folder` is ignored. */
+		paths?: string[];
+	},
+): Promise<SearchMatch[]> {
+	const files = await listNotes(vaultPath, opts.folder);
+	const allowedPaths = opts.paths ? new Set(opts.paths) : null;
+	const fieldFilter =
+		opts.fields && !opts.fields.includes("all") ? new Set(opts.fields) : null;
+	const contextN = opts.context ?? 0;
+	const sort = opts.sort ?? "file";
+	const groupByFile = opts.groupByFile ?? false;
+	const perFile = opts.perFile ?? 3;
+	const enrich = opts.enrich ?? sort === "relevance";
+	const max = opts.max;
+
+	// Need per-line field labels when filtering by field OR scoring/enriching.
+	const needLabels = !!fieldFilter || enrich;
+
+	// file -> matches (in traversal order). Keep raw line indices + content for context.
+	const byFile = new Map<string, { i: number; m: SearchMatch }[]>();
+	const fileLines = new Map<string, string[]>(); // for context rendering
+	const fileRecency = new Map<string, number>(); // for recency sort
+
+	// Parallel cached reads (Phase 3). `files` is already alphabetical; readBatched
+	// preserves order so the default "file" sort stays identical to the old impl.
+	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
+	for (let fi = 0; fi < files.length; fi++) {
+		const f = files[fi];
+		if (allowedPaths && !allowedPaths.has(f)) continue;
+		const entry = entries[fi];
+		if (!entry) continue;
+		// File-level pre-filter (e.g. words mode NOT exclusion).
+		if (opts.fileFilter && !opts.fileFilter(entry.content)) continue;
+		const lines = entry.lines;
+		if (sort === "recency") fileRecency.set(f, noteRecencyDays(entry.content));
+		const labels = needLabels ? computeFieldLabels(lines) : null;
+
+		for (let i = 0; i < lines.length; i++) {
+			let lineLabels: Set<NoteField> | undefined;
+			if (needLabels) {
+				lineLabels = labels![i];
+				if (fieldFilter) {
+					let eligible = false;
+					for (const lf of lineLabels)
+						if ((fieldFilter as Set<NoteField>).has(lf)) {
+							eligible = true;
+							break;
+						}
+					if (!eligible) continue;
+				}
+			}
+			if (!opts.match(lines[i])) continue;
+
+			const field = enrich ? pickField(lineLabels) : undefined;
+			const m: SearchMatch = {
+				file: f,
+				line: i + 1,
+				text: lines[i].trim(),
+				field,
+				score: enrich ? fieldWeight(field) : undefined,
+			};
+			if (!enrich) {
+				delete m.field;
+				delete m.score;
+			}
+			let arr = byFile.get(f);
+			if (!arr) {
+				arr = [];
+				byFile.set(f, arr);
+			}
+			arr.push({ i, m });
+			if (contextN > 0 && !fileLines.has(f)) fileLines.set(f, lines);
+		}
+	}
+
+	// Order files per chosen sort.
+	let orderedFiles: string[];
+	if (sort === "relevance") {
+		orderedFiles = [...byFile.keys()].sort((a, b) => {
+			const sa = (byFile.get(a) ?? []).reduce(
+				(s, e) => s + (e.m.score ?? 0),
+				0,
+			);
+			const sb = (byFile.get(b) ?? []).reduce(
+				(s, e) => s + (e.m.score ?? 0),
+				0,
+			);
+			return sb - sa || a.localeCompare(b);
+		});
+	} else if (sort === "recency") {
+		orderedFiles = [...byFile.keys()].sort(
+			(a, b) =>
+				(fileRecency.get(b) ?? 0) - (fileRecency.get(a) ?? 0) ||
+				a.localeCompare(b),
+		);
+	} else {
+		orderedFiles = [...byFile.keys()]; // Map preserves insertion = alphabetical traversal
+	}
+
+	const results: SearchMatch[] = [];
+	for (const f of orderedFiles) {
+		const arr = byFile.get(f) ?? [];
+		// For relevance, also order hits within a file by score desc.
+		const orderedHits =
+			sort === "relevance"
+				? [...arr].sort(
+						(a, b) => (b.m.score ?? 0) - (a.m.score ?? 0) || a.i - b.i,
+					)
+				: arr;
+		const kept = groupByFile ? orderedHits.slice(0, perFile) : orderedHits;
+
+		for (const { i, m } of kept) {
+			if (contextN > 0) {
+				const ls = fileLines.get(f);
+				if (ls) m.text = renderContext(ls, i, contextN, m.text);
+			}
+			results.push(m);
+			if (results.length >= max) return results;
+		}
+	}
+	return results;
+}
+
+/** Render a context snippet: lines [i-n .. i+n], hit line prefixed `> `, others `  `. */
+function renderContext(
+	lines: string[],
+	i: number,
+	n: number,
+	hitText: string,
+): string {
+	const lo = Math.max(0, i - n);
+	const hi = Math.min(lines.length - 1, i + n);
+	const out: string[] = [];
+	for (let j = lo; j <= hi; j++) {
+		const t = lines[j].trim();
+		if (j === i) out.push(`> ${hitText}`);
+		else out.push(`  ${t}`);
+	}
+	return out.join("\n");
+}
+
+/** Match [[Target]] wiki-links on a line. Returns the inner target strings.
+ *  Handles display aliases `[[Target|Display]]` and path targets `[[A/B/C]]`. */
+function extractWikiLinks(line: string): string[] {
+	const re = /\[\[([^\]]+)\]\]/g;
+	const out: string[] = [];
+	let mm: RegExpExecArray | null;
+	while ((mm = re.exec(line))) {
+		let target = mm[1];
+		const pipe = target.indexOf("|");
+		if (pipe !== -1) target = target.slice(0, pipe); // drop alias
+		target = target.replace(/#.*$/, "").trim(); // drop heading ref
+		if (target) out.push(target);
+	}
+	return out;
+}
+
+// ---- Frontmatter parser (C1) ----------------------------------------------
+
+export interface ParsedFrontmatter {
+	data: Record<string, any>;
+	bodyStart: number; // line index where body begins (after closing ---)
+}
+
+/** Parse a YAML-ish frontmatter block (delimited by --- at line 0) into an
+ *  object. Supports: flow `key: [a, b]`, block `key:\n  - a`, scalars, quoted
+ *  strings. Returns {data: {}, bodyStart: 0} if no frontmatter. (C1.1) */
+export function parseFrontmatter(content: string): ParsedFrontmatter {
+	const lines = content.split("\n");
+	if (lines.length === 0 || lines[0].trim() !== "---")
+		return { data: {}, bodyStart: 0 };
+	let end = -1;
+	for (let i = 1; i < lines.length; i++)
+		if (lines[i].trim() === "---") {
+			end = i;
+			break;
+		}
+	if (end === -1) return { data: {}, bodyStart: 0 }; // unterminated
+	const data: Record<string, any> = {};
+	let i = 1;
+	while (i < end) {
+		const line = lines[i];
+		const m = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+		if (!m) {
+			i++;
+			continue;
+		}
+		const key = m[1];
+		const val = m[2].trim();
+		if (val === "") {
+			// block list: subsequent indented "- item" lines
+			const items: any[] = [];
+			let j = i + 1;
+			for (; j < end; j++) {
+				const bm = lines[j].match(/^\s+-\s+(.*)$/);
+				if (!bm) break;
+				items.push(stripScalar(bm[1]));
+			}
+			data[key] = items.length ? items : "";
+			i = j;
+		} else if (val.startsWith("[")) {
+			// flow list [a, b, c]
+			const inner = val.replace(/^\[/, "").replace(/\]$/, "");
+			data[key] = inner
+				.split(",")
+				.map((s) => stripScalar(s))
+				.filter((s) => s !== "");
+			i++;
+		} else {
+			data[key] = stripScalar(val);
+			i++;
+		}
+	}
+	return { data, bodyStart: end + 1 };
+}
+
+function stripScalar(s: string): any {
+	const t = s.trim().replace(/^["']/, "").replace(/["']$/, "");
+	if (t === "true") return true;
+	if (t === "false") return false;
+	if (t === "null" || t === "") return null;
+	return t;
+}
+
+// ---- Vault index (B1) ------------------------------------------------------
+// Session-scoped derived index over the vault: title/tags/links adjacency,
+// plus reverse maps (byTag, byTitle, reverseAdjacency) for O(1) graph queries.
+// Built lazily on first use, incrementally updated on write (reindexFile).
+
+export interface NoteMeta {
+	path: string; // vault-relative, e.g. "Zettelkasten/Foo.md"
+	title: string; // first H1 text, lowercased for lookup
+	tags: string[]; // normalized, lowercased, no leading #
+	links: string[]; // outgoing [[targets]], normalized (no .md, no alias/section)
+	created?: string; // frontmatter created (YYYY-MM-DD)
+	mtime: number; // last indexed mtime (ms)
+}
+
+export interface VaultIndex {
+	vaultPath: string;
+	notes: Map<string, NoteMeta>;
+	byTag: Map<string, Set<string>>;
+	byTitle: Map<string, string>; // lowercased title/path/basename -> path
+	reverseAdjacency: Map<string, Set<string>>; // targetPath -> Set<sourcePath>
+}
+
+/** Parse a note into NoteMeta (no I/O). Reused by index build + reindex. */
+function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
+	const lines = content.split("\n");
+	// title = first H1
+	let title = "";
+	for (const l of lines) {
+		const m = l.match(/^#\s+(.+?)\s*$/);
+		if (m) {
+			title = m[1];
+			break;
+		}
+	}
+	// tags: frontmatter + inline
+	const tags = new Set<string>();
+	let inFm = false,
+		fmDone = false;
+	for (let i = 0; i < lines.length; i++) {
+		const l = lines[i];
+		if (!fmDone && i === 0 && l.trim() === "---") {
+			inFm = true;
+			continue;
+		}
+		if (inFm && l.trim() === "---") {
+			inFm = false;
+			fmDone = true;
+			continue;
+		}
+		if (inFm && /^\s*tags?\s*:/.test(l)) {
+			const arr = l.replace(/^\s*tags?\s*:\s*/, "");
+			for (const raw of arr.split(",")) {
+				const t = raw
+					.replace(/[[\]"']/g, "")
+					.trim()
+					.toLowerCase();
+				if (t) tags.add(t);
+			}
+		} else if (!inFm) {
+			const re = /(^|\s)#([A-Za-z0-9_-]+)/g;
+			let mm;
+			while ((mm = re.exec(l))) tags.add(mm[2].toLowerCase());
+		}
+	}
+	// created
+	let created: string | undefined;
+	const cm = content.match(
+		/^---\n[\s\S]*?^created:\s*["']?(\d{4}-\d{2}-\d{2})/m,
+	);
+	if (cm) created = cm[1];
+	// links
+	const links = new Set<string>();
+	for (const l of lines)
+		for (const link of extractWikiLinks(l)) {
+			links.add(link.replace(/\.md$/i, ""));
+		}
+	return {
+		path,
+		title: title.toLowerCase(),
+		tags: [...tags],
+		links: [...links],
+		created,
+		mtime,
+	};
+}
+
+const indexCache = new Map<string, VaultIndex>();
+
+/** Get or lazily build the index for a vault. */
+export async function getIndex(vaultPath: string): Promise<VaultIndex> {
+	const real = resolve(vaultPath);
+	let idx = indexCache.get(real);
+	if (idx) return idx;
+	idx = await buildIndex(real);
+	indexCache.set(real, idx);
+	return idx;
+}
+
+/** Build a fresh index over the whole vault. O(n). */
+export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
+	const real = resolve(vaultPath);
+	const files = await listNotes(real, "");
+	const paths = files.map((f) => join(real, f));
+	const entries = await readBatched(paths);
+	const idx: VaultIndex = {
+		vaultPath: real,
+		notes: new Map(),
+		byTag: new Map(),
+		byTitle: new Map(),
+		reverseAdjacency: new Map(),
+	};
+	for (let i = 0; i < files.length; i++) {
+		const entry = entries[i];
+		if (!entry) continue;
+		const meta = parseNoteMeta(files[i], entry.content, entry.mtime);
+		indexNote(idx, meta);
+	}
+	// Second pass: now that all notes are in byTitle, recompute link resolution
+	// so reverseAdjacency keys are actual note paths (a link added before its
+	// target was indexed would otherwise key on the raw lowercased target).
+	idx.reverseAdjacency.clear();
+	for (const meta of idx.notes.values()) {
+		for (const link of meta.links) {
+			const resolved = resolveLink(idx, link) ?? link.toLowerCase();
+			let s = idx.reverseAdjacency.get(resolved);
+			if (!s) {
+				s = new Set();
+				idx.reverseAdjacency.set(resolved, s);
+			}
+			s.add(meta.path);
+		}
+	}
+	return idx;
+}
+
+/** Keys under which a note should be discoverable in byTitle: its lowercased
+ *  title (H1) AND its lowercased path-without-extension AND bare basename.
+ *  This lets `[[Name]]`, `[[folder/Name]]`, and title-based links all resolve. */
+function titleKeysFor(meta: NoteMeta): string[] {
+	const keys = new Set<string>();
+	if (meta.title) keys.add(meta.title);
+	const noExt = meta.path.replace(/\.md$/i, "").toLowerCase();
+	keys.add(noExt);
+	keys.add(noExt.split("/").pop() ?? noExt);
+	return [...keys];
+}
+
+/** Insert/update a single note's meta in the index. */
+function indexNote(idx: VaultIndex, meta: NoteMeta): void {
+	// remove any prior entry for this path (incremental reindex)
+	unindexNote(idx, meta.path);
+	idx.notes.set(meta.path, meta);
+	for (const k of titleKeysFor(meta)) idx.byTitle.set(k, meta.path);
+	for (const t of meta.tags) {
+		let s = idx.byTag.get(t);
+		if (!s) {
+			s = new Set();
+			idx.byTag.set(t, s);
+		}
+		s.add(meta.path);
+	}
+	for (const link of meta.links) {
+		const resolved = resolveLink(idx, link) ?? link.toLowerCase();
+		let s = idx.reverseAdjacency.get(resolved);
+		if (!s) {
+			s = new Set();
+			idx.reverseAdjacency.set(resolved, s);
+		}
+		s.add(meta.path);
+	}
+}
+
+/** Remove a note from all index maps. */
+function unindexNote(idx: VaultIndex, path: string): void {
+	const old = idx.notes.get(path);
+	if (!old) return;
+	idx.notes.delete(path);
+	for (const k of titleKeysFor(old))
+		if (idx.byTitle.get(k) === path) idx.byTitle.delete(k);
+	for (const t of old.tags) {
+		const s = idx.byTag.get(t);
+		if (s) {
+			s.delete(path);
+			if (s.size === 0) idx.byTag.delete(t);
+		}
+	}
+	for (const link of old.links) {
+		const resolved = resolveLink(idx, link) ?? link.toLowerCase();
+		const s = idx.reverseAdjacency.get(resolved);
+		if (s) {
+			s.delete(path);
+			if (s.size === 0) idx.reverseAdjacency.delete(resolved);
+		}
+	}
+}
+
+/** Resolve a wiki-link target to an actual note path via byTitle (exact, then basename). */
+function resolveLink(idx: VaultIndex, target: string): string | undefined {
+	const t = target.replace(/\.md$/i, "").toLowerCase();
+	if (idx.byTitle.has(t)) return idx.byTitle.get(t)!;
+	const base = t.split("/").pop() ?? t;
+	if (idx.byTitle.has(base)) return idx.byTitle.get(base)!;
+	return undefined;
+}
+
+/** Reindex a single file (called after writes). Reads through the cache. */
+export async function reindexFile(
+	vaultPath: string,
+	notePath: string,
+): Promise<void> {
+	const real = resolve(vaultPath);
+	const idx = indexCache.get(real);
+	if (!idx) return; // not yet built; lazy build will pick it up
+	const abs = join(real, notePath);
+	const entry = await readCached(abs);
+	if (!entry) {
+		unindexNote(idx, notePath);
+		return;
+	}
+	indexNote(idx, parseNoteMeta(notePath, entry.content, entry.mtime));
+}
+
+/** Drop the index for a vault (forces rebuild on next getIndex). */
+export function dropIndex(vaultPath: string): void {
+	indexCache.delete(resolve(vaultPath));
+}
+
+/** Resolve a wiki-link target to a note path (exported for tests/B3). */
+export function resolveWikiLink(
+	idx: VaultIndex,
+	target: string,
+): string | undefined {
+	return resolveLink(idx, target);
+}
+
+/** O(1) backlink path set via index.reverseAdjacency (B1.2). */
+export function backlinkPaths(idx: VaultIndex, target: string): Set<string> {
+	const t = target.replace(/\.md$/i, "").toLowerCase();
+	const resolved =
+		idx.byTitle.get(t) ?? idx.byTitle.get(t.split("/").pop() ?? t) ?? t;
+	return idx.reverseAdjacency.get(resolved) ?? new Set();
+}
+
+/** O(1) tag path set via index.byTag (B1.2). */
+export function tagPaths(idx: VaultIndex, tag: string): Set<string> {
+	return idx.byTag.get(tag.replace(/^#/, "").toLowerCase()) ?? new Set();
+}
+
+// ---- Graph queries (B2) ----------------------------------------------------
+
+export type GraphMode =
+	| "backlinks"
+	| "outgoing"
+	| "orphans"
+	| "dead-links"
+	| "neighbors";
+
+export interface GraphResult {
+	path: string;
+	line?: number; // 0 when not applicable
+	text: string; // title or the offending link line
+	depth?: number; // only for neighbors
+}
+
+/** Outgoing links of a note (B2.1). */
+export function graphOutgoing(idx: VaultIndex, note: string): GraphResult[] {
+	const path =
+		idx.byTitle.get(note.toLowerCase()) ??
+		idx.byTitle.get(note.toLowerCase().split("/").pop() ?? note);
+	if (!path) return [];
+	const meta = idx.notes.get(path);
+	if (!meta) return [];
+	const out: GraphResult[] = [];
+	for (const link of meta.links) {
+		const resolved = resolveLink(idx, link);
+		out.push({
+			path: resolved ?? link,
+			text: `[[${link}]]${resolved ? "" : " (unresolved)"}`,
+		});
+	}
+	return out;
+}
+
+/** Orphan notes: no inbound links (B2.2). An orphan is a note that no
+ *  other note links TO — i.e. it never appears as a resolved target in
+ *  reverseAdjacency (whose KEYS are link targets). */
+export function graphOrphans(idx: VaultIndex): GraphResult[] {
+	const linkedTargets = new Set<string>();
+	for (const target of idx.reverseAdjacency.keys()) linkedTargets.add(target);
+	return [...idx.notes.values()]
+		.filter((m) => !linkedTargets.has(m.path))
+		.map((m) => ({ path: m.path, text: m.title || m.path }));
+}
+
+/** Dead links: [[Target]] whose target is not in byTitle (B2.3).
+ *  Requires re-reading source files for line numbers; falls back to no-line. */
+export function graphDeadLinks(idx: VaultIndex): GraphResult[] {
+	const out: GraphResult[] = [];
+	for (const meta of idx.notes.values()) {
+		for (const link of meta.links) {
+			if (!resolveLink(idx, link)) {
+				out.push({ path: meta.path, text: `[[${link}]]` });
+			}
+		}
+	}
+	return out;
+}
+
+/** N-hop neighborhood via BFS over adjacency ∪ reverseAdjacency (B2.4). */
+export function graphNeighbors(
+	idx: VaultIndex,
+	note: string,
+	maxDepth = 1,
+	max = 50,
+): GraphResult[] {
+	const startKey = note.toLowerCase();
+	const startPath =
+		idx.byTitle.get(startKey) ??
+		idx.byTitle.get(startKey.split("/").pop() ?? startKey);
+	if (!startPath) return [];
+	// build undirected adjacency from notes' resolved links
+	const adj = new Map<string, Set<string>>();
+	const addEdge = (a: string, b: string) => {
+		if (!adj.has(a)) adj.set(a, new Set());
+		if (!adj.has(b)) adj.set(b, new Set());
+		adj.get(a)!.add(b);
+		adj.get(b)!.add(a);
+	};
+	for (const meta of idx.notes.values()) {
+		for (const link of meta.links) {
+			const resolved = resolveLink(idx, link) ?? link;
+			addEdge(meta.path, resolved);
+		}
+	}
+	const results: GraphResult[] = [];
+	const visited = new Set<string>([startPath]);
+	let frontier = [startPath];
+	for (let d = 1; d <= maxDepth && frontier.length; d++) {
+		const next: string[] = [];
+		for (const node of frontier) {
+			for (const nb of adj.get(node) ?? []) {
+				if (!visited.has(nb)) {
+					visited.add(nb);
+					next.push(nb);
+					results.push({
+						path: nb,
+						depth: d,
+						text: idx.notes.get(nb)?.title || nb,
+					});
+					if (results.length >= max) return results;
+				}
+			}
+		}
+		frontier = next;
+	}
+	return results;
+}
+
+// ---- Structured editing (B3) -----------------------------------------------
+
+/** Rewrite a single wiki-link reference, preserving alias and #section.
+ *  Returns the new [[...]] form, or the original if it doesn't match the old target. */
+function rewriteLinkToken(
+	raw: string,
+	oldPaths: string[],
+	newTitle: string,
+	newPath: string,
+	idx: VaultIndex,
+): string {
+	// raw is the inside of [[...]]
+	let target = raw;
+	const pipe = target.indexOf("|");
+	let alias = "";
+	if (pipe !== -1) {
+		alias = target.slice(pipe);
+		target = target.slice(0, pipe);
+	}
+	let section = "";
+	const hash = target.indexOf("#");
+	if (hash !== -1) {
+		section = target.slice(hash);
+		target = target.slice(0, hash);
+	}
+	const t = target.replace(/\.md$/i, "").toLowerCase();
+	const isMatch = oldPaths.some(
+		(p) =>
+			p.toLowerCase() === t ||
+			p.toLowerCase().split("/").pop() === t.split("/").pop(),
+	);
+	if (!isMatch) return raw;
+	const qualified = newPath.replace(/\.md$/i, "");
+	const bare = newTitle;
+	const useBare =
+		idx.byTitle.has(bare.toLowerCase()) &&
+		idx.byTitle.get(bare.toLowerCase()) === newPath;
+	return (useBare ? bare : qualified) + section + alias;
+}
+
+/** Move/rename a note and rewrite all inbound [[links]] (B3.1 + B3.2). */
+export async function moveNote(
+	vaultPath: string,
+	from: string,
+	to: string,
+	opts: { overwrite?: boolean } = {},
+): Promise<{
+	moved: boolean;
+	from: string;
+	to: string;
+	linksRewritten: string[];
+	failedSources: string[];
+}> {
+	const real = resolve(vaultPath);
+	const fromAbs = safeNotePath(real, from);
+	const toAbs = safeNotePath(real, to);
+	assertWritablePath(real, fromAbs);
+	assertWritablePath(real, toAbs);
+	await assertWithinVault(real, fromAbs);
+	await assertWithinVault(real, toAbs);
+	try {
+		await stat(toAbs);
+		if (!opts.overwrite)
+			throw new Error(`Destination exists: ${to} (pass overwrite:true)`);
+	} catch (e: any) {
+		if (e instanceof Error && e.message.startsWith("Destination")) throw e;
+	}
+	const idx = await getIndex(real);
+	const fromPath = from.replace(/\.md$/i, "") + ".md";
+	const newPath = to.replace(/\.md$/i, "") + ".md";
+	const fromMeta = idx.notes.get(fromPath);
+	const fromTitle =
+		fromMeta?.title ??
+		fromPath.split("/").pop()!.replace(/\.md$/i, "").toLowerCase();
+	const sources = backlinkPaths(idx, fromTitle);
+	const linkRe = /\[\[([^\]]+)\]\]/g;
+	const linksRewritten: string[] = [];
+	const failedSources: string[] = [];
+	// Move the file FIRST. If the rename fails (EXDEV, read-only FS, mkdir
+	// failure, destination race), we bail out before touching any backlink, so
+	// the graph stays intact — links still resolve to the existing source note —
+	// instead of all pointing at a destination that was never created.
+	await mkdir(join(toAbs, ".."), { recursive: true });
+	await renameOverwrite(fromAbs, toAbs);
+	invalidateCache(fromAbs);
+	invalidateCache(toAbs);
+	for (const src of sources) {
+		const srcAbs = join(real, src);
+		try {
+			const entry = await readCached(srcAbs);
+			if (!entry) continue;
+			let changed = false;
+			const updated = entry.content.replace(linkRe, (full, raw) => {
+				const before = String(raw);
+				const after = rewriteLinkToken(
+					before,
+					[fromPath, fromTitle],
+					fromTitle,
+					newPath,
+					idx,
+				);
+				if (after !== before) {
+					changed = true;
+					return `[[${after}]]`;
+				}
+				return full;
+			});
+			if (changed) {
+				await atomicWriteFile(srcAbs, updated);
+				invalidateCache(srcAbs);
+				linksRewritten.push(src);
+			}
+		} catch (e) {
+			failedSources.push(src);
+		}
+	}
+	dropIndex(real);
+	return {
+		moved: true,
+		from: fromPath,
+		to: newPath,
+		linksRewritten,
+		failedSources,
+	};
+}
+
+/** Delete a note and optionally strip inbound [[links]] (B3.4). */
+export async function deleteNote(
+	vaultPath: string,
+	note: string,
+	opts: { cleanupLinks?: boolean } = {},
+): Promise<{ deleted: boolean; note: string; linksCleaned: string[] }> {
+	const real = resolve(vaultPath);
+	const abs = safeNotePath(real, note);
+	assertWritablePath(real, abs);
+	await assertWithinVault(real, abs);
+	const cleanup = opts.cleanupLinks ?? true;
+	const notePath = note.replace(/\.md$/i, "") + ".md";
+	const linksCleaned: string[] = [];
+	if (cleanup) {
+		const idx = await getIndex(real);
+		// Wiki-links target a note's FILENAME (basename), not its H1 title — links are
+		// keyed in reverseAdjacency by the lowercased raw link target. Using meta.title
+		// here missed [[filename]] refs whenever title !== filename (e.g. "# Old Draft"
+		// inside OldDraft.md). Resolve by basename, matching how links are actually keyed.
+		const target = notePath.split("/").pop()!.replace(/\.md$/i, "");
+		const sources = backlinkPaths(idx, target);
+		const linkRe = /\[\[([^\]]+)\]\]/g;
+		for (const src of sources) {
+			const srcAbs = join(real, src);
+			const entry = await readCached(srcAbs);
+			if (!entry) continue;
+			const tLower = target.toLowerCase();
+			let changed = false;
+			const updated = entry.content.replace(linkRe, (full, raw) => {
+				const tgt = String(raw)
+					.replace(/\|.*/, "")
+					.replace(/#.*/, "")
+					.replace(/\.md$/i, "")
+					.trim()
+					.toLowerCase();
+				if (
+					tgt === tLower ||
+					tgt.split("/").pop() === tLower.split("/").pop()
+				) {
+					changed = true;
+					return "";
+				}
+				return full;
+			});
+			if (changed) {
+				const tidied = updated
+					.split("\n")
+					.filter((l, i, arr) => {
+						const trimmed = l.trim();
+						if (trimmed === "") {
+							const prev = arr[i - 1]?.trim() ?? "x";
+							const next = arr[i + 1]?.trim() ?? "x";
+							return !(prev === "" && next === "");
+						}
+						return true;
+					})
+					.join("\n");
+				await atomicWriteFile(srcAbs, tidied);
+				invalidateCache(srcAbs);
+				linksCleaned.push(src);
+			}
+		}
+	}
+	await rm(abs, { force: true });
+	invalidateCache(abs);
+	dropIndex(real);
+	return { deleted: true, note: notePath, linksCleaned };
+}
+
+/** Serialize a frontmatter object back to text (flow-style for arrays). */
+function stringifyFrontmatter(data: Record<string, any>): string {
+	const lines = ["---"];
+	for (const [k, v] of Object.entries(data)) {
+		if (Array.isArray(v)) {
+			const items = v.map((x) =>
+				String(x).includes(" ") ? JSON.stringify(String(x)) : String(x),
+			);
+			lines.push(`${k}: [${items.join(", ")}]`);
+		} else if (v === null) lines.push(`${k}: null`);
+		else if (typeof v === "boolean") lines.push(`${k}: ${v}`);
+		else {
+			const s = String(v);
+			lines.push(
+				s.includes(":") || s.startsWith('"')
+					? `${k}: ${JSON.stringify(s)}`
+					: `${k}: ${s}`,
+			);
+		}
+	}
+	lines.push("---");
+	return lines.join("\n");
+}
+
+/** Merge `patch` into a note's frontmatter without touching the body (B3.5).
+ *  `tags` is special-cased: array union instead of overwrite. */
+export async function updateFrontmatter(
+	vaultPath: string,
+	note: string,
+	patch: Record<string, any>,
+): Promise<{ note: string; updated: string[]; bodyUntouched: boolean }> {
+	const real = resolve(vaultPath);
+	const abs = safeNotePath(real, note);
+	assertWritablePath(real, abs);
+	await assertWithinVault(real, abs);
+	const entry = await readCached(abs);
+	if (!entry) throw new Error(`Note not found: ${note}`);
+	const content = entry.content;
+	const { data, bodyStart } = parseFrontmatter(content);
+	const lines = content.split("\n");
+	const body = lines.slice(bodyStart).join("\n");
+	const updated: string[] = [];
+	for (const [k, v] of Object.entries(patch)) {
+		if (k === "tags") {
+			const cur: string[] = Array.isArray(data.tags)
+				? data.tags.map(String)
+				: data.tags != null
+					? [String(data.tags)]
+					: [];
+			const incoming: string[] = Array.isArray(v) ? v.map(String) : [String(v)];
+			const merged = [...new Set([...cur, ...incoming])];
+			if (merged.length !== cur.length || merged.some((t, i) => t !== cur[i])) {
+				data.tags = merged;
+				updated.push("tags");
+			}
+		} else if (JSON.stringify(data[k]) !== JSON.stringify(v)) {
+			data[k] = v;
+			updated.push(k);
+		}
+	}
+	const newFm = stringifyFrontmatter(data);
+	const next = bodyStart === 0 ? newFm + "\n\n" + content : newFm + "\n" + body;
+	await atomicWriteFile(abs, next);
+	invalidateCache(abs);
+	dropIndex(real);
+	return {
+		note: note.replace(/\.md$/i, "") + ".md",
+		updated,
+		bodyUntouched: true,
+	};
+}
+
+/** Structured metadata query (B4.1/B4.2). Index-only, no body reads.
+ *  - tags:    AND semantics (note must carry ALL listed tags)
+ *  - anyTags: OR semantics (note carries ANY of these)
+ *  - folder:  restrict to a sub-tree
+ *  - createdAfter / createdBefore: filter by frontmatter `created` (YYYY-MM-DD)
+ *  Returns note metadata (path, title, tags, created). */
+export async function queryNotes(
+	vaultPath: string,
+	opts: {
+		tags?: string[];
+		anyTags?: string[];
+		folder?: string;
+		createdAfter?: string;
+		createdBefore?: string;
+		max?: number;
+	} = {},
+): Promise<
+	{ path: string; title: string; tags: string[]; created?: string }[]
+> {
+	const idx = await getIndex(vaultPath);
+	let candidates = [...idx.notes.values()];
+	const folder = opts.folder?.replace(/^[/\\]+/, "");
+	if (folder)
+		candidates = candidates.filter(
+			(m) => m.path.startsWith(folder + "/") || m.path.startsWith(folder),
+		);
+	if (opts.tags && opts.tags.length) {
+		const want = opts.tags.map((t) => t.replace(/^#/, "").toLowerCase());
+		candidates = candidates.filter((m) =>
+			want.every((t) => m.tags.includes(t)),
+		);
+	}
+	if (opts.anyTags && opts.anyTags.length) {
+		const want = new Set(
+			opts.anyTags.map((t) => t.replace(/^#/, "").toLowerCase()),
+		);
+		candidates = candidates.filter((m) => m.tags.some((t) => want.has(t)));
+	}
+	if (opts.createdAfter)
+		candidates = candidates.filter(
+			(m) => (m.created ?? "") >= opts.createdAfter!,
+		);
+	if (opts.createdBefore)
+		candidates = candidates.filter(
+			(m) => (m.created ?? "") <= opts.createdBefore!,
+		);
+	const max = opts.max ?? 200;
+	return candidates.slice(0, max).map((m) => ({
+		path: m.path,
+		title: m.title,
+		tags: m.tags,
+		created: m.created,
+	}));
+}
+
+/** Detect Zettel titles that deviate from the dominant separator style (C3.4).
+ *  Classifies each title by its top-level separator: 'em' (—), 'colon' (:),
+ *  'dash' (-), or 'plain'. Returns titles whose style is not the vault's mode. */
+export function detectTitleStyleOutliers(
+	idx: VaultIndex,
+): { path: string; title: string; style: string }[] {
+	const styleOf = (title: string): string => {
+		if (title.includes("\u2014")) return "em"; // —
+		if (/^[^:]+:/.test(title)) return "colon";
+		if (title.includes(" - ")) return "dash";
+		return "plain";
+	};
+	const counts: Record<string, number> = {};
+	const metas = [...idx.notes.values()];
+	// Compute each title's style once and reuse it for the count, filter, and
+	// map passes (styleOf runs regexes, so this avoids 3× work per outlier).
+	const tagged = metas.map((m) => ({ m, s: styleOf(m.title) }));
+	for (const { s } of tagged) counts[s] = (counts[s] ?? 0) + 1;
+	let mode = "plain";
+	let max = 0;
+	for (const [s, c] of Object.entries(counts))
+		if (c > max) {
+			max = c;
+			mode = s;
+		}
+	return tagged
+		.filter((t) => t.s !== mode)
+		.map((t) => ({ path: t.m.path, title: t.m.title, style: t.s }));
+}
+
+/** Find notes that wiki-link to `target` (a note title/path). Returns matches
+ *  like searchVault: {file, line, text}. `target` may include `.md`; it is
+ *  normalized away. Matching is case-insensitive unless `caseSensitive`.
+ *
+ *  Obsidian allows both bare `[[name]]` and path-qualified `[[folder/name]]`
+ *  wikilinks to refer to the same note. This function matches a link when:
+ *  - the full link path equals `target` (exact), OR
+ *  - the basename of the link equals the basename of `target`
+ *  so that searching for backlinks to "z001" also finds `[[Zettelkasten/z001]]`. */
+export async function findBacklinks(
+	vaultPath: string,
+	target: string,
+	opts: { folder?: string; caseSensitive?: boolean; max: number },
+): Promise<{ file: string; line: number; text: string }[]> {
+	const files = await listNotes(vaultPath, opts.folder ?? "");
+	const want = target.replace(/\.md$/i, "").trim();
+	const cmp = (s: string) => (opts.caseSensitive ? s : s.toLowerCase());
+	const wantN = cmp(want);
+	// Pre-compute basename of target for path-qualified link matching.
+	const wantBase = cmp(want.split("/").pop() ?? want);
+	const results: { file: string; line: number; text: string }[] = [];
+	const max = opts.max;
+	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
+	for (let fi = 0; fi < files.length; fi++) {
+		const f = files[fi];
+		const entry = entries[fi];
+		if (!entry) continue;
+		const lines = entry.lines;
+		for (let i = 0; i < lines.length; i++) {
+			for (const link of extractWikiLinks(lines[i])) {
+				const linkStripped = link.replace(/\.md$/i, "");
+				const linkN = cmp(linkStripped);
+				const linkBase = cmp(linkStripped.split("/").pop() ?? linkStripped);
+				if (linkN === wantN || linkBase === wantBase) {
+					results.push({ file: f, line: i + 1, text: lines[i].trim() });
+					if (results.length >= max) return results;
+					break; // one match per line is enough
+				}
+			}
+		}
+	}
+	return results;
+}
+
+/** Find notes carrying tag `tag` (without leading #). Matches frontmatter
+ *  `tags:` arrays and inline `#tag` tokens. Returns {file, line, text}. */
+export async function findTagNotes(
+	vaultPath: string,
+	tag: string,
+	opts: { folder?: string; caseSensitive?: boolean; max: number },
+): Promise<{ file: string; line: number; text: string }[]> {
+	const want = tag.replace(/^#/, "").trim();
+	const cmp = (s: string) => (opts.caseSensitive ? s : s.toLowerCase());
+	const wantN = cmp(want);
+	const inlineRe = /(^|\s)#([A-Za-z0-9_-]+)/g;
+	const results: { file: string; line: number; text: string }[] = [];
+	const files = await listNotes(vaultPath, opts.folder ?? "");
+	const max = opts.max;
+	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
+	for (let fi = 0; fi < files.length; fi++) {
+		const f = files[fi];
+		const entry = entries[fi];
+		if (!entry) continue;
+		const lines = entry.lines;
+		// C1.2: parseFrontmatter recognizes flow + block-YAML tag forms.
+		const { data: fm } = parseFrontmatter(entry.content);
+		const fmTags: string[] = Array.isArray(fm.tags)
+			? fm.tags.map(String)
+			: fm.tags != null
+				? [String(fm.tags)]
+				: [];
+		let inFm = false,
+			fmDone = false,
+			fmTagsLine = -1;
+		for (let i = 0; i < lines.length; i++) {
+			const l = lines[i];
+			if (!fmDone && i === 0 && l.trim() === "---") {
+				inFm = true;
+				continue;
+			}
+			if (inFm && l.trim() === "---") {
+				inFm = false;
+				fmDone = true;
+				continue;
+			}
+			if (inFm && /^\s*tags?\s*:/.test(l) && fmTagsLine === -1) fmTagsLine = i;
+		}
+		let fmHit = false;
+		for (const t of fmTags)
+			if (cmp(t) === wantN) {
+				fmHit = true;
+				break;
+			}
+		if (fmHit && fmTagsLine >= 0) {
+			results.push({
+				file: f,
+				line: fmTagsLine + 1,
+				text: lines[fmTagsLine].trim(),
+			});
+			if (results.length >= max) return results;
+		}
+		for (let i = 0; i < lines.length; i++) {
+			const l = lines[i];
+			let mm: RegExpExecArray | null;
+			inlineRe.lastIndex = 0;
+			while ((mm = inlineRe.exec(l))) {
+				if (cmp(mm[2]) === wantN) {
+					results.push({ file: f, line: i + 1, text: l.trim() });
+					if (results.length >= max) return results;
+					break;
+				}
+			}
+		}
+	}
+	return results;
+}
+
+/**
+ * Append text under a heading in a note. If the heading does not exist, it is
+ * appended at the end as a new `## <heading>` section. Existing notes are
+ * preserved; new notes are created with just the section.
+ *
+ * Heading levels are matched loosely: `## Foo`, `# Foo`, `### Foo` all match
+ * the query "Foo". Indentation of inserted lines follows the provided content.
+ */
+export async function appendUnderHeading(
+	vaultPath: string,
+	note: string,
+	heading: string,
+	content: string,
+): Promise<{ created: boolean; insertedAt: "heading" | "end" }> {
+	const abs = safeNotePath(vaultPath, note);
+	assertWritablePath(vaultPath, abs);
+	await assertWithinVault(vaultPath, abs);
+	await mkdir(join(abs, ".."), { recursive: true });
+
+	let existing = "";
+	let created = false;
+	try {
+		existing = await readFile(abs, "utf8");
+	} catch {
+		created = true;
+	}
+
+	const lines = existing.split("\n");
+	const headingRe = new RegExp(
+		`^#{1,6}\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
+		"i",
+	);
+	const idx = lines.findIndex((l) => headingRe.test(l));
+
+	const block = content.endsWith("\n") ? content : content + "\n";
+	const ensureLeadingNewline = (s: string) =>
+		s.startsWith("\n") ? s : "\n" + s;
+
+	if (idx === -1) {
+		// append a new section at the end
+		const sep =
+			existing && !existing.endsWith("\n")
+				? "\n\n"
+				: existing.endsWith("\n")
+					? "\n"
+					: "";
+		const next = existing + sep + `## ${heading}` + ensureLeadingNewline(block);
+		await atomicWriteFile(abs, next);
+		invalidateCache(abs);
+		return { created, insertedAt: "end" };
+	}
+
+	// find end of the matched section: next heading of same-or-higher level, or EOF
+	const levelMatch = lines[idx].match(/^(#{1,6})/);
+	const level = levelMatch ? levelMatch[1].length : 2;
+	let endIdx = lines.length;
+	for (let j = idx + 1; j < lines.length; j++) {
+		const m = lines[j].match(/^(#{1,6})\s/);
+		if (m && m[1].length <= level) {
+			endIdx = j;
+			break;
+		}
+	}
+
+	// trim trailing empties of the section
+	let insertAt = endIdx;
+	while (insertAt - 1 > idx && lines[insertAt - 1].trim() === "") insertAt--;
+
+	lines.splice(
+		insertAt,
+		0,
+		...ensureLeadingNewline(block).slice(1).split("\n"),
+	);
+	await atomicWriteFile(abs, lines.join("\n"));
+	invalidateCache(abs);
+	return { created, insertedAt: "heading" };
+}
+
+// ---- Zettelkasten distillation subagent ----------------------------------
+
+/** System prompt that turns the child `pi` process into a Zettelkasten distiller.
+ *  Encodes the full methodology: atomic decomposition, the exact output template,
+ *  whole-vault linking, MOC update, Traditional Chinese output. */
+const ZETTEL_SYSTEM_PROMPT = `你是一名 Zettelkasten 蒸餾助手。你的任務：把給定的輸入文件分解成「一個原子化想法 = 一張卡」的 Zettelkasten 筆記，寫入專案本地的 Obsidian vault。
+
+## 核心原則
+1. **原子化**：每張卡只承載一個可獨立成立、能被單獨引用的論點。若一段內容含多個獨立主張，拆成多張卡。
+2. **用自己的話寫**：核心想法必須改寫重述，不是逐字抄錄來源。
+3. **互聯**：每張卡的「## 連結」段落至少一條 wiki-link。先用 obsidian_search 搜尋整個 vault 既存筆記，找出語義相關者，用 [[筆記標題]] 連結（取不含 .md 的檔名）。
+4. **繁體中文輸出**：所有卡片內容以繁體中文撰寫（專有名詞、程式碼保留原文）。
+
+## 處理流程（依序執行）
+### ① 讀取與拆解
+用 read 工具讀取指定的輸入檔。通讀後，列出所有可獨立成立的原子想法（不要重寫內容，只標邊界）。
+
+### ② 逐張萃取
+對每個原子想法，建立一張卡片，呼叫 obsidian_create 寫入 vault 的指定資料夾。
+
+### ③ 連結
+對每張新卡，呼叫 obsidian_search 搜尋整個 vault（不只 Zettelkasten/）找相關既存筆記，在「## 連結」段落填入 wiki-link。
+
+### ④ 更新 MOC
+每建好一張卡，用 obsidian_append_section 把它的 wiki-link 加進 Tags/Index.md 對應的 tag 段落（若該 tag 段落不存在，先加段落標題）。
+
+## 嚴格輸出格式（每張卡都必須完全符合此範本）
+檔名：vault 的 <輸出資料夾>/<標題>.md，標題簡潔、首字母大寫、不含斜線。
+\`\`\`
+---
+id: <YYYYMMDDHHmm 時間戳，每張卡不同>
+created: <YYYY-MM-DD>
+tags: [zettel, <主題1>, <主題2>]
+sources: ["<輸入檔檔名或來源>"]
+---
+
+# <這張卡的原子化標題：一個論點>
+
+## 核心想法
+- <用你自己的話，2-4 句陳述這張卡的主張>
+
+## 證據 / 脈絡
+- <來源文件的支撐細節、範例、引用，可多條>
+
+## 連結
+- 相關：[[<既存筆記A>]]
+- 延伸：[[<既存筆記B>]]
+- 上層概念：[[Tags/Index#<主題tag>]]
+\`\`\`
+
+## 規則
+- tags[0] 永遠是 zettel。
+- 每張卡 id 不可重複（用當下時間，逐張遞增分鐘）。
+- 不重複建立內容相同的卡（若與既存卡語義高度重疊，仍建新卡但務必互連）。
+- 只用提供的工具，不要使用 bash 或寫 vault 以外的路徑。
+
+## 完成後（重要）
+先以繁體中文回報：共建了幾張卡、逐張列出檔名與一句話摘要、指出建立的主要連結。簡潔即可。
+
+**最後一行必須是一條結構化 JSON**（供父代理解析），格式如下，獨占一行，不要用 markdown 包裹：
+
+    {"type":"pi_obsidian_result","notesCreated":<數字>,"notesUpdated":<數字>,"linksAdded":<數字>,"notes":["相對 vault 的檔名"],"errors":["若有的話"]}
+
+若無法填的字段填 0 或空陣列。這條 JSON 是給程式讀的，不是給人讀的。`;
+
+/** Resolve the `pi` launcher + args for a child process (mirrors official subagent helper). */
+function getPiInvocation(extra: string[]): { command: string; args: string[] } {
+	const currentScript = process.argv[1];
+	const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
+	if (currentScript && !isBunVirtual && existsSync(currentScript)) {
+		return { command: process.execPath, args: [currentScript, ...extra] };
+	}
+	const execName = (process.execPath.split(sep).pop() ?? "").toLowerCase();
+	if (!/^(node|bun)(\.exe)?$/.test(execName))
+		return { command: process.execPath, args: extra };
+	return { command: "pi", args: extra };
+}
+
+/**
+ * Optional overrides for a spawned subagent. Without these the child uses the
+ * pi default model and the caller-curated tool set; passing them lets an
+ * extension tool control its subagent the same way the CLI does via
+ * --model / --exclude-tools.
+ */
+export interface SubagentOptions {
+	/** Model id, `provider/id`, or `provider/id:thinking` → child `--model`. */
+	model?: string;
+	/** Tool names to deny the child → child `--exclude-tools` (joined CSV). */
+	excludeTools?: string[];
+	/** Live-event observer: invoked for every parsed NDJSON event the child
+	 *  emits (tool_execution_start/end, message_update, message_end, …). Use to
+	 *  surface progress (see makeSubagentProgressLogger). Default: no-op. */
+	onEvent?: (event: any) => void;
+}
+
+/** Build a live progress logger for a subagent run. Prints compact lines to
+ *  stderr so long-running distill/garden runs are observable: confirms the
+ *  subagent started, reports each note created, and exposes final tallies.
+ *  Returns `{ onEvent, stats }` — pass `onEvent` as SubagentOptions.onEvent
+ *  and read `stats()` after the run for a summary line. */
+export function makeSubagentProgressLogger(label: string): {
+	onEvent: (event: any) => void;
+	stats: () => { created: number; failed: number; toolCalls: number };
+} {
+	let started = false;
+	let created = 0;
+	let failed = 0;
+	let toolCalls = 0;
+	const onEvent = (event: any) => {
+		if (!event || typeof event.type !== "string") return;
+		if (!started) {
+			started = true;
+			console.error(`  [${label}] subagent started`);
+		}
+		if (event.type === "tool_execution_start") {
+			toolCalls++;
+		} else if (
+			event.type === "tool_execution_end" &&
+			event.toolName === "obsidian_create"
+		) {
+			if (event.isError) {
+				failed++;
+				console.error(`  [${label}] ✗ note create failed`);
+			} else {
+				created++;
+				console.error(`  [${label}] +note #${created}`);
+			}
+		}
+	};
+	return { onEvent, stats: () => ({ created, failed, toolCalls }) };
+}
+
+/**
+ * Build the pi-compatible argv for a subagent child process. Pure function —
+ * extracted from runSubagent so the flag wiring is unit-testable without
+ * spawning a process. The caller appends the task (positional) as the last arg.
+ */
+export function buildSubagentArgs(
+	toolsCsv: string,
+	promptPath: string,
+	pkgRoot: string,
+	opts: SubagentOptions = {},
+): string[] {
+	const args = [
+		"--mode",
+		"json",
+		"-p",
+		"--no-session",
+		"--approve",
+		"-e",
+		pkgRoot,
+		"--tools",
+		toolsCsv,
+		"--append-system-prompt",
+		promptPath,
+	];
+	if (opts.model) args.push("--model", opts.model);
+	if (opts.excludeTools && opts.excludeTools.length > 0) {
+		args.push("--exclude-tools", opts.excludeTools.join(","));
+	}
+	return args;
+}
+
+/** Spawn a child pi (isolated context) as a specialized subagent.
+ *  Loads this extension (-e) so obsidian tools are available in any cwd,
+ *  restricts tools, appends the given system prompt, and runs the task.
+ *  Returns the child's final assistant text + exit status. */
+
+/** A3.4: extract a trailing structured-result JSON object from assistant text.
+ *  Looks for the LAST line that parses to an object with type 'pi_obsidian_result'.
+ *  Returns the parsed object, or null if none found. Exported for testing. */
+export function parseStructuredResult(text: string): any {
+	if (!text) return null;
+	const lines = text.split("\n");
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const trimmed = lines[i].trim();
+		if (!trimmed.startsWith("{") || !trimmed.includes("pi_obsidian_result"))
+			continue;
+		try {
+			const obj = JSON.parse(trimmed);
+			if (obj && obj.type === "pi_obsidian_result") return obj;
+		} catch {
+			/* not valid JSON, keep scanning */
+		}
+	}
+	return null;
+}
+
+export function runSubagentWithRetry(
+	cwd: string,
+	systemPrompt: string,
+	task: string,
+	toolsCsv: string,
+	signal: AbortSignal | undefined,
+	tmpPrefix = "pi-subagent-",
+	opts: SubagentOptions = {},
+): Promise<{
+	output: string;
+	exitCode: number;
+	stderr: string;
+	timedOut: boolean;
+	result: any;
+	attempts: number;
+}> {
+	return runSubagentWithRetryImpl(
+		cwd,
+		systemPrompt,
+		task,
+		toolsCsv,
+		signal,
+		tmpPrefix,
+		1,
+		opts,
+	);
+}
+
+/** Heuristic: does this stderr indicate a transient (retryable) failure? (A3.5) */
+export function isTransientError(stderr: string, exitCode: number): boolean {
+	if (exitCode === 0) return false;
+	if (!stderr) return false;
+	const s = stderr.toLowerCase();
+	const signals = [
+		"etimedout",
+		"econnreset",
+		"econnrefused",
+		"enotfound",
+		"socket hang up",
+		"timeout",
+		"rate limit",
+		"429",
+		"503",
+		"502",
+		"network",
+		"fetch failed",
+		"eai_again",
+	];
+	return signals.some((sig) => s.includes(sig));
+}
+
+async function runSubagentWithRetryImpl(
+	cwd: string,
+	systemPrompt: string,
+	task: string,
+	toolsCsv: string,
+	signal: AbortSignal | undefined,
+	tmpPrefix: string,
+	attempt: number,
+	opts: SubagentOptions = {},
+): Promise<{
+	output: string;
+	exitCode: number;
+	stderr: string;
+	timedOut: boolean;
+	result: any;
+	attempts: number;
+}> {
+	const res = await runSubagent(
+		cwd,
+		systemPrompt,
+		task,
+		toolsCsv,
+		signal,
+		tmpPrefix,
+		opts,
+	);
+	// Retry once on transient error AND no useful output.
+	if (
+		res.exitCode !== 0 &&
+		!res.output &&
+		!res.timedOut &&
+		attempt === 1 &&
+		isTransientError(res.stderr, res.exitCode)
+	) {
+		const retry = await runSubagent(
+			cwd,
+			systemPrompt,
+			task,
+			toolsCsv,
+			signal,
+			tmpPrefix,
+			opts,
+		);
+		return { ...retry, attempts: 2 };
+	}
+	return { ...res, attempts: attempt };
+}
+
+export function runSubagent(
+	cwd: string,
+	systemPrompt: string,
+	task: string,
+	toolsCsv: string,
+	signal: AbortSignal | undefined,
+	tmpPrefix = "pi-subagent-",
+	opts: SubagentOptions = {},
+): Promise<{
+	output: string;
+	exitCode: number;
+	stderr: string;
+	timedOut: boolean;
+	result: any;
+}> {
+	return new Promise(async (resolveP) => {
+		let tmpDir: string | null = null;
+		let timer: NodeJS.Timeout | undefined;
+		let timedOut = false;
+		const timeoutMs = Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000);
+		const finish = (output: string, exitCode: number, stderr: string) => {
+			if (timer) clearTimeout(timer);
+			if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+			// A3.4: parse a trailing structured-result JSON line from the assistant text.
+			const result = parseStructuredResult(output);
+			resolveP({ output, exitCode, stderr, timedOut, result });
+		};
+		try {
+			tmpDir = await mkdtemp(join(tmpdir(), tmpPrefix));
+			const promptPath = join(tmpDir, "system.md");
+			await writeFile(promptPath, systemPrompt, { mode: 0o600 });
+			// Explicitly load this extension in the child so obsidian tools are
+			// available regardless of whether the cwd has a .pi/settings.json.
+			const pkgRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
+			// Inherit the parent's resolved model unless this call overrides it.
+			// OB_PARENT_MODEL is published by the CLI's createSharedSession, so a
+			// `--model` selection propagates to every spawned subagent instead of
+			// each child re-resolving to the pi default.
+			const inherited: SubagentOptions = {
+				...opts,
+				model: opts.model ?? process.env.OB_PARENT_MODEL,
+			};
+			// Argv is built by a pure helper (unit-tested); task is the last positional.
+			const args = [
+				...buildSubagentArgs(toolsCsv, promptPath, pkgRoot, inherited),
+				task,
+			];
+			const inv = getPiInvocation(args);
+			const proc = spawn(inv.command, inv.args, {
+				cwd,
+				shell: false,
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			let buf = "";
+			let stderr = "";
+			let lastText = "";
+			const handle = (line: string) => {
+				if (!line.trim()) return;
+				let ev: any;
+				try {
+					ev = JSON.parse(line);
+				} catch {
+					return;
+				}
+				// Forward every parsed event to the live observer (progress logging).
+				opts.onEvent?.(ev);
+				if (ev.type === "message_end" && ev.message?.role === "assistant") {
+					for (const part of ev.message.content ?? [])
+						if (part.type === "text" && part.text) lastText = part.text;
+				}
+			};
+			proc.stdout.on("data", (d) => {
+				buf += d.toString();
+				const lines = buf.split("\n");
+				buf = lines.pop() ?? "";
+				for (const l of lines) handle(l);
+			});
+			proc.stderr.on("data", (d) => {
+				stderr += d.toString();
+			});
+			proc.on("close", (c) => {
+				if (buf.trim()) handle(buf);
+				finish(lastText, c ?? 0, stderr);
+			});
+			proc.on("error", () => finish(lastText, 1, stderr));
+			if (signal) {
+				const kill = () => {
+					proc.kill("SIGTERM");
+					setTimeout(() => {
+						if (!proc.killed) proc.kill("SIGKILL");
+					}, 5000);
+				};
+				if (signal.aborted) kill();
+				else signal.addEventListener("abort", kill, { once: true });
+			}
+			// A3.1: default 5min timeout (OB_SUBAGENT_TIMEOUT_MS). SIGTERM → 5s grace → SIGKILL.
+			if (timeoutMs > 0) {
+				timer = setTimeout(() => {
+					timedOut = true;
+					proc.kill("SIGTERM");
+					setTimeout(() => {
+						if (!proc.killed) proc.kill("SIGKILL");
+					}, 5000);
+				}, timeoutMs);
+			}
+		} catch (e: any) {
+			finish("", 1, e?.message ? String(e.message) : String(e));
+		}
+	});
+}
+
+// ---- Vault gardener subagent ---------------------------------------------
+
+/** System prompt for the vault gardener: audits & repairs knowledge-base health. */
+const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener），負責維護知識庫的健康度。你會掃描整個 vault，找出品質問題，依模式決定只回報或實際修復。
+
+## 健康度檢查項（逐一執行）
+用 obsidian_list 列出所有筆記，用 obsidian_read 讀內容，用 obsidian_search 驗證連結，檢查：
+
+1. **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
+2. **破損 wiki-link**：[[Target]] 指向不存在的筆記。
+3. **缺漏 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者即回報。
+4. **疑似重複**：兩張以上筆記談論幾乎相同的論點（語義判斷，不是只看檔名）。
+5. **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
+6. **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
+
+## 模式
+- **audit（預設）**：只做檢查，不改動任何檔案。輸出一份結構化健康報告。
+- **fix**：做完檢查後，對「安全且明確」的項目執行修復。**不確定就不改**。修復限於：
+  - 為孤兒卡補上語義相關的 wiki-link（用 obsidian_append_section 加到「## 連結」段落）。
+  - 為漏連的相關筆記對補雙向連結。
+  - 把缺漏的筆記補進 Tags/Index.md 對應 tag 段落（obsidian_append_section）。
+  - **不要**刪除或合併筆記，不要修改 frontmatter 的 id。疑似重複只回報，不自動合併。
+
+## 輸出格式（繁體中文）
+### 健康報告
+為每個檢查項給一段：項目名、發現數量、逐條列出（檔名 + 一句話問題描述）。
+最後給「## 總結」：整體健康評分（1-5 ★）、最嚴重的 3 個問題、建議優先處理順序。
+
+若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼。
+
+## 規則
+- 只用提供的工具。fix 模式下只能用 obsidian_append_section / obsidian_create，不可刪檔。
+- 所有路徑相對於 vault 根。
+- 簡潔但完整。
+
+## 完成後（重要）
+報告完成後，**最後一行必須是一條結構化 JSON**（供父代理解析），格式如下，獨占一行，不要用 markdown 包裹：
+
+    {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","detail":"一句話"}],"errors":["若有的話"]}
+
+這條 JSON 是給程式讀的。數字字段若不適用填 0。`;
+
+export default function (pi: ExtensionAPI) {
+	// Cached ResolvedVault (per session). `source` lets every tool surface
+	// where the active vault came from; `staleReason` carries Tier-1 warnings.
+	let vault: ResolvedVault | undefined;
+
+	const getVault = async (cwd: string): Promise<ResolvedVault> => {
+		if (!vault) vault = await resolveVault(cwd);
+		return vault;
+	};
+
+	const vname = (v: { name: string }) => encodeURIComponent(v.name);
+
+	// ---- Tool: obsidian_list -------------------------------------------------
+	pi.registerTool({
+		name: "obsidian_list",
+		label: "Obsidian List",
+		description:
+			"List markdown notes in an Obsidian vault folder (recursive). Returns paths relative to the vault root. Omit folder to list the whole vault.",
+		parameters: Type.Object({
+			folder: Type.Optional(
+				Type.String({
+					description: "Folder relative to vault root. Default: root.",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const notes = await listNotes(v.path, params.folder ?? "");
+			return {
+				content: [
+					{
+						type: "text",
+						text: notes.length
+							? `Vault "${v.name}", ${notes.length} note(s):\n${notes.join("\n")}`
+							: `No notes under "${params.folder || "root"}" in "${v.name}".`,
+					},
+				],
+				details: { vault: v.name, notes },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_read -------------------------------------------------
+	pi.registerTool({
+		name: "obsidian_read",
+		label: "Obsidian Read",
+		description: "Read a note's contents. Path with or without .md.",
+		parameters: Type.Object({
+			note: Type.String({
+				description: "Note path relative to vault root (e.g. Inbox/idea).",
+			}),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const abs = safeNotePath(v.path, params.note);
+			assertWritablePath(v.path, abs);
+			await assertWithinVault(v.path, abs);
+			let content: string;
+			try {
+				content = await readFile(abs, "utf8");
+			} catch {
+				return {
+					content: [{ type: "text", text: `Note not found: ${params.note}` }],
+					details: { vault: v.name, note: params.note, error: "not found" },
+					isError: true,
+				};
+			}
+			return {
+				content: [{ type: "text", text: content }],
+				details: { vault: v.name, note: params.note, bytes: content.length },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_create ----------------------------------------------
+	pi.registerTool({
+		name: "obsidian_create",
+		label: "Obsidian Create",
+		description:
+			"Create or overwrite a note. Parent folders are created automatically. Obsidian picks up changes live. By default refuses to overwrite an existing note (set overwrite:true or pass expectedMtime to update an existing file).",
+		parameters: Type.Object({
+			note: Type.String({ description: "Note path relative to vault root." }),
+			content: Type.String({ description: "Full markdown content." }),
+			overwrite: Type.Optional(
+				Type.Boolean({
+					description:
+						"Set true to replace an existing note. Default false (returns an error if the note exists).",
+				}),
+			),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Epoch-ms mtime of the note as last seen by the caller; if the on-disk mtime differs, the write is rejected as a conflict (optimistic concurrency).",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const abs = safeNotePath(v.path, params.note);
+			assertWritablePath(v.path, abs);
+			await assertWithinVault(v.path, abs);
+			// existing-file check + conflict detection (A2.2 / A2.3)
+			let existingMtime: number | undefined;
+			try {
+				const st = await stat(abs);
+				existingMtime = st.mtimeMs;
+			} catch {
+				/* not present */
+			}
+			if (existingMtime !== undefined) {
+				if (
+					params.expectedMtime !== undefined &&
+					params.expectedMtime !== existingMtime
+				) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Conflict: ${params.note} was modified (expected mtime ${params.expectedMtime}, actual ${existingMtime}).`,
+							},
+						],
+						details: {
+							vault: v.name,
+							note: params.note,
+							conflict: true,
+							expectedMtime: params.expectedMtime,
+							actualMtime: existingMtime,
+						},
+						isError: true,
+					};
+				}
+				if (!params.overwrite && params.expectedMtime === undefined) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Note already exists: ${params.note} (mtime ${existingMtime}). Pass overwrite:true to replace, or expectedMtime for optimistic concurrency.`,
+							},
+						],
+						details: {
+							vault: v.name,
+							note: params.note,
+							exists: true,
+							mtime: existingMtime,
+						},
+						isError: true,
+					};
+				}
+			}
+			await mkdir(join(abs, ".."), { recursive: true });
+			await atomicWriteFile(abs, params.content);
+			invalidateCache(abs);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Wrote ${params.note} (${params.content.length} bytes) in "${v.name}".`,
+					},
+				],
+				details: {
+					vault: v.name,
+					note: params.note,
+					bytes: params.content.length,
+					overwritten: existingMtime !== undefined,
+				},
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_append ----------------------------------------------
+	pi.registerTool({
+		name: "obsidian_append",
+		label: "Obsidian Append",
+		description:
+			"Append text to a note. Creates the note if missing. Adds a blank-line separator before appended text.",
+		parameters: Type.Object({
+			note: Type.String({ description: "Note path relative to vault root." }),
+			content: Type.String({ description: "Text to append." }),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const abs = safeNotePath(v.path, params.note);
+			assertWritablePath(v.path, abs);
+			await assertWithinVault(v.path, abs);
+			await mkdir(join(abs, ".."), { recursive: true });
+			let existing = "";
+			try {
+				existing = await readFile(abs, "utf8");
+			} catch {
+				/* new file */
+			}
+			const sep =
+				existing && !existing.endsWith("\n")
+					? "\n\n"
+					: existing.endsWith("\n\n") || !existing
+						? ""
+						: "\n";
+			const next =
+				existing +
+				sep +
+				params.content +
+				(params.content.endsWith("\n") ? "" : "\n");
+			await atomicWriteFile(abs, next);
+			invalidateCache(abs);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Appended ${params.content.length} bytes to ${params.note}.`,
+					},
+				],
+				details: {
+					vault: v.name,
+					note: params.note,
+					appended: params.content.length,
+				},
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_append_section --------------------------------------
+	pi.registerTool({
+		name: "obsidian_append_section",
+		label: "Obsidian Append Section",
+		description:
+			"Append text under a heading in a note. Matches any heading level (## Foo, # Foo, ### Foo). If the heading does not exist it is appended as a new section. Useful for logging under a ## Log section without disturbing other content.",
+		parameters: Type.Object({
+			note: Type.String({ description: "Note path relative to vault root." }),
+			heading: Type.String({
+				description: "Heading text to append under (without the # marks).",
+			}),
+			content: Type.String({
+				description: "Text to insert into that section.",
+			}),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const res = await appendUnderHeading(
+				v.path,
+				params.note,
+				params.heading,
+				params.content,
+			);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `${res.created ? "Created" : "Updated"} ${params.note}; inserted under ${
+							res.insertedAt === "heading"
+								? `"${params.heading}"`
+								: `new "## ${params.heading}" at end`
+						}.`,
+					},
+				],
+				details: {
+					vault: v.name,
+					note: params.note,
+					heading: params.heading,
+					...res,
+				},
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_search ----------------------------------------------
+	pi.registerTool({
+		name: "obsidian_search",
+		label: "Obsidian Search",
+		description:
+			"Full-text search across all notes in the vault. Returns matching file:line snippets. " +
+			"Case-insensitive by default. matchMode controls how `query` is interpreted: " +
+			"substring (default, literal) | regex (JS RegExp) | words (boolean: tokens AND together, " +
+			"`|` = OR group, `-token` = NOT) | fuzzy (typo-tolerant). `fields` restricts which note " +
+			"sections are searchable (title/tags/body/frontmatter; default all). `folder` restricts to a sub-tree. " +
+			"`sort` orders results: file (default) | relevance (title/tag hits first) | recency (by created date). " +
+			"`context` adds surrounding lines per match (indented `> ` block with the hit line marked). " +
+			"`groupByFile` caps matches per file to `perFile` (default 3)," +
+			"useful when one file would flood results. " +
+			"Graph awareness: `backlinks: true` treats query as a note title and returns notes linking to it via [[query]]. " +
+			"A query starting with `#` is a tag search (frontmatter tags + inline #tag).",
+		parameters: Type.Object({
+			query: Type.String({
+				description:
+					"Search string. Meaning depends on matchMode. Prefix with # for a tag search. See also backlinks.",
+			}),
+			matchMode: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("substring"),
+						Type.Literal("regex"),
+						Type.Literal("words"),
+						Type.Literal("fuzzy"),
+					],
+					{
+						description:
+							"substring (default) | regex | words | fuzzy. See tool description for semantics.",
+						default: "substring",
+					},
+				),
+			),
+			caseSensitive: Type.Optional(
+				Type.Boolean({
+					description:
+						"Default false. Also applies to backlink matching unless backlinks is used (link targets are matched case-insensitively by default).",
+				}),
+			),
+			folder: Type.Optional(
+				Type.String({
+					description:
+						"Restrict search to a folder relative to vault root. Default: whole vault.",
+				}),
+			),
+			fields: Type.Optional(
+				Type.Array(
+					Type.Union(
+						[
+							Type.Literal("all"),
+							Type.Literal("title"),
+							Type.Literal("tags"),
+							Type.Literal("body"),
+							Type.Literal("frontmatter"),
+						],
+						{
+							description:
+								"Restrict to note sections. 'all' (default) searches everywhere. title = first H1; tags = frontmatter tags: line + inline #tag lines; frontmatter = --- block; body = the rest.",
+						},
+					),
+				),
+			),
+			context: Type.Optional(
+				Type.Number({
+					description:
+						"Lines of surrounding context per match (0 = single line, the default). When >0 the text field shows an indented snippet with the hit line marked `>`.",
+				}),
+			),
+			sort: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("file"),
+						Type.Literal("relevance"),
+						Type.Literal("recency"),
+					],
+					{
+						description:
+							"Result ordering. file (default, alphabetical traversal) | relevance (title +10 / tag +6 / frontmatter +3 / body +1, summed per file) | recency (frontmatter created date desc).",
+						default: "file",
+					},
+				),
+			),
+			groupByFile: Type.Optional(
+				Type.Boolean({
+					description:
+						"Collapse to at most `perFile` matches per file. Default false.",
+				}),
+			),
+			perFile: Type.Optional(
+				Type.Number({
+					description:
+						"When groupByFile, max matches to keep per file. Default 3.",
+				}),
+			),
+			backlinks: Type.Optional(
+				Type.Boolean({
+					description:
+						"Treat `query` as a note title and return notes that wiki-link to it ([[query]]). Normalizes away .md; case-insensitive unless caseSensitive. Overrides matchMode/fields. (Legacy alias for graph:'backlinks'.)",
+				}),
+			),
+			graph: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("backlinks"),
+						Type.Literal("outgoing"),
+						Type.Literal("orphans"),
+						Type.Literal("dead-links"),
+						Type.Literal("neighbors"),
+					],
+					{
+						description:
+							"Graph query mode. backlinks=who links to `query`; outgoing=what `query` links to; orphans=notes with no inbound links; dead-links=[[Target]] pointing to nonexistent notes; neighbors=N-hop neighborhood of `query`. Overrides matchMode/fields.",
+					},
+				),
+			),
+			depth: Type.Optional(
+				Type.Number({
+					description: "Max hops for graph:'neighbors'. Default 1.",
+					default: 1,
+				}),
+			),
+			max: Type.Optional(
+				Type.Number({ description: "Max matches to return. Default 50." }),
+			),
+			paths: Type.Optional(
+				Type.Array(Type.String(), {
+					description:
+						"B4.3: restrict matching to this set of vault-relative paths (e.g. from obsidian_query). Ignores `folder`.",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const max = params.max ?? 50;
+			const folder = params.folder ?? "";
+			const caseSensitive = params.caseSensitive ?? false;
+
+			// --- Graph query modes (B2.5 unified surface) ---
+			const graphMode =
+				params.graph ?? (params.backlinks ? "backlinks" : undefined);
+			if (graphMode) {
+				const gidx = await getIndex(v.path);
+				let results: GraphResult[] = [];
+				let modeLabel: string = graphMode;
+				if (graphMode === "backlinks") {
+					// keep the line-aware findBacklinks for back-compat when possible
+					const bl = await findBacklinks(v.path, params.query, {
+						folder,
+						caseSensitive,
+						max,
+					});
+					results = bl.map((b) => ({
+						path: b.file,
+						line: b.line,
+						text: b.text,
+					}));
+				} else if (graphMode === "outgoing") {
+					results = graphOutgoing(gidx, params.query);
+				} else if (graphMode === "orphans") {
+					results = graphOrphans(gidx);
+				} else if (graphMode === "dead-links") {
+					results = graphDeadLinks(gidx);
+				} else if (graphMode === "neighbors") {
+					results = graphNeighbors(gidx, params.query, params.depth ?? 1, max);
+					modeLabel = `neighbors(d=${params.depth ?? 1})`;
+				}
+				results = results.slice(0, max);
+				return {
+					content: [
+						{
+							type: "text",
+							text: results.length
+								? `${results.length} ${modeLabel} result(s):
+` +
+									results
+										.map(
+											(r) =>
+												`${r.path}${r.line ? `:${r.line}` : ""}: ${r.text}${r.depth ? ` (depth ${r.depth})` : ""}`,
+										)
+										.join("\n")
+								: `No ${modeLabel} results.`,
+						},
+					],
+					details: {
+						vault: v.name,
+						query: params.query,
+						mode: modeLabel,
+						results,
+					},
+				};
+			}
+
+			// --- Legacy tag shortcut (#query) ---
+			if (params.query.startsWith("#")) {
+				const matches = await findTagNotes(v.path, params.query, {
+					folder,
+					caseSensitive,
+					max,
+				});
+				return {
+					content: [
+						{
+							type: "text",
+							text: matches.length
+								? `${matches.length} note(s) tagged ${params.query}:\n` +
+									matches
+										.map((m) => `${m.file}:${m.line}: ${m.text}`)
+										.join("\n")
+								: `No notes tagged ${params.query} in vault "${v.name}".`,
+						},
+					],
+					details: { vault: v.name, query: params.query, mode: "tag", matches },
+				};
+			}
+
+			const mode = (params.matchMode ?? "substring") as MatchMode;
+			const built = buildMatcher(params.query, mode, caseSensitive);
+			if (built.error || !built.match) {
+				return {
+					content: [
+						{ type: "text", text: built.error ?? "Could not build matcher." },
+					],
+					details: { vault: v.name, query: params.query, matchMode: mode },
+					isError: true,
+				};
+			}
+			const sort = (params.sort ?? "file") as "file" | "relevance" | "recency";
+			const searchOpts = {
+				fileFilter: built.fileFilter,
+				fields: (params.fields as NoteField[] | undefined) ?? null,
+				folder,
+				context: params.context ?? 0,
+				sort,
+				groupByFile: params.groupByFile ?? false,
+				perFile: params.perFile ?? 3,
+				max,
+				paths: params.paths,
+			};
+			let matches = await searchVault(v.path, {
+				match: built.match,
+				...searchOpts,
+			});
+			// Regex auto-repair: on a 0-match regex query containing an alternation `|`
+			// (bare or escaped), retry the de-escaped form — weak models over-escape the
+			// surrounding parens/pipe often (e.g. SEARCH\(WORD|TERM\)).
+			let regexRepaired: string | undefined;
+			if (
+				mode === "regex" &&
+				matches.length === 0 &&
+				params.query.includes("|")
+			) {
+				const deescaped = deescapeRegex(params.query);
+				if (deescaped !== params.query) {
+					const rb = buildMatcher(deescaped, "regex", caseSensitive);
+					if (rb.match && !rb.error) {
+						const repaired = await searchVault(v.path, {
+							match: rb.match,
+							...searchOpts,
+						});
+						if (repaired.length > 0) {
+							matches = repaired;
+							regexRepaired = deescaped;
+						}
+					}
+				}
+			}
+			const repairNote = regexRepaired
+				? `(auto-repaired over-escaped regex: "${params.query}" -> "${regexRepaired}")\n`
+				: "";
+			return {
+				content: [
+					{
+						type: "text",
+						text: matches.length
+							? `${repairNote}${matches.length} match(es) for "${params.query}":\n` +
+								matches.map((m) => `${m.file}:${m.line}: ${m.text}`).join("\n")
+							: `${repairNote}No matches for "${params.query}" in vault "${v.name}".`,
+					},
+				],
+				details: {
+					vault: v.name,
+					query: params.query,
+					matchMode: mode,
+					sort,
+					regexRepaired,
+					matches,
+				},
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_move (B3.1/B3.2) -----------------------------------
+	pi.registerTool({
+		name: "obsidian_move",
+		label: "Obsidian Move",
+		description:
+			"Move/rename a note and rewrite all inbound [[wiki-links]] across the vault to point at the new location. Preserves aliases and #section refs. Atomic (temp+rename).",
+		parameters: Type.Object({
+			from: Type.String({ description: "Source note path (vault-relative)." }),
+			to: Type.String({
+				description: "Destination note path (vault-relative).",
+			}),
+			overwrite: Type.Optional(
+				Type.Boolean({
+					description: "Allow moving onto an existing note. Default false.",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			try {
+				const r = await moveNote(v.path, params.from, params.to, {
+					overwrite: params.overwrite,
+				});
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Moved ${r.from} → ${r.to}; rewrote ${r.linksRewritten.length} inbound link(s).`,
+						},
+					],
+					details: r,
+				};
+			} catch (e: any) {
+				return {
+					content: [{ type: "text", text: `Move failed: ${errMsg(e)}` }],
+					isError: true,
+					details: { from: params.from, to: params.to },
+				};
+			}
+		},
+	});
+
+	// ---- Tool: obsidian_rename (B3.3, alias of move, same dir) --------------
+	pi.registerTool({
+		name: "obsidian_rename",
+		label: "Obsidian Rename",
+		description:
+			"Rename a note in place (same directory) and rewrite inbound [[wiki-links]]. Thin alias of obsidian_move constrained to the basename.",
+		parameters: Type.Object({
+			note: Type.String({ description: "Source note path (vault-relative)." }),
+			newName: Type.String({ description: "New basename (without folder)." }),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const dir = params.note
+				.replace(/^[/\\]+/, "")
+				.split("/")
+				.slice(0, -1)
+				.join("/");
+			const to = dir ? `${dir}/${params.newName}` : params.newName;
+			try {
+				const r = await moveNote(v.path, params.note, to);
+				return {
+					content: [{ type: "text", text: `Renamed ${r.from} → ${r.to}.` }],
+					details: r,
+				};
+			} catch (e: any) {
+				return {
+					content: [{ type: "text", text: `Rename failed: ${errMsg(e)}` }],
+					isError: true,
+					details: null,
+				};
+			}
+		},
+	});
+
+	// ---- Tool: obsidian_query (B4) ----------------------------------------
+	pi.registerTool({
+		name: "obsidian_query",
+		label: "Obsidian Query",
+		description:
+			"Structured metadata query (Dataview-lite). Returns note paths/titles/tags/created WITHOUT reading bodies — index-only, cheap. Use to find notes by tag/folder/date, then pipe paths into obsidian_search via its `paths` param.",
+		parameters: Type.Object({
+			tags: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "AND semantics: notes carrying ALL these tags.",
+				}),
+			),
+			anyTags: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "OR semantics: notes carrying ANY of these tags.",
+				}),
+			),
+			folder: Type.Optional(
+				Type.String({ description: "Restrict to a sub-tree." }),
+			),
+			createdAfter: Type.Optional(
+				Type.String({ description: "YYYY-MM-DD; notes with created >= this." }),
+			),
+			createdBefore: Type.Optional(
+				Type.String({ description: "YYYY-MM-DD; notes with created <= this." }),
+			),
+			max: Type.Optional(Type.Number({ description: "Cap. Default 200." })),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const rows = await queryNotes(v.path, params);
+			return {
+				content: [
+					{
+						type: "text",
+						text:
+							`${rows.length} note(s):\n` +
+							rows
+								.map((r) =>
+									`- ${r.path} ${r.tags.length ? `#${r.tags.join(" #")}` : ""} ${r.created ?? ""}`.trimEnd(),
+								)
+								.join("\n"),
+					},
+				],
+				details: { vault: v.name, count: rows.length, rows },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_update_frontmatter (B3.5) --------------------------
+	pi.registerTool({
+		name: "obsidian_update_frontmatter",
+		label: "Obsidian Update Frontmatter",
+		description:
+			"Merge keys into a note's frontmatter without touching the body. `tags` is special-cased: array union (additive), not overwrite. Other keys are set/replace.",
+		parameters: Type.Object({
+			note: Type.String({ description: "Note path (vault-relative)." }),
+			patch: Type.Record(Type.String(), Type.Unknown(), {
+				description:
+					"Object of key→value pairs to merge. tags array is unioned.",
+			}),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			try {
+				const r = await updateFrontmatter(v.path, params.note, params.patch);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Updated frontmatter of ${r.note}: ${r.updated.join(", ") || "(no changes)"}.`,
+						},
+					],
+					details: r,
+				};
+			} catch (e: any) {
+				return {
+					content: [{ type: "text", text: `Update failed: ${errMsg(e)}` }],
+					isError: true,
+					details: null,
+				};
+			}
+		},
+	});
+
+	// ---- Tool: obsidian_delete (B3.4) --------------------------------------
+	pi.registerTool({
+		name: "obsidian_delete",
+		label: "Obsidian Delete",
+		description:
+			"Delete/remove a note from the vault — THIS is the tool for removing or deleting a note. It also automatically strips all [[wiki-links]] pointing to the deleted note across the vault (cleanupLinks, default true), so a request to 'remove a note without leaving broken/dangling links' is satisfied automatically with no extra step. Set cleanupLinks:false to leave dangling refs. Requires confirm:true to actually delete (safety guard). If unsure whether the note exists, call obsidian_read or obsidian_list first rather than assuming it is absent.",
+		parameters: Type.Object({
+			note: Type.String({
+				description: "Note path to delete (vault-relative).",
+			}),
+			cleanupLinks: Type.Optional(
+				Type.Boolean({
+					description:
+						"Also remove [[note]] references across the vault. Default true.",
+				}),
+			),
+			confirm: Type.Boolean({
+				description: "Must be true to actually delete (safety guard).",
+			}),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			if (!params.confirm) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Deletion requires confirm:true (got false). No changes made.`,
+						},
+					],
+					isError: true,
+					details: { note: params.note, confirmed: false },
+				};
+			}
+			const r = await deleteNote(v.path, params.note, {
+				cleanupLinks: params.cleanupLinks,
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Deleted ${r.note}; cleaned ${r.linksCleaned.length} inbound link(s).`,
+					},
+				],
+				details: r,
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_invalidate (B1.4) ----------------------------------
+	pi.registerTool({
+		name: "obsidian_invalidate",
+		label: "Obsidian Invalidate",
+		description:
+			"Force-clear the read cache and vault index so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). No return value beyond confirmation.",
+		parameters: Type.Object({}),
+		async execute(_id, _params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			invalidateCache();
+			dropIndex(v.path);
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Cleared cache and index for vault "${v.name}".`,
+					},
+				],
+				details: null,
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_open -------------------------------------------------
+	pi.registerTool({
+		name: "obsidian_open",
+		label: "Obsidian Open",
+		description:
+			"Open a note or the whole vault in the Obsidian app via its URI scheme. Supports opening to a specific heading via note:'Note#Section' (Advanced URI / native).",
+		parameters: Type.Object({
+			note: Type.Optional(
+				Type.String({
+					description:
+						"Note path relative to vault root. Omit to open the vault.",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
+			const v = await getVault(ctx.cwd);
+			const file = params.note
+				? params.note.replace(/^[/\\]+/, "").replace(/\.md$/i, "")
+				: undefined;
+			const uri = file
+				? `obsidian://open?vault=${vname(v)}&file=${encodeURIComponent(file)}`
+				: v.registered
+					? `obsidian://open?vault=${vname(v)}`
+					: `obsidian://open?path=${encodeURIComponent(v.path)}`;
+			await openObsidianUri(uri);
+			return {
+				content: [
+					{
+						type: "text",
+						text: file
+							? `Opened ${file} in Obsidian.`
+							: `Opened vault "${v.name}".`,
+					},
+				],
+				details: { vault: v.name, note: file ?? null, uri },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_distill (Zettelkasten subagent) --------------------
+	// Tool allowlists for the spawned subagents. Defined once as arrays (not
+	// inline CSV strings) so they are auditable and don't drift; joined to CSV
+	// at the call site (runSubagentWithRetry takes a CSV string).
+	const OBSIDIAN_DISTILL_TOOLS = [
+		"read",
+		"obsidian_list",
+		"obsidian_read",
+		"obsidian_search",
+		"obsidian_create",
+		"obsidian_append_section",
+	];
+	const GARDEN_AUDIT_TOOLS = [
+		"obsidian_list",
+		"obsidian_read",
+		"obsidian_search",
+	];
+	const GARDEN_FIX_TOOLS = [
+		...GARDEN_AUDIT_TOOLS,
+		"obsidian_create",
+		"obsidian_append_section",
+	];
+	pi.registerTool({
+		name: "obsidian_distill",
+		label: "Obsidian Distill",
+		description: [
+			"Distill input markdown/text files into atomic Zettelkasten notes in the vault.",
+			"Spawns an isolated subagent that reads the files, decomposes them into atomic ideas,",
+			"creates one note per idea (following the Zettelkasten Note template), links each to",
+			"existing notes via obsidian_search, and updates Tags/Index.md MOC. Output is Traditional Chinese.",
+		].join(" "),
+		parameters: Type.Object({
+			files: Type.Array(Type.String(), {
+				description:
+					"Input file paths (markdown/text), relative to cwd or absolute. Each is decomposed into multiple notes.",
+			}),
+			folder: Type.Optional(
+				Type.String({
+					description:
+						"Vault folder to write notes into. Default: Zettelkasten.",
+					default: "Zettelkasten",
+				}),
+			),
+			maxNotes: Type.Optional(
+				Type.Number({
+					description:
+						"Optional hint: roughly cap the number of notes produced from all files combined.",
+				}),
+			),
+		}),
+		async execute(_id, params, signal, _u, ctx) {
+			const cwd = ctx.cwd;
+			const files = (params.files ?? []).map((f) => resolve(cwd, f));
+			const missing = files.filter((f) => !existsSync(f));
+			if (files.length === 0)
+				return {
+					content: [{ type: "text", text: "No input files provided." }],
+					isError: true,
+					details: null,
+				};
+			if (missing.length > 0)
+				return {
+					content: [
+						{ type: "text", text: `File(s) not found: ${missing.join(", ")}` },
+					],
+					isError: true,
+					details: null,
+				};
+
+			const folder = params.folder ?? "Zettelkasten";
+			const taskParts = [
+				`把以下輸入檔分解成 Zettelkasten 原子筆記，寫入 vault 的「${folder}」資料夾。`,
+				params.maxNotes
+					? `（提示：全部合計約不超過 ${params.maxNotes} 張卡，品質優先於數量。）`
+					: "",
+				"輸入檔：",
+				...files.map((f) => `- ${relative(cwd, f) || f}`),
+			].filter(Boolean);
+			const task = taskParts.join("\n");
+
+			const tools = OBSIDIAN_DISTILL_TOOLS.join(",");
+			// Live progress: surface note creation to stderr so long distill runs
+			// are observable (the subagent is otherwise silent until it exits).
+			const prog = makeSubagentProgressLogger("distill");
+			const t0 = Date.now();
+			const { output, exitCode, stderr, timedOut, result } =
+				await runSubagentWithRetry(
+					cwd,
+					ZETTEL_SYSTEM_PROMPT,
+					task,
+					tools,
+					signal,
+					"pi-distill-",
+					{ onEvent: prog.onEvent },
+				);
+			const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+			const { created, failed } = prog.stats();
+			console.error(
+				`  [distill] ${created} note(s) created${failed ? `, ${failed} failed` : ""} (${elapsed}s)`,
+			);
+			invalidateCache(); // A3.2: child wrote notes; parent search must see them
+			if (timedOut) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Distiller timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000) / 1000}s. Partial output:
+${output.slice(-2000)}`,
+						},
+					],
+					isError: true,
+					details: { timedOut: true, stderr, result },
+				};
+			}
+			if (exitCode !== 0 && !output) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Distiller failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+						},
+					],
+					isError: true,
+					details: { exitCode, stderr, result },
+				};
+			}
+			return {
+				content: [
+					{ type: "text", text: output || "(distiller produced no output)" },
+				],
+				details: { exitCode, stderr, result },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_garden (vault gardener subagent) --------------------
+	pi.registerTool({
+		name: "obsidian_garden",
+		label: "Obsidian Garden",
+		description: [
+			"Audit and optionally repair the Obsidian vault's knowledge-graph health.",
+			"Spawns an isolated subagent that scans all notes and reports: orphan notes (no backlinks),",
+			"broken wiki-links, missing frontmatter, suspected duplicates, unlinked-but-related notes,",
+			"and MOC drift in Tags/Index.md. In 'fix' mode it safely adds links and updates the MOC",
+			"(never deletes or merges). Output is Traditional Chinese.",
+		].join(" "),
+		parameters: Type.Object({
+			mode: Type.Optional(
+				Type.Union([Type.Literal("audit"), Type.Literal("fix")], {
+					description:
+						"audit = report only (default); fix = also apply safe repairs (add links, update MOC)",
+					default: "audit",
+				}),
+			),
+			scope: Type.Optional(
+				Type.String({
+					description:
+						"Restrict the scan to a vault folder (e.g. 'Zettelkasten'). Default: whole vault.",
+					default: "",
+				}),
+			),
+		}),
+		async execute(_id, params, signal, _u, ctx) {
+			const cwd = ctx.cwd;
+			const mode = params.mode ?? "audit";
+			const scope = params.scope?.trim() || "整個 vault";
+			const task = `請對${scope}執行健康度${mode === "fix" ? "檢查並修復（fix 模式）" : "審計（audit 模式，僅回報不改動）"}。`;
+			// fix mode needs write tools; audit is read-only.
+			const tools = (
+				mode === "fix" ? GARDEN_FIX_TOOLS : GARDEN_AUDIT_TOOLS
+			).join(",");
+			const prog = makeSubagentProgressLogger("garden");
+			const t0 = Date.now();
+			const { output, exitCode, stderr, timedOut, result } =
+				await runSubagentWithRetry(
+					cwd,
+					GARDEN_SYSTEM_PROMPT,
+					task,
+					tools,
+					signal,
+					"pi-garden-",
+					{ onEvent: prog.onEvent },
+				);
+			const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+			const { created, failed, toolCalls } = prog.stats();
+			console.error(
+				`  [garden] ${toolCalls} tool call(s)${created ? `, ${created} note(s) added` : ""}${failed ? `, ${failed} failed` : ""} (${elapsed}s)`,
+			);
+			invalidateCache(); // A3.2: child may have added links/notes
+			if (timedOut) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Gardener timed out after ${Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000) / 1000}s. Partial output:\n${output.slice(-2000)}`,
+						},
+					],
+					isError: true,
+					details: { timedOut: true, stderr, result },
+				};
+			}
+			if (exitCode !== 0 && !output) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Gardener failed (exit ${exitCode}).\n${stderr.slice(-2000)}`,
+						},
+					],
+					isError: true,
+					details: { exitCode, stderr, result },
+				};
+			}
+			return {
+				content: [
+					{ type: "text", text: output || "(gardener produced no output)" },
+				],
+				details: { exitCode, stderr, result },
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_status ---------------------------------------------
+	// Introspection: lets the agent (and zk_* workflows) see which vault is
+	// active, where it came from, and all candidates BEFORE acting. Returns the
+	// same `source` / `staleReason` fields the /obsidian-config command shows.
+	pi.registerTool({
+		name: "obsidian_status",
+		label: "Obsidian Status",
+		description:
+			"Show the active Obsidian vault: resolved path, name, resolution source (env|config|app|local|global), whether it is registered in the Obsidian app, note count, stale-config warnings, and all candidate vaults. Use this BEFORE any vault write or when the user asks which vault is in use — obsidian_* and zk_* tools all operate on this vault.",
+		parameters: Type.Object({}),
+		async execute(_id, _params, _signal, _u, ctx) {
+			const cwd = ctx.cwd;
+			const active = await getVault(cwd);
+			const candidates = await listVaultCandidates(cwd);
+			const cfg = await readVaultConfig(cwd);
+			const noteCount = await countNotes(active.path);
+			const text = [
+				`Active vault: ${active.name}`,
+				`  path:       ${active.path}`,
+				`  source:     ${active.source}${active.registered ? " (registered)" : " (not registered)"}`,
+				active.staleReason ? `  ⚠ stale:     ${active.staleReason}` : null,
+				`  notes:      ${noteCount}`,
+				`  config:     ${vaultConfigPath(cwd)} (mode: ${cfg.mode ?? "(unset)"}${cfg.vault_path ? ", vault_path: " + cfg.vault_path : ""})`,
+				"",
+				"Candidates:",
+				...candidates.map((c) => {
+					const here = c.path === active.path ? " ← active" : "";
+					return `  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(7)} ${c.path}${c.open ? " [open]" : ""}${here}`;
+				}),
+			]
+				.filter((s) => s !== null)
+				.join("\n");
+			return {
+				content: [{ type: "text", text }],
+				details: {
+					active: {
+						path: active.path,
+						name: active.name,
+						source: active.source,
+						registered: active.registered,
+						staleReason: active.staleReason ?? null,
+						noteCount,
+					},
+					candidates,
+					configPath: vaultConfigPath(cwd),
+					config: cfg,
+				},
+			};
+		},
+	});
+
+	// ---- Command: /obsidian --------------------------------------------------
+	pi.registerCommand("obsidian", {
+		description:
+			"Open Obsidian vault (or a note). Usage: /obsidian [note/path]",
+		handler: async (args, ctx) => {
+			try {
+				const v = await getVault(ctx.cwd);
+				const file = args?.trim()
+					? args.trim().replace(/\.md$/i, "")
+					: undefined;
+				const uri = file
+					? `obsidian://open?vault=${vname(v)}&file=${encodeURIComponent(file)}`
+					: v.registered
+						? `obsidian://open?vault=${vname(v)}`
+						: `obsidian://open?path=${encodeURIComponent(v.path)}`;
+				await openObsidianUri(uri);
+				ctx.ui.notify(
+					file ? `Opened ${file} in Obsidian` : `Opened vault "${v.name}"`,
+					"info",
+				);
+			} catch (e) {
+				ctx.ui.notify(`Obsidian error: ${(e as Error).message}`, "error");
+			}
+		},
+	});
+
+	// ---- Command: /obsidian-init --------------------------------------------
+	pi.registerCommand("obsidian-init", {
+		description:
+			"Register the project vault folder with the Obsidian app (opens it by absolute path).",
+		handler: async (_args, ctx) => {
+			try {
+				const v = await getVault(ctx.cwd);
+				// `obsidian://open?path=<abs>` adds the folder to Obsidian's vault list if absent.
+				await openObsidianUri(
+					`obsidian://open?path=${encodeURIComponent(v.path)}`,
+				);
+				ctx.ui.notify(
+					`Registered vault "${v.name}" at ${v.path} with Obsidian`,
+					"info",
+				);
+			} catch (e) {
+				ctx.ui.notify(`Obsidian init error: ${(e as Error).message}`, "error");
+			}
+		},
+	});
+
+	// ---- Command: /obsidian-config -----------------------------------------
+	// Human-friendly vault inspection / switching. One-stop view of which vault
+	// the obsidian_* and zk_* tools will actually hit, and a way to change it.
+	//
+	//   /obsidian-config              show active vault + source + all candidates
+	//   /obsidian-config <path>       set explicit vault path (mode "explicit")
+	//   /obsidian-config --use-app    follow the Obsidian app's open vault (mode "app")
+	//   /obsidian-config --list       list all registered vaults from obsidian.json
+	//   /obsidian-config --clear      forget the explicit setting (fall back to app/local)
+	pi.registerCommand("obsidian-config", {
+		description:
+			"Show or set the active Obsidian vault. Usage: /obsidian-config [path | --use-app | --list | --clear]",
+		handler: async (args, ctx) => {
+			const cwd = ctx.cwd;
+			const raw = (args ?? "").trim();
+			const flag = raw.startsWith("--") ? raw : null;
+			const setPath = !flag && raw.length > 0 ? raw : null;
+
+			const lines: string[] = [];
+			const push = (s: string) => lines.push(s);
+
+			try {
+				// --- mutations first ---
+				if (setPath) {
+					const abs = isAbsolute(setPath) ? setPath : resolve(cwd, setPath);
+					if (!existsSync(abs)) {
+						push(`⚠️  Path does not exist: ${abs}`);
+						push(
+							`Created config anyway. Run /obsidian-init after creating the folder.`,
+						);
+					} else {
+						const count = await countNotes(abs);
+						push(`✓ Active vault set to: ${abs} (${count} notes)`);
+					}
+					await writeVaultConfig(cwd, { vault_path: abs, mode: "explicit" });
+					push(`  Written to ${vaultConfigPath(cwd)} (mode: explicit)`);
+					ctx.ui.notify(`obsidian vault → ${basenameOf(abs)}`, "info");
+				} else if (flag === "--use-app") {
+					await writeVaultConfig(cwd, { mode: "app" });
+					push(
+						`✓ Mode set to "app": obsidian_* will follow the Obsidian app's open vault.`,
+					);
+					push(`  (Tier 1 env/config overrides still win if set.)`);
+					ctx.ui.notify("obsidian mode → app", "info");
+				} else if (flag === "--clear") {
+					await writeVaultConfig(cwd, { vault_path: "", mode: "app" });
+					push(
+						`✓ Cleared explicit vault_path. Resolution falls back to app/local.`,
+					);
+					ctx.ui.notify("obsidian config cleared", "info");
+				}
+
+				// --- status (always shown) ---
+				const active = await resolveVault(cwd);
+				push("");
+				push(`Active vault: ${active.name}`);
+				push(`  path:       ${active.path}`);
+				push(
+					`  source:     ${active.source}${active.registered ? " (registered in Obsidian app)" : " (not registered)"}`,
+				);
+				if (active.staleReason) push(`  ⚠ stale:     ${active.staleReason}`);
+				push(`  notes:      ${await countNotes(active.path)}`);
+
+				// --- candidates (for --list or whenever helpful) ---
+				if (flag === "--list" || !flag) {
+					push("");
+					push("Candidates:");
+					const seen = new Set<string>();
+					for (const c of await listVaultCandidates(cwd)) {
+						const key = c.path;
+						if (seen.has(key)) continue;
+						seen.add(key);
+						const here = c.path === active.path ? " ← active" : "";
+						const extra = c.open
+							? " [open in app]"
+							: c.source === "env"
+								? " [env]"
+								: c.source === "config"
+									? " [config]"
+									: c.source === "local"
+										? " [local fallback]"
+										: "";
+						push(
+							`  ${c.exists ? "✓" : "✗"} ${c.source.padEnd(7)} ${c.path}${extra}${here}`,
+						);
+					}
+				}
+
+				push("");
+				push(`Config file: ${vaultConfigPath(cwd)}`);
+				ctx.ui.notify(lines.join("\n"), "info");
+			} catch (e) {
+				ctx.ui.notify(
+					`/obsidian-config error: ${(e as Error).message}`,
+					"error",
+				);
+			}
+		},
+	});
+
+	// ---- Startup dep check --------------------------------------------------
+	const _EXT_DIR: string | undefined = (() => {
+		try {
+			const metaDir = (import.meta as any).dir;
+			if (typeof metaDir === "string" && metaDir) return metaDir;
+			if (typeof import.meta.url === "string")
+				return dirname(fileURLToPath(import.meta.url));
+		} catch {
+			/* import.meta unavailable (non-ESM context) — fall back to undefined */
+		}
+		return undefined;
+	})();
+
+	pi.on("session_start", async (_event, ctx) => {
+		const missing = _missingDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
+		if (missing.length > 0) {
+			ctx.ui.notify(
+				`pi-obsidian: missing npm packages: ${missing.join(", ")}.\nRun: bun install (in ${_findMonorepoRoot(_EXT_DIR)})`,
+				"error",
+			);
+			return;
+		}
+		try {
+			const v = await getVault(ctx.cwd);
+			// Type is "warning" on purpose, NOT "info": pi's showStatus() merges
+			// consecutive info notifies into one (overwriting the earlier text),
+			// so the obsidian startup line would be clobbered by the zai-mcp
+			// notify that fires right after. showWarning() always appends a new
+			// line, guaranteeing both startup messages are visible together.
+			// (The line renders with a "Warning:" prefix + warning color —
+			// acceptable trade-off for guaranteed visibility.)
+			ctx.ui.notify(
+				`obsidian: vault “${v.name}”${v.registered ? "" : " (local)"}`,
+				"warning",
+			);
+		} catch {
+			ctx.ui.notify("obsidian: no vault found", "warning");
+		}
+	});
+}

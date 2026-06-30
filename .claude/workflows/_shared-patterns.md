@@ -370,7 +370,7 @@ tokens → `test -e` → collect candidates. **DETECT-ONLY — it never writes/r
   `history/`, `records`, `iterations`, `manifest`, `knowledge-base/`, `models/`) — their
   absence does not imply the knowledge is stale. A record with no source token is KEPT.
 - **Candidate rule:** active record with **≥1 source token AND every token absent**
-  (`test -e` under `<PROJECT_ROOT>/bun/gui-movie-director/<path>` OR `<PROJECT_ROOT>/<path>`).
+  (`test -e` under `<PROJECT_ROOT>/bun-apps/gui-movie-director/<path>` OR `<PROJECT_ROOT>/<path>`).
   Any PRESENT token → KEPT. `test -e`, not judgment.
 - **Scoped:** the workflow's own `KB_FILE` only. Non-fatal. Surface `prune.candidates`
   in the report + a `nextStep` note so the operator reviews.

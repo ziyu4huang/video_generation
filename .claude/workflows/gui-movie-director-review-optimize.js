@@ -395,7 +395,7 @@ if (!PROJECT_ROOT) {
 }
 
 const WORKFLOW_NAME = "gui-movie-director-review-optimize"
-const GUI_DIR = `${PROJECT_ROOT}/bun/gui-movie-director`
+const GUI_DIR = `${PROJECT_ROOT}/bun-apps/gui-movie-director`
 const HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${WORKFLOW_NAME}`
 const REFLECTION_FILE = `${HISTORY_DIR}/reflection.json`
 const INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
@@ -858,7 +858,7 @@ if (shouldSkipScan && priorHistory?.scan) {
     const scopeRes = await spawnAgent(
       `Determine the incremental scan scope. Run this Bash command VERBATIM (do not modify or split it):
 
-Bash("cd '${PROJECT_ROOT}' && PREV=$(for f in $(ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection.json | head -10); do h=$(bun -e 'try{process.stdout.write(String(((require(process.argv[1]).result||{}).git||{}).headBefore||""))}catch(e){}' "$f" 2>/dev/null); if [ -n "$h" ]; then printf '%s' "$h"; break; fi; done); if [ -n "$PREV" ]; then echo PREV=$PREV; git diff --name-only $PREV -- 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' 'bun/gui-movie-director/server.ts' 'bun/gui-movie-director/frontend/' 2>/dev/null | sed 's|^bun/gui-movie-director/||' | grep -E '\\.(ts|tsx)$' | sort -u; else echo PREV=none; fi")
+Bash("cd '${PROJECT_ROOT}' && PREV=$(for f in $(ls -t '${HISTORY_DIR}'/*.json 2>/dev/null | grep -v reflection.json | head -10); do h=$(bun -e 'try{process.stdout.write(String(((require(process.argv[1]).result||{}).git||{}).headBefore||""))}catch(e){}' "$f" 2>/dev/null); if [ -n "$h" ]; then printf '%s' "$h"; break; fi; done); if [ -n "$PREV" ]; then echo PREV=$PREV; git diff --name-only $PREV -- 'bun-apps/gui-movie-director/api/' 'bun-apps/gui-movie-director/lib/' 'bun-apps/gui-movie-director/server.ts' 'bun-apps/gui-movie-director/frontend/' 2>/dev/null | sed 's|^bun-apps/gui-movie-director/||' | grep -E '\\.(ts|tsx)$' | sort -u; else echo PREV=none; fi")
 
 The output is either "PREV=none" (no prior run had a headBefore) OR a "PREV=<sha>" line followed by zero-or-more changed file paths (relative to ${GUI_DIR}).
 Return { prevHead: <the sha string, or "">, changedFiles: <array of the changed file paths after the PREV= line; empty if PREV=none or no paths> }.`,
@@ -902,7 +902,7 @@ Return the file inventory as structured JSON.`,
   fileList.forEach((f) => { if (layers[f.layer] != null) layers[f.layer]++ })
 
   // Track all scanned files
-  fileList.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f.path}`))
+  fileList.forEach((f) => filesTouched.add(`bun-apps/gui-movie-director/${f.path}`))
 }
 
 log(`Scan: ${totalFiles} files, ${totalLines} lines — server=${layers.server} api=${layers.api} lib=${layers.lib} frontend=${layers.frontend}`)
@@ -1351,7 +1351,7 @@ if (doFix && config.fix !== "skip" && verifiedFindings.length > 0) {
   phase("Checkpoint")
 
   // ── Dirty-tree check (Bug 2). NO git stash. ────────────────────────────────
-  // The old checkpoint did `git stash push -- bun/gui-movie-director/`, stashing
+  // The old checkpoint did `git stash push -- bun-apps/gui-movie-director/`, stashing
   // whatever WIP was dirty, then only popped on a detected regression — stranding
   // the user's WIP forever on a clean/zero-fix run. We now REFUSE to touch a dirty
   // tree: if anything tracked-dirty is in scope, skip the entire fix phase + warn.
@@ -1359,14 +1359,14 @@ if (doFix && config.fix !== "skip" && verifiedFindings.length > 0) {
   checkpointResult = await spawnAgent(
     `Snapshot the working-tree state BEFORE deciding whether to apply fixes. Do NOT stash anything.
 1. Bash("cd '${PROJECT_ROOT}' && git rev-parse HEAD")  → capture headSha.
-2. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/' | grep -v '^??' || true")  → tracked-dirty files only (untracked '??' excluded). Capture the list.
+2. Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/' | grep -v '^??' || true")  → tracked-dirty files only (untracked '??' excluded). Capture the list.
 3. treeDirty = (the step-2 list is non-empty). dirtyFiles = the list (file paths as printed, minus the 2-char status prefix).
 Return { headSha, treeDirty, dirtyFiles }.`,
     { label: "checkpoint", phase: "Checkpoint", model: "haiku", schema: CHECKPOINT_SCHEMA },
   )
 
   if (checkpointResult?.treeDirty) {
-    log(`WARNING: working tree is DIRTY in scope (bun/gui-movie-director/) — SKIPPING auto-fix to avoid stranding your work.`)
+    log(`WARNING: working tree is DIRTY in scope (bun-apps/gui-movie-director/) — SKIPPING auto-fix to avoid stranding your work.`)
     log(`  Tracked-dirty file(s): ${(checkpointResult.dirtyFiles || []).join(", ")}`)
     log(`  To enable auto-fix: commit or stash these, then re-run with effort:medium. For review-only on a dirty tree, use effort:low.`)
     log(`  Findings dumped for manual triage: ${HISTORY_DIR}/${RUN_ID}.findings.json`)
@@ -1491,7 +1491,7 @@ Return structured results.`,
       fixResults.filesChanged = [...new Set(fixResults.filesChanged)]  // deduplicate
 
       // Track touched files
-      fixResults.filesChanged.forEach((f) => filesTouched.add(`bun/gui-movie-director/${f}`))
+      fixResults.filesChanged.forEach((f) => filesTouched.add(`bun-apps/gui-movie-director/${f}`))
 
       const applied = fixResults.fixes.filter((f) => f.status === "applied").length
       const skipped = fixResults.fixes.filter((f) => f.status === "skipped").length
@@ -1565,11 +1565,11 @@ For EACH file in that list:
    - If '<file>' has no expected hash in the map above (fix agent didn't capture one): treat as safe to revert (fall through to step 1a).
    - If currentHash !== the expected hash for <file>: someone changed the file AFTER our fix landed (concurrent edit). Do NOT revert. Add <file> to skippedConcurrent.
    - If currentHash === the expected hash (no one touched it since our fix): safe to revert.
-     a. Bash("cd '${PROJECT_ROOT}' && git ls-files --error-unmatch 'bun/gui-movie-director/<file>' >/dev/null 2>&1 && echo TRACKED || echo UNTRACKED")
-        - TRACKED (existed at HEAD): Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun/gui-movie-director/<file>'")
-        - UNTRACKED (created by the fix): Bash("cd '${PROJECT_ROOT}' && rm -f 'bun/gui-movie-director/<file>'")
+     a. Bash("cd '${PROJECT_ROOT}' && git ls-files --error-unmatch 'bun-apps/gui-movie-director/<file>' >/dev/null 2>&1 && echo TRACKED || echo UNTRACKED")
+        - TRACKED (existed at HEAD): Bash("cd '${PROJECT_ROOT}' && git checkout HEAD -- 'bun-apps/gui-movie-director/<file>'")
+        - UNTRACKED (created by the fix): Bash("cd '${PROJECT_ROOT}' && rm -f 'bun-apps/gui-movie-director/<file>'")
      b. Add <file> to reverted.
-After all files: Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/'")
+After all files: Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/'")
 Return { reverted: [...], skippedConcurrent: [...], method: "checkout"|"rm"|"mixed"|"none" }.`,
             { label: "restore", phase: "Restore", model: "haiku", schema: RESTORE_SCHEMA },
           )

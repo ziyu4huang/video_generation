@@ -1,0 +1,455 @@
+/**
+ * bun-pi-agent-cli — self-contained pi-agent CLI with pi-obsidian baked in.
+ *
+ * Two invocation styles:
+ *
+ *   1. Agent commands (one CLI = one agent workflow):
+ *        bun-pi-agent-cli vlm-describe <files...> [options]       PDF/image → Obsidian md
+ *        bun-pi-agent-cli zk-extract <files.../folders...> [options] markdown → Zettelkasten notes
+ *        bun-pi-agent-cli zk-card <sub> [options]                 CRUD for Zettelkasten notes (add/find/update/remove/check)
+ *        bun-pi-agent-cli zk-ask <question> [options]             graph-enhanced vault Q&A
+ *        bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]   PDF → md → vault (resumable)
+ *
+ *      Plus meta commands: list | version | help.
+ *
+ *   2. Pi-compatible passthrough (anything else) — mirrors `pi -p` / `pi --mode json`:
+ *        bun-pi-agent-cli --model sonnet -p "What files are here?"
+ *        bun-pi-agent-cli --mode json -p --no-session --tools read,bash "task"
+ *
+ *      This is what the pi-obsidian `obsidian_distill` / `obsidian_garden`
+ *      subagent tools re-invoke (process.argv[1] + pi flags). The `-e` /
+ *      `--approve` flags are accepted and ignored (obsidian is always baked in).
+ */
+import { parsePiArgs } from "./args.ts";
+import { zkExtractCommand } from "./commands/zk-extract.ts";
+import { zkCardCommand } from "./commands/zk-card.ts";
+import { zkAskCommand } from "./commands/zk-ask.ts";
+import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
+import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
+import { runPassthrough } from "./sessions/passthrough.ts";
+
+const VERSION = "0.1.0";
+
+/** A top-level agent/meta command. */
+interface Command {
+  name: string;
+  summary: string;
+  details: string;
+  run: (parsed: import("./args.ts").ParsedArgs) => Promise<void>;
+}
+
+/**
+ * Top-level leaf commands (one CLI = one agent workflow).
+ * Order = display order in `help`.
+ */
+const COMMANDS: Command[] = [
+  {
+    name: "vlm-describe",
+    summary: vlmDescribeCommand.summary,
+    details: vlmDescribeCommand.details,
+    run: vlmDescribeCommand.run,
+  },
+  {
+    name: "zk-extract",
+    summary: zkExtractCommand.summary,
+    details: zkExtractCommand.details,
+    run: zkExtractCommand.run,
+  },
+  {
+    name: "zk-card",
+    summary: zkCardCommand.summary,
+    details: zkCardCommand.details,
+    run: zkCardCommand.run,
+  },
+  {
+    name: "zk-ask",
+    summary: zkAskCommand.summary,
+    details: zkAskCommand.details,
+    run: zkAskCommand.run,
+  },
+];
+
+/**
+ * `pipeline <name> <args>` — multi-stage orchestrators built from leaf commands.
+ * Order = display order in `help`.
+ */
+const PIPELINES: Command[] = [
+  {
+    name: "pdf-to-vault",
+    summary: pdfToVaultCommand.summary,
+    details: pdfToVaultCommand.details,
+    run: pdfToVaultCommand.run,
+  },
+];
+
+/** Meta commands (not agent workflows). */
+const META = ["list", "list-tools", "version", "help"] as const;
+
+/** Reserved tokens that must never be treated as a passthrough prompt. */
+const RESERVED = new Set<string>([
+  ...COMMANDS.map((c) => c.name),
+  ...PIPELINES.map((c) => c.name),
+  "pipeline", // namespace
+  ...META,
+  // hidden alias kept for backward compatibility / muscle memory
+  "oneshot",
+]);
+
+function isHelp(tok: string | undefined): boolean {
+  return tok === "-h" || tok === "--help" || tok === "help";
+}
+
+function findCommand(name: string): Command | undefined {
+  return COMMANDS.find((c) => c.name === name);
+}
+
+function findPipeline(name: string): Command | undefined {
+  return PIPELINES.find((c) => c.name === name);
+}
+
+function printRootHelp(): void {
+  const agentLines = COMMANDS.map(
+    (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
+  ).join("\n");
+  const pipelineLines = PIPELINES.map(
+    (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
+  ).join("\n");
+
+  console.log(`bun-pi-agent-cli v${VERSION} — self-contained pi-agent (pi-obsidian baked in)
+
+Usage:
+  bun-pi-agent-cli <command> [options]
+  bun-pi-agent-cli pipeline <name> [options]   (multi-stage orchestrators)
+  bun-pi-agent-cli [pi-compatible flags] [prompt]   (passthrough agent mode)
+
+Commands (agents):
+${agentLines}
+
+Pipelines:
+${pipelineLines}
+
+Meta:
+  list                            List available models (with credentials)
+  --list-models, -lm             Alias for the list command (pi-compatible)
+  list-tools                      List registered tools (for --tools discovery)
+  --list-tools, -lt              Alias for the list-tools command
+  version                         Print version
+  help [command]                  Show help (root, or a command's details)
+
+Pi-compatible flags (passthrough + global):
+  --model <pattern>           "id", "provider/id", or "provider/id:thinking"
+  --provider <name>           provider name
+  --thinking <level>          off|minimal|low|medium|high|xhigh
+  --api-key <key>             API key
+  --mode <text|json>          output mode (default: text)
+  -p, --print                 non-interactive one-shot
+  -V, --verbose               tool verbosity: show args (repeat: -VV = debug)
+  --debug                     alias for -VV (full args + result preview)
+  --no-session                ephemeral (in-memory) session
+  --tools, -t <csv>           tool allowlist
+  --exclude-tools, -xt <csv>  tool denylist
+  --append-system-prompt <x>  text or file path (repeatable)
+  -e, --extension <path>      (ignored — obsidian baked in)
+  -a, --approve               (ignored — self-trusted)
+  -V, --verbose               increase tool-event verbosity (repeatable: -V -V)
+  --debug                     ultra-verbose (alias for -V -V: full args + result)
+
+Examples:
+  bun-pi-agent-cli vlm-describe paper.pdf
+  bun-pi-agent-cli vlm-describe scan.jpg --type image --dpi 200
+  bun-pi-agent-cli zk-extract notes.md --folder Zettelkasten
+  bun-pi-agent-cli zk-extract ./inbox/ --max-notes 20
+  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf
+  bun-pi-agent-cli pipeline pdf-to-vault paper.pdf --pages 1-3 --delete-png
+  bun-pi-agent-cli zk-card add "concept text"
+  bun-pi-agent-cli zk-card find "bun workspace"
+  bun-pi-agent-cli zk-card update Zettelkasten/Note.md "new info"
+  bun-pi-agent-cli zk-card remove Zettelkasten/Note.md
+  bun-pi-agent-cli zk-card check
+  bun-pi-agent-cli zk-ask "How does Bun handle workspaces?"
+  bun-pi-agent-cli zk-ask "Zettelkasten atomic notes" --depth 3 --summarize
+  bun-pi-agent-cli zk-ask "PDF pipeline" --retrieve-only
+  bun-pi-agent-cli -p "List files in the current directory"
+  bun-pi-agent-cli --mode json -p --no-session --tools read,bash "summarize"
+  bun-pi-agent-cli list
+
+Environment:
+  PI_PROVIDER / PI_MODEL / PI_THINKING   LLM overrides
+  OB_VAULT_PATH / OB_VAULT_DIR           vault resolution (obsidian)
+  OB_SUBAGENT_TIMEOUT_MS                 zk-extract subagent timeout (default 300000)
+  PI_VERBOSE                             0|1|2 verbosity (same as -V/--verbose/--debug)`);
+}
+
+/** Format a token count as a compact human string: 1000000 → "1M", 16384 → "16.4K", 128000 → "128K". */
+function humanizeTokens(n: number | undefined): string {
+  if (!n || !Number.isFinite(n) || n <= 0) return "-";
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return (Number.isInteger(m) ? m.toFixed(0) : m.toFixed(1).replace(/\.0$/, "")) + "M";
+  }
+  if (n >= 1000) {
+    const k = n / 1000;
+    return (Number.isInteger(k) ? k.toFixed(0) : k.toFixed(1)) + "K";
+  }
+  return String(Math.round(n));
+}
+
+/**
+ * Print the model table (pi `--list-models` style):
+ *   provider  model  context  max-out  thinking  images
+ */
+async function listModels(): Promise<void> {
+  const { getSharedServices, allModels } = await import("./sessions/shared.ts");
+  const { services } = await getSharedServices();
+
+  // Show ALL registered models (global → repo-local → baked-in), so the user
+  // sees everything available to the CLI regardless of credential state.
+  const rows = allModels(services.modelRegistry).map((m: any) => ({
+    provider: String(m.provider ?? ""),
+    model: String(m.id ?? ""),
+    context: humanizeTokens(m.contextWindow),
+    maxOut: humanizeTokens(m.maxTokens),
+    thinking: m.reasoning ? "yes" : "no",
+    images: Array.isArray(m.input) && m.input.includes("image") ? "yes" : "no",
+  }));
+
+  if (rows.length === 0) {
+    console.log("No models registered.");
+    console.log("Add providers via ~/.pi/agent/models.json or .pi/agent/models.json.");
+    return;
+  }
+
+  printTable(rows, [
+    { key: "provider", label: "provider" },
+    { key: "model", label: "model" },
+    { key: "context", label: "context" },
+    { key: "maxOut", label: "max-out" },
+    { key: "thinking", label: "thinking" },
+    { key: "images", label: "images" },
+  ]);
+  console.log(`\nTotal: ${rows.length}`);
+}
+
+/**
+ * Print `rows` as an aligned column table with a header derived from `cols`.
+ * Shared by `listModels` and `listTools` so the width/padEnd logic isn't duplicated.
+ */
+function printTable(rows: Record<string, string>[], cols: { key: string; label: string }[]): void {
+  if (rows.length === 0) return;
+  const widths = cols.map(
+    (c) => Math.max(c.label.length, ...rows.map((r) => String(r[c.key] ?? "").length)),
+  );
+  const fmt = (r: Record<string, string>) =>
+    cols.map((c, i) => String(r[c.key] ?? "").padEnd(widths[i]!)).join("  ").trimEnd();
+  const header = Object.fromEntries(cols.map((c) => [c.key, c.label])) as Record<string, string>;
+  console.log(fmt(header));
+  for (const r of rows) console.log(fmt(r));
+}
+
+/**
+ * Print all registered tools (for `--list-tools` / `list-tools`) as a flat
+ * table: tool / source / description. Mirrors `listModels`'s altitude so users
+ * can discover valid tool names before passing `--tools`.
+ */
+async function listTools(): Promise<void> {
+  const { listRegisteredTools } = await import("./sessions/shared.ts");
+  const tools = await listRegisteredTools();
+  if (!tools.length) {
+    console.log("No tools registered.");
+    return;
+  }
+
+  // Defensive field access — ToolInfo shape is generated/untyped here.
+  const clip = (s: string, max: number): string =>
+    s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+  const rows = tools
+    .map((t: any) => ({
+      name: String(t?.name ?? ""),
+      source: String(t?.source ?? t?.extensionName ?? t?.extension ?? t?.packageName ?? "(builtin)"),
+      description: clip(String(t?.description ?? "").replace(/\s+/g, " ").trim(), 60),
+    }))
+    .filter((r) => r.name)
+    .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));
+
+  printTable(rows, [
+    { key: "name", label: "tool" },
+    { key: "source", label: "source" },
+    { key: "description", label: "description" },
+  ]);
+  console.log(`\nTotal: ${rows.length}`);
+}
+
+/** Strip a leading `oneshot` prefix (backward-compat alias) if present. */
+function stripOneshotAlias(argv: string[]): string[] {
+  if (argv[0] === "oneshot") return argv.slice(1);
+  return argv;
+}
+
+/** Drop the tokens at the given indices (any order) from argv. */
+function withoutIndices(argv: string[], indices: number[]): string[] {
+  const drop = new Set(indices);
+  return argv.filter((_, i) => !drop.has(i));
+}
+
+/**
+ * Resolve the sub-command token in argv: the FIRST positional token (value
+ * flags and their values are skipped) when it is a reserved command name.
+ *
+ * Returns `{ name, index }` so callers can strip the command token while
+ * preserving any global flags that preceded it (e.g. `--model X vlm-describe …`
+ * → command `vlm-describe` at index 2). Returns undefined for passthrough-only
+ * argv (no positional, or first positional is not a reserved command).
+ *
+ * Only the FIRST positional is considered, so a reserved word appearing later
+ * (e.g. `-p "vlm-describe"` as a prompt) does not trigger command dispatch.
+ */
+export function findCommandToken(argv: string[]): { name: string; index: number } | undefined {
+  const { positionalIndices, positionals } = parsePiArgs(argv);
+  const index = positionalIndices[0];
+  if (index === undefined) return undefined;
+  const name = positionals[0]!;
+  return RESERVED.has(name) ? { name, index } : undefined;
+}
+
+async function runAgentCommand(cmd: Command, rest: string[]): Promise<void> {
+  const parsed = parsePiArgs(rest);
+  if (isHelp(rest[0]) || parsed.help) {
+    console.log(cmd.details);
+    return;
+  }
+  await cmd.run(parsed);
+}
+
+async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+
+  // --version / -v anywhere at root short-circuits.
+  if (argv.length === 1 && (argv[0] === "-v" || argv[0] === "--version")) {
+    console.log(`bun-pi-agent-cli ${VERSION}`);
+    return;
+  }
+
+  const stripped = stripOneshotAlias(argv);
+
+  // --list-models anywhere at root short-circuits (pi-compatible flag).
+  if (stripped.some((a) => a === "--list-models" || a === "-lm")) {
+    await listModels();
+    return;
+  }
+
+  // --list-tools anywhere at root short-circuits (discover valid tool names).
+  if (stripped.some((a) => a === "--list-tools" || a === "-lt")) {
+    await listTools();
+    return;
+  }
+
+  // No args / bare help → root help.
+  if (stripped.length === 0 || (stripped.length === 1 && isHelp(stripped[0]))) {
+    printRootHelp();
+    return;
+  }
+
+  // Detect the sub-command as the first POSITIONAL token, so global flags may
+  // precede it — e.g. `--model X vlm-describe file.pdf`. Without this, a leading
+  // `--model` made stripped[0] a flag, so dispatch fell through to passthrough
+  // and the command name was fed to the agent as a prompt.
+  const found = findCommandToken(stripped);
+
+  // Agent commands: cli.ts [global flags] <command> ...
+  if (found) {
+    const first = found.name;
+    const cmdIdx = found.index;
+    // argv with the command token removed; leading global flags now flow into
+    // the command's own parsePiArgs call (so --model/--provider/etc. apply).
+    const rest = withoutIndices(stripped, [cmdIdx]);
+    // Deeper positionals (help target / pipeline name) — re-probe the full argv.
+    const probe = parsePiArgs(stripped);
+
+    if (first === "version") {
+      console.log(`bun-pi-agent-cli ${VERSION}`);
+      return;
+    }
+
+    if (first === "help") {
+      const target = probe.positionals[1];
+      const cmd = target ? (findCommand(target) ?? findPipeline(target)) : undefined;
+      if (target && target !== "pipeline" && cmd) {
+        console.log(cmd.details);
+      } else if (target === "pipeline") {
+        // `help pipeline <name>`
+        const pname = probe.positionals[2];
+        const pcmd = pname ? findPipeline(pname) : undefined;
+        if (pcmd) console.log(pcmd.details);
+        else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
+      } else {
+        printRootHelp();
+      }
+      return;
+    }
+
+    if (first === "list") {
+      await listModels();
+      return;
+    }
+
+    if (first === "list-tools") {
+      await listTools();
+      return;
+    }
+
+    // `pipeline <name> ...` namespace
+    if (first === "pipeline") {
+      const pname = probe.positionals[1];
+      if (!pname) {
+        console.error("Usage: pipeline <name> [options]\n");
+        console.error(
+          "Available pipelines:\n" +
+            PIPELINES.map((c) => `  ${c.name.padEnd(14)} ${c.summary}`).join("\n"),
+        );
+        process.exit(1);
+      }
+      const pcmd = findPipeline(pname);
+      if (!pcmd) {
+        console.error(`Unknown pipeline: ${pname}\n`);
+        console.error(
+          "Available: " + PIPELINES.map((c) => c.name).join(", "),
+        );
+        process.exit(1);
+      }
+      // drop both the `pipeline` namespace token and the pipeline-name token
+      const pipeIdx = probe.positionalIndices[1]!;
+      await runAgentCommand(pcmd, withoutIndices(stripped, [cmdIdx, pipeIdx]));
+      return;
+    }
+
+    // otherwise it's a registered agent command
+    const cmd = findCommand(first);
+    if (cmd) {
+      await runAgentCommand(cmd, rest);
+      return;
+    }
+  }
+
+  // Otherwise: pi-compatible passthrough.
+  const parsed = parsePiArgs(argv);
+  if (parsed.version) {
+    console.log(`bun-pi-agent-cli ${VERSION}`);
+    return;
+  }
+  if (parsed.help) {
+    printRootHelp();
+    return;
+  }
+  await runPassthrough(parsed);
+}
+
+if (import.meta.main) {
+  try {
+    await main();
+  } catch (e: any) {
+    // Graceful failure for any thrown command error (bad input, invalid flags,
+    // etc.): print a clean one-liner instead of dumping a stack trace.
+    console.error(`error: ${e?.message ?? String(e)}`);
+    process.exit(1);
+  }
+}
