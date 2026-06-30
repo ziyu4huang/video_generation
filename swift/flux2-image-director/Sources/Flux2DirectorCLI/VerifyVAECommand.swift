@@ -49,6 +49,7 @@ extension Flux2CLI {
 
             var passed = 0
             var total = 0
+            var checks: [VerifyCheck] = []
 
             // --- ENCODE: image (1,3,256,256) → latent (1,32,32,32) ---
             let img = ref["input_image"]!.asType(.bfloat16)
@@ -61,6 +62,8 @@ extension Flux2CLI {
             print("")
             print("[encode]   swift=\(shapeStr(swiftLatent))  ref=\(shapeStr(refLatent))")
             print("           cos=\(String(format: "%.5f", encCos))  \(encOK ? "✅ PASS" : "❌ FAIL")")
+            checks.append(VerifyCheck(name: "encode", pass: encOK, cosine: Double(encCos), threshold: Double(threshold),
+                                      detail: "swift=\(shapeStr(swiftLatent)) ref=\(shapeStr(refLatent))"))
 
             // --- DECODE: latent (1,32,32,32) → pixels (1,3,256,256) ---
             let lat = ref["encoded_latent"]!.asType(.bfloat16)
@@ -73,6 +76,8 @@ extension Flux2CLI {
             print("")
             print("[decode]   swift=\(shapeStr(swiftPixels))  ref=\(shapeStr(refPixels))")
             print("           cos=\(String(format: "%.5f", decCos))  \(decOK ? "✅ PASS" : "❌ FAIL")")
+            checks.append(VerifyCheck(name: "decode", pass: decOK, cosine: Double(decCos), threshold: Double(threshold),
+                                      detail: "swift=\(shapeStr(swiftPixels)) ref=\(shapeStr(refPixels))"))
 
             // --- DECODE PACKED: (1,128,16,16) → pixels (1,3,256,256) ---
             // T2I generation path: bn denorm → unpatchify → decode.
@@ -86,6 +91,8 @@ extension Flux2CLI {
             print("")
             print("[packed]   swift=\(shapeStr(swiftPacked))  ref=\(shapeStr(refPacked))")
             print("           cos=\(String(format: "%.5f", pkCos))  \(pkOK ? "✅ PASS" : "❌ FAIL")")
+            checks.append(VerifyCheck(name: "packed", pass: pkOK, cosine: Double(pkCos), threshold: Double(threshold),
+                                      detail: "swift=\(shapeStr(swiftPacked)) ref=\(shapeStr(refPacked))"))
 
             print("")
             if passed == total {
@@ -93,6 +100,10 @@ extension Flux2CLI {
             } else {
                 print("❌ \(total - passed)/\(total) VAE CHECKS FAILED")
             }
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-vae",
+                overall_pass: passed == total, threshold: Double(threshold),
+                checks: checks, timestamp: VerifyReport.now()))
         }
 
         // Load all *.safetensors shards in the VAE directory into one dict.

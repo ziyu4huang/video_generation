@@ -67,6 +67,18 @@ extension Flux2CLI {
             } else {
                 print("❌ reference conditioning diverges")
             }
+            let overall = cos >= threshold && idsMatch
+            let checks = [
+                VerifyCheck(name: "image_latents", pass: cos >= threshold, cosine: Double(cos),
+                            threshold: Double(threshold),
+                            detail: "VAE-enc→patchify→BN→pack, swift=\(lat.shape) ref=\(refLat.shape)"),
+                VerifyCheck(name: "image_latent_ids", pass: idsMatch, cosine: nil, threshold: nil,
+                            detail: idsMatch ? "exact match" : "MISMATCH (RoPE ids)"),
+            ]
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-edit",
+                overall_pass: overall, threshold: Double(threshold),
+                checks: checks, timestamp: VerifyReport.now()))
         }
 
         private func loadAllShards(url: URL) throws -> [String: MLXArray] {

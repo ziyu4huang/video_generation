@@ -24,3 +24,6 @@ comfyui_data/user/default/test.json
 comfyui_data/user/default/workflows/.index.json
 .reasonix/
 dist/
+
+# Verify/checkpoint artifacts (generated summaries, not source)
+/output/

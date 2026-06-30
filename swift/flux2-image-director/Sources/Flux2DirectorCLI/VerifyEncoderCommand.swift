@@ -76,6 +76,16 @@ extension Flux2CLI {
             } else {
                 print("❌ text encoder diverges from Python (cos=\(String(format: "%.5f", cosActive)) < \(threshold))")
             }
+            let checks = [
+                VerifyCheck(name: "cos_full", pass: cosFull >= threshold, cosine: Double(cosFull),
+                            threshold: Double(threshold), detail: "full seq incl. padding"),
+                VerifyCheck(name: "cos_active", pass: ok, cosine: Double(cosActive),
+                            threshold: Double(threshold), detail: "active (non-padded) tokens, seqLen=\(seqLen) — gate metric"),
+            ]
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-encoder",
+                overall_pass: ok, threshold: Double(threshold),
+                checks: checks, timestamp: VerifyReport.now()))
         }
 
         private func cosine(_ a: MLXArray, _ b: MLXArray) -> Float {
