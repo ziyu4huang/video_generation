@@ -8,19 +8,6 @@
         "@types/bun": "latest",
       },
     },
-    "bun-apps/bun-pi": {
-      "name": "bun-pi",
-      "version": "0.1.0",
-      "bin": {
-        "bun-pi": "src/cli.ts",
-      },
-      "dependencies": {
-        "@earendil-works/pi-coding-agent": "latest",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-      },
-    },
     "bun-apps/gui-movie-director": {
       "name": "@repo/gui-movie-director",
       "version": "0.1.0",
@@ -44,6 +31,19 @@
         "happy-dom": "^20.10.3",
         "typescript": "^5.8.0",
         "typescript-eslint": "^8.61.1",
+      },
+    },
+    "bun-apps/pi-agent": {
+      "name": "pi-agent",
+      "version": "0.1.0",
+      "bin": {
+        "pi-agent": "src/cli.ts",
+      },
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "latest",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
       },
     },
     "bun-apps/pi-agent-cli": {
@@ -571,8 +571,6 @@
 
     "buffer-image-size": ["buffer-image-size@0.6.4", "", { "dependencies": { "@types/node": "*" } }, "sha512-nEh+kZOPY1w+gcCMobZ6ETUp9WfibndnosbpwB1iJk/8Gt5ZF2bhS6+B6bPYz424KtwsR6Rflc3tCz1/ghX2dQ=="],
 
-    "bun-pi": ["bun-pi@workspace:bun-apps/bun-pi"],
-
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
@@ -946,6 +944,8 @@
     "path-scurry": ["path-scurry@2.0.2", "", { "dependencies": { "lru-cache": "^11.0.0", "minipass": "^7.1.2" } }, "sha512-3O/iVVsJAPsOnpwWIeD+d6z/7PmqApyQePUtCndjatj/9I5LylHvt5qluFaBT3I5h3r1ejfR056c+FCv+NnNXg=="],
 
     "path-to-regexp": ["path-to-regexp@8.4.2", "", {}, "sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA=="],
+
+    "pi-agent": ["pi-agent@workspace:bun-apps/pi-agent"],
 
     "pi-knowledge-card": ["pi-knowledge-card@workspace:bun-apps/pi-knowledge-card"],
 

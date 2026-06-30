@@ -4,28 +4,35 @@ A **thin wrapper** around the **real pi TUI** with **monkey-patch hooks**.
 
 It does *not* reimplement pi. It calls the official `main()` from
 `@earendil-works/pi-coding-agent` untouched, then layers reversible
-monkey-patches to change default behavior.
+monkey-patches to extend default behavior.
 
-## Why
+## Purpose
 
-You want the full pi experience (TUI, all flags, sessions, tools) but with a
-few behavioral tweaks — e.g. force pi to load models **only** from
-`~/.pi/agent/models.json`, ignoring the built-in catalog and project-local
-`.pi/` extension provider registrations.
+You want the full pi experience (TUI, all flags, sessions, tools) but with
+additional providers added — local servers (lm-studio, ollama, llamacpp) or
+remote APIs (openrouter) — hardcoded in source without any external config file.
 
-That is one prototype patch, not a fork.
+All providers are defined in **`src/pre-load-providers.ts`**. No `~/.pi/agent/models.json` is read.
 
 ## How it works
 
 ```
 pi-agent/src/cli.ts
-  1. applyPatches()              ← env-gated monkey-patches on ModelRegistry
+  1. applyPatches()              ← monkey-patches ModelRegistry.prototype
   2. await main(process.argv)    ← the REAL pi TUI / print / rpc
 ```
 
+### Why patch `loadModels()`, not `registerProvider()`
+
+`ModelRegistry` constructor calls the private `loadModels()` directly,
+not `refresh()`. The patch wraps `loadModels()` so that after the built-in
+catalog loads, it immediately calls the real `registerProvider("lm-studio", ...)`
+with config hardcoded here. `registerProvider` also stores the config in
+`registeredProviders`, so any later `refresh()` replays it automatically.
+
 Because Bun's module cache is shared process-wide, `cli.ts` and `main()`
 import the **same** `ModelRegistry` class object. Patching its prototype
-before `main()` runs affects the registry `main()` constructs internally.
+before `main()` runs affects every registry instance `main()` constructs.
 No source fork, no passthrough rewrite.
 
 ## Setup
@@ -43,7 +50,7 @@ bun bun-apps/pi-agent/src/cli.ts
 # print mode
 bun bun-apps/pi-agent/src/cli.ts -p "hello"
 
-# list models — with the patch ON, only ~/.pi/agent/models.json entries appear
+# list models — lm-studio entries appear alongside built-ins
 bun bun-apps/pi-agent/src/cli.ts --list-models
 
 # load a local extension without pi install
@@ -61,19 +68,34 @@ alias pi-stock='bunx @earendil-works/pi-coding-agent'
 
 | Env | Default | Effect |
 |-----|---------|--------|
-| `BUN_PI_ONLY_MODELS_JSON` | `1` (on) | Models come **only** from `~/.pi/agent/models.json` — built-in catalog disabled, extension `registerProvider` ignored |
+| `BUN_PI_PRE_LOAD_PROVIDERS` | `1` (on) | Inject all providers defined in `src/pre-load-providers.ts` |
 | `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
 
 Toggle:
 
 ```bash
-BUN_PI_ONLY_MODELS_JSON=0 bun bun-apps/pi-agent/src/cli.ts --list-models   # built-ins come back
-BUN_PI_DEBUG_PATCHES=1    bun bun-apps/pi-agent/src/cli.ts                  # show patch status
+BUN_PI_PRE_LOAD_PROVIDERS=0 bun bun-apps/pi-agent/src/cli.ts --list-models   # custom providers hidden
+BUN_PI_DEBUG_PATCHES=1      bun bun-apps/pi-agent/src/cli.ts                  # show patch status
 ```
 
-> ⚠️ With `BUN_PI_ONLY_MODELS_JSON=1`, every entry in `models.json` must be
-> self-contained (`api`, `baseUrl`, …) since built-in defaults are gone.
-> Local providers like `lm-studio` already are.
+## Add or change providers
+
+Edit **`src/pre-load-providers.ts`** → `PROVIDERS` object. No other file needs to change.
+
+```typescript
+// Uncomment or add a new entry:
+"openrouter": {
+  baseUrl: "https://openrouter.ai/api/v1",
+  api: "openai-completions",
+  apiKey: { env: "OPENROUTER_API_KEY" },   // read from env, not hardcoded
+  models: [
+    { id: "mistralai/mistral-nemo:free", name: "Mistral Nemo (OR free)",
+      reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 4_096 },
+  ],
+},
+```
+
+Changes take effect on the next `bun` invocation — no build step.
 
 ## Add your own patch
 
@@ -89,26 +111,11 @@ pi-agent/
 ├── package.json            # bin: pi-agent → src/cli.ts
 ├── README.md
 └── src/
-    ├── cli.ts              # applyPatches() → main(argv)
+    ├── cli.ts                    # applyPatches() → main(argv)
+    ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
     └── patches/
-        ├── index.ts            # registry (env-gated) + debug
-        └── only-models-json.ts # force ~/.pi/agent/models.json only
+        └── index.ts              # registry (env-gated) + debug
 ```
-
-## Known limitations & TODO
-
-- **`only-models-json` patch is broader than its header claims.** The patch stubs
-  `ModelRegistry.prototype.loadBuiltInModels` to `() => []` and
-  `registerProvider` to a no-op. That achieves "load only `models.json`", but it
-  also:
-  - drops `overrides` / `modelOverrides` parsed from `models.json` (they're passed
-    into `loadBuiltInModels`, which the stub ignores), and
-  - suppresses **all** `registerProvider` callers — including OAuth provider
-    registration driven by `~/.pi/agent/config`, not just project-local extensions.
-  Models that rely on OAuth (`/login`, request-config) can therefore silently fail
-  with a "model not configured" style error. TODO: narrow the stubs (preserve the
-  overrides merge; gate `registerProvider` on caller origin rather than blanking
-  the prototype).
 
 ## Related
 

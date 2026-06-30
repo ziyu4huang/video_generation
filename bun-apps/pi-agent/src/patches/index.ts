@@ -29,10 +29,10 @@ interface PatchDef {
 
 const PATCHES: PatchDef[] = [
   {
-    name: "only-models-json",
-    env: "BUN_PI_ONLY_MODELS_JSON",
+    name: "pre-load-providers",
+    env: "BUN_PI_PRE_LOAD_PROVIDERS",
     defaultValue: true,
-    module: "./only-models-json.ts",
+    module: "../pre-load-providers.ts",
   },
 ];
 

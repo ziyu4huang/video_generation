@@ -5,7 +5,7 @@
 **Always use dev mode** for development — it provides hot module replacement for both backend and frontend:
 
 ```bash
-cd bun/gui-movie-director && bun run dev
+cd bun-apps/gui-movie-director && bun run dev
 ```
 
 This runs `bun --hot server.ts`. The `--hot` flag means:
