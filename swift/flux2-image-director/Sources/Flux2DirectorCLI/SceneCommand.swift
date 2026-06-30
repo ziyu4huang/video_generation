@@ -67,6 +67,14 @@ extension Flux2CLI {
         var regional: Bool = false
         @Option(help: "Seam feather (px) for regional strip inpaint. Default 24.")
         var regionalFeather: Int = 24
+        /// Regional SDEdit strength. The strip is refined via PARTIAL denoise
+        /// (start from the existing scene, lightly re-denoise) so identity is
+        /// nudged without fully re-rolling hands — the failure mode that made
+        /// `--regional` net-negative at strength 1.0. 0.3 = barely touch,
+        /// 0.45 = light identity refine (default), 0.7 = loose redraw (hands
+        /// start to degrade). < 1.0 enables the SDEdit path.
+        @Option(help: "Regional refine strength (SDEdit). 0.45 = light identity nudge preserving hands; 1.0 = full regen (re-rolls hands). Default 0.45.")
+        var regionalStrength: Float = 0.45
 
         /// Background-as-canvas (Workstream 1). When set, this image becomes the
         /// SDEdit denoise canvas — its layout/POV is inherited as the actual
@@ -216,7 +224,7 @@ extension Flux2CLI {
             var pixels = basePixels
             var elapsed = baseElapsed
             if regional {
-                print("  regional : refining \(distinct.count) ref(s) into vertical strips (feather=\(regionalFeather))")
+                print("  regional : refining \(distinct.count) ref(s) into vertical strips (feather=\(regionalFeather), strength=\(regionalStrength))")
                 for (i, ref) in distinct.enumerated() {
                     let mask = verticalStripMask(
                         width: width, height: height, index: i,
@@ -225,7 +233,8 @@ extension Flux2CLI {
                         prompt: prompt, sourcePixels: pixels, sourceMask: mask,
                         referencePath: ref, seed: seed &+ UInt64(i + 1),
                         steps: steps, guidance: cfgScale,
-                        width: width, height: height, feather: regionalFeather)
+                        width: width, height: height, feather: regionalFeather,
+                        denoiseStrength: regionalStrength)
                     pixels = refined
                     elapsed += t
                     print("            [\(i + 1)/\(distinct.count)] \(ref.lastPathComponent) → strip \(i + 1)/\(distinct.count)")

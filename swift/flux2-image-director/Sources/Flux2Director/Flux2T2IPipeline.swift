@@ -318,7 +318,7 @@ public struct Flux2EditPipeline {
     /// `sourcePixels` (1,3,H,W) [0,1], `sourceMask` (1,1,H,W) [0,1] (1=regenerate).
     public func inpaint(prompt: String, sourcePixels: MLXArray, sourceMask: MLXArray,
                         referencePath: URL?, seed: UInt64, steps: Int, guidance: Float,
-                        width: Int, height: Int, feather: Int)
+                        width: Int, height: Int, feather: Int, denoiseStrength: Float = 1.0)
         -> (MLXArray, Double)
     {
         let start = DispatchTime.now()
@@ -354,10 +354,25 @@ public struct Flux2EditPipeline {
         }
 
         // 5. Scheduler + denoise with re-injection (object denoised, rest locked).
+        // denoiseStrength < 1.0 = SDEdit partial denoise on the masked region:
+        // start from a lightly-noised copy of the existing scene (initLatent)
+        // instead of pure noise, and run only the last `stepsToRun` steps. This
+        // REFINES identity into the strip without fully re-rolling hands (the
+        // failure mode that made `--regional` net-negative). Mirrors the
+        // background-as-canvas SDEdit path above (generate, line ~184).
         let scheduler = Flux2Scheduler(
             imageSeqLen: (height / 16) * (width / 16), numInferenceSteps: steps)
-        var current = latents
-        for t in 0..<steps {
+        var startStep = 0
+        var current: MLXArray
+        if denoiseStrength < 1.0 {
+            let stepsToRun = max(1, Int((Float(steps) * denoiseStrength).rounded(.toNearestOrEven)))
+            startStep = max(0, steps - stepsToRun)
+            let sigmaMix = scheduler.sigmas[startStep]
+            current = ((1.0 - sigmaMix) * initLatent + sigmaMix * latents).asType(.bfloat16)
+        } else {
+            current = latents
+        }
+        for t in startStep..<steps {
             let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
             let hiddenStates: MLXArray, imgIds: MLXArray
             if let imgLat = imageLatents, let imgIds2 = imageLatentIds {
