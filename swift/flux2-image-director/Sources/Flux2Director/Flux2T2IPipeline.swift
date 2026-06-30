@@ -136,7 +136,8 @@ public struct Flux2EditPipeline {
     public func generate(prompt: String, imagePaths: [URL], seed: UInt64,
                          height: Int, width: Int, steps: Int, guidance: Float,
                          initImagePath: URL? = nil, denoiseStrength: Float = 1.0,
-                         refStrengths: [Float]? = nil, refGateSteps: Float = 1.0)
+                         refStrengths: [Float]? = nil, refGateSteps: Float = 1.0,
+                         regionLabels: MLXArray? = nil)
         -> (MLXArray, Double)
     {
         let start = DispatchTime.now()
@@ -194,6 +195,22 @@ public struct Flux2EditPipeline {
             current = latents
         }
 
+        // 4c. Region-bound attention mask (optional). When `regionLabels`
+        // (per-noise-token region index, shape (noiseLen,), values 0..<N) is
+        // provided, build an additive attention mask over the joint
+        // [text | noise | refs] sequence so a noise token attends a ref token
+        // ONLY when their region index matches — binding each identity to its
+        // spatial region during a single denoise pass. Everything else
+        // (text↔all, noise→noise, ref→all) stays fully attended. Built once;
+        // applied only on steps that inject refs (respecting refGateSteps).
+        let regionMask: MLXArray? = buildRegionMask(
+            regionLabels: regionLabels, textLen: promptEmbeds.dim(1),
+            noiseLen: noiseLen, numRefs: imagePaths.count)
+        if regionMask != nil {
+            let s = promptEmbeds.dim(1) + noiseLen + noiseLen * imagePaths.count
+            print("   region-attn: block mask over [text|\(noiseLen) noise|\(noiseLen * imagePaths.count) ref] tokens (seq=\(s)) — OOD experimental")
+        }
+
         // 5. Denoise: concat [working, ref] tokens, slice output to working tokens.
         for t in startStep..<steps {
             let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
@@ -209,9 +226,12 @@ public struct Flux2EditPipeline {
                 hiddenStates = current
                 imgIds = latentIds
             }
+            // Apply the region mask only when refs are actually in the sequence.
+            let maskThisStep = injectRefs ? regionMask : nil
             var noise = transformer(
                 hiddenStates: hiddenStates, encoderHiddenStates: promptEmbeds,
-                timestep: ts, imgIds: imgIds, txtIds: textIds)
+                timestep: ts, imgIds: imgIds, txtIds: textIds,
+                regionMask: maskThisStep)
             // Keep only the noise for the actual latents (discard ref-token output).
             noise = noise[0..., 0..<noiseLen, 0...]
             current = scheduler.step(noise: noise, timestep: t, latents: current)
@@ -401,5 +421,42 @@ public struct Flux2EditPipeline {
         MLX.eval(final)
         let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9
         return (final, elapsed)
+    }
+
+    /// Build the region-bound attention mask over the joint
+    /// `[text | noise | refs]` sequence. Returns nil when region binding is
+    /// off (regionLabels nil) or there are no refs. The mask is additive:
+    /// blocked entries = -1e9 (softmax → 0), allowed = 0. Only the
+    /// noise-rows × ref-cols block is constrained (a noise token attends a
+    /// ref token iff their region index matches); text and ref rows, and all
+    /// other blocks, stay fully attended. Each ref contributes `noiseLen`
+    /// tokens (refs are patchified to the same (H/16)(W/16) grid as noise).
+    private func buildRegionMask(regionLabels: MLXArray?, textLen: Int,
+                                 noiseLen: Int, numRefs: Int) -> MLXArray? {
+        guard let labels = regionLabels, numRefs > 0 else { return nil }
+        // Per-ref-token region index: ref i owns tokens [i*noiseLen ..<(i+1)*noiseLen).
+        var refIdx = [Int32]()
+        refIdx.reserveCapacity(numRefs * noiseLen)
+        for i in 0..<numRefs { refIdx.append(contentsOf: Array(repeating: Int32(i), count: noiseLen)) }
+        let refRegion = MLXArray(refIdx).asType(.int32)                 // (N_r,)
+
+        // allowed[a, b] = (noise region a == ref region b) → (N_n, N_r) bool.
+        // Use the free `equal` op: MLX's `==` on two MLXArrays is ambiguous
+        // (elementwise→MLXArray vs identity→Bool overloads).
+        let nr = labels.asType(.int32).reshaped([noiseLen, 1])           // (N_n, 1)
+        let rr = refRegion.reshaped([1, noiseLen * numRefs])             // (1, N_r)
+        let allowed = MLX.equal(nr, rr)                                  // (N_n, N_r) bool
+
+        // Additive block: 0 where allowed, -1e9 where blocked.
+        let block = MLX.where(allowed, MLXArray(0.0 as Float),
+                              MLXArray(-1e9 as Float)).asType(.bfloat16)  // (N_n, N_r)
+
+        let refLen = noiseLen * numRefs
+        let S = textLen + noiseLen + refLen
+        let full = MLX.zeros([S, S]).asType(.bfloat16)                   // all allowed
+        // Place the noise×ref constraint block at rows [textLen..<textLen+noiseLen],
+        // cols [textLen+noiseLen..<S]. (text prefix, then noise, then refs.)
+        full[textLen..<(textLen + noiseLen), (textLen + noiseLen)..<S] = block
+        return full
     }
 }
