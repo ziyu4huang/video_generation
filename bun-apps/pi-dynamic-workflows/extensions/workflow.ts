@@ -30,7 +30,12 @@ export default function extension(pi: ExtensionAPI) {
     defaultAgentRetries: settings.defaultAgentRetries,
   });
 
-  const workflowTool = createWorkflowTool({ cwd, manager, storage });
+  const workflowTool = createWorkflowTool({
+    cwd,
+    manager,
+    storage,
+    verboseWorkflowGuidelines: settings.verboseWorkflowGuidelines,
+  });
   pi.registerTool(workflowTool);
   // Standing /effort opt-in (off|high|ultra): auto-arms a workflow for substantive
   // messages, like CC's ultracode. Shared with the editor's input hook below and

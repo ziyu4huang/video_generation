@@ -63,6 +63,18 @@
         "javascript-obfuscator": "latest",
       },
     },
+    "bun-apps/pi-agent-ext-power-tool": {
+      "name": "@repo/pi-agent-ext-power-tool",
+      "version": "0.1.0",
+      "dependencies": {
+        "@earendil-works/pi-coding-agent": "latest",
+        "typebox": "latest",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^6.0.3",
+      },
+    },
     "bun-apps/pi-agent-sdk-demo": {
       "name": "@repo/bun-pi-agent-sdk-demo",
       "version": "1.0.0",
@@ -440,6 +452,8 @@
     "@repo/bun-pi-agent-sdk-demo": ["@repo/bun-pi-agent-sdk-demo@workspace:bun-apps/pi-agent-sdk-demo"],
 
     "@repo/gui-movie-director": ["@repo/gui-movie-director@workspace:bun-apps/gui-movie-director"],
+
+    "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:bun-apps/pi-agent-ext-power-tool"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 

@@ -4,7 +4,7 @@
     "../bun-apps/pi-obsidian",
     "../bun-apps/pi-vlm",
     "../bun-apps/pi-knowledge-card",
-    "../bun-apps/pi-dynamic-workflows",
+    "../bun-apps/pi-agent-ext-power-tool",
     "npm:@juicesharp/rpiv-todo",
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:pi-hermes-memory"

@@ -1,0 +1,22 @@
+{
+  "name": "@repo/pi-agent-ext-power-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension: power-tool suite. Includes context-analyzer (context window breakdown by component).",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "typebox": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}

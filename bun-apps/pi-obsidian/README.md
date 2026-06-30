@@ -232,6 +232,20 @@ outliers). Add `--llm` to also generate semantic per-topic summaries via the
   an unhandled rejection instead of rejecting the returned promise. `finish()` also lacks
   an idempotency guard (it runs twice on spawn `error`+`close`); benign today because the
   first resolve wins, but fragile. Prefactor to a plain `async` function + `finally` cleanup.
+- **16 tools add ~2,300 tokens of constant context overhead per turn.** In pi's
+  architecture, a tool's `description` and every parameter `description` are sent
+  in the API's `tools[]` schema array on *every* request — whether or not that
+  tool is used in that turn. This is separate from (and in addition to) the system
+  prompt text. Measured across 16 tools: ~8,400 chars of schema ≈ ~2,300 tokens
+  of fixed cost per API call.
+  Mitigation paths (highest impact first):
+  - **Shorten verbose parameter `description` fields** — the biggest contributor
+    inside each tool's schema, especially `obsidian_search` (10+ params).
+  - **Add a `minimal` package option** that skips rarely-used tools by default
+    (`obsidian_distill`, `obsidian_garden`, `obsidian_query`, `obsidian_invalidate`);
+    opt-in when needed. Cuts ~4 heavy-schema tools from default registration.
+  - **Use `pi.setActiveTools([...subset])`** to deactivate tools not needed for
+    the current session.
 
 ## License
 
