@@ -1,0 +1,125 @@
+# pi-agent
+
+A **thin wrapper** around the **real pi TUI** with **monkey-patch hooks**.
+
+It does *not* reimplement pi. It calls the official `main()` from
+`@earendil-works/pi-coding-agent` untouched, then layers reversible
+monkey-patches to extend default behavior.
+
+## Purpose
+
+You want the full pi experience (TUI, all flags, sessions, tools) but with
+additional providers added — local servers (lm-studio, ollama, llamacpp) or
+remote APIs (openrouter) — hardcoded in source without any external config file.
+
+All providers are defined in **`src/pre-load-providers.ts`**. No `~/.pi/agent/models.json` is read.
+
+## How it works
+
+```
+pi-agent/src/cli.ts
+  1. applyPatches()              ← monkey-patches ModelRegistry.prototype
+  2. await main(process.argv)    ← the REAL pi TUI / print / rpc
+```
+
+### Why patch `loadModels()`, not `registerProvider()`
+
+`ModelRegistry` constructor calls the private `loadModels()` directly,
+not `refresh()`. The patch wraps `loadModels()` so that after the built-in
+catalog loads, it immediately calls the real `registerProvider("lm-studio", ...)`
+with config hardcoded here. `registerProvider` also stores the config in
+`registeredProviders`, so any later `refresh()` replays it automatically.
+
+Because Bun's module cache is shared process-wide, `cli.ts` and `main()`
+import the **same** `ModelRegistry` class object. Patching its prototype
+before `main()` runs affects every registry instance `main()` constructs.
+No source fork, no passthrough rewrite.
+
+## Setup
+
+```bash
+bun install          # at the monorepo root (never inside pi-agent/)
+```
+
+## Usage
+
+```bash
+# interactive TUI (the real thing)
+bun bun-apps/pi-agent/src/cli.ts
+
+# print mode
+bun bun-apps/pi-agent/src/cli.ts -p "hello"
+
+# list models — lm-studio entries appear alongside built-ins
+bun bun-apps/pi-agent/src/cli.ts --list-models
+
+# load a local extension without pi install
+bun bun-apps/pi-agent/src/cli.ts -e bun-apps/zai-mcp/extensions/zai-mcp.ts -p "list your tools"
+```
+
+### Optional: alias in `~/.zshrc`
+
+```sh
+alias pi='bun /path/to/repo/bun-apps/pi-agent/src/cli.ts'
+alias pi-stock='bunx @earendil-works/pi-coding-agent'
+```
+
+## Patches
+
+| Env | Default | Effect |
+|-----|---------|--------|
+| `BUN_PI_PRE_LOAD_PROVIDERS` | `1` (on) | Inject all providers defined in `src/pre-load-providers.ts` |
+| `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
+
+Toggle:
+
+```bash
+BUN_PI_PRE_LOAD_PROVIDERS=0 bun bun-apps/pi-agent/src/cli.ts --list-models   # custom providers hidden
+BUN_PI_DEBUG_PATCHES=1      bun bun-apps/pi-agent/src/cli.ts                  # show patch status
+```
+
+## Add or change providers
+
+Edit **`src/pre-load-providers.ts`** → `PROVIDERS` object. No other file needs to change.
+
+```typescript
+// Uncomment or add a new entry:
+"openrouter": {
+  baseUrl: "https://openrouter.ai/api/v1",
+  api: "openai-completions",
+  apiKey: { env: "OPENROUTER_API_KEY" },   // read from env, not hardcoded
+  models: [
+    { id: "mistralai/mistral-nemo:free", name: "Mistral Nemo (OR free)",
+      reasoning: false, input: ["text"], contextWindow: 128_000, maxTokens: 4_096 },
+  ],
+},
+```
+
+Changes take effect on the next `bun` invocation — no build step.
+
+## Add your own patch
+
+1. Create `src/patches/<name>.ts` that patches a prototype/module.
+2. Register it (env-gated) in `src/patches/index.ts`.
+
+`cli.ts` never needs to change.
+
+## Layout
+
+```
+pi-agent/
+├── package.json            # bin: pi-agent → src/cli.ts
+├── README.md
+└── src/
+    ├── cli.ts                    # applyPatches() → main(argv)
+    ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
+    └── patches/
+        └── index.ts              # registry (env-gated) + debug
+```
+
+## Related
+
+- **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows
+  (`vlm-describe`, `zk-extract`, `zk-ask`, `pipeline pdf-to-vault`) with extensions
+  baked in as workspace deps. Use this when you want one-shot automation or to call
+  a specific agent workflow from a script — not an interactive session.

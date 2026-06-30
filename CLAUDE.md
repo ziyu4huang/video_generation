@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > `ComfyUI/.venv`, the removed `run.sh` (`:8188` server), and the ComfyUI workflow JSONs.
 >
 > The **active stack** is the **MLX pipeline** (`python/mlx-movie-director/run.py`)
-> driven by the **Bun GUI** (`bun/gui-movie-director`). The Bun app only ever
+> driven by the **Bun GUI** (`bun-apps/gui-movie-director`). The Bun app only ever
 > spawns `run.py` — it never invokes ComfyUI — and the MLX runtime was fully
 > decoupled from `comfyui_data/` at runtime (commit `aab6150`). ComfyUI content is
 > quarantined to the **"ComfyUI — DEPRECATED"** section at the bottom of this file
@@ -27,7 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Image/video generation runs via **MLX on Apple Silicon**, surfaced through a **Bun + React GUI**:
 
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, all native MLX). The only generation runtime.
-- **Bun GUI** — `bun/gui-movie-director` (`bun run dev`; port is per-worktree — discover with `bun run gui:port`). Spawns `run.py`; never touches ComfyUI.
+- **Bun GUI** — `bun-apps/gui-movie-director` (`bun run dev`; port is per-worktree — discover with `bun run gui:port`). Spawns `run.py`; never touches ComfyUI.
 
 ## Python — Choose the Right Venv
 
@@ -70,7 +70,7 @@ truth is MLX-shaped:
 ## Startup
 
 ```bash
-cd bun/gui-movie-director && bun run dev   # ACTIVE — GUI (port is per-worktree, see below)
+cd bun-apps/gui-movie-director && bun run dev   # ACTIVE — GUI (port is per-worktree, see below)
 bun run gui:port                           # this worktree's url (--all lists every server)
 ```
 
@@ -157,7 +157,7 @@ python/venv/bin/python python/mlx-movie-director/run.py caption <IMAGE> --style 
 ## Bun GUI Server
 
 ```bash
-cd bun/gui-movie-director && bun run dev    # hot reload (port is per-worktree)
+cd bun-apps/gui-movie-director && bun run dev    # hot reload (port is per-worktree)
 bun run gui:port                            # this worktree's url; --all lists every server
 ```
 
@@ -171,7 +171,7 @@ each linked worktree derives a stable port from its path (`lib/worktree.ts`). Do
 ## Testing
 
 ```bash
-# Bun (from bun/gui-movie-director/)
+# Bun (from bun-apps/gui-movie-director/)
 bun test
 bun run check:schema    # validate all command schemas against run.py CLI
 
@@ -224,7 +224,7 @@ python/mlx-movie-director/            # ACTIVE — MLX pipeline
 python/mlx-movie-director/models/     # ACTIVE — MLX-owned model tree (runtime paths live here)
 python/mlx-movie-director/models/store-manifest.json  # tracks all externalized model files
 ../video_generation__models/          # EXTERNAL binary store (outside repo, gitignored)
-bun/gui-movie-director/               # ACTIVE — Bun + React GUI
+bun-apps/gui-movie-director/               # ACTIVE — Bun + React GUI
 comfyui_data/models/                  # raw sources for convert.py (BUILD-TIME ONLY) — NOT a runtime dep
 ComfyUI/                              # DEPRECATED submodule (abandoned)
 comfyui_data/custom_nodes/            # DEPRECATED (ComfyUI clones, gitignored)
@@ -239,7 +239,7 @@ See [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md) for lessons learned a
 ## Dynamic Workflow Self-Improve — Execution SOP
 
 Verified procedure for the self-improve dynamic workflows (`mlx-movie-director-self-improve`
-for `python/mlx-movie-director/`, `gui-movie-director-self-improve` for `bun/gui-movie-director/`).
+for `python/mlx-movie-director/`, `gui-movie-director-self-improve` for `bun-apps/gui-movie-director/`).
 These are multi-agent `Workflow` runs; the SOP keeps them reproducible and collision-safe across
 concurrent sessions. Every step below is verified against the live workflow code + iters 1–7.
 
@@ -251,7 +251,7 @@ concurrent sessions. Every step below is verified against the live workflow code
   review-only to avoid colliding with concurrent WIP. Commit/stash first, then re-run.
 - The workflow `git stash`-checkpoints before applying fixes and selectively
   `git checkout HEAD -- <file>`-restores on regression — so its git ops sweep `python/mlx-movie-director/`
-  (or `bun/...`). **Do not edit files in that subtree while a run is in progress** (the run's stash/commit
+  (or `bun-apps/...`). **Do not edit files in that subtree while a run is in progress** (the run's stash/commit
   flow absorbs your WIP — `concurrent-session-sweeps-working-tree`).
 
 ### 2. Trigger via `scriptPath` (never `{name}`)

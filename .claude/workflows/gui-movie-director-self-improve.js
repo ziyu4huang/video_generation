@@ -122,7 +122,7 @@ const NAME         = "gui-movie-director-self-improve"
 // runs from, not a hardcoded sibling repo. `let` because Resolve reassigns them
 // once the real root is known; the values below are a fallback only.
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation"
-let GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
+let GUI_DIR      = `${PROJECT_ROOT}/bun-apps/gui-movie-director`
 let PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
 let RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
 let HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
@@ -311,7 +311,7 @@ SOURCE file no longer exists in the tree, so the operator can manually retire st
    code and their absence does NOT mean the knowledge is stale. A record with no SOURCE
    token is KEPT (not a candidate).
 6. For each SOURCE token test existence (GUI app dir first, then repo root):
-   Bash("test -e '${PROJECT_ROOT}/bun/gui-movie-director/<path>' || test -e '${PROJECT_ROOT}/<path>' && echo PRESENT || echo ABSENT")
+   Bash("test -e '${PROJECT_ROOT}/bun-apps/gui-movie-director/<path>' || test -e '${PROJECT_ROOT}/<path>' && echo PRESENT || echo ABSENT")
    A token is PRESENT if EITHER resolution exists.
 7. STALE CANDIDATE = a record with >=1 SOURCE token AND EVERY token ABSENT. Collect
    { id, paths: [<absent tokens>], reason: "source locus absent" }. Records with no source
@@ -629,7 +629,7 @@ Return that object under the field "schema".`,
   if (!DRY_RUN) {
     const dirtyCheck = await agent(
       `Check whether the git working tree has uncommitted changes in scope.
-Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/schemas/' 'bun/gui-movie-director/scripts/' 'python/mlx-movie-director/app/commands/' | grep -v '^??' || true")
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/schemas/' 'bun-apps/gui-movie-director/scripts/' 'python/mlx-movie-director/app/commands/' | grep -v '^??' || true")
 dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
 Return { dirty, files: [<the printed file paths, if any>] }.`,
       { label: "schema-dirty-tree-check", phase: "Schema", model: "haiku",
@@ -686,10 +686,10 @@ ${JSON.stringify(f, null, 2)}
 
 Apply exactly ONE branch based on category:
 - "gui_missing_choice": run.py offers choice value(s) the GUI lacks → add them to the GUI field.
-    • If flag is "--pipeline": choices come from PIPELINE_OPTIONS in bun/gui-movie-director/schemas/shared.ts (one edit fixes all schemas). Each entry is { value, label }. Add the missing value(s) with a sensible label.
-    • Otherwise edit the field's choices array in bun/gui-movie-director/schemas/<file>.ts (action→file map: t2i→t2i.ts, i2i→i2i.ts, workflow→workflow.ts, controlnet→controlnet.ts, profile→profile.ts, faceswap→faceswap.ts, restore→image-restore.ts, video-relay→video-relay.ts). Add { value, label } entries for run.py's extra value(s).
+    • If flag is "--pipeline": choices come from PIPELINE_OPTIONS in bun-apps/gui-movie-director/schemas/shared.ts (one edit fixes all schemas). Each entry is { value, label }. Add the missing value(s) with a sensible label.
+    • Otherwise edit the field's choices array in bun-apps/gui-movie-director/schemas/<file>.ts (action→file map: t2i→t2i.ts, i2i→i2i.ts, workflow→workflow.ts, controlnet→controlnet.ts, profile→profile.ts, faceswap→faceswap.ts, restore→image-restore.ts, video-relay→video-relay.ts). Add { value, label } entries for run.py's extra value(s).
 - "runpy_narrow": GUI offers value(s) run.py's argparse rejects → widen run.py. grep for the flag in python/mlx-movie-director/app/commands/*.py, find add_argument(..., choices=[...]), add the GUI's missing value(s) to choices.
-- "default_mismatch": set the GUI field's default to run.py's default (run.py wins). Edit the field in bun/gui-movie-director/schemas/<file>.ts (same action→file map). ONLY if the field has no choices, OR run.py's default value is already among the field's choice values — otherwise make NO edit and set notes="default not in choices" (a default outside the choice list would be inconsistent).
+- "default_mismatch": set the GUI field's default to run.py's default (run.py wins). Edit the field in bun-apps/gui-movie-director/schemas/<file>.ts (same action→file map). ONLY if the field has no choices, OR run.py's default value is already among the field's choice values — otherwise make NO edit and set notes="default not in choices" (a default outside the choice list would be inconsistent).
 - "mixed_choices": add run.py's extra value(s) to the GUI choices (align toward run.py); do NOT remove GUI-only values.
 
 Rules: make the MINIMAL edit, do not reformat, preserve existing entries. Return absolute paths of files modified.${opFixBlock}`,
@@ -1010,7 +1010,7 @@ If empty → { running: false, pid: "" }`,
       schema: { type: "object", properties: { running: { type: "boolean" }, pid: { type: "string" } }, required: ["running"] } },
   )
   if (!serverCheck?.running) {
-    log("[ux] GUI server not running at localhost:3099 — lane skipped (non-fatal). Start with: cd bun/gui-movie-director && bun run dev")
+    log("[ux] GUI server not running at localhost:3099 — lane skipped (non-fatal). Start with: cd bun-apps/gui-movie-director && bun run dev")
     return null
   }
   log(`[ux] GUI server running (pid=${serverCheck?.pid || "?"})`)
@@ -1161,7 +1161,7 @@ Return JSON: { viewId: "${v.id}", uxScore: <number>, issues: [<each issue as abo
   if (!dryRun) {
     const dirtyCheck = await agent(
       `Check whether the git working tree has uncommitted changes in scope.
-Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun/gui-movie-director/frontend/' 'bun/gui-movie-director/api/' 'bun/gui-movie-director/lib/' | grep -v '^??' || true")
+Bash("cd '${PROJECT_ROOT}' && git status --short -- 'bun-apps/gui-movie-director/frontend/' 'bun-apps/gui-movie-director/api/' 'bun-apps/gui-movie-director/lib/' | grep -v '^??' || true")
 dirty = true if that printed any non-empty line (tracked-modified files). Untracked ('??') files don't count.
 Return { dirty, files: [<the printed file paths, if any>] }.`,
       { label: "ux-dirty-tree-check", phase: "UX", model: "haiku",
@@ -1437,7 +1437,7 @@ Return { root: "<the absolute path, whitespace-trimmed>" }.`,
   const resolved = (rootResolve?.root || "").trim()
   if (resolved && resolved.includes("video_generation")) {
     PROJECT_ROOT = resolved
-    GUI_DIR      = `${PROJECT_ROOT}/bun/gui-movie-director`
+    GUI_DIR      = `${PROJECT_ROOT}/bun-apps/gui-movie-director`
     PYTHON       = `${PROJECT_ROOT}/python/venv/bin/python`
     RUN_PY       = `${PROJECT_ROOT}/python/mlx-movie-director/run.py`
     HISTORY_DIR  = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
@@ -1768,7 +1768,7 @@ const signals = {
   warnings: [
     ...(phasesFailed.length ? [`phases failed: ${phasesFailed.join(",")}`] : []),
     ...(FIX_REQ && dirtyTree ? ["concurrent WIP detected; fix deferred"] : []),
-    ...(DO_LINT && lintConfigErr ? ["lint: eslint config/install error — run `bun add -d eslint typescript-eslint` in bun/gui-movie-director"] : []),
+    ...(DO_LINT && lintConfigErr ? ["lint: eslint config/install error — run `bun add -d eslint typescript-eslint` in bun-apps/gui-movie-director"] : []),
     ...(DO_LINT && lintErrors > 0 ? [`${lintErrors} lint error(s) [${lintShadowing} shadowing] — fix to clear the gate`] : []),
     ...(DO_UX && !uxResult ? ["ux lane did not complete (server down or crash)"] : []),
     ...(chronicCount > 0 ? [`${chronicCount} chronic finding(s) — consider fix:true to clear backlog`] : []),
@@ -1900,7 +1900,7 @@ try {
    Write({ file_path: "/tmp/code-knowledge-record.json", content: <JSON below> })
    ${codeRecordJson}
 2. Append it via the canonical module (capture combined output + exit marker):
-   Bash("bun run '${PROJECT_ROOT}/bun/gui-movie-director/scripts/code-knowledge-append.ts' /tmp/code-knowledge-record.json 2>&1; echo EXIT=$?")
+   Bash("bun run '${PROJECT_ROOT}/bun-apps/gui-movie-director/scripts/code-knowledge-append.ts' /tmp/code-knowledge-record.json 2>&1; echo EXIT=$?")
 3. VERIFY the record actually landed — count this run's runId in records.jsonl:
    Bash("grep -c '${RUN_ID}' '${PROJECT_ROOT}/knowledge-base/code/records.jsonl' 2>/dev/null || echo 0")
    present = (the count from step 3 is >= 1). If the bun command in step 2 failed (non-zero EXIT), present is false.
@@ -2029,7 +2029,7 @@ const report = {
       : FIX_REQ && dirtyTree
         ? "Tree was dirty so fixes were skipped. Commit/stash concurrent WIP, then re-run with fix:true to apply the verified findings above."
         : DO_UX && !uxResult
-          ? "UX lane did not run (GUI server may be down). Start the server with `cd bun/gui-movie-director && bun run dev`, then re-run with lanes:'all'."
+          ? "UX lane did not run (GUI server may be down). Start the server with `cd bun-apps/gui-movie-director && bun run dev`, then re-run with lanes:'all'."
           : "Review-only scan complete. To apply verified fixes, re-run with args { effort:'medium', fix:true } on a clean git tree.") + proposedNote + pruneNote,
 }
 

@@ -1,0 +1,310 @@
+# obsidian_search baseline (original substring implementation)
+Generated: 2026-06-28T00:16
+Vault note count: 33
+
+This file is the regression baseline. After each phase, re-run the substring
+default path and diff against this file — the output MUST be identical for the
+cases marked [SUBSTRING-DEFAULT], which exercise only default params.
+
+### common word (lowercase) [SUBSTRING-DEFAULT]
+query="obsidian"
+50 match(es):
+Daily/2026-06-26.md:9: - 收尾 `feat/enhance-obsidian-search`（PR #5）並清理 stale PR
+Daily/2026-06-26.md:20: - PR #5 base 從 `feat/subagent-refactor-and-obsidian-garden` 改回 `main`，狀態由 `DIRTY` → `CLEAN`
+Daily/2026-06-26.md:36: - [[Inbox/Plan - Enhance obsidian_search]] — PR #5 的規劃筆記
+Design/pi-Obsidian Integration.md:3: tags: [design, obsidian, pi]
+Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
+Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
+Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
+Design/pi-Obsidian Integration.md:22: | 直接寫檔（採用） | 即時、可靠、Obsidian 自動偵測 | 需自行維護 metadata |
+Design/pi-Obsidian Integration.md:23: | obsidian:// URI | 官方、可開特定 heading | 只能開檔，無法寫內容 |
+Design/pi-Obsidian Integration.md:26: → 選「直接寫檔」為主，URI 僅用於 `obsidian_open`。
+Design/pi-Obsidian Integration.md:29: - 工具清單：見 `.pi/extensions/obsidian.ts`。
+Design/pi-Obsidian Integration.md:30: - `obsidian_append_section` 處理「依標題追加」。
+Design/pi-Obsidian Integration.md:35: - 2026-06-26 — v2：封裝為 pi package（`packages/pi-obsidian/`），新增 vault-template seed；見 [[Design/pi-Obsidian Package]]。
+Design/pi-Obsidian Package.md:3: tags: [design, obsidian, pi, package]
+Design/pi-Obsidian Package.md:6: # 📐 Design — pi-Obsidian Package
+Design/pi-Obsidian Package.md:8: 把 Obsidian 整合封裝成可重用的 **pi package**，其他專案 `pi install` 即可重用。
+Design/pi-Obsidian Package.md:11: - Obsidian 整合（extension + 起步 vault 範本）已在 pi-agent 專案驗證可用。
+Design/pi-Obsidian Package.md:12: - 希望其他專案能一鍵安裝，不必每次複製 `.pi/extensions/obsidian.ts` 與 vault 範本。
+Design/pi-Obsidian Package.md:31: - Package 路徑：`packages/pi-obsidian/`
+Design/pi-Obsidian Package.md:34: packages/pi-obsidian/
+Design/pi-Obsidian Package.md:38: │  └─ obsidian.ts        ← 7 工具 + 3 命令 + vault seed 邏輯
+Design/pi-Obsidian Package.md:51: pi install ./packages/pi-obsidian
+Design/pi-Obsidian Package.md:60: pi -e ./packages/pi-obsidian
+Design/pi-Obsidian Package.md:69: - 若 package 放在子目錄 `packages/pi-obsidian/`，git source 會找不到。
+Design/pi-Obsidian Package.md:71: 1. **local path**：`pi install ./packages/pi-obsidian`（推薦開發期用）
+Design/pi-Obsidian Package.md:72: 2. **獨立 repo**：把 `packages/pi-obsidian/*` 拆成獨立 git repo，根目錄即 package
+Design/pi-Obsidian Package.md:73: 3. **npm publish**：子目錄發 npm，用 `npm:pi-obsidian` 安裝
+Design/pi-Obsidian Package.md:74: 4. **settings 顯式路徑**：在 `.pi/settings.json` 的 `packages` 直接列 `./packages/pi-obsidian`
+Design/pi-Obsidian Package.md:78: - 2026-06-26 — v1 完成：package.json（pi manifest + pi-package keyword）、README、5 個 vault-template 範本、seed-vault skill。可 `pi install ./packages/pi-obsidian` 安裝。
+Design/pi-Obsidian Package.md:81: - [[Design/pi-Obsidian Integration]]
+Inbox/Plan - Enhance obsidian_search.md:4: tags: [plan, obsidian, search, enhancement]
+Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
+Inbox/Plan - Enhance obsidian_search.md:8: # 增強 obsidian_search 規劃
+Inbox/Plan - Enhance obsidian_search.md:11: `searchVault`（`extensions/obsidian.ts`）目前為純逐行子字串比對，無 regex、無排序、無上下文、無 metadata 感知、無快取、無範圍過濾、無容錯、無 wiki-link 感知。
+Inbox/Plan - Enhance obsidian_search.md:14: 在不破壞現有回傳格式的前提下，讓 `obsidian_search` 變成「夠用的小型搜尋引擎」：精準、可排序、可過濾、有上下文，且在大 vault 下仍快。
+Inbox/Plan - Enhance obsidian_search.md:66: - session 級快取（`session_start` 建立，工具呼叫間重用）；寫入工具 (`obsidian_create/append/append_section`) 觸發對應 entry 失效。
+README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
+README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀寫這個 vault——
+README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
+README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
+README.md:37: - 設定細節見 repo 根目錄 `.pi/extensions/obsidian.ts`
+Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:35: ## #obsidian
+Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:51: ## #obsidian
+Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+
+### title-ish term [SUBSTRING-DEFAULT]
+query="Zettelkasten"
+50 match(es):
+Daily/2026-06-26.md:32: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
+Daily/2026-06-26.md:33: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
+Design/pi-Obsidian Package.md:84: - [[Zettelkasten/Pi Packages]] — pi package 概念定義卡
+Design/pi-Obsidian Package.md:85: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]] — vault 以 submodule 掛載的部署模式
+Inbox/Plan - Enhance obsidian_search.md:33: 複用既有 `listNotes(vault, folder)`，讓搜尋可限定子樹（Zettelkasten/、Inbox/…）。
+README.md:25: └─ Zettelkasten/          ← 既有卡片盒筆記
+Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:28: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:29: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:33: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:41: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:42: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:43: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:44: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
+Tags/Index.md:45: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
+Tags/Index.md:49: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:53: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
+Tags/Index.md:54: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
+Tags/Index.md:55: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
+Tags/Index.md:59: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:60: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
+Tags/Index.md:65: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
+Tags/Index.md:71: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:72: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:73: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
+Tags/Index.md:77: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:81: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:85: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:89: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:93: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:99: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:100: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
+Tags/Index.md:101: - [[Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle]]
+Tags/Index.md:102: - [[Zettelkasten/Implementation Pattern - vlm-describe Pipeline]]
+Tags/Index.md:106: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:111: - [[Zettelkasten/Bug Pattern - Orchestrator Tool Contamination]]
+Tags/Index.md:138: - [[Zettelkasten/Pi Packages]]
+Tags/Index.md:142: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:147: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:148: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:149: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:150: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
+Tags/Index.md:151: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
+Tags/Index.md:152: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:153: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:154: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:155: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:156: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
+
+### mixed-case query, default insensitive [SUBSTRING-DEFAULT]
+query="Obsidian"
+50 match(es):
+Daily/2026-06-26.md:9: - 收尾 `feat/enhance-obsidian-search`（PR #5）並清理 stale PR
+Daily/2026-06-26.md:20: - PR #5 base 從 `feat/subagent-refactor-and-obsidian-garden` 改回 `main`，狀態由 `DIRTY` → `CLEAN`
+Daily/2026-06-26.md:36: - [[Inbox/Plan - Enhance obsidian_search]] — PR #5 的規劃筆記
+Design/pi-Obsidian Integration.md:3: tags: [design, obsidian, pi]
+Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
+Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
+Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
+Design/pi-Obsidian Integration.md:22: | 直接寫檔（採用） | 即時、可靠、Obsidian 自動偵測 | 需自行維護 metadata |
+Design/pi-Obsidian Integration.md:23: | obsidian:// URI | 官方、可開特定 heading | 只能開檔，無法寫內容 |
+Design/pi-Obsidian Integration.md:26: → 選「直接寫檔」為主，URI 僅用於 `obsidian_open`。
+Design/pi-Obsidian Integration.md:29: - 工具清單：見 `.pi/extensions/obsidian.ts`。
+Design/pi-Obsidian Integration.md:30: - `obsidian_append_section` 處理「依標題追加」。
+Design/pi-Obsidian Integration.md:35: - 2026-06-26 — v2：封裝為 pi package（`packages/pi-obsidian/`），新增 vault-template seed；見 [[Design/pi-Obsidian Package]]。
+Design/pi-Obsidian Package.md:3: tags: [design, obsidian, pi, package]
+Design/pi-Obsidian Package.md:6: # 📐 Design — pi-Obsidian Package
+Design/pi-Obsidian Package.md:8: 把 Obsidian 整合封裝成可重用的 **pi package**，其他專案 `pi install` 即可重用。
+Design/pi-Obsidian Package.md:11: - Obsidian 整合（extension + 起步 vault 範本）已在 pi-agent 專案驗證可用。
+Design/pi-Obsidian Package.md:12: - 希望其他專案能一鍵安裝，不必每次複製 `.pi/extensions/obsidian.ts` 與 vault 範本。
+Design/pi-Obsidian Package.md:31: - Package 路徑：`packages/pi-obsidian/`
+Design/pi-Obsidian Package.md:34: packages/pi-obsidian/
+Design/pi-Obsidian Package.md:38: │  └─ obsidian.ts        ← 7 工具 + 3 命令 + vault seed 邏輯
+Design/pi-Obsidian Package.md:51: pi install ./packages/pi-obsidian
+Design/pi-Obsidian Package.md:60: pi -e ./packages/pi-obsidian
+Design/pi-Obsidian Package.md:69: - 若 package 放在子目錄 `packages/pi-obsidian/`，git source 會找不到。
+Design/pi-Obsidian Package.md:71: 1. **local path**：`pi install ./packages/pi-obsidian`（推薦開發期用）
+Design/pi-Obsidian Package.md:72: 2. **獨立 repo**：把 `packages/pi-obsidian/*` 拆成獨立 git repo，根目錄即 package
+Design/pi-Obsidian Package.md:73: 3. **npm publish**：子目錄發 npm，用 `npm:pi-obsidian` 安裝
+Design/pi-Obsidian Package.md:74: 4. **settings 顯式路徑**：在 `.pi/settings.json` 的 `packages` 直接列 `./packages/pi-obsidian`
+Design/pi-Obsidian Package.md:78: - 2026-06-26 — v1 完成：package.json（pi manifest + pi-package keyword）、README、5 個 vault-template 範本、seed-vault skill。可 `pi install ./packages/pi-obsidian` 安裝。
+Design/pi-Obsidian Package.md:81: - [[Design/pi-Obsidian Integration]]
+Inbox/Plan - Enhance obsidian_search.md:4: tags: [plan, obsidian, search, enhancement]
+Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
+Inbox/Plan - Enhance obsidian_search.md:8: # 增強 obsidian_search 規劃
+Inbox/Plan - Enhance obsidian_search.md:11: `searchVault`（`extensions/obsidian.ts`）目前為純逐行子字串比對，無 regex、無排序、無上下文、無 metadata 感知、無快取、無範圍過濾、無容錯、無 wiki-link 感知。
+Inbox/Plan - Enhance obsidian_search.md:14: 在不破壞現有回傳格式的前提下，讓 `obsidian_search` 變成「夠用的小型搜尋引擎」：精準、可排序、可過濾、有上下文，且在大 vault 下仍快。
+Inbox/Plan - Enhance obsidian_search.md:66: - session 級快取（`session_start` 建立，工具呼叫間重用）；寫入工具 (`obsidian_create/append/append_section`) 觸發對應 entry 失效。
+README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
+README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀寫這個 vault——
+README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
+README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
+README.md:37: - 設定細節見 repo 根目錄 `.pi/extensions/obsidian.ts`
+Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:35: ## #obsidian
+Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:51: ## #obsidian
+Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+
+### case-sensitive mismatch
+query="Obsidian"
+38 match(es):
+Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
+Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
+Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
+Design/pi-Obsidian Integration.md:22: | 直接寫檔（採用） | 即時、可靠、Obsidian 自動偵測 | 需自行維護 metadata |
+Design/pi-Obsidian Integration.md:35: - 2026-06-26 — v2：封裝為 pi package（`packages/pi-obsidian/`），新增 vault-template seed；見 [[Design/pi-Obsidian Package]]。
+Design/pi-Obsidian Package.md:6: # 📐 Design — pi-Obsidian Package
+Design/pi-Obsidian Package.md:8: 把 Obsidian 整合封裝成可重用的 **pi package**，其他專案 `pi install` 即可重用。
+Design/pi-Obsidian Package.md:11: - Obsidian 整合（extension + 起步 vault 範本）已在 pi-agent 專案驗證可用。
+Design/pi-Obsidian Package.md:81: - [[Design/pi-Obsidian Integration]]
+README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
+README.md:13: 建立筆記、全文搜尋、在指定標題下追加內容、把筆記在 Obsidian app 裡打開。
+README.md:30: > 若使用者要「記到 Obsidian / 記一筆 / 筆記一下」，預設寫進 `Inbox/`，
+Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
+Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
+Zettelkasten/Agentic Loop - bun-agent-demo.md:38: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery.md:68: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver.md:29: - 被實作於：[[Design/pi-Obsidian Package]]
+Zettelkasten/Bug Pattern - Orchestrator Tool Contamination.md:50: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift.md:15: - Obsidian app 實際開啟：`/Users/.../pi-agent--cli-agent/vaults_root/pi-agent-vault`（worktree 改名了）
+Zettelkasten/Implementation Pattern - PDF to PNG via macOS PDFKit.md:38: - **為什麼固定 3 位起跳**：利於檔案系統 / Obsidian wikilink（`!` + `[[page-001.png]]`）穩定排序；若用 `page-1, page-2, ..., page-10` 會在 `page-10` 處亂序。
+Zettelkasten/Implementation Pattern - PDFKit PDF Extraction macOS Native.md:96: - **點陣化只在需要視覺時**：圖表、公式排版、多欄佈局、掃描件、或要把頁面 embed 進 Obsidian 筆記（`!` + `[[page-001.png]]`）時才點陣化。
+Zettelkasten/Implementation Pattern - Resolution Transparency Triple.md:35: - 相關 pi package 設計：[[Design/pi-Obsidian Package]]
+Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK.md:76: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven.md:83: - 相關：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount.md:23: - `git mv` 後只改 `.gitmodules` 的 `path` 與 section name，**不改 pin、不動子 repo 內部**。原本 wiki-link 相對路徑與 Obsidian 設定完整保留。
+Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount.md:33: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Pi Packages.md:25: - 概念實例：[[Design/pi-Obsidian Package]]
+Zettelkasten/Skill Verification Process.md:32: - 相關：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:32: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Workflow Pattern - Meta Name Consistency.md:28: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:33: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+
+### tag-like inline token [SUBSTRING-DEFAULT]
+query="#tag"
+2 match(es):
+Inbox/Plan - Enhance obsidian_search.md:28: - `tags`：解析 frontmatter `tags` 與內文 `#tag`。
+Tags/Index.md:171: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+
+### frontmatter key [SUBSTRING-DEFAULT]
+query="sources:"
+23 match(es):
+Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:5: sources: []
+Zettelkasten/Agentic Loop - bun-agent-demo.md:5: sources: []
+Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery.md:5: sources: []
+Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver.md:5: sources: []
+Zettelkasten/Bug Pattern - Orchestrator Tool Contamination.md:5: sources: []
+Zettelkasten/Bug Pattern - PDFKit Rasterization Orientation Trap.md:5: sources: []
+Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift.md:5: sources: []
+Zettelkasten/Implementation Pattern - PDF to PNG via macOS PDFKit.md:5: sources: []
+Zettelkasten/Implementation Pattern - PDFKit PDF Extraction macOS Native.md:5: sources: []
+Zettelkasten/Implementation Pattern - Resolution Transparency Triple.md:5: sources: []
+Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK.md:5: sources: []
+Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle.md:5: sources: []
+Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven.md:5: sources: []
+Zettelkasten/Implementation Pattern - vlm-describe Pipeline.md:5: sources: []
+Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount.md:5: sources: []
+Zettelkasten/Pi Packages.md:5: sources: []
+Zettelkasten/Skill Verification Process.md:5: sources: []
+Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup.md:5: sources: []
+Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:5: sources: []
+Zettelkasten/Workflow Pattern - Meta Name Consistency.md:5: sources: []
+Zettelkasten/Workflow Pattern - PR Cleanup and Squash.md:5: sources: []
+Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:5: sources: []
+
+### no-match term [SUBSTRING-DEFAULT]
+query="zzznomatchzzz"
+No matches.
+
+### max cap = 3
+query="obsidian"
+3 match(es):
+Daily/2026-06-26.md:9: - 收尾 `feat/enhance-obsidian-search`（PR #5）並清理 stale PR
+Daily/2026-06-26.md:20: - PR #5 base 從 `feat/subagent-refactor-and-obsidian-garden` 改回 `main`，狀態由 `DIRTY` → `CLEAN`
+Daily/2026-06-26.md:36: - [[Inbox/Plan - Enhance obsidian_search]] — PR #5 的規劃筆記
+
+### short substring inside word [SUBSTRING-DEFAULT]
+query="agent"
+50 match(es):
+Daily/2026-06-26.md:20: - PR #5 base 從 `feat/subagent-refactor-and-obsidian-garden` 改回 `main`，狀態由 `DIRTY` → `CLEAN`
+Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
+Design/pi-Obsidian Integration.md:13: - ✅ pi agent 可：list / read / create / append / append-section / search / open
+Design/pi-Obsidian Package.md:11: - Obsidian 整合（extension + 起步 vault 範本）已在 pi-agent 專案驗證可用。
+Design/pi-Obsidian Package.md:54: pi install git:github.com/ziyu4huang/pi-agent@main
+Design/pi-Obsidian Package.md:57: pi install -l git:github.com/ziyu4huang/pi-agent@main
+Design/pi-Obsidian Package.md:85: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]] — vault 以 submodule 掛載的部署模式
+README.md:6: # 📓 pi-agent Vault
+README.md:8: 這是 `pi-agent` 專案的 project-local Obsidian 知識庫，位於 `<repo>/vault/`。
+README.md:12: 由 `.pi/extensions/obsidian.ts` 提供，pi agent 可以直接讀寫這個 vault——
+README.md:28: ## 給 pi agent 的提示
+Tags/Index.md:25: ## #agent
+Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:28: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:29: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:31: ## #agentic-loop
+Tags/Index.md:33: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:41: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:59: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:71: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:72: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:93: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:99: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:106: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:142: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:147: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:153: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:154: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:155: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:163: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:176: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:4: tags: [zettel, agent, obsidian, integration]
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:17: - **Automated Logging**: Using `obsidian_append` to record agent decisions.
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:22: - 下層概念：[[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]、[[Zettelkasten/Skill Verification Process]]、[[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Zettelkasten/Agent Knowledge - Obsidian Integration.md:25: - 相關（vault 部署）：[[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Zettelkasten/Agentic Loop - bun-agent-demo.md:4: tags: [zettel, agentic-loop, agent, demo]
+Zettelkasten/Agentic Loop - bun-agent-demo.md:8: # Agentic Loop — bun-agent-demo
+Zettelkasten/Agentic Loop - bun-agent-demo.md:11: - `bun-agent-demo` 以簡化版 Observe → Think → Act → Observe 迴圈展示 agentic loop：用字串樣式比對模擬 LLM 推理，挑選工具執行後把結果 append 進 history，直到得出最終答案或撞到 `maxIterations`。
+Zettelkasten/Agentic Loop - bun-agent-demo.md:14: An analysis of the `bun-agent-demo` project, which demonstrates a basic implementation of the Agentic Loop.
+Zettelkasten/Agentic Loop - bun-agent-demo.md:16: **Core Mechanism: The Agentic Loop**
+Zettelkasten/Agentic Loop - bun-agent-demo.md:17: 1. **Observe**: The agent receives a user prompt and maintains a conversation history.
+Zettelkasten/Agentic Loop - bun-agent-demo.md:19: 3. **Act**: The agent selects a tool (e.g., `bash`, `write_file`, `read_file`) and executes it via its `execute` function.
+Zettelkasten/Agentic Loop - bun-agent-demo.md:23: - **AgentDemo Class**: Manages the tool registry, conversation history, and the execution loop.
+Zettelkasten/Agentic Loop - bun-agent-demo.md:36: - 相關：[[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+

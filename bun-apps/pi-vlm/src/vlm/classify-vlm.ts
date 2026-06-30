@@ -1,0 +1,81 @@
+/**
+ * Semantic document classifier — a tiny VLM subagent that looks at the
+ * rasterized first page and decides which content `DocProfile` applies, so the
+ * orchestrator can pick the matching per-page system prompt.
+ *
+ * This is intentionally a separate, single-turn model call (not the main
+ * extraction agent): classification should be fast, cheap, and return exactly
+ * one of the known profile tokens.
+ */
+import { readFileSync } from "node:fs";
+import { ALL_PROFILES, type DocProfile } from "./classify.ts";
+import { createSharedSession, resolveLLM, type ResolvedLLM } from "../sessions.ts";
+
+const CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
+請只判斷這份文件屬於下列哪一種 profile，並「只」輸出該 profile 的英文代碼（小寫），不要任何其他文字：
+
+- paper   ：學術論文 / 研究報告（含標題、作者、摘要、章節、參考文獻的典型論文版面）
+- slides  ：簡報投影片（橫向、單張大標題+條列、頁碼像 1/N）
+- poster  ：學術/會議海報（單一大版面、多欄、含圖表）
+- diagram ：圖表 / 流程圖 / 架構圖 / 數學推導草圖（以圖形為主、少量文字）
+- image   ：一般照片 / 截圖 / 其他無法歸類者
+
+判斷準則以「視覺版面」為主。輸出格式：僅一行，內容是上述五個代碼之一。`;
+
+/** Parse the model's reply into a profile, tolerating surrounding noise. */
+export function parseProfileReply(reply: string): DocProfile {
+  const lower = reply.toLowerCase();
+  // longest-match first so "image" doesn't shadow nothing
+  for (const p of ALL_PROFILES) {
+    if (lower.includes(p)) return p;
+  }
+  return "image"; // safe fallback
+}
+
+/** Read an image into a base64 ImageContent block. */
+function readImage(abs: string, mimeType: string) {
+  const data = Buffer.from(readFileSync(abs)).toString("base64");
+  return { type: "image" as const, data, mimeType };
+}
+
+/**
+ * Run the VLM classifier on a single representative image (usually page 1).
+ *
+ * @param imagePath  absolute path to the page-1 PNG
+ * @param mimeType   image mime type
+ * @param llmOverride  optional explicit LLM target (defaults to the same model
+ *                     used for extraction; typically LM Studio Gemma)
+ * @returns the detected profile + the raw reply text
+ */
+export async function classifyProfileViaVlm(
+  imagePath: string,
+  mimeType: string,
+  llmOverride?: ResolvedLLM,
+): Promise<{ profile: DocProfile; reply: string }> {
+  const llm = llmOverride ?? resolveLLM({});
+  const { session } = await createSharedSession(llm, {});
+
+  const image = readImage(imagePath, mimeType);
+  let reply = "";
+
+  const unsub = session.subscribe((event: any) => {
+    if (
+      event.type === "message_update" &&
+      event.assistantMessageEvent?.type === "text_delta"
+    ) {
+      reply += event.assistantMessageEvent.delta;
+    }
+  });
+
+  try {
+    await session.prompt(
+      "請分類這份文件的第一頁，只輸出一個 profile 代碼。",
+      { images: [image] } as any,
+    );
+  } finally {
+    unsub();
+    session.dispose();
+  }
+
+  return { profile: parseProfileReply(reply), reply: reply.trim() };
+}

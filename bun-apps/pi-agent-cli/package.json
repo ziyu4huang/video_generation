@@ -1,0 +1,35 @@
+{
+  "name": "@repo/bun-pi-agent-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-contained pi-agent CLI with pi-obsidian baked in. Agent commands (vlm-describe, distill, knowledge, rag, pipeline pdf-to-vault) + pi-compatible passthrough.",
+  "type": "module",
+  "scripts": {
+    "cli": "bun src/cli.ts",
+    "zk-extract": "bun src/cli.ts zk-extract",
+    "zk-card": "bun src/cli.ts zk-card",
+    "zk-ask": "bun src/cli.ts zk-ask",
+    "list": "bun src/cli.ts list",
+    "test": "bun test",
+    "build": "bun scripts/build.ts",
+    "build:watch": "bun --watch scripts/build.ts",
+    "build:obf": "bun scripts/build.ts --obfuscate",
+    "build:exe": "bun scripts/build.ts --compile",
+    "build:all": "bun scripts/build.ts --all",
+    "dist": "bun ../../dist/pi-agent-cli/cli.js",
+    "exe": "./../../dist/pi-agent-cli/pi-agent-cli"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-agent-core": "latest",
+    "pi-obsidian": "workspace:*",
+    "pi-vlm": "workspace:*",
+    "pi-knowledge-card": "workspace:*",
+    "typebox": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "javascript-obfuscator": "latest"
+  }
+}
