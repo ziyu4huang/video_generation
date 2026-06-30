@@ -137,6 +137,17 @@ pi-agent/
         └── index.ts              # registry (env-gated) + debug
 ```
 
+## Known issues
+
+- **Standalone binary cannot load `.ts` extensions** (`./dist/pi-agent/pi-agent`).
+  In `isBunBinary` mode, jiti feeds each extension as a
+  `data:text/javascript;base64,…` URL; Bun's compiled resolver treats it as a
+  path and fails with `NameTooLong` (`ENAMETOOLONG`). This is a bun-compile +
+  jiti limitation, not a pi-agent regression. Workaround: run the binary with
+  `-ne` (no extensions), or use **source** / **bundle** mode when extensions
+  are needed. Provider injection (`pre-load-providers`) still works in the
+  binary — only `.ts` extension loading is affected.
+
 ## Related
 
 - **[pi-agent-cli](../pi-agent-cli/README.md)** — single-turn scripted workflows
