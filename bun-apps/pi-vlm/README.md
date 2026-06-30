@@ -25,8 +25,10 @@ page, each page is described by the VLM, and the pages are stitched into one
 Ship the extension as a single minified `.js` instead of `.ts` source:
 
 ```bash
-bun scripts/build-bundle.ts               # minify (identifier mangling)
+bun scripts/build-bundle.ts               # FULL bundle (default) — inline all deps
 bun scripts/build-bundle.ts --obfuscate   # + javascript-obfuscator pass (optional)
+bun scripts/build-bundle.ts --thin        # THIN bundle — peer deps external (see below)
+bun scripts/build-bundle.ts --no-verify   # skip the self-verify stage
 ```
 
 Output: `../../dist/pi-extensions/pi-vlm.bundle.js` (gitignored, like `dist/pi-agent/`).
@@ -40,12 +42,73 @@ optional (not a default dep) and slow on multi-MB bundles — install with
 `bun add -d javascript-obfuscator` if you want it, otherwise the flag no-ops with
 a warning.
 
+### Self-verify (built-in)
+
+Every build ends with `stageVerify`: static integrity checks (default factory
+export present, minify applied, no dangling `../src/` refs or `/Users/` path
+leak, size sane, externals preserved in thin / inlined in full) **and**, when
+`dist/pi-agent/pi-agent.js` exists, a **live load test** that boots the real
+pi-agent bundle with `-ne -e <bundle>` and asserts `vlm_describe` registers. A
+load crash at the shipping path is a **hard failure** (exit 1) — it cannot ship a
+bundle that doesn't load. `--no-verify` skips.
+
+### FULL vs THIN — which to use
+
+Both produce a loadable `pi -e <bundle>.js`. **THIN is the better default** for
+this repo; FULL is the fallback when you need a self-contained, machine-portable
+artifact.
+
+**FULL** (`bun scripts/build-bundle.ts`) inlines typebox + `src/` + every
+transitive dep (notably typebox's ~6.5 MB `@babel/*` compiler) into one ~6.8 MB
+ESM. Self-contained, portable. Cost: **multi-extension duplication** — each full
+extension carries its own typebox+babel, AND the pi-agent host carries another, so
+N full extensions = (N+1)× the ~6.5 MB babel graph loaded.
+
+**THIN** (`--thin`) bundles only the project's own `src/` (~25 KB, 270× smaller)
+then rewrites the 4 peer-dep bare specifiers (`typebox` + `@earendil-works/*`)
+to **absolute file paths**. That rewrite is mandatory — see the gotcha below.
+Benefit: every extension resolves `typebox` to the SAME path → bun's native
+module cache dedupes → **all extensions share one typebox instance** (no per-copy
+babel). Typebox version can never drift from the host (it IS the host's copy).
+Cost: the baked paths are **machine-specific** — rebuild on the target machine
+(mirrors the pi-agent bundle's own machine-path baking).
+
+#### Gotcha: why THIN must rewrite bare specifiers to absolute paths
+
+pi loads every extension through jiti (`createJiti` + `jiti.import`,
+`pi-coding-agent/dist/core/extensions/loader.js`). jiti wraps any module that
+contains a **bare specifier** (e.g. `"typebox"`) in a
+`data:text/javascript;base64,<whole module>` package specifier to apply its
+alias transform — and bun rejects that wrapper with `NameTooLong` once the module
+exceeds a low-KB limit. Every real pi-vlm module is over that limit, so a thin
+bundle that leaves `"typebox"`/`"@earendil-works/*"` as bare specifiers is
+**unconditionally broken** at the shipping location:
+
+```
+Failed to load extension: ResolveMessage: NameTooLong while resolving
+package 'data:text/javascript;base64,...'
+```
+
+FULL dodges it by having zero bare imports. The thin fix: `stageResolveExternals`
+pre-resolves each bare specifier to its absolute file path at build time (the
+same paths `getAliases()` computes at runtime) — the bundle then has only
+absolute + `node:` + relative imports, so jiti loads it **natively** (no wrapper,
+no size limit). Verified end-to-end. The `stageVerify` live-load test enforces
+this: a load crash at the shipping path is a hard failure (exit 1), so a
+regression (e.g. a new bare import that escapes resolution) can't ship silently.
+
+> Lesson logged in memory (`pi-extension-thin-bundle-jiti-nametoolong`) and
+> here so the same detour isn't repeated: **jiti + bare-import module = data-URL
+> wrap = length-limited. Either inline the dep (FULL) or pre-resolve to abs path
+> (THIN). There is no third option under the current loader.**
+
 Load the bundle with the pi-agent bundle:
 
 ```bash
 bun ../../dist/pi-agent/pi-agent.js -ne \
   -e ../../dist/pi-extensions/pi-vlm.bundle.js -p "list your tools"
 ```
+
 
 ## Known limitations & TODO
 
