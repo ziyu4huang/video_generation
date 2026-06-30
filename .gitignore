@@ -18,3 +18,4 @@ comfyui_data/user/default/ComfyUI-Impact-Subpack/model-whitelist.txt
 comfyui_data/user/default/test.json
 comfyui_data/user/default/workflows/.index.json
 .reasonix/
+dist/

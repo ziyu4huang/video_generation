@@ -2,8 +2,10 @@
  * Patch registry — every monkey-patch lives behind an env gate so behavior is
  * reversible and debuggable. Add a new patch = add one entry here.
  *
- * Patches are applied via DYNAMIC import inside their gate, so a disabled
- * patch never runs (its side-effect module is not loaded).
+ * IMPORTANT (bundling): dynamic imports must use static string literals so bun
+ * can trace and include the modules at bundle time. Do NOT use a variable path
+ * like `import(def.module)` — bun cannot statically analyze that and the module
+ * will be missing from the bundle.
  */
 
 export interface AppliedPatch {
@@ -19,39 +21,29 @@ function envFlag(name: string, fallback: boolean): boolean {
   return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
 }
 
-interface PatchDef {
-  name: string;
-  env: string;
-  defaultValue: boolean;
-  /** Dynamic import path; importing the module applies the patch as a side effect. */
-  module: string;
-}
-
-const PATCHES: PatchDef[] = [
-  {
-    name: "pre-load-providers",
-    env: "BUN_PI_PRE_LOAD_PROVIDERS",
-    defaultValue: true,
-    module: "../pre-load-providers.ts",
-  },
-];
-
 /**
  * Apply all enabled patches. Must run *before* `main()` is called, because
  * `main()` constructs the `ModelRegistry` instance whose prototype we patch.
+ *
+ * Each patch is gated on an env flag; a disabled patch is never executed.
+ * Adding a new patch: add a block below, wired to a static import literal.
  */
 export async function applyPatches(): Promise<AppliedPatch[]> {
-  const applied: AppliedPatch[] = [];
   const debug = envFlag("BUN_PI_DEBUG_PATCHES", false);
+  const applied: AppliedPatch[] = [];
 
-  for (const def of PATCHES) {
-    const enabled = envFlag(def.env, def.defaultValue);
+  // ── patch: pre-load-providers ─────────────────────────────────────────────
+  // Injects custom LLM providers into pi's ModelRegistry before main() starts.
+  {
+    const name = "pre-load-providers";
+    const env = "BUN_PI_PRE_LOAD_PROVIDERS";
+    const defaultValue = true;
+    const enabled = envFlag(env, defaultValue);
     if (enabled) {
-      await import(def.module); // side-effect: patches the prototype
-      applied.push({ ...def, applied: true });
-    } else {
-      applied.push({ ...def, applied: false });
+      // Static string literal — bun can trace and bundle this module.
+      await import("../pre-load-providers.ts");
     }
+    applied.push({ name, env, defaultValue, applied: enabled });
   }
 
   if (debug) {
