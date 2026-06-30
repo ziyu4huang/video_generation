@@ -135,7 +135,8 @@ public struct Flux2EditPipeline {
     /// Returns (pixels, elapsed seconds).
     public func generate(prompt: String, imagePaths: [URL], seed: UInt64,
                          height: Int, width: Int, steps: Int, guidance: Float,
-                         initImagePath: URL? = nil, denoiseStrength: Float = 1.0)
+                         initImagePath: URL? = nil, denoiseStrength: Float = 1.0,
+                         refStrengths: [Float]? = nil, refGateSteps: Float = 1.0)
         -> (MLXArray, Double)
     {
         let start = DispatchTime.now()
@@ -155,9 +156,17 @@ public struct Flux2EditPipeline {
         let noiseLen = latents.dim(1)
 
         // 3. Reference image conditioning (identity tokens, concatenated each step).
+        //    refStrengths scales each ref's tokens (WS3); refGateSteps caps the
+        //    fraction of early steps that inject refs (applied in the loop below).
         let (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
             imagePaths: imagePaths, vaeEncoder: vaeEncoder, bn: bn,
-            height: height, width: width, batchSize: 1)
+            height: height, width: width, batchSize: 1, strengths: refStrengths)
+        let gateStepIdx = refGateSteps >= 1.0
+            ? steps
+            : max(0, Int((Float(steps) * refGateSteps).rounded(.toNearestOrEven)))
+        if refGateSteps < 1.0 {
+            print("   ref gate: refs injected on steps 1..\(gateStepIdx)/\(steps) (gate=\(refGateSteps))")
+        }
 
         // 4. Scheduler.
         let scheduler = Flux2Scheduler(
@@ -188,8 +197,12 @@ public struct Flux2EditPipeline {
         // 5. Denoise: concat [working, ref] tokens, slice output to working tokens.
         for t in startStep..<steps {
             let ts = scheduler.timesteps[t].asType(.bfloat16).reshaped([1])
+            // Timestep gating (WS3): only inject ref tokens in the early
+            // fraction of steps (t < gateStepIdx). After the gate, refs are
+            // dropped so the model finishes the scene without their pull.
+            let injectRefs = t < gateStepIdx
             let (hiddenStates, imgIds): (MLXArray, MLXArray)
-            if let imgLat = imageLatents, let imgIds2 = imageLatentIds {
+            if injectRefs, let imgLat = imageLatents, let imgIds2 = imageLatentIds {
                 hiddenStates = MLX.concatenated([current, imgLat], axis: 1)
                 imgIds = MLX.concatenated([latentIds, imgIds2], axis: 1)
             } else {

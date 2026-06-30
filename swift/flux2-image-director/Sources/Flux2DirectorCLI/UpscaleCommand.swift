@@ -28,6 +28,17 @@ extension Flux2CLI {
         @Option(help: "ESRGAN model name under models/upscale/ (default 4x-nomos-webphoto-realplksr).")
         var model: String = "4x-nomos-webphoto-realplksr"
 
+        /// Tiled inference (overlap-and-blend) avoids OOM on large inputs by
+        /// processing the image in `--tile-size` LR tiles with `--tile-overlap`
+        /// px of feather-blended context. Auto-enabled when either input dim
+        /// exceeds `--tile-size`; --no-tile forces the whole-image path.
+        @Option(help: "LR tile size for tiled inference (auto-enables when input > tile). Default 256.")
+        var tileSize: Int = 256
+        @Option(help: "Tile overlap (LR px) feather-blended between tiles. Default 32.")
+        var tileOverlap: Int = 32
+        @Flag(help: "Force whole-image inference (no tiling). May OOM on 4K+ sources.")
+        var noTile: Bool = false
+
         @Option var output: String = ""
         @Option var outputDir: String?
         @Option var name: String?
@@ -62,7 +73,16 @@ extension Flux2CLI {
             let nhwc = nchw.transposed(0, 2, 3, 1).asType(.float32)
 
             let start = DispatchTime.now()
-            let out = sr(nhwc)   // (1, 4H, 4W, 3)
+            // Tiled inference when the input exceeds one tile (avoids OOM on
+            // large sources); --no-tile forces the whole-image path.
+            let useTiled = !noTile && (iw > tileSize || ih > tileSize)
+            let out: MLXArray
+            if useTiled {
+                print("  tiling : \(tileSize)px tiles, \(tileOverlap)px overlap (input \(iw)×\(ih) > tile)")
+                out = sr.tiledUpscale(nhwc, tileSize: tileSize, overlap: tileOverlap)
+            } else {
+                out = sr(nhwc)   // (1, 4H, 4W, 3)
+            }
             let clamped = MLX.clip(out, min: 0.0, max: 1.0).asType(.float32)
             MLX.eval(clamped)
             let elapsed = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1e9

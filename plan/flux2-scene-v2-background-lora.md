@@ -14,8 +14,11 @@
 > 1. ~~5/12 LoRAs~~ → **DONE 2026-06-30: 12/12 installed.** All 5 resolved
 >    (LongFace_9B from NO8D/FaceControl; Colorful+qualitya from K-Slider pack;
 >    DarkKlein r256 from redcraft pack; 亚洲人像 = NexBlend). See wave-2 plan.
-> 2. ESRGAN has no tiled inference — whole-image only; very large inputs may OOM.
-> 3. WS3 (per-ref strength + timestep gating) still deferred — not needed now.
+> 2. ~~ESRGAN tiling~~ → **DONE 2026-06-30.** `flux2 upscale` auto-tiles (256/32,
+>    feather-blend); PSNR 41.4 dB vs whole, 8K no OOM.
+> 3. ~~WS3~~ → **DONE 2026-06-30.** `--ref-strength` + `--ref-gate-steps` on scene.
+> 4. ~~Regional placement (1b)~~ → **DONE best-effort 2026-06-30.** `--regional`
+>    strip inpaint; approximate (no identity→region binding in Flux2KleinEdit).
 
 > **Status (2026-06-29):** WS1 + WS2 IMPLEMENTED & verified end-to-end on the
 

@@ -34,8 +34,37 @@ flux2 scene \
 
 `--bg-strength` (SDEdit denoise fraction): `0.3` = light refine, `0.5` = restyle
 keeping the layout, `0.7` = loose redraw. Characters are placed by prompt +
-identity conditioning; precise left/right placement still needs regional masks
-(not yet implemented — sweep `--seed`).
+identity conditioning; precise left/right placement uses `--regional` (below).
+
+### Per-reference strength + timestep gating (WS3)
+
+```bash
+flux2 scene --ref A.png --ref B.png \
+  --ref-strength 1.0 --ref-strength 0.4 \   # weight ref B lower
+  --ref-gate-steps 0.5 \                    # inject refs only the first half of steps
+  --prompt "..."
+```
+`--ref-strength` (repeatable, one per `--ref`) scales each reference's
+conditioning tokens — weight one identity over another. `--ref-gate-steps`
+injects the refs only in the early fraction of steps (after the gate the model
+finishes the scene without their pull); `1.0` = all steps (default).
+
+### Regional placement (`--regional`)
+
+Flux2KleinEdit conditions on **global** ref tokens — there is no
+identity→spatial-region binding, so left/right placement is otherwise
+prompt-driven (non-deterministic). `--regional` adds a post-pass: after the base
+scene, each distinct ref is identity-refined into its own **vertical strip**
+(left→right, `ref[0]`→leftmost) via masked inpaint, locking the rest.
+
+```bash
+flux2 scene --ref A.png --ref B.png --regional --regional-feather 24 --prompt "..."
+```
+This is a **best-effort** approximation, not perfect identity locking: the
+strips are half-plane regions, so the base scene's figures and the strip
+refinements can overlap (e.g. produce an extra figure). It reliably assigns each
+ref to a side, but is approximate — true region-bound identity needs an
+architecturally different conditioning path (not in Flux2KleinEdit).
 
 ### Multi-LoRA stacking (`--lora`) — Workstream 2
 
@@ -121,7 +150,20 @@ python/venv/bin/python -c "import spandrel; from safetensors.torch import save_f
 The port (`swift/common-image-director/.../ESRGAN.swift`) runs the whole net in
 channels-last (NHWC), permuting torch NCHW weights at load, with GroupNorm /
 EA attention / PixelShuffle implemented via reshape+permute to match PyTorch's
-exact layout. Tiled inference for very large inputs is a follow-up.
+exact layout.
+
+### Tiled inference (large inputs)
+
+For inputs larger than one tile, `flux2 upscale` auto-switches to **overlap-tile
+inference** (256px LR tiles, 32px overlap, linear feather-blend) so 4K+ sources
+don't OOM the (1,H,W,64)×28-block intermediates. Verified: tiled vs whole-image
+PSNR **41.4 dB** (mean-abs 1.1/255 — per-tile GroupNorm stat error only); 2048²
+→ 8192² upscales in ~11 s without OOM.
+
+```bash
+flux2 upscale --input photo.png --tile-size 256 --tile-overlap 32   # auto-on > 256
+flux2 upscale --input photo.png --no-tile                            # force whole-image
+```
 
 ## The 12-LoRA "卡通转真人工厂" stack
 
@@ -192,12 +234,15 @@ darkklein), 1 diffusers (anything2real-a — a partial 88-adapter LoRA).
 1. **12-LoRA stack complete** (2026-06-30) — all 12 of the workflow's
    `卡通转真人工厂` LoRAs are installed + int8-converted + externalized. See the
    table above for the full reproducible `flux2 scene` invocation.
-2. **ESRGAN runs whole-image** (no tiling). Fine for typical inputs (e.g. 1024² →
-   4096² verified), but very large inputs may OOM on the (1,H,W,64) intermediates
-   across 28 blocks. Add tiled inference (overlap-and-blend) if 4K+ sources are
-   common. *Decision pending.*
-3. **WS3 (per-reference strength + timestep gating for `scene`)** — still deferred
-   from the v2 plan; not needed for the current workflow.
+2. **ESRGAN tiled inference** — DONE (2026-06-30). `flux2 upscale` auto-tiles
+   large inputs (256px tiles, 32px overlap, feather-blend); verified PSNR 41.4 dB
+   vs whole-image, 2048²→8192² without OOM.
+3. **WS3 (per-reference strength + timestep gating)** — DONE (2026-06-30).
+   `--ref-strength` (per-ref token weight) + `--ref-gate-steps` (early-step
+   injection fraction) on `flux2 scene`.
+4. **Regional placement** — DONE as best-effort (2026-06-30). `--regional`
+   refines each ref into a vertical strip via masked inpaint. Approximate (no
+   clean identity→region binding in Flux2KleinEdit); see the section above.
 
 ## Reproduce the full workflow
 

@@ -22,9 +22,13 @@ public enum Flux2ReferenceConditioning {
     /// Prepare reference image conditioning from one or more image paths.
     /// Returns (image_latents (1, total_ref_tokens, 128), image_latent_ids (1, S, 4)).
     /// Returns (nil, nil) if no image paths.
+    ///
+    /// `strengths` (optional, one per image) scales each reference's packed
+    /// tokens before concatenation — a per-reference identity weight (WS3).
+    /// Missing/extra entries default to 1.0 (no scaling).
     public static func prepare(imagePaths: [URL], vaeEncoder: Flux2VAEEncoder,
                                bn: Flux2BatchNormStats, height: Int, width: Int,
-                               batchSize: Int = 1)
+                               batchSize: Int = 1, strengths: [Float]? = nil)
         -> (MLXArray?, MLXArray?)
     {
         guard !imagePaths.isEmpty else { return (nil, nil) }
@@ -52,7 +56,13 @@ public enum Flux2ReferenceConditioning {
                 encoded, mean: bn.runningMean, var_: bn.runningVar, eps: bn.eps)
 
             // 6. pack to sequence tokens (B, C, H, W) → (B, H*W, C).
-            packedList.append(Flux2LatentCreator.packLatents(encoded))
+            //    Apply per-reference strength (WS3): scale this ref's token values.
+            var packed = Flux2LatentCreator.packLatents(encoded)
+            let s = (strengths?.indices.contains(i) ?? false) ? strengths![i] : 1.0
+            if s != 1.0 {
+                packed = (packed * MLXArray(s)).asType(packed.dtype)
+            }
+            packedList.append(packed)
 
             // 7. grid ids with t_coord = 10 + 10*i.
             idsList.append(Flux2LatentCreator.prepareGridIds(latents: encoded, tCoord: 10 + 10 * i))

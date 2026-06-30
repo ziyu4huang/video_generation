@@ -74,5 +74,31 @@ current workflow; port ComfyUI `ReferenceLatentPlus` semantics only if finer
 ref control is wanted.
 
 ## Out of scope (confirmed deferred)
-- Regional/per-character mask placement in `scene` (true "圖一 left / 圖二 right").
 - Native Swift SeedVR2 (the workflow's AI-diffusion upscale alternative) — python-only.
+
+---
+
+## Deferred items — ALL DONE (2026-06-30, branch `flux2-wave2-deferred`)
+
+All three wave-2 deferrals resolved:
+
+### ✅ Item 2 — ESRGAN tiled inference
+`ESRGAN.tiledUpscale` (overlap-and-blend: 256px LR tiles, 32px overlap, linear
+feather partition-of-unity). `flux2 upscale` auto-enables for inputs > tile;
+`--no-tile` forces whole-image. Verified: tiled vs whole **PSNR 41.4 dB**
+(mean-abs 1.1/255); 2048²→8192² in ~11 s, no OOM.
+
+### ✅ Item 3 — WS3 per-ref strength + timestep gating
+`Flux2ReferenceConditioning.prepare` takes `strengths:[Float]?` (scales each
+ref's packed tokens); `Flux2EditPipeline.generate` takes `refGateSteps:Float`
+(skips ref concat when `t >= gateStepIdx`). CLI: `flux2 scene --ref-strength
+[Float] --ref-gate-steps Float`. Verified: logs "ref strength: 0=1.0, 1=0.4" +
+"refs injected on steps 1..3/6".
+
+### ✅ Regional placement (scene-v2 Workstream 1b)
+Flux2KleinEdit has no identity→region binding (global ref tokens), so true
+"圖一 left / 圖二 right" is architecturally impossible via conditioning. Shipped
+a **best-effort** mitigation: `flux2 scene --regional` refines each ref into a
+vertical strip via the existing `inpaint` mask-re-injection (rest locked).
+Approximate (strip half-planes can overlap base figures → extra figure);
+documented honestly in README.
