@@ -12,8 +12,9 @@
  * USAGE
  * -----
  *   bun scripts/build-bundle.ts              # FULL bundle — inline all deps (default)
- *   bun scripts/build-bundle.ts --thin        # THIN bundle — keep peer deps external
- *   bun scripts/build-bundle.ts --obfuscate   # + javascript-obfuscator pass
+ *   bun scripts/build-bundle.ts --thin        # THIN bundle — peer deps external, OBFUSCATED by default
+ *   bun scripts/build-bundle.ts --thin --no-obfuscate  # thin, minify only (opt out)
+ *   bun scripts/build-bundle.ts --obfuscate   # force obfuscation on (e.g. for FULL)
  *   bun scripts/build-bundle.ts --out <path>  # override output path
  *   bun scripts/build-bundle.ts --sourcemap   # emit sourcemap (debug only)
  *   bun scripts/build-bundle.ts --no-verify   # skip the self-verify stage
@@ -59,16 +60,21 @@
  * NOTES
  * -----
  * - `--minify` already renames local identifiers (e.g. `var A56=Object.create`),
- *   which defeats casual reading. `--obfuscate` adds string-array + control-flow
- *   transforms via javascript-obfuscator; it is OPTIONAL because (a) that package
- *   is not a default dep, and (b) on a multi-MB FULL bundle it is slow and can
- *   significantly grow the file. On a THIN bundle it is fast and recommended.
+ *   which defeats casual reading. The javascript-obfuscator pass (string-array +
+ *   base64 encoding) is ON BY DEFAULT for thin — the 25 KB bundle is mostly your
+ *   own logic, so minify alone leaves it readable; obfuscation is the real
+ *   source-protection lever and it's cheap on 25 KB. It's OFF by default for FULL
+ *   (slow + bloating on 6.8 MB; FULL already has obfuscation-by-volume from the
+ *   inlined babel noise). `--no-obfuscate` opts out; `--obfuscate` forces it on.
+ *   javascript-obfuscator is a declared devDependency, so a missing install when
+ *   obfuscation is requested is a hard error (not a silent skip).
  * - The self-verify stage (--no-verify to skip) runs static integrity checks on
  *   the output AND, when the pi-agent bundle is present, a live load test that
  *   asserts vlm_describe registers. See stageVerify.
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const APP_NAME = "pi-vlm";
 const ENTRY = "extensions/pi-vlm.ts";
@@ -104,7 +110,13 @@ const PI_AGENT_BUNDLE = resolve(process.cwd(), "..", "..", "dist", "pi-agent", "
 
 const argv = process.argv.slice(2);
 const DO_THIN = argv.includes("--thin");
-const DO_OBFUSCATE = argv.includes("--obfuscate");
+// Obfuscation: default ON for thin (25 KB of mostly own logic → low
+// obfuscation-by-volume, so the javascript-obfuscator pass is needed for real
+// source protection), default OFF for full (6.8 MB already noisy, and the pass
+// is slow on it). --obfuscate forces on, --no-obfuscate forces off.
+const FORCE_OBFUSCATE = argv.includes("--obfuscate");
+const FORCE_NO_OBFUSCATE = argv.includes("--no-obfuscate");
+const DO_OBFUSCATE = FORCE_NO_OBFUSCATE ? false : DO_THIN || FORCE_OBFUSCATE;
 const DO_SOURCEMAP = argv.includes("--sourcemap");
 const DO_VERIFY = !argv.includes("--no-verify");
 const outFlagIdx = argv.indexOf("--out");
@@ -227,10 +239,12 @@ function stageResolveExternals() {
   console.log(`  ✓ ${resolved} bare specifier(s) resolved → ${OUTFILE}`);
 }
 
-// ── Stage 2 (optional): javascript-obfuscator pass ───────────────────────────
-// Only runs with --obfuscate AND javascript-obfuscator installed. Uses a
-// moderate preset — full controlFlowFlattening + stringArray on a multi-MB
-// bundle is slow and bloating; tune OBFUSCATOR_OPTIONS if you need heavier.
+// ── Stage 2: javascript-obfuscator pass ───────────────────────────────────────
+// ON by default for thin (see DO_OBFUSCATE). Uses a moderate preset — full
+// controlFlowFlattening + stringArray on a multi-MB FULL bundle is slow and
+// bloating; tune OBFUSCATOR_OPTIONS if you need heavier. javascript-obfuscator
+// is a declared devDependency, so a missing import here is a hard error, not a
+// skip (a default-on stage must actually run).
 async function stageObfuscate() {
   if (!DO_OBFUSCATE) return;
   console.log(`▶ obfuscate (javascript-obfuscator)`);
@@ -239,12 +253,13 @@ async function stageObfuscate() {
     obf = (await import("javascript-obfuscator")).default;
   } catch {
     console.error(
-      "  · skipping — javascript-obfuscator not installed.\n" +
-        "    Install with: bun add -d javascript-obfuscator",
+      "  ✗ javascript-obfuscator not installed, but obfuscation is ON.\n" +
+        "    (obfuscation is default for --thin.) Install: bun add -d javascript-obfuscator\n" +
+        "    Or opt out: bun scripts/build-bundle.ts --thin --no-obfuscate",
     );
-    return;
+    process.exit(1);
   }
-  const code = await Bun.file(OUTFILE).text();
+  const code = readFileSync(OUTFILE, "utf8");
   const result = obf.obfuscate(code, {
     compact: true,
     identifierNamesGenerator: "hexadecimal",
@@ -260,66 +275,126 @@ async function stageObfuscate() {
   console.log(`  ✓ ${OUTFILE}  (${formatSize(Bun.file(OUTFILE).size)})`);
 }
 
+// ── Stage 2b: deterministic factory invocation (verify tier B) ────────────────
+// The pi-vlm factory (extensions/pi-vlm.ts) touches exactly two pi-API surfaces
+// at registration time — pi.on("session_start", …) and pi.registerTool({name:
+// "vlm_describe", parameters: Type.Object({...})}). So a mock with just those
+// two methods exercises the REAL registration path, including the typebox
+// Type.Object(...) schema construction via the abs-path-resolved typebox import.
+// This is option-independent (it observes behavior, not encoded strings), so it
+// is the PRIMARY correctness gate and runs in every mode (thin/full × minify/
+// obfuscated). A failure here is always a real defect.
+const EXPECTED_VLM_PARAMS = [
+  "input", "out", "model", "provider", "thinking", "type", "pages", "dpi", "relpath",
+];
+
+async function liveFactoryTest(): Promise<
+  { ok: true; detail: string } | { ok: false; detail: string }
+> {
+  // import() the built file via a file:// URL. For THIN this also proves every
+  // baked absolute dep path resolves at module top-level (a wrong path throws
+  // here, before the factory is ever called).
+  let mod: any;
+  try {
+    mod = await import(pathToFileURL(OUTFILE).href);
+  } catch (e: any) {
+    return {
+      ok: false,
+      detail: `import() failed (broken ESM / unresolved abs-path dep under thin): ${String(e?.message || e).slice(0, 200)}`,
+    };
+  }
+  if (typeof mod?.default !== "function") {
+    return {
+      ok: false,
+      detail: `default export is not a factory function (got ${typeof mod?.default}) — pi loader cannot invoke it`,
+    };
+  }
+  const tools: any[] = [];
+  const mockApi = {
+    on: () => {}, // session_start handler registration — no-op
+    registerTool: (def: any) => tools.push(def),
+  };
+  try {
+    mod.default(mockApi);
+  } catch (e: any) {
+    return {
+      ok: false,
+      detail: `factory threw on invocation (dep load / typebox schema build failed): ${String(e?.message || e).slice(0, 200)}`,
+    };
+  }
+  const vlm = tools.find((t) => t?.name === "vlm_describe");
+  if (!vlm) {
+    const names = tools.map((t) => t?.name).filter(Boolean);
+    return {
+      ok: false,
+      detail: `factory registered no vlm_describe tool (got: ${names.join(", ") || "none"})`,
+    };
+  }
+  // typebox Type.Object({...}) serializes to {type:"object", required:[...],
+  // properties:{<param>:<schema>}} — the parameter NAMES are the keys of
+  // .properties, not of parameters itself.
+  const gotKeys = Object.keys(vlm.parameters?.properties ?? {});
+  const missing = EXPECTED_VLM_PARAMS.filter((k) => !gotKeys.includes(k));
+  if (missing.length) {
+    return {
+      ok: false,
+      detail: `vlm_describe.parameters missing key(s): ${missing.join(", ")} (got: ${gotKeys.join(", ") || "none"})`,
+    };
+  }
+  return {
+    ok: true,
+    detail: `vlm_describe registered, ${gotKeys.length} params (${gotKeys.join(",")}); ${tools.length} tool(s) total`,
+  };
+}
+
 // ── Stage 3: self-verify reviewer ─────────────────────────────────────────────
-// Runs AFTER bundle (+ obfuscate). Two tiers:
+// Runs AFTER bundle (+ obfuscate). Three tiers:
 //
-//   STATIC (always): inspect the output bytes for the invariants a valid pi
-//   extension bundle must hold — ESM default factory export present, minify
-//   actually applied, no dangling relative src refs / absolute repo paths
-//   leaking the source tree, and (thin) the expected peer-dep bare imports
-//   survived as externals. Cheap, deterministic, no external process.
+//   (A) STATIC STRING-PATTERN checks — MINIFY-ONLY. Inspect the output bytes for
+//   the invariants a valid pi extension bundle must hold: an ESM default export,
+//   a registerTool call, the minify-mangle signature, no dangling ../src refs,
+//   and (thin) every bare specifier abs-resolved / (full) no bare @earendil
+//   import left. These are minify-only because javascript-obfuscator output is
+//   NON-DETERMINISTIC across runs (random identifier generation + string-array
+//   layout, no seed) and stuffs body literals into a base64 string-array
+//   decoder — so the file body randomly contains `from`/`import(`/quote/
+//   `registerTool` substrings as string-array DATA, which these regexes match
+//   as false positives. Reliable only on clean minify-only output.
 //
-//   LIVE (when dist/pi-agent/pi-agent.js exists): boot the real pi-agent
-//   bundle with `-ne -e <bundle>` and assert vlm_describe registers. This is
-//   the only check that proves runtime alias resolution + factory invocation
-//   actually work end-to-end. Skipped (warned, not failed) when the host
-//   bundle is absent — e.g. building the extension before the agent bundle.
+//   (B) DETERMINISTIC FACTORY INVOCATION (always, hard-fail) — the PRIMARY
+//   correctness gate, and the only one that runs under obfuscation. Dynamically
+//   import() the bundle and invoke its default factory with a mock pi API, then
+//   assert vlm_describe registers with its full 9-key parameter schema. Proves
+//   the bundle is valid loadable ESM, every baked absolute dep path resolves
+//   (thin), the real typebox schema constructs, and the tool registers — with
+//   NO host bundle and regardless of how/whether obfuscation encoded the
+//   literals. This obfuscation-proofs the verify stage: the old code skipped
+//   nearly everything when obfuscated, and the default --thin build IS
+//   obfuscated, so that meant almost no verification. (B) fixes that.
+//
+//   (C) JITI / AGENT LIVE BOOT (when dist/pi-agent/pi-agent.js exists): boot
+//   the real pi-agent bundle with `-ne -e <bundle>`. This is the ONLY tier
+//   that exercises pi's jiti loader (the data:text/javascript wrapping that
+//   triggers NameTooLong on a thin bundle whose bare specifiers weren't
+//   abs-resolved) — tier (B) uses bun's native import(), which bypasses jiti.
+//   So (B) is the correctness gate and (C) is the jiti-integration gate.
+//   Skipped (warned, not failed) when the host bundle is absent.
 //
 // Any HARD failure exits 1 so CI / a bad edit can't ship a broken bundle
-// silently. LIVE-skip and obfuscation-density notes are warnings only.
+// silently. (C)-skip and obfuscation-density notes are warnings only.
 async function stageVerify() {
   if (!DO_VERIFY) return;
   console.log(`▶ self-verify`);
-  const code = await Bun.file(OUTFILE).text();
+  const code = readFileSync(OUTFILE, "utf8");
   const bytes = Buffer.byteLength(code);
   const failures: string[] = [];
   const warnings: string[] = [];
 
-  // V1 — default factory export survived bundling. pi's loader imports the
-  // default export and calls it as `(api) => void`. Both `export default` and
-  // the minified `registerTool` call should be present.
-  if (!/export\s+default/.test(code) && !code.includes("default:")) {
-    failures.push("no ESM default export found — pi loader cannot import this");
-  }
-  if (!code.includes("registerTool")) {
-    failures.push("registerTool call missing — extension registers nothing");
-  }
-
-  // V2 — minify applied. Mangled identifiers look like `var XY=Object.create`
-  // or `_5=(J,Q)=>`. If long descriptive names survive, --minify silently
-  // regressed (wrong flag, target mismatch).
-  const mangled = /\bvar\s+[A-Za-z0-9$_]{1,3}\s*=\s*Object\.(create|defineProperty)/.test(code);
-  if (!mangled) {
-    warnings.push(
-      "no short-mangled identifiers detected — minify may not have applied " +
-        "(re-check --minify / target)",
-    );
-  }
-
-  // V3 — no source-tree leakage. A bundled+minified artifact must not retain
-  // dangling `../src/...` relative imports (means a project file escaped
-  // inlining) or absolute repo paths (leaks usernames / layout).
-  const danglingSrc = code.match(/\.\.\/src\/[a-z][a-z0-9./-]*/gi);
-  if (danglingSrc) {
-    failures.push(`dangling relative src refs not inlined: ${[...new Set(danglingSrc)].slice(0, 5).join(", ")}`);
-  }
-  if (!DO_THIN && /\/Users\/[a-z]/i.test(code)) {
-    warnings.push("absolute /Users/... path found in output — leaks local layout");
-  }
-  // (thin mode INTENTIONALLY embeds absolute dep paths — that's the fix; exempt)
-
-  // V4 — size sanity. Full ~6.8MB, thin ~25KB. A 0-byte or implausibly tiny
-  // output means the build silently produced an empty/stub file.
+  // (A) STATIC checks ----------------------------------------------------------
+  //
+  // V4 — size sanity (ALWAYS). Full ~6.8MB, thin ~25KB (minify-only) / ~50KB
+  // (obfuscated). A 0-byte or implausibly tiny output means the build silently
+  // produced an empty/stub file.
   const maxBytes = DO_THIN ? 500_000 : 15_000_000;
   const minBytes = DO_THIN ? 5_000 : 1_000_000;
   if (bytes < minBytes) {
@@ -329,36 +404,87 @@ async function stageVerify() {
     warnings.push(`output ${formatSize(bytes)} above expected ceiling ${formatSize(maxBytes)} — dep graph grew?`);
   }
 
-  // V5 (thin only) — stageResolveExternals must have rewritten EVERY bare
-  // specifier to an absolute path. A surviving bare non-builtin import would
-  // re-trigger jiti's data-URL wrap → NameTooLong at load. So: zero bare
-  // imports left, and typebox resolved to an absolute path.
-  if (DO_THIN) {
-    const bareLeft = [...code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)]
-      .map((m) => m[1])
-      .filter((s) => !s.startsWith("node:") && !BUILTINS.has(s) && !s.startsWith("/"));
-    if (bareLeft.length) {
-      failures.push(`thin: bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`);
+  // V1–V3, V5, V6 — STATIC STRING-PATTERN checks on the output bytes. MINIFY-
+  // ONLY. Every one of these greps the bytes for a substring/regex (an export
+  // form, `registerTool`, the mangle signature, a `from "…"` specifier, a
+  // ../src path). javascript-obfuscator output is non-deterministic across
+  // runs (random identifier generation + string-array layout, no seed), AND it
+  // stuffs body literals into a base64 string-array decoder — so the file's
+  // body randomly contains `from`/`import(`/quote/`registerTool` substrings as
+  // string-array DATA, which these regexes match as false positives (one run
+  // shows `registerTool` literally, the next encodes it). They are reliable
+  // only on minify-only output, where imports/exports are clean and literals
+  // are intact. The obfuscated path is covered BEHAVIORALLY by tier (B) below,
+  // which proves the same invariants (export default is a function, deps
+  // resolve, vlm_describe registers) by actually invoking the factory.
+  if (!DO_OBFUSCATE) {
+    // V1 — default factory export survived bundling (accept the object-literal
+    // `default:` form too).
+    if (!/export\s+default/.test(code) && !code.includes("default:")) {
+      failures.push("no ESM default export found — pi loader cannot import this");
     }
-    if (!/from\s*"\/[^"]+typebox[^"]*"/.test(code) && !/import\(\s*"\/[^"]*typebox/.test(code)) {
-      warnings.push("thin: no absolute-path typebox import found — did stageResolveExternals run?");
+    // `registerTool` literal — the extension registers nothing without it.
+    if (!code.includes("registerTool")) {
+      failures.push("registerTool call missing — extension registers nothing");
     }
+
+    // V2 — minify applied (short-mangled identifiers).
+    const mangled = /\bvar\s+[A-Za-z0-9$_]{1,3}\s*=\s*Object\.(create|defineProperty)/.test(code);
+    if (!mangled) {
+      warnings.push(
+        "no short-mangled identifiers detected — minify may not have applied " +
+          "(re-check --minify / target)",
+      );
+    }
+
+    // V3 — no dangling ../src/ relative imports (a project file escaped inlining).
+    const danglingSrc = code.match(/\.\.\/src\/[a-z][a-z0-9./-]*/gi);
+    if (danglingSrc) {
+      failures.push(`dangling relative src refs not inlined: ${[...new Set(danglingSrc)].slice(0, 5).join(", ")}`);
+    }
+    if (!DO_THIN && /\/Users\/[a-z]/i.test(code)) {
+      warnings.push("absolute /Users/... path found in output — leaks local layout");
+    }
+    // (thin mode INTENTIONALLY embeds absolute dep paths — that's the fix; exempt)
+
+    // V5 (thin only) — every bare specifier resolved to an absolute path; a
+    // surviving bare non-builtin import would re-trigger jiti's data-URL wrap.
+    if (DO_THIN) {
+      const bareLeft = [...code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)]
+        .map((m) => m[1])
+        .filter((s) => !s.startsWith("node:") && !BUILTINS.has(s) && !s.startsWith("/"));
+      if (bareLeft.length) {
+        failures.push(`thin: bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`);
+      }
+      if (!/from\s*["']\/[^"']+typebox[^"']*["']/.test(code) && !/import\(\s*["']\/[^"']*typebox/.test(code)) {
+        warnings.push("thin: no absolute-path typebox import found — did stageResolveExternals run?");
+      }
+    }
+
+    // V6 (full only) — deps actually inlined (no bare @earendil import left).
+    if (!DO_THIN) {
+      const bareImport = /(?:from|require\(|import\()\s*["']@earendil-works\//.test(code);
+      if (bareImport) {
+        warnings.push("full bundle still imports @earendil-works/* — deps not fully inlined?");
+      }
+    }
+  } else {
+    console.log(`  · obfuscated output — static string checks skipped (obfuscator output is non-deterministic; factory test is authoritative)`);
   }
 
-  // V6 (full only) — sanity that deps got inlined (no bare @earendil IMPORT
-  // left). Match actual import/require syntax, NOT bare string presence: the
-  // extension's missingDeps() helper legitimately contains the literal
-  // "@earendil-works/pi-coding-agent" as a probe string.
-  if (!DO_THIN) {
-    const bareImport = /(?:from|require\(|import\()\s*["']@earendil-works\//.test(code);
-    if (bareImport) {
-      warnings.push("full bundle still imports @earendil-works/* — deps not fully inlined?");
-    }
+  // (B) DETERMINISTIC FACTORY INVOCATION — primary correctness gate.
+  // Runs always, hard-fails. See liveFactoryTest + the tier-(B) doc comment.
+  const factory = await liveFactoryTest();
+  if (!factory.ok) {
+    failures.push(`factory test: ${factory.detail}`);
+  } else {
+    console.log(`  ✓ factory: ${factory.detail}`);
   }
 
-  // V7 — LIVE load test via the pi-agent bundle. Proves runtime resolution of
-  // the externalized peer deps + factory invocation. Best-effort: skipped
-  // (warned) if the host bundle is not built yet.
+  // (C) JITI / AGENT LIVE BOOT — the only tier that exercises pi's jiti loader.
+  // Proves runtime resolution of the externalized peer deps + factory invocation
+  // through the REAL load path (bun's native import() in tier B bypasses jiti).
+  // Best-effort: skipped (warned) if the host bundle is not built yet.
   if (existsSync(PI_AGENT_BUNDLE)) {
     try {
       const proc = Bun.spawn(
@@ -406,7 +532,10 @@ async function stageVerify() {
     console.error(`  ✗ self-verify FAILED (${failures.length} hard failure(s))`);
     process.exit(1);
   }
-  const checks = 6 + (existsSync(PI_AGENT_BUNDLE) ? 1 : 0);
+  // (A) size + (B) factory always = 2; minify-only adds the static string checks
+  // (export, registerTool, dangling-src, import-specifier) = +4; (C) jiti live
+  // boot = +1 when the host bundle is present.
+  const checks = 2 + (!DO_OBFUSCATE ? 4 : 0) + (existsSync(PI_AGENT_BUNDLE) ? 1 : 0);
   console.log(`  ✓ self-verify passed (${checks} checks, ${warnings.length} warning(s))`);
 }
 
