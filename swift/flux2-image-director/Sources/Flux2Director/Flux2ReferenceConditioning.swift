@@ -2,8 +2,16 @@
 //  Flux2ReferenceConditioning.swift
 //  Flux2Director
 //
-//  Phase 3.1: Flux2KleinEdit reference image conditioning. Ported from mflux's
-//  flux2_klein_edit_helpers.prepare_reference_image_conditioning.
+//  Phase 3.1: Flux2KleinEdit reference image conditioning.
+//
+//  ── Provenance ──────────────────────────────────────────────────────────
+//  Origin: ComfyUI community workflow "Klein+完全体 | 三參考圖全能王" (N reference
+//  images → one composed scene via Flux2 Klein Edit's ReferenceLatent trick).
+//  Workflow graph published on RunningHub:
+//    https://www.runninghub.ai/zh-cn/post/2064189691808804865?inviteCode=mx929qer
+//  The conditioning math mirrors mflux's
+//  `flux2_klein_edit_helpers.prepare_reference_image_conditioning`.
+//  (Region-binding extension: ComfyUI Flux2Klein Mask-Ref Controller, capitan01R.)
 //
 //  Each reference image is: load → VAE-encode → patchify (32→128ch, 2× spatial)
 //  → bn-normalize ((x-mean)/std) → pack to sequence tokens. The reference tokens

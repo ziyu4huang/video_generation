@@ -37,6 +37,15 @@
 //  Both mechanisms work on full (non-distilled) Klein. Reliable multi-char
 //  placement here = prompt + seed-sweep. See docs/multi-reference-architecture.md §6.
 //
+//  ── Positive result (2026-07-01, local-LLM verified) ────────────────────
+//  The prompt-driven path is STRONG: a 2-girl classroom scene where each girl
+//  has a DIFFERENT look (hair/clothing) AND a different pose + activity
+//  (left = sitting + writing math; right = standing + reading) landed
+//  correctly on 3/3 seeds (qwen3-vl-4b structured placement+activity check).
+//  I.e. with unambiguous visual cues the prompt routes BOTH position AND
+//  action reliably — no --regional / region-binding needed. Reproduce +
+//  verify: `scripts/scene-classroom-demo.sh` + `scripts/scene-verify.ts`.
+//
 
 import ArgumentParser
 import CommonImageDirector
