@@ -32,6 +32,21 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
   const debug = envFlag("BUN_PI_DEBUG_PATCHES", false);
   const applied: AppliedPatch[] = [];
 
+  // ── patch: set-package-dir ────────────────────────────────────────────────
+  // Sets PI_PACKAGE_DIR so pi's asset paths (themes, templates) resolve
+  // correctly when running as a bundled .js. Must run first, before any other
+  // patch that might trigger pi module initialization.
+  {
+    const name = "set-package-dir";
+    const env = "BUN_PI_SET_PACKAGE_DIR";
+    const defaultValue = true;
+    const enabled = envFlag(env, defaultValue);
+    if (enabled) {
+      await import("./set-package-dir.ts");
+    }
+    applied.push({ name, env, defaultValue, applied: enabled });
+  }
+
   // ── patch: pre-load-providers ─────────────────────────────────────────────
   // Injects custom LLM providers into pi's ModelRegistry before main() starts.
   {
