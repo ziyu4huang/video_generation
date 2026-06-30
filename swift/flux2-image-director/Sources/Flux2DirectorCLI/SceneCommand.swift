@@ -14,6 +14,29 @@
 //  concatenates the reference tokens). This command is the CLI surface that
 //  feeds MULTIPLE distinct images (vs angle/style, which repeat ONE image).
 //
+//  ── Provenance ──────────────────────────────────────────────────────────
+//  Ported from the ComfyUI community workflow "Klein+完全体 | 三參考圖全能王"
+//  (multi-reference全能王: N reference images → one composed scene via Flux2
+//  Klein Edit's ReferenceLatent conditioning). The original ComfyUI workflow
+//  graph + node setup is published here:
+//    https://www.runninghub.ai/zh-cn/post/2064189691808804865?inviteCode=mx929qer
+//  The reference-conditioning math mirrors mflux's
+//  `flux2_klein_edit_helpers.prepare_reference_image_conditioning`.
+//
+//  ── Region-binding research (2026-06/07, local-LLM A/B) ─────────────────
+//  Two ref-side spatial-binding mechanisms were implemented + A/B tested:
+//    * `--region-attention` — block-mask the DiT self-attention (OOD on the
+//      distilled model → inert, prompt wins 3/3; ~2× slower).
+//    * `--ref-region-mask`  — attenuate each ref's patchified latent outside
+//      its region (in-distribution, ported from ComfyUI Flux2Klein Mask-Ref
+//      Controller by capitan01R; free, no overhead → but ALSO inert on this
+//      distilled model: conflict 3/3 prompt wins, agree-case identical to
+//      baseline).
+//  Unified finding: on the DISTILLED Klein, ref latents carry IDENTITY but
+//  not POSITION — placement is text-dominated; no ref-side mechanism binds.
+//  Both mechanisms work on full (non-distilled) Klein. Reliable multi-char
+//  placement here = prompt + seed-sweep. See docs/multi-reference-architecture.md §6.
+//
 
 import ArgumentParser
 import CommonImageDirector
@@ -84,6 +107,21 @@ extension Flux2CLI {
         /// default vertical-strip layout.
         @Option(help: "Per-ref region mask (repeatable, one per --ref; white = that ref's region). Default layout = vertical strips.")
         var refMask: [String] = []
+
+        /// WS4 region BINDING (works, in-distribution). Attenuate each ref's
+        /// patchified latent OUTSIDE its mask region (spatial token scaling),
+        /// so identity is bound to a spatial region during the single denoise
+        /// pass. Unlike `--region-attention` (OOD, inert), this keeps the model
+        /// in its trained global-attention regime. Ported from ComfyUI
+        /// Flux2Klein Mask-Ref Controller. Pass one --ref-region-mask per --ref.
+        @Option(help: "Region-binding mask (repeatable, one per --ref; white = preserve, black = attenuate). Attenuates ref latent outside its region IN-distribution.")
+        var refRegionMask: [String] = []
+
+        @Option(help: "Region-binding attenuation strength in BLACK mask regions. 1.0 = zero out (full bind, default), 0.5 = keep 50%.")
+        var refRegionStrength: Float = 1.0
+
+        @Option(help: "Feather (latent-px) for region-binding mask edges. Default 2.")
+        var refRegionFeather: Int = 2
         @Option(help: "Seam feather (px) for regional strip inpaint. Default 24.")
         var regionalFeather: Int = 24
         /// Regional SDEdit strength. The strip is refined via PARTIAL denoise
@@ -158,6 +196,12 @@ extension Flux2CLI {
             }
             if refMask.count > distinctCount() {
                 throw ValidationError("--ref-mask count (\(refMask.count)) exceeds --ref count (\(distinctCount()))")
+            }
+            if refRegionMask.count > distinctCount() {
+                throw ValidationError("--ref-region-mask count (\(refRegionMask.count)) exceeds --ref count (\(distinctCount()))")
+            }
+            if regionAttention && !refRegionMask.isEmpty {
+                throw ValidationError("--region-attention (OOD attention mask) and --ref-region-mask (in-distribution latent mask) are mutually exclusive")
             }
             if regionAttention && regional {
                 throw ValidationError("--region-attention (in-denoise binding) and --regional (post-pass) are mutually exclusive")
@@ -258,7 +302,7 @@ extension Flux2CLI {
                 // conflict the prompt won on 3/3 seeds (mask ignored, OOD). It is
                 // also ~2× slower. Kept for reproducibility / re-test on a future
                 // non-distilled transformer; do not rely on it for placement.
-                print("  ⚠️ region-attn is EXPERIMENTAL and A/B-shown NOT to bind placement on this distilled model (prompt wins). ~2× slower. Use seed-sweep for placement.")
+                print("  ⚠️ region-attn is EXPERIMENTAL and A/B-shown NOT to bind placement on this distilled model (prompt wins). ~2× slower. Use --ref-region-mask or seed-sweep for placement.")
                 let distinctN = distinct.count
                 if refMask.isEmpty {
                     regionLabels = stripRegionLabels(
@@ -272,13 +316,34 @@ extension Flux2CLI {
                 }
             }
 
+            // WS4 region BINDING (works, in-distribution). Build one spatial mask
+            // per --ref at the patchified latent grid (H/16 × W/16); the pipeline
+            // attenuates each ref's latent outside its region. Feathered.
+            var refRegionMasks: [MLXArray]? = nil
+            if !refRegionMask.isEmpty {
+                // ⚠️ A/B-tested 2026-07-01: the in-distribution latent-mask path
+                // (capitan01R Mask-Ref Controller) is correctly applied (free, no
+                // overhead, gate PASS) but observably INERT for placement on this
+                // DISTILLED Klein model — conflict test 3/3 prompt wins; 3-char
+                // agree-case identical to baseline. Same root finding as
+                // --region-attention: ref latents carry identity, not position;
+                // placement is text-dominated. Works on full (non-distilled) Klein.
+                print("  ⚠️ region-bind (--ref-region-mask) is A/B-shown INERT for placement on this distilled model (prompt-dominated). Free + in-distribution; kept for full-Klein / fidelity reinforcement.")
+                let maskURLs = refRegionMask.map { URL(fileURLWithPath: $0) }
+                refRegionMasks = buildRefRegionMasks(
+                    masks: maskURLs, width: width, height: height,
+                    count: distinct.count, feather: refRegionFeather)
+                print("  region-bind: \(refRegionMask.count) mask(s), strength=\(refRegionStrength), feather=\(refRegionFeather)")
+            }
+
             print("  generating...")
             let (basePixels, baseElapsed) = pipeline.generate(
                 prompt: prompt, imagePaths: refPaths, seed: seed,
                 height: height, width: width, steps: steps, guidance: cfgScale,
                 initImagePath: bgURL, denoiseStrength: bgStrength,
                 refStrengths: refStrengths, refGateSteps: refGateSteps,
-                regionLabels: regionLabels)
+                regionLabels: regionLabels,
+                regionMasks: refRegionMasks, refRegionStrength: refRegionStrength)
 
             // Regional placement post-pass (Workstream 1b): refine each distinct
             // ref into its own vertical strip via masked inpaint, locking the
@@ -471,6 +536,36 @@ extension Flux2CLI {
             let stacked = MLX.stacked(downsampled, axis: 0)   // (count, latentH, latentW)
             let labels = stacked.argMax(axis: 0)              // (latentH, latentW) uint32
             return labels.reshaped([-1]).asType(.int32)
+        }
+
+        /// Build per-ref spatial masks at the patchified latent grid for the
+        /// in-distribution region-binding path (WS4). Each input mask is loaded
+        /// to (1,1,H,W) [0,1], block-mean downsampled to (latentH, latentW) =
+        /// (H/16, W/16), feathered, returned as (1,1,latentH,latentW). Refs
+        /// beyond the supplied mask count get an all-ones mask (no attenuation).
+        private func buildRefRegionMasks(masks: [URL], width: Int, height: Int,
+                                         count: Int, feather: Int) -> [MLXArray] {
+            let latentH = height / 16, latentW = width / 16
+            let bh = height / latentH, bw = width / latentW   // both == 16
+            var out: [MLXArray] = []
+            for i in 0..<count {
+                let full: MLXArray
+                if i < masks.count {
+                    full = (try? Flux2ImageLoad.loadMaskAsChannel(
+                        from: masks[i], width: width, height: height)) ?? MLX.zeros([1, 1, height, width])
+                } else {
+                    full = MLX.ones([1, 1, height, width])
+                }
+                let r = full.asType(.float32).reshaped([1, 1, latentH, bh, latentW, bw])
+                let ds = r.mean(axis: 3).mean(axis: 4)        // (1,1,latentH,latentW)
+                let clipped = MLX.clip(ds, min: 0.0, max: 1.0).reshaped([latentH, latentW])
+                let feathered = feather > 0
+                    ? MLX.clip(Flux2Composite.featherMask(clipped, radius: feather)
+                        .reshaped([1, 1, latentH, latentW]), min: 0.0, max: 1.0)
+                    : clipped.reshaped([1, 1, latentH, latentW])
+                out.append(feathered.asType(.float32))
+            }
+            return out
         }
     }
 }

@@ -137,7 +137,9 @@ public struct Flux2EditPipeline {
                          height: Int, width: Int, steps: Int, guidance: Float,
                          initImagePath: URL? = nil, denoiseStrength: Float = 1.0,
                          refStrengths: [Float]? = nil, refGateSteps: Float = 1.0,
-                         regionLabels: MLXArray? = nil)
+                         regionLabels: MLXArray? = nil,
+                         regionMasks: [MLXArray]? = nil,
+                         refRegionStrength: Float = 1.0)
         -> (MLXArray, Double)
     {
         let start = DispatchTime.now()
@@ -161,7 +163,11 @@ public struct Flux2EditPipeline {
         //    fraction of early steps that inject refs (applied in the loop below).
         let (imageLatents, imageLatentIds) = Flux2ReferenceConditioning.prepare(
             imagePaths: imagePaths, vaeEncoder: vaeEncoder, bn: bn,
-            height: height, width: width, batchSize: 1, strengths: refStrengths)
+            height: height, width: width, batchSize: 1, strengths: refStrengths,
+            regionMasks: regionMasks, refRegionStrength: refRegionStrength)
+        if let masks = regionMasks, !masks.isEmpty {
+            print("   region-bind: \(masks.count) ref-latent mask(s), attenuation strength=\(refRegionStrength) (in-distribution spatial token scaling)")
+        }
         let gateStepIdx = refGateSteps >= 1.0
             ? steps
             : max(0, Int((Float(steps) * refGateSteps).rounded(.toNearestOrEven)))

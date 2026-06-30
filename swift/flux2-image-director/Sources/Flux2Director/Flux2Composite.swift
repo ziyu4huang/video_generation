@@ -118,7 +118,7 @@ public enum Flux2Composite {
     }
 
     /// Simple separable box-blur feathering of a (H,W) mask.
-    static func featherMask(_ mask: MLXArray, radius: Int) -> MLXArray {
+    public static func featherMask(_ mask: MLXArray, radius: Int) -> MLXArray {
         guard radius > 0 else { return mask }
         // Approximate gaussian via 3 passes of box blur (radius each).
         var m = mask.asType(.float32)

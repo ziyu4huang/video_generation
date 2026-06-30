@@ -7,9 +7,10 @@ conditioning pipeline, end-to-end architecture diagrams, and the architectural
 limitations discovered by testing. (For per-command CLI usage see the main
 `README.md`; this doc is the internals/knowledge reference.)
 
-> Ported from the ComfyUI "Klein 完全体 三參考圖全能王" workflow. The reference
-> conditioning math (`Flux2ReferenceConditioning.prepare`) mirrors mflux's
-> `flux2_klein_edit_helpers.prepare_reference_image_conditioning`.
+> Ported from the ComfyUI "Klein 完全体 三參考圖全能王" workflow
+> ([workflow graph on RunningHub](https://www.runninghub.ai/zh-cn/post/2064189691808804865?inviteCode=mx929qer)).
+> The reference conditioning math (`Flux2ReferenceConditioning.prepare`) mirrors
+> mflux's `flux2_klein_edit_helpers.prepare_reference_image_conditioning`.
 
 ---
 
@@ -194,43 +195,74 @@ Add `--hand-repair` when hands matter.
 
 ---
 
-## 6. Region-bound attention (`--region-attention`) — TESTED, DOES NOT BIND
+## 6. Region binding — two ref-side mechanisms, BOTH inert on the distilled model
 
-To try to fix limitation #1 (global refs, no identity→position binding) *during*
-a single denoise pass, we added an optional **block attention mask** to the DiT:
-a noise token may attend a ref token **only when their region index matches**
+To fix limitation #1 (global refs, no identity→position binding) we implemented
+and A/B-tested **two** ref-side spatial-binding mechanisms. Both are correctly
+applied; **both are observably inert for placement on the DISTILLED Klein model.**
+
+### 6a. `--region-attention` — block-mask the DiT self-attention (OOD)
+
+A noise token may attend a ref token only when their region index matches
 (`Flux2T2IPipeline.buildRegionMask`, threaded via `regionMask` through every
-attention layer — MLX `scaledDotProductAttention(mask:)`). Layout = vertical
-strips by default, or one `--ref-mask` per `--ref` (argmax per latent patch).
+attention layer — MLX `scaledDotProductAttention(mask:)`). Decisive test =
+mask-vs-prompt **conflict** (prompt "pink LEFT, teal RIGHT"; `--ref-mask`
+pink→RIGHT, teal→LEFT). Result (2026-06-30, qwen3-vl-4b, seeds 100/137/211):
+**prompt won 3/3**. The mask is applied (region-attn log, ~2× slower 147 s vs
+75 s, gate PASS) but ignored — the model never trained a masked-ref attention
+path (**OOD**).
 
-**The decisive experiment was a mask-vs-prompt CONFLICT** (`scripts/region-attention-test.sh`):
-the prompt said "pink LEFT, teal RIGHT" while `--ref-mask` assigned pink→RIGHT,
-teal→LEFT. If the mask binds, pink should land RIGHT.
-
-**Result (2026-06-30, qwen3-vl-4b, 3 seeds 100/137/211): the prompt won on
-every seed** — `PINK=LEFT, TEAL=RIGHT` in all cases. The mask is applied
-(verified: the `region-attn` log line, ~2× slower 147 s vs 75 s, gate PASS) but
-**the distilled Klein model ignores the spatial constraint** — it was trained
-with global ref attention and does not use a masked-ref path it never saw. This
-is the OOD failure the design hedged against.
-
-| run | overall | prompt_adherence | artifacts | placement | time |
+| run | overall | adh | artifacts | placement | time |
 |---|---|---|---|---|---|
-| baseline (global refs) | 6 | 10 | 5 | pink-L / teal-R (prompt) | 75 s |
-| `--region-attention` (strips) | 6 | 9 | 5 | pink-L / teal-R (prompt) | 147 s |
-| `--region-attention` conflict (mask pink→R) | 6 | 9 | 5 | pink-L / teal-R (**prompt wins**) | 110 s |
+| baseline | 6 | 10 | 5 | pink-L/teal-R (prompt) | 75 s |
+| `--region-attention` strips | 6 | 9 | 5 | pink-L/teal-R (prompt) | 147 s |
+| `--region-attention` conflict | 6 | 9 | 5 | pink-L/teal-R (**prompt wins**) | 110 s |
 
-**Quality is neutral** (overall 6, artifacts 5 — the only issue is the platform
-plasticky-skin artifact, unrelated). So `--region-attention` is **quality-neutral
-but binding-inert and ~2× slower**. The flag is kept (with a runtime warning) for
-reproducibility / re-testing on a future non-distilled transformer, but **do not
-rely on it for placement**.
+### 6b. `--ref-region-mask` — attenuate each ref's latent outside its region (in-distribution)
 
-**Conclusion:** on this distilled model, in-denoise attention masking cannot
-create identity→region binding. The reliable lever for multi-character placement
-remains **prompt + multi-seed auto-select**; true region-bound identity would
-require **IP-Adapter Regional** (mask→ref conditioning — an architecturally
-different conditioning path, not ported to Swift/MLX).
+Researched online → the community-standard mechanism is **spatially masking the
+patchified reference latent itself** (not the attention), ported from the
+[ComfyUI Flux2Klein Mask-Ref Controller (capitan01R/ComfyUI-Flux2Klein-Enhancer)](https://github.com/capitan01R/ComfyUI-Flux2Klein-Enhancer):
+`ref_latent *= 1 - strength·(1 - mask)` in the patchified spatial grid (after BN,
+before pack). This keeps the model in its trained global-attention regime
+(**in-distribution** — only input token magnitudes change), so it is the
+theoretically-correct lever where attention-masking was OOD.
+
+`Flux2ReferenceConditioning.prepare(regionMasks:refRegionStrength:)` applies it;
+CLI `--ref-region-mask` (one per `--ref`) + `--ref-region-strength` (default 1.0).
+It is **free** (75 s, no overhead — just scaling input tokens).
+
+**Result (2026-07-01): ALSO inert on the distilled model.**
+- Conflict test (mask pink→RIGHT vs prompt pink-LEFT), seeds 100/137/211:
+  **prompt won 3/3** (`PINK=LEFT, TEAL=RIGHT`).
+- Agree-case 3-character scene (mask agrees with prompt): **identical** to
+  baseline (correct pink/teal/purple order, no defects, with or without mask).
+- Quality parity (overall 6, artifacts 5; only issue = platform plasticky skin).
+
+### 6c. Unified finding (the gate-review conclusion)
+
+Two independent mechanisms — one OOD (attention mask), one in-distribution
+(latent mask) — both fail to bind placement on this model. This **confirms the
+root cause is the distillation, not the mechanism**: the distilled Klein's
+reference latents carry **IDENTITY but not POSITION**; placement is
+**text-dominated**. capitan01R's latent-mask tool works on the **full
+(non-distilled)** Klein (where ref latents retain spatial weight); distillation
+compressed that away.
+
+**Implications:**
+- Both flags are kept (with runtime warnings) — correct, cheap infrastructure,
+  and the latent-mask path IS the proven mechanism for full Klein. They cost
+  nothing extra to leave available.
+- On this distilled model, **reliable multi-character placement = prompt +
+  multi-seed auto-select** (`scripts/multi-seed-autoselect.sh`).
+- True region-bound identity needs **IP-Adapter Regional** (mask→ref
+  conditioning — a separate conditioning architecture, not ported to Swift/MLX),
+  or a **non-distilled** Klein where the latent-mask path becomes effective.
+
+**Research sources** (regional conditioning for Flux2 Klein):
+- [capitan01R/ComfyUI-Flux2Klein-Enhancer](https://github.com/capitan01R/ComfyUI-Flux2Klein-Enhancer) — Mask-Ref Controller + Multi-Reference Latent (the mechanism ported in 6b)
+- [xmarre/ComfyUI-Flux2Klein-Conditioning-Toolkit](https://github.com/xmarre/ComfyUI-Flux2Klein-Conditioning-Toolkit) — regional token conditioning
+- [r/comfyui — multiple reference images with Klein2 KV](https://www.reddit.com/r/comfyui/comments/1t1mu4h/adding_multiple_reference_images_into_a_single/) — multi-ref merge (no binding)
 
 ---
 

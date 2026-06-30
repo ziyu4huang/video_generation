@@ -26,9 +26,21 @@ public enum Flux2ReferenceConditioning {
     /// `strengths` (optional, one per image) scales each reference's packed
     /// tokens before concatenation — a per-reference identity weight (WS3).
     /// Missing/extra entries default to 1.0 (no scaling).
+    ///
+    /// `regionMasks` (optional, one per image, shape (1,1,H/16,W/16) in [0,1])
+    /// + `refRegionStrength` spatially ATTENUATE each reference's latent outside
+    /// its mask region — binding identity→region. Applied in the patchified
+    /// spatial grid (after BN, before pack) using multiplier
+    /// `1 - strength·(1 - mask)` (mask=1 → keep, mask=0 → attenuate to
+    /// `1-strength`). This keeps the model in its trained global-attention
+    /// regime (only input token magnitudes change → in-distribution), unlike
+    /// attention masking (OOD). Ported from ComfyUI Flux2Klein Mask-Ref
+    /// Controller (capitan01R). WS4.
     public static func prepare(imagePaths: [URL], vaeEncoder: Flux2VAEEncoder,
                                bn: Flux2BatchNormStats, height: Int, width: Int,
-                               batchSize: Int = 1, strengths: [Float]? = nil)
+                               batchSize: Int = 1, strengths: [Float]? = nil,
+                               regionMasks: [MLXArray]? = nil,
+                               refRegionStrength: Float = 1.0)
         -> (MLXArray?, MLXArray?)
     {
         guard !imagePaths.isEmpty else { return (nil, nil) }
@@ -54,6 +66,16 @@ public enum Flux2ReferenceConditioning {
             // 5. bn-normalize (encode direction: (x-mean)/std).
             encoded = Flux2LatentCreator.bnNormalizeEncoded(
                 encoded, mean: bn.runningMean, var_: bn.runningVar, eps: bn.eps)
+
+            // 5b. WS4 region binding: attenuate this ref's latent OUTSIDE its mask
+            // region (spatial grid, broadcasts over the 128 channels). In-distribution
+            // spatial token scaling — the mechanism that actually binds (vs the
+            // OOD attention-mask path that the distilled model ignores).
+            if let masks = regionMasks, i < masks.count, refRegionStrength > 0 {
+                let m = masks[i].asType(.float32)
+                let mult = (1.0 - MLXArray(refRegionStrength) * (1.0 - m)).asType(encoded.dtype)
+                encoded = (encoded * mult).asType(encoded.dtype)
+            }
 
             // 6. pack to sequence tokens (B, C, H, W) → (B, H*W, C).
             //    Apply per-reference strength (WS3): scale this ref's token values.
