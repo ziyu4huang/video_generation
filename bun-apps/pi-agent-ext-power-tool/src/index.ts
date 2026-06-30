@@ -8,8 +8,13 @@
  *     • Estimated conversation overhead (live total minus the two above)
  *     All tools shown sorted by cost; guidelines shown in full.
  *
+ *   agent_inventory    — dump agent state to YAML: extensions, tools, skills, context files, model, cwd.
+ *     Outputs to <cwd>/output/pi/agent-inventory-<timestamp>.yaml by default.
+ *     Readable by humans and agents for debugging/analysis.
+ *
  * Usage:
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call context_analyzer"
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call agent_inventory"
  */
 import {
   type BuildSystemPromptOptions,
@@ -19,6 +24,9 @@ import {
   formatSkillsForPrompt,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import * as yaml from "js-yaml";
+import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
 
 // ─── Snapshot captured from before_agent_start ────────────────────────────────
 
@@ -31,12 +39,15 @@ let snapshot: Snapshot | null = null;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Rough chars→token estimate. Both tools share this ratio.
+const TOKEN_RATIO = 3.7;
+
 function est(chars: number): string {
-  return `~${Math.round(chars / 3.7).toLocaleString()} tok`;
+  return `~${Math.round(chars / TOKEN_RATIO).toLocaleString()} tok`;
 }
 
 function estTok(chars: number): number {
-  return Math.round(chars / 3.7);
+  return Math.round(chars / TOKEN_RATIO);
 }
 
 function bar(percent: number | null, width = 28): string {
@@ -270,6 +281,167 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
   });
 }
 
+// ─── Agent Inventory Tool ───────────────────────────────────────────────────
+
+function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
+  return defineTool({
+    name: "agent_inventory",
+    label: "Agent Inventory",
+    description:
+      "Dump agent state (extensions, tools, skills, context files, model, cwd) to YAML " +
+      "for human and machine readability. Outputs to <cwd>/output/pi/ by default.",
+    promptSnippet: "Dump agent configuration and state to YAML",
+    parameters: Type.Object({
+      output_dir: Type.Optional(Type.String()),
+      filename: Type.Optional(Type.String()),
+      return_content: Type.Optional(Type.Boolean()),
+    }),
+
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      const outputDir = params.output_dir ?? "output/pi";
+      const useTimestamp = params.filename === undefined || params.filename === "";
+      const filename = useTimestamp
+        ? `agent-inventory-${Date.now()}`
+        : params.filename;
+      const returnContent = params.return_content ?? false;
+
+      // Build inventory data structure
+      const inventory: Record<string, unknown> = {
+        agent: {
+          app_name: "pi",
+          cwd: ctx.cwd,
+          timestamp: new Date().toISOString(),
+          mode: ctx.mode,
+          has_ui: ctx.hasUI,
+          is_idle: ctx.isIdle(),
+          is_project_trusted: ctx.isProjectTrusted(),
+        },
+        model: ctx.model
+          ? {
+              id: ctx.model.id,
+              name: ctx.model.name,
+              provider: ctx.model.provider,
+              reasoning: ctx.model.reasoning,
+              context_window: ctx.model.contextWindow,
+              max_tokens: ctx.model.maxTokens,
+              input_types: ctx.model.input,
+            }
+          : null,
+        context_usage: ctx.getContextUsage(),
+      };
+
+      // Get tools with full details
+      const allTools = getAllTools();
+      inventory.tools = allTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        prompt_guidelines: tool.promptGuidelines ?? [],
+        source: tool.sourceInfo
+          ? {
+              source: tool.sourceInfo.source,
+              scope: tool.sourceInfo.scope,
+              origin: tool.sourceInfo.origin,
+              path: tool.sourceInfo.path,
+              base_dir: tool.sourceInfo.baseDir ?? null,
+            }
+          : null,
+      }));
+
+      // Get system prompt options for skills and context files
+      const opts = snapshot?.opts;
+      if (opts) {
+        // Skills
+        inventory.skills = (opts.skills ?? []).map((skill) => ({
+          name: skill.name,
+          description: skill.description,
+          file_path: skill.filePath,
+          base_dir: skill.baseDir,
+          disable_model_invocation: skill.disableModelInvocation,
+          source: skill.sourceInfo
+            ? {
+                source: skill.sourceInfo.source,
+                scope: skill.sourceInfo.scope,
+                origin: skill.sourceInfo.origin,
+              }
+            : null,
+        }));
+
+        // Context files
+        inventory.context_files = (opts.contextFiles ?? []).map((file) => ({
+          path: file.path,
+          chars: file.content.length,
+          estimated_tokens: Math.round(file.content.length / TOKEN_RATIO),
+        }));
+
+        // Guidelines
+        inventory.guidelines = opts.promptGuidelines ?? [];
+
+        // Tool snippets
+        inventory.tool_snippets = Object.fromEntries(
+          Object.entries(opts.toolSnippets ?? {}).map(([k, v]) => [k, v.substring(0, 200)])
+        );
+      } else {
+        inventory.skills = [];
+        inventory.context_files = [];
+        inventory.guidelines = [];
+        inventory.tool_snippets = {};
+      }
+
+      // Convert to YAML
+      const yamlContent = yaml.dump(inventory, {
+        indent: 2,
+        lineWidth: -1, // No line wrapping
+        noRefs: true,
+        sortKeys: false,
+      });
+
+      if (returnContent) {
+        return {
+          content: [{ type: "text" as const, text: yamlContent }],
+          details: null,
+        };
+      }
+
+      // Write to file
+      const fullOutputDir = join(ctx.cwd, outputDir);
+      const outputPath = join(fullOutputDir, `${filename}.yaml`);
+
+      try {
+        if (!existsSync(fullOutputDir)) {
+          mkdirSync(fullOutputDir, { recursive: true });
+        }
+        writeFileSync(outputPath, yamlContent, "utf-8");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `Error writing inventory to ${outputPath}: ${msg}` }],
+          details: null,
+        };
+      }
+
+      const lines: string[] = [];
+      lines.push("╔══════════════════════════════════════╗");
+      lines.push("║        Agent Inventory               ║");
+      lines.push("╚══════════════════════════════════════╝");
+      lines.push("");
+      lines.push(`Output: ${outputPath}`);
+      lines.push("");
+      lines.push(`Summary:`);
+      lines.push(`  - Tools: ${allTools.length}`);
+      lines.push(`  - Skills: ${(inventory.skills as unknown[]).length}`);
+      lines.push(`  - Context files: ${(inventory.context_files as unknown[]).length}`);
+      lines.push(`  - CWD: ${ctx.cwd}`);
+      if (ctx.model) {
+        lines.push(`  - Model: ${ctx.model.name} (${ctx.model.id})`);
+        lines.push(`  - Context window: ${ctx.model.contextWindow.toLocaleString()} tokens`);
+      }
+
+      return { content: [{ type: "text" as const, text: lines.join("\n") }], details: null };
+    },
+  });
+}
+
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi) => {
@@ -280,7 +452,9 @@ const extension: ExtensionFactory = (pi) => {
 
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
-  pi.registerTool(makeContextAnalyzerTool(() => pi.getAllTools()));
+  const getAllTools = () => pi.getAllTools();
+  pi.registerTool(makeContextAnalyzerTool(getAllTools));
+  pi.registerTool(makeAgentInventoryTool(getAllTools));
 };
 
 export default extension;

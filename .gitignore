@@ -24,3 +24,7 @@ comfyui_data/user/default/test.json
 comfyui_data/user/default/workflows/.index.json
 .reasonix/
 dist/
+
+# Agent inventory output directories
+debug/
+output/

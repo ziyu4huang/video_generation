@@ -4,6 +4,101 @@ A **pi extension** that adds developer-focused diagnostic tools.
 
 ## Tools
 
+### `agent_inventory`
+
+Dump agent state to YAML: extensions, tools, skills, context files, model, cwd.
+Readable by humans and agents for debugging/analysis.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `output_dir` | string? | `output/pi` | Output directory (relative to cwd) |
+| `filename` | string? | `agent-inventory-<timestamp>` | Output filename (without .yaml) |
+| `return_content` | boolean? | `false` | Return YAML content instead of writing to file |
+
+**Output format (YAML):**
+
+```yaml
+agent:
+  app_name: pi
+  cwd: /path/to/project
+  timestamp: 2025-01-01T00:00:00Z
+  mode: tui
+  has_ui: true
+  is_idle: true
+  is_project_trusted: true
+
+model:
+  id: claude-sonnet-4-20250514
+  name: Claude 4 Sonnet
+  provider: anthropic
+  reasoning: false
+  context_window: 205000
+  max_tokens: 16384
+  input_types: [text, image]
+
+context_usage:
+  tokens: 19924
+  contextWindow: 205000
+  percent: 9.7
+
+tools:
+  - name: context_analyzer
+    description: Full context window breakdown...
+    parameters: {...}
+    prompt_guidelines: []
+    source:
+      type: extension
+      path: bun-apps/pi-agent-ext-power-tool/src/index.ts
+
+skills:
+  - name: find-skills
+    description: Helps users discover...
+    path: ~/.agents/skills/find-skills/SKILL.md
+    when_to_use: "Use when the user asks..."
+
+context_files:
+  - path: CLAUDE.md
+    chars: 16984
+    estimated_tokens: 4590
+
+guidelines:
+  - Use bash for file operations...
+  - Use read to examine files...
+
+tool_snippets:
+  read: "Read a file..."
+  bash: "Execute bash commands..."
+```
+
+**Usage:**
+
+```bash
+# Default: write to <cwd>/output/pi/agent-inventory-<timestamp>.yaml
+call agent_inventory
+
+# Custom output directory
+call agent_inventory output_dir="debug/state"
+
+# Custom filename
+call agent_inventory filename="my-session-state"
+
+# Return YAML content to LLM instead of writing file
+call agent_inventory return_content=true
+```
+
+**Working directory detection:**
+
+Pi does not have a dedicated `CLAUDE_PROJECT_DIR` environment variable. Instead:
+- **`ctx.cwd`** provides the current working directory in `ExtensionContext`
+- All extension tools receive `ctx.cwd` indicating where pi was launched
+- This is the project root for file operations
+
+The output path is computed as `<ctx.cwd>/<output_dir>/<filename>.yaml`.
+
+---
+
 ### `context_analyzer`
 
 Reports a full breakdown of what is consuming the context window before the agent even starts working.
@@ -55,7 +150,7 @@ pi-agent-ext-power-tool/
 
 ## What the numbers mean
 
-A fresh default pi session in this repo uses **~19,924 tokens (15.6% of 128k)** before any conversation.
+A fresh default pi session in this repo uses **~19,924 tokens (~9.7% of 205k)** before any conversation.
 The system prompt alone is **~9,242 tokens** (34,194 chars):
 
 ```
@@ -64,7 +159,7 @@ Guidelines        12,058 chars   ~3,259 tok   (all tool promptGuidelines bullets
 Skills              1,613 chars     ~436 tok
 + base pi prompt + tool snippets + tool schemas in API call
 ─────────────────────────────────────────────────────────
-Total context:    ~19,924 tok    (15.6% of 128k)
+Total context:    ~19,924 tok    (~9.7% of 205k)
 ```
 
 Top offenders (from a real run):

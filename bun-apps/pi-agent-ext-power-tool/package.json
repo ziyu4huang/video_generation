@@ -11,9 +11,14 @@
   "pi": {
     "extensions": ["./src/index.ts"]
   },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
-    "typebox": "latest"
+    "typebox": "latest",
+    "js-yaml": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",
