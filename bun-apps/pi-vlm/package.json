@@ -19,6 +19,10 @@
   "pi": {
     "extensions": ["./extensions"]
   },
+  "scripts": {
+    "build:bundle": "bun scripts/build-bundle.ts",
+    "build:bundle:obf": "bun scripts/build-bundle.ts --obfuscate"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-agent-core": "*",

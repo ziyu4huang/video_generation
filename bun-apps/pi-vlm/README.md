@@ -20,6 +20,33 @@ page, each page is described by the VLM, and the pages are stitched into one
   `http://localhost:1234/v1` (no API key needed; `LM_STUDIO_API_KEY=lm-studio`
   works as a dummy). Configure the model id via `--vlm-model` / `PI_VLM_MODEL`.
 
+## Bundle for distribution (minify + obfuscation)
+
+Ship the extension as a single minified `.js` instead of `.ts` source:
+
+```bash
+bun scripts/build-bundle.ts               # minify (identifier mangling)
+bun scripts/build-bundle.ts --obfuscate   # + javascript-obfuscator pass (optional)
+```
+
+Output: `../../dist/pi-extensions/pi-vlm.bundle.js` (gitignored, like `dist/pi-agent/`).
+typebox + `src/pipeline.ts` + transitive deps are inlined into one ESM file with
+the default factory export preserved, so pi's jiti loader imports it unchanged.
+
+`--minify` already renames local identifiers (`var A56=Object.create;…`), which
+defeats casual reading. `--obfuscate` adds string-array + encoding transforms via
+[`javascript-obfuscator`](https://github.com/nicedoc/javascript-obfuscator); it is
+optional (not a default dep) and slow on multi-MB bundles — install with
+`bun add -d javascript-obfuscator` if you want it, otherwise the flag no-ops with
+a warning.
+
+Load the bundle with the pi-agent bundle:
+
+```bash
+bun ../../dist/pi-agent/pi-agent.js -ne \
+  -e ../../dist/pi-extensions/pi-vlm.bundle.js -p "list your tools"
+```
+
 ## Known limitations & TODO
 
 - **`src/sessions.ts` forks `bun-pi-agent-cli`'s `sessions/shared.ts`.**
