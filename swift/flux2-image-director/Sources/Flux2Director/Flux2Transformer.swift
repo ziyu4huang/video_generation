@@ -195,11 +195,16 @@ enum F2AttentionOps {
     }
 
     /// SDPA + transpose/reshape back to (B, S, H*D).
+    /// `mask` (optional, additive, broadcastable to (B,H,Sq,Sk)) enables
+    /// region-bound attention: a noise token attends a ref token only when
+    /// their region matches. nil = full attention (the default, byte-identical
+    /// to the no-mask path).
     static func compute(_ q: MLXArray, _ k: MLXArray, _ v: MLXArray,
-                        batchSize: Int, numHeads: Int, headDim: Int) -> MLXArray {
+                        batchSize: Int, numHeads: Int, headDim: Int,
+                        mask: MLXArray? = nil) -> MLXArray {
         let scale = 1.0 / Float(headDim).squareRoot()
         let attn = MLXFast.scaledDotProductAttention(queries: q, keys: k, values: v,
-                                                      scale: scale, mask: nil)
+                                                      scale: scale, mask: mask)
         return attn.transposed(0, 2, 1, 3).reshaped([batchSize, -1, numHeads * headDim])
     }
 }
@@ -238,7 +243,8 @@ struct Flux2Attention {
 
     /// Returns (img_attn_out, txt_attn_out), both (B, S_img/txt, dim).
     func callAsFunction(hiddenStates: MLXArray, encoderHiddenStates: MLXArray,
-                        imageRotaryEmb: (MLXArray, MLXArray))
+                        imageRotaryEmb: (MLXArray, MLXArray),
+                        mask: MLXArray? = nil)
         -> (MLXArray, MLXArray)
     {
         let batchSize = hiddenStates.dim(0)
@@ -259,7 +265,8 @@ struct Flux2Attention {
         (q, k) = F2Rope.apply(q, k, cos: cos, sin: sin)
 
         let hidden = F2AttentionOps.compute(q, k, v, batchSize: batchSize,
-                                            numHeads: heads, headDim: headDim)
+                                            numHeads: heads, headDim: headDim,
+                                            mask: mask)
         // Split back: text is the prefix.
         let txtLen = encoderHiddenStates.dim(1)
         let encOut = hidden[0..., 0..<txtLen, 0...]
@@ -280,7 +287,8 @@ struct Flux2ParallelSelfAttention {
     let mlpHiddenDim: Int         // int(dim * mlpRatio)
 
     func callAsFunction(_ hiddenStates: MLXArray,
-                        imageRotaryEmb: (MLXArray, MLXArray)) -> MLXArray
+                        imageRotaryEmb: (MLXArray, MLXArray),
+                        mask: MLXArray? = nil) -> MLXArray
     {
         let batchSize = hiddenStates.dim(0)
         let proj = toQkvMlpProj(hiddenStates)
@@ -305,7 +313,8 @@ struct Flux2ParallelSelfAttention {
         (q, k) = F2Rope.apply(q, k, cos: cos, sin: sin)
 
         let attn = F2AttentionOps.compute(q, k, vT, batchSize: batchSize,
-                                          numHeads: heads, headDim: headDim)
+                                          numHeads: heads, headDim: headDim,
+                                          mask: mask)
         let mlpOut = mlpAct(mlpHidden)
         let cat = MLX.concatenated([attn, mlpOut], axis: -1)
         return toOut(cat)
@@ -323,7 +332,8 @@ struct Flux2TransformerBlock {
     /// Returns (encoderHiddenStates, hiddenStates).
     func callAsFunction(hiddenStates: MLXArray, encoderHiddenStates: MLXArray,
                         tembModParamsImg: [[MLXArray]], tembModParamsTxt: [[MLXArray]],
-                        imageRotaryEmb: (MLXArray, MLXArray))
+                        imageRotaryEmb: (MLXArray, MLXArray),
+                        regionMask: MLXArray? = nil)
         -> (MLXArray, MLXArray)
     {
         let (shiftMsa, scaleMsa, gateMsa) = (tembModParamsImg[0][0], tembModParamsImg[0][1], tembModParamsImg[0][2])
@@ -338,7 +348,7 @@ struct Flux2TransformerBlock {
 
         let (attnOut, encAttnOut) = attn(
             hiddenStates: normHidden, encoderHiddenStates: normEnc,
-            imageRotaryEmb: imageRotaryEmb)
+            imageRotaryEmb: imageRotaryEmb, mask: regionMask)
 
         var hs = hiddenStates + gateMsa * attnOut
         var es = encoderHiddenStates + cGateMsa * encAttnOut
@@ -362,11 +372,12 @@ struct Flux2SingleTransformerBlock {
     let attn: Flux2ParallelSelfAttention
 
     func callAsFunction(_ hiddenStates: MLXArray, tembModParams: [MLXArray],
-                        imageRotaryEmb: (MLXArray, MLXArray)) -> MLXArray {
+                        imageRotaryEmb: (MLXArray, MLXArray),
+                        regionMask: MLXArray? = nil) -> MLXArray {
         let modShift = tembModParams[0], modScale = tembModParams[1], modGate = tembModParams[2]
         var normHidden = norm(hiddenStates)
         normHidden = (1 + modScale) * normHidden + modShift
-        let attnOut = attn(normHidden, imageRotaryEmb: imageRotaryEmb)
+        let attnOut = attn(normHidden, imageRotaryEmb: imageRotaryEmb, mask: regionMask)
         return hiddenStates + modGate * attnOut
     }
 }
@@ -424,11 +435,17 @@ public struct Flux2Transformer {
     let config: Flux2TransformerConfig
 
     /// Run the transformer forward. Returns noise prediction (B, S_img, out_channels).
+    /// `regionMask` (optional): additive attention mask over the joint
+    /// `[text | noise | refs]` sequence enabling region-bound reference
+    /// conditioning. nil = full attention (default). The mask layout matches
+    /// both the double-block joint attention ([text|image]) and the
+    /// single-block self-attention (which runs over the same concat, line ~468).
     public func callAsFunction(hiddenStates: MLXArray,
                                encoderHiddenStates: MLXArray,
                                timestep: MLXArray,
                                imgIds: MLXArray,
-                               txtIds: MLXArray) -> MLXArray
+                               txtIds: MLXArray,
+                               regionMask: MLXArray? = nil) -> MLXArray
     {
         let cfg = config
         // Timestep scaling: if max <= 1.0, multiply by 1000.
@@ -461,14 +478,15 @@ public struct Flux2Transformer {
             (encHidden, hidden) = block(
                 hiddenStates: hidden, encoderHiddenStates: encHidden,
                 tembModParamsImg: modImg, tembModParamsTxt: modTxt,
-                imageRotaryEmb: concatRot)
+                imageRotaryEmb: concatRot, regionMask: regionMask)
         }
 
         // Single stream: concat [text, image] along seq axis.
         hidden = MLX.concatenated([encHidden, hidden], axis: 1)
         let modSingle = singleStreamMod(temb)[0]  // single param set
         for block in singleTransformerBlocks {
-            hidden = block(hidden, tembModParams: modSingle, imageRotaryEmb: concatRot)
+            hidden = block(hidden, tembModParams: modSingle, imageRotaryEmb: concatRot,
+                           regionMask: regionMask)
         }
 
         // Slice off text tokens, keep image.

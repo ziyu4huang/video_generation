@@ -118,6 +118,20 @@ engineering-efficient than `--regional` or porting IP-Adapter Regional. The real
 quality ceiling remains **hands** (artifacts 3–5 across the board), a platform
 limitation not fixable from `scene`.
 
+### Region-bound attention (`--region-attention`) — experimental, tested inert
+
+`--region-attention` adds a block attention mask during the single denoise pass
+so a noise token attends a ref token only when their region matches (binding
+identity→region, in-denoise — vs `--regional` which is a post-pass). Layout =
+vertical strips by default, or `--ref-mask <img>` per `--ref`.
+
+**⚠️ A/B-tested 2026-06-30 and it does NOT bind placement on this distilled
+Klein model** — in a mask-vs-prompt conflict the prompt won on 3/3 seeds (the
+model ignores the masked-ref path it never trained on; OOD). Quality-neutral but
+~2× slower. Kept for reproducibility (`scripts/region-attention-test.sh`);
+**do not rely on it for placement** — use the seed-sweep workflow above. Full
+analysis: `docs/multi-reference-architecture.md` §6.
+
 ### Multi-LoRA stacking (`--lora`) — Workstream 2
 
 `--lora` is **repeatable**; multiple LoRAs are rank-stacked into one merged

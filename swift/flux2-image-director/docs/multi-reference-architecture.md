@@ -194,6 +194,46 @@ Add `--hand-repair` when hands matter.
 
 ---
 
+## 6. Region-bound attention (`--region-attention`) — TESTED, DOES NOT BIND
+
+To try to fix limitation #1 (global refs, no identity→position binding) *during*
+a single denoise pass, we added an optional **block attention mask** to the DiT:
+a noise token may attend a ref token **only when their region index matches**
+(`Flux2T2IPipeline.buildRegionMask`, threaded via `regionMask` through every
+attention layer — MLX `scaledDotProductAttention(mask:)`). Layout = vertical
+strips by default, or one `--ref-mask` per `--ref` (argmax per latent patch).
+
+**The decisive experiment was a mask-vs-prompt CONFLICT** (`scripts/region-attention-test.sh`):
+the prompt said "pink LEFT, teal RIGHT" while `--ref-mask` assigned pink→RIGHT,
+teal→LEFT. If the mask binds, pink should land RIGHT.
+
+**Result (2026-06-30, qwen3-vl-4b, 3 seeds 100/137/211): the prompt won on
+every seed** — `PINK=LEFT, TEAL=RIGHT` in all cases. The mask is applied
+(verified: the `region-attn` log line, ~2× slower 147 s vs 75 s, gate PASS) but
+**the distilled Klein model ignores the spatial constraint** — it was trained
+with global ref attention and does not use a masked-ref path it never saw. This
+is the OOD failure the design hedged against.
+
+| run | overall | prompt_adherence | artifacts | placement | time |
+|---|---|---|---|---|---|
+| baseline (global refs) | 6 | 10 | 5 | pink-L / teal-R (prompt) | 75 s |
+| `--region-attention` (strips) | 6 | 9 | 5 | pink-L / teal-R (prompt) | 147 s |
+| `--region-attention` conflict (mask pink→R) | 6 | 9 | 5 | pink-L / teal-R (**prompt wins**) | 110 s |
+
+**Quality is neutral** (overall 6, artifacts 5 — the only issue is the platform
+plasticky-skin artifact, unrelated). So `--region-attention` is **quality-neutral
+but binding-inert and ~2× slower**. The flag is kept (with a runtime warning) for
+reproducibility / re-testing on a future non-distilled transformer, but **do not
+rely on it for placement**.
+
+**Conclusion:** on this distilled model, in-denoise attention masking cannot
+create identity→region binding. The reliable lever for multi-character placement
+remains **prompt + multi-seed auto-select**; true region-bound identity would
+require **IP-Adapter Regional** (mask→ref conditioning — an architecturally
+different conditioning path, not ported to Swift/MLX).
+
+---
+
 ## Sources (reference-image budgets)
 
 - [r/StableDiffusion — Flux2 Klein max 5 reference images?](https://www.reddit.com/r/StableDiffusion/comments/1qg9tln/flux2_klein_max_limit_5_reference_images_only/)

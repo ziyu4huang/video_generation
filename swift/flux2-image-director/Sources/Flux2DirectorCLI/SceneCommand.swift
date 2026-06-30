@@ -65,6 +65,25 @@ extension Flux2CLI {
         /// (the rest of the scene is locked). ref[0]→leftmost strip, etc.
         @Flag(help: "Regional placement: refine each ref into a vertical strip (left→right) via masked inpaint. Fixes left/right assignment.")
         var regional: Bool = false
+
+        /// Region-bound attention (experimental, Workstream 4). Unlike the global
+        /// ref-token conditioning (which every noise patch attends equally) and
+        /// the `--regional` POST-pass, this adds a BLOCK ATTENTION MASK during
+        /// the single denoise pass so a noise token attends a ref token ONLY
+        /// when their region matches — binding each identity to a spatial region.
+        /// Layout source: vertical strips by default (ref[0]→leftmost), or one
+        /// `--ref-mask` grayscale region mask per `--ref` (argmax per patch).
+        /// OOD on the distilled Klein model (trained with global ref attention);
+        /// A/B-verify before relying on it.
+        @Flag(help: "Experimental: block-masked region attention during denoise (bind identity→region). Layout = vertical strips unless --ref-mask given.")
+        var regionAttention: Bool = false
+
+        /// Per-ref region masks (one per --ref), grayscale [0,1] where white =
+        /// that ref's region. Each latent patch is assigned to the ref whose
+        /// mask is highest there (argmax, block-mean downsampled). Omit for the
+        /// default vertical-strip layout.
+        @Option(help: "Per-ref region mask (repeatable, one per --ref; white = that ref's region). Default layout = vertical strips.")
+        var refMask: [String] = []
         @Option(help: "Seam feather (px) for regional strip inpaint. Default 24.")
         var regionalFeather: Int = 24
         /// Regional SDEdit strength. The strip is refined via PARTIAL denoise
@@ -136,6 +155,12 @@ extension Flux2CLI {
             }
             guard refStrength.count <= distinctCount() else {
                 throw ValidationError("--ref-strength count (\(refStrength.count)) exceeds --ref count (\(distinctCount()))")
+            }
+            if refMask.count > distinctCount() {
+                throw ValidationError("--ref-mask count (\(refMask.count)) exceeds --ref count (\(distinctCount()))")
+            }
+            if regionAttention && regional {
+                throw ValidationError("--region-attention (in-denoise binding) and --regional (post-pass) are mutually exclusive")
             }
         }
 
@@ -221,12 +246,39 @@ extension Flux2CLI {
                 vaeEncoder: Flux2VAEEncoder(weights: vaeWeights),
                 vaeDecoder: Flux2VAEDecoder(weights: vaeWeights), bn: bn)
 
+            // Region-bound attention labels (Workstream 4, experimental). When
+            // --region-attention is set, assign each latent patch (latentH×latentW
+            // = (H/16)×(W/16)) a region index so the in-denoise block mask can
+            // bind identity→region. Vertical strips by default (ref[0]→leftmost);
+            // one --ref-mask per --ref overrides with argmax-over-masks layout.
+            var regionLabels: MLXArray? = nil
+            if regionAttention {
+                // ⚠️ A/B-tested 2026-06-30: block-masked region attention does NOT
+                // bind placement on the distilled Klein model — in a mask-vs-prompt
+                // conflict the prompt won on 3/3 seeds (mask ignored, OOD). It is
+                // also ~2× slower. Kept for reproducibility / re-test on a future
+                // non-distilled transformer; do not rely on it for placement.
+                print("  ⚠️ region-attn is EXPERIMENTAL and A/B-shown NOT to bind placement on this distilled model (prompt wins). ~2× slower. Use seed-sweep for placement.")
+                let distinctN = distinct.count
+                if refMask.isEmpty {
+                    regionLabels = stripRegionLabels(
+                        width: width, height: height, count: distinctN)
+                    print("  region-attn: vertical-strip layout (\(distinctN) region(s), ref[0]→left)")
+                } else {
+                    let maskURLs = refMask.map { URL(fileURLWithPath: $0) }
+                    regionLabels = maskRegionLabels(
+                        masks: maskURLs, width: width, height: height, count: distinctN)
+                    print("  region-attn: --ref-mask layout (\(refMask.count) mask(s), argmax per patch)")
+                }
+            }
+
             print("  generating...")
             let (basePixels, baseElapsed) = pipeline.generate(
                 prompt: prompt, imagePaths: refPaths, seed: seed,
                 height: height, width: width, steps: steps, guidance: cfgScale,
                 initImagePath: bgURL, denoiseStrength: bgStrength,
-                refStrengths: refStrengths, refGateSteps: refGateSteps)
+                refStrengths: refStrengths, refGateSteps: refGateSteps,
+                regionLabels: regionLabels)
 
             // Regional placement post-pass (Workstream 1b): refine each distinct
             // ref into its own vertical strip via masked inpaint, locking the
@@ -375,6 +427,50 @@ extension Flux2CLI {
             let plane = MLX.broadcast(row.reshaped([1, 1, 1, width]),
                                       to: [1, 1, height, width])     // (1,1,H,W)
             return plane.asType(.float32)
+        }
+
+        /// Region labels for the in-denoise block mask, default layout =
+        /// vertical strips (ref[0]→leftmost). Returns a flat (latentH*latentW,)
+        /// int32 vector: each latent patch's region index, where latentH=H/16,
+        /// latentW=W/16 (Flux2 patches 4 latent cells per token → /16 from px).
+        private func stripRegionLabels(width: Int, height: Int, count: Int) -> MLXArray {
+            let latentH = height / 16, latentW = width / 16
+            var labels = [Int32](repeating: 0, count: latentH * latentW)
+            for h in 0..<latentH {
+                for w in 0..<latentW {
+                    labels[h * latentW + w] = Int32((w * count) / max(1, latentW))
+                }
+            }
+            return MLXArray(labels).asType(.int32)
+        }
+
+        /// Region labels from per-ref masks: each mask is loaded to (1,1,H,W)
+        /// [0,1], block-mean downsampled to the latent grid, then each patch is
+        /// assigned to the ref whose mask is highest there (argmax). Patches
+        /// where every mask is 0 fall to ref 0 (argmax ties → lowest index).
+        /// `masks` may be shorter than `count`; missing refs get an all-zero
+        /// mask (never win argmax, so they own no patch).
+        private func maskRegionLabels(masks: [URL], width: Int, height: Int,
+                                      count: Int) -> MLXArray {
+            let latentH = height / 16, latentW = width / 16
+            let bh = height / latentH, bw = width / latentW   // both == 16
+            var downsampled: [MLXArray] = []
+            for i in 0..<count {
+                let m: MLXArray
+                if i < masks.count {
+                    m = (try? Flux2ImageLoad.loadMaskAsChannel(
+                        from: masks[i], width: width, height: height)) ?? MLX.zeros([1, 1, height, width])
+                } else {
+                    m = MLX.zeros([1, 1, height, width])
+                }
+                let r = m.asType(.float32)
+                    .reshaped([1, 1, latentH, bh, latentW, bw])
+                let ds = r.mean(axis: 3).mean(axis: 4)        // (1,1,latentH,latentW)
+                downsampled.append(ds.reshaped([latentH, latentW]))
+            }
+            let stacked = MLX.stacked(downsampled, axis: 0)   // (count, latentH, latentW)
+            let labels = stacked.argMax(axis: 0)              // (latentH, latentW) uint32
+            return labels.reshaped([-1]).asType(.int32)
         }
     }
 }
