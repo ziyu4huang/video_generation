@@ -2,9 +2,11 @@
  * pi-agent-ext-power-tool — extension factory.
  *
  * Tools provided:
- *   context_analyzer  — breakdown of context window by component:
- *                       skills (top 3 by size), tools (top 3 by schema size),
- *                       context files (all), guidelines (all), live usage.
+ *   context_analyzer  — full context window breakdown, split by token bucket:
+ *     • System prompt text (skills, guidelines, context files, tool snippets)
+ *     • API tools schema (description + parameters per tool — a SEPARATE budget)
+ *     • Estimated conversation overhead (live total minus the two above)
+ *     All tools shown sorted by cost; guidelines shown in full.
  *
  * Usage:
  *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-power-tool/src/index.ts -p "call context_analyzer"
@@ -33,10 +35,19 @@ function est(chars: number): string {
   return `~${Math.round(chars / 3.7).toLocaleString()} tok`;
 }
 
-function bar(percent: number | null, width = 30): string {
+function estTok(chars: number): number {
+  return Math.round(chars / 3.7);
+}
+
+function bar(percent: number | null, width = 28): string {
   if (percent == null) return "[" + " ".repeat(width) + "] ??%";
   const filled = Math.round((percent / 100) * width);
   return "[" + "█".repeat(filled) + "░".repeat(width - filled) + `] ${percent.toFixed(1)}%`;
+}
+
+function miniBar(fraction: number, width = 12): string {
+  const filled = Math.round(Math.min(1, fraction) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
@@ -46,9 +57,10 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
     name: "context_analyzer",
     label: "Context Analyzer",
     description:
-      "Analyze the current context window breakdown by component. " +
-      "Shows top-3 skills by token size, top-3 tools by schema size, " +
-      "all context files with sizes, all guidelines, and live context usage.",
+      "Full context window breakdown split by token bucket: system prompt text " +
+      "(skills, guidelines, context files, tool snippets) vs API tools schema " +
+      "(description + parameters — a separate cost not in the system prompt text). " +
+      "Shows all tools sorted by cost, estimated conversation overhead, and live usage.",
     promptSnippet: "Analyze and report context window usage by component",
     parameters: Type.Object({}),
 
@@ -66,7 +78,7 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
       // ── Live context window ───────────────────────────────────────────────
       lines.push("▶ Live context window:");
       if (usage) {
-        const tokStr = usage.tokens != null ? usage.tokens.toLocaleString() + " tokens" : "tokens unknown";
+        const tokStr = usage.tokens != null ? usage.tokens.toLocaleString() + " tok" : "tok unknown";
         const winStr = usage.contextWindow.toLocaleString();
         lines.push(`  ${bar(usage.percent)}  ${tokStr} / ${winStr}`);
       } else {
@@ -81,118 +93,172 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
 
       const opts = snap.opts;
 
-      // ── System prompt total ───────────────────────────────────────────────
-      const totalChars = snap.systemPrompt.length;
-      lines.push(`▶ System prompt total: ${totalChars.toLocaleString()} chars  (${est(totalChars)})`);
+      // ── Measure both token buckets ────────────────────────────────────────
+      // Bucket A: system prompt text (what buildSystemPrompt() returns)
+      const sysPromptChars = snap.systemPrompt.length;
+      const sysPromptTok = estTok(sysPromptChars);
+
+      // Bucket B: API tools schema (desc + params per tool) — NOT in system prompt text.
+      // This is sent in the tools[] array of every API request separately.
+      const allTools = getAllTools();
+      const selectedSet = new Set(opts.selectedTools ?? []);
+      const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
+
+      const toolApiMeasured = activeTools.map((t) => {
+        const descChars = (t.description ?? "").length;
+        const paramsChars = JSON.stringify(t.parameters ?? {}).length;
+        const apiChars = descChars + paramsChars;
+        const guideChars = (t.promptGuidelines ?? []).join("\n").length;
+        const snippetChars = (opts.toolSnippets?.[t.name] ?? "").length;
+        return { name: t.name, descChars, paramsChars, apiChars, guideChars, snippetChars };
+      });
+
+      const totalApiChars = toolApiMeasured.reduce((s, t) => s + t.apiChars, 0);
+      const totalApiTok = estTok(totalApiChars);
+
+      // Bucket C: conversation + other (live total minus the two estimated buckets)
+      const liveTok = usage?.tokens ?? null;
+      const conversationTok = liveTok != null ? Math.max(0, liveTok - sysPromptTok - totalApiTok) : null;
+      const grandTotal = liveTok ?? sysPromptTok + totalApiTok;
+
+      // ── Token budget summary ──────────────────────────────────────────────
+      lines.push("▶ Token budget  (where tokens go):");
+      lines.push("  ┌─────────────────────────────────────────────────────────────┐");
+
+      const renderBucket = (label: string, tok: number | null, note: string) => {
+        const t = tok ?? 0;
+        const pct = grandTotal > 0 ? t / grandTotal : 0;
+        const mb = miniBar(pct);
+        const tokStr = tok != null ? t.toLocaleString() + " tok" : "???";
+        lines.push(`  │  ${label.padEnd(24)} ${mb}  ${tokStr.padStart(12)}  ${note}`);
+      };
+
+      renderBucket("System prompt text", sysPromptTok, "(measured)");
+      renderBucket("API tools schema", totalApiTok, "(estimated)");
+      renderBucket("Conversation + other", conversationTok, liveTok != null ? "(live − above)" : "(no live data)");
+
+      lines.push("  └─────────────────────────────────────────────────────────────┘");
+      lines.push("  Note: API tools schema goes in tools[] per request, NOT in system prompt text.");
       lines.push("");
 
-      // ── Skills ────────────────────────────────────────────────────────────
+      // ── System prompt text breakdown ──────────────────────────────────────
+      lines.push(`▶ System prompt text  (${sysPromptChars.toLocaleString()} chars, ${est(sysPromptChars)}):`);
+      lines.push("");
+
+      // Skills
       const skills = opts.skills ?? [];
       const skillsFormatted = formatSkillsForPrompt(skills);
       const skillsTotalChars = skillsFormatted.length;
-
-      lines.push(`▶ Skills  (${skills.length} loaded, ${skillsTotalChars.toLocaleString()} chars total, ${est(skillsTotalChars)}):`);
-
+      lines.push(`  Skills  (${skills.length} loaded, ${est(skillsTotalChars)}):`);
       if (skills.length === 0) {
-        lines.push("  none");
+        lines.push("    none");
       } else {
         const measured = skills
           .map((s) => ({ name: s.name, chars: formatSkillsForPrompt([s]).length, desc: s.description }))
           .sort((a, b) => b.chars - a.chars);
-
-        measured.slice(0, 3).forEach((s, i) => {
-          const pct = skillsTotalChars > 0 ? ` (${((s.chars / skillsTotalChars) * 100).toFixed(0)}%)` : "";
-          lines.push(`  ${i + 1}. ${s.name}  ${s.chars.toLocaleString()} chars${pct}  ${est(s.chars)}`);
-          if (s.desc) {
-            lines.push(`     ${s.desc.slice(0, 100)}${s.desc.length > 100 ? "…" : ""}`);
-          }
+        measured.forEach((s) => {
+          lines.push(`    ${s.name.padEnd(28)} ${s.chars.toLocaleString().padStart(6)} ch  ${est(s.chars)}`);
         });
-        if (measured.length > 3) {
-          lines.push(`  … +${measured.length - 3} more (not shown)`);
-        }
       }
       lines.push("");
 
-      // ── Tools ─────────────────────────────────────────────────────────────
-      const allTools = getAllTools();
-      const selectedSet = new Set(opts.selectedTools ?? []);
-
-      lines.push(`▶ Tools  (${allTools.length} total, ${selectedSet.size || allTools.length} selected):`);
-
-      if (allTools.length === 0) {
-        lines.push("  none");
-      } else {
-        const measuredTools = allTools
-          .map((t) => {
-            const schemaChars = JSON.stringify(t.parameters ?? {}).length;
-            const descChars = (t.description ?? "").length;
-            const guideChars = (t.promptGuidelines ?? []).join("\n").length;
-            const total = schemaChars + descChars + guideChars;
-            const active = selectedSet.size === 0 || selectedSet.has(t.name);
-            return { name: t.name, total, schemaChars, descChars, guideChars, active };
-          })
-          .sort((a, b) => b.total - a.total);
-
-        measuredTools.slice(0, 3).forEach((t, i) => {
-          const activeFlag = t.active ? "" : " [inactive]";
-          lines.push(
-            `  ${i + 1}. ${t.name}${activeFlag}  ${t.total.toLocaleString()} chars  ${est(t.total)}`,
-          );
-          lines.push(`     schema=${t.schemaChars} desc=${t.descChars} guidelines=${t.guideChars}`);
-        });
-        if (measuredTools.length > 3) {
-          lines.push(`  … +${measuredTools.length - 3} more (not shown)`);
-        }
-      }
-      lines.push("");
-
-      // ── Context files ─────────────────────────────────────────────────────
+      // Context files
       const contextFiles = opts.contextFiles ?? [];
       const totalFileChars = contextFiles.reduce((s, f) => s + f.content.length, 0);
-
-      lines.push(
-        `▶ Context files  (${contextFiles.length} files, ${totalFileChars.toLocaleString()} chars total, ${est(totalFileChars)}):`,
-      );
-
+      lines.push(`  Context files  (${contextFiles.length} files, ${est(totalFileChars)}):`);
       if (contextFiles.length === 0) {
-        lines.push("  none");
+        lines.push("    none");
       } else {
         contextFiles
           .slice()
           .sort((a, b) => b.content.length - a.content.length)
           .forEach((f) => {
-            const pct = totalFileChars > 0 ? ` (${((f.content.length / totalFileChars) * 100).toFixed(0)}%)` : "";
-            lines.push(`  ${f.path}  ${f.content.length.toLocaleString()} chars${pct}  ${est(f.content.length)}`);
+            lines.push(`    ${f.path.padEnd(40)} ${f.content.length.toLocaleString().padStart(6)} ch  ${est(f.content.length)}`);
           });
       }
       lines.push("");
 
-      // ── Guidelines ────────────────────────────────────────────────────────
-      const guidelines = opts.promptGuidelines ?? [];
-      const totalGuideChars = guidelines.join("\n").length;
-
-      lines.push(
-        `▶ Guidelines  (${guidelines.length} bullets, ${totalGuideChars.toLocaleString()} chars, ${est(totalGuideChars)}):`,
-      );
-
-      if (guidelines.length === 0) {
-        lines.push("  none");
+      // Tool snippets (Available tools section of system prompt)
+      const snippetEntries = Object.entries(opts.toolSnippets ?? {});
+      const totalSnippetChars = snippetEntries.reduce((s, [, v]) => s + v.length, 0);
+      lines.push(`  Tool snippets in Available-tools list  (${snippetEntries.length} tools, ${est(totalSnippetChars)}):`);
+      if (snippetEntries.length === 0) {
+        lines.push("    none");
       } else {
-        guidelines.forEach((g, i) => {
-          lines.push(`  ${i + 1}. ${g.slice(0, 120)}${g.length > 120 ? "…" : ""}`);
+        snippetEntries.sort((a, b) => b[1].length - a[1].length).slice(0, 5).forEach(([name, snippet]) => {
+          lines.push(`    ${name.padEnd(28)} "${snippet.slice(0, 60)}${snippet.length > 60 ? "…" : ""}"`);
+        });
+        if (snippetEntries.length > 5) lines.push(`    … +${snippetEntries.length - 5} more`);
+      }
+      lines.push("");
+
+      // Guidelines (from all tools' promptGuidelines + extension-level)
+      const allGuideChars = toolApiMeasured.reduce((s, t) => s + t.guideChars, 0);
+      const extGuidelines = opts.promptGuidelines ?? [];
+      const extGuideChars = extGuidelines.join("\n").length;
+      const totalGuideChars = allGuideChars + extGuideChars;
+      lines.push(`  Guidelines  (${extGuidelines.length} bullets, ${est(totalGuideChars)} total):`);
+      if (extGuidelines.length === 0) {
+        lines.push("    none");
+      } else {
+        extGuidelines.forEach((g, i) => {
+          lines.push(`    ${i + 1}. ${g.slice(0, 110)}${g.length > 110 ? "…" : ""}`);
         });
       }
       lines.push("");
 
-      // ── Append system prompt ──────────────────────────────────────────────
+      // Appended system prompt
       if (opts.appendSystemPrompt) {
         const chars = opts.appendSystemPrompt.length;
-        lines.push(`▶ Appended system prompt:  ${chars.toLocaleString()} chars  (${est(chars)})`);
-        lines.push(`  ${opts.appendSystemPrompt.slice(0, 160)}${opts.appendSystemPrompt.length > 160 ? "…" : ""}`);
+        lines.push(`  Appended system prompt:  ${chars.toLocaleString()} chars  (${est(chars)})`);
+        lines.push(`    ${opts.appendSystemPrompt.slice(0, 140)}${opts.appendSystemPrompt.length > 140 ? "…" : ""}`);
         lines.push("");
       }
 
-      // ── Custom prompt ─────────────────────────────────────────────────────
+      // ── API tools schema breakdown ────────────────────────────────────────
+      lines.push(`▶ API tools schema  (${activeTools.length} active / ${allTools.length} total, ~${totalApiTok.toLocaleString()} tok estimated):`);
+      lines.push("  (description + parameters → tools[] array; cost repeats every API request)");
+      lines.push("");
+
+      if (toolApiMeasured.length === 0) {
+        lines.push("  none");
+      } else {
+        const sorted = [...toolApiMeasured].sort((a, b) => b.apiChars - a.apiChars);
+        lines.push(
+          "  " +
+            "Tool".padEnd(30) +
+            "desc".padStart(6) +
+            "params".padStart(8) +
+            "est-tok".padStart(9) +
+            "  guidelines",
+        );
+        lines.push("  " + "─".repeat(70));
+        sorted.forEach((t) => {
+          const tok = estTok(t.apiChars);
+          const guideNote = t.guideChars > 0 ? `+${est(t.guideChars)} sys` : "";
+          lines.push(
+            "  " +
+              t.name.padEnd(30) +
+              String(t.descChars).padStart(6) +
+              String(t.paramsChars).padStart(8) +
+              String(tok).padStart(8) +
+              "  " +
+              guideNote,
+          );
+        });
+        lines.push("  " + "─".repeat(70));
+        const totalDesc = sorted.reduce((s, t) => s + t.descChars, 0);
+        const totalParams = sorted.reduce((s, t) => s + t.paramsChars, 0);
+        lines.push(
+          "  " +
+            "TOTAL".padEnd(30) +
+            String(totalDesc).padStart(6) +
+            String(totalParams).padStart(8) +
+            String(totalApiTok).padStart(8),
+        );
+      }
+      lines.push("");
+
       if (opts.customPrompt) {
         const chars = opts.customPrompt.length;
         lines.push(`▶ Custom system prompt (replaces default):  ${chars.toLocaleString()} chars  (${est(chars)})`);

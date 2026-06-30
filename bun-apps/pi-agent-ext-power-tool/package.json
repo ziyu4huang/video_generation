@@ -8,11 +8,15 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
     "typebox": "latest"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
   }
 }

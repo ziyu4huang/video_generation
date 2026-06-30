@@ -72,6 +72,7 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
+        "typescript": "^6.0.3",
       },
     },
     "bun-apps/pi-agent-sdk-demo": {
