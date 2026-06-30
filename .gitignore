@@ -1,6 +1,11 @@
 node_modules
 .pi/agent/auth.json
 .pi/agent/trust.json
+
+# editor swap/backup files
+*.swp
+*.swo
+*~
 bun-apps/pi-dynamic-workflows/docs/media/*.gif
 .DS_Store
 .claude/workflows/history/

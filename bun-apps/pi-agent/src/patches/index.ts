@@ -47,6 +47,20 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
     applied.push({ name, env, defaultValue, applied: enabled });
   }
 
+  // ── patch: skip-update-check ──────────────────────────────────────────────
+  // Silence pi's "Update Available" banner for shipped artifacts (bundle .js +
+  // binary), where `pi update` is meaningless. No-op in source mode.
+  {
+    const name = "skip-update-check";
+    const env = "BUN_PI_SKIP_UPDATE_CHECK";
+    const defaultValue = true;
+    const enabled = envFlag(env, defaultValue);
+    if (enabled) {
+      await import("./skip-update-check.ts");
+    }
+    applied.push({ name, env, defaultValue, applied: enabled });
+  }
+
   // ── patch: pre-load-providers ─────────────────────────────────────────────
   // Injects custom LLM providers into pi's ModelRegistry before main() starts.
   {
