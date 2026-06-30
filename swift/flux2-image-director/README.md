@@ -66,6 +66,24 @@ refinements can overlap (e.g. produce an extra figure). It reliably assigns each
 ref to a side, but is approximate — true region-bound identity needs an
 architecturally different conditioning path (not in Flux2KleinEdit).
 
+**Tested empirically (2026-06-30, local-LLM verified):** for a clear 2-person
+prompt with distinct visual cues (extreme hair colour), `--regional` is **net
+negative** — reproduce with `bash scripts/regional-placement-test.sh` +
+`scripts/fullbody-stress-test.sh`, verify with `scripts/verify-placement.py` /
+`scripts/harsh-hand-check.py` (qwen3-vl-4b + gemma-4-26b via `run.py caption`):
+- Baseline (no `--regional`) got left/right correct on **all 3 seeds** (42/77/123,
+  prompt_adherence 9–10) — the "placement is non-deterministic" caveat is overly
+  pessimistic when the prompt + refs are visually unambiguous.
+- `--regional` was 2.5× slower (259 s vs 100 s) and scored *worse*: gemma flagged
+  "ghosting/duplication of the second subject" + "malformed/fused fingers" on the
+  crossed-hands region (artifacts 3 vs baseline-best 9). The strip inpaint
+  regenerates the hand region and degrades it.
+- Takeaway: reach for `--regional` only when prompt-driven placement actually
+  fails (ambiguous refs / >2 subjects). For normal 2-person scenes, a clear prompt
+  + distinct cues + a seed sweep is both faster and higher quality. The real
+  quality ceiling here is **hands** (artifacts 3–5 across the board), not
+  placement — a known platform limitation, not a `scene`-side fix.
+
 ### Multi-LoRA stacking (`--lora`) — Workstream 2
 
 `--lora` is **repeatable**; multiple LoRAs are rank-stacked into one merged
