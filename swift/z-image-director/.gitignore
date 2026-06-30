@@ -1,0 +1,24 @@
+# Swift build artifacts
+.build/
+.swiftpm/
+
+# Xcode
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+
+# Package.resolved is kept for apps/libraries (committed).
+# Uncomment to ignore if you prefer:
+# Package.resolved
+
+# macOS
+.DS_Store
+
+# Local model / output scratch (dev-only; never committed)
+.scratch/
+output/
+
+# MLX Metal kernels (metallib) — SwiftPM cannot compile Metal shaders.
+# Copy the prebuilt one from the Python venv's mlx package next to the
+# executable before running. See scripts/setup-metallib.sh.
+.build/**/mlx.metallib

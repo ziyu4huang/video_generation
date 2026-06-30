@@ -13,5 +13,7 @@ verify_refs/*.safetensors
 verify_refs/ref_image.png
 
 # scene/regional test-case generation outputs (regenerable via scripts/*.sh;
-# large PNGs + run/caption JSON — not source). Scripts themselves ARE tracked.
-test_cases/*/
+# large PNGs + run/caption JSON + embedded-image HTML reports — not source).
+# Scripts themselves ARE tracked. Ignore the WHOLE folder (top-level *.html
+# reports live here too, not only subdirs).
+test_cases/
