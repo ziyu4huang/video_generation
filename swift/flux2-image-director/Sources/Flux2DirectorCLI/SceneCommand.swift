@@ -45,6 +45,29 @@ extension Flux2CLI {
         @Option(help: "Latent repeats per reference image (1 = one latent each; raise to weight an identity).")
         var refCountPerImage: Int = 1
 
+        /// WS3 — per-reference strength. Repeatable, one per --ref (trailing
+        /// default 1.0). Scales each reference's conditioning token values so one
+        /// identity can be weighted harder than another.
+        @Option(help: "Per-reference strength (repeatable, one per --ref; default 1.0). Weight one identity over another.")
+        var refStrength: [Float] = []
+
+        /// WS3 — timestep gating. Inject reference tokens only in the early
+        /// fraction of steps (t/steps < gate); after, the model finishes the
+        /// scene without the refs' pull. 1.0 = inject all steps (default).
+        @Option(help: "Inject refs only in the first fraction of steps (0.5 = first half). Default 1.0.")
+        var refGateSteps: Float = 1.0
+
+        /// Regional placement (Workstream 1b). Flux2KleinEdit conditions on
+        /// GLOBAL ref tokens — there is no identity→spatial-region binding, so
+        /// left/right placement is otherwise prompt-driven (non-deterministic).
+        /// `--regional` adds a post-pass: after the base scene, each distinct
+        /// ref is identity-refined into its own vertical strip via masked inpaint
+        /// (the rest of the scene is locked). ref[0]→leftmost strip, etc.
+        @Flag(help: "Regional placement: refine each ref into a vertical strip (left→right) via masked inpaint. Fixes left/right assignment.")
+        var regional: Bool = false
+        @Option(help: "Seam feather (px) for regional strip inpaint. Default 24.")
+        var regionalFeather: Int = 24
+
         /// Background-as-canvas (Workstream 1). When set, this image becomes the
         /// SDEdit denoise canvas — its layout/POV is inherited as the actual
         /// background the characters are placed into (not just a tone steer). It
@@ -92,7 +115,13 @@ extension Flux2CLI {
             guard !prompt.isEmpty else {
                 throw ValidationError("--prompt is required")
             }
+            guard refStrength.count <= distinctCount() else {
+                throw ValidationError("--ref-strength count (\(refStrength.count)) exceeds --ref count (\(distinctCount()))")
+            }
         }
+
+        /// Number of distinct --ref images (before repeat expansion), for validation.
+        private func distinctCount() -> Int { ref.count }
 
         func run() throws {
             setbuf(stdout, nil)
@@ -135,6 +164,18 @@ extension Flux2CLI {
                 print("  caveat     : identities come from refs; placement is prompt-driven (sweep --seed if a subject lands wrong).")
             }
 
+            // WS3: per-reference strengths expand with the repeat pattern so they
+            // align with refPaths (prepare() indexes by image order). Trailing
+            // distinct refs without an explicit strength default to 1.0.
+            let refStrengths: [Float]? = refStrength.isEmpty ? nil : distinct.flatMap { d -> [Float] in
+                let i = distinct.firstIndex(of: d) ?? 0
+                let s = i < refStrength.count ? refStrength[i] : 1.0
+                return Array(repeating: s, count: repeats)
+            }
+            if let rs = refStrengths, rs.contains(where: { $0 != 1.0 }) {
+                print("  ref strength: \(refStrength.enumerated().map { "\($0.offset)=\(refStrength[$0.offset])" }.joined(separator: ", "))  (per distinct ref)")
+            }
+
             // Load + merge LoRA adapters (optional, stackable).
             let (loraAdapters, loraNames, loraScales) = try Flux2LoRALoaderCLI.loadMerged(
                 names: lora, scales: loraScale, logPrefix: "  lora     : ")
@@ -162,10 +203,34 @@ extension Flux2CLI {
                 vaeDecoder: Flux2VAEDecoder(weights: vaeWeights), bn: bn)
 
             print("  generating...")
-            let (pixels, elapsed) = pipeline.generate(
+            let (basePixels, baseElapsed) = pipeline.generate(
                 prompt: prompt, imagePaths: refPaths, seed: seed,
                 height: height, width: width, steps: steps, guidance: cfgScale,
-                initImagePath: bgURL, denoiseStrength: bgStrength)
+                initImagePath: bgURL, denoiseStrength: bgStrength,
+                refStrengths: refStrengths, refGateSteps: refGateSteps)
+
+            // Regional placement post-pass (Workstream 1b): refine each distinct
+            // ref into its own vertical strip via masked inpaint, locking the
+            // rest. Enforces left→right identity assignment that the global-token
+            // conditioning can't otherwise provide.
+            var pixels = basePixels
+            var elapsed = baseElapsed
+            if regional {
+                print("  regional : refining \(distinct.count) ref(s) into vertical strips (feather=\(regionalFeather))")
+                for (i, ref) in distinct.enumerated() {
+                    let mask = verticalStripMask(
+                        width: width, height: height, index: i,
+                        count: distinct.count, feather: regionalFeather)
+                    let (refined, t) = pipeline.inpaint(
+                        prompt: prompt, sourcePixels: pixels, sourceMask: mask,
+                        referencePath: ref, seed: seed &+ UInt64(i + 1),
+                        steps: steps, guidance: cfgScale,
+                        width: width, height: height, feather: regionalFeather)
+                    pixels = refined
+                    elapsed += t
+                    print("            [\(i + 1)/\(distinct.count)] \(ref.lastPathComponent) → strip \(i + 1)/\(distinct.count)")
+                }
+            }
 
             // Self-gate the output (noise / blank / NaN) before saving.
             try ImageGate.check(pixels, label: "scene", strict: strictGate)
@@ -198,6 +263,35 @@ extension Flux2CLI {
                 .sorted { $0.lastPathComponent < $1.lastPathComponent }
             for f in files { all.merge(try loadArrays(url: f)) { _, new in new } }
             return all
+        }
+
+        /// Vertical-strip placement mask (1,1,H,W): 1.0 over strip `index` of
+        /// `count` equal-width columns, feathered at the interior seams (image
+        /// left/right edges are full-weight so borders stay exact). Adjacent
+        /// strips' ramps form a partition of unity over the seam.
+        private func verticalStripMask(width: Int, height: Int, index: Int,
+                                       count: Int, feather: Int) -> MLXArray {
+            let x0 = (width * index) / count
+            let x1 = (width * (index + 1)) / count
+            let ramp = max(1, feather)
+            var col = [Float](repeating: 0.0, count: width)
+            for x in x0..<x1 { col[x] = 1.0 }
+            // feather the interior seams (not the image border sides).
+            if index > 0 {
+                for k in 0..<min(ramp, (x1 - x0) / 2) {
+                    col[x0 + k] = Float(k + 1) / Float(ramp + 1)
+                }
+            }
+            if index < count - 1 {
+                let half = min(ramp, (x1 - x0) / 2)
+                for k in 0..<half {
+                    col[x1 - 1 - k] = Float(k + 1) / Float(ramp + 1)
+                }
+            }
+            let row = MLXArray(col).asType(.float32)                 // (W,)
+            let plane = MLX.broadcast(row.reshaped([1, 1, 1, width]),
+                                      to: [1, 1, height, width])     // (1,1,H,W)
+            return plane.asType(.float32)
         }
     }
 }

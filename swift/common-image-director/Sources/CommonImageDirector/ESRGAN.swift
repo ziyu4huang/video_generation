@@ -128,6 +128,101 @@ public struct RealPLKSR {
         return pixelShuffleNHWC(feats, r: r, channels: outChannels)
     }
 
+    /// Tiled (overlap-and-blend) upscaling for large inputs that would OOM the
+    /// whole-image path (the (1,H,W,64) intermediates × 28 blocks grow fast).
+    /// The LR image is split into `tileSize` tiles with `overlap` px of context;
+    /// each tile is upscaled independently and the HR outputs are blended with a
+    /// linear ramp in the overlap (a partition of unity — overlapping ramps sum
+    /// to 1.0, so no double-counting). Image-edge tile sides are full-weight
+    /// (no ramp), so borders are exact. GroupNorm is computed per-tile, so tiled
+    /// output differs from whole-image by ~the norm-stat error across seams
+    /// (imperceptible after blending for natural images).
+    ///
+    /// Falls back to `callAsFunction` when the image fits one tile.
+    public func tiledUpscale(_ x: MLXArray, tileSize: Int = 256, overlap: Int = 32)
+        -> MLXArray
+    {
+        let r = upscale
+        let H = x.dim(1), W = x.dim(2)
+        // Small enough to run whole — keeps the parity-verified path.
+        if H <= tileSize && W <= tileSize {
+            return callAsFunction(x)
+        }
+        guard overlap >= 1 else { return callAsFunction(x) }
+
+        let oH = H * r, oW = W * r
+        var accum = MLXArray.zeros([1, oH, oW, outChannels])
+        var wsum = MLXArray.zeros([1, oH, oW, 1]).asType(.float32)
+
+        // Tile start positions (LR), stride = tileSize - overlap; the last tile
+        // is clamped so its far edge hits the image border.
+        func starts(_ len: Int) -> [Int] {
+            var s = [Int]()
+            var p = 0
+            while p < len {
+                s.append(p)
+                if p + tileSize >= len { break }
+                p += max(1, tileSize - overlap)
+            }
+            return s
+        }
+        let ys = starts(H), xs = starts(W)
+
+        for y0 in ys {
+            for x0 in xs {
+                let y1 = min(H, y0 + tileSize)
+                let x1 = min(W, x0 + tileSize)
+                let thH = y1 - y0, thW = x1 - x0
+                let tile = x[0..., y0..<y1, x0..<x1, 0...].asType(.float32)
+                let outTile = callAsFunction(tile)   // (1, thH*r, thW*r, C)
+                MLX.eval(outTile)
+                let w = blendWeight(
+                    hrH: thH * r, hrW: thW * r,
+                    topEdge: y0 == 0, bottomEdge: y1 == H,
+                    leftEdge: x0 == 0, rightEdge: x1 == W,
+                    rampPx: overlap * r)
+                let oy0 = y0 * r, ox0 = x0 * r
+                let oy1 = oy0 + thH * r, ox1 = ox0 + thW * r
+                accum[0..., oy0..<oy1, ox0..<ox1, 0...] =
+                    accum[0..., oy0..<oy1, ox0..<ox1, 0...] + outTile * w
+                wsum[0..., oy0..<oy1, ox0..<ox1, 0...] =
+                    wsum[0..., oy0..<oy1, ox0..<ox1, 0...] + w
+                MLX.eval(accum, wsum)
+            }
+        }
+        return (accum / wsum).asType(.float32)
+    }
+
+    /// Linear-feather blend weight for one tile's HR output. 1.0 in the
+    /// interior, ramping 0→1 over `rampPx` at each NON-edge side so adjacent
+    /// tiles' ramps form a partition of unity. Edge sides stay 1.0 (exact border).
+    private func blendWeight(hrH: Int, hrW: Int, topEdge: Bool, bottomEdge: Bool,
+                             leftEdge: Bool, rightEdge: Bool, rampPx: Int)
+        -> MLXArray
+    {
+        func axis(_ len: Int, firstEdge: Bool, lastEdge: Bool) -> MLXArray {
+            // 1D weights of length `len`.
+            let ramp = min(rampPx, len / 2)
+            var v = [Float](repeating: 1.0, count: len)
+            if !firstEdge {
+                for i in 0..<ramp {
+                    v[i] = Float(i + 1) / Float(ramp + 1)
+                }
+            }
+            if !lastEdge {
+                for i in 0..<ramp {
+                    v[len - 1 - i] = Float(i + 1) / Float(ramp + 1)
+                }
+            }
+            return MLXArray(v).asType(.float32)   // (len,)
+        }
+        let wy = axis(hrH, firstEdge: topEdge, lastEdge: bottomEdge)   // (hrH,)
+        let wx = axis(hrW, firstEdge: leftEdge, lastEdge: rightEdge)   // (hrW,)
+        // outer product → (hrH, hrW), broadcast to (1,hrH,hrW,1)
+        let w2d = wy.reshaped([hrH, 1]) * wx.reshaped([1, hrW])
+        return w2d.reshaped([1, hrH, hrW, 1]).asType(.float32)
+    }
+
     // MARK: - ops
 
     /// NHWC conv2d + bias with explicit padding (IntOrPair literal inference is
