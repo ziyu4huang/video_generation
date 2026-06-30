@@ -97,6 +97,26 @@ Edit **`src/pre-load-providers.ts`** → `PROVIDERS` object. No other file needs
 
 Changes take effect on the next `bun` invocation — no build step.
 
+## Build modes
+
+Two execution modes are supported and **both load extensions correctly**:
+
+| Mode | Command | How extensions resolve deps |
+|------|---------|------------------------------|
+| **Source** (no build) | `bun src/cli.ts` | pi resolves via the real node_modules tree |
+| **Bundle** | `bun ../../dist/pi-agent/pi-agent.js` | build symlinks `dist/pi-agent/node_modules` → pi's bun-store so `getAliases()` can `require.resolve("typebox")` |
+
+```bash
+bun scripts/build.ts          # bundle → dist/pi-agent/pi-agent.js (+ node_modules symlink)
+bun scripts/build.ts --all    # bundle + standalone binary
+```
+
+The `--compile` binary (`dist/pi-agent/pi-agent`) **cannot load `.ts` extensions**:
+in `isBunBinary` mode jiti feeds each extension as a `data:text/javascript;base64,…`
+URL, and Bun's compiled resolver rejects it with `NameTooLong` (`ENAMETOOLONG`).
+This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary with
+`-ne` (no extensions) or use source/bundle mode when extensions are needed.
+
 ## Add your own patch
 
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
@@ -116,6 +136,17 @@ pi-agent/
     └── patches/
         └── index.ts              # registry (env-gated) + debug
 ```
+
+## Known issues
+
+- **Standalone binary cannot load `.ts` extensions** (`./dist/pi-agent/pi-agent`).
+  In `isBunBinary` mode, jiti feeds each extension as a
+  `data:text/javascript;base64,…` URL; Bun's compiled resolver treats it as a
+  path and fails with `NameTooLong` (`ENAMETOOLONG`). This is a bun-compile +
+  jiti limitation, not a pi-agent regression. Workaround: run the binary with
+  `-ne` (no extensions), or use **source** / **bundle** mode when extensions
+  are needed. Provider injection (`pre-load-providers`) still works in the
+  binary — only `.ts` extension loading is affected.
 
 ## Related
 

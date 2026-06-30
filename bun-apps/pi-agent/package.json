@@ -9,7 +9,12 @@
   },
   "scripts": {
     "cli": "bun src/cli.ts",
-    "list": "bun src/cli.ts --list-models"
+    "list": "bun src/cli.ts --list-models",
+    "build": "bun scripts/build.ts",
+    "build:exe": "bun scripts/build.ts --compile",
+    "build:all": "bun scripts/build.ts --all",
+    "dist": "bun ../../dist/pi-agent/pi-agent.js",
+    "exe": "../../dist/pi-agent/pi-agent"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest"
