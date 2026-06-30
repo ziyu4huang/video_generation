@@ -76,6 +76,17 @@ extension Flux2CLI {
         @Option(help: "Regional refine strength (SDEdit). 0.45 = light identity nudge preserving hands; 1.0 = full regen (re-rolls hands). Default 0.45.")
         var regionalStrength: Float = 0.45
 
+        /// Hand-repair post-pass. The hardest generation artifact is hands
+        /// (fused/extra fingers) — a known platform ceiling. This is a genuine
+        /// scene-side mitigation: SAM3 text-segments "hands" in the result, and
+        /// the hand region is re-denoised (inpaint) from the prompt so deformed
+        /// hands are regenerated. Best-effort: regeneration can itself produce
+        /// new defects, but it lets the model retry the hand zone specifically.
+        @Flag(help: "Repair hands: SAM3-segment 'hands' then re-denoise that region (best-effort fix for fused/extra fingers).")
+        var handRepair: Bool = false
+        @Option(help: "Hand-repair denoise strength. 0.6 = conservative, 0.8 = stronger regen (default). Above 0.8 risks new hand chaos.")
+        var handRepairStrength: Float = 0.8
+
         /// Background-as-canvas (Workstream 1). When set, this image becomes the
         /// SDEdit denoise canvas — its layout/POV is inherited as the actual
         /// background the characters are placed into (not just a tone steer). It
@@ -241,6 +252,40 @@ extension Flux2CLI {
                 }
             }
 
+            // Hand-repair post-pass (scene-side mitigation for the hands ceiling):
+            // SAM3 text-segments "hands", then the hand region is re-denoised from
+            // the prompt so fused/extra fingers get a regeneration retry.
+            if handRepair {
+                let tmpImg = NSTemporaryDirectory() + "flux2_handrepair_\(getpid()).png"
+                let maskPath = NSTemporaryDirectory() + "flux2_handmask_\(getpid()).png"
+                try Flux2T2IPipeline.saveImage(pixels, to: URL(fileURLWithPath: tmpImg))
+                var repoRoot = FileManager.default.currentDirectoryPath
+                while !FileManager.default.fileExists(atPath: (repoRoot as NSString).appendingPathComponent("python/venv/bin/python")) {
+                    repoRoot = (repoRoot as NSString).deletingLastPathComponent
+                }
+                print("  hand-repair: SAM3-segmenting 'hands'...")
+                try runSAM3Bridge(repoRoot: repoRoot, image: tmpImg, prompt: "hands",
+                                  threshold: 0.3, outMask: maskPath)
+                // Detection count is in maskPath + ".json" (skip if nothing found).
+                let count = detectionCount(maskPath + ".json")
+                if count == 0 {
+                    print("            no hands detected — skipping repair")
+                } else {
+                    let handMask = try Flux2ImageLoad.loadMaskAsChannel(
+                        from: URL(fileURLWithPath: maskPath), width: width, height: height)
+                    let handPrompt = prompt + ", detailed natural human hands with five correct fingers on each hand"
+                    let (refined, t) = pipeline.inpaint(
+                        prompt: handPrompt, sourcePixels: pixels, sourceMask: handMask,
+                        referencePath: nil, seed: seed &+ 999,
+                        steps: steps, guidance: cfgScale,
+                        width: width, height: height, feather: 16,
+                        denoiseStrength: handRepairStrength)
+                    pixels = refined
+                    elapsed += t
+                    print("            repaired \(count) hand region(s) (strength=\(handRepairStrength))")
+                }
+            }
+
             // Self-gate the output (noise / blank / NaN) before saving.
             try ImageGate.check(pixels, label: "scene", strict: strictGate)
 
@@ -263,6 +308,35 @@ extension Flux2CLI {
                 try runConfig.write(to: paths.runJSON)
                 print("   run.json: \(paths.runJSON)")
             }
+        }
+
+        /// SAM3 text-segmentation bridge (mirrors SwapCommand/SegmentCommand).
+        private func runSAM3Bridge(repoRoot: String, image: String, prompt: String,
+                                   threshold: Float, outMask: String) throws {
+            let bridge = (repoRoot as NSString)
+                .appendingPathComponent("python/mlx-movie-director/app/tests/sam3_segment_bridge.py")
+            let python = (repoRoot as NSString).appendingPathComponent("python/venv/bin/python")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: python)
+            p.arguments = [bridge, "--image", image, "--prompt", prompt,
+                           "--out-mask", outMask, "--threshold", String(threshold)]
+            try p.run()
+            p.waitUntilExit()
+            if p.terminationStatus != 0 {
+                throw NSError(domain: "scene", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "SAM3 bridge failed (hand-repair)"])
+            }
+        }
+
+        /// Read the detection count the SAM3 bridge writes next to the mask.
+        private func detectionCount(_ jsonPath: String) -> Int {
+            guard let data = FileManager.default.contents(atPath: jsonPath),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return 0
+            }
+            if let n = obj["count"] as? Int { return n }
+            if let arr = obj["detections"] as? [Any] { return arr.count }
+            return 0
         }
 
         private func loadAllShards(url: URL) throws -> [String: MLXArray] {

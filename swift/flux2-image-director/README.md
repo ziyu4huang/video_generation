@@ -89,6 +89,25 @@ the SDEdit path (`Flux2EditPipeline.inpaint(denoiseStrength:)`), mirroring the
 background-as-canvas path. `--regional-strength 1.0` restores the old full-regen
 behaviour (re-rolls hands); lower = gentler.
 
+### Hand repair (`--hand-repair`)
+
+The hardest generation artifact is **hands** (fused/extra fingers) — a known
+platform ceiling. `--hand-repair` is a genuine scene-side mitigation: after the
+scene, SAM3 text-segments the `"hands"` regions, and each is re-denoised
+(inpaint) from the prompt so deformed hands get a regeneration retry.
+
+```bash
+flux2 scene --ref A.png --ref B.png --hand-repair --hand-repair-strength 0.8 --prompt "..."
+```
+
+Verified (local LLM): on a full-body 2-person scene where gemma flagged
+"softness/lack of detail in hands", `--hand-repair` removed the hand-specific
+complaint (issues fell back to the baseline plasticky-skin platform artifact
+only). Best-effort — regeneration can occasionally introduce new defects, and
+SAM3 saves only the single highest-confidence hand mask per call, so it repairs
+the most prominent hand region. `--hand-repair-strength` 0.6 = conservative,
+0.8 = stronger (default).
+
 **Recommended workflow (best of both):** for normal multi-person scenes, run a
 **seed sweep + auto-select** instead of `--regional` —
 `bash scripts/multi-seed-autoselect.sh [N]` runs N seeds, verifies each with the
