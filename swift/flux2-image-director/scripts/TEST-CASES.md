@@ -55,3 +55,24 @@ Local-LLM verdict (gemma `--style score`):
 - WS3 (`--ref-strength` / `--ref-gate-steps`): currently verified only by the log
   strings; no image-level A/B. Add a strength-sweep variant if finer ref control
   is exercised.
+
+## Improvements shipped after the findings (2026-06-30)
+
+The findings drove two improvements (knowledge: refs are global → placement is
+prompt-driven & probabilistic → don't fight the arch with full-regen inpaint):
+
+1. **`--regional-strength` (SDEdit partial denoise, default 0.45)** — fixes the
+   net-negative `--regional`. The strip is now refined from a lightly-noised copy
+   of the existing scene instead of pure noise, so identity is nudged **without
+   re-rolling hands**. `Flux2EditPipeline.inpaint(denoiseStrength:)`. Verified:
+   old strength-1.0 → overall 4 / artifacts 3 (ghosting + fused fingers); new
+   strength-0.45 → overall 6 / artifacts 5 / adherence 10, issues back to the
+   baseline plasticky-skin platform artifact (no structural hand damage). Also
+   ~2× faster (127 s vs 259 s — fewer steps per strip).
+2. **`multi-seed-autoselect.sh` + `autoselect-rank.py`** — the recommended path:
+   run N seeds → verify each with the local LLM (placement correctness + hand
+   quality) → keep the verified-correct best → `autoselect-report.html`. Tested:
+   5/5 seeds placed correctly (pink-LEFT / teal-RIGHT), winner auto-selected.
+
+Reproduce: `bash scripts/multi-seed-autoselect.sh 5`.
+

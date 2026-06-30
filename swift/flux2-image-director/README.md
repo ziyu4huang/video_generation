@@ -67,22 +67,56 @@ ref to a side, but is approximate — true region-bound identity needs an
 architecturally different conditioning path (not in Flux2KleinEdit).
 
 **Tested empirically (2026-06-30, local-LLM verified):** for a clear 2-person
-prompt with distinct visual cues (extreme hair colour), `--regional` is **net
-negative** — reproduce with `bash scripts/regional-placement-test.sh` +
-`scripts/fullbody-stress-test.sh`, verify with `scripts/verify-placement.py` /
-`scripts/harsh-hand-check.py` (qwen3-vl-4b + gemma-4-26b via `run.py caption`):
+prompt with distinct visual cues (extreme hair colour), `--regional` at the old
+default (full regen, strength 1.0) was **net negative** — reproduce with
+`bash scripts/regional-placement-test.sh` + `scripts/fullbody-stress-test.sh`,
+verify with `scripts/verify-placement.py` / `scripts/harsh-hand-check.py`
+(qwen3-vl-4b + gemma-4-26b via `run.py caption`):
 - Baseline (no `--regional`) got left/right correct on **all 3 seeds** (42/77/123,
   prompt_adherence 9–10) — the "placement is non-deterministic" caveat is overly
   pessimistic when the prompt + refs are visually unambiguous.
-- `--regional` was 2.5× slower (259 s vs 100 s) and scored *worse*: gemma flagged
-  "ghosting/duplication of the second subject" + "malformed/fused fingers" on the
-  crossed-hands region (artifacts 3 vs baseline-best 9). The strip inpaint
-  regenerates the hand region and degrades it.
-- Takeaway: reach for `--regional` only when prompt-driven placement actually
-  fails (ambiguous refs / >2 subjects). For normal 2-person scenes, a clear prompt
-  + distinct cues + a seed sweep is both faster and higher quality. The real
-  quality ceiling here is **hands** (artifacts 3–5 across the board), not
-  placement — a known platform limitation, not a `scene`-side fix.
+- `--regional` (strength 1.0) was 2.5× slower (259 s vs 100 s) and scored *worse*:
+  gemma flagged "ghosting/duplication of the second subject" + "malformed/fused
+  fingers" on the crossed-hands region (artifacts 3 vs baseline-best 9). Cause:
+  the strip inpaint **fully regenerated** the masked region from pure noise,
+  re-rolling hands.
+
+**Fix (2026-06-30): `--regional-strength` (SDEdit partial denoise, default 0.45).**
+The strip is now refined via PARTIAL denoise — it starts from a lightly-noised
+copy of the existing scene (not pure noise) and runs only the last fraction of
+steps, so identity is nudged into the strip **without re-rolling hands**. This is
+the SDEdit path (`Flux2EditPipeline.inpaint(denoiseStrength:)`), mirroring the
+background-as-canvas path. `--regional-strength 1.0` restores the old full-regen
+behaviour (re-rolls hands); lower = gentler.
+
+### Hand repair (`--hand-repair`)
+
+The hardest generation artifact is **hands** (fused/extra fingers) — a known
+platform ceiling. `--hand-repair` is a genuine scene-side mitigation: after the
+scene, SAM3 text-segments the `"hands"` regions, and each is re-denoised
+(inpaint) from the prompt so deformed hands get a regeneration retry.
+
+```bash
+flux2 scene --ref A.png --ref B.png --hand-repair --hand-repair-strength 0.8 --prompt "..."
+```
+
+Verified (local LLM): on a full-body 2-person scene where gemma flagged
+"softness/lack of detail in hands", `--hand-repair` removed the hand-specific
+complaint (issues fell back to the baseline plasticky-skin platform artifact
+only). Best-effort — regeneration can occasionally introduce new defects, and
+SAM3 saves only the single highest-confidence hand mask per call, so it repairs
+the most prominent hand region. `--hand-repair-strength` 0.6 = conservative,
+0.8 = stronger (default).
+
+**Recommended workflow (best of both):** for normal multi-person scenes, run a
+**seed sweep + auto-select** instead of `--regional` —
+`bash scripts/multi-seed-autoselect.sh [N]` runs N seeds, verifies each with the
+local LLM (placement correctness + hand quality), and keeps the verified-correct
+best (`autoselect-report.html`). This exploits that prompt placement is
+reliable-but-probabilistic (no architectural fight), which is more
+engineering-efficient than `--regional` or porting IP-Adapter Regional. The real
+quality ceiling remains **hands** (artifacts 3–5 across the board), a platform
+limitation not fixable from `scene`.
 
 ### Multi-LoRA stacking (`--lora`) — Workstream 2
 
