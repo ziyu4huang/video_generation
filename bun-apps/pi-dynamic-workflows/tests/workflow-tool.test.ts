@@ -87,8 +87,8 @@ test("createWorkflowTool schema exposes concurrency and agentRetries", () => {
   assert.match(parameters.properties?.agentRetries?.description ?? "", /Retry attempts/i);
 });
 
-test("createWorkflowTool promptGuidelines mention retry and concurrency controls", () => {
-  const tool = createWorkflowTool();
+test("createWorkflowTool verbose promptGuidelines mention retry and concurrency controls", () => {
+  const tool = createWorkflowTool({ verboseWorkflowGuidelines: true });
   const all = tool.promptGuidelines.join(" ");
 
   assert.match(all, /low concurrency/i);

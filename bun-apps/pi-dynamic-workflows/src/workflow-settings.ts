@@ -23,6 +23,13 @@ export interface WorkflowSettings {
   progressPanelMode?: "compact" | "detailed";
   /** Max agents shown per phase in detailed progress mode (default 8). */
   progressPanelMaxAgents?: number;
+  /**
+   * When false (default), inject only the essential workflow guidelines into
+   * the system prompt to save context tokens. Set to true to include the full
+   * set of guidelines covering advanced options (quality helpers, token budget,
+   * phase tracking, concurrency, synthesis patterns, etc.).
+   */
+  verboseWorkflowGuidelines?: boolean;
 }
 
 export interface WorkflowSettingsStore {
@@ -133,6 +140,9 @@ function normalizeSettings(value: unknown): WorkflowSettings {
     raw.progressPanelMaxAgents >= 1
   ) {
     settings.progressPanelMaxAgents = Math.min(1000, Math.floor(raw.progressPanelMaxAgents));
+  }
+  if (typeof raw.verboseWorkflowGuidelines === "boolean") {
+    settings.verboseWorkflowGuidelines = raw.verboseWorkflowGuidelines;
   }
   return settings;
 }
