@@ -132,6 +132,17 @@ model ignores the masked-ref path it never trained on; OOD). Quality-neutral but
 **do not rely on it for placement** — use the seed-sweep workflow above. Full
 analysis: `docs/multi-reference-architecture.md` §6.
 
+### Region binding via ref-latent mask (`--ref-region-mask`) — also inert, distilled
+
+The **in-distribution** alternative (researched online, ported from the
+[ComfyUI Flux2Klein Mask-Ref Controller](https://github.com/capitan01R/ComfyUI-Flux2Klein-Enhancer)):
+attenuate each ref's patchified latent outside its mask region (`--ref-region-mask`
+per `--ref` + `--ref-region-strength`). Free (no overhead). **A/B-tested
+2026-07-01 and ALSO inert** on the distilled model — conflict 3/3 prompt wins;
+3-char agree-case identical to baseline. Confirms (via a second mechanism) that
+placement is text-dominated on the distilled Klein; works on full (non-distilled)
+Klein. Reliable multi-character placement remains **prompt + seed-sweep**.
+
 ### Multi-LoRA stacking (`--lora`) — Workstream 2
 
 `--lora` is **repeatable**; multiple LoRAs are rank-stacked into one merged

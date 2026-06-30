@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# region-attention-test.sh — A/B for the in-denoise block-masked region attention.
+# region-attention-test.sh — A/B for ref-side spatial binding on flux2 scene.
 #
-# The decisive experiment is a MASK-vs-PROMPT CONFLICT: the prompt says
-# "pink LEFT, teal RIGHT" but --ref-mask assigns pink→RIGHT, teal→LEFT.
-#   - If region attention BINDS → mask wins → pink lands RIGHT.
-#   - If the distilled model IGNORES the mask (OOD) → prompt wins → pink LEFT.
+# Two mechanisms, both tested via a MASK-vs-PROMPT CONFLICT (prompt:
+# "pink LEFT, teal RIGHT"; mask: pink→RIGHT, teal→LEFT → binding succeeds iff
+# pink lands RIGHT):
+#   C. `--region-attention`   — block-mask DiT self-attention (OOD on distilled)
+#   D. `--ref-region-mask`    — attenuate ref latent outside region (in-distribution)
 #
-# Result (2026-06-30, qwen3-vl-4b verified, 3 seeds 100/137/211): the prompt
-# won on every seed — region attention does NOT bind placement on the distilled
-# Klein model. Quality-neutral (overall 6 / artifacts 5, same as baseline) but
-# ~2× slower. See docs/multi-reference-architecture.md §6.
+# Result (qwen3-vl-4b, seeds 100/137/211): BOTH inert on the distilled Klein —
+# the prompt won every seed for both. Root cause = distillation (ref latents
+# carry identity, not position; placement is text-dominated). The latent-mask
+# path works on full (non-distilled) Klein. See docs/multi-reference-architecture.md §6.
 #
 # Usage: bash scripts/region-attention-test.sh
 set -euo pipefail
@@ -57,6 +58,16 @@ for S in 100 137 211; do
     --output-dir "$OUT" --name "C_conflict_s${S}" 2>&1 | tail -1
 done
 
+echo "==> D: region-BINDING via --ref-region-mask (in-distribution latent mask)"
+echo "    same conflict masks; if binding works => PINK=RIGHT"
+for S in 100 137 211; do
+  "$FLUX2" scene --ref "$OUT/refA.png" --ref "$OUT/refB.png" \
+    --ref-region-mask "$OUT/mask_pink_right.png" --ref-region-mask "$OUT/mask_teal_left.png" \
+    --ref-region-strength 1.0 \
+    --prompt "$SCENE" --width 1024 --height 1024 --steps 6 --seed "$S" --strict-gate \
+    --output-dir "$OUT" --name "D_bind_conflict_s${S}" 2>&1 | tail -1
+done
+
 echo "==> VLM placement verdict (qwen3-vl-4b)"
 "$PY" - <<PY
 import base64, json, urllib.request
@@ -71,7 +82,7 @@ def ask(path,q):
 OUT="$OUT"
 Q="The woman with neon PINK hair is on which side (LEFT/RIGHT)? The TEAL-green-hair woman? Format: PINK=<>, TEAL=<>"
 import os
-for n in ["A_baseline.png","B_strips.png","C_conflict_s100.png","C_conflict_s137.png","C_conflict_s211.png"]:
+for n in ["A_baseline.png","B_strips.png","C_conflict_s100.png","C_conflict_s137.png","C_conflict_s211.png","D_bind_conflict_s100.png","D_bind_conflict_s137.png","D_bind_conflict_s211.png"]:
     p=os.path.join(OUT,n)
     if os.path.exists(p):
         print(f"{n:24s} {ask(p,Q)}")
