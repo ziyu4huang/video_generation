@@ -22,7 +22,8 @@
   "scripts": {
     "build:bundle": "bun scripts/build-bundle.ts --thin",
     "build:bundle:full": "bun scripts/build-bundle.ts",
-    "build:bundle:no-obf": "bun scripts/build-bundle.ts --thin --no-obfuscate"
+    "build:bundle:no-obf": "bun scripts/build-bundle.ts --thin --no-obfuscate",
+    "test": "bun test"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
