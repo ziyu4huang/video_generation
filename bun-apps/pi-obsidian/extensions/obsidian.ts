@@ -3454,6 +3454,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_list",
 		label: "Obsidian List",
+		promptSnippet: "List markdown notes in a vault folder (recursive)",
 		description:
 			"List markdown notes in an Obsidian vault folder (recursive). Returns paths relative to the vault root. Omit folder to list the whole vault.",
 		parameters: Type.Object({
@@ -3484,6 +3485,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_read",
 		label: "Obsidian Read",
+		promptSnippet: "Read a note's contents",
 		description: "Read a note's contents. Path with or without .md.",
 		parameters: Type.Object({
 			note: Type.String({
@@ -3519,6 +3521,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_create",
 		label: "Obsidian Create",
+		promptSnippet: "Create/overwrite a note (refuses overwrite unless overwrite:true)",
 		description:
 			"Create or overwrite a note. Parent folders are created automatically. Obsidian picks up changes live. By default refuses to overwrite an existing note (set overwrite:true or pass expectedMtime to update an existing file).",
 		parameters: Type.Object({
@@ -3606,6 +3609,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_append",
 		label: "Obsidian Append",
+		promptSnippet: "Append text to a note (creates if missing)",
 		description:
 			"Append text to a note. Creates the note if missing. Adds a blank-line separator before appended text.",
 		parameters: Type.Object({
@@ -3683,6 +3687,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_append_section",
 		label: "Obsidian Append Section",
+		promptSnippet: "Append text under a heading in a note",
 		description:
 			"Append text under a heading in a note. Matches any heading level (## Foo, # Foo, ### Foo). If the heading does not exist it is appended as a new section. Useful for logging under a ## Log section without disturbing other content.",
 		parameters: Type.Object({
@@ -3743,6 +3748,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_search",
 		label: "Obsidian Search",
+		promptSnippet: "Full-text search across notes (substring/regex/words/fuzzy) + backlinks",
 		description:
 			"Full-text search across notes; returns file:line snippets. matchMode: substring (default, literal) " +
 			"| regex (JS RegExp) | words (tokens AND; `|`=OR group, `-token`=NOT) | fuzzy (typo-tolerant). " +
@@ -4050,6 +4056,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_move",
 		label: "Obsidian Move",
+		promptSnippet: "Move/rename a note and rewrite inbound wiki-links",
 		description:
 			"Move/rename a note and rewrite all inbound [[wiki-links]] across the vault to point at the new location. Preserves aliases and #section refs. Atomic (temp+rename).",
 		parameters: Type.Object({
@@ -4099,6 +4106,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_rename",
 		label: "Obsidian Rename",
+		promptSnippet: "Rename a note in place (same dir) and rewrite inbound links",
 		description:
 			"Rename a note in place (same directory) and rewrite inbound [[wiki-links]]. Thin alias of obsidian_move constrained to the basename.",
 		parameters: Type.Object({
@@ -4133,6 +4141,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_query",
 		label: "Obsidian Query",
+		promptSnippet: "Index-only metadata query (tags/folder/date) without reading bodies",
 		description:
 			"Structured metadata query (Dataview-lite). Returns note paths/titles/tags/created WITHOUT reading bodies — index-only, cheap. Use to find notes by tag/folder/date, then pipe paths into obsidian_search via its `paths` param.",
 		parameters: Type.Object({
@@ -4182,6 +4191,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_update_frontmatter",
 		label: "Obsidian Update Frontmatter",
+		promptSnippet: "Merge keys into a note's frontmatter (tags additive)",
 		description:
 			"Merge keys into a note's frontmatter without touching the body. `tags` is special-cased: array union (additive), not overwrite. Other keys are set/replace.",
 		parameters: Type.Object({
@@ -4225,6 +4235,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_delete",
 		label: "Obsidian Delete",
+		promptSnippet: "Delete a note and strip inbound wiki-links (requires confirm:true)",
 		description:
 			"Delete/remove a note from the vault — THIS is the tool for removing or deleting a note. It also automatically strips all [[wiki-links]] pointing to the deleted note across the vault (cleanupLinks, default true), so a request to 'remove a note without leaving broken/dangling links' is satisfied automatically with no extra step. Set cleanupLinks:false to leave dangling refs. Requires confirm:true to actually delete (safety guard). If unsure whether the note exists, call obsidian_read or obsidian_list first rather than assuming it is absent.",
 		parameters: Type.Object({
@@ -4274,6 +4285,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_invalidate",
 		label: "Obsidian Invalidate",
+		promptSnippet: "Reconcile read cache/index with on-disk state after external edits",
 		description:
 			"Reconcile the read cache and vault index with the current on-disk state so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). Pass `path` (a note or folder, vault-relative) to reconcile only that subtree; omit it to reconcile the whole vault. Returns a small +added/~changed/-deleted summary.",
 		parameters: Type.Object({
@@ -4367,6 +4379,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_open",
 		label: "Obsidian Open",
+		promptSnippet: "Open a note or vault in the Obsidian app via URI scheme",
 		description:
 			"Open a note or the whole vault in the Obsidian app via its URI scheme. Supports opening to a specific heading via note:'Note#Section' (Advanced URI / native).",
 		parameters: Type.Object({
@@ -4430,6 +4443,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "obsidian_distill",
 		label: "Obsidian Distill",
+		promptSnippet: "Distill files into atomic Zettelkasten notes via a subagent",
 		description: [
 			"Distill input markdown/text files into atomic Zettelkasten notes in the vault.",
 			"Spawns an isolated subagent that reads the files, decomposes them into atomic ideas,",
@@ -4572,6 +4586,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian_garden",
 		label: "Obsidian Garden",
+		promptSnippet: "Audit/repair vault graph health (orphans, broken links, MOC drift)",
 		description: [
 			"Audit and optionally repair the Obsidian vault's knowledge-graph health.",
 			"Spawns an isolated subagent that scans all notes and reports: orphan notes (no backlinks),",
@@ -4693,6 +4708,7 @@ ${output.slice(-2000)}`,
 	pi.registerTool({
 		name: "obsidian_status",
 		label: "Obsidian Status",
+		promptSnippet: "Show the active vault (path/source/note count) — call before vault writes",
 		description:
 			"Show the active Obsidian vault: resolved path, name, resolution source (env|config|app|local|global), whether it is registered in the Obsidian app, note count, stale-config warnings, and all candidate vaults. Use this BEFORE any vault write or when the user asks which vault is in use — obsidian_* and zk_* tools all operate on this vault.",
 		parameters: Type.Object({}),
