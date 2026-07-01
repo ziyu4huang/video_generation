@@ -149,7 +149,7 @@ export function resolveModelsRoot(repoRoot: string, override?: string): string {
     return isAbsolute(override) ? override : pResolve(repoRoot, override);
   }
   if (process.env.MLX_MODELS_DIR) return pResolve(process.env.MLX_MODELS_DIR);
-  return pResolve(repoRoot, "python", "mlx-movie-director", "models");
+  return pResolve(repoRoot, "mlx-models");
 }
 
 /** stat helper, symlink-aware. */
