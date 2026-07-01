@@ -8,7 +8,6 @@
  * The extension (extensions/pi-flux2.ts) is a thin wrapper that maps the typed
  * tool parameters onto this function and shapes the ToolResult.
  */
-import { join } from "node:path";
 import { ensureBinary, resolveRepoRoot } from "./binary.ts";
 import {
   buildArgs,
@@ -243,10 +242,6 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
   if (input.scenePipeline) {
     const vlm = await import("./vlm.ts");
     const llm = vlm.resolveVlmLLM(input.scenePipeline.vlmModel);
-    // Project-local .pi/agent (checked into this repo) — NOT the global
-    // ~/.pi/agent — so the lm-studio provider this pipeline depends on
-    // resolves from config this repo actually ships, not machine state.
-    const vlmAgentDir = join(repoRoot, ".pi", "agent");
     const { seed: _seed, ...baseOptions } = options; // each candidate sets its own seed
     const pipeline = await runScenePipeline(
       baseOptions,
@@ -254,7 +249,7 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
       {
         runSceneOnce: (opts) =>
           runOnce(input.command, opts, roots, extraArgs, input.signal, input.onProgress).then((r) => r.details),
-        askAboutImage: (imagePath, question) => vlm.askAboutImage(imagePath, question, llm, vlmAgentDir),
+        askAboutImage: (imagePath, question) => vlm.askAboutImage(imagePath, question, llm),
       },
       (text) => input.onProgress?.({ kind: "progress", text }),
     );
