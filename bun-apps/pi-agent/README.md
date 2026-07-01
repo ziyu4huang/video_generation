@@ -189,6 +189,35 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 
 `cli.ts` never needs to change.
 
+## Testing
+
+`run-test.sh` is a multi-effort-level launcher — each level is a superset of the
+one below (cost is driven by the build + deploy, not the tests):
+
+```bash
+./run-test.sh                  # = medium  (~5s)  unit + build + patch e2e   [default]
+./run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
+./run-test.sh high             # (~18s)    + deploy + 4-cwd extension-loading e2e
+./run-test.sh full             # (~35s)    + sibling pi-* unit baseline (whole stack)
+./run-test.sh --list           # print the tier table
+```
+
+| Level | Adds | Catches |
+|---|---|---|
+| **quick** | unit (pure fn + import-time smoke) | decision-logic regressions |
+| **medium** | build bundle + patch e2e (`--help`/`--list-models` spawns) | patch module dropped from bundle, env→argv splice, **providers not injected** |
+| **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, deploy-package conflicts |
+| **full** | sibling pi-* unit baseline (obs/kc/cli/vlm) | the whole stack pi-agent loads as extensions |
+
+Plain `bun test` is the `quick` tier (the e2e files skip themselves without
+`PI_AGENT_E2E=1`). medium+ force a fresh build so a stale `dist/` can't mask a
+bundle regression. Extra flags are forwarded to `bun test`
+(`./run-test.sh high --bail`). Numeric aliases `0-3` work too.
+
+The bundle e2e lives in `src/__tests__/e2e-*.test.ts`; the two env gates it reads
+are `PI_AGENT_E2E=1` (patches) and `PI_AGENT_E2E_DEPLOY=1` (extensions).
+`bun run verify` runs just the extension-loading e2e (high-tier subset).
+
 ## Layout
 
 ```
@@ -202,9 +231,14 @@ pi-agent/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
     ├── generated/                # build-time-baked constants (gitignored)
-    └── patches/
-        ├── index.ts                    # registry (env-gated) + debug
-        └── load-run-dir-resources.ts   # splices run-dir/ into argv
+    ├── patches/
+    │   ├── index.ts                    # registry (env-gated) + debug
+    │   ├── default-model-env.ts        # bridges PI_MODEL/PI_PROVIDER/PI_THINKING into argv
+    │   └── load-run-dir-resources.ts   # splices run-dir/ into argv
+    └── __tests__/
+        ├── e2e-harness.ts              # shared build + spawn helpers (PI_AGENT_E2E gate)
+        ├── e2e-patches.test.ts         # bundle e2e: every patch fires + env→argv splice
+        └── e2e-extensions.test.ts      # bundle e2e: extension loading across cwd/mode (was verify.ts)
 ```
 
 ## Known issues

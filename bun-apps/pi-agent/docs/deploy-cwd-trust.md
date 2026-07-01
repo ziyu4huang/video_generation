@@ -64,11 +64,15 @@ Copied into every package. Picks its entry by what's present:
 
 ## Verify (the stable test)
 
-`bun scripts/verify.ts` — build + deploy a fresh package, run a probe extension
-(`pi.getAllTools()`) across SOURCE (repo + /tmp) and DEPLOY (foreign cwd + repo)
-scenarios, assert ZERO conflict/cannot-find/failed-to-load and `matched > 0`,
-kill on probe fire (no model call). Catches cwd-coupled bugs invisible to
-in-artifact testing or the model's `-p` self-report.
+`bun run verify` (or `./run-test.sh`) — a `bun:test` suite
+(`src/__tests__/e2e-extensions.test.ts`, gated on `PI_AGENT_E2E=1`) that builds +
+deploys a fresh package, runs a probe extension (`pi.getAllTools()`) across
+SOURCE (repo + /tmp) and DEPLOY (foreign cwd + repo) scenarios, asserts ZERO
+conflict/cannot-find/failed-to-load and `matched > 0`, and kills on probe fire
+(no model call). Catches cwd-coupled bugs invisible to in-artifact testing or
+the model's `-p` self-report. (Formerly `scripts/verify.ts`; folded into
+`bun test` so the e2e shares the build/spawn harness and gate with
+`e2e-patches.test.ts`.)
 
 ## Testing portable artifacts — lessons
 
