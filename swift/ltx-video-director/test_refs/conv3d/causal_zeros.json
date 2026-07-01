@@ -1,0 +1,21 @@
+{
+  "causal": true,
+  "spatial_padding_mode": "zeros",
+  "in_channels": 4,
+  "out_channels": 8,
+  "kernel_size": 3,
+  "input_shape": [
+    1,
+    5,
+    6,
+    6,
+    4
+  ],
+  "output_shape": [
+    1,
+    5,
+    6,
+    6,
+    8
+  ]
+}

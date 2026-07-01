@@ -34,3 +34,11 @@ for d in $DESTS; do
 	cp "$VENV_METALLIB" "$d/mlx.metallib"
 	echo "copied mlx.metallib → $d/mlx.metallib"
 done
+
+# `swift test` runs from inside the .xctest bundle's own MacOS dir, not the
+# config dir directly — needs its own copy.
+XCTEST_DESTS=$(find .build -type d -iname "*PackageTests.xctest" 2>/dev/null || true)
+for d in $XCTEST_DESTS; do
+	cp "$VENV_METALLIB" "$d/Contents/MacOS/mlx.metallib"
+	echo "copied mlx.metallib → $d/Contents/MacOS/mlx.metallib"
+done

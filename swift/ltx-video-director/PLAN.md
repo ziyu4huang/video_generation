@@ -48,6 +48,22 @@ than an unverified from-scratch reimplementation that might silently
 produce garbage. The native gateway/verify/upscale-wiring layers do NOT
 depend on the bridge and are real, working Swift code today.
 
+## Phase 1 progress (2026-07-02)
+
+First native, parity-verified component landed: `Sources/LTXVideoDirector/VAE/Conv3dBlock.swift`
+— the causal/non-causal 3D-conv building block used throughout the LTX-2.3 video VAE
+(`ltx_core_mlx.model.video_vae.convolution.Conv3dBlock`). Verified against the ACTUAL Python
+MLX implementation this project runs (not a hand-derived expectation): `scripts/dump_conv3d_reference.py`
+dumps fixed-seed weights/input/output from the real `Conv3dBlock`, and
+`Tests/LTXVideoDirectorTests/Conv3dBlockParityTests.swift` loads them and asserts max-abs-diff
+< 1e-4 for all three modes (causal+zeros, non-causal+reflect, causal kernel=1). All 3 pass.
+
+This is one atomic building block, not the VAE decoder itself — the decoder (`video_vae.py`,
+687 lines: ResBlockStage, DepthToSpaceUpsample, PixelNorm, per-channel statistics denorm,
+memory-bounded tiling) is the next slice, followed by the encoder, then the 48-layer transformer
+(by far the largest piece — see Phase 2). Each subsequent piece follows the same
+dump-real-reference → port → parity-test loop established here.
+
 ## Phase 1 — native VAE (decode-only)
 
 Port the LTX-2.3 3D causal VAE decoder (latents → pixels) to MLX Swift.
