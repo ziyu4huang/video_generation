@@ -171,6 +171,44 @@ describe("resolveLLM — --thinking validation", () => {
   });
 });
 
+describe("resolveLLM — PI_THINKING env validation", () => {
+  // The --thinking flag and the :thinking model suffix are both validated;
+  // PI_THINKING used to be `as ThinkingLevel`'d raw, letting PI_THINKING=bogus
+  // reach createAgentSessionFromServices with no error (fail-fast gap).
+
+  test("invalid PI_THINKING throws and lists valid levels", () => {
+    process.env.PI_THINKING = "bogus";
+    try {
+      resolveLLM({});
+      throw new Error("should have thrown");
+    } catch (e) {
+      const msg = (e as Error).message;
+      expect(msg).toMatch(/Invalid PI_THINKING "bogus"/);
+      expect(msg).toContain("off");
+      expect(msg).toContain("xhigh");
+    }
+  });
+
+  test("PI_THINKING is case-sensitive (uppercase throws)", () => {
+    process.env.PI_THINKING = "High";
+    expect(() => resolveLLM({})).toThrow(/Invalid PI_THINKING "High"/);
+  });
+
+  test("unset PI_THINKING → FALLBACK (medium), no throw", () => {
+    expect(resolveLLM({}).thinkingLevel).toBe("medium");
+  });
+
+  test("valid PI_THINKING is accepted", () => {
+    process.env.PI_THINKING = "xhigh";
+    expect(resolveLLM({}).thinkingLevel).toBe("xhigh");
+  });
+
+  test("explicit --thinking beats a valid PI_THINKING (precedence unaffected)", () => {
+    process.env.PI_THINKING = "high";
+    expect(resolveLLM({ thinking: "low" }).thinkingLevel).toBe("low");
+  });
+});
+
 // --- resolveModel + allModels with a fake registry ---------------------------
 
 function fakeRegistry(all: any[], available: any[] = all) {
