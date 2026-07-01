@@ -14,7 +14,7 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { describe, it, mock } from "bun:test";
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { buildForcedWorkflowPrompt, WORKFLOW_TOOL_NAME, type WorkflowModeState } from "../src/workflow-editor.js";
 
@@ -54,12 +54,12 @@ interface MockPi {
 function createMockPi(initialTools: string[] = [...DEFAULT_PI_TOOLS]): MockPi {
   const handlers: Record<string, Array<(...args: any[]) => any>> = {};
   return {
-    on: mock.fn((event: string, handler: (...args: any[]) => any) => {
+    on: mock((event: string, handler: (...args: any[]) => any) => {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
     }),
-    getActiveTools: mock.fn(() => [...initialTools]),
-    setActiveTools: mock.fn(),
+    getActiveTools: mock(() => [...initialTools]),
+    setActiveTools: mock(),
     handlers,
   };
 }
@@ -84,7 +84,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi([...DEFAULT_PI_TOOLS]);
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -111,12 +111,12 @@ describe("installWorkflowEditor - tool availability", () => {
     });
 
     // Verify getActiveTools was called
-    assert.equal(mockPi.getActiveTools.mock.callCount(), 1);
+    assert.equal(mockPi.getActiveTools.mock.calls.length, 1);
 
     // Verify setActiveTools was called
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 1);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 1);
 
-    const calledWith = mockPi.setActiveTools.mock.calls[0].arguments[0];
+    const calledWith = mockPi.setActiveTools.mock.calls[0][0];
     assert.ok(Array.isArray(calledWith), "setActiveTools should be called with an array");
 
     // The critical assertion: the workflow tool must be present
@@ -145,7 +145,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi(originalTools);
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -163,7 +163,7 @@ describe("installWorkflowEditor - tool availability", () => {
     });
 
     // Verify tools were set (with default tools preserved)
-    const toolsWhenActive = mockPi.setActiveTools.mock.calls[0].arguments[0];
+    const toolsWhenActive = mockPi.setActiveTools.mock.calls[0][0];
     for (const t of originalTools) {
       assert.ok(toolsWhenActive.includes(t), `"${t}" should be in active tools`);
     }
@@ -176,7 +176,7 @@ describe("installWorkflowEditor - tool availability", () => {
     turnEndHandlers[0]();
 
     // Verify original tools were restored exactly
-    const restoredTools = mockPi.setActiveTools.mock.calls[1].arguments[0];
+    const restoredTools = mockPi.setActiveTools.mock.calls[1][0];
     assert.deepEqual(restoredTools, originalTools, "original tools should be restored exactly");
   });
 
@@ -185,7 +185,7 @@ describe("installWorkflowEditor - tool availability", () => {
 
     const mockPi = createMockPi();
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -197,11 +197,11 @@ describe("installWorkflowEditor - tool availability", () => {
 
     const inputHandlers = mockPi.handlers.input;
     assert.deepEqual(inputHandlers[0]({ source: "interactive", text: "run workflow" }), { action: "continue" });
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 0);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 0);
 
     const result = inputHandlers[0]({ source: "interactive", text: "run pi-workflow" });
     assert.equal(result.action, "transform");
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 1);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 1);
   });
 
   it('should not fire for "/workflows" (slash command, not trigger)', async () => {
@@ -210,7 +210,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi();
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -231,7 +231,7 @@ describe("installWorkflowEditor - tool availability", () => {
     assert.deepEqual(result, { action: "continue" });
 
     // Should NOT have called setActiveTools
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 0);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 0);
   });
 
   it("should not fire for non-interactive sources", async () => {
@@ -240,7 +240,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi();
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -257,7 +257,7 @@ describe("installWorkflowEditor - tool availability", () => {
     });
 
     assert.deepEqual(result, { action: "continue" });
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 0);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 0);
   });
 
   it("should not fire for empty text", async () => {
@@ -266,7 +266,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi();
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -283,7 +283,7 @@ describe("installWorkflowEditor - tool availability", () => {
     });
 
     assert.deepEqual(result, { action: "continue" });
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 0);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 0);
   });
 
   it("should handle getActiveTools returning undefined gracefully", async () => {
@@ -291,10 +291,10 @@ describe("installWorkflowEditor - tool availability", () => {
 
     // Pi may not have getActiveTools in some hosts
     const mockPi = createMockPi();
-    mockPi.getActiveTools = mock.fn(() => undefined as unknown as string[]);
+    mockPi.getActiveTools = mock(() => undefined as unknown as string[]);
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -317,12 +317,12 @@ describe("installWorkflowEditor - tool availability", () => {
     const { installWorkflowEditor } = await import("../src/workflow-editor.js");
 
     const mockPi = createMockPi();
-    mockPi.setActiveTools = mock.fn(() => {
+    mockPi.setActiveTools = mock(() => {
       throw new Error("host rejected tool restriction");
     });
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -350,7 +350,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const mockPi = createMockPi(originalTools);
 
     const ui = {
-      setEditorComponent: mock.fn(),
+      setEditorComponent: mock(),
     };
 
     installWorkflowEditor(
@@ -374,16 +374,16 @@ describe("installWorkflowEditor - tool availability", () => {
     });
 
     // setActiveTools should only have been called once (savedTools is already set)
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 1);
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 1);
 
     // turn_end restores
     const turnEndHandlers = mockPi.handlers.turn_end;
     turnEndHandlers[0]();
 
     // Subsequent turn_end should NOT restore again (savedTools is now undefined)
-    mockPi.setActiveTools.mock.resetCalls();
+    mockPi.setActiveTools.mockClear();
     turnEndHandlers[0]();
-    assert.equal(mockPi.setActiveTools.mock.callCount(), 0, "second turn_end should not call setActiveTools");
+    assert.equal(mockPi.setActiveTools.mock.calls.length, 0, "second turn_end should not call setActiveTools");
   });
 
   it("should work with different keyword variations: 'workflow', 'workflows', 'WORKFLOW'", async () => {
@@ -391,7 +391,7 @@ describe("installWorkflowEditor - tool availability", () => {
 
     for (const keyword of ["workflow", "workflows", "WORKFLOW", "WorkFlows"]) {
       const mockPi = createMockPi();
-      const ui = { setEditorComponent: mock.fn() };
+      const ui = { setEditorComponent: mock() };
       installWorkflowEditor(
         mockPi as unknown as ExtensionAPI,
         ui as unknown as ExtensionUIContext,
@@ -399,7 +399,7 @@ describe("installWorkflowEditor - tool availability", () => {
         testSettingsOptions(),
       );
 
-      mockPi.setActiveTools.mock.resetCalls();
+      mockPi.setActiveTools.mockClear();
 
       const inputHandlers = mockPi.handlers.input;
       inputHandlers[0]({
@@ -407,7 +407,7 @@ describe("installWorkflowEditor - tool availability", () => {
         text: `run ${keyword} test`,
       });
 
-      const tools = mockPi.setActiveTools.mock.calls[0]?.arguments[0];
+      const tools = mockPi.setActiveTools.mock.calls[0]?.[0];
       assert.ok(tools?.includes("bash"), `bash should be available for keyword "${keyword}"`);
       assert.ok(tools?.includes("read"), `read should be available for keyword "${keyword}"`);
       assert.ok(tools?.includes(WORKFLOW_TOOL_NAME), `workflow should be in active tools for keyword "${keyword}"`);
@@ -418,7 +418,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const { installWorkflowEditor } = await import("../src/workflow-editor.js");
 
     const mockPi = createMockPi();
-    const setEditorComponent = mock.fn();
+    const setEditorComponent = mock();
     const ui = { setEditorComponent };
 
     const state = installWorkflowEditor(
@@ -428,7 +428,7 @@ describe("installWorkflowEditor - tool availability", () => {
       testSettingsOptions(),
     );
 
-    assert.equal(setEditorComponent.mock.callCount(), 1);
+    assert.equal(setEditorComponent.mock.calls.length, 1);
     assert.ok(state, "should return a WorkflowModeState");
     assert.equal(state.active, false);
   });
@@ -437,7 +437,7 @@ describe("installWorkflowEditor - tool availability", () => {
     const { installWorkflowEditor } = await import("../src/workflow-editor.js");
 
     const mockPi = createMockPi();
-    const ui = { setEditorComponent: mock.fn() };
+    const ui = { setEditorComponent: mock() };
 
     const state: WorkflowModeState = installWorkflowEditor(
       mockPi as unknown as ExtensionAPI,

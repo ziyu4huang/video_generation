@@ -55,7 +55,7 @@ mock.module(`${ROOT}/src/native/pdf2png.ts`, () => ({
   },
 }));
 
-mock.module(`${ROOT}/src/sessions.ts`, () => ({
+mock.module(`${ROOT}/src/session-factory.ts`, () => ({
   createSharedSession: async (llm: any, opts: any) => {
     sessionCalls.push({ llm, opts });
     return {

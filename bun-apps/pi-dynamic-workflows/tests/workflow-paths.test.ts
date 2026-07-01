@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, normalize } from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import {
   WORKFLOW_HOME_RELATIVE_DIR,
   WORKFLOW_PROJECTS_SUBDIR,

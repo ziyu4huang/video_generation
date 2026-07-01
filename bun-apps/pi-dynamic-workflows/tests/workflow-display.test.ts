@@ -12,7 +12,7 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { describe, it, mock } from "bun:test";
 import type { WorkflowMeta } from "../src/workflow.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -211,8 +211,8 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
   it("update calls setWidget constructor once and re-renders via component", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
-    const setStatus = mock.fn();
+    const setWidget = mock();
+    const setStatus = mock();
     const ctx = {
       hasUI: true,
       ui: { setWidget, setStatus },
@@ -221,8 +221,8 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
     const display = createWidgetWorkflowDisplay(ctx as never, { key: "test-wf" });
 
     // Constructor registers the widget as a component factory (callback, not array)
-    assert.equal(setWidget.mock.callCount(), 1);
-    const [key, widget, _opts] = setWidget.mock.calls[0].arguments;
+    assert.equal(setWidget.mock.calls.length, 1);
+    const [key, widget, _opts] = setWidget.mock.calls[0];
     assert.equal(key, "test-wf");
     assert.equal(typeof widget, "function", "widget should be a component factory function");
 
@@ -240,7 +240,7 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
     // update doesn't call setWidget again (mutable state)
     const snap = createWorkflowSnapshot(fakeMeta());
     display.update(snap);
-    assert.equal(setWidget.mock.callCount(), 2, "update should call setWidget to re-register");
+    assert.equal(setWidget.mock.calls.length, 2, "update should call setWidget to re-register");
 
     // But the component's render function returns the latest snapshot lines
     const lines = comp.render(80);
@@ -251,27 +251,27 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
   it("complete does not re-register widget (constructor did it)", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
+    const setWidget = mock();
     const ctx = {
       hasUI: true,
-      ui: { setWidget, setStatus: mock.fn() },
+      ui: { setWidget, setStatus: mock() },
     };
 
     const display = createWidgetWorkflowDisplay(ctx as never);
-    assert.equal(setWidget.mock.callCount(), 1, "constructor registers widget once");
+    assert.equal(setWidget.mock.calls.length, 1, "constructor registers widget once");
 
     const snap = createWorkflowSnapshot(fakeMeta());
     display.complete(snap);
 
     // Complete updates mutable state, doesn't re-register
-    assert.equal(setWidget.mock.callCount(), 2, "complete should call setWidget to re-register");
+    assert.equal(setWidget.mock.calls.length, 2, "complete should call setWidget to re-register");
   });
 
   it("clear removes widget and status", async () => {
     const { createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
-    const setStatus = mock.fn();
+    const setWidget = mock();
+    const setStatus = mock();
     const ctx = {
       hasUI: true,
       ui: { setWidget, setStatus },
@@ -279,22 +279,22 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
 
     const display = createWidgetWorkflowDisplay(ctx as never, { showStatus: true });
     // Constructor registers the widget once
-    assert.equal(setWidget.mock.callCount(), 1);
+    assert.equal(setWidget.mock.calls.length, 1);
 
     display.clear();
 
     // Clear calls setWidget(undefined) to remove it + setStatus(undefined)
-    assert.equal(setWidget.mock.callCount(), 2, "constructor + clear = 2 calls");
-    assert.equal(setWidget.mock.calls[1].arguments[1], undefined, "widget should be cleared");
-    assert.equal(setStatus.mock.callCount(), 1);
-    assert.equal(setStatus.mock.calls[0].arguments[1], undefined, "status should be cleared");
+    assert.equal(setWidget.mock.calls.length, 2, "constructor + clear = 2 calls");
+    assert.equal(setWidget.mock.calls[1][1], undefined, "widget should be cleared");
+    assert.equal(setStatus.mock.calls.length, 1);
+    assert.equal(setStatus.mock.calls[0][1], undefined, "status should be cleared");
   });
 
   it("does nothing when hasUI is false", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
-    const setStatus = mock.fn();
+    const setWidget = mock();
+    const setStatus = mock();
     const ctx = {
       hasUI: false,
       ui: { setWidget, setStatus },
@@ -306,16 +306,16 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
     display.complete(snap);
     display.clear();
 
-    assert.equal(setWidget.mock.callCount(), 0, "should not call setWidget when no UI");
+    assert.equal(setWidget.mock.calls.length, 0, "should not call setWidget when no UI");
   });
 
   it("sets status line when showStatus is enabled", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setStatus = mock.fn();
+    const setStatus = mock();
     const ctx = {
       hasUI: true,
-      ui: { setWidget: mock.fn(), setStatus },
+      ui: { setWidget: mock(), setStatus },
     };
 
     const display = createWidgetWorkflowDisplay(ctx as never, { key: "wf", showStatus: true });
@@ -323,31 +323,31 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
     snap.agents = [agent(1, "a1", "done", "Research"), agent(2, "a2", "running", "Research")] as never[];
     display.update(snap);
 
-    assert.equal(setStatus.mock.callCount(), 1);
-    const [, statusText] = setStatus.mock.calls[0].arguments;
+    assert.equal(setStatus.mock.calls.length, 1);
+    const [, statusText] = setStatus.mock.calls[0];
     assert.ok(statusText.includes("test-wf"), "status should include workflow name");
   });
 
   it("re-renders via setWidget even when showStatus is false (default)", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
+    const setWidget = mock();
     const ctx = {
       hasUI: true,
-      ui: { setWidget, setStatus: mock.fn() },
+      ui: { setWidget, setStatus: mock() },
     };
 
     // showStatus defaults to false
     const display = createWidgetWorkflowDisplay(ctx as never, { key: "wf-no-status" });
-    assert.equal(setWidget.mock.callCount(), 1, "constructor registers widget once");
+    assert.equal(setWidget.mock.calls.length, 1, "constructor registers widget once");
 
     // update() re-registers the widget (invalidation signal to pi-tui)
     const snap = createWorkflowSnapshot(fakeMeta("no-status-wf"));
     display.update(snap);
-    assert.equal(setWidget.mock.callCount(), 2, "update must re-register widget (invalidation signal)");
+    assert.equal(setWidget.mock.calls.length, 2, "update must re-register widget (invalidation signal)");
 
     // Extract the re-registered factory and verify it renders the latest snapshot
-    const [, factory2] = setWidget.mock.calls[1].arguments;
+    const [, factory2] = setWidget.mock.calls[1];
     assert.equal(typeof factory2, "function", "factory must be a function");
     const comp2 = factory2(null, { fg: (_c, t) => t, bold: (t) => t });
     assert.equal(typeof comp2.render, "function", "factory must produce a component with render()");
@@ -367,10 +367,10 @@ describe("createWidgetWorkflowDisplay lifecycle", () => {
 
     // complete() must also re-register the factory
     display.complete(snap);
-    assert.equal(setWidget.mock.callCount(), 3, "complete must re-register widget (invalidation signal)");
+    assert.equal(setWidget.mock.calls.length, 3, "complete must re-register widget (invalidation signal)");
 
     // Verify the post-complete factory also renders updated content
-    const [, factory3] = setWidget.mock.calls[2].arguments;
+    const [, factory3] = setWidget.mock.calls[2];
     const comp3 = factory3(null, { fg: (_c, t) => t, bold: (t) => t });
     const lines3 = comp3.render(80);
     assert.ok(
@@ -388,13 +388,13 @@ describe("createToolUpdateWorkflowDisplay lifecycle", () => {
   it("update calls onUpdate with rendered text when streamToolUpdates is true", async () => {
     const { createWorkflowSnapshot, createToolUpdateWorkflowDisplay } = await loadDisplay();
 
-    const onUpdate = mock.fn();
+    const onUpdate = mock();
     const display = createToolUpdateWorkflowDisplay(onUpdate, undefined, { streamToolUpdates: true });
     const snap = createWorkflowSnapshot(fakeMeta());
     display.update(snap);
 
-    assert.equal(onUpdate.mock.callCount(), 1);
-    const [{ content }] = onUpdate.mock.calls[0].arguments;
+    assert.equal(onUpdate.mock.calls.length, 1);
+    const [{ content }] = onUpdate.mock.calls[0];
     assert.ok(Array.isArray(content), "content should be an array");
     assert.equal(content[0].type, "text");
     assert.ok(content[0].text.includes("Workflow"), "should include workflow status text");
@@ -403,22 +403,22 @@ describe("createToolUpdateWorkflowDisplay lifecycle", () => {
   it("update does NOT call onUpdate when streamToolUpdates is false", async () => {
     const { createWorkflowSnapshot, createToolUpdateWorkflowDisplay } = await loadDisplay();
 
-    const onUpdate = mock.fn();
+    const onUpdate = mock();
     const display = createToolUpdateWorkflowDisplay(onUpdate, undefined, { streamToolUpdates: false });
     display.update(createWorkflowSnapshot(fakeMeta()));
 
-    assert.equal(onUpdate.mock.callCount(), 0, "should not update when streaming is disabled");
+    assert.equal(onUpdate.mock.calls.length, 0, "should not update when streaming is disabled");
   });
 
   it("complete emits final render with completed flag", async () => {
     const { createWorkflowSnapshot, createToolUpdateWorkflowDisplay } = await loadDisplay();
 
-    const onUpdate = mock.fn();
+    const onUpdate = mock();
     const display = createToolUpdateWorkflowDisplay(onUpdate, undefined, { streamToolUpdates: true });
     const snap = createWorkflowSnapshot(fakeMeta("done-wf"));
     display.complete(snap);
 
-    const [{ content }] = onUpdate.mock.calls[0].arguments;
+    const [{ content }] = onUpdate.mock.calls[0];
     assert.ok(content[0].text.includes("done-wf"), "should include workflow name");
   });
 
@@ -431,23 +431,23 @@ describe("createToolUpdateWorkflowDisplay lifecycle", () => {
   it("accepts a widget ctx and delegates to widget lifecycle", async () => {
     const { createWorkflowSnapshot, createToolUpdateWorkflowDisplay } = await loadDisplay();
 
-    const setWidget = mock.fn();
-    const ctx = { hasUI: true, ui: { setWidget, setStatus: mock.fn() } };
+    const setWidget = mock();
+    const ctx = { hasUI: true, ui: { setWidget, setStatus: mock() } };
     const display = createToolUpdateWorkflowDisplay(undefined, ctx as never, { key: "tool-wf" });
 
     // Constructor registers the component factory once
-    assert.equal(setWidget.mock.callCount(), 1, "constructor should register widget once");
+    assert.equal(setWidget.mock.calls.length, 1, "constructor should register widget once");
 
     // update/complete re-register the widget to trigger re-render
     display.update(createWorkflowSnapshot(fakeMeta()));
-    assert.equal(setWidget.mock.callCount(), 2, "update should call setWidget to re-register");
+    assert.equal(setWidget.mock.calls.length, 2, "update should call setWidget to re-register");
 
     display.complete(createWorkflowSnapshot(fakeMeta("done")));
-    assert.equal(setWidget.mock.callCount(), 3, "complete should call setWidget to re-register");
+    assert.equal(setWidget.mock.calls.length, 3, "complete should call setWidget to re-register");
 
     // clear removes the widget
     display.clear();
-    assert.equal(setWidget.mock.callCount(), 4, "clear should remove widget (4th call)");
+    assert.equal(setWidget.mock.calls.length, 4, "clear should remove widget (4th call)");
   });
 });
 
@@ -513,15 +513,15 @@ describe("display pure helpers", () => {
   it("statusLine shows completed state", async () => {
     const { createWorkflowSnapshot, createWidgetWorkflowDisplay } = await loadDisplay();
     // statusLine is internal to display.ts — tested via widget display
-    const setStatus = mock.fn();
-    const ctx = { hasUI: true, ui: { setWidget: mock.fn(), setStatus } };
+    const setStatus = mock();
+    const ctx = { hasUI: true, ui: { setWidget: mock(), setStatus } };
     const display = createWidgetWorkflowDisplay(ctx as never, { key: "s", showStatus: true });
     const snap = createWorkflowSnapshot(fakeMeta("bench"));
     snap.agents = [agent(1, "a1", "done", "Research")] as never[];
     snap.agentCount = 1;
     snap.doneCount = 1;
     display.complete(snap);
-    const [, statusText] = setStatus.mock.calls[0].arguments;
+    const [, statusText] = setStatus.mock.calls[0];
     assert.ok(statusText.includes("✓"), "completed status shows checkmark");
   });
 });

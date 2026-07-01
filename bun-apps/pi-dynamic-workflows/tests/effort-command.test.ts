@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { createEffortState, effortDirective, isSubstantive, registerEffortCommand } from "../src/effort-command.js";
 import { buildForcedWorkflowPrompt } from "../src/workflow-editor.js";
 

@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { describe, it, mock } from "bun:test";
 
 async function loadCommand() {
   const mod = await import("../src/workflows-models-command.js");
@@ -23,14 +23,14 @@ describe("workflows-models-command", () => {
       const { registerWorkflowModelsCommand } = await loadCommand();
       const commands: string[] = [];
       const mockPi = {
-        registerCommand: mock.fn((name: string, _opts: unknown) => {
+        registerCommand: mock((name: string, _opts: unknown) => {
           commands.push(name);
         }),
       };
 
       registerWorkflowModelsCommand(mockPi as never);
 
-      assert.equal(mockPi.registerCommand.mock.callCount(), 1);
+      assert.equal(mockPi.registerCommand.mock.calls.length, 1);
       assert.equal(commands[0], "workflows-models");
     });
 
@@ -39,7 +39,7 @@ describe("workflows-models-command", () => {
       let capturedDescription = "";
 
       const mockPi = {
-        registerCommand: mock.fn((_name: string, opts: { description?: string }) => {
+        registerCommand: mock((_name: string, opts: { description?: string }) => {
           capturedDescription = opts.description ?? "";
         }),
       };
@@ -61,8 +61,8 @@ describe("workflows-models-command", () => {
       // Mock ctx.ui.custom to return null (simulating user cancelling)
       const ctx = {
         ui: {
-          custom: mock.fn(async () => null),
-          notify: mock.fn(),
+          custom: mock(async () => null),
+          notify: mock(),
         },
       };
       const tiers: Record<string, string> = { small: "gpt-4.1-mini" };
@@ -76,8 +76,8 @@ describe("workflows-models-command", () => {
       // Mock ctx.ui.custom to return the same model that's already selected
       const ctx = {
         ui: {
-          custom: mock.fn(async () => "gpt-4.1-mini"),
-          notify: mock.fn(),
+          custom: mock(async () => "gpt-4.1-mini"),
+          notify: mock(),
         },
       };
       const tiers: Record<string, string> = { small: "gpt-4.1-mini" };
@@ -91,8 +91,8 @@ describe("workflows-models-command", () => {
       // Mock ctx.ui.custom to return a different model
       const ctx = {
         ui: {
-          custom: mock.fn(async () => "gpt-5"),
-          notify: mock.fn(),
+          custom: mock(async () => "gpt-5"),
+          notify: mock(),
         },
       };
       const tiers: Record<string, string> = { small: "gpt-4.1-mini" };
@@ -107,8 +107,8 @@ describe("workflows-models-command", () => {
       const { editSingleTier } = await import("../src/workflows-models-command.js");
       const ctx = {
         ui: {
-          custom: mock.fn(async () => "openai/gpt-4.1-mini"),
-          notify: mock.fn(),
+          custom: mock(async () => "openai/gpt-4.1-mini"),
+          notify: mock(),
         },
       };
       const tiers: Record<string, string> = {};
