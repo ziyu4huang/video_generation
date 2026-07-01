@@ -75,6 +75,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { findLeakedHomePaths } from "./verify-portability.ts";
 
 const APP_NAME = "pi-vlm";
 const ENTRY = "extensions/pi-vlm.ts";
@@ -442,10 +443,11 @@ async function stageVerify() {
     if (danglingSrc) {
       failures.push(`dangling relative src refs not inlined: ${[...new Set(danglingSrc)].slice(0, 5).join(", ")}`);
     }
-    if (!DO_THIN && /\/Users\/[a-z]/i.test(code)) {
-      warnings.push("absolute /Users/... path found in output — leaks local layout");
+    if (!DO_THIN) {
+      // Thin mode INTENTIONALLY embeds absolute dep paths — that's the fix; exempt.
+      // Full bundle must stay portable across mac/Linux/Windows (shared verifier).
+      warnings.push(...findLeakedHomePaths(code));
     }
-    // (thin mode INTENTIONALLY embeds absolute dep paths — that's the fix; exempt)
 
     // V5 (thin only) — every bare specifier resolved to an absolute path; a
     // surviving bare non-builtin import would re-trigger jiti's data-URL wrap.

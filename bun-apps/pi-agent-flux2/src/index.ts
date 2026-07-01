@@ -18,7 +18,9 @@ import {
 } from "./commands.ts";
 import { invokeFlux2, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
+  assertModelsRootExists,
   assertPathAllowed,
+  ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
   resolveModelsRoot,
@@ -180,6 +182,12 @@ async function runOnce(
   }
 
   validateOptionPaths(spec, options, roots);
+
+  // Boundary guards: convert opaque downstream ENOENT into actionable errors.
+  // Models root is a read target → fail fast if absent (only generation/story
+  // commands pass --models-root). Output dir is a write target → auto-create.
+  if (spec.acceptsGlobals) assertModelsRootExists(roots.repoRoot, roots.modelsRoot);
+  if ("outputDir" in spec.fields) ensureOutputDir(roots.repoRoot, roots.outputDir);
 
   const bin = await ensureBinary(onProgress);
   const args = buildArgv(spec, options, roots, extraArgs);

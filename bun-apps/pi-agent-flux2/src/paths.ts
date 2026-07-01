@@ -15,7 +15,7 @@
  *     flag prefix, value tokens are path-validated.
  */
 import { isAbsolute, resolve as pResolve, sep } from "node:path";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 
 export class PathSafetyError extends Error {
   constructor(message: string) {
@@ -143,6 +143,18 @@ export function resolveOutputDir(repoRoot: string, override?: string): string {
   return pResolve(repoRoot, "..", "video_generation__output");
 }
 
+/**
+ * Resolve the output dir and guarantee it exists (write target). A missing
+ * sibling `../video_generation__output` would otherwise surface as an opaque
+ * `ENOENT` deep in the Swift write path. Mirrors the obsidian vault's
+ * create-if-missing philosophy. Returns the resolved absolute path.
+ */
+export function ensureOutputDir(repoRoot: string, override?: string): string {
+  const dir = resolveOutputDir(repoRoot, override);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 /** Resolve the models root, mirroring GlobalOptions.models-root / $MLX_MODELS_DIR. */
 export function resolveModelsRoot(repoRoot: string, override?: string): string {
   if (override && override.length > 0) {
@@ -150,6 +162,22 @@ export function resolveModelsRoot(repoRoot: string, override?: string): string {
   }
   if (process.env.MLX_MODELS_DIR) return pResolve(process.env.MLX_MODELS_DIR);
   return pResolve(repoRoot, "mlx-models");
+}
+
+/**
+ * Assert the models root exists (read target). Generation cannot work without
+ * the model tree; a missing dir would otherwise surface as an opaque MLX/Swift
+ * downstream error. Throws an actionable PathSafetyError at the boundary.
+ */
+export function assertModelsRootExists(repoRoot: string, override?: string): string {
+  const dir = resolveModelsRoot(repoRoot, override);
+  if (!existsSync(dir)) {
+    throw new PathSafetyError(
+      `Models dir not found: ${dir}\n` +
+        "Set MLX_MODELS_DIR, or place the MLX model tree at <repo>/mlx-models.",
+    );
+  }
+  return dir;
 }
 
 /** stat helper, symlink-aware. */

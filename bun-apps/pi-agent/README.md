@@ -141,6 +141,18 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 > with `Tool "todo" conflicts`. Another clone/environment must add it to their
 > OWN `~/.pi/agent/settings.json` to get the `todo` tool.
 
+## Cross-machine portability
+
+The run-dir mechanism makes extension loading cwd-independent, but a fresh machine still
+needs its env-var contract in place (`MLX_MODELS_DIR`, `MLX_OUTPUT_DIR`, `OB_VAULT_PATH`,
+…). The canonical reference + setup steps live in
+[`docs/pi-cross-machine-setup.md`](../../docs/pi-cross-machine-setup.md), and
+`pi-agent-cli` ships a `doctor` self-check that verifies everything is wired:
+
+```bash
+bun bun-apps/pi-agent-cli/src/cli.ts doctor [--json] [--fix]
+```
+
 ## Build modes
 
 Two execution modes are supported and **both load extensions correctly**:
