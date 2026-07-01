@@ -3108,6 +3108,67 @@ export async function validateZettelNotes(
 	};
 }
 
+// ---- Note integrity check (Phase 5 / WS-B4) -------------------------------
+// Lighter than validateZettelNote: garden edits ARBITRARY notes (not only
+// Zettel cards), so the strict tags[0]==="zettel" rule does NOT apply. This
+// only checks the markdown is still structurally sound after a fix-mode run —
+// frontmatter (if present) is balanced, the note is non-empty, and code fences
+// are paired. Pure (no I/O); unit-tested directly.
+
+export interface IntegrityIssue {
+	path: string;
+	ok: boolean;
+	errors: string[];
+}
+
+/** Validate a note's structural integrity. Pure (no I/O). */
+export function validateNoteIntegrity(
+	content: string | undefined,
+): { ok: boolean; errors: string[] } {
+	const errors: string[] = [];
+	if (!content || !content.trim())
+		return { ok: false, errors: ["empty content"] };
+	const lines = content.split("\n");
+	// Frontmatter: a leading `---` MUST be closed by a second `---`. An
+	// unbalanced opener means the body got accidentally merged into YAML.
+	if (lines[0].trim() === "---") {
+		const closed = lines.slice(1).some((l) => l.trim() === "---");
+		if (!closed) errors.push("frontmatter opened with --- but never closed");
+	}
+	// Code-fence balance: an odd count of ``` / ~~~ openers means a fence was
+	// opened but never closed (or vice-versa) — a common append_section accident.
+	const fence3 = lines.filter((l) => /^```/.test(l.trim())).length;
+	const fence4 = lines.filter((l) => /^~~~/.test(l.trim())).length;
+	if (fence3 % 2 !== 0) errors.push(`unbalanced \`\`\` code fences (${fence3} opener(s))`);
+	if (fence4 % 2 !== 0) errors.push(`unbalanced ~~~ code fences (${fence4} opener(s))`);
+	return { ok: errors.length === 0, errors };
+}
+
+/** Audit every note path a fix-mode garden run reported modifying. Reads each
+ *  from disk (via the cache) and runs validateNoteIntegrity. Best-effort:
+ *  missing-on-disk notes are flagged, never thrown on. */
+export async function validateNoteIntegrityBatch(
+	vaultPath: string,
+	paths: string[],
+): Promise<{ notes: IntegrityIssue[]; intact: number; broken: number }> {
+	const notes: IntegrityIssue[] = [];
+	for (const rel of paths) {
+		const abs = safeNotePath(vaultPath, rel);
+		const cached = await readCached(abs);
+		if (!cached) {
+			notes.push({ path: rel, ok: false, errors: ["note not found on disk (reported as modified but missing)"] });
+			continue;
+		}
+		const { ok, errors } = validateNoteIntegrity(cached.content);
+		notes.push({ path: rel, ok, errors });
+	}
+	return {
+		notes,
+		intact: notes.filter((n) => n.ok).length,
+		broken: notes.filter((n) => !n.ok).length,
+	};
+}
+
 export default function (pi: ExtensionAPI) {
 	// Cached ResolvedVault (per session). `source` lets every tool surface
 	// where the active vault came from; `staleReason` carries Tier-1 warnings.
@@ -4300,11 +4361,42 @@ ${output.slice(-2000)}`,
 					details: { exitCode, stderr, result },
 				};
 			}
+			// Phase 5 / WS-B4: in fix mode, audit every note the gardener
+			// reported modifying for structural integrity (frontmatter
+			// balanced, non-empty, code fences paired). A misbehaving child
+			// could corrupt a note via append_section; this surfaces it
+			// instead of leaving invalid markdown. Best-effort — annotates,
+			// never fails the run.
+			let validationText = "";
+			let validation: { notes: IntegrityIssue[]; intact: number; broken: number } | undefined;
+			if (mode === "fix") {
+				const modified = Array.isArray((result as any)?.notesModified)
+					? (result as any).notesModified.map(String)
+					: [];
+				if (modified.length > 0) {
+					try {
+						const v = await getVault(cwd);
+						validation = await validateNoteIntegrityBatch(v.path, modified);
+					} catch {
+						validation = undefined;
+					}
+					if (validation && validation.broken > 0) {
+						validationText =
+							`\n\n⚠ Integrity: ${validation.broken}/${validation.notes.length} modified note(s) failed the markdown integrity check — review before relying on them:\n` +
+							validation.notes
+								.filter((n) => !n.ok)
+								.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
+								.join("\n");
+					} else if (validation && validation.intact > 0) {
+						validationText = `\n\n✓ Integrity: all ${validation.intact} modified note(s) passed the markdown integrity check.`;
+					}
+				}
+			}
 			return {
 				content: [
-					{ type: "text", text: output || "(gardener produced no output)" },
+					{ type: "text", text: (output || "(gardener produced no output)") + validationText },
 				],
-				details: { exitCode, stderr, result },
+				details: { exitCode, stderr, result, validation },
 			};
 		},
 	});
