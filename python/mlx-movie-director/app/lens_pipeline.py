@@ -32,7 +32,8 @@ from app.pipeline_types import GenerationResult
 # ---------------------------------------------------------------------------
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_MODELS_DIR = os.path.join(_APP_DIR, "..", "models")
+from app import config as _cfg  # noqa: E402 — follow the runtime models root
+_MODELS_DIR = _cfg.MODELS_DIR
 
 _TE_DIR = os.path.join(_MODELS_DIR, "text_encoder", "gpt-oss-20b")
 _UNET_DIR = os.path.join(_MODELS_DIR, "lens-unet-int4")

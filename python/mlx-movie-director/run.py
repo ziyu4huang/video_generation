@@ -125,6 +125,14 @@ def main() -> None:
         from app import config as cfg
         cfg.OUTPUT_DIR = cfg._resolve_output_dir(args.gen_output_dir)
 
+    # Apply --models-dir override before dispatch. set_models_dir recomputes
+    # every cfg.*_DIR derived constant; command modules read those at call time,
+    # so this propagates everywhere. Default (<cwd>/mlx-models) is set at config
+    # import; MLX_MODELS_DIR env is honored there too.
+    if getattr(args, "models_dir", None):
+        from app import config as cfg
+        cfg.set_models_dir(args.models_dir)
+
     # Runtime deprecation warning
     if args.command in DEPRECATED_ALIASES:
         print(f"⚠  DEPRECATED: '{args.command}' is deprecated. {DEPRECATED_ALIASES[args.command]}", file=sys.stderr)

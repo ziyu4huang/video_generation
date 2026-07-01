@@ -56,6 +56,12 @@ _global_parser.add_argument(
          "Named --gen-output-dir to avoid clashing with import-workflow's "
          "--output-dir. Default: ../video_generation__output (or MLX_OUTPUT_DIR env).",
 )
+_global_parser.add_argument(
+    "--models-dir", default=None, dest="models_dir",
+    help="Override the MLX models root (absolute or cwd-relative). "
+         "Default: <cwd>/mlx-models (or MLX_MODELS_DIR env). "
+         "All cfg.*_DIR constants recompute against this root.",
+)
 
 
 def build_parser() -> argparse.ArgumentParser:

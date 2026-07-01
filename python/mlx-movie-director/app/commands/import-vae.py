@@ -531,7 +531,7 @@ def _external_store_dir() -> str:
             rel = json.load(f).get("store_relative_to_repo_root", "../video_generation__models")
     else:
         rel = "../video_generation__models"
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(cfg.MODELS_DIR)))
+    repo_root = cfg.REPO_DIR  # file-based (cwd-independent); not derived from MODELS_DIR depth
     return os.path.normpath(os.path.join(repo_root, rel))
 
 

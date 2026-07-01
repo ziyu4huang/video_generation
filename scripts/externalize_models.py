@@ -37,8 +37,11 @@ Modes:
   --restore  Reverse: replace each store-symlink with the real file (copied back
               from the store); rewrites the manifest to reflect the change.
 
-Skips: non-.safetensors files (metadata stays), and symlinks that are NOT store
-links (e.g. the ltx-mlx/ assembly links pointing within models/ — left untouched).
+Skips: small non-weight files (configs, small tokenizers, manifests stay in-repo),
+and symlinks that are NOT store links (e.g. the ltx-mlx/ assembly links pointing
+within models/ — left untouched). ``.safetensors`` weights are externalized at any
+size; other extensions (.pth upscaler, large tokenizer.json, .bin, …) only when
+≥ LARGE_FILE_MIN (2 MB) so they don't trip the repo's 2 MB commit-size hook.
 """
 
 import argparse
@@ -53,6 +56,10 @@ from pathlib import Path
 
 HASH_RE = re.compile(r"^[0-9a-f]{32}$")
 SUFFIX = ".safetensors"
+# Non-.safetensors files are externalized only above this size, so small configs
+# / tokenizers / manifests stay in-repo while large blobs (e.g. the ESRGAN .pth
+# upscaler, a 26 MB tokenizer.json) move to the store and commit as tiny symlinks.
+LARGE_FILE_MIN = 2 * 1024 * 1024
 MANIFEST_NAME = "store-manifest.json"
 
 
@@ -91,18 +98,27 @@ def hash_from_link(readlink_str: str) -> str | None:
     return stem if HASH_RE.match(stem) else None
 
 
+def _externalizable_regular(p: Path, min_size: int) -> bool:
+    """Should this regular file be moved into the store?"""
+    if p.name == MANIFEST_NAME:
+        return False
+    if p.name.endswith(SUFFIX):
+        # .safetensors weights: any size (size-gated by --min-size if given).
+        return min_size <= 0 or p.stat().st_size >= min_size
+    # Other extensions: only large blobs (keeps configs/small tokenizers in-repo).
+    return p.stat().st_size >= LARGE_FILE_MIN
+
+
 def discover(models_dir: Path, min_size: int):
     """Return (regular_files_to_externalize, existing store_symlinks)."""
     regulars, store_links = [], []
     for p in sorted(models_dir.rglob("*")):
-        if not p.name.endswith(SUFFIX) or p.name == MANIFEST_NAME:
-            continue
         if p.is_symlink():
             if hash_from_link(os.readlink(p)) is not None:
                 store_links.append(p)
-            # else: assembly link (points within models/) — leave alone
+            # else: assembly/intra link (points within models/) — leave alone
         elif p.is_file():
-            if min_size <= 0 or p.stat().st_size >= min_size:
+            if _externalizable_regular(p, min_size):
                 regulars.append(p)
     return regulars, store_links
 
@@ -115,7 +131,7 @@ def write_manifest(models_dir: Path, store: Path, root: Path) -> dict:
     """Build path->md5 from current store-links and write the manifest."""
     files = {}
     for p in sorted(models_dir.rglob("*")):
-        if not p.is_symlink() or not p.name.endswith(SUFFIX):
+        if not p.is_symlink():
             continue
         h = hash_from_link(os.readlink(p))
         if h:
@@ -170,7 +186,7 @@ def main() -> int:
         made, skipped, missing_blob = 0, 0, 0
         for rel, info in sorted(files.items()):
             p = models_dir / rel
-            blob = store / f"{info['md5']}{SUFFIX}"
+            blob = store / f"{info['md5']}{Path(rel).suffix}"  # ext from the tracked path
             if not blob.is_file():
                 print(f"  ✗ {rel}: store blob missing ({blob.name})", file=sys.stderr)
                 missing_blob += 1
@@ -245,7 +261,7 @@ def main() -> int:
     print("\nHashing (this reads every weight once)…")
     for i, p in enumerate(regulars, 1):
         h = md5_file(p)
-        dst = store / f"{h}{SUFFIX}"
+        dst = store / f"{h}{p.suffix}"  # preserve original ext (.safetensors/.pth/.json/…)
         rel = p.relative_to(root)
         if h in seen or dst.exists():
             dedups.append((p, dst))

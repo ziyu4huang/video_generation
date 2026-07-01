@@ -29,10 +29,25 @@ public enum ModelPaths {
         return Self.locateRepoRoot()
     }()
 
-    /// The default models root when no override is supplied:
-    /// `python/mlx-movie-director/models`.
-    private static let defaultModelsRoot: URL = repoRoot
-        .appendingPathComponent("python/mlx-movie-director/models")
+    /// The default models root when no override is supplied: `<cwd>/mlx-models`
+    /// if it exists (run from the repo root → `<repo>/mlx-models`); otherwise
+    /// walk up from cwd to find a `mlx-models` dir (so a subdirectory invocation
+    /// still resolves the repo root's tree); final fallback `repoRoot/mlx-models`.
+    /// Override via `MLX_MODELS_DIR` env or `--models-root` CLI flag.
+    private static var defaultModelsRoot: URL {
+        let fm = FileManager.default
+        var dir = URL(fileURLWithPath: fm.currentDirectoryPath)
+        for _ in 0..<8 {
+            let cand = dir.appendingPathComponent("mlx-models")
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: cand.path, isDirectory: &isDir), isDir.boolValue {
+                return cand
+            }
+            dir = dir.deletingLastPathComponent()
+            if dir.path == "/" { break }
+        }
+        return repoRoot.appendingPathComponent("mlx-models")
+    }
 
     /// The effective models root, honoring (in order): an explicit runtime
     /// override via `setModelsRoot(_:)` (used by the `--models-root` CLI flag),

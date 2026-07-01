@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import unicodedata
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
@@ -320,14 +321,20 @@ def _git_tracking_context(models_dir: str) -> tuple[str | None, set[str] | None]
     try:
         rel_models = os.path.relpath(models_dir, toplevel)
         res = subprocess.run(
-            ["git", "ls-files", "--full-name", "--", rel_models],
+            # core.quotePath=false so non-ASCII paths (e.g. "动漫转写实真人") are
+            # emitted as raw UTF-8 instead of octal-escaped quoted strings, which
+            # would never match the unicode wf_rel from os.path.relpath.
+            ["git", "-c", "core.quotePath=false", "ls-files", "--full-name", "--", rel_models],
             cwd=toplevel, capture_output=True, text=True, timeout=60,
         )
     except (FileNotFoundError, subprocess.SubprocessError, OSError):
         return toplevel, None
     if res.returncode != 0:
         return toplevel, None
-    tracked = {line for line in res.stdout.splitlines() if line}
+    # NFC-normalize: git stores/outputs NFC (core.precomposeunicode), but macOS
+    # filesystem paths are NFD — without normalizing, unicode-named symlinks
+    # (e.g. "Flux2 Klein动漫转写实真人…") fail the membership check as false positives.
+    tracked = {unicodedata.normalize("NFC", line) for line in res.stdout.splitlines() if line}
     return toplevel, tracked
 
 
@@ -643,7 +650,7 @@ def _collect_models_data(models_dir: str) -> dict:
                 and not downloading_flag and not disabled_flag):
             wf_path = os.path.join(inst_dir, weight_file)
             if os.path.islink(wf_path):
-                wf_rel = os.path.relpath(wf_path, git_toplevel)
+                wf_rel = unicodedata.normalize("NFC", os.path.relpath(wf_path, git_toplevel))
                 if wf_rel not in tracked_paths:
                     errors.append(
                         f"{label}: weight symlink '{weight_file}' exists on disk "

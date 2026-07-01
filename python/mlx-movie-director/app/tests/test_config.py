@@ -92,13 +92,15 @@ class TestPathConstants:
         """REPO_DIR = PROJECT_DIR/../../ (the monorepo root)."""
         assert cfg.REPO_DIR == os.path.dirname(os.path.dirname(cfg.PROJECT_DIR))
 
-    def test_models_dir_is_under_project(self):
-        assert cfg.MODELS_DIR.startswith(cfg.PROJECT_DIR)
+    def test_models_dir_resolves_to_repo_mlx_models(self):
+        """MODELS_DIR defaults to <repo>/mlx-models (cwd-relative with walk-up
+        fallback to REPO_DIR), decoupled from the python package path."""
+        assert cfg.MODELS_DIR == os.path.join(cfg.REPO_DIR, "mlx-models")
 
     def test_output_dir_is_externalized_sibling_of_repo(self):
-        """OUTPUT_DIR defaults to ../video_generation__output — sibling of REPO_DIR
-        (externalized store, mirrors ../video_generation__models). CWD-independent:
-        anchored to REPO_DIR (from __file__), never os.getcwd()."""
+        """OUTPUT_DIR defaults to ../video_generation__output — the repo-sibling
+        externalized store (mirrors ../video_generation__models). Resolved PWD-first
+        with walk-up fallback, so it lands on the same canonical path from any cwd."""
         expected = os.path.normpath(os.path.join(cfg.REPO_DIR, cfg.DEFAULT_OUTPUT_DIR))
         assert cfg.OUTPUT_DIR == expected
 
@@ -158,3 +160,54 @@ class TestPathConstants:
 
     def test_lut_dir_under_models(self):
         assert cfg.LUT_DIR.startswith(cfg.MODELS_DIR)
+
+
+# ==========================================================================
+# Models-root override + drift guard
+# ==========================================================================
+
+class TestModelsDirOverride:
+    """``set_models_dir`` recomputes every derived ``*_DIR`` constant at runtime.
+
+    The drift guard asserts ``_apply_models_dir`` computes exactly the names in
+    ``_MODELS_DIR_GLOBALS`` — so the registry stays in sync with the recomputer.
+    """
+
+    def test_override_recomputes_all_derived_constants(self, tmp_path):
+        new_root = str(tmp_path / "alt-models")
+        original = cfg.MODELS_DIR
+        try:
+            cfg.set_models_dir(new_root)
+            assert cfg.MODELS_DIR == new_root
+            # A sampling across families (zimage / klein / ltx / upscale / controlnet)
+            assert cfg.TRANSFORMER_DIR == os.path.join(new_root, "transformer", "moody-pro-mix")
+            assert cfg.KLEIN_9B_TOKENIZER_DIR == os.path.join(new_root, "tokenizer", "qwen3-klein")
+            assert cfg.LTX_MLX_DEV_DIR == os.path.join(new_root, "ltx-mlx", "dev")
+            assert cfg.DEFAULT_UPSCALE_MODEL.endswith("4xNomosWebPhoto_RealPLKSR.pth")
+            assert cfg.DEFAULT_UPSCALE_MODEL.startswith(new_root)
+        finally:
+            cfg.set_models_dir(original)  # restore for other tests in the session
+
+    def test_apply_matches_declared_registry(self):
+        """_apply_models_dir computes exactly the names in _MODELS_DIR_GLOBALS."""
+        # Importing/recomputing already passed (config import runs it); this makes
+        # the invariant explicit so a future edit that adds/removes a constant
+        # without updating the list fails here, not silently at runtime.
+        import re
+        src = open(cfg.__file__).read()
+        # Names assigned via v["NAME"] = ... inside _apply_models_dir
+        body = src[src.index("def _apply_models_dir"):src.index("MODELS_DIR = _resolve_models_dir")]
+        assigned = set(re.findall(r'v\["([A-Z_0-9]+)"\]', body))
+        assert assigned == set(cfg._MODELS_DIR_GLOBALS), (
+            f"_apply_models_dir assigns {sorted(assigned ^ set(cfg._MODELS_DIR_GLOBALS))} "
+            f"(symmetric difference vs _MODELS_DIR_GLOBALS)"
+        )
+
+    def test_drift_guard_raises_on_phantom_registry_entry(self, tmp_path):
+        """A registry entry with no corresponding assignment trips the assertion."""
+        cfg._MODELS_DIR_GLOBALS.append("PHANTOM_DIR")
+        try:
+            with pytest.raises(AssertionError, match="drift"):
+                cfg.set_models_dir(str(tmp_path / "x"))
+        finally:
+            cfg._MODELS_DIR_GLOBALS.remove("PHANTOM_DIR")

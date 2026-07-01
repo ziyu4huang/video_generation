@@ -122,8 +122,8 @@ current field values or selected state; the caption fills that gap.
 
 ```
 python/mlx-movie-director/            # ACTIVE — MLX pipeline
-python/mlx-movie-director/models/     # ACTIVE — MLX-owned model tree (runtime paths live here)
-python/mlx-movie-director/models/store-manifest.json  # tracks all externalized model files
+mlx-models/                           # ACTIVE — MLX-owned model tree (cwd-relative root; override via MLX_MODELS_DIR env / run.py --models-dir)
+mlx-models/store-manifest.json        # tracks all externalized model files
 ../video_generation__models/          # EXTERNAL binary store (outside repo, gitignored)
 bun-apps/gui-movie-director/               # ACTIVE — Bun + React GUI
 comfyui_data/models/                  # raw sources for convert.py (BUILD-TIME ONLY) — NOT a runtime dep
