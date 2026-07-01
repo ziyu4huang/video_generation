@@ -25,21 +25,37 @@ const USAGE_LIMIT_MSG = "Codex usage limit reached (plus plan). Resets in ~3h.";
 
 /**
  * Load the faux provider from the SAME pi-ai instance that pi-coding-agent's
- * createAgentSession dispatches through. pi-coding-agent ships its own nested
- * pi-ai copy; registering on a different instance would be invisible to the
- * session ("No API provider registered"). Prefer the nested copy when present,
- * else fall back to the bare specifier — which, when npm has deduped to a single
- * copy, resolves to that same shared instance. Robust to both layouts.
+ * createAgentSession dispatches through. sdk.js imports `streamSimple` from
+ * "@earendil-works/pi-ai/compat", and `registerFauxProvider` registers into
+ * that module's `apiProviderRegistry` singleton — so the handle MUST come from
+ * the same instance, else the session won't see it ("No API provider registered").
+ *
+ * NOTE: `registerFauxProvider` and `fauxAssistantMessage` are NOT on the main
+ * "@earendil-works/pi-ai" index — they live on the `/compat` and `/providers/faux`
+ * subpaths respectively. Prefer pi-coding-agent's nested pi-ai copy when present
+ * (it's the exact instance createAgentSession uses); else fall back to the bare
+ * specifier, which — when npm has deduped to a single copy — is that same instance.
  */
-async function loadFaux(): Promise<typeof import("@earendil-works/pi-ai")> {
-  const nested = fileURLToPath(
+async function loadFaux(): Promise<{
+  registerFauxProvider: typeof import("@earendil-works/pi-ai/compat").registerFauxProvider;
+  fauxAssistantMessage: typeof import("@earendil-works/pi-ai/providers/faux").fauxAssistantMessage;
+}> {
+  const nestedCompat = fileURLToPath(
     new URL(
-      "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/index.js",
+      "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/compat.js",
       import.meta.url,
     ),
   );
-  const entry = existsSync(nested) ? nested : "@earendil-works/pi-ai";
-  return import(entry) as Promise<typeof import("@earendil-works/pi-ai")>;
+  const useNested = existsSync(nestedCompat);
+  const nestedFaux = fileURLToPath(
+    new URL(
+      "../node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-ai/dist/providers/faux.js",
+      import.meta.url,
+    ),
+  );
+  const compat = await import(useNested ? nestedCompat : "@earendil-works/pi-ai/compat");
+  const faux = await import(useNested ? nestedFaux : "@earendil-works/pi-ai/providers/faux");
+  return { registerFauxProvider: compat.registerFauxProvider, fauxAssistantMessage: faux.fauxAssistantMessage };
 }
 
 /**
@@ -53,7 +69,7 @@ async function withFauxSession(
     cwd: string;
     model: unknown;
     setResponses: (msgs: unknown[]) => void;
-    fauxAssistantMessage: typeof import("@earendil-works/pi-ai").fauxAssistantMessage;
+    fauxAssistantMessage: typeof import("@earendil-works/pi-ai/providers/faux").fauxAssistantMessage;
   }) => Promise<void>,
 ): Promise<void> {
   const { registerFauxProvider, fauxAssistantMessage } = await loadFaux();
