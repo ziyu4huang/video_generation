@@ -19,6 +19,7 @@ import { invokeFlux2, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertModelsRootExists,
   assertPathAllowed,
+  assertSafePathComponent,
   ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
@@ -30,6 +31,7 @@ import {
 import {
   buildGateDetails,
   buildImageDetails,
+  buildScenePipelineDetails,
   buildTextDetails,
   stderrTail,
   summarize,
@@ -122,6 +124,15 @@ function validateOptionPaths(
     if (field.isPath || field.isPathArray || field.positional) continue;
     if (!(key in options)) continue;
     const v = options[key];
+    // isPathComponent fields (transformer/vae/encoder/tokenizerDir/lora/model)
+    // are bare names the Swift binary joins onto a models-tree root itself
+    // with no sanitization — reject path separators / ".." instead of the
+    // weaker leading-dash-only rejectFlagLike check.
+    if (field.isPathComponent) {
+      if (typeof v === "string") assertSafePathComponent(v, key);
+      else if (Array.isArray(v)) for (const item of v) if (typeof item === "string") assertSafePathComponent(item, key);
+      continue;
+    }
     if (typeof v === "string") {
       rejectFlagLike(v, key);
     } else if (Array.isArray(v)) {
@@ -240,41 +251,30 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
   const extraArgs = input.extraArgs ?? [];
 
   if (input.scenePipeline) {
-    const vlm = await import("./vlm.ts");
-    const llm = vlm.resolveVlmLLM(input.scenePipeline.vlmModel);
+    const scenePipelineOpts = input.scenePipeline;
     const { seed: _seed, ...baseOptions } = options; // each candidate sets its own seed
     const pipeline = await runScenePipeline(
       baseOptions,
-      input.scenePipeline,
+      scenePipelineOpts,
       {
         runSceneOnce: (opts) =>
           runOnce(input.command, opts, roots, extraArgs, input.signal, input.onProgress).then((r) => r.details),
-        askAboutImage: (imagePath, question) => vlm.askAboutImage(imagePath, question, llm),
+        // Lazy: only imports pi-vlm's session machinery / resolves the LLM
+        // target when a VLM verdict is actually requested. runScenePipeline
+        // only ever calls this when verifyPrompt is set, so a pure gate-based
+        // pipeline (no verifyPrompt) never pays for it — and never risks an
+        // unrelated import/module-resolution failure aborting the whole
+        // render before a single candidate is produced.
+        askAboutImage: async (imagePath, question) => {
+          const vlm = await import("./vlm.ts");
+          const llm = vlm.resolveVlmLLM(scenePipelineOpts.vlmModel);
+          return vlm.askAboutImage(imagePath, question, llm);
+        },
       },
       (text) => input.onProgress?.({ kind: "progress", text }),
+      input.signal,
     );
-    const finalOutput = pipeline.handRepair?.output ?? pipeline.winnerOutput;
-    const details: Flux2Details = {
-      ok: pipeline.winnerOutput != null,
-      command: input.command,
-      exitCode: pipeline.winnerOutput != null ? 0 : 1,
-      aborted: false,
-      output: finalOutput,
-      outputs: finalOutput ? [{ path: finalOutput, seed: pipeline.winnerSeed, width: null, height: null, sizeBytes: null }] : [],
-      seed: pipeline.winnerSeed,
-      width: null,
-      height: null,
-      // If hand-repair ran, `gate` MUST describe the repaired image we're
-      // actually returning as `output` — including a null verdict when the
-      // repair's own gate check failed to parse. Falling back to the
-      // pre-repair winner's gate here would report a verdict that was never
-      // computed for the image we're handing back.
-      gate: pipeline.handRepair ? pipeline.handRepair.gate : pipeline.winnerGate,
-      perf: { steps: null, totalSeconds: null, avgItPerSec: null, peakMemoryMB: null },
-      manifestPath: null,
-      runJsonPath: null,
-      scenePipeline: pipeline,
-    };
+    const details = buildScenePipelineDetails(input.command, pipeline);
     return { details, summary: summarize(details), stderrTail: "" };
   }
 

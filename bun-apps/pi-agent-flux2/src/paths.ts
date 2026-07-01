@@ -128,6 +128,32 @@ export function rejectFlagLike(value: string, kind: string): void {
 }
 
 /**
+ * Validate that `value` is a bare path COMPONENT (a model/variant/LoRA name
+ * the Swift binary joins onto a models-tree root itself via a raw
+ * appendingPathComponent, e.g. `--transformer <value>` ->
+ * `ModelPaths.transformerRoot.appendingPathComponent(value)`), NOT a path
+ * this tool resolves. The Swift side does that join with NO ".."-sanitization
+ * (verified against ModelPaths/T2ICommand/SceneCommand/EditCommand/etc. and
+ * Flux2LoRA.swift), so a value containing a path separator or a ".." segment
+ * would let the Swift binary read model weights from outside the intended
+ * models tree entirely — assertPathAllowed's "resolve under an allowed root"
+ * check does not apply here since the agent never supplies a full path for
+ * these fields.
+ */
+export function assertSafePathComponent(value: string, kind: string): void {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new PathSafetyError(`${kind}: empty value`);
+  }
+  rejectFlagLike(value, kind);
+  const segments = value.split(/[\\/]/);
+  if (segments.length > 1 || segments[0] === "." || segments[0] === "..") {
+    throw new PathSafetyError(
+      `${kind}: value "${value}" must be a bare name (no path separators or ".." segments), not a path`,
+    );
+  }
+}
+
+/**
  * Validate a list of raw extraArgs tokens the agent may pass as an escape hatch.
  * Leading-dash tokens must match an allow-listed flag prefix; value tokens are
  * path-validated against `roots`. Returns the cleaned token list.

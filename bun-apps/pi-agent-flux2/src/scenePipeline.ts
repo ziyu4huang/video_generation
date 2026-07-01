@@ -158,6 +158,7 @@ export async function runScenePipeline(
   pipelineOpts: ScenePipelineOptions,
   deps: RunScenePipelineDeps,
   onProgress?: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<ScenePipelineResult> {
   if (!pipelineOpts.seeds?.length) {
     throw new Error("scenePipeline.seeds must be a non-empty array");
@@ -165,6 +166,14 @@ export async function runScenePipeline(
 
   const candidates: ScenePipelineCandidate[] = [];
   for (const seed of pipelineOpts.seeds) {
+    if (signal?.aborted) {
+      // invokeFlux2 never rejects on abort (it kills the child and resolves),
+      // so without this check the loop would keep spawning + immediately
+      // killing a new flux2 process for every remaining seed instead of
+      // stopping as soon as the caller cancels.
+      onProgress?.(`scene pipeline: aborted before seed ${seed} — stopping`);
+      break;
+    }
     onProgress?.(`scene pipeline: rendering seed ${seed} (${candidates.length + 1}/${pipelineOpts.seeds.length})`);
     let details: Flux2Details;
     try {
@@ -214,7 +223,7 @@ export async function runScenePipeline(
     winnerReason: winner.reason,
   };
 
-  if (pipelineOpts.handRepairWinner && winner.seed != null) {
+  if (pipelineOpts.handRepairWinner && winner.seed != null && !signal?.aborted) {
     onProgress?.(`scene pipeline: hand-repairing winning seed ${winner.seed}`);
     try {
       const repaired = await deps.runSceneOnce({

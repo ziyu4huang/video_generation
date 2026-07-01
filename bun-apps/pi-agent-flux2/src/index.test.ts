@@ -44,4 +44,18 @@ describe("runFlux2 — pre-spawn validation", () => {
       runFlux2({ command: "scene", options: { prompt: "a scene", lora: ["legit-lora", "--models-root"] } }),
     ).rejects.toThrow(PathSafetyError);
   });
+
+  test("throws PathSafetyError for a '..'-traversal value in a model-selector field (transformer/vae/encoder/lora/model)", async () => {
+    // Regression: transformer/vae/encoder/tokenizerDir/lora/model reached the
+    // flux2 CLI with only a leading-dash check — the Swift binary joins them
+    // onto a models-tree root with NO ".."-sanitization of its own.
+    await expect(
+      runFlux2({ command: "t2i", options: { prompt: "x", transformer: "../../../../etc" } }),
+    ).rejects.toThrow(PathSafetyError);
+    // scene has no required-to-exist path fields when `ref` is omitted, so
+    // this isolates the array-typed isPathComponent field (`lora`) cleanly.
+    await expect(
+      runFlux2({ command: "scene", options: { prompt: "x", lora: ["../../etc"] } }),
+    ).rejects.toThrow(PathSafetyError);
+  });
 });

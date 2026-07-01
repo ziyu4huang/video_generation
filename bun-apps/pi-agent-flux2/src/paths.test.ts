@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   assertModelsRootExists,
   assertPathAllowed,
+  assertSafePathComponent,
   ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
@@ -121,6 +122,37 @@ describe("rejectFlagLike", () => {
   });
   test("ignores non-string values", () => {
     expect(() => rejectFlagLike(42 as unknown as string, "seed")).not.toThrow();
+  });
+});
+
+describe("assertSafePathComponent", () => {
+  test("accepts a bare name", () => {
+    expect(() => assertSafePathComponent("klein-9b", "transformer")).not.toThrow();
+  });
+
+  test("rejects a value containing a '..' segment", () => {
+    expect(() => assertSafePathComponent("../../../../etc", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects a bare '..'", () => {
+    expect(() => assertSafePathComponent("..", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects any value containing a path separator, even without '..'", () => {
+    expect(() => assertSafePathComponent("sub/dir", "transformer")).toThrow(PathSafetyError);
+    expect(() => assertSafePathComponent("sub\\dir", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects an absolute path", () => {
+    expect(() => assertSafePathComponent("/etc/passwd", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects a leading-dash value (flag injection)", () => {
+    expect(() => assertSafePathComponent("--models-root", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects an empty value", () => {
+    expect(() => assertSafePathComponent("", "transformer")).toThrow(PathSafetyError);
   });
 });
 

@@ -174,8 +174,8 @@ Iterations 3–4 on the mlx side, now applied to gui):
 | mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 43 | 42 | — |
 | mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 33 | 33 | 2026-06-26T08-46-14 |
 | multi-character-compose | — | — | — | — | pending | 0 | 0 | pending |
-| pi-agent-flux2-self-improve | — | ✓ | ✓ | ✓ | ✓ | 0 | 0 | empty |
+| pi-agent-flux2-self-improve | — | ✓ | ✓ | ✓ | ✓ | 17 | 17 | 2026-07-01T19-39-52 |
 
-**Totals:** 9 workflows · 8 load / 7 extract wired · 8 knowledge files · 300 records (217 active)
+**Totals:** 9 workflows · 8 load / 7 extract wired · 8 knowledge files · 317 records (234 active)
 
 <!-- END KNOWLEDGE MATRIX -->
