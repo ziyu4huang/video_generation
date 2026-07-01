@@ -41,7 +41,13 @@ public enum RepoPaths {
         mlxModelsRoot.appendingPathComponent("ltx-mlx")
     }
 
+    /// run.py's DEFAULT_OUTPUT_DIR is "../video_generation__output" resolved
+    /// against the repo root (sibling to the repo, not inside it) — overridable
+    /// via MLX_OUTPUT_DIR / --gen-output-dir. Mirrors app/config.py exactly.
     public static var defaultOutputDir: URL {
-        root.appendingPathComponent("python/mlx-movie-director/output")
+        if let env = ProcessInfo.processInfo.environment["MLX_OUTPUT_DIR"], !env.isEmpty {
+            return URL(fileURLWithPath: env)
+        }
+        return root.deletingLastPathComponent().appendingPathComponent("video_generation__output")
     }
 }

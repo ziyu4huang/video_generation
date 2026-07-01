@@ -80,6 +80,31 @@ Once Phase 2/3 pass parity, `I2VEngine`/`UpscaleEngine` swap their
 `RunPyBridge` call for the native pipeline behind the same `I2VRequest`/
 `UpscaleRequest` types — CLI commands and the gateway are untouched.
 
+## Phase 0 validation (real run, 2026-07-02)
+
+Ran `ltx-video i2v --transformer distilled --seconds 10` end-to-end for real:
+241 frames @ 24fps, 448×704, ~4.7 min. Findings:
+
+- The bridge, output-dir discovery, and manifest parsing all work — but
+  `RepoPaths.defaultOutputDir` initially pointed at
+  `python/mlx-movie-director/output` when the real default (mirroring
+  `app/config.py DEFAULT_OUTPUT_DIR`) is the repo-SIBLING
+  `../video_generation__output` (or `$MLX_OUTPUT_DIR`). Fixed.
+- `ltx-video gate` (native, VLM-free) correctly flagged the output as WARN
+  with "near-identical frames … likely frozen/static" — this matches run.py's
+  OWN quality report for the same run ("STATIC: video has little/no motion").
+  Independent confirmation that the native SSIM-based motion check works.
+- `ltx-video verify --style review` is unreliable with the locally loaded
+  Gemma model (`google/gemma-4-26b-a4b-qat`): the heavier structured-
+  adherence JSON prompt sometimes times out or returns unparseable content.
+  `--style score` (simpler prompt) is reliable and caught a real defect
+  (plasticky/waxy skin, overall=6, artifacts=5). CLI default switched to
+  `score`; `review` remains available for models that follow JSON strictly.
+- Needs `scripts/setup-metallib.sh` run once after `swift build` — SwiftPM
+  can't compile Metal shaders, so MLX's precompiled `mlx.metallib` from the
+  Python venv is copied next to the built binary (same trick z-image-director
+  uses).
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what

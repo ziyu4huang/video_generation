@@ -26,8 +26,8 @@ extension LTXVideoDirectorCLI {
         @Option(help: "Number of evenly spaced keyframes to sample.")
         var keyframes: Int = 4
 
-        @Option(help: "VLM caption style (default: review).")
-        var style: String = "review"
+        @Option(help: "VLM caption style. 'score' is the most reliable with local models; 'review' additionally checks prompt-element adherence but needs a model that follows its heavier JSON instructions closely.")
+        var style: String = "score"
 
         @Option(help: "Minimum acceptable mean overall score (1-10) to pass.")
         var threshold: Int = 6

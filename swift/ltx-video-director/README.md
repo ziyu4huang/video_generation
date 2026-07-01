@@ -14,6 +14,7 @@ and model discovery are native Swift today.
 ```bash
 cd swift/ltx-video-director
 swift build
+./scripts/setup-metallib.sh   # one-time: copy the venv's mlx.metallib next to the built binary
 swift test
 ```
 
