@@ -32,6 +32,14 @@ const truthy = (v: string | undefined) =>
 /** E2E fires only when PI_AGENT_E2E is set; otherwise test files skip themselves. */
 export const E2E_ENABLED = truthy(process.env.PI_AGENT_E2E);
 
+/**
+ * The deploy+4-cwd extension e2e (~15s — it builds a deploy package and runs
+ * `bun install` inside it) is gated BEHIND PI_AGENT_E2E_DEPLOY so `run-test.sh`
+ * can offer a middle tier: medium = build + patch e2e (cheap), high = + deploy.
+ * e2e-extensions requires BOTH flags; e2e-patches needs only PI_AGENT_E2E.
+ */
+export const DEPLOY_ENABLED = truthy(process.env.PI_AGENT_E2E_DEPLOY);
+
 let bundlePromise: Promise<string> | null = null;
 
 /**

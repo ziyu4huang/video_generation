@@ -191,27 +191,32 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 
 ## Testing
 
-Two tiers, mirroring the unit/e2e split:
+`run-test.sh` is a multi-effort-level launcher — each level is a superset of the
+one below (cost is driven by the build + deploy, not the tests):
 
 ```bash
-bun test                                  # unit only (pure decision logic; fast baseline)
-./run-test.sh                             # full suite INCLUDING bundle e2e
-bun run verify                            # the extension-loading e2e only (was scripts/verify.ts)
+./run-test.sh                  # = medium  (~5s)  unit + build + patch e2e   [default]
+./run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
+./run-test.sh high             # (~18s)    + deploy + 4-cwd extension-loading e2e
+./run-test.sh full             # (~35s)    + sibling pi-* unit baseline (whole stack)
+./run-test.sh --list           # print the tier table
 ```
 
-Plain `bun test` runs only the pure-function unit tests (`resolvePatchPlan`,
-`resolveEnvBridges`, `resolveRunDirArgv`, `detectMode`, `PROVIDERS` config) plus
-the import-time `applyPatches()` smoke. It never builds the bundle or runs
-`main()`, so it stays sub-second.
+| Level | Adds | Catches |
+|---|---|---|
+| **quick** | unit (pure fn + import-time smoke) | decision-logic regressions |
+| **medium** | build bundle + patch e2e (`--help`/`--list-models` spawns) | patch module dropped from bundle, env→argv splice, **providers not injected** |
+| **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, deploy-package conflicts |
+| **full** | sibling pi-* unit baseline (obs/kc/cli/vlm) | the whole stack pi-agent loads as extensions |
 
-The bundle-mode e2e (`src/__tests__/e2e-patches.test.ts`,
-`e2e-extensions.test.ts`) is gated on `PI_AGENT_E2E=1`. It builds
-`dist/pi-agent/pi-agent.js`, spawns it, and verifies the things that only break
-once bundled: that every patch module was included by the static-literal switch
-(none silently vanish from the bundle), that the env→argv bridge fires
-end-to-end, and that extension loading works across source/deploy + multiple
-cwds. `run-test.sh` sets the flag for you; set `PI_AGENT_E2E_NO_BUILD=1` to reuse
-an existing `dist` bundle for faster re-runs.
+Plain `bun test` is the `quick` tier (the e2e files skip themselves without
+`PI_AGENT_E2E=1`). medium+ force a fresh build so a stale `dist/` can't mask a
+bundle regression. Extra flags are forwarded to `bun test`
+(`./run-test.sh high --bail`). Numeric aliases `0-3` work too.
+
+The bundle e2e lives in `src/__tests__/e2e-*.test.ts`; the two env gates it reads
+are `PI_AGENT_E2E=1` (patches) and `PI_AGENT_E2E_DEPLOY=1` (extensions).
+`bun run verify` runs just the extension-loading e2e (high-tier subset).
 
 ## Layout
 

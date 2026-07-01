@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
 	E2E_ENABLED,
+	DEPLOY_ENABLED,
 	PI_AGENT_DIR,
 	REPO_ROOT,
 	SRC_CLI,
@@ -105,7 +106,9 @@ async function runScenario(s: Scenario): Promise<Result> {
 	return { total, matched, errors };
 }
 
-describe.skipIf(!E2E_ENABLED)("e2e: extension loading across source/deploy/cwd", () => {
+describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)(
+	"e2e: extension loading across source/deploy/cwd",
+	() => {
 	let pkgDir = "";
 	let pkgPiAgent = "";
 	let probePath = "";

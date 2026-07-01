@@ -99,4 +99,16 @@ describe.skipIf(!E2E_ENABLED)("e2e: patches fire in the built bundle", () => {
 		expect(code).toBe(0);
 		expect(strip(stderr)).not.toMatch(/error:/i);
 	});
+
+	test("pre-load-providers injects custom providers (lm-studio appears in --list-models)", async () => {
+		// --list-models is offline (registry listing, no fetch). If pre-load-
+		// providers is misconfigured or the loadModels() patch didn't bind in
+		// bundle mode, the lm-studio rows vanish. Pick a stable injected id.
+		const { stdout, code } = await runBundle(["--list-models"], {
+			env: { BUN_PI_PRE_LOAD_PROVIDERS: "1" },
+		});
+		expect(code).toBe(0);
+		expect(stdout).toContain("lm-studio");
+		expect(stdout.toLowerCase()).toContain("qwen3-vl-4b");
+	});
 });
