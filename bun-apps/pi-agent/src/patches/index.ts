@@ -15,79 +15,91 @@ export interface AppliedPatch {
   applied: boolean;
 }
 
-function envFlag(name: string, fallback: boolean): boolean {
-  const v = process.env[name];
+/** Metadata for each patch: its env gate + the default when the env is unset. */
+export interface PatchEntry {
+  name: string;
+  env: string;
+  defaultValue: boolean;
+}
+
+/**
+ * The patch registry as data. Order = execution order (set-package-dir must run
+ * first). The module to import per entry is resolved by name in applyPatches()
+ * via a static-literal switch (bun needs literal import paths to bundle — see
+ * the file header). Adding a patch = add an entry here AND a `case` below.
+ */
+export const PATCH_TABLE: readonly PatchEntry[] = [
+  // set-package-dir runs first: it sets PI_PACKAGE_DIR before any other patch
+  // might trigger pi module initialization.
+  { name: "set-package-dir", env: "BUN_PI_SET_PACKAGE_DIR", defaultValue: true },
+  { name: "skip-update-check", env: "BUN_PI_SKIP_UPDATE_CHECK", defaultValue: true },
+  { name: "pre-load-providers", env: "BUN_PI_PRE_LOAD_PROVIDERS", defaultValue: true },
+  { name: "load-run-dir-resources", env: "BUN_PI_LOAD_RUN_DIR", defaultValue: true },
+];
+
+/**
+ * Read a boolean env flag. Accepts "1" / "true" / "yes" (case-insensitive) as
+ * truthy; any other set value is false; undefined → fallback. Pure given `env`.
+ * Exported because it is the decision primitive for every patch + the debug
+ * flag — exactly the logic that silently breaks.
+ */
+export function envFlag(
+  name: string,
+  fallback: boolean,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const v = env[name];
   if (v === undefined) return fallback;
   return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
+}
+
+/**
+ * Pure: which patches WOULD apply for a given env, without executing any.
+ * Returns the AppliedPatch[] (decision only). Separating decision from
+ * execution makes the gating unit-testable without triggering real patch
+ * side effects (monkey-patching, argv splicing, env mutation).
+ */
+export function resolvePatchPlan(
+  table: readonly PatchEntry[] = PATCH_TABLE,
+  env: Record<string, string | undefined> = process.env,
+): AppliedPatch[] {
+  return table.map((e) => ({ ...e, applied: envFlag(e.env, e.defaultValue, env) }));
 }
 
 /**
  * Apply all enabled patches. Must run *before* `main()` is called, because
  * `main()` constructs the `ModelRegistry` instance whose prototype we patch.
  *
- * Each patch is gated on an env flag; a disabled patch is never executed.
- * Adding a new patch: add a block below, wired to a static import literal.
+ * Each patch is gated on an env flag (resolvePatchPlan); a disabled patch is
+ * never executed. The per-patch import is a static string literal inside a
+ * switch case so bun can trace + bundle it — do NOT replace with a variable
+ * `import(entry.module)` (see file header).
  */
 export async function applyPatches(): Promise<AppliedPatch[]> {
   const debug = envFlag("BUN_PI_DEBUG_PATCHES", false);
-  const applied: AppliedPatch[] = [];
+  const applied = resolvePatchPlan();
 
-  // ── patch: set-package-dir ────────────────────────────────────────────────
-  // Sets PI_PACKAGE_DIR so pi's asset paths (themes, templates) resolve
-  // correctly when running as a bundled .js. Must run first, before any other
-  // patch that might trigger pi module initialization.
-  {
-    const name = "set-package-dir";
-    const env = "BUN_PI_SET_PACKAGE_DIR";
-    const defaultValue = true;
-    const enabled = envFlag(env, defaultValue);
-    if (enabled) {
-      await import("./set-package-dir.ts");
+  for (const p of applied) {
+    if (!p.applied) continue;
+    switch (p.name) {
+      case "set-package-dir":
+        await import("./set-package-dir.ts");
+        break;
+      case "skip-update-check":
+        await import("./skip-update-check.ts");
+        break;
+      case "pre-load-providers":
+        await import("../pre-load-providers.ts");
+        break;
+      case "load-run-dir-resources":
+        await import("./load-run-dir-resources.ts");
+        break;
+      default: {
+        // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.
+        const _exhaustive: never = p.name;
+        throw new Error(`unhandled patch: ${_exhaustive}`);
+      }
     }
-    applied.push({ name, env, defaultValue, applied: enabled });
-  }
-
-  // ── patch: skip-update-check ──────────────────────────────────────────────
-  // Silence pi's "Update Available" banner for shipped artifacts (bundle .js +
-  // binary), where `pi update` is meaningless. No-op in source mode.
-  {
-    const name = "skip-update-check";
-    const env = "BUN_PI_SKIP_UPDATE_CHECK";
-    const defaultValue = true;
-    const enabled = envFlag(env, defaultValue);
-    if (enabled) {
-      await import("./skip-update-check.ts");
-    }
-    applied.push({ name, env, defaultValue, applied: enabled });
-  }
-
-  // ── patch: pre-load-providers ─────────────────────────────────────────────
-  // Injects custom LLM providers into pi's ModelRegistry before main() starts.
-  {
-    const name = "pre-load-providers";
-    const env = "BUN_PI_PRE_LOAD_PROVIDERS";
-    const defaultValue = true;
-    const enabled = envFlag(env, defaultValue);
-    if (enabled) {
-      // Static string literal — bun can trace and bundle this module.
-      await import("../pre-load-providers.ts");
-    }
-    applied.push({ name, env, defaultValue, applied: enabled });
-  }
-
-  // ── patch: load-run-dir-resources ─────────────────────────────────────────
-  // Splices this repo's fixed extension/skill set into argv as absolute paths
-  // resolved from run-dir/, independent of process.cwd(). Must run before
-  // main() reads process.argv.
-  {
-    const name = "load-run-dir-resources";
-    const env = "BUN_PI_LOAD_RUN_DIR";
-    const defaultValue = true;
-    const enabled = envFlag(env, defaultValue);
-    if (enabled) {
-      await import("./load-run-dir-resources.ts");
-    }
-    applied.push({ name, env, defaultValue, applied: enabled });
   }
 
   if (debug) {
