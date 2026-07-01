@@ -40,40 +40,42 @@ If another Pi extension has already installed a custom editor component, pi-dyna
 
 ## Batch mode (run a workflow file from the CLI, non-interactive)
 
-The prompt-driven path (above) asks the model to **write** the orchestration script each run — flexible, but slow and non-deterministic. When you already know the script (or want a fast, reproducible smoke test), run a **`.js` file directly** with no TUI and no model in the loop writing the script.
+The prompt-driven path (above) asks the model to **write** the orchestration script each run — flexible, but slow and non-deterministic (a 4-phase analysis took ~11 min). When you already know the script (or want a fast, reproducible smoke test), feed a fixed `.js` file instead.
 
-The standalone runner (`samples/run.ts`) feeds a workflow script to `runWorkflow()` and prints a JSON summary to stdout (logs/phases go to stderr). It uses the same runtime as the `workflow` tool — `agent()`, `phase()`, `log()`, `parallel()` are injected globals, so the script file never imports them.
+### Recommended — full e2e via `smoke-e2e.sh`
+
+This drives the **real** path — the same one a user invokes (`pi-agent -e workflow -p …`): the pi-agent CLI, `-e workflow` alias resolution, the `workflow` tool, and the model calling it. It just pins the script so the model relays a fixed smoke instead of inventing a 4-phase workflow:
 
 ```bash
-# run the included smoke (two parallel micro-agents, ~5s, deterministic join)
+# default smoke (two parallel micro-agents, deterministic join, ~seconds)
+PI_MODEL=google/gemma-4-26b-a4b-qat \
+  ./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh
+```
+
+Output (the model returns the workflow result inline, `background:false`):
+
+```json
+{ "ok": true, "a": "FOO", "b": "BAR" }
+```
+
+Run any workflow file:
+
+```bash
+./bun-apps/pi-dynamic-workflows/samples/smoke-e2e.sh path/to/your-workflow.js
+```
+
+### Fast library-level check via `run.ts`
+
+`samples/run.ts` calls `runWorkflow()` **directly** — no TUI, no CLI, no `workflow` tool, no model writing a script. Faster and fully deterministic, but it **bypasses** the CLI / argv parsing / extension loading / the tool itself, so it is NOT full e2e. Use it for a quick runtime check; use `smoke-e2e.sh` to validate the whole stack.
+
+```bash
 PI_MODEL=google/gemma-4-26b-a4b-qat \
   bun bun-apps/pi-dynamic-workflows/samples/run.ts \
     bun-apps/pi-dynamic-workflows/samples/dynamic-workflow-smoke01.js
+# → { "ok": true, "result": {…}, "agents": 2, "durationMs": 4540, "tokens": 8800 }
 ```
 
-Output (stdout, exit 0 on success / non-zero on failure):
-
-```json
-{
-  "ok": true,
-  "name": "smoke01",
-  "result": { "ok": true, "a": "FOO", "b": "BAR" },
-  "phases": ["Smoke"],
-  "agents": 2,
-  "durationMs": 4540,
-  "tokens": 8800
-}
-```
-
-Run any workflow file and pass `args`:
-
-```bash
-bun bun-apps/pi-dynamic-workflows/samples/run.ts path/to/workflow.js '{"limit": 10}'
-```
-
-The model defaults to `PI_MODEL` (the same env pi-agent bridges). The run still appears in `/workflows` history (persisted under `~/.pi/workflows/`).
-
-> **Note — background vs batch.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record but won't pop back into any TUI — so for headless/CI use, prefer this `samples/run.ts` batch path, which returns the result synchronously on stdout.
+> **Note — background vs inline.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record under `~/.pi/workflows/` but won't pop back into any TUI. Both runners above force `background:false` (e2e) / synchronous execution (run.ts) so the result returns inline on stdout — which is what you want for headless/CI.
 
 ## What a workflow looks like
 
