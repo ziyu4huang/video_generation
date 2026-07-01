@@ -92,8 +92,18 @@ export function resolveLLM(opts: {
 		FALLBACK.provider;
 	let modelId =
 		process.env.PI_MODEL ?? opts.userDefaults?.model ?? FALLBACK.modelId;
-	let thinking = (process.env.PI_THINKING ??
-		FALLBACK.thinkingLevel) as ThinkingLevel;
+	// Validate PI_THINKING like the --thinking flag and the :thinking model
+	// suffix both do — without this, PI_THINKING=bogus is `as ThinkingLevel`'d
+	// straight through to createAgentSessionFromServices with no error, mirroring
+	// the silent-coerce footgun the numeric flags had. FALLBACK is always valid,
+	// so the guard only fires on a bad env value.
+	const thinkingRaw = process.env.PI_THINKING ?? FALLBACK.thinkingLevel;
+	if (!isThinkingLevel(thinkingRaw)) {
+		throw new Error(
+			`Invalid PI_THINKING "${thinkingRaw}". Valid: ${THINKING_LEVELS.join(", ")}`,
+		);
+	}
+	let thinking: ThinkingLevel = thinkingRaw;
 
 	// --model supports "provider/id[:thinking]" shorthand.
 	if (opts.model) {
