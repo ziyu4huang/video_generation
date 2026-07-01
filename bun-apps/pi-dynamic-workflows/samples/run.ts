@@ -1,10 +1,12 @@
 /**
- * run.ts — standalone, non-interactive runner for a workflow `.js` file.
+ * run.ts — LIBRARY-LEVEL runner for a workflow `.js` file (NOT full e2e).
  *
- * Runs the workflow runtime DIRECTLY via runWorkflow() — no pi TUI, no model
- * in the loop to write a script. Feed it a workflow script file (one that
- * starts with `export const meta = { … }` and calls agent()/phase()/log()), and
- * it executes synchronously and prints a JSON summary to stdout.
+ * Calls runWorkflow() DIRECTLY — no pi TUI, no CLI, no `workflow` tool, no
+ * model in the loop writing a script. This is the fastest way to exercise the
+ * workflow runtime against a real model, but it BYPASSES the pi-agent CLI /
+ * argv parsing / extension loading / the workflow tool itself. For a TRUE
+ * end-to-end smoke through the same path a user invokes
+ * (`pi-agent -e workflow -p …`), use samples/smoke-e2e.sh instead.
  *
  * Usage (from repo root):
  *   bun bun-apps/pi-dynamic-workflows/samples/run.ts <script.js> [args-json]
