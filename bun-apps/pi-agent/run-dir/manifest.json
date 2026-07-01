@@ -8,5 +8,9 @@
   ],
   "skills": [
     "pi-obsidian/skills"
+  ],
+  "npmExtensions": [
+    { "pkg": "@juicesharp/rpiv-ask-user-question", "entry": "index.ts" },
+    { "pkg": "pi-hermes-memory", "entry": "src/index.ts" }
   ]
 }

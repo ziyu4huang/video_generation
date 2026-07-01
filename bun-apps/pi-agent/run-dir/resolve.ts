@@ -20,21 +20,24 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
 
-// Fixed npm-sourced extensions (migrated off the old isolated .pi/npm/ tree —
-// now plain `dependencies` in package.json, resolved via the shared node_modules
-// tree). Relative entry points come from each package's own "pi".extensions field.
+// npm-sourced extensions ({ pkg, entry }) — manifest.json is the SINGLE source
+// of truth: scripts/build.ts reads the same `npmExtensions` field to bake
+// resolved paths into src/generated/run-dir-base.ts for bundle mode, so adding
+// one is a one-file edit (not two). `entry` is relative to each package's root.
+// These are plain `dependencies` in package.json, resolved via the shared
+// node_modules tree (migrated off the old isolated .pi/npm/ tree).
 //
-// NOTE: @juicesharp/rpiv-todo is intentionally NOT baked in here. This user's
-// personal ~/.pi/agent/settings.json already declares it as a global-scope
-// package (loads for every pi invocation regardless of cwd), so it behaves
-// like the "personal data" that's meant to stay at ~/.pi/ per the run-dir
-// migration's goal, not like a project-specific extension. Baking a second
-// copy here causes a "Tool \"todo\" conflicts" crash against the user's own
-// global-scope load — verified during the source-mode cwd-independence test.
-const NPM_EXTENSIONS: Array<{ pkg: string; entry: string }> = [
-  { pkg: "@juicesharp/rpiv-ask-user-question", entry: "index.ts" },
-  { pkg: "pi-hermes-memory", entry: "src/index.ts" },
-];
+// Deliberately NOT listed here:
+//  - @juicesharp/rpiv-todo: this user's ~/.pi/agent/settings.json already
+//    declares it as a global-scope package (loads for every pi invocation
+//    regardless of cwd), so it behaves like the "personal data" meant to stay
+//    at ~/.pi/. Baking a second copy here crashes with `Tool "todo" conflicts`
+//    against the user's own global load. Another clone without that global
+//    entry must add it to their own ~/.pi/agent/settings.json to get `todo`.
+//  - pi-lens: was in the old .pi/npm install set but never in the active
+//    .pi/settings.json packages list (installed-but-inert); intentionally
+//    dropped. Add it here + to package.json if ever needed.
+const NPM_EXTENSIONS = manifest.npmExtensions ?? [];
 
 const url = import.meta.url;
 const isBinary = url.includes("$bunfs") || url.includes("~BUN") || url.includes("%7EBUN");
@@ -44,16 +47,32 @@ function warn(msg: string) {
   console.error(`[bun-pi] run-dir: ${msg}`);
 }
 
+// Bundle mode reads build-time-baked constants from run-dir-base.ts. Cache the
+// dynamic import so resolveBunAppsDir and resolveNpmExtensionPaths share ONE
+// load. The module is absent in a clean source tree; the try/catch covers that.
+let runDirBase: Promise<{ bunAppsDir: string | undefined; npmPaths: string[] }> | null = null;
+function loadRunDirBase() {
+  if (!isBinary && !isSource && !runDirBase) {
+    runDirBase = (async () => {
+      try {
+        // @ts-ignore — generated at build time; absent in a clean source tree
+        const mod = await import("../src/generated/run-dir-base.ts");
+        return {
+          bunAppsDir: (mod.BUN_APPS_DIR as string | undefined) || undefined,
+          npmPaths: (mod.NPM_EXTENSION_PATHS as string[] | undefined) ?? [],
+        };
+      } catch {
+        return { bunAppsDir: undefined, npmPaths: [] };
+      }
+    })();
+  }
+  return runDirBase;
+}
+
 async function resolveBunAppsDir(): Promise<string | undefined> {
   if (!isBinary && !isSource) {
     // Bundle mode: only the build-time-generated constant is reliable.
-    try {
-      // @ts-ignore — generated at build time; absent in a clean source tree
-      const mod = await import("../src/generated/run-dir-base.ts");
-      return mod.BUN_APPS_DIR || undefined;
-    } catch {
-      return undefined;
-    }
+    return (await loadRunDirBase())?.bunAppsDir;
   }
   // Source mode: run-dir/resolve.ts -> pi-agent/ -> bun-apps/
   return resolve(dirname(fileURLToPath(url)), "..", "..");
@@ -61,13 +80,7 @@ async function resolveBunAppsDir(): Promise<string | undefined> {
 
 async function resolveNpmExtensionPaths(): Promise<string[]> {
   if (!isBinary && !isSource) {
-    try {
-      // @ts-ignore — generated at build time; absent in a clean source tree
-      const mod = await import("../src/generated/run-dir-base.ts");
-      return (mod.NPM_EXTENSION_PATHS as string[] | undefined) ?? [];
-    } catch {
-      return [];
-    }
+    return (await loadRunDirBase())?.npmPaths ?? [];
   }
   const paths: string[] = [];
   for (const { pkg, entry } of NPM_EXTENSIONS) {
