@@ -40,8 +40,26 @@ import manifest from "./manifest.json";
 const NPM_EXTENSIONS = manifest.npmExtensions ?? [];
 
 const url = import.meta.url;
-const isBinary = url.includes("$bunfs") || url.includes("~BUN") || url.includes("%7EBUN");
-const isSource = url.includes("/run-dir/");
+
+/**
+ * Detect run-dir resolution mode from the module URL.
+ *   - "binary":  compiled with `bun build --compile` → import.meta.url is the
+ *                $bunfs / ~BUN virtual scheme; absolute-path resolution yields
+ *                garbage, so resolveRunDirArgv() no-ops.
+ *   - "source":  run-dir/resolve.ts loaded from source (url contains /run-dir/)
+ *                → resolve bun-apps/ via dirname(import.meta.url).
+ *   - "bundle":  bundled .js (the supported shipped path) → load build-time-baked
+ *                constants from src/generated/run-dir-base.ts.
+ * Pure + exported for unit tests (the string patterns are exactly the kind of
+ * detection logic that silently breaks).
+ */
+export function detectMode(u: string): "binary" | "source" | "bundle" {
+  if (u.includes("$bunfs") || u.includes("~BUN") || u.includes("%7EBUN")) return "binary";
+  if (u.includes("/run-dir/")) return "source";
+  return "bundle";
+}
+
+const mode = detectMode(url);
 
 function warn(msg: string) {
   console.error(`[bun-pi] run-dir: ${msg}`);
@@ -52,7 +70,7 @@ function warn(msg: string) {
 // load. The module is absent in a clean source tree; the try/catch covers that.
 let runDirBase: Promise<{ bunAppsDir: string | undefined; npmPaths: string[] }> | null = null;
 function loadRunDirBase() {
-  if (!isBinary && !isSource && !runDirBase) {
+  if (mode === "bundle" && !runDirBase) {
     runDirBase = (async () => {
       try {
         // @ts-ignore — generated at build time; absent in a clean source tree
@@ -70,7 +88,7 @@ function loadRunDirBase() {
 }
 
 async function resolveBunAppsDir(): Promise<string | undefined> {
-  if (!isBinary && !isSource) {
+  if (mode === "bundle") {
     // Bundle mode: only the build-time-generated constant is reliable.
     return (await loadRunDirBase())?.bunAppsDir;
   }
@@ -79,7 +97,7 @@ async function resolveBunAppsDir(): Promise<string | undefined> {
 }
 
 async function resolveNpmExtensionPaths(): Promise<string[]> {
-  if (!isBinary && !isSource) {
+  if (mode === "bundle") {
     return (await loadRunDirBase())?.npmPaths ?? [];
   }
   const paths: string[] = [];
@@ -104,7 +122,7 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // collapsing to "/", producing "/zai-mcp/…" non-paths). Without this guard
   // every binary invocation — even --version — spews ~7 "skipping" warnings.
   // The bundled .js (not the --compile binary) is the supported shipped path.
-  if (isBinary) {
+  if (mode === "binary") {
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
       warn("compiled-binary mode — extensions can't load here; returning no argv");
     }
@@ -139,30 +157,57 @@ export async function resolveRunDirArgv(): Promise<string[]> {
  * resolve from node_modules regardless of base.
  */
 async function buildArgv(bunAppsDir: string | undefined): Promise<string[]> {
+  return buildArgvFromManifest(
+    manifest,
+    bunAppsDir,
+    await resolveNpmExtensionPaths(),
+    existsSync,
+    warn,
+  );
+}
+
+/**
+ * Pure argv builder — everything passed in, no fs/network. Exported so the
+ * -e/--skill assembly + skip-on-missing logic is unit-testable without the
+ * mode/env machinery of buildArgv.
+ *
+ *   - workspace extensions → `-e <base>/<rel>` (only when `exists` says so)
+ *   - npm extensions       → appended after workspace, as `-e <absPath>`
+ *   - skills               → `--skill <base>/<rel>`
+ *   - missing paths        → skipped, reported via `warnFn`
+ *   - undefined base       → workspace extensions AND skills skipped + warned
+ */
+export function buildArgvFromManifest(
+  m: { extensions?: string[]; skills?: string[] },
+  bunAppsDir: string | undefined,
+  npmPaths: string[],
+  exists: (p: string) => boolean,
+  warnFn: (msg: string) => void,
+): string[] {
   const argv: string[] = [];
   const extensionPaths: string[] = [];
   if (bunAppsDir) {
-    for (const rel of manifest.extensions ?? []) {
+    for (const rel of m.extensions ?? []) {
       extensionPaths.push(join(bunAppsDir, rel));
     }
   } else {
-    warn("could not determine bun-apps/ directory — skipping workspace-local extensions");
+    warnFn("could not determine bun-apps/ directory — skipping workspace-local extensions");
   }
-  extensionPaths.push(...(await resolveNpmExtensionPaths()));
+  extensionPaths.push(...npmPaths);
   for (const p of extensionPaths) {
-    if (existsSync(p)) {
+    if (exists(p)) {
       argv.push("-e", p);
     } else {
-      warn(`extension path not found, skipping: ${p}`);
+      warnFn(`extension path not found, skipping: ${p}`);
     }
   }
   if (bunAppsDir) {
-    for (const rel of manifest.skills ?? []) {
+    for (const rel of m.skills ?? []) {
       const p = join(bunAppsDir, rel);
-      if (existsSync(p)) {
+      if (exists(p)) {
         argv.push("--skill", p);
       } else {
-        warn(`skill path not found, skipping: ${p}`);
+        warnFn(`skill path not found, skipping: ${p}`);
       }
     }
   }

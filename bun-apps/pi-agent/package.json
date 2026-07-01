@@ -10,6 +10,7 @@
   "scripts": {
     "cli": "bun src/cli.ts",
     "list": "bun src/cli.ts --list-models",
+    "test": "bun test",
     "build": "bun scripts/build.ts",
     "deploy": "bun scripts/deploy.ts",
     "verify": "bun scripts/verify.ts",
