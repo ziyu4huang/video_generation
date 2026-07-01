@@ -110,9 +110,36 @@ export async function resolveRunDirArgv(): Promise<string[]> {
     }
     return [];
   }
-  const bunAppsDir = await resolveBunAppsDir();
-  const argv: string[] = [];
 
+  // DEPLOY-PACKAGE mode: a self-contained package produced by scripts/deploy.ts
+  // — the bundle sits next to its own `packages/<pkg>/…` tree + `run-dir/manifest.json`.
+  // Resolve the manifest against packages/ (NOT the repo's bun-apps/, and NOT
+  // the build-time-baked run-dir-base.ts, which points at the repo). Uses `-ne`
+  // so the package is self-contained: pi loads ONLY these -e paths and ignores
+  // any <cwd>/.pi/ — avoiding cross-path tool-name conflicts when the package is
+  // run inside a repo that declares the same extensions from different paths.
+  const selfDir = dirname(fileURLToPath(url));
+  const packagesDir = join(selfDir, "packages");
+  if (existsSync(packagesDir) && existsSync(join(selfDir, "run-dir", "manifest.json"))) {
+    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+      warn(`deploy-package mode — resolving manifest against ${packagesDir}`);
+    }
+    return ["-ne", ...(await buildArgv(packagesDir))];
+  }
+
+  // SOURCE / repo-bundle modes: additive layering (no -ne) with <cwd>/.pi/ +
+  // ~/.pi/. Safe because run-dir resolves to the same canonical bun-apps/ paths
+  // a repo .pi/ would, so pi dedupes them.
+  return buildArgv(await resolveBunAppsDir());
+}
+
+/**
+ * Build the -e/--skill argv from the manifest against a bun-apps-equivalent
+ * base dir (undefined → skip workspace-local entries, warn). npm extensions
+ * resolve from node_modules regardless of base.
+ */
+async function buildArgv(bunAppsDir: string | undefined): Promise<string[]> {
+  const argv: string[] = [];
   const extensionPaths: string[] = [];
   if (bunAppsDir) {
     for (const rel of manifest.extensions ?? []) {
@@ -122,7 +149,6 @@ export async function resolveRunDirArgv(): Promise<string[]> {
     warn("could not determine bun-apps/ directory — skipping workspace-local extensions");
   }
   extensionPaths.push(...(await resolveNpmExtensionPaths()));
-
   for (const p of extensionPaths) {
     if (existsSync(p)) {
       argv.push("-e", p);
@@ -130,7 +156,6 @@ export async function resolveRunDirArgv(): Promise<string[]> {
       warn(`extension path not found, skipping: ${p}`);
     }
   }
-
   if (bunAppsDir) {
     for (const rel of manifest.skills ?? []) {
       const p = join(bunAppsDir, rel);
@@ -141,6 +166,5 @@ export async function resolveRunDirArgv(): Promise<string[]> {
       }
     }
   }
-
   return argv;
 }
