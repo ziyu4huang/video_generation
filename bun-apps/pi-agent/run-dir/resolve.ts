@@ -19,6 +19,11 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
+import { detectMode } from "../src/mode.ts";
+
+// Re-export so callers (and tests) can import detectMode from the resolver
+// surface; the implementation lives in the shared src/mode.ts.
+export { detectMode };
 
 // npm-sourced extensions ({ pkg, entry }) — manifest.json is the SINGLE source
 // of truth: scripts/build.ts reads the same `npmExtensions` field to bake
@@ -41,24 +46,8 @@ const NPM_EXTENSIONS = manifest.npmExtensions ?? [];
 
 const url = import.meta.url;
 
-/**
- * Detect run-dir resolution mode from the module URL.
- *   - "binary":  compiled with `bun build --compile` → import.meta.url is the
- *                $bunfs / ~BUN virtual scheme; absolute-path resolution yields
- *                garbage, so resolveRunDirArgv() no-ops.
- *   - "source":  run-dir/resolve.ts loaded from source (url contains /run-dir/)
- *                → resolve bun-apps/ via dirname(import.meta.url).
- *   - "bundle":  bundled .js (the supported shipped path) → load build-time-baked
- *                constants from src/generated/run-dir-base.ts.
- * Pure + exported for unit tests (the string patterns are exactly the kind of
- * detection logic that silently breaks).
- */
-export function detectMode(u: string): "binary" | "source" | "bundle" {
-  if (u.includes("$bunfs") || u.includes("~BUN") || u.includes("%7EBUN")) return "binary";
-  if (u.includes("/run-dir/")) return "source";
-  return "bundle";
-}
-
+// Mode detection is shared (src/mode.ts) — see detectMode(). Source marker for
+// this module is "/run-dir/" (its default), so detectMode(url) is correct here.
 const mode = detectMode(url);
 
 function warn(msg: string) {

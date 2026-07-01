@@ -38,14 +38,15 @@ try {
   PI_PKG_DIR = "";
 }
 
+import { detectMode } from "../mode.ts";
+
 const url = import.meta.url;
-const isBinary = url.includes("$bunfs") || url.includes("~BUN") || url.includes("%7EBUN");
-const isSource = url.includes("/src/patches/");
+const mode = detectMode(url, "/src/patches/");
 
 // Apply ONLY for the bundle .js case: not the binary (assets alongside) and
 // not source mode (pi resolves correctly on its own). Skip when no path was
 // baked in (empty / missing) — keeps source mode safe.
-if (!isBinary && !isSource && PI_PKG_DIR) {
+if (mode === "bundle" && PI_PKG_DIR) {
   process.env.PI_PACKAGE_DIR ??= PI_PKG_DIR;
 }
 

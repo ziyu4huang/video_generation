@@ -20,10 +20,11 @@
  * Detection mirrors set-package-dir: import.meta.url reveals how this module
  * was loaded.
  */
+import { detectMode } from "../mode.ts";
+
 const url = import.meta.url;
-const isBinary = url.includes("$bunfs") || url.includes("~BUN") || url.includes("%7EBUN");
-const isSource = url.includes("/src/patches/");
-const isShippedArtifact = !isSource; // bundle .js OR compiled binary
+const mode = detectMode(url, "/src/patches/");
+const isShippedArtifact = mode !== "source"; // bundle .js OR compiled binary
 const debug = process.env.BUN_PI_DEBUG_PATCHES === "1" ||
   process.env.BUN_PI_DEBUG_PATCHES === "true";
 
@@ -36,7 +37,6 @@ if (isShippedArtifact) {
 // getLatestPiRelease() here to prove the skip — the deep subpath isn't in the
 // package exports and won't resolve from the bundle. Verified separately.)
 if (debug) {
-  const mode = isBinary ? "binary" : isSource ? "source" : "bundle";
   const skip = process.env.PI_SKIP_VERSION_CHECK;
   console.error(
     `[skip-update-check] mode=${mode} PI_SKIP_VERSION_CHECK=${JSON.stringify(skip)}` +
