@@ -84,6 +84,19 @@ async function resolveNpmExtensionPaths(): Promise<string[]> {
 
 /** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
 export async function resolveRunDirArgv(): Promise<string[]> {
+  // Compiled-binary mode: no-op. pi can't load .ts extensions here anyway
+  // (jiti feeds each extension as a base64 data: URL → Bun ENAMETOOLONG — see
+  // README "Build modes"), and import.meta.url is the $bunfs virtual scheme so
+  // the absolute-path resolution below yields garbage (e.g. BUN_APPS_DIR
+  // collapsing to "/", producing "/zai-mcp/…" non-paths). Without this guard
+  // every binary invocation — even --version — spews ~7 "skipping" warnings.
+  // The bundled .js (not the --compile binary) is the supported shipped path.
+  if (isBinary) {
+    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+      warn("compiled-binary mode — extensions can't load here; returning no argv");
+    }
+    return [];
+  }
   const bunAppsDir = await resolveBunAppsDir();
   const argv: string[] = [];
 
