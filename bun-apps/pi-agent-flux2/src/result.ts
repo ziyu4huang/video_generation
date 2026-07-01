@@ -12,6 +12,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { invokeFlux2, type InvokeResult } from "./invoke.ts";
+import type { ScenePipelineResult } from "./scenePipeline.ts";
 
 export interface OutputFile {
   path: string;
@@ -53,6 +54,8 @@ export interface Flux2Details {
   gateResults?: GateEntry[];
   /** Raw stdout for read-only commands (models). */
   stdout?: string;
+  /** Present when `scene` was run with a multi-seed pipeline (see scenePipeline.ts). */
+  scenePipeline?: ScenePipelineResult;
 }
 
 // ─── Manifest parsing ────────────────────────────────────────────────────────
@@ -307,6 +310,19 @@ export function summarize(d: Flux2Details): string {
   if (d.command === "models" || d.stdout != null) {
     const head = (d.stdout ?? "").trim().split("\n").slice(0, 30).join("\n");
     return `${d.command} ok:\n${head}`;
+  }
+  if (d.scenePipeline) {
+    const p = d.scenePipeline;
+    const lines = p.candidates.map(
+      (c) =>
+        `  seed ${c.seed}: ${c.ok ? (c.gate ?? "?") : "RUN-FAILED"}` +
+        (c.vlmReply ? ` — ${c.matched ? "MATCH" : "no-match"}: ${c.vlmReply.slice(0, 80)}` : "") +
+        (c.seed === p.winnerSeed ? "  ← winner" : ""),
+    );
+    const winnerLine = p.winnerOutput
+      ? `winner: seed ${p.winnerSeed} (${p.winnerReason}) → ${p.handRepair?.output ?? p.winnerOutput}`
+      : "winner: none (every candidate failed)";
+    return `scene pipeline (${p.candidates.length} seeds):\n${lines.join("\n")}\n${winnerLine}`;
   }
   const dims = d.width && d.height ? `${d.width}×${d.height}` : "";
   const gateStr = d.gate ? ` gate ${d.gate}` : "";

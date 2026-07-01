@@ -22,6 +22,11 @@ guards — so an agent can generate, gate, and chain images without memorizing f
   `swift build -c release` once and caches it.
 - **Safe by default.** All paths validated under repo / output-dir / models-tree roots; flag-like
   values rejected (anti-argv-injection).
+- **Multi-seed `scene` pipeline.** `scene` refs are global tokens (no identity→region binding),
+  so placement/pose is prompt-driven & reliable-but-probabilistic. Pass `scenePipeline: { seeds }`
+  to render the same scene across N seeds, gate each, optionally VLM-verify each (via a shared
+  pi-vlm subagent), and auto-pick a winner — instead of looping single `scene` calls yourself.
+  See [§ Multi-seed scene pipeline](#multi-seed-scene-pipeline) below.
 
 ## Load
 
@@ -36,6 +41,31 @@ bun bun-apps/pi-agent/src/cli.ts \
 # Bundle:
 cd bun-apps/pi-agent-flux2 && bun scripts/build-bundle.ts   # → dist/pi-extensions/pi-agent-flux2.bundle.js
 ```
+
+## Multi-seed scene pipeline
+
+`flux2({ command: "scene", options: {...}, scenePipeline: { seeds: [11, 22, 33] } })` renders
+the SAME `options` once per seed, gates each, and picks a winner:
+
+- `seeds` (required) — one render per seed, in order.
+- `verifyPrompt` — question asked of a VLM subagent about each rendered candidate (e.g.
+  `"Describe each person's LEFT/RIGHT position and pose."`). Reuses pi-vlm's shared subagent
+  (`askImage`/`resolveLLM`, default `lm-studio/google/gemma-4-26b-a4b-qat`) — not a new LM Studio
+  client. Omit to skip VLM verification (candidates are still generated + gated).
+- `verifyMatch` — case-insensitive substrings that must ALL appear in a candidate's VLM reply to
+  win (first matching seed, in order). Falls back to the best-gated candidate if omitted or
+  nothing matches.
+- `vlmModel` — `"provider/modelId"` override for the VLM subagent.
+- `handRepairWinner` — re-render the winning seed once more with `--hand-repair`.
+
+`details.output` is the winner's (or hand-repaired winner's) PNG path — chains exactly like a
+single `scene` call. `details.scenePipeline.candidates[]` has every seed's output/gate/VLM verdict.
+Per-seed outputs are auto-suffixed (`name` → `name_seed<N>`) so seeds never overwrite each other's
+file even when you pass a fixed `name`/`output`.
+
+This formalizes the workflow `scripts/multi-seed-autoselect.sh` / `scripts/scene-classroom-demo.sh`
+already do by hand (render N seeds → VLM-verify placement/activity → rank → pick), as a
+first-class, testable tool capability instead of a bash script with hardcoded absolute paths.
 
 ## Env overrides
 
@@ -67,6 +97,8 @@ src/binary.ts            # resolve / auto-build the flux2 binary
 src/invoke.ts            # spawn + stream + abort
 src/result.ts            # manifest parsing → structured details
 src/paths.ts             # path-safety / argv-injection guards
+src/scenePipeline.ts     # multi-seed scene pipeline (render/gate/verify/pick-winner loop)
+src/vlm.ts               # thin adapter over pi-vlm's shared VLM subagent
 scripts/check-flags.ts   # drift guard
 scripts/build-bundle.ts  # single-file bundle
 ```

@@ -64,7 +64,25 @@ function buildDescription(): string {
     "Subcommands (📤 = produces an image):\n" + cmdLines + "\n\n" +
     "Per-command `options` reference (camelCase → flux2 flag shown in brackets):\n" + fieldRef +
     "\n\nNotes: defaults are the CLI's own (omit a field to use it). Repeatable flags " +
-    "(--ref, --lora, --ref-strength, --lora-scale, --ref-mask, --ref-region-mask) take arrays."
+    "(--ref, --lora, --ref-strength, --lora-scale, --ref-mask, --ref-region-mask) take arrays.\n\n" +
+    "── Multi-seed scene pipeline (command: 'scene' + scenePipeline) ──\n" +
+    "`scene` refs are GLOBAL tokens (no identity→region binding), so placement/pose is " +
+    "prompt-driven & reliable-but-probabilistic. Set `scenePipeline` to render the SAME scene " +
+    "options across multiple seeds, gate each, optionally VLM-verify each against a question, " +
+    "and auto-pick a winner — instead of you looping single `scene` calls yourself:\n" +
+    "  • seeds (number[], required) — one render per seed, in order.\n" +
+    "  • verifyPrompt (string, optional) — question asked of a VLM subagent about each " +
+    "rendered candidate (e.g. \"Describe each person's LEFT/RIGHT position and pose.\").\n" +
+    "  • verifyMatch (string[], optional) — case-insensitive substrings that must ALL appear " +
+    "in a candidate's VLM reply for it to be the winner; first matching seed (in order) wins. " +
+    "Falls back to the best-gated candidate if omitted or nothing matches.\n" +
+    "  • vlmModel (string, optional) — \"provider/modelId\" override for the VLM subagent " +
+    "(default: lm-studio/google/gemma-4-26b-a4b-qat).\n" +
+    "  • handRepairWinner (boolean, optional) — re-render the winning seed once more with " +
+    "--hand-repair.\n" +
+    "Result: `details.output` is the winner's (or hand-repaired winner's) PNG path — chains " +
+    "exactly like a single scene call. `details.scenePipeline.candidates[]` has every seed's " +
+    "output/gate/VLM verdict for inspection."
   );
 }
 
@@ -110,6 +128,39 @@ function makeFlux2Tool() {
             "must be allow-listed; value tokens are path-validated.",
         }),
       ),
+      scenePipeline: Type.Optional(
+        Type.Object(
+          {
+            seeds: Type.Array(Type.Integer(), {
+              description: "Render this scene once per seed, in order. Required to trigger the pipeline.",
+            }),
+            verifyPrompt: Type.Optional(
+              Type.String({ description: "Question asked of a VLM subagent about each rendered candidate." }),
+            ),
+            verifyMatch: Type.Optional(
+              Type.Array(Type.String(), {
+                description:
+                  "Case-insensitive substrings that must ALL appear in a candidate's VLM reply to win " +
+                  "(first matching seed, in order). Falls back to the best-gated candidate otherwise.",
+              }),
+            ),
+            vlmModel: Type.Optional(
+              Type.String({
+                description: "\"provider/modelId\" override for the VLM subagent (default lm-studio/google/gemma-4-26b-a4b-qat).",
+              }),
+            ),
+            handRepairWinner: Type.Optional(
+              Type.Boolean({ description: "Re-render the winning seed once more with --hand-repair." }),
+            ),
+          },
+          {
+            description:
+              "Only meaningful when command is 'scene'. Renders `options` across multiple seeds, gates + " +
+              "optionally VLM-verifies each, and returns the winner as details.output. See the tool " +
+              "description's 'Multi-seed scene pipeline' section.",
+          },
+        ),
+      ),
     }),
 
     async execute(_id, params, signal, onUpdate, _ctx) {
@@ -120,6 +171,7 @@ function makeFlux2Tool() {
           outputDir: params.outputDir,
           modelsRoot: params.modelsRoot,
           extraArgs: params.extraArgs,
+          scenePipeline: params.scenePipeline as any,
           signal,
           onProgress: (u) => onUpdate?.({ kind: "progress", text: u.text }),
         });

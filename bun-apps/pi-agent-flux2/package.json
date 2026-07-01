@@ -24,6 +24,9 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-agent-core": "latest",
+    "pi-vlm": "workspace:*",
     "typebox": "latest"
   },
   "peerDependencies": {
