@@ -4,6 +4,9 @@
   "private": true,
   "description": "Interactive pi TUI with monkey-patch hooks — forces model loading from .pi/agent/models.json, delegates everything else to the official pi main().",
   "type": "module",
+  "piConfig": {
+    "name": "pi-agent"
+  },
   "bin": {
     "pi-agent": "src/cli.ts"
   },
