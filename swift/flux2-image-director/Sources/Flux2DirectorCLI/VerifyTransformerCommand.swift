@@ -45,12 +45,16 @@ extension Flux2CLI {
             let model = Flux2Transformer.build(weights: weights)
 
             // Helper to compare an intermediate against the Python reference.
+            var checks: [VerifyCheck] = []
             func cmp(_ name: String, _ swift: MLXArray) {
                 guard let pyRef = ref[name] else { print("  [\(name)] (no ref)"); return }
                 let s = swift.asType(.float32); let p = pyRef
                 MLX.eval(s, p)
                 let c = cosine(s, p)
                 print("  [\(name)] cos=\(String(format: ".%.5f", c))  swift=\(s.shape)")
+                let shape = s.shape.map(String.init).joined(separator: ",")
+                checks.append(VerifyCheck(name: name, pass: true, cosine: Double(c), threshold: nil,
+                                          detail: "diagnostic intermediate, swift=[\(shape)]"))
             }
 
             let latents = ref["latents"]!.asType(.bfloat16)
@@ -110,6 +114,13 @@ extension Flux2CLI {
             } else {
                 print("❌ transformer diverges from Python (cos=\(String(format: "%.5f", cos)) < \(threshold))")
             }
+            checks.append(VerifyCheck(name: "forward_noise", pass: cos >= threshold, cosine: Double(cos),
+                                      threshold: Double(threshold),
+                                      detail: "maxDiff=\(String(format: "%.4f", maxAbsDiff)) meanDiff=\(String(format: "%.5f", meanAbsDiff)) swift=\(noise.shape)"))
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-transformer",
+                overall_pass: cos >= threshold, threshold: Double(threshold),
+                checks: checks, timestamp: VerifyReport.now()))
         }
 
         private func cosine(_ a: MLXArray, _ b: MLXArray) -> Float {

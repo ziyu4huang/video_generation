@@ -142,8 +142,8 @@ Click **Config** in the sidebar, or edit `bun/gui-movie-director/config.json`:
 
 ```json
 {
-  "outputDir": "python/mlx-movie-director/output",
-  "modelsDir": "python/mlx-movie-director/models",
+  "outputDir": "../video_generation__output",
+  "modelsDir": "mlx-models",
   "vlmApiUrl": "http://localhost:1234/v1",
   "vlmModel": "qwen/qwen3-vl-4b"
 }
@@ -151,8 +151,8 @@ Click **Config** in the sidebar, or edit `bun/gui-movie-director/config.json`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `outputDir` | `python/mlx-movie-director/output` | Where generated images are saved |
-| `modelsDir` | `python/mlx-movie-director/models` | Where model weights are stored |
+| `outputDir` | `../video_generation__output` | Where generated images are saved (PWD-relative external store) |
+| `modelsDir` | `mlx-models` | Where model weights are stored |
 | `vlmApiUrl` | `http://localhost:1234/v1` | LM Studio API for VLM features (Quality, Caption) |
 | `vlmModel` | `qwen/qwen3-vl-4b` | Model name in LM Studio |
 | `pythonPath` | `python/venv/bin/python` | Absolute path to the Python binary |

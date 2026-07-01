@@ -20,8 +20,9 @@
     "extensions": ["./extensions"]
   },
   "scripts": {
-    "build:bundle": "bun scripts/build-bundle.ts",
-    "build:bundle:obf": "bun scripts/build-bundle.ts --obfuscate"
+    "build:bundle": "bun scripts/build-bundle.ts --thin",
+    "build:bundle:full": "bun scripts/build-bundle.ts",
+    "build:bundle:no-obf": "bun scripts/build-bundle.ts --thin --no-obfuscate"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
@@ -29,5 +30,8 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
+  },
+  "devDependencies": {
+    "javascript-obfuscator": "^5.4.3"
   }
 }

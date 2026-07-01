@@ -49,7 +49,11 @@ extension Flux2CLI {
                 attentionMask: MLXArray(mask.map { Int32($0) }).reshaped([1, -1]),
                 hiddenStateLayers: [9, 18, 27]).asType(.bfloat16)
             MLX.eval(pe)
-            print("  prompt_embeds cos=\(String(format: "%.5f", cosine(pe.asType(.float32), ref["prompt_embeds"]!)))")
+            let peCos = cosine(pe.asType(.float32), ref["prompt_embeds"]!)
+            print("  prompt_embeds cos=\(String(format: "%.5f", peCos))")
+            var checks: [VerifyCheck] = [VerifyCheck(
+                name: "prompt_embeds", pass: true, cosine: Double(peCos), threshold: nil,
+                detail: "diagnostic (re-derived in Swift)")]
 
             // Initial latents.
             let (latents, latentIds, latentH, latentW) = Flux2LatentCreator.preparePackedLatents(
@@ -75,6 +79,13 @@ extension Flux2CLI {
             } else {
                 print("❌ e2e diverges (cos=\(String(format: "%.5f", cos)) < \(threshold))")
             }
+            checks.append(VerifyCheck(name: "final_latent", pass: cos >= threshold, cosine: Double(cos),
+                                      threshold: Double(threshold),
+                                      detail: "4-step denoise, swift=\(cur.shape) ref=\(ref["final_latent"]!.shape)"))
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-e2e",
+                overall_pass: cos >= threshold, threshold: Double(threshold),
+                checks: checks, timestamp: VerifyReport.now()))
         }
 
         private func cosine(_ a: MLXArray, _ b: MLXArray) -> Float {

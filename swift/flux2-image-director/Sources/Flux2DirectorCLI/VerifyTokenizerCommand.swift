@@ -74,6 +74,17 @@ extension Flux2CLI {
             } else {
                 print("❌ \(mismatches) token + \(maskMismatch) mask mismatches")
             }
+            let overall = mismatches == 0 && maskMismatch == 0
+            let checks = [
+                VerifyCheck(name: "token_ids", pass: mismatches == 0, cosine: nil, threshold: nil,
+                            detail: "\(compareCount - mismatches)/\(compareCount) match (\(String(format: "%.1f", matchPct))%)"),
+                VerifyCheck(name: "attention_mask", pass: maskMismatch == 0, cosine: nil, threshold: nil,
+                            detail: "\(swiftMask.count - maskMismatch)/\(swiftMask.count) match"),
+            ]
+            VerifyReport.write(VerifySummary(
+                app: VerifyReport.app, command: "verify-tokenizer",
+                overall_pass: overall, threshold: 1.0,
+                checks: checks, timestamp: VerifyReport.now()))
         }
     }
 }

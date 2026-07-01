@@ -184,9 +184,9 @@ def test_git_tracking_context_resolves_real_repo():
     toplevel, tracked = check_model._git_tracking_context(check_model.cfg.MODELS_DIR)
     assert toplevel is not None, "must resolve a git toplevel inside the repo"
     assert tracked is not None, "must list tracked paths under models/"
-    committed = "python/mlx-movie-director/models/transformer/luciddreamer-z/model.safetensors"
+    committed = "mlx-models/transformer/luciddreamer-z/model.safetensors"
     assert committed in tracked, f"committed symlink missing from tracked set: {committed}"
-    fabricated = "python/mlx-movie-director/models/transformer/never-existed/model.safetensors"
+    fabricated = "mlx-models/transformer/never-existed/model.safetensors"
     assert fabricated not in tracked
 
 

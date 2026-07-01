@@ -5,6 +5,25 @@
 //  Phase 2.4: End-to-end Flux2 Klein T2I generation. Wires tokenizer → text
 //  encoder → latent creator → scheduler → transformer denoise loop → VAE decode.
 //
+//  ## Key techs in this file
+//
+//  - **Denoise loop (T2I):** flow-match scheduler steps; each step concatenates
+//    `[noise | refs]` (refs optional), runs the MMDiT, slices output back to the
+//    noise tokens (ref-token outputs are discarded). See `Flux2T2IPipeline.generate`.
+//  - **Reference conditioning (multi-ref):** `Flux2ReferenceConditioning.prepare`
+//    builds per-ref tokens (VAE-enc → patchify → BN → pack, RoPE `t_coord=10+10·i`)
+//    concatenated to the noise each step; `refGateSteps` injects them only in the
+//    early fraction of steps. This is the `scene`/`style`/`swap` identity path.
+//  - **SDEdit partial denoise (`Flux2EditPipeline`):** start from a VAE-encoded
+//    init latent (an image), mix `(1-σ)·init + σ·noise` — the `--bg` canvas and
+//    `--regional`/`--hand-repair` inpaint paths. `denoiseStrength` = how much the
+//    source survives (lower = more source fidelity).
+//  - **Latent-mask re-injection (outpaint / regional / swap-inpaint):** each step
+//    force the kept region's latent back to its init value
+//    `current = mask·step + (1-mask)·init`, so the locked region survives while
+//    the masked region regenerates. Flux2 has no Fill variant → this is the
+//    inpaint mechanism. See `Flux2Outpaint` (mask build) + the re-inject here.
+//
 
 import CommonImageDirector
 import Foundation

@@ -20,7 +20,7 @@ export interface AppConfig {
 
 const DEFAULTS: AppConfig = {
   outputDir: ["../video_generation__output", "comfyui_data/output"],
-  modelsDir: "python/mlx-movie-director/models",
+  modelsDir: "mlx-models",
   vlmApiUrl: "http://localhost:1234/v1",
   // "auto" = don't force a model: run.py caption auto-resolves (prefers the heavier
   // Gemma 26B when already loaded in LM Studio, else loads Qwen 4B). Set a concrete
