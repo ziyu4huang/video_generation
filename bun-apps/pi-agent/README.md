@@ -189,6 +189,30 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 
 `cli.ts` never needs to change.
 
+## Testing
+
+Two tiers, mirroring the unit/e2e split:
+
+```bash
+bun test                                  # unit only (pure decision logic; fast baseline)
+./run-test.sh                             # full suite INCLUDING bundle e2e
+bun run verify                            # the extension-loading e2e only (was scripts/verify.ts)
+```
+
+Plain `bun test` runs only the pure-function unit tests (`resolvePatchPlan`,
+`resolveEnvBridges`, `resolveRunDirArgv`, `detectMode`, `PROVIDERS` config) plus
+the import-time `applyPatches()` smoke. It never builds the bundle or runs
+`main()`, so it stays sub-second.
+
+The bundle-mode e2e (`src/__tests__/e2e-patches.test.ts`,
+`e2e-extensions.test.ts`) is gated on `PI_AGENT_E2E=1`. It builds
+`dist/pi-agent/pi-agent.js`, spawns it, and verifies the things that only break
+once bundled: that every patch module was included by the static-literal switch
+(none silently vanish from the bundle), that the env→argv bridge fires
+end-to-end, and that extension loading works across source/deploy + multiple
+cwds. `run-test.sh` sets the flag for you; set `PI_AGENT_E2E_NO_BUILD=1` to reuse
+an existing `dist` bundle for faster re-runs.
+
 ## Layout
 
 ```
@@ -202,9 +226,14 @@ pi-agent/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
     ├── generated/                # build-time-baked constants (gitignored)
-    └── patches/
-        ├── index.ts                    # registry (env-gated) + debug
-        └── load-run-dir-resources.ts   # splices run-dir/ into argv
+    ├── patches/
+    │   ├── index.ts                    # registry (env-gated) + debug
+    │   ├── default-model-env.ts        # bridges PI_MODEL/PI_PROVIDER/PI_THINKING into argv
+    │   └── load-run-dir-resources.ts   # splices run-dir/ into argv
+    └── __tests__/
+        ├── e2e-harness.ts              # shared build + spawn helpers (PI_AGENT_E2E gate)
+        ├── e2e-patches.test.ts         # bundle e2e: every patch fires + env→argv splice
+        └── e2e-extensions.test.ts      # bundle e2e: extension loading across cwd/mode (was verify.ts)
 ```
 
 ## Known issues
