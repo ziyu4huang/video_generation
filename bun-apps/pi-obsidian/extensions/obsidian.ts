@@ -2489,6 +2489,36 @@ sources: ["<輸入檔檔名或來源>"]
 - 上層概念：[[Tags/Index#<主題tag>]]
 \`\`\`
 
+## 輸入大小指引（重要）
+- 一張卡的蒸餾約略對應來源 1–3 段文字。若輸入檔很大（粗估超過 ~12KB，或明顯多於十幾個段落），**不要一次通讀後草草萃取**——會漏掉尾段。
+- 改成分批處理：先完整萃取前半部的原子想法，逐張建立；再用 obsidian_read 重新定位到未處理的段落繼續。每張卡仍須獨立、互連。
+- 你無法精確量位元組，請用「段落數 / 是否出現捲動」當粗略指引，寧可多建一張卡也不要丟失論點。
+
+## 範例卡（gold standard — 輸出請對齊此結構）
+以下是「原子化筆記與互連」一張理想卡的長相（frontmatter 完整、用自己的話、至少一條已解析的 wiki-link）：
+\`\`\`
+---
+id: 202607010930
+created: 2026-07-01
+tags: [zettel, 知識管理, 筆記法]
+sources: ["input.md"]
+---
+
+# 原子化筆記優先於主題資料夾
+
+## 核心想法
+- 筆記的價值來自單一論點能被獨立引用與重組，而非被歸進某個資料夾就固定不動；原子化讓連結成為主要結構，資料夾只是輔助。
+
+## 證據 / 脈絡
+- 來源指出：把多個主張塞進同一張筆記，會讓它既難被引用也難被連結。
+- 互連的密度比分類的整齊更能反映思考網絡。
+
+## 連結
+- 相關：[[Zettelkasten 方法概論]]
+- 延伸：[[雙向連結與圖譜密度]]
+- 上層概念：[[Tags/Index#知識管理]]
+\`\`\`
+
 ## 規則
 - tags[0] 永遠是 zettel。
 - 每張卡 id 不可重複（用當下時間，逐張遞增分鐘）。
@@ -2940,12 +2970,20 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 ## 健康度檢查項（逐一執行）
 用 obsidian_list 列出所有筆記，用 obsidian_read 讀內容，用 obsidian_search 驗證連結，檢查：
 
-1. **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
-2. **破損 wiki-link**：[[Target]] 指向不存在的筆記。
-3. **缺漏 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者即回報。
-4. **疑似重複**：兩張以上筆記談論幾乎相同的論點（語義判斷，不是只看檔名）。
-5. **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
-6. **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
+每個發現都標註嚴重等級，回報與 JSON 都要帶：🔴 critical（結構損壞，必須處理）、🟡 warning（明確的健康問題）、🟢 info（改善機會，非錯誤）。
+
+1. 🔴 **破損 wiki-link**：[[Target]] 指向不存在的筆記。
+2. 🔴 **缺漏 / 損壞 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者、或 YAML 無法解析即回報。
+3. 🟡 **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
+4. 🟡 **疑似重複**：兩張以上筆記談論幾乎相同的論點。
+5. 🟡 **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
+6. 🟢 **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
+
+### 疑似重複的結構化前置篩選（避免對所有筆記兩兩比對）
+不要直接對整個 vault 做語義兩兩比較（O(n²)、昂貴且不可重現）。先縮小候選集，只對候選集做語義判斷：
+- 用 obsidian_search / 索引找出 **共享 ≥2 個 tag** 的筆記群。
+- 在同一群內，再挑**標題詞彙重疊**者（用 obsidian_search 以標題中的關鍵詞查詢）。
+- 只對這個候選短名單做語義判斷（是否談論幾乎相同的論點）。語義判斷要看主張內容，不是只看檔名或 tag 相同。
 
 ## 模式
 - **audit（預設）**：只做檢查，不改動任何檔案。輸出一份結構化健康報告。
@@ -2957,10 +2995,10 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 
 ## 輸出格式（繁體中文）
 ### 健康報告
-為每個檢查項給一段：項目名、發現數量、逐條列出（檔名 + 一句話問題描述）。
+為每個檢查項給一段：項目名、發現數量、逐條列出（每條標註嚴重等級 🔴/🟡/🟢 + 檔名 + 一句話問題描述）。
 最後給「## 總結」：整體健康評分（1-5 ★）、最嚴重的 3 個問題、建議優先處理順序。
 
-若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼。
+若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼（哪個檔案、加了什麼連結／更新了哪段）。
 
 ## 規則
 - 只用提供的工具。fix 模式下只能用 obsidian_append_section / obsidian_create，不可刪檔。
@@ -2970,9 +3008,9 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 ## 完成後（重要）
 報告完成後，**最後一行必須是一條結構化 JSON**（供父代理解析），格式如下，獨占一行，不要用 markdown 包裹：
 
-    {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","detail":"一句話"}],"errors":["若有的話"]}
+    {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"notesModified":["fix 模式實際改動過的筆記檔名"],"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","severity":"critical|warning|info","detail":"一句話"}],"errors":["若有的話"]}
 
-這條 JSON 是給程式讀的。數字字段若不適用填 0。`;
+這條 JSON 是給程式讀的。數字字段若不適用填 0；audit 模式 notesModified 為空陣列。`;
 
 // ---- Subagent output validation (Phase 2 / WS-B1) -------------------------
 // distill/garden subagents write to the vault via obsidian_create inside the
