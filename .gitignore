@@ -25,5 +25,7 @@ comfyui_data/user/default/workflows/.index.json
 .reasonix/
 dist/
 
-# Verify/checkpoint artifacts (generated summaries, not source)
+# Verify/checkpoint artifacts (generated summaries) and agent_inventory tool
+# output (bun-apps/pi-agent-ext-power-tool) — both generated, not source.
 /output/
+/debug/
