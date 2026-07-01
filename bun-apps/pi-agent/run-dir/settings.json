@@ -1,9 +1,10 @@
 {
-  "$schema": "./deploy.config.schema.json",
+  "$schema": "./settings.schema.json",
   "extensions": [
     "pi-obsidian",
     "pi-vlm",
     "pi-knowledge-card",
+    "pi-agent-ext-power-tool",
     "zai-mcp"
   ]
 }

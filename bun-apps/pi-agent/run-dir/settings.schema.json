@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pi-agent/run-dir/settings.schema.json",
+  "title": "pi-agent run-dir settings",
+  "description": "The SINGLE enable-list of LOCAL extension packages pi-agent bakes in. Used by both source mode (resolved against the workspace bun-apps/<name>/) and deploy mode (resolved against packages/<name>/). Replaces the old <repo>/.pi/settings.json `packages` list and deploy.config.json. npm: registry packages are NOT listed here — they load from the user-global agent dir (~/.pi/agent/npm) independently.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "extensions": {
+      "type": "array",
+      "description": "Workspace package names whose extensions/ pi-agent loads.",
+      "items": { "type": "string" },
+      "default": []
+    },
+    "$schema": { "type": "string" }
+  }
+}

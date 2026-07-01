@@ -16,22 +16,25 @@
  *
  *  2. WHITELIST is the package's extension set. Resolution order (first wins):
  *       (a) `--only a,b,c`               CLI override
- *       (b) `deploy.config.json`          { "extensions": [...] } next to script
+ *       (b) `run-dir/settings.json`        { "extensions": [...] } — the SINGLE
+ *           enable-list (also the source-mode list; see src/deploy-mode.ts)
  *       (c) all `bun-apps/*` packages     that have an `extensions/` dir (default)
- *     `.pi/settings.json` is consulted only as an EXTRA source and for `npm:`
- *     registry carryover — both no-op when absent. Transitive local workspace
- *     peers are auto-included (e.g. pi-knowledge-card → pi-obsidian) so
- *     bare-specifier imports resolve.
+ *     NO `.pi/settings.json` is read anywhere. Transitive local workspace peers
+ *     are auto-included (e.g. pi-knowledge-card → pi-obsidian) so bare-specifier
+ *     imports resolve. Packages register by BOTH dir name and package.json name,
+ *     so the enable-list (dir names) and peer-dep lookups (package names) resolve.
  *
  *  3. RUNTIME EXTENSION LOADING is NOT done here — it's done by
  *     `src/deploy-mode.ts` at the start of `cli.ts`. It detects the deploy
- *     layout (sentinel `.pi-deploy-marker.json`) and injects
- *     `-ne` + `-e <abs-ext-paths>` into argv. The `-ne` is ESSENTIAL: pi's
+ *     layout (by `packages/` + its own `run-dir/settings.json`) and injects
+ *     `-ne` + `-e <abs-ext-paths>`. The `-ne` is ESSENTIAL in deploy: pi's
  *     `resource-loader.js` does `noExtensions ? cliPaths : merge(cliPaths,
- *     settingsPaths)` — without `-ne`, running inside a repo that declares the
- *     SAME extensions loads both sets → `Tool "X" conflicts with …`. `-e` is
- *     `temporary` scope, so it's trust-free and cwd-independent. This is the
- *     bug that bit us twice; `-ne` is the fix. (Full story: docs/deploy-cwd-trust.md)
+ *     settingsPaths)` — without `-ne`, running inside a repo declaring the
+ *     SAME extensions (different `bun-apps/` paths vs the package's `packages/`
+ *     paths) loads both sets → `Tool "X" conflicts with …`. `-e` is
+ *     `temporary` scope, so it's trust-free and cwd-independent. Source mode
+ *     DROPS `-ne` for additive layering with `<cwd>/.pi/` + `~/.pi/`. (Full story:
+ *     docs/deploy-cwd-trust.md)
  *
  *  4. ONE LAYOUT-AWARE LAUNCHER — `run.sh` is copied into every package and
  *     auto-detects its layout (the SAME script works in both places):
@@ -65,7 +68,7 @@
  *   ├── pi-agent.js.map        # sourcemap (debug only)
  *   ├── run.sh                 # layout-aware launcher (source + deployed)
  *   ├── package.json           # workspace root: workspaces + aggregated deps
- *   ├── .pi/settings.json      # generated: whitelisted packages as ../packages/<name>
+ *   ├── run-dir/settings.json   # the SINGLE enable-list (read by deploy-mode at runtime)
  *   ├── packages/<name>/…      # copied (or symlinked) extension packages
  *   ├── node_modules/          # wired by `bun install` in <outdir>
  *   ├── .pi-deploy-marker.json # sentinel consumed by src/deploy-mode.ts
@@ -107,7 +110,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { findPiRepoRoot } from "../src/preflight.ts"; // also used as a fallback for npm-settings carryover
+import { findWorkspaceRoot } from "../src/preflight.ts";
 
 // ── argv ─────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
@@ -179,23 +182,7 @@ function readJson<T = unknown>(p: string): T | null {
 // NOT require .pi/settings.json to exist. Find the workspace root by walking
 // up from this script's location for a package.json with `workspaces` next to
 // a bun-apps/ directory.
-function hasWorkspacesRoot(pkgJsonPath: string): boolean {
-  const m = readJson<any>(pkgJsonPath);
-  return Array.isArray(m?.workspaces) || (typeof m?.workspaces === "object" && m.workspaces !== null);
-}
-function findWorkspaceRoot(): string | null {
-  let cur = dirname(import.meta.dir); // bun-apps/pi-agent
-  for (;;) {
-    if (existsSync(join(cur, "bun-apps")) && hasWorkspacesRoot(join(cur, "package.json"))) {
-      return cur;
-    }
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return null;
-}
-const repoRoot = findWorkspaceRoot() ?? findPiRepoRoot();
+const repoRoot = findWorkspaceRoot();
 if (!repoRoot) {
   die("not a pi-agent workspace (no package.json with workspaces + bun-apps/).");
 }
@@ -212,17 +199,12 @@ const byName = new Map<string, PkgInfo>();
 function registerPackage(dir: string) {
   const m = readJson<any>(join(dir, "package.json"));
   if (!m?.name) return;
-  byName.set(m.name, { name: m.name, dir, manifest: m });
+  const info: PkgInfo = { name: m.name, dir, manifest: m };
+  byName.set(m.name, info); // for transitive peer lookups (deps use package names)
+  byName.set(basename(dir), info); // for run-dir enable-list + path resolution (dir names)
 }
 {
-  const settings = readJson<{ packages?: string[] }>(
-    join(repoRoot, ".pi", "settings.json"),
-  );
-  for (const entry of settings?.packages ?? []) {
-    if (entry.startsWith("npm:") || entry.startsWith("@")) continue;
-    registerPackage(resolve(join(repoRoot, ".pi"), entry));
-  }
-  // also scan bun-apps/* so names not in settings are addressable
+  // discover all local workspace packages by scanning bun-apps/* (NO .pi/)
   const appsDir = join(repoRoot, "bun-apps");
   if (existsSync(appsDir)) {
     for (const e of readdirSync(appsDir, { withFileTypes: true })) {
@@ -239,9 +221,9 @@ for (const w of OPTS.with) {
 }
 
 // ── 2. resolve whitelist (+ transitive local peers) ──────────────────────────
-const configPath = join(dirname(import.meta.dir), "deploy.config.json");
-const config = readJson<{ extensions?: string[] }>(configPath);
-const explicit = OPTS.only ?? config?.extensions;
+const runDirSettings = join(dirname(import.meta.dir), "run-dir", "settings.json");
+const runDirConfig = readJson<{ extensions?: string[] }>(runDirSettings);
+const explicit = OPTS.only ?? runDirConfig?.extensions;
 const allLocalNames = [...byName.values()]
   .filter((p) => hasExtensionsDir(p.dir))
   .map((p) => p.name);
@@ -251,8 +233,8 @@ const whitelist = explicit
 
 if (whitelist.length === 0) {
   die(
-    "no extension packages selected. Use --only <names>, deploy.config.json, " +
-      "or ensure .pi/settings.json lists local packages with extensions/.",
+    "no extension packages selected. Use --only <names>, or set the " +
+      "`extensions` array in run-dir/settings.json.",
   );
 }
 
@@ -304,7 +286,6 @@ if (existsSync(OUTDIR)) {
   rmSync(OUTDIR, { recursive: true });
 }
 mkdirSync(join(OUTDIR, "packages"), { recursive: true });
-mkdirSync(join(OUTDIR, ".pi"), { recursive: true });
 
 // copy bundle
 cpSync(bundleSrc, join(OUTDIR, "pi-agent.js"));
@@ -367,20 +348,19 @@ writeFileSync(join(OUTDIR, "package.json"), JSON.stringify(rootPkg, null, 2) + "
 // pi resolves project settings entries relative to <cwd>/.pi (package-manager.js:
 // projectBaseDir = join(cwd, CONFIG_DIR_NAME)), so the entry must climb out of
 // .pi to reach <pkg>/packages/<name>.
-const settingsPkgs: string[] = ordered.map((n) => `../packages/${n}`);
-if (!OPTS.noNpm) {
-  // Carry over registry packages ("npm:<name>") verbatim — they resolve from
-  // node_modules once `bun install` runs.
-  const settings = readJson<{ packages?: string[] }>(
-    join(repoRoot, ".pi", "settings.json"),
-  );
-  for (const e of settings?.packages ?? []) {
-    if (e.startsWith("npm:")) settingsPkgs.push(e);
-  }
+const srcRunDir = join(dirname(import.meta.dir), "run-dir");
+if (existsSync(srcRunDir)) {
+  cpSync(srcRunDir, join(OUTDIR, "run-dir"), { recursive: true });
 }
+// Reflect what was ACTUALLY bundled (whitelist + transitive peers) so the
+// package is self-documenting and deploy-mode reads the real set.
 writeFileSync(
-  join(OUTDIR, ".pi", "settings.json"),
-  JSON.stringify({ packages: settingsPkgs }, null, 2) + "\n",
+  join(OUTDIR, "run-dir", "settings.json"),
+  JSON.stringify(
+    { $schema: "./settings.schema.json", extensions: ordered },
+    null,
+    2,
+  ) + "\n",
 );
 
 // ── 7. bun install ───────────────────────────────────────────────────────────
@@ -404,23 +384,8 @@ if (!OPTS.noInstall) {
 // extensions via -e regardless of cwd (see src/deploy-mode.ts), so this only
 // affects the cd-in / settings path.
 {
-  const installed = existsSync(join(OUTDIR, "node_modules"))
-    ? new Set(listTopLevelPackages(join(OUTDIR, "node_modules")))
-    : new Set<string>();
-  const cur = readJson<{ packages?: string[] }>(join(OUTDIR, ".pi", "settings.json"));
-  const filtered = (cur?.packages ?? []).filter((e) => {
-    if (!e.startsWith("npm:")) return true;
-    const name = e.slice(4);
-    return installed.has(name);
-  });
-  writeFileSync(
-    join(OUTDIR, ".pi", "settings.json"),
-    JSON.stringify({ packages: filtered }, null, 2) + "\n",
-  );
-  const dropped = (cur?.packages ?? []).filter((e) => !filtered.includes(e));
-  if (dropped.length) {
-    console.log(`${Y("·")} dropped uninstalled npm packages from settings: ${dropped.join(", ")}`);
-  }
+  // (npm carryover removed — the package no longer writes .pi/settings.json;
+  //  npm: registry packages load from the user-global agent dir instead.)
 }
 // Sentinel consumed by src/deploy-mode.ts to recognize a deploy layout.
 writeFileSync(
@@ -452,30 +417,6 @@ console.log(D(`    ${OUTDIR}/pi-agent.js -p "hello"      # print mode`));
 console.log("  or cd in first (same effect): cd " + D(OUTDIR));
 
 // ── helpers (deps) ───────────────────────────────────────────────────────────
-function listTopLevelPackages(nmDir: string): string[] {
-  const out: string[] = [];
-  try {
-    for (const e of readdirSync(nmDir, { withFileTypes: true })) {
-      if (!e.isDirectory() && !e.isSymbolicLink()) continue;
-      if (e.name.startsWith(".")) continue;
-      if (e.name.startsWith("@")) {
-        try {
-          for (const sub of readdirSync(join(nmDir, e.name), { withFileTypes: true })) {
-            if (sub.isDirectory() || sub.isSymbolicLink()) out.push(`${e.name}/${sub.name}`);
-          }
-        } catch {
-          /* ignore scoped read errors */
-        }
-        continue;
-      }
-      out.push(e.name);
-    }
-  } catch {
-    /* ignore */
-  }
-  return out;
-}
-
 function hasExtensionsDir(dir: string): boolean {
   const piField = readJson<any>(join(dir, "package.json"))?.pi;
   if (Array.isArray(piField?.extensions) && piField.extensions.length) return true;

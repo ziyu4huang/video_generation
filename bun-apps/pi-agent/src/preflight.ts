@@ -68,6 +68,35 @@ export function findPiRepoRoot(start?: string): string | null {
   return null;
 }
 
+/**
+ * .pi-INDEPENDENT workspace-root finder. Walks up from `start` (default this
+ * module's dir, then cwd) for the nearest dir that is a real workspace root:
+ * a `package.json` declaring `workspaces` sitting next to a `bun-apps/` dir.
+ * Used wherever pi-agent must locate packages WITHOUT relying on
+ * `.pi/settings.json` (which the project deliberately eliminates — the
+ * enable-list lives in `run-dir/settings.json` instead; see deploy-mode.ts).
+ */
+export function findWorkspaceRoot(start?: string): string | null {
+  const starts = Array.from(
+    new Set([start ?? process.cwd(), dirname(import.meta.dir)]),
+  );
+  for (const s of starts) {
+    let cur = s;
+    for (;;) {
+      if (
+        existsSync(join(cur, "bun-apps")) &&
+        hasWorkspaces(join(cur, "package.json"))
+      ) {
+        return cur;
+      }
+      const parent = dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+  }
+  return null;
+}
+
 function hasWorkspaces(pkgJsonPath: string): boolean {
   try {
     const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));

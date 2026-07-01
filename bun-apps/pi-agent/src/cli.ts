@@ -24,19 +24,17 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { probeWorkspaceDeps } from "./preflight.ts";
-import { detectDeployMode } from "./deploy-mode.ts";
+import { detectInjectionMode } from "./deploy-mode.ts";
 
-// ── Deploy mode: self-locate when run as a deployed package ──────────────────
-// When pi-agent.js is a deployed artifact (scripts/deploy.ts output) invoked
-// from OUTSIDE its own dir, pi would otherwise ignore the baked extensions
-// (its resource discovery is cwd-based) and the source-mode preflight could
-// latch onto an unrelated, uninstalled cwd monorepo. We instead re-inject the
-// baked extensions as explicit `-e` flags so they load anywhere, and skip the
-// cwd preflight. When invoked from inside the package, pi already uses the
-// package's own `.pi/settings.json`, so we inject nothing (no double-load).
-const deploy = detectDeployMode();
-const argv = deploy?.inject
-  ? [...deploy.extensionArgs, ...process.argv.slice(2)]
+// ── Extension injection (deploy OR source run-dir) ───────────────────────────
+// pi's resource discovery is cwd-based, so a portable pi-agent never relies
+// on `<cwd>/.pi/`. Instead it bakes its OWN enable-list (run-dir/settings.json,
+// or the deploy marker) and injects the extensions as explicit `-e` flags so
+// they load anywhere, regardless of cwd — while pi still operates on the
+// user's real cwd (their project). See src/deploy-mode.ts for the full story.
+const inject = detectInjectionMode();
+const argv = inject
+  ? [...inject.extensionArgs, ...process.argv.slice(2)]
   : process.argv.slice(2);
 
 // ── Preflight: ensure workspace deps resolve before pi loads extensions ──────
@@ -55,7 +53,7 @@ const isNoExt = argv.some(
     a === "-V" ||
     a === "--version",
 );
-if (!deploy?.inject && !isNoExt && process.env.BUN_PI_SKIP_PREFLIGHT !== "1") {
+if ((!inject || !inject.skipPreflight) && !isNoExt && process.env.BUN_PI_SKIP_PREFLIGHT !== "1") {
   const probe = await probeWorkspaceDeps();
   if (probe.repoRoot && !probe.ok) {
     console.error("\x1b[31m✗ pi-agent preflight: workspace deps unresolved.\x1b[0m");
