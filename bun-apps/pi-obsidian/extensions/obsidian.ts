@@ -1687,6 +1687,28 @@ export function toolAllowlist(envVar: string, defaults: string[]): string[] {
 	return parsed.length > 0 ? parsed : defaults;
 }
 
+/** Phase 5 / WS-C8 — verify the host satisfies the ExtensionAPI contract.
+ *  `core` methods are hard-required (their absence means the extension can't
+ *  function → throw); `secondary` methods are warned about, not fatal, so a
+ *  forward-compatible host that dropped an unused hook isn't blocked. */
+export function assertExtensionApi(pi: any): void {
+	const core = ["registerTool"];
+	const secondary = ["registerCommand", "on"];
+	const missingCore = core.filter((m) => typeof pi?.[m] !== "function");
+	if (missingCore.length > 0) {
+		throw new Error(
+			`pi-obsidian: host does not satisfy the ExtensionAPI contract — missing core method(s): ${missingCore.join(", ")}. ` +
+				`Ensure @earendil-works/pi-coding-agent is up to date (the host vendors an inline copy of ExtensionAPI).`,
+		);
+	}
+	const missingSecondary = secondary.filter((m) => typeof pi?.[m] !== "function");
+	if (missingSecondary.length > 0) {
+		console.error(
+			`pi-obsidian: warning — host ExtensionAPI is missing secondary method(s): ${missingSecondary.join(", ")} (commands/events will be unavailable but tools still register).`,
+		);
+	}
+}
+
 /** Keys under which a note should be discoverable in byTitle: its lowercased
  *  title (H1) AND its lowercased path-without-extension AND bare basename.
  *  This lets `[[Name]]`, `[[folder/Name]]`, and title-based links all resolve. */
@@ -3396,6 +3418,15 @@ export async function validateNoteIntegrityBatch(
 }
 
 export default function (pi: ExtensionAPI) {
+	// Phase 5 / WS-C8: light ExtensionAPI contract guard. The ExtensionAPI type
+	// is a type-only import (no runtime symbol), and pi-agent-cli vendors an
+	// inline copy — so a stale host could pass a `pi` that lacks methods this
+	// extension calls. Fail fast on a missing CORE method (registerTool); warn
+	// (don't throw) on the secondary ones so a forward-compatible host isn't
+	// blocked. See the "Vault Submodule Remount" zettel for the inline-bundle
+	// source-of-truth note.
+	assertExtensionApi(pi);
+
 	// Cached ResolvedVault (per session). `source` lets every tool surface
 	// where the active vault came from; `staleReason` carries Tier-1 warnings.
 	let vault: ResolvedVault | undefined;
