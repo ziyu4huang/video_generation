@@ -1667,6 +1667,88 @@ function rewriteLinkToken(
 	return (useBare ? bare : qualified) + section + alias;
 }
 
+// ---- Wiki-link rewrite protection (Phase 1: WS-A3) ------------------------
+// move/delete rewrite inbound [[links]] across the vault. Doing that with a
+// naive content.replace() corrupts regions where [[..]] is NOT a real link:
+// the YAML frontmatter block, fenced code blocks, and inline `code` spans.
+// rewriteLinksProtected() runs the per-link decision only over safe text.
+export const LINK_KEEP = Symbol("pi-obsidian/link-keep");
+export const LINK_DELETE = Symbol("pi-obsidian/link-delete");
+
+/** Apply a per-[[link]] rewriter to file content, PROTECTING frontmatter,
+ *  fenced code blocks (``` / ~~~), and inline `code` spans. The rewriter
+ *  receives the raw inside of [[...]] and returns:
+ *    - a string  → replace the token with [[that string]]
+ *    - LINK_KEEP → leave the token untouched
+ *    - LINK_DELETE → remove the token entirely (used by delete cleanup) */
+export function rewriteLinksProtected(
+	content: string,
+	rewriter: (rawInner: string) => string | typeof LINK_KEEP | typeof LINK_DELETE,
+): string {
+	const linkRe = /\[\[([^\]]+)\]\]/g;
+	const apply = (text: string): string =>
+		text.replace(linkRe, (full, raw) => {
+			const decision = rewriter(String(raw));
+			if (decision === LINK_KEEP) return full;
+			if (decision === LINK_DELETE) return "";
+			return `[[${String(decision)}]]`;
+		});
+	/** Rewrite a single line, leaving inline `code` spans untouched. */
+	const rewriteLine = (line: string): string => {
+		let out = "";
+		let last = 0;
+		const inlineRe = /`[^`]*`/g;
+		let m: RegExpExecArray | null;
+		while ((m = inlineRe.exec(line))) {
+			out += apply(line.slice(last, m.index)) + m[0];
+			last = m.index + m[0].length;
+		}
+		out += apply(line.slice(last));
+		return out;
+	};
+
+	const lines = content.split("\n");
+	const out: string[] = [];
+	let inFence = false;
+	let fenceChar: string | null = null;
+	let inFm = false;
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		// Frontmatter: a leading "---" fence at the very top of the file.
+		if (i === 0 && line.trim() === "---") {
+			inFm = true;
+			out.push(line);
+			continue;
+		}
+		if (inFm) {
+			if (line.trim() === "---" || line.trim() === "...") inFm = false;
+			out.push(line); // protected
+			continue;
+		}
+		// Fenced code block open/close (``` or ~~~, 3+, ≤3 leading spaces).
+		const fence = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+		if (fence) {
+			const ch = fence[1][0];
+			if (!inFence) {
+				inFence = true;
+				fenceChar = ch;
+			} else if (ch === fenceChar) {
+				inFence = false;
+				fenceChar = null;
+			}
+			out.push(line); // fence line protected
+			continue;
+		}
+		if (inFence) {
+			out.push(line); // protected
+			continue;
+		}
+		out.push(rewriteLine(line));
+	}
+	return out.join("\n");
+}
+
 /** Move/rename a note and rewrite all inbound [[links]] (B3.1 + B3.2). */
 export async function moveNote(
 	vaultPath: string,
@@ -1702,7 +1784,6 @@ export async function moveNote(
 		fromMeta?.title ??
 		fromPath.split("/").pop()!.replace(/\.md$/i, "").toLowerCase();
 	const sources = backlinkPaths(idx, fromTitle);
-	const linkRe = /\[\[([^\]]+)\]\]/g;
 	const linksRewritten: string[] = [];
 	const failedSources: string[] = [];
 	// Move the file FIRST. If the rename fails (EXDEV, read-only FS, mkdir
@@ -1719,20 +1800,19 @@ export async function moveNote(
 			const entry = await readCached(srcAbs);
 			if (!entry) continue;
 			let changed = false;
-			const updated = entry.content.replace(linkRe, (full, raw) => {
-				const before = String(raw);
+			const updated = rewriteLinksProtected(entry.content, (raw) => {
 				const after = rewriteLinkToken(
-					before,
+					raw,
 					[fromPath, fromTitle],
 					fromTitle,
 					newPath,
 					idx,
 				);
-				if (after !== before) {
+				if (after !== raw) {
 					changed = true;
-					return `[[${after}]]`;
+					return after;
 				}
-				return full;
+				return LINK_KEEP;
 			});
 			if (changed) {
 				await atomicWriteFile(srcAbs, updated);
@@ -1774,15 +1854,14 @@ export async function deleteNote(
 		// inside OldDraft.md). Resolve by basename, matching how links are actually keyed.
 		const target = notePath.split("/").pop()!.replace(/\.md$/i, "");
 		const sources = backlinkPaths(idx, target);
-		const linkRe = /\[\[([^\]]+)\]\]/g;
 		for (const src of sources) {
 			const srcAbs = join(real, src);
 			const entry = await readCached(srcAbs);
 			if (!entry) continue;
 			const tLower = target.toLowerCase();
 			let changed = false;
-			const updated = entry.content.replace(linkRe, (full, raw) => {
-				const tgt = String(raw)
+			const updated = rewriteLinksProtected(entry.content, (raw) => {
+				const tgt = raw
 					.replace(/\|.*/, "")
 					.replace(/#.*/, "")
 					.replace(/\.md$/i, "")
@@ -1793,9 +1872,9 @@ export async function deleteNote(
 					tgt.split("/").pop() === tLower.split("/").pop()
 				) {
 					changed = true;
-					return "";
+					return LINK_DELETE;
 				}
-				return full;
+				return LINK_KEEP;
 			});
 			if (changed) {
 				const tidied = updated
