@@ -60,7 +60,8 @@ extension LTXVideoDirectorCLI {
                     let icon = v.status == "PASS" ? "✅" : v.status == "WARN" ? "⚠️ " : "❌"
                     print("\(icon) \(v.status)  \(path)")
                     print("     \(v.reasons.joined(separator: "; "))")
-                    print("     [\(v.width)x\(v.height) @ \(String(format: "%.1f", v.fps))fps, \(String(format: "%.1f", v.duration))s, audio=\(v.hasAudio ? String(format: "%.1fdBFS", v.meanDBFS) : "none"), ssim=\(String(format: "%.3f", v.minFrameSSIM))-\(String(format: "%.3f", v.maxFrameSSIM))]")
+                    let motionStr = v.motionMean.map { String(format: "%.3f", $0) } ?? "n/a"
+                    print("     [\(v.width)x\(v.height) @ \(String(format: "%.1f", v.fps))fps, \(String(format: "%.1f", v.duration))s, audio=\(v.hasAudio ? String(format: "%.1fdBFS", v.meanDBFS) : "none"), ssim=\(String(format: "%.4f", v.minFrameSSIM))-\(String(format: "%.4f", v.maxFrameSSIM)), motion_mean=\(motionStr)]")
                 }
             }
 

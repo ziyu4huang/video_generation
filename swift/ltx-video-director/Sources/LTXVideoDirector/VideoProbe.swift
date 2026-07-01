@@ -63,6 +63,24 @@ public enum VideoProbe {
         }
     }
 
+    /// Extract `count` CONSECUTIVE frames (spaced by 1/fps) starting at
+    /// `startTime` — for motion detection, which needs adjacent-frame deltas,
+    /// not deltas between far-apart samples (see VideoGate's motion check:
+    /// samples 1s+ apart accumulate both real motion AND diffusion
+    /// frame-to-frame flicker/noise, making the two indistinguishable).
+    public static func consecutiveFrames(url: URL, startTime: Double, count: Int, fps: Double) throws -> [CGImage] {
+        guard count > 0, fps > 0 else { return [] }
+        let step = 1.0 / fps
+        var frames: [CGImage] = []
+        frames.reserveCapacity(count)
+        for i in 0..<count {
+            if let img = try? frame(url: url, at: startTime + Double(i) * step) {
+                frames.append(img)
+            }
+        }
+        return frames
+    }
+
     /// Extract `count` frames evenly spaced across the clip (excluding the
     /// very first/last few ms to avoid black lead-in/out frames some
     /// encoders emit).

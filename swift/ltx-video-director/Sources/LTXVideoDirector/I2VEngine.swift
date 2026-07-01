@@ -25,6 +25,13 @@ public struct I2VRequest {
     public var seed: Int?
     public var qualityCheck: Bool = true
     public var vlmScore: Bool = true
+    /// Stage-1 denoising steps. run.py's per-variant default is 8; the
+    /// project's own voice tuning notes (docs/ltx-voice.md) found 16 steps
+    /// needed for intelligible speech (8 steps can be pure noise on audio).
+    public var stage1Steps: Int?
+    public var stage2Steps: Int?
+    public var cfgScale: Double?
+    public var stgScale: Double?
 
     public init(prompt: String, action: String? = nil) {
         self.prompt = prompt
@@ -61,6 +68,18 @@ public struct I2VRequest {
         }
         if let seed {
             args += ["--seed", String(seed)]
+        }
+        if let stage1Steps {
+            args += ["--stage1-steps", String(stage1Steps)]
+        }
+        if let stage2Steps {
+            args += ["--stage2-steps", String(stage2Steps)]
+        }
+        if let cfgScale {
+            args += ["--cfg-scale", String(cfgScale)]
+        }
+        if let stgScale {
+            args += ["--stg-scale", String(stgScale)]
         }
         if qualityCheck {
             args += ["--quality-check"]

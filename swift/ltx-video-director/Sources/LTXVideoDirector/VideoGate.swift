@@ -5,9 +5,11 @@
 //  Basic (VLM-free) video/image/voice quality gateway. Combines:
 //    - per-frame ImageGate (CommonImageDirector) on N sampled frames — catches
 //      noise/blank/NaN generation failures, same as the image directors.
-//    - frame-to-frame SSIM (ImageGenUtils.ImageMetrics) — catches frozen/
-//      duplicated-frame stalls (SSIM ~1.0 across the whole sample) as well as
-//      catastrophic frame corruption (SSIM near 0 between adjacent samples).
+//    - sparse-sample SSIM (ImageGenUtils.ImageMetrics) — hard-cut/corruption
+//      detection only (see motionMeanConsecutiveFrames for why sparse
+//      SSIM/RMS-diff can't tell real motion from diffusion frame flicker).
+//    - consecutive-frame motion_mean — the actual motion/frozen-frame check,
+//      same metric+threshold as run.py's own signal-based quality gate.
 //    - AudioProbe loudness/silence — catches missing or inaudible voice track.
 //  This is the "basic gateway" layer; VLM keyframe verification (semantic
 //  content/motion correctness) is a separate, heavier check — see VLMVerify.swift.
@@ -30,6 +32,10 @@ public struct VideoGateVerdict: Codable {
     public let silenceRatio: Double
     public let minFrameSSIM: Double
     public let maxFrameSSIM: Double
+    /// Mean absolute pixel diff between consecutive native frames (0-255
+    /// scale) — same metric/threshold as run.py's `motion_mean`. nil if
+    /// frame extraction failed.
+    public let motionMean: Double?
     public let frameGateFails: Int
     public let frameGateWarns: Int
     public let sampledFrames: Int
@@ -70,7 +76,15 @@ public enum VideoGate {
             }
         }
 
-        // Frame-to-frame SSIM: motion / frozen-frame / corruption check.
+        // Sparse (1s+ apart) SSIM between the evenly-spaced samples — useful
+        // only for detecting hard cuts/corruption (which move it a lot).
+        // NOT useful for motion detection: measured empirically on a
+        // confirmed-motion PASS clip vs a confirmed-static clip, sparse
+        // SSIM/RMS-diff between far-apart samples was statistically
+        // indistinguishable (0.9986-0.99999 SSIM on BOTH) because motion
+        // between 1.25s-apart samples and diffusion frame-to-frame
+        // flicker/noise accumulate into similar magnitudes. Real motion
+        // detection needs adjacent-frame deltas (below).
         var ssims: [Float] = []
         if samples.count >= 2 {
             for i in 1..<samples.count {
@@ -82,11 +96,23 @@ public enum VideoGate {
         }
         let minSSIM = ssims.min() ?? 1.0
         let maxSSIM = ssims.max() ?? 1.0
-        if maxSSIM > 0.995 {
-            escalate("WARN", "near-identical frames across the whole sample (max SSIM=\(String(format: "%.4f", maxSSIM))) — likely frozen/static output")
-        }
-        if minSSIM < 0.05 {
-            escalate("WARN", "abrupt frame discontinuity detected (min SSIM=\(String(format: "%.4f", minSSIM))) — possible corruption or hard cut")
+
+        // Motion check: mean absolute pixel diff between CONSECUTIVE native
+        // frames (0-255 scale) in two 1-second windows, mirroring run.py's
+        // own `motion_mean` signal (video-t2i2v.py) — the SAME metric and
+        // threshold (<0.5 = static) this repo already calibrated against
+        // real LTX output (see docs/ltx-tuning.md history).
+        // NOTE: this threshold only catches TRULY frozen output (near-zero
+        // pixel change — e.g. a stalled/degenerate denoiser). Validated
+        // against run.py's own signal for a clip its VLM separately flagged
+        // "static image, no motion": motion_mean was 2.11 there (this
+        // implementation independently measured 2.24 on the same file) —
+        // both far above 0.5. Distinguishing "technically some pixel churn"
+        // from "meaningful narrative motion" is a semantic judgment; that's
+        // what VLMVerify.swift/`ltx-video verify` is for, not this gate.
+        let motionMean = try motionMeanConsecutiveFrames(url: videoURL, info: info)
+        if let motionMean, motionMean < 0.5 {
+            escalate("WARN", "consecutive-frame motion too low (motion_mean=\(String(format: "%.3f", motionMean)), threshold 0.5) — likely frozen/static output")
         }
 
         if info.duration < 1.0 {
@@ -122,8 +148,36 @@ public enum VideoGate {
             meanDBFS: audio.hasTrack ? audio.meanDBFS : -.infinity,
             silenceRatio: audio.silenceRatio,
             minFrameSSIM: Double(minSSIM), maxFrameSSIM: Double(maxSSIM),
+            motionMean: motionMean,
             frameGateFails: frameFails, frameGateWarns: frameWarns,
             sampledFrames: samples.count
         )
+    }
+
+    /// Mean absolute pixel diff (0-255 scale) between consecutive native
+    /// frames, sampled in two 1-second windows (25% and 70% through the
+    /// clip) to keep decode cost bounded while still covering more than one
+    /// moment. Mirrors run.py video-t2i2v.py's `motion_mean` signal exactly
+    /// (same scale, same <0.5 static threshold) so the two are comparable.
+    private static func motionMeanConsecutiveFrames(url: URL, info: VideoInfo) throws -> Double? {
+        guard info.fps > 0, info.duration > 1.5 else { return nil }
+        let windowFrameCount = min(24, Int(info.fps))
+        let starts = [info.duration * 0.25, info.duration * 0.70]
+        var diffs: [Double] = []
+        for start in starts {
+            let frames = try VideoProbe.consecutiveFrames(url: url, startTime: start, count: windowFrameCount, fps: info.fps)
+            guard frames.count >= 2 else { continue }
+            for i in 1..<frames.count {
+                let (buf0, w, h) = FrameLoad.toGrayscaleBuffer(frames[i - 1])
+                let (buf1, _, _) = FrameLoad.toGrayscaleBuffer(frames[i])
+                var sum = 0.0
+                for p in 0..<(w * h) {
+                    sum += Double(abs(buf0[p] - buf1[p]))
+                }
+                diffs.append((sum / Double(w * h)) * 255.0)
+            }
+        }
+        guard !diffs.isEmpty else { return nil }
+        return diffs.reduce(0, +) / Double(diffs.count)
     }
 }
