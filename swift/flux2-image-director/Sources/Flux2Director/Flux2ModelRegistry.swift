@@ -13,7 +13,7 @@ import Foundation
 
 public enum Flux2ModelRegistry {
 
-    /// Default component names (under python/mlx-movie-director/models/).
+    /// Default component names (under mlx-models/).
     public static let defaultVAE = "flux2-klein"
     public static let defaultTextEncoder = "qwen3-8b"
     public static let defaultTokenizer = "qwen3-klein"

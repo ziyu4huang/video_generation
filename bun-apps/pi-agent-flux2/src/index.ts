@@ -8,6 +8,7 @@
  * The extension (extensions/pi-flux2.ts) is a thin wrapper that maps the typed
  * tool parameters onto this function and shapes the ToolResult.
  */
+import { join } from "node:path";
 import { ensureBinary, resolveRepoRoot } from "./binary.ts";
 import {
   buildArgs,
@@ -15,7 +16,7 @@ import {
   pathFieldKeys,
   type CommandSpec,
 } from "./commands.ts";
-import { invokeFlux2, type ProgressFn } from "./invoke.ts";
+import { invokeFlux2, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertPathAllowed,
   PathSafetyError,
@@ -33,9 +34,11 @@ import {
   summarize,
   type Flux2Details,
 } from "./result.ts";
+import { runScenePipeline, type ScenePipelineOptions } from "./scenePipeline.ts";
 
 export * from "./commands.ts";
 export * from "./paths.ts";
+export * from "./scenePipeline.ts";
 export { invokeFlux2 } from "./invoke.ts";
 export type { Flux2Details, OutputFile, PerfInfo, GateEntry } from "./result.ts";
 export { PathSafetyError } from "./paths.ts";
@@ -52,6 +55,13 @@ export interface RunFlux2Input {
   modelsRoot?: string;
   /** Escape-hatch raw tokens (validated; leading-dash must be allow-listed). */
   extraArgs?: string[];
+  /**
+   * Multi-seed pipeline — only meaningful when `command === "scene"`. Renders
+   * every seed, gates + optionally VLM-verifies each, and picks a winner. See
+   * scenePipeline.ts. When set, `options.seed`/`seeds` are ignored (each
+   * candidate supplies its own seed).
+   */
+  scenePipeline?: ScenePipelineOptions;
   /** Abort the run. */
   signal?: AbortSignal;
   /** Progress stream (one line per update). */
@@ -151,13 +161,61 @@ function resolveRoots(repoRoot: string, outputDir?: string, modelsRoot?: string)
 }
 
 /**
+ * Run ONE flux2 command invocation end-to-end (validate paths → build args →
+ * spawn → parse). This is the reusable primitive both the single-shot path
+ * and the multi-seed scene pipeline call. Returns the raw invoke result
+ * alongside `details` so the single-shot caller can still report a stderr tail.
+ */
+async function runOnce(
+  command: CommandName,
+  options: Record<string, unknown>,
+  roots: AllowedRoots,
+  extraArgs: string[],
+  signal: AbortSignal | undefined,
+  onProgress: ProgressFn | undefined,
+): Promise<{ details: Flux2Details; res: InvokeResult }> {
+  const spec = COMMANDS[command];
+  if (!spec) {
+    throw new Error(`Unknown flux2 command "${command}". Known: ${Object.keys(COMMANDS).join(", ")}`);
+  }
+
+  validateOptionPaths(spec, options, roots);
+
+  const bin = await ensureBinary(onProgress);
+  const args = buildArgv(spec, options, roots, extraArgs);
+  const cmdTokens = [spec.name, ...(spec.cliSubcommand ? [spec.cliSubcommand] : [])];
+
+  onProgress?.({ kind: "progress", text: `$ flux2 ${[...cmdTokens, ...args].join(" ")}` });
+
+  const res = await invokeFlux2({
+    bin,
+    args: [...cmdTokens, ...args],
+    cwd: roots.repoRoot,
+    signal,
+    onProgress,
+  });
+
+  let details: Flux2Details;
+  if (command === "gate") details = buildGateDetails(res);
+  else if (spec.writesImage) details = await buildImageDetails(command, res, bin, [...cmdTokens, ...args], roots.outputDir);
+  else details = buildTextDetails(command, res);
+
+  return { details, res };
+}
+
+/**
  * Run a flux2 command end-to-end. Resolves with structured details + summary.
  * Throws PathSafetyError on invalid paths/args. Non-zero flux2 exit is NOT an
  * exception — it surfaces as details.ok=false (the agent can react).
+ *
+ * If `scenePipeline` is set (only meaningful for `command: "scene"`), renders
+ * every seed in `scenePipeline.seeds`, gates + optionally VLM-verifies each
+ * via pi-vlm's shared subagent, and returns the winner as `details.output`
+ * (so existing chaining, e.g. scene → upscale, keeps working unchanged) plus
+ * the full candidate breakdown under `details.scenePipeline`.
  */
 export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
-  const spec = COMMANDS[input.command];
-  if (!spec) {
+  if (!COMMANDS[input.command]) {
     throw new Error(
       `Unknown flux2 command "${input.command}". Known: ${Object.keys(COMMANDS).join(", ")}`,
     );
@@ -165,31 +223,46 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
   const options = input.options ?? {};
   const repoRoot = resolveRepoRoot();
   const roots = resolveRoots(repoRoot, input.outputDir, input.modelsRoot);
+  const extraArgs = input.extraArgs ?? [];
 
-  validateOptionPaths(spec, options, roots);
-
-  const bin = await ensureBinary(input.onProgress);
-  const args = buildArgv(spec, options, roots, input.extraArgs ?? []);
-  const cmdTokens = [spec.name, ...(spec.cliSubcommand ? [spec.cliSubcommand] : [])];
-
-  input.onProgress?.({ kind: "progress", text: `$ flux2 ${[...cmdTokens, ...args].join(" ")}` });
-
-  const res = await invokeFlux2({
-    bin,
-    args: [...cmdTokens, ...args],
-    cwd: repoRoot,
-    signal: input.signal,
-    onProgress: input.onProgress,
-  });
-
-  let details: Flux2Details;
-  if (input.command === "gate") {
-    details = buildGateDetails(res);
-  } else if (spec.writesImage) {
-    details = await buildImageDetails(input.command, res, bin, [...cmdTokens, ...args], roots.outputDir);
-  } else {
-    details = buildTextDetails(input.command, res);
+  if (input.scenePipeline) {
+    const vlm = await import("./vlm.ts");
+    const llm = vlm.resolveVlmLLM(input.scenePipeline.vlmModel);
+    // Project-local .pi/agent (checked into this repo) — NOT the global
+    // ~/.pi/agent — so the lm-studio provider this pipeline depends on
+    // resolves from config this repo actually ships, not machine state.
+    const vlmAgentDir = join(repoRoot, ".pi", "agent");
+    const { seed: _seed, ...baseOptions } = options; // each candidate sets its own seed
+    const pipeline = await runScenePipeline(
+      baseOptions,
+      input.scenePipeline,
+      {
+        runSceneOnce: (opts) =>
+          runOnce(input.command, opts, roots, extraArgs, input.signal, input.onProgress).then((r) => r.details),
+        askAboutImage: (imagePath, question) => vlm.askAboutImage(imagePath, question, llm, vlmAgentDir),
+      },
+      (text) => input.onProgress?.({ kind: "progress", text }),
+    );
+    const finalOutput = pipeline.handRepair?.output ?? pipeline.winnerOutput;
+    const details: Flux2Details = {
+      ok: pipeline.winnerOutput != null,
+      command: input.command,
+      exitCode: pipeline.winnerOutput != null ? 0 : 1,
+      aborted: false,
+      output: finalOutput,
+      outputs: finalOutput ? [{ path: finalOutput, seed: pipeline.winnerSeed, width: null, height: null, sizeBytes: null }] : [],
+      seed: pipeline.winnerSeed,
+      width: null,
+      height: null,
+      gate: pipeline.handRepair?.gate ?? pipeline.candidates.find((c) => c.seed === pipeline.winnerSeed)?.gate ?? null,
+      perf: { steps: null, totalSeconds: null, avgItPerSec: null, peakMemoryMB: null },
+      manifestPath: null,
+      runJsonPath: null,
+      scenePipeline: pipeline,
+    };
+    return { details, summary: summarize(details), stderrTail: "" };
   }
 
+  const { details, res } = await runOnce(input.command, options, roots, extraArgs, input.signal, input.onProgress);
   return { details, summary: summarize(details), stderrTail: stderrTail(res) };
 }

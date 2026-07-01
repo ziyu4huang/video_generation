@@ -101,14 +101,20 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
 /**
  * Create a minimal agent session for a single VLM inference call.
  * No obsidian extension, no custom model registry — suitable for pure VLM page extraction.
+ *
+ * `agentDir` defaults to the global `getAgentDir()` (~/.pi/agent), matching the
+ * historical behavior of this function. Pass an explicit `agentDir` (e.g. a
+ * project-local `<repoRoot>/.pi/agent`) to resolve models against THAT
+ * directory's `models.json` instead — useful for callers that ship their own
+ * checked-in provider config rather than depending on the user's global one.
  */
 export async function createSharedSession(
   llm: ResolvedLLM,
-  opts: { appendSystemPrompt?: string[] } = {},
+  opts: { appendSystemPrompt?: string[]; agentDir?: string } = {},
 ) {
   const services = await createAgentSessionServices({
     cwd: process.cwd(),
-    agentDir: getAgentDir(),
+    agentDir: opts.agentDir ?? getAgentDir(),
     resourceLoaderOptions: {
       ...(opts.appendSystemPrompt?.length
         ? { appendSystemPrompt: opts.appendSystemPrompt }

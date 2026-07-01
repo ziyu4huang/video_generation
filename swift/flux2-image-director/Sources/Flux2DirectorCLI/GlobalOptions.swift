@@ -17,7 +17,7 @@ struct GlobalOptions: ParsableArguments {
         name: .customLong("models-root"),
         help: ArgumentHelp(
             "Root of the models tree ({type}/{name}/[manifest.json, model.safetensors]).",
-            discussion: "Default: $MLX_MODELS_DIR or the repo's python/mlx-movie-director/models."
+            discussion: "Default: $MLX_MODELS_DIR or the repo's mlx-models."
         )
     )
     var modelsRoot: String?

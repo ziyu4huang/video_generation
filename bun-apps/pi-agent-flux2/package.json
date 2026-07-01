@@ -19,10 +19,14 @@
   "scripts": {
     "build:bundle": "bun scripts/build-bundle.ts",
     "build:bundle:obf": "bun scripts/build-bundle.ts --obfuscate",
-    "check:flags": "bun scripts/check-flags.ts"
+    "check:flags": "bun scripts/check-flags.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-agent-core": "latest",
+    "pi-vlm": "workspace:*",
     "typebox": "latest"
   },
   "peerDependencies": {
