@@ -19,5 +19,3 @@ if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
 }
 
 process.argv.splice(2, 0, ...extra);
-
-export const loadRunDirResourcesPatchApplied = true;

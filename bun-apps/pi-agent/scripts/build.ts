@@ -44,6 +44,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import manifest from "../run-dir/manifest.json";
 
 const APP_NAME: string = basename(process.cwd()); // "pi-agent"
 const ENTRY = "src/cli.ts";
@@ -51,13 +52,10 @@ const GENERATED_DIR = "src/generated";
 const GENERATED_PKG_DIR = `${GENERATED_DIR}/pi-pkg-dir.ts`;
 const GENERATED_RUN_DIR_BASE = `${GENERATED_DIR}/run-dir-base.ts`;
 
-// Extension entry points for the npm packages migrated off the old isolated
-// .pi/npm/ tree — kept in sync with run-dir/resolve.ts's NPM_EXTENSIONS list.
-// (rpiv-todo is deliberately excluded — see the comment in resolve.ts.)
-const NPM_EXTENSIONS: Array<{ pkg: string; entry: string }> = [
-  { pkg: "@juicesharp/rpiv-ask-user-question", entry: "index.ts" },
-  { pkg: "pi-hermes-memory", entry: "src/index.ts" },
-];
+// Single source of truth for the npm-sourced extension set lives in
+// run-dir/manifest.json (read by run-dir/resolve.ts at runtime too).
+const NPM_EXTENSIONS = manifest.npmExtensions ?? [];
+
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", APP_NAME);
 const OUTFILE = `${OUTDIR}/${APP_NAME}.js`;
 const MAPFILE = `${OUTFILE}.map`;

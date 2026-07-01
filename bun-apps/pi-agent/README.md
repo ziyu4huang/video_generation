@@ -131,8 +131,15 @@ deliberately excluded, see the comment in `run-dir/resolve.ts`) are now plain
 
 To add/remove a workspace-local extension or skill, edit `run-dir/manifest.json`
 (paths relative to `bun-apps/`). To add/remove an npm-sourced one, add it as a
-`dependency` here and update the `NPM_EXTENSIONS` list in both `run-dir/resolve.ts`
-and `scripts/build.ts`.
+`dependency` in `package.json` AND add its `{ pkg, entry }` to the
+`npmExtensions` array in `run-dir/manifest.json` — that one array is the single
+source of truth read by both `run-dir/resolve.ts` (source mode) and
+`scripts/build.ts` (which bakes resolved paths into the bundle).
+
+> `rpiv-todo` is intentionally NOT in `npmExtensions`: this user's global
+> `~/.pi/agent/settings.json` already loads it, so a second copy here crashes
+> with `Tool "todo" conflicts`. Another clone/environment must add it to their
+> OWN `~/.pi/agent/settings.json` to get the `todo` tool.
 
 ## Build modes
 
