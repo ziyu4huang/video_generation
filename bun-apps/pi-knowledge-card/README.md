@@ -84,6 +84,27 @@ Graph-enhanced RAG over the Zettelkasten vault. Pipeline:
 This is a pi package. After `bun install` at the monorepo root, register it via
 pi's settings (see the repo's `AGENTS.md` / `.pi/settings.json`).
 
+## Tests
+
+```bash
+bun test        # from this package dir
+```
+
+The suite has no live subagent/LLM dependency:
+
+- `pi-knowledge-card.test.ts` — pins the pure task-builder output (all branches
+  of `buildRagTask` etc.), the per-action validation early-returns, and tool
+  registration.
+- `allowlists.test.mjs` — **cross-package contract guard**: loads the real
+  pi-obsidian extension and asserts every `obsidian_*` tool named in the
+  allowlists is actually registered there. A rename/removal in pi-obsidian that
+  would otherwise silently break this extension's subagents (the tool is just
+  absent at run time) is caught at test time — no hand-maintained name list.
+- `toolWiring.test.mjs` — mocks `runSubagentWithRetry` + `resolveVault` and
+  asserts each `execute()` happy path wires the correct
+  `(task, toolsCsv, tmpPrefix, opts)` into the runner and shapes the result
+  (vault header, timeout, soft-success on exit≠0 with output) the right way.
+
 ## License
 
 MIT

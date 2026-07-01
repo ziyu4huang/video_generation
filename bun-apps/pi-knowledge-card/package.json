@@ -12,6 +12,9 @@
   "pi": {
     "extensions": ["./extensions"]
   },
+  "scripts": {
+    "test": "bun test __tests__/"
+  },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-agent-core": "*",
