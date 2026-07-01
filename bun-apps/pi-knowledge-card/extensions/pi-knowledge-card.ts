@@ -381,6 +381,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"Each input file is split into self-contained note cards (one idea per note) with",
 			"frontmatter, wiki-links to related notes, and tags. Output is in Traditional Chinese.",
 		].join(" "),
+		promptSnippet: "Distill files into atomic Zettelkasten notes in the Obsidian vault",
 		parameters: Type.Object({
 			files: Type.Array(Type.String(), {
 				description:
@@ -482,6 +483,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"update (smart-merge content into existing note), remove (backlink-safe delete),",
 			"check (vault health audit: duplicates, orphans, dead links).",
 		].join(" "),
+		promptSnippet: "CRUD + health-check on Zettelkasten vault notes (add/find/update/remove/check)",
 		parameters: Type.Object({
 			action: Type.Union(
 				[
@@ -698,6 +700,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			"context assembly (full read for top-K, snippet for rest) →",
 			"synthesized answer in Traditional Chinese with reference list.",
 		].join(" "),
+		promptSnippet: "Graph-enhanced RAG answer over the Zettelkasten vault",
 		parameters: Type.Object({
 			question: Type.String({
 				description:
