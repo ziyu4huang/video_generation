@@ -670,7 +670,12 @@ interface CacheEntry {
 	lines: string[];
 }
 const fileCache = new Map<string, CacheEntry>();
-const FILE_CACHE_MAX = Number(process.env.OB_CACHE_MAX ?? 500);
+/** Soft cap on the file cache. Read live from OB_CACHE_MAX so it is tunable at
+ *  runtime (operator hot-reload of a small/large working set) and so tests can
+ *  exercise eviction without re-loading the module. Defaults to 500. */
+function fileCacheMax(): number {
+	return Number(process.env.OB_CACHE_MAX ?? 500);
+}
 
 /** Read a file through the cache. Re-reads only when mtime changed. */
 export async function readCached(absPath: string): Promise<CacheEntry | null> {
@@ -689,7 +694,16 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	}
 	const mtime = stat.mtimeMs;
 	const cached = fileCache.get(absPath);
-	if (cached && cached.mtime === mtime) return cached;
+	if (cached && cached.mtime === mtime) {
+		// A8: access-order LRU. Map iterates in insertion order; a plain hit
+		// returns without moving the entry, so a hot MOC/index note read
+		// repeatedly gets evicted the moment the cap fills, identical to a
+		// one-shot read. Re-inserting on a hit promotes it to the tail, so the
+		// head-eviction below drops the genuinely least-recently-used entry.
+		fileCache.delete(absPath);
+		fileCache.set(absPath, cached);
+		return cached;
+	}
 	let content: string;
 	try {
 		content = await readFile(absPath, "utf8");
@@ -699,11 +713,19 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 		return null;
 	}
 	const entry: CacheEntry = { mtime, content, lines: content.split("\n") };
+	// A8: delete-then-set so an mtime-stale re-read (existing key) is also
+	// promoted to the tail — `set` on an existing key would update the value
+	// but leave it at its old position, breaking access-order.
+	fileCache.delete(absPath);
 	fileCache.set(absPath, entry);
-	// B1.3: LRU cap — evict oldest when over limit.
-	if (fileCache.size > FILE_CACHE_MAX) {
+	// A8: LRU cap — evict least-recently-used entries (map head) until at/below
+	// the limit. `while` (not `if`) so shrinking OB_CACHE_MAX mid-session, or a
+	// batch insert, can never leave the cache over cap. Combined with the
+	// re-insert-on-hit / delete-then-set above, this is true access-order LRU.
+	while (fileCache.size > fileCacheMax()) {
 		const oldest = fileCache.keys().next().value;
-		if (oldest !== undefined) fileCache.delete(oldest);
+		if (oldest === undefined) break;
+		fileCache.delete(oldest);
 	}
 	return entry;
 }
@@ -713,6 +735,12 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 export function invalidateCache(absPath?: string): void {
 	if (absPath) fileCache.delete(absPath);
 	else fileCache.clear();
+}
+
+/** @internal Test-only: ordered snapshot of cached paths (LRU head → tail).
+ *  Lets eviction order be asserted without exposing the live Map. */
+export function __fileCacheOrder(): string[] {
+	return [...fileCache.keys()];
 }
 
 /** Read up to `concurrency` files in parallel via readCached. Returns entries
