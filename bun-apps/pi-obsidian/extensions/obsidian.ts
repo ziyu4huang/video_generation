@@ -586,6 +586,35 @@ function toolErrorFromCaught(
 	return toolError("IO_ERROR", errMsg(e), extra);
 }
 
+/** Stat a note; return its mtime (ms) or undefined if absent. Throws VaultError
+ *  on non-ENOENT FS errors (WS-A1: don't conflate EACCES with "absent"). */
+async function noteMtime(absPath: string): Promise<number | undefined> {
+	try {
+		return (await stat(absPath)).mtimeMs;
+	} catch (e) {
+		if (fsErrCode(e) === "ENOENT") return undefined;
+		throw new VaultError(classifyFsError(e), errMsg(e));
+	}
+}
+
+/** Optimistic-concurrency guard (WS-A4). expectedMtime only constrains the
+ *  existing-file case: when the file is absent the caller proceeds (append /
+ *  create may create-new); update_frontmatter treats absent as NOT_FOUND
+ *  upstream. Returns a VaultError(CONFLICT) to throw, or null. */
+function mtimeConflict(
+	note: string,
+	expected: number | undefined,
+	actual: number | undefined,
+): VaultError | null {
+	if (expected === undefined || actual === undefined) return null;
+	if (expected !== actual)
+		return new VaultError(
+			"CONFLICT",
+			`Conflict: ${note} was modified (expected mtime ${expected}, actual ${actual}).`,
+		);
+	return null;
+}
+
 
 // ---- Session-scoped read cache (Phase 3) ----------------------------------
 // Caches file content + derived structures keyed by absolute path, invalidated
@@ -1931,6 +1960,7 @@ export async function updateFrontmatter(
 	vaultPath: string,
 	note: string,
 	patch: Record<string, any>,
+	opts: { expectedMtime?: number } = {},
 ): Promise<{ note: string; updated: string[]; bodyUntouched: boolean }> {
 	const real = resolve(vaultPath);
 	const abs = safeNotePath(real, note);
@@ -1938,6 +1968,9 @@ export async function updateFrontmatter(
 	await assertWithinVault(real, abs);
 	const entry = await readCached(abs);
 	if (!entry) throw new VaultError("NOT_FOUND", `Note not found: ${note}`);
+	// WS-A4: optimistic concurrency.
+	const conflict = mtimeConflict(note, opts.expectedMtime, entry.mtime);
+	if (conflict) throw conflict;
 	const content = entry.content;
 	const { data, bodyStart } = parseFrontmatter(content);
 	const lines = content.split("\n");
@@ -2188,6 +2221,7 @@ export async function appendUnderHeading(
 	note: string,
 	heading: string,
 	content: string,
+	opts: { expectedMtime?: number } = {},
 ): Promise<{ created: boolean; insertedAt: "heading" | "end" }> {
 	const abs = safeNotePath(vaultPath, note);
 	assertWritablePath(vaultPath, abs);
@@ -2196,8 +2230,10 @@ export async function appendUnderHeading(
 
 	let existing = "";
 	let created = false;
+	let actualMtime: number | undefined;
 	try {
 		existing = await readFile(abs, "utf8");
+		actualMtime = await noteMtime(abs);
 	} catch (e) {
 		// ENOENT → create-new (append-section's contract). Other FS errors throw a
 		// structured VaultError for the calling tool to surface (WS-A1).
@@ -2208,6 +2244,9 @@ export async function appendUnderHeading(
 				`Cannot read ${note}: ${errMsg(e)}`,
 			);
 	}
+	// WS-A4: optimistic concurrency (only constrains the existing-file case).
+	const conflict = mtimeConflict(note, opts.expectedMtime, actualMtime);
+	if (conflict) throw conflict;
 
 	const lines = existing.split("\n");
 	const headingRe = new RegExp(
@@ -2873,6 +2912,12 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			note: Type.String({ description: "Note path relative to vault root." }),
 			content: Type.String({ description: "Text to append." }),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the note exists and the on-disk mtime differs, the append is rejected as a conflict (optimistic concurrency). Ignored when the note is created new.",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
@@ -2881,8 +2926,10 @@ export default function (pi: ExtensionAPI) {
 			await assertWithinVault(v.path, abs);
 			await mkdir(join(abs, ".."), { recursive: true });
 			let existing = "";
+			let actualMtime: number | undefined;
 			try {
 				existing = await readFile(abs, "utf8");
+				actualMtime = await noteMtime(abs);
 			} catch (e) {
 				// ENOENT → create-new (append's contract). Other FS errors surface.
 				if (fsErrCode(e) !== "ENOENT") {
@@ -2892,6 +2939,17 @@ export default function (pi: ExtensionAPI) {
 						{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
 					);
 				}
+			}
+			// WS-A4: optimistic concurrency (only constrains the existing-file case).
+			const conflict = mtimeConflict(params.note, params.expectedMtime, actualMtime);
+			if (conflict) {
+				return toolError("CONFLICT", conflict.message, {
+					vault: v.name,
+					note: params.note,
+					conflict: true,
+					expectedMtime: params.expectedMtime,
+					actualMtime: actualMtime,
+				});
 			}
 			const sep =
 				existing && !existing.endsWith("\n")
@@ -2936,6 +2994,12 @@ export default function (pi: ExtensionAPI) {
 			content: Type.String({
 				description: "Text to insert into that section.",
 			}),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the note exists and the on-disk mtime differs, the update is rejected as a conflict (optimistic concurrency). Ignored when the note is created new.",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
@@ -2946,6 +3010,7 @@ export default function (pi: ExtensionAPI) {
 					params.note,
 					params.heading,
 					params.content,
+					{ expectedMtime: params.expectedMtime },
 				);
 			} catch (e) {
 				return toolErrorFromCaught(e, {
@@ -3406,11 +3471,19 @@ export default function (pi: ExtensionAPI) {
 				description:
 					"Object of key→value pairs to merge. tags array is unioned.",
 			}),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the on-disk mtime differs, the update is rejected as a conflict (optimistic concurrency).",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
 			try {
-				const r = await updateFrontmatter(v.path, params.note, params.patch);
+				const r = await updateFrontmatter(v.path, params.note, params.patch, {
+					expectedMtime: params.expectedMtime,
+				});
 				return {
 					content: [
 						{
