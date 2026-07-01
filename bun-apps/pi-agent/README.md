@@ -14,6 +14,10 @@ remote APIs (openrouter) — hardcoded in source without any external config fil
 
 All providers are defined in **`src/pre-load-providers.ts`**. No `~/.pi/agent/models.json` is read.
 
+This repo's fixed extension/skill set (pi-obsidian, pi-vlm, zai-mcp, etc.) is baked in via
+**`run-dir/`**, independent of invocation `cwd` — see [Extensions via run-dir](#extensions-via-run-dir)
+below. Session/auth/model data always stays at `~/.pi/agent/` (pi's own default, untouched).
+
 ## How it works
 
 ```
@@ -53,7 +57,7 @@ bun bun-apps/pi-agent/src/cli.ts -p "hello"
 # list models — lm-studio entries appear alongside built-ins
 bun bun-apps/pi-agent/src/cli.ts --list-models
 
-# load a local extension without pi install
+# load an EXTRA extension on top of the run-dir set (see below) without pi install
 bun bun-apps/pi-agent/src/cli.ts -e bun-apps/zai-mcp/extensions/zai-mcp.ts -p "list your tools"
 ```
 
@@ -71,7 +75,9 @@ alias pi-stock='bunx @earendil-works/pi-coding-agent'
 | `BUN_PI_PRE_LOAD_PROVIDERS` | `1` (on) | Inject all providers defined in `src/pre-load-providers.ts` |
 | `BUN_PI_SET_PACKAGE_DIR` | `1` (on) | Pin `PI_PACKAGE_DIR` for asset/theme resolution in bundle mode |
 | `BUN_PI_SKIP_UPDATE_CHECK` | `1` (on) | Silence pi's "Update Available" banner for bundle/binary (source mode keeps it) |
+| `BUN_PI_LOAD_RUN_DIR` | `1` (on) | Splice `run-dir/`'s extensions/skills into argv as absolute `-e`/`--skill` paths |
 | `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
+| `BUN_PI_DEBUG_RUN_DIR` | `0` (off) | Print the resolved `run-dir/` argv fragment on startup |
 
 Toggle:
 
@@ -99,6 +105,35 @@ Edit **`src/pre-load-providers.ts`** → `PROVIDERS` object. No other file needs
 
 Changes take effect on the next `bun` invocation — no build step.
 
+## Extensions via run-dir
+
+pi's vendored `main()` has no `--cwd` flag — it threads a single `process.cwd()` into
+every project-resource lookup (`.pi/settings.json`, `.pi/extensions`, etc.), so a
+project's extension list normally only loads when invoked with `cwd === that project's
+root`. That made this repo's old `.pi/settings.json` `"packages"` list a `<PWD>/.pi/`
+hack: copy/deploy pi-agent elsewhere, or invoke it via the `~/.zshrc` alias from any
+other directory, and every extension silently vanished.
+
+Fix: `-e`/`--extension` and `--skill` accept **absolute paths**, which bypass `cwd`
+resolution and trust-gating entirely. `run-dir/manifest.json` declares this repo's
+fixed extension/skill set (paths relative to `bun-apps/`); `run-dir/resolve.ts`
+resolves them to absolute paths (`import.meta.dir`-based in source mode, via a
+build-time-generated constant in bundle mode — same pattern as `PI_PKG_DIR` below);
+and the `load-run-dir-resources` patch splices them into argv before `main()` runs.
+The result: pi-agent loads the exact same extensions regardless of invocation `cwd`,
+and never reads or writes anything under `<cwd>/.pi/`.
+
+The 3 extensions previously installed into the old, isolated `.pi/npm/node_modules/`
+tree (`@juicesharp/rpiv-ask-user-question`, `pi-hermes-memory` — `rpiv-todo` is
+deliberately excluded, see the comment in `run-dir/resolve.ts`) are now plain
+`dependencies` in this package's own `package.json`, sharing the monorepo's single
+`node_modules` tree like everything else.
+
+To add/remove a workspace-local extension or skill, edit `run-dir/manifest.json`
+(paths relative to `bun-apps/`). To add/remove an npm-sourced one, add it as a
+`dependency` here and update the `NPM_EXTENSIONS` list in both `run-dir/resolve.ts`
+and `scripts/build.ts`.
+
 ## Build modes
 
 Two execution modes are supported and **both load extensions correctly**:
@@ -112,6 +147,14 @@ Two execution modes are supported and **both load extensions correctly**:
 bun scripts/build.ts          # bundle → dist/pi-agent/pi-agent.js (+ node_modules symlink)
 bun scripts/build.ts --all    # bundle + standalone binary
 ```
+
+Building also generates `src/generated/run-dir-base.ts` (gitignored) — `BUN_APPS_DIR`
+and pre-resolved npm-extension paths, baked in because `import.meta.dir` reflects the
+*bundle's* location once built, not the original source file's. **Portability
+caveat**: this makes the bundle work from any invocation directory *on the machine it
+was built on* (same trade-off the existing `PI_PKG_DIR`/node_modules-symlink pattern
+already accepts) — not relocatable to a different host/filesystem layout unless
+`bun-apps/` is copied to the identical absolute path there too.
 
 The `--compile` binary (`dist/pi-agent/pi-agent`) **cannot load `.ts` extensions**:
 in `isBunBinary` mode jiti feeds each extension as a `data:text/javascript;base64,…`
@@ -130,13 +173,18 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 
 ```
 pi-agent/
-├── package.json            # bin: pi-agent → src/cli.ts
+├── package.json            # bin: pi-agent → src/cli.ts; also holds the migrated npm extension deps
 ├── README.md
+├── run-dir/
+│   ├── manifest.json          # this repo's fixed extension/skill list (edit this)
+│   └── resolve.ts             # resolves manifest.json to absolute -e/--skill argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
+    ├── generated/                # build-time-baked constants (gitignored)
     └── patches/
-        └── index.ts              # registry (env-gated) + debug
+        ├── index.ts                    # registry (env-gated) + debug
+        └── load-run-dir-resources.ts   # splices run-dir/ into argv
 ```
 
 ## Known issues

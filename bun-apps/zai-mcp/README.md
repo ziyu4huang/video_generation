@@ -49,6 +49,10 @@ Or try it without installing:
 pi -e ../packages/zai-mcp
 ```
 
+> If you're using `bun-apps/pi-agent` (this monorepo's wrapper), none of the above
+> is needed — it auto-loads this extension via `bun-apps/pi-agent/run-dir/manifest.json`
+> regardless of invocation cwd. See `bun-apps/pi-agent/README.md`.
+
 ### 3. Configure (optional)
 
 Environment variables (all optional except `ZAI_API_KEY`):
@@ -91,10 +95,11 @@ factory. The factory only receives `ExtensionAPI` (no `ctx`, no `ui`, no
 This also matches the pi rule of "don't start long-lived resources in the
 factory". Connection happens lazily on `session_start`.
 
-The package is registered in `.pi/settings.json`, so users **expect it to
-work** — silence on missing key would be confusing (unlike opt-in packages
-such as `ssh`, which can silently no-op). The strategy is a **single
-one-shot summary toast**:
+When loaded via `pi-agent` (registered in `bun-apps/pi-agent/run-dir/manifest.json`,
+loaded regardless of invocation cwd — see `bun-apps/pi-agent/README.md`), users
+**expect it to work** — silence on missing key would be confusing (unlike
+opt-in packages such as `ssh`, which can silently no-op). The strategy is a
+**single one-shot summary toast**:
 
 - On success, `ctx.ui.notify(...)` fires once at load with a compact list of
   every registered tool (`zai_<server>_<tool>`), so the user can see exactly

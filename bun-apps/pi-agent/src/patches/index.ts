@@ -75,6 +75,21 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
     applied.push({ name, env, defaultValue, applied: enabled });
   }
 
+  // ── patch: load-run-dir-resources ─────────────────────────────────────────
+  // Splices this repo's fixed extension/skill set into argv as absolute paths
+  // resolved from run-dir/, independent of process.cwd(). Must run before
+  // main() reads process.argv.
+  {
+    const name = "load-run-dir-resources";
+    const env = "BUN_PI_LOAD_RUN_DIR";
+    const defaultValue = true;
+    const enabled = envFlag(env, defaultValue);
+    if (enabled) {
+      await import("./load-run-dir-resources.ts");
+    }
+    applied.push({ name, env, defaultValue, applied: enabled });
+  }
+
   if (debug) {
     console.error("[bun-pi] patches:");
     for (const p of applied) {
