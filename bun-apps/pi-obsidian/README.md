@@ -232,15 +232,19 @@ outliers). Add `--llm` to also generate semantic per-topic summaries via the
   an unhandled rejection instead of rejecting the returned promise. `finish()` also lacks
   an idempotency guard (it runs twice on spawn `error`+`close`); benign today because the
   first resolve wins, but fragile. Prefactor to a plain `async` function + `finally` cleanup.
-- **16 tools add ~2,300 tokens of constant context overhead per turn.** In pi's
-  architecture, a tool's `description` and every parameter `description` are sent
-  in the API's `tools[]` schema array on *every* request — whether or not that
-  tool is used in that turn. This is separate from (and in addition to) the system
-  prompt text. Measured across 16 tools: ~8,400 chars of schema ≈ ~2,300 tokens
-  of fixed cost per API call.
+- **16 tools add a constant schema overhead per turn.** In pi's architecture, a
+  tool's `description` and every parameter `description` are sent in the API's
+  `tools[]` schema array on *every* request — whether or not that tool is used in
+  that turn — separate from (and in addition to) the system prompt.
+  **Measured** with `bun run scripts/measure-schema-tokens.mjs`: ~13.3k chars of
+  schema ≈ **~3.3k tokens** of fixed cost per API call. `obsidian_search` alone is
+  ~900 tokens (27%; 12 params), so its tool-level description has been trimmed
+  (the parameter descriptions remain — they carry the per-mode semantics). Run the
+  script before/after any further trimming to quantify the win.
   Mitigation paths (highest impact first):
-  - **Shorten verbose parameter `description` fields** — the biggest contributor
-    inside each tool's schema, especially `obsidian_search` (10+ params).
+  - **Shorten verbose parameter `description` fields** — still the biggest lever,
+    especially for `obsidian_search` / `obsidian_delete` / `obsidian_query`. Do so
+    carefully: each field's semantics must stay clear to the model.
   - **Add a `minimal` package option** that skips rarely-used tools by default
     (`obsidian_distill`, `obsidian_garden`, `obsidian_query`, `obsidian_invalidate`);
     opt-in when needed. Cuts ~4 heavy-schema tools from default registration.

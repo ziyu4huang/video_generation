@@ -20,10 +20,73 @@ import {
 	validateZettelNotes,
 	runSubagent,
 	parseStructuredResult,
+	toolAllowlist,
+	assertExtensionApi,
 	getIndex,
 	dropIndex,
 } from "../obsidian.ts";
 import { makeFixture, rmFixture } from "./helpers/fixture.mjs";
+
+// ---- B6: env-driven tool allowlists ---------------------------------------
+
+describe("WS-B6 — toolAllowlist", () => {
+	const defs = ["a", "b", "c"];
+	afterEach(() => {
+		delete process.env.OB_TEST_ALLOWLIST;
+	});
+
+	it("returns defaults when the env var is unset", () => {
+		expect(toolAllowlist("OB_TEST_ALLOWLIST", defs)).toEqual(defs);
+	});
+	it("parses a comma-separated override", () => {
+		process.env.OB_TEST_ALLOWLIST = "x,y,z";
+		expect(toolAllowlist("OB_TEST_ALLOWLIST", defs)).toEqual(["x", "y", "z"]);
+	});
+	it("trims whitespace and drops empty entries", () => {
+		process.env.OB_TEST_ALLOWLIST = " x , , y ,  ";
+		expect(toolAllowlist("OB_TEST_ALLOWLIST", defs)).toEqual(["x", "y"]);
+	});
+	it("falls back to defaults when the value is all-empty", () => {
+		process.env.OB_TEST_ALLOWLIST = " , , ";
+		expect(toolAllowlist("OB_TEST_ALLOWLIST", defs)).toEqual(defs);
+	});
+	it("falls back when set but blank", () => {
+		process.env.OB_TEST_ALLOWLIST = "   ";
+		expect(toolAllowlist("OB_TEST_ALLOWLIST", defs)).toEqual(defs);
+	});
+});
+
+// ---- C8: ExtensionAPI contract guard --------------------------------------
+
+describe("WS-C8 — assertExtensionApi", () => {
+	const good = () => ({ registerTool: () => {}, registerCommand: () => {}, on: () => {} });
+
+	it("passes silently when all methods are present", () => {
+		expect(() => assertExtensionApi(good())).not.toThrow();
+	});
+	it("throws when a CORE method (registerTool) is missing", () => {
+		const pi = good();
+		delete pi.registerTool;
+		expect(() => assertExtensionApi(pi)).toThrow(/core method/i);
+	});
+	it("warns (does not throw) when only a secondary method is missing", () => {
+		const pi = good();
+		delete pi.on;
+		const errs = [];
+		const orig = console.error;
+		console.error = (m) => errs.push(m);
+		try {
+			expect(() => assertExtensionApi(pi)).not.toThrow();
+		} finally {
+			console.error = orig;
+		}
+		expect(errs.join(" ")).toMatch(/secondary method/i);
+	});
+	it("throws on a non-object host", () => {
+		expect(() => assertExtensionApi(null)).toThrow(/core method/i);
+		expect(() => assertExtensionApi(undefined)).toThrow(/core method/i);
+	});
+});
 
 // ---- B2: model resolution -------------------------------------------------
 

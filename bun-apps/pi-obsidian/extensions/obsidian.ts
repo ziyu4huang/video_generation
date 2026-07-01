@@ -670,7 +670,12 @@ interface CacheEntry {
 	lines: string[];
 }
 const fileCache = new Map<string, CacheEntry>();
-const FILE_CACHE_MAX = Number(process.env.OB_CACHE_MAX ?? 500);
+/** Soft cap on the file cache. Read live from OB_CACHE_MAX so it is tunable at
+ *  runtime (operator hot-reload of a small/large working set) and so tests can
+ *  exercise eviction without re-loading the module. Defaults to 500. */
+function fileCacheMax(): number {
+	return Number(process.env.OB_CACHE_MAX ?? 500);
+}
 
 /** Read a file through the cache. Re-reads only when mtime changed. */
 export async function readCached(absPath: string): Promise<CacheEntry | null> {
@@ -689,7 +694,16 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	}
 	const mtime = stat.mtimeMs;
 	const cached = fileCache.get(absPath);
-	if (cached && cached.mtime === mtime) return cached;
+	if (cached && cached.mtime === mtime) {
+		// A8: access-order LRU. Map iterates in insertion order; a plain hit
+		// returns without moving the entry, so a hot MOC/index note read
+		// repeatedly gets evicted the moment the cap fills, identical to a
+		// one-shot read. Re-inserting on a hit promotes it to the tail, so the
+		// head-eviction below drops the genuinely least-recently-used entry.
+		fileCache.delete(absPath);
+		fileCache.set(absPath, cached);
+		return cached;
+	}
 	let content: string;
 	try {
 		content = await readFile(absPath, "utf8");
@@ -699,11 +713,19 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 		return null;
 	}
 	const entry: CacheEntry = { mtime, content, lines: content.split("\n") };
+	// A8: delete-then-set so an mtime-stale re-read (existing key) is also
+	// promoted to the tail — `set` on an existing key would update the value
+	// but leave it at its old position, breaking access-order.
+	fileCache.delete(absPath);
 	fileCache.set(absPath, entry);
-	// B1.3: LRU cap — evict oldest when over limit.
-	if (fileCache.size > FILE_CACHE_MAX) {
+	// A8: LRU cap — evict least-recently-used entries (map head) until at/below
+	// the limit. `while` (not `if`) so shrinking OB_CACHE_MAX mid-session, or a
+	// batch insert, can never leave the cache over cap. Combined with the
+	// re-insert-on-hit / delete-then-set above, this is true access-order LRU.
+	while (fileCache.size > fileCacheMax()) {
 		const oldest = fileCache.keys().next().value;
-		if (oldest !== undefined) fileCache.delete(oldest);
+		if (oldest === undefined) break;
+		fileCache.delete(oldest);
 	}
 	return entry;
 }
@@ -713,6 +735,12 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 export function invalidateCache(absPath?: string): void {
 	if (absPath) fileCache.delete(absPath);
 	else fileCache.clear();
+}
+
+/** @internal Test-only: ordered snapshot of cached paths (LRU head → tail).
+ *  Lets eviction order be asserted without exposing the live Map. */
+export function __fileCacheOrder(): string[] {
+	return [...fileCache.keys()];
 }
 
 /** Read up to `concurrency` files in parallel via readCached. Returns entries
@@ -1282,6 +1310,12 @@ export interface NoteMeta {
 	links: string[]; // outgoing [[targets]], normalized (no .md, no alias/section)
 	created?: string; // frontmatter created (YYYY-MM-DD)
 	mtime: number; // last indexed mtime (ms)
+	// Phase 6 / WS-C5: lowercase 3-grams of the note's full content, used to
+	// pre-filter substring searches (trigram inverted index). A superset of all
+	// searchable fields, so candidate filtering is always sound (never drops a
+	// real hit) — only slightly loose across fields. Not persisted (C6 rebuilds
+	// from content); hence omitted from serialization.
+	trigrams: Set<string>;
 }
 
 export interface VaultIndex {
@@ -1290,6 +1324,10 @@ export interface VaultIndex {
 	byTag: Map<string, Set<string>>;
 	byTitle: Map<string, string>; // lowercased title/path/basename -> path
 	reverseAdjacency: Map<string, Set<string>>; // targetPath -> Set<sourcePath>
+	// Phase 6 / WS-C5: trigram -> Set<notePath> inverted index for substring
+	// search pre-filtering. Maintained incrementally by indexNote/unindexNote
+	// (like byTag), so no rev/invalidation needed.
+	trigrams: Map<string, Set<string>>;
 	// Phase 3 / WS-C2: memoized undirected adjacency for graph queries.
 	// Built lazily by getAdjacency(); invalidated by bumping `rev` on every
 	// note mutation (indexNote/unindexNote). graphNeighbors rebuilds only when
@@ -1297,6 +1335,44 @@ export interface VaultIndex {
 	rev: number; // mutation counter; bump on any notes change
 	adjacency?: Map<string, Set<string>>; // undirected: path -> Set<neighborPath>
 	adjacencyRev?: number; // rev the cache was built at
+}
+
+/** Compute the set of lowercase 3-grams of a string (Phase 6 / WS-C5).
+ *  Used for substring-search candidate pre-filtering. Covers the FULL content
+ *  (a superset of every searchable field) so trigram-based candidate sets are
+ *  always a sound over-approximation — they never exclude a real hit. */
+function contentTrigrams(text: string): Set<string> {
+	const s = new Set<string>();
+	const lower = text.toLowerCase();
+	for (let i = 0; i + 3 <= lower.length; i++) s.add(lower.slice(i, i + 3));
+	return s;
+}
+
+/** Phase 6 / WS-C5 — narrow the substring-search candidate set via the trigram
+ *  inverted index. Returns the set of note paths containing EVERY trigram of
+ *  the query (a sound over-approximation: a file missing any query trigram
+ *  cannot contain the query substring, so it is safely excluded). Returns null
+ *  when filtering is not applicable (query shorter than 3 chars, or the index
+ *  has no trigram map yet) — caller then falls back to scanning all files.
+ *  Returns an empty set when some query trigram is absent from the vault. */
+export function trigramCandidates(
+	idx: VaultIndex | undefined,
+	query: string,
+): Set<string> | null {
+	if (!idx || !idx.trigrams || query.length < 3) return null;
+	const q = query.toLowerCase();
+	let result: Set<string> | null = null;
+	for (let i = 0; i + 3 <= q.length; i++) {
+		const paths = idx.trigrams.get(q.slice(i, i + 3));
+		if (!paths || paths.size === 0) return new Set(); // trigram absent → no hit possible
+		if (!result) {
+			result = new Set(paths);
+		} else {
+			for (const p of result) if (!paths.has(p)) result.delete(p);
+		}
+		if (result.size === 0) return result;
+	}
+	return result;
 }
 
 /** Parse a note into NoteMeta (no I/O). Reused by index build + reindex. */
@@ -1360,6 +1436,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 		links: [...links],
 		created,
 		mtime,
+		trigrams: contentTrigrams(content),
 	};
 }
 
@@ -1399,9 +1476,14 @@ export async function getIndex(vaultPath: string): Promise<VaultIndex> {
 	if (!inflight) {
 		inflight = (async () => {
 			try {
-				const built = await buildIndex(real);
+				// Phase 6 / WS-C6: try a persisted index first (stat-validated);
+				// only fall back to a full O(n) buildIndex if there's no cache.
+				let built = await loadCachedIndex(real);
+				if (!built) built = await buildIndex(real);
 				indexCache.set(real, built);
 				indexRefreshAt.set(real, Date.now());
+				// persist for next session (best-effort, non-blocking)
+				void saveIndex(built).catch(() => {});
 				return built;
 			} finally {
 				indexInFlight.delete(real);
@@ -1424,6 +1506,7 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 		byTag: new Map(),
 		byTitle: new Map(),
 		reverseAdjacency: new Map(),
+		trigrams: new Map(),
 		rev: 0,
 	};
 	for (let i = 0; i < files.length; i++) {
@@ -1435,6 +1518,14 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 	// Second pass: now that all notes are in byTitle, recompute link resolution
 	// so reverseAdjacency keys are actual note paths (a link added before its
 	// target was indexed would otherwise key on the raw lowercased target).
+	rebuildReverseAdjacency(idx);
+	return idx;
+}
+
+/** Second pass: recompute reverseAdjacency so its keys are actual note paths
+ *  (a link parsed before its target was indexed keys on the raw target). Shared
+ *  by buildIndex and loadCachedIndex. */
+function rebuildReverseAdjacency(idx: VaultIndex): void {
 	idx.reverseAdjacency.clear();
 	for (const meta of idx.notes.values()) {
 		for (const link of meta.links) {
@@ -1447,7 +1538,175 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 			s.add(meta.path);
 		}
 	}
+}
+
+// ---- Cross-session index persistence (Phase 6 / WS-C6) --------------------
+// The index is a module-level Map cleared on exit, so every fresh session paid
+// a full O(n) buildIndex (read every file's content + parse). This persists the
+// index to <vault>/.cache/pi-obsidian-index.json and, on a cold getIndex, loads
+// it + stat-validates each note: notes unchanged since last session reuse their
+// persisted meta (incl. trigrams — no content re-read), only changed/new notes
+// are re-read. Disable with OB_INDEX_PERSIST=0; relocate the file with
+// OB_INDEX_CACHE_DIR. Best-effort — any read/parse/write failure silently falls
+// back to a full buildIndex.
+const INDEX_CACHE_VERSION = 1;
+function indexCachePath(vaultReal: string): string {
+	const dir = process.env.OB_INDEX_CACHE_DIR || join(vaultReal, ".cache");
+	return join(dir, "pi-obsidian-index.json");
+}
+
+/** Parallel stat → mtimeMs (null for absent). */
+async function statMtimes(absPaths: string[]): Promise<(number | null)[]> {
+	return Promise.all(
+		absPaths.map((p) =>
+			stat(p)
+				.then((s) => s.mtimeMs)
+				.catch(() => null),
+		),
+	);
+}
+
+/** Serialize the index to a plain JSON-safe object. Persisted notes carry their
+ *  trigrams so a warm reload needs NO content re-read (keeps C5 trigram search
+ *  working across sessions). Derived maps (byTag/byTitle/reverseAdjacency/
+ *  trigrams-inverted) are rebuilt on load, not stored. */
+export function serializeIndex(idx: VaultIndex): {
+	version: number;
+	vaultPath: string;
+	rev: number;
+	notes: any[];
+} {
+	return {
+		version: INDEX_CACHE_VERSION,
+		vaultPath: idx.vaultPath,
+		rev: idx.rev,
+		notes: [...idx.notes.values()].map((n) => ({
+			path: n.path,
+			title: n.title,
+			tags: n.tags,
+			links: n.links,
+			created: n.created,
+			mtime: n.mtime,
+			trigrams: [...n.trigrams],
+		})),
+	};
+}
+
+/** Write the index to disk (best-effort, never throws). */
+export async function saveIndex(idx: VaultIndex): Promise<void> {
+	if (process.env.OB_INDEX_PERSIST === "0") return;
+	try {
+		const path = indexCachePath(idx.vaultPath);
+		await mkdir(join(path, ".."), { recursive: true });
+		await atomicWriteFile(path, JSON.stringify(serializeIndex(idx)));
+	} catch {
+		// best-effort: a failed save just means a full rebuild next session
+	}
+}
+
+/** Load + mtime-validate a persisted index. Returns null when there is no
+ *  cache, it's the wrong version, or anything goes wrong (caller falls back to
+ *  buildIndex). Notes unchanged on disk reuse their persisted meta (incl.
+ *  trigrams); changed/new notes are re-read and re-parsed. */
+export async function loadCachedIndex(
+	vaultReal: string,
+): Promise<VaultIndex | null> {
+	if (process.env.OB_INDEX_PERSIST === "0") return null;
+	let raw: string;
+	try {
+		raw = await readFile(indexCachePath(vaultReal), "utf8");
+	} catch {
+		return null;
+	}
+	let data: any;
+	try {
+		data = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (!data || data.version !== INDEX_CACHE_VERSION || !Array.isArray(data.notes))
+		return null;
+
+	const files = await listNotes(vaultReal, "");
+	const persisted = new Map<string, any>(data.notes.map((n: any) => [n.path, n]));
+	const mtimes = await statMtimes(files.map((f) => join(vaultReal, f)));
+
+	const idx: VaultIndex = {
+		vaultPath: vaultReal,
+		notes: new Map(),
+		byTag: new Map(),
+		byTitle: new Map(),
+		reverseAdjacency: new Map(),
+		trigrams: new Map(),
+		rev: 0,
+	};
+	const stale: string[] = [];
+	for (let i = 0; i < files.length; i++) {
+		const f = files[i];
+		const mtime = mtimes[i];
+		const p = persisted.get(f);
+		if (mtime !== null && p && p.mtime === mtime) {
+			// unchanged since last session — reuse persisted meta (trigrams incl.)
+			indexNote(idx, {
+				path: p.path,
+				title: p.title,
+				tags: Array.isArray(p.tags) ? p.tags : [],
+				links: Array.isArray(p.links) ? p.links : [],
+				created: p.created,
+				mtime: p.mtime,
+				trigrams: new Set(Array.isArray(p.trigrams) ? p.trigrams : []),
+			});
+		} else {
+			// changed or new — must re-read content
+			stale.push(f);
+		}
+	}
+	if (stale.length > 0) {
+		const entries = await readBatched(stale.map((f) => join(vaultReal, f)));
+		for (let i = 0; i < stale.length; i++) {
+			const entry = entries[i];
+			if (!entry) continue;
+			indexNote(idx, parseNoteMeta(stale[i], entry.content, entry.mtime));
+		}
+	}
+	rebuildReverseAdjacency(idx);
 	return idx;
+}
+
+/** Resolve a tool-name allowlist from an env var (comma-separated), falling
+ *  back to `defaults` when unset/empty. Used by distill/garden so a custom
+ *  workflow can override the tool set without code changes (Phase 5 / WS-B6).
+ *  Empty/whitespace-only entries are dropped; an all-empty value falls back. */
+export function toolAllowlist(envVar: string, defaults: string[]): string[] {
+	const raw = process.env[envVar];
+	if (!raw || !raw.trim()) return defaults;
+	const parsed = raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return parsed.length > 0 ? parsed : defaults;
+}
+
+/** Phase 5 / WS-C8 — verify the host satisfies the ExtensionAPI contract.
+ *  `core` methods are hard-required (their absence means the extension can't
+ *  function → throw); `secondary` methods are warned about, not fatal, so a
+ *  forward-compatible host that dropped an unused hook isn't blocked. */
+export function assertExtensionApi(pi: any): void {
+	const core = ["registerTool"];
+	const secondary = ["registerCommand", "on"];
+	const missingCore = core.filter((m) => typeof pi?.[m] !== "function");
+	if (missingCore.length > 0) {
+		throw new Error(
+			`pi-obsidian: host does not satisfy the ExtensionAPI contract — missing core method(s): ${missingCore.join(", ")}. ` +
+				`Ensure @earendil-works/pi-coding-agent is up to date (the host vendors an inline copy of ExtensionAPI).`,
+		);
+	}
+	const missingSecondary = secondary.filter((m) => typeof pi?.[m] !== "function");
+	if (missingSecondary.length > 0) {
+		console.error(
+			`pi-obsidian: warning — host ExtensionAPI is missing secondary method(s): ${missingSecondary.join(", ")} (commands/events will be unavailable but tools still register).`,
+		);
+	}
 }
 
 /** Keys under which a note should be discoverable in byTitle: its lowercased
@@ -1485,6 +1744,15 @@ function indexNote(idx: VaultIndex, meta: NoteMeta): void {
 		}
 		s.add(meta.path);
 	}
+	// Phase 6 / WS-C5: trigram inverted index.
+	for (const tg of meta.trigrams) {
+		let s = idx.trigrams.get(tg);
+		if (!s) {
+			s = new Set();
+			idx.trigrams.set(tg, s);
+		}
+		s.add(meta.path);
+	}
 	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 }
 
@@ -1509,6 +1777,14 @@ function unindexNote(idx: VaultIndex, path: string): void {
 		if (s) {
 			s.delete(path);
 			if (s.size === 0) idx.reverseAdjacency.delete(resolved);
+		}
+	}
+	// Phase 6 / WS-C5: remove from trigram inverted index.
+	for (const tg of old.trigrams) {
+		const s = idx.trigrams.get(tg);
+		if (s) {
+			s.delete(path);
+			if (s.size === 0) idx.trigrams.delete(tg);
 		}
 	}
 }
@@ -2461,6 +2737,36 @@ sources: ["<輸入檔檔名或來源>"]
 - 上層概念：[[Tags/Index#<主題tag>]]
 \`\`\`
 
+## 輸入大小指引（重要）
+- 一張卡的蒸餾約略對應來源 1–3 段文字。若輸入檔很大（粗估超過 ~12KB，或明顯多於十幾個段落），**不要一次通讀後草草萃取**——會漏掉尾段。
+- 改成分批處理：先完整萃取前半部的原子想法，逐張建立；再用 obsidian_read 重新定位到未處理的段落繼續。每張卡仍須獨立、互連。
+- 你無法精確量位元組，請用「段落數 / 是否出現捲動」當粗略指引，寧可多建一張卡也不要丟失論點。
+
+## 範例卡（gold standard — 輸出請對齊此結構）
+以下是「原子化筆記與互連」一張理想卡的長相（frontmatter 完整、用自己的話、至少一條已解析的 wiki-link）：
+\`\`\`
+---
+id: 202607010930
+created: 2026-07-01
+tags: [zettel, 知識管理, 筆記法]
+sources: ["input.md"]
+---
+
+# 原子化筆記優先於主題資料夾
+
+## 核心想法
+- 筆記的價值來自單一論點能被獨立引用與重組，而非被歸進某個資料夾就固定不動；原子化讓連結成為主要結構，資料夾只是輔助。
+
+## 證據 / 脈絡
+- 來源指出：把多個主張塞進同一張筆記，會讓它既難被引用也難被連結。
+- 互連的密度比分類的整齊更能反映思考網絡。
+
+## 連結
+- 相關：[[Zettelkasten 方法概論]]
+- 延伸：[[雙向連結與圖譜密度]]
+- 上層概念：[[Tags/Index#知識管理]]
+\`\`\`
+
 ## 規則
 - tags[0] 永遠是 zettel。
 - 每張卡 id 不可重複（用當下時間，逐張遞增分鐘）。
@@ -2912,12 +3218,20 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 ## 健康度檢查項（逐一執行）
 用 obsidian_list 列出所有筆記，用 obsidian_read 讀內容，用 obsidian_search 驗證連結，檢查：
 
-1. **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
-2. **破損 wiki-link**：[[Target]] 指向不存在的筆記。
-3. **缺漏 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者即回報。
-4. **疑似重複**：兩張以上筆記談論幾乎相同的論點（語義判斷，不是只看檔名）。
-5. **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
-6. **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
+每個發現都標註嚴重等級，回報與 JSON 都要帶：🔴 critical（結構損壞，必須處理）、🟡 warning（明確的健康問題）、🟢 info（改善機會，非錯誤）。
+
+1. 🔴 **破損 wiki-link**：[[Target]] 指向不存在的筆記。
+2. 🔴 **缺漏 / 損壞 frontmatter**：Zettelkasten/ 下的筆記應有 id / created / tags / sources 欄位；缺任一者、或 YAML 無法解析即回報。
+3. 🟡 **孤兒卡（Orphan）**：沒有任何其他筆記用 wiki-link 指向它的筆記（Zettelkasten 筆記尤其不能孤兒）。對每張可疑卡，用 obsidian_search 搜尋它的標題確認是否真無入連結。
+4. 🟡 **疑似重複**：兩張以上筆記談論幾乎相同的論點。
+5. 🟡 **MOC 漂移**：Tags/Index.md 缺少某些既存 tag 的段落，或某 tag 段落漏列了帶該 tag 的筆記。
+6. 🟢 **漏連的相關筆記**：兩張筆記語義高度相關卻未互相 wiki-link——這是提升圖譜密度的高價值機會。
+
+### 疑似重複的結構化前置篩選（避免對所有筆記兩兩比對）
+不要直接對整個 vault 做語義兩兩比較（O(n²)、昂貴且不可重現）。先縮小候選集，只對候選集做語義判斷：
+- 用 obsidian_search / 索引找出 **共享 ≥2 個 tag** 的筆記群。
+- 在同一群內，再挑**標題詞彙重疊**者（用 obsidian_search 以標題中的關鍵詞查詢）。
+- 只對這個候選短名單做語義判斷（是否談論幾乎相同的論點）。語義判斷要看主張內容，不是只看檔名或 tag 相同。
 
 ## 模式
 - **audit（預設）**：只做檢查，不改動任何檔案。輸出一份結構化健康報告。
@@ -2929,10 +3243,10 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 
 ## 輸出格式（繁體中文）
 ### 健康報告
-為每個檢查項給一段：項目名、發現數量、逐條列出（檔名 + 一句話問題描述）。
+為每個檢查項給一段：項目名、發現數量、逐條列出（每條標註嚴重等級 🔴/🟡/🟢 + 檔名 + 一句話問題描述）。
 最後給「## 總結」：整體健康評分（1-5 ★）、最嚴重的 3 個問題、建議優先處理順序。
 
-若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼。
+若為 fix 模式，在報告前加「### 已執行修復」段落，逐條列實際改了什麼（哪個檔案、加了什麼連結／更新了哪段）。
 
 ## 規則
 - 只用提供的工具。fix 模式下只能用 obsidian_append_section / obsidian_create，不可刪檔。
@@ -2942,9 +3256,9 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
 ## 完成後（重要）
 報告完成後，**最後一行必須是一條結構化 JSON**（供父代理解析），格式如下，獨占一行，不要用 markdown 包裹：
 
-    {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","detail":"一句話"}],"errors":["若有的話"]}
+    {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"notesModified":["fix 模式實際改動過的筆記檔名"],"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","severity":"critical|warning|info","detail":"一句話"}],"errors":["若有的話"]}
 
-這條 JSON 是給程式讀的。數字字段若不適用填 0。`;
+這條 JSON 是給程式讀的。數字字段若不適用填 0；audit 模式 notesModified 為空陣列。`;
 
 // ---- Subagent output validation (Phase 2 / WS-B1) -------------------------
 // distill/garden subagents write to the vault via obsidian_create inside the
@@ -3042,7 +3356,77 @@ export async function validateZettelNotes(
 	};
 }
 
+// ---- Note integrity check (Phase 5 / WS-B4) -------------------------------
+// Lighter than validateZettelNote: garden edits ARBITRARY notes (not only
+// Zettel cards), so the strict tags[0]==="zettel" rule does NOT apply. This
+// only checks the markdown is still structurally sound after a fix-mode run —
+// frontmatter (if present) is balanced, the note is non-empty, and code fences
+// are paired. Pure (no I/O); unit-tested directly.
+
+export interface IntegrityIssue {
+	path: string;
+	ok: boolean;
+	errors: string[];
+}
+
+/** Validate a note's structural integrity. Pure (no I/O). */
+export function validateNoteIntegrity(
+	content: string | undefined,
+): { ok: boolean; errors: string[] } {
+	const errors: string[] = [];
+	if (!content || !content.trim())
+		return { ok: false, errors: ["empty content"] };
+	const lines = content.split("\n");
+	// Frontmatter: a leading `---` MUST be closed by a second `---`. An
+	// unbalanced opener means the body got accidentally merged into YAML.
+	if (lines[0].trim() === "---") {
+		const closed = lines.slice(1).some((l) => l.trim() === "---");
+		if (!closed) errors.push("frontmatter opened with --- but never closed");
+	}
+	// Code-fence balance: an odd count of ``` / ~~~ openers means a fence was
+	// opened but never closed (or vice-versa) — a common append_section accident.
+	const fence3 = lines.filter((l) => /^```/.test(l.trim())).length;
+	const fence4 = lines.filter((l) => /^~~~/.test(l.trim())).length;
+	if (fence3 % 2 !== 0) errors.push(`unbalanced \`\`\` code fences (${fence3} opener(s))`);
+	if (fence4 % 2 !== 0) errors.push(`unbalanced ~~~ code fences (${fence4} opener(s))`);
+	return { ok: errors.length === 0, errors };
+}
+
+/** Audit every note path a fix-mode garden run reported modifying. Reads each
+ *  from disk (via the cache) and runs validateNoteIntegrity. Best-effort:
+ *  missing-on-disk notes are flagged, never thrown on. */
+export async function validateNoteIntegrityBatch(
+	vaultPath: string,
+	paths: string[],
+): Promise<{ notes: IntegrityIssue[]; intact: number; broken: number }> {
+	const notes: IntegrityIssue[] = [];
+	for (const rel of paths) {
+		const abs = safeNotePath(vaultPath, rel);
+		const cached = await readCached(abs);
+		if (!cached) {
+			notes.push({ path: rel, ok: false, errors: ["note not found on disk (reported as modified but missing)"] });
+			continue;
+		}
+		const { ok, errors } = validateNoteIntegrity(cached.content);
+		notes.push({ path: rel, ok, errors });
+	}
+	return {
+		notes,
+		intact: notes.filter((n) => n.ok).length,
+		broken: notes.filter((n) => !n.ok).length,
+	};
+}
+
 export default function (pi: ExtensionAPI) {
+	// Phase 5 / WS-C8: light ExtensionAPI contract guard. The ExtensionAPI type
+	// is a type-only import (no runtime symbol), and pi-agent-cli vendors an
+	// inline copy — so a stale host could pass a `pi` that lacks methods this
+	// extension calls. Fail fast on a missing CORE method (registerTool); warn
+	// (don't throw) on the secondary ones so a forward-compatible host isn't
+	// blocked. See the "Vault Submodule Remount" zettel for the inline-bundle
+	// source-of-truth note.
+	assertExtensionApi(pi);
+
 	// Cached ResolvedVault (per session). `source` lets every tool surface
 	// where the active vault came from; `staleReason` carries Tier-1 warnings.
 	let vault: ResolvedVault | undefined;
@@ -3348,17 +3732,11 @@ export default function (pi: ExtensionAPI) {
 		name: "obsidian_search",
 		label: "Obsidian Search",
 		description:
-			"Full-text search across all notes in the vault. Returns matching file:line snippets. " +
-			"Case-insensitive by default. matchMode controls how `query` is interpreted: " +
-			"substring (default, literal) | regex (JS RegExp) | words (boolean: tokens AND together, " +
-			"`|` = OR group, `-token` = NOT) | fuzzy (typo-tolerant). `fields` restricts which note " +
-			"sections are searchable (title/tags/body/frontmatter; default all). `folder` restricts to a sub-tree. " +
-			"`sort` orders results: file (default) | relevance (title/tag hits first) | recency (by created date). " +
-			"`context` adds surrounding lines per match (indented `> ` block with the hit line marked). " +
-			"`groupByFile` caps matches per file to `perFile` (default 3)," +
-			"useful when one file would flood results. " +
-			"Graph awareness: `backlinks: true` treats query as a note title and returns notes linking to it via [[query]]. " +
-			"A query starting with `#` is a tag search (frontmatter tags + inline #tag).",
+			"Full-text search across notes; returns file:line snippets. matchMode: substring (default, literal) " +
+			"| regex (JS RegExp) | words (tokens AND; `|`=OR group, `-token`=NOT) | fuzzy (typo-tolerant). " +
+			"`fields` restricts searchable sections (title/tags/body/frontmatter; default all); `folder` a sub-tree. " +
+			"`sort`: file (default) | relevance | recency. `context`/`groupByFile`/`perFile` shape output (see params). " +
+			"Graph: `backlinks:true` treats query as a note title → notes linking to it; a `#`-prefixed query is a tag search.",
 		parameters: Type.Object({
 			query: Type.String({
 				description:
@@ -3573,6 +3951,25 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			const sort = (params.sort ?? "file") as "file" | "relevance" | "recency";
+			// Phase 6 / WS-C5: for substring queries, narrow the candidate set via
+			// the trigram inverted index so searchVault reads only files that COULD
+			// contain the query (skips reading+line-scanning the rest). Sound —
+			// never drops a real hit — as long as the index covers every note;
+			// refreshIndex reconciles just-written/external notes first (cheap
+			// readdir+stat diff, far less than reading all file bodies). regex/
+			// words/fuzzy don't benefit (their "match" isn't a literal substring),
+			// and an explicit caller `paths` restriction always wins.
+			let trigramPaths: string[] | undefined;
+			if (mode === "substring" && !params.paths && process.env.OB_TRIGRAM_SEARCH !== "0") {
+				try {
+					const idx = await getIndex(v.path);
+					await refreshIndex(idx, { force: false });
+					const cand = trigramCandidates(idx, params.query);
+					if (cand) trigramPaths = [...cand];
+				} catch {
+					// index unavailable — fall back to a full scan
+				}
+			}
 			const searchOpts = {
 				fileFilter: built.fileFilter,
 				fields: (params.fields as NoteField[] | undefined) ?? null,
@@ -3582,7 +3979,7 @@ export default function (pi: ExtensionAPI) {
 				groupByFile: params.groupByFile ?? false,
 				perFile: params.perFile ?? 3,
 				max,
-				paths: params.paths,
+				paths: params.paths ?? trigramPaths,
 			};
 			let matches = await searchVault(v.path, {
 				match: built.match,
@@ -3997,24 +4394,27 @@ export default function (pi: ExtensionAPI) {
 	// Tool allowlists for the spawned subagents. Defined once as arrays (not
 	// inline CSV strings) so they are auditable and don't drift; joined to CSV
 	// at the call site (runSubagentWithRetry takes a CSV string).
-	const OBSIDIAN_DISTILL_TOOLS = [
+	// Phase 5 / WS-B6: distill/garden tool lists are env-overridable so a custom
+	// workflow can grant extra tools (or restrict them) without code changes.
+	// Each env var is a comma-separated tool-name list; empty/unset → defaults.
+	const OBSIDIAN_DISTILL_TOOLS = toolAllowlist("OB_DISTILL_TOOLS", [
 		"read",
 		"obsidian_list",
 		"obsidian_read",
 		"obsidian_search",
 		"obsidian_create",
 		"obsidian_append_section",
-	];
-	const GARDEN_AUDIT_TOOLS = [
+	]);
+	const GARDEN_AUDIT_TOOLS = toolAllowlist("OB_GARDEN_AUDIT_TOOLS", [
 		"obsidian_list",
 		"obsidian_read",
 		"obsidian_search",
-	];
-	const GARDEN_FIX_TOOLS = [
+	]);
+	const GARDEN_FIX_TOOLS = toolAllowlist("OB_GARDEN_FIX_TOOLS", [
 		...GARDEN_AUDIT_TOOLS,
 		"obsidian_create",
 		"obsidian_append_section",
-	];
+	]);
 	pi.registerTool({
 		name: "obsidian_distill",
 		label: "Obsidian Distill",
@@ -4234,11 +4634,42 @@ ${output.slice(-2000)}`,
 					details: { exitCode, stderr, result },
 				};
 			}
+			// Phase 5 / WS-B4: in fix mode, audit every note the gardener
+			// reported modifying for structural integrity (frontmatter
+			// balanced, non-empty, code fences paired). A misbehaving child
+			// could corrupt a note via append_section; this surfaces it
+			// instead of leaving invalid markdown. Best-effort — annotates,
+			// never fails the run.
+			let validationText = "";
+			let validation: { notes: IntegrityIssue[]; intact: number; broken: number } | undefined;
+			if (mode === "fix") {
+				const modified = Array.isArray((result as any)?.notesModified)
+					? (result as any).notesModified.map(String)
+					: [];
+				if (modified.length > 0) {
+					try {
+						const v = await getVault(cwd);
+						validation = await validateNoteIntegrityBatch(v.path, modified);
+					} catch {
+						validation = undefined;
+					}
+					if (validation && validation.broken > 0) {
+						validationText =
+							`\n\n⚠ Integrity: ${validation.broken}/${validation.notes.length} modified note(s) failed the markdown integrity check — review before relying on them:\n` +
+							validation.notes
+								.filter((n) => !n.ok)
+								.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
+								.join("\n");
+					} else if (validation && validation.intact > 0) {
+						validationText = `\n\n✓ Integrity: all ${validation.intact} modified note(s) passed the markdown integrity check.`;
+					}
+				}
+			}
 			return {
 				content: [
-					{ type: "text", text: output || "(gardener produced no output)" },
+					{ type: "text", text: (output || "(gardener produced no output)") + validationText },
 				],
-				details: { exitCode, stderr, result },
+				details: { exitCode, stderr, result, validation },
 			};
 		},
 	});
