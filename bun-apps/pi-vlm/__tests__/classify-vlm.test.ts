@@ -54,12 +54,6 @@ mock.module(SESSIONS_PATH, () => ({
       },
     };
   },
-  // Keep the real resolveLLM semantics out of the loop — return a stable target.
-  resolveLLM: (o: any = {}) => ({
-    provider: o?.provider ?? "lm-studio",
-    modelId: o?.model ?? "mock/model",
-    thinkingLevel: o?.thinking ?? "off",
-  }),
 }));
 
 // Import AFTER the mock is registered.
@@ -161,8 +155,9 @@ describe("classifyProfileViaVlm — I/O (mocked session)", () => {
     reset({ deltas: ["paper"] });
     await classifyProfileViaVlm(imgPath, "image/png");
     expect(sessionOpts).toHaveLength(1);
-    expect(sessionOpts[0]!.llm.provider).toBe("lm-studio");
-    expect(sessionOpts[0]!.llm.modelId).toBe("mock/model");
+    // The source calls createSharedSession(resolveLLM({})); assert the captured
+    // llm equals the REAL default target (env-robust, no hardcoded model).
+    expect(sessionOpts[0]!.llm).toEqual(resolveLLM({}));
   });
 
   test("prompt error propagates (classifier does not swallow model errors)", async () => {

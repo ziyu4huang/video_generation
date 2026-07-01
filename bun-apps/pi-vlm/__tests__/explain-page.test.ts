@@ -21,7 +21,7 @@ let nextError: Error | null = null;
 const sessionOpts: { llm: any; opts: any }[] = [];
 const promptCalls: { text: string; imageCount: number; mimeType: string }[] = [];
 
-mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+mock.module(import.meta.dirname + "/../src/session-factory.ts", () => ({
   createSharedSession: async (llm: any, opts: any) => {
     sessionOpts.push({ llm, opts });
     return {

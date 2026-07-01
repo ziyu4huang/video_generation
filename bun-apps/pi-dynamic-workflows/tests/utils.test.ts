@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import type { WorkflowAgentSnapshot } from "../src/display.js";
 import type { WorkflowMeta } from "../src/workflow.js";
 

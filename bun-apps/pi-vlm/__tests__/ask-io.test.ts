@@ -20,7 +20,7 @@ let nextError: Error | null = null;
 const sessionOpts: { llm: any; opts: any }[] = [];
 const promptCalls: { text: string; imageCount: number; mimeType: string }[] = [];
 
-mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+mock.module(import.meta.dirname + "/../src/session-factory.ts", () => ({
   createSharedSession: async (llm: any, opts: any) => {
     sessionOpts.push({ llm, opts });
     return {
@@ -49,14 +49,10 @@ mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
       },
     };
   },
-  resolveLLM: (o: any = {}) => ({
-    provider: o?.provider ?? "lm-studio",
-    modelId: o?.model ?? "mock/model",
-    thinkingLevel: o?.thinking ?? "off",
-  }),
 }));
 
 const { askImage } = await import("../src/vlm/ask.ts");
+const { resolveLLM } = await import("../src/sessions.ts");
 
 let dir: string;
 let pngPath: string;
@@ -141,8 +137,7 @@ describe("askImage — I/O (mocked session)", () => {
   test("no llm → resolveLLM({}) default target", async () => {
     reset({ deltas: ["x"] });
     await askImage(pngPath, "q");
-    expect(sessionOpts[0]!.llm.provider).toBe("lm-studio");
-    expect(sessionOpts[0]!.llm.modelId).toBe("mock/model");
+    expect(sessionOpts[0]!.llm).toEqual(resolveLLM({}));
   });
 
   test("prompt error is swallowed into ok:false + error (no throw)", async () => {

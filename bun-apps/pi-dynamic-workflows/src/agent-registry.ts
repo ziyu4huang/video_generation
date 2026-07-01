@@ -17,7 +17,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homeDir } from "./home.js";
 import { basename, join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { AGENTS_DIR } from "./config.js";
@@ -113,7 +113,7 @@ function readDefsFromDir(dir: string, source: "project" | "user"): AgentDefiniti
  */
 export function loadAgentRegistry(cwd: string, opts?: { projectDir?: string; userDir?: string }): AgentRegistry {
   const projectDir = opts?.projectDir ?? join(cwd, AGENTS_DIR);
-  const userDir = opts?.userDir ?? join(homedir(), AGENTS_DIR);
+  const userDir = opts?.userDir ?? join(homeDir(), AGENTS_DIR);
   const registry: AgentRegistry = new Map();
   for (const def of readDefsFromDir(projectDir, "project")) {
     if (def.name && !registry.has(def.name)) registry.set(def.name, def);

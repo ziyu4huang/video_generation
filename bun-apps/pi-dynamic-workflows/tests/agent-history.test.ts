@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { compactAgentHistory } from "../src/agent-history.js";
 
 test("compactAgentHistory captures user, assistant, tool call, and tool result entries", () => {

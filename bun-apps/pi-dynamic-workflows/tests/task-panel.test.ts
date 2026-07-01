@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { before, describe, it } from "node:test";
+import { beforeAll, describe, it } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
@@ -12,7 +12,7 @@ type TaskPanelModule = {
 // Loaded once before all tests
 let mod: TaskPanelModule;
 
-before(async () => {
+beforeAll(async () => {
   mod = (await import("../src/task-panel.js")) as TaskPanelModule;
 });
 

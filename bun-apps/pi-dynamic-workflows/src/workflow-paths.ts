@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
+import { homeDir } from "./home.js";
 import { basename, join, resolve } from "node:path";
 import { WORKFLOW_RUNS_DIR, WORKFLOW_SAVED_DIR } from "./config.js";
 
@@ -25,7 +25,7 @@ export interface WorkflowProjectPaths {
 }
 
 export function workflowHomeDir(): string {
-  return join(homedir(), WORKFLOW_HOME_RELATIVE_DIR);
+  return join(homeDir(), WORKFLOW_HOME_RELATIVE_DIR);
 }
 
 export function workflowUserSavedDir(): string {

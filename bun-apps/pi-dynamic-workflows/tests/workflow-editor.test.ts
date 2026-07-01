@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
-import { before, describe, it } from "node:test";
+import { beforeAll, describe, it } from "bun:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
@@ -358,7 +358,7 @@ describe("WorkflowEditor", () => {
   let mod: Awaited<ReturnType<typeof load>>;
   let KB: KBManagerClass;
 
-  before(async () => {
+  beforeAll(async () => {
     mod = await load();
     // KeybindingsManager is not on the package's main exports path, so resolve
     // the package entry portably (no hardcoded absolute path) and derive the

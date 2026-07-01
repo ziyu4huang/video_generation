@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test, mock, spyOn } from "bun:test";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import { WorkflowManager } from "../src/workflow-manager.js";
@@ -1498,7 +1498,7 @@ test(
   "state transition: completed -> resume (completed run cannot be resumed -> false)",
   withTempCwd(async (cwd) => {
     const agentObj = fakeAgent();
-    const runMock = test.mock.method(agentObj, "run");
+    const runMock = spyOn(agentObj, "run");
     const manager = new WorkflowManager({ cwd, agent: agentObj });
     const { promise } = manager.startInBackground(oneAgentScript);
     await promise;
@@ -1507,7 +1507,7 @@ test(
     const runId = runs[0]?.runId;
     assert.ok(runId);
     assert.equal(runs[0].status, "completed");
-    assert.equal(runMock.mock.callCount(), 1, "agent.run should have been called once");
+    assert.equal(runMock.mock.calls.length, 1, "agent.run should have been called once");
 
     const resumed = await manager.resume(runId);
     assert.equal(resumed, false, "cannot resume a completed run");
@@ -1609,7 +1609,7 @@ test(
     // Regular Error/agent rejections get wrapped as recoverable (agent returns
     // null, workflow continues). A non-recoverable WorkflowError propagates up
     // to executeRun's catch block and sets status to "failed".
-    test.mock.method(da.runner, "run", async (_prompt: string) => {
+    spyOn(da.runner, "run").mockImplementation(async (_prompt: string) => {
       throw new WorkflowError("fatal agent error", WorkflowErrorCode.AGENT_EXECUTION_ERROR, { recoverable: false });
     });
 
@@ -1681,7 +1681,7 @@ test(
     assert.equal(manager.getRun(runId)?.status, "paused");
 
     // Mock agent to throw a non-recoverable WorkflowError, making the run fail
-    test.mock.method(da.runner, "run", async (_prompt: string) => {
+    spyOn(da.runner, "run").mockImplementation(async (_prompt: string) => {
       throw new WorkflowError("fatal agent error", WorkflowErrorCode.AGENT_EXECUTION_ERROR, { recoverable: false });
     });
 
@@ -1723,7 +1723,7 @@ test(
     assert.equal(manager.getRun(runId)?.status, "paused");
 
     // Mock agent to throw a non-recoverable WorkflowError
-    test.mock.method(da.runner, "run", async (_prompt: string) => {
+    spyOn(da.runner, "run").mockImplementation(async (_prompt: string) => {
       throw new WorkflowError("fatal agent error", WorkflowErrorCode.AGENT_EXECUTION_ERROR, { recoverable: false });
     });
 
@@ -1765,7 +1765,7 @@ test(
     assert.equal(manager.getRun(runId)?.status, "paused");
 
     // Mock agent to throw a non-recoverable WorkflowError
-    test.mock.method(da.runner, "run", async (_prompt: string) => {
+    spyOn(da.runner, "run").mockImplementation(async (_prompt: string) => {
       throw new WorkflowError("fatal agent error", WorkflowErrorCode.AGENT_EXECUTION_ERROR, { recoverable: false });
     });
 

@@ -13,7 +13,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homeDir } from "./home.js";
 import { dirname, join } from "node:path";
 import { listAvailableModelSpecs } from "./agent.js";
 import { MODEL_TIERS_FILE } from "./config.js";
@@ -36,7 +36,7 @@ export interface ModelTierConfig {
 
 /** Path to the model tiers JSON config file (~/.pi/workflows/model-tiers.json). */
 export function getModelTierConfigPath(): string {
-  return join(homedir(), MODEL_TIERS_FILE);
+  return join(homeDir(), MODEL_TIERS_FILE);
 }
 
 // ---------------------------------------------------------------------------
