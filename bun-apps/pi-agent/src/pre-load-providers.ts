@@ -22,7 +22,7 @@ import { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 // ─── Provider config ──────────────────────────────────────────────────────────
 
-type ApiKey = string | { env: string };
+export type ApiKey = string | { env: string };
 
 interface ModelEntry {
   id: string;
@@ -107,9 +107,10 @@ const _realRegisterProvider = Proto.registerProvider as (
   config: any,
 ) => void;
 
-function resolveApiKey(key: ApiKey): string {
+/** Resolve an ApiKey spec: a literal string, or {env} → process.env ("" if unset). */
+export function resolveApiKey(key: ApiKey, env: Record<string, string | undefined> = process.env): string {
   if (typeof key === "string") return key;
-  return process.env[key.env] ?? "";
+  return env[key.env] ?? "";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
