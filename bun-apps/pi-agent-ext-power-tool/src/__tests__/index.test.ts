@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import * as yaml from "js-yaml";
-import { defineTool, formatSkillsForPrompt, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { defineTool, formatSkillsForPrompt, parseFrontmatter, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import extension, {
   analyzeExtensions,
@@ -694,5 +694,38 @@ describe("real-SDK contract", () => {
     ]);
     expect(typeof formatted).toBe("string");
     expect(formatted.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── extension-auditor subagent definition ───────────────────────────────────
+// The .pi/agents/extension-auditor.md is the judgment layer over this tool's
+// findings. Guard its frontmatter shape so a malformed tools field doesn't
+// silently degrade to "all tools allowed" (pi-dynamic-workflows' parser returns
+// tools=undefined for comma-strings — must use YAML list syntax). We parse via
+// the SDK's parseFrontmatter (the same primitive parseAgentDefinition uses).
+
+describe("extension-auditor subagent definition", () => {
+  // Resolve from this test file (src/__tests__/) → ../../.pi/agents/ = the package's .pi/agents/.
+  const agentPath = join(import.meta.dir, "..", "..", ".pi", "agents", "extension-auditor.md");
+  function parsed() {
+    return parseFrontmatter(readFileSync(agentPath, "utf8"));
+  }
+
+  test("frontmatter has the expected name + a non-empty description + real body", () => {
+    const { frontmatter, body } = parsed();
+    expect(frontmatter.name).toBe("extension-auditor");
+    expect(String(frontmatter.description).length).toBeGreaterThan(0);
+    expect(body.length).toBeGreaterThan(500); // real role guidance, not empty
+  });
+
+  test("tools allowlist is a YAML LIST (enforces read-only; comma-strings would parse to undefined = all tools)", () => {
+    const { frontmatter } = parsed();
+    expect(Array.isArray(frontmatter.tools)).toBe(true);
+    const tools = frontmatter.tools as unknown[];
+    expect(tools.length).toBeGreaterThan(0);
+    // read-only: analyzers + inspection tools, never write/edit
+    expect(tools).toContain("extension_analyzer");
+    expect(tools).not.toContain("write");
+    expect(tools).not.toContain("edit");
   });
 });

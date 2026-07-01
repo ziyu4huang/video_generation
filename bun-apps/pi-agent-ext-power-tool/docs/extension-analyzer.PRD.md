@@ -96,7 +96,7 @@ JSON (`return_json=true`): `{findings: Finding[], summary: {total,high,medium,lo
 | Layer | Responsibility | Where to fix false alarms |
 |---|---|---|
 | **Tool** (this file) | Deterministic facts + conservative severity | **Classification** fixes only — e.g. an SDK-optional field flagged as a defect (`no-guidelines` → info), or a borderline threshold. Not context judgment. |
-| **Subagent prompt** (planned) | Given the tool's JSON findings + extension source read access, judge per-finding true-issue vs false-alarm, produce a prioritized remediation plan | **Context-dependent** judgment — "these 16 obsidian tools are always used as a group, so missing snippets are low priority", etc. |
+| **Subagent prompt** (`.pi/agents/extension-auditor.md`, shipped) | Given the tool's JSON findings + extension source read access, judge per-finding true-issue vs false-alarm, produce a prioritized remediation plan | **Context-dependent** judgment — "these 16 obsidian tools are always used as a group, so missing snippets are low priority", etc. |
 
 The two are complementary, not alternatives. The tool must stay a deterministic
 fact-finder so its output is stable and cheap; the subagent adds the reasoning.
