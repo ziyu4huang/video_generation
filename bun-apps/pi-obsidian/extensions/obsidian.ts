@@ -1246,6 +1246,13 @@ export interface VaultIndex {
 	byTag: Map<string, Set<string>>;
 	byTitle: Map<string, string>; // lowercased title/path/basename -> path
 	reverseAdjacency: Map<string, Set<string>>; // targetPath -> Set<sourcePath>
+	// Phase 3 / WS-C2: memoized undirected adjacency for graph queries.
+	// Built lazily by getAdjacency(); invalidated by bumping `rev` on every
+	// note mutation (indexNote/unindexNote). graphNeighbors rebuilds only when
+	// adjacencyRev !== rev, instead of O(n) per call.
+	rev: number; // mutation counter; bump on any notes change
+	adjacency?: Map<string, Set<string>>; // undirected: path -> Set<neighborPath>
+	adjacencyRev?: number; // rev the cache was built at
 }
 
 /** Parse a note into NoteMeta (no I/O). Reused by index build + reindex. */
@@ -1313,6 +1320,10 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 }
 
 const indexCache = new Map<string, VaultIndex>();
+// Phase 3 / WS-C4: in-flight index builds, so concurrent getIndex() calls on
+// the same (uncached) vault share ONE buildIndex instead of racing parallel
+// full-vault scans. Resolved + cleared once the build settles into indexCache.
+const indexInFlight = new Map<string, Promise<VaultIndex>>();
 
 // ---- Index coherence (Phase 4: WS-A5 + WS-C3) -----------------------------
 // The file cache (readCached) is already mtime-coherent per read. The INDEX,
@@ -1338,10 +1349,23 @@ export async function getIndex(vaultPath: string): Promise<VaultIndex> {
 		await refreshIndex(idx, { force: false });
 		return idx;
 	}
-	idx = await buildIndex(real);
-	indexCache.set(real, idx);
-	indexRefreshAt.set(real, Date.now());
-	return idx;
+	// Phase 3 / WS-C4: single-flight — if another caller is already building
+	// this vault's index, await its promise rather than starting a parallel scan.
+	let inflight = indexInFlight.get(real);
+	if (!inflight) {
+		inflight = (async () => {
+			try {
+				const built = await buildIndex(real);
+				indexCache.set(real, built);
+				indexRefreshAt.set(real, Date.now());
+				return built;
+			} finally {
+				indexInFlight.delete(real);
+			}
+		})();
+		indexInFlight.set(real, inflight);
+	}
+	return inflight;
 }
 
 /** Build a fresh index over the whole vault. O(n). */
@@ -1356,6 +1380,7 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 		byTag: new Map(),
 		byTitle: new Map(),
 		reverseAdjacency: new Map(),
+		rev: 0,
 	};
 	for (let i = 0; i < files.length; i++) {
 		const entry = entries[i];
@@ -1416,12 +1441,14 @@ function indexNote(idx: VaultIndex, meta: NoteMeta): void {
 		}
 		s.add(meta.path);
 	}
+	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 }
 
 /** Remove a note from all index maps. */
 function unindexNote(idx: VaultIndex, path: string): void {
 	const old = idx.notes.get(path);
 	if (!old) return;
+	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 	idx.notes.delete(path);
 	for (const k of titleKeysFor(old))
 		if (idx.byTitle.get(k) === path) idx.byTitle.delete(k);
@@ -1606,19 +1633,10 @@ export function graphDeadLinks(idx: VaultIndex): GraphResult[] {
 	return out;
 }
 
-/** N-hop neighborhood via BFS over adjacency ∪ reverseAdjacency (B2.4). */
-export function graphNeighbors(
-	idx: VaultIndex,
-	note: string,
-	maxDepth = 1,
-	max = 50,
-): GraphResult[] {
-	const startKey = note.toLowerCase();
-	const startPath =
-		idx.byTitle.get(startKey) ??
-		idx.byTitle.get(startKey.split("/").pop() ?? startKey);
-	if (!startPath) return [];
-	// build undirected adjacency from notes' resolved links
+/** Build the undirected adjacency map (path -> Set<neighborPath>) from notes'
+ *  resolved links. Phase 3 / WS-C2: memoized on the index via getAdjacency()
+ *  so repeated graphNeighbors calls don't rebuild it O(n) each time. */
+function buildAdjacency(idx: VaultIndex): Map<string, Set<string>> {
 	const adj = new Map<string, Set<string>>();
 	const addEdge = (a: string, b: string) => {
 		if (!adj.has(a)) adj.set(a, new Set());
@@ -1632,6 +1650,34 @@ export function graphNeighbors(
 			addEdge(meta.path, resolved);
 		}
 	}
+	return adj;
+}
+
+/** Return the memoized undirected adjacency, rebuilding only when notes changed
+ *  since the last build (tracked by idx.rev). Phase 3 / WS-C2. */
+export function getAdjacency(idx: VaultIndex): Map<string, Set<string>> {
+	if (idx.adjacency && idx.adjacencyRev === idx.rev) return idx.adjacency;
+	const adj = buildAdjacency(idx);
+	idx.adjacency = adj;
+	idx.adjacencyRev = idx.rev;
+	return adj;
+}
+
+/** N-hop neighborhood via BFS over undirected adjacency (B2.4).
+ *  Phase 3 / WS-C2: uses the memoized adjacency (getAdjacency) instead of
+ *  rebuilding the full edge set on every call. */
+export function graphNeighbors(
+	idx: VaultIndex,
+	note: string,
+	maxDepth = 1,
+	max = 50,
+): GraphResult[] {
+	const startKey = note.toLowerCase();
+	const startPath =
+		idx.byTitle.get(startKey) ??
+		idx.byTitle.get(startKey.split("/").pop() ?? startKey);
+	if (!startPath) return [];
+	const adj = getAdjacency(idx);
 	const results: GraphResult[] = [];
 	const visited = new Set<string>([startPath]);
 	let frontier = [startPath];
@@ -2105,7 +2151,6 @@ export async function findBacklinks(
 	target: string,
 	opts: { folder?: string; caseSensitive?: boolean; max: number },
 ): Promise<{ file: string; line: number; text: string }[]> {
-	const files = await listNotes(vaultPath, opts.folder ?? "");
 	const want = target.replace(/\.md$/i, "").trim();
 	const cmp = (s: string) => (opts.caseSensitive ? s : s.toLowerCase());
 	const wantN = cmp(want);
@@ -2113,6 +2158,29 @@ export async function findBacklinks(
 	const wantBase = cmp(want.split("/").pop() ?? want);
 	const results: { file: string; line: number; text: string }[] = [];
 	const max = opts.max;
+
+	// Phase 3 / WS-C1: narrow to the O(1) candidate set from reverseAdjacency
+	// instead of line-scanning the whole vault. The index is coherence-refreshed
+	// by getIndex, so its candidate set is reliable mid-session. Fall back to a
+	// full scan only when the index is not yet built (empty) — the legacy path.
+	let files: string[];
+	let idx: VaultIndex | undefined;
+	try {
+		idx = await getIndex(vaultPath);
+	} catch {
+		idx = undefined;
+	}
+	const candidates = idx ? backlinkPaths(idx, target) : new Set<string>();
+	if (idx && idx.notes.size > 0) {
+		// Filter candidates by folder scope (reverseAdjacency is vault-wide).
+		const folder = opts.folder ?? "";
+		files = [...candidates].filter((p) => !folder || p.startsWith(folder + "/") || p === folder);
+		// No candidates means no backlinks per a coherent index — return early.
+		if (files.length === 0) return [];
+	} else {
+		files = await listNotes(vaultPath, opts.folder ?? "");
+	}
+
 	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
 	for (let fi = 0; fi < files.length; fi++) {
 		const f = files[fi];
