@@ -148,6 +148,43 @@ function csv(val: string): string[] {
 }
 
 /**
+ * Fail-fast numeric flag parsing — mirrors --depth / --top-k / --dpi. Bad input
+ * throws instead of silently coercing to 0/default, so a typo like `--retries
+ * abc` can't quietly disable 429 retries (the old `Number(x) || 0` did exactly
+ * that). 0 stays valid where it is semantically meaningful (e.g. --retries 0 =
+ * no retries, --context-lines 0 = titles only, --max-notes 0 = unlimited).
+ *
+ * @param name    flag name for the error message (e.g. "--retries")
+ * @param raw     the raw token from argv
+ * @param min     inclusive lower bound (default 0)
+ * @param integer require an integer value (default true)
+ * @param example hint shown in the error message (e.g. "10")
+ */
+function parseNumericFlag(
+	name: string,
+	raw: string,
+	{ min = 0, integer = true, example = "2" }: {
+		min?: number;
+		integer?: boolean;
+		example?: string;
+	} = {},
+): number {
+	const n = Number(raw);
+	const ok =
+		Number.isFinite(n) &&
+		n >= min &&
+		(!integer || Number.isInteger(n));
+	if (!ok) {
+		const kind = integer ? "an integer" : "a number";
+		const bound = min > 0 ? `greater than or equal to ${min}` : "non-negative";
+		throw new Error(
+			`Invalid ${name} "${raw}" — use ${kind} ${bound} (e.g. ${example}).`,
+		);
+	}
+	return n;
+}
+
+/**
  * Parse pi-aligned flags from an argv slice.
  *
  * @param argv   tokens to parse (typically the tail after any sub-command path)
@@ -216,11 +253,11 @@ export function parsePiArgs(
 			continue;
 		}
 
-		// --max-notes (numeric)
+		// --max-notes (non-negative integer; 0 = unlimited hint)
 		{
 			const mn = take("--max-notes");
 			if (mn !== undefined) {
-				out.maxNotes = Number(mn) || 0;
+				out.maxNotes = parseNumericFlag("--max-notes", mn, { example: "30" });
 				i++;
 				continue;
 			}
@@ -259,7 +296,7 @@ export function parsePiArgs(
 		{
 			const r = take("--retries");
 			if (r !== undefined) {
-				out.retries = Number(r) || 0;
+				out.retries = parseNumericFlag("--retries", r, { example: "3" });
 				i++;
 				continue;
 			}
@@ -267,7 +304,7 @@ export function parsePiArgs(
 		{
 			const rw = take("--retry-wait");
 			if (rw !== undefined) {
-				out.retryWaitSec = Number(rw) || 10;
+				out.retryWaitSec = parseNumericFlag("--retry-wait", rw, { integer: false, example: "10" });
 				i++;
 				continue;
 			}
@@ -293,21 +330,21 @@ export function parsePiArgs(
 			continue;
 		}
 
-		// --context-lines (numeric)
+		// --context-lines (non-negative integer; 0 = titles only)
 		{
 			const cl = take("--context-lines");
 			if (cl !== undefined) {
-				out.contextLines = Number(cl) || 0;
+				out.contextLines = parseNumericFlag("--context-lines", cl, { example: "3" });
 				i++;
 				continue;
 			}
 		}
 
-		// --limit (numeric)
+		// --limit (positive integer; max results)
 		{
 			const lim = take("--limit");
 			if (lim !== undefined) {
-				out.limit = Number(lim) || 10;
+				out.limit = parseNumericFlag("--limit", lim, { min: 1, example: "10" });
 				i++;
 				continue;
 			}

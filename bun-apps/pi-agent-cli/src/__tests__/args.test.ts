@@ -125,6 +125,68 @@ describe("parsePiArgs — zk-card / zk-ask flags", () => {
   });
 });
 
+describe("parsePiArgs — fail-fast numeric flags (silent-coerce → throw)", () => {
+  // These five flags previously used `Number(x) || default`, silently coercing
+  // bad input (a typo in --retries abc disabled 429 retries with no error).
+  // They now throw like --depth / --top-k. 0 stays legal where meaningful.
+
+  // --- --limit (positive integer; 0 was never reachable, became 10) ---
+  test("--limit abc throws (was silently coerced to 10)", () => {
+    expect(() => parsePiArgs(["--limit", "abc"])).toThrow(/--limit/);
+  });
+  test("--limit 0 throws (0 results is meaningless; was silently 10)", () => {
+    expect(() => parsePiArgs(["--limit", "0"])).toThrow(/--limit/);
+  });
+  test("--limit -5 throws", () => {
+    expect(() => parsePiArgs(["--limit", "-5"])).toThrow(/--limit/);
+  });
+
+  // --- --max-notes (non-negative integer; 0 = unlimited hint) ---
+  test("--max-notes abc throws", () => {
+    expect(() => parsePiArgs(["--max-notes", "abc"])).toThrow(/--max-notes/);
+  });
+  test("--max-notes -1 throws", () => {
+    expect(() => parsePiArgs(["--max-notes", "-1"])).toThrow(/--max-notes/);
+  });
+  test("--max-notes 0 is accepted (unlimited)", () => {
+    expect(parsePiArgs(["--max-notes", "0"]).maxNotes).toBe(0);
+  });
+
+  // --- --context-lines (non-negative integer; 0 = titles only) ---
+  test("--context-lines abc throws", () => {
+    expect(() => parsePiArgs(["--context-lines", "abc"])).toThrow(/--context-lines/);
+  });
+  test("--context-lines -2 throws", () => {
+    expect(() => parsePiArgs(["--context-lines", "-2"])).toThrow(/--context-lines/);
+  });
+  // (0 is valid — covered by the earlier "--context-lines 0 is valid" test.)
+
+  // --- --retries (non-negative integer; 0 = no retries) ---
+  test("--retries abc throws (was silently 0 → disabled 429 retries)", () => {
+    expect(() => parsePiArgs(["--retries", "abc"])).toThrow(/--retries/);
+  });
+  test("--retries -1 throws", () => {
+    expect(() => parsePiArgs(["--retries", "-1"])).toThrow(/--retries/);
+  });
+  test("--retries 0 is accepted (no retries)", () => {
+    expect(parsePiArgs(["--retries", "0"]).retries).toBe(0);
+  });
+
+  // --- --retry-wait (non-negative number; seconds, fractional allowed) ---
+  test("--retry-wait abc throws", () => {
+    expect(() => parsePiArgs(["--retry-wait", "abc"])).toThrow(/--retry-wait/);
+  });
+  test("--retry-wait -1 throws", () => {
+    expect(() => parsePiArgs(["--retry-wait", "-1"])).toThrow(/--retry-wait/);
+  });
+  test("--retry-wait 0 is accepted (no wait)", () => {
+    expect(parsePiArgs(["--retry-wait", "0"]).retryWaitSec).toBe(0);
+  });
+  test("--retry-wait 1.5 is accepted (fractional seconds)", () => {
+    expect(parsePiArgs(["--retry-wait", "1.5"]).retryWaitSec).toBe(1.5);
+  });
+});
+
 describe("parsePiArgs — verbose flags", () => {
   // The env var is read at emptyParsed() time, so save/restore around each test.
   const envName = "PI_VERBOSE";
