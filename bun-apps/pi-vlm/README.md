@@ -114,12 +114,29 @@ bun ../../dist/pi-agent/pi-agent.js -ne \
 
 - **`src/sessions.ts` forks `bun-pi-agent-cli`'s `sessions/shared.ts`.**
   `resolveLLM`, `resolveModel`, and the session-construction wiring are
-  near-duplicates of the CLI's shared helpers — they have already drifted
-  (this copy lacks the CLI's `PI_PROVIDER` read and case-insensitive provider
-  match). Packages can't import the downstream CLI, so the right fix is to
-  extract the model-resolution + session-factory primitives into a neutral
-  shared module both consume, then delete the fork. Until then, any fix to the
-  model-id grammar must be applied in two places.
+  near-duplicates of the CLI's shared helpers. `resolveLLM` reads the same env
+  knobs as the CLI (`PI_MODEL`, `PI_PROVIDER`, `PI_THINKING`) and `resolveModel`
+  does a case-insensitive provider+id match, so the earlier documented drift is
+  closed (grammar is pinned by `__tests__/sessions.test.ts`). Packages can't
+  import the downstream CLI, so the durable fix is still to extract the
+  model-resolution + session-factory primitives into a neutral shared module
+  both consume, then delete the fork. Until then, any fix to the model-id
+  grammar must be applied in two places.
+
+## Tests
+
+```bash
+bun test        # from this package dir
+```
+
+The suite covers the **pure, deterministic core** — no LM Studio, network, or
+real model session is needed: `resolveLLM` model-id grammar + env fallbacks
+(`__tests__/sessions.test.ts`, pins the `PI_PROVIDER` resolution parity with
+the CLI), the retry predicate/loop (`retry.ts`), manifest layout math
+(`slugify` / `pageLabel` / `layoutFor` / `createManifest`), and the kind/mime
+classifiers (`classifyKind` / `imageMimeType`, including magic-byte fixtures).
+The I/O- and model-bound `pipeline.ts` / `agents.ts` / `classify-vlm.ts` /
+`pdf2png.ts` are out of scope.
 
 ## License
 

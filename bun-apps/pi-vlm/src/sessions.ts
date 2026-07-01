@@ -40,7 +40,7 @@ export function resolveLLM(opts: {
   const DEFAULT_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";
 
   let model = opts.model ?? process.env.PI_MODEL ?? DEFAULT_MODEL;
-  let provider = opts.provider ?? "lm-studio";
+  let provider = opts.provider ?? process.env.PI_PROVIDER ?? "lm-studio";
   let thinkingLevel: ThinkingLevel = (process.env.PI_THINKING ?? "off") as ThinkingLevel;
 
   // Parse "provider/modelId[:thinking]" shorthand
