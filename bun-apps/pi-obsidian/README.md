@@ -163,6 +163,24 @@ packages/pi-obsidian/
 | `OB_VAULT_PATH` | — | Absolute path; Tier 1 — overrides everything |
 | `OB_VAULT` | — | Registered vault name from `obsidian.json` (legacy, global mode only) |
 | `OB_USE_GLOBAL` | unset | Any truthy value skips the Tier 3 fallback |
+| `OB_CACHE_MAX` | `500` | Soft cap on the session file cache (true LRU, access-order). Tunable at runtime. |
+| `OB_INDEX_POLL_MS` | `2000` | Throttle window for incremental index refresh; `0` forces a refresh each call (tests). |
+| `OB_TRIGRAM_SEARCH` | on | `0` disables the C5 trigram candidate pre-filter for substring search. |
+| `OB_INDEX_PERSIST` | on | `0` disables C6 cross-session index persistence (load/save). |
+| `OB_INDEX_CACHE_DIR` | `<vault>/.cache` | Where C6 writes `pi-obsidian-index.json`. **Point outside the vault** (e.g. `/tmp/pi-obsidian-cache`) if you git-track or sync the vault folder and don't want a `.cache/` tracked there — see below. |
+| `OB_DISTILL_TOOLS` | *(built-in set)* | Comma-separated tool names the distill subagent may call (B6). |
+| `OB_GARDEN_AUDIT_TOOLS` / `OB_GARDEN_FIX_TOOLS` | *(built-in set)* | Same for garden audit / fix modes. Fix defaults to audit + write tools. |
+| `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id inheritance floor for distill/garden subagents (B2). `OB_SUBAGENT_MODEL` is a trusted floor; a known-weak `OB_PARENT_MODEL` is refused. |
+| `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call timeout for distill/garden subagents. |
+
+### C6 `.cache/` note
+
+C6 persists the vault index to `<vault>/.cache/pi-obsidian-index.json` by default
+(so it lives alongside the vault and survives across sessions). If you **git-track
+or sync the vault folder**, add `.cache/` to that vault's `.gitignore` (or set
+`OB_INDEX_CACHE_DIR` to a path outside the vault) — otherwise the cache file
+shows up as an untracked file in the vault. (The bundled `vaults_root/pi-agent-vault`
+test vault already ignores `.cache/`.)
 
 ## External use (bun scripts)
 
