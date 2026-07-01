@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import manifest from "./manifest.json";
 import settings_real from "./settings.json";
 import {
 	buildArgvFromManifest,
+	buildBundleArgvFromLayout,
 	detectMode,
 	resolveRunDirArgv,
 	looksLikeAlias,
@@ -337,5 +338,61 @@ describe("rewriteExtensionArgs", () => {
 	test("no -e flag → unchanged", () => {
 		const argv = ["--model", "x", "-p", "hi"];
 		expect(rewriteExtensionArgs(argv, resolveFn)).toEqual(argv);
+	});
+});
+
+describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
+	const SELF = "/out/pi-agent-bundle";
+	const warnFn = (m: string) => warns.push(m);
+	let warns: string[] = [];
+	beforeEach(() => {
+		warns = [];
+	});
+
+	test("emits -e per ext-bundle + --skill per skill dir + -e per present npm path", () => {
+		const argv = buildBundleArgvFromLayout(
+			{
+				extBundles: ["obsidian.thin.js", "pi-vlm.thin.js"],
+				skillDirs: ["pi-obsidian-skills"],
+				npmPaths: ["/repo/node_modules/.bun/x/node_modules/rpiv/index.ts"],
+			},
+			SELF,
+			() => true, // all exist
+			warnFn,
+		);
+		expect(argv).toEqual([
+			"-e", join(SELF, "ext-bundles", "obsidian.thin.js"),
+			"-e", join(SELF, "ext-bundles", "pi-vlm.thin.js"),
+			"-e", "/repo/node_modules/.bun/x/node_modules/rpiv/index.ts",
+			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
+		]);
+		expect(warns).toEqual([]);
+	});
+
+	test("filters non-.js entries upstream (caller responsibility) — here just emits what's passed", () => {
+		// (deploy.ts filters .js before calling; the builder trusts the list.)
+		const argv = buildBundleArgvFromLayout(
+			{ extBundles: ["x.thin.js"], skillDirs: [], npmPaths: [] },
+			SELF,
+			() => true,
+			warnFn,
+		);
+		expect(argv).toEqual(["-e", join(SELF, "ext-bundles", "x.thin.js")]);
+	});
+
+	test("missing npm path → skipped + warned (not fatal)", () => {
+		const missing = "/repo/node_modules/.bun/x/node_modules/gone/index.ts";
+		const argv = buildBundleArgvFromLayout(
+			{ extBundles: ["obsidian.thin.js"], skillDirs: [], npmPaths: [missing] },
+			SELF,
+			(p) => p !== missing, // missing doesn't exist
+			warnFn,
+		);
+		expect(argv).toEqual(["-e", join(SELF, "ext-bundles", "obsidian.thin.js")]);
+		expect(warns.join("\n")).toContain("npm extension path not found");
+	});
+
+	test("empty layout → empty argv", () => {
+		expect(buildBundleArgvFromLayout({ extBundles: [], skillDirs: [], npmPaths: [] }, SELF, () => true, warnFn)).toEqual([]);
 	});
 });

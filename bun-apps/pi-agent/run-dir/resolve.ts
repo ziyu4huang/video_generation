@@ -119,14 +119,34 @@ export async function resolveRunDirArgv(): Promise<string[]> {
     return [];
   }
 
-  // DEPLOY-PACKAGE mode: a self-contained package produced by scripts/deploy.ts
+  const selfDir = dirname(fileURLToPath(url));
+
+  // DEPLOY-BUNDLE mode: the DEFAULT output of `scripts/deploy.ts` (no --release)
+  // — the bundle sits next to its own `ext-bundles/*.thin.js` (pre-bundled
+  // single-file extensions) + a copied `node_modules/` + `.deploy-bundle`
+  // marker. The dir listing is the source of truth (NOT manifest.extensions,
+  // which still names source .ts paths). Uses `-ne` for the same self-contained
+  // reason as DEPLOY-PACKAGE. Checked before `packages/` since the two layouts
+  // are mutually exclusive (deploy.ts emits one or the other).
+  const extBundlesDir = join(selfDir, "ext-bundles");
+  if (existsSync(join(selfDir, ".deploy-bundle")) && existsSync(extBundlesDir)) {
+    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
+      warn(`deploy-bundle mode — resolving from ${extBundlesDir}`);
+    }
+    // npm exts resolve to the same baked .bun-store abs paths the THIN bundles
+    // and pi-agent.js itself use (everything in this layout is machine-abs-pathed).
+    const npmPaths = await resolveNpmExtensionPaths();
+    return ["-ne", ...buildBundleArgv(selfDir, npmPaths)];
+  }
+
+  // DEPLOY-PACKAGE mode: a self-contained package produced by `scripts/deploy.ts
+  // --release` — the bundle sits next to its own `packages/<pkg>/…` tree +
   // — the bundle sits next to its own `packages/<pkg>/…` tree + `run-dir/manifest.json`.
   // Resolve the manifest against packages/ (NOT the repo's bun-apps/, and NOT
   // the build-time-baked run-dir-base.ts, which points at the repo). Uses `-ne`
   // so the package is self-contained: pi loads ONLY these -e paths and ignores
   // any <cwd>/.pi/ — avoiding cross-path tool-name conflicts when the package is
   // run inside a repo that declares the same extensions from different paths.
-  const selfDir = dirname(fileURLToPath(url));
   const packagesDir = join(selfDir, "packages");
   if (existsSync(packagesDir) && existsSync(join(selfDir, "run-dir", "manifest.json"))) {
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
@@ -154,6 +174,60 @@ async function buildArgv(bunAppsDir: string | undefined): Promise<string[]> {
     existsSync,
     warn,
   );
+}
+
+/**
+ * DEPLOY-BUNDLE argv builder. Resolves from the out-dir layout produced by
+ * `scripts/deploy.ts` (no --release): `ext-bundles/*.js` + npm ext abs paths +
+ * `skills/<dir>`. The dir listing of ext-bundles is the source of truth (the
+ * bundles are pre-built single files, NOT the source paths named in
+ * manifest.extensions). npmPaths are the baked .bun-store abs paths (same
+ * machine-abs-pathed model the THIN bundles + pi-agent.js itself use).
+ */
+function buildBundleArgv(selfDir: string, npmPaths: string[]): string[] {
+  const readDir = (d: string) => (existsSync(d) ? readdirSync(d) : []);
+  return buildBundleArgvFromLayout(
+    {
+      extBundles: readDir(join(selfDir, "ext-bundles")).filter((f) => f.endsWith(".js")),
+      skillDirs: readDir(join(selfDir, "skills")),
+      npmPaths,
+    },
+    selfDir,
+    existsSync,
+    warn,
+  );
+}
+
+/**
+ * Pure DEPLOY-BUNDLE argv builder — everything passed in, no fs. Exported so the
+ * ext-bundles + npm + skills assembly is unit-testable.
+ *
+ *   - ext-bundles → `-e <selfDir>/ext-bundles/<file>` (one per bundled .js)
+ *   - npm exts    → `-e <absPath>` (the baked .bun-store path, when it exists)
+ *   - skills      → `--skill <selfDir>/skills/<dir>`
+ *   - missing npm → skipped + warned (not fatal — some bundles may inline it)
+ */
+export function buildBundleArgvFromLayout(
+  layout: { extBundles: string[]; skillDirs: string[]; npmPaths: string[] },
+  selfDir: string,
+  exists: (p: string) => boolean,
+  warnFn: (msg: string) => void,
+): string[] {
+  const argv: string[] = [];
+  for (const f of layout.extBundles) {
+    argv.push("-e", join(selfDir, "ext-bundles", f));
+  }
+  for (const p of layout.npmPaths) {
+    if (exists(p)) {
+      argv.push("-e", p);
+    } else {
+      warnFn(`deploy-bundle: npm extension path not found, skipping: ${p}`);
+    }
+  }
+  for (const dir of layout.skillDirs) {
+    argv.push("--skill", join(selfDir, "skills", dir));
+  }
+  return argv;
 }
 
 /**

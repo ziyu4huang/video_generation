@@ -213,6 +213,38 @@ URL, and Bun's compiled resolver rejects it with `NameTooLong` (`ENAMETOOLONG`).
 This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary with
 `-ne` (no extensions) or use source/bundle mode when extensions are needed.
 
+## Deploy
+
+`scripts/deploy.ts` packages pi-agent + its extension set into a self-contained
+dir runnable from any cwd. Two modes:
+
+```bash
+bun scripts/deploy.ts [out-dir]              # DEFAULT (bundle): pre-bundled ext + skills
+bun scripts/deploy.ts [out-dir] --release    # RELEASE (source-copy): packages/ + bun install
+```
+
+| Mode | Layout | Extensions | node_modules |
+|---|---|---|---|
+| **bundle** (default) | `ext-bundles/*.thin.js` + `skills/` + `.deploy-bundle` | each ext pre-bundled to one `.js` (`scripts/build-extensions.ts`, THIN — shared typebox) | not copied (redundant); opt in `--with-nm-copy` |
+| **--release** | `packages/<pkg>/…` (source) + workspaces `package.json` | source folders copied verbatim | wired by `bun install` |
+
+`run-dir/resolve.ts` auto-detects the layout at runtime (`.deploy-bundle` +
+`ext-bundles/` → bundle; `packages/` + manifest → release) and injects `-ne` +
+the resolved `-e`/`--skill` paths, so the package is self-contained.
+
+**Same-machine caveat (bundle mode):** THIN bundles + pi-agent.js + npm exts all
+resolve deps via baked absolute paths into the repo's `.bun` store, so a bundle
+deploy runs anywhere *on the machine it was built on* (matching the bundle
+portability caveat above) — not relocatable to another host. For a truly
+portable artifact, copy the repo to the same absolute path on the target first,
+or rebuild there. `--release` + `bun install` is the relocatable alternative.
+
+```bash
+bun scripts/deploy.ts /tmp/pi-bundle         # build + deploy (bundle)
+/tmp/pi-bundle/run.sh --list-models          # smoke (lm-studio models appear)
+cd /tmp && /tmp/pi-bundle/run.sh -p "hi"     # runs from any cwd
+```
+
 ## Add your own patch
 
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
