@@ -2530,6 +2530,76 @@ export function buildSubagentArgs(
 	return args;
 }
 
+// ---- Subagent model resolution (Phase 2 / WS-B2) --------------------------
+// A subagent's model was previously inherited blindly from OB_PARENT_MODEL.
+// A weak/TC-unaware parent model silently degrades distill/garden output. We
+// now: honor an explicit per-call model; fall back to a configured floor
+// (OB_SUBAGENT_MODEL); refuse to INHERIT a known-weak parent model; and warn
+// when no model is configured at all. The floor for TC-aware distill/garden is
+// a config decision (open question #2 in the PRD) — OB_SUBAGENT_MODEL is the
+// mechanism; weak-detection is pattern-based so it doesn't hardcode an id.
+
+/** Substring patterns that mark a model as "weak" (small/fast tiers that are a
+ *  poor floor for the TC-heavy distill/garden prompts). Used only to REFUSE
+ *  inheritance and to WARN on explicit selection — never to silently clear an
+ *  explicit caller choice. */
+const WEAK_MODEL_PATTERNS = [
+	/haiku/i,
+	/mini/i,
+	/nano/i,
+	/\bsmall\b/i,
+	/-lite\b/i,
+	/flash/i,
+	/tiny/i,
+	/nano[-_]?code/i,
+];
+
+/** Is this model id a known-weak tier? (substring match on the id.) */
+export function isWeakModel(modelId: string | undefined): boolean {
+	if (!modelId) return false;
+	return WEAK_MODEL_PATTERNS.some((re) => re.test(modelId));
+}
+
+export interface ResolvedModel {
+	model: string | undefined;
+	/** Where the resolution came from — surfaced for logging/diagnostics. */
+	source: "explicit" | "floor" | "inherited" | "default";
+	warned: boolean;
+}
+
+/** Resolve the subagent model per WS-B2. Pure function — unit-tested without
+ *  spawning. Resolution order:
+ *    1. opts.model            (explicit — caller's choice; warn if weak)
+ *    2. OB_SUBAGENT_MODEL     (configured floor — trusted, no weakness check)
+ *    3. OB_PARENT_MODEL       (inherited — REFUSED if weak)
+ *    4. undefined             (pi default — warn that no model is configured) */
+export function resolveSubagentModel(opts: SubagentOptions = {}): ResolvedModel {
+	const warn = (m: string) => console.error(`  [subagent] ⚠ ${m}`);
+	// 1. Explicit per-call model: honor it, but warn on a known-weak choice.
+	if (opts.model) {
+		if (isWeakModel(opts.model))
+			warn(`explicit model "${opts.model}" looks like a weak tier for TC distill/garden`);
+		return { model: opts.model, source: "explicit", warned: isWeakModel(opts.model) };
+	}
+	// 2. Configured floor (OB_SUBAGENT_MODEL) — trusted; not weakness-checked.
+	const floor = process.env.OB_SUBAGENT_MODEL;
+	if (floor) return { model: floor, source: "floor", warned: false };
+	// 3. Inherited parent model — refuse if known-weak so a parent `--model`
+	//    selection can't silently degrade every spawned subagent.
+	const parent = process.env.OB_PARENT_MODEL;
+	if (parent) {
+		if (isWeakModel(parent)) {
+			warn(`refusing to inherit weak parent model "${parent}"; falling back to pi default`);
+			return { model: undefined, source: "default", warned: true };
+		}
+		return { model: parent, source: "inherited", warned: false };
+	}
+	// 4. Nothing configured — let pi pick its default, but surface that no
+	//    explicit/floor model is set so the operator can tune OB_SUBAGENT_MODEL.
+	warn("no subagent model configured (set OB_SUBAGENT_MODEL for a stable TC-aware floor)");
+	return { model: undefined, source: "default", warned: true };
+}
+
 /** Spawn a child pi (isolated context) as a specialized subagent.
  *  Loads this extension (-e) so obsidian tools are available in any cwd,
  *  restricts tools, appends the given system prompt, and runs the task.
@@ -2654,7 +2724,7 @@ async function runSubagentWithRetryImpl(
 	return { ...res, attempts: attempt };
 }
 
-export function runSubagent(
+export async function runSubagent(
 	cwd: string,
 	systemPrompt: string,
 	task: string,
@@ -2669,100 +2739,125 @@ export function runSubagent(
 	timedOut: boolean;
 	result: any;
 }> {
-	return new Promise(async (resolveP) => {
-		let tmpDir: string | null = null;
-		let timer: NodeJS.Timeout | undefined;
-		let timedOut = false;
-		const timeoutMs = Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000);
-		const finish = (output: string, exitCode: number, stderr: string) => {
-			if (timer) clearTimeout(timer);
-			if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-			// A3.4: parse a trailing structured-result JSON line from the assistant text.
-			const result = parseStructuredResult(output);
-			resolveP({ output, exitCode, stderr, timedOut, result });
-		};
-		try {
-			tmpDir = await mkdtemp(join(tmpdir(), tmpPrefix));
-			const promptPath = join(tmpDir, "system.md");
-			await writeFile(promptPath, systemPrompt, { mode: 0o600 });
-			// Explicitly load this extension in the child so obsidian tools are
-			// available regardless of whether the cwd has a .pi/settings.json.
-			const pkgRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
-			// Inherit the parent's resolved model unless this call overrides it.
-			// OB_PARENT_MODEL is published by the CLI's createSharedSession, so a
-			// `--model` selection propagates to every spawned subagent instead of
-			// each child re-resolving to the pi default.
-			const inherited: SubagentOptions = {
-				...opts,
-				model: opts.model ?? process.env.OB_PARENT_MODEL,
-			};
-			// Argv is built by a pure helper (unit-tested); task is the last positional.
-			const args = [
-				...buildSubagentArgs(toolsCsv, promptPath, pkgRoot, inherited),
-				task,
-			];
-			const inv = getPiInvocation(args);
-			const proc = spawn(inv.command, inv.args, {
-				cwd,
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			let buf = "";
-			let stderr = "";
-			let lastText = "";
-			const handle = (line: string) => {
-				if (!line.trim()) return;
-				let ev: any;
-				try {
-					ev = JSON.parse(line);
-				} catch {
-					return;
-				}
-				// Forward every parsed event to the live observer (progress logging).
-				opts.onEvent?.(ev);
-				if (ev.type === "message_end" && ev.message?.role === "assistant") {
-					for (const part of ev.message.content ?? [])
-						if (part.type === "text" && part.text) lastText = part.text;
-				}
-			};
-			proc.stdout.on("data", (d) => {
-				buf += d.toString();
-				const lines = buf.split("\n");
-				buf = lines.pop() ?? "";
-				for (const l of lines) handle(l);
-			});
-			proc.stderr.on("data", (d) => {
-				stderr += d.toString();
-			});
-			proc.on("close", (c) => {
-				if (buf.trim()) handle(buf);
-				finish(lastText, c ?? 0, stderr);
-			});
-			proc.on("error", () => finish(lastText, 1, stderr));
-			if (signal) {
-				const kill = () => {
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
+	// Phase 2 / WS-B2: resolve a validated model instead of blindly inheriting
+	// OB_PARENT_MODEL. The resolution logs warnings itself (weak/explicit,
+	// refused inheritance, unset) — so the parent surfaces a degrading choice.
+	const resolved = resolveSubagentModel(opts);
+	let tmpDir: string | null = null;
+	let timer: NodeJS.Timeout | undefined;
+	let timedOut = false;
+	const timeoutMs = Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000);
+	try {
+		tmpDir = await mkdtemp(join(tmpdir(), tmpPrefix));
+		const promptPath = join(tmpDir, "system.md");
+		await writeFile(promptPath, systemPrompt, { mode: 0o600 });
+		// Explicitly load this extension in the child so obsidian tools are
+		// available regardless of whether the cwd has a .pi/settings.json.
+		const pkgRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
+		// Phase 2 / WS-B2: model comes from resolveSubagentModel (validated
+		// floor/explicit; weak parent inheritance refused) rather than a raw
+		// `opts.model ?? OB_PARENT_MODEL`.
+		const inherited: SubagentOptions = { ...opts, model: resolved.model };
+		// Argv is built by a pure helper (unit-tested); task is the last positional.
+		const args = [...buildSubagentArgs(toolsCsv, promptPath, pkgRoot, inherited), task];
+		const inv = getPiInvocation(args);
+		const proc = spawn(inv.command, inv.args, {
+			cwd,
+			shell: false,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		// Await the child's completion as a single promise. With spawn, `error`
+		// and `close` are mutually exclusive (an `error` means no process ever
+		// ran, so no `close` follows) → this resolves exactly once. Phase 2 / B5:
+		// this replaces the old `new Promise(async …)` antipattern whose `finish()`
+		// helper could double-fire from both handlers.
+		const completion = new Promise<{ exitCode: number; stderr: string; text: string }>(
+			(resolveDone, rejectDone) => {
+				let buf = "";
+				let stderr = "";
+				let lastText = "";
+				const handle = (line: string) => {
+					if (!line.trim()) return;
+					let ev: any;
+					try {
+						ev = JSON.parse(line);
+					} catch {
+						return;
+					}
+					// Forward every parsed event to the live observer (progress logging).
+					opts.onEvent?.(ev);
+					if (ev.type === "message_end" && ev.message?.role === "assistant") {
+						for (const part of ev.message.content ?? [])
+							if (part.type === "text" && part.text) lastText = part.text;
+					}
 				};
-				if (signal.aborted) kill();
-				else signal.addEventListener("abort", kill, { once: true });
-			}
-			// A3.1: default 5min timeout (OB_SUBAGENT_TIMEOUT_MS). SIGTERM → 5s grace → SIGKILL.
-			if (timeoutMs > 0) {
-				timer = setTimeout(() => {
-					timedOut = true;
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
-				}, timeoutMs);
-			}
-		} catch (e: any) {
-			finish("", 1, e?.message ? String(e.message) : String(e));
+				proc.stdout.on("data", (d) => {
+					buf += d.toString();
+					const lines = buf.split("\n");
+					buf = lines.pop() ?? "";
+					for (const l of lines) handle(l);
+				});
+				proc.stderr.on("data", (d) => {
+					stderr += d.toString();
+				});
+				proc.on("close", (c) => {
+					if (buf.trim()) handle(buf);
+					resolveDone({ exitCode: c ?? 0, stderr, text: lastText });
+				});
+				proc.on("error", (e) => rejectDone(e));
+			},
+		);
+
+		// AbortSignal: SIGTERM → 5s grace → SIGKILL.
+		if (signal) {
+			const kill = () => {
+				proc.kill("SIGTERM");
+				setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, 5000);
+			};
+			if (signal.aborted) kill();
+			else signal.addEventListener("abort", kill, { once: true });
 		}
-	});
+		// A3.1: default 5min timeout (OB_SUBAGENT_TIMEOUT_MS). SIGTERM → 5s grace → SIGKILL.
+		if (timeoutMs > 0) {
+			timer = setTimeout(() => {
+				timedOut = true;
+				proc.kill("SIGTERM");
+				setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, 5000);
+			}, timeoutMs);
+		}
+
+		let outcome: { exitCode: number; stderr: string; text: string };
+		try {
+			outcome = await completion;
+		} catch (e: any) {
+			// spawn error (e.g. ENOENT — `pi` not on PATH). Single return path —
+			// surface as exit 1 instead of leaking an unhandled rejection.
+			const msg = e?.message ? String(e.message) : String(e);
+			return {
+				output: "",
+				exitCode: 1,
+				stderr: msg,
+				timedOut,
+				result: null,
+			};
+		}
+		const result = parseStructuredResult(outcome.text);
+		return {
+			output: outcome.text,
+			exitCode: outcome.exitCode,
+			stderr: outcome.stderr,
+			timedOut,
+			result,
+		};
+	} finally {
+		if (timer) clearTimeout(timer);
+		if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+	}
 }
 
 // ---- Vault gardener subagent ---------------------------------------------
@@ -2806,6 +2901,102 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
     {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","detail":"一句話"}],"errors":["若有的話"]}
 
 這條 JSON 是給程式讀的。數字字段若不適用填 0。`;
+
+// ---- Subagent output validation (Phase 2 / WS-B1) -------------------------
+// distill/garden subagents write to the vault via obsidian_create inside the
+// child process; the parent only sees the assistant's final text + the
+// trailing `pi_obsidian_result` JSON (which lists created note paths). We can't
+// intercept writes that happen in the child, so B1 is a POST-RUN audit: read
+// every note the subagent claims to have created and validate it (frontmatter
+// schema, valid YAML, sane size, wiki-link targets resolve). Malformed output
+// is then REPORTED (and surfaced in the tool result) instead of silently
+// corrupting the vault — the caller can review/repair/delete the bad notes.
+
+/** Sane upper bound for a single Zettelkasten card. A subagent emitting a
+ *  >64KB blob is almost certainly garbage / a prompt-injection dump. */
+export const ZETTEL_MAX_BYTES = 64 * 1024;
+/** Required frontmatter keys for a Zettelkasten card (per ZETTEL_SYSTEM_PROMPT). */
+export const ZETTEL_REQUIRED_KEYS = ["id", "created", "tags"];
+
+export interface NoteValidation {
+	path: string;
+	ok: boolean;
+	errors: string[];
+}
+
+/** Validate a single note's content against the Zettelkasten card schema.
+ *  Pure (no I/O) — unit-tested directly. When `idx` is provided, wiki-link
+ *  targets are also checked for resolvability (dead links flagged). */
+export function validateZettelNote(
+	content: string | undefined,
+	idx?: VaultIndex,
+): { ok: boolean; errors: string[] } {
+	const errors: string[] = [];
+	if (!content || !content.trim()) return { ok: false, errors: ["empty content"] };
+	if (Buffer.byteLength(content, "utf8") > ZETTEL_MAX_BYTES)
+		errors.push(`note exceeds ${ZETTEL_MAX_BYTES / 1024}KB (likely garbage)`);
+	// Frontmatter presence: leading `---` ... `---`.
+	const lines = content.split("\n");
+	const hasFm = lines.length > 0 && lines[0].trim() === "---" && lines.slice(1).some((l) => l.trim() === "---");
+	if (!hasFm) {
+		errors.push("missing YAML frontmatter (no leading `---` block)");
+	} else {
+		const { data } = parseFrontmatter(content);
+		for (const k of ZETTEL_REQUIRED_KEYS)
+			if (!(k in data) || data[k] === "" || data[k] == null)
+				errors.push(`frontmatter missing required key: ${k}`);
+		if (Array.isArray(data.tags) && data.tags.length > 0) {
+			if (String(data.tags[0]).toLowerCase() !== "zettel")
+				errors.push(`tags[0] should be "zettel" (got ${JSON.stringify(data.tags[0])})`);
+		} else if (data.tags !== undefined) {
+			errors.push("frontmatter `tags` must be a non-empty array");
+		}
+	}
+	// Wiki-link target resolvability (only when an index is available).
+	if (idx) {
+		const dead = new Set<string>();
+		for (const line of lines)
+			for (const link of extractWikiLinks(line)) {
+				if (!resolveLink(idx, link)) dead.add(link);
+			}
+		if (dead.size > 0)
+			errors.push(`${dead.size} unresolved wiki-link target(s): ${[...dead].slice(0, 5).map((l) => `[[${l}]]`).join(", ")}${dead.size > 5 ? " …" : ""}`);
+	}
+	return { ok: errors.length === 0, errors };
+}
+
+/** Audit every note path a subagent reported creating. Returns a per-note
+ *  validation report plus an aggregate. Notes that don't exist on disk (the
+ *  subagent lied or the write raced) are flagged, not crashed on. */
+export async function validateZettelNotes(
+	vaultPath: string,
+	paths: string[],
+): Promise<{ notes: NoteValidation[]; valid: number; invalid: number }> {
+	if (!paths || paths.length === 0)
+		return { notes: [], valid: 0, invalid: 0 };
+	let idx: VaultIndex | undefined;
+	try {
+		idx = await getIndex(vaultPath);
+	} catch {
+		idx = undefined;
+	}
+	const notes: NoteValidation[] = [];
+	for (const rel of paths) {
+		const abs = safeNotePath(vaultPath, rel);
+		const cached = await readCached(abs);
+		if (!cached) {
+			notes.push({ path: rel, ok: false, errors: ["note not found on disk (subagent reported it but it's missing)"] });
+			continue;
+		}
+		const { ok, errors } = validateZettelNote(cached.content, idx);
+		notes.push({ path: rel, ok, errors });
+	}
+	return {
+		notes,
+		valid: notes.filter((n) => n.ok).length,
+		invalid: notes.filter((n) => !n.ok).length,
+	};
+}
 
 export default function (pi: ExtensionAPI) {
 	// Cached ResolvedVault (per session). `source` lets every tool surface
@@ -3877,11 +4068,39 @@ ${output.slice(-2000)}`,
 					details: { exitCode, stderr, result },
 				};
 			}
+			// Phase 2 / WS-B1: post-run audit of every note the subagent claims to
+			// have created. Validate frontmatter schema, sane size, and wiki-link
+			// resolvability; surface malformed output so the caller can repair it
+			// instead of trusting silent corruption. Best-effort — never fails the
+			// run, only annotates it.
+			const reportedNotes = Array.isArray(result?.notes) ? result.notes.map(String) : [];
+			let validation: { notes: NoteValidation[]; valid: number; invalid: number } | undefined;
+			let validationText = "";
+			if (reportedNotes.length > 0) {
+				try {
+					validation = await validateZettelNotes(v.path, reportedNotes);
+				} catch {
+					validation = undefined;
+				}
+				if (validation && validation.invalid > 0) {
+					validationText =
+						`\n\n⚠ Validation: ${validation.invalid}/${validation.notes.length} created note(s) failed the Zettelkasten schema check — review/repair before relying on them:\n` +
+						validation.notes
+							.filter((n) => !n.ok)
+							.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
+							.join("\n");
+				} else if (validation && validation.valid > 0) {
+					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
+				}
+			}
 			return {
 				content: [
-					{ type: "text", text: output || "(distiller produced no output)" },
+					{
+						type: "text",
+						text: (output || "(distiller produced no output)") + validationText,
+					},
 				],
-				details: { exitCode, stderr, result },
+				details: { exitCode, stderr, result, validation },
 			};
 		},
 	});
