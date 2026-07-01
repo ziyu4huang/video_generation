@@ -24,14 +24,28 @@
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { probeWorkspaceDeps } from "./preflight.ts";
+import { detectDeployMode } from "./deploy-mode.ts";
+
+// ── Deploy mode: self-locate when run as a deployed package ──────────────────
+// When pi-agent.js is a deployed artifact (scripts/deploy.ts output) invoked
+// from OUTSIDE its own dir, pi would otherwise ignore the baked extensions
+// (its resource discovery is cwd-based) and the source-mode preflight could
+// latch onto an unrelated, uninstalled cwd monorepo. We instead re-inject the
+// baked extensions as explicit `-e` flags so they load anywhere, and skip the
+// cwd preflight. When invoked from inside the package, pi already uses the
+// package's own `.pi/settings.json`, so we inject nothing (no double-load).
+const deploy = detectDeployMode();
+const argv = deploy?.inject
+  ? [...deploy.extensionArgs, ...process.argv.slice(2)]
+  : process.argv.slice(2);
 
 // ── Preflight: ensure workspace deps resolve before pi loads extensions ──────
 // pi loads every extension in `.pi/settings.json`; those extensions import
 // workspace peers as bare specifiers. If `bun install` hasn't been run at the
 // monorepo root, pi crashes with "Cannot find module '...'" before the TUI
 // starts. We surface an actionable message instead. Skipped for paths that
-// don't load extensions, and via BUN_PI_SKIP_PREFLIGHT=1.
-const argv = process.argv.slice(2);
+// don't load extensions, in deploy mode (extensions injected via -e, not the
+// cwd workspace), and via BUN_PI_SKIP_PREFLIGHT=1.
 const isNoExt = argv.some(
   (a) =>
     a === "-ne" ||
@@ -41,7 +55,7 @@ const isNoExt = argv.some(
     a === "-V" ||
     a === "--version",
 );
-if (!isNoExt && process.env.BUN_PI_SKIP_PREFLIGHT !== "1") {
+if (!deploy?.inject && !isNoExt && process.env.BUN_PI_SKIP_PREFLIGHT !== "1") {
   const probe = await probeWorkspaceDeps();
   if (probe.repoRoot && !probe.ok) {
     console.error("\x1b[31m✗ pi-agent preflight: workspace deps unresolved.\x1b[0m");

@@ -1,0 +1,9 @@
+{
+  "$schema": "./deploy.config.schema.json",
+  "extensions": [
+    "pi-obsidian",
+    "pi-vlm",
+    "pi-knowledge-card",
+    "zai-mcp"
+  ]
+}

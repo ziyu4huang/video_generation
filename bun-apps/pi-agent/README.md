@@ -43,24 +43,20 @@ bun install          # at the monorepo root (never inside pi-agent/)
 
 ## Usage
 
+The portable launcher (works from any cwd — resolves its own location):
+
 ```bash
-# interactive TUI (the real thing)
-bun bun-apps/pi-agent/src/cli.ts
-
-# print mode
-bun bun-apps/pi-agent/src/cli.ts -p "hello"
-
-# list models — lm-studio entries appear alongside built-ins
-bun bun-apps/pi-agent/src/cli.ts --list-models
-
-# load a local extension without pi install
-bun bun-apps/pi-agent/src/cli.ts -e bun-apps/zai-mcp/extensions/zai-mcp.ts -p "list your tools"
+./bun-apps/pi-agent/run.sh                 # interactive TUI
+./bun-apps/pi-agent/run.sh -p "hello"      # print mode
+./bun-apps/pi-agent/run.sh --list-models   # list models
 ```
 
-### Optional: alias in `~/.zshrc`
+(Equivalent to `bun bun-apps/pi-agent/src/cli.ts …` but cwd-independent.)
+
+Alias in `~/.zshrc`:
 
 ```sh
-alias pi='bun /path/to/repo/bun-apps/pi-agent/src/cli.ts'
+alias pi='/abs/path/to/bun-apps/pi-agent/run.sh'
 alias pi-stock='bunx @earendil-works/pi-coding-agent'
 ```
 
@@ -99,6 +95,58 @@ Edit **`src/pre-load-providers.ts`** → `PROVIDERS` object. No other file needs
 
 Changes take effect on the next `bun` invocation — no build step.
 
+## Deploy — package pi-agent + extensions
+
+`scripts/build.ts` only bundles pi-agent itself. **`scripts/deploy.ts`**
+produces a self-contained, runnable directory that bundles pi-agent **plus a
+whitelisted set of extension packages**, ready to `cd` into and run anywhere
+on the same machine.
+
+```bash
+bun scripts/deploy.ts                              # default out: dist/pi-agent-deploy
+bun scripts/deploy.ts --only pi-obsidian,pi-vlm    # whitelist via CLI
+bun scripts/deploy.ts /tmp/my-pkg                  # custom out-dir
+bun scripts/deploy.ts --no-build                   # reuse existing bundle
+bun scripts/deploy.ts --symlink-pkgs               # symlink instead of copy
+bun scripts/deploy.ts -h                           # full help
+```
+
+**Whitelist resolution** (first wins): `--only <names>` → `deploy.config.json`
+`extensions` → all local packages in `.pi/settings.json`. Transitive local
+workspace peers are auto-included (e.g. pi-knowledge-card pulls in pi-obsidian)
+so bare-specifier imports resolve. `npm:` registry packages are always
+carried over unless `--no-npm`.
+
+The deployed dir:
+
+```
+<outdir>/
+├── pi-agent.js          # bundle
+├── packages/<name>/…    # whitelisted (+ auto-peer) extension packages
+├── .pi/settings.json    # generated manifest
+├── package.json         # workspace root (workspaces: ["packages/*"])
+├── node_modules/        # wired by `bun install`
+└── README.md
+```
+
+Run it:
+
+```bash
+cd <outdir>
+bun pi-agent.js --list-models   # smoke test
+bun pi-agent.js                 # interactive TUI
+```
+
+**Portability:** `pi-agent.js` embeds an absolute `PI_PACKAGE_DIR` (see
+`scripts/build.ts` stage 0) for theme/asset resolution, so the package is
+portable across paths on the **same machine**. For a different machine,
+rebuild (`scripts/build.ts`) there first.
+
+**Run from anywhere.** The deployed binary self-locates: `bun <pkg>/pi-agent.js`
+works from any cwd (it re-injects the baked extensions as `-e` flags and skips
+the cwd preflight). See `docs/deploy-cwd-trust.md` for why this is needed
+(pi's resource discovery is cwd- and trust-coupled) and how it was verified.
+
 ## Build modes
 
 Two execution modes are supported and **both load extensions correctly**:
@@ -132,6 +180,8 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 pi-agent/
 ├── package.json            # bin: pi-agent → src/cli.ts
 ├── README.md
+├── run.sh                  # portable launcher (cwd-independent) → src/cli.ts
+├── deploy.config.json      # whitelist for `scripts/deploy.ts`
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
