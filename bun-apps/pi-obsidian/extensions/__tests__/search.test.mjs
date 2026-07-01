@@ -20,9 +20,23 @@ const mod = await import(join(EXT_DIR, "obsidian.ts"));
 const { searchVault, buildMatcher, fuzzyMatch, findBacklinks, findTagNotes } =
 	mod;
 
+// Gate the body on the reference vault submodule. On a fresh clone it is not
+// initialized → searchVault returns nothing and the context assertions below
+// crash. Skip cleanly (fall through to the report with 0/0) instead.
+// Initialize with:  git submodule update --init vaults_root/pi-agent-vault
+import { existsSync, readdirSync } from "node:fs";
+function vaultAvailable() {
+	try {
+		return existsSync(VAULT) && readdirSync(VAULT).some((n) => !n.startsWith("."));
+	} catch {
+		return false;
+	}
+}
+
 let pass = 0,
 	fail = 0;
 const fails = [];
+if (vaultAvailable()) {
 function eq(actual, expected, label) {
 	const a = JSON.stringify(actual),
 		e = JSON.stringify(expected);
@@ -630,8 +644,16 @@ function invalidateCacheSync() {
 	mod.invalidateCache();
 }
 
-console.log(`\n${pass} passed, ${fail} failed`);
-if (fail) {
-	console.error(fails.join("\n---\n"));
-	process.exit(1);
+} // end if (vaultAvailable())
+
+if (vaultAvailable()) {
+	console.log(`\n${pass} passed, ${fail} failed`);
+	if (fail) {
+		console.error(fails.join("\n---\n"));
+		process.exit(1);
+	}
+} else {
+	console.log(
+		`\n[skip] search.test.mjs — vaults_root/pi-agent-vault submodule not initialized; run \`git submodule update --init\``,
+	);
 }

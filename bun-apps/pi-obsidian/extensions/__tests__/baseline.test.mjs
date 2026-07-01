@@ -14,10 +14,9 @@ import { describe, it, expect } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildMatcher, searchVault } from "../obsidian.ts";
+import { vaultAvailable, VAULT, SKIP_REASON } from "./_vault-fixture.ts";
 
 const HERE = import.meta.dir;
-const REPO_ROOT = join(HERE, "..", "..", "..", "..");
-const VAULT = join(REPO_ROOT, "vaults_root", "pi-agent-vault");
 const FIXTURE = join(HERE, "fixtures", "search-baseline.txt");
 
 // The canonical 9 cases (must match search-baseline.gen.js / .real.mjs).
@@ -45,7 +44,7 @@ function stripHeader(text) {
 	return idx === -1 ? "" : text.slice(idx);
 }
 
-describe("A0.9 regression baseline (substring default contract)", () => {
+describe.skipIf(!vaultAvailable())("A0.9 regression baseline (substring default contract) — skipped: " + SKIP_REASON, () => {
 	it("reproduces the committed search-baseline.txt byte-for-byte (excl. header)", async () => {
 		const out = [];
 		for (const [label, query, opts] of CASES) {

@@ -29,11 +29,15 @@ each package's README; this is the canonical reference.
 git clone <repo> && cd <repo>
 bun install
 
-# 2. (optional) point at your model tree / output store if they aren't siblings
+# 2. initialize the reference vault submodule (only needed to RUN the pi-obsidian
+#    vault-driven tests; skip if you don't need them)
+git submodule update --init vaults_root/pi-agent-vault
+
+# 3. (optional) point at your model tree / output store if they aren't siblings
 export MLX_MODELS_DIR=/path/to/mlx-models
 export MLX_OUTPUT_DIR=/path/to/video_generation__output
 
-# 3. self-check
+# 4. self-check
 bun bun-apps/pi-agent-cli/src/cli.ts doctor
 ```
 

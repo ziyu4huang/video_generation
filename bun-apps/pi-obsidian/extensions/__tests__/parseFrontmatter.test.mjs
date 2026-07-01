@@ -4,6 +4,7 @@
  */
 import { describe, it, expect } from "bun:test";
 import { parseFrontmatter } from "../obsidian.ts";
+import { vaultAvailable, VAULT, SKIP_REASON } from "./_vault-fixture.ts";
 
 describe("parseFrontmatter", () => {
 	it("parses flow-style tags: [a, b]", () => {
@@ -42,10 +43,9 @@ describe("parseFrontmatter", () => {
 		expect(r.data).toEqual({});
 	});
 
-	it("all 21-ish vault notes parse without error", async () => {
+	it.skipIf(!vaultAvailable())("all 21-ish vault notes parse without error (skipped: " + SKIP_REASON + ")", async () => {
 		const { readdir, readFile } = await import("node:fs/promises");
 		const { join } = await import("node:path");
-		const VAULT = join(import.meta.dir, "..", "..", "..", "..", "vaults_root", "pi-agent-vault");
 		let count = 0;
 		async function walk(dir) {
 			for (const e of await readdir(dir, { withFileTypes: true })) {
