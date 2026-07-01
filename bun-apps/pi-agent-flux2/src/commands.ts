@@ -1,0 +1,433 @@
+/**
+ * commands.ts — authoritative map of every `flux2` subcommand to its typed
+ * parameters + CLI-flag translation.
+ *
+ * This file is the SINGLE source of truth for the tool's command surface. It is
+ * curated against `swift/flux2-image-director/Sources/Flux2DirectorCLI/<Cmd>Command.swift`
+ * and verified by `scripts/check-flags.ts` (run `flux2 <cmd> --help` and assert
+ * every declared flag is modeled here or allow-listed).
+ *
+ * Naming: Swift `@Option var cfgScale` → CLI `--cfg-scale` (camelCase→kebab).
+ * Defaults are intentionally NOT duplicated — `toArgs` only emits a flag when
+ * the agent sets a value, so the Swift default always wins. This avoids drift.
+ */
+import { Type, type TSchema } from "typebox";
+
+export type FieldType = "string" | "number" | "int" | "boolean" | "string[]" | "number[]";
+
+export interface FieldSpec {
+  /** CLI flag including dashes, e.g. "--ref", "--cfg-scale". Use "" for positional. */
+  flag: string;
+  type: FieldType;
+  description: string;
+  /** Value is a filesystem path → path-validated against allowed roots. */
+  isPath?: boolean;
+  /** Array field where every element is a path. */
+  isPathArray?: boolean;
+  /** Positional argument (no flag prefix), appended in declared order. */
+  positional?: boolean;
+}
+
+export interface CommandSpec {
+  /** CLI subcommand name, e.g. "scene". */
+  name: string;
+  /** True if the command produces an image output parseable from .manifest.json. */
+  writesImage: boolean;
+  /** One-line "when to use" for the dispatcher description. */
+  when: string;
+  fields: Record<string, FieldSpec>;
+  /** Whether the command accepts the global --models-root flag (generation cmds do; gate/segment/models/verify do not). */
+  acceptsGlobals?: boolean;
+  /** Fixed sub-subcommand to insert after `name` (e.g. models → "list"). */
+  cliSubcommand?: string;
+}
+
+// ─── Field schemas → typebox ─────────────────────────────────────────────────
+
+function fieldSchema(f: FieldSpec): TSchema {
+  const wrap = (t: TSchema): TSchema => Type.Optional(t);
+  switch (f.type) {
+    case "string":
+      return wrap(Type.String({ description: f.description }));
+    case "number":
+      return wrap(Type.Number({ description: f.description }));
+    case "int":
+      return wrap(Type.Integer({ description: f.description }));
+    case "boolean":
+      return wrap(Type.Boolean({ description: f.description }));
+    case "string[]":
+      return wrap(Type.Array(Type.String(), { description: f.description }));
+    case "number[]":
+      return wrap(Type.Array(Type.Number(), { description: f.description }));
+  }
+}
+
+/** Build a typebox Type.Object for a command's parameters. */
+export function buildParams(spec: CommandSpec) {
+  const props: Record<string, TSchema> = {};
+  for (const [key, f] of Object.entries(spec.fields)) props[key] = fieldSchema(f);
+  return Type.Object(props);
+}
+
+// ─── Reusable field blocks ───────────────────────────────────────────────────
+
+/** Shared generation fields present on most image-producing commands. */
+const GEN_FIELDS: Record<string, FieldSpec> = {
+  transformer: { flag: "--transformer", type: "string", description: "Transformer variant under models/transformer/. Omit for the default (klein-9b)." },
+  seed: { flag: "--seed", type: "int", description: "Random seed (uint64). Default 42." },
+  width: { flag: "--width", type: "int", description: "Output image width (px)." },
+  height: { flag: "--height", type: "int", description: "Output image height (px)." },
+  steps: { flag: "--steps", type: "int", description: "Number of denoising steps." },
+  cfgScale: { flag: "--cfg-scale", type: "number", description: "Classifier-free guidance scale (1.0 = off, recommended for distilled Klein)." },
+  output: { flag: "--output", type: "string", isPath: true, description: "Output PNG path. Empty/omit = auto timestamped name in the output dir." },
+  outputDir: { flag: "--output-dir", type: "string", isPath: true, description: "Output directory (default: $MLX_OUTPUT_DIR or ../video_generation__output)." },
+  name: { flag: "--name", type: "string", description: "Custom base name (default: output_YYYYMMDD_HHMMSS)." },
+  vae: { flag: "--vae", type: "string", description: "VAE directory under models/vae/ (default flux2-klein)." },
+  encoder: { flag: "--encoder", type: "string", description: "Text-encoder directory under models/text_encoder/ (default qwen3-8b)." },
+  tokenizerDir: { flag: "--tokenizer-dir", type: "string", description: "Tokenizer directory under models/tokenizer/ (default qwen3-klein)." },
+  noArtifacts: { flag: "--no-artifacts", type: "boolean", description: "Skip writing .run.json + .manifest.json sidecars (not recommended — the tool parses the manifest)." },
+  strictGate: { flag: "--strict-gate", type: "boolean", description: "Abort (exit 1) if the output FAILs the image gate. Off by default; the gate verdict is surfaced regardless." },
+};
+
+/** Generation fields WITHOUT width/height/steps/cfgScale (commands that don't take them, e.g. upscale). */
+const GEN_FIELDS_BARE = (() => {
+  const { width: _w, height: _h, steps: _s, cfgScale: _c, ...rest } = GEN_FIELDS;
+  void _w; void _h; void _s; void _c;
+  return rest;
+})();
+
+// ─── The 18 flux2 subcommands ────────────────────────────────────────────────
+
+export const COMMANDS: Record<string, CommandSpec> = {
+  t2i: {
+    name: "t2i",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Text → single image (Flux2 Klein native). The basic generation path.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt. zh-TW supported (qwen3-8b is multilingual)." },
+      negativePrompt: { flag: "--negative-prompt", type: "string", description: "Negative prompt (used only when cfg > 1.0)." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  scene: {
+    name: "scene",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Compose MULTIPLE reference characters/subjects into one scene (multi-ref Flux2KleinEdit). The flagship command.",
+    fields: {
+      ref: { flag: "--ref", type: "string[]", isPathArray: true, description: "Reference images — one per distinct subject/character (repeatable)." },
+      prompt: { flag: "--prompt", type: "string", description: 'Composition prompt describing the scene. e.g. "兩個角色坐在教室裡考試".' },
+      refCountPerImage: { flag: "--ref-count-per-image", type: "int", description: "Latent repeats per reference (1 = one each; raise to weight an identity). Default 1." },
+      refStrength: { flag: "--ref-strength", type: "number[]", description: "Per-reference strength, one per --ref (default 1.0). Weight one identity over another." },
+      refGateSteps: { flag: "--ref-gate-steps", type: "number", description: "Inject refs only in the first fraction of steps (0.5 = first half). Default 1.0." },
+      regional: { flag: "--regional", type: "boolean", description: "Regional placement: refine each ref into a vertical strip (left→right) via masked inpaint. Fixes left/right assignment." },
+      regionAttention: { flag: "--region-attention", type: "boolean", description: "EXPERIMENTAL: block-masked region attention during denoise. Mostly inert on distilled Klein (see memory [[flux2-region-attention-no-binding-distilled]])." },
+      refMask: { flag: "--ref-mask", type: "string[]", isPathArray: true, description: "Per-ref region mask, one per --ref (white = that ref's region). Default = vertical strips." },
+      refRegionMask: { flag: "--ref-region-mask", type: "string[]", isPathArray: true, description: "Region-binding mask, one per --ref (white = preserve, black = attenuate). INERT on distilled Klein ([[flux2-region-attention-no-binding-distilled]])." },
+      refRegionStrength: { flag: "--ref-region-strength", type: "number", description: "Attenuation strength in BLACK mask regions (1.0 = full bind, 0.5 = keep 50%). Default 1.0." },
+      refRegionFeather: { flag: "--ref-region-feather", type: "int", description: "Feather (latent-px) for region-binding mask edges. Default 2." },
+      regionalFeather: { flag: "--regional-feather", type: "int", description: "Seam feather (px) for regional strip inpaint. Default 24." },
+      regionalStrength: { flag: "--regional-strength", type: "number", description: "Regional refine strength (SDEdit). 0.45 = light nudge preserving hands; 1.0 = full regen. Default 0.45." },
+      handRepair: { flag: "--hand-repair", type: "boolean", description: "Repair hands: SAM3-segment 'hands' then re-denoise that region (best-effort fix for fused fingers)." },
+      handRepairStrength: { flag: "--hand-repair-strength", type: "number", description: "Hand-repair denoise strength (0.6 conservative, 0.8 stronger). Default 0.8." },
+      bg: { flag: "--bg", type: "string", isPath: true, description: "Background image used as the denoise canvas (inherits its layout/POV). Optional." },
+      bgStrength: { flag: "--bg-strength", type: "number", description: "Denoise strength for the --bg canvas (0.3 light, 0.5 restyle, 0.7 loose redraw). Default 0.55." },
+      lora: { flag: "--lora", type: "string[]", description: "LoRA name(s) under models/lora/ (stackable)." },
+      loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora (trailing default 1.0)." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  edit: {
+    name: "edit",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Generic reference-conditioned edit/generation (Flux2KleinEdit, multi-ref).",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt describing the edit." },
+      images: { flag: "--images", type: "string", isPath: true, description: "Reference image path(s), comma-separated for multi-ref." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  style: {
+    name: "style",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Identity-preserving style transfer (anime↔real / photorealistic / 3d-render) via Flux2KleinEdit.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Input character image." },
+      preset: { flag: "--preset", type: "string", description: "Style preset: anime2real | real2anime | photorealistic | 3d-render." },
+      prompt: { flag: "--prompt", type: "string", description: "Override the style prompt (overrides preset)." },
+      refCount: { flag: "--ref-count", type: "int", description: "Reference count (1-3; 3 = best identity fidelity)." },
+      lora: { flag: "--lora", type: "string[]", description: "LoRA name(s) under models/lora/ (stackable)." },
+      loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  angle: {
+    name: "angle",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Multi-angle consistent character view from one identity image (Flux2KleinEdit multi-ref).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Input character image (identity reference)." },
+      angle: { flag: "--angle", type: "string", description: "Camera-angle preset: front / front-right / right / rear-right / back / rear-left / left / front-left, front-high / right-high / back-high / front-low / right-low, birds-eye / worms-eye." },
+      azimuth: { flag: "--azimuth", type: "number", description: "Azimuth degrees (overrides preset). 0=front, 90=right, 180=back." },
+      elevation: { flag: "--elevation", type: "number", description: "Elevation degrees (overrides preset). >0 high-angle, <0 low-angle." },
+      prompt: { flag: "--prompt", type: "string", description: "Optional identity/description prompt (default: identity-preservation template)." },
+      refCount: { flag: "--ref-count", type: "int", description: "Reference count (1-3; 3 = best identity fidelity)." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  swap: {
+    name: "swap",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Replace an object in the source image with a reference image (SAM3 mask + composite / inpaint).",
+    fields: {
+      source: { flag: "--source", type: "string", isPath: true, description: "Source image (the object here is replaced)." },
+      reference: { flag: "--reference", type: "string", isPath: true, description: "Reference image (pasted into the mask region)." },
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt describing the object to REPLACE in the source (SAM3 text target)." },
+      threshold: { flag: "--threshold", type: "number", description: "Detection score threshold. Default 0.2." },
+      feather: { flag: "--feather", type: "number", description: "Feather radius for the composite edge (px). Default 20." },
+      maskDilate: { flag: "--mask-dilate", type: "int", description: "Dilate the source mask by N px before compositing. Default 0." },
+      preserveAspectRatio: { flag: "--preserve-aspect-ratio", type: "boolean", description: "Preserve the reference's aspect ratio when fitting into the mask (no stretch)." },
+      inpaint: { flag: "--inpaint", type: "boolean", description: "Seamless mode: regenerate the masked region via Flux2KleinEdit (no paste seam). Uses --reference for identity; overrides feathered paste." },
+      harmonize: { flag: "--harmonize", type: "boolean", description: "After compositing, harmonize via Flux2KleinEdit (uses source as reference)." },
+      ...GEN_FIELDS,
+    },
+  },
+
+  expand: {
+    name: "expand",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Outpaint / image expansion — extend borders beyond the canvas (Flux2 latent-mask re-injection).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Input image to expand." },
+      prompt: { flag: "--prompt", type: "string", description: "Prompt describing content to fill the new margins (zh-TW supported)." },
+      expand: { flag: "--expand", type: "string", description: "Expansion preset: 'all', a comma list (left,right,top,bottom), or an aspect ratio (16:9, 4:3, 3:2). Default 'all'." },
+      pixels: { flag: "--pixels", type: "int", description: "Margin pixels per side (ignored for aspect-ratio presets). Default 128." },
+      feather: { flag: "--feather", type: "int", description: "Feather radius (px) across the keep/generate seam. Default 16." },
+      transformer: GEN_FIELDS.transformer,
+      seed: GEN_FIELDS.seed,
+      steps: GEN_FIELDS.steps,
+      cfgScale: GEN_FIELDS.cfgScale,
+      output: GEN_FIELDS.output,
+      outputDir: GEN_FIELDS.outputDir,
+      name: GEN_FIELDS.name,
+      vae: GEN_FIELDS.vae,
+      encoder: GEN_FIELDS.encoder,
+      tokenizerDir: GEN_FIELDS.tokenizerDir,
+      noArtifacts: GEN_FIELDS.noArtifacts,
+      strictGate: GEN_FIELDS.strictGate,
+    },
+  },
+
+  upscale: {
+    name: "upscale",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "4× super-resolution (RealPLKSR / ESRGAN, native Swift MLX).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Input image to upscale." },
+      model: { flag: "--model", type: "string", description: "ESRGAN model name under models/upscale/ (default 4x-nomos-webphoto-realplksr)." },
+      tileSize: { flag: "--tile-size", type: "int", description: "LR tile size for tiled inference (auto-enables when input > tile). Default 256." },
+      tileOverlap: { flag: "--tile-overlap", type: "int", description: "Tile overlap (LR px) feather-blended between tiles. Default 32." },
+      noTile: { flag: "--no-tile", type: "boolean", description: "Force whole-image inference (no tiling). May OOM on 4K+ sources." },
+      ...GEN_FIELDS_BARE,
+      strictGate: GEN_FIELDS.strictGate,
+    },
+  },
+
+  gate: {
+    name: "gate",
+    writesImage: false,
+    when: "Score existing image file(s) with the ImageGate (noise / blank / NaN detector). NO generation. Use --json for parseable output.",
+    fields: {
+      images: { flag: "", positional: true, type: "string[]", isPathArray: true, description: "Image file(s) to gate (positional)." },
+      json: { flag: "--json", type: "boolean", description: "Emit machine-readable JSON (one array). Recommended for the agent." },
+      strict: { flag: "--strict", type: "boolean", description: "Treat WARN as failure too (exit 1)." },
+    },
+  },
+
+  segment: {
+    name: "segment",
+    writesImage: true,
+    when: "Text-prompted SAM3.1 segmentation → mask PNG (white = object). Uses a Python mlx-vlm bridge.",
+    fields: {
+      image: { flag: "--image", type: "string", isPath: true, description: "Input image to segment." },
+      prompt: { flag: "--prompt", type: "string", description: 'Text prompt describing the object to segment (e.g. "woman\'s face").' },
+      threshold: { flag: "--threshold", type: "number", description: "Detection score threshold (0-1). Default 0.3." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output mask PNG path (white = object, feathered edges)." },
+    },
+  },
+
+  story: {
+    name: "story",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Character-story director: one consistent character across multiple angle:prompt scenes.",
+    fields: {
+      character: { flag: "--character", type: "string", description: 'Character description (e.g. "a young woman with red hair in armor").' },
+      scenes: { flag: "--scenes", type: "string", description: 'Comma-separated scene specs, each "angle:prompt" (e.g. "right:walking through forest,front-high:standing on a cliff"). Default: 4 classic angles.' },
+      refCount: { flag: "--ref-count", type: "int", description: "Reference count per scene (1-3). Default 3." },
+      transformer: GEN_FIELDS.transformer,
+      seed: GEN_FIELDS.seed,
+      width: GEN_FIELDS.width,
+      height: GEN_FIELDS.height,
+      steps: GEN_FIELDS.steps,
+      outputDir: GEN_FIELDS.outputDir,
+      name: GEN_FIELDS.name,
+      vae: GEN_FIELDS.vae,
+      encoder: GEN_FIELDS.encoder,
+      tokenizerDir: GEN_FIELDS.tokenizerDir,
+      noArtifacts: GEN_FIELDS.noArtifacts,
+    },
+  },
+
+  models: {
+    name: "models",
+    writesImage: false,
+    cliSubcommand: "list",
+    when: "List installed Flux2 Klein model variants. NO generation. Read-only.",
+    fields: {},
+  },
+
+  // ── verify-* : numerical comparison vs Python mflux reference (dev/diagnostic) ──
+  "verify-vae": {
+    name: "verify-vae",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 VAE (encode/decode/packed) vs Python mflux reference.",
+    fields: {
+      vae: { flag: "--vae", type: "string", description: "VAE variant directory (under models/vae/)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_vae_ref.py." },
+      threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
+    },
+  },
+  "verify-encoder": {
+    name: "verify-encoder",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 text encoder vs Python mflux reference.",
+    fields: {
+      encoder: { flag: "--encoder", type: "string", description: "Text-encoder directory (under models/text_encoder/)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_encoder_ref.py." },
+      threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
+    },
+  },
+  "verify-tokenizer": {
+    name: "verify-tokenizer",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 tokenizer output vs Python reference.",
+    fields: {
+      tokenizerDir: { flag: "--tokenizer", type: "string", description: "Tokenizer directory (under models/tokenizer/)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_encoder_ref.py." },
+    },
+  },
+  "verify-transformer": {
+    name: "verify-transformer",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 transformer (1 step) vs Python mflux reference.",
+    fields: {
+      transformer: { flag: "--transformer", type: "string", description: "Transformer directory (under models/transformer/)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_transformer_ref.py." },
+      threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
+    },
+  },
+  "verify-e2e": {
+    name: "verify-e2e",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 full denoise loop (final latent) vs Python mflux.",
+    fields: {
+      transformer: { flag: "--transformer", type: "string", description: "Transformer (default klein-9b)." },
+      encoder: { flag: "--encoder", type: "string", description: "Text encoder (default qwen3-8b)." },
+      tokenizerDir: { flag: "--tokenizer-dir", type: "string", description: "Tokenizer (default qwen3-klein)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference from gen_flux2_e2e_ref.py." },
+      threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.98." },
+    },
+  },
+  "verify-edit": {
+    name: "verify-edit",
+    writesImage: false,
+    when: "Diagnostic: compare Swift Flux2 reference conditioning vs Python mflux.",
+    fields: {
+      vae: { flag: "--vae", type: "string", description: "VAE (default flux2-klein)." },
+      reference: { flag: "--ref", type: "string", isPath: true, description: "Reference from gen_flux2_edit_ref.py." },
+      referenceImage: { flag: "--image", type: "string", isPath: true, description: "Reference image (saved by the Python generator)." },
+      threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
+    },
+  },
+};
+
+// ─── Args builder ────────────────────────────────────────────────────────────
+
+function fmtScalar(f: FieldSpec, v: number | string): string {
+  return f.type === "number" || f.type === "int" ? String(v) : String(v);
+}
+
+/**
+ * Translate a typed options object into a flux2 CLI token list, in the order
+ * fields are declared. Only emits flags for keys that are present (!== undefined).
+ * Path validation is the caller's responsibility (see pathFieldKeys).
+ */
+export function buildArgs(spec: CommandSpec, options: Record<string, unknown>): string[] {
+  const args: string[] = [];
+  const positionalBuf: string[] = [];
+  for (const [key, f] of Object.entries(spec.fields)) {
+    if (!(key in options)) continue;
+    const v = options[key];
+    if (v === undefined || v === null) continue;
+
+    if (f.type === "boolean") {
+      if (v === true) {
+        if (f.positional) throw new Error(`boolean positional field "${key}" is invalid`);
+        args.push(f.flag);
+      }
+      continue;
+    }
+
+    if (f.positional) {
+      if (Array.isArray(v)) {
+        for (const item of v) positionalBuf.push(String(item));
+      } else {
+        positionalBuf.push(String(v));
+      }
+      continue;
+    }
+
+    if (f.type === "string[]" || f.type === "number[]") {
+      if (!Array.isArray(v)) {
+        throw new Error(`field "${key}" expects an array, got ${typeof v}`);
+      }
+      for (const item of v) args.push(f.flag, fmtScalar(f, item));
+      continue;
+    }
+
+    // scalar string / number / int
+    args.push(f.flag, fmtScalar(f, v as number | string));
+  }
+  // Positionals go last (gate <images>).
+  return [...args, ...positionalBuf];
+}
+
+/** Keys of path-typed fields (for pre-flight path validation). */
+export function pathFieldKeys(spec: CommandSpec): string[] {
+  return Object.entries(spec.fields)
+    .filter(([, f]) => f.isPath || f.isPathArray)
+    .map(([k]) => k);
+}
+
+/** All flag names this command models (for the check-flags drift guard). */
+export function modeledFlags(spec: CommandSpec): string[] {
+  return Object.values(spec.fields)
+    .filter((f) => !f.positional && f.flag)
+    .map((f) => f.flag);
+}
+
+/** Command display list for the tool description. */
+export const COMMAND_LIST = Object.values(COMMANDS);
