@@ -509,6 +509,84 @@ function errMsg(e: unknown): string {
 	return typeof m === "string" ? m : String(e);
 }
 
+// ---- Structured errors (Phase 1: WS-A1 + WS-A2) ---------------------------
+// Tool failures surface a machine-branchable `code` on `details` so callers can
+// react (retry on CONFLICT, prompt on PERMISSION_DENIED, …) instead of parsing
+// a human string. The prior shape (`details.error = "<lowercase>"` + ad-hoc
+// booleans) is preserved for back-compat; `code` is the canonical field.
+export type ErrCode =
+	| "NOT_FOUND"
+	| "ALREADY_EXISTS"
+	| "CONFLICT"
+	| "PERMISSION_DENIED"
+	| "OUTSIDE_VAULT"
+	| "INVALID_PATH"
+	| "IO_ERROR"
+	| "BAD_REQUEST";
+
+/** A filesystem/IO error carrying a structured code. Helpers throw this; tool
+ *  execute()s catch and turn it into a structured result via toolError(). */
+export class VaultError extends Error {
+	code: ErrCode;
+	constructor(code: ErrCode, message: string) {
+		super(message);
+		this.name = "VaultError";
+		this.code = code;
+	}
+}
+
+/** Pull the NodeFS error code (e.g. "ENOENT", "EACCES") off any thrown value. */
+function fsErrCode(e: unknown): string | undefined {
+	const code = (e as { code?: unknown })?.code;
+	return typeof code === "string" ? code : undefined;
+}
+
+/** Map a thrown filesystem error to a structured ErrCode. */
+function classifyFsError(e: unknown): ErrCode {
+	switch (fsErrCode(e)) {
+		case "ENOENT":
+		case "ENOTDIR":
+			return "NOT_FOUND";
+		case "EACCES":
+		case "EPERM":
+			return "PERMISSION_DENIED";
+		case "EEXIST":
+			return "ALREADY_EXISTS";
+		default:
+			return "IO_ERROR";
+	}
+}
+
+/** Build a structured tool-error result. `extra` is merged into details. */
+function toolError(
+	code: ErrCode,
+	message: string,
+	extra: Record<string, unknown> = {},
+): {
+	content: { type: "text"; text: string }[];
+	details: Record<string, unknown>;
+	isError: true;
+} {
+	return {
+		content: [{ type: "text", text: message }],
+		details: { ...extra, code, error: code },
+		isError: true,
+	};
+}
+
+/** Convert a caught value (preferably a VaultError) into a structured result. */
+function toolErrorFromCaught(
+	e: unknown,
+	extra: Record<string, unknown> = {},
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown>; isError: true } {
+	if (e instanceof VaultError)
+		return toolError(e.code, e.message, extra);
+	// A raw NodeFS error: classify it.
+	if (fsErrCode(e)) return toolError(classifyFsError(e), errMsg(e), extra);
+	return toolError("IO_ERROR", errMsg(e), extra);
+}
+
+
 // ---- Session-scoped read cache (Phase 3) ----------------------------------
 // Caches file content + derived structures keyed by absolute path, invalidated
 // by mtime or explicitly via invalidateCache(). Write tools call invalidateCache
@@ -526,8 +604,13 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	let stat;
 	try {
 		stat = await (await import("node:fs/promises")).stat(absPath);
-	} catch {
-		// vanished: drop any stale entry
+	} catch (e) {
+		// Absent/vanished (ENOENT) is an expected cache miss → drop & return null.
+		// Other errors (EACCES/EIO/ENOTDIR) are ALSO absorbed here on purpose:
+		// readCached is a best-effort hot path feeding batch search & index, and
+		// must NEVER crash a whole search because ONE file is unreadable. The
+		// user-facing tools read their single target file DIRECTLY (not through
+		// this cache) and surface a structured PERMISSION_DENIED / IO_ERROR there.
 		fileCache.delete(absPath);
 		return null;
 	}
@@ -537,7 +620,8 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	let content: string;
 	try {
 		content = await readFile(absPath, "utf8");
-	} catch {
+	} catch (e) {
+		// Same best-effort contract as the stat catch above (see WS-A1 note).
 		fileCache.delete(absPath);
 		return null;
 	}
@@ -585,7 +669,9 @@ async function listNotes(vaultPath: string, folder: string): Promise<string[]> {
 		let entries: import("node:fs").Dirent<string>[];
 		try {
 			entries = await readdir(dir, { withFileTypes: true });
-		} catch {
+		} catch (e) {
+			// Unreadable subfolder (EACCES/ENOTDIR/vanished race) → skip it and
+			// keep walking the rest. Best-effort enumeration, like readCached.
 			return;
 		}
 		for (const e of entries) {
@@ -1772,7 +1858,7 @@ export async function updateFrontmatter(
 	assertWritablePath(real, abs);
 	await assertWithinVault(real, abs);
 	const entry = await readCached(abs);
-	if (!entry) throw new Error(`Note not found: ${note}`);
+	if (!entry) throw new VaultError("NOT_FOUND", `Note not found: ${note}`);
 	const content = entry.content;
 	const { data, bodyStart } = parseFrontmatter(content);
 	const lines = content.split("\n");
@@ -2033,8 +2119,15 @@ export async function appendUnderHeading(
 	let created = false;
 	try {
 		existing = await readFile(abs, "utf8");
-	} catch {
-		created = true;
+	} catch (e) {
+		// ENOENT → create-new (append-section's contract). Other FS errors throw a
+		// structured VaultError for the calling tool to surface (WS-A1).
+		if (fsErrCode(e) === "ENOENT") created = true;
+		else
+			throw new VaultError(
+				classifyFsError(e),
+				`Cannot read ${note}: ${errMsg(e)}`,
+			);
 	}
 
 	const lines = existing.split("\n");
@@ -2588,12 +2681,15 @@ export default function (pi: ExtensionAPI) {
 			let content: string;
 			try {
 				content = await readFile(abs, "utf8");
-			} catch {
-				return {
-					content: [{ type: "text", text: `Note not found: ${params.note}` }],
-					details: { vault: v.name, note: params.note, error: "not found" },
-					isError: true,
-				};
+			} catch (e) {
+				const code = classifyFsError(e);
+				return toolError(
+					code,
+					code === "NOT_FOUND"
+						? `Note not found: ${params.note}`
+						: `Cannot read ${params.note}: ${errMsg(e)}`,
+					{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+				);
 			}
 			return {
 				content: [{ type: "text", text: content }],
@@ -2634,47 +2730,39 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const st = await stat(abs);
 				existingMtime = st.mtimeMs;
-			} catch {
-				/* not present */
+			} catch (e) {
+				// ENOENT = not present (expected). Anything else (EACCES/…) is real.
+				if (fsErrCode(e) !== "ENOENT") {
+					return toolError(
+						classifyFsError(e),
+						`Cannot stat ${params.note}: ${errMsg(e)}`,
+						{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+					);
+				}
 			}
 			if (existingMtime !== undefined) {
 				if (
 					params.expectedMtime !== undefined &&
 					params.expectedMtime !== existingMtime
 				) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Conflict: ${params.note} was modified (expected mtime ${params.expectedMtime}, actual ${existingMtime}).`,
-							},
-						],
-						details: {
+					return toolError(
+						"CONFLICT",
+						`Conflict: ${params.note} was modified (expected mtime ${params.expectedMtime}, actual ${existingMtime}).`,
+						{
 							vault: v.name,
 							note: params.note,
 							conflict: true,
 							expectedMtime: params.expectedMtime,
 							actualMtime: existingMtime,
 						},
-						isError: true,
-					};
+					);
 				}
 				if (!params.overwrite && params.expectedMtime === undefined) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Note already exists: ${params.note} (mtime ${existingMtime}). Pass overwrite:true to replace, or expectedMtime for optimistic concurrency.`,
-							},
-						],
-						details: {
-							vault: v.name,
-							note: params.note,
-							exists: true,
-							mtime: existingMtime,
-						},
-						isError: true,
-					};
+					return toolError(
+						"ALREADY_EXISTS",
+						`Note already exists: ${params.note} (mtime ${existingMtime}). Pass overwrite:true to replace, or expectedMtime for optimistic concurrency.`,
+						{ vault: v.name, note: params.note, exists: true, mtime: existingMtime },
+					);
 				}
 			}
 			await mkdir(join(abs, ".."), { recursive: true });
@@ -2716,8 +2804,15 @@ export default function (pi: ExtensionAPI) {
 			let existing = "";
 			try {
 				existing = await readFile(abs, "utf8");
-			} catch {
-				/* new file */
+			} catch (e) {
+				// ENOENT → create-new (append's contract). Other FS errors surface.
+				if (fsErrCode(e) !== "ENOENT") {
+					return toolError(
+						classifyFsError(e),
+						`Cannot read ${params.note}: ${errMsg(e)}`,
+						{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+					);
+				}
 			}
 			const sep =
 				existing && !existing.endsWith("\n")
@@ -2765,12 +2860,21 @@ export default function (pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
-			const res = await appendUnderHeading(
-				v.path,
-				params.note,
-				params.heading,
-				params.content,
-			);
+			let res;
+			try {
+				res = await appendUnderHeading(
+					v.path,
+					params.note,
+					params.heading,
+					params.content,
+				);
+			} catch (e) {
+				return toolErrorFromCaught(e, {
+					vault: v.name,
+					note: params.note,
+					heading: params.heading,
+				});
+			}
 			return {
 				content: [
 					{
@@ -3237,12 +3341,11 @@ export default function (pi: ExtensionAPI) {
 					],
 					details: r,
 				};
-			} catch (e: any) {
-				return {
-					content: [{ type: "text", text: `Update failed: ${errMsg(e)}` }],
-					isError: true,
-					details: null,
-				};
+			} catch (e) {
+				return toolErrorFromCaught(e, {
+					vault: v.name,
+					note: params.note,
+				});
 			}
 		},
 	});
