@@ -1,5 +1,5 @@
 import path from "path";
-import { RUN_PY, OUTPUT_DIRS, MLX_OUTPUT_DIR } from "./paths";
+import { RUN_PY, OUTPUT_DIRS, MLX_OUTPUT_DIR, REPO_DIR } from "./paths";
 import { resolvePythonBin } from "./pythonBin";
 import { saveJobs, loadJobs } from "./jobstore";
 
@@ -119,6 +119,7 @@ export class SubprocessManager {
       proc = Bun.spawn([pythonBin, ...fullArgs], {
         stdout: "pipe",
         stderr: "pipe",
+        cwd: REPO_DIR, // run.py resolves models/output PWD-relative → always from repo root
         env: { ...process.env, PYTHONUNBUFFERED: "1" },
       });
     } catch (err: any) {

@@ -39,7 +39,7 @@ except ImportError:
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _PROJECT_DIR = os.path.normpath(os.path.join(_APP_DIR, "..", ".."))
-_MODELS_DIR = os.path.join(_PROJECT_DIR, "models")
+_MODELS_DIR = os.path.join(os.path.dirname(_PROJECT_DIR), "mlx-models")
 
 TRANSFORMER_DIR = os.path.join(_MODELS_DIR, "transformer", "moody-pro-mix")
 TEXT_ENCODER_DIR = os.path.join(_MODELS_DIR, "text_encoder", "qwen3-4b")

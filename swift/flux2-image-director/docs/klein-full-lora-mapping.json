@@ -1,0 +1,131 @@
+{
+  "_doc": "Mapping between the source ComfyUI workflow 'Klein 完全体 / 三参考图全能王' LoRA stack and our local model dirs. Local dir name == swift `--lora <name>` value (Flux2LoRALoader.resolveFile picks the .safetensors inside models/lora/<name>/, preferring int8). Workflow provenance: https://www.runninghub.ai/zh-cn/post/2064189691808804865 (manual JSON export — RunningHub has no public download API; see docs/multi-reference-architecture.md).",
+  "_workflow_sampler_defaults": {
+    "steps": 6,
+    "cfg": 1.0,
+    "sampler_edit": "res_2m",
+    "sampler_anime2real": "euler",
+    "denoise_resolution": "1024x1024",
+    "upscale_max_dimension": 1920
+  },
+  "_platform_caveats": {
+    "negative_scale_unsupported": "ComfyUI note: 'lora不支持负值' on this platform — negative-strength sliders (e.g. lips -2, chest -6) likely inert on MLX; needs empirical check.",
+    "bfs_darkbeast_unsupported_for_t2i": "Workflow note: '这个平台可能不支持黑兽模型出图' — DarkKlein BFS is faceswap-only (see memory dark-beast-bfs-not-for-general-t2i). DarkKlein9b_v2BFS LoRA 0.25 is the faceswap lever, NOT general T2I.",
+    "key_format_silent_noop": "BFL-only loader silently loads 0 adapters for WebUI-format LoRAs; patched variants (f2k_anything2real_a_patched) are pre-converted. swift loader warns on 0 adapters."
+  },
+  "loras": [
+    {
+      "comfyui_filename": "f2k_anything2real_a_patched.safetensors",
+      "comfyui_scale": 0.5,
+      "local_dir": "anything2real-a",
+      "local_file": "f2k_anything2real_a_patched.int8.safetensors",
+      "role": "anime2real (f2k half)",
+      "trigger": null,
+      "slider_range": null,
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.safetensors",
+      "comfyui_scale": 0.8,
+      "local_dir": "anything2real-characters",
+      "local_file": "Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.int8.safetensors",
+      "role": "anime2real (main character)",
+      "trigger": "transform the image to realistic photograph / realistic style of a young Asian girl",
+      "slider_range": null,
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Colorful.safetensors",
+      "comfyui_scale": 0.5,
+      "local_dir": "colorful",
+      "local_file": "Colorful.int8.safetensors",
+      "role": "color saturation",
+      "slider_range": [-3, 3],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "qualitya.safetensors",
+      "comfyui_scale": 0.8,
+      "local_dir": "qualitya",
+      "local_file": "quality.int8.safetensors",
+      "role": "quality / contrast enhance",
+      "slider_range": [-5, 5],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "details.safetensors",
+      "comfyui_scale": 1.0,
+      "local_dir": "details-9b",
+      "local_file": "Flux2 Klein 9B Realistic Detail LoRA.int8.safetensors",
+      "role": "detail enhance",
+      "slider_range": [-4, 4],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Chest_9B.safetensors",
+      "comfyui_scale": 1.0,
+      "local_dir": "chest-9b",
+      "local_file": "Chest_9B.int8.safetensors",
+      "role": "chest size",
+      "slider_range": [-6, 6],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "skin tone.safetensors",
+      "comfyui_scale": 1.0,
+      "local_dir": "skin-tone",
+      "local_file": "skin tone.int8.safetensors",
+      "role": "skin whitening",
+      "slider_range": [-5, 5],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "LongFace_9B.safetensors",
+      "comfyui_scale": 0.5,
+      "local_dir": "longface-9b",
+      "local_file": "LongFace_9B.int8.safetensors",
+      "role": "face thinning",
+      "slider_range": [-6, 6],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Eye_9B.safetensors",
+      "comfyui_scale": 0.5,
+      "local_dir": "eye-9b",
+      "local_file": "Eye_9B.int8.safetensors",
+      "role": "eye enlargement",
+      "slider_range": [-6, 6],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Lips_9B(1).safetensors",
+      "comfyui_scale": 1.0,
+      "local_dir": "lips-9b",
+      "local_file": "Lips_9B.int8.safetensors",
+      "role": "lips size (note recommends -2)",
+      "slider_range": [-3, 3],
+      "installed": true
+    },
+    {
+      "comfyui_filename": "DarkKlein9b_v2BFS_extracted_lora_r256.safetensors",
+      "comfyui_scale": 0.25,
+      "local_dir": "darkklein-v2bfs-r256",
+      "local_file": "DarkKlein9b_v2BFS_extracted_lora_r256.int8.safetensors",
+      "role": "faceswap enhancement (黑兽 BFS) — faceswap ONLY, not general T2I",
+      "trigger": null,
+      "slider_range": null,
+      "installed": true
+    },
+    {
+      "comfyui_filename": "Kook_Flux_klein_亚洲人像.safetensors",
+      "comfyui_scale": 0.8,
+      "local_dir": "kook-asian",
+      "local_file": null,
+      "role": "Asian aesthetic enhancement",
+      "trigger": "zshx",
+      "slider_range": null,
+      "installed": false,
+      "import_hint": "Not yet imported. Source: CivitAI/GlobeCivitai Kook Flux klein 亚洲人像. Import via: run.py import-lora-image <file> <webloc> --arch flux2-klein-9b"
+    }
+  ]
+}
