@@ -1310,6 +1310,12 @@ export interface NoteMeta {
 	links: string[]; // outgoing [[targets]], normalized (no .md, no alias/section)
 	created?: string; // frontmatter created (YYYY-MM-DD)
 	mtime: number; // last indexed mtime (ms)
+	// Phase 6 / WS-C5: lowercase 3-grams of the note's full content, used to
+	// pre-filter substring searches (trigram inverted index). A superset of all
+	// searchable fields, so candidate filtering is always sound (never drops a
+	// real hit) — only slightly loose across fields. Not persisted (C6 rebuilds
+	// from content); hence omitted from serialization.
+	trigrams: Set<string>;
 }
 
 export interface VaultIndex {
@@ -1318,6 +1324,10 @@ export interface VaultIndex {
 	byTag: Map<string, Set<string>>;
 	byTitle: Map<string, string>; // lowercased title/path/basename -> path
 	reverseAdjacency: Map<string, Set<string>>; // targetPath -> Set<sourcePath>
+	// Phase 6 / WS-C5: trigram -> Set<notePath> inverted index for substring
+	// search pre-filtering. Maintained incrementally by indexNote/unindexNote
+	// (like byTag), so no rev/invalidation needed.
+	trigrams: Map<string, Set<string>>;
 	// Phase 3 / WS-C2: memoized undirected adjacency for graph queries.
 	// Built lazily by getAdjacency(); invalidated by bumping `rev` on every
 	// note mutation (indexNote/unindexNote). graphNeighbors rebuilds only when
@@ -1325,6 +1335,44 @@ export interface VaultIndex {
 	rev: number; // mutation counter; bump on any notes change
 	adjacency?: Map<string, Set<string>>; // undirected: path -> Set<neighborPath>
 	adjacencyRev?: number; // rev the cache was built at
+}
+
+/** Compute the set of lowercase 3-grams of a string (Phase 6 / WS-C5).
+ *  Used for substring-search candidate pre-filtering. Covers the FULL content
+ *  (a superset of every searchable field) so trigram-based candidate sets are
+ *  always a sound over-approximation — they never exclude a real hit. */
+function contentTrigrams(text: string): Set<string> {
+	const s = new Set<string>();
+	const lower = text.toLowerCase();
+	for (let i = 0; i + 3 <= lower.length; i++) s.add(lower.slice(i, i + 3));
+	return s;
+}
+
+/** Phase 6 / WS-C5 — narrow the substring-search candidate set via the trigram
+ *  inverted index. Returns the set of note paths containing EVERY trigram of
+ *  the query (a sound over-approximation: a file missing any query trigram
+ *  cannot contain the query substring, so it is safely excluded). Returns null
+ *  when filtering is not applicable (query shorter than 3 chars, or the index
+ *  has no trigram map yet) — caller then falls back to scanning all files.
+ *  Returns an empty set when some query trigram is absent from the vault. */
+export function trigramCandidates(
+	idx: VaultIndex | undefined,
+	query: string,
+): Set<string> | null {
+	if (!idx || !idx.trigrams || query.length < 3) return null;
+	const q = query.toLowerCase();
+	let result: Set<string> | null = null;
+	for (let i = 0; i + 3 <= q.length; i++) {
+		const paths = idx.trigrams.get(q.slice(i, i + 3));
+		if (!paths || paths.size === 0) return new Set(); // trigram absent → no hit possible
+		if (!result) {
+			result = new Set(paths);
+		} else {
+			for (const p of result) if (!paths.has(p)) result.delete(p);
+		}
+		if (result.size === 0) return result;
+	}
+	return result;
 }
 
 /** Parse a note into NoteMeta (no I/O). Reused by index build + reindex. */
@@ -1388,6 +1436,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 		links: [...links],
 		created,
 		mtime,
+		trigrams: contentTrigrams(content),
 	};
 }
 
@@ -1452,6 +1501,7 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 		byTag: new Map(),
 		byTitle: new Map(),
 		reverseAdjacency: new Map(),
+		trigrams: new Map(),
 		rev: 0,
 	};
 	for (let i = 0; i < files.length; i++) {
@@ -1513,6 +1563,15 @@ function indexNote(idx: VaultIndex, meta: NoteMeta): void {
 		}
 		s.add(meta.path);
 	}
+	// Phase 6 / WS-C5: trigram inverted index.
+	for (const tg of meta.trigrams) {
+		let s = idx.trigrams.get(tg);
+		if (!s) {
+			s = new Set();
+			idx.trigrams.set(tg, s);
+		}
+		s.add(meta.path);
+	}
 	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 }
 
@@ -1537,6 +1596,14 @@ function unindexNote(idx: VaultIndex, path: string): void {
 		if (s) {
 			s.delete(path);
 			if (s.size === 0) idx.reverseAdjacency.delete(resolved);
+		}
+	}
+	// Phase 6 / WS-C5: remove from trigram inverted index.
+	for (const tg of old.trigrams) {
+		const s = idx.trigrams.get(tg);
+		if (s) {
+			s.delete(path);
+			if (s.size === 0) idx.trigrams.delete(tg);
 		}
 	}
 }
@@ -3700,6 +3767,25 @@ export default function (pi: ExtensionAPI) {
 				};
 			}
 			const sort = (params.sort ?? "file") as "file" | "relevance" | "recency";
+			// Phase 6 / WS-C5: for substring queries, narrow the candidate set via
+			// the trigram inverted index so searchVault reads only files that COULD
+			// contain the query (skips reading+line-scanning the rest). Sound —
+			// never drops a real hit — as long as the index covers every note;
+			// refreshIndex reconciles just-written/external notes first (cheap
+			// readdir+stat diff, far less than reading all file bodies). regex/
+			// words/fuzzy don't benefit (their "match" isn't a literal substring),
+			// and an explicit caller `paths` restriction always wins.
+			let trigramPaths: string[] | undefined;
+			if (mode === "substring" && !params.paths && process.env.OB_TRIGRAM_SEARCH !== "0") {
+				try {
+					const idx = await getIndex(v.path);
+					await refreshIndex(v.path);
+					const cand = trigramCandidates(idx, params.query);
+					if (cand) trigramPaths = [...cand];
+				} catch {
+					// index unavailable — fall back to a full scan
+				}
+			}
 			const searchOpts = {
 				fileFilter: built.fileFilter,
 				fields: (params.fields as NoteField[] | undefined) ?? null,
@@ -3709,7 +3795,7 @@ export default function (pi: ExtensionAPI) {
 				groupByFile: params.groupByFile ?? false,
 				perFile: params.perFile ?? 3,
 				max,
-				paths: params.paths,
+				paths: params.paths ?? trigramPaths,
 			};
 			let matches = await searchVault(v.path, {
 				match: built.match,
