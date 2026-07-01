@@ -16,6 +16,7 @@
     "build:exe": "bun scripts/build.ts --compile",
     "build:all": "bun scripts/build.ts --all",
     "deploy": "bun scripts/deploy.ts",
+    "verify": "bun scripts/verify.ts",
     "dist": "bun ../../dist/pi-agent/pi-agent.js",
     "exe": "../../dist/pi-agent/pi-agent"
   },
