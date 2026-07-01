@@ -1199,13 +1199,33 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 
 const indexCache = new Map<string, VaultIndex>();
 
-/** Get or lazily build the index for a vault. */
+// ---- Index coherence (Phase 4: WS-A5 + WS-C3) -----------------------------
+// The file cache (readCached) is already mtime-coherent per read. The INDEX,
+// however, is built once and cached — so external edits (e.g. a note changed in
+// the Obsidian app mid-session) left byTag / byTitle / reverseAdjacency stale
+// until a manual obsidian_invalidate. refreshIndex() fixes that incrementally:
+// it re-enumerates the vault (readdir + stat only — no content read) and
+// reindexes just the files whose mtime changed, plus picks up adds/deletes.
+// Throttled so a burst of tool calls within one turn doesn't re-scan repeatedly.
+// Poll window is read live from env so it can be tuned at runtime (and set to 0
+// in tests to disable throttling without waiting).
+const INDEX_POLL_MS_DEFAULT = 2000;
+const indexPollMs = () => Number(process.env.OB_INDEX_POLL_MS ?? INDEX_POLL_MS_DEFAULT);
+const indexRefreshAt = new Map<string, number>(); // vault real path -> ms of last refresh
+
+/** Get or lazily build the index for a vault. On a cache hit, opportunistically
+ *  refresh incrementally (throttled) so external edits are picked up without a
+ *  manual invalidate. */
 export async function getIndex(vaultPath: string): Promise<VaultIndex> {
 	const real = resolve(vaultPath);
 	let idx = indexCache.get(real);
-	if (idx) return idx;
+	if (idx) {
+		await refreshIndex(idx, { force: false });
+		return idx;
+	}
 	idx = await buildIndex(real);
 	indexCache.set(real, idx);
+	indexRefreshAt.set(real, Date.now());
 	return idx;
 }
 
@@ -1336,6 +1356,58 @@ export async function reindexFile(
 /** Drop the index for a vault (forces rebuild on next getIndex). */
 export function dropIndex(vaultPath: string): void {
 	indexCache.delete(resolve(vaultPath));
+}
+
+/** Incrementally reconcile the index with the current on-disk vault state.
+ *  Readdir + stat every file (cheap — no content read), then reindex only the
+ *  changed/added files and drop the deleted ones. Returns a small diff summary
+ *  so callers (obsidian_invalidate, tests) can report what changed.
+ *
+ *  Throttled by INDEX_POLL_MS unless `force` is true (used by the explicit
+ *  obsidian_invalidate tool and write paths, which want immediate effect). */
+export async function refreshIndex(
+	idx: VaultIndex,
+	opts: { force?: boolean } = {},
+): Promise<{ added: number; changed: number; deleted: number }> {
+	const real = idx.vaultPath;
+	const now = Date.now();
+	if (!opts.force && now - (indexRefreshAt.get(real) ?? 0) < indexPollMs()) {
+		return { added: 0, changed: 0, deleted: 0 };
+	}
+	indexRefreshAt.set(real, now);
+
+	const files = await listNotes(real, "");
+	const seen = new Set<string>();
+	const toReindex: string[] = [];
+	let added = 0;
+	let changed = 0;
+	for (const f of files) {
+		seen.add(f);
+		const abs = join(real, f);
+		let st;
+		try {
+			st = await stat(abs);
+		} catch {
+			continue; // vanished between readdir and stat; next refresh retries
+		}
+		const prev = idx.notes.get(f);
+		if (!prev) added++;
+		else if (prev.mtime !== st.mtimeMs) changed++;
+		else continue;
+		toReindex.push(f);
+	}
+	// Deleted externally: indexed paths no longer present on disk.
+	const deleted: string[] = [];
+	for (const p of idx.notes.keys()) if (!seen.has(p)) deleted.push(p);
+
+	for (const f of toReindex) {
+		const entry = await readCached(join(real, f));
+		if (entry) indexNote(idx, parseNoteMeta(f, entry.content, entry.mtime));
+		// (if readCached returned null — race: file gone — unindex below via deleted)
+	}
+	for (const f of deleted) unindexNote(idx, f);
+
+	return { added, changed, deleted: deleted.length };
 }
 
 /** Resolve a wiki-link target to a note path (exported for tests/B3). */
@@ -3224,22 +3296,92 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Tool: obsidian_invalidate (B1.4) ----------------------------------
+	// ---- Tool: obsidian_invalidate (B1.4 / Phase 4: WS-C3) ------------------
 	pi.registerTool({
 		name: "obsidian_invalidate",
 		label: "Obsidian Invalidate",
 		description:
-			"Force-clear the read cache and vault index so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). No return value beyond confirmation.",
-		parameters: Type.Object({}),
-		async execute(_id, _params, _s, _u, ctx) {
+			"Reconcile the read cache and vault index with the current on-disk state so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). Pass `path` (a note or folder, vault-relative) to reconcile only that subtree; omit it to reconcile the whole vault. Returns a small +added/~changed/-deleted summary.",
+		parameters: Type.Object({
+			path: Type.Optional(
+				Type.String({
+					description:
+						"Optional vault-relative note or folder to reconcile scantly. Without it, the whole vault is reconciled incrementally (no full rebuild).",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
+			const real = resolve(v.path);
+
+			// Path-scoped reconcile: reindex only matching indexed entries.
+			if (typeof params.path === "string" && params.path.trim()) {
+				const note = safeNotePath(v.path, params.path);
+				const abs = join(real, note);
+				const isDir = await stat(abs)
+					.then((s) => s.isDirectory())
+					.catch(() => false);
+				const idx = indexCache.get(real);
+				if (!idx) {
+					invalidateCache(abs);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Cleared cache for "${params.path}" (index not yet built; next use builds it fresh).`,
+							},
+						],
+						details: null,
+					};
+				}
+				const prefix = isDir ? note.replace(/\/$/, "") + "/" : note;
+				let n = 0;
+				for (const p of [...idx.notes.keys()]) {
+					const hit = isDir ? p.startsWith(prefix) : p === note;
+					if (!hit) continue;
+					invalidateCache(join(real, p));
+					const entry = await readCached(join(real, p));
+					if (entry) {
+						indexNote(idx, parseNoteMeta(p, entry.content, entry.mtime));
+						n++;
+					} else {
+						unindexNote(idx, p); // deleted externally
+						n++;
+					}
+				}
+				indexRefreshAt.set(real, Date.now());
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Reconciled ${n} note(s) under "${params.path}" in vault "${v.name}".`,
+						},
+					],
+					details: null,
+				};
+			}
+
+			// Whole-vault reconcile: clear file cache + incremental index refresh
+			// (no full rebuild — only changed files are re-read/parsed).
 			invalidateCache();
-			dropIndex(v.path);
+			const idx = indexCache.get(real);
+			if (idx) {
+				const diff = await refreshIndex(idx, { force: true });
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Refreshed vault "${v.name}": +${diff.added} added, ~${diff.changed} changed, -${diff.deleted} deleted.`,
+						},
+					],
+					details: null,
+				};
+			}
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Cleared cache and index for vault "${v.name}".`,
+						text: `Cleared cache for vault "${v.name}" (index not yet built; next use builds it fresh).`,
 					},
 				],
 				details: null,
