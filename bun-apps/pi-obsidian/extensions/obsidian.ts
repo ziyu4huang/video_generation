@@ -1476,9 +1476,14 @@ export async function getIndex(vaultPath: string): Promise<VaultIndex> {
 	if (!inflight) {
 		inflight = (async () => {
 			try {
-				const built = await buildIndex(real);
+				// Phase 6 / WS-C6: try a persisted index first (stat-validated);
+				// only fall back to a full O(n) buildIndex if there's no cache.
+				let built = await loadCachedIndex(real);
+				if (!built) built = await buildIndex(real);
 				indexCache.set(real, built);
 				indexRefreshAt.set(real, Date.now());
+				// persist for next session (best-effort, non-blocking)
+				void saveIndex(built).catch(() => {});
 				return built;
 			} finally {
 				indexInFlight.delete(real);
@@ -1513,6 +1518,14 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 	// Second pass: now that all notes are in byTitle, recompute link resolution
 	// so reverseAdjacency keys are actual note paths (a link added before its
 	// target was indexed would otherwise key on the raw lowercased target).
+	rebuildReverseAdjacency(idx);
+	return idx;
+}
+
+/** Second pass: recompute reverseAdjacency so its keys are actual note paths
+ *  (a link parsed before its target was indexed keys on the raw target). Shared
+ *  by buildIndex and loadCachedIndex. */
+function rebuildReverseAdjacency(idx: VaultIndex): void {
 	idx.reverseAdjacency.clear();
 	for (const meta of idx.notes.values()) {
 		for (const link of meta.links) {
@@ -1525,6 +1538,138 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 			s.add(meta.path);
 		}
 	}
+}
+
+// ---- Cross-session index persistence (Phase 6 / WS-C6) --------------------
+// The index is a module-level Map cleared on exit, so every fresh session paid
+// a full O(n) buildIndex (read every file's content + parse). This persists the
+// index to <vault>/.cache/pi-obsidian-index.json and, on a cold getIndex, loads
+// it + stat-validates each note: notes unchanged since last session reuse their
+// persisted meta (incl. trigrams — no content re-read), only changed/new notes
+// are re-read. Disable with OB_INDEX_PERSIST=0; relocate the file with
+// OB_INDEX_CACHE_DIR. Best-effort — any read/parse/write failure silently falls
+// back to a full buildIndex.
+const INDEX_CACHE_VERSION = 1;
+function indexCachePath(vaultReal: string): string {
+	const dir = process.env.OB_INDEX_CACHE_DIR || join(vaultReal, ".cache");
+	return join(dir, "pi-obsidian-index.json");
+}
+
+/** Parallel stat → mtimeMs (null for absent). */
+async function statMtimes(absPaths: string[]): Promise<(number | null)[]> {
+	return Promise.all(
+		absPaths.map((p) =>
+			stat(p)
+				.then((s) => s.mtimeMs)
+				.catch(() => null),
+		),
+	);
+}
+
+/** Serialize the index to a plain JSON-safe object. Persisted notes carry their
+ *  trigrams so a warm reload needs NO content re-read (keeps C5 trigram search
+ *  working across sessions). Derived maps (byTag/byTitle/reverseAdjacency/
+ *  trigrams-inverted) are rebuilt on load, not stored. */
+export function serializeIndex(idx: VaultIndex): {
+	version: number;
+	vaultPath: string;
+	rev: number;
+	notes: any[];
+} {
+	return {
+		version: INDEX_CACHE_VERSION,
+		vaultPath: idx.vaultPath,
+		rev: idx.rev,
+		notes: [...idx.notes.values()].map((n) => ({
+			path: n.path,
+			title: n.title,
+			tags: n.tags,
+			links: n.links,
+			created: n.created,
+			mtime: n.mtime,
+			trigrams: [...n.trigrams],
+		})),
+	};
+}
+
+/** Write the index to disk (best-effort, never throws). */
+export async function saveIndex(idx: VaultIndex): Promise<void> {
+	if (process.env.OB_INDEX_PERSIST === "0") return;
+	try {
+		const path = indexCachePath(idx.vaultPath);
+		await mkdir(join(path, ".."), { recursive: true });
+		await atomicWriteFile(path, JSON.stringify(serializeIndex(idx)));
+	} catch {
+		// best-effort: a failed save just means a full rebuild next session
+	}
+}
+
+/** Load + mtime-validate a persisted index. Returns null when there is no
+ *  cache, it's the wrong version, or anything goes wrong (caller falls back to
+ *  buildIndex). Notes unchanged on disk reuse their persisted meta (incl.
+ *  trigrams); changed/new notes are re-read and re-parsed. */
+export async function loadCachedIndex(
+	vaultReal: string,
+): Promise<VaultIndex | null> {
+	if (process.env.OB_INDEX_PERSIST === "0") return null;
+	let raw: string;
+	try {
+		raw = await readFile(indexCachePath(vaultReal), "utf8");
+	} catch {
+		return null;
+	}
+	let data: any;
+	try {
+		data = JSON.parse(raw);
+	} catch {
+		return null;
+	}
+	if (!data || data.version !== INDEX_CACHE_VERSION || !Array.isArray(data.notes))
+		return null;
+
+	const files = await listNotes(vaultReal, "");
+	const persisted = new Map<string, any>(data.notes.map((n: any) => [n.path, n]));
+	const mtimes = await statMtimes(files.map((f) => join(vaultReal, f)));
+
+	const idx: VaultIndex = {
+		vaultPath: vaultReal,
+		notes: new Map(),
+		byTag: new Map(),
+		byTitle: new Map(),
+		reverseAdjacency: new Map(),
+		trigrams: new Map(),
+		rev: 0,
+	};
+	const stale: string[] = [];
+	for (let i = 0; i < files.length; i++) {
+		const f = files[i];
+		const mtime = mtimes[i];
+		const p = persisted.get(f);
+		if (mtime !== null && p && p.mtime === mtime) {
+			// unchanged since last session — reuse persisted meta (trigrams incl.)
+			indexNote(idx, {
+				path: p.path,
+				title: p.title,
+				tags: Array.isArray(p.tags) ? p.tags : [],
+				links: Array.isArray(p.links) ? p.links : [],
+				created: p.created,
+				mtime: p.mtime,
+				trigrams: new Set(Array.isArray(p.trigrams) ? p.trigrams : []),
+			});
+		} else {
+			// changed or new — must re-read content
+			stale.push(f);
+		}
+	}
+	if (stale.length > 0) {
+		const entries = await readBatched(stale.map((f) => join(vaultReal, f)));
+		for (let i = 0; i < stale.length; i++) {
+			const entry = entries[i];
+			if (!entry) continue;
+			indexNote(idx, parseNoteMeta(stale[i], entry.content, entry.mtime));
+		}
+	}
+	rebuildReverseAdjacency(idx);
 	return idx;
 }
 
@@ -3779,7 +3924,7 @@ export default function (pi: ExtensionAPI) {
 			if (mode === "substring" && !params.paths && process.env.OB_TRIGRAM_SEARCH !== "0") {
 				try {
 					const idx = await getIndex(v.path);
-					await refreshIndex(v.path);
+					await refreshIndex(idx, { force: false });
 					const cand = trigramCandidates(idx, params.query);
 					if (cand) trigramPaths = [...cand];
 				} catch {
