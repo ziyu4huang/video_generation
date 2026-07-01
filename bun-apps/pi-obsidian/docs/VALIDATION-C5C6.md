@@ -67,6 +67,26 @@ After the fix:
 Result set == brute force on every query. The win scales with how rare the query
 is (rarer → smaller candidate set → faster), exactly as a trigram index should.
 
+#### Second `listNotes` bottleneck — folder × substring (found in self-review)
+
+A re-read of `searchVault` after the first fix surfaced the **same bug class
+again**: the skip-`listNotes` optimization was gated on `!folder`, so a
+substring search **with a `folder` filter** fell back to the O(n) `listNotes`
+readdir even though the trigram candidate set had already scoped the work. The
+caller (`obsidian_search`) always passes `folder` through, so any folder-scoped
+substring search silently lost the C5 speedup — and the benchmark above missed
+it because it only ran folder-less queries (`paths: ALL_PATHS`).
+
+**Fix** (`extensions/obsidian.ts`, searchVault): when an explicit candidate set
+is present, intersect it with the folder by **prefix** (`p.startsWith(folder+"/")`)
+instead of re-enumerating the vault. `listNotes` now runs only for unscoped
+searches (no candidate set). Result correctness is unchanged (the candidate set
+is a sound superset; the folder is a hard scope). Regression tests added in
+`trigramIndex.test.mjs` (folder × candidate intersection, incl. an empty-folder
+case). Same lesson as the first fix, restated: **a candidate pre-filter is
+worthless if an O(n) enumeration runs alongside it — measure every code path
+that can reach the filter, not just the one the benchmark happens to exercise.**
+
 ## 3. Issue found: `.cache/` vault pollution (fixed)
 
 C6 writes `<vault>/.cache/pi-obsidian-index.json`. The submodule's `.gitignore`

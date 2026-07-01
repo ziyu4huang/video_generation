@@ -9,7 +9,10 @@ what remains by design or for later. Date-stamped; verified state noted.
 - **`obsidian_search` regex / words / fuzzy modes are full-scan by design.** Only
   `substring` mode uses the C5 trigram inverted index (a literal-substring
   pre-filter is sound; a regex/boolean/fuzzy match is not). At scale, prefer
-  `substring` when the query is literal. *(2026-07)*
+  `substring` when the query is literal. Substring works **with** a `folder`
+  filter too — the candidate set is intersected with the folder by prefix, no
+  `listNotes` readdir (a second `listNotes` bottleneck found in self-review;
+  see `docs/VALIDATION-C5C6.md`). *(2026-07)*
 - **`moveNote` / `deleteNote` rewrite inbound links with sequential `await`s per
   source.** The sources are independent — they could be `Promise.all`'d for the
   read + write passes. Not hot for typical vaults. *(deferred)*
