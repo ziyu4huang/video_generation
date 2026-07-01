@@ -9,6 +9,7 @@
   },
   "scripts": {
     "cli": "bun src/cli.ts",
+    "setup": "bun scripts/setup.ts",
     "list": "bun src/cli.ts --list-models",
     "build": "bun scripts/build.ts",
     "build:exe": "bun scripts/build.ts --compile",
