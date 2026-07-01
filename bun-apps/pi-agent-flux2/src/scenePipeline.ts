@@ -19,6 +19,7 @@
  * loop/winner-selection logic itself is unit-testable without a built flux2
  * binary or a running LM Studio.
  */
+import { basename, dirname, join } from "node:path";
 import type { Flux2Details } from "./result.ts";
 
 export interface ScenePipelineOptions {
@@ -56,6 +57,14 @@ export interface ScenePipelineResult {
   candidates: ScenePipelineCandidate[];
   winnerSeed: number | null;
   winnerOutput: string | null;
+  /**
+   * Gate of the WINNING candidate's own render — taken directly from the
+   * candidate object pickWinner() selected, never re-derived by looking up
+   * `candidates.find(c => c.seed === winnerSeed)`. That re-lookup breaks when
+   * `seeds` contains duplicates (picks the first candidate with that seed
+   * value, which may not be the one actually chosen as best/matched).
+   */
+  winnerGate: "PASS" | "WARN" | "FAIL" | null;
   /** Why the winner was picked ("verify-match" | "best-gate" | "none"). */
   winnerReason: "verify-match" | "best-gate" | "none";
   handRepair?: { output: string | null; gate: "PASS" | "WARN" | "FAIL" | null } | null;
@@ -96,8 +105,14 @@ function withOutputSuffix(baseOptions: Record<string, unknown>, suffix: string):
     opts.name = `${opts.name}_${suffix}`;
   }
   if (typeof opts.output === "string" && opts.output.length > 0) {
-    const dot = opts.output.lastIndexOf(".");
-    opts.output = dot > 0 ? `${opts.output.slice(0, dot)}_${suffix}${opts.output.slice(dot)}` : `${opts.output}_${suffix}`;
+    // Split the extension off the BASENAME only — splitting the whole path on
+    // its last "." wrongly treats a dot in a parent directory name (e.g.
+    // "/out.v2/render") as the extension separator, corrupting the directory.
+    const dir = dirname(opts.output);
+    const base = basename(opts.output);
+    const dot = base.lastIndexOf(".");
+    const newBase = dot > 0 ? `${base.slice(0, dot)}_${suffix}${base.slice(dot)}` : `${base}_${suffix}`;
+    opts.output = dir === "." ? newBase : join(dir, newBase);
   }
   return opts;
 }
@@ -111,18 +126,18 @@ function withOutputSuffix(baseOptions: Record<string, unknown>, suffix: string):
 function pickWinner(
   candidates: ScenePipelineCandidate[],
   verifyMatch: string[] | undefined,
-): { seed: number | null; output: string | null; reason: ScenePipelineResult["winnerReason"] } {
+): { seed: number | null; output: string | null; gate: ScenePipelineCandidate["gate"]; reason: ScenePipelineResult["winnerReason"] } {
   if (verifyMatch?.length) {
     const matched = candidates.find((c) => c.matched && c.gate !== "FAIL");
-    if (matched) return { seed: matched.seed, output: matched.output, reason: "verify-match" };
+    if (matched) return { seed: matched.seed, output: matched.output, gate: matched.gate, reason: "verify-match" };
   }
   let best: ScenePipelineCandidate | null = null;
   for (const c of candidates) {
     if (!c.ok) continue;
     if (!best || gateRank(c.gate) > gateRank(best.gate)) best = c;
   }
-  if (best) return { seed: best.seed, output: best.output, reason: "best-gate" };
-  return { seed: null, output: null, reason: "none" };
+  if (best) return { seed: best.seed, output: best.output, gate: best.gate, reason: "best-gate" };
+  return { seed: null, output: null, gate: null, reason: "none" };
 }
 
 export interface RunScenePipelineDeps {
@@ -151,15 +166,33 @@ export async function runScenePipeline(
   const candidates: ScenePipelineCandidate[] = [];
   for (const seed of pipelineOpts.seeds) {
     onProgress?.(`scene pipeline: rendering seed ${seed} (${candidates.length + 1}/${pipelineOpts.seeds.length})`);
-    const details = await deps.runSceneOnce({ ...withOutputSuffix(baseOptions, `seed${seed}`), seed });
+    let details: Flux2Details;
+    try {
+      details = await deps.runSceneOnce({ ...withOutputSuffix(baseOptions, `seed${seed}`), seed });
+    } catch (e) {
+      // A throw here (path-safety rejection, binary build failure, etc.) must
+      // not discard every candidate already rendered — record this seed as
+      // failed and keep going, so the pipeline still returns a usable partial
+      // result instead of crashing the whole call.
+      onProgress?.(`scene pipeline: seed ${seed} threw: ${e instanceof Error ? e.message : String(e)}`);
+      candidates.push({ seed, output: null, gate: null, vlmReply: null, matched: false, ok: false });
+      continue;
+    }
     let vlmReply: string | null = null;
     let matched = false;
     if (details.ok && details.output && pipelineOpts.verifyPrompt) {
       onProgress?.(`scene pipeline: verifying seed ${seed} via VLM`);
-      const answer = await deps.askAboutImage(details.output, pipelineOpts.verifyPrompt);
-      if (answer.ok) {
-        vlmReply = answer.reply;
-        matched = pipelineOpts.verifyMatch?.length ? matchesAll(answer.reply, pipelineOpts.verifyMatch) : false;
+      try {
+        const answer = await deps.askAboutImage(details.output, pipelineOpts.verifyPrompt);
+        if (answer.ok) {
+          vlmReply = answer.reply;
+          matched = pipelineOpts.verifyMatch?.length ? matchesAll(answer.reply, pipelineOpts.verifyMatch) : false;
+        }
+      } catch (e) {
+        // VLM verification is best-effort — a throw (LM Studio down mid-run,
+        // transient network error) degrades to "no VLM verdict" rather than
+        // killing a pipeline whose image already rendered successfully.
+        onProgress?.(`scene pipeline: VLM verification for seed ${seed} threw: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     candidates.push({
@@ -177,17 +210,26 @@ export async function runScenePipeline(
     candidates,
     winnerSeed: winner.seed,
     winnerOutput: winner.output,
+    winnerGate: winner.gate,
     winnerReason: winner.reason,
   };
 
   if (pipelineOpts.handRepairWinner && winner.seed != null) {
     onProgress?.(`scene pipeline: hand-repairing winning seed ${winner.seed}`);
-    const repaired = await deps.runSceneOnce({
-      ...withOutputSuffix(baseOptions, `seed${winner.seed}_handrepair`),
-      seed: winner.seed,
-      handRepair: true,
-    });
-    result.handRepair = { output: repaired.output, gate: repaired.gate };
+    try {
+      const repaired = await deps.runSceneOnce({
+        ...withOutputSuffix(baseOptions, `seed${winner.seed}_handrepair`),
+        seed: winner.seed,
+        handRepair: true,
+      });
+      result.handRepair = { output: repaired.output, gate: repaired.gate };
+    } catch (e) {
+      // By this point candidates/winnerSeed/winnerOutput are already valid —
+      // a throw during the EXTRA repair pass must not discard that already-
+      // good result. Degrade to "repair attempted, no output" instead.
+      onProgress?.(`scene pipeline: hand-repair for seed ${winner.seed} threw: ${e instanceof Error ? e.message : String(e)}`);
+      result.handRepair = { output: null, gate: null };
+    }
   }
 
   return result;

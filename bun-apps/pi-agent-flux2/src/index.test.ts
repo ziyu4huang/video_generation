@@ -36,4 +36,12 @@ describe("runFlux2 — pre-spawn validation", () => {
       runFlux2({ command: "upscale", options: { input: "/definitely/does/not/exist.png" } }),
     ).rejects.toThrow(PathSafetyError);
   });
+
+  test("throws PathSafetyError for a flag-like value inside a string[] field (e.g. lora)", async () => {
+    // Regression: the flag-injection guard used to only check `typeof v === "string"`,
+    // silently skipping array-typed fields like `lora` entirely.
+    await expect(
+      runFlux2({ command: "scene", options: { prompt: "a scene", lora: ["legit-lora", "--models-root"] } }),
+    ).rejects.toThrow(PathSafetyError);
+  });
 });

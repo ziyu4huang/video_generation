@@ -266,4 +266,117 @@ describe("runScenePipeline", () => {
     );
     expect(askCalls).toBe(0);
   });
+
+  test("a per-seed `output` suffix splits on the BASENAME's extension, not a dot in a parent directory", () => {
+    // Regression: a directory name containing a dot (e.g. a versioned output
+    // dir "/out.v2") used to be mistaken for the file extension separator.
+    const seenOutputs: unknown[] = [];
+    return runScenePipeline(
+      { prompt: "a scene", output: "/out.v2/render" },
+      { seeds: [5] },
+      {
+        runSceneOnce: async (opts) => {
+          seenOutputs.push(opts.output);
+          return fakeDetails();
+        },
+        askAboutImage: async () => ({ reply: "", ok: true }),
+      },
+    ).then(() => {
+      expect(seenOutputs).toEqual(["/out.v2/render_seed5"]);
+    });
+  });
+
+  test("winnerGate is the ACTUAL winning candidate's gate, not a re-lookup by seed value (duplicate seeds)", async () => {
+    // Regression: re-deriving the gate via candidates.find(seed === winnerSeed)
+    // picks the FIRST candidate with that seed, which can differ from the
+    // candidate pickWinner() actually selected when seeds repeat.
+    let call = 0;
+    const result = await runScenePipeline(
+      {},
+      { seeds: [9, 9] },
+      {
+        runSceneOnce: async (opts) => {
+          call++;
+          // First seed-9 render gates WARN, second (also seed 9) gates PASS.
+          return fakeDetails({ gate: call === 1 ? "WARN" : "PASS", output: `/out/9-${call}.png` });
+        },
+        askAboutImage: async () => ({ reply: "", ok: true }),
+      },
+    );
+    expect(result.winnerOutput).toBe("/out/9-2.png"); // the PASS render
+    expect(result.winnerGate).toBe("PASS");
+  });
+
+  test("winnerGate is null and handRepair.gate wins when hand-repair's own gate check fails to parse", async () => {
+    const result = await runScenePipeline(
+      {},
+      { seeds: [1], handRepairWinner: true },
+      {
+        runSceneOnce: async (opts) =>
+          fakeDetails({
+            gate: opts.handRepair ? null : "WARN", // repair succeeds but its gate sub-check returns null
+            output: opts.handRepair ? "/out/1-repaired.png" : "/out/1.png",
+          }),
+        askAboutImage: async () => ({ reply: "", ok: true }),
+      },
+    );
+    expect(result.winnerGate).toBe("WARN");
+    expect(result.handRepair?.gate).toBeNull();
+    expect(result.handRepair?.output).toBe("/out/1-repaired.png");
+  });
+
+  test("a throwing seed render does not discard already-rendered candidates — the pipeline still returns a partial result", async () => {
+    const result = await runScenePipeline(
+      {},
+      { seeds: [1, 2, 3] },
+      {
+        runSceneOnce: async (opts) => {
+          if (opts.seed === 2) throw new Error("boom: binary crashed");
+          return fakeDetails({ output: `/out/${opts.seed}.png` });
+        },
+        askAboutImage: async () => ({ reply: "", ok: true }),
+      },
+    );
+    expect(result.candidates).toHaveLength(3);
+    expect(result.candidates[0]).toMatchObject({ seed: 1, ok: true });
+    expect(result.candidates[1]).toMatchObject({ seed: 2, ok: false, output: null, gate: null });
+    expect(result.candidates[2]).toMatchObject({ seed: 3, ok: true });
+    // Winner still gets picked from the surviving candidates.
+    expect(result.winnerSeed).not.toBeNull();
+  });
+
+  test("a throwing VLM call degrades to no-verdict for that seed instead of killing the whole pipeline", async () => {
+    const result = await runScenePipeline(
+      {},
+      { seeds: [1, 2], verifyPrompt: "describe" },
+      {
+        runSceneOnce: async (opts) => fakeDetails({ output: `/out/${opts.seed}.png` }),
+        askAboutImage: async (img) => {
+          if (img === "/out/1.png") throw new Error("LM Studio unreachable");
+          return { reply: "ok", ok: true };
+        },
+      },
+    );
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0]).toMatchObject({ seed: 1, ok: true, vlmReply: null, matched: false });
+    expect(result.candidates[1]).toMatchObject({ seed: 2, ok: true, vlmReply: "ok" });
+  });
+
+  test("a throwing hand-repair pass degrades to a null repair result instead of discarding the already-found winner", async () => {
+    const result = await runScenePipeline(
+      {},
+      { seeds: [1], handRepairWinner: true },
+      {
+        runSceneOnce: async (opts) => {
+          if (opts.handRepair) throw new Error("flux2 binary crashed on --hand-repair");
+          return fakeDetails({ output: "/out/1.png", gate: "WARN" });
+        },
+        askAboutImage: async () => ({ reply: "", ok: true }),
+      },
+    );
+    expect(result.winnerSeed).toBe(1);
+    expect(result.winnerOutput).toBe("/out/1.png");
+    expect(result.winnerGate).toBe("WARN");
+    expect(result.handRepair).toEqual({ output: null, gate: null });
+  });
 });

@@ -42,6 +42,16 @@ describe("buildArgs", () => {
     expect(() => buildArgs(COMMANDS.scene, { ref: "a.png" })).toThrow(/expects an array/);
   });
 
+  test("a joinWith array field emits ONE flag with values joined by the separator (edit's --images)", () => {
+    const args = buildArgs(COMMANDS.edit, { images: ["a.png", "b.png"] });
+    expect(args).toEqual(["--images", "a.png,b.png"]);
+  });
+
+  test("a joinWith array field with a single element still emits one flag, no trailing separator", () => {
+    const args = buildArgs(COMMANDS.edit, { images: ["only.png"] });
+    expect(args).toEqual(["--images", "only.png"]);
+  });
+
   test("collects positional args and appends them after all flags (gate)", () => {
     const args = buildArgs(COMMANDS.gate, { images: ["a.png", "b.png"], json: true });
     expect(args).toEqual(["--json", "a.png", "b.png"]);
@@ -67,6 +77,12 @@ describe("pathFieldKeys", () => {
 
   test("gate's positional `images` field is a path array", () => {
     expect(pathFieldKeys(COMMANDS.gate)).toEqual(["images"]);
+  });
+
+  test("edit's images field is a path array (not a single path) — matches --images taking one path per ref", () => {
+    expect(pathFieldKeys(COMMANDS.edit)).toContain("images");
+    expect(COMMANDS.edit.fields.images.isPathArray).toBe(true);
+    expect(COMMANDS.edit.fields.images.isPath).toBeUndefined();
   });
 });
 

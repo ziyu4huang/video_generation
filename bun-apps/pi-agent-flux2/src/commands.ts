@@ -26,6 +26,12 @@ export interface FieldSpec {
   isPathArray?: boolean;
   /** Positional argument (no flag prefix), appended in declared order. */
   positional?: boolean;
+  /**
+   * For string[]/number[] fields whose CLI flag takes ONE joined value rather
+   * than a repeated flag (e.g. `--images a.png,b.png`, not `--images a.png
+   * --images b.png`). Set to the join separator (e.g. ",").
+   */
+  joinWith?: string;
 }
 
 export interface CommandSpec {
@@ -147,7 +153,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     when: "Generic reference-conditioned edit/generation (Flux2KleinEdit, multi-ref).",
     fields: {
       prompt: { flag: "--prompt", type: "string", description: "Text prompt describing the edit." },
-      images: { flag: "--images", type: "string", isPath: true, description: "Reference image path(s), comma-separated for multi-ref." },
+      images: { flag: "--images", type: "string[]", isPathArray: true, joinWith: ",", description: "Reference image path(s) — one per array element (multi-ref)." },
       ...GEN_FIELDS,
     },
   },
@@ -404,7 +410,11 @@ export function buildArgs(spec: CommandSpec, options: Record<string, unknown>): 
       if (!Array.isArray(v)) {
         throw new Error(`field "${key}" expects an array, got ${typeof v}`);
       }
-      for (const item of v) args.push(f.flag, fmtScalar(f, item));
+      if (f.joinWith != null) {
+        args.push(f.flag, v.map((item) => fmtScalar(f, item)).join(f.joinWith));
+      } else {
+        for (const item of v) args.push(f.flag, fmtScalar(f, item));
+      }
       continue;
     }
 

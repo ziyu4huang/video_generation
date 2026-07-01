@@ -87,10 +87,10 @@ const EXTRA_ARG_ALLOW = new Set<string>([
   "hand-repair", "hand-repair-strength", "bg", "bg-strength", "lora", "lora-scale",
   "transformer", "seed", "width", "height", "steps", "cfg-scale", "output", "output-dir",
   "name", "vae", "encoder", "tokenizer-dir", "no-artifacts", "strict-gate", "models-root",
-  "input", "preset", "style-prompt", "ref-count", "angle", "azimuth", "elevation",
+  "input", "preset", "ref-count", "angle", "azimuth", "elevation",
   "source", "reference", "threshold", "feather", "mask-dilate", "preserve-aspect-ratio",
   "inpaint", "harmonize", "expand", "pixels", "model", "tile-size", "tile-overlap",
-  "no-tile", "json", "strict", "image", "character", "scenes", "ref", "reference", "reference-image",
+  "no-tile", "json", "strict", "image", "images", "character", "scenes", "ref", "reference",
   "tokenizer", "tokenizer-dir",
 ]);
 
@@ -114,13 +114,20 @@ function validateOptionPaths(
       assertPathAllowed(String(v), roots, { kind: key, mustExist: !isOutput });
     }
   }
-  // Reject flag-like values in free-form string fields that aren't paths
-  // (e.g. a prompt accidentally starting with '-').
+  // Reject flag-like values in free-form string (or string[], e.g. `lora`)
+  // fields that aren't paths (e.g. a prompt, or a lora name, accidentally
+  // starting with '-'). Array fields were previously skipped entirely here
+  // because the check only ran for `typeof v === "string"` — an array slips
+  // straight through to buildArgs() unvalidated.
   for (const [key, field] of Object.entries(spec.fields)) {
     if (field.isPath || field.isPathArray || field.positional) continue;
     if (!(key in options)) continue;
     const v = options[key];
-    if (typeof v === "string") rejectFlagLike(v, key);
+    if (typeof v === "string") {
+      rejectFlagLike(v, key);
+    } else if (Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string") rejectFlagLike(item, key);
+    }
   }
 }
 
@@ -262,7 +269,12 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
       seed: pipeline.winnerSeed,
       width: null,
       height: null,
-      gate: pipeline.handRepair?.gate ?? pipeline.candidates.find((c) => c.seed === pipeline.winnerSeed)?.gate ?? null,
+      // If hand-repair ran, `gate` MUST describe the repaired image we're
+      // actually returning as `output` — including a null verdict when the
+      // repair's own gate check failed to parse. Falling back to the
+      // pre-repair winner's gate here would report a verdict that was never
+      // computed for the image we're handing back.
+      gate: pipeline.handRepair ? pipeline.handRepair.gate : pipeline.winnerGate,
       perf: { steps: null, totalSeconds: null, avgItPerSec: null, peakMemoryMB: null },
       manifestPath: null,
       runJsonPath: null,

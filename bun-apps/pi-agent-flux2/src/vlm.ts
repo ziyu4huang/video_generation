@@ -32,6 +32,15 @@ export async function askAboutImage(
   llm: ResolvedLLM,
   agentDir: string,
 ): Promise<{ reply: string; ok: boolean }> {
-  const result = await askImage(imagePath, question, { llm, agentDir });
-  return { reply: result.reply, ok: result.ok };
+  try {
+    // Defensive: pi-vlm's askImage only wraps session.prompt() in try/catch —
+    // readFileSync(imagePath) and createSharedSession() run outside that try
+    // block, so a not-yet-flushed image or an LM Studio connection failure
+    // throws instead of resolving {ok:false} as this function's own return
+    // type promises its callers. Never let that escape as an uncaught throw.
+    const result = await askImage(imagePath, question, { llm, agentDir });
+    return { reply: result.reply, ok: result.ok };
+  } catch {
+    return { reply: "", ok: false };
+  }
 }
