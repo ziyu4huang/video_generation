@@ -141,11 +141,14 @@ support optimistic-concurrency via `expectedMtime`.
 ## Files
 
 ```
-packages/pi-obsidian/
+bun-apps/pi-obsidian/
 ├── package.json        # pi manifest + pi-package keyword
 ├── README.md           # this file
 ├── extensions/
-│   └── obsidian.ts     # extension: 7 tools + 2 commands + vault seeding
+│   └── obsidian.ts     # extension: 16 tools + 3 commands + vault seeding
+├── docs/               # ENHANCEMENT-PRD.md · KNOWN-ISSUES.md · VALIDATION-C5C6.md
+├── scripts/            # bench-trigram-search · bench-index-persistence ·
+│                       # measure-schema-tokens · validate-real-vault
 ├── skills/
 │   └── seed-vault/     # optional skill that documents vault conventions
 └── vault-template/     # starter notes copied into a fresh vault
@@ -163,6 +166,24 @@ packages/pi-obsidian/
 | `OB_VAULT_PATH` | — | Absolute path; Tier 1 — overrides everything |
 | `OB_VAULT` | — | Registered vault name from `obsidian.json` (legacy, global mode only) |
 | `OB_USE_GLOBAL` | unset | Any truthy value skips the Tier 3 fallback |
+| `OB_CACHE_MAX` | `500` | Soft cap on the session file cache (true LRU, access-order). Tunable at runtime. |
+| `OB_INDEX_POLL_MS` | `2000` | Throttle window for incremental index refresh; `0` forces a refresh each call (tests). |
+| `OB_TRIGRAM_SEARCH` | on | `0` disables the C5 trigram candidate pre-filter for substring search. |
+| `OB_INDEX_PERSIST` | on | `0` disables C6 cross-session index persistence (load/save). |
+| `OB_INDEX_CACHE_DIR` | `<vault>/.cache` | Where C6 writes `pi-obsidian-index.json`. **Point outside the vault** (e.g. `/tmp/pi-obsidian-cache`) if you git-track or sync the vault folder and don't want a `.cache/` tracked there — see below. |
+| `OB_DISTILL_TOOLS` | *(built-in set)* | Comma-separated tool names the distill subagent may call (B6). |
+| `OB_GARDEN_AUDIT_TOOLS` / `OB_GARDEN_FIX_TOOLS` | *(built-in set)* | Same for garden audit / fix modes. Fix defaults to audit + write tools. |
+| `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id inheritance floor for distill/garden subagents (B2). `OB_SUBAGENT_MODEL` is a trusted floor; a known-weak `OB_PARENT_MODEL` is refused. |
+| `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call timeout for distill/garden subagents. |
+
+### C6 `.cache/` note
+
+C6 persists the vault index to `<vault>/.cache/pi-obsidian-index.json` by default
+(so it lives alongside the vault and survives across sessions). If you **git-track
+or sync the vault folder**, add `.cache/` to that vault's `.gitignore` (or set
+`OB_INDEX_CACHE_DIR` to a path outside the vault) — otherwise the cache file
+shows up as an untracked file in the vault. (The bundled `vaults_root/pi-agent-vault`
+test vault already ignores `.cache/`.)
 
 ## External use (bun scripts)
 
@@ -212,44 +233,26 @@ topic clusters (per folder), and health (orphans / dead links / title-style
 outliers). Add `--llm` to also generate semantic per-topic summaries via the
 `obsidian_distill` subagent (offline by default).
 
-## Known limitations & TODO
+## Known limitations
 
-- **`renameOverwrite` is not atomic-overwrite on Windows.** It only special-cases
-  `EXDEV`; on win32 `fs.rename` to an existing target throws `EPERM`/`EEXIST`, so
-  in-place edits of an existing note (append / frontmatter update / move-with-overwrite)
-  fail on Windows. Fix: handle the existing-target case (e.g. unlink-then-rename, or
-  fall back to `cp({force:true})` on `EPERM`/`EEXIST` too). Not hit on macOS/Linux.
-- **Graph/search helpers re-scan more than they need to.** Deferred perf wins:
-  - `findBacklinks` re-reads the whole vault and re-parses every `[[link]]` to locate
-    backlinks, instead of reusing `VaultIndex.reverseAdjacency` (already built). Read
-    only the backlink source files the index already knows about.
-  - `graphNeighbors` rebuilds a full undirected adjacency `Map` from scratch on every
-    call; build/memoize it on `VaultIndex` (which already does a reverse-adjacency pass).
-  - `moveNote` / `deleteNote` rewrite inbound links with sequential `await`s per source;
-    the sources are independent — `Promise.all` the reads and writes.
-- **`runSubagent` uses the `new Promise(async …)` antipattern.** The async executor's
-  implicit promise is discarded, so a throw that escapes the inner `try/catch` becomes
-  an unhandled rejection instead of rejecting the returned promise. `finish()` also lacks
-  an idempotency guard (it runs twice on spawn `error`+`close`); benign today because the
-  first resolve wins, but fragile. Prefactor to a plain `async` function + `finally` cleanup.
-- **16 tools add a constant schema overhead per turn.** In pi's architecture, a
-  tool's `description` and every parameter `description` are sent in the API's
-  `tools[]` schema array on *every* request — whether or not that tool is used in
-  that turn — separate from (and in addition to) the system prompt.
-  **Measured** with `bun run scripts/measure-schema-tokens.mjs`: ~13.3k chars of
-  schema ≈ **~3.3k tokens** of fixed cost per API call. `obsidian_search` alone is
-  ~900 tokens (27%; 12 params), so its tool-level description has been trimmed
-  (the parameter descriptions remain — they carry the per-mode semantics). Run the
-  script before/after any further trimming to quantify the win.
-  Mitigation paths (highest impact first):
-  - **Shorten verbose parameter `description` fields** — still the biggest lever,
-    especially for `obsidian_search` / `obsidian_delete` / `obsidian_query`. Do so
-    carefully: each field's semantics must stay clear to the model.
-  - **Add a `minimal` package option** that skips rarely-used tools by default
-    (`obsidian_distill`, `obsidian_garden`, `obsidian_query`, `obsidian_invalidate`);
-    opt-in when needed. Cuts ~4 heavy-schema tools from default registration.
-  - **Use `pi.setActiveTools([...subset])`** to deactivate tools not needed for
-    the current session.
+The full, date-stamped list lives in **[docs/KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md)**.
+Highlights:
+
+- **`renameOverwrite` is not atomic-overwrite on Windows** (`fs.rename` throws
+  `EPERM`/`EEXIST` onto an existing target; only `EXDEV` is special-cased). In-place
+  edits (append / frontmatter update / move-with-overwrite) fail on Windows; not hit
+  on macOS/Linux.
+- **`obsidian_search` regex / words / fuzzy are full-scan by design** — only
+  `substring` mode uses the C5 trigram index (a literal-substring pre-filter is sound;
+  the others aren't). See [docs/VALIDATION-C5C6.md](docs/VALIDATION-C5C6.md) for the
+  measured 5–10× substring speedup at 10k notes.
+- **Schema cost is ~3.3k tokens/turn** (every tool + param `description` ships in
+  `tools[]` each request). `scripts/measure-schema-tokens.mjs` quantifies it; further
+  trimming is conservative to preserve model tool-use.
+- **`obsidian_distill` / `obsidian_garden` need `OB_SUBAGENT_MODEL`** (they spawn `pi`).
+
+Previously-listed TODOs now resolved (C1 backlinks via index, C2 memoized adjacency,
+B5 `runSubagent` refactor, C5/C6/C7/C8/A6/A4) — see `docs/ENHANCEMENT-PRD.md`.
 
 ## License
 

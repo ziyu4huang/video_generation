@@ -1078,8 +1078,20 @@ export async function searchVault(
 		paths?: string[];
 	},
 ): Promise<SearchMatch[]> {
-	const files = await listNotes(vaultPath, opts.folder);
 	const allowedPaths = opts.paths ? new Set(opts.paths) : null;
+	// Phase 6 validation: when an explicit path set is given, skip the O(n)
+	// listNotes readdir — the caller (e.g. C5 trigram candidates) has already
+	// scoped the search, and listNotes otherwise dominated wall-time on large
+	// vaults, masking the trigram win. When a folder restriction is ALSO in
+	// play, intersect it with the candidate set by prefix (the candidates are
+	// vault-relative paths) rather than re-enumerating the vault — otherwise a
+	// folder-scoped substring search silently loses the C5 speedup. Falls back
+	// to listNotes only when there is no explicit path set (unscoped search).
+	const folder = opts.folder ?? "";
+	const inFolder = (p: string) => !folder || p.startsWith(folder + "/") || p === folder;
+	const files = allowedPaths
+		? [...allowedPaths].filter(inFolder)
+		: await listNotes(vaultPath, opts.folder);
 	const fieldFilter =
 		opts.fields && !opts.fields.includes("all") ? new Set(opts.fields) : null;
 	const contextN = opts.context ?? 0;

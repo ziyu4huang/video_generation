@@ -11,13 +11,14 @@
  *   bun test extensions/__tests__/trigramIndex.test.mjs
  */
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { writeFile } from "node:fs/promises";
+import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	buildIndex,
 	getIndex,
 	dropIndex,
 	trigramCandidates,
+	searchVault,
 } from "../obsidian.ts";
 import { makeFixture, rmFixture } from "./helpers/fixture.mjs";
 
@@ -121,5 +122,61 @@ describe("WS-C5 — search equivalence (pre-filter never changes results)", () =
 			const has = body.includes(token);
 			if (has) expect(cand.has(path)).toBe(true); // no true hit excluded
 		}
+	});
+});
+
+describe("WS-C5 — folder x candidate-set intersection (no listNotes regression)", () => {
+	// Regression for the second listNotes bottleneck: when an explicit `paths`
+	// candidate set (trigram output) is supplied TOGETHER with a `folder`
+	// restriction, searchVault must intersect by prefix and NOT fall back to a
+	// full listNotes readdir (which would silently erase the C5 speedup for
+	// folder-scoped substring searches). Result correctness is the same either
+	// way; this test pins the observable contract: only folder members of the
+	// candidate set are read, and a real hit inside the folder is still found.
+	let fv;
+	beforeAll(async () => {
+		fv = await makeFixture({});
+		await mkdir(join(fv, "Notes"), { recursive: true });
+		await mkdir(join(fv, "Other"), { recursive: true });
+		await writeFile(join(fv, "root.md"), "# Root\n\nobsidian root hit.\n", "utf8");
+		await writeFile(join(fv, "Notes", "a.md"), "# A\n\nobsidian inside Notes.\n", "utf8");
+		await writeFile(join(fv, "Notes", "b.md"), "# B\n\nnothing relevant.\n", "utf8");
+		await writeFile(join(fv, "Other", "c.md"), "# C\n\nobsidian but in Other.\n", "utf8");
+	});
+	afterAll(async () => {
+		dropIndex(fv);
+		await rmFixture(fv);
+	});
+
+	it("folder + paths returns only folder members, including a real hit", async () => {
+		const idx = await getIndex(fv);
+		// trigram candidates for "obsidian": root.md, Notes/a.md, Other/c.md
+		const cand = trigramCandidates(idx, "obsidian");
+		expect(cand).not.toBeNull();
+		expect([...cand].sort()).toEqual(["Notes/a.md", "Other/c.md", "root.md"]);
+		const matches = await searchVault(fv, {
+			match: (line) => line.toLowerCase().includes("obsidian"),
+			fields: null,
+			folder: "Notes",
+			max: 50,
+			paths: [...cand],
+		});
+		const files = [...new Set(matches.map((m) => m.file))];
+		// Notes/a.md is the only folder member that hits; root.md and Other/c.md
+		// are excluded by the folder intersection (no listNotes full scan).
+		expect(files).toEqual(["Notes/a.md"]);
+	});
+
+	it("folder with no candidate members returns no matches (no scan beyond candidates)", async () => {
+		const idx = await getIndex(fv);
+		const cand = trigramCandidates(idx, "obsidian");
+		const matches = await searchVault(fv, {
+			match: (line) => line.toLowerCase().includes("obsidian"),
+			fields: null,
+			folder: "Empty",
+			max: 50,
+			paths: [...cand],
+		});
+		expect(matches).toEqual([]);
 	});
 });
