@@ -3732,17 +3732,11 @@ export default function (pi: ExtensionAPI) {
 		name: "obsidian_search",
 		label: "Obsidian Search",
 		description:
-			"Full-text search across all notes in the vault. Returns matching file:line snippets. " +
-			"Case-insensitive by default. matchMode controls how `query` is interpreted: " +
-			"substring (default, literal) | regex (JS RegExp) | words (boolean: tokens AND together, " +
-			"`|` = OR group, `-token` = NOT) | fuzzy (typo-tolerant). `fields` restricts which note " +
-			"sections are searchable (title/tags/body/frontmatter; default all). `folder` restricts to a sub-tree. " +
-			"`sort` orders results: file (default) | relevance (title/tag hits first) | recency (by created date). " +
-			"`context` adds surrounding lines per match (indented `> ` block with the hit line marked). " +
-			"`groupByFile` caps matches per file to `perFile` (default 3)," +
-			"useful when one file would flood results. " +
-			"Graph awareness: `backlinks: true` treats query as a note title and returns notes linking to it via [[query]]. " +
-			"A query starting with `#` is a tag search (frontmatter tags + inline #tag).",
+			"Full-text search across notes; returns file:line snippets. matchMode: substring (default, literal) " +
+			"| regex (JS RegExp) | words (tokens AND; `|`=OR group, `-token`=NOT) | fuzzy (typo-tolerant). " +
+			"`fields` restricts searchable sections (title/tags/body/frontmatter; default all); `folder` a sub-tree. " +
+			"`sort`: file (default) | relevance | recency. `context`/`groupByFile`/`perFile` shape output (see params). " +
+			"Graph: `backlinks:true` treats query as a note title → notes linking to it; a `#`-prefixed query is a tag search.",
 		parameters: Type.Object({
 			query: Type.String({
 				description:
