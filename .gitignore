@@ -25,6 +25,7 @@ comfyui_data/user/default/workflows/.index.json
 .reasonix/
 dist/
 
-# Agent inventory output directories
-debug/
-output/
+# agent_inventory tool output (bun-apps/pi-agent-ext-power-tool) — scoped to
+# repo root since output/ already holds tracked files at other paths.
+/output/pi/
+/debug/

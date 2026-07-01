@@ -331,4 +331,81 @@ describe("agent_inventory", () => {
     const text = res.content[0].text;
     expect(text).toContain("Error writing inventory");
   });
+
+  test("REGRESSION: output_dir cannot escape cwd via ../ traversal", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-inv-"));
+    try {
+      const ctx = { ...BASE_CTX, cwd: tmp };
+      const { captured } = loadExtension(TOOLS);
+      const res = await captured.agent_inventory.execute(
+        undefined,
+        { output_dir: "../../../../tmp/pi-inv-escape", filename: "state" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const text = res.content[0].text;
+      expect(text).toContain("Error: output_dir must stay within");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("REGRESSION: filename cannot contain path separators", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-inv-"));
+    try {
+      const ctx = { ...BASE_CTX, cwd: tmp };
+      const { captured } = loadExtension(TOOLS);
+      const res = await captured.agent_inventory.execute(
+        undefined,
+        { filename: "../escape" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const text = res.content[0].text;
+      expect(text).toContain("Error: filename must not contain path separators");
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("REGRESSION: output_dir='' falls back to the default, not the cwd root", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "pi-inv-"));
+    try {
+      const ctx = { ...BASE_CTX, cwd: tmp };
+      const { captured } = loadExtension(TOOLS);
+      await captured.agent_inventory.execute(
+        undefined,
+        { output_dir: "", filename: "state" },
+        undefined,
+        undefined,
+        ctx,
+      );
+      const written = readFileSync(join(tmp, "output", "pi", "state.yaml"), "utf-8");
+      expect((yaml.load(written) as any).agent.cwd).toBe(tmp);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("REGRESSION: context_usage is emitted as null, not dropped, when unavailable", async () => {
+    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
+    fireBeforeAgentStart({
+      type: "before_agent_start",
+      systemPrompt: "x".repeat(500),
+      systemPromptOptions: buildSnapshotOpts(),
+    });
+    const ctx = { ...BASE_CTX, getContextUsage: () => undefined };
+    const res = await captured.agent_inventory.execute(
+      undefined,
+      { return_content: true },
+      undefined,
+      undefined,
+      ctx,
+    );
+    const parsed = yaml.load(res.content[0].text) as any;
+    expect("context_usage" in parsed).toBe(true);
+    expect(parsed.context_usage).toBeNull();
+  });
 });

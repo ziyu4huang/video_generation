@@ -6,9 +6,5 @@
   ],
   "devDependencies": {
     "@types/bun": "latest"
-  },
-  "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.3",
-    "upgrade": "^1.1.0"
   }
 }

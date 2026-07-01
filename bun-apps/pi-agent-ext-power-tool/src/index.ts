@@ -26,7 +26,7 @@ import {
 import { Type } from "typebox";
 import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
+import { join, resolve, sep } from "path";
 
 // ─── Snapshot captured from before_agent_start ────────────────────────────────
 
@@ -298,11 +298,12 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
     }),
 
     async execute(_id, params, _signal, _onUpdate, ctx) {
-      const outputDir = params.output_dir ?? "output/pi";
-      const useTimestamp = params.filename === undefined || params.filename === "";
-      const filename = useTimestamp
-        ? `agent-inventory-${Date.now()}`
-        : params.filename;
+      const outputDir =
+        params.output_dir === undefined || params.output_dir === "" ? "output/pi" : params.output_dir;
+      const filename =
+        params.filename === undefined || params.filename === ""
+          ? `agent-inventory-${Date.now()}`
+          : params.filename;
       const returnContent = params.return_content ?? false;
 
       // Build inventory data structure
@@ -327,7 +328,7 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
               input_types: ctx.model.input,
             }
           : null,
-        context_usage: ctx.getContextUsage(),
+        context_usage: ctx.getContextUsage() ?? null,
       };
 
       // Get tools with full details
@@ -403,8 +404,23 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
         };
       }
 
-      // Write to file
-      const fullOutputDir = join(ctx.cwd, outputDir);
+      // Write to file — keep both the output dir and filename contained under cwd.
+      const resolvedCwd = resolve(ctx.cwd);
+      const fullOutputDir = resolve(resolvedCwd, outputDir);
+      if (fullOutputDir !== resolvedCwd && !fullOutputDir.startsWith(resolvedCwd + sep)) {
+        return {
+          content: [
+            { type: "text" as const, text: `Error: output_dir must stay within ${resolvedCwd}, got "${outputDir}"` },
+          ],
+          details: null,
+        };
+      }
+      if (filename.includes("/") || filename.includes("\\") || filename.includes("..")) {
+        return {
+          content: [{ type: "text" as const, text: `Error: filename must not contain path separators, got "${filename}"` }],
+          details: null,
+        };
+      }
       const outputPath = join(fullOutputDir, `${filename}.yaml`);
 
       try {

@@ -34,14 +34,14 @@ model:
   name: Claude 4 Sonnet
   provider: anthropic
   reasoning: false
-  context_window: 205000
+  context_window: 200000
   max_tokens: 16384
   input_types: [text, image]
 
-context_usage:
+context_usage:  # null if no context-usage reading is available yet
   tokens: 19924
-  contextWindow: 205000
-  percent: 9.7
+  contextWindow: 200000
+  percent: 10.0
 
 tools:
   - name: context_analyzer
@@ -49,14 +49,22 @@ tools:
     parameters: {...}
     prompt_guidelines: []
     source:
-      type: extension
+      source: extension
+      scope: user
+      origin: top-level
       path: bun-apps/pi-agent-ext-power-tool/src/index.ts
+      base_dir: null
 
 skills:
   - name: find-skills
     description: Helps users discover...
-    path: ~/.agents/skills/find-skills/SKILL.md
-    when_to_use: "Use when the user asks..."
+    file_path: ~/.agents/skills/find-skills/SKILL.md
+    base_dir: ~/.agents/skills/find-skills
+    disable_model_invocation: false
+    source:
+      source: file
+      scope: user
+      origin: top-level
 
 context_files:
   - path: CLAUDE.md
@@ -150,7 +158,7 @@ pi-agent-ext-power-tool/
 
 ## What the numbers mean
 
-A fresh default pi session in this repo uses **~19,924 tokens (~9.7% of 205k)** before any conversation.
+A fresh default pi session in this repo uses **~19,924 tokens (~10.0% of 200k)** before any conversation.
 The system prompt alone is **~9,242 tokens** (34,194 chars):
 
 ```
@@ -159,7 +167,7 @@ Guidelines        12,058 chars   ~3,259 tok   (all tool promptGuidelines bullets
 Skills              1,613 chars     ~436 tok
 + base pi prompt + tool snippets + tool schemas in API call
 ─────────────────────────────────────────────────────────
-Total context:    ~19,924 tok    (~9.7% of 205k)
+Total context:    ~19,924 tok    (~10.0% of 200k)
 ```
 
 Top offenders (from a real run):
