@@ -1673,6 +1673,20 @@ export async function loadCachedIndex(
 	return idx;
 }
 
+/** Resolve a tool-name allowlist from an env var (comma-separated), falling
+ *  back to `defaults` when unset/empty. Used by distill/garden so a custom
+ *  workflow can override the tool set without code changes (Phase 5 / WS-B6).
+ *  Empty/whitespace-only entries are dropped; an all-empty value falls back. */
+export function toolAllowlist(envVar: string, defaults: string[]): string[] {
+	const raw = process.env[envVar];
+	if (!raw || !raw.trim()) return defaults;
+	const parsed = raw
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return parsed.length > 0 ? parsed : defaults;
+}
+
 /** Keys under which a note should be discoverable in byTitle: its lowercased
  *  title (H1) AND its lowercased path-without-extension AND bare basename.
  *  This lets `[[Name]]`, `[[folder/Name]]`, and title-based links all resolve. */
@@ -4355,24 +4369,27 @@ export default function (pi: ExtensionAPI) {
 	// Tool allowlists for the spawned subagents. Defined once as arrays (not
 	// inline CSV strings) so they are auditable and don't drift; joined to CSV
 	// at the call site (runSubagentWithRetry takes a CSV string).
-	const OBSIDIAN_DISTILL_TOOLS = [
+	// Phase 5 / WS-B6: distill/garden tool lists are env-overridable so a custom
+	// workflow can grant extra tools (or restrict them) without code changes.
+	// Each env var is a comma-separated tool-name list; empty/unset → defaults.
+	const OBSIDIAN_DISTILL_TOOLS = toolAllowlist("OB_DISTILL_TOOLS", [
 		"read",
 		"obsidian_list",
 		"obsidian_read",
 		"obsidian_search",
 		"obsidian_create",
 		"obsidian_append_section",
-	];
-	const GARDEN_AUDIT_TOOLS = [
+	]);
+	const GARDEN_AUDIT_TOOLS = toolAllowlist("OB_GARDEN_AUDIT_TOOLS", [
 		"obsidian_list",
 		"obsidian_read",
 		"obsidian_search",
-	];
-	const GARDEN_FIX_TOOLS = [
+	]);
+	const GARDEN_FIX_TOOLS = toolAllowlist("OB_GARDEN_FIX_TOOLS", [
 		...GARDEN_AUDIT_TOOLS,
 		"obsidian_create",
 		"obsidian_append_section",
-	];
+	]);
 	pi.registerTool({
 		name: "obsidian_distill",
 		label: "Obsidian Distill",
