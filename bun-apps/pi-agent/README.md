@@ -76,6 +76,7 @@ alias pi-stock='bunx @earendil-works/pi-coding-agent'
 | `BUN_PI_SET_PACKAGE_DIR` | `1` (on) | Pin `PI_PACKAGE_DIR` for asset/theme resolution in bundle mode |
 | `BUN_PI_SKIP_UPDATE_CHECK` | `1` (on) | Silence pi's "Update Available" banner for bundle/binary (source mode keeps it) |
 | `BUN_PI_LOAD_RUN_DIR` | `1` (on) | Splice `run-dir/`'s extensions/skills into argv as absolute `-e`/`--skill` paths |
+| `BUN_PI_DEFAULT_MODEL_ENV` | `1` (on) | Bridge `PI_MODEL` / `PI_PROVIDER` / `PI_THINKING` env into argv as `--model` / `--provider` / `--thinking` when not already passed — the real pi TUI ignores these env vars (only pi-agent-cli reads them); this makes a shell `PI_MODEL=…` default apply to the interactive TUI too |
 | `BUN_PI_DEBUG_PATCHES` | `0` (off) | Print which patches were applied on startup |
 | `BUN_PI_DEBUG_RUN_DIR` | `0` (off) | Print the resolved `run-dir/` argv fragment on startup |
 

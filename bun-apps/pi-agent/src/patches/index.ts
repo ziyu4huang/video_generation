@@ -35,6 +35,7 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "skip-update-check", env: "BUN_PI_SKIP_UPDATE_CHECK", defaultValue: true },
   { name: "pre-load-providers", env: "BUN_PI_PRE_LOAD_PROVIDERS", defaultValue: true },
   { name: "load-run-dir-resources", env: "BUN_PI_LOAD_RUN_DIR", defaultValue: true },
+  { name: "default-model-env", env: "BUN_PI_DEFAULT_MODEL_ENV", defaultValue: true },
 ];
 
 /**
@@ -93,6 +94,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "load-run-dir-resources":
         await import("./load-run-dir-resources.ts");
+        break;
+      case "default-model-env":
+        await import("./default-model-env.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.

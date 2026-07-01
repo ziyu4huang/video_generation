@@ -63,9 +63,15 @@ describe("PATCH_TABLE", () => {
     for (const e of PATCH_TABLE) expect(e.defaultValue).toBe(true);
   });
 
-  test("covers the four known patches", () => {
+  test("covers the five known patches", () => {
     expect(PATCH_TABLE.map((p) => p.name).sort()).toEqual(
-      ["load-run-dir-resources", "pre-load-providers", "set-package-dir", "skip-update-check"],
+      [
+        "default-model-env",
+        "load-run-dir-resources",
+        "pre-load-providers",
+        "set-package-dir",
+        "skip-update-check",
+      ],
     );
   });
 });
