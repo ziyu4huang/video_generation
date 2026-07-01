@@ -113,12 +113,12 @@ flux2 upscale --input photo.png --no-tile       # force whole-image
 > convert to MLX safetensors (Swift can't read torch pickles):
 > ```bash
 > curl -L -o /tmp/r.pth https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_RealPLKSR/4xNomosWebPhoto_RealPLKSR.pth
-> python/venv/bin/python -c "import spandrel; from safetensors.torch import save_file; \
->   m=spandrel.ModelLoader(device='cpu').load_from_file('/tmp/r.pth').model; \
->   save_file({k:v.contiguous() for k,v in m.state_dict().items()}, \
->   'python/mlx-movie-director/models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.safetensors')"
+> mv /tmp/r.pth mlx-models/upscale/4x-nomos-webphoto-realplksr/4xNomosWebPhoto_RealPLKSR.pth
+> python/venv/bin/python swift/flux2-image-director/scripts/convert-esrgan.py \
+>   mlx-models/upscale/4x-nomos-webphoto-realplksr
 > ```
-> Architecture/port details: [`PRD.md` §3.6](PRD.md#36-realplksr-4-super-resolution-upscale).
+> Architecture/port details: [`PRD.md` §3.6](PRD.md#36-realplksr-4-super-resolution-upscale)
+> and [`PRD.md` §6c](PRD.md#6c-build-the-esrgan-pth--safetensors-conversion-upscale).
 
 ## The 12-LoRA stack
 

@@ -3,7 +3,7 @@
 //  Flux2Director
 //
 //  Architectural constants for the Flux2 Klein 9B MMDiT (Multi-Modal DiT).
-//  Source: python/mlx-movie-director/models/transformer/klein-9b/config.json
+//  Source: mlx-models/transformer/klein-9b/config.json
 //  + vendored mflux (mflux/models/flux2/variants/txt2img/flux2_klein.py).
 //
 //  Unlike Z-Image's S3-DiT, Flux2 Klein uses a DoubleBlock/SingleBlock split
