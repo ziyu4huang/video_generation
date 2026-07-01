@@ -127,6 +127,53 @@ The tool hooks `before_agent_start` to capture the structured `systemPromptOptio
 
 **Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure.
 
+---
+
+### `extension_analyzer`
+
+Lints the **currently-loaded extensions, tools, skills, and prompt-guidelines** for potential issues — the diagnostic the other two tools don't provide. While `context_analyzer` measures token distribution and `agent_inventory` dumps state, `extension_analyzer` flags concrete problems an extension author or maintainer should act on.
+
+**Checks** (severity → id):
+
+| Sev | Check | Flags |
+|-----|-------|-------|
+| 🔴 high | `duplicate-tool-name` | Same tool name registered from ≥2 sources (silent override / `Tool "x" conflicts`) |
+| 🔴 high | `missing-description` | Tool with empty/whitespace description (model can't discover it) |
+| 🟡 medium | `missing-snippet` | Tool absent from the Available-tools list (no `promptSnippet`) |
+| 🟡 medium | `oversized-tool-schema` | Tool API schema (desc + params) above threshold — cost repeats every request |
+| 🟡 medium | `oversized-skill` | Formatted skill above the char threshold |
+| 🟡 medium | `oversized-context-file` | Context file (e.g. CLAUDE.md) above the char threshold |
+| 🟢 low | `stale-guideline-ref` | A guideline references a backticked `` `tool` `` that isn't registered |
+| ℹ️ info | `no-guidelines` | Non-builtin tool with zero `promptGuidelines` — **informational only** (guidelines are optional in the SDK and a context *cost*; not counted as an issue) |
+| ℹ️ info | `extension-token-tax` | Per-extension est. tok/req (non-builtin tools, grouped by source) + total |
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `return_json` | boolean? | `false` | Return machine-readable `{findings, summary, total_extension_tokens}` JSON instead of a text report |
+| `tool_token_threshold` | number? | `1500` | Flag tools whose API schema exceeds this many tokens |
+| `skill_char_threshold` | number? | `2000` | Flag skills whose formatted size exceeds this many chars |
+| `context_file_char_threshold` | number? | `20000` | Flag context files exceeding this many chars |
+
+**Output:** a severity-ranked report (clean message when zero actionable issues) followed by an **Extension token tax** table showing which extension contributes the most token cost per request, sorted desc with a % bar.
+
+**Usage:**
+
+```bash
+# Text report against the repo's own extensions (auto-loaded via run-dir):
+bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
+  -p "call extension_analyzer"
+
+# Machine-readable JSON:
+# call extension_analyzer return_json=true
+
+# Tighten thresholds to surface borderline cases:
+# call extension_analyzer tool_token_threshold=800 context_file_char_threshold=10000
+```
+
+**What it found in this repo (real run):** pi-obsidian's 16 tools have no Available-tools snippets or `promptGuidelines`; `skill_manage` is over the schema threshold (1244 tok); pi-obsidian is the heaviest extension tax (~35%, 3237 tok/req) out of ~9,197 tok/req total across all non-builtin tools.
+
 ## Usage
 
 ```bash

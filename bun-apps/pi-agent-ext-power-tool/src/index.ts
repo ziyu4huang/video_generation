@@ -37,6 +37,16 @@ interface Snapshot {
 
 let snapshot: Snapshot | null = null;
 
+/**
+ * Test-only: clear the module-level snapshot singleton. The power-tool captures
+ * `before_agent_start` state in a closure (like pi-obsidian's getVault cache),
+ * so it persists across tests in one file — tests that exercise the no-snapshot
+ * graceful path must reset it first.
+ */
+export function __resetSnapshotForTests(): void {
+  snapshot = null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // Rough chars→token estimate. Both tools share this ratio.
@@ -458,6 +468,387 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
   });
 }
 
+// ─── Extension Analyzer Tool ─────────────────────────────────────────────────
+
+/**
+ * extension_analyzer — lint loaded extensions/tools/skills/guidelines for
+ * POTENTIAL ISSUES (the worktree's goal). Unlike context_analyzer (which
+ * measures token distribution) and agent_inventory (which dumps state), this
+ * surfaces problems an extension author or maintainer should act on.
+ *
+ * The check logic is PURE (analyzeExtensions over a typed AnalysisInput) so it
+ * is unit-testable without the SDK; execute() just derives the input from the
+ * captured snapshot + getAllTools() and formats the findings.
+ */
+
+export type Severity = "high" | "medium" | "low" | "info";
+
+export interface Finding {
+  severity: Severity;
+  /** machine id, e.g. "duplicate-tool-name" */
+  check: string;
+  /** one human-readable line */
+  message: string;
+  /** structured payload (for JSON mode / assertions) */
+  detail?: Record<string, unknown>;
+}
+
+export interface AnalysisTool {
+  name: string;
+  description: string;
+  parameters: unknown;
+  promptGuidelines?: string[];
+  /** sourceInfo.path — the extension file that registered the tool */
+  sourcePath: string;
+  /** sourceInfo.source — "builtin" | "extension" | "file" | ... */
+  source: string;
+  /** rendered Available-tools snippet (from opts.toolSnippets[name]); absent = none */
+  snippet?: string;
+}
+
+export interface AnalysisSkill {
+  name: string;
+  filePath: string;
+  /** formatSkillsForPrompt([skill]).length — the on-wire size */
+  formattedChars: number;
+}
+
+export interface AnalysisContextFile {
+  path: string;
+  chars: number;
+}
+
+export interface AnalysisInput {
+  tools: AnalysisTool[];
+  skills: AnalysisSkill[];
+  contextFiles: AnalysisContextFile[];
+  toolTokenThreshold: number;
+  skillCharThreshold: number;
+  contextFileCharThreshold: number;
+}
+
+/** Compact a source path for table display: prefer the bun-apps/... tail. */
+function shortPath(p: string): string {
+  const i = p.indexOf("bun-apps/");
+  if (i >= 0) return p.slice(i);
+  const parts = p.split("/");
+  return parts.slice(-2).join("/");
+}
+
+/**
+ * Run all extension-health checks against a fully-derived input. PURE — no SDK,
+ * no fs, no snapshot. Order of returned findings is: duplicate-name, missing-
+ * description, missing-snippet, oversized-tool, oversized-skill, oversized-
+ * context-file, stale-guideline-ref, no-guidelines, then per-extension tax
+ * (info) + total (info).
+ */
+export function analyzeExtensions(input: AnalysisInput): Finding[] {
+  const findings: Finding[] = [];
+  const { tools, skills, contextFiles, toolTokenThreshold, skillCharThreshold, contextFileCharThreshold } = input;
+
+  // 🔴 duplicate tool name (same name from ≥2 distinct sources → silent override)
+  const sourcesByName = new Map<string, Set<string>>();
+  for (const t of tools) {
+    const set = sourcesByName.get(t.name) ?? new Set<string>();
+    set.add(t.sourcePath);
+    sourcesByName.set(t.name, set);
+  }
+  for (const [name, srcs] of sourcesByName) {
+    if (srcs.size > 1) {
+      findings.push({
+        severity: "high",
+        check: "duplicate-tool-name",
+        message: `Tool "${name}" registered from ${srcs.size} sources → silent override / "Tool '${name}' conflicts"`,
+        detail: { name, sources: [...srcs] },
+      });
+    }
+  }
+
+  // 🔴 missing/empty description (model can't discover or aim the tool)
+  for (const t of tools) {
+    if (!t.description || t.description.trim().length === 0) {
+      findings.push({
+        severity: "high",
+        check: "missing-description",
+        message: `Tool "${t.name}" has no description — the model can't discover when to call it`,
+        detail: { name: t.name, source: t.sourcePath },
+      });
+    }
+  }
+
+  // 🟡 missing Available-tools snippet (custom tools are omitted from that list
+  // when promptSnippet is unset → discovery cost). Detect via absence from
+  // opts.toolSnippets, surfaced here as t.snippet being empty.
+  for (const t of tools) {
+    if (!t.snippet || t.snippet.trim().length === 0) {
+      findings.push({
+        severity: "medium",
+        check: "missing-snippet",
+        message: `Tool "${t.name}" has no Available-tools snippet`,
+        detail: { name: t.name, source: t.sourcePath },
+      });
+    }
+  }
+
+  // 🟡 oversized tool schema (desc + JSON(params)) — repeats on EVERY request
+  for (const t of tools) {
+    const apiChars = (t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length;
+    const tok = estTok(apiChars);
+    if (tok > toolTokenThreshold) {
+      findings.push({
+        severity: "medium",
+        check: "oversized-tool-schema",
+        message: `Tool "${t.name}" schema ~${tok} tok/req (threshold ${toolTokenThreshold})`,
+        detail: { name: t.name, tokens: tok, source: t.sourcePath },
+      });
+    }
+  }
+
+  // 🟡 oversized skill
+  for (const s of skills) {
+    if (s.formattedChars > skillCharThreshold) {
+      findings.push({
+        severity: "medium",
+        check: "oversized-skill",
+        message: `Skill "${s.name}" ${s.formattedChars.toLocaleString()} ch (threshold ${skillCharThreshold.toLocaleString()})`,
+        detail: { name: s.name, chars: s.formattedChars, file: s.filePath },
+      });
+    }
+  }
+
+  // 🟡 oversized context file
+  for (const f of contextFiles) {
+    if (f.chars > contextFileCharThreshold) {
+      findings.push({
+        severity: "medium",
+        check: "oversized-context-file",
+        message: `Context file "${f.path}" ${f.chars.toLocaleString()} ch (threshold ${contextFileCharThreshold.toLocaleString()})`,
+        detail: { path: f.path, chars: f.chars },
+      });
+    }
+  }
+
+  // 🟢 stale guideline reference — a backticked `tool_name` that isn't registered
+  const names = new Set(tools.map((t) => t.name));
+  for (const t of tools) {
+    for (const g of t.promptGuidelines ?? []) {
+      const refs = [...g.matchAll(/`([a-z][a-z0-9_-]+)`/g)].map((m) => m[1]!);
+      for (const ref of refs) {
+        if (!names.has(ref)) {
+          findings.push({
+            severity: "low",
+            check: "stale-guideline-ref",
+            message: `Tool "${t.name}" guideline references unknown tool \`${ref}\``,
+            detail: { tool: t.name, ref },
+          });
+        }
+      }
+    }
+  }
+
+  // ℹ️ no promptGuidelines — INFORMATIONAL, not an issue. promptGuidelines is
+  // OPTIONAL in the SDK, and guidelines are a context COST (this repo's own
+  // 53 bullets = ~3,259 tok). Absence is often a virtue, so we surface it as
+  // info rather than flagging it as a problem. Skip builtins.
+  for (const t of tools) {
+    if (t.source === "builtin") continue;
+    if (!t.promptGuidelines || t.promptGuidelines.length === 0) {
+      findings.push({
+        severity: "info",
+        check: "no-guidelines",
+        message: `Tool "${t.name}" has no promptGuidelines (optional — listed for awareness, not a defect)`,
+        detail: { name: t.name, source: t.sourcePath },
+      });
+    }
+  }
+
+  // ℹ️ per-extension token tax (non-builtin tools grouped by sourcePath)
+  const tax = new Map<string, { tools: number; tokens: number }>();
+  for (const t of tools) {
+    if (t.source === "builtin") continue;
+    const tok = estTok((t.description?.length ?? 0) + JSON.stringify(t.parameters ?? {}).length);
+    const e = tax.get(t.sourcePath) ?? { tools: 0, tokens: 0 };
+    e.tools += 1;
+    e.tokens += tok;
+    tax.set(t.sourcePath, e);
+  }
+  const totalTax = [...tax.values()].reduce((s, e) => s + e.tokens, 0);
+  for (const [path, e] of tax) {
+    findings.push({
+      severity: "info",
+      check: "extension-token-tax",
+      message: `${shortPath(path)}: ${e.tools} tool(s), ~${e.tokens} tok/req`,
+      detail: { path, tools: e.tools, tokens: e.tokens, total: totalTax },
+    });
+  }
+  findings.push({
+    severity: "info",
+    check: "total-extension-tax",
+    message: `Extensions add ~${totalTax.toLocaleString()} tok/req across ${tax.size} source(s)`,
+    detail: { total: totalTax, sources: tax.size },
+  });
+
+  return findings;
+}
+
+/** Count actionable issues (excluding info) by severity. PURE. */
+export function summarizeFindings(findings: Finding[]): {
+  total: number;
+  high: number;
+  medium: number;
+  low: number;
+} {
+  const counts = { high: 0, medium: 0, low: 0 };
+  for (const f of findings) {
+    if (f.severity === "info") continue;
+    counts[f.severity as "high" | "medium" | "low"] += 1;
+  }
+  return { total: counts.high + counts.medium + counts.low, ...counts };
+}
+
+/** Render findings as a human-readable severity-ranked report. PURE. */
+export function formatExtensionReport(findings: Finding[]): string {
+  const lines: string[] = [];
+  lines.push("╔══════════════════════════════════════╗");
+  lines.push("║        Extension Analyzer            ║");
+  lines.push("╚══════════════════════════════════════╝");
+  lines.push("");
+
+  const summary = summarizeFindings(findings);
+  lines.push(
+    `▶ ${summary.total} issue(s): 🔴 ${summary.high} high · 🟡 ${summary.medium} medium · 🟢 ${summary.low} low`,
+  );
+  lines.push("");
+
+  const section = (sev: Severity, icon: string, label: string) => {
+    const items = findings.filter((f) => f.severity === sev);
+    if (items.length === 0) return;
+    lines.push(`▶ ${icon} ${label} (${items.length}):`);
+    for (const f of items) lines.push(`  • ${f.message}`);
+    lines.push("");
+  };
+
+  if (summary.total === 0) {
+    lines.push("✓ No actionable issues — extensions look healthy.");
+    lines.push("");
+  } else {
+    section("high", "🔴", "High");
+    section("medium", "🟡", "Medium");
+    section("low", "🟢", "Low");
+  }
+
+  // Extension token tax table (sorted by tokens desc)
+  const tax = findings
+    .filter((f) => f.check === "extension-token-tax")
+    .sort((a, b) => ((b.detail?.tokens as number) ?? 0) - ((a.detail?.tokens as number) ?? 0));
+  const grand = (findings.find((f) => f.check === "total-extension-tax")?.detail?.total ?? 0) as number;
+  lines.push("▶ Extension token tax (est. tok/req, non-builtin tools):");
+  if (tax.length === 0) {
+    lines.push("  none");
+  } else {
+    for (const f of tax) {
+      const tok = (f.detail?.tokens as number) ?? 0;
+      const pct = grand > 0 ? tok / grand : 0;
+      const name = shortPath((f.detail?.path as string) ?? "");
+      lines.push(
+        `  ${name.padEnd(42)} ${String(f.detail?.tools).padStart(3)} tool(s)  ~${String(tok).padStart(5)} tok  ${miniBar(pct)} ${Math.round(pct * 100)}%`,
+      );
+    }
+    lines.push("  " + "─".repeat(42));
+    lines.push(`  TOTAL${"".padEnd(37)} ~${grand.toLocaleString()} tok/req`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
+  return defineTool({
+    name: "extension_analyzer",
+    label: "Extension Analyzer",
+    description:
+      "Lint loaded extensions, tools, skills and prompt-guidelines for potential issues: " +
+      "duplicate tool names, missing descriptions/Available-tools snippets, oversized schemas/skills/context files, " +
+      "stale guideline references, missing guidelines, and per-extension token cost. " +
+      "Returns a severity-ranked report (or JSON).",
+    promptSnippet: "Analyze extensions/tools/guidelines for potential issues",
+    parameters: Type.Object({
+      return_json: Type.Optional(
+        Type.Boolean({ description: "Return machine-readable {findings, summary, total_extension_tokens} JSON instead of a text report" }),
+      ),
+      tool_token_threshold: Type.Optional(
+        Type.Number({ description: "Flag tools whose API schema exceeds this many tokens (default 1500)" }),
+      ),
+      skill_char_threshold: Type.Optional(
+        Type.Number({ description: "Flag skills whose formatted size exceeds this many chars (default 2000)" }),
+      ),
+      context_file_char_threshold: Type.Optional(
+        Type.Number({ description: "Flag context files exceeding this many chars (default 20000)" }),
+      ),
+    }),
+
+    async execute(_id, params, _signal, _onUpdate, _ctx) {
+      const snap = snapshot;
+      if (!snap) {
+        return {
+          content: [{ type: "text" as const, text: "No before_agent_start snapshot yet — run this after a prompt." }],
+          details: null,
+        };
+      }
+      const opts = snap.opts;
+      const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
+      const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
+      const allTools = getAllTools();
+      const activeTools = allTools.filter((t) => selectedSet.size === 0 || selectedSet.has(t.name));
+
+      const tools: AnalysisTool[] = activeTools.map((t) => ({
+        name: t.name,
+        description: t.description ?? "",
+        parameters: t.parameters,
+        promptGuidelines: t.promptGuidelines,
+        sourcePath: t.sourceInfo?.path ?? "(unknown)",
+        source: t.sourceInfo?.source ?? "unknown",
+        snippet: snippets[t.name],
+      }));
+      const skills: AnalysisSkill[] = ((opts.skills as unknown[]) ?? []).map((s: any) => ({
+        name: s.name as string,
+        filePath: (s.filePath as string) ?? "",
+        formattedChars: formatSkillsForPrompt([s]).length,
+      }));
+      const contextFiles: AnalysisContextFile[] = ((opts.contextFiles as { path: string; content: string }[]) ?? []).map(
+        (f) => ({ path: f.path, chars: f.content.length }),
+      );
+
+      const input: AnalysisInput = {
+        tools,
+        skills,
+        contextFiles,
+        toolTokenThreshold: params.tool_token_threshold ?? 1500,
+        skillCharThreshold: params.skill_char_threshold ?? 2000,
+        contextFileCharThreshold: params.context_file_char_threshold ?? 20000,
+      };
+      const findings = analyzeExtensions(input);
+
+      if (params.return_json) {
+        const total = (findings.find((f) => f.check === "total-extension-tax")?.detail?.total ?? 0) as number;
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(
+                { findings, summary: summarizeFindings(findings), total_extension_tokens: total },
+                null,
+                2,
+              ),
+            },
+          ],
+          details: null,
+        };
+      }
+      return { content: [{ type: "text" as const, text: formatExtensionReport(findings) }], details: null };
+    },
+  });
+}
+
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi) => {
@@ -471,6 +862,7 @@ const extension: ExtensionFactory = (pi) => {
   const getAllTools = () => pi.getAllTools();
   pi.registerTool(makeContextAnalyzerTool(getAllTools));
   pi.registerTool(makeAgentInventoryTool(getAllTools));
+  pi.registerTool(makeExtensionAnalyzerTool(getAllTools));
 };
 
 export default extension;
