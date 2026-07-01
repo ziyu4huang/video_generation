@@ -26,6 +26,7 @@ import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
+import { doctorCommand } from "./commands/doctor.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
 const VERSION = "0.1.0";
@@ -66,6 +67,12 @@ const COMMANDS: Command[] = [
     summary: zkAskCommand.summary,
     details: zkAskCommand.details,
     run: zkAskCommand.run,
+  },
+  {
+    name: "doctor",
+    summary: doctorCommand.summary,
+    details: doctorCommand.details,
+    run: doctorCommand.run,
   },
 ];
 

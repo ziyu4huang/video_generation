@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  assertModelsRootExists,
   assertPathAllowed,
+  ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
   resolveModelsRoot,
@@ -170,5 +172,31 @@ describe("resolveModelsRoot", () => {
     } finally {
       if (savedEnv !== undefined) process.env.MLX_MODELS_DIR = savedEnv;
     }
+  });
+});
+
+describe("ensureOutputDir", () => {
+  test("creates a missing output dir (recursive) and returns the resolved path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-flux2-out-"));
+    const target = join(dir, "nested", "out");
+    expect(existsSync(target)).toBe(false);
+    // absolute override → ensureOutputDir resolves to it and creates it
+    expect(ensureOutputDir(dir, target)).toBe(target);
+    expect(existsSync(target)).toBe(true);
+    // idempotent: calling again on an existing dir is a no-op
+    expect(() => ensureOutputDir(dir, target)).not.toThrow();
+  });
+});
+
+describe("assertModelsRootExists", () => {
+  test("passes through when the dir exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pi-flux2-models-"));
+    expect(assertModelsRootExists(dir, dir)).toBe(dir);
+  });
+
+  test("throws an actionable PathSafetyError naming MLX_MODELS_DIR when missing", () => {
+    expect(() => assertModelsRootExists("/repo", "/repo/does-not-exist")).toThrow(
+      /Models dir not found.*MLX_MODELS_DIR/s,
+    );
   });
 });

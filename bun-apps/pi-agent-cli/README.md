@@ -29,6 +29,20 @@ bun install          # at monorepo root
 Model/credentials come from your existing pi config
 (`~/.pi/agent/settings.json`, `auth.json`, `models.json`).
 
+## Cross-machine setup
+
+Bringing the CLI up on a fresh machine? Run the self-check first:
+
+```bash
+bun bun-apps/pi-agent-cli/src/cli.ts doctor          # actionable checklist
+bun bun-apps/pi-agent-cli/src/cli.ts doctor --fix    # create missing dirs
+```
+
+`doctor` verifies the runtime, repo layout, run-dir manifest, MLX output/models dirs,
+flux2 binary, Obsidian vault, and LM Studio reachability. Full env-var contract + fresh
+machine steps: [`docs/pi-cross-machine-setup.md`](../../docs/pi-cross-machine-setup.md)
+(commented template: [`.env.example`](../../.env.example)).
+
 ## Usage
 
 ### Agent commands (one CLI = one agent workflow)
