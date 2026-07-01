@@ -10,7 +10,7 @@
  * resolution and trust-gating entirely, so this patch makes extension loading
  * work regardless of where pi-agent is invoked from.
  */
-import { resolveRunDirArgv } from "../../run-dir/resolve.ts";
+import { resolveRunDirArgv, rewriteArgvLazyExtensions } from "../../run-dir/resolve.ts";
 
 const extra = await resolveRunDirArgv();
 
@@ -19,3 +19,8 @@ if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
 }
 
 process.argv.splice(2, 0, ...extra);
+
+// Rewrite `-e <alias>` (e.g. `-e workflow`) to absolute paths from the lazy
+// registry in run-dir/settings.json. Heavy opt-in extensions are not in the
+// eager manifest above, so they cost zero context unless explicitly requested.
+await rewriteArgvLazyExtensions(process.argv);

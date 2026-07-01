@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import manifest from "./manifest.json";
+import settings_real from "./settings.json";
 import {
 	buildArgvFromManifest,
 	detectMode,
 	resolveRunDirArgv,
+	looksLikeAlias,
+	resolveLazyExtension,
+	rewriteExtensionArgs,
+	type LazySettings,
 } from "./resolve.ts";
 
 describe("detectMode", () => {
@@ -177,5 +182,160 @@ describe("resolveRunDirArgv (integration, source mode against the real repo)", (
 		for (const rel of manifest.skills ?? []) {
 			expect([...set].some((p) => p.endsWith(rel))).toBe(true);
 		}
+	});
+});
+
+// ─── Lazy / opt-in extension aliases ─────────────────────────────────────────
+
+describe("looksLikeAlias", () => {
+	const isAlias = (s: string) => looksLikeAlias(s);
+	test("bare names are aliases", () => {
+		expect(isAlias("workflow")).toBe(true);
+		expect(isAlias("dynamic-workflows")).toBe(true);
+		expect(isAlias("flux2")).toBe(true);
+	});
+	test("paths are NOT aliases", () => {
+		expect(isAlias("pi-x/ext.ts")).toBe(false);
+		expect(isAlias("./rel.ts")).toBe(false);
+		expect(isAlias("/abs/x.ts")).toBe(false);
+		expect(isAlias("a/b")).toBe(false);
+	});
+	test("URL schemes are NOT aliases", () => {
+		expect(isAlias("npm:foo")).toBe(false);
+		expect(isAlias("git:ssh://x")).toBe(false);
+		expect(isAlias("https://x")).toBe(false);
+		expect(isAlias("file:///x")).toBe(false);
+	});
+	test("empty / weird → not alias", () => {
+		expect(isAlias("")).toBe(false);
+		expect(isAlias(".hidden")).toBe(false);
+	});
+});
+
+describe("resolveLazyExtension", () => {
+	const settings: LazySettings = {
+		lazyExtensions: {
+			workflow: "pkg-a/extensions/workflow.ts",
+			"dynamic-workflows": "pkg-a/extensions/workflow.ts",
+			flux2: "pkg-b/extensions/pi-flux2.ts",
+		},
+	};
+	function setup() {
+		const base = mkdtempSync(join(tmpdir(), "pi-lazy-"));
+		// materialize the registry values
+		for (const rel of Object.values(settings.lazyExtensions!)) {
+			const full = join(base, rel);
+			mkdirSync(join(full, ".."), { recursive: true });
+			writeFileSync(full, "// ext");
+		}
+		// a dir-fallback package (no registry entry): pkg-c/extensions/one.ts
+		mkdirSync(join(base, "pkg-c", "extensions"), { recursive: true });
+		writeFileSync(join(base, "pkg-c", "extensions", "one.ts"), "// ext");
+		// a dir-fallback package with TWO .ts (ambiguous)
+		mkdirSync(join(base, "pkg-d", "extensions"), { recursive: true });
+		writeFileSync(join(base, "pkg-d", "extensions", "a.ts"), "// ext");
+		writeFileSync(join(base, "pkg-d", "extensions", "b.ts"), "// ext");
+		return base;
+	}
+
+	test("exact key match (case-insensitive)", () => {
+		const base = setup();
+		const r = resolveLazyExtension("Workflow", settings, base, existsSync);
+		expect(r).toBe(join(base, "pkg-a/extensions/workflow.ts"));
+		const r2 = resolveLazyExtension("flux2", settings, base, existsSync);
+		expect(r2).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+	});
+
+	test("unique substring match", () => {
+		const base = setup();
+		// "workflows" is a substring of "dynamic-workflows" only (and also of
+		// "workflow" — so use a substring that hits exactly one key)
+		const r = resolveLazyExtension("flux", settings, base, existsSync);
+		expect(r).toBe(join(base, "pkg-b/extensions/pi-flux2.ts"));
+	});
+
+	test("ambiguous substring → undefined (no guess)", () => {
+		const base = setup();
+		const warns: string[] = [];
+		// "flow" is a substring of both "workflow" and "dynamic-workflows", and
+		// is NOT itself a key → ambiguous substring branch
+		const r = resolveLazyExtension("flow", settings, base, existsSync, (m) => warns.push(m));
+		expect(r).toBeUndefined();
+		expect(warns.some((m) => /ambiguous/.test(m))).toBe(true);
+	});
+
+	test("non-alias input (path/scheme) → undefined, no fs", () => {
+		const base = setup();
+		expect(resolveLazyExtension("a/b.ts", settings, base, existsSync)).toBeUndefined();
+		expect(resolveLazyExtension("npm:pkg", settings, base, existsSync)).toBeUndefined();
+		expect(resolveLazyExtension("/abs/x.ts", settings, base, existsSync)).toBeUndefined();
+	});
+
+	test("directory fallback: unique .ts in <alias>/extensions/", () => {
+		const base = setup();
+		// pkg-c has no registry entry but exactly one extensions/*.ts
+		const r = resolveLazyExtension("pkg-c", settings, base, existsSync);
+		expect(r).toBe(join(base, "pkg-c", "extensions", "one.ts"));
+	});
+
+	test("directory fallback: 0 or ≥2 .ts → undefined", () => {
+		const base = setup();
+		// pkg-d has two .ts → ambiguous
+		expect(resolveLazyExtension("pkg-d", settings, base, existsSync)).toBeUndefined();
+		// pkg-e does not exist
+		expect(resolveLazyExtension("pkg-e", settings, base, existsSync)).toBeUndefined();
+	});
+
+	test("exact match target missing on disk → undefined + warn", () => {
+		const base = setup();
+		const warns: string[] = [];
+		// registry points at a path we never materialized
+		const bad: LazySettings = { lazyExtensions: { ghost: "pkg-z/extensions/nope.ts" } };
+		const r = resolveLazyExtension("ghost", bad, base, existsSync, (m) => warns.push(m));
+		expect(r).toBeUndefined();
+		expect(warns.length).toBeGreaterThan(0);
+	});
+
+	test("integration: real settings.json + repo resolve 'workflow'", () => {
+		// run-dir/resolve.ts sits at <repo>/bun-apps/pi-agent/run-dir/ → base is ../../
+		const base = resolve(join(import.meta.dir, "..", ".."));
+		const realSettings: LazySettings = settings_real;
+		const r = resolveLazyExtension("workflow", realSettings, base, existsSync);
+		expect(r).toBeDefined();
+		expect(r!.endsWith("pi-dynamic-workflows/extensions/workflow.ts")).toBe(true);
+		expect(existsSync(r!)).toBe(true);
+	});
+});
+
+describe("rewriteExtensionArgs", () => {
+	const resolveFn = (v: string) => (v === "workflow" ? "/abs/workflow.ts" : undefined);
+
+	test("rewrites -e and --extension alias values", () => {
+		const out = rewriteExtensionArgs(["-e", "workflow"], resolveFn);
+		expect(out).toEqual(["-e", "/abs/workflow.ts"]);
+		const out2 = rewriteExtensionArgs(["--extension", "workflow"], resolveFn);
+		expect(out2).toEqual(["--extension", "/abs/workflow.ts"]);
+	});
+
+	test("leaves real paths / unknown aliases untouched", () => {
+		const argv = ["-e", "/real/path.ts", "--extension", "unknown-alias", "-p", "hi"];
+		expect(rewriteExtensionArgs(argv, resolveFn)).toEqual(argv);
+	});
+
+	test("preserves surrounding argv (-p prompt, --model)", () => {
+		const argv = ["--model", "x", "-e", "workflow", "-p", "do thing"];
+		const out = rewriteExtensionArgs(argv, resolveFn);
+		expect(out).toEqual(["--model", "x", "-e", "/abs/workflow.ts", "-p", "do thing"]);
+	});
+
+	test("handles multiple -e flags, mixed", () => {
+		const argv = ["-e", "workflow", "-e", "/real.ts", "-e", "unknown"];
+		const out = rewriteExtensionArgs(argv, resolveFn);
+		expect(out).toEqual(["-e", "/abs/workflow.ts", "-e", "/real.ts", "-e", "unknown"]);
+	});
+
+	test("no -e flag → unchanged", () => {
+		const argv = ["--model", "x", "-p", "hi"];
+		expect(rewriteExtensionArgs(argv, resolveFn)).toEqual(argv);
 	});
 });
