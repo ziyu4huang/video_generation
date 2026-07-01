@@ -381,6 +381,44 @@ export function safeNotePath(vaultPath: string, note: string): string {
 	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
 		throw new Error(`Invalid note path (escapes vault): ${note}`);
 	}
+	// A6: reject control/formatting chars the C0 regex above misses — C1
+	// (DEL 0x7f + 0x80-0x9f), bidi/override controls, ZWSP/RLM/ZWJ, invisible
+	// operators (WJ), BOM, line/paragraph separators. Numeric code-point test
+	// keeps the source free of embedded invisible bytes (no \u escapes needed).
+	// (Backslash is intentionally NOT rejected: A1.5 treats it as a cross-
+	// platform separator that gets normalized, not a control char.)
+	for (let i = 0; i < note.length; ) {
+		const cp = note.codePointAt(i)!;
+		const unsafe =
+			(cp >= 0x7f && cp <= 0x9f) ||
+			(cp >= 0x200b && cp <= 0x200f) ||
+			(cp >= 0x202a && cp <= 0x202e) ||
+			(cp >= 0x2060 && cp <= 0x206f) ||
+			cp === 0xfeff ||
+			cp === 0x2028 ||
+			cp === 0x2029;
+		if (unsafe)
+			throw new Error(
+				`Invalid note path (control/formatting char U+${cp
+					.toString(16)
+					.toUpperCase()
+					.padStart(4, "0")}): ${JSON.stringify(note)}`,
+			);
+		i += cp > 0xffff ? 2 : 1;
+	}
+	// A6: cross-platform — a vault git-synced to Windows corrupts on reserved
+	// device names (CON/PRN/AUX/NUL/COM1-9/LPT1-9) and on the reserved chars
+	// < > : " | ? *. Checked per resolved segment (`rel` is normalized).
+	for (const seg of rel.split(sep)) {
+		if (!seg) continue;
+		const base = seg.replace(/[.]md$/i, "");
+		if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])([.]|$)/i.test(base))
+			throw new Error(
+				`Invalid note path (Windows reserved name "${base}"): ${note}`,
+			);
+		if (/[<>:"|?*]/.test(seg))
+			throw new Error(`Invalid note path (reserved char): ${note}`);
+	}
 	return abs;
 }
 
@@ -429,7 +467,13 @@ const WRITE_BLOCKLIST = [".obsidian", ".git"];
  *  (`vault/linkdir -> /tmp/outside`).
  *
  *  `safeNotePath` handles the lexical (`../`) containment synchronously; this
- *  complements it for paths whose resolution depends on the filesystem. */
+ *  complements it for paths whose resolution depends on the filesystem.
+ *
+ *  Residual (A6): there is a TOCTOU window between `lstat` and `realpath` — a
+ *  symlink could be swapped to point outside the vault between the two calls.
+ *  Accepted as a read-only risk: write tools call this before writing, but a
+ *  privileged local attacker who can race the fs can already replace files;
+ *  closing it fully needs an atomic openat-with-resolve walk. */
 export async function assertWithinVault(
 	vaultPath: string,
 	absPath: string,
@@ -509,6 +553,113 @@ function errMsg(e: unknown): string {
 	return typeof m === "string" ? m : String(e);
 }
 
+// ---- Structured errors (Phase 1: WS-A1 + WS-A2) ---------------------------
+// Tool failures surface a machine-branchable `code` on `details` so callers can
+// react (retry on CONFLICT, prompt on PERMISSION_DENIED, …) instead of parsing
+// a human string. The prior shape (`details.error = "<lowercase>"` + ad-hoc
+// booleans) is preserved for back-compat; `code` is the canonical field.
+export type ErrCode =
+	| "NOT_FOUND"
+	| "ALREADY_EXISTS"
+	| "CONFLICT"
+	| "PERMISSION_DENIED"
+	| "OUTSIDE_VAULT"
+	| "INVALID_PATH"
+	| "IO_ERROR"
+	| "BAD_REQUEST";
+
+/** A filesystem/IO error carrying a structured code. Helpers throw this; tool
+ *  execute()s catch and turn it into a structured result via toolError(). */
+export class VaultError extends Error {
+	code: ErrCode;
+	constructor(code: ErrCode, message: string) {
+		super(message);
+		this.name = "VaultError";
+		this.code = code;
+	}
+}
+
+/** Pull the NodeFS error code (e.g. "ENOENT", "EACCES") off any thrown value. */
+function fsErrCode(e: unknown): string | undefined {
+	const code = (e as { code?: unknown })?.code;
+	return typeof code === "string" ? code : undefined;
+}
+
+/** Map a thrown filesystem error to a structured ErrCode. */
+function classifyFsError(e: unknown): ErrCode {
+	switch (fsErrCode(e)) {
+		case "ENOENT":
+		case "ENOTDIR":
+			return "NOT_FOUND";
+		case "EACCES":
+		case "EPERM":
+			return "PERMISSION_DENIED";
+		case "EEXIST":
+			return "ALREADY_EXISTS";
+		default:
+			return "IO_ERROR";
+	}
+}
+
+/** Build a structured tool-error result. `extra` is merged into details. */
+function toolError(
+	code: ErrCode,
+	message: string,
+	extra: Record<string, unknown> = {},
+): {
+	content: { type: "text"; text: string }[];
+	details: Record<string, unknown>;
+	isError: true;
+} {
+	return {
+		content: [{ type: "text", text: message }],
+		details: { ...extra, code, error: code },
+		isError: true,
+	};
+}
+
+/** Convert a caught value (preferably a VaultError) into a structured result. */
+function toolErrorFromCaught(
+	e: unknown,
+	extra: Record<string, unknown> = {},
+): { content: { type: "text"; text: string }[]; details: Record<string, unknown>; isError: true } {
+	if (e instanceof VaultError)
+		return toolError(e.code, e.message, extra);
+	// A raw NodeFS error: classify it.
+	if (fsErrCode(e)) return toolError(classifyFsError(e), errMsg(e), extra);
+	return toolError("IO_ERROR", errMsg(e), extra);
+}
+
+/** Stat a note; return its mtime (ms) or undefined if absent. Throws VaultError
+ *  on non-ENOENT FS errors (WS-A1: don't conflate EACCES with "absent"). */
+async function noteMtime(absPath: string): Promise<number | undefined> {
+	try {
+		return (await stat(absPath)).mtimeMs;
+	} catch (e) {
+		if (fsErrCode(e) === "ENOENT") return undefined;
+		throw new VaultError(classifyFsError(e), errMsg(e));
+	}
+}
+
+/** Optimistic-concurrency guard (WS-A4). expectedMtime only constrains the
+ *  existing-file case: when the file is absent the caller proceeds (append /
+ *  create may create-new); update_frontmatter treats absent as NOT_FOUND
+ *  upstream. Returns a VaultError(CONFLICT) to throw, or null. */
+function mtimeConflict(
+	note: string,
+	expected: number | undefined,
+	actual: number | undefined,
+): VaultError | null {
+	if (expected === undefined || actual === undefined) return null;
+	if (expected !== actual)
+		return new VaultError(
+			"CONFLICT",
+			`Conflict: ${note} was modified (expected mtime ${expected}, actual ${actual}).`,
+		);
+	return null;
+}
+
+
 // ---- Session-scoped read cache (Phase 3) ----------------------------------
 // Caches file content + derived structures keyed by absolute path, invalidated
 // by mtime or explicitly via invalidateCache(). Write tools call invalidateCache
@@ -526,8 +677,13 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	let stat;
 	try {
 		stat = await (await import("node:fs/promises")).stat(absPath);
-	} catch {
-		// vanished: drop any stale entry
+	} catch (e) {
+		// Absent/vanished (ENOENT) is an expected cache miss → drop & return null.
+		// Other errors (EACCES/EIO/ENOTDIR) are ALSO absorbed here on purpose:
+		// readCached is a best-effort hot path feeding batch search & index, and
+		// must NEVER crash a whole search because ONE file is unreadable. The
+		// user-facing tools read their single target file DIRECTLY (not through
+		// this cache) and surface a structured PERMISSION_DENIED / IO_ERROR there.
 		fileCache.delete(absPath);
 		return null;
 	}
@@ -537,7 +693,8 @@ export async function readCached(absPath: string): Promise<CacheEntry | null> {
 	let content: string;
 	try {
 		content = await readFile(absPath, "utf8");
-	} catch {
+	} catch (e) {
+		// Same best-effort contract as the stat catch above (see WS-A1 note).
 		fileCache.delete(absPath);
 		return null;
 	}
@@ -585,7 +742,9 @@ async function listNotes(vaultPath: string, folder: string): Promise<string[]> {
 		let entries: import("node:fs").Dirent<string>[];
 		try {
 			entries = await readdir(dir, { withFileTypes: true });
-		} catch {
+		} catch (e) {
+			// Unreadable subfolder (EACCES/ENOTDIR/vanished race) → skip it and
+			// keep walking the rest. Best-effort enumeration, like readCached.
 			return;
 		}
 		for (const e of entries) {
@@ -1131,6 +1290,13 @@ export interface VaultIndex {
 	byTag: Map<string, Set<string>>;
 	byTitle: Map<string, string>; // lowercased title/path/basename -> path
 	reverseAdjacency: Map<string, Set<string>>; // targetPath -> Set<sourcePath>
+	// Phase 3 / WS-C2: memoized undirected adjacency for graph queries.
+	// Built lazily by getAdjacency(); invalidated by bumping `rev` on every
+	// note mutation (indexNote/unindexNote). graphNeighbors rebuilds only when
+	// adjacencyRev !== rev, instead of O(n) per call.
+	rev: number; // mutation counter; bump on any notes change
+	adjacency?: Map<string, Set<string>>; // undirected: path -> Set<neighborPath>
+	adjacencyRev?: number; // rev the cache was built at
 }
 
 /** Parse a note into NoteMeta (no I/O). Reused by index build + reindex. */
@@ -1198,15 +1364,52 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 }
 
 const indexCache = new Map<string, VaultIndex>();
+// Phase 3 / WS-C4: in-flight index builds, so concurrent getIndex() calls on
+// the same (uncached) vault share ONE buildIndex instead of racing parallel
+// full-vault scans. Resolved + cleared once the build settles into indexCache.
+const indexInFlight = new Map<string, Promise<VaultIndex>>();
 
-/** Get or lazily build the index for a vault. */
+// ---- Index coherence (Phase 4: WS-A5 + WS-C3) -----------------------------
+// The file cache (readCached) is already mtime-coherent per read. The INDEX,
+// however, is built once and cached — so external edits (e.g. a note changed in
+// the Obsidian app mid-session) left byTag / byTitle / reverseAdjacency stale
+// until a manual obsidian_invalidate. refreshIndex() fixes that incrementally:
+// it re-enumerates the vault (readdir + stat only — no content read) and
+// reindexes just the files whose mtime changed, plus picks up adds/deletes.
+// Throttled so a burst of tool calls within one turn doesn't re-scan repeatedly.
+// Poll window is read live from env so it can be tuned at runtime (and set to 0
+// in tests to disable throttling without waiting).
+const INDEX_POLL_MS_DEFAULT = 2000;
+const indexPollMs = () => Number(process.env.OB_INDEX_POLL_MS ?? INDEX_POLL_MS_DEFAULT);
+const indexRefreshAt = new Map<string, number>(); // vault real path -> ms of last refresh
+
+/** Get or lazily build the index for a vault. On a cache hit, opportunistically
+ *  refresh incrementally (throttled) so external edits are picked up without a
+ *  manual invalidate. */
 export async function getIndex(vaultPath: string): Promise<VaultIndex> {
 	const real = resolve(vaultPath);
 	let idx = indexCache.get(real);
-	if (idx) return idx;
-	idx = await buildIndex(real);
-	indexCache.set(real, idx);
-	return idx;
+	if (idx) {
+		await refreshIndex(idx, { force: false });
+		return idx;
+	}
+	// Phase 3 / WS-C4: single-flight — if another caller is already building
+	// this vault's index, await its promise rather than starting a parallel scan.
+	let inflight = indexInFlight.get(real);
+	if (!inflight) {
+		inflight = (async () => {
+			try {
+				const built = await buildIndex(real);
+				indexCache.set(real, built);
+				indexRefreshAt.set(real, Date.now());
+				return built;
+			} finally {
+				indexInFlight.delete(real);
+			}
+		})();
+		indexInFlight.set(real, inflight);
+	}
+	return inflight;
 }
 
 /** Build a fresh index over the whole vault. O(n). */
@@ -1221,6 +1424,7 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 		byTag: new Map(),
 		byTitle: new Map(),
 		reverseAdjacency: new Map(),
+		rev: 0,
 	};
 	for (let i = 0; i < files.length; i++) {
 		const entry = entries[i];
@@ -1281,12 +1485,14 @@ function indexNote(idx: VaultIndex, meta: NoteMeta): void {
 		}
 		s.add(meta.path);
 	}
+	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 }
 
 /** Remove a note from all index maps. */
 function unindexNote(idx: VaultIndex, path: string): void {
 	const old = idx.notes.get(path);
 	if (!old) return;
+	idx.rev++; // Phase 3 / WS-C2: invalidate memoized adjacency
 	idx.notes.delete(path);
 	for (const k of titleKeysFor(old))
 		if (idx.byTitle.get(k) === path) idx.byTitle.delete(k);
@@ -1336,6 +1542,58 @@ export async function reindexFile(
 /** Drop the index for a vault (forces rebuild on next getIndex). */
 export function dropIndex(vaultPath: string): void {
 	indexCache.delete(resolve(vaultPath));
+}
+
+/** Incrementally reconcile the index with the current on-disk vault state.
+ *  Readdir + stat every file (cheap — no content read), then reindex only the
+ *  changed/added files and drop the deleted ones. Returns a small diff summary
+ *  so callers (obsidian_invalidate, tests) can report what changed.
+ *
+ *  Throttled by INDEX_POLL_MS unless `force` is true (used by the explicit
+ *  obsidian_invalidate tool and write paths, which want immediate effect). */
+export async function refreshIndex(
+	idx: VaultIndex,
+	opts: { force?: boolean } = {},
+): Promise<{ added: number; changed: number; deleted: number }> {
+	const real = idx.vaultPath;
+	const now = Date.now();
+	if (!opts.force && now - (indexRefreshAt.get(real) ?? 0) < indexPollMs()) {
+		return { added: 0, changed: 0, deleted: 0 };
+	}
+	indexRefreshAt.set(real, now);
+
+	const files = await listNotes(real, "");
+	const seen = new Set<string>();
+	const toReindex: string[] = [];
+	let added = 0;
+	let changed = 0;
+	for (const f of files) {
+		seen.add(f);
+		const abs = join(real, f);
+		let st;
+		try {
+			st = await stat(abs);
+		} catch {
+			continue; // vanished between readdir and stat; next refresh retries
+		}
+		const prev = idx.notes.get(f);
+		if (!prev) added++;
+		else if (prev.mtime !== st.mtimeMs) changed++;
+		else continue;
+		toReindex.push(f);
+	}
+	// Deleted externally: indexed paths no longer present on disk.
+	const deleted: string[] = [];
+	for (const p of idx.notes.keys()) if (!seen.has(p)) deleted.push(p);
+
+	for (const f of toReindex) {
+		const entry = await readCached(join(real, f));
+		if (entry) indexNote(idx, parseNoteMeta(f, entry.content, entry.mtime));
+		// (if readCached returned null — race: file gone — unindex below via deleted)
+	}
+	for (const f of deleted) unindexNote(idx, f);
+
+	return { added, changed, deleted: deleted.length };
 }
 
 /** Resolve a wiki-link target to a note path (exported for tests/B3). */
@@ -1419,19 +1677,10 @@ export function graphDeadLinks(idx: VaultIndex): GraphResult[] {
 	return out;
 }
 
-/** N-hop neighborhood via BFS over adjacency ∪ reverseAdjacency (B2.4). */
-export function graphNeighbors(
-	idx: VaultIndex,
-	note: string,
-	maxDepth = 1,
-	max = 50,
-): GraphResult[] {
-	const startKey = note.toLowerCase();
-	const startPath =
-		idx.byTitle.get(startKey) ??
-		idx.byTitle.get(startKey.split("/").pop() ?? startKey);
-	if (!startPath) return [];
-	// build undirected adjacency from notes' resolved links
+/** Build the undirected adjacency map (path -> Set<neighborPath>) from notes'
+ *  resolved links. Phase 3 / WS-C2: memoized on the index via getAdjacency()
+ *  so repeated graphNeighbors calls don't rebuild it O(n) each time. */
+function buildAdjacency(idx: VaultIndex): Map<string, Set<string>> {
 	const adj = new Map<string, Set<string>>();
 	const addEdge = (a: string, b: string) => {
 		if (!adj.has(a)) adj.set(a, new Set());
@@ -1445,6 +1694,34 @@ export function graphNeighbors(
 			addEdge(meta.path, resolved);
 		}
 	}
+	return adj;
+}
+
+/** Return the memoized undirected adjacency, rebuilding only when notes changed
+ *  since the last build (tracked by idx.rev). Phase 3 / WS-C2. */
+export function getAdjacency(idx: VaultIndex): Map<string, Set<string>> {
+	if (idx.adjacency && idx.adjacencyRev === idx.rev) return idx.adjacency;
+	const adj = buildAdjacency(idx);
+	idx.adjacency = adj;
+	idx.adjacencyRev = idx.rev;
+	return adj;
+}
+
+/** N-hop neighborhood via BFS over undirected adjacency (B2.4).
+ *  Phase 3 / WS-C2: uses the memoized adjacency (getAdjacency) instead of
+ *  rebuilding the full edge set on every call. */
+export function graphNeighbors(
+	idx: VaultIndex,
+	note: string,
+	maxDepth = 1,
+	max = 50,
+): GraphResult[] {
+	const startKey = note.toLowerCase();
+	const startPath =
+		idx.byTitle.get(startKey) ??
+		idx.byTitle.get(startKey.split("/").pop() ?? startKey);
+	if (!startPath) return [];
+	const adj = getAdjacency(idx);
 	const results: GraphResult[] = [];
 	const visited = new Set<string>([startPath]);
 	let frontier = [startPath];
@@ -1509,6 +1786,88 @@ function rewriteLinkToken(
 	return (useBare ? bare : qualified) + section + alias;
 }
 
+// ---- Wiki-link rewrite protection (Phase 1: WS-A3) ------------------------
+// move/delete rewrite inbound [[links]] across the vault. Doing that with a
+// naive content.replace() corrupts regions where [[..]] is NOT a real link:
+// the YAML frontmatter block, fenced code blocks, and inline `code` spans.
+// rewriteLinksProtected() runs the per-link decision only over safe text.
+export const LINK_KEEP = Symbol("pi-obsidian/link-keep");
+export const LINK_DELETE = Symbol("pi-obsidian/link-delete");
+
+/** Apply a per-[[link]] rewriter to file content, PROTECTING frontmatter,
+ *  fenced code blocks (``` / ~~~), and inline `code` spans. The rewriter
+ *  receives the raw inside of [[...]] and returns:
+ *    - a string  → replace the token with [[that string]]
+ *    - LINK_KEEP → leave the token untouched
+ *    - LINK_DELETE → remove the token entirely (used by delete cleanup) */
+export function rewriteLinksProtected(
+	content: string,
+	rewriter: (rawInner: string) => string | typeof LINK_KEEP | typeof LINK_DELETE,
+): string {
+	const linkRe = /\[\[([^\]]+)\]\]/g;
+	const apply = (text: string): string =>
+		text.replace(linkRe, (full, raw) => {
+			const decision = rewriter(String(raw));
+			if (decision === LINK_KEEP) return full;
+			if (decision === LINK_DELETE) return "";
+			return `[[${String(decision)}]]`;
+		});
+	/** Rewrite a single line, leaving inline `code` spans untouched. */
+	const rewriteLine = (line: string): string => {
+		let out = "";
+		let last = 0;
+		const inlineRe = /`[^`]*`/g;
+		let m: RegExpExecArray | null;
+		while ((m = inlineRe.exec(line))) {
+			out += apply(line.slice(last, m.index)) + m[0];
+			last = m.index + m[0].length;
+		}
+		out += apply(line.slice(last));
+		return out;
+	};
+
+	const lines = content.split("\n");
+	const out: string[] = [];
+	let inFence = false;
+	let fenceChar: string | null = null;
+	let inFm = false;
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		// Frontmatter: a leading "---" fence at the very top of the file.
+		if (i === 0 && line.trim() === "---") {
+			inFm = true;
+			out.push(line);
+			continue;
+		}
+		if (inFm) {
+			if (line.trim() === "---" || line.trim() === "...") inFm = false;
+			out.push(line); // protected
+			continue;
+		}
+		// Fenced code block open/close (``` or ~~~, 3+, ≤3 leading spaces).
+		const fence = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+		if (fence) {
+			const ch = fence[1][0];
+			if (!inFence) {
+				inFence = true;
+				fenceChar = ch;
+			} else if (ch === fenceChar) {
+				inFence = false;
+				fenceChar = null;
+			}
+			out.push(line); // fence line protected
+			continue;
+		}
+		if (inFence) {
+			out.push(line); // protected
+			continue;
+		}
+		out.push(rewriteLine(line));
+	}
+	return out.join("\n");
+}
+
 /** Move/rename a note and rewrite all inbound [[links]] (B3.1 + B3.2). */
 export async function moveNote(
 	vaultPath: string,
@@ -1544,7 +1903,6 @@ export async function moveNote(
 		fromMeta?.title ??
 		fromPath.split("/").pop()!.replace(/\.md$/i, "").toLowerCase();
 	const sources = backlinkPaths(idx, fromTitle);
-	const linkRe = /\[\[([^\]]+)\]\]/g;
 	const linksRewritten: string[] = [];
 	const failedSources: string[] = [];
 	// Move the file FIRST. If the rename fails (EXDEV, read-only FS, mkdir
@@ -1561,20 +1919,19 @@ export async function moveNote(
 			const entry = await readCached(srcAbs);
 			if (!entry) continue;
 			let changed = false;
-			const updated = entry.content.replace(linkRe, (full, raw) => {
-				const before = String(raw);
+			const updated = rewriteLinksProtected(entry.content, (raw) => {
 				const after = rewriteLinkToken(
-					before,
+					raw,
 					[fromPath, fromTitle],
 					fromTitle,
 					newPath,
 					idx,
 				);
-				if (after !== before) {
+				if (after !== raw) {
 					changed = true;
-					return `[[${after}]]`;
+					return after;
 				}
-				return full;
+				return LINK_KEEP;
 			});
 			if (changed) {
 				await atomicWriteFile(srcAbs, updated);
@@ -1616,15 +1973,14 @@ export async function deleteNote(
 		// inside OldDraft.md). Resolve by basename, matching how links are actually keyed.
 		const target = notePath.split("/").pop()!.replace(/\.md$/i, "");
 		const sources = backlinkPaths(idx, target);
-		const linkRe = /\[\[([^\]]+)\]\]/g;
 		for (const src of sources) {
 			const srcAbs = join(real, src);
 			const entry = await readCached(srcAbs);
 			if (!entry) continue;
 			const tLower = target.toLowerCase();
 			let changed = false;
-			const updated = entry.content.replace(linkRe, (full, raw) => {
-				const tgt = String(raw)
+			const updated = rewriteLinksProtected(entry.content, (raw) => {
+				const tgt = raw
 					.replace(/\|.*/, "")
 					.replace(/#.*/, "")
 					.replace(/\.md$/i, "")
@@ -1635,9 +1991,9 @@ export async function deleteNote(
 					tgt.split("/").pop() === tLower.split("/").pop()
 				) {
 					changed = true;
-					return "";
+					return LINK_DELETE;
 				}
-				return full;
+				return LINK_KEEP;
 			});
 			if (changed) {
 				const tidied = updated
@@ -1694,13 +2050,17 @@ export async function updateFrontmatter(
 	vaultPath: string,
 	note: string,
 	patch: Record<string, any>,
+	opts: { expectedMtime?: number } = {},
 ): Promise<{ note: string; updated: string[]; bodyUntouched: boolean }> {
 	const real = resolve(vaultPath);
 	const abs = safeNotePath(real, note);
 	assertWritablePath(real, abs);
 	await assertWithinVault(real, abs);
 	const entry = await readCached(abs);
-	if (!entry) throw new Error(`Note not found: ${note}`);
+	if (!entry) throw new VaultError("NOT_FOUND", `Note not found: ${note}`);
+	// WS-A4: optimistic concurrency.
+	const conflict = mtimeConflict(note, opts.expectedMtime, entry.mtime);
+	if (conflict) throw conflict;
 	const content = entry.content;
 	const { data, bodyStart } = parseFrontmatter(content);
 	const lines = content.split("\n");
@@ -1835,7 +2195,6 @@ export async function findBacklinks(
 	target: string,
 	opts: { folder?: string; caseSensitive?: boolean; max: number },
 ): Promise<{ file: string; line: number; text: string }[]> {
-	const files = await listNotes(vaultPath, opts.folder ?? "");
 	const want = target.replace(/\.md$/i, "").trim();
 	const cmp = (s: string) => (opts.caseSensitive ? s : s.toLowerCase());
 	const wantN = cmp(want);
@@ -1843,6 +2202,29 @@ export async function findBacklinks(
 	const wantBase = cmp(want.split("/").pop() ?? want);
 	const results: { file: string; line: number; text: string }[] = [];
 	const max = opts.max;
+
+	// Phase 3 / WS-C1: narrow to the O(1) candidate set from reverseAdjacency
+	// instead of line-scanning the whole vault. The index is coherence-refreshed
+	// by getIndex, so its candidate set is reliable mid-session. Fall back to a
+	// full scan only when the index is not yet built (empty) — the legacy path.
+	let files: string[];
+	let idx: VaultIndex | undefined;
+	try {
+		idx = await getIndex(vaultPath);
+	} catch {
+		idx = undefined;
+	}
+	const candidates = idx ? backlinkPaths(idx, target) : new Set<string>();
+	if (idx && idx.notes.size > 0) {
+		// Filter candidates by folder scope (reverseAdjacency is vault-wide).
+		const folder = opts.folder ?? "";
+		files = [...candidates].filter((p) => !folder || p.startsWith(folder + "/") || p === folder);
+		// No candidates means no backlinks per a coherent index — return early.
+		if (files.length === 0) return [];
+	} else {
+		files = await listNotes(vaultPath, opts.folder ?? "");
+	}
+
 	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
 	for (let fi = 0; fi < files.length; fi++) {
 		const f = files[fi];
@@ -1951,6 +2333,7 @@ export async function appendUnderHeading(
 	note: string,
 	heading: string,
 	content: string,
+	opts: { expectedMtime?: number } = {},
 ): Promise<{ created: boolean; insertedAt: "heading" | "end" }> {
 	const abs = safeNotePath(vaultPath, note);
 	assertWritablePath(vaultPath, abs);
@@ -1959,11 +2342,23 @@ export async function appendUnderHeading(
 
 	let existing = "";
 	let created = false;
+	let actualMtime: number | undefined;
 	try {
 		existing = await readFile(abs, "utf8");
-	} catch {
-		created = true;
+		actualMtime = await noteMtime(abs);
+	} catch (e) {
+		// ENOENT → create-new (append-section's contract). Other FS errors throw a
+		// structured VaultError for the calling tool to surface (WS-A1).
+		if (fsErrCode(e) === "ENOENT") created = true;
+		else
+			throw new VaultError(
+				classifyFsError(e),
+				`Cannot read ${note}: ${errMsg(e)}`,
+			);
 	}
+	// WS-A4: optimistic concurrency (only constrains the existing-file case).
+	const conflict = mtimeConflict(note, opts.expectedMtime, actualMtime);
+	if (conflict) throw conflict;
 
 	const lines = existing.split("\n");
 	const headingRe = new RegExp(
@@ -2179,6 +2574,76 @@ export function buildSubagentArgs(
 	return args;
 }
 
+// ---- Subagent model resolution (Phase 2 / WS-B2) --------------------------
+// A subagent's model was previously inherited blindly from OB_PARENT_MODEL.
+// A weak/TC-unaware parent model silently degrades distill/garden output. We
+// now: honor an explicit per-call model; fall back to a configured floor
+// (OB_SUBAGENT_MODEL); refuse to INHERIT a known-weak parent model; and warn
+// when no model is configured at all. The floor for TC-aware distill/garden is
+// a config decision (open question #2 in the PRD) — OB_SUBAGENT_MODEL is the
+// mechanism; weak-detection is pattern-based so it doesn't hardcode an id.
+
+/** Substring patterns that mark a model as "weak" (small/fast tiers that are a
+ *  poor floor for the TC-heavy distill/garden prompts). Used only to REFUSE
+ *  inheritance and to WARN on explicit selection — never to silently clear an
+ *  explicit caller choice. */
+const WEAK_MODEL_PATTERNS = [
+	/haiku/i,
+	/mini/i,
+	/nano/i,
+	/\bsmall\b/i,
+	/-lite\b/i,
+	/flash/i,
+	/tiny/i,
+	/nano[-_]?code/i,
+];
+
+/** Is this model id a known-weak tier? (substring match on the id.) */
+export function isWeakModel(modelId: string | undefined): boolean {
+	if (!modelId) return false;
+	return WEAK_MODEL_PATTERNS.some((re) => re.test(modelId));
+}
+
+export interface ResolvedModel {
+	model: string | undefined;
+	/** Where the resolution came from — surfaced for logging/diagnostics. */
+	source: "explicit" | "floor" | "inherited" | "default";
+	warned: boolean;
+}
+
+/** Resolve the subagent model per WS-B2. Pure function — unit-tested without
+ *  spawning. Resolution order:
+ *    1. opts.model            (explicit — caller's choice; warn if weak)
+ *    2. OB_SUBAGENT_MODEL     (configured floor — trusted, no weakness check)
+ *    3. OB_PARENT_MODEL       (inherited — REFUSED if weak)
+ *    4. undefined             (pi default — warn that no model is configured) */
+export function resolveSubagentModel(opts: SubagentOptions = {}): ResolvedModel {
+	const warn = (m: string) => console.error(`  [subagent] ⚠ ${m}`);
+	// 1. Explicit per-call model: honor it, but warn on a known-weak choice.
+	if (opts.model) {
+		if (isWeakModel(opts.model))
+			warn(`explicit model "${opts.model}" looks like a weak tier for TC distill/garden`);
+		return { model: opts.model, source: "explicit", warned: isWeakModel(opts.model) };
+	}
+	// 2. Configured floor (OB_SUBAGENT_MODEL) — trusted; not weakness-checked.
+	const floor = process.env.OB_SUBAGENT_MODEL;
+	if (floor) return { model: floor, source: "floor", warned: false };
+	// 3. Inherited parent model — refuse if known-weak so a parent `--model`
+	//    selection can't silently degrade every spawned subagent.
+	const parent = process.env.OB_PARENT_MODEL;
+	if (parent) {
+		if (isWeakModel(parent)) {
+			warn(`refusing to inherit weak parent model "${parent}"; falling back to pi default`);
+			return { model: undefined, source: "default", warned: true };
+		}
+		return { model: parent, source: "inherited", warned: false };
+	}
+	// 4. Nothing configured — let pi pick its default, but surface that no
+	//    explicit/floor model is set so the operator can tune OB_SUBAGENT_MODEL.
+	warn("no subagent model configured (set OB_SUBAGENT_MODEL for a stable TC-aware floor)");
+	return { model: undefined, source: "default", warned: true };
+}
+
 /** Spawn a child pi (isolated context) as a specialized subagent.
  *  Loads this extension (-e) so obsidian tools are available in any cwd,
  *  restricts tools, appends the given system prompt, and runs the task.
@@ -2303,7 +2768,7 @@ async function runSubagentWithRetryImpl(
 	return { ...res, attempts: attempt };
 }
 
-export function runSubagent(
+export async function runSubagent(
 	cwd: string,
 	systemPrompt: string,
 	task: string,
@@ -2318,100 +2783,125 @@ export function runSubagent(
 	timedOut: boolean;
 	result: any;
 }> {
-	return new Promise(async (resolveP) => {
-		let tmpDir: string | null = null;
-		let timer: NodeJS.Timeout | undefined;
-		let timedOut = false;
-		const timeoutMs = Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000);
-		const finish = (output: string, exitCode: number, stderr: string) => {
-			if (timer) clearTimeout(timer);
-			if (tmpDir) rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-			// A3.4: parse a trailing structured-result JSON line from the assistant text.
-			const result = parseStructuredResult(output);
-			resolveP({ output, exitCode, stderr, timedOut, result });
-		};
-		try {
-			tmpDir = await mkdtemp(join(tmpdir(), tmpPrefix));
-			const promptPath = join(tmpDir, "system.md");
-			await writeFile(promptPath, systemPrompt, { mode: 0o600 });
-			// Explicitly load this extension in the child so obsidian tools are
-			// available regardless of whether the cwd has a .pi/settings.json.
-			const pkgRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
-			// Inherit the parent's resolved model unless this call overrides it.
-			// OB_PARENT_MODEL is published by the CLI's createSharedSession, so a
-			// `--model` selection propagates to every spawned subagent instead of
-			// each child re-resolving to the pi default.
-			const inherited: SubagentOptions = {
-				...opts,
-				model: opts.model ?? process.env.OB_PARENT_MODEL,
-			};
-			// Argv is built by a pure helper (unit-tested); task is the last positional.
-			const args = [
-				...buildSubagentArgs(toolsCsv, promptPath, pkgRoot, inherited),
-				task,
-			];
-			const inv = getPiInvocation(args);
-			const proc = spawn(inv.command, inv.args, {
-				cwd,
-				shell: false,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			let buf = "";
-			let stderr = "";
-			let lastText = "";
-			const handle = (line: string) => {
-				if (!line.trim()) return;
-				let ev: any;
-				try {
-					ev = JSON.parse(line);
-				} catch {
-					return;
-				}
-				// Forward every parsed event to the live observer (progress logging).
-				opts.onEvent?.(ev);
-				if (ev.type === "message_end" && ev.message?.role === "assistant") {
-					for (const part of ev.message.content ?? [])
-						if (part.type === "text" && part.text) lastText = part.text;
-				}
-			};
-			proc.stdout.on("data", (d) => {
-				buf += d.toString();
-				const lines = buf.split("\n");
-				buf = lines.pop() ?? "";
-				for (const l of lines) handle(l);
-			});
-			proc.stderr.on("data", (d) => {
-				stderr += d.toString();
-			});
-			proc.on("close", (c) => {
-				if (buf.trim()) handle(buf);
-				finish(lastText, c ?? 0, stderr);
-			});
-			proc.on("error", () => finish(lastText, 1, stderr));
-			if (signal) {
-				const kill = () => {
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
+	// Phase 2 / WS-B2: resolve a validated model instead of blindly inheriting
+	// OB_PARENT_MODEL. The resolution logs warnings itself (weak/explicit,
+	// refused inheritance, unset) — so the parent surfaces a degrading choice.
+	const resolved = resolveSubagentModel(opts);
+	let tmpDir: string | null = null;
+	let timer: NodeJS.Timeout | undefined;
+	let timedOut = false;
+	const timeoutMs = Number(process.env.OB_SUBAGENT_TIMEOUT_MS ?? 5 * 60_000);
+	try {
+		tmpDir = await mkdtemp(join(tmpdir(), tmpPrefix));
+		const promptPath = join(tmpDir, "system.md");
+		await writeFile(promptPath, systemPrompt, { mode: 0o600 });
+		// Explicitly load this extension in the child so obsidian tools are
+		// available regardless of whether the cwd has a .pi/settings.json.
+		const pkgRoot = resolve(fileURLToPath(import.meta.url), "..", "..");
+		// Phase 2 / WS-B2: model comes from resolveSubagentModel (validated
+		// floor/explicit; weak parent inheritance refused) rather than a raw
+		// `opts.model ?? OB_PARENT_MODEL`.
+		const inherited: SubagentOptions = { ...opts, model: resolved.model };
+		// Argv is built by a pure helper (unit-tested); task is the last positional.
+		const args = [...buildSubagentArgs(toolsCsv, promptPath, pkgRoot, inherited), task];
+		const inv = getPiInvocation(args);
+		const proc = spawn(inv.command, inv.args, {
+			cwd,
+			shell: false,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+
+		// Await the child's completion as a single promise. With spawn, `error`
+		// and `close` are mutually exclusive (an `error` means no process ever
+		// ran, so no `close` follows) → this resolves exactly once. Phase 2 / B5:
+		// this replaces the old `new Promise(async …)` antipattern whose `finish()`
+		// helper could double-fire from both handlers.
+		const completion = new Promise<{ exitCode: number; stderr: string; text: string }>(
+			(resolveDone, rejectDone) => {
+				let buf = "";
+				let stderr = "";
+				let lastText = "";
+				const handle = (line: string) => {
+					if (!line.trim()) return;
+					let ev: any;
+					try {
+						ev = JSON.parse(line);
+					} catch {
+						return;
+					}
+					// Forward every parsed event to the live observer (progress logging).
+					opts.onEvent?.(ev);
+					if (ev.type === "message_end" && ev.message?.role === "assistant") {
+						for (const part of ev.message.content ?? [])
+							if (part.type === "text" && part.text) lastText = part.text;
+					}
 				};
-				if (signal.aborted) kill();
-				else signal.addEventListener("abort", kill, { once: true });
-			}
-			// A3.1: default 5min timeout (OB_SUBAGENT_TIMEOUT_MS). SIGTERM → 5s grace → SIGKILL.
-			if (timeoutMs > 0) {
-				timer = setTimeout(() => {
-					timedOut = true;
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 5000);
-				}, timeoutMs);
-			}
-		} catch (e: any) {
-			finish("", 1, e?.message ? String(e.message) : String(e));
+				proc.stdout.on("data", (d) => {
+					buf += d.toString();
+					const lines = buf.split("\n");
+					buf = lines.pop() ?? "";
+					for (const l of lines) handle(l);
+				});
+				proc.stderr.on("data", (d) => {
+					stderr += d.toString();
+				});
+				proc.on("close", (c) => {
+					if (buf.trim()) handle(buf);
+					resolveDone({ exitCode: c ?? 0, stderr, text: lastText });
+				});
+				proc.on("error", (e) => rejectDone(e));
+			},
+		);
+
+		// AbortSignal: SIGTERM → 5s grace → SIGKILL.
+		if (signal) {
+			const kill = () => {
+				proc.kill("SIGTERM");
+				setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, 5000);
+			};
+			if (signal.aborted) kill();
+			else signal.addEventListener("abort", kill, { once: true });
 		}
-	});
+		// A3.1: default 5min timeout (OB_SUBAGENT_TIMEOUT_MS). SIGTERM → 5s grace → SIGKILL.
+		if (timeoutMs > 0) {
+			timer = setTimeout(() => {
+				timedOut = true;
+				proc.kill("SIGTERM");
+				setTimeout(() => {
+					if (!proc.killed) proc.kill("SIGKILL");
+				}, 5000);
+			}, timeoutMs);
+		}
+
+		let outcome: { exitCode: number; stderr: string; text: string };
+		try {
+			outcome = await completion;
+		} catch (e: any) {
+			// spawn error (e.g. ENOENT — `pi` not on PATH). Single return path —
+			// surface as exit 1 instead of leaking an unhandled rejection.
+			const msg = e?.message ? String(e.message) : String(e);
+			return {
+				output: "",
+				exitCode: 1,
+				stderr: msg,
+				timedOut,
+				result: null,
+			};
+		}
+		const result = parseStructuredResult(outcome.text);
+		return {
+			output: outcome.text,
+			exitCode: outcome.exitCode,
+			stderr: outcome.stderr,
+			timedOut,
+			result,
+		};
+	} finally {
+		if (timer) clearTimeout(timer);
+		if (tmpDir) await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+	}
 }
 
 // ---- Vault gardener subagent ---------------------------------------------
@@ -2455,6 +2945,102 @@ const GARDEN_SYSTEM_PROMPT = `你是一名 Obsidian vault 圖丁（gardener）�
     {"type":"pi_obsidian_result","notesCreated":<數字>,"linksAdded":<數字>,"issuesFound":<數字>,"issues":[{"kind":"orphan|dead-link|duplicate|missing-frontmatter|moc-drift","path":"檔名","detail":"一句話"}],"errors":["若有的話"]}
 
 這條 JSON 是給程式讀的。數字字段若不適用填 0。`;
+
+// ---- Subagent output validation (Phase 2 / WS-B1) -------------------------
+// distill/garden subagents write to the vault via obsidian_create inside the
+// child process; the parent only sees the assistant's final text + the
+// trailing `pi_obsidian_result` JSON (which lists created note paths). We can't
+// intercept writes that happen in the child, so B1 is a POST-RUN audit: read
+// every note the subagent claims to have created and validate it (frontmatter
+// schema, valid YAML, sane size, wiki-link targets resolve). Malformed output
+// is then REPORTED (and surfaced in the tool result) instead of silently
+// corrupting the vault — the caller can review/repair/delete the bad notes.
+
+/** Sane upper bound for a single Zettelkasten card. A subagent emitting a
+ *  >64KB blob is almost certainly garbage / a prompt-injection dump. */
+export const ZETTEL_MAX_BYTES = 64 * 1024;
+/** Required frontmatter keys for a Zettelkasten card (per ZETTEL_SYSTEM_PROMPT). */
+export const ZETTEL_REQUIRED_KEYS = ["id", "created", "tags"];
+
+export interface NoteValidation {
+	path: string;
+	ok: boolean;
+	errors: string[];
+}
+
+/** Validate a single note's content against the Zettelkasten card schema.
+ *  Pure (no I/O) — unit-tested directly. When `idx` is provided, wiki-link
+ *  targets are also checked for resolvability (dead links flagged). */
+export function validateZettelNote(
+	content: string | undefined,
+	idx?: VaultIndex,
+): { ok: boolean; errors: string[] } {
+	const errors: string[] = [];
+	if (!content || !content.trim()) return { ok: false, errors: ["empty content"] };
+	if (Buffer.byteLength(content, "utf8") > ZETTEL_MAX_BYTES)
+		errors.push(`note exceeds ${ZETTEL_MAX_BYTES / 1024}KB (likely garbage)`);
+	// Frontmatter presence: leading `---` ... `---`.
+	const lines = content.split("\n");
+	const hasFm = lines.length > 0 && lines[0].trim() === "---" && lines.slice(1).some((l) => l.trim() === "---");
+	if (!hasFm) {
+		errors.push("missing YAML frontmatter (no leading `---` block)");
+	} else {
+		const { data } = parseFrontmatter(content);
+		for (const k of ZETTEL_REQUIRED_KEYS)
+			if (!(k in data) || data[k] === "" || data[k] == null)
+				errors.push(`frontmatter missing required key: ${k}`);
+		if (Array.isArray(data.tags) && data.tags.length > 0) {
+			if (String(data.tags[0]).toLowerCase() !== "zettel")
+				errors.push(`tags[0] should be "zettel" (got ${JSON.stringify(data.tags[0])})`);
+		} else if (data.tags !== undefined) {
+			errors.push("frontmatter `tags` must be a non-empty array");
+		}
+	}
+	// Wiki-link target resolvability (only when an index is available).
+	if (idx) {
+		const dead = new Set<string>();
+		for (const line of lines)
+			for (const link of extractWikiLinks(line)) {
+				if (!resolveLink(idx, link)) dead.add(link);
+			}
+		if (dead.size > 0)
+			errors.push(`${dead.size} unresolved wiki-link target(s): ${[...dead].slice(0, 5).map((l) => `[[${l}]]`).join(", ")}${dead.size > 5 ? " …" : ""}`);
+	}
+	return { ok: errors.length === 0, errors };
+}
+
+/** Audit every note path a subagent reported creating. Returns a per-note
+ *  validation report plus an aggregate. Notes that don't exist on disk (the
+ *  subagent lied or the write raced) are flagged, not crashed on. */
+export async function validateZettelNotes(
+	vaultPath: string,
+	paths: string[],
+): Promise<{ notes: NoteValidation[]; valid: number; invalid: number }> {
+	if (!paths || paths.length === 0)
+		return { notes: [], valid: 0, invalid: 0 };
+	let idx: VaultIndex | undefined;
+	try {
+		idx = await getIndex(vaultPath);
+	} catch {
+		idx = undefined;
+	}
+	const notes: NoteValidation[] = [];
+	for (const rel of paths) {
+		const abs = safeNotePath(vaultPath, rel);
+		const cached = await readCached(abs);
+		if (!cached) {
+			notes.push({ path: rel, ok: false, errors: ["note not found on disk (subagent reported it but it's missing)"] });
+			continue;
+		}
+		const { ok, errors } = validateZettelNote(cached.content, idx);
+		notes.push({ path: rel, ok, errors });
+	}
+	return {
+		notes,
+		valid: notes.filter((n) => n.ok).length,
+		invalid: notes.filter((n) => !n.ok).length,
+	};
+}
 
 export default function (pi: ExtensionAPI) {
 	// Cached ResolvedVault (per session). `source` lets every tool surface
@@ -2516,12 +3102,15 @@ export default function (pi: ExtensionAPI) {
 			let content: string;
 			try {
 				content = await readFile(abs, "utf8");
-			} catch {
-				return {
-					content: [{ type: "text", text: `Note not found: ${params.note}` }],
-					details: { vault: v.name, note: params.note, error: "not found" },
-					isError: true,
-				};
+			} catch (e) {
+				const code = classifyFsError(e);
+				return toolError(
+					code,
+					code === "NOT_FOUND"
+						? `Note not found: ${params.note}`
+						: `Cannot read ${params.note}: ${errMsg(e)}`,
+					{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+				);
 			}
 			return {
 				content: [{ type: "text", text: content }],
@@ -2562,47 +3151,39 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const st = await stat(abs);
 				existingMtime = st.mtimeMs;
-			} catch {
-				/* not present */
+			} catch (e) {
+				// ENOENT = not present (expected). Anything else (EACCES/…) is real.
+				if (fsErrCode(e) !== "ENOENT") {
+					return toolError(
+						classifyFsError(e),
+						`Cannot stat ${params.note}: ${errMsg(e)}`,
+						{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+					);
+				}
 			}
 			if (existingMtime !== undefined) {
 				if (
 					params.expectedMtime !== undefined &&
 					params.expectedMtime !== existingMtime
 				) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Conflict: ${params.note} was modified (expected mtime ${params.expectedMtime}, actual ${existingMtime}).`,
-							},
-						],
-						details: {
+					return toolError(
+						"CONFLICT",
+						`Conflict: ${params.note} was modified (expected mtime ${params.expectedMtime}, actual ${existingMtime}).`,
+						{
 							vault: v.name,
 							note: params.note,
 							conflict: true,
 							expectedMtime: params.expectedMtime,
 							actualMtime: existingMtime,
 						},
-						isError: true,
-					};
+					);
 				}
 				if (!params.overwrite && params.expectedMtime === undefined) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `Note already exists: ${params.note} (mtime ${existingMtime}). Pass overwrite:true to replace, or expectedMtime for optimistic concurrency.`,
-							},
-						],
-						details: {
-							vault: v.name,
-							note: params.note,
-							exists: true,
-							mtime: existingMtime,
-						},
-						isError: true,
-					};
+					return toolError(
+						"ALREADY_EXISTS",
+						`Note already exists: ${params.note} (mtime ${existingMtime}). Pass overwrite:true to replace, or expectedMtime for optimistic concurrency.`,
+						{ vault: v.name, note: params.note, exists: true, mtime: existingMtime },
+					);
 				}
 			}
 			await mkdir(join(abs, ".."), { recursive: true });
@@ -2634,6 +3215,12 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			note: Type.String({ description: "Note path relative to vault root." }),
 			content: Type.String({ description: "Text to append." }),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the note exists and the on-disk mtime differs, the append is rejected as a conflict (optimistic concurrency). Ignored when the note is created new.",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
@@ -2642,10 +3229,30 @@ export default function (pi: ExtensionAPI) {
 			await assertWithinVault(v.path, abs);
 			await mkdir(join(abs, ".."), { recursive: true });
 			let existing = "";
+			let actualMtime: number | undefined;
 			try {
 				existing = await readFile(abs, "utf8");
-			} catch {
-				/* new file */
+				actualMtime = await noteMtime(abs);
+			} catch (e) {
+				// ENOENT → create-new (append's contract). Other FS errors surface.
+				if (fsErrCode(e) !== "ENOENT") {
+					return toolError(
+						classifyFsError(e),
+						`Cannot read ${params.note}: ${errMsg(e)}`,
+						{ vault: v.name, note: params.note, fsCode: fsErrCode(e) },
+					);
+				}
+			}
+			// WS-A4: optimistic concurrency (only constrains the existing-file case).
+			const conflict = mtimeConflict(params.note, params.expectedMtime, actualMtime);
+			if (conflict) {
+				return toolError("CONFLICT", conflict.message, {
+					vault: v.name,
+					note: params.note,
+					conflict: true,
+					expectedMtime: params.expectedMtime,
+					actualMtime: actualMtime,
+				});
 			}
 			const sep =
 				existing && !existing.endsWith("\n")
@@ -2690,15 +3297,31 @@ export default function (pi: ExtensionAPI) {
 			content: Type.String({
 				description: "Text to insert into that section.",
 			}),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the note exists and the on-disk mtime differs, the update is rejected as a conflict (optimistic concurrency). Ignored when the note is created new.",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
-			const res = await appendUnderHeading(
-				v.path,
-				params.note,
-				params.heading,
-				params.content,
-			);
+			let res;
+			try {
+				res = await appendUnderHeading(
+					v.path,
+					params.note,
+					params.heading,
+					params.content,
+					{ expectedMtime: params.expectedMtime },
+				);
+			} catch (e) {
+				return toolErrorFromCaught(e, {
+					vault: v.name,
+					note: params.note,
+					heading: params.heading,
+				});
+			}
 			return {
 				content: [
 					{
@@ -3037,11 +3660,18 @@ export default function (pi: ExtensionAPI) {
 				const r = await moveNote(v.path, params.from, params.to, {
 					overwrite: params.overwrite,
 				});
+				// A7: never silent partial state — if some inbound-link rewrites
+				// failed, name them in the text (not just details) so the agent
+				// knows the graph is half-rewritten and can retry those sources.
+				const failedWarn =
+					r.failedSources.length > 0
+						? ` ⚠ ${r.failedSources.length} inbound rewrite(s) FAILED (${r.failedSources.join(", ")}) — those links still point at the old path; re-run or fix manually.`
+						: "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Moved ${r.from} → ${r.to}; rewrote ${r.linksRewritten.length} inbound link(s).`,
+							text: `Moved ${r.from} → ${r.to}; rewrote ${r.linksRewritten.length} inbound link(s).${failedWarn}`,
 						},
 					],
 					details: r,
@@ -3151,11 +3781,19 @@ export default function (pi: ExtensionAPI) {
 				description:
 					"Object of key→value pairs to merge. tags array is unioned.",
 			}),
+			expectedMtime: Type.Optional(
+				Type.Number({
+					description:
+						"Optional epoch-ms mtime as last seen by the caller; if the on-disk mtime differs, the update is rejected as a conflict (optimistic concurrency).",
+				}),
+			),
 		}),
 		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
 			try {
-				const r = await updateFrontmatter(v.path, params.note, params.patch);
+				const r = await updateFrontmatter(v.path, params.note, params.patch, {
+					expectedMtime: params.expectedMtime,
+				});
 				return {
 					content: [
 						{
@@ -3165,12 +3803,11 @@ export default function (pi: ExtensionAPI) {
 					],
 					details: r,
 				};
-			} catch (e: any) {
-				return {
-					content: [{ type: "text", text: `Update failed: ${errMsg(e)}` }],
-					isError: true,
-					details: null,
-				};
+			} catch (e) {
+				return toolErrorFromCaught(e, {
+					vault: v.name,
+					note: params.note,
+				});
 			}
 		},
 	});
@@ -3224,22 +3861,92 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Tool: obsidian_invalidate (B1.4) ----------------------------------
+	// ---- Tool: obsidian_invalidate (B1.4 / Phase 4: WS-C3) ------------------
 	pi.registerTool({
 		name: "obsidian_invalidate",
 		label: "Obsidian Invalidate",
 		description:
-			"Force-clear the read cache and vault index so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). No return value beyond confirmation.",
-		parameters: Type.Object({}),
-		async execute(_id, _params, _s, _u, ctx) {
+			"Reconcile the read cache and vault index with the current on-disk state so subsequent searches reflect external edits (e.g. notes changed in the Obsidian app out-of-band). Pass `path` (a note or folder, vault-relative) to reconcile only that subtree; omit it to reconcile the whole vault. Returns a small +added/~changed/-deleted summary.",
+		parameters: Type.Object({
+			path: Type.Optional(
+				Type.String({
+					description:
+						"Optional vault-relative note or folder to reconcile scantly. Without it, the whole vault is reconciled incrementally (no full rebuild).",
+				}),
+			),
+		}),
+		async execute(_id, params, _s, _u, ctx) {
 			const v = await getVault(ctx.cwd);
+			const real = resolve(v.path);
+
+			// Path-scoped reconcile: reindex only matching indexed entries.
+			if (typeof params.path === "string" && params.path.trim()) {
+				const note = safeNotePath(v.path, params.path);
+				const abs = join(real, note);
+				const isDir = await stat(abs)
+					.then((s) => s.isDirectory())
+					.catch(() => false);
+				const idx = indexCache.get(real);
+				if (!idx) {
+					invalidateCache(abs);
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Cleared cache for "${params.path}" (index not yet built; next use builds it fresh).`,
+							},
+						],
+						details: null,
+					};
+				}
+				const prefix = isDir ? note.replace(/\/$/, "") + "/" : note;
+				let n = 0;
+				for (const p of [...idx.notes.keys()]) {
+					const hit = isDir ? p.startsWith(prefix) : p === note;
+					if (!hit) continue;
+					invalidateCache(join(real, p));
+					const entry = await readCached(join(real, p));
+					if (entry) {
+						indexNote(idx, parseNoteMeta(p, entry.content, entry.mtime));
+						n++;
+					} else {
+						unindexNote(idx, p); // deleted externally
+						n++;
+					}
+				}
+				indexRefreshAt.set(real, Date.now());
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Reconciled ${n} note(s) under "${params.path}" in vault "${v.name}".`,
+						},
+					],
+					details: null,
+				};
+			}
+
+			// Whole-vault reconcile: clear file cache + incremental index refresh
+			// (no full rebuild — only changed files are re-read/parsed).
 			invalidateCache();
-			dropIndex(v.path);
+			const idx = indexCache.get(real);
+			if (idx) {
+				const diff = await refreshIndex(idx, { force: true });
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Refreshed vault "${v.name}": +${diff.added} added, ~${diff.changed} changed, -${diff.deleted} deleted.`,
+						},
+					],
+					details: null,
+				};
+			}
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Cleared cache and index for vault "${v.name}".`,
+						text: `Cleared cache for vault "${v.name}" (index not yet built; next use builds it fresh).`,
 					},
 				],
 				details: null,
@@ -3412,11 +4119,39 @@ ${output.slice(-2000)}`,
 					details: { exitCode, stderr, result },
 				};
 			}
+			// Phase 2 / WS-B1: post-run audit of every note the subagent claims to
+			// have created. Validate frontmatter schema, sane size, and wiki-link
+			// resolvability; surface malformed output so the caller can repair it
+			// instead of trusting silent corruption. Best-effort — never fails the
+			// run, only annotates it.
+			const reportedNotes = Array.isArray(result?.notes) ? result.notes.map(String) : [];
+			let validation: { notes: NoteValidation[]; valid: number; invalid: number } | undefined;
+			let validationText = "";
+			if (reportedNotes.length > 0) {
+				try {
+					validation = await validateZettelNotes(v.path, reportedNotes);
+				} catch {
+					validation = undefined;
+				}
+				if (validation && validation.invalid > 0) {
+					validationText =
+						`\n\n⚠ Validation: ${validation.invalid}/${validation.notes.length} created note(s) failed the Zettelkasten schema check — review/repair before relying on them:\n` +
+						validation.notes
+							.filter((n) => !n.ok)
+							.map((n) => `  - ${n.path}: ${n.errors.join("; ")}`)
+							.join("\n");
+				} else if (validation && validation.valid > 0) {
+					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
+				}
+			}
 			return {
 				content: [
-					{ type: "text", text: output || "(distiller produced no output)" },
+					{
+						type: "text",
+						text: (output || "(distiller produced no output)") + validationText,
+					},
 				],
-				details: { exitCode, stderr, result },
+				details: { exitCode, stderr, result, validation },
 			};
 		},
 	});

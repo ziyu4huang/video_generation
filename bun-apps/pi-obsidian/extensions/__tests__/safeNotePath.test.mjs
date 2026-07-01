@@ -69,3 +69,66 @@ describe("safeNotePath — control chars (A1.4)", () => {
 		expect(() => safeNotePath(vault, "")).toThrow();
 	});
 });
+
+describe("safeNotePath — A6 control/formatting chars beyond C0", () => {
+	// Control chars are built via code points so the test source carries no
+	// embedded invisible bytes (which editors/transports tend to strip).
+	const cp = (n) => String.fromCodePoint(n);
+	it("rejects C1 DEL (U+007F)", () => {
+		expect(() => safeNotePath(vault, "del" + cp(0x7f) + "name")).toThrow();
+	});
+	it("rejects a C1 control (U+009F)", () => {
+		expect(() => safeNotePath(vault, "c1" + cp(0x9f) + "end")).toThrow();
+	});
+	it("rejects Zero-Width Space (U+200B)", () => {
+		expect(() => safeNotePath(vault, "evil" + cp(0x200b))).toThrow();
+	});
+	it("rejects Right-to-Left Mark (U+200F)", () => {
+		expect(() => safeNotePath(vault, "rlm" + cp(0x200f))).toThrow();
+	});
+	it("rejects Zero-Width Joiner (U+200D)", () => {
+		expect(() => safeNotePath(vault, "zwj" + cp(0x200d))).toThrow();
+	});
+	it("rejects a bidi override (U+202E RLO)", () => {
+		expect(() => safeNotePath(vault, "over" + cp(0x202e))).toThrow();
+	});
+	it("rejects BOM / ZWNBSP (U+FEFF)", () => {
+		expect(() => safeNotePath(vault, cp(0xfeff) + "bom")).toThrow();
+	});
+	it("rejects line separator (U+2028)", () => {
+		expect(() => safeNotePath(vault, "line" + cp(0x2028) + "sep")).toThrow();
+	});
+});
+
+describe("safeNotePath — A6 Windows reserved names + chars", () => {
+	it("rejects reserved device name CON", () => {
+		expect(() => safeNotePath(vault, "CON")).toThrow(/reserved/i);
+	});
+	it("rejects reserved device name as a segment", () => {
+		expect(() => safeNotePath(vault, "folder/AUX")).toThrow(/reserved/i);
+	});
+	it("rejects COM1", () => {
+		expect(() => safeNotePath(vault, "COM1")).toThrow(/reserved/i);
+	});
+	it("rejects lpt9 (case-insensitive)", () => {
+		expect(() => safeNotePath(vault, "lpt9")).toThrow(/reserved/i);
+	});
+	it("rejects reserved char '<'", () => {
+		expect(() => safeNotePath(vault, "a<b")).toThrow(/reserved char/i);
+	});
+	it("rejects reserved char ':'", () => {
+		expect(() => safeNotePath(vault, "a:b")).toThrow(/reserved char/i);
+	});
+	it("rejects reserved char '?'", () => {
+		expect(() => safeNotePath(vault, "a?b")).toThrow(/reserved char/i);
+	});
+	it("rejects reserved char '*'", () => {
+		expect(() => safeNotePath(vault, "a*b")).toThrow(/reserved char/i);
+	});
+	it("does NOT over-reject a normal name containing 'com' substring", () => {
+		expect(() => safeNotePath(vault, "community")).not.toThrow();
+	});
+	it("does NOT over-reject 'concat'", () => {
+		expect(() => safeNotePath(vault, "concat")).not.toThrow();
+	});
+});
