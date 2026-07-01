@@ -142,6 +142,37 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 > with `Tool "todo" conflicts`. Another clone/environment must add it to their
 > OWN `~/.pi/agent/settings.json` to get the `todo` tool.
 
+### Lazy / opt-in extensions (`-e <alias>`)
+
+Everything in `manifest.json` above loads **every** session — fine for cheap,
+general-purpose extensions, wrong for heavy on-demand ones (e.g.
+`pi-dynamic-workflows`'s `workflow` tool costs ~2.5k tok/req). Those live in a
+separate **lazy registry**, `run-dir/settings.json`:
+
+```json
+{ "lazyExtensions": { "workflow": "pi-dynamic-workflows/extensions/workflow.ts", … } }
+```
+
+A lazy entry costs **zero** context unless you ask for it by alias:
+
+```bash
+# default session: dynamic-workflows NOT loaded (no token cost)
+bun bun-apps/pi-agent/src/cli.ts -p "…"
+
+# opt in for one invocation — the alias resolves to the real factory file
+bun bun-apps/pi-agent/src/cli.ts -e workflow -p "audit src/ for missing auth"
+bun bun-apps/pi-agent/src/cli.ts -e dynamic-workflows -p "…"
+bun bun-apps/pi-agent/src/cli.ts -e flux2 -p "…"
+```
+
+`run-dir/resolve.ts` rewrites `-e <alias>` to the absolute path before `main()`
+sees argv. Resolution (first hit wins): exact alias key (case-insensitive) →
+unique substring match (ambiguous → no guess, defers to SDK) → directory
+fallback (`<bun-apps>/<alias>/extensions/` with exactly one `.ts`). Real paths
+and URL schemes (`npm:`, `git:`, `file:`, `./…`, `/abs/…`) are passed through
+untouched, so `-e /real/path.ts` still works. To register a new opt-in
+extension, add one line to `run-dir/settings.json`.
+
 ## Cross-machine portability
 
 The run-dir mechanism makes extension loading cwd-independent, but a fresh machine still
@@ -225,8 +256,9 @@ pi-agent/
 ├── package.json            # bin: pi-agent → src/cli.ts; also holds the migrated npm extension deps
 ├── README.md
 ├── run-dir/
-│   ├── manifest.json          # this repo's fixed extension/skill list (edit this)
-│   └── resolve.ts             # resolves manifest.json to absolute -e/--skill argv
+│   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
+│   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
+│   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)

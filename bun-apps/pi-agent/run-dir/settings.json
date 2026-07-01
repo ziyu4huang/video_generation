@@ -1,0 +1,7 @@
+{
+  "lazyExtensions": {
+    "workflow": "pi-dynamic-workflows/extensions/workflow.ts",
+    "dynamic-workflows": "pi-dynamic-workflows/extensions/workflow.ts",
+    "flux2": "pi-agent-flux2/extensions/pi-flux2.ts"
+  }
+}
