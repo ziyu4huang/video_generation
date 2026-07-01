@@ -8,7 +8,6 @@
  * The extension (extensions/pi-flux2.ts) is a thin wrapper that maps the typed
  * tool parameters onto this function and shapes the ToolResult.
  */
-import { join } from "node:path";
 import { ensureBinary, resolveRepoRoot } from "./binary.ts";
 import {
   buildArgs,
@@ -20,6 +19,7 @@ import { invokeFlux2, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertModelsRootExists,
   assertPathAllowed,
+  assertSafePathComponent,
   ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
@@ -31,6 +31,7 @@ import {
 import {
   buildGateDetails,
   buildImageDetails,
+  buildScenePipelineDetails,
   buildTextDetails,
   stderrTail,
   summarize,
@@ -87,10 +88,10 @@ const EXTRA_ARG_ALLOW = new Set<string>([
   "hand-repair", "hand-repair-strength", "bg", "bg-strength", "lora", "lora-scale",
   "transformer", "seed", "width", "height", "steps", "cfg-scale", "output", "output-dir",
   "name", "vae", "encoder", "tokenizer-dir", "no-artifacts", "strict-gate", "models-root",
-  "input", "preset", "style-prompt", "ref-count", "angle", "azimuth", "elevation",
+  "input", "preset", "ref-count", "angle", "azimuth", "elevation",
   "source", "reference", "threshold", "feather", "mask-dilate", "preserve-aspect-ratio",
   "inpaint", "harmonize", "expand", "pixels", "model", "tile-size", "tile-overlap",
-  "no-tile", "json", "strict", "image", "character", "scenes", "ref", "reference", "reference-image",
+  "no-tile", "json", "strict", "image", "images", "character", "scenes", "ref", "reference",
   "tokenizer", "tokenizer-dir",
 ]);
 
@@ -114,13 +115,29 @@ function validateOptionPaths(
       assertPathAllowed(String(v), roots, { kind: key, mustExist: !isOutput });
     }
   }
-  // Reject flag-like values in free-form string fields that aren't paths
-  // (e.g. a prompt accidentally starting with '-').
+  // Reject flag-like values in free-form string (or string[], e.g. `lora`)
+  // fields that aren't paths (e.g. a prompt, or a lora name, accidentally
+  // starting with '-'). Array fields were previously skipped entirely here
+  // because the check only ran for `typeof v === "string"` — an array slips
+  // straight through to buildArgs() unvalidated.
   for (const [key, field] of Object.entries(spec.fields)) {
     if (field.isPath || field.isPathArray || field.positional) continue;
     if (!(key in options)) continue;
     const v = options[key];
-    if (typeof v === "string") rejectFlagLike(v, key);
+    // isPathComponent fields (transformer/vae/encoder/tokenizerDir/lora/model)
+    // are bare names the Swift binary joins onto a models-tree root itself
+    // with no sanitization — reject path separators / ".." instead of the
+    // weaker leading-dash-only rejectFlagLike check.
+    if (field.isPathComponent) {
+      if (typeof v === "string") assertSafePathComponent(v, key);
+      else if (Array.isArray(v)) for (const item of v) if (typeof item === "string") assertSafePathComponent(item, key);
+      continue;
+    }
+    if (typeof v === "string") {
+      rejectFlagLike(v, key);
+    } else if (Array.isArray(v)) {
+      for (const item of v) if (typeof item === "string") rejectFlagLike(item, key);
+    }
   }
 }
 
@@ -234,40 +251,30 @@ export async function runFlux2(input: RunFlux2Input): Promise<RunFlux2Output> {
   const extraArgs = input.extraArgs ?? [];
 
   if (input.scenePipeline) {
-    const vlm = await import("./vlm.ts");
-    const llm = vlm.resolveVlmLLM(input.scenePipeline.vlmModel);
-    // Project-local .pi/agent (checked into this repo) — NOT the global
-    // ~/.pi/agent — so the lm-studio provider this pipeline depends on
-    // resolves from config this repo actually ships, not machine state.
-    const vlmAgentDir = join(repoRoot, ".pi", "agent");
+    const scenePipelineOpts = input.scenePipeline;
     const { seed: _seed, ...baseOptions } = options; // each candidate sets its own seed
     const pipeline = await runScenePipeline(
       baseOptions,
-      input.scenePipeline,
+      scenePipelineOpts,
       {
         runSceneOnce: (opts) =>
           runOnce(input.command, opts, roots, extraArgs, input.signal, input.onProgress).then((r) => r.details),
-        askAboutImage: (imagePath, question) => vlm.askAboutImage(imagePath, question, llm, vlmAgentDir),
+        // Lazy: only imports pi-vlm's session machinery / resolves the LLM
+        // target when a VLM verdict is actually requested. runScenePipeline
+        // only ever calls this when verifyPrompt is set, so a pure gate-based
+        // pipeline (no verifyPrompt) never pays for it — and never risks an
+        // unrelated import/module-resolution failure aborting the whole
+        // render before a single candidate is produced.
+        askAboutImage: async (imagePath, question) => {
+          const vlm = await import("./vlm.ts");
+          const llm = vlm.resolveVlmLLM(scenePipelineOpts.vlmModel);
+          return vlm.askAboutImage(imagePath, question, llm);
+        },
       },
       (text) => input.onProgress?.({ kind: "progress", text }),
+      input.signal,
     );
-    const finalOutput = pipeline.handRepair?.output ?? pipeline.winnerOutput;
-    const details: Flux2Details = {
-      ok: pipeline.winnerOutput != null,
-      command: input.command,
-      exitCode: pipeline.winnerOutput != null ? 0 : 1,
-      aborted: false,
-      output: finalOutput,
-      outputs: finalOutput ? [{ path: finalOutput, seed: pipeline.winnerSeed, width: null, height: null, sizeBytes: null }] : [],
-      seed: pipeline.winnerSeed,
-      width: null,
-      height: null,
-      gate: pipeline.handRepair?.gate ?? pipeline.candidates.find((c) => c.seed === pipeline.winnerSeed)?.gate ?? null,
-      perf: { steps: null, totalSeconds: null, avgItPerSec: null, peakMemoryMB: null },
-      manifestPath: null,
-      runJsonPath: null,
-      scenePipeline: pipeline,
-    };
+    const details = buildScenePipelineDetails(input.command, pipeline);
     return { details, summary: summarize(details), stderrTail: "" };
   }
 

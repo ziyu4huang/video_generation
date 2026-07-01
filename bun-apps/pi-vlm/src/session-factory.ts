@@ -13,6 +13,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
   getAgentDir,
+  ModelRegistry,
   SessionManager,
   type AgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
@@ -54,21 +55,29 @@ function resolveModel(services: AgentSessionServices, provider: string, modelId:
 
 /**
  * Create a minimal agent session for a single VLM inference call.
- * No obsidian extension, no custom model registry — suitable for pure VLM page extraction.
+ * No obsidian extension — suitable for pure VLM page extraction.
  *
- * `agentDir` defaults to the global `getAgentDir()` (~/.pi/agent), matching the
- * historical behavior of this function. Pass an explicit `agentDir` (e.g. a
- * project-local `<repoRoot>/.pi/agent`) to resolve models against THAT
- * directory's `models.json` instead — useful for callers that ship their own
- * checked-in provider config rather than depending on the user's global one.
+ * Model resolution, in order of precedence:
+ *  1. `opts.modelRegistry` — an explicit `ModelRegistry` instance (e.g. built
+ *     via `ModelRegistry.inMemory(AuthStorage.inMemory())` +
+ *     `.registerProvider(...)`). Fully file-independent — use this when a
+ *     caller ships its own provider config in CODE rather than depending on
+ *     ANY models.json existing at a particular path (global or project-local
+ *     paths can be deleted/moved by unrelated changes — see memory
+ *     [[pi-vlm-agentdir-global-vs-project]]).
+ *  2. `opts.agentDir` — resolve models.json from this directory instead of
+ *     the global ~/.pi/agent.
+ *  3. default: the global `getAgentDir()` (~/.pi/agent), matching the
+ *     historical behavior of this function.
  */
 export async function createSharedSession(
   llm: ResolvedLLM,
-  opts: { appendSystemPrompt?: string[]; agentDir?: string } = {},
+  opts: { appendSystemPrompt?: string[]; agentDir?: string; modelRegistry?: ModelRegistry } = {},
 ) {
   const services = await createAgentSessionServices({
     cwd: process.cwd(),
     agentDir: opts.agentDir ?? getAgentDir(),
+    modelRegistry: opts.modelRegistry,
     resourceLoaderOptions: {
       ...(opts.appendSystemPrompt?.length
         ? { appendSystemPrompt: opts.appendSystemPrompt }

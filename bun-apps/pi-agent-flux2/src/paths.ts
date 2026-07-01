@@ -14,7 +14,7 @@
  *   • extraArgs tokens are split: leading-dash tokens must match an allow-listed
  *     flag prefix, value tokens are path-validated.
  */
-import { isAbsolute, resolve as pResolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve as pResolve, sep } from "node:path";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 
 export class PathSafetyError extends Error {
@@ -38,6 +38,42 @@ function under(child: string, root: string): boolean {
 }
 
 /**
+ * Resolve `p` through any symlinks; falls back to `p` unchanged if it doesn't
+ * exist or realpath fails. Roots themselves can be symlinks (e.g. macOS
+ * tmpdir: /var/folders/... -> /private/var/folders/...) — comparing an
+ * unresolved root against a resolved child path would otherwise reject every
+ * legitimate path under such a root.
+ */
+function realOrSelf(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * Resolve `p` through symlinks as far as possible even when `p` itself does
+ * not exist yet (e.g. an output file about to be written): walk up to the
+ * nearest EXISTING ancestor, realpath that, then re-append the non-existent
+ * tail. Without this, a not-yet-created path under a symlinked root (macOS
+ * tmpdir: /var/... -> /private/var/...) would compare an unresolved child
+ * against a resolved root and be wrongly rejected.
+ */
+function realpathOfNearestExisting(p: string): string {
+  let cur = p;
+  const tail: string[] = [];
+  while (!existsSync(cur)) {
+    const parent = dirname(cur);
+    if (parent === cur) break; // reached filesystem root without finding an existing ancestor
+    tail.unshift(basename(cur));
+    cur = parent;
+  }
+  const resolvedBase = realOrSelf(cur);
+  return tail.length ? join(resolvedBase, ...tail) : resolvedBase;
+}
+
+/**
  * Validate that `p` resolves to a path under one of the allowed roots.
  * Returns the resolved absolute path. Throws PathSafetyError otherwise.
  * Rejects leading-dash values (would inject a CLI flag) before resolving.
@@ -58,18 +94,17 @@ export function assertPathAllowed(
   }
   const abs = isAbsolute(raw) ? raw : pResolve(roots.repoRoot, raw);
 
-  // Follow symlinks if the target exists so symlinked model stores resolve.
-  let real = abs;
-  if (existsSync(abs)) {
-    try {
-      real = realpathSync(abs);
-    } catch {
-      real = abs;
-    }
-  }
+  // Follow symlinks (including on non-existent paths, via the nearest
+  // existing ancestor) so symlinked model stores AND symlinked roots resolve.
+  const real = realpathOfNearestExisting(abs);
 
+  // Require the RESOLVED (post-symlink) path to be confined. Checking `abs` as
+  // an OR-alternative let a symlink staged inside an allowed root (e.g. a
+  // writable outputDir) point anywhere on disk and still validate — `real`
+  // falls back to `abs` above when the target doesn't exist, so this is not
+  // weaker for the common not-yet-created-output case.
   const allowed = [roots.repoRoot, roots.outputDir, roots.modelsRoot];
-  const ok = allowed.some((root) => under(real, root) || under(abs, root));
+  const ok = allowed.some((root) => under(real, realOrSelf(root)));
   if (!ok) {
     throw new PathSafetyError(
       `${kind}: "${raw}" (→ ${abs}) is outside allowed roots:\n  ` +
@@ -88,6 +123,32 @@ export function rejectFlagLike(value: string, kind: string): void {
   if (typeof value === "string" && value.startsWith("-")) {
     throw new PathSafetyError(
       `${kind}: value "${value}" looks like a flag (leading '-'), refusing to pass to flux2`,
+    );
+  }
+}
+
+/**
+ * Validate that `value` is a bare path COMPONENT (a model/variant/LoRA name
+ * the Swift binary joins onto a models-tree root itself via a raw
+ * appendingPathComponent, e.g. `--transformer <value>` ->
+ * `ModelPaths.transformerRoot.appendingPathComponent(value)`), NOT a path
+ * this tool resolves. The Swift side does that join with NO ".."-sanitization
+ * (verified against ModelPaths/T2ICommand/SceneCommand/EditCommand/etc. and
+ * Flux2LoRA.swift), so a value containing a path separator or a ".." segment
+ * would let the Swift binary read model weights from outside the intended
+ * models tree entirely — assertPathAllowed's "resolve under an allowed root"
+ * check does not apply here since the agent never supplies a full path for
+ * these fields.
+ */
+export function assertSafePathComponent(value: string, kind: string): void {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new PathSafetyError(`${kind}: empty value`);
+  }
+  rejectFlagLike(value, kind);
+  const segments = value.split(/[\\/]/);
+  if (segments.length > 1 || segments[0] === "." || segments[0] === "..") {
+    throw new PathSafetyError(
+      `${kind}: value "${value}" must be a bare name (no path separators or ".." segments), not a path`,
     );
   }
 }
@@ -121,7 +182,9 @@ export function validateExtraArgs(
       // Value token — path-validate unless it clearly isn't a path (no slash, no dot, short).
       // Conservative: treat as path only if it looks pathy; otherwise allow as a literal scalar
       // (e.g. a preset name like "all"). Scalars can't redirect output.
-      const looksPathy = tok.includes("/") || (tok.includes(".") && tok.length > 4);
+      // ".." / "." are always path-like regardless of length — a bare ".." is a
+      // relative-traversal token that must never skip path validation.
+      const looksPathy = tok.includes("/") || tok === ".." || tok === "." || (tok.includes(".") && tok.length > 4);
       if (looksPathy) {
         assertPathAllowed(tok, roots, { kind: "extraArgs value" });
       } else {

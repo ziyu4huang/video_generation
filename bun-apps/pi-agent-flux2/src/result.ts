@@ -294,6 +294,42 @@ export function buildTextDetails(command: string, res: InvokeResult): Flux2Detai
   };
 }
 
+/**
+ * Build details for a multi-seed scene pipeline result. Extracted as a pure
+ * function (no I/O) specifically so this fallback logic is directly unit
+ * testable — the `gate` field's fallback previously lived inline in index.ts
+ * and had a real bug (checked `handRepair` object truthiness instead of its
+ * `.output`) that shipped for two runs before a fresh review caught it.
+ */
+export function buildScenePipelineDetails(command: string, pipeline: ScenePipelineResult): Flux2Details {
+  const finalOutput = pipeline.handRepair?.output ?? pipeline.winnerOutput;
+  return {
+    ok: pipeline.winnerOutput != null,
+    command,
+    exitCode: pipeline.winnerOutput != null ? 0 : 1,
+    aborted: false,
+    output: finalOutput,
+    outputs: finalOutput
+      ? [{ path: finalOutput, seed: pipeline.winnerSeed, width: null, height: null, sizeBytes: null }]
+      : [],
+    seed: pipeline.winnerSeed,
+    width: null,
+    height: null,
+    // `gate` MUST describe whichever image `finalOutput` actually points at.
+    // Checking `pipeline.handRepair` truthiness (rather than its `.output`)
+    // is wrong: a hand-repair that throws sets handRepair = {output:null,
+    // gate:null} — a truthy object — so `finalOutput` correctly falls back to
+    // the pre-repair winner image, but a naive truthiness check on
+    // `handRepair` itself would leave `gate` forced to null instead of also
+    // falling back to that winner's known gate.
+    gate: pipeline.handRepair?.output != null ? pipeline.handRepair.gate : pipeline.winnerGate,
+    perf: { steps: null, totalSeconds: null, avgItPerSec: null, peakMemoryMB: null },
+    manifestPath: null,
+    runJsonPath: null,
+    scenePipeline: pipeline,
+  };
+}
+
 /** One-line human summary for the text content field. */
 export function summarize(d: Flux2Details): string {
   if (d.aborted) return `${d.command} aborted (exit ${d.exitCode}).`;

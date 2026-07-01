@@ -24,8 +24,24 @@ export interface FieldSpec {
   isPath?: boolean;
   /** Array field where every element is a path. */
   isPathArray?: boolean;
+  /**
+   * Value is a bare NAME the Swift binary joins onto a models-tree root
+   * itself (e.g. `--transformer klein-9b` → `ModelPaths.transformerRoot
+   * .appendingPathComponent(transformer)`), NOT a path the tool resolves.
+   * The Swift side does this join with NO '..'-sanitization, so this field
+   * must be validated as a bare path component (no separators, no ".."
+   * segments) — assertPathAllowed's "resolve under an allowed root" model
+   * doesn't apply since the value is never a full path here.
+   */
+  isPathComponent?: boolean;
   /** Positional argument (no flag prefix), appended in declared order. */
   positional?: boolean;
+  /**
+   * For string[]/number[] fields whose CLI flag takes ONE joined value rather
+   * than a repeated flag (e.g. `--images a.png,b.png`, not `--images a.png
+   * --images b.png`). Set to the join separator (e.g. ",").
+   */
+  joinWith?: string;
 }
 
 export interface CommandSpec {
@@ -73,7 +89,7 @@ export function buildParams(spec: CommandSpec) {
 
 /** Shared generation fields present on most image-producing commands. */
 const GEN_FIELDS: Record<string, FieldSpec> = {
-  transformer: { flag: "--transformer", type: "string", description: "Transformer variant under models/transformer/. Omit for the default (klein-9b)." },
+  transformer: { flag: "--transformer", type: "string", isPathComponent: true, description: "Transformer variant under models/transformer/. Omit for the default (klein-9b)." },
   seed: { flag: "--seed", type: "int", description: "Random seed (uint64). Default 42." },
   width: { flag: "--width", type: "int", description: "Output image width (px)." },
   height: { flag: "--height", type: "int", description: "Output image height (px)." },
@@ -82,9 +98,9 @@ const GEN_FIELDS: Record<string, FieldSpec> = {
   output: { flag: "--output", type: "string", isPath: true, description: "Output PNG path. Empty/omit = auto timestamped name in the output dir." },
   outputDir: { flag: "--output-dir", type: "string", isPath: true, description: "Output directory (default: $MLX_OUTPUT_DIR or ../video_generation__output)." },
   name: { flag: "--name", type: "string", description: "Custom base name (default: output_YYYYMMDD_HHMMSS)." },
-  vae: { flag: "--vae", type: "string", description: "VAE directory under models/vae/ (default flux2-klein)." },
-  encoder: { flag: "--encoder", type: "string", description: "Text-encoder directory under models/text_encoder/ (default qwen3-8b)." },
-  tokenizerDir: { flag: "--tokenizer-dir", type: "string", description: "Tokenizer directory under models/tokenizer/ (default qwen3-klein)." },
+  vae: { flag: "--vae", type: "string", isPathComponent: true, description: "VAE directory under models/vae/ (default flux2-klein)." },
+  encoder: { flag: "--encoder", type: "string", isPathComponent: true, description: "Text-encoder directory under models/text_encoder/ (default qwen3-8b)." },
+  tokenizerDir: { flag: "--tokenizer-dir", type: "string", isPathComponent: true, description: "Tokenizer directory under models/tokenizer/ (default qwen3-klein)." },
   noArtifacts: { flag: "--no-artifacts", type: "boolean", description: "Skip writing .run.json + .manifest.json sidecars (not recommended — the tool parses the manifest)." },
   strictGate: { flag: "--strict-gate", type: "boolean", description: "Abort (exit 1) if the output FAILs the image gate. Off by default; the gate verdict is surfaced regardless." },
 };
@@ -93,6 +109,27 @@ const GEN_FIELDS: Record<string, FieldSpec> = {
 const GEN_FIELDS_BARE = (() => {
   const { width: _w, height: _h, steps: _s, cfgScale: _c, ...rest } = GEN_FIELDS;
   void _w; void _h; void _s; void _c;
+  return rest;
+})();
+
+/** GEN_FIELDS minus strictGate — t2i/edit/style/angle's Swift commands don't declare --strict-gate (only scene/upscale do). */
+const GEN_FIELDS_NO_STRICT_GATE = (() => {
+  const { strictGate: _sg, ...rest } = GEN_FIELDS;
+  void _sg;
+  return rest;
+})();
+
+/** GEN_FIELDS minus fields SwapCommand.swift doesn't declare (verified via `flux2 swap --help`). */
+const GEN_FIELDS_SWAP = (() => {
+  const { cfgScale: _c, vae: _v, encoder: _e, tokenizerDir: _td, strictGate: _sg, ...rest } = GEN_FIELDS;
+  void _c; void _v; void _e; void _td; void _sg;
+  return rest;
+})();
+
+/** GEN_FIELDS_BARE minus fields UpscaleCommand.swift doesn't declare (pure ESRGAN pass, no MLX transformer/VAE/text-encoder path — verified via `flux2 upscale --help`). */
+const GEN_FIELDS_UPSCALE = (() => {
+  const { transformer: _t, seed: _s, vae: _v, encoder: _e, tokenizerDir: _td, ...rest } = GEN_FIELDS_BARE;
+  void _t; void _s; void _v; void _e; void _td;
   return rest;
 })();
 
@@ -107,7 +144,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     fields: {
       prompt: { flag: "--prompt", type: "string", description: "Text prompt. zh-TW supported (qwen3-8b is multilingual)." },
       negativePrompt: { flag: "--negative-prompt", type: "string", description: "Negative prompt (used only when cfg > 1.0)." },
-      ...GEN_FIELDS,
+      ...GEN_FIELDS_NO_STRICT_GATE,
     },
   },
 
@@ -134,7 +171,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       handRepairStrength: { flag: "--hand-repair-strength", type: "number", description: "Hand-repair denoise strength (0.6 conservative, 0.8 stronger). Default 0.8." },
       bg: { flag: "--bg", type: "string", isPath: true, description: "Background image used as the denoise canvas (inherits its layout/POV). Optional." },
       bgStrength: { flag: "--bg-strength", type: "number", description: "Denoise strength for the --bg canvas (0.3 light, 0.5 restyle, 0.7 loose redraw). Default 0.55." },
-      lora: { flag: "--lora", type: "string[]", description: "LoRA name(s) under models/lora/ (stackable)." },
+      lora: { flag: "--lora", type: "string[]", isPathComponent: true, description: "LoRA name(s) under models/lora/ (stackable)." },
       loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora (trailing default 1.0)." },
       ...GEN_FIELDS,
     },
@@ -147,8 +184,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
     when: "Generic reference-conditioned edit/generation (Flux2KleinEdit, multi-ref).",
     fields: {
       prompt: { flag: "--prompt", type: "string", description: "Text prompt describing the edit." },
-      images: { flag: "--images", type: "string", isPath: true, description: "Reference image path(s), comma-separated for multi-ref." },
-      ...GEN_FIELDS,
+      images: { flag: "--images", type: "string[]", isPathArray: true, joinWith: ",", description: "Reference image path(s) — one per array element (multi-ref)." },
+      ...GEN_FIELDS_NO_STRICT_GATE,
     },
   },
 
@@ -162,9 +199,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
       preset: { flag: "--preset", type: "string", description: "Style preset: anime2real | real2anime | photorealistic | 3d-render." },
       prompt: { flag: "--prompt", type: "string", description: "Override the style prompt (overrides preset)." },
       refCount: { flag: "--ref-count", type: "int", description: "Reference count (1-3; 3 = best identity fidelity)." },
-      lora: { flag: "--lora", type: "string[]", description: "LoRA name(s) under models/lora/ (stackable)." },
+      lora: { flag: "--lora", type: "string[]", isPathComponent: true, description: "LoRA name(s) under models/lora/ (stackable)." },
       loraScale: { flag: "--lora-scale", type: "number[]", description: "Per-LoRA scale, one per --lora." },
-      ...GEN_FIELDS,
+      ...GEN_FIELDS_NO_STRICT_GATE,
     },
   },
 
@@ -180,7 +217,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       elevation: { flag: "--elevation", type: "number", description: "Elevation degrees (overrides preset). >0 high-angle, <0 low-angle." },
       prompt: { flag: "--prompt", type: "string", description: "Optional identity/description prompt (default: identity-preservation template)." },
       refCount: { flag: "--ref-count", type: "int", description: "Reference count (1-3; 3 = best identity fidelity)." },
-      ...GEN_FIELDS,
+      ...GEN_FIELDS_NO_STRICT_GATE,
     },
   },
 
@@ -199,7 +236,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       preserveAspectRatio: { flag: "--preserve-aspect-ratio", type: "boolean", description: "Preserve the reference's aspect ratio when fitting into the mask (no stretch)." },
       inpaint: { flag: "--inpaint", type: "boolean", description: "Seamless mode: regenerate the masked region via Flux2KleinEdit (no paste seam). Uses --reference for identity; overrides feathered paste." },
       harmonize: { flag: "--harmonize", type: "boolean", description: "After compositing, harmonize via Flux2KleinEdit (uses source as reference)." },
-      ...GEN_FIELDS,
+      ...GEN_FIELDS_SWAP,
     },
   },
 
@@ -236,11 +273,11 @@ export const COMMANDS: Record<string, CommandSpec> = {
     when: "4× super-resolution (RealPLKSR / ESRGAN, native Swift MLX).",
     fields: {
       input: { flag: "--input", type: "string", isPath: true, description: "Input image to upscale." },
-      model: { flag: "--model", type: "string", description: "ESRGAN model name under models/upscale/ (default 4x-nomos-webphoto-realplksr)." },
+      model: { flag: "--model", type: "string", isPathComponent: true, description: "ESRGAN model name under models/upscale/ (default 4x-nomos-webphoto-realplksr)." },
       tileSize: { flag: "--tile-size", type: "int", description: "LR tile size for tiled inference (auto-enables when input > tile). Default 256." },
       tileOverlap: { flag: "--tile-overlap", type: "int", description: "Tile overlap (LR px) feather-blended between tiles. Default 32." },
       noTile: { flag: "--no-tile", type: "boolean", description: "Force whole-image inference (no tiling). May OOM on 4K+ sources." },
-      ...GEN_FIELDS_BARE,
+      ...GEN_FIELDS_UPSCALE,
       strictGate: GEN_FIELDS.strictGate,
     },
   },
@@ -305,7 +342,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 VAE (encode/decode/packed) vs Python mflux reference.",
     fields: {
-      vae: { flag: "--vae", type: "string", description: "VAE variant directory (under models/vae/)." },
+      vae: { flag: "--vae", type: "string", isPathComponent: true, description: "VAE variant directory (under models/vae/)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_vae_ref.py." },
       threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
     },
@@ -315,7 +352,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 text encoder vs Python mflux reference.",
     fields: {
-      encoder: { flag: "--encoder", type: "string", description: "Text-encoder directory (under models/text_encoder/)." },
+      encoder: { flag: "--encoder", type: "string", isPathComponent: true, description: "Text-encoder directory (under models/text_encoder/)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_encoder_ref.py." },
       threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
     },
@@ -325,7 +362,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 tokenizer output vs Python reference.",
     fields: {
-      tokenizerDir: { flag: "--tokenizer", type: "string", description: "Tokenizer directory (under models/tokenizer/)." },
+      tokenizerDir: { flag: "--tokenizer", type: "string", isPathComponent: true, description: "Tokenizer directory (under models/tokenizer/)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_encoder_ref.py." },
     },
   },
@@ -334,7 +371,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 transformer (1 step) vs Python mflux reference.",
     fields: {
-      transformer: { flag: "--transformer", type: "string", description: "Transformer directory (under models/transformer/)." },
+      transformer: { flag: "--transformer", type: "string", isPathComponent: true, description: "Transformer directory (under models/transformer/)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference safetensors from gen_flux2_transformer_ref.py." },
       threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
     },
@@ -344,9 +381,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 full denoise loop (final latent) vs Python mflux.",
     fields: {
-      transformer: { flag: "--transformer", type: "string", description: "Transformer (default klein-9b)." },
-      encoder: { flag: "--encoder", type: "string", description: "Text encoder (default qwen3-8b)." },
-      tokenizerDir: { flag: "--tokenizer-dir", type: "string", description: "Tokenizer (default qwen3-klein)." },
+      transformer: { flag: "--transformer", type: "string", isPathComponent: true, description: "Transformer (default klein-9b)." },
+      encoder: { flag: "--encoder", type: "string", isPathComponent: true, description: "Text encoder (default qwen3-8b)." },
+      tokenizerDir: { flag: "--tokenizer-dir", type: "string", isPathComponent: true, description: "Tokenizer (default qwen3-klein)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference from gen_flux2_e2e_ref.py." },
       threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.98." },
     },
@@ -356,7 +393,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     writesImage: false,
     when: "Diagnostic: compare Swift Flux2 reference conditioning vs Python mflux.",
     fields: {
-      vae: { flag: "--vae", type: "string", description: "VAE (default flux2-klein)." },
+      vae: { flag: "--vae", type: "string", isPathComponent: true, description: "VAE (default flux2-klein)." },
       reference: { flag: "--ref", type: "string", isPath: true, description: "Reference from gen_flux2_edit_ref.py." },
       referenceImage: { flag: "--image", type: "string", isPath: true, description: "Reference image (saved by the Python generator)." },
       threshold: { flag: "--threshold", type: "number", description: "Cosine similarity pass threshold. Default 0.99." },
@@ -404,7 +441,11 @@ export function buildArgs(spec: CommandSpec, options: Record<string, unknown>): 
       if (!Array.isArray(v)) {
         throw new Error(`field "${key}" expects an array, got ${typeof v}`);
       }
-      for (const item of v) args.push(f.flag, fmtScalar(f, item));
+      if (f.joinWith != null) {
+        args.push(f.flag, v.map((item) => fmtScalar(f, item)).join(f.joinWith));
+      } else {
+        for (const item of v) args.push(f.flag, fmtScalar(f, item));
+      }
       continue;
     }
 

@@ -15,6 +15,26 @@
 
 ## Iteration history
 
+### Iteration 9 — 2026-07-02
+New workflow `pi-agent-flux2-self-improve` — self-test harness for
+`bun-apps/pi-agent-flux2` (the pi-agent tool wrapping swift/flux2-image-director's
+`flux2` CLI). Three lanes, all on by default (unlike every prior self-improve
+workflow, `live-e2e` is NOT opt-in here — it is the highest-signal lane):
+- **contract** — `bun test` + `check:flags` drift guard (deterministic, cheap).
+- **review** — 4-dimension agent review (correctness/path-safety/schema-consistency/
+  error-handling) + adversarial verify. REVIEW-ONLY in this version — no git-stash
+  auto-fix yet (documented as a follow-up, not silently half-implemented).
+- **live-e2e** — runs the REAL flux2 binary (t2i/scene/scenePipeline with+without
+  VLM/upscale/gate), skipping the LM-Studio-dependent sub-check gracefully if it's
+  unreachable. Motivated by two real bugs from the preceding dev session that only
+  a live run caught (pi-vlm resolving the wrong model registry; seeds silently
+  overwriting each other's output file) — static review alone would have missed both.
+- Seeded `pi-agent-flux2-self-improve.knowledge.jsonl` as a 0-byte placeholder (fills
+  organically on first real run, per the Iteration 2 precedent). Manifest generated via
+  `kb-manifest-gen.mjs`; `check-workflow-patterns.mjs` reports 0 hard violations.
+- Matrix regenerated to 9 workflows · 300 records (217 active) — this workflow adds 0
+  records (new, unrun).
+
 ### Iteration 1 — 2026-06-18 (commit b865235)
 Per-workflow colocated knowledge JSONL. Ported 8 workflows (load+extract), seeded 5
 from real history (109 records); refactored `ltx` `Knowledge` phase off the broken
@@ -154,7 +174,8 @@ Iterations 3–4 on the mlx side, now applied to gui):
 | mlx-movie-director-run-self-improve-ltx | mlx | ✓ | ✓ | ✓ | ✓ | 43 | 42 | — |
 | mlx-movie-director-self-improve | mlx | ✓ | ✓ | ✓ | ✓ | 33 | 33 | 2026-06-26T08-46-14 |
 | multi-character-compose | — | — | — | — | pending | 0 | 0 | pending |
+| pi-agent-flux2-self-improve | — | ✓ | ✓ | ✓ | ✓ | 17 | 17 | 2026-07-01T19-39-52 |
 
-**Totals:** 8 workflows · 7 load / 6 extract wired · 7 knowledge files · 300 records (217 active)
+**Totals:** 9 workflows · 8 load / 7 extract wired · 8 knowledge files · 317 records (234 active)
 
 <!-- END KNOWLEDGE MATRIX -->

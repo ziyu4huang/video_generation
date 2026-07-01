@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   assertModelsRootExists,
   assertPathAllowed,
+  assertSafePathComponent,
   ensureOutputDir,
   PathSafetyError,
   rejectFlagLike,
@@ -77,6 +78,39 @@ describe("assertPathAllowed", () => {
     writeFileSync(f, "x");
     expect(() => assertPathAllowed(f, { repoRoot, outputDir, modelsRoot })).toThrow(PathSafetyError);
   });
+
+  test("rejects a symlink staged inside an allowed root whose target resolves outside every allowed root", () => {
+    const { repoRoot, outputDir, modelsRoot, outsideDir } = makeRoots();
+    const secret = join(outsideDir, "secret.png");
+    writeFileSync(secret, "x");
+    const link = join(outputDir, "evil-link.png");
+    symlinkSync(secret, link);
+    expect(() => assertPathAllowed(link, { repoRoot, outputDir, modelsRoot }, { mustExist: true })).toThrow(
+      PathSafetyError,
+    );
+  });
+
+  test("accepts a symlink inside an allowed root whose target also resolves inside an allowed root", () => {
+    const { repoRoot, outputDir, modelsRoot } = makeRoots();
+    const real = join(modelsRoot, "real.png");
+    writeFileSync(real, "x");
+    const link = join(outputDir, "good-link.png");
+    symlinkSync(real, link);
+    const resolved = assertPathAllowed(link, { repoRoot, outputDir, modelsRoot }, { mustExist: true });
+    expect(resolved).toBe(link);
+  });
+
+  test("resolves consistently when a root itself lives under a symlinked ancestor (e.g. macOS /var -> /private/var)", () => {
+    // Regression: comparing a realpath-resolved child against an UNRESOLVED
+    // root (or vice versa) wrongly rejects every path once the fix required
+    // the resolved path to be confined. tmpdir() on macOS is exactly this case.
+    const { repoRoot, outputDir, modelsRoot } = makeRoots();
+    const existing = join(repoRoot, "photo.png");
+    writeFileSync(existing, "x");
+    expect(() => assertPathAllowed(existing, { repoRoot, outputDir, modelsRoot }, { mustExist: true })).not.toThrow();
+    const notYetCreated = join(outputDir, "brand-new.png");
+    expect(() => assertPathAllowed(notYetCreated, { repoRoot, outputDir, modelsRoot }, { mustExist: false })).not.toThrow();
+  });
 });
 
 describe("rejectFlagLike", () => {
@@ -88,6 +122,37 @@ describe("rejectFlagLike", () => {
   });
   test("ignores non-string values", () => {
     expect(() => rejectFlagLike(42 as unknown as string, "seed")).not.toThrow();
+  });
+});
+
+describe("assertSafePathComponent", () => {
+  test("accepts a bare name", () => {
+    expect(() => assertSafePathComponent("klein-9b", "transformer")).not.toThrow();
+  });
+
+  test("rejects a value containing a '..' segment", () => {
+    expect(() => assertSafePathComponent("../../../../etc", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects a bare '..'", () => {
+    expect(() => assertSafePathComponent("..", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects any value containing a path separator, even without '..'", () => {
+    expect(() => assertSafePathComponent("sub/dir", "transformer")).toThrow(PathSafetyError);
+    expect(() => assertSafePathComponent("sub\\dir", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects an absolute path", () => {
+    expect(() => assertSafePathComponent("/etc/passwd", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects a leading-dash value (flag injection)", () => {
+    expect(() => assertSafePathComponent("--models-root", "transformer")).toThrow(PathSafetyError);
+  });
+
+  test("rejects an empty value", () => {
+    expect(() => assertSafePathComponent("", "transformer")).toThrow(PathSafetyError);
   });
 });
 
@@ -125,6 +190,25 @@ describe("validateExtraArgs", () => {
     expect(() => validateExtraArgs(["-x"], { repoRoot, outputDir, modelsRoot }, [])).toThrow(
       PathSafetyError,
     );
+  });
+
+  test("rejects a short relative-traversal token ('..') as the value of an allow-listed path flag", () => {
+    const { repoRoot, outputDir, modelsRoot } = makeRoots();
+    // ".." has no "/" and is too short for the old length>4 heuristic — it must
+    // still be path-validated (and rejected, since it resolves outside every root).
+    expect(() =>
+      validateExtraArgs(["--output", ".."], { repoRoot, outputDir, modelsRoot }, ["output"]),
+    ).toThrow(PathSafetyError);
+  });
+
+  test("rejects a bare '.' traversal token the same way", () => {
+    const { repoRoot, outputDir, modelsRoot } = makeRoots();
+    // "." resolves to repoRoot itself here, which IS allowed — assert it goes
+    // through assertPathAllowed (i.e. doesn't silently skip as a scalar) by
+    // checking it's accepted only because repoRoot is a valid root, not because
+    // the heuristic exempted it.
+    const out = validateExtraArgs(["--output", "."], { repoRoot, outputDir, modelsRoot }, ["output"]);
+    expect(out).toEqual(["--output", "."]);
   });
 
   test("skips empty tokens", () => {

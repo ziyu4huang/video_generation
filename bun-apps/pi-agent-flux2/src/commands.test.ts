@@ -19,8 +19,9 @@ describe("buildArgs", () => {
   });
 
   test("emits a boolean flag only when true, and omits it when false", () => {
-    expect(buildArgs(COMMANDS.t2i, { strictGate: true })).toEqual(["--strict-gate"]);
-    expect(buildArgs(COMMANDS.t2i, { strictGate: false })).toEqual([]);
+    // scene, not t2i — t2i's Swift command doesn't declare --strict-gate.
+    expect(buildArgs(COMMANDS.scene, { strictGate: true })).toEqual(["--strict-gate"]);
+    expect(buildArgs(COMMANDS.scene, { strictGate: false })).toEqual([]);
   });
 
   test("omits fields that are undefined/null/absent", () => {
@@ -40,6 +41,16 @@ describe("buildArgs", () => {
 
   test("throws when an array field receives a non-array value", () => {
     expect(() => buildArgs(COMMANDS.scene, { ref: "a.png" })).toThrow(/expects an array/);
+  });
+
+  test("a joinWith array field emits ONE flag with values joined by the separator (edit's --images)", () => {
+    const args = buildArgs(COMMANDS.edit, { images: ["a.png", "b.png"] });
+    expect(args).toEqual(["--images", "a.png,b.png"]);
+  });
+
+  test("a joinWith array field with a single element still emits one flag, no trailing separator", () => {
+    const args = buildArgs(COMMANDS.edit, { images: ["only.png"] });
+    expect(args).toEqual(["--images", "only.png"]);
   });
 
   test("collects positional args and appends them after all flags (gate)", () => {
@@ -67,6 +78,12 @@ describe("pathFieldKeys", () => {
 
   test("gate's positional `images` field is a path array", () => {
     expect(pathFieldKeys(COMMANDS.gate)).toEqual(["images"]);
+  });
+
+  test("edit's images field is a path array (not a single path) — matches --images taking one path per ref", () => {
+    expect(pathFieldKeys(COMMANDS.edit)).toContain("images");
+    expect(COMMANDS.edit.fields.images.isPathArray).toBe(true);
+    expect(COMMANDS.edit.fields.images.isPath).toBeUndefined();
   });
 });
 
@@ -100,6 +117,81 @@ describe("COMMANDS registry", () => {
   test("every command's `name` matches its registry key", () => {
     for (const [key, spec] of Object.entries(COMMANDS)) {
       expect(spec.name).toBe(key);
+    }
+  });
+});
+
+describe("per-command field sets match the real CLI (verified against `flux2 <cmd> --help`)", () => {
+  // t2i/edit/style/angle's Swift commands never declare --strict-gate (only
+  // scene/upscale do) — GEN_FIELDS.strictGate must not be present on these.
+  for (const cmd of ["t2i", "edit", "style", "angle"] as const) {
+    test(`${cmd} has no strictGate field`, () => {
+      expect(COMMANDS[cmd].fields.strictGate).toBeUndefined();
+    });
+  }
+
+  test("scene DOES have strictGate (it's one of the two commands that support --strict-gate)", () => {
+    expect(COMMANDS.scene.fields.strictGate).toBeDefined();
+  });
+
+  test("swap has no cfgScale/vae/encoder/tokenizerDir/strictGate (SwapCommand.swift doesn't declare them)", () => {
+    for (const key of ["cfgScale", "vae", "encoder", "tokenizerDir", "strictGate"] as const) {
+      expect(COMMANDS.swap.fields[key]).toBeUndefined();
+    }
+    // but DOES keep the fields it actually supports
+    for (const key of ["transformer", "seed", "width", "height", "steps", "output", "outputDir", "name", "noArtifacts"] as const) {
+      expect(COMMANDS.swap.fields[key]).toBeDefined();
+    }
+  });
+
+  test("upscale has no transformer/seed/vae/encoder/tokenizerDir (pure ESRGAN pass, no MLX path)", () => {
+    for (const key of ["transformer", "seed", "vae", "encoder", "tokenizerDir"] as const) {
+      expect(COMMANDS.upscale.fields[key]).toBeUndefined();
+    }
+    // but DOES keep strictGate (upscale supports --strict-gate) and the bare output fields
+    for (const key of ["strictGate", "output", "outputDir", "name", "noArtifacts"] as const) {
+      expect(COMMANDS.upscale.fields[key]).toBeDefined();
+    }
+  });
+
+  test("buildArgs on swap/upscale's dropped fields never emits the now-invalid flags", () => {
+    expect(buildArgs(COMMANDS.swap, { source: "a.png", reference: "b.png", vae: "x" } as any)).not.toContain("--vae");
+    expect(buildArgs(COMMANDS.upscale, { input: "a.png", seed: 42 } as any)).not.toContain("--seed");
+  });
+});
+
+describe("isPathComponent fields (model-selector names Swift joins onto a root itself)", () => {
+  test("transformer/vae/encoder/tokenizerDir are marked isPathComponent on GEN_FIELDS-derived commands", () => {
+    for (const key of ["transformer", "vae", "encoder", "tokenizerDir"] as const) {
+      expect(COMMANDS.t2i.fields[key]?.isPathComponent).toBe(true);
+    }
+  });
+
+  test("scene/style's lora and upscale's model are marked isPathComponent", () => {
+    expect(COMMANDS.scene.fields.lora?.isPathComponent).toBe(true);
+    expect(COMMANDS.style.fields.lora?.isPathComponent).toBe(true);
+    expect(COMMANDS.upscale.fields.model?.isPathComponent).toBe(true);
+  });
+
+  test("verify-* diagnostic commands' equivalent fields are marked isPathComponent too", () => {
+    expect(COMMANDS["verify-vae"].fields.vae?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-encoder"].fields.encoder?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-tokenizer"].fields.tokenizerDir?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-transformer"].fields.transformer?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-e2e"].fields.transformer?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-e2e"].fields.encoder?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-e2e"].fields.tokenizerDir?.isPathComponent).toBe(true);
+    expect(COMMANDS["verify-edit"].fields.vae?.isPathComponent).toBe(true);
+  });
+
+  test("isPathComponent fields are never also marked isPath/isPathArray (mutually exclusive validation modes)", () => {
+    for (const spec of COMMAND_LIST) {
+      for (const [key, f] of Object.entries(spec.fields)) {
+        if (f.isPathComponent) {
+          expect(f.isPath, `${spec.name}.${key}`).toBeFalsy();
+          expect(f.isPathArray, `${spec.name}.${key}`).toBeFalsy();
+        }
+      }
     }
   });
 });

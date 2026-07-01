@@ -27,6 +27,7 @@ const ALLOW_SKIP: Record<string, string[]> = {
 interface Report {
   command: string;
   missing: string[]; // CLI declares, we don't model & not allow-listed
+  extra: string[]; // we model, but the CLI does NOT declare it (schema drift the other direction)
   unknownCmd: boolean;
 }
 
@@ -39,6 +40,15 @@ function parseHelpFlags(stdout: string): string[] {
   }
   return [...flags];
 }
+
+// --models-root is injected globally by buildArgv(), never modeled as a
+// command field — so it can never appear in modeledFlags() and needs no
+// entry here. Nothing else is a legitimate "we model it but the CLI doesn't
+// have it" case: a modeled flag with no real CLI counterpart always means
+// the CommandSpec drifted (or the flag was renamed/removed on the Swift
+// side) — this is exactly the class of bug that shipped 5 wrong fields
+// across t2i/edit/style/angle/swap/upscale before this direction was checked.
+const EXTRA_ALLOW: Record<string, string[]> = {};
 
 async function main() {
   const bin = await ensureBinary();
@@ -61,7 +71,7 @@ async function main() {
 
   for (const [name, spec] of Object.entries(COMMANDS)) {
     if (!declaredSubcommands.has(name)) {
-      reports.push({ command: name, missing: [], unknownCmd: true });
+      reports.push({ command: name, missing: [], extra: [], unknownCmd: true });
       drift = true;
       continue;
     }
@@ -74,13 +84,20 @@ async function main() {
     const cliFlags = new Set(parseHelpFlags(help.stdout));
     const modeled = new Set(modeledFlags(spec));
     const allow = new Set([...(ALLOW_SKIP["*"] ?? []), ...(ALLOW_SKIP[name] ?? [])]);
+    const extraAllow = new Set(EXTRA_ALLOW[name] ?? []);
 
     const missing: string[] = [];
     for (const f of cliFlags) {
       if (!modeled.has(f) && !allow.has(f)) missing.push(f);
     }
-    if (missing.length) drift = true;
-    reports.push({ command: name, missing, unknownCmd: false });
+    // Reverse direction: a flag we model that the CLI does NOT declare. The
+    // forward check above only ever catches half of schema drift.
+    const extra: string[] = [];
+    for (const f of modeled) {
+      if (!cliFlags.has(f) && !extraAllow.has(f)) extra.push(f);
+    }
+    if (missing.length || extra.length) drift = true;
+    reports.push({ command: name, missing, extra, unknownCmd: false });
   }
 
   // ── Report ──
@@ -89,8 +106,9 @@ async function main() {
   for (const r of reports) {
     if (r.unknownCmd) {
       console.log(`  ✗ ${r.command} — NOT a real flux2 subcommand (rename/remove in commands.ts)`);
-    } else if (r.missing.length) {
-      console.log(`  ⚠ ${r.command} — CLI flags not modeled: ${r.missing.join(", ")}`);
+    } else if (r.missing.length || r.extra.length) {
+      if (r.missing.length) console.log(`  ⚠ ${r.command} — CLI flags not modeled: ${r.missing.join(", ")}`);
+      if (r.extra.length) console.log(`  ⚠ ${r.command} — modeled flags the CLI does NOT have (will always fail at runtime): ${r.extra.join(", ")}`);
     } else {
       okCount++;
       console.log(`  ✓ ${r.command}`);
@@ -101,7 +119,7 @@ async function main() {
   if (drift) {
     console.error(
       "\n✗ Drift detected. Either model the flags in src/commands.ts or allow-list " +
-        "them (with a reason) in ALLOW_SKIP in scripts/check-flags.ts.",
+        "them (with a reason) in ALLOW_SKIP (missing) / EXTRA_ALLOW (extra) in scripts/check-flags.ts.",
     );
     process.exit(1);
   }
