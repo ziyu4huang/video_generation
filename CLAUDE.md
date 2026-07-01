@@ -100,15 +100,27 @@ each linked worktree derives a stable port from its path (`lib/worktree.ts`). Do
 
 ## Testing
 
+**Every Bun package runs plain `bun test`** (no flags, no `--isolate`, no `tsx`). From each package dir:
+
 ```bash
-# Bun (from bun-apps/gui-movie-director/)
-bun test
-bun run check:schema    # validate all command schemas against run.py CLI
+# Any bun-apps/* package — uniform runner
+cd bun-apps/<pkg> && bun test
+bun test scripts                                  # repo-root scripts suite
+
+# gui-movie-director additionally validates command schemas against run.py
+bun run check:schema
+
+# pi-dynamic-workflows builds first (tests import compiled ../src/*.js)
+cd bun-apps/pi-dynamic-workflows && bun run build && bun test
 
 # Python (from repo root)
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests --run-gpu    # real MLX + Metal
 ```
+
+**Runner pitfalls (now resolved, don't reintroduce):**
+- Bun's `os.homedir()` ignores `process.env.HOME` at runtime (Node respects it). Tests that fake `$HOME` must read the env, not `homedir()` — see `bun-apps/pi-dynamic-workflows/src/home.ts`.
+- `mock.module()` is process-global under plain `bun test` (files share one process). Mock only the module the code under test imports; don't mock a module that another test file exercises for real, or the stub leaks. (Resolving such a leak by adding `--isolate` is a workaround — prefer splitting the mocked export into its own module.)
 
 Browser automation: use `playwright-cli` skill. Before automating, capture a screenshot and run
 `run.py caption <shot> --style playwright --lang en` — the text snapshot shows structure but not
