@@ -381,6 +381,44 @@ export function safeNotePath(vaultPath: string, note: string): string {
 	if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
 		throw new Error(`Invalid note path (escapes vault): ${note}`);
 	}
+	// A6: reject control/formatting chars the C0 regex above misses — C1
+	// (DEL 0x7f + 0x80-0x9f), bidi/override controls, ZWSP/RLM/ZWJ, invisible
+	// operators (WJ), BOM, line/paragraph separators. Numeric code-point test
+	// keeps the source free of embedded invisible bytes (no \u escapes needed).
+	// (Backslash is intentionally NOT rejected: A1.5 treats it as a cross-
+	// platform separator that gets normalized, not a control char.)
+	for (let i = 0; i < note.length; ) {
+		const cp = note.codePointAt(i)!;
+		const unsafe =
+			(cp >= 0x7f && cp <= 0x9f) ||
+			(cp >= 0x200b && cp <= 0x200f) ||
+			(cp >= 0x202a && cp <= 0x202e) ||
+			(cp >= 0x2060 && cp <= 0x206f) ||
+			cp === 0xfeff ||
+			cp === 0x2028 ||
+			cp === 0x2029;
+		if (unsafe)
+			throw new Error(
+				`Invalid note path (control/formatting char U+${cp
+					.toString(16)
+					.toUpperCase()
+					.padStart(4, "0")}): ${JSON.stringify(note)}`,
+			);
+		i += cp > 0xffff ? 2 : 1;
+	}
+	// A6: cross-platform — a vault git-synced to Windows corrupts on reserved
+	// device names (CON/PRN/AUX/NUL/COM1-9/LPT1-9) and on the reserved chars
+	// < > : " | ? *. Checked per resolved segment (`rel` is normalized).
+	for (const seg of rel.split(sep)) {
+		if (!seg) continue;
+		const base = seg.replace(/[.]md$/i, "");
+		if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])([.]|$)/i.test(base))
+			throw new Error(
+				`Invalid note path (Windows reserved name "${base}"): ${note}`,
+			);
+		if (/[<>:"|?*]/.test(seg))
+			throw new Error(`Invalid note path (reserved char): ${note}`);
+	}
 	return abs;
 }
 
@@ -429,7 +467,13 @@ const WRITE_BLOCKLIST = [".obsidian", ".git"];
  *  (`vault/linkdir -> /tmp/outside`).
  *
  *  `safeNotePath` handles the lexical (`../`) containment synchronously; this
- *  complements it for paths whose resolution depends on the filesystem. */
+ *  complements it for paths whose resolution depends on the filesystem.
+ *
+ *  Residual (A6): there is a TOCTOU window between `lstat` and `realpath` — a
+ *  symlink could be swapped to point outside the vault between the two calls.
+ *  Accepted as a read-only risk: write tools call this before writing, but a
+ *  privileged local attacker who can race the fs can already replace files;
+ *  closing it fully needs an atomic openat-with-resolve walk. */
 export async function assertWithinVault(
 	vaultPath: string,
 	absPath: string,
@@ -3616,11 +3660,18 @@ export default function (pi: ExtensionAPI) {
 				const r = await moveNote(v.path, params.from, params.to, {
 					overwrite: params.overwrite,
 				});
+				// A7: never silent partial state — if some inbound-link rewrites
+				// failed, name them in the text (not just details) so the agent
+				// knows the graph is half-rewritten and can retry those sources.
+				const failedWarn =
+					r.failedSources.length > 0
+						? ` ⚠ ${r.failedSources.length} inbound rewrite(s) FAILED (${r.failedSources.join(", ")}) — those links still point at the old path; re-run or fix manually.`
+						: "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Moved ${r.from} → ${r.to}; rewrote ${r.linksRewritten.length} inbound link(s).`,
+							text: `Moved ${r.from} → ${r.to}; rewrote ${r.linksRewritten.length} inbound link(s).${failedWarn}`,
 						},
 					],
 					details: r,
