@@ -1,0 +1,11 @@
+{
+  "upsample_factor": 3,
+  "input_shape": [
+    1,
+    16
+  ],
+  "output_shape": [
+    1,
+    48
+  ]
+}

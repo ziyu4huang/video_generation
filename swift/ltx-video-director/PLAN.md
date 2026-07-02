@@ -622,15 +622,42 @@ were independently verified. 50/50 tests pass.
 **The full LTX-2.3 audio pipeline now runs natively end-to-end in Swift/MLX against real
 production weights: `AudioVAEDecoder` (latent→mel) → `BigVGANVocoder` (mel→waveform).** Combined
 with the earlier video VAE and 48-layer transformer milestones, both modalities' core decode paths
-are now fully native. Remaining: the separate BWE (bandwidth-extension, 16kHz→48kHz) generator
-(`bwe.py`, 401 lines, largely mirrors the vocoder's architecture at different channel sizes per its
-own docstring — including its OWN `.at[strided].add()` bug in `HannSincResampler`, also patched by
-`vendor_patches.py`, to watch for when that component is ported) and its own MelSTFT machinery; the
-audio VAE *encoder* (not started); the actual Gemma LLM (bridged, not hand-ported — see the
-text-encoder section above); the left-padding connector path;
-`Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants); CFG/STG guidance
-batching via `Modality.split` (ported in Phase 2, not yet wired into the loop); and replacing
-`RunPyBridge` in the CLI.
+are now fully native.
+
+### BWE work started: HannSincResampler (2026-07-02)
+
+Confirmed the real production audio pipeline never calls `BigVGANVocoder` alone — it always runs
+`VocoderWithBWE` (`bwe.py`), which chains: base vocoder (16kHz) → `HannSincResampler` (3x,
+Hann-windowed sinc upsample to 48kHz) → BWE generator (a second `BigVGANVocoder`-shaped network,
+different channel sizes, ratios `[6,5,2,2,2]`) → `clamp(resampled_base + bwe_residual, -1, 1)`.
+Also confirmed this must run in **fp32, not bf16** (the class docstring: bf16 accumulation errors
+compound through 108 sequential convolutions and degrade spectral metrics 40-90%) — already
+satisfied by this port's existing pattern of upcasting checkpoint weights to `.float32` in every
+real-checkpoint test.
+
+`HannSincResampler.swift` ports the resampler itself — genuinely different from everything else
+audio-related in this port: **no learned weights at all**, a deterministic Hann-windowed sinc
+kernel computed from closed-form math (verified independently in Swift, not loaded from a
+checkpoint). Also confirmed to use the SAME `.at[strided].add()` bug class already found in
+`UpSample1d` (`app/vendor_patches.py`'s `_patch_hann_sinc_resampler`, analogous to
+`_patch_upsample1d`) — sidestepped the same way, via reshape-based zero-insertion instead of
+strided assignment. Verified via `scripts/dump_hannsincresampler_reference.py` (patched, matching
+what the real pipeline runs) + `Tests/LTXVideoDirectorTests/HannSincResamplerParityTests.swift` —
+**two** checks: the independently-recomputed kernel itself (max-abs-diff < 1e-5) AND the full
+forward pass (max-abs-diff < 1e-4), both passing on the first attempt. 52/52 tests pass.
+
+Remaining for the BWE: the BWE generator itself (a second `BigVGANVocoder`-shaped assembly at
+different channel sizes — should reuse `ConvTranspose1d`/`AMPBlock1`/`Activation1d` directly, no
+new primitives expected), the `MelSTFT` machinery (`mel_basis` + `STFTFunction` forward/inverse
+bases — needed to compute the BWE generator's own mel input from the resampled 48kHz signal), and
+the final `VocoderWithBWE` assembly + real-checkpoint integration test (mirroring the
+`BigVGANVocoderRealCheckpointTests` pattern, this time hitting `vocoder.bwe_generator.*` and
+`vocoder.mel_stft.*`). Then: the audio VAE *encoder* (not started, and confirmed out of scope for
+the I2V goal — only used by `RetakePipeline`'s audio-conditioned regeneration feature, not by
+plain T2I2V/I2V generation); the actual Gemma LLM (bridged, not hand-ported — see the text-encoder
+section above); the left-padding connector path; `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`
+(the `--hq`/CFG++ variants); CFG/STG guidance batching via `Modality.split` (ported in Phase 2,
+not yet wired into the loop); and replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
