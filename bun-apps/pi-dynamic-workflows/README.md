@@ -75,7 +75,7 @@ PI_MODEL=google/gemma-4-26b-a4b-qat \
 # → { "ok": true, "result": {…}, "agents": 2, "durationMs": 4540, "tokens": 8800 }
 ```
 
-> **Note — background vs inline.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record under `~/.pi/workflows/` but won't pop back into any TUI. Both runners above force `background:false` (e2e) / synchronous execution (run.ts) so the result returns inline on stdout — which is what you want for headless/CI. If a background run does finish after its session closed, recover it in any later session in the same project with **`/workflows result <id>`** (or `/workflows result` to list recent finished runs across all sessions).
+> **Note — background vs inline.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record under `~/.pi/workflows/` but won't pop back into any TUI. Both runners above force `background:false` (e2e) / synchronous execution (run.ts) so the result returns inline on stdout — which is what you want for headless/CI. If a background run does finish after its session closed, it is **recovered automatically**: the next session in the same project re-delivers each undelivered result once (then stamps it so it never repeats). You can also retrieve any finished run manually with **`/workflows result <id>`** (or `/workflows result` to list recent finished runs across all sessions).
 
 ## What a workflow looks like
 

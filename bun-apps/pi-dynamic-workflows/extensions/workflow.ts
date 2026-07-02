@@ -7,6 +7,7 @@ import {
   installTaskPanel,
   installWorkflowEditor,
   loadWorkflowSettings,
+  redeliverPendingResults,
   registerAllSavedWorkflows,
   registerBuiltinWorkflows,
   registerEffortCommand,
@@ -69,6 +70,10 @@ export default function extension(pi: ExtensionAPI) {
     }
     // Deliver a background run's result into the conversation when it finishes.
     installResultDelivery(pi, manager);
+    // Recover results for background runs that finished while no session was open
+    // to receive them (the originating session closed first — e.g. a `-p` batch
+    // run). Each is delivered once, then stamped so it never repeats.
+    redeliverPendingResults(pi, manager);
     // Live "workflows running" panel below the input (focus + enter to open).
     // Pass a live settings loader so /workflows-progress (compact|detailed) takes
     // effect without a restart.

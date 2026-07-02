@@ -190,6 +190,7 @@ export class WorkflowManager extends EventEmitter {
         script,
         args,
         sessionId: this.sessionId,
+        background: true,
         status: "running",
         phases: managed.snapshot.phases,
         agents: [],
@@ -434,6 +435,7 @@ export class WorkflowManager extends EventEmitter {
         script: managed.script,
         args: managed.args,
         sessionId: this.sessionId,
+        background: managed.background,
         journal: managed.journal,
         status: managed.status,
         // Why a usage-limit pause happened, so the navigator / a future cold start
@@ -587,6 +589,38 @@ export class WorkflowManager extends EventEmitter {
    */
   getPersistedRun(runId: string): PersistedRunState | null {
     return this.persistence.load(runId);
+  }
+
+  /**
+   * Mark a background run's result as delivered (into a conversation), stamping
+   * `deliveredAt`. Idempotent: re-saving a run that already has a `deliveredAt`
+   * only overwrites it with a newer timestamp. Used by installResultDelivery's
+   * complete handler and by session_start re-delivery so each run is delivered
+   * exactly once across the process lifetime + across sessions.
+   */
+  markDelivered(runId: string): void {
+    const run = this.persistence.load(runId);
+    if (!run) return;
+    try {
+      this.persistence.save({ ...run, deliveredAt: new Date().toISOString() });
+    } catch {
+      // Best-effort: a failed mark just means the run may redeliver once more — harmless.
+    }
+  }
+
+  /**
+   * Completed background runs whose result was never delivered — eligible for
+   * session_start re-delivery. Cross-session by design: the originating session
+   * closed before the run finished (e.g. a `-p` batch run), so its result is
+   * stranded on disk. Returned oldest-first so multiple recoveries read in order.
+   * Runs persisted before the `background` field existed are excluded (absent →
+   * not eligible); recover those via `/workflows result <id>`.
+   */
+  listUndeliveredCompletedBackgroundRuns(): PersistedRunState[] {
+    return this.persistence
+      .list()
+      .filter((r) => r.background === true && r.status === "completed" && !r.deliveredAt)
+      .sort((a, b) => (a.completedAt ?? a.updatedAt).localeCompare(b.completedAt ?? b.updatedAt));
   }
 
   /**
