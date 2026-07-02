@@ -25,6 +25,12 @@ import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
 
+// Read argv once for the doctor intercept (which runs BEFORE patches). NOTE:
+// main() must re-slice process.argv AFTER applyPatches() below — the
+// load-run-dir-resources patch splices extension/skill paths into process.argv,
+// and a slice captured here (a copy) would miss them, silently dropping every
+// run-dir extension. (Regression introduced when this slice moved up for the
+// doctor intercept; fixed by re-slicing at the main() call.)
 const argv = process.argv.slice(2);
 
 // `doctor` self-check: intercept BEFORE patches/main so the diagnostic runs
@@ -35,8 +41,11 @@ if (argv[0] === "doctor" || argv.includes("--doctor")) {
 	process.exit(report.ok ? 0 : 1);
 }
 
-// Patches MUST be applied before main() constructs ModelRegistry.
+// Patches MUST be applied before main() constructs ModelRegistry. Among other
+// things, this splices run-dir/ extension + skill paths into process.argv.
 await applyPatches();
 
-// Pass through argv untouched. The official parser handles every pi flag.
-await main(argv);
+// Re-slice AFTER patches so the run-dir splice (and any other process.argv
+// mutation above) reaches main(). main(args) consumes the passed array
+// directly — it does NOT re-read process.argv.
+await main(process.argv.slice(2));
