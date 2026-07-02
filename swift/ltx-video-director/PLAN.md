@@ -426,12 +426,44 @@ full loop (guaranteed by `applyDenoiseMask` being called every step, independent
 timesteps), while generated frames are finite and have genuinely moved from their initial noise.
 36/36 tests pass.
 
+### Milestone: per-token timesteps land, closing the I2V bit-parity gap (2026-07-02)
+
+The previous milestone documented a real gap: I2V conditioning worked (preserved tokens snap
+back to clean values), but wasn't bit-parity-tested for non-uniform masks because the reference
+switches to per-token timestep embeddings in that case (preserved tokens get AdaLN timestep=0 —
+no modulation — instead of the batch's shared sigma). This is now closed:
+
+- `LTXModel.callAsFunction` gained optional `videoTimesteps`/`audioTimesteps` (B,N) params.
+  When provided, `adalnSingle`/`avCaVideoScaleShiftAdalnSingle` (and audio equivalents) switch to
+  a per-token path (`embedTimestepPerToken` + `adalnPerToken`, both flatten-embed-reshape exactly
+  like the reference's `_embed_timestep_per_token`/`_adaln_per_token`). The AV-cross **gate**
+  always stays scalar (uses `t_emb_av_gate` regardless), and prompt AdaLN (text cross-attn)
+  always stays scalar too (text tokens don't correspond to individual latent tokens) — both
+  confirmed by re-reading `model.py`'s `__call__` line-by-line, not assumed from the pattern.
+- `X0Model` now accepts the same per-token timesteps and uses them as the per-token sigma in the
+  x0 formula (`videoTimesteps[:,:,None]` instead of `sigma[:,None,None]`) when provided.
+- `DenoiseLoop.run(model:videoState:audioState:...)` now detects non-uniform masks
+  (`isUniformMask`, mirroring `_is_uniform_mask`) and computes per-token timesteps
+  (`perTokenTimesteps` = `(denoiseMask * sigma).squeezed(axis:-1)`, mirroring
+  `_compute_per_token_timesteps`) automatically — no caller-side changes needed to get the
+  correct behavior.
+
+Verified via `scripts/dump_denoiseloop_i2v_reference.py` (runs the REAL `denoise_loop` with a REAL
+`VideoConditionByLatentIndex`-conditioned frame-0 state, forcing the reference's per-token branch)
++ `Tests/LTXVideoDirectorTests/DenoiseLoopI2VParityTests.swift`: **bit-parity match** (max-abs-diff
+< 1e-2, consistent with the uniform-mask loop's tolerance) — this supersedes
+`DenoiseLoopConditionedTests`' earlier "conditioning mechanism only" smoke test with a real
+end-to-end match against the reference. 37/37 tests pass, no regressions.
+
+**The I2V conditioning path is now verified to the same standard as everything else in this
+port** — real Python reference, bit-parity, no documented gaps remaining in the sampling loop's
+core algorithm.
+
 Remaining before real generation: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
 variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
-to), per-token timesteps (closes the bit-parity gap above), CFG/STG guidance batching via
-`Modality.split` (ported in Phase 2, not yet wired into the loop — currently single-pass, no
-negative-prompt guidance), the text encoder (Gemma), the audio VAE/vocoder/BWE stack, and
-replacing `RunPyBridge` in the CLI.
+to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
+loop — currently single-pass, no negative-prompt guidance), the text encoder (Gemma), the audio
+VAE/vocoder/BWE stack, and replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 

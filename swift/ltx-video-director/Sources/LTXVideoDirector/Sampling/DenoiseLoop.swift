@@ -15,10 +15,12 @@
 //  conditioning frame) snap back to their clean values regardless of what
 //  the model predicted for them.
 //
-//  Per-token timesteps (for partial conditioning) are NOT wired into
-//  X0Model/LTXModel yet — see LatentConditioning.swift's header for why
-//  this is a documented approximation, not a missing correctness step,
-//  for the generated-token output.
+//  The conditioned overload uses per-token timesteps (X0Model/LTXModel
+//  support them — see their headers) whenever a state's denoise mask is
+//  non-uniform, matching the reference's `_is_uniform_mask` branch exactly:
+//  preserved tokens get timestep=0 (no AdaLN modulation), generated tokens
+//  get timestep=sigma. Reference: `_compute_per_token_timesteps` =
+//  `(denoise_mask * sigma).squeeze(-1)`.
 //
 
 import MLX
@@ -86,16 +88,23 @@ public enum DenoiseLoop {
         let vMask = videoAttentionMask ?? videoState.attentionMask
         let aMask = audioAttentionMask ?? audioState.attentionMask
 
+        let videoUniform = isUniformMask(videoState.denoiseMask)
+        let audioUniform = isUniformMask(audioState.denoiseMask)
+
         for i in 0..<(sigmas.count - 1) {
             let sigma = sigmas[i]
             let sigmaNext = sigmas[i + 1]
             let sigmaArray = MLXArray(Array(repeating: sigma, count: b))
 
+            let videoTimesteps = videoUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: videoState.denoiseMask)
+            let audioTimesteps = audioUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: audioState.denoiseMask)
+
             var (videoX0, audioX0) = model(
                 videoLatent: videoX, audioLatent: audioX, sigma: sigmaArray,
                 videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
                 videoPositions: videoState.positions, audioPositions: audioState.positions,
-                videoAttentionMask: vMask, audioAttentionMask: aMask)
+                videoAttentionMask: vMask, audioAttentionMask: aMask,
+                videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps)
 
             videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)
             audioX0 = applyDenoiseMask(x0: audioX0, cleanLatent: audioState.cleanLatent, denoiseMask: audioState.denoiseMask)
@@ -118,5 +127,18 @@ public enum DenoiseLoop {
     private static func eulerStep(x: MLXArray, x0: MLXArray, sigma: Float, sigmaNext: Float) -> MLXArray {
         let d = (x - x0) / sigma
         return x + (sigmaNext - sigma) * d
+    }
+
+    /// Reference: `_is_uniform_mask` — true iff the mask is all-ones (full
+    /// denoise, no conditioning).
+    private static func isUniformMask(_ mask: MLXArray) -> Bool {
+        MLX.all(mask.asType(.float32) .== 1.0).item(Bool.self)
+    }
+
+    /// Reference: `_compute_per_token_timesteps` — preserved tokens (mask=0)
+    /// get timestep=0, generated tokens (mask=1) get timestep=sigma.
+    /// `denoiseMask` is (B, N, 1); returns (B, N).
+    private static func perTokenTimesteps(sigma: Float, denoiseMask: MLXArray) -> MLXArray {
+        (denoiseMask * sigma).squeezed(axis: -1)
     }
 }
