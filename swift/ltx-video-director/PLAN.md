@@ -205,13 +205,25 @@ used for both the main video FFN (`ff`) and the audio FFN (`audio_ff`, same clas
 instance). Verified via `scripts/dump_feedforward_reference.py` +
 `Tests/LTXVideoDirectorTests/FeedForwardParityTests.swift`: max-abs-diff < 1e-4. 21/21 tests pass.
 
+Fifth component: `Attention.swift` — the real complexity piece. Multi-head attention with QK
+RMSNorm (learnable weight, unlike VAE's parameter-free PixelNorm), SPLIT-layout RoPE (reuses
+`RoPE.swift`), `MLX.scaledDotProductAttention` (MLX's fused kernel, matching `mx.fast.
+scaled_dot_product_attention`), STG perturbation blending (`out*mask + v*(1-mask)`), and
+per-head sigmoid gating (`2*sigmoid(gate_logits)`, zero-init → gate=1). One `Attention` struct
+serves both attention "shapes" the 48-layer DiT uses: self-attention with RoPE (`kv_dim ==
+query_dim`, `encoderHiddenStates` nil) and cross-attention without RoPE (`kv_dim` can differ,
+`encoderHiddenStates` provided — video↔text/audio). Verified via
+`scripts/dump_attention_reference.py` + `Tests/LTXVideoDirectorTests/AttentionParityTests.swift`
+covering BOTH shapes: max-abs-diff < 1e-3 (looser than the FFN/AdaLN tests — attention involves
+softmax + multiple matmuls, more fp32 accumulation than a single Linear). 23/23 tests pass.
+
 Transformer source lives at
 `python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
 `rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (done), `feed_forward.py` (done),
-`attention.py` (143 lines — next; spatiotemporal + audio cross-attention, the real
-complexity: this is where RoPE actually gets applied), `modality.py` (78 lines), `model.py`
-(567 lines — the full 48-layer DiT assembly, by far the largest single file in the whole
-port). Continue smallest-to-largest.
+`attention.py` (done), `modality.py` (78 lines — next), `model.py` (567 lines — the full
+48-layer DiT assembly, by far the largest single file in the whole port; now that RoPE, timestep
+embedding, AdaLN, FeedForward, and Attention all exist, this is where they get assembled into an
+actual transformer block, then stacked 48x). Continue smallest-to-largest.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 

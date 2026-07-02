@@ -1,0 +1,28 @@
+{
+  "num_heads": 4,
+  "head_dim": 8,
+  "input_shape": [
+    2,
+    6,
+    32
+  ],
+  "output_shape": [
+    2,
+    6,
+    32
+  ],
+  "weight_keys": [
+    "to_q.weight",
+    "to_q.bias",
+    "to_k.weight",
+    "to_k.bias",
+    "to_v.weight",
+    "to_v.bias",
+    "to_out.weight",
+    "to_out.bias",
+    "to_gate_logits.weight",
+    "to_gate_logits.bias",
+    "q_norm.weight",
+    "k_norm.weight"
+  ]
+}
