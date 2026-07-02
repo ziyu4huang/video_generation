@@ -1,0 +1,83 @@
+import { test, expect, describe } from "bun:test";
+import { EXTENSION_COMMANDS, EXTENSION_SPECS, toCommand } from "../extensions/registry.ts";
+import { findCommandToken } from "../cli.ts";
+import type { ExtensionSubcommandSpec } from "../extensions/types.ts";
+
+/**
+ * Guards the extension → sub-command registration contract:
+ *   - every spec produces a Command with matching name/summary/details
+ *   - flux2 is registered and dispatched as a reserved command token
+ *   - the curated tool allowlist is non-empty (an empty allowlist would start
+ *     the agent with zero usable tools — validateToolNames can't catch absence)
+ */
+describe("extension sub-command registry", () => {
+  test("flux2 is registered", () => {
+    const names = EXTENSION_COMMANDS.map((c) => c.name);
+    expect(names).toContain("flux2");
+    expect(EXTENSION_SPECS.length).toBeGreaterThan(0);
+  });
+
+  test("every spec satisfies ExtensionSubcommandSpec structurally", () => {
+    for (const spec of EXTENSION_SPECS) {
+      expect(typeof spec.name).toBe("string");
+      expect(spec.name.length).toBeGreaterThan(0);
+      expect(spec.name[0]).not.toBe("-"); // not a flag
+      expect(typeof spec.summary).toBe("string");
+      expect(typeof spec.details).toBe("string");
+      expect(typeof spec.factory).toBe("function"); // ExtensionFactory
+      expect(Array.isArray(spec.tools)).toBe(true);
+      expect(spec.tools.length).toBeGreaterThan(0); // empty = silent zero-tool session
+      expect(typeof spec.task).toBe("function");
+    }
+  });
+
+  test("toCommand() preserves name/summary/details and yields a runnable", () => {
+    const spec: ExtensionSubcommandSpec = {
+      name: "dummy",
+      summary: "s",
+      details: "d",
+      factory: () => {},
+      tools: ["flux2"],
+      task: () => "do something",
+    };
+    const cmd = toCommand(spec);
+    expect(cmd.name).toBe("dummy");
+    expect(cmd.summary).toBe("s");
+    expect(cmd.details).toBe("d");
+    expect(typeof cmd.run).toBe("function");
+  });
+
+  test("spec names are unique", () => {
+    const names = EXTENSION_SPECS.map((s) => s.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  test("flux2 task echoes the positional request", () => {
+    const flux2 = EXTENSION_SPECS.find((s) => s.name === "flux2")!;
+    const task = flux2.task({ positionals: ["generate", "a red cube"] });
+    expect(task).toContain("a red cube");
+    expect(task).toContain("flux2");
+  });
+
+  test("flux2 task falls back to a prompt when no positionals given", () => {
+    const flux2 = EXTENSION_SPECS.find((s) => s.name === "flux2")!;
+    const task = flux2.task({ positionals: [] });
+    expect(task.length).toBeGreaterThan(0); // no-op guard
+  });
+});
+
+describe("findCommandToken — extension sub-commands dispatch", () => {
+  test("flux2 is a reserved token (command-first)", () => {
+    expect(findCommandToken(["flux2", "generate", "a cube"])).toEqual({
+      name: "flux2",
+      index: 0,
+    });
+  });
+
+  test("flux2 is detected after leading global flags", () => {
+    expect(findCommandToken(["--model", "sonnet", "flux2", "t2i"])).toEqual({
+      name: "flux2",
+      index: 2,
+    });
+  });
+});
