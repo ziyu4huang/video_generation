@@ -128,10 +128,33 @@ first conv). Verified via `scripts/dump_spacetodepthdownsample_reference.py` +
 `Tests/LTXVideoDirectorTests/SpaceToDepthParityTests.swift`: max-abs-diff < 1e-4/1e-5 across
 space_to_depth alone and two SpaceToDepthDownsample stride configs. 16/16 tests pass.
 
-Not yet done: assembling the full `VideoEncoder` (same milestone pattern as `VideoDecoder` —
-mini-architecture parity test + real-checkpoint smoke test against `vae_encoder.safetensors`).
-After encoder: the 48-layer transformer (by far the largest piece — see Phase 2). Each subsequent
-piece follows the same dump-real-reference → port → parity-test loop established here.
+### Milestone: full encoder assembly, verified against the REAL production checkpoint
+
+`VideoEncoder.swift` assembles the encoder the same way `VideoDecoder.swift` assembled the
+decoder: `patchifySpatial` → `conv_in` (48→128) → 9 `down_blocks` (ResBlockStage 128×4/256×6/
+512×4/1024×2/1024×2 alternating with `SpaceToDepthDownsample` at strides `(1,2,2)/(2,1,1)/
+(2,2,2)/(2,2,2)` — the (in,out,stride) triples are NOT derivable from checkpoint shapes alone,
+read directly from `VideoEncoder.__init__`) → pre-activation PixelNorm+SiLU → `conv_out`
+(1024→129, keep first 128 channels) → `normalize_latent` (`(x-mean)/std` — SUBTRACT, the opposite
+sign from the decoder's `denormalize_latent` which ADDS). Handles a real checkpoint quirk: the
+per-channel-statistics keys are underscore-prefixed (`_mean_of_means`/`_std_of_means`) in the
+safetensors file (MLX's Python `nn.Module` skips underscore-prefixed attributes, so the reference
+remaps them on load — this loader does the same remap). All `down_blocks` use `causal=true`
+(confirmed: hardcoded in every `VideoEncoder` sub-module, unlike `VideoDecoder`'s `causal=false`
+default for LTX-2.3).
+
+`VideoEncoderRealCheckpointTests.swift` loads the ACTUAL production checkpoint
+(`mlx-models/vae/ltx-2.3-vae/vae_encoder.safetensors`, bf16, 86 tensors) and runs a real forward
+pass on a synthetic 64×64×9-frame pixel input, confirming finite, correctly-shaped (128-channel
+latent) output. 17/17 tests pass.
+
+**Both VAE halves (encoder AND decoder) now run natively in Swift/MLX against real production
+LTX-2.3 weights, with zero Python involved**, for small test-scale inputs. Remaining before either
+is usable in the real `i2v` pipeline: memory-bounded tiling for real-size latents/pixels, and
+wiring both into the `i2v`/`upscale` CLI commands in place of `RunPyBridge`. After the VAE: the
+48-layer transformer (by far the largest piece — see Phase 2; this is what actually generates the
+latent, and nothing ported so far touches it). Each subsequent piece follows the same
+dump-real-reference → port → parity-test loop established here.
 
 ## Phase 1 — native VAE (decode-only)
 
