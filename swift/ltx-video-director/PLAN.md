@@ -399,12 +399,39 @@ rounding noise, compounding across steps).
 from pure noise toward a clean sample — the core diffusion algorithm, end to end, natively in
 Swift.** 34/34 tests pass.
 
+### Milestone: I2V conditioning wired into the sampling loop (2026-07-02)
+
+`LatentConditioning.swift` ports `ltx_core_mlx.conditioning.types.latent_cond`: `LatentState`
+(the generation-state struct — latent/cleanLatent/denoiseMask/positions/attentionMask),
+`applyDenoiseMask` (blend x0 with clean_latent per mask — `x0*mask + clean*(1-mask)`), and
+`VideoConditionByLatentIndex` (the actual I2V mechanism: splices a conditioning image's clean
+latent tokens into specific frame positions — e.g. frame 0 — and zeroes their denoise mask so
+they're preserved rather than regenerated). Verified via `scripts/dump_latentcond_reference.py` +
+`Tests/LTXVideoDirectorTests/LatentConditioningParityTests.swift` against the real Python
+classes: exact match (1e-5) on the spliced latent/clean/mask and the blended output.
+
+`DenoiseLoop.run(model:videoState:audioState:...)` (new overload) wires this into the sampling
+loop: calls `applyDenoiseMask` after every step so preserved tokens snap back to their clean
+values regardless of what the model predicts for them — this is what makes I2V actually work
+(the conditioning image's content survives the full denoise loop unchanged).
+
+**Documented gap, not silently glossed over**: the reference `denoise_loop` switches to
+per-token timesteps when the mask is non-uniform (so preserved tokens get AdaLN timestep=0 —
+no modulation at all — instead of the batch's shared sigma). `X0Model`/`LTXModel` don't implement
+per-token timesteps yet, so the conditioned-loop overload is **not bit-parity-tested** against
+the reference for non-uniform masks (only the uniform-mask path is, via `DenoiseLoopParityTests`).
+`DenoiseLoopConditionedTests` instead verifies the property that actually matters for correctness
+regardless of that gap: the conditioned frame ends up EXACTLY equal to the clean image after the
+full loop (guaranteed by `applyDenoiseMask` being called every step, independent of per-token
+timesteps), while generated frames are finite and have genuinely moved from their initial noise.
+36/36 tests pass.
+
 Remaining before real generation: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
 variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
-to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
-loop — currently single-pass, no negative-prompt guidance), image-conditioning latent injection
-(I2V — currently only T2V-shaped noise-to-latent is exercised), the text encoder (Gemma), the
-audio VAE/vocoder/BWE stack, and replacing `RunPyBridge` in the CLI.
+to), per-token timesteps (closes the bit-parity gap above), CFG/STG guidance batching via
+`Modality.split` (ported in Phase 2, not yet wired into the loop — currently single-pass, no
+negative-prompt guidance), the text encoder (Gemma), the audio VAE/vocoder/BWE stack, and
+replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
