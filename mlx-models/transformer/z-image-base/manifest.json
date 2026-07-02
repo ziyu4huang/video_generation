@@ -20,7 +20,7 @@
     "tokenizer/qwen3",
     "vae/zimage-ae"
   ],
-  "size_bytes": 6540687223,
+  "size_bytes": 6540686735,
   "created_at": "2026-06-28T14:11:32Z",
   "source_url": "https://civitai.com/models/2342797",
   "recommended_steps": 28,
