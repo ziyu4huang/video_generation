@@ -29,3 +29,8 @@ dist/
 # output (bun-apps/pi-agent-ext-power-tool) — both generated, not source.
 /output/
 /debug/
+python/mlx-movie-director/vendor/mflux/
+ComfyUI/
+python/mlx-movie-director/vendor/ltx-2-mlx/
+python/mlx-movie-director/vendor/ltx-2-mlx-dgrauet/
+python/mlx-movie-director/vendor/ltx-2-mlx-acelogic/
