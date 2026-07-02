@@ -24,6 +24,7 @@
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-agent-core": "latest",
     "pi-agent": "workspace:*",
+    "@repo/pi-agent-flux2": "workspace:*",
     "pi-obsidian": "workspace:*",
     "pi-vlm": "workspace:*",
     "pi-knowledge-card": "workspace:*",

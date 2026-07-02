@@ -1,0 +1,51 @@
+/**
+ * The "extension → sub-command" contract.
+ *
+ * A workspace extension that wants to be invocable as a top-level CLI
+ * sub-command (alongside `zk-extract`, `vlm-describe`, …) exports a spec
+ * shaped like `ExtensionSubcommandSpec`. `registry.ts` collects these specs,
+ * and `runner.ts` turns each into a `Command` whose `run()` is the standard
+ * "resolve LLM → build task → createSharedSession(tools + factory) → run one
+ * turn" pipeline — the same pipeline `commands/zk-extract.ts` runs by hand.
+ *
+ * Why: before this, every sub-command was a bespoke `commands/<x>.ts` that
+ * re-implemented that pipeline and imported `*_TOOLS` + a task builder from
+ * the extension package. Adding a new extension sub-command meant editing
+ * three places. Now an extension only exports one spec; adding it to the CLI
+ * is a single import line in `registry.ts`.
+ *
+ * The extension's own `ExtensionFactory` is injected through the already-plumbed
+ * `extraExtensionFactories` seam (sessions/shared.ts), which was wired but
+ * unused before this change.
+ */
+import type { ParsedArgs } from "../args.ts";
+
+/**
+ * A function that turns parsed CLI args into the agent task string for this
+ * sub-command. The task is what the parent agent sees as its objective; it
+ * typically instructs the agent to call one of the extension's tools.
+ */
+export type TaskBuilder = (parsed: ParsedArgs) => string;
+
+export interface ExtensionSubcommandSpec {
+	/** Sub-command token (no spaces, must not start with `-`). */
+	name: string;
+	/** One-line summary shown in root `help`. */
+	summary: string;
+	/** Full usage text shown by `help <name>`. */
+	details: string;
+	/**
+	 * The extension's `ExtensionFactory` (its default export). Injected into the
+	 * session via `extraExtensionFactories` so the extension's tools register.
+	 * Typed `unknown` here to avoid importing the SDK type from this leaf file.
+	 */
+	factory: unknown;
+	/**
+	 * Curated tool allowlist active for this command. The user can override with
+	 * `--tools`. `validateToolNames()` fails fast on a typo'd name, so a spec
+	 * that names a tool the factory does not register is caught at run time.
+	 */
+	tools: string[];
+	/** Build the agent task string from parsed args (positionals, flags). */
+	task: TaskBuilder;
+}

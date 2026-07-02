@@ -27,12 +27,13 @@ import { zkAskCommand } from "./commands/zk-ask.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { doctorCommand } from "./commands/doctor.ts";
+import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
 const VERSION = "0.1.0";
 
-/** A top-level agent/meta command. */
-interface Command {
+/** A top-level agent/meta command. Exported for extensions/registry.ts. */
+export interface Command {
   name: string;
   summary: string;
   details: string;
@@ -74,6 +75,9 @@ const COMMANDS: Command[] = [
     details: doctorCommand.details,
     run: doctorCommand.run,
   },
+  // Extension-backed sub-commands (each = one workspace extension exporting an
+  // ExtensionSubcommandSpec). See src/extensions/registry.ts.
+  ...EXTENSION_COMMANDS,
 ];
 
 /**

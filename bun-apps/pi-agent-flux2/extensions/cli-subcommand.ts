@@ -1,0 +1,73 @@
+/**
+ * CLI sub-command spec for pi-agent-cli.
+ *
+ * Lets `pi-agent-cli` expose the flux2 extension as a top-level sub-command:
+ *
+ *   bun-pi-agent-cli flux2 <natural-language request...>
+ *   bun-pi-agent-cli --model sonnet flux2 generate a red cube on a table, t2i
+ *
+ * The flux2 tool is an agent-driven dispatcher (it picks one of 18 flux2
+ * sub-commands + typed options), so the CLI passes the user's request as a
+ * natural-language task and lets the agent map it onto the `flux2` tool. This
+ * mirrors how `zk-ask` turns positionals into a question.
+ *
+ * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
+ * direction is pi-agent-cli → pi-agent-flux2, so the spec is typed with a
+ * local structurally-compatible interface (TS structural typing makes it
+ * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
+ * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.
+ */
+import extension from "./pi-flux2.ts";
+
+/** Local shape of pi-agent-cli's ExtensionSubcommandSpec (structural match). */
+interface ExtensionSubcommandSpec {
+  name: string;
+  summary: string;
+  details: string;
+  factory: unknown;
+  tools: string[];
+  task: (parsed: { positionals: string[] }) => string;
+}
+
+export const flux2Subcommand: ExtensionSubcommandSpec = {
+  name: "flux2",
+  summary: "generate/edit/gate images with Flux2 Klein (Swift/MLX)",
+  details: `Usage:
+  bun-pi-agent-cli flux2 <natural-language request...> [options]
+
+The flux2 tool is an agent-optimized dispatcher over the \`flux2\` Swift/MLX CLI
+(18 sub-commands: t2i, scene, gate, upscale, …). Give a natural-language request
+as positionals; the agent maps it onto the right flux2 sub-command + options.
+
+Positionals are the request verbatim. Unknown flux2-specific flags (--prompt,
+--width, …) are NOT parsed by the CLI — fold them into the request text, or set
+them via environment (MLX_OUTPUT_DIR, MLX_MODELS_DIR, FLUX2_BIN, …). Use
+\`--tools\` / \`-V\` / \`--mode json\` for CLI-level control.
+
+Options (pi-aligned globals):
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-26b)
+  --provider <name>      provider name
+  --thinking <level>     off|minimal|low|medium|high|xhigh
+  --tools <csv>          override the curated [flux2] tool allowlist
+  --mode json            NDJSON event stream (for programmatic consumers)
+  -V, --verbose          tool verbosity (repeat for debug)
+
+Examples:
+  bun-pi-agent-cli flux2 generate a red cube on a table using t2i
+  bun-pi-agent-cli --model sonnet flux2 scene: two people talking, left/right
+  bun-pi-agent-cli flux2 t2i then gate then upscale the result`,
+  factory: extension,
+  tools: ["flux2"],
+  task: (parsed) => {
+    const request = parsed.positionals.join(" ").trim();
+    if (!request) {
+      // No request → let the agent prompt for intent rather than no-op.
+      return "Use the flux2 tool to help the user with image generation. " +
+        "Ask or infer what they want, then call flux2 with an appropriate command.";
+    }
+    return "Use the flux2 tool to fulfill this request. Pick the most appropriate " +
+      "flux2 sub-command and options; every image/model path must resolve under the " +
+      "repo / output dir / models tree. After generation, the tool auto-runs `gate`; " +
+      "chain `upscale` if useful. Request:\n\n" + request;
+  },
+};
