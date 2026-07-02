@@ -37,7 +37,10 @@ const argv = process.argv.slice(2);
 // even when patches/deploys are broken. `bun src/cli.ts doctor [--json]` or
 // `./run.sh doctor`. Exits 0 (all hard checks pass) or 1 (any fail).
 if (argv[0] === "doctor" || argv.includes("--doctor")) {
-	const report = await runDoctor({ json: argv.includes("--json") });
+	// `--smoke`: opt-in runtime check that actually spawns a probe and verifies
+	// run-dir extensions load (catches the silent-no-op class the static checks
+	// miss). Default doctor stays pure/offline/fast.
+	const report = await runDoctor({ json: argv.includes("--json"), smoke: argv.includes("--smoke") });
 	process.exit(report.ok ? 0 : 1);
 }
 

@@ -195,6 +195,28 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		expect(r.mode).toBe("source");
 		expect(r.ok).toBe(true);
 	});
+	test("SOURCE doctor --smoke spawns the probe + verifies run-dir extensions load", async () => {
+		// The static doctor checks can't catch the #182 slice-bug class (every
+		// static check green while run-dir extensions silently fail to load).
+		// --smoke spawns a real probe; assert it passes AND matched>0 is present
+		// in the detail (proving it counted run-dir tools, not just builtins).
+		const proc = Bun.spawn(["bun", SRC_CLI, "doctor", "--smoke", "--json"], {
+			cwd: REPO_ROOT,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+		const code = await proc.exited;
+		expect(code).toBe(0);
+		const start = stdout.indexOf("{");
+		const end = stdout.lastIndexOf("}");
+		const report = JSON.parse(stdout.slice(start, end + 1));
+		expect(report.ok).toBe(true);
+		const smoke = report.checks.find((c: { id: string }) => c.id === "runtime-smoke");
+		expect(smoke?.status).toBe("pass");
+		expect(smoke?.detail).toMatch(/matched=\d+/);
+		expect(Number(smoke.detail.match(/matched=(\d+)/)[1])).toBeGreaterThan(0);
+	}, 60_000); // spawns a real session_start (offline, but needs headroom
 });
 
 // DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
