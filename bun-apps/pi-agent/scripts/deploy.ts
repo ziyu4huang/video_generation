@@ -2,29 +2,26 @@
  * deploy — package pi-agent + its extension set into a SELF-CONTAINED, runnable
  * directory that works from ANY cwd. Two modes:
  *
- *   bun scripts/deploy.ts [out-dir]              # DEFAULT: bundle deploy (THIN)
- *   bun scripts/deploy.ts [out-dir] --portable   # PORTABLE: FULL bundles + host node_modules (repo-independent)
+ *   bun scripts/deploy.ts [out-dir]              # DEFAULT: FULL bundles + host node_modules
  *   bun scripts/deploy.ts [out-dir] --release    # RELEASE: source-copy deploy
  *
- * ── DEFAULT (bundle deploy) ────────────────────────────────────────────────
- * Ships pi-agent.js + every extension pre-bundled into a single `.js`
- * (scripts/build-extensions.ts, THIN mode) + a COPIED monorepo node_modules.
- * No per-extension source folder, no `bun install` at deploy time. Target:
- * `bun <outdir>/pi-agent.js` (bun runtime required on the host — the compiled
- * binary cannot load `-e` extensions).
+ * ── DEFAULT (bundle deploy ──────────────────────────────────────────────────
+ * Ships pi-agent.js + every extension FULL-bundled (all deps inlined) into
+ * `.full.js`, plus a host node_modules subset via `bun install`. Standalone
+ * on the same machine.
  *
  *   <outdir>/
  *   ├── pi-agent.js            # bundle (from dist/pi-agent/)
- *   ├── ext-bundles/*.thin.js  # pre-bundled extensions (THIN — shared deps)
+ *   ├── ext-bundles/*.full.js  # pre-bundled extensions (FULL — self-contained)
  *   ├── skills/<…>/            # copied skill dirs
+ *   ├── node_modules/          # host subset (bun install)
  *   ├── run-dir/manifest.json  # compat/debug (resolve.ts uses dir listings)
  *   ├── .deploy-bundle         # marker — resolve.ts DEPLOY-BUNDLE detection
- *   ├── package.json           # minimal {name,private,type} — NO workspaces
+ *   ├── .deploy-portable       # marker — skip npm abs paths (already bundled)
+ *   ├── package.json           # minimal {name,private,type} + runtime deps
  *   └── run.sh                 # layout-aware launcher
- *   (node_modules is NOT copied by default — everything resolves via baked
- *   repo .bun-store abs paths; opt in with --with-nm-copy for a fallback copy)
  *
- * ── --release (source-copy deploy; the ORIGINAL behavior) ──────────────────
+ * ── --release (source-copy deploy) ─────────────────────────────────────────
  * Copies every extension's source folder into packages/<pkg>/, generates a
  * workspaces package.json, and runs `bun install`. Self-contained workspace.
  * Heavier; ships readable source; intended for protected/release distribution.
@@ -36,20 +33,17 @@
  *   └── node_modules/          # wired by `bun install`
  *
  * run-dir/resolve.ts detects the layout at runtime: `.deploy-bundle` +
- * `ext-bundles/` → DEPLOY-BUNDLE mode (this default); `packages/` +
- * `run-dir/manifest.json` → DEPLOY-PACKAGE mode (--release). Both inject `-ne`
- * + the resolved `-e`/`--skill` paths so the package is self-contained.
+ * `ext-bundles/` → DEPLOY-BUNDLE mode; `packages/` + `run-dir/manifest.json`
+ * → DEPLOY-PACKAGE mode (--release). Both inject `-ne` + the resolved
+ * `-e`/`--skill` paths so the package is self-contained.
  *
  * USAGE
  *   bun scripts/deploy.ts [options] [out-dir]
- *     --release       use the source-copy deploy (the original behavior)
- *     --portable      FULL-bundle exts + host node_modules subset + assets
- *                    (repo-independent, same machine)
+ *     --release       use the source-copy deploy
+ *     --portable      no-op (the default is already portable/FULL)
  *     --no-build      reuse existing dist/pi-agent/pi-agent.js
- *     --no-install    skip `bun install` in out-dir (--release / --portable)
- *     --with-nm-copy  also copy the repo node_modules into out-dir (bundle mode;
- *                    redundant for resolution — opt-in fallback)
- *   Default out-dir: ../../dist/pi-agent-bundle (bundle) | ../../dist/pi-agent-deploy (release)
+ *     --no-install    skip `bun install` in out-dir (--release / default)
+ *   Default out-dir: ../../dist/pi-agent-bundle | ../../dist/pi-agent-deploy (release)
  */
 import {
 	chmodSync,
@@ -69,22 +63,10 @@ if (argv.some((a) => a === "-h" || a === "--help")) {
 	process.exit(0);
 }
 const RELEASE = argv.includes("--release");
-// --portable: FULL-bundle every ext (incl. npm exts) + `bun install` a host
-// node_modules subset + copy assets + pin PI_PACKAGE_DIR via run.sh. Produces a
-// repo-independent deploy (same machine — bun's global-store node_modules isn't
-// relocatable across machines). Mutually exclusive with --release.
-const PORTABLE = argv.includes("--portable");
+// --portable kept as no-op (was the THIN→FULL switch; FULL is now the default).
+const _PORTABLE_NOOP = argv.includes("--portable");
 const NO_BUILD = argv.includes("--no-build");
 const NO_INSTALL = argv.includes("--no-install");
-// node_modules copy is OPT-IN for the default (THIN) deploy. Everything (THIN
-// ext bundles + pi-agent.js + npm exts) resolves deps via baked absolute paths
-// into the repo's .bun store, so <outdir>/node_modules is NOT read at runtime —
-// the deploy is same-machine-repo-present regardless. The copy exists only as a
-// fallback / for inspection; opt in with --with-nm-copy. (--portable ALWAYS
-// installs its own node_modules subset — FULL bundles have residual bare
-// specifiers that resolve from it, and the host's getAliases() needs it.)
-const WITH_NM_COPY = argv.includes("--with-nm-copy");
-if (RELEASE && PORTABLE) die("--release and --portable are mutually exclusive");
 const positionalOutdir = argv.find((a) => !a.startsWith("-"));
 const OUTDIR = positionalOutdir
 	? resolve(process.cwd(), positionalOutdir)
@@ -93,7 +75,7 @@ const OUTDIR = positionalOutdir
 			"..",
 			"..",
 			"dist",
-			RELEASE ? "pi-agent-deploy" : PORTABLE ? "pi-agent-portable" : "pi-agent-bundle",
+			RELEASE ? "pi-agent-deploy" : "pi-agent-bundle",
 		);
 
 const piAgentDir = dirname(import.meta.dir); // bun-apps/pi-agent
@@ -144,7 +126,7 @@ if (!existsSync(bundleSrc)) die(`bundle missing: ${bundleSrc}`);
 
 // ── materialize out-dir ──────────────────────────────────────────────────────
 console.log(
-	`${G("▶")} out-dir  ${D(OUTDIR)}  ${D(`[${RELEASE ? "release" : PORTABLE ? "portable" : "bundle"}]`)}`,
+	`${G("▶")} out-dir  ${D(OUTDIR)}  ${D(`[${RELEASE ? "release" : "bundle"}]`)}`,
 );
 if (existsSync(OUTDIR)) rmSync(OUTDIR, { recursive: true });
 mkdirSync(OUTDIR, { recursive: true });
@@ -160,10 +142,8 @@ if (existsSync(runSh)) {
 
 if (RELEASE) {
 	await releaseDeploy();
-} else if (PORTABLE) {
-	await portableDeploy();
 } else {
-	await bundleDeploy();
+	await portableDeploy();
 }
 
 // ── done ─────────────────────────────────────────────────────────────────────
@@ -225,80 +205,20 @@ async function releaseDeploy() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// default: pre-bundle extensions + copy monorepo node_modules. No install.
-// ════════════════════════════════════════════════════════════════════════════
-async function bundleDeploy() {
-	// 1. build extension bundles
-	const extBundlesSrc = join(repoRoot, "dist", "pi-ext-bundles");
-	console.log(`${G("▶")} build extension bundles  ${D("(bun scripts/build-extensions.ts)")}`);
-	const be = Bun.spawn(["bun", "scripts/build-extensions.ts"], {
-		cwd: piAgentDir,
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	if ((await be.exited) !== 0) die("build-extensions.ts failed");
-	if (!existsSync(extBundlesSrc)) die(`ext bundles missing: ${extBundlesSrc}`);
-
-	// 2. copy bundles → <outdir>/ext-bundles/
-	mkdirSync(join(OUTDIR, "ext-bundles"), { recursive: true });
-	for (const f of readdirSync(extBundlesSrc).filter((f) => f.endsWith(".js"))) {
-		cpSync(join(extBundlesSrc, f), join(OUTDIR, "ext-bundles", f));
-		console.log(`    ${G("✓")} ext-bundles/${f}`);
-	}
-
-	// 3. copy skill dirs → <outdir>/skills/<name>
-	if (manifest.skills?.length) {
-		mkdirSync(join(OUTDIR, "skills"), { recursive: true });
-		const SKIP = new Set(["node_modules", "dist", ".git"]);
-		for (const rel of manifest.skills) {
-			const src = join(repoRoot, "bun-apps", rel);
-			if (!existsSync(src)) {
-				console.log(`${Y("·")} skip missing skill ${rel}`);
-				continue;
-			}
-			const destName = rel.replace(/\//g, "-"); // pi-obsidian/skills → pi-obsidian-skills
-			cpSync(src, join(OUTDIR, "skills", destName), {
-				recursive: true,
-				filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
-			});
-			console.log(`    ${G("✓")} skills/${destName}`);
-		}
-	}
-
-	// 4. node_modules copy (opt-in via --with-nm-copy). Redundant for resolution
-	// (see WITH_NM_COPY comment above) — everything resolves via baked repo .bun
-	// store abs paths. The deploy is same-machine-repo-present regardless.
-	if (WITH_NM_COPY) {
-		const nmSrc = join(repoRoot, "node_modules");
-		if (!existsSync(nmSrc)) die(`repo node_modules missing: ${nmSrc} (run \`bun install\` at repo root)`);
-		console.log(`${G("▶")} copy node_modules  ${D("(--with-nm-copy — fallback; redundant for runtime resolution)")}`);
-		cpSync(nmSrc, join(OUTDIR, "node_modules"), { recursive: true });
-		console.log(`    ${G("✓")} node_modules/`);
-	}
-
-	// 5. marker (resolve.ts DEPLOY-BUNDLE detection) + minimal package.json
-	writeFileSync(join(OUTDIR, ".deploy-bundle"), `bundle deploy\nbuilt: ${new Date().toISOString()}\n`);
-	writeFileSync(
-		join(OUTDIR, "package.json"),
-		JSON.stringify({ name: "pi-agent-bundle", private: true, type: "module" }, null, 2) + "\n",
-	);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// --portable: FULL-bundle every ext (incl. npm) + host node_modules subset
+// default: FULL-bundle every ext (incl. npm) + host node_modules subset
 // (bun install) + assets + PI_PACKAGE_DIR pin via run.sh. Repo-independent
 // (same machine — bun's global-store node_modules isn't cross-machine).
 // ════════════════════════════════════════════════════════════════════════════
 async function portableDeploy() {
 	// 1. FULL-bundle extensions (incl. npm exts) → dist/pi-ext-bundles/*.full.js
 	const extBundlesSrc = join(repoRoot, "dist", "pi-ext-bundles");
-	console.log(`${G("▶")} build FULL extension bundles  ${D("(bun scripts/build-extensions.ts --portable)")}`);
-	const be = Bun.spawn(["bun", "scripts/build-extensions.ts", "--portable"], {
+	console.log(`${G("▶")} build FULL extension bundles  ${D("(bun scripts/build-extensions.ts)")}`);
+	const be = Bun.spawn(["bun", "scripts/build-extensions.ts"], {
 		cwd: piAgentDir,
 		stdout: "inherit",
 		stderr: "inherit",
 	});
-	if ((await be.exited) !== 0) die("build-extensions.ts --portable failed");
+	if ((await be.exited) !== 0) die("build-extensions.ts failed");
 	if (!existsSync(extBundlesSrc)) die(`ext bundles missing: ${extBundlesSrc}`);
 
 	// 2. copy bundles → <outdir>/ext-bundles/
