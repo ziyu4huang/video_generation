@@ -4,7 +4,8 @@
     "pi-obsidian/extensions/obsidian.ts",
     "pi-vlm/extensions/pi-vlm.ts",
     "pi-knowledge-card/extensions/pi-knowledge-card.ts",
-    "pi-agent-ext-power-tool/src/index.ts"
+    "pi-agent-ext-power-tool/src/index.ts",
+    "pi-agent-flux2/extensions/pi-flux2.ts"
   ],
   "skills": [
     "pi-obsidian/skills"

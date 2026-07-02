@@ -142,6 +142,29 @@ async function runDoctor(entry: string, cwd: string): Promise<{ mode: string; ok
 	return { mode: report.mode, ok: report.ok };
 }
 
+// Run `doctor --smoke --json`: spawns the runtime probe against the entry and
+// asserts it reports the run-dir extensions actually loaded (matched > 0). This
+// is the safety net for the silent-no-op class (e.g. #182 slice bug) — exercised
+// here across every deploy mode so the smokeMarker logic (ext-bundles / packages
+// / bun-apps) is verified in CI, not just for source.
+async function runDoctorSmoke(entry: string, cwd: string): Promise<{ mode: string; ok: boolean; matched: number }> {
+	const proc = Bun.spawn(["bun", entry, "doctor", "--smoke", "--json"], {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+	const code = await proc.exited;
+	if (code !== 0) throw new Error(`doctor --smoke exited ${code}: ${stderr.slice(0, 200)}`);
+	const start = stdout.indexOf("{");
+	const end = stdout.lastIndexOf("}");
+	if (start < 0 || end < start) throw new Error(`doctor --smoke emitted no JSON: ${stdout.slice(0, 200)}`);
+	const report = JSON.parse(stdout.slice(start, end + 1));
+	const smoke = report.checks.find((c: { id: string }) => c.id === "runtime-smoke");
+	const matched = Number(smoke?.detail?.match(/matched=(\d+)/)?.[1] ?? -1);
+	return { mode: report.mode, ok: report.ok, matched };
+}
+
 // Deploy once into a temp dir via `deploy.ts <flags>`, write the probe, return
 // { pkgDir, pkgPiAgent, probePath }. Cleans up on failure.
 async function deployPkg(extraFlags: string[]): Promise<{
@@ -198,25 +221,12 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 	test("SOURCE doctor --smoke spawns the probe + verifies run-dir extensions load", async () => {
 		// The static doctor checks can't catch the #182 slice-bug class (every
 		// static check green while run-dir extensions silently fail to load).
-		// --smoke spawns a real probe; assert it passes AND matched>0 is present
-		// in the detail (proving it counted run-dir tools, not just builtins).
-		const proc = Bun.spawn(["bun", SRC_CLI, "doctor", "--smoke", "--json"], {
-			cwd: REPO_ROOT,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-		const code = await proc.exited;
-		expect(code).toBe(0);
-		const start = stdout.indexOf("{");
-		const end = stdout.lastIndexOf("}");
-		const report = JSON.parse(stdout.slice(start, end + 1));
-		expect(report.ok).toBe(true);
-		const smoke = report.checks.find((c: { id: string }) => c.id === "runtime-smoke");
-		expect(smoke?.status).toBe("pass");
-		expect(smoke?.detail).toMatch(/matched=\d+/);
-		expect(Number(smoke.detail.match(/matched=(\d+)/)[1])).toBeGreaterThan(0);
-	}, 60_000); // spawns a real session_start (offline, but needs headroom
+		// --smoke spawns a real probe; assert ok + matched>0 (it counted run-dir
+		// tools, not just builtins).
+		const r = await runDoctorSmoke(SRC_CLI, REPO_ROOT);
+		expect(r.ok).toBe(true);
+		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000); // spawns a real session_start (offline, but needs headroom)
 });
 
 // DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
@@ -244,6 +254,11 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release
 		expect(r.mode).toBe("release");
 		expect(r.ok).toBe(true);
 	});
+	test("DEPLOY-PACKAGE doctor --smoke verifies run-dir extensions load (packages marker)", async () => {
+		const r = await runDoctorSmoke(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.ok).toBe(true);
+		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000);
 });
 
 // DEPLOY-BUNDLE mode = `deploy.ts` default (pre-bundled ext-bundles/*.thin.js).
@@ -275,6 +290,11 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 		expect(r.mode).toBe("bundle");
 		expect(r.ok).toBe(true);
 	});
+	test("DEPLOY-BUNDLE doctor --smoke verifies run-dir extensions load (ext-bundles marker)", async () => {
+		const r = await runDoctorSmoke(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.ok).toBe(true);
+		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000);
 });
 
 // DEPLOY-PORTABLE mode = `deploy.ts --portable` (FULL ext bundles incl. npm exts
@@ -331,4 +351,9 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 		expect(r.mode).toBe("portable");
 		expect(r.ok).toBe(true);
 	});
+	test("DEPLOY-PORTABLE doctor --smoke verifies run-dir extensions load (ext-bundles marker)", async () => {
+		const r = await runDoctorSmoke(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.ok).toBe(true);
+		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000);
 });
