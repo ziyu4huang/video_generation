@@ -646,18 +646,51 @@ what the real pipeline runs) + `Tests/LTXVideoDirectorTests/HannSincResamplerPar
 **two** checks: the independently-recomputed kernel itself (max-abs-diff < 1e-5) AND the full
 forward pass (max-abs-diff < 1e-4), both passing on the first attempt. 52/52 tests pass.
 
-Remaining for the BWE: the BWE generator itself (a second `BigVGANVocoder`-shaped assembly at
-different channel sizes — should reuse `ConvTranspose1d`/`AMPBlock1`/`Activation1d` directly, no
-new primitives expected), the `MelSTFT` machinery (`mel_basis` + `STFTFunction` forward/inverse
-bases — needed to compute the BWE generator's own mel input from the resampled 48kHz signal), and
-the final `VocoderWithBWE` assembly + real-checkpoint integration test (mirroring the
-`BigVGANVocoderRealCheckpointTests` pattern, this time hitting `vocoder.bwe_generator.*` and
-`vocoder.mel_stft.*`). Then: the audio VAE *encoder* (not started, and confirmed out of scope for
-the I2V goal — only used by `RetakePipeline`'s audio-conditioned regeneration feature, not by
-plain T2I2V/I2V generation); the actual Gemma LLM (bridged, not hand-ported — see the text-encoder
-section above); the left-padding connector path; `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`
-(the `--hq`/CFG++ variants); CFG/STG guidance batching via `Modality.split` (ported in Phase 2,
-not yet wired into the loop); and replacing `RunPyBridge` in the CLI.
+`MelSTFT.swift` ports the log-mel spectrogram stage (STFT via `conv1d` against a pre-computed
+basis, magnitude, mel filterbank, log) — passed first try. Verified via
+`scripts/dump_melstft_reference.py` + `Tests/LTXVideoDirectorTests/MelSTFTParityTests.swift`:
+max-abs-diff < 1e-3.
+
+### Milestone: full VocoderWithBWE, verified against REAL production checkpoint (2026-07-02)
+
+`VocoderWithBWE.swift` assembles the complete audio pipeline, ported line-for-line from
+`VocoderWithBWE.__call__` (not inferred from the docstring — the actual control flow has a
+non-obvious detail the docstring doesn't mention): stereo mel `(B,2,T,64)` → rearrange to
+`(B,T,128)` → base `BigVGANVocoder` → `(B,T16k,2)` → pad to a multiple of `hop_length` → flatten
+`(B,2,T16k)→(B*2,T16k)` → `MelSTFT` → reshape back to `(B,2,T',64)` → same rearrange → BWE
+`BigVGANVocoder` (a SEPARATE `MelSTFT` computed on the resampled signal, not reusing the original
+input mel — confirmed only by reading `__call__` directly) → residual `(B,2,T_bwe)`; separately,
+each of the 2 base-16kHz channels is resampled independently via `HannSincResampler` → stacked
+skip connection `(B,2,T48k)`; final output = `clip(skip + residual, -1, 1)` truncated to `T16k*3`.
+Confirmed the BWE generator config directly from `VocoderWithBWE.__init__` (not assumed):
+`upsample_initial_channel=512`, rates `(6,5,2,2,2)`, kernel sizes `(12,11,4,4,4)`,
+**`apply_final_activation=False`** (no `tanh` — the final `clip` handles bounding instead).
+
+**Caught a real bug during test-writing, not in the port**: my FIRST draft of `VocoderWithBWE`
+guessed at the channel-combination logic from the class docstring's high-level summary rather
+than reading `__call__` line-by-line, and got it structurally wrong (treated stereo channels as
+independent batch items with a manual reshape/stack that didn't match the real rearrange-to-128-
+mel-bins approach). Reading the actual 65-line `__call__` method directly (not the docstring)
+before finalizing caught this before it ever ran — the corrected version matches the reference
+exactly, stage by stage.
+
+`VocoderWithBWERealCheckpointTests.swift` loads the ACTUAL production checkpoint (`vocoder.`,
+`vocoder.bwe_generator.`, `vocoder.mel_stft.` prefixes) and runs a full real forward pass on a
+tiny synthetic stereo mel: finite, correctly-shaped, `[-1,1]`-clamp-bounded 48kHz stereo waveform.
+**Caught one more real bug**, this time in the test harness: a `makeVocoder` helper built with an
+empty `prefix` for the base vocoder concatenated keys as `".ups.0.weight"` (leading dot) instead
+of `"ups.0.weight"`, crashing on a nil-unwrap — fixed by only inserting the `.` separator when the
+prefix is non-empty. 54/54 tests pass.
+
+**The full LTX-2.3 audio pipeline — latent → mel → 16kHz → 48kHz stereo waveform, matching exactly
+what the real production pipeline runs — is now completely native in Swift/MLX, verified against
+real production weights at every stage.** Remaining for full native generation: the audio VAE
+*encoder* (not started, and confirmed out of scope for the I2V goal — only used by
+`RetakePipeline`'s audio-conditioned regeneration feature, not by plain T2I2V/I2V generation); the
+actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above); the left-padding
+connector path; `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants); CFG/STG
+guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the loop); and
+replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
