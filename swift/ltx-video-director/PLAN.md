@@ -806,6 +806,37 @@ three stages plus deciding what happens to VLM expansion and the still-missing L
 step), so `ltx-video i2v` unchanged still calls `RunPyBridge` — but one of its three stages is now
 provably, demonstrably native, not just theoretically portable.
 
+### Milestone: VLM prompt-expansion stage now native too — 2 of 3 t2i2v stages run.py-free (2026-07-02)
+
+`NativeVLMPromptStage.swift` replaces `run.py caption --style ltx_i2v` (the MIDDLE
+stage of t2i2v) with a direct in-process call through `ImageGenUtils.CaptionClient` —
+the SAME Swift HTTP client `VLMVerify.swift` already uses for keyframe scoring. This was
+never a "run.py wrapper" problem in the same sense as text/video generation: LM Studio is a
+standing local server (not spawned per-request by run.py), so the only thing missing was the
+Swift client port for this specific prompt template. The `ltx_i2v` template is copied VERBATIM
+from `app/commands/caption.py`'s `_STYLE_PROMPTS["ltx_i2v"]` so the VLM sees identical
+instructions either way.
+
+**Documented gap, not silently glossed**: Python additionally sets `response_format=json_object`
+for this style (its `_JSON_OUTPUT_STYLES` set) to stop thinking-only models returning empty
+content; `ImageGenUtils.CaptionClient` doesn't expose that knob yet (shared across multiple
+director packages, so not touched here). This relies on the template's own "Output ONLY a JSON
+object" instruction instead — worth upstreaming JSON-mode to CaptionClient if it proves
+unreliable in practice.
+
+Parser is unit-tested in `NativeVLMPromptStageTests.swift` (markdown-fence stripping,
+`estimated_seconds` as float, non-JSON rejection, missing-prompt rejection) — 5 tests, all
+pass. `expand()` itself calls LM Studio, not parity-tested (same convention as VLMVerify's
+network path). 63/63 tests pass.
+
+**Score for the standing goal**: of t2i2v's 3 stages, **2 are now run.py-free** — T2I
+(`NativeT2IStage`, ZImageDirector in-process) and VLM prompt expansion
+(`NativeVLMPromptStage`, LM Studio in-process). The sole remaining bridge is the LTX I2V
+generation step itself (transformer + denoise loop + Gemma text encoder). Every architectural
+piece of THAT step is ported and verified (Phase 2 LTXModel, Phase 3 DenoiseLoop, both VAEs);
+the blocker is purely the Gemma 12B text encoder (too large to hand-port in this format).
+`I2VCommand` rewiring still waits on that.
+
 ## Phase 4 — retire the bridge
 
 Once Phase 2/3 pass parity, `I2VEngine`/`UpscaleEngine` swap their
