@@ -447,6 +447,102 @@ test(
 );
 
 test(
+  "a completed background run persists background=true and is listed as undelivered until markDelivered",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent() });
+    const { runId, promise } = manager.startInBackground(oneAgentScript);
+    await promise;
+
+    const run = manager.getPersistedRun(runId);
+    assert.ok(run, "run is persisted");
+    assert.equal(run?.status, "completed");
+    assert.equal(run?.background, true, "background flag is persisted");
+
+    // Freshly completed background run with no deliveredAt → eligible for redelivery.
+    const pending = manager.listUndeliveredCompletedBackgroundRuns();
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].runId, runId);
+
+    manager.markDelivered(runId);
+    const after = manager.getPersistedRun(runId);
+    assert.ok(after?.deliveredAt, "deliveredAt is stamped");
+    assert.equal(manager.listUndeliveredCompletedBackgroundRuns().length, 0, "no longer pending");
+  }),
+);
+
+test(
+  "a completed foreground (sync) run is NOT eligible for redelivery",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent() });
+    await manager.runSync(oneAgentScript);
+
+    // Sync runs have background=false → excluded even before any markDelivered.
+    assert.equal(manager.listUndeliveredCompletedBackgroundRuns().length, 0);
+  }),
+);
+
+test(
+  "runs persisted before the background field (absent) are not redelivered automatically",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd });
+    // Hand-write a legacy completed run with NO background field (pre-feature shape).
+    manager.getPersistence().save({
+      runId: "legacy-run",
+      workflowName: "old",
+      script: oneAgentScript,
+      status: "completed",
+      phases: [],
+      agents: [],
+      logs: [],
+      startedAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      completedAt: "2026-06-01T00:00:00.000Z",
+      // background intentionally absent
+    });
+    assert.equal(manager.listUndeliveredCompletedBackgroundRuns().length, 0, "legacy run excluded");
+    // …but it IS still retrievable manually via getPersistedRun.
+    assert.ok(manager.getPersistedRun("legacy-run"));
+  }),
+);
+
+test(
+  "listUndeliveredCompletedBackgroundRuns skips paused/failed/background=false runs",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd });
+    const p = manager.getPersistence();
+    const base = {
+      workflowName: "x",
+      script: oneAgentScript,
+      phases: [] as string[],
+      agents: [],
+      logs: [],
+      startedAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+    p.save({ ...base, runId: "completed-bg", status: "completed", background: true, completedAt: "2026-07-01T01:00:00.000Z" });
+    p.save({ ...base, runId: "paused-bg", status: "paused", background: true });
+    p.save({ ...base, runId: "failed-bg", status: "failed", background: true });
+    p.save({ ...base, runId: "completed-fg", status: "completed", background: false, completedAt: "2026-07-01T02:00:00.000Z" });
+    p.save({ ...base, runId: "delivered-bg", status: "completed", background: true, deliveredAt: "2026-07-01T03:00:00.000Z", completedAt: "2026-07-01T03:00:00.000Z" });
+
+    const pending = manager.listUndeliveredCompletedBackgroundRuns();
+    assert.deepEqual(
+      pending.map((r) => r.runId),
+      ["completed-bg"],
+      "only completed, background, undelivered runs qualify",
+    );
+  }),
+);
+
+test(
+  "markDelivered is a no-op for an unknown runId (no crash, no write)",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd });
+    assert.doesNotThrow(() => manager.markDelivered("never-existed"));
+  }),
+);
+
+test(
   "manager emits complete event with runId",
   withTempCwd(async (cwd) => {
     const manager = new WorkflowManager({ cwd, agent: fakeAgent() });

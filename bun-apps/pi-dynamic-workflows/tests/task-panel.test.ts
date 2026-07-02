@@ -7,6 +7,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 type TaskPanelModule = {
   installResultDelivery: (pi: ExtensionAPI, manager: unknown) => void;
   installTaskPanel: (pi: ExtensionAPI | null, manager: unknown, ui: unknown) => void;
+  redeliverPendingResults: (pi: ExtensionAPI, manager: unknown) => void;
 };
 
 // Loaded once before all tests
@@ -16,36 +17,40 @@ beforeAll(async () => {
   mod = (await import("../src/task-panel.js")) as TaskPanelModule;
 });
 
+// Shared mock pi that records every sendMessage call. Hoisted to module scope so
+// both installResultDelivery and redeliverPendingResults suites can use it.
+function createMockPi(): ExtensionAPI & { _calls: { content: string; customType?: string }[] } {
+  const calls: { content: string; customType?: string }[] = [];
+  const obj = {
+    sendMessage(msg: unknown, _opts?: unknown) {
+      calls.push({
+        content: (msg as { content?: string }).content ?? "",
+        customType: (msg as { customType?: string }).customType,
+      });
+    },
+    registerTool: () => {},
+    on: () => {},
+    getActiveTools: () => [],
+    setActiveTools: () => {},
+    reload: () => Promise.resolve(),
+    _calls: calls,
+  };
+  return obj as unknown as ExtensionAPI & { _calls: { content: string; customType?: string }[] };
+}
+
 // ─── Pure-function tests (tested indirectly via installResultDelivery) ─────────
 
 describe("installResultDelivery", () => {
   function createMockManager(run?: unknown) {
     const manager = new EventEmitter() as ReturnType<typeof EventEmitter> & {
       getRun: (...args: unknown[]) => unknown;
+      markDelivered: (...args: unknown[]) => void;
       __deliveryInstalled?: boolean;
       listRuns?: () => unknown[];
     };
     manager.getRun = () => run;
+    manager.markDelivered = () => {};
     return manager;
-  }
-
-  function createMockPi(): ExtensionAPI & { _calls: { content: string; customType?: string }[] } {
-    const calls: { content: string; customType?: string }[] = [];
-    const obj = {
-      sendMessage(msg: unknown, _opts?: unknown) {
-        calls.push({
-          content: (msg as { content?: string }).content ?? "",
-          customType: (msg as { customType?: string }).customType,
-        });
-      },
-      registerTool: () => {},
-      on: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-      reload: () => Promise.resolve(),
-      _calls: calls,
-    };
-    return obj as unknown as ExtensionAPI & { _calls: { content: string; customType?: string }[] };
   }
 
   function makeRun(overrides: Record<string, unknown> = {}) {
@@ -297,6 +302,152 @@ describe("installResultDelivery", () => {
     const calls2 = (pi2 as unknown as { _calls: { content: string }[] })._calls;
     assert.equal(calls1.length, 0, "pi1 should not be used after refresh");
     assert.equal(calls2.length, 1, "pi2 should receive the delivery");
+  });
+
+  // ── markDelivered on complete ──
+
+  it("marks the run delivered after delivering a background complete", () => {
+    const pi = createMockPi();
+    let marked = "";
+    const manager = createMockManager(makeRun());
+    manager.markDelivered = (id: string) => {
+      marked = id;
+    };
+
+    mod.installResultDelivery(pi as unknown as ExtensionAPI, manager);
+    manager.emit("complete", { runId: "test-run-1" });
+
+    assert.equal(marked, "test-run-1", "markDelivered should be called with the runId");
+  });
+
+  it("does not mark delivered for a foreground (sync) complete", () => {
+    const pi = createMockPi();
+    let marked = "";
+    const manager = createMockManager(makeRun({ background: false }));
+    manager.markDelived = (id: string) => {
+      marked = id;
+    };
+    manager.markDelivered = (id: string) => {
+      marked = id;
+    };
+
+    mod.installResultDelivery(pi as unknown as ExtensionAPI, manager);
+    manager.emit("complete", { runId: "test-run-1" });
+
+    assert.equal(marked, "", "foreground runs should not be marked delivered");
+  });
+});
+
+// ─── redeliverPendingResults (session_start recovery) ─────────────────────────
+
+describe("redeliverPendingResults", () => {
+  function makePersistedRun(overrides: Record<string, unknown> = {}) {
+    return {
+      runId: "orphan-run-1",
+      workflowName: "audit-while-closed",
+      status: "completed",
+      background: true,
+      agents: [{ id: 1 }, { id: 2 }],
+      tokenUsage: { total: 12345 },
+      durationMs: 9000,
+      result: { report: "the audit found 2 issues" },
+      completedAt: "2026-07-01T10:00:00.000Z",
+      updatedAt: "2026-07-01T10:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  function createMockManager(runs: unknown[]) {
+    const manager = {
+      listUndeliveredCompletedBackgroundRuns: () => runs,
+      markDelivered: () => {},
+    };
+    return manager;
+  }
+
+  it("delivers each undelivered completed background run and marks it delivered", () => {
+    const pi = createMockPi();
+    const delivered: string[] = [];
+    const manager = createMockManager([makePersistedRun({ runId: "a" }), makePersistedRun({ runId: "b" })]);
+    manager.markDelivered = (id: string) => delivered.push(id);
+
+    mod.redeliverPendingResults(pi as unknown as ExtensionAPI, manager);
+
+    const calls = (pi as unknown as { _calls: { content: string; customType?: string }[] })._calls;
+    assert.equal(calls.length, 2, "both runs should be delivered");
+    assert.equal(calls[0].customType, "workflow-result");
+    assert.ok(calls[0].content.includes("while this session was closed"), "should frame as recovery");
+    assert.ok(calls[0].content.includes("audit found 2 issues"), "should include the result summary");
+    assert.deepEqual(delivered, ["a", "b"], "both should be marked delivered");
+  });
+
+  it("is a no-op when there is nothing to recover", () => {
+    const pi = createMockPi();
+    const manager = createMockManager([]);
+
+    mod.redeliverPendingResults(pi as unknown as ExtensionAPI, manager);
+
+    const calls = (pi as unknown as { _calls: { content: string }[] })._calls;
+    assert.equal(calls.length, 0);
+  });
+
+  it("caps a large backlog so a fresh session is not flooded", () => {
+    const pi = createMockPi();
+    const many = Array.from({ length: 10 }, (_, i) => makePersistedRun({ runId: `r${i}` }));
+    const manager = createMockManager(many);
+
+    mod.redeliverPendingResults(pi as unknown as ExtensionAPI, manager);
+
+    const calls = (pi as unknown as { _calls: { content: string }[] })._calls;
+    assert.ok(calls.length <= 5, `should cap at 5 deliveries, got ${calls.length}`);
+  });
+
+  it("still marks a run delivered even if its sendMessage returns without throwing", () => {
+    const pi = createMockPi();
+    const delivered: string[] = [];
+    const manager = createMockManager([makePersistedRun({ runId: "x" })]);
+    manager.markDelivered = (id: string) => delivered.push(id);
+
+    mod.redeliverPendingResults(pi as unknown as ExtensionAPI, manager);
+
+    assert.deepEqual(delivered, ["x"]);
+  });
+
+  it("skips a run whose sendMessage throws without marking it (so it retries next session)", () => {
+    const pi = createMockPi();
+    // First sendMessage throws (stale ctx), the run must NOT be marked delivered.
+    let callCount = 0;
+    const throwingPi = {
+      sendMessage() {
+        callCount++;
+        throw new Error("stale ctx");
+      },
+      registerTool: () => {},
+      on: () => {},
+      getActiveTools: () => [],
+      setActiveTools: () => {},
+      reload: () => Promise.resolve(),
+    };
+    const delivered: string[] = [];
+    const manager = createMockManager([makePersistedRun({ runId: "y" })]);
+    manager.markDelivered = (id: string) => delivered.push(id);
+
+    mod.redeliverPendingResults(throwingPi as unknown as ExtensionAPI, manager);
+
+    assert.equal(callCount, 1, "sendMessage was attempted");
+    assert.deepEqual(delivered, [], "a failed delivery must not be marked delivered");
+  });
+
+  it("does not crash when listUndeliveredCompletedBackgroundRuns throws", () => {
+    const pi = createMockPi();
+    const manager = {
+      listUndeliveredCompletedBackgroundRuns: () => {
+        throw new Error("disk read failed");
+      },
+      markDelivered: () => {},
+    };
+
+    assert.doesNotThrow(() => mod.redeliverPendingResults(pi as unknown as ExtensionAPI, manager));
   });
 });
 

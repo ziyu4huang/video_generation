@@ -35,6 +35,18 @@ export interface PersistedRunState {
   /** The pi session this run belongs to. Runs persist on disk across sessions but
    * the navigator shows only the current session's runs (undefined = legacy/global). */
   sessionId?: string;
+  /** True if this run was started (or resumed) in the background — i.e. its result
+   * is delivered via installResultDelivery rather than returned inline as the tool
+   * result. Used by session_start re-delivery to pick runs eligible for redelivery
+   * (a foreground sync run already returned its result inline). Absent on runs
+   * persisted before this field existed → treated as "not eligible" (manual
+   * `/workflows result <id>` recovery only). */
+  background?: boolean;
+  /** ISO timestamp marking when a background run's result was delivered into a
+   * conversation. Absent = never delivered → eligible for session_start
+   * re-delivery (the originating session closed before the run finished). Set
+   * once by installResultDelivery's complete handler and by redeliverPendingResults. */
+  deliveredAt?: string;
   status: RunStatus;
   /** Why a paused run is paused (e.g. "usage_limit" when a provider quota was hit). */
   pauseReason?: string;

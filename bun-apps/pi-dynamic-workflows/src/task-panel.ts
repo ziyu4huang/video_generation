@@ -123,7 +123,12 @@ export function installResultDelivery(pi: ExtensionAPI, manager: WorkflowManager
     const run = manager.getRun(runId);
     // Only background/resumed runs are delivered: a foreground (sync) run already
     // returns its result inline as the tool result, so re-delivering would dup it.
-    if (run?.background) deliver(deliverText(run));
+    if (run?.background) {
+      deliver(deliverText(run));
+      // Stamp deliveredAt so session_start re-delivery doesn't redeliver this run
+      // in a later session. (Best-effort; a miss just means one extra redelivery.)
+      manager.markDelivered(runId);
+    }
   });
   manager.on("error", ({ runId, error }: { runId: string; error?: { message?: string } }) => {
     if (!manager.getRun(runId)?.background) return;
@@ -156,6 +161,66 @@ export function installResultDelivery(pi: ExtensionAPI, manager: WorkflowManager
       );
     },
   );
+}
+
+/**
+ * Build a delivery message for a run that is persisted-only (not in memory) —
+ * the session_start re-delivery path. Mirrors {@link deliverText} but reads the
+ * persisted fields directly (no ManagedRun / WorkflowRunResult available).
+ */
+function deliverTextFromPersisted(run: {
+  runId: string;
+  workflowName: string;
+  result?: unknown;
+  agents?: unknown[];
+  tokenUsage?: { total: number } | undefined;
+  durationMs?: number | undefined;
+}): string {
+  const summary = summarizeResult(run.result);
+  const tokens = run.tokenUsage ? ` · ${run.tokenUsage.total.toLocaleString()} tokens` : "";
+  const agents = run.agents?.length ?? 0;
+  const duration = run.durationMs ? ` · ${(run.durationMs / 1000).toFixed(1)}s` : "";
+  return [
+    `✓ Background workflow "${run.workflowName}" finished while this session was closed` +
+      ` (${agents} agents${tokens}${duration}). Recovered result:`,
+    "",
+    summary,
+  ].join("\n");
+}
+
+/**
+ * Re-deliver results for background runs that finished while no session was open
+ * to receive them (the originating session closed first — e.g. a `-p` batch
+ * invocation, or a crash/restart mid-run). Called on `session_start` after
+ * {@link installResultDelivery}. Each run is delivered once, then stamped
+ * `deliveredAt` via {@link WorkflowManager.markDelivered} so it never repeats.
+ *
+ * Best-effort and quiet: if there is nothing to recover, this is a no-op. Caps
+ * at a handful of runs so a backlog can't spam a fresh session.
+ */
+export function redeliverPendingResults(pi: ExtensionAPI, manager: WorkflowManager): void {
+  let pending;
+  try {
+    pending = manager.listUndeliveredCompletedBackgroundRuns();
+  } catch {
+    return; // best-effort — never block session_start
+  }
+  // Cap so an unbounded backlog (e.g. many crashed batch runs) can't flood a new
+  // session. The rest stay recoverable via `/workflows result`.
+  const MAX = 5;
+  for (const run of pending.slice(0, MAX)) {
+    try {
+      pi.sendMessage(
+        { customType: "workflow-result", content: deliverTextFromPersisted(run), display: true },
+        { triggerTurn: false, deliverAs: "followUp" },
+      );
+    } catch {
+      // A stale ctx etc. — mark delivered anyway? No: leave unstamped so a future
+      // session retries. Skip silently.
+      continue;
+    }
+    manager.markDelivered(run.runId);
+  }
 }
 
 export function renderPanel(manager: WorkflowManager, theme: Theme, width?: number): string[] {
