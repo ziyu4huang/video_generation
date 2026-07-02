@@ -200,12 +200,17 @@ Third component: `AdaLayerNormSingle.swift` — produces the DiT block's modulat
 `scripts/dump_adaln_reference.py` + `Tests/LTXVideoDirectorTests/AdaLayerNormSingleParityTests.swift`:
 max-abs-diff < 1e-4 on both outputs. 20/20 tests pass.
 
+Fourth component: `FeedForward.swift` — the DiT block's MLP (Linear → GELU tanh-approx → Linear),
+used for both the main video FFN (`ff`) and the audio FFN (`audio_ff`, same class, different
+instance). Verified via `scripts/dump_feedforward_reference.py` +
+`Tests/LTXVideoDirectorTests/FeedForwardParityTests.swift`: max-abs-diff < 1e-4. 21/21 tests pass.
+
 Transformer source lives at
 `python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
-`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (done),
-`feed_forward.py` (32 lines — next), `attention.py` (143 lines — spatiotemporal +
-audio cross-attention, the real complexity), `modality.py` (78 lines), `model.py` (567
-lines — the full 48-layer DiT assembly, by far the largest single file in the whole
+`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (done), `feed_forward.py` (done),
+`attention.py` (143 lines — next; spatiotemporal + audio cross-attention, the real
+complexity: this is where RoPE actually gets applied), `modality.py` (78 lines), `model.py`
+(567 lines — the full 48-layer DiT assembly, by far the largest single file in the whole
 port). Continue smallest-to-largest.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate

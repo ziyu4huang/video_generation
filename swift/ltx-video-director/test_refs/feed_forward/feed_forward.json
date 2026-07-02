@@ -1,0 +1,19 @@
+{
+  "dim": 16,
+  "input_shape": [
+    2,
+    5,
+    16
+  ],
+  "output_shape": [
+    2,
+    5,
+    16
+  ],
+  "weight_keys": [
+    "proj_in.weight",
+    "proj_in.bias",
+    "proj_out.weight",
+    "proj_out.bias"
+  ]
+}
