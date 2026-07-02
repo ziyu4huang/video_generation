@@ -353,6 +353,22 @@ questions anymore — they're each their own integration project.
   (loudness/silence). A proper "is this actually speech, and roughly the
   right language" check needs VAD/ASR — out of scope until this phase.
 
+**Started 2026-07-02.** First sampling-loop component: `EulerDiffusionStep.swift` ports
+`ltx_core_mlx.components.diffusion_steps.EulerDiffusionStep` (+ `to_velocity`) — the first-order
+Euler flow-match step used by the fast distilled/dasiwa denoise loop. `sample + velocity * dt`
+where `velocity = (sample - denoised) / sigma`; pure function, no weights. Chosen first (of three
+sibling steppers: `Res2sDiffusionStep` for `--hq`, `EulerCfgPpDiffusionStep` for CFG++) as the
+simplest and most-used, per the smallest-to-largest pattern from Phase 1/2. Verified via
+`scripts/dump_euler_step_reference.py` + `Tests/LTXVideoDirectorTests/EulerDiffusionStepParityTests.swift`:
+replays a real 4-step chain (each step's output feeds the next step's input, as a real denoise
+loop does) against the real class — max-abs-diff < 1e-5 at every step. 29/29 tests pass.
+
+Remaining for the sampling loop: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`, CFG/STG batching
+via `Modality.split` (already ported in Phase 2), noise initialization, sigma schedule
+construction, and the actual `denoise_loop` orchestration (`utils/samplers.py`) that calls
+`LTXModel` + a stepper once per timestep. Image-conditioning latent injection and audio decode are
+separate sub-items also tracked in this phase.
+
 ## Phase 4 — retire the bridge
 
 Once Phase 2/3 pass parity, `I2VEngine`/`UpscaleEngine` swap their
