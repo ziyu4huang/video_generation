@@ -217,13 +217,22 @@ query_dim`, `encoderHiddenStates` nil) and cross-attention without RoPE (`kv_dim
 covering BOTH shapes: max-abs-diff < 1e-3 (looser than the FFN/AdaLN tests — attention involves
 softmax + multiple matmuls, more fp32 accumulation than a single Linear). 23/23 tests pass.
 
-Transformer source lives at
-`python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
-`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (done), `feed_forward.py` (done),
-`attention.py` (done), `modality.py` (78 lines — next), `model.py` (567 lines — the full
-48-layer DiT assembly, by far the largest single file in the whole port; now that RoPE, timestep
-embedding, AdaLN, FeedForward, and Attention all exist, this is where they get assembled into an
-actual transformer block, then stacked 48x). Continue smallest-to-largest.
+Sixth component: `Modality.swift` — the input bundle for one modality (video or audio) in the
+DiT: latent/sigma/timesteps/positions/context + optional masks. A plain data container (no
+learned weights, no real numerics) with a `split(sizes:)` utility used by guidance code that
+batches multiple guidance variants (cond/neg/ptb/mod) together for one forward pass and needs to
+break them apart again afterward. Still verified against the real Python `.split()` (batch-offset
+slicing across 5 fields is easy to get subtly wrong) via `scripts/dump_modality_reference.py` +
+`Tests/LTXVideoDirectorTests/ModalityParityTests.swift`: exact match (tolerance 1e-6) splitting a
+batch-of-6 into [2,3,1], the real guidance-batching shape. 24/24 tests pass.
+
+**All Phase 2 building blocks now exist**: RoPE, TimestepEmbedding, AdaLayerNormSingle,
+FeedForward, Attention, Modality. Remaining: `model.py` (567 lines — the full 48-layer DiT
+assembly; this is where they get wired into an actual transformer block: self-attn → cross-attn
+(text) → cross-attn (audio, if enabled) → FFN, each gated by AdaLN modulation params, then
+stacked 48x with a REAL checkpoint's actual weights). This is the single largest remaining file
+in the entire port and the real test of whether the pieces built so far are actually sufficient —
+continue from here next.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 
