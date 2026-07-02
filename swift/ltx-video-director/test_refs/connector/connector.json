@@ -1,0 +1,53 @@
+{
+  "dim": 16,
+  "num_heads": 2,
+  "head_dim": 8,
+  "num_layers": 2,
+  "num_registers": 4,
+  "max_pos": 64,
+  "input_shape": [
+    1,
+    6,
+    16
+  ],
+  "output_shape": [
+    1,
+    10,
+    16
+  ],
+  "weight_keys": [
+    "learnable_registers",
+    "transformer_1d_blocks.0.attn1.to_q.weight",
+    "transformer_1d_blocks.0.attn1.to_q.bias",
+    "transformer_1d_blocks.0.attn1.to_k.weight",
+    "transformer_1d_blocks.0.attn1.to_k.bias",
+    "transformer_1d_blocks.0.attn1.to_v.weight",
+    "transformer_1d_blocks.0.attn1.to_v.bias",
+    "transformer_1d_blocks.0.attn1.to_out.0.weight",
+    "transformer_1d_blocks.0.attn1.to_out.0.bias",
+    "transformer_1d_blocks.0.attn1.to_gate_logits.weight",
+    "transformer_1d_blocks.0.attn1.to_gate_logits.bias",
+    "transformer_1d_blocks.0.attn1.q_norm.weight",
+    "transformer_1d_blocks.0.attn1.k_norm.weight",
+    "transformer_1d_blocks.0.ff.net.0.proj.weight",
+    "transformer_1d_blocks.0.ff.net.0.proj.bias",
+    "transformer_1d_blocks.0.ff.net.2.weight",
+    "transformer_1d_blocks.0.ff.net.2.bias",
+    "transformer_1d_blocks.1.attn1.to_q.weight",
+    "transformer_1d_blocks.1.attn1.to_q.bias",
+    "transformer_1d_blocks.1.attn1.to_k.weight",
+    "transformer_1d_blocks.1.attn1.to_k.bias",
+    "transformer_1d_blocks.1.attn1.to_v.weight",
+    "transformer_1d_blocks.1.attn1.to_v.bias",
+    "transformer_1d_blocks.1.attn1.to_out.0.weight",
+    "transformer_1d_blocks.1.attn1.to_out.0.bias",
+    "transformer_1d_blocks.1.attn1.to_gate_logits.weight",
+    "transformer_1d_blocks.1.attn1.to_gate_logits.bias",
+    "transformer_1d_blocks.1.attn1.q_norm.weight",
+    "transformer_1d_blocks.1.attn1.k_norm.weight",
+    "transformer_1d_blocks.1.ff.net.0.proj.weight",
+    "transformer_1d_blocks.1.ff.net.0.proj.bias",
+    "transformer_1d_blocks.1.ff.net.2.weight",
+    "transformer_1d_blocks.1.ff.net.2.bias"
+  ]
+}

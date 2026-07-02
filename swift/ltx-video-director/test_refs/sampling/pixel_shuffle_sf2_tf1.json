@@ -1,0 +1,20 @@
+{
+  "input_shape": [
+    1,
+    2,
+    5,
+    5,
+    24
+  ],
+  "output_shape": [
+    1,
+    2,
+    10,
+    10,
+    6
+  ],
+  "kwargs": {
+    "spatial_factor": 2,
+    "temporal_factor": 1
+  }
+}

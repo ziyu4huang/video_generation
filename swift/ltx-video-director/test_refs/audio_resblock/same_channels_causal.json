@@ -1,0 +1,23 @@
+{
+  "in_channels": 8,
+  "out_channels": 8,
+  "causal": true,
+  "input_shape": [
+    1,
+    5,
+    6,
+    8
+  ],
+  "output_shape": [
+    1,
+    5,
+    6,
+    8
+  ],
+  "weight_keys": [
+    "conv1.conv.weight",
+    "conv1.conv.bias",
+    "conv2.conv.weight",
+    "conv2.conv.bias"
+  ]
+}

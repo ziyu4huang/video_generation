@@ -1,0 +1,16 @@
+{
+  "channels": 8,
+  "causal": true,
+  "input_shape": [
+    1,
+    4,
+    5,
+    8
+  ],
+  "output_shape": [
+    1,
+    7,
+    10,
+    8
+  ]
+}

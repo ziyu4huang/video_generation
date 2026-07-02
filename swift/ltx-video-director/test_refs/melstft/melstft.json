@@ -1,0 +1,14 @@
+{
+  "n_fft": 512,
+  "hop_length": 80,
+  "n_mels": 64,
+  "waveform_shape": [
+    1,
+    2000
+  ],
+  "output_shape": [
+    1,
+    25,
+    64
+  ]
+}

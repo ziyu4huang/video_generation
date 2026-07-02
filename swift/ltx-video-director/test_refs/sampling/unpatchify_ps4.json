@@ -1,0 +1,19 @@
+{
+  "input_shape": [
+    1,
+    2,
+    3,
+    3,
+    48
+  ],
+  "output_shape": [
+    1,
+    2,
+    12,
+    12,
+    3
+  ],
+  "kwargs": {
+    "patch_size": 4
+  }
+}

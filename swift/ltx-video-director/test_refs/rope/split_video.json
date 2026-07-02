@@ -1,0 +1,30 @@
+{
+  "B": 1,
+  "N": 6,
+  "num_pos_dims": 3,
+  "inner_dim": 32,
+  "num_heads": 4,
+  "theta": 10000.0,
+  "max_pos": [
+    20,
+    64,
+    64
+  ],
+  "positions_shape": [
+    1,
+    6,
+    3
+  ],
+  "cos_shape": [
+    1,
+    4,
+    6,
+    4
+  ],
+  "output_shape": [
+    1,
+    4,
+    6,
+    8
+  ]
+}
