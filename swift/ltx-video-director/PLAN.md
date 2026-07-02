@@ -58,11 +58,21 @@ dumps fixed-seed weights/input/output from the real `Conv3dBlock`, and
 `Tests/LTXVideoDirectorTests/Conv3dBlockParityTests.swift` loads them and asserts max-abs-diff
 < 1e-4 for all three modes (causal+zeros, non-causal+reflect, causal kernel=1). All 3 pass.
 
-This is one atomic building block, not the VAE decoder itself — the decoder (`video_vae.py`,
-687 lines: ResBlockStage, DepthToSpaceUpsample, PixelNorm, per-channel statistics denorm,
-memory-bounded tiling) is the next slice, followed by the encoder, then the 48-layer transformer
-(by far the largest piece — see Phase 2). Each subsequent piece follows the same
-dump-real-reference → port → parity-test loop established here.
+Second and third components landed the same way: `PixelNorm.swift` (parameter-free RMS norm over
+channels — `mx.fast.rms_norm(x, weight=None)`; ported as an explicit formula since MLX Swift's
+`rmsNorm` requires a non-optional weight) and `ResBlockStage.swift` (pre-activation residual
+block: norm→silu→conv1→norm→silu→conv2+skip, composed from `Conv3dBlock`+`PixelNorm`). Verified
+via `scripts/dump_resblock_reference.py` + `Tests/LTXVideoDirectorTests/ResBlockStageParityTests.swift`
+(max-abs-diff < 1e-4, 2-block stage, 8 real weight tensors loaded by their checkpoint-shaped keys
+`res_blocks.{i}.conv{1,2}.conv.{weight,bias}` — confirms the Swift loader's key scheme matches the
+real checkpoint layout, not just the math). 7/7 tests pass.
+
+Remaining decoder pieces: `DepthToSpaceUpsample` (pixel-shuffle-style upsampling between stages),
+per-channel statistics denorm, `conv_in`/`conv_out`, and memory-bounded tiling — then the full
+`up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}` (DepthToSpaceUpsample) decoder
+assembly against a REAL checkpoint (not synthetic weights), followed by the encoder, then the
+48-layer transformer (by far the largest piece — see Phase 2). Each subsequent piece follows the
+same dump-real-reference → port → parity-test loop established here.
 
 ## Phase 1 — native VAE (decode-only)
 

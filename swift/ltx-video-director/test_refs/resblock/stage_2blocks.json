@@ -1,0 +1,30 @@
+{
+  "channels": 8,
+  "num_blocks": 2,
+  "causal": true,
+  "spatial_padding_mode": "zeros",
+  "input_shape": [
+    1,
+    4,
+    5,
+    5,
+    8
+  ],
+  "output_shape": [
+    1,
+    4,
+    5,
+    5,
+    8
+  ],
+  "weight_keys": [
+    "res_blocks.0.conv1.conv.weight",
+    "res_blocks.0.conv1.conv.bias",
+    "res_blocks.0.conv2.conv.weight",
+    "res_blocks.0.conv2.conv.bias",
+    "res_blocks.1.conv1.conv.weight",
+    "res_blocks.1.conv1.conv.bias",
+    "res_blocks.1.conv2.conv.weight",
+    "res_blocks.1.conv2.conv.bias"
+  ]
+}
