@@ -762,9 +762,49 @@ count/size + PNG magic-byte check + invalid-shape error path). 58/58 tests pass.
 **Both halves of generation output — audio (latent→WAV) and video (latent→PNG frames) — now have
 a real, run.py-free CLI path**, each independently verified against an external tool (`ffprobe`,
 `file`). The loader-promotion pattern (test helpers → production `Sources/` loaders → a real CLI
-command) has now been applied twice; the remaining gap to a fully native `I2VCommand` is entirely
-on the *generation* side (transformer + denoise loop + Gemma text embeddings), not the *decode*
-side — both decode paths are done and reachable from the actual binary today.
+command) has now been applied twice.
+
+### Major finding + milestone: the T2I stage was ALREADY fully native — `ltx-video t2i` (2026-07-02)
+
+While scoping what remained for the Gemma bridge, checked whether the sibling `z-image-director`
+package (linked by other tools in this repo, never by `ltx-video-director`) had solved the same
+text-encoder problem already. **It had, entirely** —
+`z-image-director/Sources/ZImageDirector/TextEncoder.swift`'s own header: "Phase 3: Qwen3-4B text
+encoder... Removes the Python embedding-exchange dependency for true E2E text→image." ZImage's
+text encoder, transformer, and VAE are ALL already pure Swift/MLX, shipped and working, just never
+wired into this package. The Gemma-for-video bridge is the ONLY unported text encoder in the
+entire project — ZImage's Qwen3 encoder for the T2I stage was solved before this session began.
+
+Added `z-image-director` as a `Package.swift` dependency and wrote `NativeT2IStage.swift`, which
+mirrors `ZImageDirectorCLI/T2ICommand.swift`'s load-and-generate sequence (`WeightStore.load` →
+`TextEncoderWeights.load` + `Qwen3TextEncoder.build` → `BPETokenizer.encodePrompt` →
+`T2IPipeline.generate`, trimmed to the no-LoRA, `cfgScale=1.0`-default path — CFG is opt-in in
+ZImageDirector's own CLI too, not required for a good result) — entirely in-process, calling
+public APIs on the sibling package directly, no subprocess at all (stronger than the decode
+commands' "no run.py" — this has no Python anywhere, not even a non-run.py script).
+
+New `ltx-video t2i` subcommand + real run (not a synthetic `--zeros` smoke test — an actual
+prompt): `ltx-video t2i --prompt "a beautiful young woman standing on a city street at golden
+hour" --width 640 --height 960 --seed 99` → a real 9-step denoise (13.1s, 1.46s/it) → a genuine,
+high-quality 640×960 photorealistic image, independently confirmed valid with `file` (`PNG image
+data, 640 x 960, 8-bit/color RGB`) and visually inspected — a real "beauty girl on a street"
+result matching this project's original stated goal, produced with zero Python involvement
+anywhere in the call chain. Two path bugs surfaced and fixed while getting this running (both
+config/discovery issues, not math bugs): the VAE directory name was `zimage-ae`, not
+`zimage-turbo-vae`, and the tokenizer directory was `qwen3`, not `qwen3-4b` (the text encoder's
+own directory) — corrected against what actually exists on disk under `mlx-models/`, not assumed
+from the transformer's directory-naming convention. 58/58 tests pass (no regressions; this
+milestone was a manual CLI run, not itself parity-tested — there's no reference to diff since
+`ZImageDirector.T2IPipeline` is a black box called as-is here).
+
+**Concrete effect on the standing goal**: `t2i2v` = T2I → VLM prompt expansion → LTX I2V. The T2I
+third of that pipeline no longer needs `run.py` OR any Python at all — it's a real, working,
+in-process Swift call today. The VLM prompt-expansion stage (`caption --style ltx_i2v`) still
+bridges to Python (LM Studio), and the LTX I2V stage still needs the Gemma-dependent
+transformer/denoise loop. `I2VCommand` itself hasn't been rewired yet (that requires composing all
+three stages plus deciding what happens to VLM expansion and the still-missing LTX generation
+step), so `ltx-video i2v` unchanged still calls `RunPyBridge` — but one of its three stages is now
+provably, demonstrably native, not just theoretically portable.
 
 ## Phase 4 — retire the bridge
 

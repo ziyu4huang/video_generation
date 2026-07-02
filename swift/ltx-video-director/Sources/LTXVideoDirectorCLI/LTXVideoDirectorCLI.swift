@@ -12,6 +12,7 @@
 //    models        — list installed LTX-2.3 transformer variants
 //    audio-decode  — PURE SWIFT (no run.py): audio latent -> 48kHz WAV
 //    video-decode  — PURE SWIFT (no run.py): video latent -> PNG frame sequence
+//    t2i           — PURE SWIFT (no run.py): prompt -> image (ZImageDirector in-process)
 //
 
 import ArgumentParser
@@ -22,6 +23,6 @@ struct LTXVideoDirectorCLI: ParsableCommand {
         commandName: "ltx-video",
         abstract: "LTX-2.3 I2V generation + video/image/voice quality gateway (Apple Silicon MLX).",
         version: "0.1.0",
-        subcommands: [I2V.self, Gate.self, Verify.self, Upscale.self, Models.self, AudioDecode.self, VideoDecode.self]
+        subcommands: [I2V.self, Gate.self, Verify.self, Upscale.self, Models.self, AudioDecode.self, VideoDecode.self, T2I.self]
     )
 }

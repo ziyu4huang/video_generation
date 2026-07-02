@@ -30,6 +30,11 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(path: "../image-gen-utils"),
         .package(path: "../common-image-director"),
+        // Linked so the T2I half of the t2i2v pipeline can run through
+        // ZImageDirector's already-native (Qwen3 text encoder + transformer +
+        // VAE, zero Python) T2IPipeline in-process instead of shelling out to
+        // `run.py image t2i` — see NativeT2IStage.swift / PLAN.md.
+        .package(path: "../z-image-director"),
     ],
     targets: [
         .target(
@@ -38,6 +43,7 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "ImageGenUtils", package: "image-gen-utils"),
                 .product(name: "CommonImageDirector", package: "common-image-director"),
+                .product(name: "ZImageDirector", package: "z-image-director"),
             ],
             path: "Sources/LTXVideoDirector"
         ),
@@ -48,6 +54,7 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "ImageGenUtils", package: "image-gen-utils"),
                 .product(name: "CommonImageDirector", package: "common-image-director"),
+                .product(name: "ZImageDirector", package: "z-image-director"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/LTXVideoDirectorCLI"
