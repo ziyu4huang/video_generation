@@ -226,13 +226,41 @@ slicing across 5 fields is easy to get subtly wrong) via `scripts/dump_modality_
 `Tests/LTXVideoDirectorTests/ModalityParityTests.swift`: exact match (tolerance 1e-6) splitting a
 batch-of-6 into [2,3,1], the real guidance-batching shape. 24/24 tests pass.
 
-**All Phase 2 building blocks now exist**: RoPE, TimestepEmbedding, AdaLayerNormSingle,
-FeedForward, Attention, Modality. Remaining: `model.py` (567 lines — the full 48-layer DiT
-assembly; this is where they get wired into an actual transformer block: self-attn → cross-attn
-(text) → cross-attn (audio, if enabled) → FFN, each gated by AdaLN modulation params, then
-stacked 48x with a REAL checkpoint's actual weights). This is the single largest remaining file
-in the entire port and the real test of whether the pieces built so far are actually sufficient —
-continue from here next.
+### Milestone: the full joint audio-video DiT block, verified end-to-end
+
+`BasicAVTransformerBlock.swift` ports `transformer.py`'s `BasicAVTransformerBlock` — the actual
+block stacked 48x into the LTX-2.3 DiT. Wires together every Phase-2 component built so far into
+the real forward pass: video self-attn → audio self-attn → video text cross-attn → audio text
+cross-attn → bidirectional audio↔video cross-modal attention (the joint-modality mechanism that
+makes this a "joint audio+video" model, not a video model with bolted-on audio) → video FF →
+audio FF, each step modulated by AdaLN-derived scale/shift/gate parameters unpacked from a
+per-block `scale_shift_table` (`_unpack_adaln`, ported faithfully including the "scalar vs
+per-token" branch and the 9/4/2/1-param table layouts for self-attn/AV-cross/text-cross/AV-gate
+respectively). Uses 6 separate `Attention` instances (video self, audio self, video text-cross,
+audio text-cross, audio→video cross-modal, video→audio cross-modal) and 2 `FeedForward` instances
+— confirms `Attention`'s single-struct design correctly serves every attention shape the real DiT
+needs, not just the two shapes it was originally tested against.
+
+**NOT yet ported**: STG (spatial-temporal guidance) perturbation masking
+(`BatchedPerturbationConfig`) — used for inference-time guidance tricks, not needed for a basic
+forward pass; the reference's `perturbations` branches are simply omitted (block always takes the
+un-perturbed path).
+
+Verified via `scripts/dump_basicavblock_reference.py` (runs the REAL `BasicAVTransformerBlock`
+class, real 9-step forward logic, fixed-seed weights, small dims, includes video/audio self-RoPE
+AND separate video/audio cross-RoPE — 4 distinct RoPE frequency tables in one test, matching how
+the real block actually receives them) + `Tests/LTXVideoDirectorTests/BasicAVTransformerBlockParityTests.swift`:
+**passed on the first run** — max-abs-diff < 2e-3 on both video and audio outputs (looser
+tolerance than single-attention tests: 8 attention/FF stages of fp32 accumulation compound). This
+is the single largest validation in the port so far and the real test of whether the 6 components
+built earlier in Phase 2 were correct AND correctly composable — they were. 25/25 tests pass.
+
+Remaining for Phase 2: `model.py`'s `LTXModel` top-level assembly (patchify/unpatchify
+projections, 6 top-level AdaLN modules producing this block's input params from a single
+timestep, the actual 48x block stack against a REAL checkpoint, the `LTX2_DIT_EVAL_EVERY` Metal
+watchdog workaround). With `BasicAVTransformerBlock` proven, this is now "mostly wiring plus a
+real-checkpoint smoke test," the same pattern that worked for `VideoDecoder`/`VideoEncoder` in
+Phase 1 — not new algorithmic risk.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 
