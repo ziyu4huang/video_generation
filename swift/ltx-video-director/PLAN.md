@@ -67,12 +67,20 @@ via `scripts/dump_resblock_reference.py` + `Tests/LTXVideoDirectorTests/ResBlock
 `res_blocks.{i}.conv{1,2}.conv.{weight,bias}` — confirms the Swift loader's key scheme matches the
 real checkpoint layout, not just the math). 7/7 tests pass.
 
-Remaining decoder pieces: `DepthToSpaceUpsample` (pixel-shuffle-style upsampling between stages),
-per-channel statistics denorm, `conv_in`/`conv_out`, and memory-bounded tiling — then the full
-`up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}` (DepthToSpaceUpsample) decoder
-assembly against a REAL checkpoint (not synthetic weights), followed by the encoder, then the
-48-layer transformer (by far the largest piece — see Phase 2). Each subsequent piece follows the
-same dump-real-reference → port → parity-test loop established here.
+Fourth/fifth/sixth: `VAESampling.pixelShuffle3D` and `.unpatchifySpatial` (`sampling.py`'s
+weight-free depth-to-space rearrangement ops — the two differ in channel-split order, (c,temporal,
+h,w) vs (c,r=width,q=height), which caused checkerboard artifacts upstream when confused; both
+verified separately) plus `DepthToSpaceUpsample` (a thin wrapper — literally just `Conv3dBlock`,
+since the reference applies `pixel_shuffle_3d` to its output externally). Verified via
+`scripts/dump_sampling_reference.py` + `Tests/LTXVideoDirectorTests/VAESamplingParityTests.swift`:
+max-abs-diff < 1e-5 on 3 shape/factor combinations. 10/10 tests pass across all Phase 1 work so far.
+
+Remaining decoder pieces: per-channel statistics denorm, `conv_in`/`conv_out`, and memory-bounded
+tiling — then the full `up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}`
+(DepthToSpaceUpsample) decoder assembly against a REAL checkpoint (not synthetic weights),
+followed by the encoder, then the 48-layer transformer (by far the largest piece — see Phase 2).
+Each subsequent piece follows the same dump-real-reference → port → parity-test loop established
+here.
 
 ## Phase 1 — native VAE (decode-only)
 
