@@ -75,10 +75,20 @@ since the reference applies `pixel_shuffle_3d` to its output externally). Verifi
 `scripts/dump_sampling_reference.py` + `Tests/LTXVideoDirectorTests/VAESamplingParityTests.swift`:
 max-abs-diff < 1e-5 on 3 shape/factor combinations. 10/10 tests pass across all Phase 1 work so far.
 
-Remaining decoder pieces: per-channel statistics denorm, `conv_in`/`conv_out`, and memory-bounded
-tiling — then the full `up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}`
-(DepthToSpaceUpsample) decoder assembly against a REAL checkpoint (not synthetic weights),
-followed by the encoder, then the 48-layer transformer (by far the largest piece — see Phase 2).
+Seventh: `PerChannelStatistics.denormalizeLatent` — the per-channel affine (x*std+mean) applied to
+the raw latent before `conv_in` in the real decoder's `decode()` (confirmed by reading
+`video_vae.py`'s actual `decode()` body, which also revealed the real upsample factor schedule
+for `up_blocks` 1/3/5/7: `[(2,2),(2,2),(1,2),(2,1)]` spatial/temporal — needed for the next
+assembly step). Verified via `scripts/dump_perchannelstats_reference.py` +
+`Tests/LTXVideoDirectorTests/PerChannelStatisticsParityTests.swift`: max-abs-diff < 1e-5.
+11/11 tests pass across all Phase 1 work so far.
+
+Remaining decoder pieces: `conv_in`/`conv_out` (plain Conv3dBlock instances, already portable with
+the existing component — just need real weight keys), and memory-bounded tiling — then the full
+`up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}` (DepthToSpaceUpsample) decoder
+assembly against a REAL checkpoint (not synthetic weights) is the next milestone: it would be the
+first native Swift code path capable of turning an actual LTX-2.3 latent into actual pixels.
+After that: the encoder, then the 48-layer transformer (by far the largest piece — see Phase 2).
 Each subsequent piece follows the same dump-real-reference → port → parity-test loop established
 here.
 
