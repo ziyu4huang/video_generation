@@ -17,6 +17,12 @@
 #   ./run.sh -e path/to/ext.ts -p "…"   # any pi flag, forwarded untouched
 #   PIAGENT_DEBUG=1 ./run.sh …          # print which entry/mode was chosen
 #
+#   Missing extension deps (source mode): when a declared npm extension can't
+#   be resolved, run.sh prints a consolidated guide with the exact `bun install`
+#   command. Set BUN_PI_AUTO_INSTALL=1 to run `bun install` at the repo root
+#   automatically instead of just guiding:
+#   BUN_PI_AUTO_INSTALL=1 ./run.sh …
+#
 #   From anywhere (resolves its own dir):
 #   cd /anywhere && /abs/path/to/.../run.sh -p hi
 ########################################
