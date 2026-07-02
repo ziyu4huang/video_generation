@@ -108,12 +108,30 @@ Two-tier verification:
 **This is the first native Swift code path that has actually decoded a latent using real LTX-2.3
 production weights, with zero Python involved.** 13/13 tests pass.
 
-Remaining before this is usable in the real `i2v` pipeline: memory-bounded tiling (real latents are
-far larger than the tiny 2×2×2 test case — the reference's own `tiled_decode` exists precisely
-because a full-size decode would blow memory budgets), and swapping `RunPyBridge`'s decode step for
-this native path behind the same `I2VResult` type. After the decoder: the encoder, then the 48-layer
-transformer (by far the largest piece — see Phase 2). Each subsequent piece follows the same
-dump-real-reference → port → parity-test loop established here.
+Remaining before the decoder is usable in the real `i2v` pipeline: memory-bounded tiling (real
+latents are far larger than the tiny 2×2×2 test case), and swapping `RunPyBridge`'s decode step for
+this native path behind the same `I2VResult` type.
+
+### Encoder work started (needed for I2V image conditioning, not just training/round-trip)
+
+Ninth/tenth components: `VAESampling.spaceToDepth`/`.patchifySpatial` (the encoder-side downsample
+rearrangement, analogous to the decoder's pixelShuffle3D/unpatchifySpatial) and
+`SpaceToDepthDownsample` (the encoder's downsample block: a conv branch + a parameter-free
+group-mean skip branch, summed — real formula: `group_size = in_ch*stride_h*stride_w*stride_t /
+out_ch`). Read `video_vae.py`'s real `VideoEncoder.__init__`/`encode()` directly to confirm the
+full architecture: `conv_in` (48→128) → 9 `down_blocks` (ResBlockStage@128×4/256×6/512×4/1024×2/
+1024×2 alternating with SpaceToDepthDownsample at strides `(1,2,2)/(2,1,1)/(2,2,2)/(2,2,2)`) →
+pre-activation PixelNorm+SiLU → `conv_out` (1024→129, keep first 128 channels, discard the rest) →
+`normalize_latent` ((x-mean)/std, note: SUBTRACT not add, unlike the decoder's denormalize) →
+`patchifySpatial` at the INPUT (before conv_in, not shown above — patches pixels 48ch before the
+first conv). Verified via `scripts/dump_spacetodepthdownsample_reference.py` +
+`Tests/LTXVideoDirectorTests/SpaceToDepthParityTests.swift`: max-abs-diff < 1e-4/1e-5 across
+space_to_depth alone and two SpaceToDepthDownsample stride configs. 16/16 tests pass.
+
+Not yet done: assembling the full `VideoEncoder` (same milestone pattern as `VideoDecoder` —
+mini-architecture parity test + real-checkpoint smoke test against `vae_encoder.safetensors`).
+After encoder: the 48-layer transformer (by far the largest piece — see Phase 2). Each subsequent
+piece follows the same dump-real-reference → port → parity-test loop established here.
 
 ## Phase 1 — native VAE (decode-only)
 
