@@ -106,92 +106,112 @@ async function runScenario(s: Scenario): Promise<Result> {
 	return { total, matched, errors };
 }
 
-describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)(
-	"e2e: extension loading across source/deploy/cwd",
-	() => {
-	let pkgDir = "";
-	let pkgPiAgent = "";
-	let probePath = "";
+// Shared assertions for one scenario's Result.
+function assertCleanLoad(r: Result) {
+	// ZERO conflict/cannot-find/failed-to-load.
+	expect(r.errors).toEqual([]);
+	// The probe extension itself was loaded (matched > 0).
+	expect(r.matched).not.toBeNull();
+	expect(r.matched as number).toBeGreaterThan(0);
+	expect(r.total).not.toBeNull();
+	// Built-in tool floor (7) plus the matched extension's tools.
+	expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
+}
 
-	beforeAll(async () => {
-		await ensureBundle(); // bundle is a prerequisite of deploy.ts
-		pkgDir = mkdtempSync(join(tmpdir(), "pi-agent-verify-"));
-		const deploy = Bun.spawn(
-			["bun", "scripts/deploy.ts", pkgDir, "--no-build"],
-			{
-				cwd: PI_AGENT_DIR,
-				stdout: "inherit",
-				stderr: "inherit",
-			},
-		);
-		const code = await deploy.exited;
-		if (code !== 0) {
-			rmSync(pkgDir, { recursive: true, force: true });
-			throw new Error(`deploy.ts exited ${code}`);
-		}
-		pkgPiAgent = join(pkgDir, "pi-agent.js");
-		if (!existsSync(pkgPiAgent)) {
-			throw new Error(`deployed package missing pi-agent.js at ${pkgPiAgent}`);
-		}
-		probePath = join(pkgDir, ".verify-probe.ts");
+// Deploy once into a temp dir via `deploy.ts <flags>`, write the probe, return
+// { pkgDir, pkgPiAgent, probePath }. Cleans up on failure.
+async function deployPkg(extraFlags: string[]): Promise<{
+	pkgDir: string;
+	pkgPiAgent: string;
+	probePath: string;
+}> {
+	await ensureBundle(); // bundle is a prerequisite of deploy.ts
+	const pkgDir = mkdtempSync(join(tmpdir(), "pi-agent-verify-"));
+	const deploy = Bun.spawn(
+		["bun", "scripts/deploy.ts", pkgDir, "--no-build", ...extraFlags],
+		{ cwd: PI_AGENT_DIR, stdout: "inherit", stderr: "inherit" },
+	);
+	const code = await deploy.exited;
+	if (code !== 0) {
+		rmSync(pkgDir, { recursive: true, force: true });
+		throw new Error(`deploy.ts ${extraFlags.join(" ")} exited ${code}`);
+	}
+	const pkgPiAgent = join(pkgDir, "pi-agent.js");
+	if (!existsSync(pkgPiAgent)) {
+		throw new Error(`deployed package missing pi-agent.js at ${pkgPiAgent}`);
+	}
+	const probePath = join(pkgDir, ".verify-probe.ts");
+	writeFileSync(probePath, PROBE_TS);
+	return { pkgDir, pkgPiAgent, probePath };
+}
+
+// SOURCE mode is identical for both deploy modes — cover it once here.
+describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading (reference)", () => {
+	let probePath = "";
+	beforeAll(() => {
+		probePath = join(tmpdir(), `pi-source-probe-${process.pid}.ts`);
 		writeFileSync(probePath, PROBE_TS);
 	});
-
 	afterAll(() => {
-		if (pkgDir) rmSync(pkgDir, { recursive: true, force: true });
+		if (existsSync(probePath)) rmSync(probePath, { force: true });
 	});
+	for (const cwd of [REPO_ROOT, tmpdir()]) {
+		test(`SOURCE from ${cwd === REPO_ROOT ? "repo" : "/tmp"}`, async () => {
+			const r = await runScenario({
+				name: "source",
+				cmd: ["bun", SRC_CLI, "-e", probePath, "-p", "hi"],
+				cwd,
+				marker: join(REPO_ROOT, "bun-apps"),
+			});
+			assertCleanLoad(r);
+		});
+	}
+});
 
-	const scenarios: Scenario[] = [
-		{
-			name: "SOURCE from repo",
-			cmd: ["bun", SRC_CLI, "-e", "<probe>", "-p", "hi"],
-			cwd: REPO_ROOT,
-			marker: join(REPO_ROOT, "bun-apps"),
-		},
-		{
-			name: "SOURCE from /tmp",
-			cmd: ["bun", SRC_CLI, "-e", "<probe>", "-p", "hi"],
-			cwd: tmpdir(),
-			marker: join(REPO_ROOT, "bun-apps"),
-		},
-		{
-			name: "DEPLOY from /tmp",
-			cmd: ["bun", "<pkgPiAgent>", "-e", "<probe>", "-p", "hi"],
-			cwd: tmpdir(),
-			marker: "<pkgDir>",
-		},
-		{
-			name: "DEPLOY from repo",
-			cmd: ["bun", "<pkgPiAgent>", "-e", "<probe>", "-p", "hi"],
-			cwd: REPO_ROOT,
-			marker: "<pkgDir>",
-		},
-	];
+// DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
+describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release) extension loading", () => {
+	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
+	beforeAll(async () => {
+		pkg = await deployPkg(["--release"]);
+	}, 120_000); // deploys + bun install: needs headroom past the 5s default
+	afterAll(() => {
+		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
+	});
+	for (const cwd of [tmpdir(), REPO_ROOT]) {
+		test(`DEPLOY-PACKAGE from ${cwd === REPO_ROOT ? "repo" : "/tmp"}`, async () => {
+			const r = await runScenario({
+				name: "deploy-pkg",
+				cmd: ["bun", pkg.pkgPiAgent, "-e", pkg.probePath, "-p", "hi"],
+				cwd,
+				marker: pkg.pkgDir,
+			});
+			assertCleanLoad(r);
+		});
+	}
+});
 
-	for (const tmpl of scenarios) {
-		test(tmpl.name, async () => {
-			// Resolve the <…> placeholders now that beforeAll has run.
-			const s: Scenario = {
-				name: tmpl.name,
-				cwd: tmpl.cwd,
-				marker: tmpl.marker === "<pkgDir>" ? pkgDir : tmpl.marker,
-				cmd: tmpl.cmd.map((c) =>
-					c === "<probe>"
-						? probePath
-						: c === "<pkgPiAgent>"
-							? pkgPiAgent
-							: c,
-				),
-			};
-			const r = await runScenario(s);
-			// ZERO conflict/cannot-find/failed-to-load.
-			expect(r.errors).toEqual([]);
-			// The probe extension itself was loaded (matched > 0).
-			expect(r.matched).not.toBeNull();
-			expect(r.matched as number).toBeGreaterThan(0);
-			expect(r.total).not.toBeNull();
-			// Built-in tool floor (7) plus the matched extension's tools.
-			expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
+// DEPLOY-BUNDLE mode = `deploy.ts` default (pre-bundled ext-bundles/*.thin.js).
+// node_modules is NOT copied by default (redundant — everything resolves via
+// baked repo .bun-store abs paths; the deploy is same-machine-repo-present).
+describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) extension loading", () => {
+	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
+	beforeAll(async () => {
+		pkg = await deployPkg([]);
+	}, 120_000); // builds 5 ext bundles + deploys: needs headroom past the 5s default
+	afterAll(() => {
+		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
+	});
+	for (const cwd of [tmpdir(), REPO_ROOT]) {
+		test(`DEPLOY-BUNDLE from ${cwd === REPO_ROOT ? "repo" : "/tmp"}`, async () => {
+			const r = await runScenario({
+				name: "deploy-bundle",
+				cmd: ["bun", pkg.pkgPiAgent, "-e", pkg.probePath, "-p", "hi"],
+				cwd,
+				// ext-bundles resolve under pkgDir; npm exts resolve to the repo
+				// .bun store (abs paths), so marker=pkgDir counts the bundled exts.
+				marker: join(pkg.pkgDir, "ext-bundles"),
+			});
+			assertCleanLoad(r);
 		});
 	}
 });
