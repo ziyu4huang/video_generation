@@ -83,14 +83,37 @@ assembly step). Verified via `scripts/dump_perchannelstats_reference.py` +
 `Tests/LTXVideoDirectorTests/PerChannelStatisticsParityTests.swift`: max-abs-diff < 1e-5.
 11/11 tests pass across all Phase 1 work so far.
 
-Remaining decoder pieces: `conv_in`/`conv_out` (plain Conv3dBlock instances, already portable with
-the existing component — just need real weight keys), and memory-bounded tiling — then the full
-`up_blocks.{0,2,4,6,8}` (ResBlockStage) + `up_blocks.{1,3,5,7}` (DepthToSpaceUpsample) decoder
-assembly against a REAL checkpoint (not synthetic weights) is the next milestone: it would be the
-first native Swift code path capable of turning an actual LTX-2.3 latent into actual pixels.
-After that: the encoder, then the 48-layer transformer (by far the largest piece — see Phase 2).
-Each subsequent piece follows the same dump-real-reference → port → parity-test loop established
-here.
+### Milestone: full decoder assembly, verified against the REAL production checkpoint
+
+`VideoDecoder.swift` assembles all of the above into the complete decoder — `conv_in` → 9
+`up_blocks` (alternating `ResBlockStage`/`DepthToSpaceUpsample`, real channel counts
+1024/512/256/128 and per-stage block counts 2/2/4/6/4, matching the real checkpoint's actual
+tensor shapes) → pre-activation PixelNorm+SiLU → `conv_out` → `unpatchifySpatial`. Two details
+that are NOT derivable from the code ported so far, only from reading `video_vae.py`'s `decode()`
+body directly: (1) the first frame is unconditionally dropped after every temporal upsample
+(`tf>1`), and (2) `causal` defaults to **false** with zeros-padding for LTX-2.3's actual trained
+config (a prior hardcoded `causal=True`/`reflect` caused a documented keyframe regression).
+
+Two-tier verification:
+- `scripts/dump_videodecoder_reference.py` runs the REAL `VideoDecoder` class (real architecture,
+  fixed-seed random weights) end-to-end; `VideoDecoderParityTests.swift` checks the Swift assembly
+  against it — max-abs-diff < 1e-3, correct F=2→9 frame-count transformation. This validates the
+  ASSEMBLY logic, not just individual ops.
+- `VideoDecoderRealCheckpointTests.swift` loads the ACTUAL production checkpoint
+  (`mlx-models/vae/ltx-2.3-vae/vae_decoder.safetensors`, bf16, 86 tensors, `vae_decoder.` key
+  prefix) and runs a real forward pass — confirms the native Swift assembly loads real production
+  weights and produces finite, correctly-shaped output. No reference to diff against (would need a
+  full PyTorch pipeline) — this is an integration smoke test, not a numerical parity check.
+
+**This is the first native Swift code path that has actually decoded a latent using real LTX-2.3
+production weights, with zero Python involved.** 13/13 tests pass.
+
+Remaining before this is usable in the real `i2v` pipeline: memory-bounded tiling (real latents are
+far larger than the tiny 2×2×2 test case — the reference's own `tiled_decode` exists precisely
+because a full-size decode would blow memory budgets), and swapping `RunPyBridge`'s decode step for
+this native path behind the same `I2VResult` type. After the decoder: the encoder, then the 48-layer
+transformer (by far the largest piece — see Phase 2). Each subsequent piece follows the same
+dump-real-reference → port → parity-test loop established here.
 
 ## Phase 1 — native VAE (decode-only)
 
