@@ -1,0 +1,20 @@
+{
+  "dim": 16,
+  "num_params": 6,
+  "params_shape": [
+    3,
+    96
+  ],
+  "embedded_shape": [
+    3,
+    16
+  ],
+  "weight_keys": [
+    "emb.timestep_embedder.linear1.weight",
+    "emb.timestep_embedder.linear1.bias",
+    "emb.timestep_embedder.linear2.weight",
+    "emb.timestep_embedder.linear2.bias",
+    "linear.weight",
+    "linear.bias"
+  ]
+}

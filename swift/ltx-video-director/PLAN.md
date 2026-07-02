@@ -194,10 +194,16 @@ component with real learnable weights on the transformer side (`linear1`/`linear
 `scripts/dump_timestep_embedding_reference.py` + `Tests/LTXVideoDirectorTests/TimestepEmbeddingParityTests.swift`:
 max-abs-diff < 1e-4 on both the sinusoidal table and the MLP output. 19/19 tests pass.
 
+Third component: `AdaLayerNormSingle.swift` — produces the DiT block's modulation parameters
+(scale/shift/gate for attention + MLP) from the timestep embedding. Thin composition on top of
+`TimestepEmbedder`: `emb(timestep) → silu → linear → (params, embedded)`. Verified via
+`scripts/dump_adaln_reference.py` + `Tests/LTXVideoDirectorTests/AdaLayerNormSingleParityTests.swift`:
+max-abs-diff < 1e-4 on both outputs. 20/20 tests pass.
+
 Transformer source lives at
 `python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
-`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (49
-lines — next), `feed_forward.py` (32 lines), `attention.py` (143 lines — spatiotemporal +
+`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (done),
+`feed_forward.py` (32 lines — next), `attention.py` (143 lines — spatiotemporal +
 audio cross-attention, the real complexity), `modality.py` (78 lines), `model.py` (567
 lines — the full 48-layer DiT assembly, by far the largest single file in the whole
 port). Continue smallest-to-largest.
