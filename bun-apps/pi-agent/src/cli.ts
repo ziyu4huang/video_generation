@@ -23,9 +23,20 @@
  */
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
+import { runDoctor } from "./doctor.ts";
+
+const argv = process.argv.slice(2);
+
+// `doctor` self-check: intercept BEFORE patches/main so the diagnostic runs
+// even when patches/deploys are broken. `bun src/cli.ts doctor [--json]` or
+// `./run.sh doctor`. Exits 0 (all hard checks pass) or 1 (any fail).
+if (argv[0] === "doctor" || argv.includes("--doctor")) {
+	const report = await runDoctor({ json: argv.includes("--json") });
+	process.exit(report.ok ? 0 : 1);
+}
 
 // Patches MUST be applied before main() constructs ModelRegistry.
 await applyPatches();
 
 // Pass through argv untouched. The official parser handles every pi flag.
-await main(process.argv.slice(2));
+await main(argv);
