@@ -122,6 +122,26 @@ function assertCleanLoad(r: Result) {
 	expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
 }
 
+// Run `doctor --json` against an entry (deployed pi-agent.js or SRC_CLI), parse
+// the report. Asserts doctor is wired into the bundle (inlined) + runs offline.
+// doctor --json pretty-prints (multi-line), so extract the outermost {...}
+// rather than assuming one-line JSON.
+async function runDoctor(entry: string, cwd: string): Promise<{ mode: string; ok: boolean }> {
+	const proc = Bun.spawn(["bun", entry, "doctor", "--json"], {
+		cwd,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+	const code = await proc.exited;
+	if (code !== 0) throw new Error(`doctor exited ${code}: ${stderr.slice(0, 200)}`);
+	const start = stdout.indexOf("{");
+	const end = stdout.lastIndexOf("}");
+	if (start < 0 || end < start) throw new Error(`doctor emitted no JSON object: ${stdout.slice(0, 200)}`);
+	const report = JSON.parse(stdout.slice(start, end + 1));
+	return { mode: report.mode, ok: report.ok };
+}
+
 // Deploy once into a temp dir via `deploy.ts <flags>`, write the probe, return
 // { pkgDir, pkgPiAgent, probePath }. Cleans up on failure.
 async function deployPkg(extraFlags: string[]): Promise<{
@@ -170,6 +190,11 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 			assertCleanLoad(r);
 		});
 	}
+	test("SOURCE doctor reports mode=source + ok", async () => {
+		const r = await runDoctor(SRC_CLI, REPO_ROOT);
+		expect(r.mode).toBe("source");
+		expect(r.ok).toBe(true);
+	});
 });
 
 // DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
@@ -192,6 +217,11 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release
 			assertCleanLoad(r);
 		});
 	}
+	test("DEPLOY-PACKAGE doctor reports mode=release + ok", async () => {
+		const r = await runDoctor(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.mode).toBe("release");
+		expect(r.ok).toBe(true);
+	});
 });
 
 // DEPLOY-BUNDLE mode = `deploy.ts` default (pre-bundled ext-bundles/*.thin.js).
@@ -218,6 +248,11 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 			assertCleanLoad(r);
 		});
 	}
+	test("DEPLOY-BUNDLE doctor reports mode=bundle + ok", async () => {
+		const r = await runDoctor(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.mode).toBe("bundle");
+		expect(r.ok).toBe(true);
+	});
 });
 
 // DEPLOY-PORTABLE mode = `deploy.ts --portable` (FULL ext bundles incl. npm exts
@@ -269,4 +304,9 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 			assertCleanLoad(r);
 		});
 	}
+	test("DEPLOY-PORTABLE doctor reports mode=portable + ok", async () => {
+		const r = await runDoctor(pkg.pkgPiAgent, pkg.pkgDir);
+		expect(r.mode).toBe("portable");
+		expect(r.ok).toBe(true);
+	});
 });
