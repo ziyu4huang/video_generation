@@ -8,6 +8,7 @@ import {
 	buildArgvFromManifest,
 	buildBundleArgvFromLayout,
 	detectMode,
+	detectRunDirMode,
 	resolveRunDirArgv,
 	looksLikeAlias,
 	resolveLazyExtension,
@@ -411,5 +412,129 @@ describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
 			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
 		]);
 		expect(warns).toEqual([]);
+	});
+});
+
+// ─── detectRunDirMode (deploy layout detection — audit finding #1) ────────────
+
+describe("detectRunDirMode", () => {
+	const SELF = "/out/pi-agent-bundle";
+
+	test("deploy-bundle: .deploy-bundle marker + ext-bundles/ dir", () => {
+		const present = new Set([
+			join(SELF, ".deploy-bundle"),
+			join(SELF, "ext-bundles"),
+		]);
+		const exists = (p: string) => present.has(p);
+		expect(detectRunDirMode(SELF, exists)).toBe("deploy-bundle");
+	});
+
+	test("deploy-package: packages/ dir + run-dir/manifest.json", () => {
+		const present = new Set([
+			join(SELF, "packages"),
+			join(SELF, "run-dir", "manifest.json"),
+		]);
+		const exists = (p: string) => present.has(p);
+		expect(detectRunDirMode(SELF, exists)).toBe("deploy-package");
+	});
+
+	test("source: no markers present", () => {
+		expect(detectRunDirMode(SELF, () => false)).toBe("source");
+	});
+
+	test("deploy-bundle takes precedence over deploy-package (mutually exclusive layouts)", () => {
+		// If both marker sets somehow exist, the deploy-bundle branch wins
+		// (mirrors resolveRunDirArgv's check order).
+		const present = new Set([
+			join(SELF, ".deploy-bundle"),
+			join(SELF, "ext-bundles"),
+			join(SELF, "packages"),
+			join(SELF, "run-dir", "manifest.json"),
+		]);
+		const exists = (p: string) => present.has(p);
+		expect(detectRunDirMode(SELF, exists)).toBe("deploy-bundle");
+	});
+
+	test("deploy-bundle requires BOTH the marker and the ext-bundles dir", () => {
+		// marker present but ext-bundles missing → not deploy-bundle
+		const markerOnly = new Set([join(SELF, ".deploy-bundle")]);
+		expect(detectRunDirMode(SELF, (p) => markerOnly.has(p))).toBe("source");
+	});
+
+	test("deploy-package requires BOTH packages/ and run-dir/manifest.json", () => {
+		const pkgsOnly = new Set([join(SELF, "packages")]);
+		expect(detectRunDirMode(SELF, (p) => pkgsOnly.has(p))).toBe("source");
+	});
+
+	test("the real module's selfDir is source mode (no deploy markers in the repo)", () => {
+		// run-dir/resolve.ts → selfDir is run-dir/ itself; the repo has none of
+		// the deploy markers, so the live detection reads "source".
+		const selfDir = resolve(import.meta.dir);
+		expect(detectRunDirMode(selfDir, existsSync)).toBe("source");
+	});
+});
+
+// ─── ENOTDIR hardening (audit finding #3 — readdirSync on a file-as-dir) ──────
+
+describe("resolveLazyExtension — ENOTDIR hardening", () => {
+	const settings: LazySettings = {
+		lazyExtensions: { workflow: "pkg-a/extensions/workflow.ts" },
+	};
+
+	test("does not crash when <alias>/extensions exists as a FILE (not a dir)", () => {
+		const base = mkdtempSync(join(tmpdir(), "pi-lazy-enotdir-"));
+		// Materialize the registry entry so exact-match works for "workflow".
+		mkdirSync(join(base, "pkg-a", "extensions"), { recursive: true });
+		writeFileSync(join(base, "pkg-a", "extensions", "workflow.ts"), "// ext");
+		// Make <base>/pkg-file/extensions a FILE (not a dir). existsSync=true,
+		// readdirSync → ENOTDIR. Resolving alias "pkg-file" must not throw.
+		mkdirSync(join(base, "pkg-file"), { recursive: true });
+		writeFileSync(join(base, "pkg-file", "extensions"), "i am a file not a dir");
+
+		// "pkg-file" is not in the registry → reaches the directory fallback,
+		// which calls readdirSync on the file path. Must return undefined, not throw.
+		expect(() => resolveLazyExtension("pkg-file", settings, base, existsSync)).not.toThrow();
+		expect(resolveLazyExtension("pkg-file", settings, base, existsSync)).toBeUndefined();
+	});
+});
+
+// ─── resolveLazyExtension with undefined base (audit finding #4) ──────────────
+
+describe("resolveLazyExtension — undefined bunAppsDir", () => {
+	const settings: LazySettings = {
+		lazyExtensions: { workflow: "pkg-a/extensions/workflow.ts" },
+	};
+
+	test("skips the directory fallback when bunAppsDir is undefined (no crash, no fs)", () => {
+		// "pkg-c" is not in the registry → would otherwise hit the dir fallback.
+		// With bunAppsDir undefined the `if (bunAppsDir)` branch is skipped, so
+		// there is no readdirSync on a path derived from an undefined base.
+		expect(() => resolveLazyExtension("pkg-c", settings, undefined, () => true)).not.toThrow();
+		expect(resolveLazyExtension("pkg-c", settings, undefined, () => true)).toBeUndefined();
+	});
+
+	test("non-alias input with undefined base → undefined (guarded before any base use)", () => {
+		expect(resolveLazyExtension("a/b.ts", settings, undefined, () => true)).toBeUndefined();
+		expect(resolveLazyExtension("npm:pkg", settings, undefined, () => true)).toBeUndefined();
+	});
+});
+
+// ─── rewriteExtensionArgs identity no-op (audit finding #5) ───────────────────
+
+describe("rewriteExtensionArgs — identity replacement", () => {
+	test("resolve returning the same value → no rewrite, no warning", () => {
+		// If a resolver returns the input unchanged (e.g. an already-absolute
+		// path that happens to pass through), `resolved !== val` is false and the
+		// arg is left in place — no spurious warning, argv byte-identical.
+		const identity = (v: string) => v;
+		const argv = ["-e", "/already/abs.ts", "-p", "hi"];
+		const warns: string[] = [];
+		expect(rewriteExtensionArgs(argv, identity, (m) => warns.push(m))).toEqual(argv);
+		expect(warns).toHaveLength(0);
+	});
+
+	test("resolve returning undefined → no rewrite (deferred to SDK)", () => {
+		const argv = ["-e", "workflow", "-p", "hi"];
+		expect(rewriteExtensionArgs(argv, () => undefined)).toEqual(argv);
 	});
 });
