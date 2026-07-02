@@ -187,10 +187,17 @@ max-abs-diff < 1e-4 on cos/sin frequency tables AND the applied rotation, video-
 input (3 position dims: temporal/height/width). 18/18 tests pass across all Phase 1+2
 work so far.
 
+Second component: `TimestepEmbedding.swift` — sinusoidal timestep embedding
+(`mlx_arsenal.diffusion.get_timestep_embedding`, an external dependency `timestep_embedding.py`
+re-exports) + the 2-layer MLP that projects it (`TimestepEmbedding`/`TimestepEmbedder`). First
+component with real learnable weights on the transformer side (`linear1`/`linear2`). Verified via
+`scripts/dump_timestep_embedding_reference.py` + `Tests/LTXVideoDirectorTests/TimestepEmbeddingParityTests.swift`:
+max-abs-diff < 1e-4 on both the sinusoidal table and the MLP output. 19/19 tests pass.
+
 Transformer source lives at
 `python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
-`rope.py` (done), `timestep_embedding.py` (23 lines — next, likely quick), `adaln.py` (49
-lines), `feed_forward.py` (32 lines), `attention.py` (143 lines — spatiotemporal +
+`rope.py` (done), `timestep_embedding.py` (done), `adaln.py` (49
+lines — next), `feed_forward.py` (32 lines), `attention.py` (143 lines — spatiotemporal +
 audio cross-attention, the real complexity), `modality.py` (78 lines), `model.py` (567
 lines — the full 48-layer DiT assembly, by far the largest single file in the whole
 port). Continue smallest-to-largest.

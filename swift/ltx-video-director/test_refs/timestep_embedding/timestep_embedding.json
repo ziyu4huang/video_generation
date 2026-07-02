@@ -1,0 +1,17 @@
+{
+  "embedding_dim": 16,
+  "sinusoidal_shape": [
+    4,
+    16
+  ],
+  "mlp_output_shape": [
+    4,
+    32
+  ],
+  "weight_keys": [
+    "linear1.weight",
+    "linear1.bias",
+    "linear2.weight",
+    "linear2.bias"
+  ]
+}
