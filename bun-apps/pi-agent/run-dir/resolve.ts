@@ -20,7 +20,6 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
-import settings from "./settings.json";
 import { detectMode } from "../src/mode.ts";
 
 // Re-export so callers (and tests) can import detectMode from the resolver
@@ -460,7 +459,7 @@ export function buildArgvFromManifest(
 export interface LazySettings {
   lazyExtensions?: Record<string, string>;
 }
-const lazySettings: LazySettings = settings;
+const lazySettings: LazySettings = manifest;
 
 /**
  * Bare-alias guard. Only fuzzy-resolve plain names like `workflow`,

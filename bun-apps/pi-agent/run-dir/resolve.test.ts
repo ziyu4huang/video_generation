@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import manifest from "./manifest.json";
-import settings_real from "./settings.json";
 import {
 	buildArgvFromManifest,
 	buildBundleArgvFromLayout,
@@ -298,11 +297,10 @@ describe("resolveLazyExtension", () => {
 		expect(warns.length).toBeGreaterThan(0);
 	});
 
-	test("integration: real settings.json + repo resolve 'workflow'", () => {
+	test("integration: real manifest.json lazyExtensions + repo resolve 'workflow'", () => {
 		// run-dir/resolve.ts sits at <repo>/bun-apps/pi-agent/run-dir/ → base is ../../
 		const base = resolve(join(import.meta.dir, "..", ".."));
-		const realSettings: LazySettings = settings_real;
-		const r = resolveLazyExtension("workflow", realSettings, base, existsSync);
+		const r = resolveLazyExtension("workflow", manifest, base, existsSync);
 		expect(r).toBeDefined();
 		expect(r!.endsWith("pi-dynamic-workflows/extensions/workflow.ts")).toBe(true);
 		expect(existsSync(r!)).toBe(true);

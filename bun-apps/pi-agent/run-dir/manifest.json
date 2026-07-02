@@ -19,5 +19,9 @@
       "pkg": "pi-hermes-memory",
       "entry": "src/index.ts"
     }
-  ]
+  ],
+  "lazyExtensions": {
+    "workflow": "pi-dynamic-workflows/extensions/workflow.ts",
+    "dynamic-workflows": "pi-dynamic-workflows/extensions/workflow.ts"
+  }
 }
