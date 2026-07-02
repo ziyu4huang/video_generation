@@ -174,6 +174,27 @@ per block, matching the flux2-image-director methodology). Land CFG/STG
 guidance and the Euler flow-match scheduler (`CommonImageDirector.Scheduler`
 is already model-agnostic and reusable as-is).
 
+**Started 2026-07-02.** First component: `RoPE.swift` — LTX-2.3's rotary position
+embeddings (`ltx_core_mlx.model.transformer.rope`). Two things confirmed by reading the
+source directly (not assumable from "RoPE" alone): (1) LTX-2.3 uses log-spaced frequency
+indices with fractional positions, NOT standard `1/theta^k` RoPE; (2) SPLIT layout
+(first-half-cos/second-half-sin) is what every production checkpoint actually uses —
+upstream switched the default from INTERLEAVED in PR #212, so INTERLEAVED is legacy and
+was not ported. Pure function, no learnable weights — good first transformer-side
+component since checkpoint-loading isn't a variable. Verified via
+`scripts/dump_rope_reference.py` + `Tests/LTXVideoDirectorTests/RoPEParityTests.swift`:
+max-abs-diff < 1e-4 on cos/sin frequency tables AND the applied rotation, video-shaped
+input (3 position dims: temporal/height/width). 18/18 tests pass across all Phase 1+2
+work so far.
+
+Transformer source lives at
+`python/mlx-movie-director/vendor/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/transformer/`:
+`rope.py` (done), `timestep_embedding.py` (23 lines — next, likely quick), `adaln.py` (49
+lines), `feed_forward.py` (32 lines), `attention.py` (143 lines — spatiotemporal +
+audio cross-attention, the real complexity), `modality.py` (78 lines), `model.py` (567
+lines — the full 48-layer DiT assembly, by far the largest single file in the whole
+port). Continue smallest-to-largest.
+
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 
 - Image-conditioning latent injection (I2V).
