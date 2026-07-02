@@ -15,6 +15,7 @@
  * absolute paths from src/generated/run-dir-base.ts (gitignored), written by
  * scripts/build.ts's stageGenerateRunDirBase().
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,6 +54,118 @@ const mode = detectMode(url);
 
 function warn(msg: string) {
   console.error(`[bun-pi] run-dir: ${msg}`);
+}
+
+// Declared npm extension packages that import.meta.resolve could NOT find in
+// this source-mode invocation. Populated by resolveNpmExtensionPaths() and
+// reported once (consolidated, actionable) by emitMissingDepsGuide().
+const missingNpm: string[] = [];
+
+// Set when an opt-in auto-install (`bun install`) completed successfully this
+// invocation. Bun's in-process module resolver does NOT re-scan node_modules
+// mid-process, so the freshly installed packages usually aren't visible to the
+// CURRENT resolveNpmExtensionPaths() — they load on the next invocation. This
+// flag lets emitMissingDepsGuide swap its "run bun install" advice for an
+// honest "installed — re-run" hint instead of redundantly guiding the fix it
+// just applied.
+let autoInstalled = false;
+
+/**
+ * Sync probe of which declared npm extension packages currently fail to
+ * resolve. Pure-ish (read-only fs via import.meta.resolve); used for the
+ * opt-in auto-install trigger and the consolidated guide so neither depends on
+ * the per-package warn side-effect. No-op outside source mode (bundle mode
+ * reads baked paths; binary mode loads no extensions).
+ */
+function probeMissingNpm(): string[] {
+  if (mode === "bundle" || mode === "binary") return [];
+  const missing: string[] = [];
+  for (const { pkg } of NPM_EXTENSIONS) {
+    try {
+      import.meta.resolve(`${pkg}/package.json`);
+    } catch {
+      missing.push(pkg);
+    }
+  }
+  return missing;
+}
+
+/**
+ * Opt-in auto-resolve. When BUN_PI_AUTO_INSTALL=1 (or the legacy
+ * BUN_PI_AUTO_RESOLVE alias) and a declared npm extension package can't be
+ * resolved in source mode, run `bun install` at the detected repo root; the
+ * subsequent resolveNpmExtensionPaths() re-probes and picks up the install.
+ * OFF by default: keeps `bun test` / CI deterministic and avoids a surprising
+ * mutating side effect inside the interactive TUI. Deploy layouts are
+ * self-contained (deps baked in) → always skipped. Returns true iff an install
+ * was actually attempted.
+ */
+function maybeAutoInstall(bunAppsDir: string | undefined): boolean {
+  const opt = process.env.BUN_PI_AUTO_INSTALL ?? process.env.BUN_PI_AUTO_RESOLVE;
+  if (opt !== "1" && opt !== "true") return false;
+  if (mode !== "source") return false;
+  const missing = probeMissingNpm();
+  if (missing.length === 0) return false;
+  const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : process.cwd();
+  warn(
+    `auto-resolve: ${missing.length} npm extension package(s) unresolved ` +
+      `(${missing.join(", ")}) — running \`bun install\` at ${repoRoot}`,
+  );
+  const res = spawnSync("bun", ["install"], {
+    cwd: repoRoot,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+  if (res.status !== 0) {
+    warn(
+      `auto-resolve: \`bun install\` exited ${res.status ?? "null"}` +
+        ` (signal ${res.signal ?? "none"}); falling back to guide`,
+    );
+    return false;
+  }
+  // Don't claim a same-process re-resolve: Bun's resolver typically won't see
+  // the new node_modules entries until the next invocation. The re-probe in
+  // buildArgv() below will pick them up only if Bun happens to re-scan; either
+  // way the extensions are guaranteed to load on the NEXT run.
+  autoInstalled = true;
+  warn("auto-resolve: `bun install` completed — re-run this command to load the extensions");
+  return true;
+}
+
+/**
+ * Consolidated, actionable guidance emitted once after resolution when any
+ * declared npm extension package remains unresolved (and any auto-install
+ * attempt has run). Replaces N terse per-package "skipping" lines with one
+ * block: the affected packages, the EXACT fix command at the detected repo
+ * root, and a note that the SAME `bun install` also clears the transitive
+ * "Failed to load extension: Cannot find module" errors the pi extension
+ * loader emits (e.g. pi-knowledge-card → pi-obsidian,
+ * pi-agent-ext-power-tool → js-yaml) — those share the root cause but are
+ * thrown by the loader, not by this resolver, so they aren't in missingNpm.
+ * Silent when nothing is missing (zero noise on a healthy install) and in
+ * non-source modes.
+ */
+function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
+  if (mode !== "source") return;
+  // If an auto-install just ran successfully, the fix was already applied —
+  // don't redundantly advise `bun install`; the maybeAutoInstall() hint to
+  // re-run is sufficient (the in-process resolver likely still can't see the
+  // new deps, so `missing` may be non-empty here despite the install).
+  if (autoInstalled) return;
+  const missing = probeMissingNpm();
+  if (missing.length === 0) return;
+  const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : "<repo-root>";
+  warn("──────── dependency resolution guide ────────");
+  warn(`${missing.length} npm extension package(s) could not be resolved:`);
+  for (const p of missing) warn(`  • ${p}`);
+  warn("These extensions were skipped. Fix by installing deps at the repo root:");
+  warn(`    cd ${repoRoot} && bun install`);
+  warn(
+    "The same command also clears the loader's " +
+      '"Failed to load extension: Cannot find module" errors thrown by ' +
+      "extensions whose own imports are uninstalled (e.g. pi-obsidian, js-yaml).",
+  );
+  warn("Tip: set BUN_PI_AUTO_INSTALL=1 to run `bun install` automatically next time.");
+  warn("─────────────────────────────────────────────");
 }
 
 // Bundle mode reads build-time-baked constants from run-dir-base.ts. Cache the
@@ -97,7 +210,13 @@ async function resolveNpmExtensionPaths(): Promise<string[]> {
       const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
       paths.push(join(pkgDir, entry));
     } catch {
-      warn(`could not resolve npm package "${pkg}" — skipping (run \`bun install\` at repo root?)`);
+      // Record for the consolidated guide (emitMissingDepsGuide); the per-line
+      // message stays terse since the guide prints the exact fix once. Suppress
+      // it entirely once an auto-install just ran (autoInstalled) — the
+      // maybeAutoInstall() "re-run" hint already covers it and the in-process
+      // resolver still can't see the new install in THIS invocation.
+      if (!missingNpm.includes(pkg)) missingNpm.push(pkg);
+      if (!autoInstalled) warn(`could not resolve npm package "${pkg}" — skipping`);
     }
   }
   return paths;
@@ -187,7 +306,16 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // SOURCE / repo-bundle modes: additive layering (no -ne) with <cwd>/.pi/ +
   // ~/.pi/. Safe because run-dir resolves to the same canonical bun-apps/ paths
   // a repo .pi/ would, so pi dedupes them.
-  return buildArgv(await resolveBunAppsDir());
+  const bunAppsDir = await resolveBunAppsDir();
+  // Opt-in: if a declared npm ext is missing and the user set
+  // BUN_PI_AUTO_INSTALL=1, run `bun install` at the repo root BEFORE building
+  // argv (buildArgv re-probes via resolveNpmExtensionPaths and picks it up).
+  maybeAutoInstall(bunAppsDir);
+  const argv = await buildArgv(bunAppsDir);
+  // Always-on (source mode only): if anything is STILL missing after any
+  // auto-install attempt, emit one consolidated, actionable guide block.
+  emitMissingDepsGuide(bunAppsDir);
+  return argv;
 }
 
 /**
