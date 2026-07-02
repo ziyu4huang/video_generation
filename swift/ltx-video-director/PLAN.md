@@ -545,12 +545,31 @@ tests pass.
 
 **Both the video AND audio VAE decoders now run natively in Swift/MLX against real production
 LTX-2.3 weights.** Remaining for full audio: the vocoder (BigVGAN) and bandwidth-extension (BWE)
-stacks — separate, currently-unexplored architectures (turn the mel spectrogram into an actual
-waveform) — and the audio VAE *encoder* (not yet started; only the decoder, needed for output,
-has been ported so far). The actual Gemma LLM (bridged, not hand-ported — see the text-encoder
-section above), the left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`
-(the `--hq`/CFG++ variants), CFG/STG guidance batching via `Modality.split` (ported in Phase 2,
-not yet wired into the loop), and replacing `RunPyBridge` in the CLI remain as well.
+stacks (turn the mel spectrogram into an actual waveform) and the audio VAE *encoder* (not yet
+started; only the decoder, needed for output, has been ported so far).
+
+### Vocoder work started: SnakeBeta (2026-07-02)
+
+The vocoder (BigVGAN v2, mel→waveform) is a real, separate 340-line architecture: `conv_pre` →
+6 upsample stages (`ConvTranspose1d` + `resblocks`, each gated by `SnakeBeta` periodic activations
+with anti-aliased up/downsampling) → `act_post` → `conv_post`. `SnakeBeta.swift` ports the
+periodic activation itself (`x + (1/b)*sin²(a*x)`, weights stored in LOG-SCALE so the module
+exponentiates on every call — zero-init gives `exp(0)=1`, a no-op scale) — the smallest
+self-contained piece, matching the smallest-to-largest pattern. Verified via
+`scripts/dump_snakebeta_reference.py` + `Tests/LTXVideoDirectorTests/SnakeBetaParityTests.swift`
+with non-zero log-scale weights (zero-init would trivially give both scales as 1.0 without
+exercising the actual exponentiation): max-abs-diff < 1e-5. 45/45 tests pass.
+
+Remaining for the vocoder: anti-aliased `DownSample1d`/`UpSample1d` (low-pass-filtered 2x resample
+around each `SnakeBeta` activation — the "anti-aliased activation" wrapper), the `ConvTranspose1d`
+upsample stages, `resblocks` (dilated Conv1d stacks), and the full assembly against
+`mlx-models/audio/ltx-2.3-audio/vocoder.safetensors`; then the separate BWE (bandwidth-extension,
+16kHz→48kHz) generator (`bwe.py`, 401 lines, largely mirrors the vocoder's architecture at
+different channel sizes per its own docstring) and its own MelSTFT machinery. The actual Gemma
+LLM (bridged, not hand-ported — see the text-encoder section above), the left-padding connector
+path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants), CFG/STG guidance
+batching via `Modality.split` (ported in Phase 2, not yet wired into the loop), and replacing
+`RunPyBridge` in the CLI remain as well.
 
 ## Phase 4 — retire the bridge
 
