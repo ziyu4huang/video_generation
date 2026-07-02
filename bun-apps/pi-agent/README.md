@@ -326,6 +326,8 @@ pi-agent/
 ├── README.md
 ├── run-dir/
 │   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
+│   ├── obsidian_config.json   # pi-obsidian vault config (written by /obsidian-config)
+│   ├── workflows/             # dynamic workflow scripts (dev tools, not auto-discovered)
 │   └── resolve.ts             # resolves manifest.json (extensions + lazy aliases) to absolute argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)

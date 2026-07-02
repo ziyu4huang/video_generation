@@ -11,8 +11,8 @@
  *   then one line per check: {"kind":"check", model, phase, name, passed, detail}
  *
  * Usage (run from anywhere — defaults live next to this script):
- *   bun run .pi/benchmarks/verify-bun-pi-agent-cli/compare.ts <new.jsonl> [more.jsonl ...]
- *   bun run .pi/benchmarks/verify-bun-pi-agent-cli/compare.ts <new.jsonl> <baseline.jsonl>
+ *   bun run docs/benchmarks/verify-bun-pi-agent-cli/compare.ts <new.jsonl> [more.jsonl ...]
+ *   bun run docs/benchmarks/verify-bun-pi-agent-cli/compare.ts <new.jsonl> <baseline.jsonl>
  *
  * - First positional that resolves to an existing file is a NEW run; the optional
  *   explicit baseline is the LAST arg if two+ files are given AND one is the

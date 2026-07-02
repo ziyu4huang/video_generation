@@ -9,7 +9,7 @@ description: |
 # Seed Vault Skill
 
 This project uses the `pi-obsidian` extension, which resolves a vault in 3
-tiers: Tier 1 explicit (`OB_VAULT_PATH` env or `.pi/obsidian_config.json`),
+tiers: Tier 1 explicit (`OB_VAULT_PATH` env or `run-dir/obsidian_config.json`),
 Tier 2 the vault currently open in the Obsidian app, Tier 3 a project-local
 `<cwd>/vault/` folder (auto-seeded on first use). Run `/obsidian-config` (or
 the `obsidian_status` tool) to see which vault is active and switch it. The

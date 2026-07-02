@@ -108,7 +108,7 @@ interface ObsidianConfig {
 
 /** Where a resolved vault came from. Mirrors the 3-tier resolution order:
  *  - "env"    : OB_VAULT_PATH env (Tier 1, explicit)
- *  - "config" : .pi/obsidian_config.json vault_path (Tier 1, explicit)
+ *  - "config" : run-dir/obsidian_config.json vault_path (Tier 1, explicit)
  *  - "app"    : obsidian.json vault marked open:true (Tier 2, auto-follow app)
  *  - "local"  : project-local <cwd>/<OB_VAULT_DIR|"vault"> auto-seeded (Tier 3, fallback)
  *  - "global" : OB_USE_GLOBAL / OB_VAULT named vault (legacy global resolver)
@@ -127,7 +127,9 @@ interface ResolvedVault {
 	staleReason?: string;
 }
 
-/** Shape of `.pi/obsidian_config.json` (the persistent, user-editable config).
+/** Shape of the persistent, user-editable vault config.
+ *  Lives at `run-dir/obsidian_config.json` (consolidated with pi-agent's other
+ *  config), with `.pi/obsidian_config.json` as a legacy fallback for reads.
  *  Backwards compatible with the legacy `{ "vault_path": "..." }` form. */
 interface VaultConfigFile {
 	/** Absolute or cwd-relative path to the vault (Tier 1, explicit). */
@@ -139,12 +141,33 @@ interface VaultConfigFile {
 	mode?: "explicit" | "app";
 }
 
-/** Path to the persistent per-project config file. */
+/** Resolve the pi-agent run-dir/ location from this extension's own path.
+ *  Bundle mode: ext-bundles/obsidian.full.js → ../run-dir/
+ *  Source mode: bun-apps/pi-obsidian/extensions/ → ../../pi-agent/run-dir/ */
+function runDirPath(): string {
+	const selfDir = dirname(fileURLToPath(import.meta.url));
+	if (selfDir.includes("ext-bundles")) {
+		// Bundle mode: sibling run-dir/
+		return resolve(selfDir, "..", "run-dir");
+	}
+	// Source mode: bun-apps/pi-obsidian/extensions/../../pi-agent/run-dir/
+	return resolve(selfDir, "..", "..", "pi-agent", "run-dir");
+}
+
+/** Preferred config location: run-dir/obsidian_config.json (consolidated). */
+function runDirConfigPath(): string {
+	return join(runDirPath(), "obsidian_config.json");
+}
+
+/** Path to the persistent per-project config file.
+ *  Tries run-dir/ first (consolidated location); falls back to legacy .pi/. */
 function vaultConfigPath(cwd: string): string {
+	const runDirConfig = runDirConfigPath();
+	if (existsSync(runDirConfig)) return runDirConfig;
 	return resolve(cwd, ".pi", "obsidian_config.json");
 }
 
-/** Read `.pi/obsidian_config.json` (returns {} when absent / unparseable). */
+/** Read the vault config (returns {} when absent / unparseable). */
 async function readVaultConfig(cwd: string): Promise<VaultConfigFile> {
 	try {
 		return JSON.parse(await readFile(vaultConfigPath(cwd), "utf8"));
@@ -153,7 +176,9 @@ async function readVaultConfig(cwd: string): Promise<VaultConfigFile> {
 	}
 }
 
-/** Merge a patch into `.pi/obsidian_config.json` (atomic write, mkdir -p). */
+/** Merge a patch into the persistent vault config (atomic write, mkdir -p).
+ *  Writes to run-dir/obsidian_config.json (preferred). If the config currently
+ *  lives at the legacy .pi/ path, the first write migrates it to run-dir/. */
 async function writeVaultConfig(
 	cwd: string,
 	patch: VaultConfigFile,
@@ -164,10 +189,10 @@ async function writeVaultConfig(
 	if (next.vault_path != null && next.vault_path.trim() === "") {
 		delete next.vault_path;
 	}
-	const dir = resolve(cwd, ".pi");
+	const dir = runDirPath();
 	await mkdir(dir, { recursive: true });
 	await atomicWriteFile(
-		vaultConfigPath(cwd),
+		runDirConfigPath(),
 		JSON.stringify(next, null, 2) + "\n",
 	);
 }
@@ -224,7 +249,7 @@ function basenameOf(p: string): string {
  *
  *   Tier 1 — explicit (user said exactly this):
  *     1a. OB_VAULT_PATH env (absolute path)
- *     1b. .pi/obsidian_config.json { vault_path } when mode != "app"
+ *     1b. run-dir/obsidian_config.json { vault_path } when mode != "app"
  *
  *   Tier 2 — auto-follow app (what the user sees in Obsidian):
  *     2. obsidian.json vault marked open:true
