@@ -684,13 +684,31 @@ prefix is non-empty. 54/54 tests pass.
 
 **The full LTX-2.3 audio pipeline — latent → mel → 16kHz → 48kHz stereo waveform, matching exactly
 what the real production pipeline runs — is now completely native in Swift/MLX, verified against
-real production weights at every stage.** Remaining for full native generation: the audio VAE
-*encoder* (not started, and confirmed out of scope for the I2V goal — only used by
-`RetakePipeline`'s audio-conditioned regeneration feature, not by plain T2I2V/I2V generation); the
-actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above); the left-padding
-connector path; `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants); CFG/STG
-guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the loop); and
-replacing `RunPyBridge` in the CLI.
+real production weights at every stage.**
+
+### Scoping finding: CFG/STG guidance is NOT used by the distilled pipeline (2026-07-02)
+
+Checked every `guided_denoise_loop` (CFG/STG) call site in `ltx-pipelines-mlx` against every
+`denoise_loop` (plain, positive-context-only) call site: `distilled.py` — the pipeline behind this
+project's default `--transformer dasiwa`/distilled path — calls **only** the plain `denoise_loop`,
+with just positive text embeds, no negative context, at both of its two stages. `guided_denoise_loop`
+is used exclusively by `ti2vid_two_stages(_hq)`, `keyframe_interpolation`, `retake`, and
+`a2vid_two_stage` — pipelines this Swift port isn't targeting (CLAUDE.md scopes the goal to
+"distilled model first"). **This means `DenoiseLoop.run(model:videoState:audioState:...)`, already
+ported and verified in Phase 3, is already everything the distilled I2V path needs from the
+denoising loop.** CFG/STG guidance batching via `Modality.split` moves from "remaining work" to
+genuinely out of scope for the stated goal — a real reduction in the remaining checklist, not just
+a deferral. (It would become in-scope again only if a future goal explicitly asks for the `--hq`
+two-stage or keyframe-interpolation pipelines.)
+
+Remaining for full native generation, now that CFG/STG and the audio VAE encoder are both
+confirmed out of scope: the actual Gemma LLM (bridged, not hand-ported — see the text-encoder
+section above — this is the one component too large to hand-port and will remain a bridge point);
+the left-padding connector path (needed once real Gemma tokenizer output is wired in, likely
+alongside the Gemma bridge work); `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`
+two-stage variant's sampler — also out of scope per the CFG/STG finding above, since `--hq` is a
+`guided_denoise_loop` pipeline); and replacing `RunPyBridge` in the CLI once the Gemma bridge
+exists to actually feed `DenoiseLoop` real text embeddings.
 
 ## Phase 4 — retire the bridge
 
