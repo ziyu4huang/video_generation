@@ -1,0 +1,30 @@
+#!/bin/bash
+# pre-commit hook: reject files larger than 2 MB
+# Bypass with: git commit --no-verify
+# Note: symlinks are stored as their target path string (~100 bytes), so
+# symlinks to large model files pass this check correctly.
+
+MAX_BYTES=$((2 * 1024 * 1024))  # 2 MB
+
+has_large=false
+for path in $(git diff --cached --diff-filter=ACMR --name-only); do
+    blob=$(git ls-files -s -- "$path" | awk '{print $2}')
+    [ -z "$blob" ] && continue
+    size=$(git cat-file -s "$blob" 2>/dev/null || echo 0)
+    if [ "$size" -gt "$MAX_BYTES" ]; then
+        if [ "$size" -ge $((1024 * 1024 * 1024)) ]; then
+            size_human="$((size / 1024 / 1024 / 1024)) GB"
+        else
+            size_human="$((size / 1024 / 1024)) MB"
+        fi
+        echo "ERROR: $path is ${size_human} (limit: 2 MB)" >&2
+        has_large=true
+    fi
+done
+
+if [ "$has_large" = true ]; then
+    echo "" >&2
+    echo "Commit rejected: files exceed 2 MB limit." >&2
+    echo "Bypass with: git commit --no-verify" >&2
+    exit 1
+fi

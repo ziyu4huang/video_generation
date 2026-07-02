@@ -34,3 +34,10 @@ ComfyUI/
 python/mlx-movie-director/vendor/ltx-2-mlx/
 python/mlx-movie-director/vendor/ltx-2-mlx-dgrauet/
 python/mlx-movie-director/vendor/ltx-2-mlx-acelogic/
+
+# ComfyUI custom_nodes — third-party vendored, BUILD-TIME only, rebuildable
+comfyui_data/custom_nodes/
+# Swift build artifacts
+swift/*/.build/
+swift/*/.swiftpm/
+*.xcuserstate
