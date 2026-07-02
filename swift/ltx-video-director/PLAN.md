@@ -487,12 +487,34 @@ max-abs-diff < 1e-3 (looser than DiT-Attention tests since this uses manual soft
 the reference vs `MLX.scaledDotProductAttention`'s fused kernel here — same math, different
 kernel path). 38/38 tests pass.
 
-Remaining before real generation: the actual Gemma LLM (bridged, not hand-ported — see above),
-the left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
+### Audio VAE work started: WrappedConv2d + AudioResBlock (2026-07-02)
+
+The audio VAE decoder turns the audio latent `(B, 8, T, 16)` into a mel spectrogram by treating
+it as a 2D spatial tensor in MLX NHWC layout `(B, T, 16, 8)` — Conv2d (not Conv3d/Conv1d),
+upsampling the frequency axis (16) while keeping time causally padded. Confirmed by reading
+`audio_vae.py`'s module docstring and `WrappedConv2d`/`AudioResBlock`/`AudioAttnBlock` directly —
+architecturally a sibling to the video VAE (`Conv3dBlock`/`ResBlockStage`/`PixelNorm`) but 2D, with
+an added self-attention block (`AudioAttnBlock`, GroupNorm-based, not yet ported).
+
+`WrappedConv2d.swift` ports the causal/non-causal Conv2d building block (asymmetric height-only
+causal pad vs standard symmetric `nn.Conv2d(padding=...)` — analogous to `Conv3dBlock`'s two
+padding modes but for 2D). `AudioResBlock.swift` ports the residual block: pixel_norm → silu →
+conv1 → pixel_norm → silu → conv2 (+ optional 1×1 `nin_shortcut` when in/out channels differ) +
+residual — same shape as `ResBlockStage`'s inner block, eps=1e-6 (audio) vs the video VAE's 1e-8.
+
+Verified via `scripts/dump_audioresblock_reference.py` + `Tests/LTXVideoDirectorTests/AudioResBlockParityTests.swift`
+against the real `AudioResBlock` class, covering both the same-channel-causal and
+different-channel-noncausal-with-shortcut cases: max-abs-diff < 1e-4. 40/40 tests pass.
+
+Remaining for the audio VAE: `AudioAttnBlock` (GroupNorm + self-attention — new, not yet needed
+elsewhere in this port), `AudioUpsample`, and the full `AudioVAEDecoder` assembly (mid blocks +
+attn + 3 up-stages + conv_in/out + per-channel stats), then the vocoder (BigVGAN) and bandwidth-
+extension (BWE) stacks — both are separate, currently-undocumented-in-this-PLAN architectures.
+The actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above), the
+left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
 variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
 to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
-loop — currently single-pass, no negative-prompt guidance), the audio VAE/vocoder/BWE stack, and
-replacing `RunPyBridge` in the CLI.
+loop), and replacing `RunPyBridge` in the CLI remain as well.
 
 ## Phase 4 — retire the bridge
 
