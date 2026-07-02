@@ -363,11 +363,22 @@ simplest and most-used, per the smallest-to-largest pattern from Phase 1/2. Veri
 replays a real 4-step chain (each step's output feeds the next step's input, as a real denoise
 loop does) against the real class — max-abs-diff < 1e-5 at every step. 29/29 tests pass.
 
+Second sampling component: `SigmaSchedule.swift` ports `ltx_pipelines_mlx.scheduler`'s
+`DISTILLED_SIGMAS`/`STAGE_2_SIGMAS` (literal constant tables for the fast paths) and
+`ltx2_schedule`/`dynamic_shift_schedule` (`mlx_arsenal.diffusion` — the token-count-adaptive
+flow-matching schedule the dev/HQ path uses: interpolates a shift factor between `base_shift` at
+1024 tokens and `max_shift` at 4096 tokens, applies it to a descending linspace, then optionally
+stretches so the last non-zero sigma hits `1-terminal`). Verified via
+`scripts/dump_sigma_schedule_reference.py` + `Tests/LTXVideoDirectorTests/SigmaScheduleParityTests.swift`
+across 5 cases (both literal tables, an 8-step/4096-token and 20-step/1024-token schedule, and a
+no-stretch variant): all match to 1e-5. 33/33 tests pass.
+
 Remaining for the sampling loop: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`, CFG/STG batching
-via `Modality.split` (already ported in Phase 2), noise initialization, sigma schedule
-construction, and the actual `denoise_loop` orchestration (`utils/samplers.py`) that calls
-`LTXModel` + a stepper once per timestep. Image-conditioning latent injection and audio decode are
-separate sub-items also tracked in this phase.
+via `Modality.split` (already ported in Phase 2), noise initialization, and the actual
+`denoise_loop` orchestration (`utils/samplers.py`) that calls `LTXModel` + a stepper + a schedule
+once per timestep — this is where all of Phase 2 and Phase 3's building blocks finally combine
+into something that actually denoises a latent. Image-conditioning latent injection and audio
+decode are separate sub-items also tracked in this phase.
 
 ## Phase 4 — retire the bridge
 
