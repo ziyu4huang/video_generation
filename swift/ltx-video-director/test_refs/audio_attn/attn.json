@@ -1,0 +1,27 @@
+{
+  "channels": 64,
+  "input_shape": [
+    1,
+    4,
+    5,
+    64
+  ],
+  "output_shape": [
+    1,
+    4,
+    5,
+    64
+  ],
+  "weight_keys": [
+    "norm.bias",
+    "norm.weight",
+    "q.conv.weight",
+    "q.conv.bias",
+    "k.conv.weight",
+    "k.conv.bias",
+    "v.conv.weight",
+    "v.conv.bias",
+    "proj_out.conv.weight",
+    "proj_out.conv.bias"
+  ]
+}

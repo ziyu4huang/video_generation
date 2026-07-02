@@ -506,11 +506,24 @@ Verified via `scripts/dump_audioresblock_reference.py` + `Tests/LTXVideoDirector
 against the real `AudioResBlock` class, covering both the same-channel-causal and
 different-channel-noncausal-with-shortcut cases: max-abs-diff < 1e-4. 40/40 tests pass.
 
-Remaining for the audio VAE: `AudioAttnBlock` (GroupNorm + self-attention — new, not yet needed
-elsewhere in this port), `AudioUpsample`, and the full `AudioVAEDecoder` assembly (mid blocks +
-attn + 3 up-stages + conv_in/out + per-channel stats), then the vocoder (BigVGAN) and bandwidth-
-extension (BWE) stacks — both are separate, currently-undocumented-in-this-PLAN architectures.
-The actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above), the
+Third audio-VAE component: `AudioAttnBlock.swift` — spatial self-attention over the (H,W)
+feature map, gated by a `GroupNorm(32, channels, pytorch_compatible=True)` pre-norm. **New
+primitive for this port**: implemented true PyTorch GroupNorm semantics (reduces over `(H, W,
+channels-in-group)` jointly per `(batch, group)`, verified against PyTorch's actual definition
+directly rather than assumed from any other component in this codebase — this is a meaningfully
+different reduction than the per-pixel channel-only norms used elsewhere in the port, e.g.
+`PixelNorm`). Verified via `scripts/dump_audioattnblock_reference.py` +
+`Tests/LTXVideoDirectorTests/AudioAttnBlockParityTests.swift` against the real `AudioAttnBlock`
+class (64 channels, 32 groups): max-abs-diff < 1e-3, **passed on the first attempt** — the
+from-scratch GroupNorm derivation (double transpose to isolate `(H,W,cg)` as the reduction axis,
+then transpose back) was correct without iteration. 41/41 tests pass.
+
+Remaining for the audio VAE: `AudioUpsample`, and the full `AudioVAEDecoder` assembly (mid blocks
++ attn + 3 up-stages + conv_in/out + per-channel stats — same milestone pattern as
+`VideoDecoder`: mini-architecture parity test + real-checkpoint smoke test against
+`mlx-models/audio/ltx-2.3-audio/audio_vae.safetensors`), then the vocoder (BigVGAN) and bandwidth-
+extension (BWE) stacks — both separate, currently-undocumented-in-this-PLAN architectures. The
+actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above), the
 left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
 variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
 to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
