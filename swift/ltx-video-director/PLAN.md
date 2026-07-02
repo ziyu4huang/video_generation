@@ -255,12 +255,44 @@ tolerance than single-attention tests: 8 attention/FF stages of fp32 accumulatio
 is the single largest validation in the port so far and the real test of whether the 6 components
 built earlier in Phase 2 were correct AND correctly composable — they were. 25/25 tests pass.
 
-Remaining for Phase 2: `model.py`'s `LTXModel` top-level assembly (patchify/unpatchify
-projections, 6 top-level AdaLN modules producing this block's input params from a single
-timestep, the actual 48x block stack against a REAL checkpoint, the `LTX2_DIT_EVAL_EVERY` Metal
-watchdog workaround). With `BasicAVTransformerBlock` proven, this is now "mostly wiring plus a
-real-checkpoint smoke test," the same pattern that worked for `VideoDecoder`/`VideoEncoder` in
-Phase 1 — not new algorithmic risk.
+### Milestone: the full top-level LTXModel, verified end-to-end (2026-07-02)
+
+`LTXModel.swift` ports `model.py`'s `LTXModel` — the complete 48-layer DiT wiring: patchify
+projections → 8 top-level `AdaLayerNormSingle` modules (`adaln_single`/`audio_adaln_single`
+9-param self-attn+ff+text-xattn, `prompt_adaln_single`/`audio_prompt_adaln_single` 2-param text
+cross-attn, `av_ca_video/audio_scale_shift_adaln_single` 4-param AV cross-attn, `av_ca_a2v/v2a_gate_adaln_single`
+1-param AV gates — ALL sharing ONE timestep embedding, except the AV-gate pair which uses a
+separately-scaled embedding via `av_ca_timestep_scale_multiplier`) → RoPE frequency computation
+(4 distinct tables: video self, audio self, video cross, audio cross — cross tables use ONLY the
+temporal position axis and a combined `max(video_max_pos[0], audio_max_pos[0])`) → the block
+stack (`transformerBlocks`, reusing `BasicAVTransformerBlock` unchanged) → output projection
+(parameter-free LayerNorm — note: LayerNorm here, NOT the RMSNorm `BasicAVTransformerBlock` uses
+internally — + AdaLN scale/shift + final Linear).
+
+**Scope** (matches `BasicAVTransformerBlock`'s documented scope): scalar-timestep path only — no
+per-token timesteps, no STG perturbations, no block-streaming/TeaCache/calibration-tap hooks, no
+`LTX2_DIT_EVAL_EVERY` Metal-watchdog flushing (MLX Swift's evaluation model differs from Python's
+lazy-graph-per-48-blocks; revisit only if profiling shows it's needed).
+
+Verified via `scripts/dump_ltxmodel_reference.py` (runs the REAL `LTXModel` class with a small
+2-layer config — 86 real weight tensors incl. 2 full transformer blocks — fixed-seed weights,
+real video+audio text embeddings, real 3D video / 1D audio RoPE positions) +
+`Tests/LTXVideoDirectorTests/LTXModelParityTests.swift`: **passed on the first run** —
+max-abs-diff < 5e-3 on both video and audio outputs (looser than the single-block test: the
+reference casts activations to bf16 internally for memory, which this comparison inherits as
+extra rounding noise on top of the accumulated depth). This is the top of Phase 2 — every
+component built in this phase (RoPE, TimestepEmbedding, AdaLayerNormSingle, FeedForward,
+Attention, Modality, BasicAVTransformerBlock) is now exercised together in the real top-level
+assembly. 26/26 tests pass.
+
+**Phase 2's algorithmic core is done.** What's NOT done and blocks using this for real generation:
+a real-checkpoint smoke test (mirroring `VideoDecoderRealCheckpointTests`/`VideoEncoderRealCheckpointTests`
+— the actual LTX-2.3 transformer checkpoint is ~22B params in bf16/int8, so this needs a memory/
+time budget check before attempting, unlike the VAE's ~86M-param checkpoints), the diffusion
+sampling loop (Euler flow-match stepping, CFG/STG guidance batching via `Modality.split`), the
+text encoder (Gemma — likely reusable via `mlx-lm`, not something to hand-port), the audio VAE/
+vocoder/bandwidth-extension stack (untouched, separate from everything ported so far), and
+replacing `RunPyBridge` in the `i2v`/`upscale` CLI commands with all of the above wired together.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 
