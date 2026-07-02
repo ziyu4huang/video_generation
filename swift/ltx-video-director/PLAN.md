@@ -736,9 +736,35 @@ test since the manual `ffprobe` check isn't part of the automated suite. 56/56 t
 
 This doesn't close the overall goal — video generation still needs the Gemma-dependent
 transformer/denoise-loop path, so `I2VCommand` still uses `RunPyBridge` — but it's a genuine,
-running, run.py-free capability, not just isolated-component verification. The same
-loader-promotion pattern (test helpers → production `Sources/` loaders → a real CLI command) is
-now available to repeat for the video VAE decoder once there's a real video latent to feed it.
+running, run.py-free capability, not just isolated-component verification.
+
+### Milestone: the SECOND pure-Swift CLI command — `ltx-video video-decode` (2026-07-02)
+
+Repeated the loader-promotion pattern for the video side. `VideoDecoderLoader.swift` is much
+thinner than the audio loaders — `VideoDecoder` already accepts a raw `[String: MLXArray]`
+weights dict rather than pre-wired sub-structs, so the loader is just the checkpoint-key-stripping
+logic already verified in `VideoDecoderRealCheckpointTests`. `PNGFrameWriter.swift` adds a
+CoreGraphics/ImageIO-based PNG sequence writer (native macOS frameworks, no external dependency,
+mirroring `WAVWriter`'s approach) — a PNG sequence rather than an MP4 because H.264/HEVC muxing
+needs `AVAssetWriter`'s pixel-buffer-pool plumbing, a separate task; a frame sequence is enough to
+prove the decode path produces real, viewable images (and can feed an MP4 muxer later without
+re-deriving the RGB frames). Pixel convention confirmed by reading the reference decoder directly
+(`mx.clip(frame, -1.0, 1.0)` in `decode_and_stream`, not assumed): `[-1,1]` → remapped to `[0,255]`.
+
+`ltx-video video-decode` chains them: load a video latent (`--latent <file>`, or `--zeros` for a
+synthetic smoke-test latent) → native `VideoDecoder` → `PNGFrameWriter` → a real PNG sequence on
+disk. Ran it for real: `--zeros --zeros-frames 2 --zeros-size 2` → 9 frames (F=2 latent → 9 pixel
+frames via the decoder's temporal upsampling, matching the established parity-test relationship)
+at 64×64, independently confirmed with the `file` command (not this package's own code): `PNG
+image data, 64 x 64, 8-bit/color RGB, non-interlaced`. Added `PNGFrameWriterTests.swift` (frame
+count/size + PNG magic-byte check + invalid-shape error path). 58/58 tests pass.
+
+**Both halves of generation output — audio (latent→WAV) and video (latent→PNG frames) — now have
+a real, run.py-free CLI path**, each independently verified against an external tool (`ffprobe`,
+`file`). The loader-promotion pattern (test helpers → production `Sources/` loaders → a real CLI
+command) has now been applied twice; the remaining gap to a fully native `I2VCommand` is entirely
+on the *generation* side (transformer + denoise loop + Gemma text embeddings), not the *decode*
+side — both decode paths are done and reachable from the actual binary today.
 
 ## Phase 4 — retire the bridge
 
