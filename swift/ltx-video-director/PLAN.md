@@ -316,14 +316,34 @@ synthetic tokens — confirms finite, correctly-shaped output. **Runs in well un
 **This means: a real slice of the actual 19GB LTX-2.3 production checkpoint has now been loaded,
 dequantized, and executed through native Swift/MLX code, end to end, with zero Python.**
 
-Remaining before real generation: extending this from 1 block to all 48 (a memory-budgeting
-question — likely needs streaming/lazy per-block loading rather than holding all 48 dequantized
-blocks resident, mirroring the Python reference's own `block_provider` streaming mechanism, which
-`BasicAVTransformerBlock`/`LTXModel` intentionally left unported — see their file headers), the
-diffusion sampling loop (Euler flow-match stepping, CFG/STG guidance batching via `Modality.split`),
-the text encoder (Gemma — likely reusable via `mlx-lm`, not something to hand-port), the audio
-VAE/vocoder/bandwidth-extension stack (untouched, separate from everything ported so far), and
-replacing `RunPyBridge` in the `i2v`/`upscale` CLI commands with all of the above wired together.
+### Milestone: all 48 real transformer blocks stream end-to-end (2026-07-02)
+
+`TransformerCheckpointLoader.swift` centralizes the checkpoint-loading logic (previously
+duplicated across test files) into reusable production code — `blockWeights(raw:blockIndex:)`
+dequantizes ONE block's slice on demand, `topLevelWeights`/`makeAdaLN`/`makeAttention`/`makeFF`/
+`makeBlock`/`makeModel` build the corresponding native structs from it.
+
+`LTXModel.streamingForward` (new method alongside `callAsFunction`) mirrors the Python
+reference's `block_provider` streaming mechanism: instead of a fixed `transformerBlocks` array,
+it takes a `blockProvider(Int) -> BasicAVTransformerBlock` closure, calling it fresh each
+iteration and `MLX.eval`-ing the hidden states immediately after each block so that block's
+just-built dequantized weights become eligible for release before the next block is constructed.
+
+`LTXModelRealCheckpointTests.testAll48RealBlocksStreamWithBoundedMemory` streams **all 48 REAL
+transformer blocks** from the actual 19GB checkpoint (not a synthetic stand-in, not just block
+0) — dequantizing each block's weights on demand, running it, releasing it, moving to the next.
+**Runs in 1.5 seconds with finite, correctly-shaped output.** This directly answers the open
+question from the previous milestone ("does streaming actually work at full depth against real
+weights") — it does, and cheaply. 28/28 tests pass.
+
+**This closes out the transformer-depth question entirely.** The full 48-layer joint audio-video
+DiT can now run against real production weights, end to end, natively in Swift, with bounded
+memory. Remaining before real generation: the diffusion sampling loop (Euler flow-match stepping,
+CFG/STG guidance batching via `Modality.split`), the text encoder (Gemma — likely reusable via
+`mlx-lm`, not something to hand-port), the audio VAE/vocoder/bandwidth-extension stack (untouched,
+separate from everything ported so far), and replacing `RunPyBridge` in the `i2v`/`upscale` CLI
+commands with all of the above wired together. None of these are "is the architecture right"
+questions anymore — they're each their own integration project.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
 

@@ -192,4 +192,76 @@ public struct LTXModel {
         let audioOut = outputBlock(audioHidden, embeddedTimestep: audioEmbeddedTS, scaleShiftTable: audioScaleShiftTable, projWeight: audioProjOutWeight, projBias: audioProjOutBias)
         return (videoOut, audioOut)
     }
+
+    /// Same forward pass as `callAsFunction`, but blocks are constructed
+    /// on-demand by `blockProvider(index)` instead of read from
+    /// `self.transformerBlocks` (which is expected empty for this path) —
+    /// mirrors the Python reference's `block_provider` streaming mechanism.
+    /// After each block, `MLX.eval` forces materialization of the hidden
+    /// states so the just-used block's dequantized weights (built fresh
+    /// each iteration by the caller's closure) become eligible for release
+    /// before the next block is constructed. This is what makes running
+    /// all 48 blocks against a real checkpoint feasible without holding
+    /// 48 blocks' worth of dequantized float32 weights resident at once —
+    /// see `TransformerCheckpointLoader.blockWeights` (dequantizes one
+    /// block's slice at a time) and PLAN.md Phase 2's streaming milestone.
+    public func streamingForward(
+        videoLatent: MLXArray, audioLatent: MLXArray, timestep: MLXArray,
+        numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
+        videoTextEmbeds: MLXArray? = nil, audioTextEmbeds: MLXArray? = nil,
+        videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
+        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil
+    ) -> (video: MLXArray, audio: MLXArray) {
+        var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
+        var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
+
+        let tEmb = embedTimestepScalar(timestep)
+        let avCaFactor = config.avCaTimestepScaleMultiplier / config.timestepScaleMultiplier
+        let tEmbAVGate = TimestepEmbedding.sinusoidal(
+            timesteps: timestep * config.timestepScaleMultiplier * avCaFactor, embeddingDim: config.timestepEmbeddingDim)
+
+        let (videoAdalnEmb, videoEmbeddedTS) = adalnSingle(tEmb)
+        let (avCaVideoEmb, _) = avCaVideoScaleShiftAdalnSingle(tEmb)
+        let (avCaA2VGateEmb, _) = avCaA2VGateAdalnSingle(tEmbAVGate)
+        let (videoPromptEmb, _) = promptAdalnSingle(tEmb)
+
+        let (audioAdalnEmb, audioEmbeddedTS) = audioAdalnSingle(tEmb)
+        let (avCaAudioEmb, _) = avCaAudioScaleShiftAdalnSingle(tEmb)
+        let (avCaV2AGateEmb, _) = avCaV2AGateAdalnSingle(tEmbAVGate)
+        let (audioPromptEmb, _) = audioPromptAdalnSingle(tEmb)
+
+        let videoRopeFreqs = videoPositions.map { computeRopeFreqs(positions: $0, numHeads: config.videoNumHeads, headDim: config.videoHeadDim) }
+        let audioRopeFreqs = audioPositions.map {
+            computeRopeFreqs(positions: $0, numHeads: config.audioNumHeads, headDim: config.audioHeadDim, maxPosOverride: config.audioPositionalEmbeddingMaxPos)
+        }
+        let crossPEMaxPos = max(config.positionalEmbeddingMaxPos[0], config.audioPositionalEmbeddingMaxPos[0])
+        let videoCrossRopeFreqs = videoPositions.map {
+            computeRopeFreqs(positions: $0[0..., 0..., 0..<1], numHeads: config.avCrossNumHeads, headDim: config.avCrossHeadDim, maxPosOverride: [crossPEMaxPos])
+        }
+        let audioCrossRopeFreqs = audioPositions.map {
+            computeRopeFreqs(positions: $0[0..., 0..., 0..<1], numHeads: config.avCrossNumHeads, headDim: config.avCrossHeadDim, maxPosOverride: [crossPEMaxPos])
+        }
+
+        for blockIdx in 0..<numLayers {
+            let block = blockProvider(blockIdx)
+            let (v, a) = block(
+                videoHidden: videoHidden, audioHidden: audioHidden,
+                videoAdaLNParams: videoAdalnEmb, audioAdaLNParams: audioAdalnEmb,
+                videoPromptAdaLNParams: videoPromptEmb, audioPromptAdaLNParams: audioPromptEmb,
+                avCAVideoParams: avCaVideoEmb, avCAAudioParams: avCaAudioEmb,
+                avCAA2VGateParams: avCaA2VGateEmb, avCAV2AGateParams: avCaV2AGateEmb,
+                videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
+                videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
+                videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask
+            )
+            MLX.eval(v, a)
+            videoHidden = v
+            audioHidden = a
+        }
+
+        let videoOut = outputBlock(videoHidden, embeddedTimestep: videoEmbeddedTS, scaleShiftTable: scaleShiftTable, projWeight: projOutWeight, projBias: projOutBias)
+        let audioOut = outputBlock(audioHidden, embeddedTimestep: audioEmbeddedTS, scaleShiftTable: audioScaleShiftTable, projWeight: audioProjOutWeight, projBias: audioProjOutBias)
+        return (videoOut, audioOut)
+    }
 }
