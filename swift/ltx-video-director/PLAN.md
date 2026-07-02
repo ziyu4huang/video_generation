@@ -851,6 +851,36 @@ Swift via mlx-swift (load model + tokenizer + extract per-layer hidden states +
 concatenate) — a standard LLM-inference task, not an architecture port. Until that
 lands, `I2VCommand` keeps `RunPyBridge` for the generation step.
 
+### Gemma-3-12b port: scope + reference dump landed (2026-07-03)
+
+There is no `mlx-swift-examples` (the Swift analogue of `mlx-lm`) checked out in
+this repo, and z-image-director's Qwen3-4B is a full hand-port (own QLinear, RoPE,
+attention). So Gemma-3-12b is likewise a from-scratch architecture port, NOT a
+config-load. Concrete architecture (read from the cached
+`mlx-community/gemma-3-12b-it-4bit` config.json): **48 layers, hidden_size=3840,
+16 attention heads (head_dim=240), intermediate_size=15360, sliding_window=1024**.
+The sliding window (alternating full / sliding attention layers) + Gemma-3's
+query-key RMSNorm make this architecturally more involved than Qwen3 — a genuine
+multi-session effort comparable to (and larger than) z-image's Qwen3 port.
+
+**Verified contract captured**: `scripts/dump_gemma_reference.py` loads the real
+`GemmaLanguageModel` and dumps the atomic first unit of the port — `token_ids`,
+`attention_mask`, `h0_embedding` (post `embed_tokens` + sqrt(3840) scaling), and
+`h1_layer0` (output of transformer layer 0) for a fixed 64-token prompt. 49 hidden
+states total confirmed; h0/h1 stored as fp16 (~490 KB each, committed under
+`test_refs/gemma/`). This lets the port be verified incrementally: tokenizer →
+embed+scaling (diff vs h0) → first Gemma-3 block (diff vs h1) → subsequent layers.
+
+The encode contract (from `base_encoder.get_all_hidden_states`): left-pad to
+`max_length` (default 1024; 64 for the dump), `h = embed_tokens(token_ids) *
+sqrt(hidden_size)`, build causal+padding mask, then 48 layers each appending its
+output. Concatenation of all 49 → (B, T, 188160) feeds `TextEmbeddingProjection`.
+
+**Status**: reference + scope landed; the 48-layer decoder port itself remains.
+Until it ships, `I2VCommand` keeps `RunPyBridge` for the LTX generation step.
+
+
+
  (markdown-fence stripping,
 `estimated_seconds` as float, non-JSON rejection, missing-prompt rejection) — 5 tests, all
 pass. `expand()` itself calls LM Studio, not parity-tested (same convention as VLMVerify's
