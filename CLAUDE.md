@@ -42,6 +42,12 @@ bun run gui:port                           # this worktree's url (--all lists ev
 
 The GUI above is the only entry point (`./run.sh` was removed 2026-06-21).
 
+**After a fresh clone**, enable the shared pre-commit hook (2 MB size guard):
+
+```bash
+bash scripts/setup.sh    # sets core.hooksPath = .githooks
+```
+
 ## run.py Subcommands
 
 All commands: `python/venv/bin/python python/mlx-movie-director/run.py <cmd>`.
