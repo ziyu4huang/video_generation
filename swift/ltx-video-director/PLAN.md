@@ -560,14 +560,33 @@ self-contained piece, matching the smallest-to-largest pattern. Verified via
 with non-zero log-scale weights (zero-init would trivially give both scales as 1.0 without
 exercising the actual exponentiation): max-abs-diff < 1e-5. 45/45 tests pass.
 
-Remaining for the vocoder: anti-aliased `DownSample1d`/`UpSample1d` (low-pass-filtered 2x resample
-around each `SnakeBeta` activation — the "anti-aliased activation" wrapper), the `ConvTranspose1d`
-upsample stages, `resblocks` (dilated Conv1d stacks), and the full assembly against
+`Activation1d.swift` ports `DownSample1d`/`UpSample1d`/`Activation1d` (upsample → `SnakeBeta` →
+downsample, the anti-aliased activation wrapper used throughout BigVGAN's resblocks). **Caught a
+real bug in the reference-dump methodology itself, not the port**: the vendored
+`UpSample1d.__call__` uses `x_up.at[:, ::2, :].add(x)`, which this repo's own memory documents as
+a confirmed MLX 0.31.2 `.at[strided].add()` Metal mis-indexing bug (`project_mlx_audio_fix`) —
+manually verified by hand-computing a 3-element example: the buggy call produced `[1,2,0,0,2,3,0,0,3,4,0,0]`
+instead of the correct `[1,2,0,0,3,4,0,0,5,6,0,0]` for input `[[1,2],[3,4],[5,6]]`. The REAL
+pipeline never runs this raw path — `app/vendor_patches.py`'s `_patch_upsample1d()` replaces it
+with plain `x_up[:, ::2, :] = x` at import time (a runtime monkey-patch, per this project's
+established pattern for vendor fixes). The Swift port already implemented the correct
+zero-interleaving (via reshape, not strided assignment — see the file's header) and initially
+FAILED against a naively-dumped reference (diff ~16, ~111) that used the unpatched buggy class;
+regenerating the reference with the same patch applied (replicated inline in the dump script,
+since importing the full `app.vendor_patches` module requires the whole pipeline's dependency
+tree) made all 3 tests pass — **the Swift implementation was correct all along; the bug was in
+the reference generation, not the port**. This is exactly the failure mode the
+dump-real-reference methodology is meant to catch, and it worked. 48/48 tests pass.
+
+Remaining for the vocoder: the `ConvTranspose1d` upsample stages, `resblocks` (dilated Conv1d
+stacks using `Activation1d`), and the full assembly against
 `mlx-models/audio/ltx-2.3-audio/vocoder.safetensors`; then the separate BWE (bandwidth-extension,
 16kHz→48kHz) generator (`bwe.py`, 401 lines, largely mirrors the vocoder's architecture at
-different channel sizes per its own docstring) and its own MelSTFT machinery. The actual Gemma
-LLM (bridged, not hand-ported — see the text-encoder section above), the left-padding connector
-path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants), CFG/STG guidance
+different channel sizes per its own docstring — including its OWN `.at[strided].add()` bug in
+`HannSincResampler`, also patched by `vendor_patches.py`, to watch for when that component is
+ported) and its own MelSTFT machinery. The actual Gemma LLM (bridged, not hand-ported — see the
+text-encoder section above), the left-padding connector path,
+`Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants), CFG/STG guidance
 batching via `Modality.split` (ported in Phase 2, not yet wired into the loop), and replacing
 `RunPyBridge` in the CLI remain as well.
 

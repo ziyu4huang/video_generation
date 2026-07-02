@@ -1,0 +1,24 @@
+{
+  "channels": 4,
+  "downsample_out_shape": [
+    1,
+    3,
+    4
+  ],
+  "upsample_out_shape": [
+    1,
+    12,
+    4
+  ],
+  "activation1d_out_shape": [
+    1,
+    6,
+    4
+  ],
+  "activation1d_weight_keys": [
+    "act.alpha",
+    "act.beta",
+    "upsample.filter",
+    "downsample.lowpass.filter"
+  ]
+}
