@@ -710,6 +710,36 @@ two-stage variant's sampler — also out of scope per the CFG/STG finding above,
 `guided_denoise_loop` pipeline); and replacing `RunPyBridge` in the CLI once the Gemma bridge
 exists to actually feed `DenoiseLoop` real text embeddings.
 
+### Milestone: the FIRST pure-Swift CLI command — `ltx-video audio-decode` (2026-07-02)
+
+Every component verified so far lived only in tests; nothing was reachable from the actual
+`ltx-video` binary. Closed that gap for the half of the pipeline that needs no text encoder at
+all: `AudioVAEDecoderLoader.swift` and `VocoderWithBWELoader.swift` promote the real-checkpoint
+weight-wiring already verified in `AudioVAEDecoderRealCheckpointTests`/
+`VocoderWithBWERealCheckpointTests` out of test code into production `Sources/`, and
+`WAVWriter.swift` adds a minimal hand-rolled PCM16 RIFF/WAVE writer (no external dependency — the
+44-byte canonical header is simpler than routing through `AVAssetWriter` for raw interleaved
+samples).
+
+`ltx-video audio-decode` (new subcommand) chains them: load an audio latent (`--latent
+<file.safetensors>`, or `--zeros` for a synthetic smoke-test latent since a REAL latent needs the
+transformer+Gemma path that doesn't exist yet) → native `AudioVAEDecoder` → native
+`VocoderWithBWE` → `WAVWriter` → a real `.wav` file on disk. **Zero `RunPyBridge` calls, zero
+`run.py` subprocess invocations, anywhere in this command's path** — the first command in this
+package that is genuinely, not just component-wise, "pure Swift solution, not run.py wrapper."
+
+Ran it for real: `ltx-video audio-decode --zeros --zeros-frames 8 -o test.wav` → produced a
+13920-frame, 2-channel, 48kHz file, independently verified with `ffprobe` (not just this
+package's own code): `RIFF ... WAVE audio, Microsoft PCM, 16 bit, stereo 48000 Hz`. Added
+`WAVWriterTests.swift` (header round-trip + empty-input error path) as a permanent regression
+test since the manual `ffprobe` check isn't part of the automated suite. 56/56 tests pass.
+
+This doesn't close the overall goal — video generation still needs the Gemma-dependent
+transformer/denoise-loop path, so `I2VCommand` still uses `RunPyBridge` — but it's a genuine,
+running, run.py-free capability, not just isolated-component verification. The same
+loader-promotion pattern (test helpers → production `Sources/` loaders → a real CLI command) is
+now available to repeat for the video VAE decoder once there's a real video latent to feed it.
+
 ## Phase 4 — retire the bridge
 
 Once Phase 2/3 pass parity, `I2VEngine`/`UpscaleEngine` swap their
