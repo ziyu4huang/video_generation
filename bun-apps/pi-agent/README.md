@@ -245,6 +245,26 @@ bun scripts/deploy.ts /tmp/pi-bundle         # build + deploy (bundle)
 cd /tmp && /tmp/pi-bundle/run.sh -p "hi"     # runs from any cwd
 ```
 
+## Doctor (self-check)
+
+`doctor` runs offline (no model call) and checks the boundary conditions up front
+so a broken deploy / fresh machine surfaces an actionable checklist instead of an
+opaque runtime error:
+
+```bash
+bun src/cli.ts doctor            # source mode
+./run.sh doctor                  # any deployed layout (bundle/portable/release)
+bun src/cli.ts doctor --json     # machine-readable
+```
+
+It detects the deploy mode (source/bundle/portable/release/binary), verifies the
+entry + extension set are complete for that mode, checks the host can resolve the
+deps pi's loader needs (`typebox` + `@earendil-works/*` — FAIL for `--portable`
+where the node_modules subset is essential, WARN for THIN bundle which works via
+abs paths, INFO for source where pi resolves its own), reports provider apiKey
+availability, and lists which patches would apply. Exit 0 = all hard checks pass,
+1 = any failed.
+
 ## Add your own patch
 
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
