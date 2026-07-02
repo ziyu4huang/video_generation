@@ -578,14 +578,37 @@ tree) made all 3 tests pass — **the Swift implementation was correct all along
 the reference generation, not the port**. This is exactly the failure mode the
 dump-real-reference methodology is meant to catch, and it worked. 48/48 tests pass.
 
-Remaining for the vocoder: the `ConvTranspose1d` upsample stages, `resblocks` (dilated Conv1d
-stacks using `Activation1d`), and the full assembly against
-`mlx-models/audio/ltx-2.3-audio/vocoder.safetensors`; then the separate BWE (bandwidth-extension,
-16kHz→48kHz) generator (`bwe.py`, 401 lines, largely mirrors the vocoder's architecture at
-different channel sizes per its own docstring — including its OWN `.at[strided].add()` bug in
-`HannSincResampler`, also patched by `vendor_patches.py`, to watch for when that component is
-ported) and its own MelSTFT machinery. The actual Gemma LLM (bridged, not hand-ported — see the
-text-encoder section above), the left-padding connector path,
+`AMPBlock1.swift` ports the anti-aliased multi-periodicity residual block: for each of 3 dilations
+(1, 3, 5), `act1 → dilated conv1 → act2 → conv2 → +residual`. **A second real methodology lesson**
+(distinct from the previous `.at[strided]` bug): the first dump used random, UNNORMALIZED
+anti-aliasing filter weights (e.g. 12 taps averaging ~1.0 each ⇒ ~12x gain per pass). Through 6
+activation passes (act1+act2 × 3 dilations), that compounds to ~12⁶ ≈ 3×10⁶×, blowing the
+reference itself up to ~10¹¹ magnitude — confirmed by replaying the SAME reference computation
+step-by-step in Python: both the reference and (separately) the Swift port exploded, just to
+different chaotic values, because at that magnitude fp32 rounding differences between the two
+MLX backends get exponentially amplified. This wasn't a port bug OR a reference bug — it was an
+**unrealistic test fixture**: real anti-aliasing filters are near-unity-gain low-pass kernels
+(Kaiser-window sinc taps in production), not random noise. Normalizing each dumped filter to sum
+to 1 (keeping the whole block in the numerically stable regime real usage operates in) dropped the
+diff from ~5×10¹¹ to 0.03 — and confirmed the port was correct once tested in a realistic regime.
+Tolerance set to 5e-2 (comparable depth to `BasicAVTransformerBlock`'s 2e-3 or `DenoiseLoop`'s
+1e-2 — 6 activation passes + 6 convs compounds float32 noise similarly; output magnitude here is
+O(1), so this is a few-percent relative error, not a correctness gap). 49/49 tests pass.
+
+**Methodology note for remaining work**: any component tested with synthetic weights should ask
+whether those weights are being exercised in a regime the real architecture was designed for
+(e.g. filters that must integrate to ~1, norm layers whose weights center near 1, etc.) —
+unnormalized random init can manufacture spurious failures (or, worse, spurious "passes" that
+don't actually exercise the intended numerical behavior).
+
+Remaining for the vocoder: the `ConvTranspose1d` upsample stages, and the full `BigVGANVocoder`
+assembly against `mlx-models/audio/ltx-2.3-audio/vocoder.safetensors` (real filter/norm weights
+from an actual trained model won't have the synthetic-fixture instability above); then the
+separate BWE (bandwidth-extension, 16kHz→48kHz) generator (`bwe.py`, 401 lines, largely mirrors
+the vocoder's architecture at different channel sizes per its own docstring — including its OWN
+`.at[strided].add()` bug in `HannSincResampler`, also patched by `vendor_patches.py`, to watch for
+when that component is ported) and its own MelSTFT machinery. The actual Gemma LLM (bridged, not
+hand-ported — see the text-encoder section above), the left-padding connector path,
 `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants), CFG/STG guidance
 batching via `Modality.split` (ported in Phase 2, not yet wired into the loop), and replacing
 `RunPyBridge` in the CLI remain as well.

@@ -1,0 +1,51 @@
+{
+  "channels": 4,
+  "input_shape": [
+    1,
+    20,
+    4
+  ],
+  "output_shape": [
+    1,
+    20,
+    4
+  ],
+  "weight_keys": [
+    "convs1.0.weight",
+    "convs1.0.bias",
+    "convs1.1.weight",
+    "convs1.1.bias",
+    "convs1.2.weight",
+    "convs1.2.bias",
+    "convs2.0.weight",
+    "convs2.0.bias",
+    "convs2.1.weight",
+    "convs2.1.bias",
+    "convs2.2.weight",
+    "convs2.2.bias",
+    "acts1.0.act.alpha",
+    "acts1.0.act.beta",
+    "acts1.0.upsample.filter",
+    "acts1.0.downsample.lowpass.filter",
+    "acts1.1.act.alpha",
+    "acts1.1.act.beta",
+    "acts1.1.upsample.filter",
+    "acts1.1.downsample.lowpass.filter",
+    "acts1.2.act.alpha",
+    "acts1.2.act.beta",
+    "acts1.2.upsample.filter",
+    "acts1.2.downsample.lowpass.filter",
+    "acts2.0.act.alpha",
+    "acts2.0.act.beta",
+    "acts2.0.upsample.filter",
+    "acts2.0.downsample.lowpass.filter",
+    "acts2.1.act.alpha",
+    "acts2.1.act.beta",
+    "acts2.1.upsample.filter",
+    "acts2.1.downsample.lowpass.filter",
+    "acts2.2.act.alpha",
+    "acts2.2.act.beta",
+    "acts2.2.upsample.filter",
+    "acts2.2.downsample.lowpass.filter"
+  ]
+}
