@@ -395,4 +395,21 @@ describe("buildBundleArgvFromLayout (DEPLOY-BUNDLE mode)", () => {
 	test("empty layout → empty argv", () => {
 		expect(buildBundleArgvFromLayout({ extBundles: [], skillDirs: [], npmPaths: [] }, SELF, () => true, warnFn)).toEqual([]);
 	});
+
+	test("portable shape: ext-bundles + empty npmPaths (--portable bundles npm exts in) → no npm -e", () => {
+		// .deploy-portable → resolveRunDirArgv passes [] for npmPaths; the pure
+		// builder then emits ONLY ext-bundles + skills (npm exts are FULL-bundled).
+		const argv = buildBundleArgvFromLayout(
+			{ extBundles: ["obsidian.full.js", "juicesharp-rpiv-ask-user-question.full.js"], skillDirs: ["pi-obsidian-skills"], npmPaths: [] },
+			SELF,
+			() => true,
+			warnFn,
+		);
+		expect(argv).toEqual([
+			"-e", join(SELF, "ext-bundles", "obsidian.full.js"),
+			"-e", join(SELF, "ext-bundles", "juicesharp-rpiv-ask-user-question.full.js"),
+			"--skill", join(SELF, "skills", "pi-obsidian-skills"),
+		]);
+		expect(warns).toEqual([]);
+	});
 });

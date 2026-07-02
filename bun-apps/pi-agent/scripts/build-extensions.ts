@@ -42,6 +42,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -82,6 +83,11 @@ const NO_VERIFY = argv.includes("--no-verify");
 const LIVE_VERIFY = argv.includes("--live-verify");
 const outDirIdx = argv.indexOf("--out-dir");
 const OUTDIR = outDirIdx >= 0 ? resolve(argv[outDirIdx + 1]) : join(REPO_ROOT, "dist", "pi-ext-bundles");
+// `--portable` — FULL-bundle EVERY extension (incl. npm-sourced ones) so the
+// result has zero bare specifiers and zero baked repo paths → runs with no
+// repo dependency (same machine). Used by `deploy.ts --portable`. Implies FULL
+// for all; the per-name `--full <name>` still works for one-off THIN→FULL.
+const PORTABLE = argv.includes("--portable");
 // `--full <name> [<name> …]` — force FULL for these extension names (last path
 // segment without .ts). Everything else bundles THIN.
 const fullIdx = argv.indexOf("--full");
@@ -93,8 +99,32 @@ const FULL_FOR = new Set<string>(
 if (!existsSync(MANIFEST_PATH)) die(`manifest not found: ${MANIFEST_PATH}`);
 const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
 	extensions?: string[];
+	npmExtensions?: { pkg: string; entry: string }[];
 };
-const exts: string[] = manifest.extensions ?? [];
+// workspace extensions (bun-apps/<rel>) +, in --portable, npm-sourced exts
+// resolved from node_modules (so they too become self-contained FULL bundles).
+const exts: { name: string; entry: string }[] = [];
+for (const rel of manifest.extensions ?? []) {
+	const name = basename(rel).replace(/\.ts$/, "");
+	exts.push({ name, entry: join(REPO_ROOT, "bun-apps", rel) });
+}
+if (PORTABLE) {
+	// These are deps of pi-agent (not the workspace root), so anchor at its pkg.
+	// Resolve the package DIR via package.json then join(entry) — mirrors
+	// resolve.ts's source-mode npm resolution (subpath resolve hits exports maps).
+	const nmRequire = createRequire(join(PI_AGENT_DIR, "package.json"));
+	for (const { pkg, entry } of manifest.npmExtensions ?? []) {
+		try {
+			const pjPath = nmRequire.resolve(`${pkg}/package.json`);
+			// Sanitize the scoped name to a flat filename (@juicesharp/x → juicesharp-x)
+			// so the outfile isn't a subdir resolve.ts's readdir wouldn't list.
+			const name = pkg.replace(/^@/, "").replace(/[\\/]/g, "-");
+			exts.push({ name, entry: join(dirname(pjPath), entry) });
+		} catch {
+			console.error(Y(`· npm ext ${pkg}/${entry} not resolvable in --portable — skipping`));
+		}
+	}
+}
 if (exts.length === 0) die("manifest lists no extensions to bundle.");
 
 // Peer deps kept external in THIN mode. Same set as pi-vlm's build-bundle.ts +
@@ -120,6 +150,8 @@ const BUILTINS = new Set([
 	"fs", "os", "path", "url", "child_process", "http", "https", "crypto", "stream",
 	"util", "buffer", "events", "net", "tls", "zlib", "querystring", "string_decoder",
 	"assert", "async_hooks", "module", "perf_hooks", "string_decoder", "timers", "worker_threads",
+	"process", "tty", "dns", "dgram", "cluster", "readline", "repl", "v8", "vm", "sys",
+	"node:process", "node:tty", "node:dns",
 ]);
 function isBuiltin(spec: string): boolean {
 	return spec.startsWith("node:") || BUILTINS.has(spec.split("/")[0]);
@@ -311,12 +343,15 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 	const failures: string[] = [];
 	const warnings: string[] = [];
 
-	// size sanity
-	const minBytes = thin ? 2_000 : 1_000_000;
+	// size sanity — the one hard check both modes share. FULL floors low: an ext
+	// that barely touches typebox (obsidian/kc use node builtins) is legitimately
+	// a small FULL bundle; only typebox+babel-heavy exts reach ~6.8 MB.
+	const minBytes = 2_000;
 	if (bytes < minBytes) failures.push(`output ${formatSize(bytes)} below ${formatSize(minBytes)} — likely stub/empty`);
 
-	// thin: no bare specifier left unresolved
 	if (thin) {
+		// THIN: strict portability gate — every bare specifier must be abs-resolved
+		// (else jiti wraps the module in a data:URL → NameTooLong at load).
 		const code = readFileSync(outfile, "utf8");
 		const bareLeft = [...code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)]
 			.map((m) => m[1])
@@ -324,12 +359,20 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 		if (bareLeft.length) {
 			failures.push(`bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`);
 		}
+		// (B) factory test — THIN bundles are self-contained at the abs-path level,
+		// so import() resolves every dep. Hard-fail.
+		const factory = await liveFactoryTest(outfile);
+		if (!factory.ok) failures.push(`factory: ${factory.detail}`);
+		else console.log(`    ${G("✓")} factory: ${factory.detail}`);
+	} else {
+		// FULL: bun inlines the big shared deps but may LEAVE residuals (node-fetch,
+		// ws, native) as bare specifiers resolved at runtime via the host node_modules.
+		// So an isolated import() can fail on those residuals — the factory test and
+		// bare-specifier scan are NOT reliable gates here. The real gate is the e2e
+		// (e2e-extensions DEPLOY-PORTABLE), which runs the FULL bundle with the
+		// deployed node_modules. Just sanity-check + report.
+		console.log(`    ${D("· FULL bundle — portability validated by the e2e (residual bare specifiers resolve via host node_modules at runtime)")}`);
 	}
-
-	// (B) factory test — always, hard-fail
-	const factory = await liveFactoryTest(outfile);
-	if (!factory.ok) failures.push(`factory: ${factory.detail}`);
-	else console.log(`    ${G("✓")} factory: ${factory.detail}`);
 
 	// (C) jiti live boot — opt-in (--live-verify). Crash = hard fail, else info.
 	if (LIVE_VERIFY) {
@@ -350,12 +393,11 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 }
 
 // ── Build one extension ─────────────────────────────────────────────────────
-async function buildOne(rel: string): Promise<void> {
-	const name = basename(rel).replace(/\.ts$/, "");
-	const entry = join(REPO_ROOT, "bun-apps", rel);
-	const thin = !FULL_FOR.has(name);
+async function buildOne(spec: { name: string; entry: string }): Promise<void> {
+	const { name, entry } = spec;
+	const thin = !PORTABLE && !FULL_FOR.has(name);
 	const outfile = join(OUTDIR, `${name}.${thin ? "thin" : "full"}.js`);
-	console.log(`${G("▶")} ${name}  ${D(`[${thin ? "THIN" : "FULL"}] ${rel}`)}`);
+	console.log(`${G("▶")} ${name}  ${D(`[${thin ? "THIN" : "FULL"}] ${entry.replace(REPO_ROOT + "/", "")}`)}`);
 	if (!existsSync(entry)) throw new Error(`entry not found: ${entry}`);
 
 	await stageBundle({ entry, outfile, thin });
@@ -368,14 +410,19 @@ async function buildOne(rel: string): Promise<void> {
 }
 
 // ── Orchestrate ──────────────────────────────────────────────────────────────
-console.log(`${Y("▶ build-extensions")}  ${D(`${exts.length} extension(s) → ${OUTDIR}`)}`);
+console.log(`${Y("▶ build-extensions")}  ${D(`${exts.length} extension(s) → ${OUTDIR}${PORTABLE ? " [portable FULL]" : ""}`)}`);
 mkdirSync(OUTDIR, { recursive: true });
+// OUTDIR is shared between THIN (default) and FULL (--portable) runs. Wipe it
+// at the start of every run so the deploy ships ONLY the current mode's bundles
+// (resolve.ts lists every .js in ext-bundles/ — a leftover .thin.js next to a
+// .full.js would double-load; a scoped-name subdir from an older run must go).
+for (const f of readdirSync(OUTDIR)) rmSync(join(OUTDIR, f), { recursive: true, force: true });
 let failed = 0;
-for (const rel of exts) {
+for (const spec of exts) {
 	try {
-		await buildOne(rel);
+		await buildOne(spec);
 	} catch (e: any) {
-		console.error(`    ${R("✗")} ${rel}: ${String(e?.message || e).slice(0, 200)}`);
+		console.error(`    ${R("✗")} ${spec.name}: ${String(e?.message || e).slice(0, 200)}`);
 		failed++;
 	}
 }
