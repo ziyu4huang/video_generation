@@ -147,7 +147,7 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 Everything in `manifest.json` above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
 `pi-dynamic-workflows`'s `workflow` tool costs ~2.5k tok/req). Those live in a
-separate **lazy registry**, `run-dir/settings.json`:
+**lazy registry** in `run-dir/manifest.json`'s `lazyExtensions`:
 
 ```json
 { "lazyExtensions": { "workflow": "pi-dynamic-workflows/extensions/workflow.ts", … } }
@@ -171,7 +171,7 @@ unique substring match (ambiguous → no guess, defers to SDK) → directory
 fallback (`<bun-apps>/<alias>/extensions/` with exactly one `.ts`). Real paths
 and URL schemes (`npm:`, `git:`, `file:`, `./…`, `/abs/…`) are passed through
 untouched, so `-e /real/path.ts` still works. To register a new opt-in
-extension, add one line to `run-dir/settings.json`.
+extension, add one entry to `run-dir/manifest.json`'s `lazyExtensions`.
 
 ## Cross-machine portability
 
@@ -219,25 +219,20 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 dir runnable from any cwd. Two modes:
 
 ```bash
-bun scripts/deploy.ts [out-dir]              # DEFAULT (bundle): pre-bundled ext + skills
+bun scripts/deploy.ts [out-dir]              # DEFAULT: FULL bundles + host node_modules
 bun scripts/deploy.ts [out-dir] --release    # RELEASE (source-copy): packages/ + bun install
 ```
 
 | Mode | Layout | Extensions | node_modules |
 |---|---|---|---|
-| **bundle** (default) | `ext-bundles/*.thin.js` + `skills/` + `.deploy-bundle` | each ext pre-bundled to one `.js` (`scripts/build-extensions.ts`, THIN — shared typebox) | not copied (redundant); opt in `--with-nm-copy` |
-| **--release** | `packages/<pkg>/…` (source) + workspaces `package.json` | source folders copied verbatim | wired by `bun install` |
+| **bundle** (default) | `ext-bundles/*.full.js` + `skills/` + `.deploy-bundle` `.deploy-portable` | each ext FULL-bundled (all deps inlined) | host subset via `bun install` (166 packages) |
+| **--release** | `packages/<pkg>/…` (source) + workspaces `package.json` | source folders copied verbatim | workspace install (710 packages) |
 
 `run-dir/resolve.ts` auto-detects the layout at runtime (`.deploy-bundle` +
 `ext-bundles/` → bundle; `packages/` + manifest → release) and injects `-ne` +
-the resolved `-e`/`--skill` paths, so the package is self-contained.
-
-**Same-machine caveat (bundle mode):** THIN bundles + pi-agent.js + npm exts all
-resolve deps via baked absolute paths into the repo's `.bun` store, so a bundle
-deploy runs anywhere *on the machine it was built on* (matching the bundle
-portability caveat above) — not relocatable to another host. For a truly
-portable artifact, copy the repo to the same absolute path on the target first,
-or rebuild there. `--release` + `bun install` is the relocatable alternative.
+the resolved `-e`/`--skill` paths, so the package is self-contained. The
+`.deploy-portable` marker tells resolve.ts to skip npm abs paths (already
+bundled into `.full.js`).
 
 ```bash
 bun scripts/deploy.ts /tmp/pi-bundle         # build + deploy (bundle)
@@ -331,8 +326,7 @@ pi-agent/
 ├── README.md
 ├── run-dir/
 │   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
-│   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
-│   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
+│   └── resolve.ts             # resolves manifest.json (extensions + lazy aliases) to absolute argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
