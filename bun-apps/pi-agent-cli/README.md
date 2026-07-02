@@ -20,6 +20,17 @@ the Obsidian tools (`obsidian_distill`, `obsidian_search`, `obsidian_create`,
 …). When bundled (`bun scripts/build.ts`), the extension code lives inside the
 single output `cli.js`.
 
+**Why inline and not pi-agent's run-dir manifest?** `pi-agent` (the TUI wrapper)
+eagerly loads the *entire* `run-dir/manifest.json` for an interactive session
+where the user may want any tool. `pi-agent-cli` runs single-turn workflows that
+**curate tools per command** (e.g. `zk-extract` passes `DISTILL_ONLY` tools), so
+it loads only `pi-obsidian` (always needed for vault access) plus any
+command-specific factories — loading the full manifest would bloat every run
+with extensions (`pi-flux2`, `zai-mcp`, …) the command never uses. Both paths
+resolve to the same underlying `pi-obsidian/extensions/obsidian.ts` factory; the
+difference is the *load mechanism* (direct import vs `-e` argv), appropriate to
+each entry point.
+
 ## Setup
 
 ```bash
@@ -164,7 +175,7 @@ pi-agent-cli/
     │   ├── zk-ask.ts          # graph-enhanced vault Q&A
     │   └── pdf-to-vault.ts    # pipeline: vlm-describe → zk-extract (resumable)
     ├── sessions/
-    │   ├── shared.ts          # shared services + inline extension baking
+    │   ├── shared.ts          # shared services + baked-in provider registry
     │   └── passthrough.ts     # pi-compatible agent runner (text + json modes)
     └── __tests__/
 ```
@@ -176,3 +187,8 @@ pi-agent-cli/
   experience and extensions loaded from `.pi/settings.json`. The two tools are
   complementary: `pi-agent` for interactive work, `pi-agent-cli` for scripted
   single-turn automation.
+
+  `pi-agent-cli` also **depends on `pi-agent` as a workspace library** — the
+  baked LLM provider catalog (lm-studio models) is sourced from `pi-agent`'s
+  `PROVIDERS` (`src/pre-load-providers.ts`) so the two CLIs never drift. Adding
+  a model is a one-file edit in `pi-agent`, not two.
