@@ -135,7 +135,11 @@ export async function resolveRunDirArgv(): Promise<string[]> {
     }
     // npm exts resolve to the same baked .bun-store abs paths the THIN bundles
     // and pi-agent.js itself use (everything in this layout is machine-abs-pathed).
-    const npmPaths = await resolveNpmExtensionPaths();
+    // EXCEPT in --portable: npm exts are FULL-bundled into ext-bundles (no
+    // separate -e path), and the baked abs paths would re-introduce a repo
+    // dependency, so emit none.
+    const portable = existsSync(join(selfDir, ".deploy-portable"));
+    const npmPaths = portable ? [] : await resolveNpmExtensionPaths();
     return ["-ne", ...buildBundleArgv(selfDir, npmPaths)];
   }
 

@@ -15,7 +15,7 @@
  *   kill the process the instant the probe fires (no model call — fast/offline).
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -69,7 +69,11 @@ async function runScenario(s: Scenario): Promise<Result> {
 	const reader = proc.stderr.getReader();
 	const dec = new TextDecoder();
 	let buf = "";
-	const ERR = /conflict|cannot find|failed to load/i;
+	// Hard-fail signatures: a real extension load crash / dep resolution failure /
+	// tool-name conflict. NOTE: "failed to load locales … falling back" (rpiv's
+	// benign i18n fallback) is deliberately NOT matched — it's not an extension
+	// load failure. Match "failed to load extension" specifically.
+	const ERR = /conflict|cannot find|failed to load extension/i;
 	let killed = false;
 	try {
 		while (true) {
@@ -209,6 +213,57 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 				cwd,
 				// ext-bundles resolve under pkgDir; npm exts resolve to the repo
 				// .bun store (abs paths), so marker=pkgDir counts the bundled exts.
+				marker: join(pkg.pkgDir, "ext-bundles"),
+			});
+			assertCleanLoad(r);
+		});
+	}
+});
+
+// DEPLOY-PORTABLE mode = `deploy.ts --portable` (FULL ext bundles incl. npm exts
+// + a host node_modules subset). The argv's -e paths all live under pkgDir (no
+// repo .bun-store abs paths) — a same-machine-repo-independent deploy. We assert
+// both clean load AND that the resolve argv references no path outside pkgDir.
+describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portable) extension loading", () => {
+	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
+	beforeAll(async () => {
+		pkg = await deployPkg(["--portable"]);
+	}, 180_000); // FULL-bundles 7 exts + bun install host subset: needs headroom
+	afterAll(() => {
+		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
+	});
+
+	test("portable argv references NO path outside the deploy dir (repo-independent)", async () => {
+		// Spawn the DEPLOYED bundle (not the repo one) + capture the run-dir debug.
+		const proc = Bun.spawn(["bun", pkg.pkgPiAgent, "--help"], {
+			cwd: pkg.pkgDir,
+			env: { ...process.env, BUN_PI_DEBUG_RUN_DIR: "1" },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [stdout, stderr] = await Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+		]);
+		await proc.exited;
+		const log = (stdout + stderr).replace(/\x1b\[[0-9;]*m/g, "");
+		const block = log.split("run-dir resolved argv:")[1] ?? "";
+		const paths = [...block.matchAll(/["']([^"']+\/(ext-bundles|skills|node_modules)\/[^"']+)["']/g)].map((m) => m[1]);
+		expect(paths.length).toBeGreaterThan(0);
+		// realpath: macOS tmpdir() is /var/... but the fs canonicalizes to /private/var/...
+		const canonDir = realpathSync(pkg.pkgDir);
+		for (const p of paths) {
+			// every resolved -e/--skill path must live inside the deploy dir
+			expect(p.startsWith(canonDir)).toBe(true);
+		}
+	});
+
+	for (const cwd of [tmpdir(), REPO_ROOT]) {
+		test(`DEPLOY-PORTABLE from ${cwd === REPO_ROOT ? "repo" : "/tmp"}`, async () => {
+			const r = await runScenario({
+				name: "deploy-portable",
+				cmd: ["bun", pkg.pkgPiAgent, "-e", pkg.probePath, "-p", "hi"],
+				cwd,
 				marker: join(pkg.pkgDir, "ext-bundles"),
 			});
 			assertCleanLoad(r);

@@ -2,7 +2,8 @@
  * deploy — package pi-agent + its extension set into a SELF-CONTAINED, runnable
  * directory that works from ANY cwd. Two modes:
  *
- *   bun scripts/deploy.ts [out-dir]              # DEFAULT: bundle deploy
+ *   bun scripts/deploy.ts [out-dir]              # DEFAULT: bundle deploy (THIN)
+ *   bun scripts/deploy.ts [out-dir] --portable   # PORTABLE: FULL bundles + host node_modules (repo-independent)
  *   bun scripts/deploy.ts [out-dir] --release    # RELEASE: source-copy deploy
  *
  * ── DEFAULT (bundle deploy) ────────────────────────────────────────────────
@@ -42,8 +43,10 @@
  * USAGE
  *   bun scripts/deploy.ts [options] [out-dir]
  *     --release       use the source-copy deploy (the original behavior)
+ *     --portable      FULL-bundle exts + host node_modules subset + assets
+ *                    (repo-independent, same machine)
  *     --no-build      reuse existing dist/pi-agent/pi-agent.js
- *     --no-install    skip `bun install` in out-dir (--release only)
+ *     --no-install    skip `bun install` in out-dir (--release / --portable)
  *     --with-nm-copy  also copy the repo node_modules into out-dir (bundle mode;
  *                    redundant for resolution — opt-in fallback)
  *   Default out-dir: ../../dist/pi-agent-bundle (bundle) | ../../dist/pi-agent-deploy (release)
@@ -66,18 +69,32 @@ if (argv.some((a) => a === "-h" || a === "--help")) {
 	process.exit(0);
 }
 const RELEASE = argv.includes("--release");
+// --portable: FULL-bundle every ext (incl. npm exts) + `bun install` a host
+// node_modules subset + copy assets + pin PI_PACKAGE_DIR via run.sh. Produces a
+// repo-independent deploy (same machine — bun's global-store node_modules isn't
+// relocatable across machines). Mutually exclusive with --release.
+const PORTABLE = argv.includes("--portable");
 const NO_BUILD = argv.includes("--no-build");
 const NO_INSTALL = argv.includes("--no-install");
-// node_modules copy is OPT-IN. Everything (THIN ext bundles + pi-agent.js + npm
-// exts) resolves deps via baked absolute paths into the repo's .bun store, so
-// <outdir>/node_modules is NOT read at runtime — the deploy is same-machine-
-// repo-present regardless (THIN bundles are machine-specific by design). The
-// copy exists only as a fallback / for inspection; opt in with --with-nm-copy.
+// node_modules copy is OPT-IN for the default (THIN) deploy. Everything (THIN
+// ext bundles + pi-agent.js + npm exts) resolves deps via baked absolute paths
+// into the repo's .bun store, so <outdir>/node_modules is NOT read at runtime —
+// the deploy is same-machine-repo-present regardless. The copy exists only as a
+// fallback / for inspection; opt in with --with-nm-copy. (--portable ALWAYS
+// installs its own node_modules subset — FULL bundles have residual bare
+// specifiers that resolve from it, and the host's getAliases() needs it.)
 const WITH_NM_COPY = argv.includes("--with-nm-copy");
+if (RELEASE && PORTABLE) die("--release and --portable are mutually exclusive");
 const positionalOutdir = argv.find((a) => !a.startsWith("-"));
 const OUTDIR = positionalOutdir
 	? resolve(process.cwd(), positionalOutdir)
-	: resolve(process.cwd(), "..", "..", "dist", RELEASE ? "pi-agent-deploy" : "pi-agent-bundle");
+	: resolve(
+			process.cwd(),
+			"..",
+			"..",
+			"dist",
+			RELEASE ? "pi-agent-deploy" : PORTABLE ? "pi-agent-portable" : "pi-agent-bundle",
+		);
 
 const piAgentDir = dirname(import.meta.dir); // bun-apps/pi-agent
 const repoRoot = dirname(dirname(piAgentDir));
@@ -126,7 +143,9 @@ if (!NO_BUILD || !existsSync(bundleSrc)) {
 if (!existsSync(bundleSrc)) die(`bundle missing: ${bundleSrc}`);
 
 // ── materialize out-dir ──────────────────────────────────────────────────────
-console.log(`${G("▶")} out-dir  ${D(OUTDIR)}  ${D(`[${RELEASE ? "release" : "bundle"}]`)}`);
+console.log(
+	`${G("▶")} out-dir  ${D(OUTDIR)}  ${D(`[${RELEASE ? "release" : PORTABLE ? "portable" : "bundle"}]`)}`,
+);
 if (existsSync(OUTDIR)) rmSync(OUTDIR, { recursive: true });
 mkdirSync(OUTDIR, { recursive: true });
 mkdirSync(join(OUTDIR, "run-dir"), { recursive: true });
@@ -141,6 +160,8 @@ if (existsSync(runSh)) {
 
 if (RELEASE) {
 	await releaseDeploy();
+} else if (PORTABLE) {
+	await portableDeploy();
 } else {
 	await bundleDeploy();
 }
@@ -261,4 +282,81 @@ async function bundleDeploy() {
 		join(OUTDIR, "package.json"),
 		JSON.stringify({ name: "pi-agent-bundle", private: true, type: "module" }, null, 2) + "\n",
 	);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// --portable: FULL-bundle every ext (incl. npm) + host node_modules subset
+// (bun install) + assets + PI_PACKAGE_DIR pin via run.sh. Repo-independent
+// (same machine — bun's global-store node_modules isn't cross-machine).
+// ════════════════════════════════════════════════════════════════════════════
+async function portableDeploy() {
+	// 1. FULL-bundle extensions (incl. npm exts) → dist/pi-ext-bundles/*.full.js
+	const extBundlesSrc = join(repoRoot, "dist", "pi-ext-bundles");
+	console.log(`${G("▶")} build FULL extension bundles  ${D("(bun scripts/build-extensions.ts --portable)")}`);
+	const be = Bun.spawn(["bun", "scripts/build-extensions.ts", "--portable"], {
+		cwd: piAgentDir,
+		stdout: "inherit",
+		stderr: "inherit",
+	});
+	if ((await be.exited) !== 0) die("build-extensions.ts --portable failed");
+	if (!existsSync(extBundlesSrc)) die(`ext bundles missing: ${extBundlesSrc}`);
+
+	// 2. copy bundles → <outdir>/ext-bundles/
+	mkdirSync(join(OUTDIR, "ext-bundles"), { recursive: true });
+	for (const f of readdirSync(extBundlesSrc).filter((f) => f.endsWith(".js"))) {
+		cpSync(join(extBundlesSrc, f), join(OUTDIR, "ext-bundles", f));
+		console.log(`    ${G("✓")} ext-bundles/${f}`);
+	}
+
+	// 3. copy skill dirs → <outdir>/skills/<name> (same as default bundle)
+	if (manifest.skills?.length) {
+		mkdirSync(join(OUTDIR, "skills"), { recursive: true });
+		const SKIP = new Set(["node_modules", "dist", ".git"]);
+		for (const rel of manifest.skills) {
+			const src = join(repoRoot, "bun-apps", rel);
+			if (!existsSync(src)) continue;
+			const destName = rel.replace(/\//g, "-");
+			cpSync(src, join(OUTDIR, "skills", destName), {
+				recursive: true,
+				filter: (s) => !SKIP.has(basename(dirname(s))) || basename(s) === "",
+			});
+			console.log(`    ${G("✓")} skills/${destName}`);
+		}
+	}
+
+	// 4. assets (theme/export-html/assets) — build.ts stages them in dist/pi-agent/.
+	// PI_PACKAGE_DIR is pinned to <outdir> by run.sh so getPackageDir() finds these.
+	const distAgent = join(repoRoot, "dist", "pi-agent");
+	for (const asset of ["theme", "export-html", "assets"]) {
+		const src = join(distAgent, asset);
+		if (existsSync(src)) {
+			cpSync(src, join(OUTDIR, asset), { recursive: true });
+			console.log(`    ${G("✓")} ${asset}/`);
+		}
+	}
+
+	// 5. host node_modules subset via `bun install` against the machine-global
+	// store. Covers: typebox + @earendil-works/* (getAliases require.resolve) +
+	// jiti + any FULL-bundle residual bare specifiers (node-fetch, ws, …). The
+	// deps list is pi-agent's own deps (which pull the pi-coding-agent graph) +
+	// typebox explicitly + the npm-ext packages (in case a FULL bundle residual
+	// references them). Same-machine: bun symlinks into its global store.
+	const nmPkgs = readJson<{ dependencies?: Record<string, string> }>(join(piAgentDir, "package.json"))?.dependencies ?? {};
+	const deps: Record<string, string> = { typebox: "latest", ...nmPkgs };
+	writeFileSync(
+		join(OUTDIR, "package.json"),
+		JSON.stringify({ name: "pi-agent-portable", private: true, type: "module", dependencies: deps }, null, 2) + "\n",
+	);
+	if (!NO_INSTALL) {
+		console.log(`${G("▶")} bun install  ${D("(host node_modules subset — repo-independent, same machine)")}`);
+		const p = Bun.spawn(["bun", "install"], { cwd: OUTDIR, stdout: "inherit", stderr: "inherit" });
+		if ((await p.exited) !== 0) die("bun install failed (portable)");
+	} else {
+		console.log(`${Y("·")} bun install skipped (--no-install)`);
+	}
+
+	// 6. markers — .deploy-bundle (resolve.ts DEPLOY-BUNDLE mode) + .deploy-portable
+	// (resolve.ts skips the baked repo npm-abs-paths since npm exts are bundled).
+	writeFileSync(join(OUTDIR, ".deploy-bundle"), `portable deploy\nbuilt: ${new Date().toISOString()}\n`);
+	writeFileSync(join(OUTDIR, ".deploy-portable"), `repo-independent (same machine)\n`);
 }
