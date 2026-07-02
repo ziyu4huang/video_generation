@@ -1,18 +1,3 @@
-[submodule "ComfyUI"]
-	path = ComfyUI
-	url = https://github.com/comfyanonymous/ComfyUI.git
-[submodule "python/mlx-movie-director/vendor/mflux"]
-	path = python/mlx-movie-director/vendor/mflux
-	url = git@github.com:filipstrand/mflux.git
-[submodule "python/mlx-movie-director/vendor/ltx-2-mlx"]
-	path = python/mlx-movie-director/vendor/ltx-2-mlx
-	url = https://github.com/dgrauet/ltx-2-mlx.git
-[submodule "python/mlx-movie-director/vendor/ltx-2-mlx-dgrauet"]
-	path = python/mlx-movie-director/vendor/ltx-2-mlx-dgrauet
-	url = https://github.com/dgrauet/ltx-2-mlx.git
-[submodule "python/mlx-movie-director/vendor/ltx-2-mlx-acelogic"]
-	path = python/mlx-movie-director/vendor/ltx-2-mlx-acelogic
-	url = https://github.com/Acelogic/LTX-2-MLX.git
 [submodule "assets"]
 	path = assets
 	url = git@github.com:ziyu4huang/video_generation_asset.git
