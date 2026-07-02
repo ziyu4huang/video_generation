@@ -5,6 +5,7 @@
  *   bun scripts/build.ts             bundle + minify + external sourcemap
  *   bun scripts/build.ts --obfuscate + javascript-obfuscator (control-flow, strings, self-defending)
  *   bun scripts/build.ts --compile   bun --compile → standalone executable
+ *   bun scripts/build.ts --deploy    + emit a clean, deployable dir (no sourcemap)
  *   bun scripts/build.ts --all       minify → obfuscate → compile
  *
  * Output (one level up, namespaced by package name):
@@ -12,6 +13,10 @@
  *   ../dist/<pkg-name>/cli.js.map      bun sourcemap
  *   ../dist/<pkg-name>/cli.js.obf.map  obfuscator sourcemap (only with --obfuscate)
  *   ../dist/<pkg-name>/<pkg-name>      standalone executable (only with --compile)
+ *   ../dist/<pkg-name>-deploy/         clean deploy dir (only with --deploy):
+ *     ├── <pkg-name>.js                  minified bundle, sourceMappingURL STRIPPED
+ *     ├── run.sh                         portable launcher (exe > bundle > source)
+ *     └── README.md                      deploy instructions
  *
  * The bundle is **self-contained**: the pi-obsidian extension is imported as
  * an inline factory (src/sessions/shared.ts), so no external package path or
@@ -24,6 +29,7 @@
  */
 import {
 	appendFileSync,
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	rmSync,
@@ -33,7 +39,7 @@ import {
 import { basename, resolve } from "node:path";
 
 // Resolve app name from the package directory name (e.g. bun-apps/pi-agent-cli
-// → "pi-agent-cli"). Output goes two levels up to the repo-root dist/, so the
+// → "pi-agent-cli"). Output goes two level up to the repo-root dist/, so the
 // dist path mirrors the source dir: dist/<app-name>/.
 const APP_NAME: string = basename(process.cwd());
 
@@ -43,10 +49,14 @@ const OUTFILE = `${OUTDIR}/cli.js`;
 const MAPFILE = `${OUTFILE}.map`;
 const OBFMAP = `${OUTFILE}.obf.map`;
 const EXE = `${OUTDIR}/${APP_NAME}`;
+// Clean deploy dir: one self-contained bundle + run.sh + README, no sourcemap.
+const DEPLOY_DIR = resolve(process.cwd(), "..", "..", "dist", `${APP_NAME}-deploy`);
+const DEPLOY_BUNDLE = `${DEPLOY_DIR}/${APP_NAME}.js`;
 
 const argv = process.argv.slice(2);
 const DO_OBFUSCATE = argv.includes("--obfuscate") || argv.includes("--all");
 const DO_COMPILE = argv.includes("--compile") || argv.includes("--all");
+const DO_DEPLOY = argv.includes("--deploy");
 
 function clean(...files: string[]) {
 	for (const f of files) if (existsSync(f)) rmSync(f);
@@ -205,6 +215,58 @@ async function stageCompile() {
 	console.log(`  ✓ ${EXE}`);
 }
 
+// ---------- stage 4: clean deploy dir ----------
+/**
+ * Emit a clean, deployable directory: the minified bundle with its
+ * `sourceMappingURL` stripped (no sourcemap shipped — the .map carries full
+ * sourcesContent), plus the portable run.sh launcher and a README. The result
+ * is a single self-contained dir you can `cp -r` anywhere `bun` is installed
+ * and run via `./run.sh`. This is the "easy to deploy" artifact; the regular
+ * build output (with sourcemap) stays debug-only.
+ */
+async function stageDeploy() {
+	console.log(`▶ stage deploy → ${DEPLOY_DIR.replace(process.cwd() + "/", "")}`);
+	if (!existsSync(OUTFILE)) {
+		console.error(`  ✗ ${OUTFILE} missing — run stageBundle first`);
+		process.exit(1);
+	}
+	if (!existsSync(DEPLOY_DIR)) mkdirSync(DEPLOY_DIR, { recursive: true });
+	// Strip the trailing sourceMappingURL comment (and any blank line) so the
+	// shipped bundle has zero debug linkage. The .map is deliberately NOT copied.
+	const code = readFileSync(OUTFILE, "utf8").replace(
+		/\n*\/\/# sourceMappingURL=.*$/s,
+		"",
+	);
+	writeFileSync(DEPLOY_BUNDLE, code);
+	// Portable launcher (resolves its own dir → finds <pkg-name>.js).
+	copyFileSync(resolve(process.cwd(), "run.sh"), `${DEPLOY_DIR}/run.sh`);
+	Bun.spawn(["chmod", "+x", `${DEPLOY_DIR}/run.sh`]).exited.catch(() => {});
+	writeFileSync(
+		`${DEPLOY_DIR}/README.md`,
+		`# ${APP_NAME} deploy\n\n` +
+			"Self-contained: the single `${APP_NAME}.js` bundles the CLI + all\n" +
+			"depended extensions (pi-obsidian inline; pi-vlm / pi-knowledge-card\n" +
+			"statically imported by the sub-commands). No sourcemap, no repo, no\n" +
+			"\`.pi/settings.json\` needed.\n\n" +
+			"## Run\n\n" +
+			"Requires [\`bun\`](https://bun.sh) on PATH.\n\n" +
+			"\`\`\`bash\n" +
+			"./run.sh vlm-describe paper.pdf\n" +
+			"./run.sh zk-extract notes.md --folder Zettelkasten\n" +
+			"./run.sh --list-models\n" +
+			"./run.sh doctor\n" +
+			"\`\`\`\n\n" +
+			"`run.sh` auto-detects this layout (deployed bundle) and runs\n" +
+			"\`bun ${APP_NAME}.js\`. Forward any pi-compatible flag untouched.\n",
+	);
+	console.log(`  ✓ ${DEPLOY_BUNDLE}`);
+	console.log(`  ✓ ${DEPLOY_DIR}/run.sh`);
+	console.log(`  ✓ ${DEPLOY_DIR}/README.md`);
+	console.log(
+		`  deploy dir ready — cp -r "${DEPLOY_DIR}" anywhere with bun, then ./run.sh`,
+	);
+}
+
 // ---------- orchestrate ----------
 if (argv.length === 0) {
 	await stageBundle();
@@ -221,6 +283,9 @@ if (argv.length === 0) {
 		}
 	}
 	if (DO_COMPILE) await stageCompile();
+	// --deploy is an INDEPENDENT output: it always emits from the plain minified
+	// bundle (not the obfuscated/compiled variants), so it composes with neither.
+	if (DO_DEPLOY && !DO_OBFUSCATE && !DO_COMPILE) await stageDeploy();
 }
 // The bun sourcemap is produced for debug builds. Whenever it is sitting in
 // the output dir, scream about it so it never ships to a real run directory.

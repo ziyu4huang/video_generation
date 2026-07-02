@@ -159,12 +159,71 @@ bun run --cwd bun-apps/pi-agent-cli build:exe    # + bun --compile → standalon
 bun run --cwd bun-apps/pi-agent-cli build:all    # minify → obfuscate → compile
 ```
 
+## Deploy
+
+The CLI ships as **one self-contained file**. `bun build` statically inlines
+every depended extension — `pi-obsidian` (inline factory in
+`sessions/shared.ts`) plus `pi-vlm` and `pi-knowledge-card` (imported by the
+`vlm-describe` / `zk-*` sub-commands). No `-e` path, no `.pi/settings.json`,
+no separate extension bundle is needed at runtime.
+
+### Easy deploy — `--deploy`
+
+```bash
+bun run --cwd bun-apps/pi-agent-cli deploy
+```
+
+Produces `dist/pi-agent-cli-deploy/`:
+
+```
+pi-agent-cli-deploy/
+├── pi-agent-cli.js   # minified bundle, sourceMappingURL STRIPPED (no .map shipped)
+├── run.sh            # portable launcher (auto-detects exe > bundle > source)
+└── README.md         # deploy instructions
+```
+
+Copy that **one directory** anywhere `bun` is installed and run it:
+
+```bash
+cp -r dist/pi-agent-cli-deploy /opt/pi-cli && cd /opt/pi-cli
+./run.sh vlm-describe paper.pdf
+./run.sh --list-tools | grep obsidian     # 16 obsidian_* tools → extension active
+./run.sh doctor
+```
+
+`run.sh` resolves its own dir, so it works from any cwd. `PICLI_DEBUG=1` prints
+which entry/mode it picked.
+
+### Compiled standalone exe (no bun at runtime)
+
+```bash
+bun run --cwd bun-apps/pi-agent-cli build:exe   # → dist/pi-agent-cli/pi-agent-cli
+```
+
+Drop the binary next to a `run.sh` and the launcher runs it directly (no `bun`
+dependency on the target machine).
+
+### Proving the deploy (e2e)
+
+```bash
+cd bun-apps/pi-agent-cli && ./run-test.sh high
+```
+
+`run-test.sh` builds the bundle + the compiled exe and runs the real-command
+e2e suite (`src/__tests__/e2e-bundle.test.ts`) from a fresh temp cwd — asserting
+`version` / `help` / `--list-models` (baked lm-studio) / `--list-tools`
+(obsidian tools active) / `doctor --json` / arg-validation all work in the
+shipped artifacts, not just in source. Plain `bun test` skips the e2e tier
+(stays fast for pre-commit).
+
 ## Layout
 
 ```
 pi-agent-cli/
 ├── package.json
 ├── README.md
+├── run.sh                     # portable launcher (exe > bundle > source)
+├── run-test.sh                # multi-effort test launcher (quick|medium|high|full)
 └── src/
     ├── cli.ts                 # entry — dispatch subcommands + passthrough
     ├── args.ts                # pi-CLI-aligned argument parser
@@ -178,6 +237,8 @@ pi-agent-cli/
     │   ├── shared.ts          # shared services + baked-in provider registry
     │   └── passthrough.ts     # pi-compatible agent runner (text + json modes)
     └── __tests__/
+        ├── e2e-harness.ts     # build + spawn helpers (PICLI_E2E gate)
+        └── e2e-bundle.test.ts # real deploy e2e (bundle + compiled-exe parity)
 ```
 
 ## Related
