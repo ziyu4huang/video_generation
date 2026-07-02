@@ -601,17 +601,36 @@ whether those weights are being exercised in a regime the real architecture was 
 unnormalized random init can manufacture spurious failures (or, worse, spurious "passes" that
 don't actually exercise the intended numerical behavior).
 
-Remaining for the vocoder: the `ConvTranspose1d` upsample stages, and the full `BigVGANVocoder`
-assembly against `mlx-models/audio/ltx-2.3-audio/vocoder.safetensors` (real filter/norm weights
-from an actual trained model won't have the synthetic-fixture instability above); then the
-separate BWE (bandwidth-extension, 16kHz→48kHz) generator (`bwe.py`, 401 lines, largely mirrors
-the vocoder's architecture at different channel sizes per its own docstring — including its OWN
-`.at[strided].add()` bug in `HannSincResampler`, also patched by `vendor_patches.py`, to watch for
-when that component is ported) and its own MelSTFT machinery. The actual Gemma LLM (bridged, not
-hand-ported — see the text-encoder section above), the left-padding connector path,
-`Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants), CFG/STG guidance
-batching via `Modality.split` (ported in Phase 2, not yet wired into the loop), and replacing
-`RunPyBridge` in the CLI remain as well.
+### Milestone: full BigVGANVocoder, verified against REAL production checkpoint (2026-07-02)
+
+`BigVGANVocoder.swift` adds a `ConvTranspose1d` wrapper (weight layout `(C_out, K, C_in)`,
+confirmed directly against `MLX.convTransposed1d`'s documented layout by inspecting the real
+checkpoint's `ups.N.weight` shapes — no transpose needed) and assembles the full vocoder: `conv_pre`
+(128→1536, k=7) → 6 upsample stages (`ConvTranspose1d` at rates 5/2/2/2/2/2, channels
+1536→768→384→192→96→48→24, padding `(kernel-rate)//2` — confirmed by reading the constructor
+directly, notably NOT the `kernel//2` formula used elsewhere in this port — each followed by 3
+`AMPBlock1`s at kernel sizes 3/7/11 whose outputs are averaged) → `act_post`
+(`Activation1d`) → `conv_post` (24→2, k=7, no bias) → `tanh`.
+
+`BigVGANVocoderRealCheckpointTests.swift` loads the ACTUAL production checkpoint (1227 tensors;
+`vocoder.` prefix, explicitly excluding `vocoder.bwe_generator.*` — a separate sibling network at
+different channel sizes, not part of this assembly) and runs a real forward pass on a tiny
+synthetic mel spectrogram: finite, correctly-shaped, tanh-bounded (`|x|≤1`) waveform output — **passed
+on the first attempt**, no debugging needed once the earlier AMPBlock1/Activation1d components
+were independently verified. 50/50 tests pass.
+
+**The full LTX-2.3 audio pipeline now runs natively end-to-end in Swift/MLX against real
+production weights: `AudioVAEDecoder` (latent→mel) → `BigVGANVocoder` (mel→waveform).** Combined
+with the earlier video VAE and 48-layer transformer milestones, both modalities' core decode paths
+are now fully native. Remaining: the separate BWE (bandwidth-extension, 16kHz→48kHz) generator
+(`bwe.py`, 401 lines, largely mirrors the vocoder's architecture at different channel sizes per its
+own docstring — including its OWN `.at[strided].add()` bug in `HannSincResampler`, also patched by
+`vendor_patches.py`, to watch for when that component is ported) and its own MelSTFT machinery; the
+audio VAE *encoder* (not started); the actual Gemma LLM (bridged, not hand-ported — see the
+text-encoder section above); the left-padding connector path;
+`Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++ variants); CFG/STG guidance
+batching via `Modality.split` (ported in Phase 2, not yet wired into the loop); and replacing
+`RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
