@@ -1,5 +1,12 @@
 # Gemma-3-12b native text encoder — COMPLETE ✅
 
+> **Commit/merge status (2026-07-03):** committed on branch
+> `feat/swift-ltx-video-director` (final commit `2e207c9`). **NOT merged into
+> `main` yet** — awaiting merge/PR decision. Gemma work itself is done; the
+> unmerged branch also carries the rest of the native-port milestone
+> (T2I/VLM/audio/video-decode stages, TextEmbeddingProjection, the 48-layer
+> LTX transformer).
+
 The entire Gemma-3-12b text encoder is now native Swift/MLX and verified
 end-to-end against the real production model. This was the last piece blocking
 a fully-native distilled I2V path (everything else — VAEs, 48-layer LTX
