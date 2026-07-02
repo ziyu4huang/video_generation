@@ -373,12 +373,38 @@ stretches so the last non-zero sigma hits `1-terminal`). Verified via
 across 5 cases (both literal tables, an 8-step/4096-token and 20-step/1024-token schedule, and a
 no-stretch variant): all match to 1e-5. 33/33 tests pass.
 
-Remaining for the sampling loop: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`, CFG/STG batching
-via `Modality.split` (already ported in Phase 2), noise initialization, and the actual
-`denoise_loop` orchestration (`utils/samplers.py`) that calls `LTXModel` + a stepper + a schedule
-once per timestep — this is where all of Phase 2 and Phase 3's building blocks finally combine
-into something that actually denoises a latent. Image-conditioning latent injection and audio
-decode are separate sub-items also tracked in this phase.
+### Milestone: the full sampling loop, noise to clean latent, verified end-to-end (2026-07-02)
+
+`X0Model.swift` ports `ltx_core_mlx.model.transformer.model.X0Model` — wraps `LTXModel`'s
+velocity prediction into an x0 (clean-sample) prediction via `x0 = x_t - sigma*v`.
+`DenoiseLoop.swift` ports `ltx_pipelines_mlx.utils.samplers.denoise_loop` — the actual Euler
+denoising loop, iterating consecutive sigma pairs, calling `X0Model` then stepping via the
+reference's `euler_step` formula (mathematically identical to `EulerDiffusionStep.step`,
+literally inlined here to match the loop's exact per-step `sigma==0` short-circuit).
+
+**Scope**: the "uniform denoise mask" case — full T2V/I2V generation, no partial-frame
+conditioning. `apply_denoise_mask` is an identity when mask=1 everywhere (confirmed by reading
+its source), so it's omitted as a no-op rather than ported. Per-token timesteps (needed for
+partial conditioning) are likewise out of scope, matching `X0Model`/`LTXModel`.
+
+Verified via `scripts/dump_denoiseloop_reference.py` (runs the REAL `denoise_loop` function
+wrapping a REAL `X0Model`/`LTXModel`, real `LatentState` with uniform masks, a 3-step sigma
+schedule `[1.0, 0.6, 0.25, 0.0]`) + `Tests/LTXVideoDirectorTests/DenoiseLoopParityTests.swift`:
+**passed on the first run** — max-abs-diff < 1e-2 on both video and audio outputs (loosest
+tolerance yet: 3 full `LTXModel` forward passes chained, each already carrying ~5e-3 of bf16
+rounding noise, compounding across steps).
+
+**This is the point where every component built across Phase 2 (RoPE through LTXModel) and Phase
+3 (EulerDiffusionStep, SigmaSchedule) combines into something that actually denoises a latent
+from pure noise toward a clean sample — the core diffusion algorithm, end to end, natively in
+Swift.** 34/34 tests pass.
+
+Remaining before real generation: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
+variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
+to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
+loop — currently single-pass, no negative-prompt guidance), image-conditioning latent injection
+(I2V — currently only T2V-shaped noise-to-latent is exercised), the text encoder (Gemma), the
+audio VAE/vocoder/BWE stack, and replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
