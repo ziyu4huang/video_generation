@@ -4,7 +4,7 @@
   "type": "transformer",
   "arch": "zimage-turbo",
   "format": "mlx-8bit",
-  "description": "RedCraft | 红潮 | KREA 2 赤佬 Red Mix Edition NSFW ZIB Distilled⚡️FUNxAGILE ZImage-Turbo transformer, converted to 8-bit MLX",
+  "description": "RedCraft | \u7ea2\u6f6e | KREA 2 \u8d64\u4f6c Red Mix Edition NSFW ZIB Distilled\u26a1\ufe0fFUNxAGILE ZImage-Turbo transformer, converted to 8-bit MLX",
   "source": "https://civitai.com/models/958009",
   "pipeline": [
     "zimage-turbo"
@@ -20,7 +20,7 @@
     "tokenizer/qwen3",
     "vae/zimage-ae"
   ],
-  "size_bytes": 6540687223,
+  "size_bytes": 6540686735,
   "created_at": "2026-06-28T14:35:30Z",
   "source_url": "https://civitai.com/models/958009",
   "recommended_steps": 9,
