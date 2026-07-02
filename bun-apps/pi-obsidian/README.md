@@ -46,7 +46,7 @@ Resolution runs in 3 tiers (top-down, first match wins):
 | Tier | Source | What it is |
 |------|--------|------------|
 | **1 — explicit** | `OB_VAULT_PATH` env | Absolute path; overrides everything (for CI / one-off runs) |
-| **1 — explicit** | `.pi/obsidian_config.json` `vault_path` | Persistent per-project setting (written by `/obsidian-config <path>`); skipped when `mode: "app"` |
+| **1 — explicit** | `run-dir/obsidian_config.json` `vault_path` | Persistent per-project setting (written by `/obsidian-config <path>`); skipped when `mode: "app"` |
 | **2 — auto-follow app** | `obsidian.json` `open: true` vault | The vault currently open in the Obsidian app — what you see is what the agent uses |
 | **3 — fallback** | `<cwd>/${OB_VAULT_DIR \|\| "vault"}` | Zero-config project-local folder, auto-created + seeded on first use |
 
@@ -76,7 +76,7 @@ reports as active.
 /obsidian-config --clear      # forget the explicit path (fall back to app/local)
 ```
 
-The persistent config file is `.pi/obsidian_config.json`:
+The persistent config file is `run-dir/obsidian_config.json`:
 
 ```json
 {

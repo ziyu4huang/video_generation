@@ -134,6 +134,11 @@ mkdirSync(join(OUTDIR, "run-dir"), { recursive: true });
 
 cpSync(bundleSrc, join(OUTDIR, "pi-agent.js"));
 cpSync(manifestPath, join(OUTDIR, "run-dir", "manifest.json"));
+// Copy obsidian_config.json + workflows/ (consolidated runtime config)
+const obsConfig = join(piAgentDir, "run-dir", "obsidian_config.json");
+if (existsSync(obsConfig)) cpSync(obsConfig, join(OUTDIR, "run-dir", "obsidian_config.json"));
+const workflowsDir = join(piAgentDir, "run-dir", "workflows");
+if (existsSync(workflowsDir)) cpSync(workflowsDir, join(OUTDIR, "run-dir", "workflows"), { recursive: true });
 const runSh = join(piAgentDir, "run.sh");
 if (existsSync(runSh)) {
 	cpSync(runSh, join(OUTDIR, "run.sh"));

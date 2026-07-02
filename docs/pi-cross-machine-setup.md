@@ -146,7 +146,7 @@ The `pi-vlm` build runs a portability check that warns if any `/Users/...` (macO
 | What | Where | How it's derived |
 |------|-------|------------------|
 | pi-agent settings / models / agents | `~/.pi/agent/` | `homedir()`, overridable via `PI_CODING_AGENT_DIR` |
-| Obsidian config | `~/.pi/obsidian_config.json` | `homedir()` |
+| Obsidian config | `<cwd>/run-dir/obsidian_config.json` | project-relative (pi-agent run-dir/) |
 | Workflow runs / projects | `~/.pi/workflows/` | `homedir()` |
 | Obsidian search index | `<vault>/.cache` | vault-relative, overridable via `OB_INDEX_CACHE_DIR` |
 | pdf-to-vault pipeline output | `<cwd>/pdf-to-vault-<ts>-<slug>/` | cwd-relative, `--out` flag |

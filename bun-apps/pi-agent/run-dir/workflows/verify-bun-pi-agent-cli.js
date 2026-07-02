@@ -1,7 +1,7 @@
 export const meta = {
   name: 'verify-bun-pi-agent-cli',
   description: 'Dynamic end-to-end verification of bun-pi-agent-cli (resolve paths -> build bundle+sourcemap -> smoke -> regression on academic-paper fixture)',
-  whenToUse: 'Verifies the bun-pi-agent-cli bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=.pi/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
+  whenToUse: 'Verifies the bun-pi-agent-cli bundle end-to-end and writes <runDir>/result.jsonl for compare.ts. TWO MODES selected by `stage1From`: (1) FULL baseline re-check — OMIT stage1From to re-run VLM stage1 + distill stage2 (validates both stage code paths; ~6 min; needs LM Studio + distill creds + fixture). (2) DISTILL-MODEL comparison — pass stage1From=docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893 to reuse the committed stage1 and SKIP the VLM (vary only the distill model; regression ~2 min / full ~5 min; needs distill creds, NOT LM Studio). ARGS: distillModel (default zai/glm-5.2), vlmModel (default lm-studio/google/gemma-4-26b-a4b-qat), regPages (1-3), fixtureName, repoRoot (default git toplevel), runRoot (default <repoRoot>/tmp, gitignored). Phases degrade gracefully (skipped + logged) when a prerequisite is absent — see the file-top comment for the full phase list, prerequisites & graceful-degradation rules.',
   phases: [
     { title: 'Resolve', detail: 'resolve absolute paths + health-check + fresh runDir (no cwd/worktree drift)' },
     { title: 'Build', detail: 'bundle + external sourcemap; gate on success' },
@@ -439,7 +439,7 @@ Return StructuredOutput EXACTLY: aspect="coord-resume", ok (pipeline.json consis
 // ---------------- Store Results (JSONL) ----------------
 // Flatten every phase's checks into one JSONL file (summary line + one line per
 // check) so compare.ts can diff runs across distill models. Written to the run
-// dir (gitignored tmp/); the baseline run's file is copied into .pi/benchmarks/ and
+// dir (gitignored tmp/); the baseline run's file is copied into docs/benchmarks/ and
 // committed. (phase/name is the comparison key; robust uses graceful => passed.)
 phase('Store Results')
 const _M = CFG.distillModel
@@ -516,9 +516,9 @@ return {
  * self-contained bun-pi-agent-cli bundle.
  *
  * pi-native port of .claude/workflows/verify-bun-pi-agent-cli.js, kept under
- * .pi/workflows/ so it is discoverable by the pi-dynamic-workflows tooling
+ * bun-apps/pi-agent/run-dir/workflows/ so it is discoverable by the pi-dynamic-workflows tooling
  * (the `workflow` tool registered by the @quintinshaw/pi-dynamic-workflows
- * extension in .pi/settings.json). The script is identical in behavior: all
+ * extension in bun-apps/pi-agent/run-dir/manifest.json). The script is identical in behavior: all
  * paths are resolved at runtime in the Resolve phase (git rev-parse + realpath),
  * so it never depends on cwd or a hardcoded worktree. When the .claude version
  * changes, update this port to match (or delete the .claude copy).
@@ -528,9 +528,9 @@ return {
  *   strategy, rebase re-verify rule, signal-vs-noise reading of fails, the
  *   iteration log) lives in the project skill `verify-bun-pi-agent-cli`
  *   (auto-loaded) and the canonical methodology doc:
- *     .pi/benchmarks/verify-bun-pi-agent-cli/README.md
+ *     docs/benchmarks/verify-bun-pi-agent-cli/README.md
  *   The pi-runtime benchmark home (baselines + compare.ts + stage1-seed) is at:
- *     .pi/benchmarks/verify-bun-pi-agent-cli/
+ *     docs/benchmarks/verify-bun-pi-agent-cli/
  *   Read both BEFORE declaring a run "failed" or "regressed".
  *
  * ── WHAT it verifies (every phase writes one line per check into result.jsonl) ──
@@ -552,7 +552,7 @@ return {
  *      Needs: LM Studio serving the VLM model + distill-model API key + fixture.
  *
  *   2) DISTILL-MODEL comparison  →  stage1From = canonical committed seed
- *      (.pi/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893)
+ *      (docs/benchmarks/verify-bun-pi-agent-cli/stage1-seed-emnlp-893)
  *      Reuses the committed stage1 — the VLM is SKIPPED entirely — and runs
  *      distill only, so runs vary ONLY the distill model (controlled variable).
  *      Use to compare other distill models against the zai/glm-5.2 baseline.
@@ -571,7 +571,7 @@ return {
  * ── Output & comparison ──
  *   Each run lands in <runRoot>/<distillSlug>-<ts>/result.jsonl (runRoot defaults
  *   to <repoRoot>/tmp, gitignored). Diff against the committed baseline:
- *     bun run .pi/benchmarks/verify-bun-pi-agent-cli/compare.ts <result.jsonl>
+ *     bun run docs/benchmarks/verify-bun-pi-agent-cli/compare.ts <result.jsonl>
  *
  * ── Known issues / TODO (next) ──
  *   1. RESOLVED: SMOKE `distill` check now passes `--model "${RESOLVED.distillModel}"`
