@@ -518,16 +518,39 @@ class (64 channels, 32 groups): max-abs-diff < 1e-3, **passed on the first attem
 from-scratch GroupNorm derivation (double transpose to isolate `(H,W,cg)` as the reduction axis,
 then transpose back) was correct without iteration. 41/41 tests pass.
 
-Remaining for the audio VAE: `AudioUpsample`, and the full `AudioVAEDecoder` assembly (mid blocks
-+ attn + 3 up-stages + conv_in/out + per-channel stats — same milestone pattern as
-`VideoDecoder`: mini-architecture parity test + real-checkpoint smoke test against
-`mlx-models/audio/ltx-2.3-audio/audio_vae.safetensors`), then the vocoder (BigVGAN) and bandwidth-
-extension (BWE) stacks — both separate, currently-undocumented-in-this-PLAN architectures. The
-actual Gemma LLM (bridged, not hand-ported — see the text-encoder section above), the
-left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
-variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
-to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
-loop), and replacing `RunPyBridge` in the CLI remain as well.
+### Milestone: full AudioVAEDecoder, verified against the REAL production checkpoint (2026-07-02)
+
+`AudioUpsample.swift` (2x nearest-neighbor repeat on both spatial axes + conv, causal mode drops
+the first output row for temporal alignment) closes out the atomic audio-VAE components. Verified
+via `scripts/dump_audioupsample_reference.py` + `Tests/LTXVideoDirectorTests/AudioUpsampleParityTests.swift`
+(both causal and non-causal — causal changes the output height by one row): max-abs-diff < 1e-4.
+
+`AudioVAEDecoder.swift` assembles all of them into the complete decoder — wired against the REAL
+checkpoint's structure, confirmed by inspecting `mlx-models/audio/ltx-2.3-audio/audio_vae.safetensors`
+directly (102 tensors; **no attention keys anywhere** — the real checkpoint has
+`add_attention=False` for both `mid` and every `up` stage, so `AudioAttnBlock` isn't used in the
+actual decode path despite existing as a class) AND by reading `AudioVAEDecoder.__init__`/
+`decode()` directly: `conv_in` (8→512, causal) → `mid` (2 plain `AudioResBlock`s, no attention) →
+`up.2`/`up.1`/`up.0` run in **reverse index order** (3 resblocks each: 512, 512→256+upsample,
+256→128+upsample — note the checkpoint's `up.0/1/2` indices don't correspond to execution order)
+→ pre-activation pixel_norm+silu → `conv_out` (128→2, causal). Latent layout: `(B,8,T,16)` →
+flattened to `(B,T,128)` for per-channel denorm → reshaped to `(B,T,16,8)` NHWC (T=height/time,
+16=width/frequency) for Conv2d → output `(B,T',64,2)` NHWC → transposed to `(B,2,T',64)` mel.
+
+`AudioVAEDecoderRealCheckpointTests.swift` loads the ACTUAL production checkpoint (handling both
+the `audio_vae.decoder.` prefix for the network and the separate `audio_vae.` prefix +
+underscore-key quirk for `per_channel_statistics`, matching the video VAE encoder's quirk) and
+runs a real forward pass — confirms finite, correctly-shaped (`(1,2,T',64)` mel) output. 44/44
+tests pass.
+
+**Both the video AND audio VAE decoders now run natively in Swift/MLX against real production
+LTX-2.3 weights.** Remaining for full audio: the vocoder (BigVGAN) and bandwidth-extension (BWE)
+stacks — separate, currently-unexplored architectures (turn the mel spectrogram into an actual
+waveform) — and the audio VAE *encoder* (not yet started; only the decoder, needed for output,
+has been ported so far). The actual Gemma LLM (bridged, not hand-ported — see the text-encoder
+section above), the left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep`
+(the `--hq`/CFG++ variants), CFG/STG guidance batching via `Modality.split` (ported in Phase 2,
+not yet wired into the loop), and replacing `RunPyBridge` in the CLI remain as well.
 
 ## Phase 4 — retire the bridge
 
