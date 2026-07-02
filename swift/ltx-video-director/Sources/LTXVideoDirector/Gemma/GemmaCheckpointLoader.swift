@@ -60,7 +60,10 @@ public enum GemmaCheckpointLoader {
         let w = raw["\(key).weight"]!
         let scales = raw["\(key).scales"]!
         let biases = raw["\(key).biases"]!
-        return MLX.dequantized(w, scales: scales, biases: biases, groupSize: 64, bits: 4, dtype: .float32)
+        // bf16 — matches mlx-lm's compute dtype (4-bit dequants to bf16). The
+        // 48-layer residual stack is chaotic in fp32-vs-bf16 mixed compute;
+        // matching the reference dtype keeps per-layer error bounded.
+        return MLX.dequantized(w, scales: scales, biases: biases, groupSize: 64, bits: 4, dtype: .bfloat16)
     }
 
     /// Dequantized embed_tokens weight (vocab, hidden_size).
@@ -77,8 +80,8 @@ public enum GemmaCheckpointLoader {
             kProjWeight: dq(raw, "\(p).self_attn.k_proj"),
             vProjWeight: dq(raw, "\(p).self_attn.v_proj"),
             oProjWeight: dq(raw, "\(p).self_attn.o_proj"),
-            qNormWeight: raw["\(p).self_attn.q_norm.weight"]!.asType(.float32),
-            kNormWeight: raw["\(p).self_attn.k_norm.weight"]!.asType(.float32))
+            qNormWeight: raw["\(p).self_attn.q_norm.weight"]!.asType(.bfloat16),
+            kNormWeight: raw["\(p).self_attn.k_norm.weight"]!.asType(.bfloat16))
         let mlp = GemmaMLP(
             gateProjWeight: dq(raw, "\(p).mlp.gate_proj"),
             upProjWeight: dq(raw, "\(p).mlp.up_proj"),
@@ -86,15 +89,15 @@ public enum GemmaCheckpointLoader {
         let eps = config.rmsNormEps
         return GemmaBlock(
             attention: att, mlp: mlp,
-            inputLayernorm: GemmaRMSNorm(weight: raw["\(p).input_layernorm.weight"]!.asType(.float32), eps: eps),
-            postAttentionLayernorm: GemmaRMSNorm(weight: raw["\(p).post_attention_layernorm.weight"]!.asType(.float32), eps: eps),
-            preFeedforwardLayernorm: GemmaRMSNorm(weight: raw["\(p).pre_feedforward_layernorm.weight"]!.asType(.float32), eps: eps),
-            postFeedforwardLayernorm: GemmaRMSNorm(weight: raw["\(p).post_feedforward_layernorm.weight"]!.asType(.float32), eps: eps))
+            inputLayernorm: GemmaRMSNorm(weight: raw["\(p).input_layernorm.weight"]!.asType(.bfloat16), eps: eps),
+            postAttentionLayernorm: GemmaRMSNorm(weight: raw["\(p).post_attention_layernorm.weight"]!.asType(.bfloat16), eps: eps),
+            preFeedforwardLayernorm: GemmaRMSNorm(weight: raw["\(p).pre_feedforward_layernorm.weight"]!.asType(.bfloat16), eps: eps),
+            postFeedforwardLayernorm: GemmaRMSNorm(weight: raw["\(p).post_feedforward_layernorm.weight"]!.asType(.bfloat16), eps: eps))
     }
 
     /// Final model-norm RMSNorm weight (hidden_size,).
     public static func finalNorm(_ raw: [String: MLXArray], config: GemmaConfig) -> GemmaRMSNorm {
-        GemmaRMSNorm(weight: raw["norm.weight"]!.asType(.float32), eps: config.rmsNormEps)
+        GemmaRMSNorm(weight: raw["norm.weight"]!.asType(.bfloat16), eps: config.rmsNormEps)
     }
 }
 
@@ -125,13 +128,17 @@ public struct GemmaEmbedding {
 public enum GemmaMask {
     public static func causalCombined(tokenIds: MLXArray, attentionMask: MLXArray?) -> MLXArray {
         let T = tokenIds.dim(1)
-        let causal = MLX.triu(MLX.full([T, T], values: MLXArray(Float(-1e9))), k: 1)  // (T, T)
+        // Build in float32 then cast to bf16 — sdpa requires the mask to match
+        // the (bf16) output dtype. Explicit cast avoids any full()-dtype quirks.
+        let causal = MLX.triu(MLX.full([T, T], values: MLXArray(Float(-1e9))), k: 1)  // (T,T) f32
+        let mask: MLXArray
         if let am = attentionMask {
-            // am: (B, T) with 1=valid, 0=pad → (B, 1, 1, T) of 0/-1e9
             let pad = (MLXArray(1.0) - am.asType(.float32)) * Float(-1e9)  // (B, T)
             let pad4 = pad.expandedDimensions(axis: 1).expandedDimensions(axis: 1)  // (B,1,1,T)
-            return causal.expandedDimensions(axis: 0).expandedDimensions(axis: 0) + pad4  // (B,1,T,T)
+            mask = causal.expandedDimensions(axis: 0).expandedDimensions(axis: 0) + pad4  // (B,1,T,T)
+        } else {
+            mask = causal.expandedDimensions(axis: 0).expandedDimensions(axis: 0)  // (1,1,T,T)
         }
-        return causal.expandedDimensions(axis: 0).expandedDimensions(axis: 0)  // (1,1,T,T)
+        return mask.asType(.bfloat16)
     }
 }

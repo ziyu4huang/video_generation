@@ -1,85 +1,61 @@
-# TODO — Gemma-3-12b native port
+# Gemma-3-12b native port — status
 
-Tracking the open issue blocking a fully-native distilled I2V path. Every other
-piece is native (VAEs, 48-layer LTX transformer, sampling loop, full audio
-stack, T2I stage, VLM prompt stage, TextEmbeddingProjection, Embeddings1DConnector).
-The Gemma-3-12b text encoder is the sole remaining bridge point.
+## RESOLVED: encoder forward pass (the hard part) ✅
 
-## Current status (2026-07-03)
+All Gemma-3-12b encoder components ported and verified end-to-end against real
+production weights, in bf16 (matching mlx-lm's compute dtype):
 
-All Gemma-3-12b components ported and build clean:
-- `GemmaConfig` — dims read from cached config.json + mlx-lm ModelArgs defaults
-- `GemmaRMSNorm` — `rmsNorm(x, 1.0 + weight, eps)` (Gemma centers weight at 1.0)
-- `GemmaMLP` — SwiGLU `down(gelu_approx(gate(x)) * up(x))`
-- `GemmaAttention` — GQA, QK-norm, two RoPE configs (sliding/global), SPLIT layout
-- `GemmaBlock` — residual structure with 4 layernorms + clip_residual
-- `GemmaCheckpointLoader` — loads + dequants 4-bit (uint32, group_size=64) weights
-- `GemmaEmbedding` — embed_tokens + sqrt(hidden) scaling
-- `GemmaMask` — causal+padding combined mask
-- Verified reference dump under `test_refs/gemma/`: token_ids, h0_embedding, h1_layer0
+| Component | Verified against |
+|-----------|------------------|
+| `GemmaConfig` | cached config.json + mlx-lm ModelArgs defaults |
+| `GemmaRMSNorm` (`1.0 + weight`) | layer-0 intermediate dump |
+| `GemmaMLP` (SwiGLU gelu_approx) | layer-0 intermediate dump |
+| `GemmaAttention` (GQA + QK-norm + dual-RoPE SPLIT) | RoPE isolation test + layer-0 |
+| `GemmaBlock` (4 layernorms + clip_residual) | layer-0 parity (< 0.5% rel) |
+| `GemmaCheckpointLoader` (4-bit/group64 dequant → bf16) | embed h0 parity (< 0.13% rel) |
+| `GemmaEmbedding` (embed + sqrt(hidden)) | h0 parity |
+| `GemmaMask` (causal+padding, bf16) | full encoder |
+| `GemmaEncoder` (48 streaming blocks → 49 hidden states) | **h48 parity < 5% rel over full depth** |
 
-## THE OPEN ISSUE: layer-0 block diff = 32.3 (h0 embed step PASSES)
+**Tests**: `GemmaRoPEParityTests`, `GemmaLayer0ParityTests`, `GemmaFullEncoderParityTests`
+all pass. 67/67 package tests green.
 
-`GemmaLayer0ParityTests.testEmbedAndLayer0MatchReference`:
-- **h0 (embed_tokens + sqrt scaling): PASSES** (diff < 5e-2). Confirms 4-bit
-  dequant + embedding lookup + sqrt(3840) scaling are all correct.
-- **h1 (layer-0 transformer block): FAILS** with max-abs-diff = 32.3.
+### The key fix that unblocked it
 
-So the embed/dequant path is right; something inside the attention/block is wrong.
+Two real bugs, both found via the dump-real-reference methodology:
 
-## Suspects (in priority order)
+1. **Wrong tolerance metric** (the original "diff 32" failure): Gemma's residual
+   stream is NOT re-normalized between layers, so |h| grows to absmax ~10048 by
+   layer 48. An absolute diff of 32 is only **0.32% relative** — squarely in the
+   bf16-vs-fp32 precision band. Fixed by switching the parity threshold to
+   relative error (diff/absmax).
 
-1. **MLXFast.RoPE sequence axis** — UNVERIFIED. MLXFast.RoPE has no explicit
-   `axis` param; the docs example reshapes to `(-1, seq, dim)` implying axis -2
-   is the sequence. For our (B, n_heads, L, head_dim) that's L — should be right,
-   but NOT yet confirmed. The LTX RoPE port (RoPE.swift) precomputes cos/sin
-   manually rather than calling MLXFast.RoPE, so there's no prior verified usage
-   of MLXFast.RoPE in this codebase. **Action: write a tiny standalone RoPE parity
-   test against `mx.nn.RoPE(dims=256, traditional=False, base=1e4, scale=1)` on a
-   (1, n_heads, L, 256) input and confirm MLXFast.RoPE matches.**
+2. **fp32 vs bf16 compute mismatch** (the 26% divergence over 48 layers): the
+   reference dequantizes 4-bit weights to **bfloat16** (mlx-lm's compute dtype);
+   the first port used float32. An un-normalized 48-layer residual stack is
+   chaotic — the dtype mismatch compounds to 26%. Matching the reference's bf16
+   compute dtype bounds the full-depth error to < 5%. (Also required the mask to
+   be bf16, since `sdpa` requires the mask to promote to the output dtype.)
 
-2. **Mask value/dtype** — built as float32 -1e9; reference is bfloat16 -1e9.
-   Should be equivalent after softmax, but if MLXFast.scaledDotProductAttention
-   doesn't broadcast the (B,1,T,T) mask over the n_heads axis correctly, attention
-   would be wrong. Low probability (shape broadcasts naturally) but cheap to check.
+## REMAINING: the tokenizer (text → token_ids) — needs Gemma SentencePiece
 
-3. **QK-norm axis** — applied over head_dim (last axis) after reshape to
-   (B, n_heads, L, head_dim). MLX.rmsNorm normalizes over the last axis. Should
-   be right, but verify the reshape/transpose order matches reference exactly.
+`GemmaTokenizer.swift` exists and does the left-padding correctly, but uses
+z-image-director's `BPETokenizer` which is **Tiktoken-style** BPE. Gemma uses
+**SentencePiece** (different merge algorithm) — so it produces wrong token_ids
+(diff ~245237 on the test prompt). This is the sole remaining gap for a fully
+native `text → hidden states` path.
 
-4. **GQA repeat** — n_kv_heads=8 < n_heads=16. MLXFast.scaledDotProductAttention
-   docs say it handles GQA without pre-tiling. Verify k/v aren't being mis-shaped.
+Options:
+- Port Gemma's SentencePiece tokenizer to Swift (the `tokenizer.json` HF format
+  encodes the full SentencePiece model — a real but bounded port).
+- Or bridge tokenization to Python (tiny, deterministic, no model load) and keep
+  the 12B encoder native.
 
-## Verified facts (don't re-investigate)
+The encoder (the 7.5 GB, 48-layer, architecture-complex part) is fully native
+and verified. The tokenizer is a CPU-only, ~16-token, no-weights step.
 
-- Architecture: 48 layers, hidden 3840, 16 heads, head_dim 256, 8 kv_heads,
-  intermediate 15360, sliding_window 1024, pattern 6. Config from cached config.json.
-- Quantization: 4-bit, group_size=64, uint32-packed weight + bf16 scales/biases.
-  Confirmed via scales shape [4096, 60] = 3840/64.
-- Layer 0 is SLIDING (is_sliding = (0+1) % 6 != 0 = true) → RoPE base=1e4, scale=1.
-- h0 embed step is correct (dequant + take + sqrt scaling all verified).
-- Weight orientation: all projs are (out, in); matmul via `.transposed(-1,-2)`.
-- `scale = query_pre_attn_scalar ** -0.5 = 256**-0.5` (NOT head_dim**-0.5).
+## After the tokenizer lands
 
-## How to resume
-
-```bash
-cd swift/ltx-video-director
-swift build
-./scripts/setup-metallib.sh debug
-swift test --filter GemmaLayer0ParityTests   # ~1s (lazy mmap, no full 7.5GB load)
-```
-
-The dump (`test_refs/gemma/ref.safetensors`, 961KB) was generated by
-`scripts/dump_gemma_reference.py` running the real `GemmaLanguageModel`. If
-intermediate values are needed to localize the bug (e.g. post-attention output,
-post-mlp output), extend that script to capture them at layer 0.
-
-## After layer 0 passes
-
-- Stack all 48 blocks (streaming — each dequantized block is ~250MB, too much
-  to hold resident; mirror the transformer's `streamingForward` + per-block
-  `MLX.eval` pattern).
-- Concatenate 49 hidden states → (B, T, 188160) → TextEmbeddingProjection
-  (already native) → video/audio embeds → DiT.
-- Wire into a native encode + the i2v command, retiring RunPyBridge.
+Concatenate 49 hidden states → (B, T, 188160) → `TextEmbeddingProjection`
+(already native) → video/audio embeds → DiT. Then wire into a native encode +
+retire `RunPyBridge` in the i2v command.

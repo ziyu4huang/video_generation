@@ -50,6 +50,7 @@ arrays = {
     "attention_mask": attn_mask.astype(mx.int32),
     "h0_embedding": states[0].astype(mx.float16),
     "h1_layer0": states[1].astype(mx.float16),
+    "h48_last": states[-1].astype(mx.float32),
 }
 mx.save_safetensors(os.path.join(OUT_DIR, "ref.safetensors"), dict(arrays))
 mx.eval(arrays)

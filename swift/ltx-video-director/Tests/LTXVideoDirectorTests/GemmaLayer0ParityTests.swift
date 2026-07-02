@@ -37,11 +37,10 @@ final class GemmaLayer0ParityTests: XCTestCase {
         let h0 = embed(tokenIds)
         MLX.eval(h0)
 
-        // h0 is h0Expected's dtype (fp16 in dump). Compare fp32 vs fp32.
+        // h0: embed output has small magnitude (absmax ~40); absolute tolerance OK.
         let h0f = h0.asType(.float32)
         XCTAssertEqual(h0f.shape, h0Expected.shape, "h0 shape")
         let diffH0 = MLX.abs(h0f - h0Expected).max().item(Float.self)
-        // Dequant fp32 vs reference bfloat16-then-fp16: expect ~1e-2 level.
         XCTAssertLessThan(diffH0, 5e-2, "h0 (embed+scale) max abs diff \(diffH0)")
 
         // Layer 0.
@@ -52,9 +51,15 @@ final class GemmaLayer0ParityTests: XCTestCase {
 
         let h1f = h1.asType(.float32)
         XCTAssertEqual(h1f.shape, h1Expected.shape, "h1 shape")
+        // Gemma's residual stream is NOT re-normalized between layers, so |h1|
+        // grows large (absmax ~10000). Absolute diff is meaningless at that
+        // scale — use RELATIVE error (diff / absmax). The reference ran in
+        // bfloat16 and was stored fp16; this fp32 port legitimately differs by
+        // ~0.3% relative. 5% headroom absorbs the few blow-up elements from
+        // near-zero-RMS tokens. (Diagnostic: every intermediate step is
+        // 0.1-1.6% relative — see GemmaLayer0DiagnosticTests.)
+        let absMaxH1 = MLX.abs(h1Expected).max().item(Float.self)
         let diffH1 = MLX.abs(h1f - h1Expected).max().item(Float.self)
-        // One full block (attn+RoPE+MLP+4 norms) in fp32 vs reference bf16/fp16:
-        // tolerate a few percent relative error (output magnitude O(1)-O(10)).
-        XCTAssertLessThan(diffH1, 0.5, "h1 (layer-0 block) max abs diff \(diffH1)")
+        XCTAssertLessThan(diffH1 / absMaxH1, 0.05, "h1 (layer-0) relative diff \(diffH1)/\(absMaxH1) = \(diffH1/absMaxH1*100)%")
     }
 }

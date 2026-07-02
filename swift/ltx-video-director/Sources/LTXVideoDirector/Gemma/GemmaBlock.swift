@@ -43,7 +43,7 @@ public struct GemmaBlock {
 
     /// Reference clip_residual: fp16 inputs are clipped to fp16 max to prevent
     /// overflow accumulation across 48 layers; other dtypes add directly.
-    private func clipResidual(_ x: MLXArray, _ y: MLXArray) -> MLXArray {
+    func clipResidual(_ x: MLXArray, _ y: MLXArray) -> MLXArray {
         if x.dtype == .float16 {
             let bound = Float(65504.0)  // fp16 max
             return MLX.clip(x.asType(.float32) + y.asType(.float32), min: -bound, max: bound).asType(.float16)
