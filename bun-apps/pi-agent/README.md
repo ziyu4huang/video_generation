@@ -253,6 +253,7 @@ opaque runtime error:
 
 ```bash
 bun src/cli.ts doctor            # source mode
+bun src/cli.ts doctor --smoke    # + runtime probe (actually load the extensions)
 ./run.sh doctor                  # any deployed layout (bundle/portable/release)
 bun src/cli.ts doctor --json     # machine-readable
 ```
@@ -264,6 +265,27 @@ where the node_modules subset is essential, WARN for THIN bundle which works via
 abs paths, INFO for source where pi resolves its own), reports provider apiKey
 availability, and lists which patches would apply. Exit 0 = all hard checks pass,
 1 = any failed.
+
+### `doctor --smoke` — actually load the extensions
+
+The checks above are all **static** (filesystem / config) — they prove the
+extension FILES exist, not that pi loads them. Add `--smoke` and doctor spawns a
+throwaway probe that calls `pi.getAllTools()` at `session_start` and counts how
+many tools came from the run-dir extension root. It runs **offline** (the probe
+exits at `session_start`, before the model call):
+
+```bash
+bun src/cli.ts doctor --smoke     # + runtime smoke
+./run.sh doctor --smoke           # any deployed layout
+```
+
+This catches the **silent-no-op class** the static checks miss — e.g. the #182
+regression where `cli.ts` captured `process.argv` *before* the run-dir patch
+spliced the `-e` paths in, so every run-dir extension silently failed to load
+while every static check stayed green (`total=8 matched=0` instead of `~38
+matched=25`). A smoke `matched=0` is a hard FAIL with an actionable hint.
+Default doctor stays pure/offline/fast — `--smoke` is opt-in (it spawns a
+subprocess). Skipped (INFO) for the compiled binary, which can't load `.ts`.
 
 ## Add your own patch
 

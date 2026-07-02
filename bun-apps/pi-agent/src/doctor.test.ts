@@ -11,6 +11,8 @@ import {
 	checkHostDeps,
 	checkExtensions,
 	checkProviders,
+	smokeMarker,
+	runSmokeCheck,
 	type DoctorContext,
 } from "./doctor.ts";
 
@@ -127,5 +129,62 @@ describe("runChecks (aggregate)", () => {
 	test("source mode never hard-fails (host-deps is info)", () => {
 		const r = runChecks(ctx({ mode: "source", depInstalled: () => false }));
 		expect(r.ok).toBe(true);
+	});
+});
+
+describe("smokeMarker (pure)", () => {
+	test("source → bun-apps dir (selfDir/../.. from .../pi-agent/src)", () => {
+		// selfDir for source mode is .../pi-agent/src → marker is .../bun-apps
+		expect(smokeMarker("source", "/repo/bun-apps/pi-agent/src")).toBe("/repo/bun-apps");
+	});
+	test("bundle → <selfDir>/ext-bundles", () => {
+		expect(smokeMarker("bundle", "/out")).toBe("/out/ext-bundles");
+	});
+	test("portable → <selfDir>/ext-bundles (same as bundle)", () => {
+		expect(smokeMarker("portable", "/out")).toBe("/out/ext-bundles");
+	});
+	test("release → <selfDir>/packages", () => {
+		expect(smokeMarker("release", "/out")).toBe("/out/packages");
+	});
+	test("binary → null (smoke skipped)", () => {
+		expect(smokeMarker("binary", "/out")).toBeNull();
+	});
+});
+
+describe("runSmokeCheck (via injected spawn seam)", () => {
+	// A fake spawn that returns a canned stderr — exercises runSmokeCheck's
+	// parsing/branching without spawning bun.
+	const fakeSpawn =
+		(stderr: string, code: number | null = 0) =>
+		async () => ({ stderr, code });
+	const srcCtx = () => ctx({ mode: "source", selfDir: "/repo/bun-apps/pi-agent/src", entryPath: "/repo/bun-apps/pi-agent/src/cli.ts" });
+
+	test("PASS when matched > 0 (run-dir extensions loaded)", async () => {
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[SMOKE] total=38 matched=33\nsome other line") });
+		expect(r.status).toBe("pass");
+		expect(r.detail).toContain("matched=33");
+	});
+	test("FAIL when matched = 0 (silent no-op class)", async () => {
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[SMOKE] total=8 matched=0\n") });
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("matched=0");
+		expect(r.hint).toContain("slice");
+	});
+	test("FAIL when probe never reported (no [SMOKE] line)", async () => {
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("Error: something broke", 2) });
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("did not report");
+		expect(r.hint).toContain("something broke");
+	});
+	test("INFO (skip) for binary mode — no spawn", async () => {
+		let spawned = false;
+		const r = await runSmokeCheck(ctx({ mode: "binary" }), {
+			spawn: async () => {
+				spawned = true;
+				return { stderr: "", code: 0 };
+			},
+		});
+		expect(r.status).toBe("info");
+		expect(spawned).toBe(false);
 	});
 });

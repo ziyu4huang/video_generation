@@ -14,9 +14,10 @@
  * unit-testable without spawning or touching the real fs. `run()` wires real
  * process state. Invoke via `bun src/cli.ts doctor [--json]` or `./run.sh doctor`.
  */
-import { existsSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
 import manifest from "../run-dir/manifest.json";
 import { PATCH_TABLE, resolvePatchPlan } from "./patches/index.ts";
 import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
@@ -231,9 +232,170 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
 	return { mode: ctx.mode, checks, ok: !checks.some(isFailing) };
 }
 
+// ── runtime smoke (opt-in: `doctor --smoke`) ─────────────────────────────────
+//
+// The pure checks above are filesystem/static — they verify the extension FILES
+// exist, not that pi actually LOADS them. The #182 regression (cli.ts sliced
+// argv before the run-dir patch spliced it in) silently dropped EVERY run-dir
+// extension while every static check stayed green. The smoke check spawns a
+// throwaway probe that calls `pi.getAllTools()` at session_start and counts how
+// many tools came from the run-dir extension root — catching that silent-no-op
+// class on any deployed artifact, offline, without the model call (the probe
+// exits at session_start, before main() reaches the provider).
+
+/**
+ * The directory whose tools the smoke probe should count as "run-dir loaded".
+ * Pure (no fs). Returns null where smoke does not apply (binary can't load .ts).
+ *  - source:  the bun-apps dir (selfDir is .../pi-agent/src → ../.. = bun-apps)
+ *  - bundle / portable: <selfDir>/ext-bundles
+ *  - release: <selfDir>/packages
+ */
+export function smokeMarker(mode: DeployMode, selfDir: string): string | null {
+	if (mode === "binary") return null;
+	if (mode === "source") return resolve(selfDir, "..", "..");
+	if (mode === "release") return join(selfDir, "packages");
+	return join(selfDir, "ext-bundles"); // bundle + portable
+}
+
+const SMOKE_PROBE = [
+	'export default (pi) => {',
+	'  pi.on("session_start", () => {',
+	'    const tools = pi.getAllTools();',
+	'    const marker = process.env.PI_SMOKE_MARKER ?? "";',
+	'    let matched = 0;',
+	'    for (const t of tools) {',
+	'      if (marker && String(t.sourceInfo?.path ?? "").includes(marker)) matched++;',
+	'    }',
+	'    process.stderr.write("[SMOKE] total=" + tools.length + " matched=" + matched + "\\n");',
+	'    process.exit(0);', // exit at session_start → before the model call → offline
+	'  });',
+	'};',
+].join("\n");
+
+/** Injectable spawn seam so runSmokeCheck's logic is unit-testable without bun. */
+export interface SmokeSpawn {
+	(args: { entry: string; probe: string; cwd: string; env: Record<string, string | undefined> }): Promise<{
+		stderr: string;
+		code: number | null;
+	}>;
+}
+
+export interface SmokeOptions {
+	timeoutMs?: number;
+	spawn?: SmokeSpawn; // default: Bun.spawn against the real entry
+}
+
+/**
+ * Spawn the smoke probe against the entry and parse its [SMOKE] line.
+ * Real spawn helper — exported for tests that want to exercise the timeout path.
+ */
+export async function defaultSmokeSpawn(args: {
+	entry: string;
+	probe: string;
+	cwd: string;
+	env: Record<string, string | undefined>;
+	timeoutMs?: number;
+}): Promise<{ stderr: string; code: number | null }> {
+	const timeoutMs = args.timeoutMs ?? 30_000;
+	const proc = Bun.spawn(["bun", args.entry, "-e", args.probe, "-p", "hi"], {
+		cwd: args.cwd,
+		env: args.env,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const reader = proc.stderr.getReader();
+	const dec = new TextDecoder();
+	let buf = "";
+	const deadline = Date.now() + timeoutMs;
+	try {
+		while (true) {
+			const remaining = deadline - Date.now();
+			if (remaining <= 0) break;
+			const readP = reader.read();
+			const timeoutP = new Promise<{ timedOut: true }>((r) => setTimeout(() => r({ timedOut: true }), remaining));
+			const res = (await Promise.race([readP, timeoutP])) as { timedOut?: true; value?: Uint8Array; done?: boolean };
+			if (res.timedOut) break;
+			if (res.done) break;
+			buf += dec.decode(res.value, { stream: true });
+			if (/\[SMOKE\]/.test(buf)) break; // got it — no need to wait for exit
+		}
+	} finally {
+		try {
+			proc.kill();
+		} catch {
+			/* already exited */
+		}
+	}
+	let code: number | null = null;
+	try {
+		code = await Promise.race([proc.exited as Promise<number>, new Promise<null>((r) => setTimeout(() => r(null), 1000))]);
+	} catch {
+		code = null;
+	}
+	return { stderr: buf, code };
+}
+
+/**
+ * Run the runtime-smoke check. Imperative (fs + spawn). Returns a CheckResult:
+ *  - binary mode → INFO (skipped — compiled binary can't load .ts extensions)
+ *  - matched > 0 → PASS (run-dir extensions loaded)
+ *  - matched = 0 → FAIL (silent no-op class; the slice-bug regression)
+ *  - no [SMOKE] line → FAIL (probe never fired — entry error or a heavy
+ *    extension's session_start handler blocked it past the timeout)
+ */
+export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {}): Promise<CheckResult> {
+	const id = "runtime-smoke";
+	const label = "runtime smoke (extension load)";
+	const marker = smokeMarker(ctx.mode, ctx.selfDir);
+	if (marker === null) {
+		return { id, label, status: "info", detail: "binary mode cannot load .ts extensions — smoke skipped" };
+	}
+	const dir = mkdtempSync(join(tmpdir(), "pi-agent-smoke-"));
+	const probePath = join(dir, "smoke-probe.ts");
+	writeFileSync(probePath, SMOKE_PROBE);
+	const env = { ...ctx.env, PI_SMOKE_MARKER: marker };
+	let result: { stderr: string; code: number | null };
+	try {
+		result = opts.spawn
+			? await opts.spawn({ entry: ctx.entryPath, probe: probePath, cwd: ctx.selfDir, env })
+			: await defaultSmokeSpawn({ entry: ctx.entryPath, probe: probePath, cwd: ctx.selfDir, env, timeoutMs: opts.timeoutMs });
+	} finally {
+		try {
+			rmSync(dir, { recursive: true, force: true });
+		} catch {
+			/* */
+		}
+	}
+	const clean = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").trim();
+	const m = result.stderr.match(/\[SMOKE\] total=(\d+) matched=(\d+)/);
+	if (!m) {
+		return {
+			id,
+			label,
+			status: "fail",
+			detail: `probe did not report (exit ${result.code})`,
+			hint: `entry failed early, or an extension's session_start handler blocked past the timeout. stderr tail: ${clean(result.stderr).slice(-180)}`,
+		};
+	}
+	const total = +m[1];
+	const matched = +m[2];
+	if (matched > 0) {
+		return { id, label, status: "pass", detail: `total=${total} matched=${matched} — run-dir extensions loaded` };
+	}
+	return {
+		id,
+		label,
+		status: "fail",
+		detail: `total=${total} matched=0 — NO run-dir extension tools registered`,
+		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `./run-test.sh high`.",
+	};
+}
+
 // ── real wiring ──────────────────────────────────────────────────────────────
 export interface RunOptions {
 	json?: boolean;
+	smoke?: boolean;
+	smokeTimeoutMs?: number;
 }
 
 /** Build the real DoctorContext from process state + the module's location. */
@@ -264,7 +426,14 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 
 /** Run doctor against real process state, print, and return the report. */
 export async function runDoctor(opts: RunOptions = {}, out: (s: string) => void = console.log): Promise<DoctorReport> {
-	const report = runChecks(realContext(import.meta.url, process.env));
+	const ctx = realContext(import.meta.url, process.env);
+	let report = runChecks(ctx);
+	// The smoke check is opt-in (it spawns a subprocess, so the default doctor
+	// stays pure/offline/fast). A smoke FAIL is a hard failure (like other fails).
+	if (opts.smoke) {
+		const smoke = await runSmokeCheck(ctx, { timeoutMs: opts.smokeTimeoutMs });
+		report = { mode: report.mode, checks: [...report.checks, smoke], ok: report.ok && !isFailing(smoke) };
+	}
 	if (opts.json) {
 		out(JSON.stringify(report, null, 2));
 	} else {
