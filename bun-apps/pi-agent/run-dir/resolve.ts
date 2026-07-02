@@ -103,6 +103,29 @@ async function resolveNpmExtensionPaths(): Promise<string[]> {
   return paths;
 }
 
+/**
+ * Pure layout detector for {@link resolveRunDirArgv}: given the bundle's own
+ * directory and an injected `exists`, decide which deploy layout (if any) is
+ * present. Mirrors the precedence of resolveRunDirArgv's branch chain so the
+ * detection is unit-testable without import.meta.url or real marker files.
+ *   - "deploy-bundle"  : `.deploy-bundle` marker + `ext-bundles/` (deploy.ts default + --portable)
+ *   - "deploy-package" : `packages/` + `run-dir/manifest.json` (deploy.ts --release)
+ *   - "source"         : none of the above (repo source / a plain bundle with no markers)
+ * Binary mode is decided separately by detectMode(url) (the $bunfs scheme), not
+ * by selfDir, so it is NOT a layout mode here — resolveRunDirArgv guards on the
+ * module-level `mode` first.
+ */
+export type RunDirLayoutMode = "deploy-bundle" | "deploy-package" | "source";
+export function detectRunDirMode(selfDir: string, exists: (p: string) => boolean): RunDirLayoutMode {
+  if (exists(join(selfDir, ".deploy-bundle")) && exists(join(selfDir, "ext-bundles"))) {
+    return "deploy-bundle";
+  }
+  if (exists(join(selfDir, "packages")) && exists(join(selfDir, "run-dir", "manifest.json"))) {
+    return "deploy-package";
+  }
+  return "source";
+}
+
 /** Returns a flat argv fragment: ["-e", absPath, ..., "--skill", absPath, ...] */
 export async function resolveRunDirArgv(): Promise<string[]> {
   // Compiled-binary mode: no-op. pi can't load .ts extensions here anyway
@@ -112,6 +135,7 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // collapsing to "/", producing "/zai-mcp/…" non-paths). Without this guard
   // every binary invocation — even --version — spews ~7 "skipping" warnings.
   // The bundled .js (not the --compile binary) is the supported shipped path.
+  // (The binary detection itself is unit-tested via detectMode in resolve.test.ts.)
   if (mode === "binary") {
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
       warn("compiled-binary mode — extensions can't load here; returning no argv");
@@ -120,6 +144,7 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   }
 
   const selfDir = dirname(fileURLToPath(url));
+  const layoutMode = detectRunDirMode(selfDir, existsSync);
 
   // DEPLOY-BUNDLE mode: the DEFAULT output of `scripts/deploy.ts` (no --release)
   // — the bundle sits next to its own `ext-bundles/*.thin.js` (pre-bundled
@@ -128,8 +153,8 @@ export async function resolveRunDirArgv(): Promise<string[]> {
   // which still names source .ts paths). Uses `-ne` for the same self-contained
   // reason as DEPLOY-PACKAGE. Checked before `packages/` since the two layouts
   // are mutually exclusive (deploy.ts emits one or the other).
-  const extBundlesDir = join(selfDir, "ext-bundles");
-  if (existsSync(join(selfDir, ".deploy-bundle")) && existsSync(extBundlesDir)) {
+  if (layoutMode === "deploy-bundle") {
+    const extBundlesDir = join(selfDir, "ext-bundles");
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
       warn(`deploy-bundle mode — resolving from ${extBundlesDir}`);
     }
@@ -145,14 +170,14 @@ export async function resolveRunDirArgv(): Promise<string[]> {
 
   // DEPLOY-PACKAGE mode: a self-contained package produced by `scripts/deploy.ts
   // --release` — the bundle sits next to its own `packages/<pkg>/…` tree +
-  // — the bundle sits next to its own `packages/<pkg>/…` tree + `run-dir/manifest.json`.
-  // Resolve the manifest against packages/ (NOT the repo's bun-apps/, and NOT
-  // the build-time-baked run-dir-base.ts, which points at the repo). Uses `-ne`
-  // so the package is self-contained: pi loads ONLY these -e paths and ignores
-  // any <cwd>/.pi/ — avoiding cross-path tool-name conflicts when the package is
-  // run inside a repo that declares the same extensions from different paths.
-  const packagesDir = join(selfDir, "packages");
-  if (existsSync(packagesDir) && existsSync(join(selfDir, "run-dir", "manifest.json"))) {
+  // `run-dir/manifest.json`. Resolve the manifest against packages/ (NOT the
+  // repo's bun-apps/, and NOT the build-time-baked run-dir-base.ts, which points
+  // at the repo). Uses `-ne` so the package is self-contained: pi loads ONLY
+  // these -e paths and ignores any <cwd>/.pi/ — avoiding cross-path tool-name
+  // conflicts when the package is run inside a repo that declares the same
+  // extensions from different paths.
+  if (layoutMode === "deploy-package") {
+    const packagesDir = join(selfDir, "packages");
     if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
       warn(`deploy-package mode — resolving manifest against ${packagesDir}`);
     }
@@ -189,7 +214,18 @@ async function buildArgv(bunAppsDir: string | undefined): Promise<string[]> {
  * machine-abs-pathed model the THIN bundles + pi-agent.js itself use).
  */
 function buildBundleArgv(selfDir: string, npmPaths: string[]): string[] {
-  const readDir = (d: string) => (existsSync(d) ? readdirSync(d) : []);
+  // existsSync is true for FILES too, so a stray file named `ext-bundles` or
+  // `skills` would make readdirSync throw ENOTDIR and crash argv resolution
+  // (→ no extensions load). Treat any read failure — ENOTDIR, ENOENT, EACCES —
+  // as "empty listing" so a malformed layout degrades to "no ext-bundles" the
+  // same way a missing one does, instead of throwing.
+  const readDir = (d: string) => {
+    try {
+      return readdirSync(d);
+    } catch {
+      return [];
+    }
+  };
   return buildBundleArgvFromLayout(
     {
       extBundles: readDir(join(selfDir, "ext-bundles")).filter((f) => f.endsWith(".js")),
@@ -362,7 +398,16 @@ export function resolveLazyExtension(
   if (bunAppsDir) {
     const dir = join(bunAppsDir, input, "extensions");
     if (exists(dir)) {
-      const ts = readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+      // `exists` (existsSync) is true for files too: if <alias>/extensions is a
+      // file, readdirSync throws ENOTDIR. Treat that as "fallback doesn't apply"
+      // (return undefined below) rather than crashing argv resolution.
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        entries = [];
+      }
+      const ts = entries.filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
       if (ts.length === 1) return join(dir, ts[0]!);
       if (ts.length > 1) {
         warnFn?.(`lazy alias "${input}" → ${dir} has ${ts.length} .ts files; can't pick; leaving for SDK`);
