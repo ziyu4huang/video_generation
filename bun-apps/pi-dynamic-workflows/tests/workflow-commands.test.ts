@@ -535,3 +535,122 @@ test("/workflows <unknown> warns usage", async () => {
   assert.equal(h.notified[0].type, "warning");
   assert.match(h.notified[0].message, /Unknown subcommand/);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// /workflows result [id] — cross-session retrieval of a finished run's result
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("/workflows result <id> prints the full result of a completed run (string)", async () => {
+  const h = harness({
+    getPersistedRun: () => ({
+      runId: "run-1",
+      workflowName: "demo",
+      status: "completed",
+      result: "The audit found 3 missing auth checks.",
+      completedAt: "2026-07-01T23:38:10.000Z",
+      durationMs: 4500,
+      tokenUsage: { total: 8800 },
+      agents: [],
+      logs: [],
+    }),
+  });
+  await h.run("result run-1");
+  assert.match(h.printed[0], /✓ demo \(run-1\) — completed/);
+  assert.match(h.printed[0], /The audit found 3 missing auth checks\./);
+});
+
+test("/workflows result <id> pretty-prints an object result", async () => {
+  const h = harness({
+    getPersistedRun: () => ({
+      runId: "run-2",
+      workflowName: "smoke",
+      status: "completed",
+      result: { ok: true, a: "FOO", b: "BAR" },
+      agents: [],
+      logs: [],
+    }),
+  });
+  await h.run("result run-2");
+  assert.match(h.printed[0], /"a": "FOO"/);
+  assert.match(h.printed[0], /"b": "BAR"/);
+});
+
+test("/workflows result <id> on a still-running run says no result yet", async () => {
+  const h = harness({
+    getPersistedRun: () => ({
+      runId: "run-3",
+      workflowName: "demo",
+      status: "running",
+      agents: [],
+      logs: [],
+    }),
+  });
+  await h.run("result run-3");
+  assert.match(h.printed[0], /still running — no result yet/);
+});
+
+test("/workflows result <id> notifies error when run id is unknown", async () => {
+  const h = harness({ getPersistedRun: () => null });
+  await h.run("result nope");
+  assert.equal(h.notified.length, 1);
+  assert.equal(h.notified[0].type, "error");
+  assert.match(h.notified[0].message, /No workflow run "nope"/);
+});
+
+test("/workflows result <id> notes a finished run with no recorded result", async () => {
+  const h = harness({
+    getPersistedRun: () => ({
+      runId: "run-4",
+      workflowName: "demo",
+      status: "aborted",
+      result: undefined,
+      agents: [],
+      logs: [],
+    }),
+  });
+  await h.run("result run-4");
+  assert.match(h.printed[0], /no result was recorded/);
+});
+
+test("/workflows result (no id) lists recent finished runs across ALL sessions", async () => {
+  const h = harness({
+    listAllRuns: () => [
+      {
+        runId: "old",
+        workflowName: "old-run",
+        status: "completed",
+        completedAt: "2026-07-01T10:00:00.000Z",
+        agents: [],
+        logs: [],
+      },
+      {
+        runId: "new",
+        workflowName: "new-run",
+        status: "completed",
+        completedAt: "2026-07-01T23:38:10.000Z",
+        agents: [],
+        logs: [],
+      },
+      {
+        runId: "live",
+        workflowName: "live-run",
+        status: "running",
+        agents: [],
+        logs: [],
+      },
+    ],
+  });
+  await h.run("result");
+  assert.match(h.printed[0], /Recent finished runs/);
+  assert.match(h.printed[0], /new-run/); // most recent first
+  assert.match(h.printed[0], /old-run/);
+  assert.doesNotMatch(h.printed[0], /live-run/); // running excluded
+  // ordering: "new" (23:38) before "old" (10:00)
+  assert.ok(h.printed[0].indexOf("new-run") < h.printed[0].indexOf("old-run"));
+});
+
+test("/workflows result (no id) reports when nothing has finished", async () => {
+  const h = harness({ listAllRuns: () => [] });
+  await h.run("result");
+  assert.match(h.printed[0], /No finished workflow runs yet/);
+});

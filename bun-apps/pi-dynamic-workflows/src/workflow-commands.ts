@@ -23,7 +23,7 @@ const STATUS_ICON: Record<string, string> = {
 };
 
 const USAGE =
-  "Usage: /workflows [list] | run <prompt> | status <id> | watch <id> | stop <id> | pause <id> | resume <id> | rm <id> | save <name> [runId]";
+  "Usage: /workflows [list] | run <prompt> | status <id> | result [id] | watch <id> | stop <id> | pause <id> | resume <id> | rm <id> | save <name> [runId]";
 
 const RUN_USAGE = "Usage: /workflows run <prompt> — force a dynamic workflow from the prompt";
 
@@ -100,6 +100,35 @@ function renderPersistedStatus(run: PersistedRunState): string {
   if (run.tokenUsage) lines.push(`  tokens: ${run.tokenUsage.total.toLocaleString()}`);
   if (run.durationMs) lines.push(`  duration: ${(run.durationMs / 1000).toFixed(1)}s`);
   return lines.join("\n");
+}
+
+// Max chars of the result body to inline; longer results are truncated with a
+// pointer to the full JSON on disk (the run record under ~/.pi/workflows/).
+const RESULT_MAX_CHARS = 4000;
+
+/**
+ * Render a finished run's full result for `/workflows result <id>`. Strings are
+ * shown verbatim; objects as pretty JSON; missing result (e.g. aborted) noted.
+ * Oversized results are truncated with the on-disk run path for the full text.
+ */
+function renderPersistedResult(run: PersistedRunState): string {
+  const head = `${STATUS_ICON[run.status] ?? "?"} ${run.workflowName} (${run.runId}) — ${run.status}`;
+  const meta: string[] = [];
+  if (run.completedAt) meta.push(`  finished: ${run.completedAt.slice(0, 19).replace("T", " ")}`);
+  if (run.durationMs) meta.push(`  duration: ${(run.durationMs / 1000).toFixed(1)}s`);
+  if (run.tokenUsage) meta.push(`  tokens: ${run.tokenUsage.total.toLocaleString()}`);
+
+  if (run.result === undefined || run.result === null) {
+    return [head, ...meta, "", "(no result was recorded for this run)"].join("\n");
+  }
+  const body =
+    typeof run.result === "string" ? run.result : JSON.stringify(run.result, null, 2);
+  let truncated = "";
+  if (body.length > RESULT_MAX_CHARS) {
+    truncated = `\n\n[… truncated; full result in the run record: ~/.pi/workflows/projects/<project>/runs/${run.runId}.json]`;
+  }
+  const shown = body.length > RESULT_MAX_CHARS ? body.slice(0, RESULT_MAX_CHARS) : body;
+  return [head, ...meta, "", "Result:", shown + truncated].join("\n");
 }
 
 export interface WorkflowCommandOptions {
@@ -234,6 +263,46 @@ export function registerWorkflowCommands(
         case "rm": {
           if (!id) return ctx.ui.notify(USAGE, "warning");
           ctx.ui.notify(manager.deleteRun(id) ? `Removed ${id}` : `No run ${id}`, "info");
+          return;
+        }
+        case "result": {
+          // Cross-session retrieval: a background run whose result was never
+          // delivered (originating session closed before it finished — e.g. a
+          // `-p` batch invocation) is still on disk. `/workflows result <id>`
+          // prints its full result regardless of session; with no id, lists the
+          // most recent finished runs across ALL sessions so the id is findable.
+          if (!id) {
+            const finished = manager
+              .listAllRuns()
+              .filter((r) => r.status === "completed" || r.status === "failed" || r.status === "aborted")
+              .sort((a, b) => (b.completedAt ?? b.updatedAt ?? "").localeCompare(a.completedAt ?? a.updatedAt ?? ""))
+              .slice(0, 15);
+            if (!finished.length) {
+              await print("No finished workflow runs yet.");
+              return;
+            }
+            await print(
+              [
+                "Recent finished runs (any session) — `/workflows result <id>` to view a result:",
+                ...finished.map((r) => {
+                  const icon = STATUS_ICON[r.status] ?? "?";
+                  const when = r.completedAt ? r.completedAt.slice(0, 19).replace("T", " ") : "?";
+                  return `${icon} ${r.runId}  ${r.workflowName}  ${when}`;
+                }),
+              ].join("\n"),
+            );
+            return;
+          }
+          const run = manager.getPersistedRun(id);
+          if (!run) {
+            ctx.ui.notify(`No workflow run "${id}"`, "error");
+            return;
+          }
+          if (run.status === "running" || run.status === "pending" || run.status === "paused") {
+            await print(`${run.workflowName} (${id}) is still ${run.status} — no result yet. Use \`/workflows status ${id}\`.`);
+            return;
+          }
+          await print(renderPersistedResult(run));
           return;
         }
         case "save": {

@@ -581,6 +581,15 @@ export class WorkflowManager extends EventEmitter {
   }
 
   /**
+   * Load a persisted run by id regardless of session — used by `/workflows result`
+   * so a run started in a now-closed session (whose result was never delivered)
+   * is still retrievable. Returns null if the run id is unknown in this project.
+   */
+  getPersistedRun(runId: string): PersistedRunState | null {
+    return this.persistence.load(runId);
+  }
+
+  /**
    * Get snapshot of a run.
    */
   getSnapshot(runId: string): WorkflowSnapshot | null {
