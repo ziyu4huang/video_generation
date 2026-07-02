@@ -285,13 +285,44 @@ component built in this phase (RoPE, TimestepEmbedding, AdaLayerNormSingle, Feed
 Attention, Modality, BasicAVTransformerBlock) is now exercised together in the real top-level
 assembly. 26/26 tests pass.
 
-**Phase 2's algorithmic core is done.** What's NOT done and blocks using this for real generation:
-a real-checkpoint smoke test (mirroring `VideoDecoderRealCheckpointTests`/`VideoEncoderRealCheckpointTests`
-— the actual LTX-2.3 transformer checkpoint is ~22B params in bf16/int8, so this needs a memory/
-time budget check before attempting, unlike the VAE's ~86M-param checkpoints), the diffusion
-sampling loop (Euler flow-match stepping, CFG/STG guidance batching via `Modality.split`), the
-text encoder (Gemma — likely reusable via `mlx-lm`, not something to hand-port), the audio VAE/
-vocoder/bandwidth-extension stack (untouched, separate from everything ported so far), and
+### Milestone: real production checkpoint, dequantized and run natively (2026-07-02)
+
+`QuantizedWeights.swift` + `LTXModelRealCheckpointTests.swift` close the gap between the
+synthetic-weight `LTXModel` test and actual production use. Real finding: the production
+checkpoint (`mlx-models/transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors`,
+19GB, 7450 tensors, confirmed via direct inspection) stores every block's Attention/FeedForward
+Linear weights **MLX-quantized** (int8, group_size=64 — packed `uint32` weight + bf16
+`scales`/`biases` siblings; shapes cross-checked: `(4096,1024)` packed U32 for a 4096×4096 matrix
+at 8 bits/element, `(4096,64)` scales for group_size=4096/64=64). None of the Attention/
+FeedForward code ported so far does quantized matmul, so `QuantizedWeights.dequantizeLinearWeights`
+dequantizes on load (`MLX.dequantized`) instead — simpler than implementing quantized inference,
+and fine for a smoke test (dequantizing all 48 blocks to float32 would need far more memory than
+reasonable to hold at once; this test dequantizes ONLY block 0 + the small top-level modules).
+
+Also confirmed against `mlx-models/ltx-mlx/distilled/embedded_config.json` (the checkpoint's own
+metadata, not assumed): the real production config is `video_dim=4096, audio_dim=2048,
+video/audio_num_heads=32, video_head_dim=128, audio_head_dim=64, timestep_embedding_dim=256`, and
+**`timestep_scale_multiplier` AND `av_ca_timestep_scale_multiplier` are BOTH 1000** (not the
+Python dataclass's literal default of `1.0` for the latter — production sets them equal, making
+the AV-gate embedding scale factor exactly 1.0, i.e. no separate scaling in practice despite the
+code path existing for it).
+
+`LTXModelRealCheckpointTests.swift` loads the real checkpoint, strips the `transformer.` prefix,
+keeps only `transformer_blocks.0` + top-level keys, dequantizes, builds one real
+`BasicAVTransformerBlock` + `LTXModel` at real production dims, and runs a forward pass on tiny
+synthetic tokens — confirms finite, correctly-shaped output. **Runs in well under a second.**
+27/27 tests pass.
+
+**This means: a real slice of the actual 19GB LTX-2.3 production checkpoint has now been loaded,
+dequantized, and executed through native Swift/MLX code, end to end, with zero Python.**
+
+Remaining before real generation: extending this from 1 block to all 48 (a memory-budgeting
+question — likely needs streaming/lazy per-block loading rather than holding all 48 dequantized
+blocks resident, mirroring the Python reference's own `block_provider` streaming mechanism, which
+`BasicAVTransformerBlock`/`LTXModel` intentionally left unported — see their file headers), the
+diffusion sampling loop (Euler flow-match stepping, CFG/STG guidance batching via `Modality.split`),
+the text encoder (Gemma — likely reusable via `mlx-lm`, not something to hand-port), the audio
+VAE/vocoder/bandwidth-extension stack (untouched, separate from everything ported so far), and
 replacing `RunPyBridge` in the `i2v`/`upscale` CLI commands with all of the above wired together.
 
 ## Phase 3 — native I2V conditioning + audio + speech-gate
