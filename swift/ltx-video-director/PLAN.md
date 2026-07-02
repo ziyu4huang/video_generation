@@ -459,11 +459,40 @@ end-to-end match against the reference. 37/37 tests pass, no regressions.
 port** — real Python reference, bit-parity, no documented gaps remaining in the sampling loop's
 core algorithm.
 
-Remaining before real generation: `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
+### Text-encoder work started: Embeddings1DConnector (2026-07-02)
+
+The text encoder has two distinct pieces: the Gemma LLM itself (12B+ decoder, produces raw hidden
+states from tokenized text) and the LTX-specific **connector** downstream of it (refines those
+hidden states into the video/audio conditioning embeddings the DiT actually consumes). Hand-porting
+a 12B+ LLM decoder is out of proportion to this port — that stays bridged (`RunPyBridge`/`mlx-lm`).
+The connector, however, is a small, self-contained transformer stack — real, portable, testable work.
+
+`EmbeddingsConnector.swift` ports `ltx_core_mlx.text_encoders.gemma.embeddings_connector`:
+`ConnectorTransformerBlock` (pre-norm affine-free RMS + self-attn + residual, then pre-norm + FF +
+residual — no AdaLN modulation at all, simpler than the DiT block) and `Embeddings1DConnector`
+(prepends/appends learnable register tokens, computes 1D log-spaced RoPE over the resulting
+sequence, runs the block stack, optional output norm). **Reuses `Attention`/`FeedForward` from
+Phase 2 directly** — confirmed architecturally identical (self-attention+RoPE+gating;
+Linear→GELU-approx→Linear FFN), just different checkpoint key names (`to_out.0.*` list-wrapped,
+`ff.net.0.proj.*`/`ff.net.2.*`) handled entirely by the test's loader, no new attention/FF math
+needed. This is a good sign for the port's overall design — the same primitives generalize.
+
+**Scope**: the "no attention_mask" path only (registers appended at the sequence end). NOT yet
+ported: the left-padding register-*replacement* path (`_replace_padding_with_registers`) — needed
+once the actual Gemma tokenizer/encoder (which left-pads) is wired in; out of scope until then.
+
+Verified via `scripts/dump_connector_reference.py` + `Tests/LTXVideoDirectorTests/EmbeddingsConnectorParityTests.swift`
+against the real `Embeddings1DConnector` class (2 layers, real register/RoPE/block wiring):
+max-abs-diff < 1e-3 (looser than DiT-Attention tests since this uses manual softmax attention in
+the reference vs `MLX.scaledDotProductAttention`'s fused kernel here — same math, different
+kernel path). 38/38 tests pass.
+
+Remaining before real generation: the actual Gemma LLM (bridged, not hand-ported — see above),
+the left-padding connector path, `Res2sDiffusionStep`/`EulerCfgPpDiffusionStep` (the `--hq`/CFG++
 variants — `EulerDiffusionStep` alone covers the fast distilled/dasiwa path this project defaults
 to), CFG/STG guidance batching via `Modality.split` (ported in Phase 2, not yet wired into the
-loop — currently single-pass, no negative-prompt guidance), the text encoder (Gemma), the audio
-VAE/vocoder/BWE stack, and replacing `RunPyBridge` in the CLI.
+loop — currently single-pass, no negative-prompt guidance), the audio VAE/vocoder/BWE stack, and
+replacing `RunPyBridge` in the CLI.
 
 ## Phase 4 — retire the bridge
 
