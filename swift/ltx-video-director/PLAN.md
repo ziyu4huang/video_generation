@@ -824,7 +824,34 @@ director packages, so not touched here). This relies on the template's own "Outp
 object" instruction instead — worth upstreaming JSON-mode to CaptionClient if it proves
 unreliable in practice.
 
-Parser is unit-tested in `NativeVLMPromptStageTests.swift` (markdown-fence stripping,
+### Milestone: TextEmbeddingProjection + corrected Gemma scoping (2026-07-02)
+
+`TextEmbeddingProjection.swift` ports `feature_extractor.TextEmbeddingProjection` —
+the projection between Gemma-3-12b's concatenated multi-layer hidden states
+(49 layers × 3840 = 188160-dim) and the `Embeddings1DConnector` (already ported)
+that feeds the DiT. Forward: `rescale = sqrt(target_dim/embedding_dim)` then two
+plain `nn.Linear`s → (video_embeds 4096, audio_embeds 2048). Verified via
+`scripts/dump_textembeddingprojection_reference.py` +
+`TextEmbeddingProjectionParityTests.swift`: max-abs-diff < 1e-4 on both outputs.
+64/64 tests pass.
+
+**Corrected scoping finding** (the prior "Gemma is too large to hand-port" framing
+was right about the conclusion but wrong about why): the production text encoder
+is `mlx-community/gemma-3-12b-it-4bit` (~7.5 GB, already in the HF cache), loaded
+via the standard `mlx-lm` library per the vendor CLAUDE.md (`encoders/base_encoder.py`
+= "Gemma 3 12B wrapper via mlx-lm"). It is NOT a hand-port in the reference either —
+it's a standard HF MLX model loaded generically. The native-Swift equivalent is
+loading it via `mlx-swift`'s LLM support, not re-implementing a 12B decoder.
+
+**With this, the ENTIRE text-encoder connector stack is native** except the Gemma
+LLM forward pass itself: `Gemma hidden states → TextEmbeddingProjection (native) →
+Embeddings1DConnector (native) → DiT conditioning`. The sole remaining piece for a
+fully-native distilled I2V path is running a standard HF MLX Gemma-3-12b forward in
+Swift via mlx-swift (load model + tokenizer + extract per-layer hidden states +
+concatenate) — a standard LLM-inference task, not an architecture port. Until that
+lands, `I2VCommand` keeps `RunPyBridge` for the generation step.
+
+ (markdown-fence stripping,
 `estimated_seconds` as float, non-JSON rejection, missing-prompt rejection) — 5 tests, all
 pass. `expand()` itself calls LM Studio, not parity-tested (same convention as VLMVerify's
 network path). 63/63 tests pass.
