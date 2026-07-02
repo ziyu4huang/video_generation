@@ -75,7 +75,7 @@ PI_MODEL=google/gemma-4-26b-a4b-qat \
 # → { "ok": true, "result": {…}, "agents": 2, "durationMs": 4540, "tokens": 8800 }
 ```
 
-> **Note — background vs inline.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record under `~/.pi/workflows/` but won't pop back into any TUI. Both runners above force `background:false` (e2e) / synchronous execution (run.ts) so the result returns inline on stdout — which is what you want for headless/CI.
+> **Note — background vs inline.** The `workflow` tool runs in the **background** by default and delivers its result back into the originating Pi session when it finishes. If that session has already closed, the result is persisted to the run record under `~/.pi/workflows/` but won't pop back into any TUI. Both runners above force `background:false` (e2e) / synchronous execution (run.ts) so the result returns inline on stdout — which is what you want for headless/CI. If a background run does finish after its session closed, recover it in any later session in the same project with **`/workflows result <id>`** (or `/workflows result` to list recent finished runs across all sessions).
 
 ## What a workflow looks like
 
@@ -138,6 +138,10 @@ The same model — on Pi, plus the production pieces a real run needs:
 ```text
 /workflows                  open the interactive navigator (plain list in print mode)
 /workflows status <id>      watch a run live; print its result when it finishes
+/workflows result [id]      retrieve a FINISHED run's full result — works across sessions,
+                            so a background run whose result was never delivered (the session
+                            that started it closed first, e.g. a `-p` batch run) is still
+                            recoverable. No id → list the most recent finished runs (any session).
 /workflows save <name>      save the latest run's script as a reusable /<name> command
 /workflows pause|resume|stop|rm <id>
 /workflows-trigger off|on|status
