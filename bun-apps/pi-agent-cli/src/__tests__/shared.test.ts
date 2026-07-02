@@ -1,5 +1,9 @@
-import { test, expect, describe } from "bun:test";
-import { validateToolNames, modelLabel } from "../sessions/shared.ts";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import {
+	validateToolNames,
+	modelLabel,
+	buildBakedRegistry,
+} from "../sessions/shared.ts";
 
 /** Minimal stand-in for a pi-core session: only getActiveToolNames is used. */
 function mockSession(active: string[]): { getActiveToolNames: () => string[] } {
@@ -70,5 +74,49 @@ describe("modelLabel — display name with provider/id fallback", () => {
   test("falls back to provider/modelId when no display name", () => {
     expect(modelLabel({}, llm)).toBe("zai/glm-5.2");
     expect(modelLabel({ model: {} }, llm)).toBe("zai/glm-5.2");
+  });
+});
+
+describe("buildBakedRegistry — pi-agent PROVIDERS baked in", () => {
+  const BAKED_BASE_URL = "http://localhost:1234/v1";
+  const ENV_BACKUP: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    ENV_BACKUP.PI_SKIP_MODELS_JSON = process.env.PI_SKIP_MODELS_JSON;
+    delete process.env.PI_SKIP_MODELS_JSON;
+  });
+
+  afterEach(() => {
+    if (ENV_BACKUP.PI_SKIP_MODELS_JSON === undefined) {
+      delete process.env.PI_SKIP_MODELS_JSON;
+    } else {
+      process.env.PI_SKIP_MODELS_JSON = ENV_BACKUP.PI_SKIP_MODELS_JSON;
+    }
+  });
+
+  test("baked lm-studio is registered with the pi-agent catalog + zero cost", () => {
+    const { modelRegistry } = buildBakedRegistry();
+    const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
+    expect(m).toBeDefined();
+    expect(m!.baseUrl).toBe(BAKED_BASE_URL);
+    expect(m!.reasoning).toBe(true);
+    expect(m!.input).toContain("image");
+    expect(m!.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    // catalog sourced from pi-agent has all three models
+    expect(modelRegistry.find("lm-studio", "google/gemma-4-31b-qat")).toBeDefined();
+    expect(modelRegistry.find("lm-studio", "qwen/qwen3-vl-4b")).toBeDefined();
+    // baked apiKey is inline → hasConfiguredAuth holds
+    expect(modelRegistry.hasConfiguredAuth(m!)).toBe(true);
+  });
+
+  test("PI_SKIP_MODELS_JSON=1 → hermetic: in-memory auth + still baked", () => {
+    process.env.PI_SKIP_MODELS_JSON = "1";
+    const { authStorage, modelRegistry } = buildBakedRegistry();
+    // in-memory auth storage has no file backend
+    expect(typeof authStorage.get).toBe("function");
+    // baked lm-studio still present in hermetic mode
+    const m = modelRegistry.find("lm-studio", "google/gemma-4-26b-a4b-qat");
+    expect(m).toBeDefined();
+    expect(m!.baseUrl).toBe(BAKED_BASE_URL);
   });
 });

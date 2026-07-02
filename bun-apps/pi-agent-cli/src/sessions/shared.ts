@@ -20,6 +20,8 @@
  *   4. hardcoded fallback below
  */
 import {
+	AuthStorage,
+	ModelRegistry,
 	createAgentSessionFromServices,
 	createAgentSessionServices,
 	getAgentDir,
@@ -28,11 +30,15 @@ import {
 	type CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { join } from "node:path";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
 import obsidianExtension from "pi-obsidian/extensions/obsidian.ts";
-// Self-contained provider registry: bakes lm-studio (+others) into the CLI and
-// layers global → repo-local → baked-in model resolution. See src/providers/.
-import { buildModelRegistry } from "../providers/index.ts";
+// The baked provider CATALOG (lm-studio) is sourced from `pi-agent` — single
+// source of truth across both CLIs. We register it explicitly here (the
+// programmatic-session path) rather than via pi-agent's main()-oriented
+// pre-load-providers monkey-patch, which splices process.argv and is wrong for
+// this entry point. See bun-apps/pi-agent/src/pre-load-providers.ts.
+import { PROVIDERS, resolveApiKey } from "pi-agent";
 
 /** Allowed thinking levels (mirrors pi-agent-core). */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -160,6 +166,53 @@ export function allModels(reg: any): any[] {
 	return typeof reg.getAll === "function" ? reg.getAll() : reg.getAvailable();
 }
 
+/** Zero-cost policy for baked providers (local servers, no billing). */
+const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+/** PI_SKIP_MODELS_JSON=1 → hermetic binary: no ~/.pi/agent/models.json read. */
+function isSkipModelsJson(): boolean {
+	const v = process.env.PI_SKIP_MODELS_JSON;
+	return v === "1" || v === "true";
+}
+
+/**
+ * Build the shared auth + model registry with pi-agent's PROVIDERS baked in.
+ *
+ * Resolution:
+ *   1. GLOBAL ~/.pi/agent/models.json — loaded natively by ModelRegistry.create
+ *      (skipped under PI_SKIP_MODELS_JSON). Honors PI_CODING_AGENT_DIR.
+ *   2. BAKED — pi-agent's PROVIDERS (lm-studio today), registered explicitly so
+ *      they unconditionally overwrite any same-named global entry. This is what
+ *      makes the compiled binary hermetic: baked providers work with ZERO
+ *      external models.json, yet users can still layer global configs for OTHER
+ *      providers.
+ *
+ * Auth storage: real file by default (so credentials in auth.json still work
+ * for non-baked providers), in-memory only under opt-out.
+ */
+export function buildBakedRegistry(): {
+	authStorage: AuthStorage;
+	modelRegistry: ModelRegistry;
+} {
+	const skip = isSkipModelsJson();
+	const agentDir = getAgentDir();
+	const authStorage = skip
+		? AuthStorage.inMemory()
+		: AuthStorage.create(join(agentDir, "auth.json"));
+	const modelRegistry = skip
+		? ModelRegistry.inMemory(authStorage)
+		: ModelRegistry.create(authStorage);
+	for (const [name, entry] of Object.entries(PROVIDERS)) {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		modelRegistry.registerProvider(name, {
+			...entry,
+			apiKey: resolveApiKey(entry.apiKey),
+			models: entry.models.map((m) => ({ ...m, cost: ZERO_COST })),
+		} as any);
+	}
+	return { authStorage, modelRegistry };
+}
+
 /**
  * Build cwd-bound services with the pi-obsidian extension baked in.
  *
@@ -180,11 +233,12 @@ export async function getSharedServices(
 		...(opts.extraExtensionFactories ?? []),
 	];
 
-	// Build a self-contained ModelRegistry (global → repo-local → baked-in,
-	// baked-in always wins). Set PI_SKIP_MODELS_JSON=1 for a hermetic binary.
-	// The same authStorage is injected so the registry and services agree on
-	// credential resolution.
-	const { authStorage, modelRegistry } = buildModelRegistry();
+	// Build a registry with the baked provider catalog (pi-agent's PROVIDERS)
+	// layered over the global ~/.pi/agent/models.json. PI_SKIP_MODELS_JSON=1
+	// yields a hermetic in-memory registry (baked providers only). The same
+	// authStorage is injected so the registry and services agree on credential
+	// resolution.
+	const { authStorage, modelRegistry } = buildBakedRegistry();
 
 	const services = await createAgentSessionServices({
 		cwd,

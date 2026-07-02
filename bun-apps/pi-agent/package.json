@@ -7,6 +7,10 @@
   "piConfig": {
     "name": "pi-agent"
   },
+  "exports": {
+    ".": "./src/index.ts",
+    "./cli": "./src/cli.ts"
+  },
   "bin": {
     "pi-agent": "src/cli.ts"
   },

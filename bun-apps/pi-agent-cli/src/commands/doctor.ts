@@ -22,21 +22,19 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+// The doctor result contract (CheckStatus / CheckResult / isFailing) is shared
+// with `pi-agent`'s doctor — same shape, single source of truth. The CHECK
+// surfaces differ (this doctor = fresh-machine MLX/flux2/vault/LM-Studio
+// portability; pi-agent's = deploy-mode/patch health), so the check functions
+// + DoctorContext stay local. Re-exported here so existing imports from
+// `../commands/doctor.ts` (doctor.test.ts) keep resolving.
+import {
+	isFailing,
+	type CheckStatus,
+	type CheckResult,
+} from "pi-agent";
 
-export type CheckStatus = "pass" | "warn" | "fail" | "info";
-
-export interface CheckResult {
-	id: string;
-	label: string;
-	status: CheckStatus;
-	detail?: string;
-	hint?: string;
-}
-
-/** A `fail`-class status. `info` never fails the aggregate. */
-export function isFailing(r: CheckResult): boolean {
-	return r.status === "fail";
-}
+export { isFailing, type CheckStatus, type CheckResult };
 
 /** Injectable environment so checks are pure and unit-testable. */
 export interface DoctorContext {

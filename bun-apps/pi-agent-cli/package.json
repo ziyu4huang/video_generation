@@ -23,6 +23,7 @@
     "@earendil-works/pi-coding-agent": "latest",
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-agent-core": "latest",
+    "pi-agent": "workspace:*",
     "pi-obsidian": "workspace:*",
     "pi-vlm": "workspace:*",
     "pi-knowledge-card": "workspace:*",
