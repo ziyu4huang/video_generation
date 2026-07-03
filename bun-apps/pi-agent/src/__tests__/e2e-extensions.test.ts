@@ -44,6 +44,27 @@ export default (pi) => {
 };
 `;
 
+// Regression probe for the jiti x Bun NameTooLong bug: pi's extension loader
+// (createJiti, moduleCache:false) transforms every -e module and under Bun
+// inlines each as a base64 data URL, which Bun rejects once the specifier
+// exceeds ~4 KB (flux2 binary.ts trips first; hermes has 40 KB+ modules).
+// cli.ts forces JITI_ESM_EVAL_TEMP_FILE=true so jiti spills each transformed
+// module to a temp .js and loads by path. This probe is the same logic as
+// PROBE_TS but padded >4 KB so a regression resurfaces here, not in prod.
+const PROBE_TS_LARGE = "// " + "x".repeat(5000) + "\n" + `
+export default (pi) => {
+  pi.on("session_start", () => {
+    const tools = pi.getAllTools();
+    const marker = process.env.PI_VERIFY_MARKER ?? "";
+    let matched = 0;
+    for (const t of tools) {
+      if (marker && String(t.sourceInfo?.path ?? "").includes(marker)) matched++;
+    }
+    process.stderr.write("[PROBE] total=" + tools.length + " matched=" + matched + "\\n");
+  });
+};
+`;
+
 interface Scenario {
 	name: string;
 	cmd: string[];
@@ -230,6 +251,29 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000); // spawns a real session_start (offline, but needs headroom)
+});
+
+// Regression for the jiti x Bun NameTooLong bug (cli.ts sets
+// JITI_ESM_EVAL_TEMP_FILE=true). Source-mode only — independent of deploy, so
+// gated on E2E_ENABLED alone (no deploy build required).
+describe.skipIf(!E2E_ENABLED)("e2e: SOURCE loads a >4 KB extension module", () => {
+	let largeProbePath = "";
+	beforeAll(() => {
+		largeProbePath = join(tmpdir(), `pi-source-probe-large-${process.pid}.ts`);
+		writeFileSync(largeProbePath, PROBE_TS_LARGE);
+	});
+	afterAll(() => {
+		if (existsSync(largeProbePath)) rmSync(largeProbePath, { force: true });
+	});
+	test("a >4 KB module loads without NameTooLong (jiti esmEvalTempFile guard)", async () => {
+		const r = await runScenario({
+			name: "source-large",
+			cmd: ["bun", SRC_CLI, "-e", largeProbePath, "-p", "hi"],
+			cwd: REPO_ROOT,
+			marker: join(REPO_ROOT, "bun-apps"),
+		});
+		assertCleanLoad(r);
+	});
 });
 
 // DEPLOY-PACKAGE mode = `deploy.ts --release` (copies every ext source folder).
