@@ -1,0 +1,26 @@
+# bunfig.toml — repo-wide Bun install configuration.
+#
+# Why this exists: Bun 1.3 introduced the pnpm-style ISOLATED linker + a GLOBAL
+# virtual store. Switching from the default "hoisted" layout gives:
+#   1. Phantom-dependency hygiene — each package can only resolve deps it
+#      actually declares (no accidental reliance on hoisted siblings). This
+#      catches the class of bugs where a package imports something it never
+#      listed and silently works only because a neighbor hoisted it.
+#   2. globalStore — installed packages live once in a machine-global virtual
+#      store and are symlinked into every project's node_modules, so a
+#      `rm -rf node_modules && bun install` is near-instant after the first time
+#      (Bun 1.3.14 reports up to 7× faster hot installs).
+#
+# Trade-off we accept: edits made directly inside node_modules/<pkg>/ no longer
+# propagate across projects (each is a symlink into the global store). This repo
+# never patches node_modules in place (vendor patches live in Python, and JS
+# patches are monkey-patches applied at runtime — see
+# python/mlx-movie-director/app/vendor_patches.py and the pi-agent patches/ dir),
+# so the trade-off is free for us.
+#
+# To temporarily revert to the legacy layout (e.g. debugging a resolution oddity):
+#   linker = "hoisted"     # and comment out globalStore
+# or:  BUN_INSTALL_GLOBAL_STORE=0 bun install   (env override)
+[install]
+linker = "isolated"
+globalStore = true
