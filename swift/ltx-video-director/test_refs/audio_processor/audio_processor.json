@@ -1,0 +1,15 @@
+{
+  "sample_rate": 16000,
+  "n_fft": 1024,
+  "hop_length": 160,
+  "n_mels": 64,
+  "waveform_shape": [
+    2,
+    4000
+  ],
+  "mel_shape": [
+    2,
+    26,
+    64
+  ]
+}

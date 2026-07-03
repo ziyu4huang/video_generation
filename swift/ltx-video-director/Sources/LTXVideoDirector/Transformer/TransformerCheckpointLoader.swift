@@ -23,19 +23,26 @@ public enum TransformerCheckpointLoader {
     /// nothing else — top-level keys are loaded separately via
     /// `topLevelWeights`). Filters `raw` to just this block's prefix before
     /// dequantizing, so memory cost is one block, not the whole checkpoint.
-    public static func blockWeights(raw: [String: MLXArray], blockIndex: Int) -> [String: MLXArray] {
+    public static func blockWeights(
+        raw: [String: MLXArray], blockIndex: Int,
+        loraSources: [(weights: LoRAWeights, strength: Float)] = []
+    ) -> [String: MLXArray] {
         let prefix = "transformer_blocks.\(blockIndex)."
         let filtered = raw.filter { $0.key.hasPrefix(prefix) }
         let dequantized = QuantizedWeights.dequantizeLinearWeights(filtered)
         // Strip the "transformer_blocks.N." prefix so keys match makeBlock's expectations.
-        return Dictionary(uniqueKeysWithValues: dequantized.map { (String($0.key.dropFirst(prefix.count)), $0.value) })
+        let stripped = Dictionary(uniqueKeysWithValues: dequantized.map { (String($0.key.dropFirst(prefix.count)), $0.value) })
+        return LoRAFusion.apply(to: stripped, keyPrefix: prefix, sources: loraSources)
     }
 
     /// Dequantized top-level (non-block) weights: patchify/proj_out/AdaLN
     /// singles/scale_shift_tables.
-    public static func topLevelWeights(raw: [String: MLXArray]) -> [String: MLXArray] {
+    public static func topLevelWeights(
+        raw: [String: MLXArray], loraSources: [(weights: LoRAWeights, strength: Float)] = []
+    ) -> [String: MLXArray] {
         let filtered = raw.filter { !$0.key.hasPrefix("transformer_blocks.") }
-        return QuantizedWeights.dequantizeLinearWeights(filtered)
+        let dequantized = QuantizedWeights.dequantizeLinearWeights(filtered)
+        return LoRAFusion.apply(to: dequantized, keyPrefix: "", sources: loraSources)
     }
 
     public static func makeAdaLN(_ arrays: [String: MLXArray], prefix: String) -> AdaLayerNormSingle {

@@ -879,6 +879,82 @@ output. Concatenation of all 49 → (B, T, 188160) feeds `TextEmbeddingProjectio
 **Status**: reference + scope landed; the 48-layer decoder port itself remains.
 Until it ships, `I2VCommand` keeps `RunPyBridge` for the LTX generation step.
 
+### Milestone: Gemma-3-12b decoder port COMPLETE (2026-07-03)
+
+The 48-layer decoder from the previous entry has landed: `GemmaConfig`,
+`GemmaTokenizer` (standalone SentencePiece-BPE — Gemma does not use the
+Tiktoken-style tokenizer z-image-director's `BPETokenizer` implements),
+`GemmaRMSNorm`, `GemmaAttention` (dual sliding-window/global RoPE configs,
+Gemma-3's query-key RMSNorm), `GemmaMLP`, `GemmaBlock`,
+`GemmaCheckpointLoader`, and `GemmaEncoder` (48-layer streaming forward,
+mirroring `LTXModel.streamingForward`'s per-block dequantize-eval-release
+pattern). Four parity tests verify the full chain against the real
+`mlx-community/gemma-3-12b-it-4bit` model: `GemmaTokenizerParityTests`
+(byte-identical token_ids), `GemmaRoPEParityTests` (< 1e-4, isolated dual
+sliding/global configs), `GemmaLayer0ParityTests` (embed+scale+layer0,
+< 0.5% relative), `GemmaFullEncoderParityTests` (all 48 layers, < 5%
+relative — looser because the residual stream is un-normalized between
+layers, absmax grows to ~10000 by layer 48, so relative error is the
+correct metric here, not absolute). 68/68 package tests pass. Full details
+and two real bugs found along the way (wrong tolerance metric, fp32-vs-bf16
+compute mismatch) are in `docs/TODO.md`.
+
+**With this, every architectural piece of the distilled I2V path is now
+native and verified**: tokenizer → Gemma-3-12b encoder → `TextEmbeddingProjection`
+→ `Embeddings1DConnector` → `LTXModel` (48-layer DiT) → `DenoiseLoop` →
+`VideoDecoder`/`AudioVAEDecoder`/`VocoderWithBWE`. What's left is wiring,
+not porting: a `NativeTextEncodeStage` composing the four text-side pieces
+into one call, memory-bounded VAE tiling for real-resolution output, and
+replacing `RunPyBridge` in `I2VCommand` with the assembled native pipeline.
+
+### Milestone: NativeTextEncodeStage — the text-encode half of the native pipeline wired (2026-07-03)
+
+`ConnectorCheckpointLoader.swift` loads the real connector checkpoint
+(`mlx-models/text_encoder/ltx-2.3-connector/connector.safetensors`, 490
+tensors — confirmed by direct inspection, not assumed) and builds
+`TextEmbeddingProjection` + video/audio `Embeddings1DConnector` instances
+from it. Two things only confirmed by inspecting the actual checkpoint,
+not derivable from `config.json`: (1) the connector uses **int4,
+group_size=32** quantization — deliberately different from the DiT
+transformer's int8/group_size=64 (confirmed against
+`app/vendor_patches.py`'s `_quantize_connector_to_match_weights` comment,
+which exists precisely because this mismatch broke naive reuse of the
+transformer's quantization config in the Python pipeline too); (2) the
+connector has **8 transformer_1d_blocks per side**, not 48 — `config.json`'s
+`num_layers: 48` describes the DiT, not this connector. Reuses
+`QuantizedWeights.dequantizeLinearWeights` unchanged (just different
+`groupSize`/`bits` args), and `Attention`/`FeedForward` unchanged (same
+key scheme `EmbeddingsConnectorParityTests` already validated against a
+synthetic reference).
+
+`NativeTextEncodeStage.swift` composes the full chain — `GemmaTokenizer` →
+`GemmaCheckpointLoader.loadRaw` + `GemmaEncoder.encodeAllLayersConcat` →
+`ConnectorCheckpointLoader`'s `TextEmbeddingProjection` → video/audio
+`Embeddings1DConnector` — into one `encode(prompt:) -> (videoEmbeds,
+audioEmbeds)` call, mirroring `NativeT2IStage`'s established pattern
+(struct with an `encode`/`generate` entry point, `RepoPaths`-relative
+checkpoint discovery, no run.py anywhere in the call chain).
+
+Verified via `NativeTextEncodeStageRealCheckpointTests` (real-checkpoint
+smoke test, matching the established pattern for assemblies with no single
+Python entry point to diff against — every individual piece here already
+has its own parity test): encodes a real prompt at `maxLength=32`, checks
+`videoEmbeds`/`audioEmbeds` are finite and correctly shaped `(1, 160,
+4096)`/`(1, 160, 2048)` (32 tokens + 128 learnable registers). **Passed on
+the first run**, 2.8 seconds. 69/69 package tests pass.
+
+**Not yet done**: this isn't wired into `I2VCommand` — `RunPyBridge` still
+runs the actual `i2v` generation. `NativeTextEncodeStage` loads and
+dequantizes both checkpoints fresh per call (no caching across multiple
+encodes in one process — nothing needs that yet) and defaults to
+`maxLength=1024` for production use (untested at that length; the smoke
+test uses 32 for speed, and the streaming Gemma encoder's per-layer
+attention cost scales with sequence length, so a 1024-token real run
+needs its own timing check before being wired into a synchronous CLI
+path). Remaining before `I2VCommand` can drop `RunPyBridge`: feeding
+`videoEmbeds`/`audioEmbeds` into `LTXModel`/`DenoiseLoop` for a real
+generation run, and memory-bounded VAE tiling for real-resolution output.
+
 
 
  (markdown-fence stripping,
@@ -924,6 +1000,644 @@ Ran `ltx-video i2v --transformer distilled --seconds 10` end-to-end for real:
   can't compile Metal shaders, so MLX's precompiled `mlx.metallib` from the
   Python venv is copied next to the built binary (same trick z-image-director
   uses).
+
+### Milestone: Positions/Patchifiers — the last numerical gap before assembly (2026-07-03)
+
+Answering "can `ltx-video-director` run without `run.py`/Python at all yet?":
+**not yet — every DiT/VAE/text-encoder numeric component is now ported and
+parity-tested, but they have never been wired into one end-to-end call, and
+`I2VCommand` still shells out via `RunPyBridge`.** This milestone closes the
+one remaining *numerical* gap found while scoping that assembly:
+`LTXModel`/`DenoiseLoop` were only ever exercised with synthetic all-zero
+`videoPositions`/`audioPositions` and hand-built patch tensors (see
+`LTXModelRealCheckpointTests`, `DenoiseLoopI2VParityTests`) — nothing built
+the real (F, H, W) pixel-space position grid or converted a VAE's
+`(B, C, F, H, W)` latent to/from the `(B, N, C)` token sequence the DiT
+actually consumes.
+
+`Positions.swift` (`computeVideoPositions`, `computeAudioPositions`,
+`computeAudioTokenCount`) and `Patchifiers.swift`
+(`VideoLatentPatchifier`, `AudioPatchifier`, `VideoLatentShape`) port
+`ltx_core_mlx.utils.positions` / `ltx_core_mlx.components.patchifiers`
+verbatim — pure arithmetic, no checkpoint weights. Verified against
+`scripts/dump_positions_patchify_reference.py` (6 new
+`PositionsPatchifyParityTests`, all passing on the first run, <1e-5 max abs
+diff, including a patchify→unpatchify round trip). 75/75 package tests
+pass. Note: this worktree's vendor submodules are untracked (PR #189), so
+the dump script falls back to the sibling `~/proj/ltx-2-mlx` checkout —
+same upstream source, just not vendored into this repo copy.
+
+**What's left before `I2VCommand` can drop `RunPyBridge` — this is now a
+pure wiring/assembly problem, not a porting problem**:
+1. A `NativeI2VStage` (or similar) that chains `NativeT2IStage` →
+   `NativeVLMPromptStage` (optional) → `NativeTextEncodeStage` →
+   `VideoEncoder` (encode the T2I frame as the I2V conditioning latent,
+   via the new `Patchifiers`) → `LatentConditioning`/`DenoiseLoop` (using
+   `SigmaSchedule` + the new `Positions`) → `VideoDecoder` +
+   `AudioVAEDecoder` + `VocoderWithBWE` — every piece on this list already
+   has its own parity or real-checkpoint test; none of them have been
+   called together yet.
+2. Memory-bounded VAE tiling for real-resolution output (current
+   VideoDecoder/VideoEncoder real-checkpoint tests only prove correctness
+   at tiny synthetic shapes).
+3. A video/audio → `.mp4` muxer. No AVAssetWriter/ffmpeg wiring exists in
+   Swift yet — `run.py`'s pipeline currently does this. Using `ffmpeg` as
+   a subprocess would still be "no Python", if that's an acceptable
+   external dependency; otherwise this needs an AVFoundation writer.
+4. Once (1)-(3) produce a real, sane output (validated the same way
+   `LTXModelRealCheckpointTests`/`VideoDecoderRealCheckpointTests` do —
+   finite, correctly-shaped, no reference to diff against since no single
+   Python entry point runs exactly this composition), swap `I2VEngine`/
+   `UpscaleEngine`'s `RunPyBridge.run(...)` call for it.
+
+### Milestone: DenoiseLoop.runStreaming — the real 48-block checkpoint can now run inside the denoise loop (2026-07-03)
+
+Closed a gap found while scoping item 1 above: `DenoiseLoop.run` only ever
+called `LTXModel`'s non-streaming `callAsFunction`, which needs all 48
+blocks' dequantized float32 weights resident simultaneously — infeasible
+for the real 19GB checkpoint. `LTXModel.streamingForward` (rebuild one
+block from its raw checkpoint slice, eval, release, repeat) already
+existed and was proven for a single forward pass
+(`LTXModelRealCheckpointTests.testAll48RealBlocksStreamWithBoundedMemory`),
+but nothing called it from inside a multi-step denoise loop.
+
+`DenoiseLoop.runStreaming(model:numLayers:blockProvider:videoState:
+audioState:...)` is the conditioned (I2V) denoise loop rewritten around
+`streamingForward`: at every sigma step it rebuilds all `numLayers` blocks
+from the checkpoint slice, converts the predicted velocity to x0 inline
+(same formula `X0Model` uses), then calls `applyDenoiseMask` so preserved
+tokens snap back to their clean values exactly, same as the existing
+non-streaming conditioned path. Since `streamingForward` doesn't accept
+per-token timesteps, preserved tokens get the batch's scalar sigma during
+the forward pass rather than timestep=0 — a documented approximation
+(output is still exactly correct because `applyDenoiseMask` overwrites
+those tokens afterward regardless; only their *internal* attention
+computation during that one step differs, same caveat
+`LatentConditioning.swift`'s header already documents for the
+pre-per-token-timesteps era).
+
+Verified by `DenoiseLoopStreamingRealCheckpointTests` — runs 2 real
+sigma steps (of the production 8) against 2 real transformer blocks (of
+48; keeps the test fast, and 48-block single-step streaming was already
+proven separately), checks finite + correctly-shaped output. Passed on
+the first run, 0.5s. 76/76 package tests pass.
+
+**Still open**: this test uses B=1 with tiny synthetic (Nv=4, Na=2) shapes
+and only 2 blocks/2 steps as a mechanics proof, not a real generation
+run — a real `NativeI2VStage` call would use all 48 blocks × 8 steps ×
+real spatial/temporal token counts (hundreds to thousands of tokens),
+which is untested for wall-clock time (48 blocks rebuilt from disk on
+every one of 8 steps — expect this to be meaningfully slower than
+`run.py`'s approach of loading the checkpoint once). Items 1-3 in the
+list above are otherwise unchanged.
+
+### Milestone: NativeI2VStage — first real end-to-end native generation run (2026-07-03)
+
+`NativeI2VStage.swift` composes every piece above into one call:
+`NativeT2IStage` → `VideoEncoder` (source frame as I2V conditioning
+latent, via `Patchifiers`) → `NativeTextEncodeStage` → noise/positions
+(`Positions`/`VideoLatentShape`) → `LatentConditioning` →
+`DenoiseLoop.runStreaming` (real 48-block distilled transformer) →
+`VideoDecoder` + `AudioVAEDecoder` + `VocoderWithBWE` → `PNGFrameWriter` +
+`WAVWriter`. New `ltx-video native-i2v` CLI command exposes it. Verified
+by `NativeI2VStageRealCheckpointTests` (tiny 320×320/9-frame smoke test,
+22.8s, 77/77 package tests pass) AND by an actual manual run at full
+production resolution (640×960, 9 frames, prompt "a woman smiles and
+waves at the camera on a city street", 45.0s wall time) — **the first
+real, non-synthetic, end-to-end native generation this package has ever
+produced.**
+
+**Result, read honestly (not just "it ran")**: frame 0 — the I2V
+conditioning frame, forced through `applyDenoiseMask` unchanged — is
+pixel-perfect, proving the T2I→VAE-encode→patchify→DiT→VAE-decode chain
+is wired correctly end to end. **Frames 1+ show a real, systematic
+defect**: a strong blue/pink color-channel distortion. Composition, pose,
+and identity stay completely recognizable (this is not noise or a
+shape/axis bug) — the corruption is specifically colorimetric. Prime
+suspect, and not just theoretical: `DenoiseLoop.runStreaming` doesn't
+support per-token timesteps (see its own header), so during the forward
+pass the preserved conditioning frame is modulated with the batch's
+shared scalar sigma instead of timestep=0 — meaning every OTHER frame's
+cross-attention to that frame sees it through the wrong AdaLN modulation
+regime for every step except the very last. `applyDenoiseMask` still
+forces frame 0's own output back to the clean latent afterward (which is
+why frame 0 itself is perfect), but doesn't fix how frame 0 was
+*perceived* by other frames during each step's attention computation.
+
+**Next step for real output quality** (not yet done): give
+`LTXModel.streamingForward` the same `videoTimesteps`/`audioTimesteps`
+per-token support `callAsFunction` already has (see LTXModel.swift's
+header — this was explicitly out of scope for the streaming path until
+now), and have `DenoiseLoop.runStreaming` compute per-token timesteps the
+same way the non-streaming conditioned `run` does
+(`isUniformMask`/`perTokenTimesteps`) instead of always passing a scalar.
+Until that lands, `native-i2v` output should be treated as a plumbing
+proof, not a quality-comparable alternative to `RunPyBridge`/`run.py`.
+
+Also still open, unchanged from before: VAE tiling for larger/longer
+clips, mp4 muxing (still PNG sequence + WAV), and `I2VCommand` itself
+still uses `RunPyBridge` — `native-i2v` is a new, separate, explicitly
+experimental command, not a replacement for `i2v` yet.
+
+### Milestone: color-distortion artifact FIXED — streaming path now supports per-token timesteps (2026-07-03)
+
+**Status: RESOLVED.** Applied exactly the "next step" diagnosed above:
+
+1. `LTXModel.streamingForward` gained `videoTimesteps`/`audioTimesteps`
+   (B, N) parameters, mirroring `callAsFunction`'s existing per-token AdaLN
+   branch (`embedTimestepPerToken` + `adalnPerToken` for `adalnSingle` and
+   `avCaVideoScaleShiftAdalnSingle`/`avCaAudioScaleShiftAdalnSingle` when
+   provided, falling back to the scalar path otherwise — the AV-cross gate
+   and prompt AdaLN stay scalar-only, matching the reference).
+2. `DenoiseLoop.runStreaming` now computes `isUniformMask`/
+   `perTokenTimesteps` per state, exactly like the non-streaming
+   conditioned `run`, and passes them into `streamingForward` — the
+   streaming and non-streaming conditioned paths are now at parity.
+
+**Verification**: 77/77 package tests still pass after the change. Reran
+`ltx-video native-i2v` at the same full production resolution (640×960, 9
+frames, same prompt) — 38.7s wall time. Manually inspected `source.png`
+and frames 0/4/8 via the `Read` tool: **no color distortion in any
+frame** — output colors and composition match the source T2I image
+throughout, not just frame 0. The diagnosis was correct on the first
+attempt; no further investigation needed.
+
+`native-i2v` output quality is now much closer to being
+quality-comparable to `run.py` for the distilled-only path this stage
+covers. Remaining gaps before considering `I2VCommand` dropping
+`RunPyBridge`: VAE tiling for larger/longer clips, VLM prompt expansion
+wiring into `NativeI2VStage`, and an actual mp4 muxer (still PNG
+sequence + WAV).
+
+### Milestone: automatic resolution resolve — bad user-input resolutions no longer break generation (2026-07-03)
+
+**Problem**: `NativeI2VStage.generate` used to hard-`throw` if
+width/height weren't already exact multiples of 32 (LTX-2.3's video VAE
+spatial compression factor — `VideoLatentShape`/`Positions.videoSpatialScale`).
+Any user-supplied resolution off that grid (e.g. `--width 700 --height 500`)
+failed outright instead of generating. The Python `run.py` side already
+solved this for the two-stage pipeline (`video-generate.py`'s
+`_adjust_resolution`, rounding to the nearest 64) and for images
+(`_shared.py`'s `_resolve_resolution` tiers) — the native Swift path had
+no equivalent.
+
+**Fix**: new `Sources/LTXVideoDirector/Sampling/ResolutionResolver.swift`
+— `ResolutionResolver.optimize(width:height:)` rounds each axis to the
+*nearest* multiple of 32 (not ceiling, matching run.py's round-to-nearest
+behavior), with a `spatialScale = 32` floor so degenerate tiny inputs
+still produce a valid, generatable resolution. `NativeI2VStage.generate`
+now calls this unconditionally at the top of the function, mutates its
+local `request` copy, and prints an `[resolution] auto-adjusted …` note
+when a snap occurred — mirroring run.py's own console message. Only
+non-positive width/height (an actual user error, not just "off-grid")
+still throws `StageError.invalidDimensions`.
+
+**Tests**: new `ResolutionResolverTests.swift` (6 cases: already-aligned
+no-op, round-down, round-up, midpoint-rounds-up, floor at one scale step,
+and an exhaustive divisibility sweep). `NativeI2VStageRealCheckpointTests`
+gained two more: a real end-to-end run with a deliberately misaligned
+300×310 request (proves it snaps and completes instead of throwing) and a
+fast unit test that 0×320 still throws `.invalidDimensions` before any
+checkpoint I/O. Full suite: **85/85 pass** (was 77 before this + the
+color-distortion fix above).
+
+`NativeT2IStage` (ZImage, 16-multiple VAE constraint) does not yet have
+the equivalent guard — still assumes the caller passes valid dims. Since
+`NativeI2VStage` is currently the only real caller and it now always
+passes an already-snapped (32-multiple, which is also a 16-multiple)
+resolution to `NativeT2IStage`, this hasn't caused problems yet, but a
+standalone `ltx-video t2i` invocation with odd dimensions would still
+fail there. Worth revisiting if `t2i` gains its own auto-resolve.
+
+**Follow-up (2026-07-03, same day): "off-grid" wasn't the only failure
+mode — "too small" was another.** A manual `native-i2v` demo run at
+384x576 (already a valid 32-multiple, same 2:3 aspect as the 640x960
+default) exposed a second, more subtle problem `optimize`'s original
+snap-only logic didn't catch: frame 0 rendered clean, but frames
+progressively corrupted (color fringing / texture noise) over a 17-frame
+streaming run — while an identical run at 640x960 stayed clean
+throughout. The distilled transformer's streaming denoise destabilizes
+over multi-frame sequences well below its validated training resolution,
+independent of frame count or fps (both held constant across the
+comparison). Fixed by adding `minimumValidatedArea` (=
+`modelOptimalDefault`'s own area, 614,400px) to `optimize`: any request
+below that area now scales up preserving aspect ratio *before* snapping,
+rather than snapping the too-small request in place. Verified: rerunning
+the exact 384x576 request now logs the scale-up and produces output
+identical in quality to the direct 640x960 run. 2 new
+`ResolutionResolverTests` cases. Suite: **89/89 pass.**
+
+### Research: native spatial upscaling — findings + scoped plan (2026-07-03)
+
+**Question**: does LTX-2.3 support a native (in-model) spatial upscaler,
+and can it be ported to this package the way the rest of the pipeline
+was?
+
+**Finding: yes — it's an official Lightricks IC-LoRA adapter, not a
+separate model.** `Lightricks/LTX-2.3-22b-IC-LoRA-Pixel-Spatial-Upscaler`
+(HuggingFace) is a LoRA fused onto the *same* 22B distilled transformer
+this package already runs — available in 2× and 4× variants. It's
+generative (synthesizes detail — "creatively upscale... rather than
+simply interpolating"), not a pixel-space ESRGAN-style filter. This
+package's Python bridge already uses the equivalent mechanism today:
+`run.py video restore` → `LTXVideoPipeline.generate_ic_lora` (see
+`python/mlx-movie-director/app/ltx_pipeline.py:537`) → vendor
+`ltx_pipelines_mlx.ic_lora.ICLoraPipeline`, using the
+`ltx2.3-video-restoration-general.safetensors` +
+`ltx2.3-ic-video-upscale-general.safetensors` LoRA pair already present
+in `models/lora/ltx-2.3-restore/`. Confirmed architecture from that
+docstring: **two-stage** — Stage 1 runs at half the target resolution
+with the LoRA weights *fused* into the transformer at pipeline init;
+Stage 2 upscales and refines *without* the LoRA. Reference video frames
+(the degraded/low-res input) are passed as `video_conditioning`
+(IC-LoRA reference frames — a different conditioning mechanism from this
+package's I2V frame-preserve conditioning: it's whole-clip reference
+attention, not a single preserved-token frame).
+
+**What exists in this Swift package today**: `UpscaleEngine.swift` +
+`ltx-video upscale` CLI command — a thin bridge to
+`run.py video restore --restore-scale`, i.e. it already gets this exact
+IC-LoRA upscale, just via `RunPyBridge`/Python, not natively.
+
+**Why a native (no-run.py) port is a distinct, comparably-sized
+undertaking to `NativeI2VStage` itself** — not a small add-on:
+1. **LoRA weight loading + fusion** doesn't exist anywhere in this
+   package. `TransformerCheckpointLoader.blockWeights`/`makeBlock` build
+   blocks straight from the base checkpoint; there is no mechanism to
+   read a LoRA safetensors file (down/up low-rank matrices per target
+   linear layer, e.g. `q_proj`, `k_proj`, `to_out`, `ff.*`), no key-name
+   mapping between the LoRA file's parameter names and this package's
+   `BasicAVTransformerBlock`'s weight layout, and no "add `scale * (up @
+   down)` to a dequantized block-weight slice before constructing the
+   block" step in the `blockProvider` closure `runStreaming` already
+   uses (this last part is actually the *easiest* piece to add, since
+   `blockProvider` already dequantizes one block's weights per call).
+2. **IC-LoRA reference conditioning** is architecturally different from
+   the I2V conditioning `LatentConditioning.swift`/
+   `VideoConditionByLatentIndex` already implement: I2V preserves ONE
+   frame's tokens exactly (denoise-mask=0 for that frame, cross-attention
+   sees a clean single frame). IC-LoRA restoration conditions on the
+   ENTIRE reference clip's tokens as attention context across all output
+   frames — closer to how the text cross-attention pathway already works
+   (`videoTextEmbeds`/`avCA*` in `BasicAVTransformerBlock`) than to the
+   existing I2V mask mechanism. The real mechanism lives in vendor
+   `ltx_pipelines_mlx/ic_lora.py` (sibling checkout:
+   `~/proj/ltx-2-mlx/packages/ltx-pipelines-mlx/src/ltx_pipelines_mlx/ic_lora.py`)
+   and needs its own read-and-port pass, the same way `Positions`/
+   `Patchifiers`/`DenoiseLoop` each got their own dedicated milestone.
+3. **Two-stage generation** (half-res-with-LoRA → full-res-without-LoRA)
+   means the native port needs a *second* denoise-loop invocation with a
+   *different* block set (LoRA-fused vs. not) and an inter-stage
+   spatial-upscale step — not just a bigger version of the existing
+   single-stage `DenoiseLoop.runStreaming`.
+
+**Concrete next steps, in dependency order** (none started yet — this is
+a plan, not a partial implementation, to avoid landing something that
+looks done but silently produces wrong output):
+1. Read `~/proj/ltx-2-mlx/packages/ltx-pipelines-mlx/src/ltx_pipelines_mlx/ic_lora.py`
+   in full and dump reference values for its conditioning-token
+   construction (mirrors the `dump_positions_patchify_reference.py`
+   pattern already used for `Positions`/`Patchifiers`).
+2. Add LoRA-file parsing + a `blockProvider` variant that fuses
+   `scale * (up @ down)` into the relevant dequantized weight matrices —
+   smallest independently-testable unit; can be parity-tested against a
+   single LoRA-fused block's output vs. the vendor Python reference
+   before touching conditioning at all.
+3. Port the IC-LoRA reference-conditioning token construction as its own
+   module (own parity tests against the reference dump from step 1),
+   separate from `LatentConditioning.swift`.
+4. Wire a two-stage `NativeUpscaleStage` (mirrors `NativeI2VStage`'s
+   role) using steps 2+3, with its own real-checkpoint integration test
+   and a manual visual-inspection pass (per this session's established
+   practice — shape/finite checks alone would not have caught the
+   color-distortion bug found in `NativeI2VStage`, and wouldn't catch a
+   bad LoRA fusion either).
+5. New `ltx-video native-upscale` CLI command, kept separate from the
+   existing `upscale` (RunPyBridge) command the same way `native-i2v` is
+   kept separate from `i2v`, until quality is verified comparable.
+
+Until step 4 lands, `ltx-video upscale` (the existing `RunPyBridge`
+command) remains the only way to get LTX-2.3's native spatial upscaler
+from this package — it already produces the real, correct output; it
+just isn't run.py-free yet.
+
+### Milestone: NativeUpscaleStage — a DIFFERENT, much smaller native upscaler landed instead (2026-07-03)
+
+**Course correction on the research above**: while re-checking the model
+tree for anything upscale-related, found
+`mlx-models/vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors` (+ an
+`x1_5` variant and a `temporal_x2` variant) already present on disk —
+these are **not** part of the IC-LoRA restoration mechanism researched
+above at all. They're LTX-2.3's `LatentUpsampler`
+(`ltx_core_mlx.model.upsampler.model.LatentUpsampler`, vendor sibling
+checkout `~/proj/ltx-2-mlx/packages/ltx-core-mlx/src/ltx_core_mlx/model/upsampler/model.py`)
+— the neural network the *official* two-stage LTX pipeline
+(`ti2vid_two_stages.py`) uses to upscale a half-resolution generation's
+latent before the refinement pass. It's a small, self-contained
+Conv3d/Conv2d ResNet operating directly in the same 128-channel VAE
+latent space `VideoEncoder`/`VideoDecoder` already use here — no LoRA,
+no transformer, no whole-clip reference conditioning. Comparable in size
+to `VideoDecoder`, not to `NativeI2VStage`. This is the upscaler that
+actually got natively ported this session; the IC-LoRA restoration path
+researched above remains unported (still a real, larger undertaking, and
+still the only way to get watermark/subtitle *removal*, which
+`LatentUpsampler` does not do — see the plan above for that path).
+
+**Port** (spatial_x2 variant only — matches the checkpoint on disk):
+new `Sources/LTXVideoDirector/Upsampler/LatentUpsampler.swift` —
+`groupNorm5D` (PyTorch-compatible GroupNorm(32) extended to 5D BDHWC,
+generalizing `AudioAttnBlock`'s proven 4D version), `pixelShuffle2D`
+(ported line-for-line from the reference's `_pixel_shuffle_2d`),
+`UpsamplerResBlock` (plain zero-padded Conv3d, NOT the VAE's causal
+`Conv3dBlock` — confirmed the reference uses ordinary
+`nn.Conv3d(..., padding=1)`), and the top-level `LatentUpsampler` struct
+wiring `initial_conv → 4×res_blocks → Conv2d+pixelShuffle(2) →
+4×post_upsample_res_blocks → final_conv`.
+
+**Verification, in two layers** (mirroring this session's established
+practice of not trusting shape/finite checks alone):
+1. `scripts/dump_latent_upsampler_reference.py` runs the REAL
+   `spatial_upscaler_x2_v1_1.safetensors` checkpoint (via the vendor
+   Python reference) on a fixed-seed `(1,128,2,8,8)` latent and saves
+   input+output. New `LatentUpsamplerRealCheckpointParityTests` loads
+   the same checkpoint natively and checks max abs diff < 1e-3 against
+   that reference — **passed**, confirming the math is byte-for-byte
+   equivalent to the real model, not just shape-compatible.
+2. New `NativeUpscaleStage.swift` (`VideoEncoder → LatentUpsampler →
+   VideoDecoder`, reading/writing the same PNG frame-sequence convention
+   `NativeI2VStage`/`PNGFrameWriter` already use) + `ltx-video
+   native-upscale` CLI command, chained onto a real `native-i2v` output
+   and **visually inspected** — this caught a REAL bug the numerical
+   parity test above did not: feeding `VideoEncoder`'s NORMALIZED
+   latent output (`(x-mean)/std`) straight into `LatentUpsampler`
+   produced severe color-fringing/noise artifacts on real images (the
+   tiny-random-latent parity test's values happened not to expose this
+   visually). Root cause, confirmed by reading the vendor pipeline's
+   actual Stage-1→2 handoff (`ti2vid_two_stages.py`:
+   `video_denorm = vae_encoder.denormalize_latent(...)` →
+   `upsampler(video_denorm)` →
+   `vae_encoder.normalize_latent(...)`): **`LatentUpsampler` is trained
+   on DENORMALIZED (raw VAE-scale) latents**, not the small-variance
+   normalized space `VideoEncoder`/`VideoDecoder` exchange internally.
+   Fixed by denormalizing (`x*std+mean`, reusing
+   `VideoEncoder.meanOfMeans`/`stdOfMeans`) before the upsampler call and
+   renormalizing (`(x-mean)/std`) after, exactly matching the reference.
+   Rerun: clean, detailed 2x upscale (640×640 from a 320×320 `native-i2v`
+   source) — genuinely more detail than the source at native resolution,
+   not just interpolation, no artifacts.
+
+**New real-checkpoint test** `NativeUpscaleStageRealCheckpointTests`
+(writes a synthetic 9-frame 64×64 PNG sequence, runs the full stage,
+checks 128×128 output). Suite: **87/87 pass.**
+
+`native-upscale` is upscale-only (no refinement denoise pass — see this
+file's header for the scoped-out refinement step) but is real, fast
+(~1.8s for a 9-frame 320×320→640×640 clip — versus tens of seconds for a
+full 48-block transformer re-denoise), and 100% native.
+
+## Milestone: temporal VAE decode tiling (2026-07-03)
+
+**The gap it closes:** `native-i2v` silently died on longer clips (a
+41-frame / 5s @ 8fps 640×960 run wrote `source.png` then vanished —
+empty log, no crash report) because `VideoDecoder` decoded the whole
+latent volume in one lazy graph with no intermediate materialization.
+
+**Port** — new `Sources/LTXVideoDirector/VAE/VideoTiling.swift`
+(`VideoDecodeTiling`), a faithful port of the vendor reference's
+temporal decode tiling (`ltx_core_mlx/model/video_vae/tiling.py` +
+`video_vae.py`'s `_compute_decode_tiling`/`tiled_decode`), TEMPORAL
+axis only — deliberately matching upstream's own auto-path, which never
+selects spatial tiling either. The three reference behaviors that are
+easy to get wrong, preserved exactly:
+1. `split_temporal_latents`'s causal shift — non-first tiles start 1
+   latent frame EARLIER with the left blend ramp extended by 1;
+2. latent→frame mapping is `[begin*8, 1+(end-1)*8)` (n latent frames
+   decode to `1+(n-1)*8` pixel frames because every temporal upsample
+   drops its first frame), NOT `[begin*8, end*8)`;
+3. trapezoid masks use `left_starts_from_0=True` semantics so
+   overlapping weights always sum positive everywhere.
+
+`VideoDecoder.callAsFunction` gained `materializeStages:` (force-eval
+after each upsample stage; tiled path only, so the untiled path keeps
+cross-stage kernel fusion). `NativeI2VStage` step 5 now auto-computes
+tiling from the same `LTX2_VAE_DECODE_BUDGET_GB` env knob run.py's path
+uses (default 8 GB) — the budget constant uses 4 bytes/element because
+this decoder runs fp32, not the reference's bf16.
+
+**Verification, three layers:**
+1. 10 pure-arithmetic tests (`VideoTilingTests`) mirroring vendor
+   `test_decode_tiling.py`: budget trigger/no-trigger, tile-size and
+   overlap divisibility, causal shift layout, full coverage, and
+   weights-sum-positive-everywhere.
+2. Tiled-vs-untiled REAL-checkpoint parity: bounded max/mean deviation.
+   Deliberately NOT bit-exact — the decoder is non-causal (symmetric
+   padding), so a tile boundary truncates the temporal receptive field;
+   the vendor's tiled decode has the same property, mitigated by the
+   overlap blend. (First test draft asserted near-exactness and failed
+   — max diff 0.24 on a tiny worst-case random latent where entire
+   tiles sit inside the boundary's receptive field. That's inherent,
+   not a bug.)
+3. Real generation A/B: the originally-crashing 41-frame demo now
+   completes untiled (79.5s, decode fits the 8 GB default budget), and
+   a forced-tiling rerun (`LTX2_VAE_DECODE_BUDGET_GB=0.4` →
+   tile_frames=40, overlap=8, seam across frames 24–32) is visually
+   indistinguishable — seam-center and boundary frames inspected, no
+   blend artifacts, no color shift.
+
+Suite: **100/100 pass.**
+
+## Milestone: default auto-upscale + multi-LoRA fusion (2026-07-03)
+
+Driven by an explicit `/goal`: (1) confirm `native-i2v` is genuinely
+run.py-free end to end, (2) resolution auto-align (already landed, see
+the milestone above), (3) trigger the native spatial upscaler by
+default, (4) inventory `mlx-models`' LoRA files and add multi-LoRA
+support + tests for the Swift transformer path.
+
+**Auto-upscale wiring.** `NativeUpscaleStage` (native `LatentUpsampler`,
+2x spatial, no run.py — see its own header) already existed as a
+separate `native-upscale` command from an earlier session but was never
+chained after `native-i2v`. `NativeI2VCommand` gained `--upscale`/
+`--no-upscale` (`ArgumentParser` `.prefixedNo` inversion, **default
+on**) — after decode, it runs `NativeUpscaleStage` on the just-written
+frame directory into an `upscaled/` subdirectory. A failure here
+(e.g. missing `spatial_upscaler_x2_v1_1.safetensors`) is caught and
+printed as a warning, not propagated — the base-resolution output is
+still a complete, valid result even if the upscale pass can't run.
+
+**LoRA inventory** (`mlx-models/lora/`, checked directly, not assumed):
+only ONE real LTX-specific LoRA exists —
+`ltx-2.3-22b-distilled-lora-384(-1.1).int8.safetensors`, duplicated
+across `lora/ltx-2.3-distilled/`, `ltx-mlx/{distilled,dev,dasiwa}/` —
+this is the structural "turn the dev transformer into the distilled
+one" LoRA the Python pipeline fuses automatically
+(`app/ltx_pipeline.py`'s `distilled_lora=...`), NOT a third-party style
+LoRA. `native-i2v`'s transformer checkpoint
+(`ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors`) is
+already pre-fused, so this file isn't needed for baseline generation —
+but it's the ONLY real LTX LoRA available to test fusion against, since
+no style LoRA for LTX video exists yet in this repo (the other
+`mlx-models/lora/*` entries — `jib-mix-realistic-z-image-lora`,
+`midjourney-luneva-cinematic-lora`, `darkklein-v2bfs-r256`,
+`details-9b` — are all z-image/Klein9B image LoRAs, architecturally
+unrelated to LTX's DiT).
+
+**LoRA fusion port.** New `Transformer/LoRAWeights.swift` +
+`LoRAFusion.swift`, porting `ltx_core_mlx.loader.fuse_loras.apply_loras`/
+`_prepare_deltas` (delta = `strength * B @ A`, summed across multiple
+LoRA sources) and `ltx_core_mlx.loader.sd_ops.LTXV_LORA_COMFY_RENAMING_MAP`
+(key remap: strip `diffusion_model.`, `to_out.0`→`to_out`,
+`ff.net.0.proj`→`ff.proj_in`, `ff.net.2`→`ff.proj_out`,
+`linear_1`/`linear_2`→`linear1`/`linear2`, plus the audio-FF variants of
+the two `ff.net.*` rules — needed separately because `audio_ff.net.0.proj.`
+doesn't contain the leading-dot `.ff.net.0.proj.` pattern). Two things
+confirmed only by reading `app/vendor_patches.py`'s `_patch_int8_lora`
+(Patch 10) directly, not derivable from the vendor's stock code: (1) the
+`.int8.safetensors` LoRA files use a simple PER-TENSOR int8 quantization
+(`value * scale`, single scalar `.scale` sibling) — a DIFFERENT scheme
+from the base transformer's grouped `mx.quantize` (group_size=64,
+per-group scales+biases) — and the vendor's own `apply_loras` does NOT
+dequantize this (it just casts int8 to float, silently wrong); the app
+needed its own patch. (2) One deliberate simplification vs. the vendor:
+`apply_loras` re-quantizes the fused weight back to int4/int8 for
+memory; this package's `QuantizedWeights` already dequantizes every
+block to float32 on load (see its own header), so fusion here is just
+`base + delta` in float32 — nothing to re-quantize.
+
+**Verified end-to-end, quality caveat found and documented, not glossed
+over**: ran `native-i2v` for real (9 frames, 640×960, "a woman smiles and
+waves at the camera on a city street") — auto-upscale fired without a
+flag, 74.5s base generation + 10.5s upscale, produced clean 640×960
+frames AND a 1280×1920 `upscaled/frames/` sequence, confirming the
+default-on wiring actually runs in the real CLI, not just in tests.
+Visual inspection of the upscaled frame vs. the base frame: the upscale
+is visibly lower quality than the source — over-sharpened edges,
+halo/ringing around hair strands, a slightly "oil-painting" texture
+look. This matches `NativeUpscaleStage`'s own documented scope (its
+header: "No refine pass — the real two-stage LTX pipeline follows the
+neural upscale with a transformer denoise refinement step at low
+strength; this stage is upscale-only") — not a regression introduced by
+wiring it into `native-i2v`, but worth being explicit about: the
+default-on upscale trades resolution for a real quality cost until the
+refine pass lands. `--no-upscale` skips it if the base-resolution output
+is preferred as-is.
+
+Wired into `TransformerCheckpointLoader.blockWeights`/`.topLevelWeights`
+(optional `loraSources` param, applied after dequantize + prefix-strip)
+and `NativeI2VStage.Request.loraPaths` (`[(path: URL, strength: Float)]`,
+loaded once and reused across all 48 block-dequantize calls — not
+reloaded per block). `NativeI2VCommand` gained a repeatable `--lora
+path[:strength]` option (e.g. `--lora a.safetensors:0.8 b.safetensors`
+stacks two).
+
+**Verification** — `scripts/dump_lora_fusion_reference.py` runs the REAL
+vendor `apply_loras`/`LTXV_LORA_COMFY_RENAMING_MAP` against the REAL
+distilled LoRA file (the int8 dequant patch reproduced inline, same
+convention as `dump_hannsincresampler_reference.py`'s inlined
+`_patch_upsample1d`), covering 9 representative keys (every rename rule
++ a plain no-rename case) and BOTH single-LoRA (strength 1.0) and
+multi-LoRA (the same file applied twice at strengths 1.0/0.6 — no
+second real LTX LoRA exists to test with, but `_prepare_deltas` sums
+per-source contributions regardless of whether sources are the same
+file, so this is a faithful test of the actual summing code path, not a
+shortcut). `LoRAFusionTests.swift`: 4 key-remap unit tests (mirroring
+vendor `test_lora_renaming_map.py`'s own cases) + the real-checkpoint
+fusion parity test (max-abs-diff < 1e-3 for both single and multi-LoRA,
+plus an explicit "multi-delta ≠ 2×single-delta" guard against a
+same-strength-for-every-source bug that would otherwise pass by
+coincidence) + a `TransformerCheckpointLoader.blockWeights` wiring test
+(with vs. without `loraSources` produces different block-0 `attn1.to_q`
+weights, proving the fusion path actually runs end to end through the
+real loader, not just in isolation). All new tests pass on the real
+production checkpoint + real LoRA file.
+
+## Research: ComfyUI reference workflows transferred (2026-07-03)
+
+Four real production ComfyUI workflow JSONs (from a separate
+`WhatDreamsCost-ComfyUI` node-pack checkout — First-Last-Frame 2-stage,
+First-Last-Frame 3-stage, FFLF+custom-audio, and an alternate "Director2"
+node pack) were copied into
+`docs/reference/comfyui_workflows/` and their node-graph structure/
+parameters extracted into that directory's `README.md`. Concrete findings,
+in priority order for future work:
+
+1. **`NativeUpscaleStage`'s documented "no refine pass" gap now has real
+   numbers**: the reference pipeline follows its neural upscale with a
+   LOW-STRENGTH denoise refinement (`linear_quadratic` schedule, 6 steps/
+   shift 0.42 for one stage, 4 steps/shift 0.42 for a second) — not a fresh
+   generation. Bounded follow-up: reuse the already-ported `DenoiseLoop`/
+   `SigmaSchedule` with a short partial-denoise schedule from the upscaled
+   latent, not new architecture.
+2. `NativeUpscaleStage`'s `spatial_upscaler_x2_v1_1.safetensors` choice
+   matches the reference workflow's own "use the newest v1.1" guidance —
+   validates, doesn't change, this session's earlier work.
+3. Real pipelines run the distilled LoRA at **partial strength (0.5)** on
+   top of the "dev" checkpoint, rather than always using a pre-fused 1.0
+   checkpoint — directly exercises this session's `--lora path:strength`
+   work if a "dev + partial distilled LoRA" mode is ever added.
+4. **First-Last-Frame (FFLF) conditioning** — condition both frame 0 AND
+   the last frame's latent index, not just frame 0.
+   `VideoConditionByLatentIndex` already takes `frameIndices: [Int]`
+   (not hardcoded to `[0]`), so the mechanism may already generalize;
+   what's missing is a second image input + VAE-encode call in
+   `NativeI2VStage`, plus confirming the guide-crop/sequencer interaction
+   doesn't need its own port for a clean seam. NOT implemented this
+   session — scoped for later.
+5. **Custom audio injection** — encode a user-supplied audio track and mask
+   its noise out so it survives the denoise loop unchanged, the audio
+   analogue of the already-ported `VideoConditionByLatentIndex`/
+   `applyDenoiseMask`. NOT implemented this session — scoped for later.
+
+## Milestone: First-Last-Frame (FFLF) conditioning implemented (2026-07-03)
+
+Closes item 4 of the "Research: ComfyUI reference workflows" section
+above, driven by a follow-up `/goal implement FFLF`. Confirms the
+prediction made there: `VideoConditionByLatentIndex` already took
+`frameIndices: [Int]`, not hardcoded to `[0]` — no change needed to the
+conditioning mechanism itself, only to `NativeI2VStage` to feed it a
+second conditioning frame.
+
+**What changed**: `NativeI2VStage.Request` gained `lastFrameImagePath:
+URL?` — when set, `generate` VAE-encodes that image the same way it
+already encodes the T2I-generated frame-0 source, concatenates both
+frames' patchified tokens, and conditions `VideoConditionByLatentIndex`
+on `[0, fLat - 1]` instead of just `[0]`. Frame 0 is unchanged (still
+always the T2I-generated `--prompt` image) — this is additive, not a
+redesign of the existing conditioning path. `NativeI2VCommand` gained
+`--last-frame <path>`.
+
+**Validation happens BEFORE any expensive generation work** (existence +
+exact-size check happens right after resolution resolve, before T2I/
+text-encode/denoise run) — a bad `--last-frame` fails in milliseconds,
+not after a 50s+ generation. The image must already be exactly
+`width`x`height` (no resize — matches this package's existing
+"don't silently degrade on mismatched input" convention, e.g.
+`ResolutionResolver`'s explicit snap-and-announce rather than a silent
+letterbox/crop).
+
+**Verified real-checkpoint, not just wiring**:
+`NativeI2VStageFFLFTests.testLastFrameImageIsPreservedThroughGeneration`
+generates a real 17-frame clip with a synthetic flat mid-grey PNG pinned
+as the last frame, then pixel-diffs the DECODED last output frame
+against that same input image — mean abs diff < 0.04 in [0,1] pixel
+space (same order of magnitude as the VAE round-trip loss already
+documented for frame-0 conditioning elsewhere in this package),
+confirming the last frame is genuinely the pinned image, not
+model-generated content that happens to look similar. Passed on the
+first run, 50.9s. `testLastFrameWrongSizeThrowsClearError` confirms the
+fail-fast size guard fires (0.004s, no checkpoints touched).
+
+Full suite: all tests pass (2 new FFLF tests, no regressions).
+
+**Scope not covered by this change** (unchanged from the research
+doc's findings): the guide-crop/sequencer interaction the reference
+ComfyUI pipeline uses (`LTXVCropGuides`/`LTXSequencer`) for FFLF wasn't
+needed here — this package's simpler direct-splice conditioning produced
+a clean, pixel-accurate result without it, at least at this
+seconds/resolution. The reference's per-segment `LTXSequencer` denoise
+schedule is really Stage #2/#3's UPSCALE-REFINE mechanism (separately
+scoped, still not implemented — see the "no refine pass" item above),
+not something FFLF itself required.
 
 ## Explicitly NOT doing
 

@@ -55,3 +55,8 @@ swift/*/.swiftpm/
 # Python bytecode caches
 __pycache__/
 *.py[cod]
+
+# Swift parity-check reference dumps — real checkpoint tensors, large/regenerable
+# via swift/ltx-video-director/scripts/dump_*_reference.py. Never commit raw
+# safetensors (see CLAUDE.md model-import section).
+swift/*/test_refs/**/*.safetensors

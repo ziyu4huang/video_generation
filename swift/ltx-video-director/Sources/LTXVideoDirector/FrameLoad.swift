@@ -14,6 +14,12 @@ import MLX
 import UniformTypeIdentifiers
 
 public enum FrameLoad {
+    /// Load a CGImage from a PNG (or any ImageIO-supported) file on disk.
+    public static func loadCGImage(from url: URL) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
     /// Render a CGImage to (1, 3, H, W) float32 [0,1] at the image's native size.
     public static func toArray(_ cgImage: CGImage) -> MLXArray {
         let width = cgImage.width

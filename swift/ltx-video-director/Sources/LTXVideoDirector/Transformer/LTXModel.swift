@@ -12,8 +12,6 @@
 //
 //  NOT YET PORTED (all explicitly out of scope for this first assembly,
 //  matching BasicAVTransformerBlock's documented scope):
-//    - Per-token timesteps (video_timesteps/audio_timesteps) — only the
-//      scalar-timestep path is implemented.
 //    - STG perturbations (BatchedPerturbationConfig).
 //    - block_provider (weight-streaming) / block_stack_override (TeaCache)
 //      / tap (calibration callback).
@@ -239,6 +237,8 @@ public struct LTXModel {
     /// on-demand by `blockProvider(index)` instead of read from
     /// `self.transformerBlocks` (which is expected empty for this path) —
     /// mirrors the Python reference's `block_provider` streaming mechanism.
+    /// Supports `videoTimesteps`/`audioTimesteps` per-token timesteps, same
+    /// semantics as `callAsFunction` (see its header).
     /// After each block, `MLX.eval` forces materialization of the hidden
     /// states so the just-used block's dequantized weights (built fresh
     /// each iteration by the caller's closure) become eligible for release
@@ -252,7 +252,8 @@ public struct LTXModel {
         numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
         videoTextEmbeds: MLXArray? = nil, audioTextEmbeds: MLXArray? = nil,
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
-        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil
+        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
+        videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -262,13 +263,27 @@ public struct LTXModel {
         let tEmbAVGate = TimestepEmbedding.sinusoidal(
             timesteps: timestep * config.timestepScaleMultiplier * avCaFactor, embeddingDim: config.timestepEmbeddingDim)
 
-        let (videoAdalnEmb, videoEmbeddedTS) = adalnSingle(tEmb)
-        let (avCaVideoEmb, _) = avCaVideoScaleShiftAdalnSingle(tEmb)
+        let videoAdalnEmb: MLXArray, videoEmbeddedTS: MLXArray, avCaVideoEmb: MLXArray
+        if let videoTimesteps {
+            let vtEmb = embedTimestepPerToken(videoTimesteps)
+            (videoAdalnEmb, videoEmbeddedTS) = adalnPerToken(adalnSingle, tEmbPerToken: vtEmb)
+            (avCaVideoEmb, _) = adalnPerToken(avCaVideoScaleShiftAdalnSingle, tEmbPerToken: vtEmb)
+        } else {
+            (videoAdalnEmb, videoEmbeddedTS) = adalnSingle(tEmb)
+            (avCaVideoEmb, _) = avCaVideoScaleShiftAdalnSingle(tEmb)
+        }
         let (avCaA2VGateEmb, _) = avCaA2VGateAdalnSingle(tEmbAVGate)
         let (videoPromptEmb, _) = promptAdalnSingle(tEmb)
 
-        let (audioAdalnEmb, audioEmbeddedTS) = audioAdalnSingle(tEmb)
-        let (avCaAudioEmb, _) = avCaAudioScaleShiftAdalnSingle(tEmb)
+        let audioAdalnEmb: MLXArray, audioEmbeddedTS: MLXArray, avCaAudioEmb: MLXArray
+        if let audioTimesteps {
+            let atEmb = embedTimestepPerToken(audioTimesteps)
+            (audioAdalnEmb, audioEmbeddedTS) = adalnPerToken(audioAdalnSingle, tEmbPerToken: atEmb)
+            (avCaAudioEmb, _) = adalnPerToken(avCaAudioScaleShiftAdalnSingle, tEmbPerToken: atEmb)
+        } else {
+            (audioAdalnEmb, audioEmbeddedTS) = audioAdalnSingle(tEmb)
+            (avCaAudioEmb, _) = avCaAudioScaleShiftAdalnSingle(tEmb)
+        }
         let (avCaV2AGateEmb, _) = avCaV2AGateAdalnSingle(tEmbAVGate)
         let (audioPromptEmb, _) = audioPromptAdalnSingle(tEmb)
 
