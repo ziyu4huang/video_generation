@@ -232,6 +232,123 @@ export function runChecks(ctx: DoctorContext): DoctorReport {
 	return { mode: ctx.mode, checks, ok: !checks.some(isFailing) };
 }
 
+// ── auto-fix (opt-in: `doctor --fix`) ────────────────────────────────────────
+//
+// The pure checks above surface a broken/incomplete deploy but leave the user to
+// fix it by hand. `--fix` closes the diagnose→fix loop: it derives a fix plan
+// from the current report, applies it (mutating), and re-checks — the same
+// create-then-recheck shape as bun-apps/pi-agent-cli's `doctor --fix`.
+//
+// The decisive pi-agent-specific fix: in a `--portable` (repo-independent,
+// same-machine) deploy that lands on a host without its `node_modules` subset,
+// `checkHostDeps` FAILs (typebox/@earendil-works/* are essential there). `--fix`
+// runs `bun install` in the deploy dir to self-heal it. Applies to `release`
+// too (same — ships a deps/workspaces package.json). The default THIN `bundle`
+// is skipped: its package.json is minimal {name,private,type} with no deps, so
+// `bun install` is a no-op there (it stays hint-only WARN). source/binary are
+// skipped (host-deps is INFO — pi resolves its own).
+//
+// Shape mirrors `--smoke`: a PURE planner (planFixes) separable from an
+// imperative applier (applyFixes) behind an injectable spawn seam (FixSpawn),
+// so the decision + outcome-mapping are unit-testable without spawning bun.
+
+/** One auto-fix that WOULD apply (or just applied) for the current report. */
+export interface FixAction {
+	id: string;
+	label: string;
+	reason: string;
+}
+
+/**
+ * PURE. Which fixes WOULD apply for this report + context, without executing
+ * any. Currently the only fix is `bun install` for an unresolved `host-deps`
+ * check in a mode that ships an installable package.json (portable/release).
+ * Returns [] when there is nothing to fix.
+ */
+export function planFixes(report: DoctorReport, ctx: DoctorContext): FixAction[] {
+	const plan: FixAction[] = [];
+	const hostDeps = report.checks.find((c) => c.id === "host-deps");
+	if (
+		hostDeps &&
+		(hostDeps.status === "fail" || hostDeps.status === "warn") &&
+		(ctx.mode === "portable" || ctx.mode === "release")
+	) {
+		plan.push({
+			id: "host-deps",
+			label: "bun install (host deps)",
+			reason: `${ctx.mode} mode: ${hostDeps.detail ?? "host deps unresolvable"}`,
+		});
+	}
+	return plan;
+}
+
+/** Injectable spawn seam so applyFixes' outcome-mapping is unit-testable. */
+export interface FixSpawn {
+	(args: { cwd: string; env: Record<string, string | undefined> }): Promise<{
+		code: number | null;
+		stderr: string;
+	}>;
+}
+
+/** Real spawn helper — `bun install` in a dir. Exported for tests. */
+export async function defaultFixSpawn(args: {
+	cwd: string;
+	env: Record<string, string | undefined>;
+}): Promise<{ code: number | null; stderr: string }> {
+	const proc = Bun.spawn(["bun", "install"], {
+		cwd: args.cwd,
+		env: args.env,
+		stdout: "inherit",
+		stderr: "pipe",
+	});
+	let stderr = "";
+	try {
+		const reader = proc.stderr.getReader();
+		const dec = new TextDecoder();
+		while (true) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			stderr += dec.decode(value, { stream: true });
+		}
+	} catch {
+		/* stderr is best-effort */
+	}
+	const code = await proc.exited;
+	return { code, stderr };
+}
+
+/**
+ * Apply a fix plan (imperative: spawns). Returns one CheckResult per applied
+ * fix so the caller can print/aggregate them. No-op (returns []) for an empty
+ * plan. Maps each action's spawn outcome → pass/fail CheckResult.
+ */
+export async function applyFixes(
+	plan: FixAction[],
+	ctx: DoctorContext,
+	opts: { spawn?: FixSpawn } = {},
+): Promise<CheckResult[]> {
+	const spawn = opts.spawn ?? defaultFixSpawn;
+	const results: CheckResult[] = [];
+	for (const action of plan) {
+		if (action.id === "host-deps") {
+			const r = await spawn({ cwd: ctx.selfDir, env: ctx.env });
+			const clean = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").trim();
+			results.push(
+				r.code === 0
+					? { id: "fix:host-deps", label: action.label, status: "pass", detail: "`bun install` ok — re-checking" }
+					: {
+							id: "fix:host-deps",
+							label: action.label,
+							status: "fail",
+							detail: `\`bun install\` exited ${r.code}`,
+							hint: clean(r.stderr).slice(-300) || undefined,
+						},
+			);
+		}
+	}
+	return results;
+}
+
 // ── runtime smoke (opt-in: `doctor --smoke`) ─────────────────────────────────
 //
 // The pure checks above are filesystem/static — they verify the extension FILES
@@ -394,6 +511,8 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 // ── real wiring ──────────────────────────────────────────────────────────────
 export interface RunOptions {
 	json?: boolean;
+	fix?: boolean;
+	fixSpawn?: FixSpawn;
 	smoke?: boolean;
 	smokeTimeoutMs?: number;
 }
@@ -428,6 +547,24 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 export async function runDoctor(opts: RunOptions = {}, out: (s: string) => void = console.log): Promise<DoctorReport> {
 	const ctx = realContext(import.meta.url, process.env);
 	let report = runChecks(ctx);
+
+	// `--fix`: derive a fix plan from the report, apply it (mutating — runs `bun
+	// install` etc.), then re-check. Same create-then-recheck shape as
+	// pi-agent-cli's doctor --fix. The default doctor stays pure/offline/fast;
+	// --fix is opt-in. Applied fixes are printed before the re-checked report.
+	let appliedFixes: CheckResult[] = [];
+	if (opts.fix) {
+		const plan = planFixes(report, ctx);
+		if (plan.length === 0) {
+			out("\x1b[2m--fix: nothing to fix (no auto-remediable check failed)\x1b[0m");
+		} else {
+			appliedFixes = await applyFixes(plan, ctx, { spawn: opts.fixSpawn });
+			// re-check after the fix mutated the deploy dir. depInstalled reads the
+			// fs live, so the same ctx sees the new node_modules.
+			report = runChecks(ctx);
+		}
+	}
+
 	// The smoke check is opt-in (it spawns a subprocess, so the default doctor
 	// stays pure/offline/fast). A smoke FAIL is a hard failure (like other fails).
 	if (opts.smoke) {
@@ -442,6 +579,13 @@ export async function runDoctor(opts: RunOptions = {}, out: (s: string) => void 
 			return `${c}${s.toUpperCase().padEnd(4)}\x1b[0m`;
 		};
 		out(`\x1b[1mpi-agent doctor\x1b[0m  (mode: ${report.mode})`);
+		if (appliedFixes.length) {
+			out("  \x1b[2m--fix applied:\x1b[0m");
+			for (const f of appliedFixes) {
+				out(`  ${color(f.status)}  ${f.label}${f.detail ? ` — ${f.detail}` : ""}`);
+				if (f.hint) out(`         \x1b[2m↳ ${f.hint}\x1b[0m`);
+			}
+		}
 		for (const c of report.checks) {
 			out(`  ${color(c.status)}  ${c.label}${c.detail ? ` — ${c.detail}` : ""}`);
 			if (c.hint) out(`         \x1b[2m↳ ${c.hint}\x1b[0m`);

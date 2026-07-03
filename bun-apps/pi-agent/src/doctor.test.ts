@@ -13,6 +13,8 @@ import {
 	checkProviders,
 	smokeMarker,
 	runSmokeCheck,
+	planFixes,
+	applyFixes,
 	type DoctorContext,
 } from "./doctor.ts";
 
@@ -186,5 +188,83 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 		});
 		expect(r.status).toBe("info");
 		expect(spawned).toBe(false);
+	});
+});
+
+describe("planFixes (pure)", () => {
+	// Build a real report via runChecks so planFixes sees the actual host-deps
+	// CheckResult (status + detail) produced by checkHostDeps for that mode.
+	const reportFor = (c: DoctorContext) => runChecks(c);
+
+	test("portable + host-deps FAIL → plans one bun-install fix", () => {
+		const c = ctx({ mode: "portable", depInstalled: () => false });
+		const plan = planFixes(reportFor(c), c);
+		expect(plan).toHaveLength(1);
+		expect(plan[0]!.id).toBe("host-deps");
+		expect(plan[0]!.label).toContain("bun install");
+		expect(plan[0]!.reason).toContain("portable");
+	});
+
+	test("release + host-deps WARN → plans the fix", () => {
+		// release host-deps is WARN (not fail) when unresolvable — still fixable.
+		const c = ctx({ mode: "release", depInstalled: () => false, listDir: () => ["pi-vlm", "zai-mcp"] });
+		const plan = planFixes(reportFor(c), c);
+		expect(plan).toHaveLength(1);
+		expect(plan[0]!.reason).toContain("release");
+	});
+
+	test("bundle (THIN default) + host-deps WARN → NO fix (no deps to install)", () => {
+		const c = ctx({ mode: "bundle", depInstalled: () => false, listDir: () => ["e0.js"] });
+		expect(planFixes(reportFor(c), c)).toEqual([]);
+	});
+
+	test("source/binary → NO fix (host-deps is info — pi resolves its own)", () => {
+		expect(planFixes(reportFor(ctx({ mode: "source", depInstalled: () => false })), ctx({ mode: "source" }))).toEqual([]);
+		expect(planFixes(reportFor(ctx({ mode: "binary", depInstalled: () => false })), ctx({ mode: "binary" }))).toEqual([]);
+	});
+
+	test("portable + host-deps PASS → NO fix (nothing broken)", () => {
+		const c = ctx({ mode: "portable", depInstalled: () => true });
+		expect(planFixes(reportFor(c), c)).toEqual([]);
+	});
+});
+
+describe("applyFixes (via injected FixSpawn seam)", () => {
+	const planFrom = (c: DoctorContext) => planFixes(runChecks(c), c);
+
+	test("spawns `bun install` at ctx.selfDir; code 0 → PASS CheckResult", async () => {
+		const c = ctx({ mode: "portable", depInstalled: () => false, selfDir: "/out" });
+		let seenCwd: string | null = null;
+		const spawn = async (args: { cwd: string }) => {
+			seenCwd = args.cwd;
+			return { code: 0, stderr: "" };
+		};
+		const results = await applyFixes(planFrom(c), c, { spawn });
+		expect(seenCwd).toBe("/out");
+		expect(results).toHaveLength(1);
+		expect(results[0]!.status).toBe("pass");
+		expect(results[0]!.id).toBe("fix:host-deps");
+	});
+
+	test("non-zero exit → FAIL CheckResult carrying the stderr tail", async () => {
+		const c = ctx({ mode: "portable", depInstalled: () => false });
+		const spawn = async () => ({ code: 1, stderr: "error: no package.json found" });
+		const results = await applyFixes(planFrom(c), c, { spawn });
+		expect(results).toHaveLength(1);
+		expect(results[0]!.status).toBe("fail");
+		expect(results[0]!.detail).toContain("exited 1");
+		expect(results[0]!.hint).toContain("no package.json");
+	});
+
+	test("empty plan → no spawn, returns []", async () => {
+		let spawned = false;
+		const results = await applyFixes([], ctx({ mode: "portable" }), {
+			spawn: async () => {
+				spawned = true;
+				return { code: 0, stderr: "" };
+			},
+		});
+		expect(spawned).toBe(false);
+		expect(results).toEqual([]);
 	});
 });
