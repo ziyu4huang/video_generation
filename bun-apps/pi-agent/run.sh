@@ -17,12 +17,6 @@
 #   ./run.sh -e path/to/ext.ts -p "…"   # any pi flag, forwarded untouched
 #   PIAGENT_DEBUG=1 ./run.sh …          # print which entry/mode was chosen
 #
-#   Missing extension deps (source mode): when a declared npm extension can't
-#   be resolved, run.sh prints a consolidated guide with the exact `bun install`
-#   command. Set BUN_PI_AUTO_INSTALL=1 to run `bun install` at the repo root
-#   automatically instead of just guiding:
-#   BUN_PI_AUTO_INSTALL=1 ./run.sh …
-#
 #   From anywhere (resolves its own dir):
 #   cd /anywhere && /abs/path/to/.../run.sh -p hi
 ########################################
@@ -64,6 +58,26 @@ fi
 # marker is written by `scripts/deploy.ts --portable`.
 if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then
   export PI_PACKAGE_DIR="$SCRIPT_DIR"
+fi
+
+# Read-only deploy (the DEFAULT since deploy.ts freezes every artifact): apply
+# the env hardening that lets a chmod-a-w / read-only-prefix deploy actually run.
+# All per-user state already routes to ~/.pi/agent (pi sessions/auth +
+# pi-hermes-memory's sqlite DB both honor PI_CODING_AGENT_DIR), so the deploy
+# tree is never written — but two tweaks are still needed:
+#   1. JITI_FS_CACHE=0 — jiti caches compiled .ts to node_modules/.cache/jiti by
+#      default; in --release mode the extensions ARE .ts source, so that cache
+#      write would hit the frozen tree and EACCES. (bundle/portable ship
+#      pre-compiled .js, so this is a no-op there, but it's free insurance.)
+#   2. PI_CODING_AGENT_DIR defaults to ~/.pi/agent — pi falls back there anyway,
+#      but pinning it explicitly guarantees per-user state never points at the
+#      (read-only) deploy tree. Respects a caller-set value.
+if [ -f "$SCRIPT_DIR/.deploy-readonly" ]; then
+  export JITI_FS_CACHE="${JITI_FS_CACHE:-0}"
+  export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+  if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
+    echo "[run.sh] read-only deploy: JITI_FS_CACHE=$JITI_FS_CACHE PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR" >&2
+  fi
 fi
 
 exec bun "$ENTRY" "$@"

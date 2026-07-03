@@ -9,13 +9,16 @@
 #   medium  (1)  + build bundle + patch e2e (patches fire, env→argv         ~5s
 #                 splice, providers injected). DEFAULT.
 #   high    (2)  + deploy + 4-cwd extension-loading e2e (the ~15s tier).    ~18s
-#   full    (3)  + sibling pi-* unit baseline (whole stack health).        ~35s
+#   readonly (2.5) + read-only deploy e2e (freeze + foreign-cwd run + zero   ~20s
+#                  writes to the frozen tree). Opt-in tier (not in the stack).
+#   full    (3)  + readonly + sibling pi-* unit baseline (whole stack).     ~40s
 #
 # USAGE
 #   ./run-test.sh                  # = medium
 #   ./run-test.sh quick            # pre-commit, no build
 #   ./run-test.sh high
-#   ./run-test.sh full             # whole stack
+#   ./run-test.sh readonly         # read-only deploy e2e only
+#   ./run-test.sh full             # whole stack (incl. readonly)
 #   ./run-test.sh --effort=medium
 #   ./run-test.sh --list           # print the tier table, exit 0
 #   ./run-test.sh medium --bail    # extra flags forwarded to `bun test`
@@ -44,7 +47,7 @@ while [ $# -gt 0 ]; do
 		--effort=*) EFFORT="${1#*=}"; shift ;;
 		--effort) EFFORT="${2:-}"; shift 2 ;;
 		-l|--list) LIST=1; shift ;;
-		quick|medium|high|full|0|1|2|3) EFFORT="$1"; shift ;;
+		quick|medium|high|readonly|full|0|1|2|3) EFFORT="$1"; shift ;;
 		*) EXTRA+=("$1"); shift ;;
 	esac
 done
@@ -60,7 +63,8 @@ $(Y "pi-agent run-test.sh — effort tiers (each ⊇ the one above)"):
   $(G quick)   $(D '~0.2s')  unit only (pure fn + import-time smoke); no build
   $(G medium)  $(D '~5s')    + build + patch e2e (patches fire / splice / providers)  $(Y "[default]")
   $(G high)    $(D '~18s')   + deploy + 4-cwd extension-loading e2e
-  $(G full)    $(D '~35s')   + sibling pi-* unit baseline (whole stack)
+  $(G readonly) $(D '~20s')  read-only deploy e2e ONLY (freeze + foreign-cwd run + zero writes)
+  $(G full)    $(D '~40s')   + readonly + sibling pi-* unit baseline (whole stack)
 
 Env gates the e2e test files read:
   PI_AGENT_E2E=1          enable e2e-patches        (medium+)
@@ -72,8 +76,8 @@ EOF
 if [ "$LIST" -eq 1 ]; then print_list; exit 0; fi
 
 case "$EFFORT" in
-	quick|medium|high|full) ;;
-	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|high|full)" >&2
+	quick|medium|high|readonly|full) ;;
+	*) echo "$(R "error"): unknown effort '$EFFORT' (want: quick|medium|high|readonly|full)" >&2
 	   echo "try: ./run-test.sh --list" >&2; exit 2 ;;
 esac
 
@@ -100,6 +104,17 @@ run_extensions() {
 	export PI_AGENT_E2E=1
 	export PI_AGENT_E2E_DEPLOY=1
 	( cd "$SCRIPT_DIR" && bun test ${EXTRA[@]+"${EXTRA[@]}"} )
+}
+
+# Read-only deploy e2e ONLY (src/__tests__/e2e-readonly.test.ts). Proves a frozen
+# deploy (chmod a-w + .deploy-readonly marker) runs from a foreign cwd and
+# writes nothing into the frozen tree. Opt-in tier — run via `./run-test.sh
+# readonly`; also folded into `full`.
+run_readonly() {
+	unset PI_AGENT_E2E_NO_BUILD
+	export PI_AGENT_E2E=1
+	export PI_AGENT_E2E_DEPLOY=1
+	( cd "$SCRIPT_DIR" && bun test src/__tests__/e2e-readonly.test.ts ${EXTRA[@]+"${EXTRA[@]}"} )
 }
 
 # Sibling pi-* suites for the "full" stack-health check. pi-vlm's script wraps
@@ -152,8 +167,13 @@ case "$EFFORT" in
 		# build is shared (both e2e files import the same cached build promise).
 		step "unit + patch + extension e2e (high)" run_extensions
 		;;
+	readonly)
+		step "read-only deploy e2e (readonly)" run_readonly
+		;;
 	full)
 		step "unit + patch + extension e2e (high)" run_extensions
+		echo "$(Y "▶ read-only deploy contract")"
+		step "read-only deploy e2e" run_readonly
 		echo "$(Y "▶ sibling stack-health baseline")"
 		for pkg in pi-obsidian pi-knowledge-card pi-agent-cli pi-vlm; do
 			step "$pkg unit" run_pkg_unit "$pkg"

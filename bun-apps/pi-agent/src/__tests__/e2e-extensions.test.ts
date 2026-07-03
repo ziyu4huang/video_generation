@@ -174,8 +174,11 @@ async function deployPkg(extraFlags: string[]): Promise<{
 }> {
 	await ensureBundle(); // bundle is a prerequisite of deploy.ts
 	const pkgDir = mkdtempSync(join(tmpdir(), "pi-agent-verify-"));
+	// --writable: this harness exercises FUNCTIONALITY (load + probe + cleanup),
+	// not the read-only freeze. deploy.ts freezes by default; opting out here
+	// keeps rmSync cleanup working. The freeze is covered by e2e-readonly.test.ts.
 	const deploy = Bun.spawn(
-		["bun", "scripts/deploy.ts", pkgDir, "--no-build", ...extraFlags],
+		["bun", "scripts/deploy.ts", pkgDir, "--no-build", "--writable", ...extraFlags],
 		{ cwd: PI_AGENT_DIR, stdout: "inherit", stderr: "inherit" },
 	);
 	const code = await deploy.exited;
