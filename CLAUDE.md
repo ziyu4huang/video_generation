@@ -16,6 +16,14 @@ Image/video generation runs via **MLX on Apple Silicon**, surfaced through a **B
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, all native MLX). The only generation runtime.
 - **Bun GUI** — `bun-apps/gui-movie-director` (`bun run dev`; port is per-worktree — discover with `bun run gui:port`). Spawns `run.py`; never touches ComfyUI.
 
+## Monorepo SOP — Bun-only, no `package-lock.json`
+
+This is a **Bun workspace monorepo** (isolated linker + globalStore via root `bunfig.toml`); `bun.lock` is the **canonical** lockfile.
+
+- **Never commit `package-lock.json`.** It is gitignored. If one appears (e.g. an editor/tool regenerates it), delete it — do not adapt the code to it.
+- Add deps with `bun add` (writes `bun.lock`), never `npm install` (writes `package-lock.json`).
+- Every `bun-apps/*` package is a workspace member; cross-package locals resolve as `workspace:*` in `bun.lock`. See [[bun-isolated-linker-global-store]].
+
 ## Python — Choose the Right Venv
 
 ```bash
