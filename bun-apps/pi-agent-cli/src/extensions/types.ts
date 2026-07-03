@@ -18,14 +18,20 @@
  * `extraExtensionFactories` seam (sessions/shared.ts), which was wired but
  * unused before this change.
  */
-import type { ParsedArgs } from "../args.ts";
 
 /**
- * A function that turns parsed CLI args into the agent task string for this
- * sub-command. The task is what the parent agent sees as its objective; it
- * typically instructs the agent to call one of the extension's tools.
+ * Input a generic extension task builder needs. Intentionally narrower than
+ * `ParsedArgs`: an extension sub-command turns the user's positional request
+ * into a prompt string, and CLI-level concerns (model, tools, mode) are
+ * handled by the runner, not the task builder. Keeping this minimal lets an
+ * extension package type its spec without importing `ParsedArgs` (which would
+ * create a reverse workspace dependency on pi-agent-cli).
  */
-export type TaskBuilder = (parsed: ParsedArgs) => string;
+export interface SubcommandTaskInput {
+	positionals: string[];
+}
+
+export type TaskBuilder = (input: SubcommandTaskInput) => string;
 
 export interface ExtensionSubcommandSpec {
 	/** Sub-command token (no spaces, must not start with `-`). */
