@@ -201,13 +201,20 @@ async function runOnce(
     throw new Error(`Unknown flux2 command "${command}". Known: ${Object.keys(COMMANDS).join(", ")}`);
   }
 
+  // Create the write target BEFORE validating paths: a not-yet-existing
+  // outputDir under a symlinked ancestor (macOS /tmp -> /private/tmp, or any
+  // `--output-dir <newpath>`) would otherwise resolve the ROOT via fallback
+  // (realpathSync fails → returns the path unchanged) while each child path
+  // resolves through the symlink — mismatching and wrongly rejecting a
+  // legitimate --output/--ref under it. Validate against a dir that exists.
+  if ("outputDir" in spec.fields) ensureOutputDir(roots.repoRoot, roots.outputDir);
+
   validateOptionPaths(spec, options, roots);
 
-  // Boundary guards: convert opaque downstream ENOENT into actionable errors.
-  // Models root is a read target → fail fast if absent (only generation/story
-  // commands pass --models-root). Output dir is a write target → auto-create.
+  // Boundary guard: models root is a read target → fail fast if absent (only
+  // generation/story commands pass --models-root) so a missing tree surfaces
+  // as an actionable error instead of an opaque MLX/Swift downstream crash.
   if (spec.acceptsGlobals) assertModelsRootExists(roots.repoRoot, roots.modelsRoot);
-  if ("outputDir" in spec.fields) ensureOutputDir(roots.repoRoot, roots.outputDir);
 
   const bin = await ensureBinary(onProgress);
   const args = buildArgv(spec, options, roots, extraArgs);

@@ -6,6 +6,7 @@
     "pi-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
+    "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-hermes-memory/src/index.ts"
   ],
   "skills": [
