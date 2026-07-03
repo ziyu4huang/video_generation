@@ -30,6 +30,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { E2E_ENABLED, DEPLOY_ENABLED, ensureBundle, PI_AGENT_DIR } from "./e2e-harness.ts";
 
 const SKIPPED = !(E2E_ENABLED && DEPLOY_ENABLED);

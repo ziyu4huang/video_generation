@@ -106,6 +106,9 @@ function validateOptionPaths(
     const v = options[key];
     if (v == null) continue;
     const field = spec.fields[key];
+    // pathFieldKeys() only returns keys present in spec.fields, so this is
+    // defined; the guard also satisfies noUncheckedIndexedAccess.
+    if (!field) continue;
     if (field.isPathArray) {
       if (!Array.isArray(v)) throw new PathSafetyError(`field "${key}" must be an array of paths`);
       for (const item of v) assertPathAllowed(String(item), roots, { kind: key, mustExist: true });

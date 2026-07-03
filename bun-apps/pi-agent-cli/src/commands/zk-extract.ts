@@ -24,13 +24,12 @@
 import { existsSync, mkdirSync, statSync, readdirSync } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv, resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, modelLabel } from "../sessions/shared.ts";
+import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
 	buildDistillTask,
 	DISTILL_TOOLS,
 } from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
-import { runJsonTask, runPrettyTask } from "../sessions/task-runner.ts";
 
 const MD_TXT_RE = /\.(md|markdown|txt|text)$/i;
 
@@ -137,36 +136,15 @@ Examples:
 		if (files.length > 12) console.error(`  … (+${files.length - 12} more)`);
 		console.error();
 
-		const llm = await resolveLLMFromArgs(parsed);
 		const task = buildDistillTask(files, cwd, folder, parsed.maxNotes);
 
 		// Parent agent needs the obsidian_distill tool (+ supporting read tools).
 		// DISTILL_TOOLS is the single source of truth shared with the zk_extract
 		// extension tool (see bun-apps/pi-knowledge-card).
-		const tools = parsed.tools ?? DISTILL_TOOLS;
-
-		const { session } = await createSharedSession(llm, {
-			tools,
-			excludeTools: parsed.excludeTools,
-			appendSystemPrompt: parsed.appendSystemPrompt,
+		await runAgentSession(parsed, {
+			tools: parsed.tools ?? DISTILL_TOOLS,
+			task,
+			labelName: "zk-extract",
 		});
-
-		const label = modelLabel(session, llm);
-		console.error(
-			`model:  ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}`,
-		);
-		console.error();
-
-		const printMode = parsed.mode === "json";
-
-		try {
-			if (printMode) {
-				await runJsonTask(session, task, parsed.verbose);
-			} else {
-				await runPrettyTask(session, task, "zk-extract", parsed.verbose);
-			}
-		} finally {
-			session.dispose();
-		}
 	},
 };

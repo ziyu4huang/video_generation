@@ -269,3 +269,33 @@ describe("parsePiArgs — verbose flags", () => {
     restoreEnv();
   });
 });
+
+describe("parsePiArgs — `--` end-of-options separator", () => {
+  test("tokens after `--` are positional verbatim (flags not parsed)", () => {
+    const out = parsePiArgs(["flux2", "--", "t2i", "--prompt", "a red cube"]);
+    expect(out.positionals).toEqual(["flux2", "t2i", "--prompt", "a red cube"]);
+    // --prompt is NOT consumed as an unknown value flag (no swallowed value)
+    expect(out.print).toBe(false);
+  });
+
+  test("`--` itself is not a positional", () => {
+    const out = parsePiArgs(["--", "prompt"]);
+    expect(out.positionals).toEqual(["prompt"]);
+  });
+
+  test("`--` protects leading-dash operands", () => {
+    const out = parsePiArgs(["--", "-5", "degrees"]);
+    expect(out.positionals).toEqual(["-5", "degrees"]);
+  });
+
+  test("flags BEFORE `--` still parse normally", () => {
+    const out = parsePiArgs(["--model", "sonnet", "flux2", "--", "t2i"]);
+    expect(out.model).toBe("sonnet");
+    expect(out.positionals).toEqual(["flux2", "t2i"]);
+  });
+
+  test("a bare `--` with nothing after → no positionals", () => {
+    const out = parsePiArgs(["flux2", "--"]);
+    expect(out.positionals).toEqual(["flux2"]);
+  });
+});

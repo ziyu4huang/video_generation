@@ -11,36 +11,9 @@
  */
 
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv, resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, modelLabel } from "../sessions/shared.ts";
+import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { runAgentSession } from "../sessions/run-agent-session.ts";
 import { buildRagTask, RAG_TOOLS } from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
-import { runJsonTask, runPrettyTask } from "../sessions/task-runner.ts";
-
-async function runRagTask(parsed: ParsedArgs, task: string): Promise<void> {
-  applyVaultEnv(parsed);
-  const llm = await resolveLLMFromArgs(parsed);
-  const effectiveTools = parsed.tools ?? RAG_TOOLS;
-
-  const { session } = await createSharedSession(llm, {
-    tools: effectiveTools,
-    excludeTools: parsed.excludeTools,
-    appendSystemPrompt: parsed.appendSystemPrompt,
-  });
-
-  const label = modelLabel(session, llm);
-  console.error(`[zk-ask]  model: ${label}  thinking: ${llm.thinkingLevel}`);
-  console.error();
-
-  try {
-    if (parsed.mode === "json") {
-      await runJsonTask(session, task, parsed.verbose);
-    } else {
-      await runPrettyTask(session, task, "zk-ask", parsed.verbose);
-    }
-  } finally {
-    session.dispose();
-  }
-}
 
 const DETAILS = `Ask a natural language question; returns a synthesized answer grounded in vault notes.
 
@@ -111,6 +84,11 @@ export const zkAskCommand = {
     const folder = parsed.folder;
 
     const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder);
-    await runRagTask(parsed, task);
+    applyVaultEnv(parsed);
+    await runAgentSession(parsed, {
+      tools: parsed.tools ?? RAG_TOOLS,
+      task,
+      labelName: "zk-ask",
+    });
   },
 };

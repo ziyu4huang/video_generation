@@ -88,7 +88,7 @@ export function buildParams(spec: CommandSpec) {
 // ─── Reusable field blocks ───────────────────────────────────────────────────
 
 /** Shared generation fields present on most image-producing commands. */
-const GEN_FIELDS: Record<string, FieldSpec> = {
+const GEN_FIELDS = {
   transformer: { flag: "--transformer", type: "string", isPathComponent: true, description: "Transformer variant under models/transformer/. Omit for the default (klein-9b)." },
   seed: { flag: "--seed", type: "int", description: "Random seed (uint64). Default 42." },
   width: { flag: "--width", type: "int", description: "Output image width (px)." },
@@ -103,7 +103,7 @@ const GEN_FIELDS: Record<string, FieldSpec> = {
   tokenizerDir: { flag: "--tokenizer-dir", type: "string", isPathComponent: true, description: "Tokenizer directory under models/tokenizer/ (default qwen3-klein)." },
   noArtifacts: { flag: "--no-artifacts", type: "boolean", description: "Skip writing .run.json + .manifest.json sidecars (not recommended — the tool parses the manifest)." },
   strictGate: { flag: "--strict-gate", type: "boolean", description: "Abort (exit 1) if the output FAILs the image gate. Off by default; the gate verdict is surfaced regardless." },
-};
+} satisfies Record<string, FieldSpec>;
 
 /** Generation fields WITHOUT width/height/steps/cfgScale (commands that don't take them, e.g. upscale). */
 const GEN_FIELDS_BARE = (() => {

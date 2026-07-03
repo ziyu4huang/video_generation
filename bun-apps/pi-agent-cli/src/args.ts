@@ -31,6 +31,13 @@
  *
  * Everything positional that isn't a flag value is collected as the task/prompt.
  *
+ * `--` is the standard end-of-options separator: once seen, EVERY subsequent
+ * token becomes a positional verbatim (flag-parsing disabled), so an extension
+ * sub-command can pass its own flags through — e.g.
+ * `flux2 -- t2i --prompt "a red cube"` preserves `--prompt` instead of it being
+ * swallowed by the unknown-flag skip. It also protects leading-dash operands in
+ * passthrough prompts (`-- "-5 degrees"`).
+ *
  * ## Table-driven flags
  *
  * Standard-shape flags (value, numeric, boolean) are declared in tables below —
@@ -277,6 +284,8 @@ export function parsePiArgs(
 	const out = emptyParsed();
 	out.rest = [...argv];
 	let i = 0;
+	/** true after a bare `--`: stop flag-parsing, treat the rest as positionals. */
+	let rawMode = false;
 
 	/** grab the value for a flag, supporting `--flag value` and `--flag=value`. */
 	const take = (name: string): string | undefined => {
@@ -313,6 +322,22 @@ export function parsePiArgs(
 		// additionally satisfies noUncheckedIndexedAccess (argv[i] is otherwise
 		// `string | undefined`) and narrows `a` to `string` for the whole body.
 		if (a === undefined) break;
+
+		// `--` = end-of-options separator. Once seen, disable flag-parsing for the
+		// rest of argv: every token becomes a positional verbatim. This lets an
+		// extension sub-command pass its own flags through (`flux2 -- t2i --prompt
+		// "..."`) and protects leading-dash operands in passthrough prompts.
+		if (rawMode) {
+			out.positionals.push(a);
+			out.positionalIndices.push(i);
+			i++;
+			continue;
+		}
+		if (a === "--") {
+			rawMode = true;
+			i++;
+			continue;
+		}
 
 		// value flags (`--flag <value>` or `--flag=value`) — table-driven
 		let matched: string | undefined;

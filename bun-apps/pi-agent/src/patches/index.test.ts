@@ -120,14 +120,14 @@ describe("resolvePatchPlan (pure decision)", () => {
   test("is pure — does not mutate the passed env or table", () => {
     const env = { BUN_PI_SKIP_UPDATE_CHECK: "0" };
     const table: PatchEntry[] = [
-      { name: "x", env: "X", defaultValue: true },
-      { name: "y", env: "Y", defaultValue: false },
+      { name: "set-package-dir", env: "X", defaultValue: true },
+      { name: "skip-update-check", env: "Y", defaultValue: false },
     ];
     resolvePatchPlan(table, env);
     expect(env).toEqual({ BUN_PI_SKIP_UPDATE_CHECK: "0" });
     expect(table).toEqual([
-      { name: "x", env: "X", defaultValue: true },
-      { name: "y", env: "Y", defaultValue: false },
+      { name: "set-package-dir", env: "X", defaultValue: true },
+      { name: "skip-update-check", env: "Y", defaultValue: false },
     ]);
   });
 });
