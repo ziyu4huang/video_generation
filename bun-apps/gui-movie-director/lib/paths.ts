@@ -1,6 +1,12 @@
 import path from "path";
 import { loadConfig, REPO_DIR } from "./config";
 
+// subprocess.ts (and others) import REPO_DIR from "./paths" — re-export the
+// binding so it's actually reachable. Importing it above makes it usable in
+// this module but does NOT re-export it (ESM bindings aren't implicitly
+// forwarded), which left `import { REPO_DIR } from "./paths"` unresolved.
+export { REPO_DIR };
+
 export const PYTHON_BIN = path.join(REPO_DIR, "ComfyUI", ".venv", "bin", "python");
 export const RUN_PY = path.join(
   REPO_DIR, "python", "mlx-movie-director", "run.py"
