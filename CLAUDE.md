@@ -28,6 +28,24 @@ python/venv/bin/python python/mlx-movie-director/run.py <args>
 
 > **Invoke from repo root only.** The mlx venv is at `python/venv/` (not inside `python/mlx-movie-director/`). Running `cd python/mlx-movie-director && python/venv/bin/python run.py` fails — the relative path breaks after `cd`. `run.py` resolves model paths from `__file__`, so cwd doesn't matter.
 
+## Shell discipline — never top-level `cd`
+
+A `PreToolUse` hook (`no-cd-drift.sh`) **blocks any top-level `cd <dir>`** in the Bash tool — the tool's cwd persists across calls, so drifting out of the repo root breaks repo-root-relative paths (`python/venv`, `run.py`, `dist/...`). Always do ONE of:
+
+```bash
+# 1. Wrap in a subshell (cwd resets after) — preferred for multi-step cmds
+( cd swift/flux2-image-director && swift build -c release )
+
+# 2. Tool-native --cwd / -C flags (no cd at all)
+bun run --cwd bun-apps/gui-movie-director dev     # --cwd goes AFTER run
+git -C bun-apps/pi-agent-cli status
+
+# 3. Absolute paths from repo root (no cd at all)
+python/venv/bin/python python/mlx-movie-director/run.py image t2i
+```
+
+A bare `cd swift/flux2-image-director && swift build ...` is rejected by the hook; wrap it as `( cd ... && ... )`. The same rule applies to every `cd ... && ...` one-liner in this file — when a command is shown un-wrapped, wrap it before running.
+
 ## Platform: Apple Silicon MPS
 
 - **No CUDA attention**: SageAttention, Flash Attention, xformers need CUDA. SDPA only on MPS.
@@ -36,8 +54,8 @@ python/venv/bin/python python/mlx-movie-director/run.py <args>
 ## Startup
 
 ```bash
-cd bun-apps/gui-movie-director && bun run dev   # ACTIVE — GUI (port is per-worktree, see below)
-bun run gui:port                           # this worktree's url (--all lists every server)
+( cd bun-apps/gui-movie-director && bun run dev )   # ACTIVE — GUI (port is per-worktree, see below)
+bun run --cwd bun-apps/gui-movie-director gui:port  # this worktree's url (--all lists every server)
 ```
 
 The GUI above is the only entry point (`./run.sh` was removed 2026-06-21).
@@ -93,8 +111,8 @@ Microsoft Lens 3.8B — separate pipeline family, no LoRA/ControlNet. Defaults: 
 ## Bun GUI Server
 
 ```bash
-cd bun-apps/gui-movie-director && bun run dev    # hot reload (port is per-worktree)
-bun run gui:port                            # this worktree's url; --all lists every server
+( cd bun-apps/gui-movie-director && bun run dev )   # hot reload (port is per-worktree)
+bun run --cwd bun-apps/gui-movie-director gui:port  # this worktree's url; --all lists every server
 ```
 
 **Do NOT use `bun run start`** — no file watching. Use `bun run dev:watch` only if hot reload breaks.
@@ -110,14 +128,14 @@ each linked worktree derives a stable port from its path (`lib/worktree.ts`). Do
 
 ```bash
 # Any bun-apps/* package — uniform runner
-cd bun-apps/<pkg> && bun test
+( cd bun-apps/<pkg> && bun test )
 bun test scripts                                  # repo-root scripts suite
 
 # gui-movie-director additionally validates command schemas against run.py
-bun run check:schema
+bun run --cwd bun-apps/gui-movie-director check:schema
 
 # pi-dynamic-workflows builds first (tests import compiled ../src/*.js)
-cd bun-apps/pi-dynamic-workflows && bun run build && bun test
+( cd bun-apps/pi-dynamic-workflows && bun run build && bun test )
 
 # Python (from repo root)
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests
