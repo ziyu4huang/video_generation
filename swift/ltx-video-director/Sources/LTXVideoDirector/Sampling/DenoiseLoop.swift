@@ -122,6 +122,73 @@ public enum DenoiseLoop {
         return DenoiseResult(videoLatent: videoX, audioLatent: audioX)
     }
 
+    /// Same conditioned loop as `run(model:videoState:audioState:...)`, but
+    /// for a REAL checkpoint too large to hold all 48 blocks' dequantized
+    /// weights resident at once: at every sigma step, `blockProvider`
+    /// rebuilds each of `numLayers` blocks from its raw checkpoint slice
+    /// (see `TransformerCheckpointLoader.blockWeights`) via
+    /// `LTXModel.streamingForward`, exactly like `LTXModelRealCheckpointTests
+    /// .testAll48RealBlocksStreamWithBoundedMemory` proves works for one
+    /// forward pass — this just repeats that per denoise step.
+    ///
+    /// `LTXModel.streamingForward` now accepts per-token timesteps (mirrors
+    /// `callAsFunction`), so — exactly like the non-streaming conditioned
+    /// `run` above — preserved I2V conditioning tokens get timestep=0 (no
+    /// AdaLN modulation) and are correctly seen as "clean" by every other
+    /// token's cross-attention during the forward pass, not just corrected
+    /// in the output afterward via `applyDenoiseMask`.
+    public static func runStreaming(
+        model: LTXModel, numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
+        videoState: LatentState, audioState: LatentState,
+        videoTextEmbeds: MLXArray, audioTextEmbeds: MLXArray,
+        sigmas: [Float],
+        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil
+    ) -> DenoiseResult {
+        var videoX = videoState.latent
+        var audioX = audioState.latent
+        let b = videoX.dim(0)
+        let vMask = videoAttentionMask ?? videoState.attentionMask
+        let aMask = audioAttentionMask ?? audioState.attentionMask
+
+        let videoUniform = isUniformMask(videoState.denoiseMask)
+        let audioUniform = isUniformMask(audioState.denoiseMask)
+
+        for i in 0..<(sigmas.count - 1) {
+            let sigma = sigmas[i]
+            let sigmaNext = sigmas[i + 1]
+            let sigmaArray = MLXArray(Array(repeating: sigma, count: b))
+
+            let videoTimesteps = videoUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: videoState.denoiseMask)
+            let audioTimesteps = audioUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: audioState.denoiseMask)
+
+            let (videoV, audioV) = model.streamingForward(
+                videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                numLayers: numLayers, blockProvider: blockProvider,
+                videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                videoPositions: videoState.positions, audioPositions: audioState.positions,
+                videoAttentionMask: vMask, audioAttentionMask: aMask,
+                videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps)
+
+            let sigmaB = sigmaArray.reshaped([b, 1, 1]).asType(.float32)
+            var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
+            var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
+
+            videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)
+            audioX0 = applyDenoiseMask(x0: audioX0, cleanLatent: audioState.cleanLatent, denoiseMask: audioState.denoiseMask)
+
+            if sigma == 0 {
+                videoX = videoX0
+                audioX = audioX0
+            } else {
+                videoX = eulerStep(x: videoX, x0: videoX0, sigma: sigma, sigmaNext: sigmaNext)
+                audioX = eulerStep(x: audioX, x0: audioX0, sigma: sigma, sigmaNext: sigmaNext)
+            }
+            MLX.eval(videoX, audioX)
+        }
+
+        return DenoiseResult(videoLatent: videoX, audioLatent: audioX)
+    }
+
     /// Reference: mlx_arsenal.diffusion.euler_step —
     /// x_{t-1} = x + (sigma_next - sigma) * (x - x0) / sigma.
     private static func eulerStep(x: MLXArray, x0: MLXArray, sigma: Float, sigmaNext: Float) -> MLXArray {

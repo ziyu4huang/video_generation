@@ -1,0 +1,56 @@
+{
+  "keys": [
+    "transformer_blocks.0.attn1.to_q.weight",
+    "transformer_blocks.0.attn1.to_out.weight",
+    "transformer_blocks.0.ff.proj_in.weight",
+    "transformer_blocks.0.ff.proj_out.weight",
+    "transformer_blocks.0.audio_ff.proj_in.weight",
+    "transformer_blocks.5.attn2.to_v.weight",
+    "adaln_single.linear.weight",
+    "adaln_single.emb.timestep_embedder.linear1.weight",
+    "audio_patchify_proj.weight"
+  ],
+  "shapes": {
+    "transformer_blocks.0.attn1.to_q.weight": [
+      4096,
+      4096
+    ],
+    "transformer_blocks.0.attn1.to_out.weight": [
+      4096,
+      4096
+    ],
+    "transformer_blocks.0.ff.proj_in.weight": [
+      16384,
+      4096
+    ],
+    "transformer_blocks.0.ff.proj_out.weight": [
+      4096,
+      16384
+    ],
+    "transformer_blocks.0.audio_ff.proj_in.weight": [
+      8192,
+      2048
+    ],
+    "transformer_blocks.5.attn2.to_v.weight": [
+      4096,
+      4096
+    ],
+    "adaln_single.linear.weight": [
+      36864,
+      4096
+    ],
+    "adaln_single.emb.timestep_embedder.linear1.weight": [
+      4096,
+      256
+    ],
+    "audio_patchify_proj.weight": [
+      2048,
+      128
+    ]
+  },
+  "single_strength": 1.0,
+  "multi_strengths": [
+    1.0,
+    0.6
+  ]
+}

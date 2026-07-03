@@ -1,0 +1,14 @@
+{
+  "audio_token_count_41frames_24fps": 43,
+  "video_latent_shape_41x64x96": [
+    6,
+    2,
+    3
+  ],
+  "video_dims_out": [
+    2,
+    3,
+    2
+  ],
+  "audio_t_out": 5
+}

@@ -107,7 +107,13 @@ public struct VideoDecoder {
     /// Decode a latent (B, C, F, H, W) in PyTorch/BCFHW layout, matching the
     /// reference `decode()`'s own input/output convention exactly (it
     /// transposes to BFHWC internally and back to BCFHW on return).
-    public func callAsFunction(_ latentBCFHW: MLXArray) -> MLXArray {
+    ///
+    /// `materializeStages: true` force-evals after every upsample stage so the
+    /// prior (smaller) stage's activations can be freed before the next
+    /// (larger) stage builds — set by VideoDecodeTiling's per-tile decode; the
+    /// no-tiling path keeps it off to preserve kernel fusion across stages
+    /// (mirrors the reference `_materialize_stages`).
+    public func callAsFunction(_ latentBCFHW: MLXArray, materializeStages: Bool = false) -> MLXArray {
         var x = latentBCFHW.transposed(0, 2, 3, 4, 1)  // BCFHW -> BFHWC
         x = stats.denormalizeLatent(x)
         x = convIn(x)
@@ -122,6 +128,9 @@ public struct VideoDecoder {
                 if stage.temporalFactor > 1 {
                     let d = x.dim(1)
                     x = x[0..., 1..<d, 0..., 0..., 0...]
+                }
+                if materializeStages {
+                    MLX.eval(x)
                 }
             }
         }

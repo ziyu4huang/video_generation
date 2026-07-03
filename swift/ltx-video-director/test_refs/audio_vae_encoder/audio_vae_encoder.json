@@ -1,0 +1,15 @@
+{
+  "mel_shape": [
+    1,
+    2,
+    32,
+    64
+  ],
+  "latent_shape": [
+    1,
+    8,
+    8,
+    16
+  ],
+  "checkpoint": "mlx-models/audio/ltx-2.3-audio/audio_vae.safetensors"
+}
