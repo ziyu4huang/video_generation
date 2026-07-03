@@ -30,6 +30,14 @@
  *   --version, -v                  version
  *
  * Everything positional that isn't a flag value is collected as the task/prompt.
+ *
+ * ## Table-driven flags
+ *
+ * Standard-shape flags (value, numeric, boolean) are declared in tables below —
+ * adding one is a single row. Special-shape flags (--verbose with its repeatable
+ * + peek-numeric forms, --mode enum, --tools CSV, --dpi 1–4096 range,
+ * --append-system-prompt file-or-text, -e/--extension ignored-with-value) stay
+ * inline because their handling doesn't fit a uniform pattern.
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -148,11 +156,11 @@ function csv(val: string): string[] {
 }
 
 /**
- * Fail-fast numeric flag parsing — mirrors --depth / --top-k / --dpi. Bad input
- * throws instead of silently coercing to 0/default, so a typo like `--retries
- * abc` can't quietly disable 429 retries (the old `Number(x) || 0` did exactly
- * that). 0 stays valid where it is semantically meaningful (e.g. --retries 0 =
- * no retries, --context-lines 0 = titles only, --max-notes 0 = unlimited).
+ * Fail-fast numeric flag parsing. Bad input throws instead of silently coercing
+ * to 0/default, so a typo like `--retries abc` can't quietly disable 429
+ * retries (the old `Number(x) || 0` did exactly that). 0 stays valid where it
+ * is semantically meaningful (e.g. --retries 0 = no retries, --context-lines 0
+ * = titles only, --max-notes 0 = unlimited).
  *
  * @param name    flag name for the error message (e.g. "--retries")
  * @param raw     the raw token from argv
@@ -175,14 +183,86 @@ function parseNumericFlag(
 		n >= min &&
 		(!integer || Number.isInteger(n));
 	if (!ok) {
-		const kind = integer ? "an integer" : "a number";
-		const bound = min > 0 ? `greater than or equal to ${min}` : "non-negative";
+		const kind = integer ? "integer" : "number";
+		const bound = min > 0 ? `≥ ${min}` : "non-negative";
 		throw new Error(
-			`Invalid ${name} "${raw}" — use ${kind} ${bound} (e.g. ${example}).`,
+			`Invalid ${name} "${raw}" — expected a ${bound} ${kind} (e.g. ${example}).`,
 		);
 	}
 	return n;
 }
+
+// ─── Declarative flag tables ───────────────────────────────────────────────
+// Adding a standard flag = add ONE row. Special-shape flags stay inline in
+// the parse loop below.
+
+type NumericField =
+	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
+	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens";
+
+/** Numeric value flags validated through `parseNumericFlag` (fail-fast). */
+const NUMERIC_FLAGS: ReadonlyArray<{
+	flag: string;
+	field: NumericField;
+	min?: number;
+	integer?: boolean;
+	example?: string;
+}> = [
+	{ flag: "--max-notes", field: "maxNotes", example: "30" },
+	{ flag: "--context-lines", field: "contextLines", example: "3" },
+	{ flag: "--retries", field: "retries", example: "3" },
+	{ flag: "--retry-wait", field: "retryWaitSec", integer: false, example: "10" },
+	{ flag: "--limit", field: "limit", min: 1, example: "10" },
+	{ flag: "--depth", field: "depth", example: "2" },
+	{ flag: "--max-neighbors", field: "maxNeighbors", example: "5" },
+	{ flag: "--top-k", field: "topK", example: "8" },
+	{ flag: "--max-note-tokens", field: "maxNoteTokens", example: "2000" },
+];
+
+type ValueField =
+	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
+	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
+	| "vlmModel";
+
+/** String value flags: `--flag <value>` or `--flag=value`. */
+const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
+	{ flag: "--provider", field: "provider" },
+	{ flag: "--model", field: "model" },
+	{ flag: "--thinking", field: "thinking" },
+	{ flag: "--api-key", field: "apiKey" },
+	{ flag: "--system-prompt", field: "systemPrompt" },
+	{ flag: "--vault", field: "vault" },
+	{ flag: "--vault-dir", field: "vaultDir" },
+	{ flag: "--folder", field: "folder" },
+	{ flag: "--out", field: "out" },
+	{ flag: "--type", field: "type" },
+	{ flag: "--pages", field: "pages" },
+	{ flag: "--file", field: "file" },
+	{ flag: "--vlm-model", field: "vlmModel" },
+];
+
+type BoolField =
+	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
+	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
+	| "noBuiltinTools";
+
+/** Boolean flags: presence sets the field true. Supports aliases. */
+const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
+	{ flags: ["--retrieve-only"], field: "retrieveOnly" },
+	{ flags: ["--summarize"], field: "summarize" },
+	{ flags: ["--no-refine"], field: "noRefine" },
+	{ flags: ["--force"], field: "force" },
+	{ flags: ["--no-context"], field: "noContext" },
+	{ flags: ["--force-distill"], field: "forceDistill" },
+	{ flags: ["--delete-png"], field: "deletePng" },
+	{ flags: ["--no-session"], field: "noSession" },
+	{ flags: ["-p", "--print"], field: "print" },
+	{ flags: ["-nt", "--no-tools"], field: "noTools" },
+	{ flags: ["-nbt", "--no-builtin-tools"], field: "noBuiltinTools" },
+];
+
+/** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
+const IGNORED_BOOL_FLAGS = new Set(["-a", "--approve", "-ne", "--no-extensions"]);
 
 /**
  * Parse pi-aligned flags from an argv slice.
@@ -215,6 +295,18 @@ export function parsePiArgs(
 		return undefined;
 	};
 
+	/**
+	 * Assign a table-derived field. The field unions (ValueField/NumericField/
+	 * BoolField) constrain which keys are legal; the cast bypasses TS's refusal
+	 * to write through a union of keys whose value types differ. The field/value
+	 * pairings are statically fixed by the tables above, so this is sound.
+	 */
+	type Assignable = ValueField | NumericField | BoolField;
+	const assign = (field: Assignable, value: string | number | boolean): void => {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		(out as any)[field] = value;
+	};
+
 	while (i < argv.length) {
 		const a = argv[i];
 		// Loop guard guarantees i < argv.length; the explicit undefined check
@@ -222,29 +314,12 @@ export function parsePiArgs(
 		// `string | undefined`) and narrows `a` to `string` for the whole body.
 		if (a === undefined) break;
 
-		// value flags (with `=` support)
-		const valFlags: Array<keyof ParsedArgs> = [
-			"provider",
-			"model",
-			"thinking",
-			"apiKey",
-			"systemPrompt",
-			"vault",
-			"vaultDir",
-			"folder",
-			"out",
-			"type",
-			"pages",
-			"file",
-		];
+		// value flags (`--flag <value>` or `--flag=value`) — table-driven
 		let matched: string | undefined;
-		for (const key of valFlags) {
-			const flagName =
-				"--" + key.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-			matched = take(flagName);
+		for (const { flag, field } of VALUE_FLAGS) {
+			matched = take(flag);
 			if (matched !== undefined) {
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				(out as any)[key] = matched;
+				assign(field, matched);
 				break;
 			}
 		}
@@ -253,26 +328,28 @@ export function parsePiArgs(
 			continue;
 		}
 
-		// --max-notes (non-negative integer; 0 = unlimited hint)
-		{
-			const mn = take("--max-notes");
-			if (mn !== undefined) {
-				out.maxNotes = parseNumericFlag("--max-notes", mn, { example: "30" });
+		// numeric flags — fail-fast via parseNumericFlag (table-driven)
+		let numHandled = false;
+		for (const { flag, field, ...opts } of NUMERIC_FLAGS) {
+			const v = take(flag);
+			if (v !== undefined) {
+				assign(field, parseNumericFlag(flag, v, opts));
 				i++;
-				continue;
+				numHandled = true;
+				break;
 			}
 		}
+		if (numHandled) continue;
 
 		// --dpi (numeric; must be a positive integer — it feeds rasterization, so a
 		// bad value would either silently fall back (Number("abc")||150) or produce a
-		// broken render (negative/zero DPI → opaque per-page "unknown error"). Reject
-		// it up front like --type / --pages instead. Caught by cli.ts top-level catch.
+		// broken render (negative/zero DPI → opaque per-page "unknown error")). 4096
+		// is already enormous (a letter page → ~50k px); unique 1–4096 range, so it
+		// stays inline rather than joining NUMERIC_FLAGS.
 		{
 			const d = take("--dpi");
 			if (d !== undefined) {
 				const n = Number(d);
-				// 4096 DPI is already enormous (a letter page → ~50k px); anything
-				// larger is a mistake and would OOM the rasterizer. Reject up front.
 				if (!Number.isFinite(n) || n <= 0 || n > 4096) {
 					throw new Error(
 						`Invalid --dpi "${d}" — use a positive integer between 1 and 4096 (e.g. 150).`,
@@ -284,145 +361,17 @@ export function parsePiArgs(
 			}
 		}
 
-		// pdf-to-vault pipeline flags
+		// boolean flags (presence → true; supports aliases) — table-driven
 		{
-			const vm = take("--vlm-model");
-			if (vm !== undefined) {
-				out.vlmModel = vm;
+			const hit = BOOLEAN_FLAGS.find((b) => b.flags.includes(a));
+			if (hit) {
+				assign(hit.field, true);
 				i++;
 				continue;
 			}
 		}
-		{
-			const r = take("--retries");
-			if (r !== undefined) {
-				out.retries = parseNumericFlag("--retries", r, { example: "3" });
-				i++;
-				continue;
-			}
-		}
-		{
-			const rw = take("--retry-wait");
-			if (rw !== undefined) {
-				out.retryWaitSec = parseNumericFlag("--retry-wait", rw, { integer: false, example: "10" });
-				i++;
-				continue;
-			}
-		}
-		if (a === "--delete-png") {
-			out.deletePng = true;
-			i++;
-			continue;
-		}
-		if (a === "--force-distill") {
-			out.forceDistill = true;
-			i++;
-			continue;
-		}
-		if (a === "--force") {
-			out.force = true;
-			i++;
-			continue;
-		}
-		if (a === "--no-context") {
-			out.noContext = true;
-			i++;
-			continue;
-		}
-
-		// --context-lines (non-negative integer; 0 = titles only)
-		{
-			const cl = take("--context-lines");
-			if (cl !== undefined) {
-				out.contextLines = parseNumericFlag("--context-lines", cl, { example: "3" });
-				i++;
-				continue;
-			}
-		}
-
-		// --limit (positive integer; max results)
-		{
-			const lim = take("--limit");
-			if (lim !== undefined) {
-				out.limit = parseNumericFlag("--limit", lim, { min: 1, example: "10" });
-				i++;
-				continue;
-			}
-		}
-
-		// --depth (non-negative integer)
-		{
-			const dep = take("--depth");
-			if (dep !== undefined) {
-				const depN = Number(dep);
-				if (!Number.isInteger(depN) || depN < 0)
-					throw new Error(
-						`Invalid --depth "${dep}" — use a non-negative integer (e.g. 2).`,
-					);
-				out.depth = depN;
-				i++;
-				continue;
-			}
-		}
-
-		// --max-neighbors (non-negative integer)
-		{
-			const mn = take("--max-neighbors");
-			if (mn !== undefined) {
-				const mnN = Number(mn);
-				if (!Number.isInteger(mnN) || mnN < 0)
-					throw new Error(
-						`Invalid --max-neighbors "${mn}" — use a non-negative integer (e.g. 5).`,
-					);
-				out.maxNeighbors = mnN;
-				i++;
-				continue;
-			}
-		}
-
-		// --top-k (non-negative integer)
-		{
-			const tk = take("--top-k");
-			if (tk !== undefined) {
-				const tkN = Number(tk);
-				if (!Number.isInteger(tkN) || tkN < 0)
-					throw new Error(
-						`Invalid --top-k "${tk}" — use a non-negative integer (e.g. 8).`,
-					);
-				out.topK = tkN;
-				i++;
-				continue;
-			}
-		}
-
-		// --max-note-tokens (non-negative integer)
-		{
-			const mnt = take("--max-note-tokens");
-			if (mnt !== undefined) {
-				const mntN = Number(mnt);
-				if (!Number.isInteger(mntN) || mntN < 0)
-					throw new Error(
-						`Invalid --max-note-tokens "${mnt}" — use a non-negative integer (e.g. 2000).`,
-					);
-				out.maxNoteTokens = mntN;
-				i++;
-				continue;
-			}
-		}
-
-		if (a === "--retrieve-only") {
-			out.retrieveOnly = true;
-			i++;
-			continue;
-		}
-		if (a === "--summarize") {
-			out.summarize = true;
-			i++;
-			continue;
-		}
-		if (a === "--no-refine") {
-			out.noRefine = true;
-			i++;
+		if (IGNORED_BOOL_FLAGS.has(a)) {
+			i++; // accepted, no-op (self-trusted / extensions baked in)
 			continue;
 		}
 
@@ -457,7 +406,7 @@ export function parsePiArgs(
 			}
 		}
 
-		// --tools / -t
+		// --tools / -t  (csv)
 		{
 			const t = take("--tools") ?? take("-t");
 			if (t !== undefined) {
@@ -467,7 +416,7 @@ export function parsePiArgs(
 			}
 		}
 
-		// --exclude-tools / -xt
+		// --exclude-tools / -xt  (csv)
 		{
 			const t = take("--exclude-tools") ?? take("-xt");
 			if (t !== undefined) {
@@ -477,35 +426,29 @@ export function parsePiArgs(
 			}
 		}
 
-		// booleans
-		if (a === "-p" || a === "--print") {
-			out.print = true;
-			i++;
-			continue;
-		}
 		// --verbose / -V  (repeatable; optional numeric arg: --verbose 2)
 		// --debug         (alias for level 2 — full args + result preview)
 		if (a === "-V" || a === "--verbose" || /^-V+$/.test(a) || /^--verbose=\d+$/.test(a)) {
 			if (a.startsWith("--verbose=")) {
-						// --verbose=N  (= form)
-						const n = Number(a.slice("--verbose=".length));
-						if (Number.isInteger(n) && n >= 0 && n <= 2) out.verbose = n;
-						i++;
+				// --verbose=N  (= form)
+				const n = Number(a.slice("--verbose=".length));
+				if (Number.isInteger(n) && n >= 0 && n <= 2) out.verbose = n;
+				i++;
 			} else if (/^-V+$/.test(a) && a.length > 2) {
-						// -VV → 2, -VVV → 2 (clamped). Each extra V adds one level.
-						out.verbose = Math.min(2, out.verbose + (a.length - 1));
-						i++;
+				// -VV → 2, -VVV → 2 (clamped). Each extra V adds one level.
+				out.verbose = Math.min(2, out.verbose + (a.length - 1));
+				i++;
 			} else {
-						// bare -V or --verbose; peek for a following numeric value
-						const next = argv[i + 1];
-						if (next !== undefined && /^\d+$/.test(next)) {
-						const n = Number(next);
-						if (Number.isInteger(n) && n >= 0 && n <= 2) out.verbose = n;
-						i += 2;
-						} else {
-						out.verbose = Math.min(2, out.verbose + 1);
-						i++;
-						}
+				// bare -V or --verbose; peek for a following numeric value
+				const next = argv[i + 1];
+				if (next !== undefined && /^\d+$/.test(next)) {
+					const n = Number(next);
+					if (Number.isInteger(n) && n >= 0 && n <= 2) out.verbose = n;
+					i += 2;
+				} else {
+					out.verbose = Math.min(2, out.verbose + 1);
+					i++;
+				}
 			}
 			continue;
 		}
@@ -514,35 +457,12 @@ export function parsePiArgs(
 			i++;
 			continue;
 		}
-		if (a === "--no-session") {
-			out.noSession = true;
-			i++;
-			continue;
-		}
-		if (a === "-a" || a === "--approve") {
-			i++; // ignored (self-trusted)
-			continue;
-		}
 		if (a === "-e" || a === "--extension") {
-			i += 2; // ignored (obsidian baked in)
+			i += 2; // ignored (obsidian baked in) — value flag, skip 2 tokens
 			continue;
 		}
 		if (a.startsWith("-e=") || a.startsWith("--extension=")) {
-			i++;
-			continue;
-		}
-		if (a === "-ne" || a === "--no-extensions") {
-			i++; // ignored
-			continue;
-		}
-		if (a === "-nt" || a === "--no-tools") {
-			out.noTools = true;
-			i++;
-			continue;
-		}
-		if (a === "-nbt" || a === "--no-builtin-tools") {
-			out.noBuiltinTools = true;
-			i++;
+			i++; // ignored (= form, single token)
 			continue;
 		}
 		if (a === "-h" || a === "--help" || a === "help") {
