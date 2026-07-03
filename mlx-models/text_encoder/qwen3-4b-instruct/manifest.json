@@ -1,0 +1,17 @@
+{
+  "_comment": "Qwen3-VL-4B-Instruct LM-half text encoder for Krea 2 — 12-layer hidden-state tapping at (2,5,8,11,14,17,20,23,26,29,32,35). Extracted from the full Qwen3-VL-4B-Instruct model (language_model.* -> model.*) and quantized to 4-bit gs32 by scripts/krea2_extract_instruct_encoder.py. Weights externalized to the content-addressed store; this in-tree entry is a symlink.",
+  "name": "qwen3-4b-instruct",
+  "type": "text_encoder",
+  "arch": "qwen3-vl-4b",
+  "format": "mlx-4bit-gs32",
+  "description": "Qwen3-VL-4B-Instruct text path (LM half), 4-bit MLX gs32. Krea 2 text encoder (12-layer tap).",
+  "source": "huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+  "source_url": "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct",
+  "weight_file": "model.safetensors",
+  "pipeline": ["krea2"],
+  "compatible_with": ["tokenizer/qwen3", "transformer/krea2-turbo"],
+  "size_bytes": 2514414621,
+  "md5": "80488b8240aae282e43d0417da7c264c",
+  "created_at": "2026-07-03T00:00:00Z",
+  "author_notes": "Instruct LM-half (NOT the base qwen3-4b) — base produced 2/10 glitchy output; Instruct fixed it to 8.5/10. config.json co-located in-tree."
+}

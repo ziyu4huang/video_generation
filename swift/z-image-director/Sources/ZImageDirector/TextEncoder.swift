@@ -199,6 +199,23 @@ public struct Qwen3TextEncoder {
         }
         return output
     }
+
+    /// Per-layer hidden states mirroring transformers ``output_hidden_states``:
+    /// index 0 = embedding output, index k = output of layer (k-1), final = norm(last).
+    /// Used by Krea 2 (swift/krea2-image-director) to tap 12 selected layers feeding
+    /// the DiT text-fusion stage. Additive public API — does not change existing behavior.
+    public func forwardHiddenStates(_ inputIds: MLXArray) -> [MLXArray] {
+        var x = embedTokens(inputIds)
+        let seqLen = inputIds.dim(1)
+        let mask = MLX.triu(MLX.full([seqLen, seqLen], values: -1e9 as Float), k: 1)
+        var hs: [MLXArray] = [x]              // [0] = embedding output
+        for block in blocks {
+            x = block(x, mask: mask)
+            hs.append(x)                      // [k] = output of layer k-1
+        }
+        hs.append(finalNorm(x))               // final norm
+        return hs
+    }
 }
 
 // MARK: - Weight loader

@@ -82,6 +82,7 @@ _MODELS_DIR_GLOBALS = [
     "LTX_DASIWA_TRANSFORMER_DIR", "LTX_MLX_DASIWA_DIR",
     "LTX_RESTORE_LORA", "LTX_UPSCALE_LORA",
     "DEFAULT_UPSCALE_MODEL", "CONTROLNET_DIR",
+    "KREA2_TRANSFORMER_DIR", "KREA2_VAE_DIR", "KREA2_TEXT_ENCODER_DIR", "KREA2_TOKENIZER_DIR",
 ]
 
 
@@ -132,6 +133,14 @@ def _apply_models_dir(d: str) -> None:
     v["DEFAULT_UPSCALE_MODEL"] = os.path.join(d, "upscale", "4x-nomos-webphoto-realplksr", "4xNomosWebPhoto_RealPLKSR.pth")
     # Z-Image ControlNet (Union 2.1 Lite, MLX 4-bit GS32).
     v["CONTROLNET_DIR"] = os.path.join(d, "controlnet", "zimage-turbo-fun-union-2.1-mlx")
+    # Krea 2 Turbo (single-stream MMDiT, Qwen3-VL text path, qwen_image_vae).
+    # Transformer is the raw `turbo.safetensors` (strict-loadable); VAE is
+    # qwen_image_vae (same f8/16c family as zimage-ae); text encoder reuses the
+    # Qwen3-4B weights (LM half of Qwen3-VL-4B-Instruct, tapped at 12 layers).
+    v["KREA2_TRANSFORMER_DIR"] = os.path.join(d, "transformer", "krea2-turbo")
+    v["KREA2_VAE_DIR"] = os.path.join(d, "vae", "qwen-image-vae")
+    v["KREA2_TEXT_ENCODER_DIR"] = os.path.join(d, "text_encoder", "qwen3-4b")
+    v["KREA2_TOKENIZER_DIR"] = os.path.join(d, "tokenizer", "qwen3")
     # Drift guard: the names computed above must match the declared registry.
     assert set(v) == set(_MODELS_DIR_GLOBALS), (
         "_apply_models_dir / _MODELS_DIR_GLOBALS drift (symmetric difference): "

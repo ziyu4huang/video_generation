@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 102,
+  "count": 105,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -410,6 +410,18 @@
     "vae/zimage-ae/model.safetensors": {
       "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
+    },
+    "transformer/krea2-turbo/model.safetensors": {
+      "md5": "b3bb2ec9a98d5636c409db7a33bbdb00",
+      "size": 13645822445
+    },
+    "vae/qwen-image-vae/diffusion_pytorch_model.safetensors": {
+      "md5": "53cbcb16b5df94818f10f811d4c041bc",
+      "size": 507591892
+    },
+    "text_encoder/qwen3-4b-instruct/model.safetensors": {
+      "md5": "80488b8240aae282e43d0417da7c264c",
+      "size": 2514414621
     }
   }
 }

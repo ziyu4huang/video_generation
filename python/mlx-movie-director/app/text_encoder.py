@@ -119,6 +119,20 @@ class Qwen3Model(nn.Module):
 
         return hidden_states[-2]
 
+    def forward_hidden_states(self, input_ids: mx.array) -> list[mx.array]:
+        """Per-layer hidden states mirroring transformers ``output_hidden_states``:
+        index 0 = embedding output, index k = output of layer (k-1), final = norm(last).
+        Used by Krea 2 to tap 12 selected layers feeding the in-DiT text-fusion stage."""
+        x = self.embed_tokens(input_ids)
+        B, L = input_ids.shape
+        mask = mx.triu(mx.full((L, L), -1e9), k=1)
+        hs = [x]                       # [0] = embedding output
+        for layer in self.layers:
+            x = layer(x, mask)
+            hs.append(x)               # [k] = output of layer k-1
+        hs.append(self.norm(x))        # final norm
+        return hs
+
 
 class TextEncoderMLX(nn.Module):
     def __init__(self, config: dict[str, Any]):
