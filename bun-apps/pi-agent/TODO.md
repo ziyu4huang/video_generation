@@ -39,12 +39,12 @@ NOT copy those source dirs, so `-e flux2` correctly does NOT work there — don'
 add a deploy-mode case for it (it would be a false failure).
 
 **How to implement (resumed investigation):**
-- The alias factories are cheap at load time: `pi-agent-flux2/extensions/pi-flux2.ts`
+- The alias factories are cheap at load time: `pi-agent-ext-flux2/extensions/pi-flux2.ts`
   registers a single `flux2` tool (just `pi.registerTool`, no `session_start`
   heavy work); `pi-dynamic-workflows/extensions/workflow.ts` likewise. So a
   `session_start` probe that `process.exit()`s before the model call is fine.
 - Reuse the existing probe pattern: run `bun src/cli.ts -e flux2 -e <probe> -p hi`,
-  marker = `<repo>/bun-apps/pi-agent-flux2`; assert `matched > 0` (and/or
+  marker = `<repo>/bun-apps/pi-agent-ext-flux2`; assert `matched > 0` (and/or
   `flux2` tool present). A control run WITHOUT `-e flux2` should give `matched=0`
   (flux2 is lazy, not in the eager manifest) — proves the opt-in is what loads it.
 - Add to `src/__tests__/e2e-extensions.test.ts` SOURCE describe, gated on the

@@ -1,4 +1,4 @@
-# pi-agent-flux2
+# pi-agent-ext-flux2
 
 A [pi-agent](https://github.com/earendil-works/pi-coding-agent) extension that wraps the
 `swift/flux2-image-director` CLI (`flux2`) as **one agent-optimized tool**.
@@ -33,13 +33,13 @@ guards — so an agent can generate, gate, and chain images without memorizing f
 ```bash
 # Source mode (hot):
 bun bun-apps/pi-agent/src/cli.ts \
-  -e bun-apps/pi-agent-flux2/extensions/pi-flux2.ts \
+  -e bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts \
   -p "generate a 1024×1024 t2i image of a cat, seed 42"
 ```
 
 ```bash
 # Bundle:
-cd bun-apps/pi-agent-flux2 && bun scripts/build-bundle.ts   # → dist/pi-extensions/pi-agent-flux2.bundle.js
+cd bun-apps/pi-agent-ext-flux2 && bun scripts/build-bundle.ts   # → dist/pi-extensions/pi-agent-ext-flux2.bundle.js
 ```
 
 ## Multi-seed scene pipeline

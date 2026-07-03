@@ -1,5 +1,5 @@
 {
-  "name": "@repo/pi-agent-flux2",
+  "name": "@repo/pi-agent-ext-flux2",
   "version": "0.1.0",
   "private": true,
   "type": "module",
