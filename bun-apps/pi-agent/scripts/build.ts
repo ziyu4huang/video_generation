@@ -2,13 +2,19 @@
  * Build pipeline for pi-agent.
  *
  * Tiers:
- *   bun scripts/build.ts            bundle + minify + external sourcemap
+ *   bun scripts/build.ts            bundle + minify (NO sourcemap by default)
+ *   bun scripts/build.ts --sourcemap also emit the external sourcemap (.map)
  *   bun scripts/build.ts --compile  bun --compile → standalone executable
  *   bun scripts/build.ts --all      bundle + compile
  *
+ * Sourcemap is OPT-IN: the .map embeds full original source (~20 MB) and is
+ * never shipped — deploy.ts only copies pi-agent.js. Emitting it bloats dist/,
+ * slows the build, and served no runtime purpose. Pass --sourcemap when you
+ * need it for debugging the bundle in place.
+ *
  * Output (repo root dist/, namespaced):
  *   ../../dist/pi-agent/pi-agent.js      bundled entry (minified)
- *   ../../dist/pi-agent/pi-agent.js.map  sourcemap (debug only — embeds full source)
+ *   ../../dist/pi-agent/pi-agent.js.map  sourcemap (ONLY with --sourcemap)
  *   ../../dist/pi-agent/pi-agent         standalone executable (--compile only)
  *   ../../dist/pi-agent/theme/           asset dir copied alongside binary
  *   ../../dist/pi-agent/export-html/     asset dir copied alongside binary
@@ -63,6 +69,9 @@ const EXE = `${OUTDIR}/${APP_NAME}`;
 
 const argv = process.argv.slice(2);
 const DO_COMPILE = argv.includes("--compile") || argv.includes("--all");
+// Sourcemap is opt-in (see file header): the .map is ~20 MB, embeds full source,
+// and is never shipped (deploy.ts copies only pi-agent.js). Default off.
+const WITH_SOURCEMAP = argv.includes("--sourcemap");
 
 function ensureOutdir() {
   if (!existsSync(OUTDIR)) mkdirSync(OUTDIR, { recursive: true });
@@ -138,7 +147,7 @@ async function stageBundle() {
     format: "esm",
     naming: `${APP_NAME}.js`,
     minify: { whitespace: true, identifiers: true, syntax: true },
-    sourcemap: "external",
+    sourcemap: WITH_SOURCEMAP ? "external" : "none",
     splitting: false,
   });
 
@@ -147,7 +156,11 @@ async function stageBundle() {
     process.exit(1);
   }
 
-  appendFileSync(OUTFILE, `\n//# sourceMappingURL=${APP_NAME}.js.map\n`);
+  // Only append the sourceMappingURL comment when a map was actually emitted;
+  // otherwise the comment points at a nonexistent file.
+  if (WITH_SOURCEMAP) {
+    appendFileSync(OUTFILE, `\n//# sourceMappingURL=${APP_NAME}.js.map\n`);
+  }
   console.log(`  ✓ ${OUTFILE}  (${formatSize(OUTFILE)})`);
   console.log(`  ✓ ${MAPFILE}`);
 }
@@ -255,8 +268,8 @@ if (DO_COMPILE) {
 // try/catch'd dynamic import and skips when the file is absent.
 
 console.log("▶ done");
-if (existsSync(MAPFILE)) {
+if (WITH_SOURCEMAP && existsSync(MAPFILE)) {
   console.log("");
-  console.log("  ⚠  sourcemap present — contains full original source.");
-  console.log("     Remove before shipping:  rm dist/pi-agent/pi-agent.js.map");
+  console.log("  ⚠  sourcemap present (you passed --sourcemap) — contains full original source.");
+  console.log("     It is NOT shipped by deploy.ts. Remove if unwanted:  rm dist/pi-agent/pi-agent.js.map");
 }
