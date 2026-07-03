@@ -5,7 +5,8 @@
     "pi-vlm/extensions/pi-vlm.ts",
     "pi-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
-    "pi-agent-flux2/extensions/pi-flux2.ts"
+    "pi-agent-flux2/extensions/pi-flux2.ts",
+    "pi-hermes-memory/src/index.ts"
   ],
   "skills": [
     "pi-obsidian/skills"
@@ -14,10 +15,6 @@
     {
       "pkg": "@juicesharp/rpiv-ask-user-question",
       "entry": "index.ts"
-    },
-    {
-      "pkg": "pi-hermes-memory",
-      "entry": "src/index.ts"
     }
   ],
   "lazyExtensions": {
