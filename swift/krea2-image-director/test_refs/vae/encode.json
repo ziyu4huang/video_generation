@@ -1,0 +1,15 @@
+{
+  "input_shape": [
+    1,
+    64,
+    64,
+    3
+  ],
+  "output_shape": [
+    1,
+    8,
+    8,
+    16
+  ],
+  "vae_dir": "/Users/huangziyu/proj/video_generation__image_workflow/../video_generation__models/_staging_krea2/vae"
+}

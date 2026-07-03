@@ -1,0 +1,26 @@
+{
+  "_comment": "Krea 2 Turbo (OSS_TURBO) single-stream MMDiT for the pure-Swift krea2-image-director. 28 blocks x 6144 dim, GQA 48/12 heads, Qwen3-VL text path, qwen_image_vae. Weights externalized to the content-addressed store; this in-tree entry is a symlink. Q8 (8-bit g64) produced by scripts/krea2_quantize_turbo.py from bf16 turbo.safetensors.",
+  "name": "krea2-turbo",
+  "type": "transformer",
+  "arch": "krea2-turbo",
+  "format": "mlx-8bit",
+  "description": "Krea 2 Turbo DiT, 8-bit MLX (group_size=64). CFG-free, 8 steps, mu=1.15. Native Swift port in swift/krea2-image-director.",
+  "source": "huggingface.co/krea/Krea-2-Turbo",
+  "source_url": "https://huggingface.co/krea/Krea-2-Turbo",
+  "weight_file": "model.safetensors",
+  "pipeline": ["krea2"],
+  "cli": {"action": "image t2i", "pipeline": "krea2", "transformer": "krea2-turbo"},
+  "compatible_with": [
+    "text_encoder/qwen3-4b-instruct",
+    "tokenizer/qwen3",
+    "vae/qwen-image-vae"
+  ],
+  "size_bytes": 13645822445,
+  "md5": "b3bb2ec9a98d5636c409db7a33bbdb00",
+  "created_at": "2026-07-03T00:00:00Z",
+  "recommended_steps": 8,
+  "recommended_cfg": 0.0,
+  "quant_bits": 8,
+  "quant_group_size": 64,
+  "author_notes": "Quantized 2026-07-03 from bf16 turbo.safetensors (24GB) -> 13.65GB (52%). Native Swift t2i+i2i verified; VLM 8/10 vs 9.2 bf16 (within variance). lin() auto-detects quantized weights via the .scales companion key. bf16 original lives in _staging_krea2/ (not in store)."
+}

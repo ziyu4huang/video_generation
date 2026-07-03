@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+Package.resolved
+
+# Parity oracle tensors — regenerable via scripts/dump_*_reference.py.
+# Large oracles are deliberately NOT committed; see test_refs/README.md.
+test_refs/**/*.safetensors

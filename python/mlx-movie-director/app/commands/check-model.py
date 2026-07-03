@@ -117,6 +117,7 @@ KNOWN_PIPELINES = {
     "lens",
     "ltx-2.3",
     "seedvr2-upscale",
+    "krea2",  # Swift-native (swift/krea2-image-director); Python CLI not wired.
 }
 
 # Known weight formats (warn on unknown).

@@ -1,0 +1,17 @@
+{
+  "_comment": "AutoencoderKLQwenImage (qwen_image_vae) — f8 / 16-channel VAE for Krea 2 (and the Qwen-Image family). 3D causal convs collapse to 2D for single-image (T=1). Weights externalized to the content-addressed store; this in-tree entry is a symlink. config.json (latents_mean/std) co-located in-tree.",
+  "name": "qwen-image-vae",
+  "type": "vae",
+  "arch": "qwen-image-vae",
+  "format": "safetensors-fp32",
+  "description": "Qwen-Image VAE (f8, 16ch latent). Used by Krea 2 native Swift port (decode+encode).",
+  "source": "huggingface.co/krea/Krea-2-Turbo",
+  "source_url": "https://huggingface.co/krea/Krea-2-Turbo/tree/main/vae",
+  "weight_file": "diffusion_pytorch_model.safetensors",
+  "pipeline": ["krea2"],
+  "compatible_with": ["transformer/krea2-turbo"],
+  "size_bytes": 507591892,
+  "md5": "53cbcb16b5df94818f10f811d4c041bc",
+  "created_at": "2026-07-03T00:00:00Z",
+  "author_notes": "VAE encode (i2i) parity-validated vs diffusers (max-diff 3e-4); decode vs diffusers 0.0166. config.json holds latents_mean/std (16 channels)."
+}
