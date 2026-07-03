@@ -147,7 +147,7 @@ source of truth read by both `run-dir/resolve.ts` (source mode) and
 Everything in `manifest.json` above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
 `pi-dynamic-workflows`'s `workflow` tool costs ~2.5k tok/req). Those live in a
-**lazy registry** in `run-dir/manifest.json`'s `lazyExtensions`:
+separate **lazy registry**, `run-dir/settings.json`:
 
 ```json
 { "lazyExtensions": { "workflow": "pi-dynamic-workflows/extensions/workflow.ts", … } }
@@ -171,7 +171,7 @@ unique substring match (ambiguous → no guess, defers to SDK) → directory
 fallback (`<bun-apps>/<alias>/extensions/` with exactly one `.ts`). Real paths
 and URL schemes (`npm:`, `git:`, `file:`, `./…`, `/abs/…`) are passed through
 untouched, so `-e /real/path.ts` still works. To register a new opt-in
-extension, add one entry to `run-dir/manifest.json`'s `lazyExtensions`.
+extension, add one line to `run-dir/settings.json`.
 
 ## Cross-machine portability
 
@@ -196,8 +196,13 @@ Two execution modes are supported and **both load extensions correctly**:
 
 ```bash
 bun scripts/build.ts          # bundle → dist/pi-agent/pi-agent.js (+ node_modules symlink)
+bun scripts/build.ts --sourcemap  # also emit dist/pi-agent/pi-agent.js.map (debug; never shipped)
 bun scripts/build.ts --all    # bundle + standalone binary
 ```
+
+The sourcemap is **opt-in** — the `.map` is ~20 MB (embeds full source) and is
+never shipped (`deploy.ts` copies only `pi-agent.js`), so it's off by default.
+Pass `--sourcemap` when debugging the bundle in place.
 
 Building also generates `src/generated/run-dir-base.ts` (gitignored) — `BUN_APPS_DIR`
 and pre-resolved npm-extension paths, baked in because `import.meta.dir` reflects the
@@ -219,26 +224,86 @@ This is a bun-compile + jiti limitation, not a pi-agent bug — run the binary w
 dir runnable from any cwd. Two modes:
 
 ```bash
-bun scripts/deploy.ts [out-dir]              # DEFAULT: FULL bundles + host node_modules
+bun scripts/deploy.ts [out-dir]              # DEFAULT (bundle): pre-bundled ext + skills
 bun scripts/deploy.ts [out-dir] --release    # RELEASE (source-copy): packages/ + bun install
 ```
 
 | Mode | Layout | Extensions | node_modules |
 |---|---|---|---|
-| **bundle** (default) | `ext-bundles/*.full.js` + `skills/` + `.deploy-bundle` `.deploy-portable` | each ext FULL-bundled (all deps inlined) | host subset via `bun install` (166 packages) |
-| **--release** | `packages/<pkg>/…` (source) + workspaces `package.json` | source folders copied verbatim | workspace install (710 packages) |
+| **bundle** (default) | `ext-bundles/*.thin.js` + `skills/` + `.deploy-bundle` | each ext pre-bundled to one `.js` (`scripts/build-extensions.ts`, THIN — shared typebox) | not copied (redundant); opt in `--with-nm-copy` |
+| **--release** | `packages/<pkg>/…` (source) + workspaces `package.json` | source folders copied verbatim | wired by `bun install` |
 
 `run-dir/resolve.ts` auto-detects the layout at runtime (`.deploy-bundle` +
 `ext-bundles/` → bundle; `packages/` + manifest → release) and injects `-ne` +
-the resolved `-e`/`--skill` paths, so the package is self-contained. The
-`.deploy-portable` marker tells resolve.ts to skip npm abs paths (already
-bundled into `.full.js`).
+the resolved `-e`/`--skill` paths, so the package is self-contained.
+
+**Same-machine caveat (bundle mode):** THIN bundles + pi-agent.js + npm exts all
+resolve deps via baked absolute paths into the repo's `.bun` store, so a bundle
+deploy runs anywhere *on the machine it was built on* (matching the bundle
+portability caveat above) — not relocatable to another host. For a truly
+portable artifact, copy the repo to the same absolute path on the target first,
+or rebuild there. `--release` + `bun install` is the relocatable alternative.
+
+**Reproducibility + size (release/portable):** the generated `package.json`
+pins floating `latest`/`*` ranges to the exact versions the repo's `bun.lock`
+resolved (parsed with trailing-comma tolerance — `bun.lock` is JSON5-ish), so two
+deploys from the same source tree don't drift onto different registry versions.
+The `--release` install also runs with `--production`, which trims the copied
+packages' `devDependencies` (typescript, javascript-obfuscator, @types/bun,
+@biomejs/biome) from the deployed `node_modules` — build/test-only deps that
+don't belong in a shipped runtime. `--portable` (where applicable) installs the
+same way.
+
+**Warm-deploy hash cache (bundle/portable exts):** `build-extensions.ts` writes
+a `<name>.<thin|full>.hash` sidecar per ext, hashed over the entry's whole
+package source tree + thin/full flag + externals + `Bun.version`. A warm deploy
+skips build+resolve+verify for any ext whose inputs haven't changed (only the
+edited ext rebuilds). `--force` bypasses the cache; `Bun.version` is in the hash
+so a bun upgrade auto-invalidates. The `.hash` files stay in `dist/` (deploy
+copies only `*.js`). See `docs/deploy-efficiency.md` for the full efficiency
+audit.
 
 ```bash
 bun scripts/deploy.ts /tmp/pi-bundle         # build + deploy (bundle)
 /tmp/pi-bundle/run.sh --list-models          # smoke (lm-studio models appear)
 cd /tmp && /tmp/pi-bundle/run.sh -p "hi"     # runs from any cwd
 ```
+
+### Read-only deploy (the default)
+
+A deploy is an **immutable artifact**: code + bundled extensions, with ALL
+per-user state routed to `~/.pi/agent`. Both pi itself (`getAgentDir()` →
+`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) and `pi-hermes-memory` (its sqlite
+DB honors the same env) write there — never into the deploy tree. So freezing
+the tree costs nothing at runtime, and `deploy.ts` does it automatically:
+
+- **`chmod -R a-w`** the out-dir, and
+- writes a **`.deploy-readonly`** marker.
+
+The result drops onto `/opt`, an app bundle, or any read-only prefix as-is.
+`run.sh` reads the marker and applies the env hardening that makes a frozen
+deploy actually run:
+
+| env | value | why |
+|---|---|---|
+| `JITI_FS_CACHE` | `0` | jiti caches compiled `.ts` to `node_modules/.cache/jiti` by default; `--release` deploys ship `.ts` source, so that cache write would hit the frozen tree. (Bundle/portable ship pre-compiled `.js`, so this is no-op insurance there.) |
+| `PI_CODING_AGENT_DIR` | `$HOME/.pi/agent` (if unset) | pins per-user state to a writable dir, never the deploy tree |
+
+```bash
+bun scripts/deploy.ts /opt/pi-agent           # frozen by default (chmod a-w + marker)
+sudo chown -R root:wheel /opt/pi-agent        # now truly immutable to non-root
+cd ~/project && /opt/pi-agent/run.sh          # runs; state → ~/.pi/agent
+/opt/pi-agent/run.sh doctor --smoke           # proves extensions load despite the freeze
+
+bun scripts/deploy.ts /tmp/dev-deploy --writable   # opt OUT of the freeze (iteration/cleanup)
+```
+
+Two contract rules for a read-only deploy: invoke `run.sh` from a **non-deploy
+cwd** (so `<cwd>/.pi` isn't the frozen tree), and keep `PI_CODING_AGENT_DIR` on a
+writable path (the default `~/.pi/agent` is fine). The read-only contract is
+guarded by `./run-test.sh readonly` — it freezes a deploy, runs `doctor` +
+`--smoke` from a foreign cwd, and asserts **zero files** are written into the
+frozen tree.
 
 ## Doctor (self-check)
 
@@ -282,6 +347,34 @@ matched=25`). A smoke `matched=0` is a hard FAIL with an actionable hint.
 Default doctor stays pure/offline/fast — `--smoke` is opt-in (it spawns a
 subprocess). Skipped (INFO) for the compiled binary, which can't load `.ts`.
 
+### `doctor --fix` — auto-remediate, then re-check
+
+```bash
+bun src/cli.ts doctor --fix      # source mode: "nothing to fix" (host-deps is info)
+./run.sh doctor --fix            # any deployed layout
+```
+
+`--fix` derives a fix plan from the current report, applies it (mutating), then
+re-runs the checks — the same create-then-recheck shape as
+`pi-agent-cli doctor --fix`. The decisive pi-agent fix: when a `--portable`
+deploy lands on a host whose `node_modules` subset didn't get installed,
+`checkHostDeps` FAILs (typebox/`@earendil-works/*` are essential there) —
+`--fix` runs `bun install` in the deploy dir to self-heal it, then re-checks:
+
+```bash
+bun scripts/deploy.ts /tmp/pi-portable --portable
+rm -rf /tmp/pi-portable/node_modules        # simulate a broken independent deploy
+/tmp/pi-portable/run.sh doctor             # → host-deps FAIL, exit 1
+/tmp/pi-portable/run.sh doctor --fix       # → `bun install`, re-check → PASS, exit 0
+```
+
+Applies to `--release` too (same — ships an installable workspaces
+`package.json`). The default THIN **bundle** is skipped: its `package.json` is
+minimal `{name,private,type}` with no deps, so `bun install` is a no-op there —
+it stays hint-only WARN (use `--with-nm-copy` at deploy time, or copy a
+`node_modules` in by hand). `source`/`binary` print "nothing to fix" (host-deps
+is INFO — pi resolves its own deps).
+
 ## Add your own patch
 
 1. Create `src/patches/<name>.ts` that patches a prototype/module.
@@ -298,7 +391,8 @@ one below (cost is driven by the build + deploy, not the tests):
 ./run-test.sh                  # = medium  (~5s)  unit + build + patch e2e   [default]
 ./run-test.sh quick            # (~0.2s)   unit only, no build — pre-commit safe
 ./run-test.sh high             # (~18s)    + deploy + 4-cwd extension-loading e2e
-./run-test.sh full             # (~35s)    + sibling pi-* unit baseline (whole stack)
+./run-test.sh readonly         # (~20s)    read-only deploy e2e ONLY (freeze + zero-write contract)
+./run-test.sh full             # (~40s)    + readonly + sibling pi-* unit baseline (whole stack)
 ./run-test.sh --list           # print the tier table
 ```
 
@@ -307,6 +401,7 @@ one below (cost is driven by the build + deploy, not the tests):
 | **quick** | unit (pure fn + import-time smoke) | decision-logic regressions |
 | **medium** | build bundle + patch e2e (`--help`/`--list-models` spawns) | patch module dropped from bundle, env→argv splice, **providers not injected** |
 | **high** | deploy + 4-cwd extension-loading e2e (was `scripts/verify.ts`) | cwd-coupled extension loader, deploy-package conflicts |
+| **readonly** | frozen-deploy e2e (chmod a-w + foreign-cwd `doctor`/`--smoke` + zero-write assertion) | a patch/extension that writes into the deploy tree; run.sh losing the `JITI_FS_CACHE=0`/`PI_CODING_AGENT_DIR` hardening |
 | **full** | sibling pi-* unit baseline (obs/kc/cli/vlm) | the whole stack pi-agent loads as extensions |
 
 Plain `bun test` is the `quick` tier (the e2e files skip themselves without
@@ -326,9 +421,8 @@ pi-agent/
 ├── README.md
 ├── run-dir/
 │   ├── manifest.json          # this repo's fixed extension/skill list (eager; edit this)
-│   ├── obsidian_config.json   # pi-obsidian vault config (written by /obsidian-config)
-│   ├── workflows/             # dynamic workflow scripts (dev tools, not auto-discovered)
-│   └── resolve.ts             # resolves manifest.json (extensions + lazy aliases) to absolute argv
+│   ├── settings.json          # lazy/opt-in extension aliases (loaded only via -e <alias>)
+│   └── resolve.ts             # resolves manifest.json + lazy aliases to absolute argv
 └── src/
     ├── cli.ts                    # applyPatches() → main(argv)
     ├── pre-load-providers.ts     # PROVIDERS config + patch logic (edit this)
