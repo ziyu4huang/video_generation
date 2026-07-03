@@ -88,9 +88,11 @@ function readJson<T>(p: string): T | null {
 /** Resolve the output dir from args (--output-dir or --output) or fall back. */
 function outputDirFromArgs(args: string[], fallback: string): string {
   const odIdx = args.indexOf("--output-dir");
-  if (odIdx >= 0 && args[odIdx + 1]) return resolve(args[odIdx + 1]);
+  const odVal = args[odIdx + 1];
+  if (odIdx >= 0 && odVal) return resolve(odVal);
   const outIdx = args.indexOf("--output");
-  if (outIdx >= 0 && args[outIdx + 1]) return dirname(resolve(args[outIdx + 1]));
+  const outVal = args[outIdx + 1];
+  if (outIdx >= 0 && outVal) return dirname(resolve(outVal));
   return fallback;
 }
 
@@ -125,8 +127,10 @@ function resolveOutput(base: string, outputDir: string): string {
 function parseOutputPathFromStdout(stdout: string): string | null {
   const lines = stdout.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i].match(/^\s*(\/[^\s]+\.(?:png|jpg|jpeg|webp))\s*$/i);
-    if (m) return m[1];
+    const line = lines[i];
+    if (!line) continue;
+    const m = line.match(/^\s*(\/[^\s]+\.(?:png|jpg|jpeg|webp))\s*$/i);
+    if (m) return m[1] ?? null;
   }
   return null;
 }

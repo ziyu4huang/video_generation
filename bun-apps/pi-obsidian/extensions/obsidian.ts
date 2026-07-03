@@ -84,7 +84,7 @@ function _missingDeps(deps: string[], from: string | undefined): string[] {
 	return deps.filter((dep) => {
 		const pkgName = dep.startsWith("@")
 			? dep.split("/").slice(0, 2).join("/")
-			: dep.split("/")[0];
+			: dep.split("/")[0] ?? dep;
 		let dir = from;
 		while (true) {
 			if (existsSync(join(dir, "node_modules", pkgName, "package.json")))
@@ -515,7 +515,9 @@ export async function assertWithinVault(
 	// we still want to check that every existing ancestor is real.
 	let cur = vaultReal;
 	for (let i = 0; i < parts.length; i++) {
-		cur = join(cur, parts[i]);
+		const part = parts[i];
+		if (!part) continue;
+		cur = join(cur, part);
 		let st;
 		try {
 			st = await fsLstat(cur);
@@ -535,7 +537,7 @@ export async function assertWithinVault(
 /** Throw if `absPath` falls under a write-blocked top-level segment of the vault. */
 export function assertWritablePath(vaultPath: string, absPath: string): void {
 	const rel = relative(resolve(vaultPath), absPath);
-	const first = rel.split(sep)[0];
+	const first = rel.split(sep)[0] ?? rel;
 	if (WRITE_BLOCKLIST.includes(first)) {
 		throw new Error(
 			`Refusing to write inside blocklisted segment '${first}/' (vault internals): ${rel}`,
@@ -779,7 +781,9 @@ async function readBatched(
 	async function worker() {
 		while (idx < paths.length) {
 			const i = idx++;
-			out[i] = await readCached(paths[i]);
+			const p = paths[i];
+			if (!p) continue;
+			out[i] = await readCached(p);
 		}
 	}
 	const n = Math.min(concurrency, paths.length);
@@ -850,13 +854,13 @@ function levenshtein(a: string, b: string): number {
 		const ca = a.charCodeAt(i - 1);
 		for (let j = 1; j <= n; j++) {
 			const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
-			curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+			curr[j] = Math.min(curr[j - 1]! + 1, prev[j]! + 1, prev[j - 1]! + cost);
 		}
 		const tmp = prev;
 		prev = curr;
 		curr = tmp;
 	}
-	return prev[n];
+	return prev[n]!;
 }
 
 /** Fuzzy line match. Exact substring → true; else (tol 0) ordered subsequence;
@@ -982,10 +986,10 @@ export function computeFieldLabels(lines: string[]): Set<NoteField>[] {
 	const labels: Set<NoteField>[] = new Array(lines.length);
 	let fmStart = -1;
 	let fmEnd = -1;
-	if (lines.length > 0 && lines[0].trim() === "---") {
+	if (lines.length > 0 && lines[0]!.trim() === "---") {
 		fmStart = 0;
 		for (let i = 1; i < lines.length; i++) {
-			if (lines[i].trim() === "---") {
+			if (lines[i]!.trim() === "---") {
 				fmEnd = i;
 				break;
 			}
@@ -994,7 +998,7 @@ export function computeFieldLabels(lines: string[]): Set<NoteField>[] {
 	}
 	let titleIdx = -1;
 	for (let i = 0; i < lines.length; i++) {
-		if (/^#\s+\S/.test(lines[i])) {
+		if (/^#\s+\S/.test(lines[i]!)) {
 			titleIdx = i;
 			break;
 		}
@@ -1004,12 +1008,12 @@ export function computeFieldLabels(lines: string[]): Set<NoteField>[] {
 		const s = new Set<NoteField>();
 		if (fmStart !== -1 && i >= fmStart && i <= fmEnd) {
 			s.add("frontmatter");
-			if (/^\s*tags?\s*:/.test(lines[i])) s.add("tags");
+			if (/^\s*tags?\s*:/.test(lines[i]!)) s.add("tags");
 		} else if (i === titleIdx) {
 			s.add("title");
 		} else {
 			s.add("body");
-			if (inlineTagRe.test(lines[i])) s.add("tags");
+			if (inlineTagRe.test(lines[i]!)) s.add("tags");
 		}
 		labels[i] = s;
 	}
@@ -1033,7 +1037,7 @@ function noteRecencyDays(content: string): number {
 		/^---\n[\s\S]*?\ncreated:\s*["']?(\d{4}-\d{2}-\d{2})/m,
 	);
 	if (!m) return 0;
-	const t = Date.parse(m[1]);
+	const t = Date.parse(m[1]!);
 	return Number.isNaN(t) ? 0 : Math.floor(t / 86_400_000);
 }
 
@@ -1139,6 +1143,7 @@ export async function searchVault(
 	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
 	for (let fi = 0; fi < files.length; fi++) {
 		const f = files[fi];
+		if (!f) continue;
 		if (allowedPaths && !allowedPaths.has(f)) continue;
 		const entry = entries[fi];
 		if (!entry) continue;
@@ -1152,6 +1157,7 @@ export async function searchVault(
 			let lineLabels: Set<NoteField> | undefined;
 			if (needLabels) {
 				lineLabels = labels![i];
+				if (!lineLabels) continue;
 				if (fieldFilter) {
 					let eligible = false;
 					for (const lf of lineLabels)
@@ -1162,13 +1168,14 @@ export async function searchVault(
 					if (!eligible) continue;
 				}
 			}
-			if (!opts.match(lines[i])) continue;
+			const li = lines[i]!;
+			if (!opts.match(li)) continue;
 
 			const field = enrich ? pickField(lineLabels) : undefined;
 			const m: SearchMatch = {
 				file: f,
 				line: i + 1,
-				text: lines[i].trim(),
+				text: li.trim(),
 				field,
 				score: enrich ? fieldWeight(field) : undefined,
 			};
@@ -1245,7 +1252,8 @@ function renderContext(
 	const hi = Math.min(lines.length - 1, i + n);
 	const out: string[] = [];
 	for (let j = lo; j <= hi; j++) {
-		const t = lines[j].trim();
+		const raw = lines[j]!;
+		const t = raw.trim();
 		if (j === i) out.push(`> ${hitText}`);
 		else out.push(`  ${t}`);
 	}
@@ -1259,7 +1267,7 @@ function extractWikiLinks(line: string): string[] {
 	const out: string[] = [];
 	let mm: RegExpExecArray | null;
 	while ((mm = re.exec(line))) {
-		let target = mm[1];
+		let target = mm[1]!;
 		const pipe = target.indexOf("|");
 		if (pipe !== -1) target = target.slice(0, pipe); // drop alias
 		target = target.replace(/#.*$/, "").trim(); // drop heading ref
@@ -1280,11 +1288,11 @@ export interface ParsedFrontmatter {
  *  strings. Returns {data: {}, bodyStart: 0} if no frontmatter. (C1.1) */
 export function parseFrontmatter(content: string): ParsedFrontmatter {
 	const lines = content.split("\n");
-	if (lines.length === 0 || lines[0].trim() !== "---")
+	if (lines.length === 0 || lines[0]!.trim() !== "---")
 		return { data: {}, bodyStart: 0 };
 	let end = -1;
 	for (let i = 1; i < lines.length; i++)
-		if (lines[i].trim() === "---") {
+		if (lines[i]!.trim() === "---") {
 			end = i;
 			break;
 		}
@@ -1292,22 +1300,22 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
 	const data: Record<string, any> = {};
 	let i = 1;
 	while (i < end) {
-		const line = lines[i];
+		const line = lines[i]!;
 		const m = line.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
 		if (!m) {
 			i++;
 			continue;
 		}
-		const key = m[1];
-		const val = m[2].trim();
+		const key = m[1]!;
+		const val = m[2]!.trim();
 		if (val === "") {
 			// block list: subsequent indented "- item" lines
 			const items: any[] = [];
 			let j = i + 1;
 			for (; j < end; j++) {
-				const bm = lines[j].match(/^\s+-\s+(.*)$/);
+				const bm = lines[j]!.match(/^\s+-\s+(.*)$/);
 				if (!bm) break;
-				items.push(stripScalar(bm[1]));
+				items.push(stripScalar(bm[1]!));
 			}
 			data[key] = items.length ? items : "";
 			i = j;
@@ -1420,7 +1428,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 	for (const l of lines) {
 		const m = l.match(/^#\s+(.+?)\s*$/);
 		if (m) {
-			title = m[1];
+			title = m[1]!;
 			break;
 		}
 	}
@@ -1429,7 +1437,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 	let inFm = false,
 		fmDone = false;
 	for (let i = 0; i < lines.length; i++) {
-		const l = lines[i];
+		const l = lines[i]!;
 		if (!fmDone && i === 0 && l.trim() === "---") {
 			inFm = true;
 			continue;
@@ -1451,7 +1459,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 		} else if (!inFm) {
 			const re = /(^|\s)#([A-Za-z0-9_-]+)/g;
 			let mm;
-			while ((mm = re.exec(l))) tags.add(mm[2].toLowerCase());
+			while ((mm = re.exec(l))) tags.add(mm[2]!.toLowerCase());
 		}
 	}
 	// created
@@ -1459,7 +1467,7 @@ function parseNoteMeta(path: string, content: string, mtime: number): NoteMeta {
 	const cm = content.match(
 		/^---\n[\s\S]*?^created:\s*["']?(\d{4}-\d{2}-\d{2})/m,
 	);
-	if (cm) created = cm[1];
+	if (cm) created = cm[1]!;
 	// links
 	const links = new Set<string>();
 	for (const l of lines)
@@ -1549,7 +1557,7 @@ export async function buildIndex(vaultPath: string): Promise<VaultIndex> {
 	for (let i = 0; i < files.length; i++) {
 		const entry = entries[i];
 		if (!entry) continue;
-		const meta = parseNoteMeta(files[i], entry.content, entry.mtime);
+		const meta = parseNoteMeta(files[i]!, entry.content, entry.mtime);
 		indexNote(idx, meta);
 	}
 	// Second pass: now that all notes are in byTitle, recompute link resolution
@@ -1680,6 +1688,7 @@ export async function loadCachedIndex(
 	const stale: string[] = [];
 	for (let i = 0; i < files.length; i++) {
 		const f = files[i];
+		if (!f) continue;
 		const mtime = mtimes[i];
 		const p = persisted.get(f);
 		if (mtime !== null && p && p.mtime === mtime) {
@@ -1703,7 +1712,7 @@ export async function loadCachedIndex(
 		for (let i = 0; i < stale.length; i++) {
 			const entry = entries[i];
 			if (!entry) continue;
-			indexNote(idx, parseNoteMeta(stale[i], entry.content, entry.mtime));
+			indexNote(idx, parseNoteMeta(stale[i]!, entry.content, entry.mtime));
 		}
 	}
 	rebuildReverseAdjacency(idx);
@@ -2146,7 +2155,7 @@ export function rewriteLinksProtected(
 	let inFm = false;
 
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
+		const line = lines[i]!;
 		// Frontmatter: a leading "---" fence at the very top of the file.
 		if (i === 0 && line.trim() === "---") {
 			inFm = true;
@@ -2161,7 +2170,7 @@ export function rewriteLinksProtected(
 		// Fenced code block open/close (``` or ~~~, 3+, ≤3 leading spaces).
 		const fence = line.match(/^\s{0,3}(`{3,}|~{3,})/);
 		if (fence) {
-			const ch = fence[1][0];
+			const ch = fence[1]![0]!;
 			if (!inFence) {
 				inFence = true;
 				fenceChar = ch;
@@ -2541,16 +2550,18 @@ export async function findBacklinks(
 	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
 	for (let fi = 0; fi < files.length; fi++) {
 		const f = files[fi];
+		if (!f) continue;
 		const entry = entries[fi];
 		if (!entry) continue;
 		const lines = entry.lines;
 		for (let i = 0; i < lines.length; i++) {
-			for (const link of extractWikiLinks(lines[i])) {
+			const li = lines[i]!;
+			for (const link of extractWikiLinks(li)) {
 				const linkStripped = link.replace(/\.md$/i, "");
 				const linkN = cmp(linkStripped);
 				const linkBase = cmp(linkStripped.split("/").pop() ?? linkStripped);
 				if (linkN === wantN || linkBase === wantBase) {
-					results.push({ file: f, line: i + 1, text: lines[i].trim() });
+					results.push({ file: f, line: i + 1, text: li.trim() });
 					if (results.length >= max) return results;
 					break; // one match per line is enough
 				}
@@ -2577,6 +2588,7 @@ export async function findTagNotes(
 	const entries = await readBatched(files.map((f) => join(vaultPath, f)));
 	for (let fi = 0; fi < files.length; fi++) {
 		const f = files[fi];
+		if (!f) continue;
 		const entry = entries[fi];
 		if (!entry) continue;
 		const lines = entry.lines;
@@ -2591,7 +2603,7 @@ export async function findTagNotes(
 			fmDone = false,
 			fmTagsLine = -1;
 		for (let i = 0; i < lines.length; i++) {
-			const l = lines[i];
+			const l = lines[i]!;
 			if (!fmDone && i === 0 && l.trim() === "---") {
 				inFm = true;
 				continue;
@@ -2613,16 +2625,16 @@ export async function findTagNotes(
 			results.push({
 				file: f,
 				line: fmTagsLine + 1,
-				text: lines[fmTagsLine].trim(),
+				text: lines[fmTagsLine]!.trim(),
 			});
 			if (results.length >= max) return results;
 		}
 		for (let i = 0; i < lines.length; i++) {
-			const l = lines[i];
+			const l = lines[i]!;
 			let mm: RegExpExecArray | null;
 			inlineRe.lastIndex = 0;
 			while ((mm = inlineRe.exec(l))) {
-				if (cmp(mm[2]) === wantN) {
+				if (cmp(mm[2]!) === wantN) {
 					results.push({ file: f, line: i + 1, text: l.trim() });
 					if (results.length >= max) return results;
 					break;
@@ -2699,12 +2711,12 @@ export async function appendUnderHeading(
 	}
 
 	// find end of the matched section: next heading of same-or-higher level, or EOF
-	const levelMatch = lines[idx].match(/^(#{1,6})/);
-	const level = levelMatch ? levelMatch[1].length : 2;
+	const levelMatch = lines[idx]!.match(/^(#{1,6})/);
+	const level = levelMatch ? levelMatch[1]!.length : 2;
 	let endIdx = lines.length;
 	for (let j = idx + 1; j < lines.length; j++) {
-		const m = lines[j].match(/^(#{1,6})\s/);
-		if (m && m[1].length <= level) {
+		const m = lines[j]!.match(/^(#{1,6})\s/);
+		if (m && m[1]!.length <= level) {
 			endIdx = j;
 			break;
 		}
@@ -2712,7 +2724,7 @@ export async function appendUnderHeading(
 
 	// trim trailing empties of the section
 	let insertAt = endIdx;
-	while (insertAt - 1 > idx && lines[insertAt - 1].trim() === "") insertAt--;
+	while (insertAt - 1 > idx && lines[insertAt - 1]!.trim() === "") insertAt--;
 
 	lines.splice(
 		insertAt,
@@ -2999,7 +3011,8 @@ export function parseStructuredResult(text: string): any {
 	if (!text) return null;
 	const lines = text.split("\n");
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const trimmed = lines[i].trim();
+		const line = lines[i]!;
+		const trimmed = line.trim();
 		if (!trimmed.startsWith("{") || !trimmed.includes("pi_obsidian_result"))
 			continue;
 		try {
@@ -3332,7 +3345,7 @@ export function validateZettelNote(
 		errors.push(`note exceeds ${ZETTEL_MAX_BYTES / 1024}KB (likely garbage)`);
 	// Frontmatter presence: leading `---` ... `---`.
 	const lines = content.split("\n");
-	const hasFm = lines.length > 0 && lines[0].trim() === "---" && lines.slice(1).some((l) => l.trim() === "---");
+	const hasFm = lines.length > 0 && lines[0]!.trim() === "---" && lines.slice(1).some((l) => l.trim() === "---");
 	if (!hasFm) {
 		errors.push("missing YAML frontmatter (no leading `---` block)");
 	} else {
@@ -3416,7 +3429,7 @@ export function validateNoteIntegrity(
 	const lines = content.split("\n");
 	// Frontmatter: a leading `---` MUST be closed by a second `---`. An
 	// unbalanced opener means the body got accidentally merged into YAML.
-	if (lines[0].trim() === "---") {
+	if (lines[0]!.trim() === "---") {
 		const closed = lines.slice(1).some((l) => l.trim() === "---");
 		if (!closed) errors.push("frontmatter opened with --- but never closed");
 	}
@@ -4580,6 +4593,7 @@ ${output.slice(-2000)}`,
 			let validationText = "";
 			if (reportedNotes.length > 0) {
 				try {
+					const v = await getVault(ctx.cwd);
 					validation = await validateZettelNotes(v.path, reportedNotes);
 				} catch {
 					validation = undefined;

@@ -494,8 +494,8 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 			hint: `entry failed early, or an extension's session_start handler blocked past the timeout. stderr tail: ${clean(result.stderr).slice(-180)}`,
 		};
 	}
-	const total = +m[1];
-	const matched = +m[2];
+	const total = +(m[1] ?? "");
+	const matched = +(m[2] ?? "");
 	if (matched > 0) {
 		return { id, label, status: "pass", detail: `total=${total} matched=${matched} — run-dir extensions loaded` };
 	}

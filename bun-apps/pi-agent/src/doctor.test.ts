@@ -240,7 +240,10 @@ describe("applyFixes (via injected FixSpawn seam)", () => {
 			return { code: 0, stderr: "" };
 		};
 		const results = await applyFixes(planFrom(c), c, { spawn });
-		expect(seenCwd).toBe("/out");
+		// `seenCwd` is assigned inside an async callback the type checker can't
+		// see run, so CFA narrows it back to its initial `null`. The runtime
+		// assertion still holds (applyFixes was awaited → spawn ran).
+		expect(seenCwd as unknown as string).toBe("/out");
 		expect(results).toHaveLength(1);
 		expect(results[0]!.status).toBe("pass");
 		expect(results[0]!.id).toBe("fix:host-deps");

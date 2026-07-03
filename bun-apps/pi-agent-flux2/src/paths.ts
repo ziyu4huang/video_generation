@@ -171,7 +171,7 @@ export function validateExtraArgs(
     if (tok.startsWith("-")) {
       // Strip any leading "--" or "-" and "=value" suffix to test the flag name.
       const stripped = tok.replace(/^-+/, "");
-      const flagName = stripped.split("=")[0];
+      const flagName = stripped.split("=")[0] ?? "";
       if (!prefixSet.has(flagName)) {
         throw new PathSafetyError(
           `extraArgs: flag "${tok}" is not allow-listed. Allowed: ${[...prefixSet].sort().join(", ")}`,

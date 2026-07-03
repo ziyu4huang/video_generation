@@ -8,8 +8,17 @@
  * will be missing from the bundle.
  */
 
+/** Literal union of registered patch names. Keep in sync with PATCH_TABLE + the
+ *  `switch` in applyPatches() — the `default: never` guard catches a missing case. */
+export type PatchName =
+	| "set-package-dir"
+	| "skip-update-check"
+	| "pre-load-providers"
+	| "load-run-dir-resources"
+	| "default-model-env";
+
 export interface AppliedPatch {
-  name: string;
+  name: PatchName;
   env: string;
   defaultValue: boolean;
   applied: boolean;
@@ -17,7 +26,7 @@ export interface AppliedPatch {
 
 /** Metadata for each patch: its env gate + the default when the env is unset. */
 export interface PatchEntry {
-  name: string;
+  name: PatchName;
   env: string;
   defaultValue: boolean;
 }
@@ -26,7 +35,8 @@ export interface PatchEntry {
  * The patch registry as data. Order = execution order (set-package-dir must run
  * first). The module to import per entry is resolved by name in applyPatches()
  * via a static-literal switch (bun needs literal import paths to bundle — see
- * the file header). Adding a patch = add an entry here AND a `case` below.
+ * the file header). Adding a patch = add a PatchName literal, an entry here,
+ * AND a `case` below (the `default: never` guard enforces the third).
  */
 export const PATCH_TABLE: readonly PatchEntry[] = [
   // set-package-dir runs first: it sets PI_PACKAGE_DIR before any other patch

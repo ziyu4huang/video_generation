@@ -157,12 +157,18 @@ clean exit, correct manifest); they are tracked as model/prompt follow-ups:
 
 - **CLI-level unit tests now exist.** `src/__tests__/` has 9 files (args,
   dispatch, doctor, extensions-registry, passthrough, resolve, shared,
-  task-runner, zk-extract) — 174 tests, all passing under plain `bun test`.
+  task-runner, zk-extract) — 179 tests, all passing under plain `bun test`.
   The earlier "0 test files" gap is closed. Live end-to-end verification (env
   keys, LM Studio) remains the responsibility of the dynamic workflow below.
 - **`bun test` does not typecheck.** Run `bunx tsc --noEmit` from this package
-  to catch type regressions. Note: it currently reports ~115 errors in
-  *transitive* workspace imports (pi-obsidian, pi-agent-flux2, pi-agent) under
-  this package's strict tsconfig — none in `pi-agent-cli/src` itself. Those
-  belong to the respective packages' own typecheck/self-improve workflows.
+  to catch type regressions — it is now **fully clean (0 errors)**, including
+  the transitive workspace sources it imports (`pi-obsidian`, `pi-agent-flux2`,
+  `pi-agent`). Each of those packages also typechecks under its own tsconfig.
+  Previously this reported ~115 `noUncheckedIndexedAccess` errors in those
+  transitive imports; they were fixed in-place (one was a real runtime bug —
+  see `obsidian.ts` distill-tool `v` binding).
+- **`--` end-of-options separator.** A bare `--` disables flag-parsing for the
+  rest of argv, so extension sub-commands can pass their own flags through
+  verbatim (`flux2 -- t2i --prompt "..."`) and passthrough prompts can include
+  leading-dash operands (`-- "-5 degrees"`).
 - **Live tests depend on external state** (env keys, LM Studio) — not hermetic.

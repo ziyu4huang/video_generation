@@ -29,12 +29,15 @@ import {
   runFlux2,
   PathSafetyError,
   type CommandName,
+  type Flux2Details,
 } from "../src/index.ts";
 
 // ─── Per-command field reference (teaches the agent the exact option keys) ───
 
 function fieldHints(cmdName: CommandName): string {
   const spec = COMMANDS[cmdName];
+  // cmdName is a CommandName (keyof COMMANDS), so the lookup is defined.
+  if (!spec) return "  (no options)";
   const entries = Object.entries(spec.fields);
   if (entries.length === 0) return "  (no options)";
   return entries
@@ -198,7 +201,18 @@ function makeFlux2Tool() {
           extraArgs: params.extraArgs,
           scenePipeline: params.scenePipeline as any,
           signal,
-          onProgress: (u) => onUpdate?.({ kind: "progress", text: u.text }),
+          onProgress: (u) =>
+            onUpdate?.({
+              content: [{ type: "text", text: u.text }],
+              // A progress update is a PARTIAL result streamed mid-execution;
+              // the full Flux2Details aren't known until the process exits. The
+              // SDK's AgentToolUpdateCallback<T> requires an AgentToolResult<T>
+              // (content + details), and its own bash tool passes `details:
+              // undefined` for the same reason — only `content` is rendered for
+              // streaming updates. Cast satisfies the shape without lying about
+              // details that don't exist yet.
+              details: undefined as unknown as Flux2Details,
+            }),
         });
 
         const content = details.ok

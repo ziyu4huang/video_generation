@@ -39,10 +39,18 @@ The flux2 tool is an agent-optimized dispatcher over the \`flux2\` Swift/MLX CLI
 (18 sub-commands: t2i, scene, gate, upscale, …). Give a natural-language request
 as positionals; the agent maps it onto the right flux2 sub-command + options.
 
-Positionals are the request verbatim. Unknown flux2-specific flags (--prompt,
---width, …) are NOT parsed by the CLI — fold them into the request text, or set
-them via environment (MLX_OUTPUT_DIR, MLX_MODELS_DIR, FLUX2_BIN, …). Use
-\`--tools\` / \`-V\` / \`--mode json\` for CLI-level control.
+Positionals are the request verbatim. flux2-specific flags (--prompt, --width, …)
+are NOT parsed by the CLI. Two ways to pass them:
+  1. Fold them into the request text: \`flux2 generate a red cube, t2i, width 1024\`
+     — the agent maps natural language onto flux2 options.
+  2. Use the \`--\` end-of-options separator to pass raw flags through verbatim:
+       bun-pi-agent-cli flux2 -- t2i --prompt "a red cube" --width 1024
+     Everything after \`--\` is appended to the request as-is, so the agent sees
+     the exact flags and can forward them via the tool's \`options\`/\`extraArgs\`.
+
+Model/output/models roots can also be set via environment (MLX_OUTPUT_DIR,
+MLX_MODELS_DIR, FLUX2_BIN, …). Use \`--tools\` / \`-V\` / \`--mode json\` for
+CLI-level control.
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-26b)
