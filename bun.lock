@@ -12,7 +12,6 @@
       "name": "@repo/gui-movie-director",
       "version": "0.1.0",
       "dependencies": {
-        "@playwright/test": "^1.61.0",
         "@radix-ui/react-dialog": "^1.1.16",
         "@radix-ui/react-tooltip": "^1.2.9",
         "react": "^19.1.0",
@@ -22,11 +21,12 @@
         "wouter": "^3.10.0",
       },
       "devDependencies": {
+        "@playwright/test": "^1.61.0",
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
+        "@types/bun": "latest",
         "@types/react": "^19.1.0",
         "@types/react-dom": "^19.1.0",
-        "bun-types": "^1.3.14",
         "eslint": "^10.5.0",
         "happy-dom": "^20.10.3",
         "typescript": "^5.8.0",
@@ -64,7 +64,7 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "javascript-obfuscator": "latest",
+        "javascript-obfuscator": "^5.4.3",
       },
     },
     "bun-apps/pi-agent-ext-power-tool": {
@@ -86,9 +86,7 @@
       "dependencies": {
         "@earendil-works/pi-agent-core": "latest",
         "@earendil-works/pi-ai": "latest",
-        "@earendil-works/pi-coding-agent": "latest",
         "pi-vlm": "workspace:*",
-        "typebox": "latest",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -109,7 +107,7 @@
       },
       "devDependencies": {
         "@types/bun": "latest",
-        "javascript-obfuscator": "latest",
+        "javascript-obfuscator": "^5.4.3",
       },
     },
     "bun-apps/pi-dynamic-workflows": {
@@ -1270,9 +1268,9 @@
 
     "@repo/bun-pi-agent-cli/typebox": ["typebox@1.3.3", "", {}, "sha512-URXGUE31PJDQC+PtRMJeLdF4kmmOdFoVPikPCtV2oOIhUpNpppEdIz7W8bH8cFYPYHdDpaRvqwdegMTmHliudg=="],
 
-    "@repo/gui-movie-director/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
+    "@repo/bun-pi-agent-sdk-demo/typebox": ["typebox@1.3.3", "", {}, "sha512-URXGUE31PJDQC+PtRMJeLdF4kmmOdFoVPikPCtV2oOIhUpNpppEdIz7W8bH8cFYPYHdDpaRvqwdegMTmHliudg=="],
 
-    "@repo/pi-agent-flux2/typebox": ["typebox@1.3.3", "", {}, "sha512-URXGUE31PJDQC+PtRMJeLdF4kmmOdFoVPikPCtV2oOIhUpNpppEdIz7W8bH8cFYPYHdDpaRvqwdegMTmHliudg=="],
+    "@repo/gui-movie-director/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@testing-library/dom/aria-query": ["aria-query@5.3.0", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-b0P0sZPKtyu8HkeRAfCq0IfURZK+SuwMjY1UXGBU27wpAiTwQAIlq56IbIO+ytk/JjS1fMR14ee5WBBfKi5J6A=="],
 
