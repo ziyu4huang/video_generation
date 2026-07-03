@@ -91,6 +91,31 @@ const COMMAND_ENUM = Type.Union(
   { description: "flux2 subcommand to run." },
 );
 
+/**
+ * Coerce the LLM-supplied `options` into a plain object.
+ *
+ * `options` is declared `Type.Any()` (its shape is command-dependent), and at
+ * least one provider/model pair (zai/glm-5.2) serializes it as a JSON STRING
+ * rather than a nested object in the tool-call payload. Downstream code does
+ * `key in options`, which throws "options is not an Object" when `options` is a
+ * string — killing every invocation, including `{}`. Normalize here at the tool
+ * boundary so runFlux2 always receives a real Record.
+ */
+export function coerceOptions(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return {};
+    try {
+      const p = JSON.parse(s);
+      return p && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 // ─── The dispatcher tool ─────────────────────────────────────────────────────
 
 function makeFlux2Tool() {
@@ -167,7 +192,7 @@ function makeFlux2Tool() {
       try {
         const { details, summary, stderrTail } = await runFlux2({
           command: params.command as CommandName,
-          options: (params.options ?? {}) as Record<string, unknown>,
+          options: coerceOptions(params.options),
           outputDir: params.outputDir,
           modelsRoot: params.modelsRoot,
           extraArgs: params.extraArgs,
