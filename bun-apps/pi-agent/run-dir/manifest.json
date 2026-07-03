@@ -5,7 +5,7 @@
     "pi-vlm/extensions/pi-vlm.ts",
     "pi-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
-    "pi-agent-flux2/extensions/pi-flux2.ts",
+    "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-hermes-memory/src/index.ts"
   ],
   "skills": [
@@ -19,6 +19,7 @@
   ],
   "lazyExtensions": {
     "workflow": "pi-dynamic-workflows/extensions/workflow.ts",
-    "dynamic-workflows": "pi-dynamic-workflows/extensions/workflow.ts"
+    "dynamic-workflows": "pi-dynamic-workflows/extensions/workflow.ts",
+    "ltx": "pi-agent-ext-ltx/extensions/pi-ltx.ts"
   }
 }

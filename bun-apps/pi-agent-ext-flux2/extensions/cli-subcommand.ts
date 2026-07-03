@@ -12,7 +12,7 @@
  * mirrors how `zk-ask` turns positionals into a question.
  *
  * This file is dependency-free of pi-agent-cli on purpose: the workspace dep
- * direction is pi-agent-cli → pi-agent-flux2, so the spec is typed with a
+ * direction is pi-agent-cli → pi-agent-ext-flux2, so the spec is typed with a
  * local structurally-compatible interface (TS structural typing makes it
  * assignable to pi-agent-cli's `ExtensionSubcommandSpec`). See
  * `bun-apps/pi-agent-cli/src/extensions/types.ts` for the canonical shape.

@@ -1,17 +1,17 @@
 /**
- * build-bundle.ts — bundle the pi-agent-flux2 extension into one minified .js
+ * build-bundle.ts — bundle the pi-agent-ext-flux2 extension into one minified .js
  * loadable via `pi -e <bundle>.js`. Mirrors pi-vlm/scripts/build-bundle.ts.
  *
  *   bun scripts/build-bundle.ts            # minify only
  *   bun scripts/build-bundle.ts --obfuscate # + javascript-obfuscator pass
  *   bun scripts/build-bundle.ts --out <p>   # override output path
  *
- * Output: ../../dist/pi-extensions/pi-agent-flux2.bundle.js
+ * Output: ../../dist/pi-extensions/pi-agent-ext-flux2.bundle.js
  */
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 
-const APP_NAME = "pi-agent-flux2";
+const APP_NAME = "pi-agent-ext-flux2";
 const ENTRY = "extensions/pi-flux2.ts";
 const OUTDIR = resolve(process.cwd(), "..", "..", "dist", "pi-extensions");
 const DEFAULT_OUTFILE = `${OUTDIR}/${APP_NAME}.bundle.js`;

@@ -19,9 +19,9 @@ each package's README; this is the canonical reference.
 | Need | Why | Required for |
 |------|-----|--------------|
 | [Bun](https://bun.sh) | All `pi-*` packages are Bun + TypeScript | everything |
-| Apple Silicon Mac | MLX (image/video generation) is Metal-only | `pi-agent-flux2`, the mlx-movie-director pipeline |
+| Apple Silicon Mac | MLX (image/video generation) is Metal-only | `pi-agent-ext-flux2`, the mlx-movie-director pipeline |
 | [LM Studio](https://lmstudio.ai) (optional) | Local VLM / distill via Qwen3-VL/Gemma | `pi-vlm`, `zk-extract`, `vlm-describe` |
-| Swift toolchain (optional) | Builds the flux2 binary on first use | `pi-agent-flux2` (or set `FLUX2_BIN` to a prebuilt binary) |
+| Swift toolchain (optional) | Builds the flux2 binary on first use | `pi-agent-ext-flux2` (or set `FLUX2_BIN` to a prebuilt binary) |
 | An LLM provider key | Cloud agents | passthrough mode (`PI_PROVIDER`/`PI_MODEL`) or `~/.pi/agent/models.json` |
 
 ```bash
@@ -62,14 +62,14 @@ The MLX model tree and output store live **outside** the repo by default
 | `PI_SKIP_MODELS_JSON` | unset | `1` skips `~/.pi/agent/models.json` |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Where pi reads/writes its settings, models, agents |
 
-### MLX generation paths (`pi-agent-flux2` + mlx-movie-director)
+### MLX generation paths (`pi-agent-ext-flux2` + mlx-movie-director)
 
 | Var | Default | Purpose |
 |-----|---------|---------|
 | `MLX_OUTPUT_DIR` | `<repo>/../video_generation__output` | Generation output (write target — auto-created) |
 | `MLX_MODELS_DIR` | `<repo>/mlx-models` | Model tree root (read target — must exist for generation) |
 
-### flux2 (`pi-agent-flux2`)
+### flux2 (`pi-agent-ext-flux2`)
 
 | Var | Default | Purpose |
 |-----|---------|---------|

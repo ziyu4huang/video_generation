@@ -12,9 +12,9 @@
  *     auto-runs `flux2 gate` on every generation to surface a quality verdict.
  *
  * Load (source mode):
- *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-flux2/extensions/pi-flux2.ts -p "..."
+ *   bun bun-apps/pi-agent/src/cli.ts -e bun-apps/pi-agent-ext-flux2/extensions/pi-flux2.ts -p "..."
  * Bundle:
- *   bun scripts/build-bundle.ts  →  dist/pi-extensions/pi-agent-flux2.bundle.js
+ *   bun scripts/build-bundle.ts  →  dist/pi-extensions/pi-agent-ext-flux2.bundle.js
  *
  * Env overrides: FLUX2_BIN, FLUX2_REPO_ROOT, MLX_OUTPUT_DIR, MLX_MODELS_DIR.
  */

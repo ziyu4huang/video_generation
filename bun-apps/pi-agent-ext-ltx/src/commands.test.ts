@@ -1,0 +1,142 @@
+import { describe, expect, test } from "bun:test";
+import { buildArgs, COMMANDS, COMMAND_LIST, modeledFlags, pathFieldKeys, pathSpecFieldKeys } from "./commands.ts";
+
+describe("buildArgs", () => {
+  test("emits a scalar string flag", () => {
+    const args = buildArgs(COMMANDS.t2i, { prompt: "a cat" });
+    expect(args).toEqual(["--prompt", "a cat"]);
+  });
+
+  test("emits a scalar number/int flag as a string", () => {
+    const args = buildArgs(COMMANDS.t2i, { seed: 42, width: 1024 });
+    expect(args).toEqual(["--width", "1024", "--seed", "42"]);
+  });
+
+  test("emits a boolean flag only when true, and omits it when false (no invertedFlag)", () => {
+    expect(buildArgs(COMMANDS.gate, { json: true })).toEqual(["--json"]);
+    expect(buildArgs(COMMANDS.gate, { json: false })).toEqual([]);
+  });
+
+  test("inversion boolean: true emits the primary flag, false emits invertedFlag", () => {
+    expect(buildArgs(COMMANDS["native-i2v"], { upscale: true })).toEqual(["--upscale"]);
+    expect(buildArgs(COMMANDS["native-i2v"], { upscale: false })).toEqual(["--no-upscale"]);
+    expect(buildArgs(COMMANDS["native-i2v"], { refine: false })).toEqual(["--no-refine"]);
+  });
+
+  test("omits fields that are undefined/null/absent", () => {
+    expect(buildArgs(COMMANDS.t2i, { prompt: undefined, seed: null as unknown as undefined })).toEqual([]);
+    expect(buildArgs(COMMANDS.t2i, {})).toEqual([]);
+  });
+
+  test("expands a string[] field into repeated flags (native-i2v's --lora)", () => {
+    const args = buildArgs(COMMANDS["native-i2v"], { loras: ["a.safetensors:0.8", "b.safetensors"] });
+    expect(args).toEqual(["--lora", "a.safetensors:0.8", "--lora", "b.safetensors"]);
+  });
+
+  test("throws when an array field receives a non-array value", () => {
+    expect(() => buildArgs(COMMANDS["native-i2v"], { loras: "a.safetensors" })).toThrow(/expects an array/);
+  });
+
+  test("collects positional args and appends them after all flags (gate)", () => {
+    const args = buildArgs(COMMANDS.gate, { videos: ["a.mp4", "b.mp4"], json: true });
+    expect(args).toEqual(["--json", "a.mp4", "b.mp4"]);
+  });
+
+  test("collects a single positional path field (upscale's input)", () => {
+    const args = buildArgs(COMMANDS.upscale, { input: "clip.mp4", scale: 2.0 });
+    expect(args).toEqual(["--scale", "2", "clip.mp4"]);
+  });
+
+  test("ignores keys not declared on the spec", () => {
+    const args = buildArgs(COMMANDS.t2i, { notARealField: "x", prompt: "ok" });
+    expect(args).toEqual(["--prompt", "ok"]);
+  });
+});
+
+describe("pathFieldKeys", () => {
+  test("t2i has output as its only plain path field", () => {
+    expect(pathFieldKeys(COMMANDS.t2i)).toEqual(["output"]);
+  });
+
+  test("native-i2v includes lastFrame/audioTrack/output but NOT loras (that's a path-spec field)", () => {
+    const keys = pathFieldKeys(COMMANDS["native-i2v"]);
+    expect(keys).toContain("lastFrame");
+    expect(keys).toContain("audioTrack");
+    expect(keys).toContain("output");
+    expect(keys).not.toContain("loras");
+  });
+
+  test("gate's positional `videos` field is a path array", () => {
+    expect(pathFieldKeys(COMMANDS.gate)).toEqual(["videos"]);
+  });
+});
+
+describe("pathSpecFieldKeys", () => {
+  test("native-i2v's loras is the only path-spec field in the registry", () => {
+    expect(pathSpecFieldKeys(COMMANDS["native-i2v"])).toEqual(["loras"]);
+    for (const [name, spec] of Object.entries(COMMANDS)) {
+      if (name === "native-i2v") continue;
+      expect(pathSpecFieldKeys(spec)).toEqual([]);
+    }
+  });
+});
+
+describe("modeledFlags", () => {
+  test("excludes positional fields and includes every flagged field", () => {
+    const flags = modeledFlags(COMMANDS.gate);
+    expect(flags).not.toContain("");
+    expect(flags).toContain("--json");
+    expect(flags).toContain("--strict");
+  });
+
+  test("includes both directions of an inversion pair", () => {
+    const flags = modeledFlags(COMMANDS["native-i2v"]);
+    expect(flags).toContain("--upscale");
+    expect(flags).toContain("--no-upscale");
+    expect(flags).toContain("--refine");
+    expect(flags).toContain("--no-refine");
+  });
+});
+
+describe("COMMANDS registry", () => {
+  test("has exactly the 10 documented ltx-video subcommands", () => {
+    expect(Object.keys(COMMANDS).sort()).toEqual(
+      [
+        "t2i", "native-i2v", "native-upscale", "i2v", "upscale",
+        "gate", "verify", "models", "audio-decode", "video-decode",
+      ].sort(),
+    );
+  });
+
+  test("every command's fields build to a valid args array without throwing (empty options)", () => {
+    for (const spec of COMMAND_LIST) {
+      expect(() => buildArgs(spec, {})).not.toThrow();
+    }
+  });
+
+  test("every command's `name` matches its registry key", () => {
+    for (const [key, spec] of Object.entries(COMMANDS)) {
+      expect(spec.name).toBe(key);
+    }
+  });
+});
+
+describe("isPathComponent fields (model-selector names Swift joins onto a root itself)", () => {
+  test("t2i/native-i2v/i2v's transformer fields are marked isPathComponent", () => {
+    expect(COMMANDS.t2i.fields.transformer?.isPathComponent).toBe(true);
+    expect(COMMANDS["native-i2v"].fields.t2iTransformer?.isPathComponent).toBe(true);
+    expect(COMMANDS.i2v.fields.transformer?.isPathComponent).toBe(true);
+  });
+
+  test("isPathComponent fields are never also marked isPath/isPathArray/isPathSpecArray", () => {
+    for (const spec of COMMAND_LIST) {
+      for (const [key, f] of Object.entries(spec.fields)) {
+        if (f.isPathComponent) {
+          expect(f.isPath, `${spec.name}.${key}`).toBeFalsy();
+          expect(f.isPathArray, `${spec.name}.${key}`).toBeFalsy();
+          expect(f.isPathSpecArray, `${spec.name}.${key}`).toBeFalsy();
+        }
+      }
+    }
+  });
+});

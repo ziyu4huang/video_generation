@@ -1,6 +1,6 @@
-// pi-agent-flux2 Self-Improve — code-health + REAL end-to-end self-test.
+// pi-agent-ext-flux2 Self-Improve — code-health + REAL end-to-end self-test.
 //
-// One dynamic workflow to keep bun-apps/pi-agent-flux2 (the pi-agent tool that
+// One dynamic workflow to keep bun-apps/pi-agent-ext-flux2 (the pi-agent tool that
 // wraps swift/flux2-image-director's `flux2` CLI) healthy. Three lanes:
 //
 //   • contract — deterministic, cheap: `bun test` (all unit tests) + `check:flags`
@@ -29,7 +29,7 @@
 // Modes (selected by args):
 //
 //   ROUTINE SCAN (default — cheap-ish, collision-safe, review-only, REAL e2e):
-//     Workflow({ name: "pi-agent-flux2-self-improve" })
+//     Workflow({ name: "pi-agent-ext-flux2-self-improve" })
 //       → contract + review (effort:low) + live-e2e (all lanes on by default —
 //         live-e2e spends real GPU time and, if LM Studio is up, real VLM
 //         time, but it is the highest-signal lane so it is NOT opt-in here).
@@ -49,11 +49,11 @@
 // fix a bug in those blocks, fix _shared-patterns.md FIRST, then port here.
 
 export const meta = {
-  name: "pi-agent-flux2-self-improve",
+  name: "pi-agent-ext-flux2-self-improve",
   description:
-    "Self-improve loop for bun-apps/pi-agent-flux2 — deterministic contract checks (bun test + check:flags drift guard), agent-based multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify (review-only, no auto-fix yet), and a REAL end-to-end lane that runs the actual flux2 binary (t2i/scene/scenePipeline with+without VLM/upscale/gate) — the lane that has actually caught real wiring bugs. Merges into one health report with one persist per run.",
+    "Self-improve loop for bun-apps/pi-agent-ext-flux2 — deterministic contract checks (bun test + check:flags drift guard), agent-based multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify (review-only, no auto-fix yet), and a REAL end-to-end lane that runs the actual flux2 binary (t2i/scene/scenePipeline with+without VLM/upscale/gate) — the lane that has actually caught real wiring bugs. Merges into one health report with one persist per run.",
   whenToUse:
-    "Run after touching bun-apps/pi-agent-flux2 or bun-apps/pi-vlm's shared VLM subagent. Default = contract + review (effort:low, review-only) + live-e2e (all three lanes on by default, unlike other self-improve workflows in this repo — live-e2e is the highest-signal lane here). lanes:['contract'|'review'|'live-e2e'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. liveE2eSkipVlm:true skips the LM-Studio-dependent sub-check even when LM Studio is reachable (cheaper, deterministic re-runs).",
+    "Run after touching bun-apps/pi-agent-ext-flux2 or bun-apps/pi-vlm's shared VLM subagent. Default = contract + review (effort:low, review-only) + live-e2e (all three lanes on by default, unlike other self-improve workflows in this repo — live-e2e is the highest-signal lane here). lanes:['contract'|'review'|'live-e2e'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. liveE2eSkipVlm:true skips the LM-Studio-dependent sub-check even when LM Studio is reachable (cheaper, deterministic re-runs).",
   phases: [
     { title: "Resolve", detail: "Resolve repo root, timestamp, load knowledge base" },
     { title: "Run", detail: "Lanes: contract (bun test + check:flags) + review (multi-dimension + adversarial verify) + live-e2e (real flux2 binary matrix, VLM sub-check if LM Studio is up)" },
@@ -103,9 +103,9 @@ function markPhase(name, status) {
 // ── Paths (resolved dynamically below — worktree-correct) ──────────────────
 // NOTE: the workflow runtime strips `export const meta` — top-level `meta.*`
 // refs throw "meta is not defined". Mirror the name into a plain const instead.
-const NAME = "pi-agent-flux2-self-improve"
+const NAME = "pi-agent-ext-flux2-self-improve"
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation__swift_flux2_agent"
-let PKG_DIR = `${PROJECT_ROOT}/bun-apps/pi-agent-flux2`
+let PKG_DIR = `${PROJECT_ROOT}/bun-apps/pi-agent-ext-flux2`
 let HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
 let INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
 let KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
@@ -260,7 +260,7 @@ Return { root: "<the absolute path, whitespace-trimmed>" }.`,
   const resolved = (rootResolve?.root || "").trim()
   if (resolved && resolved.includes("video_generation")) {
     PROJECT_ROOT = resolved
-    PKG_DIR = `${PROJECT_ROOT}/bun-apps/pi-agent-flux2`
+    PKG_DIR = `${PROJECT_ROOT}/bun-apps/pi-agent-ext-flux2`
     HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
     INDEX_FILE = `${PROJECT_ROOT}/.claude/workflows/history/_index.json`
     KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${NAME}.knowledge.jsonl`
@@ -305,10 +305,10 @@ const CONTRACT_SCHEMA = {
 
 async function runContractLane() {
   return agent(
-    `Run pi-agent-flux2's deterministic contract checks. Repo root: ${PROJECT_ROOT}.
-1. Bash("cd '${PROJECT_ROOT}' && bun test bun-apps/pi-agent-flux2 bun-apps/pi-vlm 2>&1")
+    `Run pi-agent-ext-flux2's deterministic contract checks. Repo root: ${PROJECT_ROOT}.
+1. Bash("cd '${PROJECT_ROOT}' && bun test bun-apps/pi-agent-ext-flux2 bun-apps/pi-vlm 2>&1")
    → testsPass = true iff output ends with "0 fail"; testsSummary = the "N pass / N fail across N files" line.
-2. Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-flux2 check:flags 2>&1")
+2. Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-flux2 check:flags 2>&1")
    → checkFlagsPass = true iff output contains "No drift."; checkFlagsSummary = the "N/N commands fully modeled" line
      plus any "⚠" lines verbatim (missing-flag warnings) if present.
 Report both verbatim outputs' tails in your summary text even though the schema only needs booleans + short summaries.`,
@@ -319,19 +319,19 @@ Report both verbatim outputs' tails in your summary text even though the schema 
 const REVIEW_DIMENSIONS = [
   {
     key: "correctness",
-    prompt: `Review bun-apps/pi-agent-flux2/src/scenePipeline.ts and src/index.ts for CORRECTNESS bugs: off-by-one in winner selection, race conditions between sequential seed renders, incorrect fallback logic (best-gate vs verify-match), incorrect null-handling when a candidate's run fails. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"correctness", summary, failure_scenario }.`,
+    prompt: `Review bun-apps/pi-agent-ext-flux2/src/scenePipeline.ts and src/index.ts for CORRECTNESS bugs: off-by-one in winner selection, race conditions between sequential seed renders, incorrect fallback logic (best-gate vs verify-match), incorrect null-handling when a candidate's run fails. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"correctness", summary, failure_scenario }.`,
   },
   {
     key: "path-safety",
-    prompt: `Review bun-apps/pi-agent-flux2/src/paths.ts and every call site of assertPathAllowed/validateExtraArgs (src/index.ts, src/scenePipeline.ts) for argv-injection or path-escape bugs: a value that could reach the flux2 CLI without validation, a scenePipeline field (verifyPrompt/verifyMatch/vlmModel) that could smuggle a flag, a path that could resolve outside the allowed roots via symlink or relative-path tricks. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"path-safety", summary, failure_scenario }.`,
+    prompt: `Review bun-apps/pi-agent-ext-flux2/src/paths.ts and every call site of assertPathAllowed/validateExtraArgs (src/index.ts, src/scenePipeline.ts) for argv-injection or path-escape bugs: a value that could reach the flux2 CLI without validation, a scenePipeline field (verifyPrompt/verifyMatch/vlmModel) that could smuggle a flag, a path that could resolve outside the allowed roots via symlink or relative-path tricks. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"path-safety", summary, failure_scenario }.`,
   },
   {
     key: "schema-consistency",
-    prompt: `Review bun-apps/pi-agent-flux2/src/commands.ts, extensions/pi-flux2.ts, and src/index.ts's EXTRA_ARG_ALLOW set for drift: a field documented in the tool description that commands.ts doesn't actually model, a scenePipeline option in the typebox schema that runFlux2()/scenePipeline.ts doesn't read, an EXTRA_ARG_ALLOW entry for a flag that no longer exists (or a real flag missing from it). Read the actual files under ${PKG_DIR}/. For each finding return { file, dimension:"schema-consistency", summary, failure_scenario }.`,
+    prompt: `Review bun-apps/pi-agent-ext-flux2/src/commands.ts, extensions/pi-flux2.ts, and src/index.ts's EXTRA_ARG_ALLOW set for drift: a field documented in the tool description that commands.ts doesn't actually model, a scenePipeline option in the typebox schema that runFlux2()/scenePipeline.ts doesn't read, an EXTRA_ARG_ALLOW entry for a flag that no longer exists (or a real flag missing from it). Read the actual files under ${PKG_DIR}/. For each finding return { file, dimension:"schema-consistency", summary, failure_scenario }.`,
   },
   {
     key: "error-handling",
-    prompt: `Review bun-apps/pi-agent-flux2/src/index.ts, src/scenePipeline.ts, src/vlm.ts, src/result.ts for error-handling gaps: an awaited call with no try/catch where a thrown error would crash the whole pipeline instead of surfacing as details.ok=false, a case where a partial failure (e.g. hand-repair dying mid-run) could leave details in an inconsistent state. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"error-handling", summary, failure_scenario }.`,
+    prompt: `Review bun-apps/pi-agent-ext-flux2/src/index.ts, src/scenePipeline.ts, src/vlm.ts, src/result.ts for error-handling gaps: an awaited call with no try/catch where a thrown error would crash the whole pipeline instead of surfacing as details.ok=false, a case where a partial failure (e.g. hand-repair dying mid-run) could leave details in an inconsistent state. Read the actual files under ${PKG_DIR}/src/. For each finding return { file, dimension:"error-handling", summary, failure_scenario }.`,
   },
 ]
 
@@ -415,10 +415,10 @@ const LIVE_E2E_SCHEMA = {
 
 async function runLiveE2eLane() {
   return agent(
-    `Run a REAL end-to-end smoke matrix for pi-agent-flux2 (bun-apps/pi-agent-flux2) — actual flux2 binary calls, no mocks. Repo root: ${PROJECT_ROOT}.
+    `Run a REAL end-to-end smoke matrix for pi-agent-ext-flux2 (bun-apps/pi-agent-ext-flux2) — actual flux2 binary calls, no mocks. Repo root: ${PROJECT_ROOT}.
 
 1. Bash("curl -s -m 3 http://localhost:1234/v1/models >/dev/null 2>&1 && echo UP || echo DOWN") → lmStudioAvailable.
-2. Write a scratch bun script at /tmp/pi-agent-flux2-live-e2e-${RUN_ID}.ts that:
+2. Write a scratch bun script at /tmp/pi-agent-ext-flux2-live-e2e-${RUN_ID}.ts that:
    - imports { runFlux2 } from "${PKG_DIR}/src/index.ts" via absolute path
    - Step "t2i": runFlux2({ command:"t2i", options:{ prompt:"a red apple on a white table, studio lighting", width:512, height:512, steps:6, seed:42, name:"selftest_${RUN_ID}_t2i" } }) — record ok, output path, gate.
    - Step "upscale-chain": if t2i ok, runFlux2({ command:"upscale", options:{ input: <t2i output>, name:"selftest_${RUN_ID}_upscale" } }) — record ok, gate.
@@ -427,8 +427,8 @@ ${LIVE_E2E_SKIP_VLM ? "   - SKIP the VLM step (liveE2eSkipVlm was set)." : `   -
    - Step "gate": runFlux2({ command:"gate", options:{ images:[<t2i output>], json:true } }) — record ok, gate status.
    - Print a JSON array of { name, ok, detail } for every step actually run (omit the VLM step's array entry if skipped).
    - IMPORTANT: give each step a DISTINCT --name (as above) so this run's files never collide with a previous run's.
-3. Bash("cd '${PROJECT_ROOT}' && bun /tmp/pi-agent-flux2-live-e2e-${RUN_ID}.ts 2>&1") — this performs REAL image generation, expect it to take 30-90s total. Capture the printed JSON array.
-4. Bash("rm -f /tmp/pi-agent-flux2-live-e2e-${RUN_ID}.ts")
+3. Bash("cd '${PROJECT_ROOT}' && bun /tmp/pi-agent-ext-flux2-live-e2e-${RUN_ID}.ts 2>&1") — this performs REAL image generation, expect it to take 30-90s total. Capture the printed JSON array.
+4. Bash("rm -f /tmp/pi-agent-ext-flux2-live-e2e-${RUN_ID}.ts")
 5. overallOk = true iff every step in the array has ok:true.
 Return { lmStudioAvailable: <bool from step 1>, steps: <the JSON array from step 3>, overallOk }.`,
     { label: "live-e2e", phase: "Run", model: "sonnet", schema: LIVE_E2E_SCHEMA },
@@ -483,7 +483,7 @@ const historyEntry = {
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
-  tags: ["pi-agent-flux2", "code-health", "live-e2e"],
+  tags: ["pi-agent-ext-flux2", "code-health", "live-e2e"],
   result: runResult,
 }
 

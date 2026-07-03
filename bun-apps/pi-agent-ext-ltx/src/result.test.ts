@@ -1,0 +1,203 @@
+import { describe, expect, test } from "bun:test";
+import { buildDetails, summarize } from "./result.ts";
+import type { InvokeResult } from "./invoke.ts";
+
+function ok(stdout: string, exitCode = 0): InvokeResult {
+  return { exitCode, output: stdout, stdout, stderr: "", aborted: false };
+}
+
+describe("buildDetails: native-i2v", () => {
+  // Real stdout shape captured from a production native-i2v + upscale + refine run.
+  const stdout = `→ native I2V (no run.py): 9 frames @ 24.0fps, 640x960, transformer=distilled
+[1/5] NativeT2IStage: generating source frame...
+[5/5] VideoDecoder + AudioVAEDecoder + VocoderWithBWE: decoding output...
+
+✅ wall time: 587.7s
+   source image: /tmp/out/source.png
+   9 frames: /tmp/out/frames
+   audio: /tmp/out/audio.wav
+   100% native Swift/MLX — zero run.py calls.
+
+[upscale] auto-upscaling (native LatentUpsampler, 2x spatial + refine pass, --no-upscale to skip)...
+[3b/4] refine: low-strength denoise pass...
+✅ upscale wall time: 36.4s
+   640x960 -> 1280x1920
+   9 frames: /tmp/out/upscaled/frames
+`;
+
+  test("output points at the upscaled frames dir when upscale ran", () => {
+    const d = buildDetails("native-i2v", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/out/upscaled/frames");
+  });
+
+  test("extraOutputs carries source image / base frames / audio / upscaled frames", () => {
+    const d = buildDetails("native-i2v", ok(stdout));
+    expect(d.extraOutputs.sourceImage).toBe("/tmp/out/source.png");
+    expect(d.extraOutputs.frames).toBe("/tmp/out/frames");
+    expect(d.extraOutputs.audio).toBe("/tmp/out/audio.wav");
+    expect(d.extraOutputs.upscaledFrames).toBe("/tmp/out/upscaled/frames");
+  });
+
+  test("wallSeconds picks the FIRST wall-time line (base generation, not the upscale add-on)", () => {
+    const d = buildDetails("native-i2v", ok(stdout));
+    expect(d.wallSeconds).toBe(587.7);
+  });
+
+  test("without an upscale section, output falls back to the base frames dir", () => {
+    const noUpscale = `→ native I2V (no run.py): 9 frames @ 24.0fps, 640x960, transformer=distilled
+✅ wall time: 100.0s
+   source image: /tmp/out2/source.png
+   9 frames: /tmp/out2/frames
+   audio: /tmp/out2/audio.wav
+   100% native Swift/MLX — zero run.py calls.
+`;
+    const d = buildDetails("native-i2v", ok(noUpscale));
+    expect(d.output).toBe("/tmp/out2/frames");
+    expect(d.extraOutputs.upscaledFrames).toBeUndefined();
+  });
+
+  test("a failed run (non-zero exit) surfaces ok=false", () => {
+    const d = buildDetails("native-i2v", ok("some partial output\nerror: models missing", 1));
+    expect(d.ok).toBe(false);
+  });
+});
+
+describe("buildDetails: native-upscale", () => {
+  test("parses frames dir and dims from a standalone run", () => {
+    const stdout = `→ native upscale (no run.py): reading frames from in/ [fast/preview mode]
+
+✅ wall time: 1.8s
+   640x960 -> 1280x1920
+   9 frames: /tmp/up/frames
+   100% native Swift/MLX — zero run.py calls.
+`;
+    const d = buildDetails("native-upscale", ok(stdout));
+    expect(d.output).toBe("/tmp/up/frames");
+    expect(d.width).toBe(1280);
+    expect(d.height).toBe(1920);
+    expect(d.wallSeconds).toBe(1.8);
+  });
+});
+
+describe("buildDetails: t2i", () => {
+  test("parses the Wrote <path> line", () => {
+    const stdout = `Generating natively (ZImageDirector in-process, no run.py)...
+  transformer: moody-pro-mix, size: 640x960, seed: 99
+Wrote /tmp/t2i_native_output.png — 100% native Swift/MLX, zero run.py calls.
+`;
+    const d = buildDetails("t2i", ok(stdout));
+    expect(d.output).toBe("/tmp/t2i_native_output.png");
+  });
+});
+
+describe("buildDetails: i2v", () => {
+  test("parses output dir, video path, wall time, and an optional gate line", () => {
+    const stdout = `→ generating 240 frames (~10.0s @ 24.0fps) with transformer=distilled-1.1
+
+✅ output dir: /tmp/i2v_out
+   wall time: 245.3s
+   video: /tmp/i2v_out/clip.mp4
+   gate: PASS — all checks green
+`;
+    const d = buildDetails("i2v", ok(stdout));
+    expect(d.output).toBe("/tmp/i2v_out/clip.mp4");
+    expect(d.extraOutputs.outputDir).toBe("/tmp/i2v_out");
+    expect(d.wallSeconds).toBe(245.3);
+    expect(d.gate).toBe("PASS");
+    expect(d.gateResults?.[0].status).toBe("PASS");
+  });
+
+  test("without --self-verify, no gate line means gate stays null", () => {
+    const stdout = `✅ output dir: /tmp/i2v_out2
+   wall time: 200.0s
+   video: /tmp/i2v_out2/clip.mp4
+`;
+    const d = buildDetails("i2v", ok(stdout));
+    expect(d.gate).toBeNull();
+  });
+});
+
+describe("buildDetails: upscale", () => {
+  test("parses the upscaled: <path> line and an optional gate line", () => {
+    const stdout = `
+✅ upscaled: /tmp/clip_restored.mp4
+   gate: WARN — motion below threshold
+`;
+    const d = buildDetails("upscale", ok(stdout));
+    expect(d.output).toBe("/tmp/clip_restored.mp4");
+    expect(d.gate).toBe("WARN");
+  });
+});
+
+describe("buildDetails: gate", () => {
+  test("parses --json array output and computes the worst status", () => {
+    const stdout = JSON.stringify([
+      { path: "a.mp4", status: "PASS", reasons: [] },
+      { path: "b.mp4", status: "FAIL", reasons: ["blank frames"] },
+    ]);
+    const d = buildDetails("gate", ok(stdout));
+    expect(d.gate).toBe("FAIL");
+    expect(d.gateResults).toHaveLength(2);
+  });
+
+  test("non-JSON stdout (no --json) leaves gateResults empty but still ok", () => {
+    const d = buildDetails("gate", ok("✅ PASS  a.mp4\n     all good"));
+    expect(d.gateResults).toEqual([]);
+    expect(d.ok).toBe(true);
+  });
+});
+
+describe("buildDetails: verify", () => {
+  test("parses --json object output", () => {
+    const stdout = JSON.stringify({ mean_overall: 7.5, worst_overall: 6.0, frames: [], pass: true });
+    const d = buildDetails("verify", ok(stdout));
+    expect(d.verify).toEqual({ meanOverall: 7.5, worstOverall: 6.0, pass: true });
+  });
+});
+
+describe("buildDetails: audio-decode / video-decode", () => {
+  test("audio-decode parses the Wrote ... to <path> line", () => {
+    const stdout = `Loading native AudioVAEDecoder (no run.py)...
+Wrote 12000 frames (2ch, 48000) to /tmp/audio_decode_output.wav — 100% native Swift/MLX, zero run.py calls.
+`;
+    const d = buildDetails("audio-decode", ok(stdout));
+    expect(d.output).toBe("/tmp/audio_decode_output.wav");
+  });
+
+  test("video-decode parses the Wrote ... to <path> line", () => {
+    const stdout = `Wrote 9 PNG frames to /tmp/video_decode_frames — 100% native Swift/MLX, zero run.py calls.\n`;
+    const d = buildDetails("video-decode", ok(stdout));
+    expect(d.output).toBe("/tmp/video_decode_frames");
+  });
+});
+
+describe("buildDetails: models (read-only text)", () => {
+  test("falls through to text details, stdout preserved", () => {
+    const stdout = "LTX-2.3 transformer variants:\n  • distilled-1.1 (default for i2v) — 3 checkpoint file(s)\n";
+    const d = buildDetails("models", ok(stdout));
+    expect(d.output).toBeNull();
+    expect(d.stdout).toContain("distilled-1.1");
+  });
+});
+
+describe("summarize", () => {
+  test("failed run includes a stdout tail", () => {
+    const d = buildDetails("t2i", ok("boom: transformer not found", 1));
+    expect(summarize(d)).toContain("t2i FAILED");
+    expect(summarize(d)).toContain("boom: transformer not found");
+  });
+
+  test("aborted run reports abortion, not failure text", () => {
+    const d = buildDetails("t2i", { exitCode: 130, output: "", stdout: "", stderr: "", aborted: true });
+    expect(summarize(d)).toContain("aborted");
+  });
+
+  test("ok run includes the output path and dims/gate/wall when present", () => {
+    const stdout = `✅ wall time: 1.8s\n   640x960 -> 1280x1920\n   9 frames: /tmp/up/frames\n`;
+    const d = buildDetails("native-upscale", ok(stdout));
+    const line = summarize(d);
+    expect(line).toContain("/tmp/up/frames");
+    expect(line).toContain("1280x1920");
+  });
+});

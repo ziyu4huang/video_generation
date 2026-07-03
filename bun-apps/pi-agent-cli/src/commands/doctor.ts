@@ -11,7 +11,7 @@
  * so the classification logic is unit-testable without spawning processes or
  * touching the real filesystem. `run()` wires the real process state in.
  *
- * The path/env resolution intentionally REPLICATES pi-agent-flux2's
+ * The path/env resolution intentionally REPLICATES pi-agent-ext-flux2's
  * `resolveOutputDir` / `resolveModelsRoot` contract (env override → computed
  * default) rather than importing it: a diagnostic tool must run even when the
  * packages it diagnoses are broken, and an independent copy doubles as a
