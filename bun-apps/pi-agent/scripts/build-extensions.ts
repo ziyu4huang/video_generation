@@ -112,6 +112,15 @@ const fullIdx = argv.indexOf("--full");
 const FULL_FOR = new Set<string>(
 	fullIdx >= 0 ? argv.slice(fullIdx + 1).filter((a) => !a.startsWith("-")) : [],
 );
+// Extensions that default to FULL even in non-portable mode (THIN can't bundle
+// them). pi-hermes-memory eagerly imports deep @earendil-works/pi-ai/* subpaths
+// (e.g. /compat) that the THIN self-verify can't resolve from dist/, and pulls
+// in better-sqlite3 (a native .node addon that can't be THIN-externalized into
+// the bundle's own node_modules). FULL inlines the pi-ai graph; the native
+// better-sqlite3 require is left as a bare specifier and abs-resolved to the
+// repo .bun store (non-portable) or resolved from the deploy's node_modules
+// (portable). Add other native/heavy exts here when vendored.
+const DEFAULT_FULL = new Set<string>(["pi-hermes-memory"]);
 
 // ── manifest ────────────────────────────────────────────────────────────────
 if (!existsSync(MANIFEST_PATH)) die(`manifest not found: ${MANIFEST_PATH}`);
@@ -124,9 +133,18 @@ const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
 // `pkgDir` (the extension's package root) feeds the hash cache so an edit to a
 // sibling source file the entry imports is caught, not just the entry itself.
 const exts: { name: string; entry: string; pkgDir: string }[] = [];
+// Track derived names so a collision (two entries whose entry basename matches
+// — e.g. pi-agent-ext-power-tool/src/index.ts + pi-hermes-memory/src/index.ts
+// both basename to "index") falls back to the package-dir segment instead of
+// one outfile silently overwriting the other.
+const usedNames = new Set<string>();
 for (const rel of manifest.extensions ?? []) {
-	const name = basename(rel).replace(/\.ts$/, "");
-	const pkgDir = join(REPO_ROOT, "bun-apps", rel.split("/")[0]!);
+	const pkgSeg = rel.split("/")[0]!;
+	let name = basename(rel).replace(/\.ts$/, "");
+	if (name === "index" || usedNames.has(name)) name = pkgSeg;
+	while (usedNames.has(name)) name = `${pkgSeg}-${name}`;
+	usedNames.add(name);
+	const pkgDir = join(REPO_ROOT, "bun-apps", pkgSeg);
 	exts.push({ name, entry: join(REPO_ROOT, "bun-apps", rel), pkgDir });
 }
 if (PORTABLE) {
@@ -485,7 +503,7 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 // (re)write the sidecar after a successful verify.
 async function buildOne(spec: { name: string; entry: string; pkgDir: string }): Promise<boolean> {
 	const { name, entry, pkgDir } = spec;
-	const thin = !PORTABLE && !FULL_FOR.has(name);
+	const thin = !PORTABLE && !FULL_FOR.has(name) && !DEFAULT_FULL.has(name);
 	const tag = thin ? "thin" : "full";
 	const outfile = join(OUTDIR, `${name}.${tag}.js`);
 	const hashFile = join(OUTDIR, `${name}.${tag}.hash`);
@@ -507,7 +525,15 @@ async function buildOne(spec: { name: string; entry: string; pkgDir: string }): 
 	}
 
 	await stageBundle({ entry, outfile, thin });
-	if (thin) {
+	// Abs-resolve bare specifiers so the bundle loads without a co-located
+	// node_modules: THIN bundles keep all peer deps external (typebox /
+	// @earendil-works/*); FULL non-portable bundles keep native addons
+	// (better-sqlite3's .node) as bare residuals. Both need bare → repo-store
+	// abs-path rewriting for the DEFAULT bundle deploy (which ships no
+	// node_modules). Portable FULL is the exception: it keeps bare specifiers
+	// so they resolve from the portable deploy's OWN node_modules (abs-paths
+	// into the repo store would break portability).
+	if (thin || !PORTABLE) {
 		const resolved = stageResolveExternals(outfile, makeResolver(entry));
 		console.log(`    ${G("✓")} ${resolved.length} bare specifier(s) abs-resolved`);
 	}
@@ -529,7 +555,7 @@ mkdirSync(OUTDIR, { recursive: true });
 // any .js/.hash not in it — but DON'T blanket-wipe, or the hash cache is useless.
 const expectedFiles = new Set(
 	exts.flatMap((spec) => {
-		const thin = !PORTABLE && !FULL_FOR.has(spec.name);
+		const thin = !PORTABLE && !FULL_FOR.has(spec.name) && !DEFAULT_FULL.has(spec.name);
 		const tag = thin ? "thin" : "full";
 		return [`${spec.name}.${tag}.js`, `${spec.name}.${tag}.hash`];
 	}),

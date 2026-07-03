@@ -61,13 +61,17 @@ import {
 	chmodSync,
 	cpSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
+	readlinkSync,
 	readdirSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { createRequire } from "node:module";
 
 const argv = process.argv.slice(2);
 if (argv.some((a) => a === "-h" || a === "--help")) {
@@ -126,6 +130,31 @@ function die(msg: string): never {
 function readJson<T>(p: string): T | null {
 	try {
 		return JSON.parse(readFileSync(p, "utf8")) as T;
+	} catch {
+		return null;
+	}
+}
+/** True if `p` exists AND is a symlink (lstat, so symlinks to missing targets count). */
+function lstatSyncSafeForBundle(p: string): string | null {
+	try {
+		return lstatSync(p).isSymbolicLink() ? p : null;
+	} catch {
+		return null;
+	}
+}
+/**
+ * Resolve the pi deps-store node_modules (the same target build.ts stageLinkDeps
+ * symlinks dist/pi-agent/node_modules at) — the dir that holds typebox +
+ * @earendil-works/* + jiti, which pi-agent.js's bare peer-dep specifiers resolve
+ * from. Anchored at pi-agent's package.json so the workspace link is followed.
+ */
+function resolvePiStoreNodeModules(piAgentDir: string): string | null {
+	try {
+		const r = createRequire(join(piAgentDir, "package.json"));
+		const pj = r.resolve("@earendil-works/pi-coding-agent/package.json");
+		const piPkgDir = pj.replace(/\/package\.json$/, ""); // <store>/node_modules/@earendil-works/pi-coding-agent
+		const storeNm = resolve(piPkgDir, "..", ".."); // <store>/node_modules
+		return existsSync(storeNm) ? storeNm : null;
 	} catch {
 		return null;
 	}
@@ -365,13 +394,34 @@ async function bundleDeploy() {
 		}
 	}
 
-	// 4. node_modules copy (opt-in via --with-nm-copy). Redundant for resolution
-	// (see WITH_NM_COPY comment above) — everything resolves via baked repo .bun
-	// store abs paths. The deploy is same-machine-repo-present regardless.
+	// 4. node_modules — ALWAYS-ON symlink into the pi deps store. pi-agent.js
+	// keeps typebox + @earendil-works/* as bare peer-dep specifiers (bun's bundler
+	// externalizes them); pi's extension loader resolves them via require.resolve
+	// from pi-agent.js's own dir. In dev, dist/pi-agent/node_modules (created by
+	// build.ts stageLinkDeps) is that neighbor; a DEPLOY loses it, so a deploy
+	// placed INSIDE the repo walks up to the repo's isolated-layout node_modules
+	// and HARD-FAILS on typebox (ResolveMessage) for every extension. Symlinking
+	// <outdir>/node_modules at the same store target makes resolution match dev
+	// exactly. The link is an ABSOLUTE path into the machine-global .bun store, so
+	// the bundle deploy runs at ANY path on the same machine (its stated model).
+	// --with-nm-copy still opts in a real (recursive) copy for offline inspection.
+	const storeNm = lstatSyncSafeForBundle(join(repoRoot, "dist", "pi-agent", "node_modules"));
+	const nmTarget = storeNm
+		? readlinkSync(storeNm)
+		: resolvePiStoreNodeModules(piAgentDir);
+	if (nmTarget) {
+		const link = join(OUTDIR, "node_modules");
+		if (existsSync(link) || lstatSyncSafeForBundle(link)) rmSync(link, { recursive: true, force: true });
+		symlinkSync(nmTarget, link);
+		console.log(`    ${G("✓")} node_modules → ${nmTarget}  ${D("(symlink — pi-agent.js peer-dep resolution)")}`);
+	} else {
+		console.log(`    ${Y("·")} node_modules symlink skipped (dist/pi-agent/node_modules + pi store not found)`);
+	}
 	if (WITH_NM_COPY) {
 		const nmSrc = join(repoRoot, "node_modules");
 		if (!existsSync(nmSrc)) die(`repo node_modules missing: ${nmSrc} (run \`bun install\` at repo root)`);
-		console.log(`${G("▶")} copy node_modules  ${D("(--with-nm-copy — fallback; redundant for runtime resolution)")}`);
+		console.log(`${G("▶")} copy node_modules  ${D("(--with-nm-copy — recursive copy over the symlink, for offline inspection)")}`);
+		rmSync(join(OUTDIR, "node_modules"), { recursive: true, force: true });
 		cpSync(nmSrc, join(OUTDIR, "node_modules"), { recursive: true });
 		console.log(`    ${G("✓")} node_modules/`);
 	}
@@ -424,16 +474,11 @@ async function portableDeploy() {
 		}
 	}
 
-	// 4. assets (theme/export-html/assets) — build.ts stages them in dist/pi-agent/.
-	// PI_PACKAGE_DIR is pinned to <outdir> by run.sh so getPackageDir() finds these.
-	const distAgent = join(repoRoot, "dist", "pi-agent");
-	for (const asset of ["theme", "export-html", "assets"]) {
-		const src = join(distAgent, asset);
-		if (existsSync(src)) {
-			cpSync(src, join(OUTDIR, asset), { recursive: true });
-			console.log(`    ${G("✓")} ${asset}/`);
-		}
-	}
+	// 4. assets (theme/export-html/assets): NO separate copy. They ship inside
+	// node_modules/@earendil-works/pi-coding-agent/dist/{modes/interactive/{theme,
+	// assets}, core/export-html}, installed in step 5. run.sh pins PI_PACKAGE_DIR
+	// at that package dir so pi's getPackageDir() finds <pkgDir>/dist/... — no
+	// duplication, and no dependency on build.ts's --compile-only asset staging.
 
 	// 5. host node_modules subset via `bun install` against the machine-global
 	// store. Covers: typebox + @earendil-works/* (getAliases require.resolve) +

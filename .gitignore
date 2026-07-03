@@ -2,6 +2,16 @@ node_modules
 .pi/agent/auth.json
 .pi/agent/trust.json
 
+# Bun monorepo SOP — bun.lock at the root is the single canonical lockfile.
+# Per-package npm lockfiles (package-lock.json) are NOT used here and must not
+# be committed; they drift from bun.lock and confuse tooling. (pi-hermes-memory
+# and pi-dynamic-workflows shipped upstream npm lockfiles when vendored — removed.)
+package-lock.json
+
+# Dev-tool state dirs (Ralph interview state machine, etc.) — transient, never
+# source. Stray ones came in vendored with pi-hermes-memory; ignored repo-wide.
+.ralph/
+
 # editor swap/backup files
 *.swp
 *.swo

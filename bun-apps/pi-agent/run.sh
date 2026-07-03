@@ -22,7 +22,18 @@
 ########################################
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so this script works through a symlink (e.g. the repo-root
+# ./pi-agent.sh → bun-apps/pi-agent/run.sh convenience launcher). Without this,
+# BASH_SOURCE[0] is the symlink path and SCRIPT_DIR lands at the link's dir
+# (repo root), where neither pi-agent.js nor src/cli.ts exists → false "no entry"
+# error. Portable while-loop (no `readlink -f` — not available on older macOS).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
 if ! command -v bun >/dev/null 2>&1; then
   echo "error: 'bun' not found on PATH — install from https://bun.sh" >&2
@@ -52,12 +63,18 @@ if [ "${PIAGENT_DEBUG:-0}" = "1" ]; then
   echo "[run.sh] mode=$MODE  entry=$ENTRY  cwd=$(pwd)" >&2
 fi
 
-# Portable deploy: pin PI_PACKAGE_DIR to the deploy dir so pi resolves
-# theme/asset/template paths from here (NOT the build-time-baked repo path).
-# set-package-dir.ts respects a pre-set value (it uses ??=). The .deploy-portable
-# marker is written by `scripts/deploy.ts --portable`.
+# Portable deploy: pin PI_PACKAGE_DIR at the SHIPPED pi-coding-agent in
+# node_modules, so pi resolves theme/asset/template paths from here (NOT the
+# build-time-baked repo/global-store path — set-package-dir.ts bakes that, and
+# it isn't part of the deploy). pi's getPackageDir() looks for
+# <pkgDir>/dist/modes/interactive/{theme,assets} + dist/core/export-html, so the
+# pin MUST land on the package root (which holds dist/), not the deploy dir.
+# `bun install --production` materializes this package into <deploy>/node_modules,
+# so the path is stable and repo-independent on the same machine. Respects a
+# caller-set value (set-package-dir.ts uses ??=). The .deploy-portable marker is
+# written by `scripts/deploy.ts --portable`.
 if [ -f "$SCRIPT_DIR/.deploy-portable" ]; then
-  export PI_PACKAGE_DIR="$SCRIPT_DIR"
+  export PI_PACKAGE_DIR="${PI_PACKAGE_DIR:-$SCRIPT_DIR/node_modules/@earendil-works/pi-coding-agent}"
 fi
 
 # Read-only deploy (the DEFAULT since deploy.ts freezes every artifact): apply
