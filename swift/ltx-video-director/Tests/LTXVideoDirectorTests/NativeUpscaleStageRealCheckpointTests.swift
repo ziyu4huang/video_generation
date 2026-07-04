@@ -299,4 +299,54 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    func testGenerateIngredientsMissingLoraThrowsNamedError() throws {
+        let referenceImageDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_ingredients_ref_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_ingredients_out_\(UUID().uuidString)")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        try FileManager.default.createDirectory(at: referenceImageDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: referenceImageDir)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 1, 64, 64], key: MLXRandom.key(17)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: referenceImageDir)
+        let referenceImageURL = referenceImageDir.appendingPathComponent("frame_0000.png")
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateIngredients(
+            referenceImageURL: referenceImageURL, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: missingLoraURL, width: 64, height: 64)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .ingredientsLoraNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingLoraURL)
+            } else {
+                XCTFail("expected .ingredientsLoraNotFound, got \(stageError)")
+            }
+        }
+    }
+
+    func testGenerateIngredientsMissingReferenceImageThrowsNamedError() throws {
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_ingredients_out_\(UUID().uuidString)")
+        let missingReferenceURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).png")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateIngredients(
+            referenceImageURL: missingReferenceURL, outputDir: outputDir, prompt: "a test prompt",
+            loraURL: missingLoraURL, width: 64, height: 64)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .referenceImageNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingReferenceURL)
+            } else {
+                XCTFail("expected .referenceImageNotFound, got \(stageError)")
+            }
+        }
+    }
 }

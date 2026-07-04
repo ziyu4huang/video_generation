@@ -28,6 +28,6 @@ struct LTXVideoDirectorCLI: ParsableCommand {
         commandName: "ltx-video",
         abstract: "LTX-2.3 I2V generation + video/image/voice quality gateway (Apple Silicon MLX).",
         version: "0.1.0",
-        subcommands: [I2V.self, NativeI2V.self, NativeT2A.self, Gate.self, Verify.self, Upscale.self, NativeUpscale.self, NativeRestyle.self, Models.self, AudioDecode.self, VideoDecode.self, T2I.self, Segment.self]
+        subcommands: [I2V.self, NativeI2V.self, NativeT2A.self, Gate.self, Verify.self, Upscale.self, NativeUpscale.self, NativeRestyle.self, NativeIngredients.self, Models.self, AudioDecode.self, VideoDecode.self, T2I.self, Segment.self]
     )
 }

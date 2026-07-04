@@ -2160,6 +2160,67 @@ likely community-trained rather than an official Lightricks release).
 tier" item, `LoadImage` + `RepeatImageBatch` instead of `LoadVideo`)
 remains the next candidate if this area is picked up again.
 
+## Milestone: Ingredients IC-LoRA ported — `native-ingredients` (2026-07-04)
+
+Picked up the sibling "easy tier" item named above. `NativeUpscaleStage
+.generateIngredients` reuses the exact same reference-conditioning core
+`generateRestyle` established (VAE-encode reference -> fuse IC-LoRA via
+`LoRAFusion` -> `VideoConditionByReferenceLatent` -> denoise -> decode), but
+the "reference clip" is built by tiling a SINGLE still reference image
+across the full generation frame count instead of reading a real multi-frame
+input clip. Confirmed against the reference ComfyUI graph's actual node
+LINKS (`LTX-2.3_ICLoRA_Ingredients_Single_Stage_Distilled.json`), not just
+node names — `LoadImage` -> `CreateVideo` -> `GetVideoComponents` ->
+`ResizeImageMaskNode` -> `RepeatImageBatch`, where `RepeatImageBatch`'s
+`amount` and `EmptyLTXVLatentVideo`'s own frame count are driven by the SAME
+`PrimitiveInt` node: the reference image tiles to exactly the target
+generation length, not a fixed short window as the node names alone might
+suggest.
+
+Two deliberate deviations from a literal 1:1 port, both reusing existing
+primitives instead of adding new preprocessing: (1) output resolution is
+caller-supplied `--width`/`--height` through `ResolutionResolver.optimize`
+with the reference image fit via `FrameLoad.resizeAspectFillCenterCrop`
+(already used by `native-i2v --last-frame`), instead of porting
+`ResizeImageMaskNode`'s "scale shorter dimension, lanczos" algorithm — a
+resize-mode detail, not a new capability; (2) audio is generated from
+scratch (denoiseMask=1, noise-to-clean, reusing `NativeI2VStage`'s own
+default t2v audio-decode pipeline: `AudioVAEDecoder` + `VocoderWithBWE` +
+`WAVWriter`), not preserved from an input track like `generateRestyle` —
+the reference graph's `LTXVEmptyLatentAudio` is itself denoised by
+`SamplerCustomAdvanced`, confirmed via its link into the same
+`SamplerCustomAdvanced` node, not a pass-through. New CLI command
+`ltx-video native-ingredients` (`--input`/`--prompt`/`--lora`/
+`--lora-strength`/`--width`/`--height`/`--seconds`/`--fps`/`--seed`/`--mp4`).
+
+**Checkpoint search**: unlike the restoration pair (no exact match found),
+`Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients` DOES exist on HuggingFace by
+that exact name, with a real downloadable file
+(`ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors`, confirmed via the HF API
+`siblings` listing) — but the repo is gate-flagged (`"gated": "auto"`).
+Attempted download with the environment's `HF_TOKEN` via both
+`import-lora --arch ltx-2.3` and a direct authenticated `curl`: both return
+HTTP 403 (not 401 — token is valid, but this specific account hasn't
+accepted the repo's license terms on huggingface.co). This requires a human
+to click "Agree" on the model page while logged in as that account — not
+something the CIVITAI_TOKEN-only download path in `import-lora-image.py`
+can do, and not something worth adding OAuth-gate-acceptance automation for
+one checkpoint. Correctly did not force a workaround; this is a different
+kind of "blocked" than the restoration pair's — "exists but needs one-time
+human license click" rather than "doesn't exist in the form asked for."
+
+**Verification**: same situation as `generateRestyle` at introduction — no
+real Ingredients IC-LoRA checkpoint available in this environment yet.
+Added `testGenerateIngredientsMissingLoraThrowsNamedError` and
+`testGenerateIngredientsMissingReferenceImageThrowsNamedError`, exercising
+both paths reachable without a checkpoint (missing `--lora` throws
+`.ingredientsLoraNotFound`, missing `--input` throws
+`.referenceImageNotFound`) — same "named error, not a generic crash"
+contract test convention `generateHD`/`generateRestyle` established.
+`swift build` clean; `NativeUpscaleStageRealCheckpointTests`: 9/9 pass.
+UNVERIFIED end-to-end pending either the user accepting the HF license
+gate, or supplying the checkpoint another way.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what
