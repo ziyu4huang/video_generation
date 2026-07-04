@@ -181,6 +181,14 @@ See [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md) for lessons learned a
 
 See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (dev retired), clean tree required for `fix:true`, always use `{scriptPath}` not `{name}`, do NOT `--delete-branch` on PR merge.
 
+**Models for executing the loop** — this pi-agent + pi-dynamic-workflow combination is the core of the **AI loop self-development** setup (the `.claude/workflows/*` self-improve loops are the agent runtime improving itself). When executing these workflows, prefer:
+- **Primary (local):** LM Studio serving `google/gemma-4-26b-a4b-qat`.
+- **Fallback (if local isn't enough — heavy structured-output / long review):** `deepseek-v4-flash`.
+
+Wire these via the workflow's `model-routing` / `model-tier-config`. Only escalate to the fallback if a run reports structured-output recovery or poor tool adherence — the loop only works when the model reliably calls the StructuredOutput tool.
+
+**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-dynamic-workflows / pi-vlm / pi-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
+
 ## Vendor patches (active)
 
 **Vendor patches** (ltx-2-mlx / mflux): live in `python/mlx-movie-director/app/vendor_patches.py`

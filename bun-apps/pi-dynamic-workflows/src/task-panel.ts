@@ -9,6 +9,7 @@
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { shorten, statusIcon, type WorkflowAgentSnapshot, type WorkflowSnapshot } from "./display.js";
+import type { PersistedRunState } from "./run-persistence.js";
 import type { ManagedRun, WorkflowManager } from "./workflow-manager.js";
 import type { WorkflowStorage } from "./workflow-saved.js";
 import type { WorkflowSettings } from "./workflow-settings.js";
@@ -199,7 +200,7 @@ function deliverTextFromPersisted(run: {
  * at a handful of runs so a backlog can't spam a fresh session.
  */
 export function redeliverPendingResults(pi: ExtensionAPI, manager: WorkflowManager): void {
-  let pending;
+  let pending: PersistedRunState[];
   try {
     pending = manager.listUndeliveredCompletedBackgroundRuns();
   } catch {

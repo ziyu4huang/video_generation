@@ -10,11 +10,11 @@
  * No network call is made and NO provider quota is consumed.
  */
 
+import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { WorkflowAgent } from "../src/agent.js";
 import { WorkflowErrorCode } from "../src/errors.js";

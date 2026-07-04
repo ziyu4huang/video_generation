@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
 import { test } from "bun:test";
+import assert from "node:assert/strict";
 import { runWorkflow } from "../src/workflow.js";
 
 // Fake agents return a schema-shaped object when a schema is requested.

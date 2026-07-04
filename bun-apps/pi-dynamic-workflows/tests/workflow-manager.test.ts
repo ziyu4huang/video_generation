@@ -1,8 +1,8 @@
+import { mock, spyOn, test } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test, mock, spyOn } from "bun:test";
 import type { AgentUsage } from "../src/agent.js";
 import { WorkflowError, WorkflowErrorCode } from "../src/errors.js";
 import { WorkflowManager } from "../src/workflow-manager.js";
@@ -519,11 +519,30 @@ test(
       startedAt: "2026-07-01T00:00:00.000Z",
       updatedAt: "2026-07-01T00:00:00.000Z",
     };
-    p.save({ ...base, runId: "completed-bg", status: "completed", background: true, completedAt: "2026-07-01T01:00:00.000Z" });
+    p.save({
+      ...base,
+      runId: "completed-bg",
+      status: "completed",
+      background: true,
+      completedAt: "2026-07-01T01:00:00.000Z",
+    });
     p.save({ ...base, runId: "paused-bg", status: "paused", background: true });
     p.save({ ...base, runId: "failed-bg", status: "failed", background: true });
-    p.save({ ...base, runId: "completed-fg", status: "completed", background: false, completedAt: "2026-07-01T02:00:00.000Z" });
-    p.save({ ...base, runId: "delivered-bg", status: "completed", background: true, deliveredAt: "2026-07-01T03:00:00.000Z", completedAt: "2026-07-01T03:00:00.000Z" });
+    p.save({
+      ...base,
+      runId: "completed-fg",
+      status: "completed",
+      background: false,
+      completedAt: "2026-07-01T02:00:00.000Z",
+    });
+    p.save({
+      ...base,
+      runId: "delivered-bg",
+      status: "completed",
+      background: true,
+      deliveredAt: "2026-07-01T03:00:00.000Z",
+      completedAt: "2026-07-01T03:00:00.000Z",
+    });
 
     const pending = manager.listUndeliveredCompletedBackgroundRuns();
     assert.deepEqual(

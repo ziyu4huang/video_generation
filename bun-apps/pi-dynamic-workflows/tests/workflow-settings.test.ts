@@ -1,8 +1,8 @@
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, normalize } from "node:path";
-import { describe, it } from "bun:test";
 import { WORKFLOW_SETTINGS_FILE } from "../src/config.js";
 import {
   getWorkflowProjectSettingsPath,
