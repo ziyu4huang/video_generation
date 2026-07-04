@@ -41,11 +41,27 @@ let package = Package(
             name: "LTXVideoDirector",
             dependencies: [
                 .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXFFT", package: "mlx-swift"),
                 .product(name: "ImageGenUtils", package: "image-gen-utils"),
                 .product(name: "CommonImageDirector", package: "common-image-director"),
                 .product(name: "ZImageDirector", package: "z-image-director"),
             ],
-            path: "Sources/LTXVideoDirector"
+            path: "Sources/LTXVideoDirector",
+            resources: [
+                // Whisper's precomputed librosa mel filterbank (80 and 128
+                // bins) — WhisperMel.swift embeds the SAME matrix
+                // mlx_whisper ships (mel_filters.npz, converted to
+                // safetensors so MLX.loadArrays can read it with no custom
+                // npz/zip parser) rather than reimplementing librosa's
+                // mel-filter design from scratch.
+                .copy("Resources/whisper_mel_filters.safetensors"),
+                // Whisper's real multilingual BPE vocab (tiktoken format:
+                // one "<base64 bytes> <rank>" pair per line, 50257 entries)
+                // — WhisperTokenizer.swift embeds the SAME file mlx_whisper
+                // ships (multilingual.tiktoken) since it's the actual model
+                // vocabulary, not something to regenerate.
+                .copy("Resources/whisper_multilingual.tiktoken"),
+            ]
         ),
         .executableTarget(
             name: "LTXVideoDirectorCLI",

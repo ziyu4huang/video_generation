@@ -28,12 +28,23 @@ extension LTXVideoDirectorCLI {
         @Flag(help: "Treat WARN as failure too (exit 1).")
         var strict = false
 
+        @Option(help: "Also run the ASR voice-content gate (bridges to mlx_whisper — slower). Pass the original generation prompt; expected speech/language is read from its 「...」 markers.")
+        var asrPrompt: String?
+
+        @Option(help: "With --asr-prompt, additionally require the transcript to classify as this Chinese script variant: 'traditional' or 'simplified'.")
+        var expectedScript: String?
+
         func run() throws {
-            var verdicts: [(path: String, verdict: VideoGateVerdict?)] = []
+            var verdicts: [(path: String, verdict: VideoGateVerdict?, asr: ASRGateVerdict?)] = []
             for path in videos {
                 let url = URL(fileURLWithPath: path)
                 let v = try? VideoGate.evaluate(videoURL: url, expectVoice: expectVoice)
-                verdicts.append((path, v))
+                var asr: ASRGateVerdict? = nil
+                if let asrPrompt {
+                    let scriptVariant: ScriptVariant? = expectedScript.flatMap { ScriptVariant(rawValue: $0.lowercased()) }
+                    asr = try? ASRGate.evaluate(videoURL: url, prompt: asrPrompt, expectedScript: scriptVariant)
+                }
+                verdicts.append((path, v, asr))
             }
 
             if json {
@@ -51,10 +62,14 @@ extension LTXVideoDirectorCLI {
                 encoder.nonConformingFloatEncodingStrategy = .convertToString(
                     positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
                 var arr: [[String: Any]] = []
-                for (path, v) in verdicts {
+                for (path, v, asr) in verdicts {
                     if let v, let data = try? encoder.encode(v),
                        var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                         obj["path"] = path
+                        if let asr, let asrData = try? encoder.encode(asr),
+                           let asrObj = (try? JSONSerialization.jsonObject(with: asrData)) as? [String: Any] {
+                            obj["asr"] = asrObj
+                        }
                         arr.append(obj)
                     } else {
                         arr.append(["path": path, "status": "FAIL", "reasons": ["could not read/probe video"]])
@@ -63,7 +78,7 @@ extension LTXVideoDirectorCLI {
                 let data = try JSONSerialization.data(withJSONObject: arr, options: [.prettyPrinted, .sortedKeys])
                 print(String(data: data, encoding: .utf8) ?? "[]")
             } else {
-                for (path, v) in verdicts {
+                for (path, v, asr) in verdicts {
                     guard let v else {
                         print("❌ FAIL  \(path)\n     could not read/probe video")
                         continue
@@ -73,11 +88,18 @@ extension LTXVideoDirectorCLI {
                     print("     \(v.reasons.joined(separator: "; "))")
                     let motionStr = v.motionMean.map { String(format: "%.3f", $0) } ?? "n/a"
                     print("     [\(v.width)x\(v.height) @ \(String(format: "%.1f", v.fps))fps, \(String(format: "%.1f", v.duration))s, audio=\(v.hasAudio ? String(format: "%.1fdBFS", v.meanDBFS) : "none"), ssim=\(String(format: "%.4f", v.minFrameSSIM))-\(String(format: "%.4f", v.maxFrameSSIM)), motion_mean=\(motionStr)]")
+                    if let asr {
+                        let asrIcon = asr.status == "PASS" ? "✅" : asr.status == "WARN" ? "⚠️ " : "❌"
+                        print("     ASR \(asrIcon) \(asr.status)  \(asr.reasons.joined(separator: "; "))")
+                        print("     transcript: \(asr.transcript)")
+                    }
                 }
             }
 
-            let failed = verdicts.contains { (_, v) in
-                v == nil || v?.status == "FAIL" || (strict && v?.status == "WARN")
+            var failed = false
+            for (_, v, asr) in verdicts {
+                if v == nil || v?.status == "FAIL" || asr?.status == "FAIL" { failed = true }
+                if strict && (v?.status == "WARN" || asr?.status == "WARN") { failed = true }
             }
             if failed { throw ExitCode.failure }
         }

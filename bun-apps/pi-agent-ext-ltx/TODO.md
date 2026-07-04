@@ -230,6 +230,32 @@ need to drive them through the pi-agent tool, not automatically on landing.
 type: "string", ... }` field to both commands' schemas, matching the
 existing `mode`/`refinePrompt` field style.
 
+## 12. ASR voice-content gate wired through — DONE (2026-07-04)
+
+`output/new-goal-20260704-141422.md` item (A): `gate`'s field schema gained
+`asrPrompt`/`expectedScript`, matching the Swift `--asr-prompt`/
+`--expected-script` flags now exposed by `ltx-video gate` (native
+`ASRGate.swift` + `CJKScript.swift` — the latter is a fully native
+Traditional-vs-Simplified classifier, no ML model). `check:flags` confirms
+0 drift on `gate`. Transcription itself still bridges to Python's
+`mlx_whisper` via the new `run.py video asr-gate` subcommand — see
+`swift/ltx-video-director/docs/TODO.md`'s matching entry for the full
+native/bridged breakdown.
+
+## 13. `pi-agent-ext-ltx-self-improve` workflow does not exist yet
+
+`output/new-goal-20260704-141422.md` item (B), still open: no
+`.claude/workflows/pi-agent-ext-ltx-self-improve.js` exists (compare to
+`pi-agent-ext-flux2-self-improve.js`, the reference 3-lane template —
+contract = `bun test` + `check:flags` drift guard; review = agent code
+review with adversarial verify; live-e2e = drive the real binary). This
+package already has the two deterministic gates that template's contract
+lane would run (`bun test`, `check:flags`) and a live-e2e precedent
+(item 10 above); what's missing is the workflow script itself gluing them
+together. Sequencing note from the goal file: the live-e2e lane should
+exercise the new ASR/zh-TW gate (item 12) once it existed — which it now
+does, so this is unblocked.
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged

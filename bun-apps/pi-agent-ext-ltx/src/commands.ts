@@ -185,12 +185,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
   gate: {
     name: "gate",
     writesOutput: false,
-    when: "Score existing video/image file(s) with the native VLM-free quality gateway (noise/blank/motion/audio-level checks). NO generation. Use json:true for parseable output.",
+    when: "Score existing video/image file(s) with the native VLM-free quality gateway (noise/blank/motion/audio-level checks). NO generation. Use json:true for parseable output. Pass asrPrompt to additionally verify the audio actually SAYS the right thing (bridges to mlx_whisper — slower, real transcription) instead of just checking loudness.",
     fields: {
       videos: { flag: "", positional: true, type: "string[]", isPathArray: true, description: "Video (or image) file(s) to gate." },
       json: { flag: "--json", type: "boolean", description: "Emit machine-readable JSON (one array). Recommended for the agent." },
       expectVoice: { flag: "--expect-voice", invertedFlag: "--no-expect-voice", type: "boolean", description: "Expect an audio/voice track (FAIL if missing). ON by default — set false to allow silent clips." },
       strict: { flag: "--strict", type: "boolean", description: "Treat WARN as failure too (exit 1)." },
+      asrPrompt: { flag: "--asr-prompt", type: "string", description: "Also run the ASR voice-content gate: transcribes the audio (mlx_whisper bridge) and checks language + content overlap against 「...」 speech markers in this prompt. Omit to skip (default — the loudness-only gate above still runs)." },
+      expectedScript: { flag: "--expected-script", type: "string", description: "With asrPrompt, additionally require the transcript to classify natively (no ML) as 'traditional' or 'simplified' Chinese — catches zh-CN output when zh-TW was expected, which Whisper's own language detection cannot tell apart." },
     },
   },
 

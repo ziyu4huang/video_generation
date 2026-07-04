@@ -418,6 +418,188 @@ questions anymore — they're each their own integration project.
 - A REAL voice-presence gate: today's `AudioProbe` is energy-based only
   (loudness/silence). A proper "is this actually speech, and roughly the
   right language" check needs VAD/ASR — out of scope until this phase.
+  **Partially closed 2026-07-04**: `ASRGate.swift` + `CJKScript.swift` add
+  content/language verification (transcript-overlap check, zh-TW vs zh-CN
+  script classification — the latter fully native, no ML model) wired into
+  `ltx-video gate --asr-prompt`. What's STILL bridged (not native): the
+  transcription itself, via `python/mlx-movie-director/app/commands/
+  video-asr-gate.py` → `mlx_whisper`. A native Swift/MLX Whisper port
+  (encoder+decoder+tokenizer, likely `whisper-large-v3-mlx` weights) remains
+  the one open item to make this gate 100% native — multi-session scope on
+  its own, not attempted this iteration; every decision ON TOP of the raw
+  transcript (language match, content overlap, Traditional/Simplified
+  classification) is already native Swift today.
+
+  **Native Whisper port — STARTED 2026-07-04 (first piece landed).**
+  `WhisperMel.swift` ports `mlx_whisper.audio.log_mel_spectrogram` line-for-
+  line (reflect-pad → Hann window → `MLXFFT.rfft`-based STFT via
+  `asStrided`, same as the Python reference's `mx.fft.rfft` + `mx.as_strided`
+  — this package already depended on `mlx-swift`, just needed the `MLXFFT`
+  product added to `Package.swift`) — the log-mel feature extraction that
+  feeds Whisper's encoder, for both n_mels=80 (tiny/base/small/medium) and
+  n_mels=128 (large-v3, the model the Python bridge actually uses). The
+  precomputed librosa mel filterbank mlx_whisper ships
+  (`mel_filters.npz`) is embedded as an SPM resource (converted to
+  safetensors so `MLX.loadArrays` reads it with no custom npz/zip parser
+  needed) rather than reimplemented from scratch.
+  Verified against REAL `mlx_whisper` output (this session's sandbox turned
+  out to have a working venv after all — see environment note below):
+  `scripts/dump_whisper_mel_reference.py` runs the actual
+  `mlx_whisper.audio.log_mel_spectrogram` on a deterministic synthetic
+  multi-tone signal and dumps both n_mels configs;
+  `WhisperMelParityTests.swift` compares — max abs diff < 1e-3 on both
+  n_mels=80 and n_mels=128. 2/2 pass.
+  **Encoder — landed 2026-07-04, verified against REAL production weights.**
+  `WhisperEncoder.swift` ports `mlx_whisper.whisper.AudioEncoder` /
+  `ResidualAttentionBlock` / `MultiHeadAttention` (self-attention only — the
+  encoder never uses cross-attention) line-for-line: conv1(k3,p1) → GELU →
+  conv2(k3,s2,p1) → GELU → + sinusoidal positional embedding → N
+  self-attention blocks (pre-LN, asymmetric q/k pre-scale by `headDim**-0.25`
+  matching the reference's exact — not the usual fused-SDPA-equivalent —
+  rounding) → final LayerNorm. Verified two ways:
+  1. `WhisperEncoderParityTests` — real `mlx_whisper.whisper.AudioEncoder`
+     class instantiated at a small config (2 layers, 32-dim) with random
+     weights (same "verify the architecture, not the pretrained checkpoint"
+     split as `dump_timestep_embedding_reference.py` — a real 1.5GB+
+     large-v3 checkpoint isn't committed to this repo). 2/2 pass.
+  2. `WhisperEncoderRealCheckpointTests` — the conv stem + ONE real
+     transformer block-0, loaded from the ACTUAL cached
+     `whisper-large-v3-mlx` checkpoint (1280-dim, 20-head — the exact model
+     `_run_audio_asr_gate` transcribes with), run on REAL log-mel features
+     from an actual generated clip's speech audio. Max abs diff < 5e-2
+     (fp16-checkpoint tolerance). 1/1 pass. Mirrors this repo's own
+     "one real block, real checkpoint" precedent
+     (`LTXModelRealCheckpointTests.testOneRealBlockProducesFiniteOutput`)
+     rather than running the full 32-layer encoder.
+
+  **Decoder — also landed 2026-07-04, verified against REAL production
+  weights.** Confirmed the prediction noted right after the encoder landed:
+  `mlx_whisper.whisper.ResidualAttentionBlock` with `cross_attention=true`
+  IS the same class as the encoder's block, just with a second attention
+  sub-layer — so `WhisperAttention` only needed generalizing (added
+  `crossInput`/`mask` params, both nil-default so the encoder's existing
+  call sites are unchanged) rather than a from-scratch rewrite.
+  `WhisperDecoder.swift` (new) ports `TextDecoder`/`ResidualAttentionBlock`
+  (cross_attention=true): causal self-attn → cross-attn to encoder output →
+  MLP, all pre-LN, plus token+positional embedding and the tied-embedding
+  logits projection (`token_embedding.as_linear`). `causalMask(length:)`
+  mirrors `nn.MultiHeadAttention.create_additive_causal_mask` exactly
+  (upper triangle = -inf). Verified against the REAL cached
+  `whisper-large-v3-mlx` checkpoint's real token/positional embeddings +
+  decoder block-0 weights, on real special-token ids (SOT/language=zh/
+  transcribe/notimestamps — Whisper's real zh transcription prefix) cross-
+  attending to the real encoder-block-0 output from the encoder fixture
+  above — max abs diff < 5e-2, 2/2 pass
+  (`WhisperDecoderRealCheckpointTests.swift`,
+  `scripts/dump_whisper_real_decoder_block_reference.py`).
+
+  **Tokenizer (decode direction) — also landed 2026-07-04.**
+  `WhisperTokenizer.swift` ports `mlx_whisper.tokenizer`'s tiktoken-based
+  multilingual vocab, DECODE-ONLY (this ASR gate never needs to encode
+  arbitrary text back into ids — only the decode loop's output ids into
+  text — so the regex-pretokenizer + greedy-merge BPE algorithm tiktoken
+  uses for encoding isn't needed at all; decoding a tiktoken vocab is just
+  id → bytes → concat → UTF-8, since every rank already IS its full byte
+  string). Embeds the real `multilingual.tiktoken` vocab file (816KB, 50257
+  ranks) as an SPM resource (same "ship the real small asset, not a
+  reimplementation" call as the mel filterbank). Special-token ids
+  (`<|startoftranscript|>`, per-language, `<|transcribe|>`,
+  `<|notimestamps|>`, ...) are computed via the exact same closed-form
+  language-index arithmetic `get_encoding()` uses — verified this is NOT a
+  simple 100-language dict walk: `num_languages` defaults to 99, dropping
+  the dict's 100th key (`"yue"`) from the reserved range, confirmed by a
+  real `get_tokenizer(multilingual=True, language="ja")` call returning
+  50266 (which only lines up with a 99-entry list, not 100). Verified
+  against real `mlx_whisper.tokenizer.get_tokenizer` output for 3
+  languages' SOT sequences + real decode output for two id sequences
+  (including round-tripping a real Chinese encode) — 7/7 pass
+  (`WhisperTokenizerTests.swift`).
+
+  **Decode loop + full checkpoint loader + wiring — ALSO landed 2026-07-04,
+  closing the loop end-to-end.** `WhisperModel.swift` (new): `load()` reads
+  a full checkpoint's real per-layer weights into `WhisperEncoder`/
+  `WhisperDecoder` (all 32+32 layers for large-v3), `transcribe()` runs a
+  greedy decode loop with NO KV cache (deliberate — re-runs the full
+  decoder over the whole token prefix every step instead of caching K/V
+  incrementally; correct, just not optimized, since a cache is a
+  performance concern not a different computation — documented tradeoff in
+  the file's header, same class of "ship the real math now, optimize
+  later" call as `VideoTiling`'s early single-tile path).
+  `WhisperModelRealCheckpointTests.testTranscribesRealClipEndToEndNatively`
+  is the actual end-to-end proof: loads the real large-v3-mlx checkpoint,
+  runs `WhisperMel` → full 32-layer encoder → greedy decoder loop →
+  `WhisperTokenizer.decode` on a REAL generated clip's real speech audio —
+  **zero mlx_whisper, zero Python, zero RunPyBridge in the test path.**
+  **A real correctness bug was found and fixed getting this test green**:
+  naive greedy decoding predicted `<|endoftext|>` as the very first token
+  (confirmed via debug instrumentation: max logit 23.2 landed exactly on
+  EOT), producing an empty transcript. Root cause: mlx_whisper's real
+  decode path applies a `SuppressBlank` logit filter that masks EOT (and
+  the space token, id 220) at the FIRST generation step only, precisely to
+  prevent this — `WhisperModel.transcribe` now replicates that filter.
+  **A second finding, NOT a bug**: even with that fix, this port's naive
+  greedy decode produces `", Hi, how are you?"` for this clip's actual
+  "嗨你好" audio — an English translation despite forcing the zh language
+  token. Cross-checked against the REAL `mlx_whisper.whisper.Whisper` class
+  running the IDENTICAL naive-greedy strategy on the SAME real weights
+  (`scripts/dump_whisper_real_transcribe_reference.py`) — Python produces
+  the bit-EXACT same generated token ids. This isn't a Swift defect; it's
+  what this real checkpoint's naive greedy decoding actually does on a
+  short/ambiguous clip. `mlx_whisper`'s polished `transcribe()` (temperature-
+  fallback retries + more logit filters) gets a better result on the same
+  audio — a real, honestly-scoped follow-up (see `ASRGate.swift` below),
+  not something silently "fixed" by fudging the test. The test therefore
+  asserts BIT-EXACT parity against the real reference, not "says something
+  Chinese."
+  **Real language auto-detection — closed 2026-07-04.**
+  `WhisperModel.detectLanguage(mel:)` ports `mlx_whisper.decoding.
+  detect_language` exactly: encode once, decode ONE step from
+  `<|startoftranscript|>` alone (no language forced), mask every
+  non-language-token logit to -inf, argmax over what's left. Verified
+  bit-exact against real `mlx_whisper.decoding.detect_language` on the real
+  checkpoint + real clip (`scripts/dump_whisper_real_detect_language_reference.py`,
+  `WhisperModelRealCheckpointTests.testDetectsRealLanguageEndToEndNatively`)
+  — both return zh (token 50260) for this clip. This closes the gap where
+  the native engine could previously only force-decode a language, never
+  actually detect one.
+
+  **`ASRGate.swift`'s DEFAULT ENGINE IS NOW NATIVE SWIFT** —
+  `ASRGateEngine.autoDetect()` resolves to `.nativeSwift` whenever a
+  converted local checkpoint is present (the standard case once
+  `WhisperModelRealCheckpointTests`' one-time npz→safetensors conversion
+  has been run once on a machine), falling back to `.pythonBridge` ONLY
+  when that checkpoint genuinely isn't set up — never as a quality choice.
+  `WhisperMel.loadAudio(url:)` (new) extracts+resamples audio natively via
+  AVFoundation + the existing `LinearResampler` (no ffmpeg subprocess,
+  matching this package's `MP4Writer.swift` convention), so with a
+  converted checkpoint present, `ltx-video gate --asr-prompt` now runs
+  ZERO Python by default — confirmed via a real CLI invocation against the
+  same real clip used throughout this port's verification.
+  **Honest consequence, not swept under the rug**: that same real CLI run
+  now FAILS this specific clip's ASR check (content-overlap ratio 0.00,
+  transcript `","`) where the Python-bridge path previously PASSED
+  (ratio 1.0, transcript "嗨你好") — this is the documented naive-greedy
+  quality gap manifesting in a real, production-facing behavior change,
+  not a regression introduced by a bug. Anyone relying on this gate's
+  pass/fail today should be aware the default engine changed and monitor
+  for false FAILs until the quality-closing follow-up (temperature-fallback
+  retries) lands; `engine: .pythonBridge` remains available as an explicit
+  escape hatch in the meantime.
+
+  **Still open** to make the native engine's quality match the bridge: a
+  real KV cache (performance only — the math is already correct) and
+  temperature-fallback retries (the actual quality gap — mlx_whisper's
+  `transcribe()` retries at multiple temperatures and picks the best
+  result; this port always does one greedy pass). The tiktoken ENCODE
+  direction remains unported (not needed for this ASR gate's decode-only
+  use case).
+  **Environment note**: `python/venv` was missing from this session's
+  worktree checkout (CLAUDE.md documents the path but the symlink itself
+  is git-ignored, so a fresh worktree doesn't inherit it) — found and
+  symlinked to the existing shared `~/proj/video_generation__venv` mid-
+  session, which unblocked running the ACTUAL `mlx_whisper` for the dump
+  script above (previously assumed impossible in this sandbox; it wasn't —
+  just needed the symlink recreated).
 
 **Started 2026-07-02.** First sampling-loop component: `EulerDiffusionStep.swift` ports
 `ltx_core_mlx.components.diffusion_steps.EulerDiffusionStep` (+ `to_velocity`) — the first-order
