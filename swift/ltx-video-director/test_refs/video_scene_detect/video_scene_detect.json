@@ -1,0 +1,50 @@
+{
+  "video": "three_color_scenes.mp4",
+  "fps": 10.0,
+  "total_frames": 30,
+  "threshold": 0.4,
+  "min_frames": 8,
+  "scenes": [
+    {
+      "start": 0,
+      "end": 9
+    },
+    {
+      "start": 10,
+      "end": 19
+    },
+    {
+      "start": 20,
+      "end": 29
+    }
+  ],
+  "timestamps": [
+    {
+      "scene_num": 1,
+      "start_frame": 0,
+      "end_frame": 9,
+      "frames": 10,
+      "start_sec": 0.0,
+      "end_sec": 0.9,
+      "duration_sec": 1.0
+    },
+    {
+      "scene_num": 2,
+      "start_frame": 10,
+      "end_frame": 19,
+      "frames": 10,
+      "start_sec": 1.0,
+      "end_sec": 1.9,
+      "duration_sec": 1.0
+    },
+    {
+      "scene_num": 3,
+      "start_frame": 20,
+      "end_frame": 29,
+      "frames": 10,
+      "start_sec": 2.0,
+      "end_sec": 2.9,
+      "duration_sec": 1.0
+    }
+  ]
+}
