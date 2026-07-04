@@ -44,13 +44,17 @@ export default (pi) => {
 };
 `;
 
-// Regression probe for the jiti x Bun NameTooLong bug: pi's extension loader
-// (createJiti, moduleCache:false) transforms every -e module and under Bun
-// inlines each as a base64 data URL, which Bun rejects once the specifier
-// exceeds ~4 KB (flux2 binary.ts trips first; hermes has 40 KB+ modules).
-// cli.ts forces JITI_ESM_EVAL_TEMP_FILE=true so jiti spills each transformed
-// module to a temp .js and loads by path. This probe is the same logic as
-// PROBE_TS but padded >4 KB so a regression resurfaces here, not in prod.
+// Regression probe for the extension-load bug under Bun. Root cause: when an
+// extension's bare specifiers (@earendil-works/*, typebox) are NOT on the
+// node_modules walk-up path, pi's jiti loader falls back from `try-native` to
+// transforming the graph, and under Bun + jiti 2.7.0 any transformed module
+// >~4 KB fails (NameTooLong data URL, OR — with JITI_ESM_EVAL_TEMP_FILE — a
+// temp file that can't be resolved: `Cannot find module .../jiti-esm/* from ''`).
+// The real fix is src/patches/ensure-extension-deps.ts: repo-root node_modules
+// symlinks make try-native SUCCEED, so jiti never transforms and there is no
+// size limit. This single >4 KB probe guards the size path; the FULL graph
+// (bare specs + multi-module + >4 KB binary.ts) is covered by
+// scripts/verify-extensions.ts, which is the authoritative regression check.
 const PROBE_TS_LARGE = "// " + "x".repeat(5000) + "\n" + `
 export default (pi) => {
   pi.on("session_start", () => {
@@ -253,9 +257,8 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 	}, 60_000); // spawns a real session_start (offline, but needs headroom)
 });
 
-// Regression for the jiti x Bun NameTooLong bug (cli.ts sets
-// JITI_ESM_EVAL_TEMP_FILE=true). Source-mode only — independent of deploy, so
-// gated on E2E_ENABLED alone (no deploy build required).
+// Regression for the extension-load size bug. Source-mode only — independent
+// of deploy, so gated on E2E_ENABLED alone (no deploy build required).
 describe.skipIf(!E2E_ENABLED)("e2e: SOURCE loads a >4 KB extension module", () => {
 	let largeProbePath = "";
 	beforeAll(() => {
@@ -265,7 +268,7 @@ describe.skipIf(!E2E_ENABLED)("e2e: SOURCE loads a >4 KB extension module", () =
 	afterAll(() => {
 		if (existsSync(largeProbePath)) rmSync(largeProbePath, { force: true });
 	});
-	test("a >4 KB module loads without NameTooLong (jiti esmEvalTempFile guard)", async () => {
+	test("a >4 KB module loads (ensure-extension-deps patch → native load)", async () => {
 		const r = await runScenario({
 			name: "source-large",
 			cmd: ["bun", SRC_CLI, "-e", largeProbePath, "-p", "hi"],

@@ -15,7 +15,8 @@ export type PatchName =
 	| "skip-update-check"
 	| "pre-load-providers"
 	| "load-run-dir-resources"
-	| "default-model-env";
+	| "default-model-env"
+	| "ensure-extension-deps";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -46,6 +47,11 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "pre-load-providers", env: "BUN_PI_PRE_LOAD_PROVIDERS", defaultValue: true },
   { name: "load-run-dir-resources", env: "BUN_PI_LOAD_RUN_DIR", defaultValue: true },
   { name: "default-model-env", env: "BUN_PI_DEFAULT_MODEL_ENV", defaultValue: true },
+  // ensure-extension-deps runs LAST among setup patches: it materializes the
+  // repo-root node_modules symlinks that let Bun native-import every extension
+  // graph (so try-native succeeds and jiti never transforms — see the patch
+  // file for the >4 KB tempfile bug this sidesteps). Still before main().
+  { name: "ensure-extension-deps", env: "BUN_PI_ENSURE_EXT_DEPS", defaultValue: true },
 ];
 
 /**
@@ -107,6 +113,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "default-model-env":
         await import("./default-model-env.ts");
+        break;
+      case "ensure-extension-deps":
+        await import("./ensure-extension-deps.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.

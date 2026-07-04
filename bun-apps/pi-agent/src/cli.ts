@@ -25,16 +25,15 @@ import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor } from "./doctor.ts";
 
-// Force jiti to spill each transformed extension module to a temp .js file and
-// load it BY PATH instead of inlining it as a `data:text/javascript;base64,...`
-// URL. pi's extension loader (createJiti with moduleCache:false) transforms
-// every -e extension module, and under Bun a data-URL specifier longer than
-// ~4 KB is rejected with `ResolveMessage: NameTooLong`. Without this, any
-// extension whose modules exceed ~3 KB is un-loadable — pi-agent-ext-flux2's
-// binary.ts trips first, and pi-hermes-memory has 40 KB+ modules. Set BEFORE
-// main() (which is when pi's loader reads the env); respects a caller override.
-// Covers every entry path (this file is bundled into the deployed pi-agent.js).
-process.env.JITI_ESM_EVAL_TEMP_FILE ??= "true";
+// Extension loading: handled by the `ensure-extension-deps` patch (see
+// src/patches/ensure-extension-deps.ts), which creates repo-root node_modules
+// symlinks so Bun NATIVELY imports each extension's .ts graph. That makes
+// jiti's `try-native` succeed, so jiti never transforms the graph and the
+// >4 KB-module bug never fires. Do NOT re-add `JITI_ESM_EVAL_TEMP_FILE` here:
+// under jiti 2.7.0 that temp-file path is broken (`Cannot find module
+// .../jiti-esm/binary-*.mjs from ''`), and with it unset you just get the
+// `NameTooLong` data-URL error instead — both jiti transform paths are dead;
+// the only real fix is to avoid transforming (native load).
 
 // Read argv once for the doctor intercept (which runs BEFORE patches). NOTE:
 // main() must re-slice process.argv AFTER applyPatches() below — the
