@@ -1,3 +1,34 @@
+# Exhaustive function audit vs ComfyUI FFLF+Custom-Audio workflow — VERIFIED (2026-07-04)
+
+`/goal verify if we have implemented all function of the ComfyUI workflow`
+against `LTX I2V FFLF Custom Audio Workflow ... V3.json` specifically (not
+a general survey — a real function-by-function checklist). Full writeup in
+`docs/reference/comfyui_workflows/README.md`'s "Third pass" section and a
+matching `PLAN.md` entry.
+
+**Bottom line**: the large majority of this file's functionality is
+already implemented and matches (euler sampler, Stage #1's schedule, the
+2x latent upsampler + checkpoint, `--lora` strength, the text/audio/video
+encoders+VAEs, custom-audio mask-preservation, FFLF conditioning, the mp4
+mux, CFG=1). Four gaps found, none previously documented:
+1. Upscale refine's per-frame denoise-mask schedule (`LTXSequencer`) —
+   Swift uses one uniform mask, not a per-segment schedule.
+2. A half-res `ImageScaleBy` guide/preview pass with no Swift equivalent —
+   purpose (preview-only vs. quality-affecting) not yet confirmed.
+3. FFLF's per-slot strength/resize-mode/crop-position — Swift requires an
+   exact-size input and hardcodes strength 1.0.
+4. `VAEDecodeTiled`'s spatial tiling vs. this package's temporal-only
+   tiling — a different strategy, not confirmed to be a functional gap.
+
+Also corrected a cross-file conflation from the first research pass: this
+V3 file has only Stage #1/#2 (no Stage #3), and its Stage #2 runs 4
+steps/shift 0.42 — the "6 steps" figure in the first pass's diagram was
+from the sibling 3-stage workflow, not this one.
+
+Nothing implemented this pass — pure verification. See
+`bun-apps/pi-agent-ext-ltx/TODO.md` if any of the four gaps get scoped into
+that package's wrapper surface once ported.
+
 # `MP4Writer` deadlocked on real audio+video FFLF clips — FIXED (2026-07-04)
 
 Driven by a live, user-directed proof: "prove FFLF works" via the real

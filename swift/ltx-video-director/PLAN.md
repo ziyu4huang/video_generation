@@ -1709,6 +1709,46 @@ non-trivial scale (not FFLF-specific) — no error, no crash, just an
 unbounded hang, only surfaced by running a real generation at production
 scale rather than the tiny synthetic clips the original tests used.
 
+## Research: exhaustive function audit vs `LTX I2V FFLF Custom Audio Workflow ... V3.json` (2026-07-04)
+
+Driven by `/goal verify if we have implemented all function of the ComfyUI
+workflow`. Went node-by-node through one specific reference file (not a
+structural overview across all 4, like the first two ComfyUI research
+passes) and cross-checked every parameter against current Swift source.
+Full checklist in `docs/reference/comfyui_workflows/README.md`'s "Third
+pass" section; summary:
+
+Confirmed already correctly implemented: euler sampler, Stage #1's 8-step
+distilled schedule, the 2x latent upsampler + its checkpoint choice,
+`--lora path:strength`, the Gemma-3-12b encoder, both VAEs, custom-audio
+mask-preservation, FFLF frame-0/last-frame conditioning, the mp4 mux, and
+CFG=1 (implicit, since Swift has no negative-conditioning branch at all).
+
+Four newly-found gaps, not caught by the first two passes:
+1. `LTXSequencer`'s per-frame denoise-mask array in the upscale refine pass
+   isn't ported — `NativeUpscaleStage.refine()` uses one uniform mask, not
+   a per-segment strength schedule.
+2. A cheap `ImageScaleBy(bilinear, 0.5)` half-res guide/preview pass in the
+   reference's `Process Latents` stage has no Swift equivalent — unclear
+   yet whether it's a pure UI-preview convenience or feeds generation
+   quality.
+3. FFLF's per-slot conditioning strength, resize-mode, and crop-position
+   aren't ported — `NativeI2VStage` requires the last-frame image to
+   already be exactly `width`×`height` and hardcodes strength 1.0.
+4. `VAEDecodeTiled`'s spatial tile/overlap tiling is architecturally
+   different from this package's temporal-only tiling — not necessarily a
+   functional gap, but a different strategy worth knowing about.
+
+Also corrected a first-pass conflation: this V3 file has only Stage #1/#2
+(no Stage #3) and Stage #2 here runs 4 steps/shift 0.42, not the 6 steps
+quoted in the first pass's diagram — that 6-step figure belongs to the
+sibling 3-stage workflow, not this file.
+
+Nothing implemented this pass — pure verification, closing out the /goal
+with a definitive answer rather than a guess: most of this specific
+workflow's functionality IS covered; the four gaps above are the honest
+remainder.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what
