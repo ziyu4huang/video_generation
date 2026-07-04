@@ -26,6 +26,7 @@ import { runFlux2, type Flux2Details, type CommandName as Flux2Command } from "@
 import { runLtx, type LtxDetails, type CommandName as LtxCommand } from "@repo/pi-agent-ext-ltx";
 import type { Capability, ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
+import { nonNativeAdapters } from "./providers.ts";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -281,6 +282,8 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "swift:krea2": (req) => realKrea2(req, env),
     "swift:flux2": (req) => realFlux2(req, env),
     "swift:ltx": (req) => realLtx(req, env),
+    // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
+    ...nonNativeAdapters(env),
   };
 }
 

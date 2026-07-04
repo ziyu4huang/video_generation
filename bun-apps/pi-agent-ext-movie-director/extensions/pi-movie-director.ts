@@ -20,7 +20,6 @@ import {
   getStageOrder,
   getStage,
   getNextStage,
-  providerMenuSummary,
   writeCheckpoint,
   readCheckpoint,
   getLatestCheckpoint,
@@ -32,6 +31,7 @@ import {
   costSnapshot,
   selectProvider,
   selectAndGenerate,
+  probedMenuSummary,
   NoConfiguredProviderError,
   GateViolationError,
   type CheckpointStatus,
@@ -106,7 +106,7 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
   try {
     switch (command) {
       case "preflight":
-        return { ok: true, text: jsonOut(providerMenuSummary()) };
+        return { ok: true, text: jsonOut(probedMenuSummary()) };
       case "pipeline-list":
         return { ok: true, text: jsonOut(listPipelines()) };
       case "pipeline-show": {
