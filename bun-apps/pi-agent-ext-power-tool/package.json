@@ -17,8 +17,9 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
-    "typebox": "latest",
-    "js-yaml": "latest"
+    "js-yaml": "latest",
+    "pi-knowledge-card": "workspace:*",
+    "typebox": "latest"
   },
   "devDependencies": {
     "@types/bun": "latest",

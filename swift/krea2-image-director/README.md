@@ -31,7 +31,37 @@ swift run krea2 t2i --prompt "..." --bridge
 
 # Image-to-image (SDEditor-style, native Swift)
 swift run krea2 i2i --input source.png --prompt "..." --strength 0.6 --out out.png
+
+# ControlNet = Control LoRA (facok/comfyui-krea2-controlnet port). Supply a
+# preprocessed conditioning image (e.g. a depth map) + the Control LoRA weights
+# (Patil/Krea-2-depth-controlnet depth-control-lora.safetensors).
+swift run -c release krea2 controlnet \
+  --prompt "..." --control-image depth.png \
+  --control-lora depth-control-lora.safetensors --strength 1.0 \
+  --channel-mode gray --normalize minmax --out out.png
+
+# Style transfer (jieg9341-lab/ComfyUI-Krea2-StyleTransfer port). Training-free;
+# applies a style reference image's style to the prompt's generation. No weights.
+swift run -c release krea2 style-transfer \
+  --prompt "..." --style-image reference.png --strength 1.0 --out out.png
 ```
+
+## ControlNet & Style Transfer
+
+Two ComfyUI krea2 features ported to pure-native Swift/MLX. See
+[`docs/controlnet-styletransfer-port.md`](docs/controlnet-styletransfer-port.md)
+for the full design + the minimal-port scope.
+
+- **`controlnet`** — the "ControlNet" is actually a rank-64 Control LoRA
+  (`Patil/Krea-2-depth-controlnet`, 862 MB) + an expanded input projection. The
+  control image (depth/pose/edge, preprocessed externally) is VAE-encoded →
+  patchified → added at the DiT input projection; 224 low-rank LoRA pairs are
+  applied to the block linears. Injects ONCE at the input (not per-block).
+- **`style-transfer`** — training-free K/V attention injection. Three
+  mechanisms: (1) a Reference-Forecast cache (forward-integrate the style
+  latent along the sampler sigmas with the base model velocity, Heun PC γ=0.5);
+  (2) 2B batch `[target ; ref_noisy]` each step; (3) per-frequency-scaled K +
+  AdaIN-mixed V injection in blocks 7…27. No adapter weights required.
 
 ## Requirements
 

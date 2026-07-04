@@ -34,6 +34,7 @@ import {
 	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
+	collectInputFiles,
 	formatSummary,
 	type KnowledgeRecord,
 	type SourceFamily,
@@ -853,8 +854,14 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		parameters: Type.Object({
 			files: Type.Array(Type.String(), {
 				description:
-					"Paths to .knowledge.jsonl files (absolute or relative to cwd). Each non-blank line is one record.",
+					"Paths to .knowledge.jsonl files (or memory .md when source=auto-memory). Absolute or relative to cwd. Each entry may also be a DIRECTORY — it is recursively expanded for the source's file type (.md for auto-memory/hermes, .knowledge.jsonl for workflow-jsonl); MEMORY.md/README.md index files are skipped.",
 			}),
+			dir: Type.Optional(
+				Type.String({
+					description:
+						"Convenience: a directory to expand (equivalent to files:[<dir>]). Common case for ingesting a whole memory directory.",
+				}),
+			),
 			source: Type.Optional(
 				Type.String({
 					description:
@@ -889,8 +896,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _signal, _u, ctx) {
 			const { cwd } = ctx;
-			const files = params.files ?? [];
-			if (files.length === 0) {
+			const inputs = [...(params.files ?? []), ...(params.dir ? [params.dir] : [])];
+			if (inputs.length === 0) {
 				return {
 					content: [{ type: "text", text: "No input files provided." }],
 					isError: true,
@@ -898,9 +905,27 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				};
 			}
 			const source = (params.source ?? "workflow-jsonl") as SourceFamily;
+			// Expand directories + resolve to absolute, sorted, unique paths.
+			const { files, skipped } = collectInputFiles(inputs, { source, cwd });
+			if (files.length === 0) {
+				return {
+					content: [
+						{
+							type: "text",
+							text:
+								`zk_ingest: no input files resolved` +
+								(skipped.length
+									? `; skipped: ${skipped.map((s) => `${s.path} (${s.reason})`).join(", ")}`
+									: ""),
+						},
+					],
+					isError: true,
+					details: { code: "no_input_files", skipped },
+				};
+			}
 			const sourceLabel =
 				params.source_label ??
-				`${source}:${files[0]!.split("/").pop()!.replace(/\.knowledge\.jsonl$/, "")}`;
+				`${source}:${files[0]!.split("/").pop()!.replace(/\.(knowledge\.jsonl|md)$/, "")}`;
 			let vaultPath: string;
 			try {
 				vaultPath = params.vault ?? (await resolveVault(cwd)).path;
@@ -919,27 +944,21 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 
 			const records: KnowledgeRecord[] = [];
 			const parseErrors: { line: number; reason: string }[] = [];
-			for (const f of files) {
-				const abs = /^\//.test(f) ? f : `${cwd}/${f}`;
+			for (const abs of files) {
 				let content: string;
 				try {
 					content = readFileSync(abs, "utf8");
 				} catch (e) {
-					return {
-						content: [
-							{
-								type: "text",
-								text: `zk_ingest: cannot read ${f}: ${(e as Error).message}`,
-							},
-						],
-						isError: true,
-						details: { code: "read_failed", file: f },
-					};
+					parseErrors.push({
+						line: 0,
+						reason: `${abs}: read failed (${(e as Error).message})`,
+					});
+					continue;
 				}
 				if (source === "auto-memory") {
 					const rec = adaptAutoMemoryMarkdown(content);
 					if (!rec) {
-						parseErrors.push({ line: 0, reason: `${f}: not a memory file` });
+						parseErrors.push({ line: 0, reason: `${abs}: not a memory file` });
 						continue;
 					}
 					records.push(rec);
@@ -958,14 +977,17 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				dryRun: params.dry_run === true,
 			});
 			summary.parseErrors.push(...parseErrors);
+			const skippedNote = skipped.length
+				? `\nSkipped: ${skipped.map((s) => `${s.path} (${s.reason})`).join(", ")}`
+				: "";
 			return {
 				content: [
 					{
 						type: "text",
-						text: withVault(await vaultHeader(cwd), formatSummary(summary)),
+						text: withVault(await vaultHeader(cwd), formatSummary(summary) + skippedNote),
 					},
 				],
-				details: summary,
+				details: { ...summary, skipped },
 			};
 		},
 	});

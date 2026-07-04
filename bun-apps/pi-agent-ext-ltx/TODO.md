@@ -230,6 +230,156 @@ need to drive them through the pi-agent tool, not automatically on landing.
 type: "string", ... }` field to both commands' schemas, matching the
 existing `mode`/`refinePrompt` field style.
 
+## 12. ASR voice-content gate wired through — DONE (2026-07-04)
+
+`output/new-goal-20260704-141422.md` item (A): `gate`'s field schema gained
+`asrPrompt`/`expectedScript`, matching the Swift `--asr-prompt`/
+`--expected-script` flags now exposed by `ltx-video gate` (native
+`ASRGate.swift` + `CJKScript.swift` — the latter is a fully native
+Traditional-vs-Simplified classifier, no ML model). `check:flags` confirms
+0 drift on `gate`. Transcription itself still bridges to Python's
+`mlx_whisper` via the new `run.py video asr-gate` subcommand — see
+`swift/ltx-video-director/docs/TODO.md`'s matching entry for the full
+native/bridged breakdown.
+
+## 13. `pi-agent-ext-ltx-self-improve` workflow does not exist yet
+
+`output/new-goal-20260704-141422.md` item (B), still open: no
+`.claude/workflows/pi-agent-ext-ltx-self-improve.js` exists (compare to
+`pi-agent-ext-flux2-self-improve.js`, the reference 3-lane template —
+contract = `bun test` + `check:flags` drift guard; review = agent code
+review with adversarial verify; live-e2e = drive the real binary). This
+package already has the two deterministic gates that template's contract
+lane would run (`bun test`, `check:flags`) and a live-e2e precedent
+(item 10 above); what's missing is the workflow script itself gluing them
+together. Sequencing note from the goal file: the live-e2e lane should
+exercise the new ASR/zh-TW gate (item 12) once it existed — which it now
+does, so this is unblocked.
+
+## 14. Two whole subcommands (`native-t2a`, `segment`) were unwrapped — DONE
+
+Prompted by a `/review and improve pi-ext-ltx, search ComfyUI workflow JSON`
+request. `check:flags` reported "10/10 commands fully modeled" — misleadingly
+green, because it only iterates `Object.entries(COMMANDS)` and checks each
+*already-modeled* command for flag drift; it never checked whether
+`ltx-video --help`'s own subcommand list contains commands NOT in
+`commands.ts` at all. Cross-checking `LTXVideoDirectorCLI.swift`'s
+`subcommands:` array directly found two real, already-shipped CLI commands
+with zero wrapper coverage: `native-t2a` (pure text-to-audio, ported per the
+ComfyUI research below) and `segment` (HSV-histogram scene-cut detection,
+landed via PR #234). Fixed both ways:
+
+1. **The drift guard's blind spot itself** — `check-flags.ts` now also diffs
+   `ltx-video --help`'s declared subcommand set against `Object.keys(COMMANDS)`
+   and fails with an explicit `unmodeled: [...]` list if the CLI has grown a
+   subcommand this package doesn't know about at all, not just flag-level
+   drift within known commands.
+2. **Both commands added** to `commands.ts` (full field maps, cross-checked
+   against `NativeT2ACommand.swift`/`SegmentCommand.swift`'s real `--help`
+   output) and `result.ts` (`buildNativeT2ADetails`, `buildSegmentDetails` —
+   the latter also gained a `LtxDetails.scenes: SceneEntry[]` field, the
+   first command in this package with a real per-item result array outside
+   of `gate`/`verify`). Verified via `check:flags` (12/12, no drift) and a
+   real end-to-end run through the actual `runLtx()` path (not `bun test`
+   mocks): `native-t2a` produced a real `audio.wav` (2.6s wall time),
+   `segment` correctly detected 1 real scene in a real 15s clip and wrote
+   its JSON report.
+3. **A second, independent bug found by that same real end-to-end run**:
+   `segment`'s `json` field (a WRITE target — the report path, which
+   legitimately doesn't exist yet) was rejected by `validateOptionPaths`
+   with "does not exist", because the `mustExist` check was a hardcoded
+   `key === "output"` string comparison — any differently-named output-path
+   field failed it. This is NOT new to this session: `i2v`'s pre-existing
+   `jsonOut` field (`--json-out`) had the exact same bug, just never
+   exercised end-to-end before. Fixed by adding an explicit
+   `FieldSpec.isOutputPath?: boolean` and setting it on both `segment.json`
+   and `i2v.jsonOut`, instead of relying on the field being literally named
+   `"output"`.
+
+96 -> 99 tests (2 new `native-t2a`/`segment` describe blocks in
+`result.test.ts`, existing `commands.test.ts` registry-count assertions
+updated 10 -> 12). `README.md`/`extensions/pi-ltx.ts` doc counts and command
+lists updated to match (also fixed a stale "no mp4 muxer yet" line for
+`native-i2v` — mp4 muxing shipped in an earlier pass and the README hadn't
+been updated).
+
+## 15. First real run of `pi-agent-ext-ltx-self-improve` — 7 of 8 review findings fixed
+
+The workflow (item 13, authored but never executed) was run for real for the
+first time (`Workflow({scriptPath: ...})`, explicit user opt-in). All three
+lanes green: contract (99/99 tests, 12/12 `check:flags`), live-e2e (real
+`native-i2v` generation + real `mlx_whisper` ASR gate transcription — exit
+paths both confirmed live), review (4 dimensions, adversarial-verified, 8
+upheld findings). Fixed 7 of the 8:
+
+1/8 (`result.ts`) — `buildGateDetails`/`summarize` never read the nested
+   `asr` sub-object `gate --json` embeds, so an ASR content FAIL could read
+   as `details.gate: "PASS"`. Fixed: `worseStatus()` folds `entry.status`
+   AND `entry.asr?.status` into one worst verdict; `summarize()` now shows
+   the ASR line and — importantly — runs its `gate`-specific branch BEFORE
+   the generic `!d.ok` early-return (gate exiting non-zero because it found
+   a real failure is the expected, informative case, not a crash to hide
+   behind a raw stdout tail).
+2/8 (`result.ts`) — `parseWallSeconds` took the FIRST "wall time:" line only,
+   silently dropping any upscale/second-stage add-on's own timing line.
+   Fixed: sums every occurrence (`allMatches`, not `firstMatch`).
+3-5/8 (`paths.ts`, `validateExtraArgs`) — three related argv-injection gaps
+   in the extraArgs escape hatch (agent-reachable via `extensions/pi-ltx.ts`'s
+   `extraArgs` param): `--flag=value` syntax bypassed validation on the value
+   half entirely; a bare-word value (no `/`, no long extension) skipped
+   `assertPathAllowed` under the old `looksPathy` heuristic — a symlink named
+   e.g. `shortcut` dropped under an allowed root would escape undetected;
+   and `--lora path:strength` values weren't stripped of their suffix before
+   the exists-check, unlike the equivalent structured-field path. Fixed by
+   always validating every non-flag value (relative bare words resolve
+   harmlessly under `repoRoot`, so this doesn't reject legitimate scalars)
+   and stripping `--flag=` values / `:strength` suffixes the same way the
+   structured-field path already does. 4 new regression tests in
+   `paths.test.ts` (including a real symlink escape).
+6/8 (`index.ts`/`check-flags.ts`) — `EXTRA_ARG_ALLOW` (the flat, cross-command
+   allow-list backing the extraArgs escape hatch) was invisible to
+   `check:flags`, which only ever diffs `commands.ts`'s typed fields. Fixed:
+   `EXTRA_ARG_ALLOW` exported, `check-flags.ts` now accumulates the union of
+   every command's real `--help` flags and fails if any allow-list entry
+   doesn't match one — the same "guard the guard" fix as item 14's
+   subcommand check, applied to a second blind spot.
+7/8 (`index.ts`) — `ensureBinary()` inside `runOnce` had no try/catch, so a
+   fresh-checkout `swift build` failure would crash the caller with an
+   unhandled rejection instead of the documented `details.ok=false`
+   contract. Fixed: wrapped, converted to a synthetic failed `InvokeResult`
+   run through the normal per-command `buildDetails` path. (No dedicated
+   regression test — forcing a deterministic build failure without either a
+   slow real `swift build` or risky process-global env mutation wasn't
+   worth it; verified by code inspection + full suite still green.)
+
+**8/8 NOT fixed, left as a known remaining gap**: if the ASR Python bridge
+crashes internally (e.g. `mlx_whisper` not installed) and Swift's `try?`
+swallows it, the JSON entry gets no `asr` key at all — and nothing on this
+side can currently tell "ASR was requested via `asrPrompt` but silently
+never ran" from "ASR wasn't requested," because `result.ts`'s `buildDetails`
+only sees stdout, not the original `options`. Fixing this needs threading
+`options.asrPrompt` through into `buildGateDetails` (a signature change to
+`buildDetails`/`runOnce`), deferred as a separate, smaller follow-up rather
+than folded into this pass.
+
+99 → 105 tests (4 new in `paths.test.ts` for items 3-5, 2 new in
+`result.test.ts` for item 1); `check:flags` still 12/12, no drift.
+
+## 16. Item 15's gap 8/8 fixed — ASR silently-swallowed-crash detection
+
+Threaded `options.asrPrompt` through `runOnce` -> `buildDetails` ->
+`buildGateDetails` (signature changes to all three, as scoped in item 15).
+When `asrPrompt` was passed but a `gate --json` entry has no `asr` key at
+all (Swift's `try? ASRGate.evaluate(...)` swallowed a bridge crash — e.g.
+`mlx_whisper` not installed — to `nil`), `buildGateDetails` now appends a
+synthetic reason ("ASR requested (asrPrompt) but no asr result was
+returned — likely a swallowed Python-bridge crash") and bumps that entry's
+status to FAIL, rather than reporting whatever the video-only status alone
+says. Without `asrPrompt`, a missing `asr` key is untouched (it just wasn't
+requested). 2 new tests in `result.test.ts` covering both branches.
+
+105 → 107 tests; `check:flags` still 12/12, no drift.
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged

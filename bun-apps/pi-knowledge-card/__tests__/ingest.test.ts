@@ -8,13 +8,14 @@
  * edges actually form across the source boundary.
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
+	collectInputFiles,
 	slugify,
 	extractDate,
 	formatSummary,
@@ -124,6 +125,64 @@ describe("adaptAutoMemoryMarkdown", () => {
 		).toBeNull();
 	});
 
+	test("harvests body #hashtags as cross-link tags", () => {
+		const md = [
+			"---",
+			"name: ltx-cfg-lever",
+			'description: "LTX cfg lever"',
+			"metadata:",
+			"  type: feedback",
+			"---",
+			"",
+			"Set cfg=7 for LTX. Related #ltx #video-gen.",
+			"URL https://x.com/#anchor should NOT be harvested.",
+		].join("\n");
+		const rec = adaptAutoMemoryMarkdown(md);
+		expect(rec!.tags).toContain("ltx");
+		expect(rec!.tags).toContain("video-gen");
+		expect(rec!.tags.some((t) => t.includes("anchor"))).toBe(false); // url fragment excluded
+	});
+
+	test("does not treat a markdown heading as a hashtag", () => {
+		const md = [
+			"---",
+			"name: x",
+			'description: "desc"',
+			"metadata:",
+			"  type: reference",
+			"---",
+			"",
+			"# A heading",
+			"## Subheading",
+		].join("\n");
+		const rec = adaptAutoMemoryMarkdown(md);
+		// `# A heading` — space after #, no tag harvested; only auto-memory + reference.
+		expect(rec!.tags).toEqual(["auto-memory", "reference"]);
+	});
+
+	test("strips [[wiki-link]] brackets from the detail body (keeps prose, no dead links)", () => {
+		const md = [
+			"---",
+			"name: x",
+			'description: "desc"',
+			"metadata:",
+			"  type: reference",
+			"---",
+			"",
+			"See [[sibling-topic]] and [[other-topic|the alias]] and [[anchor-host#section]].",
+		].join("\n");
+		const rec = adaptAutoMemoryMarkdown(md);
+		expect(rec!.detail).not.toContain("[[");
+		expect(rec!.detail).not.toContain("]]");
+		expect(rec!.detail).toContain("sibling-topic"); // bare text preserved
+		expect(rec!.detail).toContain("the alias"); // alias form → alias text
+		expect(rec!.detail).toContain("anchor-host"); // #anchor form → target text
+		// The sibling slugs are still harvested as cross-link TAGS (graph edges
+		// live in `## 連結`, not in body prose).
+		expect(rec!.tags).toContain("sibling-topic");
+		expect(rec!.tags).toContain("other-topic");
+	});
+
 	test("auto-memory + workflow records converge + link in one vault", async () => {
 		// Source A: workflow-jsonl record about a git-pr gotcha.
 		await ingestRecords(
@@ -174,6 +233,75 @@ describe("adaptAutoMemoryMarkdown", () => {
 		);
 		const fluxCard = readFileSync(join(vault, FOLDER, "flux2-git-pr-direct-push.md"), "utf8");
 		expect(fluxCard).toContain("[[auto-memory-pr-merge-sop]]");
+	});
+});
+
+describe("collectInputFiles", () => {
+	const memMd = (name: string) =>
+		[
+			"---",
+			`name: ${name}`,
+			'description: "d"',
+			"metadata:",
+			"  type: reference",
+			"---",
+			"",
+			"body",
+		].join("\n");
+
+	test("expands a directory recursively for auto-memory (.md), skipping index files", () => {
+		const root = mkdtempSync(join(tmpdir(), "kcard-collect-"));
+		try {
+			writeFileSync(join(root, "a.md"), memMd("a"));
+			writeFileSync(join(root, "MEMORY.md"), "# index rollup, must be skipped");
+			mkdirSync(join(root, "sub"));
+			writeFileSync(join(root, "sub", "b.md"), memMd("b"));
+			writeFileSync(join(root, "notes.txt"), "not markdown");
+			const { files, skipped } = collectInputFiles([root], { source: "auto-memory", cwd: root });
+			const bases = files.map((f) => f.split("/").pop());
+			expect(bases).toContain("a.md");
+			expect(bases).toContain("b.md");
+			expect(bases).not.toContain("MEMORY.md"); // index rollup excluded
+			expect(bases).not.toContain("notes.txt");
+			expect(skipped).toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("reports missing paths in skipped, never throws", () => {
+		const { files, skipped } = collectInputFiles(["/no/such/path/xyz"], {
+			source: "auto-memory",
+			cwd: "/",
+		});
+		expect(files).toEqual([]);
+		expect(skipped.length).toBe(1);
+		expect(skipped[0]!.reason).toMatch(/not found/);
+	});
+
+	test("explicit files pass through unchanged (no dir expansion)", () => {
+		const root = mkdtempSync(join(tmpdir(), "kcard-collect-"));
+		try {
+			const fAbs = join(root, "x.md");
+			writeFileSync(fAbs, memMd("x"));
+			const { files } = collectInputFiles([fAbs], { source: "auto-memory", cwd: "/" });
+			expect(files).toEqual([fAbs]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	test("workflow-jsonl source globs .knowledge.jsonl, not .md", () => {
+		const root = mkdtempSync(join(tmpdir(), "kcard-collect-"));
+		try {
+			writeFileSync(join(root, "a.knowledge.jsonl"), '{"id":"a:1"}');
+			writeFileSync(join(root, "b.md"), memMd("b"));
+			const { files } = collectInputFiles([root], { source: "workflow-jsonl", cwd: root });
+			const bases = files.map((f) => f.split("/").pop());
+			expect(bases).toEqual(["a.knowledge.jsonl"]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -303,6 +431,38 @@ describe("ingestRecords — cross-source graph (the convergence payoff)", () => 
 		);
 		const fluxCard = readFileSync(join(vault, FOLDER, "flux2-argv-injection.md"), "utf8");
 		expect(fluxCard).toContain("[[krea2-argv-injection]]");
+	});
+
+	test("re-ingesting a card that has on-disk neighbours emits NO duplicate links", async () => {
+		// Regression: the neighbour candidate pool combines on-disk cards
+		// (`existing`) with this batch (`planned`). A card present in BOTH — i.e.
+		// an upsert / re-ingest of a source whose cards are already on disk —
+		// used to be counted twice, producing duplicate `相關：[[...]]` lines.
+		const opts = { vaultPath: vault, source: "workflow-jsonl" as const, sourceLabel: "s" };
+		const flux = rec({
+			id: "flux2:argv-injection",
+			type: "gotcha",
+			title: "Reject leading-dash argv (flux2)",
+			tags: ["path-safety", "argv-injection"],
+		});
+		const krea = rec({
+			id: "krea2:argv-injection",
+			type: "gotcha",
+			title: "Reject leading-dash argv (krea2)",
+			tags: ["path-safety", "argv-injection"],
+		});
+		await ingestRecords([flux, krea], opts);
+		const first = readFileSync(join(vault, FOLDER, "flux2-argv-injection.md"), "utf8");
+		// Re-ingest flux2 (already on disk, krea2 is a neighbour) → upsert case.
+		const s = await ingestRecords([flux], opts);
+		expect(s.unchanged).toBe(1);
+		const after = readFileSync(join(vault, FOLDER, "flux2-argv-injection.md"), "utf8");
+		const linkLines = after.split("\n").filter((l) => l.startsWith("- 相關："));
+		// Every link line must be unique (no duplicates)…
+		expect(new Set(linkLines).size).toBe(linkLines.length);
+		// …and the card body must be byte-identical to the first write (true
+		// idempotency, the duplicate-link bug broke this invariant).
+		expect(after).toBe(first);
 	});
 
 	test("dry_run reports but writes nothing", async () => {

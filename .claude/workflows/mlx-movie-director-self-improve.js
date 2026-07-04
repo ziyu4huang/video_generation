@@ -252,6 +252,33 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   }
   return extract
 }
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  // Resolve the pi-agent-cli entry. Prefer the built dist binary when present
+  // (production), fall back to the workspace source (dev) — both accept the
+  // same zk-ingest subcommand.
+  const cli = await agent(
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
+
 
 // ── loadOperationLessons — curated, high-trust rules about how this workflow operates ──
 // Returns rule text VERBATIM grouped by phase (no summarization, no drift). Records
@@ -713,6 +740,7 @@ try {
   await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
   log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
   await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, null)
+  await publishKnowledge(KB_FILE, NAME)
   // Self-learning: propose operation-lesson candidates from this run's failures →
   // staging inbox (OP_INBOX). NEVER writes the approved store. Non-fatal.
   try {
@@ -797,3 +825,4 @@ log(`═ MLX self-improve ${RUN_ID} — openIssues=${openIssues}${deltaStr ? ` (
 if (proposedLessons.length) log(`📬 ${proposedLessons.length} proposed operation-lesson(s) → ${OP_INBOX} (HUMAN-GATED; promote winners into the matching *.operation-lessons.jsonl, e.g. review-optimize:fix)`)
 
 return report
+

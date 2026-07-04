@@ -93,10 +93,11 @@ describe("pathFieldKeys", () => {
 });
 
 describe("pathSpecFieldKeys", () => {
-  test("native-i2v's loras is the only path-spec field in the registry", () => {
+  test("native-i2v/native-t2a's loras is the only path-spec field in the registry", () => {
     expect(pathSpecFieldKeys(COMMANDS["native-i2v"])).toEqual(["loras"]);
+    expect(pathSpecFieldKeys(COMMANDS["native-t2a"])).toEqual(["loras"]);
     for (const [name, spec] of Object.entries(COMMANDS)) {
-      if (name === "native-i2v") continue;
+      if (name === "native-i2v" || name === "native-t2a") continue;
       expect(pathSpecFieldKeys(spec)).toEqual([]);
     }
   });
@@ -120,10 +121,10 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 10 documented ltx-video subcommands", () => {
+  test("has exactly the 12 documented ltx-video subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
-        "t2i", "native-i2v", "native-upscale", "i2v", "upscale",
+        "t2i", "native-i2v", "native-upscale", "native-t2a", "segment", "i2v", "upscale",
         "gate", "verify", "models", "audio-decode", "video-decode",
       ].sort(),
     );

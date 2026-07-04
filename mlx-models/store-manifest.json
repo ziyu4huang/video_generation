@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 105,
+  "count": 107,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -31,11 +31,11 @@
       "md5": "1b0c4260ffc982db46b44eba44eb6bc9",
       "size": 285246040
     },
-    "lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.int8.safetensors": {
+    "lora/anything2real-characters/Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.int8.safetensors": {
       "md5": "2dd4bbbb1ac1cdc5862b694625f1a34a",
       "size": 82894998
     },
-    "lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.safetensors": {
+    "lora/anything2real-characters/Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.safetensors": {
       "md5": "0bc9dd6fc317d48470e57d5b20f4b45c",
       "size": 165704392
     },
@@ -422,6 +422,14 @@
     "text_encoder/qwen3-4b-instruct/model.safetensors": {
       "md5": "80488b8240aae282e43d0417da7c264c",
       "size": 2514414621
+    },
+    "lora/ltx-2-3-ingredients/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors": {
+      "md5": "19e25a8526f2b11ccec2e271185806ed",
+      "size": 1308778338
+    },
+    "transformer/krea2-depth-control-lora/model.safetensors": {
+      "md5": "f0f9bfe007c08ce9e00265867c529e8b",
+      "size": 861995928
     }
   }
 }

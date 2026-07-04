@@ -94,8 +94,8 @@ memory). Both skip this patch (gated on `import.meta.url` containing
 
 ```
 run-dir/manifest.json          # SOURCE OF TRUTH — the registry
-  extensions[]                 # always-loaded (8 today)
-  lazyExtensions{}             # on-demand (ltx, workflow, dynamic-workflows)
+  extensions[]                 # always-loaded (9 today — incl. all MLX exts: flux2, krea2, ltx)
+  lazyExtensions{}             # on-demand (workflow, dynamic-workflows)
   npmExtensions[]              # npm-sourced ({ pkg, entry })
   skills[]                     # skill dirs
 ```

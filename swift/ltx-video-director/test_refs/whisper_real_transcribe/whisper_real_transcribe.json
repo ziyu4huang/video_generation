@@ -1,0 +1,16 @@
+{
+  "video": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260702_072817/output_20260702_072848.mp4",
+  "language": "zh",
+  "sot_sequence": [
+    50258,
+    50260,
+    50360,
+    50364
+  ],
+  "generated_ids": [
+    6083,
+    101,
+    26410
+  ],
+  "text": "嗨你好"
+}

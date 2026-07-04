@@ -418,6 +418,188 @@ questions anymore — they're each their own integration project.
 - A REAL voice-presence gate: today's `AudioProbe` is energy-based only
   (loudness/silence). A proper "is this actually speech, and roughly the
   right language" check needs VAD/ASR — out of scope until this phase.
+  **Partially closed 2026-07-04**: `ASRGate.swift` + `CJKScript.swift` add
+  content/language verification (transcript-overlap check, zh-TW vs zh-CN
+  script classification — the latter fully native, no ML model) wired into
+  `ltx-video gate --asr-prompt`. What's STILL bridged (not native): the
+  transcription itself, via `python/mlx-movie-director/app/commands/
+  video-asr-gate.py` → `mlx_whisper`. A native Swift/MLX Whisper port
+  (encoder+decoder+tokenizer, likely `whisper-large-v3-mlx` weights) remains
+  the one open item to make this gate 100% native — multi-session scope on
+  its own, not attempted this iteration; every decision ON TOP of the raw
+  transcript (language match, content overlap, Traditional/Simplified
+  classification) is already native Swift today.
+
+  **Native Whisper port — STARTED 2026-07-04 (first piece landed).**
+  `WhisperMel.swift` ports `mlx_whisper.audio.log_mel_spectrogram` line-for-
+  line (reflect-pad → Hann window → `MLXFFT.rfft`-based STFT via
+  `asStrided`, same as the Python reference's `mx.fft.rfft` + `mx.as_strided`
+  — this package already depended on `mlx-swift`, just needed the `MLXFFT`
+  product added to `Package.swift`) — the log-mel feature extraction that
+  feeds Whisper's encoder, for both n_mels=80 (tiny/base/small/medium) and
+  n_mels=128 (large-v3, the model the Python bridge actually uses). The
+  precomputed librosa mel filterbank mlx_whisper ships
+  (`mel_filters.npz`) is embedded as an SPM resource (converted to
+  safetensors so `MLX.loadArrays` reads it with no custom npz/zip parser
+  needed) rather than reimplemented from scratch.
+  Verified against REAL `mlx_whisper` output (this session's sandbox turned
+  out to have a working venv after all — see environment note below):
+  `scripts/dump_whisper_mel_reference.py` runs the actual
+  `mlx_whisper.audio.log_mel_spectrogram` on a deterministic synthetic
+  multi-tone signal and dumps both n_mels configs;
+  `WhisperMelParityTests.swift` compares — max abs diff < 1e-3 on both
+  n_mels=80 and n_mels=128. 2/2 pass.
+  **Encoder — landed 2026-07-04, verified against REAL production weights.**
+  `WhisperEncoder.swift` ports `mlx_whisper.whisper.AudioEncoder` /
+  `ResidualAttentionBlock` / `MultiHeadAttention` (self-attention only — the
+  encoder never uses cross-attention) line-for-line: conv1(k3,p1) → GELU →
+  conv2(k3,s2,p1) → GELU → + sinusoidal positional embedding → N
+  self-attention blocks (pre-LN, asymmetric q/k pre-scale by `headDim**-0.25`
+  matching the reference's exact — not the usual fused-SDPA-equivalent —
+  rounding) → final LayerNorm. Verified two ways:
+  1. `WhisperEncoderParityTests` — real `mlx_whisper.whisper.AudioEncoder`
+     class instantiated at a small config (2 layers, 32-dim) with random
+     weights (same "verify the architecture, not the pretrained checkpoint"
+     split as `dump_timestep_embedding_reference.py` — a real 1.5GB+
+     large-v3 checkpoint isn't committed to this repo). 2/2 pass.
+  2. `WhisperEncoderRealCheckpointTests` — the conv stem + ONE real
+     transformer block-0, loaded from the ACTUAL cached
+     `whisper-large-v3-mlx` checkpoint (1280-dim, 20-head — the exact model
+     `_run_audio_asr_gate` transcribes with), run on REAL log-mel features
+     from an actual generated clip's speech audio. Max abs diff < 5e-2
+     (fp16-checkpoint tolerance). 1/1 pass. Mirrors this repo's own
+     "one real block, real checkpoint" precedent
+     (`LTXModelRealCheckpointTests.testOneRealBlockProducesFiniteOutput`)
+     rather than running the full 32-layer encoder.
+
+  **Decoder — also landed 2026-07-04, verified against REAL production
+  weights.** Confirmed the prediction noted right after the encoder landed:
+  `mlx_whisper.whisper.ResidualAttentionBlock` with `cross_attention=true`
+  IS the same class as the encoder's block, just with a second attention
+  sub-layer — so `WhisperAttention` only needed generalizing (added
+  `crossInput`/`mask` params, both nil-default so the encoder's existing
+  call sites are unchanged) rather than a from-scratch rewrite.
+  `WhisperDecoder.swift` (new) ports `TextDecoder`/`ResidualAttentionBlock`
+  (cross_attention=true): causal self-attn → cross-attn to encoder output →
+  MLP, all pre-LN, plus token+positional embedding and the tied-embedding
+  logits projection (`token_embedding.as_linear`). `causalMask(length:)`
+  mirrors `nn.MultiHeadAttention.create_additive_causal_mask` exactly
+  (upper triangle = -inf). Verified against the REAL cached
+  `whisper-large-v3-mlx` checkpoint's real token/positional embeddings +
+  decoder block-0 weights, on real special-token ids (SOT/language=zh/
+  transcribe/notimestamps — Whisper's real zh transcription prefix) cross-
+  attending to the real encoder-block-0 output from the encoder fixture
+  above — max abs diff < 5e-2, 2/2 pass
+  (`WhisperDecoderRealCheckpointTests.swift`,
+  `scripts/dump_whisper_real_decoder_block_reference.py`).
+
+  **Tokenizer (decode direction) — also landed 2026-07-04.**
+  `WhisperTokenizer.swift` ports `mlx_whisper.tokenizer`'s tiktoken-based
+  multilingual vocab, DECODE-ONLY (this ASR gate never needs to encode
+  arbitrary text back into ids — only the decode loop's output ids into
+  text — so the regex-pretokenizer + greedy-merge BPE algorithm tiktoken
+  uses for encoding isn't needed at all; decoding a tiktoken vocab is just
+  id → bytes → concat → UTF-8, since every rank already IS its full byte
+  string). Embeds the real `multilingual.tiktoken` vocab file (816KB, 50257
+  ranks) as an SPM resource (same "ship the real small asset, not a
+  reimplementation" call as the mel filterbank). Special-token ids
+  (`<|startoftranscript|>`, per-language, `<|transcribe|>`,
+  `<|notimestamps|>`, ...) are computed via the exact same closed-form
+  language-index arithmetic `get_encoding()` uses — verified this is NOT a
+  simple 100-language dict walk: `num_languages` defaults to 99, dropping
+  the dict's 100th key (`"yue"`) from the reserved range, confirmed by a
+  real `get_tokenizer(multilingual=True, language="ja")` call returning
+  50266 (which only lines up with a 99-entry list, not 100). Verified
+  against real `mlx_whisper.tokenizer.get_tokenizer` output for 3
+  languages' SOT sequences + real decode output for two id sequences
+  (including round-tripping a real Chinese encode) — 7/7 pass
+  (`WhisperTokenizerTests.swift`).
+
+  **Decode loop + full checkpoint loader + wiring — ALSO landed 2026-07-04,
+  closing the loop end-to-end.** `WhisperModel.swift` (new): `load()` reads
+  a full checkpoint's real per-layer weights into `WhisperEncoder`/
+  `WhisperDecoder` (all 32+32 layers for large-v3), `transcribe()` runs a
+  greedy decode loop with NO KV cache (deliberate — re-runs the full
+  decoder over the whole token prefix every step instead of caching K/V
+  incrementally; correct, just not optimized, since a cache is a
+  performance concern not a different computation — documented tradeoff in
+  the file's header, same class of "ship the real math now, optimize
+  later" call as `VideoTiling`'s early single-tile path).
+  `WhisperModelRealCheckpointTests.testTranscribesRealClipEndToEndNatively`
+  is the actual end-to-end proof: loads the real large-v3-mlx checkpoint,
+  runs `WhisperMel` → full 32-layer encoder → greedy decoder loop →
+  `WhisperTokenizer.decode` on a REAL generated clip's real speech audio —
+  **zero mlx_whisper, zero Python, zero RunPyBridge in the test path.**
+  **A real correctness bug was found and fixed getting this test green**:
+  naive greedy decoding predicted `<|endoftext|>` as the very first token
+  (confirmed via debug instrumentation: max logit 23.2 landed exactly on
+  EOT), producing an empty transcript. Root cause: mlx_whisper's real
+  decode path applies a `SuppressBlank` logit filter that masks EOT (and
+  the space token, id 220) at the FIRST generation step only, precisely to
+  prevent this — `WhisperModel.transcribe` now replicates that filter.
+  **A second finding, NOT a bug**: even with that fix, this port's naive
+  greedy decode produces `", Hi, how are you?"` for this clip's actual
+  "嗨你好" audio — an English translation despite forcing the zh language
+  token. Cross-checked against the REAL `mlx_whisper.whisper.Whisper` class
+  running the IDENTICAL naive-greedy strategy on the SAME real weights
+  (`scripts/dump_whisper_real_transcribe_reference.py`) — Python produces
+  the bit-EXACT same generated token ids. This isn't a Swift defect; it's
+  what this real checkpoint's naive greedy decoding actually does on a
+  short/ambiguous clip. `mlx_whisper`'s polished `transcribe()` (temperature-
+  fallback retries + more logit filters) gets a better result on the same
+  audio — a real, honestly-scoped follow-up (see `ASRGate.swift` below),
+  not something silently "fixed" by fudging the test. The test therefore
+  asserts BIT-EXACT parity against the real reference, not "says something
+  Chinese."
+  **Real language auto-detection — closed 2026-07-04.**
+  `WhisperModel.detectLanguage(mel:)` ports `mlx_whisper.decoding.
+  detect_language` exactly: encode once, decode ONE step from
+  `<|startoftranscript|>` alone (no language forced), mask every
+  non-language-token logit to -inf, argmax over what's left. Verified
+  bit-exact against real `mlx_whisper.decoding.detect_language` on the real
+  checkpoint + real clip (`scripts/dump_whisper_real_detect_language_reference.py`,
+  `WhisperModelRealCheckpointTests.testDetectsRealLanguageEndToEndNatively`)
+  — both return zh (token 50260) for this clip. This closes the gap where
+  the native engine could previously only force-decode a language, never
+  actually detect one.
+
+  **`ASRGate.swift`'s DEFAULT ENGINE IS NOW NATIVE SWIFT** —
+  `ASRGateEngine.autoDetect()` resolves to `.nativeSwift` whenever a
+  converted local checkpoint is present (the standard case once
+  `WhisperModelRealCheckpointTests`' one-time npz→safetensors conversion
+  has been run once on a machine), falling back to `.pythonBridge` ONLY
+  when that checkpoint genuinely isn't set up — never as a quality choice.
+  `WhisperMel.loadAudio(url:)` (new) extracts+resamples audio natively via
+  AVFoundation + the existing `LinearResampler` (no ffmpeg subprocess,
+  matching this package's `MP4Writer.swift` convention), so with a
+  converted checkpoint present, `ltx-video gate --asr-prompt` now runs
+  ZERO Python by default — confirmed via a real CLI invocation against the
+  same real clip used throughout this port's verification.
+  **Honest consequence, not swept under the rug**: that same real CLI run
+  now FAILS this specific clip's ASR check (content-overlap ratio 0.00,
+  transcript `","`) where the Python-bridge path previously PASSED
+  (ratio 1.0, transcript "嗨你好") — this is the documented naive-greedy
+  quality gap manifesting in a real, production-facing behavior change,
+  not a regression introduced by a bug. Anyone relying on this gate's
+  pass/fail today should be aware the default engine changed and monitor
+  for false FAILs until the quality-closing follow-up (temperature-fallback
+  retries) lands; `engine: .pythonBridge` remains available as an explicit
+  escape hatch in the meantime.
+
+  **Still open** to make the native engine's quality match the bridge: a
+  real KV cache (performance only — the math is already correct) and
+  temperature-fallback retries (the actual quality gap — mlx_whisper's
+  `transcribe()` retries at multiple temperatures and picks the best
+  result; this port always does one greedy pass). The tiktoken ENCODE
+  direction remains unported (not needed for this ASR gate's decode-only
+  use case).
+  **Environment note**: `python/venv` was missing from this session's
+  worktree checkout (CLAUDE.md documents the path but the symlink itself
+  is git-ignored, so a fresh worktree doesn't inherit it) — found and
+  symlinked to the existing shared `~/proj/video_generation__venv` mid-
+  session, which unblocked running the ACTUAL `mlx_whisper` for the dump
+  script above (previously assumed impossible in this sandbox; it wasn't —
+  just needed the symlink recreated).
 
 **Started 2026-07-02.** First sampling-loop component: `EulerDiffusionStep.swift` ports
 `ltx_core_mlx.components.diffusion_steps.EulerDiffusionStep` (+ `to_velocity`) — the first-order
@@ -1850,6 +2032,211 @@ real underlying gaps were different from what they first appeared to be.
 
 Full writeup: `docs/reference/comfyui_workflows/README.md`'s "Fourth pass"
 section; `docs/TODO.md`'s matching entry.
+
+## Research: scoping the general IC-LoRA video-conditioning primitive (2026-07-04)
+
+Driven by `/goal resolve` a backlog item carried across several sessions:
+`docs/reference/comfyui_workflows/README.md`'s research passes identified
+10 official/community LTX-2.3 ComfyUI applications (restoration/hd,
+spatial upscaler, motion-track, union-control, lipdub, HDR, ingredients,
+inpaint, outpaint, V2V) that all share the `LTXICLoRALoaderModelOnly` +
+`LTXAddVideoICLoRAGuide[Advanced]` + `LTXVCropGuides` node family, framed
+as "port the primitive once, unlock all ten as call-site variations." That
+framing undersells the remaining work — read the actual current code
+(`NativeUpscaleStage.generateHD`, `LoRAWeights`/`LoRAFusion`,
+`VideoConditionByReferenceLatent`) rather than re-deriving from the JSON
+files again, to get an honest picture of what's shared vs. bespoke.
+
+**What's actually already general, today, no further work needed**:
+1. `LoRAWeights.load`/`LoRAFusion.apply` (`Transformer/LoRAWeights.swift`,
+   `Transformer/LoRAFusion.swift`) — generic safetensors LoRA loading +
+   `scale * (up @ down)` fusion into any dequantized block weight. Already
+   used by THREE unrelated call sites (`native-i2v --lora`,
+   `native-t2a --lora`, `generateHD`'s restoration+upscale LoRA pair) — not
+   restoration-specific in any way.
+2. `VideoConditionByReferenceLatent` (`Sampling/LatentConditioning.swift`)
+   — the actual IC-LoRA reference-conditioning MATH (append a reference
+   clip's clean latent tokens, mask=0, to the generation sequence). Also
+   already general: takes an arbitrary `referenceLatent`/`referencePositions`/
+   `downscaleFactor`/`strength`, with zero restoration-specific assumptions
+   baked in. This IS the ported primitive the research passes were asking
+   for — it's done, not a gap.
+
+**What's actually bespoke per application** (the real remaining work,
+and why "one primitive, ten applications" overstates how close this is):
+what each application needs is not the conditioning math above but a
+DIFFERENT PREPROCESSING PIPELINE to produce the reference latent's input
+video in the first place, plus (for some) a different LoRA checkpoint.
+`generateHD` only demonstrates the case where the reference video IS the
+raw input frames, unchanged — the easy case. Prioritized by how much new
+preprocessing each needs beyond "encode a video/image via the existing
+`VideoEncoder`":
+
+- **Easiest (near-zero new preprocessing)**: **V2V restyle**
+  (`LTX-2.3_V2V_ICLoRA_Single_Stage_Distilled.json`) — reference video is
+  just an existing clip loaded via `LoadVideo`, i.e. structurally the same
+  "encode an existing video as reference" `generateHD` already does, minus
+  the restoration-specific two-LoRA/two-stage structure. **Ingredients**
+  (`LTX-2.3_ICLoRA_Ingredients_Single_Stage_Distilled.json`) is comparably
+  easy — reference is a single still image repeated across frames
+  (`LoadImage` + `RepeatImageBatch`), i.e. one VAE-encode + a repeat, no
+  new perception model. Both are realistic "next concrete step" candidates
+  if this item is picked up before the harder ones.
+- **Medium (new preprocessing, but algorithmic — no new neural network)**:
+  **Inpaint**/**Outpaint** — need `LTXVInpaintPreprocess`-equivalent
+  masking, `LTXVDilateVideoMask`, and `LTXVLaplacianPyramidBlend` (a
+  multi-scale blend between original and generated content at the
+  mask boundary) ported as their own small modules. Non-trivial but
+  bounded — pure image-processing math, comparable in scope to
+  `VideoTiling.swift`'s existing tiling logic, not a new checkpoint.
+- **Hard (each needs its own separate perception-model port)**:
+  **Union-control**'s `CannyEdgePreprocessor` (algorithmic, cheap) is easy,
+  but its `DWPreprocessor` (pose estimation) and `VideoDepthAnythingProcess`
+  (monocular depth) are full neural networks with their own checkpoints —
+  each is its own multi-session port, comparable in size to porting
+  Whisper or the Gemma encoder, not a quick addition. **Motion-track**
+  needs `LTXVDrawTracks`/`LTXVSparseTrackEditor`'s point-track
+  visualization-rendering mechanism ported (a real, non-trivial algorithm,
+  though not a neural network). **Lipdub** needs `LTXVAudioVAEEncode`/
+  `LTXVSetAudioRefTokens` audio-reference-token wiring — likely the
+  cheapest of this "hard" tier since this package already has a working
+  audio VAE encode path (custom-audio injection, `--audio-track`), so it's
+  mostly new glue rather than a new model, but still needs its own
+  verification pass against the reference.
+- **Different in kind, not a conditioning application at all**: **HDR**'s
+  distinguishing node is `LTXVHDRDecodePostprocess` — a tone-mapping step
+  applied AFTER decode, not a reference-conditioning input. It happens to
+  ride on the same IC-LoRA base checkpoint in the reference workflow, but
+  the actual novel piece (if ever wanted) is a decode-time postprocess,
+  architecturally unrelated to everything else in this list.
+
+**Revised backlog framing**: the shared primitive (LoRA fusion + reference
+conditioning) is DONE, not a blocker. What remains is 9 independent,
+unequally-sized preprocessing ports, ranging from "an afternoon" (V2V,
+Ingredients) to "its own multi-session Whisper-sized effort" (pose/depth
+control). Pick from the top of the easy tier (V2V or Ingredients) as the
+next concrete step if/when this is picked up — not a "port the primitive"
+task, since that part is already done.
+
+Nothing implemented this pass — pure scope-capture, same convention as the
+prior ComfyUI research passes, to leave an accurate map instead of
+re-discovering "is this really one primitive?" from scratch a fourth time.
+
+## Milestone: V2V restyle ported — `native-restyle` (2026-07-04)
+
+Picked up the top item of the "easy tier" from the scoping research above.
+`NativeUpscaleStage.generateRestyle` (`NativeUpscaleStage.swift`) is
+`generateHD`'s reference-conditioning core (VAE-encode reference clip ->
+fuse IC-LoRA via `LoRAFusion` -> `VideoConditionByReferenceLatent` ->
+full noise-to-clean `DenoiseLoop` at the reference's own resolution ->
+decode) with the restoration-specific two-LoRA/two-stage structure
+removed: a single, always user-supplied style IC-LoRA (`loraURL`, no
+bundled default under `mlx-models/lora/`, unlike `generateHD`'s
+restoration pair), one stage, output at input resolution (chain through
+`generate()` afterward for a resolution increase, same as `native-upscale
+--mode hd` already does). New CLI command `ltx-video native-restyle`
+(`--input`/`--prompt`/`--audio`/`--lora`/`--lora-strength`/`--fps`/
+`--seed`/`--mp4`).
+
+**Verification**: no real style IC-LoRA checkpoint exists in this
+environment (same situation `generateHD`'s restoration pair was in at
+introduction) — `VideoConditionByReferenceLatent` itself is already
+real-checkpoint-parity-tested (shared with `generateHD`, unchanged here).
+Added `testGenerateRestyleMissingLoraThrowsNamedError`, exercising the one
+path fully reachable without a checkpoint: a definitely-missing `--lora`
+path throws the new named `.restyleLoraNotFound` error (not a generic
+crash), matching the same contract test `generateHD`'s
+`testGenerateHDMissingLoraThrowsNamedError` already established.
+`NativeUpscaleStageRealCheckpointTests`: 7/7 pass. UNVERIFIED end-to-end
+against a real style adapter — natural next step once one is obtained
+(Lightricks hasn't published a distinct "V2V restyle" checkpoint by that
+exact name on HuggingFace/CivitAI as of this session's search; the
+closest official IC-LoRA family members are Decompression/Deblur/
+Colorization/Ingredients/Pixel-Spatial-Upscaler, none of which is a
+generic style-transfer adapter — a real style LoRA for this path is
+likely community-trained rather than an official Lightricks release).
+
+**Ingredients** (single-reference-image conditioning — the sibling "easy
+tier" item, `LoadImage` + `RepeatImageBatch` instead of `LoadVideo`)
+remains the next candidate if this area is picked up again.
+
+## Milestone: Ingredients IC-LoRA ported — `native-ingredients` (2026-07-04)
+
+Picked up the sibling "easy tier" item named above. `NativeUpscaleStage
+.generateIngredients` reuses the exact same reference-conditioning core
+`generateRestyle` established (VAE-encode reference -> fuse IC-LoRA via
+`LoRAFusion` -> `VideoConditionByReferenceLatent` -> denoise -> decode), but
+the "reference clip" is built by tiling a SINGLE still reference image
+across the full generation frame count instead of reading a real multi-frame
+input clip. Confirmed against the reference ComfyUI graph's actual node
+LINKS (`LTX-2.3_ICLoRA_Ingredients_Single_Stage_Distilled.json`), not just
+node names — `LoadImage` -> `CreateVideo` -> `GetVideoComponents` ->
+`ResizeImageMaskNode` -> `RepeatImageBatch`, where `RepeatImageBatch`'s
+`amount` and `EmptyLTXVLatentVideo`'s own frame count are driven by the SAME
+`PrimitiveInt` node: the reference image tiles to exactly the target
+generation length, not a fixed short window as the node names alone might
+suggest.
+
+Two deliberate deviations from a literal 1:1 port, both reusing existing
+primitives instead of adding new preprocessing: (1) output resolution is
+caller-supplied `--width`/`--height` through `ResolutionResolver.optimize`
+with the reference image fit via `FrameLoad.resizeAspectFillCenterCrop`
+(already used by `native-i2v --last-frame`), instead of porting
+`ResizeImageMaskNode`'s "scale shorter dimension, lanczos" algorithm — a
+resize-mode detail, not a new capability; (2) audio is generated from
+scratch (denoiseMask=1, noise-to-clean, reusing `NativeI2VStage`'s own
+default t2v audio-decode pipeline: `AudioVAEDecoder` + `VocoderWithBWE` +
+`WAVWriter`), not preserved from an input track like `generateRestyle` —
+the reference graph's `LTXVEmptyLatentAudio` is itself denoised by
+`SamplerCustomAdvanced`, confirmed via its link into the same
+`SamplerCustomAdvanced` node, not a pass-through. New CLI command
+`ltx-video native-ingredients` (`--input`/`--prompt`/`--lora`/
+`--lora-strength`/`--width`/`--height`/`--seconds`/`--fps`/`--seed`/`--mp4`).
+
+**Checkpoint search**: unlike the restoration pair (no exact match found),
+`Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients` DOES exist on HuggingFace by
+that exact name, with a real downloadable file
+(`ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors`, confirmed via the HF API
+`siblings` listing) — but the repo is gate-flagged (`"gated": "auto"`).
+Attempted download with the environment's `HF_TOKEN` via both
+`import-lora --arch ltx-2.3` and a direct authenticated `curl`: both return
+HTTP 403 (not 401 — token is valid, but this specific account hasn't
+accepted the repo's license terms on huggingface.co). This requires a human
+to click "Agree" on the model page while logged in as that account — not
+something the CIVITAI_TOKEN-only download path in `import-lora-image.py`
+can do, and not something worth adding OAuth-gate-acceptance automation for
+one checkpoint. Correctly did not force a workaround; this is a different
+kind of "blocked" than the restoration pair's — "exists but needs one-time
+human license click" rather than "doesn't exist in the form asked for."
+
+**Verification**: `NativeUpscaleStageRealCheckpointTests` (9/9 pass) covers
+the no-checkpoint contract paths — `testGenerateIngredientsMissingLoraThrowsNamedError`
+and `testGenerateIngredientsMissingReferenceImageThrowsNamedError` (missing
+`--lora` throws `.ingredientsLoraNotFound`, missing `--input` throws
+`.referenceImageNotFound`), matching `generateHD`/`generateRestyle`'s
+"named error, not a generic crash" convention.
+
+**Real-checkpoint end-to-end run (2026-07-05)**: the user accepted the
+HuggingFace license gate for `Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients`
+same-day, unblocking the download this milestone's introduction left
+pending. Downloaded via authenticated `curl` (the `HF_TOKEN`-gated file the
+`import-lora-image.py` download path still can't reach directly — see this
+milestone's checkpoint-search note above, unchanged), then imported the
+local file via `import-lora --arch ltx-2.3`. Ran `ltx-video
+native-ingredients` against a freshly `t2i`-generated reference photo (a red
+apple on a wooden table) with a real IC-LoRA fusion, 33 frames at 800x800 (a
+512x512 request auto-scaled up by `ResolutionResolver`'s minimum-validated-
+area floor), 130.8s wall time. **PASS**: frame 0 reproduces the reference
+image's content (same apple, table, lighting) almost exactly — the actual
+signal that matters for IC-LoRA reference conditioning — and stays visually
+stable/coherent (no corruption or noise) across all 33 frames, with audio
+decoding and mp4 mux completing cleanly. One quality caveat, not a
+correctness bug: the prompt's "slowly rotating" produced negligible visible
+motion — consistent with the distilled model's cfg=1.0 / short sigma
+schedule limiting prompt-driven motion elsewhere in this codebase, not
+specific to this conditioning path. Both the missing-checkpoint contract
+tests above and this real-checkpoint content-fidelity check now back this
+milestone — no longer UNVERIFIED.
 
 ## Explicitly NOT doing
 

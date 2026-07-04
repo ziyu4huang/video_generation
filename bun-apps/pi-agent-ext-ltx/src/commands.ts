@@ -40,6 +40,14 @@ export interface FieldSpec {
    * Swift binary's own ValidationError to reject if malformed.
    */
   isPathSpecArray?: boolean;
+  /**
+   * A path field the CLI WRITES to rather than reads from — must NOT be
+   * required to already exist. Implied automatically when the field key is
+   * literally "output" (the common case); set explicitly for a differently
+   * named write-target field (e.g. `segment`'s `json` report path, `i2v`'s
+   * `jsonOut` summary path).
+   */
+  isOutputPath?: boolean;
   /** Positional argument (no flag prefix), appended in declared order. */
   positional?: boolean;
   /**
@@ -89,7 +97,7 @@ export function buildParams(spec: CommandSpec) {
   return Type.Object(props);
 }
 
-// ─── The 10 ltx-video subcommands ────────────────────────────────────────────
+// ─── The 12 ltx-video subcommands ────────────────────────────────────────────
 
 export const COMMANDS: Record<string, CommandSpec> = {
   t2i: {
@@ -124,9 +132,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
       upscale: { flag: "--upscale", invertedFlag: "--no-upscale", type: "boolean", description: "Auto-run the native 2x spatial upscaler after decode. ON by default — set false to pass --no-upscale and skip it." },
       refine: { flag: "--refine", invertedFlag: "--no-refine", type: "boolean", description: "When upscale is on, also run the low-strength transformer refine pass (fixes over-sharpened/halo artifact). ON by default — set false to pass --no-refine and skip it." },
       loras: { flag: "--lora", type: "string[]", isPathSpecArray: true, description: "LoRA safetensors to fuse, repeatable to stack: path[:strength] (strength defaults to 1.0), e.g. ['a.safetensors:0.8', 'b.safetensors']." },
-      lastFrame: { flag: "--last-frame", type: "string", isPath: true, description: "First-Last-Frame (FFLF): pin this image as the clip's LAST frame (frame 0 is always the T2I-generated --prompt image). Must already be exactly width x height." },
+      lastFrame: { flag: "--last-frame", type: "string", isPath: true, description: "First-Last-Frame (FFLF): pin this image as the clip's LAST frame (frame 0 is always the T2I-generated --prompt image). Must already be exactly width x height unless lastFrameAutoResize is set." },
+      lastFrameStrength: { flag: "--last-frame-strength", type: "number", description: "Conditioning strength for lastFrame, 0.0-1.0. Default 1.0 = fully preserved/pinned; lower values partially blend it with generated content." },
+      lastFrameAutoResize: { flag: "--last-frame-auto-resize", type: "boolean", description: "Auto-resize lastFrame to exactly width x height (aspect-fill + center-crop, bicubic) instead of requiring an exact match. Off by default." },
+      lastFrameDerivesResolution: { flag: "--last-frame-derives-resolution", type: "boolean", description: "When lastFrame is given: derive the BASE generation width/height as half the last-frame image's own dimensions (snapped to nearest 32), overriding any explicit width/height. Implies lastFrameAutoResize. Pairs with upscale (on by default) to bring the final output back to the last-frame image's own resolution." },
       audioTrack: { flag: "--audio-track", type: "string", isPath: true, description: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count." },
       mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence (post-upscale if upscale is on) + audio.wav into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4 and keep just the frame sequence." },
+      secondStage: { flag: "--second-stage", type: "string", description: "When upscale/refine are on: chain a SECOND upscale+refine pass. 'x1.5' -> 2x*1.5x=3x total. 'x2' -> 2x*2x=4x total (reuses the x2 checkpoint again). Off by default." },
     },
   },
 
@@ -144,6 +156,35 @@ export const COMMANDS: Record<string, CommandSpec> = {
       restorationLora: { flag: "--restoration-lora", type: "string", isPath: true, description: "hd mode only: override the restoration IC-LoRA path (default mlx-models/lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors)." },
       upscaleLora: { flag: "--upscale-lora", type: "string", isPath: true, description: "hd mode only: override the upscale IC-LoRA path (default mlx-models/lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors)." },
       mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence + refineAudio (if given) into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4." },
+      preserveFirstLastFrame: { flag: "--preserve-first-last-frame", type: "boolean", description: "When refinePrompt is also given: re-pin the input's first and last frames during the refine pass so they don't drift from their original content — set this when input came from a native-i2v run that used lastFrame (FFLF)." },
+      secondStage: { flag: "--second-stage", type: "string", description: "fast mode only: chain a SECOND upscale+refine pass after the first. 'x1.5' -> 2x*1.5x=3x total. 'x2' -> 2x*2x=4x total (reuses the x2 checkpoint again). Requires refinePrompt/refineAudio (every cascaded stage is refined)." },
+    },
+  },
+
+  "native-t2a": {
+    name: "native-t2a",
+    writesOutput: true,
+    when: "Generate audio ONLY from a text prompt, 100% native Swift/MLX (no run.py, no video at all). Use when you just need a voice/sound WAV, not a clip.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt." },
+      seconds: { flag: "--seconds", type: "number", description: "Target audio duration in seconds (internally a virtual video frame count snapped to LTX's 8k+1 stride — no video is generated or decoded). Default 3.84." },
+      frameRate: { flag: "--frame-rate", type: "number", description: "Virtual frame rate used only for the audio-token-count formula. Default 25.0." },
+      seed: { flag: "--seed", type: "int", description: "Random seed. Default 42." },
+      textMaxLength: { flag: "--text-max-length", type: "int", description: "Gemma text-encoder max token length. Default 128." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (audio.wav). Default native_t2a_output." },
+      loras: { flag: "--lora", type: "string[]", isPathSpecArray: true, description: "LoRA safetensors to fuse into the distilled transformer, repeatable to stack: path[:strength] (strength defaults to 1.0)." },
+    },
+  },
+
+  segment: {
+    name: "segment",
+    writesOutput: false,
+    when: "Detect scene cuts in an existing video via HSV histogram correlation (no VLM scoring, no generation). Use before cutting/relaying a multi-scene clip into segments.",
+    fields: {
+      segmentInput: { flag: "--segment-input", type: "string", isPath: true, description: "Input video file to analyze." },
+      threshold: { flag: "--threshold", type: "number", description: "Scene change sensitivity: lower = more sensitive (0.3-0.5). Default 0.4." },
+      minFrames: { flag: "--min-frames", type: "int", description: "Minimum frames per scene; shorter scenes are merged. Default 8." },
+      json: { flag: "--json", type: "string", isPath: true, isOutputPath: true, description: "Save the per-segment report as JSON to this path." },
     },
   },
 
@@ -165,7 +206,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       qualityCheck: { flag: "--quality-check", invertedFlag: "--no-quality-check", type: "boolean", description: "Run run.py's built-in quality-check gate (auto-retry on failure). ON by default — set false to pass --no-quality-check." },
       vlmScore: { flag: "--vlm-score", invertedFlag: "--no-vlm-score", type: "boolean", description: "Also run run.py's VLM keyframe scoring. ON by default — set false to pass --no-vlm-score." },
       selfVerify: { flag: "--self-verify", type: "boolean", description: "Run the native VideoGate + VLM verify on the result after generation." },
-      jsonOut: { flag: "--json-out", type: "string", isPath: true, description: "Write a JSON timing/result summary to this path." },
+      jsonOut: { flag: "--json-out", type: "string", isPath: true, isOutputPath: true, description: "Write a JSON timing/result summary to this path." },
     },
   },
 
@@ -185,12 +226,14 @@ export const COMMANDS: Record<string, CommandSpec> = {
   gate: {
     name: "gate",
     writesOutput: false,
-    when: "Score existing video/image file(s) with the native VLM-free quality gateway (noise/blank/motion/audio-level checks). NO generation. Use json:true for parseable output.",
+    when: "Score existing video/image file(s) with the native VLM-free quality gateway (noise/blank/motion/audio-level checks). NO generation. Use json:true for parseable output. Pass asrPrompt to additionally verify the audio actually SAYS the right thing (bridges to mlx_whisper — slower, real transcription) instead of just checking loudness.",
     fields: {
       videos: { flag: "", positional: true, type: "string[]", isPathArray: true, description: "Video (or image) file(s) to gate." },
       json: { flag: "--json", type: "boolean", description: "Emit machine-readable JSON (one array). Recommended for the agent." },
       expectVoice: { flag: "--expect-voice", invertedFlag: "--no-expect-voice", type: "boolean", description: "Expect an audio/voice track (FAIL if missing). ON by default — set false to allow silent clips." },
       strict: { flag: "--strict", type: "boolean", description: "Treat WARN as failure too (exit 1)." },
+      asrPrompt: { flag: "--asr-prompt", type: "string", description: "Also run the ASR voice-content gate: transcribes the audio (mlx_whisper bridge) and checks language + content overlap against 「...」 speech markers in this prompt. Omit to skip (default — the loudness-only gate above still runs)." },
+      expectedScript: { flag: "--expected-script", type: "string", description: "With asrPrompt, additionally require the transcript to classify natively (no ML) as 'traditional' or 'simplified' Chinese — catches zh-CN output when zh-TW was expected, which Whisper's own language detection cannot tell apart." },
     },
   },
 

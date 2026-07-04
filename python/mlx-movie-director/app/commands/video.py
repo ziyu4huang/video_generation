@@ -39,6 +39,7 @@ _vbvr = importlib.import_module("app.commands.video-vbvr")
 _relay = importlib.import_module("app.commands.video-relay")
 _segment = importlib.import_module("app.commands.video-segment")
 _t2i2v = importlib.import_module("app.commands.video-t2i2v")
+_asr_gate = importlib.import_module("app.commands.video-asr-gate")
 
 # Single source of truth for the video sub-actions. Referenced by both
 # add_argument(choices=...) and the run() dispatcher so they cannot drift.
@@ -52,6 +53,7 @@ VIDEO_ACTIONS = (
     "relay",
     "segment",
     "t2i2v",
+    "asr-gate",
 )
 
 PARSER_META = {
@@ -68,7 +70,8 @@ PARSER_META = {
         "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
         "  relay              — Multi-segment Prompt-Relay short film + custom audio\n"
         "  segment            — Scene detection + per-segment quality analysis\n"
-        "  t2i2v              — ZImage T2I → VLM prompt → LTX I2V (end-to-end pipeline)\n\n"
+        "  t2i2v              — ZImage T2I → VLM prompt → LTX I2V (end-to-end pipeline)\n"
+        "  asr-gate           — Standalone ASR audio-content gate (language + transcript match)\n\n"
         "Examples:\n"
         "  run.py video --test-prompt rainy-street\n"
         "  run.py video generate --test-prompt rainy-street\n"
@@ -103,7 +106,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default=VIDEO_ACTIONS[0],
         choices=list(VIDEO_ACTIONS),
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'segment', or 't2i2v'",
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'segment', 't2i2v', or 'asr-gate'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -144,6 +147,9 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # T2I2V args: --t2i-transformer, --t2i-steps, --action, etc.
     _t2i2v.add_t2i2v_args(parser)
 
+    # ASR gate args: --video, --prompt, --json-out
+    _asr_gate.add_asr_gate_args(parser)
+
 
 def run(args: "argparse.Namespace") -> None:
     # Normalize --self-test (shared nargs="*" → legacy scalar/bool form)
@@ -153,6 +159,8 @@ def run(args: "argparse.Namespace") -> None:
     action = getattr(args, "action", "generate") or "generate"
     if action == "t2i2v":
         _t2i2v.run_t2i2v(args)
+    elif action == "asr-gate":
+        _asr_gate.run_asr_gate(args)
     elif action == "relay":
         _relay.run_relay(args)
     elif action == "segment":

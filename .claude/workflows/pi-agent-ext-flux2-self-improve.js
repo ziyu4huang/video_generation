@@ -176,6 +176,32 @@ Return { found: true, records: <active records array>, digest: <the string> }.`,
   return load
 }
 
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  
+  if (!graphTags || graphTags.length === 0) return { count: 0, digest: "", published: false, reason: "no-tags" }
+  
+  const tagsCsv = graphTags.join(",")
+  const q = await agent(
+    `Check PI_GRAPH_KNOWLEDGE env var, then run cross-workflow retrieval if enabled.
+1. Bash("printenv PI_GRAPH_KNOWLEDGE || echo 1")
+   If "0", return { count: 0, digest: "", published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
+3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
+Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        count: { type: "number", description: "Number of cross-workflow cards matched" },
+        digest: { type: "string", description: "The grouped digest body from the query" },
+        published: { type: "boolean" },
+      }, required: ["count"] } },
+  )
+  const c = q?.count ?? 0
+  if (c > 0) log(`Graph: retrieved ${c} cross-workflow card(s) from shared graph ← tags [${tagsCsv}]`)
+  else log(`Graph: no cross-workflow cards matched (or graph disabled) ← tags [${tagsCsv}]`)
+  return q ?? { count: 0, digest: "", published: false }
+}
+
 // ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
 async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
   const resultJson = JSON.stringify(runResult)
@@ -249,14 +275,14 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
 // Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
 // Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
 async function publishKnowledge(kbFile, workflowName) {
-  if (process.env.PI_PUBLISH_KNOWLEDGE !== "1") return { published: false, reason: "off" }
-  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  
+  const vault = //  `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   const sourceLabel = `workflow-jsonl:${workflowName}`
   const cli = await agent(
-    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
-1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
-2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
-   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
     { label: "publish-knowledge", phase: "Persist", model: "sonnet",
       schema: { type: "object", properties: {
@@ -303,6 +329,12 @@ const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
+
+// Cross-workflow graph retrieval (the READ side of the closed loop).
+// Default-on; PI_GRAPH_KNOWLEDGE=0 kills it. Best-effort, non-fatal.
+const GRAPH_TAGS = ["argv", "argparse", "path-validation", "schema-consistency", "flag-drift", "extension-loading"]
+const graphKnowledge = await loadGraphKnowledge(KB_FILE, GRAPH_TAGS, NAME)
+const graphDigest = graphKnowledge?.digest || ""
 
 if (FIX_REQ) {
   log(`fix:true was requested but this workflow is REVIEW-ONLY in its current version — no auto-fix will be applied. See the header NOTE.`)
@@ -389,11 +421,12 @@ const VERIFY_SCHEMA = {
 async function runReviewLane() {
   const dims = FOCUS ? REVIEW_DIMENSIONS.filter((d) => d.key === FOCUS) : REVIEW_DIMENSIONS
   const fileScope = FILES?.length ? `\nLimit review to these files only: ${FILES.join(", ")}.` : ""
-  const knowledgeBlock = knowledgeDigest ? `\nKnown findings from prior runs (do not re-report unless newly relevant):\n${knowledgeDigest}` : ""
+  const knowledgeBlock = [knowledgeDigest, graphDigest].filter(Boolean).join("\n\n--- cross-workflow graph knowledge ---\n")
+  const injected = knowledgeBlock ? `\nKnown findings from prior runs (do not re-report unless newly relevant):\n${knowledgeBlock}` : ""
 
   const perDim = await parallel(
     dims.map((d) => () =>
-      agent(d.prompt + fileScope + knowledgeBlock, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
+      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
     ),
   )
   const rawFindings = perDim.filter(Boolean).flatMap((r, i) => (r.findings || []).map((f) => ({ ...f, dimension: dims[i]?.key || f.dimension })))
@@ -482,6 +515,7 @@ const runResult = {
   contract: contractResult,
   review: reviewResult,
   liveE2e: liveE2eResult,
+  graphKnowledge,
 }
 
 const signals = {

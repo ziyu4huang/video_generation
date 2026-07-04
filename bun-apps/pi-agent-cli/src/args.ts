@@ -120,6 +120,22 @@ export interface ParsedArgs {
 	sourceLabel?: string;
 	/** zk-ingest: report only, write nothing */
 	dryRun?: boolean;
+	/** zk-query: tags to match (csv) */
+	tags?: string;
+	/** zk-query: .knowledge.jsonl to read active ids from + exclude */
+	excludeFromKb?: string;
+	/** zk-query: explicit ids to exclude (csv) */
+	excludeIds?: string;
+	/** zk-query: graph health audit mode */
+	health?: boolean;
+	/** zk-query: auto-heal (with --health) */
+	fix?: boolean;
+	/** workflow: JSON args passed to the workflow script (its `args` global). */
+	workflowArgs?: string;
+	/** workflow: disable log persistence (logs persist by default). */
+	noPersistLogs?: boolean;
+	/** Emit JSON output (supported by zk-query, etc.) */
+	json?: boolean;
 	/** Tool event verbosity: 0=silent (name only), 1=args summary,
 	 *  2=debug (full args + result preview). Set by -V/--verbose/--debug or PI_VERBOSE. */
 	verbose: number;
@@ -138,6 +154,7 @@ export function emptyParsed(): ParsedArgs {
 		appendSystemPrompt: [],
 		mode: "text",
 		print: false,
+		json: false,
 		noSession: false,
 		noTools: false,
 		noBuiltinTools: false,
@@ -235,7 +252,8 @@ const NUMERIC_FLAGS: ReadonlyArray<{
 type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
-	| "vlmModel" | "source" | "sourceLabel";
+	| "vlmModel" | "source" | "sourceLabel"
+	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs";
 
 /** String value flags: `--flag <value>` or `--flag=value`. */
 const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
@@ -254,12 +272,17 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 	{ flag: "--vlm-model", field: "vlmModel" },
 	{ flag: "--source", field: "source" },
 	{ flag: "--source-label", field: "sourceLabel" },
+	{ flag: "--tags", field: "tags" },
+	{ flag: "--exclude-from-kb", field: "excludeFromKb" },
+	{ flag: "--exclude-ids", field: "excludeIds" },
+	{ flag: "--args", field: "workflowArgs" },
 ];
 
 type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools" | "dryRun";
+	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
+	| "noPersistLogs";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -275,6 +298,10 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["-nt", "--no-tools"], field: "noTools" },
 	{ flags: ["-nbt", "--no-builtin-tools"], field: "noBuiltinTools" },
 	{ flags: ["--dry-run"], field: "dryRun" },
+	{ flags: ["--health"], field: "health" },
+	{ flags: ["--fix"], field: "fix" },
+	{ flags: ["--json"], field: "json" },
+	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */

@@ -189,6 +189,52 @@ Return { found: true, records: <active records array>, digest: <the string> }.`,
   return load
 }
 
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  if (!graphTags || graphTags.length === 0) return { count: 0, digest: "", published: false, reason: "no-tags" }
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const tagsCsv = graphTags.join(",")
+  const q = await agent(
+    `Check PI_GRAPH_KNOWLEDGE env var, then run cross-workflow retrieval if enabled.
+1. Bash("printenv PI_GRAPH_KNOWLEDGE || echo 1")
+   If the output is "0", return { count: 0, digest: "", published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
+3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
+Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        count: { type: "number", description: "Number of cross-workflow cards matched" },
+        digest: { type: "string", description: "The grouped digest body from the query" },
+        published: { type: "boolean" },
+      }, required: ["count"] } },
+  )
+  const c = q?.count ?? 0
+  if (c > 0) log(`Graph: retrieved ${c} cross-workflow card(s) from shared graph ← tags [${tagsCsv}]`)
+  else log(`Graph: no cross-workflow cards matched (or graph disabled) ← tags [${tagsCsv}]`)
+  return q ?? { count: 0, digest: "", published: false }
+}
+
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+async function publishKnowledge(kbFile, workflowName) {
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  const cli = await agent(
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If the output is "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
 // ── extractKnowledge — identical in every workflow; update _shared-patterns.md first ──
 async function extractKnowledge(kbFile, runId, runResult, runReflection, MAX_ACTIVE = 40) {
   const resultJson = JSON.stringify(runResult)
@@ -294,6 +340,12 @@ const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
 
+// Cross-workflow graph retrieval (the READ side of the closed loop).
+// Default-on; PI_GRAPH_KNOWLEDGE=0 kills it. Best-effort, non-fatal.
+const GRAPH_TAGS = ["argv", "argparse", "path-validation", "schema-consistency", "error-handling", "extension-loading", "correctness"]
+const graphKnowledge = await loadGraphKnowledge(KB_FILE, GRAPH_TAGS, NAME)
+const graphDigest = graphKnowledge?.digest || ""
+
 if (FIX_REQ) {
   log(`fix:true requested — review→propose→apply→re-verify loop is ON (dryRun=${DRY_RUN}). The lane refuses on a dirty tree and never pushes.`)
 }
@@ -356,6 +408,10 @@ Repo root: ${PROJECT_ROOT}. Run each command and capture whether it passed.
    Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-ltx test 2>&1 | tail -20")
 11. pi-agent-ext-power-tool (power-tool extension):
    Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-power-tool test 2>&1 | tail -20")
+12. graph-health (knowledge-graph convergence folder — dead-link / MOC-drift gate):
+   Bash("cd '${PROJECT_ROOT}' && OB_VAULT_PATH='${PROJECT_ROOT}/vaults_root/pi-agent-vault' bun --cwd bun-apps/pi-agent-cli src/cli.ts zk-query --health 2>&1 | tail -15")
+   ok iff the output contains "status:  OK". summary = the status + dead-links/moc-stale lines.
+   If the vault or convergence folder does not exist, report ok:true with summary "graph: no vault (skipped)".
 
 For each package report { name, ok, summary }. overallOk = true iff every package ok.
 If a package dir doesn't exist, report ok:false with summary "package dir missing".
@@ -455,11 +511,12 @@ const VERIFY_SCHEMA = {
 async function runReviewLane() {
   const dims = FOCUS ? REVIEW_DIMENSIONS.filter((d) => d.key === FOCUS) : REVIEW_DIMENSIONS
   const fileScope = FILES?.length ? `\nLimit review to these files only: ${FILES.join(", ")}.` : ""
-  const knowledgeBlock = knowledgeDigest ? `\nKnown findings from prior runs (do not re-report unless newly relevant):\n${knowledgeDigest}` : ""
+  const knowledgeBlock = [knowledgeDigest, graphDigest].filter(Boolean).join("\n\n--- cross-workflow graph knowledge ---\n")
+  const injected = knowledgeBlock ? `\nKnown findings from prior runs (do not re-report unless newly relevant):\n${knowledgeBlock}` : ""
 
   const perDim = await parallel(
     dims.map((d) => () =>
-      agent(d.prompt + fileScope + knowledgeBlock, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
+      agent(d.prompt + fileScope + injected, { label: `review:${d.key}`, phase: "Run", model: "sonnet", schema: FINDING_SCHEMA })
     ),
   )
   const rawFindings = perDim.filter(Boolean).flatMap((r, i) => (r.findings || []).map((f) => ({ ...f, dimension: dims[i]?.key || f.dimension })))
@@ -525,13 +582,19 @@ const FIX_APPLY_SCHEMA = {
 const RECONTRACT_CMD = `cd '${PROJECT_ROOT}' && PI_AGENT_E2E=1 bun test bun-apps/pi-agent >/dev/null 2>&1 && bun test bun-apps/pi-agent-cli >/dev/null 2>&1 && bun run --cwd bun-apps/pi-dynamic-workflows test >/dev/null 2>&1 && bun test bun-apps/pi-vlm >/dev/null 2>&1 && bun test bun-apps/pi-obsidian >/dev/null 2>&1 && bun test bun-apps/pi-knowledge-card >/dev/null 2>&1 && ( cd bun-apps/pi-hermes-memory && ./tests/run-all.sh ) >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-flux2 test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-flux2 check:flags >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-krea2 test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-ltx test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-power-tool test >/dev/null 2>&1 && echo ALL_GREEN`
 
 async function runFixLane(findings) {
-  // 1. refuse on dirty tree — never collide with WIP
+  // 1. refuse on dirty tree — never collide with WIP. BUT ignore submodule-dirty
+  //    changes (the vault submodule is dirtied by default-on publishKnowledge;
+  //    that's a knowledge artifact, not source WIP) and the workflow's own
+  //    knowledge/history artifacts (*.knowledge.jsonl, _shared-patterns.md,
+  //    history/). PI_PUBLISH_KNOWLEDGE=0 also prevents the vault bump entirely.
   const dirty = await agent(
-    `Bash("git -C '${PROJECT_ROOT}' status --porcelain") and return whether the output is non-empty.`,
+    `Bash("git -C '${PROJECT_ROOT}' status --porcelain --ignore-submodules=dirty") and return whether the output is non-empty.
+Also filter OUT lines matching: vaults_root/, .knowledge.jsonl, _shared-patterns.md, .claude/workflows/history/.
+Report dirty=true iff ANY other line remains after filtering.`,
     { label: "fix:dirty-check", phase: "Run", model: "haiku", schema: FIX_DIRTY_SCHEMA },
   )
   if (dirty?.dirty) {
-    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first.`)
+    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first. TIP: set PI_PUBLISH_KNOWLEDGE=0 to avoid vault-submodule dirt.`)
     return { skipped: true, reason: "dirty tree", porcelain: dirty.output }
   }
 
@@ -628,6 +691,7 @@ const runResult = {
   build: buildResult,
   review: reviewResult,
   fix: fixResult,
+  graphKnowledge,
 }
 
 // After a fix lane run, "remaining" findings = those NOT re-verified closed.
@@ -670,6 +734,11 @@ await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 
 await extractKnowledge(KB_FILE, RUN_ID, runResult, null)
+
+// Publish this workflow's knowledge into the shared graph (the WRITE side).
+// Default-on; PI_PUBLISH_KNOWLEDGE=0 kills it. Best-effort, non-fatal.
+const publishResult = await publishKnowledge(KB_FILE, NAME)
+runResult.publishKnowledge = publishResult
 
 markPhase("persist", "completed")
 

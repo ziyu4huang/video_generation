@@ -1,0 +1,16 @@
+{
+  "video": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260702_072817/output_20260702_072848.mp4",
+  "language": "zh",
+  "landed_temperature": 0.0,
+  "text": "嗨你好",
+  "tokens": [
+    50365,
+    6083,
+    101,
+    26410,
+    50551
+  ],
+  "avg_logprob": -0.4277685085932414,
+  "no_speech_prob": 0.06556447595357895,
+  "compression_ratio": 0.5
+}

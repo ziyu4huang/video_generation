@@ -216,6 +216,41 @@ describe("validateExtraArgs", () => {
     const out = validateExtraArgs([""], { repoRoot, outputDir, modelsRoot }, []);
     expect(out).toEqual([]);
   });
+
+  test("rejects '--flag=value' smuggling an outside-root path in the value half", () => {
+    const { repoRoot, outputDir, modelsRoot, outsideDir } = makeRoots();
+    const outsidePath = join(outsideDir, "escape.txt");
+    writeFileSync(outsidePath, "x");
+    expect(() =>
+      validateExtraArgs([`--output=${outsidePath}`], { repoRoot, outputDir, modelsRoot }, ["output"]),
+    ).toThrow(PathSafetyError);
+  });
+
+  test("allows '--flag=value' when the value resolves under an allowed root", () => {
+    const { repoRoot, outputDir, modelsRoot } = makeRoots();
+    const out = validateExtraArgs(["--output=."], { repoRoot, outputDir, modelsRoot }, ["output"]);
+    expect(out).toEqual(["--output=."]);
+  });
+
+  test("rejects a bare-word value token that is a symlink escaping the allowed roots", () => {
+    const { repoRoot, outputDir, modelsRoot, outsideDir } = makeRoots();
+    // No "/" and no long dotted extension — the old looksPathy heuristic would
+    // have skipped path validation entirely for a token shaped like this.
+    const link = join(repoRoot, "shortcut");
+    symlinkSync(outsideDir, link);
+    expect(() =>
+      validateExtraArgs(["--input", "shortcut"], { repoRoot, outputDir, modelsRoot }, ["input"]),
+    ).toThrow(PathSafetyError);
+  });
+
+  test("strips a ':<strength>' suffix before validating a lora-style extraArgs value", () => {
+    const { repoRoot, outputDir, modelsRoot, outsideDir } = makeRoots();
+    const outsideLora = join(outsideDir, "bad.safetensors");
+    writeFileSync(outsideLora, "x");
+    expect(() =>
+      validateExtraArgs(["--lora", `${outsideLora}:0.8`], { repoRoot, outputDir, modelsRoot }, ["lora"]),
+    ).toThrow(PathSafetyError);
+  });
 });
 
 describe("resolveOutputDir", () => {

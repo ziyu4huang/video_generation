@@ -1,0 +1,22 @@
+{
+  "video": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260702_064046/output_20260702_064158.mp4",
+  "language": "zh",
+  "text": "請訂閱,按讚,分享,分享",
+  "tokens": [
+    50365,
+    16302,
+    30215,
+    11,
+    26613,
+    46274,
+    11,
+    30855,
+    11,
+    30855,
+    50865
+  ],
+  "avg_logprob": -1.0527396202087402,
+  "no_speech_prob": 0.0925012156367302,
+  "compression_ratio": 0.8823529411764706,
+  "needs_fallback": true
+}

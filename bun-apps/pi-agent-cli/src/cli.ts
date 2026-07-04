@@ -9,6 +9,7 @@
  *        bun-pi-agent-cli zk-card <sub> [options]                 CRUD for Zettelkasten notes (add/find/update/remove/check)
  *        bun-pi-agent-cli zk-ask <question> [options]             graph-enhanced vault Q&A
  *        bun-pi-agent-cli zk-ingest <jsonl-files...> [options]    converge structured records → shared knowledge-graph vault
+ *        bun-pi-agent-cli zk-query [options]                       cross-workflow retrieval + graph health (READ side)
  *        bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]   PDF → md → vault (resumable)
  *
  *      Plus meta commands: list | version | help.
@@ -26,8 +27,10 @@ import { zkExtractCommand } from "./commands/zk-extract.ts";
 import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
+import { zkQueryCommand } from "./commands/zk-query.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
+import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
@@ -78,6 +81,12 @@ const COMMANDS: Command[] = [
     run: zkIngestCommand.run,
   },
   {
+    name: "zk-query",
+    summary: zkQueryCommand.summary,
+    details: zkQueryCommand.details,
+    run: zkQueryCommand.run,
+  },
+  {
     name: "doctor",
     summary: doctorCommand.summary,
     details: doctorCommand.details,
@@ -101,6 +110,26 @@ const PIPELINES: Command[] = [
   },
 ];
 
+/**
+ * `workflow <sub>` — headless runner for pi-dynamic-workflows engine scripts.
+ * NOT an agent command: calls `runWorkflow()` directly (deterministic gates).
+ * See commands/workflow.ts + docs/workflow-cli.md.
+ */
+const WORKFLOWS: Command[] = [
+  {
+    name: "run",
+    summary: workflowRunCommand.summary,
+    details: workflowRunCommand.details,
+    run: workflowRunCommand.run,
+  },
+  {
+    name: "list",
+    summary: workflowListCommand.summary,
+    details: workflowListCommand.details,
+    run: workflowListCommand.run,
+  },
+];
+
 /** Meta commands (not agent workflows). */
 const META = ["list", "list-tools", "version", "help"] as const;
 
@@ -108,7 +137,9 @@ const META = ["list", "list-tools", "version", "help"] as const;
 const RESERVED = new Set<string>([
   ...COMMANDS.map((c) => c.name),
   ...PIPELINES.map((c) => c.name),
+  ...WORKFLOWS.map((c) => c.name),
   "pipeline", // namespace
+  "workflow", // namespace
   ...META,
   // hidden alias kept for backward compatibility / muscle memory
   "oneshot",
@@ -126,11 +157,18 @@ function findPipeline(name: string): Command | undefined {
   return PIPELINES.find((c) => c.name === name);
 }
 
+function findWorkflow(name: string): Command | undefined {
+  return WORKFLOWS.find((c) => c.name === name);
+}
+
 function printRootHelp(): void {
   const agentLines = COMMANDS.map(
     (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
   ).join("\n");
   const pipelineLines = PIPELINES.map(
+    (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
+  ).join("\n");
+  const workflowLines = WORKFLOWS.map(
     (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
   ).join("\n");
 
@@ -139,6 +177,7 @@ function printRootHelp(): void {
 Usage:
   bun-pi-agent-cli <command> [options]
   bun-pi-agent-cli pipeline <name> [options]   (multi-stage orchestrators)
+  bun-pi-agent-cli workflow <sub> [options]    (headless engine runner)
   bun-pi-agent-cli [pi-compatible flags] [prompt]   (passthrough agent mode)
 
 Commands (agents):
@@ -146,6 +185,9 @@ ${agentLines}
 
 Pipelines:
 ${pipelineLines}
+
+Workflow:
+${workflowLines}
 
 Meta:
   list                            List available models (with credentials)
@@ -180,6 +222,9 @@ Examples:
   bun-pi-agent-cli zk-extract ./inbox/ --max-notes 20
   bun-pi-agent-cli pipeline pdf-to-vault paper.pdf
   bun-pi-agent-cli pipeline pdf-to-vault paper.pdf --pages 1-3 --delete-png
+  bun-pi-agent-cli workflow run closed-loop-proof
+  bun-pi-agent-cli workflow run closed-loop-proof --args '{"kbFile":"mlx-movie-director-self-improve"}' --dry-run
+  bun-pi-agent-cli workflow list
   bun-pi-agent-cli zk-card add "concept text"
   bun-pi-agent-cli zk-card find "bun workspace"
   bun-pi-agent-cli zk-card update Zettelkasten/Note.md "new info"
@@ -391,8 +436,10 @@ async function main(): Promise<void> {
 
     if (first === "help") {
       const target = probe.positionals[1];
-      const cmd = target ? (findCommand(target) ?? findPipeline(target)) : undefined;
-      if (target && target !== "pipeline" && cmd) {
+      const cmd = target
+        ? (findCommand(target) ?? findPipeline(target) ?? findWorkflow(target))
+        : undefined;
+      if (target && target !== "pipeline" && target !== "workflow" && cmd) {
         console.log(cmd.details);
       } else if (target === "pipeline") {
         // `help pipeline <name>`
@@ -400,6 +447,12 @@ async function main(): Promise<void> {
         const pcmd = pname ? findPipeline(pname) : undefined;
         if (pcmd) console.log(pcmd.details);
         else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
+      } else if (target === "workflow") {
+        // `help workflow <sub>`
+        const wname = probe.positionals[2];
+        const wcmd = wname ? findWorkflow(wname) : undefined;
+        if (wcmd) console.log(wcmd.details);
+        else console.log("Workflow sub-commands:\n" + WORKFLOWS.map((c) => `  ${c.name}`).join("\n"));
       } else {
         printRootHelp();
       }
@@ -438,6 +491,30 @@ async function main(): Promise<void> {
       // drop both the `pipeline` namespace token and the pipeline-name token
       const pipeIdx = probe.positionalIndices[1]!;
       await runAgentCommand(pcmd, withoutIndices(stripped, [cmdIdx, pipeIdx]));
+      return;
+    }
+
+    // `workflow <sub> ...` namespace (run | list). NOT an agent command — the
+    // `run` sub-command calls runWorkflow() directly against the engine.
+    if (first === "workflow") {
+      const wname = probe.positionals[1];
+      if (!wname) {
+        console.error("Usage: workflow <sub> [options]\n");
+        console.error(
+          "Workflow sub-commands:\n" +
+            WORKFLOWS.map((c) => `  ${c.name.padEnd(14)} ${c.summary}`).join("\n"),
+        );
+        process.exit(1);
+      }
+      const wcmd = findWorkflow(wname);
+      if (!wcmd) {
+        console.error(`Unknown workflow sub-command: ${wname}\n`);
+        console.error("Available: " + WORKFLOWS.map((c) => c.name).join(", "));
+        process.exit(1);
+      }
+      // drop both the `workflow` namespace token and the sub-command token.
+      const wsubIdx = probe.positionalIndices[1]!;
+      await runAgentCommand(wcmd, withoutIndices(stripped, [cmdIdx, wsubIdx]));
       return;
     }
 

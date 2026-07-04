@@ -162,7 +162,10 @@ bun bun-apps/pi-agent/src/cli.ts -p "…"
 # opt in for one invocation — the alias resolves to the real factory file
 bun bun-apps/pi-agent/src/cli.ts -e workflow -p "audit src/ for missing auth"
 bun bun-apps/pi-agent/src/cli.ts -e dynamic-workflows -p "…"
-bun bun-apps/pi-agent/src/cli.ts -e flux2 -p "…"
+
+# Note: the MLX extensions (flux2, krea2, ltx) are NOT lazy — they are in the
+# always-loaded `extensions[]` list, so the `flux2`/`krea2`/`ltx` tools are
+# available every session without an `-e` flag.
 ```
 
 `run-dir/resolve.ts` rewrites `-e <alias>` to the absolute path before `main()`

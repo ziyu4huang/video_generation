@@ -10,11 +10,29 @@
 import { existsSync, statSync } from "node:fs";
 import type { InvokeResult } from "./invoke.ts";
 
+export interface AsrGateVerdict {
+  status: "PASS" | "WARN" | "FAIL" | string;
+  reasons: string[];
+  detectedLang: string;
+  transcript: string;
+  [key: string]: unknown;
+}
+
 export interface GateEntry {
   path: string;
   status: "PASS" | "WARN" | "FAIL" | string;
   reasons?: string[];
+  /** Present only when `asrPrompt` was given — the separate voice-content sub-check. */
+  asr?: AsrGateVerdict;
   [key: string]: unknown;
+}
+
+export interface SceneEntry {
+  sceneNum: number;
+  startFrame: number;
+  endFrame: number;
+  frames: number;
+  durationSec: number;
 }
 
 export interface LtxDetails {
@@ -32,6 +50,8 @@ export interface LtxDetails {
   gate: "PASS" | "WARN" | "FAIL" | null;
   gateResults?: GateEntry[];
   verify?: { meanOverall: number; worstOverall: number; pass: boolean };
+  /** `segment`: detected scene cuts, in order. */
+  scenes?: SceneEntry[];
   /** Raw stdout, always present, truncated in `summarize()` but kept whole here. */
   stdout: string;
 }
@@ -74,9 +94,15 @@ function allMatches(stdout: string, re: RegExp): string[] {
 
 function parseWallSeconds(stdout: string): number | null {
   // "✅ wall time: 587.7s" (native-i2v/native-upscale) or "wall time: 587.7s" (i2v).
-  // No line-start anchor: the ✅ prefix is not whitespace.
-  const m = firstMatch(stdout, /wall time:\s*([\d.]+)s/);
-  return m ? Number(m[1]) : null;
+  // No line-start anchor: the ✅ prefix is not whitespace. A command that runs
+  // multiple stages (e.g. native-i2v's auto-upscale, or native-upscale's hd
+  // mode) prints ONE "wall time:" line per stage — sum them all rather than
+  // taking just the first, which used to silently under-report total wall
+  // time by however long the later stage(s) took (found by
+  // pi-agent-ext-ltx-self-improve's review lane, 2026-07-04).
+  const times = allMatches(stdout, /wall time:\s*([\d.]+)s/);
+  if (!times.length) return null;
+  return times.reduce((sum, t) => sum + Number(t), 0);
 }
 
 function parseDims(stdout: string): { width: number | null; height: number | null } {
@@ -219,8 +245,15 @@ function buildUpscaleDetails(res: InvokeResult): LtxDetails {
   };
 }
 
+/** Worse of two PASS/WARN/FAIL strings (FAIL > WARN > PASS > unknown). */
+function worseStatus(a: string | null, b: string | undefined): string | null {
+  if (!b) return a;
+  const rank = (s: string) => (s === "FAIL" ? 2 : s === "WARN" ? 1 : s === "PASS" ? 0 : -1);
+  return a === null || rank(b.toUpperCase()) > rank(a) ? b.toUpperCase() : a;
+}
+
 /** `gate --json`: array of {path, status, reasons, ...}. Falls back to text parsing if --json wasn't set. */
-function buildGateDetails(res: InvokeResult): LtxDetails {
+function buildGateDetails(res: InvokeResult, asrPrompt?: string): LtxDetails {
   let entries: GateEntry[] = [];
   try {
     const parsed = JSON.parse(res.stdout) as GateEntry[];
@@ -228,12 +261,30 @@ function buildGateDetails(res: InvokeResult): LtxDetails {
   } catch {
     /* non-JSON text output — leave empty, stdout still carries the human-readable verdicts */
   }
+  // If asrPrompt was given, Swift's `try? ASRGate.evaluate(...)` swallows any
+  // bridge crash (e.g. mlx_whisper not installed) to `nil`, which just omits
+  // the `asr` key entirely — indistinguishable from "asrPrompt not passed" to
+  // anything reading only stdout. Since we DO know asrPrompt was requested
+  // here, flag entries missing `asr` as a FAIL rather than silently reporting
+  // whatever entries[i].status alone says (TODO.md item 15, gap 8/8,
+  // 2026-07-04).
+  if (asrPrompt) {
+    for (const e of entries) {
+      if (!e.asr) {
+        e.reasons = [...(e.reasons ?? []), "ASR requested (asrPrompt) but no asr result was returned — likely a swallowed Python-bridge crash"];
+        e.status = worseStatus(e.status, "FAIL") as "PASS" | "WARN" | "FAIL";
+      }
+    }
+  }
+  // Combine each entry's own status with its `asr` sub-check (present only
+  // when asrPrompt was given) — the Swift CLI's own `failed`/`strict` logic
+  // treats an ASR FAIL/WARN as equally fatal to the video-only verdict, so
+  // reporting only entries[i].status here would silently under-report an
+  // ASR-only failure as PASS (found by pi-agent-ext-ltx-self-improve's
+  // review lane, 2026-07-04).
   const worst = entries.reduce<"PASS" | "WARN" | "FAIL" | null>((acc, e) => {
-    const s = String(e.status).toUpperCase();
-    if (s === "FAIL") return "FAIL";
-    if (s === "WARN" && acc !== "FAIL") return "WARN";
-    if (s === "PASS" && acc === null) return "PASS";
-    return acc;
+    const combined = worseStatus(worseStatus(acc, e.status), e.asr?.status);
+    return combined as "PASS" | "WARN" | "FAIL" | null;
   }, null);
   return {
     ok: res.exitCode === 0 && !res.aborted,
@@ -277,6 +328,61 @@ function buildVerifyDetails(res: InvokeResult): LtxDetails {
   };
 }
 
+/** `native-t2a`: "audio: <path>" + wall time, no video at all. */
+function buildNativeT2ADetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const audio = firstMatchLine(stdout, /audio:\s*(\S+)/);
+  return {
+    ok,
+    command: "native-t2a",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: audio,
+    extraOutputs: {},
+    width: null,
+    height: null,
+    wallSeconds: parseWallSeconds(stdout),
+    gate: null,
+    stdout,
+  };
+}
+
+/** `segment`: scene-cut detection — no generation, output is the optional --json report path. */
+function buildSegmentDetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const dims = firstMatch(stdout, /\[segment\]\s*\d+ frames,\s*(\d+)[×x](\d+)/);
+  const jsonReport = firstMatchLine(stdout, /\[segment\] JSON report:\s*(\S+)/);
+  const scenes: SceneEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/Scene (\d+): frames (\d+)-(\d+) \((\d+) frames, ([\d.]+)s\)/);
+    if (m) {
+      scenes.push({
+        sceneNum: Number(m[1]),
+        startFrame: Number(m[2]),
+        endFrame: Number(m[3]),
+        frames: Number(m[4]),
+        durationSec: Number(m[5]),
+      });
+    }
+  }
+  return {
+    ok,
+    command: "segment",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: jsonReport,
+    extraOutputs: {},
+    width: dims ? Number(dims[1]) : null,
+    height: dims ? Number(dims[2]) : null,
+    wallSeconds: null,
+    gate: null,
+    scenes,
+    stdout,
+  };
+}
+
 /** `audio-decode` / `video-decode`: "Wrote ... to <path> — 100% native Swift/MLX...". */
 function buildDecodeDetails(command: "audio-decode" | "video-decode", res: InvokeResult): LtxDetails {
   const ok = res.exitCode === 0 && !res.aborted;
@@ -315,13 +421,17 @@ function buildTextDetails(command: string, res: InvokeResult): LtxDetails {
   };
 }
 
-/** Dispatch to the right per-command parser. */
-export function buildDetails(command: string, res: InvokeResult): LtxDetails {
+/** Dispatch to the right per-command parser. `options` is the original per-command input (only `gate` reads it, for `asrPrompt`). */
+export function buildDetails(command: string, res: InvokeResult, options?: Record<string, unknown>): LtxDetails {
   switch (command) {
     case "native-i2v":
       return buildNativeI2VDetails(res);
     case "native-upscale":
       return buildNativeUpscaleDetails(res);
+    case "native-t2a":
+      return buildNativeT2ADetails(res);
+    case "segment":
+      return buildSegmentDetails(res);
     case "t2i":
       return buildT2IDetails(res);
     case "i2v":
@@ -329,7 +439,7 @@ export function buildDetails(command: string, res: InvokeResult): LtxDetails {
     case "upscale":
       return buildUpscaleDetails(res);
     case "gate":
-      return buildGateDetails(res);
+      return buildGateDetails(res, typeof options?.asrPrompt === "string" ? options.asrPrompt : undefined);
     case "verify":
       return buildVerifyDetails(res);
     case "audio-decode":
@@ -344,21 +454,35 @@ export function buildDetails(command: string, res: InvokeResult): LtxDetails {
 /** One-line human summary for the text content field. */
 export function summarize(d: LtxDetails): string {
   if (d.aborted) return `${d.command} aborted (exit ${d.exitCode}).`;
+  // `gate` (and `verify`) exit non-zero WHEN THEY FIND A REAL FAILURE — that's
+  // the expected, informative case, not a crash — so their structured result
+  // must be shown even when `!d.ok`, ahead of the generic failure fallback
+  // below (which used to swallow gate's own ASR reasons behind a useless
+  // "gate FAILED (exit 1)" + raw stdout tail; found by
+  // pi-agent-ext-ltx-self-improve's review lane, 2026-07-04).
+  if (d.command === "gate") {
+    const lines = (d.gateResults ?? []).map((g) => {
+      const base = `${g.status}  ${g.path}${g.reasons?.length ? `  — ${g.reasons.join("; ")}` : ""}`;
+      const asr = (g as GateEntry).asr;
+      return asr ? `${base}\n  ASR ${asr.status} (${asr.detectedLang})${asr.reasons?.length ? `  — ${asr.reasons.join("; ")}` : ""}` : base;
+    });
+    return lines.length ? lines.join("\n") : d.stdout.trim().split("\n").slice(0, 30).join("\n");
+  }
   if (!d.ok) {
     const tail = d.stdout.trim().split("\n").slice(-8).join("\n");
     return `${d.command} FAILED (exit ${d.exitCode}).\n${tail}`;
-  }
-  if (d.command === "gate") {
-    const lines = (d.gateResults ?? []).map(
-      (g) => `${g.status}  ${g.path}${g.reasons?.length ? `  — ${g.reasons.join("; ")}` : ""}`,
-    );
-    return lines.length ? lines.join("\n") : d.stdout.trim().split("\n").slice(0, 30).join("\n");
   }
   if (d.command === "verify" && d.verify) {
     return `verify: mean=${d.verify.meanOverall.toFixed(1)} worst=${d.verify.worstOverall.toFixed(1)} ${d.verify.pass ? "PASS" : "FAIL"}`;
   }
   if (d.command === "models") {
     return `models ok:\n${d.stdout.trim().split("\n").slice(0, 30).join("\n")}`;
+  }
+  if (d.command === "segment" && d.scenes) {
+    const list = d.scenes
+      .map((s) => `  Scene ${s.sceneNum}: frames ${s.startFrame}-${s.endFrame} (${s.frames} frames, ${s.durationSec}s)`)
+      .join("\n");
+    return `segment: ${d.scenes.length} scene(s) detected${d.output ? ` (report: ${d.output})` : ""}\n${list}`;
   }
   const dims = d.width && d.height ? ` ${d.width}x${d.height}` : "";
   const gateStr = d.gate ? ` gate ${d.gate}` : "";

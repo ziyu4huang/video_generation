@@ -1,0 +1,15 @@
+{
+  "sample_rate": 16000,
+  "n_fft": 400,
+  "hop_length": 160,
+  "duration_s": 0.5,
+  "n_samples": 8000,
+  "log_mel_80_shape": [
+    50,
+    80
+  ],
+  "log_mel_128_shape": [
+    50,
+    128
+  ]
+}

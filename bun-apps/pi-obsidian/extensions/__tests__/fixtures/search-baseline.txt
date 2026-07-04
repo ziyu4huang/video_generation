@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-04T03:08
-Vault note count: 42
+Generated: 2026-07-04T13:45
+Vault note count: 468
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -170,7 +170,7 @@ Tags/Index.md:244: > pi agent 可用 `obsidian_append_section` 工具自動追�
 
 ### case-sensitive mismatch
 query="Obsidian"
-38 match(es):
+39 match(es):
 Design/pi-Obsidian Integration.md:6: # 📐 Design — pi-Obsidian 整合
 Design/pi-Obsidian Integration.md:9: - 需要讓 pi agent 能直接讀寫 Obsidian 知識庫，不必切換 app。
 Design/pi-Obsidian Integration.md:16: - ❌ 不處理 Obsidian 設定同步
@@ -209,16 +209,18 @@ Zettelkasten/Skill Verification Process.md:32: - 相關：[[Zettelkasten/Agent K
 Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:32: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Zettelkasten/Workflow Pattern - Meta Name Consistency.md:28: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:33: - 上層概念：[[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:26: 2. **Tier 2 auto-follow** — the vault currently `open: true` in Obsidian app's `obsidian.json`.
 
 ### tag-like inline token [SUBSTRING-DEFAULT]
 query="#tag"
-2 match(es):
+3 match(es):
 Inbox/Plan - Enhance obsidian_search.md:28: - `tags`：解析 frontmatter `tags` 與內文 `#tag`。
 Tags/Index.md:243: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:48: `appendUnderHeading` heading-match was brittle to a leading `#` on EITHER side: a tag-MOC section is conventionally `## #tag`, but distill/garden subagents pass the heading sometimes as `#tag`, sometimes as `tag`. The `tag` form failed regex `^#{1,6}\s+tag$}` vs literal `#tag` → `findIndex` returned -1 → created a DUPLICATE section at end-of-file. **Verified deterministic repro.** Fix (obsidian.ts ~line 2689): normalize one leading `#` off the arg + make the line's tag-`#` optional (`^#{1,6}\s+#?<esc>\s*$`). +3 regression tests in `appendUnderHeading.test.mjs` ("leading '#' normalization"). Full suite 335 pass / 0 fail. NOTE: the real Tags/Index.md still has pre-existing duplicate sections (from when the LLM also used `obsidian_append` plain-to-EOF, which no heading fix prevents) — those need a manual/garden dedup, but the deterministic creation path is now closed.
 
 ### frontmatter key [SUBSTRING-DEFAULT]
 query="sources:"
-32 match(es):
+50 match(es):
 Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:5: sources: []
 Zettelkasten/Agentic Loop - bun-agent-demo.md:5: sources: []
@@ -251,6 +253,24 @@ Zettelkasten/Workflow Pattern - PR Cleanup and Squash.md:5: sources: []
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:5: sources: []
 Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms.md:5: sources: [https://yoheinakajima.com/better-ways-to-build-self-improving-ai-agents/, https://arxiv.org/abs/2303.17651, NeurIPS2025]
 Zettelkasten/Workflow Pattern - Style-Aware Judge Branching.md:5: sources: []
+Zettelkasten/knowledge-graph/argparse-integrity-arg-registered-uses-private-actions.md:5: sources: ["workflow-jsonl:code-health"]
+Zettelkasten/knowledge-graph/argparse-integrity-order-coupled-shared-skip.md:5: sources: ["workflow-jsonl:code-health"]
+Zettelkasten/knowledge-graph/argparse-integrity-unguarded-default-none-overrides-shared.md:5: sources: ["workflow-jsonl:code-health"]
+Zettelkasten/knowledge-graph/auto-memory-acelogic-text-encoder-fixes.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-always-self-reflect-and-write-next-goal.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-angle-command-optimized-refcount-presets.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-anime2real-ab-test-results.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-anime2real-conclusion.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-anime2real-lora-findings.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-anime2real-reference-conditioning.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-argparse-lora-scale-override-bug.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-argparse-sentinel-for-user-override.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-argv-injection-positional-paths.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-audio-noise-detection-false-positive.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-bash-batch-var-drops-runpy-flags.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-bench-workflow-investigation.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-bun-dev-server-background-sigterm.md:5: sources: ["auto-memory:pi-memory"]
+Zettelkasten/knowledge-graph/auto-memory-bun-full-bundle-residual-bare-specifiers.md:5: sources: ["auto-memory:pi-memory"]
 
 ### no-match term [SUBSTRING-DEFAULT]
 query="zzznomatchzzz"
@@ -304,16 +324,16 @@ Tags/Index.md:227: ## #agent-loop
 Tags/Index.md:229: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
 Tags/Index.md:244: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 Tags/Index.md:248: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:4: tags: [zettel, agent, obsidian, integration]
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:17: - **Automated Logging**: Using `obsidian_append` to record agent decisions.
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:22: - 下層概念：[[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]、[[Zettelkasten/Skill Verification Process]]、[[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Zettelkasten/Agent Knowledge - Obsidian Integration.md:25: - 相關（vault 部署）：[[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Zettelkasten/Agentic Loop - bun-agent-demo.md:4: tags: [zettel, agentic-loop, agent, demo]
-Zettelkasten/Agentic Loop - bun-agent-demo.md:8: # Agentic Loop — bun-agent-demo
-Zettelkasten/Agentic Loop - bun-agent-demo.md:11: - `bun-agent-demo` 以簡化版 Observe → Think → Act → Observe 迴圈展示 agentic loop：用字串樣式比對模擬 LLM 推理，挑選工具執行後把結果 append 進 history，直到得出最終答案或撞到 `maxIterations`。
-Zettelkasten/Agentic Loop - bun-agent-demo.md:14: An analysis of the `bun-agent-demo` project, which demonstrates a basic implementation of the Agentic Loop.
-Zettelkasten/Agentic Loop - bun-agent-demo.md:16: **Core Mechanism: The Agentic Loop**
+Tags/Knowledge Graph.md:277: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
+Tags/Knowledge Graph.md:278: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
+Tags/Knowledge Graph.md:279: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
+Tags/Knowledge Graph.md:280: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
+Tags/Knowledge Graph.md:281: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
+Tags/Knowledge Graph.md:282: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
+Tags/Knowledge Graph.md:283: - [[auto-memory-pi-agent-extensions-source-of-truth-run-dir]]
+Tags/Knowledge Graph.md:284: - [[auto-memory-pi-agent-jiti-nametoolong-esm-eval-temp-file]]
+Tags/Knowledge Graph.md:285: - [[auto-memory-pi-agent-multi-effort-run-test]]
+Tags/Knowledge Graph.md:286: - [[auto-memory-pi-agent-readonly-deploy]]
+Tags/Knowledge Graph.md:287: - [[auto-memory-pi-agent-run-dir-verify-pi-timing]]
+Tags/Knowledge Graph.md:288: - [[auto-memory-pi-agent-thinking-high-hangs-local-llm]]
 

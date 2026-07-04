@@ -244,6 +244,55 @@ Return { found: true, records: <active records array>, digest: <the string> }.`,
 }
 ```
 
+### `loadGraphKnowledge` helper — cross-workflow retrieval (the READ side)
+
+`loadKnowledge` loads a workflow's OWN knowledge. `loadGraphKnowledge` loads
+CROSS-WORKFLOW knowledge from the shared graph — cards OTHER workflows
+published that share tags with this workflow's tag space but are NOT in this
+workflow's own `.knowledge.jsonl`. This closes the read/write loop:
+publishKnowledge WRITES this workflow's cards to the graph;
+loadGraphKnowledge READS other workflows' cards back.
+
+**Default-on (opt-out).** Set `PI_GRAPH_KNOWLEDGE=0` to disable. Best-effort,
+non-fatal — a missing vault or a failed query is logged and skipped. The vault
+path is `PI_VAULT_PATH` or defaults to
+`${PROJECT_ROOT}/vaults_root/pi-agent-vault`.
+
+Shells out to the deterministic `zk-query` CLI (see
+`bun-apps/pi-knowledge-card/src/retrieve.ts`): `--tags <graphTags>`
+`--exclude-from-kb <kbFile>` (excludes the caller's own active ids). Returns
+`{ count, digest, published }` for the run receipt.
+
+```javascript
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Retrieves CROSS-WORKFLOW knowledge cards from the shared graph (the READ side).
+// Default-on (PI_GRAPH_KNOWLEDGE=0 kills it); best-effort (never throws).
+// graphTags: array of tag strings defining this workflow's retrieval tag space.
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  if (!graphTags || graphTags.length === 0) return { count: 0, digest: "", published: false, reason: "no-tags" }
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const tagsCsv = graphTags.join(",")
+  const q = await agent(
+    `Check PI_GRAPH_KNOWLEDGE env var, then run cross-workflow retrieval if enabled.
+1. Bash("printenv PI_GRAPH_KNOWLEDGE || echo 1")
+   If "0", return { count: 0, digest: "", published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
+3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
+Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        count: { type: "number", description: "Number of cross-workflow cards matched" },
+        digest: { type: "string", description: "The grouped digest body from the query" },
+        published: { type: "boolean" },
+      }, required: ["count"] } },
+  )
+  const c = q?.count ?? 0
+  if (c > 0) log(`Graph: retrieved ${c} cross-workflow card(s) from shared graph ← tags [${tagsCsv}]`)
+  else log(`Graph: no cross-workflow cards matched (or graph disabled) ← tags [${tagsCsv}]`)
+  return q ?? { count: 0, digest: "", published: false }
+}
+```
+
 ### `extractKnowledge` helper — copy this VERBATIM into every workflow
 
 ```javascript
@@ -345,8 +394,8 @@ const knowledge = await loadKnowledge(KB_FILE)
 
 // Persist phase — AFTER `await saveHistory(...)`:
 await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj or */ null)
-// Optional: converge the just-written records into the shared knowledge graph.
-// Opt-in via PI_PUBLISH_KNOWLEDGE=1 — see `publishKnowledge` below. Best-effort.
+// Default-on: converge the just-written records into the shared knowledge graph.
+// PI_PUBLISH_KNOWLEDGE=0 kills it (e.g. for a clean-tree fix-lane run). See below.
 await publishKnowledge(KB_FILE, meta.name)
 markPhase("persist", "completed")
 ```
@@ -361,11 +410,12 @@ deterministic `zk-ingest` CLI (see `bun-apps/pi-knowledge-card/src/ingest.ts`),
 converging the records into the SHARED vault as zettel cards, dedup'd by id,
 cross-linked by tag, indexed by a MOC. The graph then spans every workflow.
 
-**Opt-in.** Default is OFF (no behavior change for existing runs). Set
-`PI_PUBLISH_KNOWLEDGE=1` to enable. This keeps the contract lane deterministic
-and lets a run opt into publishing only when a vault is configured + a graph
-convergence is desired. The vault path is `PI_VAULT_PATH` or defaults to
-`${PROJECT_ROOT}/vaults_root/pi-agent-vault` (the repo submodule convention).
+**Default-on (opt-out).** Publishing is ON by default — every run converges its
+knowledge into the shared graph so other workflows can read it. Set
+`PI_PUBLISH_KNOWLEDGE=0` to disable (e.g. for a clean-tree fix-lane run where
+the vault submodule bump would dirty the tree). The vault path is
+`PI_VAULT_PATH` or defaults to `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+(the repo submodule convention).
 
 **Best-effort, never fatal.** A missing vault, a failed ingest, or a missing
 CLI is logged as a warning and the run continues — publishing is a projection
@@ -374,19 +424,18 @@ over the canonical `.knowledge.jsonl`, never a critical path.
 ```javascript
 // ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
 // Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
-// Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
 async function publishKnowledge(kbFile, workflowName) {
-  if (process.env.PI_PUBLISH_KNOWLEDGE !== "1") return { published: false, reason: "off" }
-  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   const sourceLabel = `workflow-jsonl:${workflowName}`
   // Resolve the pi-agent-cli entry. Prefer the built dist binary when present
   // (production), fall back to the workspace source (dev) — both accept the
   // same zk-ingest subcommand.
   const cli = await agent(
-    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
-1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
-2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
-   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
 3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
     { label: "publish-knowledge", phase: "Persist", model: "sonnet",
       schema: { type: "object", properties: {
@@ -399,6 +448,30 @@ async function publishKnowledge(kbFile, workflowName) {
   return cli
 }
 ```
+
+### Generation workflows: publish-only (parked read-side) — WHY
+
+The image/video generation self-improve loops (mlx-image, mlx-ltx, gui-*, flux2)
+got `publishKnowledge` (WRITE side) but NOT `loadGraphKnowledge` (READ side).
+This is deliberate, verified by a live retrieval test (2026-07-04):
+
+- **The tag overlap is noise, not signal.** Generation tags (`cfg`, `lever`,
+  `seed`, `steps`, `prompt-adherence`, `cfg_scale`, `lora`, `tradeoff`)
+  cross with the code-health graph on the WRONG axis — they match argparse
+  gotchas (seed default drift, lora list-vs-scalar) rather than content-tuning
+  wins (cfg ceilings, denoise strengths, STG tradeoffs). Injecting those at
+  Resolve would add noise, not signal.
+- **The right cross-workflow edges for generation loops are BETWEEN each other**
+  (image↔ltx sharing cfg/lever/metric knowledge), not with the code-health
+  graph. That requires content-aware tag routing that doesn't exist yet.
+- **Decision: PARK.** Generation loops are publish-only until a content-aware
+  tag router exists. Code-health loops (pi-infra, flux2) DO read the graph
+  because their tag space (argv, argparse, path-validation, schema-consistency)
+  genuinely overlaps.
+
+To unpark: add `loadGraphKnowledge` with generation-content tags
+(`metric`, `lever`, `ceiling`, `cfg`, `denoise`) AFTER verifying the retrieval
+  produces signal (cards from OTHER generation workflows, not code-health).
 
 ### Knowledge lifecycle — prune stale-active records (detect-only, every run)
 
@@ -632,9 +705,14 @@ First shipped in `pi-infra-self-improve.js`.
 
 **Hard guarantees** (port ALL of them — a half implementation is worse than none):
 - **opt-in** — only runs when `args.fix === true`. Default off.
-- **dirty-tree-refuse** — `git status --porcelain` must be empty before applying
-  ANY patch. A dirty tree means WIP the lane could corrupt; refuse and log, never
-  apply. (This is why the lane cannot be used to "clean up" a messy tree.)
+- **dirty-tree-refuse** — `git status --porcelain --ignore-submodules=dirty` must be
+  empty (after filtering out the workflow's own knowledge artifacts: `*.knowledge.jsonl`,
+  `_shared-patterns.md`, `.claude/workflows/history/`) before applying ANY patch.
+  A dirty SOURCE tree means WIP the lane could corrupt; refuse and log, never apply.
+  Submodule-dirty (the vault bumped by default-on `publishKnowledge`) and knowledge
+  artifacts are NOT source WIP — they're excluded so the fix lane doesn't collide
+  with the knowledge loop. Set `PI_PUBLISH_KNOWLEDGE=0` to skip the vault bump
+  entirely if you need a truly clean tree.
 - **dryRun-capable** — `args.dryRun === true` proposes patches and returns them
   WITHOUT applying. Lets you preview before committing.
 - **never pushes** — the apply path commits to the CURRENT local branch only
@@ -673,11 +751,12 @@ const FIX_APPLY_SCHEMA = {
 async function runFixLane({ findings, projectRoot, contractCmd, dryRun }) {
   // 1. refuse on dirty tree — never collide with WIP
   const dirty = await agent(
-    `Bash("git -C '${projectRoot}' status --porcelain") and return whether the output is non-empty.`,
+    `Bash("git -C '${projectRoot}' status --porcelain --ignore-submodules=dirty") and return whether the output is non-empty.
+Also filter OUT lines matching: vaults_root/, .knowledge.jsonl, _shared-patterns.md, .claude/workflows/history/. Report dirty=true iff ANY other line remains.`,
     { label: "fix:dirty-check", phase: "Self-Fix", model: "haiku", schema: FIX_DIRTY_SCHEMA },
   )
   if (dirty?.dirty) {
-    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first.`)
+    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first. TIP: set PI_PUBLISH_KNOWLEDGE=0 to avoid vault-submodule dirt.`)
     return { skipped: true, reason: "dirty tree", porcelain: dirty.output }
   }
 
