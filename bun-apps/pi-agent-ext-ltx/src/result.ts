@@ -10,10 +10,20 @@
 import { existsSync, statSync } from "node:fs";
 import type { InvokeResult } from "./invoke.ts";
 
+export interface AsrGateVerdict {
+  status: "PASS" | "WARN" | "FAIL" | string;
+  reasons: string[];
+  detectedLang: string;
+  transcript: string;
+  [key: string]: unknown;
+}
+
 export interface GateEntry {
   path: string;
   status: "PASS" | "WARN" | "FAIL" | string;
   reasons?: string[];
+  /** Present only when `asrPrompt` was given — the separate voice-content sub-check. */
+  asr?: AsrGateVerdict;
   [key: string]: unknown;
 }
 
@@ -84,9 +94,15 @@ function allMatches(stdout: string, re: RegExp): string[] {
 
 function parseWallSeconds(stdout: string): number | null {
   // "✅ wall time: 587.7s" (native-i2v/native-upscale) or "wall time: 587.7s" (i2v).
-  // No line-start anchor: the ✅ prefix is not whitespace.
-  const m = firstMatch(stdout, /wall time:\s*([\d.]+)s/);
-  return m ? Number(m[1]) : null;
+  // No line-start anchor: the ✅ prefix is not whitespace. A command that runs
+  // multiple stages (e.g. native-i2v's auto-upscale, or native-upscale's hd
+  // mode) prints ONE "wall time:" line per stage — sum them all rather than
+  // taking just the first, which used to silently under-report total wall
+  // time by however long the later stage(s) took (found by
+  // pi-agent-ext-ltx-self-improve's review lane, 2026-07-04).
+  const times = allMatches(stdout, /wall time:\s*([\d.]+)s/);
+  if (!times.length) return null;
+  return times.reduce((sum, t) => sum + Number(t), 0);
 }
 
 function parseDims(stdout: string): { width: number | null; height: number | null } {
@@ -229,6 +245,13 @@ function buildUpscaleDetails(res: InvokeResult): LtxDetails {
   };
 }
 
+/** Worse of two PASS/WARN/FAIL strings (FAIL > WARN > PASS > unknown). */
+function worseStatus(a: string | null, b: string | undefined): string | null {
+  if (!b) return a;
+  const rank = (s: string) => (s === "FAIL" ? 2 : s === "WARN" ? 1 : s === "PASS" ? 0 : -1);
+  return a === null || rank(b.toUpperCase()) > rank(a) ? b.toUpperCase() : a;
+}
+
 /** `gate --json`: array of {path, status, reasons, ...}. Falls back to text parsing if --json wasn't set. */
 function buildGateDetails(res: InvokeResult): LtxDetails {
   let entries: GateEntry[] = [];
@@ -238,12 +261,15 @@ function buildGateDetails(res: InvokeResult): LtxDetails {
   } catch {
     /* non-JSON text output — leave empty, stdout still carries the human-readable verdicts */
   }
+  // Combine each entry's own status with its `asr` sub-check (present only
+  // when asrPrompt was given) — the Swift CLI's own `failed`/`strict` logic
+  // treats an ASR FAIL/WARN as equally fatal to the video-only verdict, so
+  // reporting only entries[i].status here would silently under-report an
+  // ASR-only failure as PASS (found by pi-agent-ext-ltx-self-improve's
+  // review lane, 2026-07-04).
   const worst = entries.reduce<"PASS" | "WARN" | "FAIL" | null>((acc, e) => {
-    const s = String(e.status).toUpperCase();
-    if (s === "FAIL") return "FAIL";
-    if (s === "WARN" && acc !== "FAIL") return "WARN";
-    if (s === "PASS" && acc === null) return "PASS";
-    return acc;
+    const combined = worseStatus(worseStatus(acc, e.status), e.asr?.status);
+    return combined as "PASS" | "WARN" | "FAIL" | null;
   }, null);
   return {
     ok: res.exitCode === 0 && !res.aborted,
@@ -413,15 +439,23 @@ export function buildDetails(command: string, res: InvokeResult): LtxDetails {
 /** One-line human summary for the text content field. */
 export function summarize(d: LtxDetails): string {
   if (d.aborted) return `${d.command} aborted (exit ${d.exitCode}).`;
+  // `gate` (and `verify`) exit non-zero WHEN THEY FIND A REAL FAILURE — that's
+  // the expected, informative case, not a crash — so their structured result
+  // must be shown even when `!d.ok`, ahead of the generic failure fallback
+  // below (which used to swallow gate's own ASR reasons behind a useless
+  // "gate FAILED (exit 1)" + raw stdout tail; found by
+  // pi-agent-ext-ltx-self-improve's review lane, 2026-07-04).
+  if (d.command === "gate") {
+    const lines = (d.gateResults ?? []).map((g) => {
+      const base = `${g.status}  ${g.path}${g.reasons?.length ? `  — ${g.reasons.join("; ")}` : ""}`;
+      const asr = (g as GateEntry).asr;
+      return asr ? `${base}\n  ASR ${asr.status} (${asr.detectedLang})${asr.reasons?.length ? `  — ${asr.reasons.join("; ")}` : ""}` : base;
+    });
+    return lines.length ? lines.join("\n") : d.stdout.trim().split("\n").slice(0, 30).join("\n");
+  }
   if (!d.ok) {
     const tail = d.stdout.trim().split("\n").slice(-8).join("\n");
     return `${d.command} FAILED (exit ${d.exitCode}).\n${tail}`;
-  }
-  if (d.command === "gate") {
-    const lines = (d.gateResults ?? []).map(
-      (g) => `${g.status}  ${g.path}${g.reasons?.length ? `  — ${g.reasons.join("; ")}` : ""}`,
-    );
-    return lines.length ? lines.join("\n") : d.stdout.trim().split("\n").slice(0, 30).join("\n");
   }
   if (d.command === "verify" && d.verify) {
     return `verify: mean=${d.verify.meanOverall.toFixed(1)} worst=${d.verify.worstOverall.toFixed(1)} ${d.verify.pass ? "PASS" : "FAIL"}`;

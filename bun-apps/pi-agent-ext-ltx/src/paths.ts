@@ -126,6 +126,27 @@ export function assertSafePathComponent(value: string, kind: string): void {
 }
 
 /**
+ * Strip a trailing ":<float>" strength suffix (e.g. a "--lora path:0.8" spec)
+ * before path-validating, mirroring index.ts's pathSpecFieldKeys handling —
+ * without this, the exists-check silently validates the wrong (suffixed)
+ * string instead of the real path portion.
+ */
+function stripStrengthSuffix(raw: string): string {
+  const m = raw.match(/^(.*):-?\d+(?:\.\d+)?$/);
+  return m ? m[1] : raw;
+}
+
+/**
+ * Validate a single extraArgs VALUE (never a flag) against `roots`. Every
+ * non-flag token is checked, not just ones that "look like" a path
+ * (relative scalars like "42"/"fast" resolve harmlessly under repoRoot and
+ * pass; the check is what catches an absolute or ".."-escaping value).
+ */
+function validateExtraArgValue(value: string, roots: AllowedRoots, kind: string): void {
+  assertPathAllowed(stripStrengthSuffix(value), roots, { kind });
+}
+
+/**
  * Validate a list of raw extraArgs tokens the agent may pass as an escape hatch.
  * Leading-dash tokens must match an allow-listed flag prefix; value tokens are
  * path-validated against `roots`. Returns the cleaned token list.
@@ -142,20 +163,22 @@ export function validateExtraArgs(
     if (typeof tok !== "string" || tok.length === 0) continue;
     if (tok.startsWith("-")) {
       const stripped = tok.replace(/^-+/, "");
-      const flagName = stripped.split("=")[0];
+      const eqIdx = stripped.indexOf("=");
+      const flagName = eqIdx >= 0 ? stripped.slice(0, eqIdx) : stripped;
       if (!prefixSet.has(flagName)) {
         throw new PathSafetyError(
           `extraArgs: flag "${tok}" is not allow-listed. Allowed: ${[...prefixSet].sort().join(", ")}`,
         );
       }
+      // "--flag=value" syntax (swift-argument-parser accepts this for any
+      // Option): the value half must be validated exactly like a standalone
+      // value token below — otherwise it reaches argv completely unchecked.
+      if (eqIdx >= 0) {
+        validateExtraArgValue(stripped.slice(eqIdx + 1), roots, `extraArgs value (${flagName}=)`);
+      }
       out.push(tok);
     } else {
-      const looksPathy = tok.includes("/") || tok === ".." || tok === "." || (tok.includes(".") && tok.length > 4);
-      if (looksPathy) {
-        assertPathAllowed(tok, roots, { kind: "extraArgs value" });
-      } else {
-        rejectFlagLike(tok, "extraArgs scalar");
-      }
+      validateExtraArgValue(tok, roots, "extraArgs value");
       out.push(tok);
     }
   }

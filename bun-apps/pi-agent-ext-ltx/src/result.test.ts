@@ -39,9 +39,9 @@ describe("buildDetails: native-i2v", () => {
     expect(d.extraOutputs.upscaledFrames).toBe("/tmp/out/upscaled/frames");
   });
 
-  test("wallSeconds picks the FIRST wall-time line (base generation, not the upscale add-on)", () => {
+  test("wallSeconds SUMS every 'wall time:' line — base generation AND the upscale add-on", () => {
     const d = buildDetails("native-i2v", ok(stdout));
-    expect(d.wallSeconds).toBe(587.7);
+    expect(d.wallSeconds).toBeCloseTo(587.7 + 36.4, 5);
   });
 
   test("without an upscale section, output falls back to the base frames dir", () => {
@@ -213,6 +213,30 @@ describe("buildDetails: gate", () => {
     const d = buildDetails("gate", ok("✅ PASS  a.mp4\n     all good"));
     expect(d.gateResults).toEqual([]);
     expect(d.ok).toBe(true);
+  });
+
+  test("folds a FAILing nested `asr` sub-check into the worst status, even when the video-only status is PASS", () => {
+    const stdout = JSON.stringify([
+      {
+        path: "a.mp4",
+        status: "PASS",
+        reasons: [],
+        asr: { status: "FAIL", reasons: ["transcript mismatch"], detectedLang: "en", transcript: "謝謝" },
+      },
+    ]);
+    const d = buildDetails("gate", ok(stdout, 1));
+    expect(d.gate).toBe("FAIL");
+    const summary = summarize(d);
+    expect(summary).toContain("ASR FAIL");
+    expect(summary).toContain("transcript mismatch");
+  });
+
+  test("an ASR WARN does not get masked by a PASSing video status", () => {
+    const stdout = JSON.stringify([
+      { path: "a.mp4", status: "PASS", reasons: [], asr: { status: "WARN", reasons: ["low confidence"], detectedLang: "zh", transcript: "你好" } },
+    ]);
+    const d = buildDetails("gate", ok(stdout));
+    expect(d.gate).toBe("WARN");
   });
 });
 

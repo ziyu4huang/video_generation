@@ -303,6 +303,68 @@ lists updated to match (also fixed a stale "no mp4 muxer yet" line for
 `native-i2v` — mp4 muxing shipped in an earlier pass and the README hadn't
 been updated).
 
+## 15. First real run of `pi-agent-ext-ltx-self-improve` — 7 of 8 review findings fixed
+
+The workflow (item 13, authored but never executed) was run for real for the
+first time (`Workflow({scriptPath: ...})`, explicit user opt-in). All three
+lanes green: contract (99/99 tests, 12/12 `check:flags`), live-e2e (real
+`native-i2v` generation + real `mlx_whisper` ASR gate transcription — exit
+paths both confirmed live), review (4 dimensions, adversarial-verified, 8
+upheld findings). Fixed 7 of the 8:
+
+1/8 (`result.ts`) — `buildGateDetails`/`summarize` never read the nested
+   `asr` sub-object `gate --json` embeds, so an ASR content FAIL could read
+   as `details.gate: "PASS"`. Fixed: `worseStatus()` folds `entry.status`
+   AND `entry.asr?.status` into one worst verdict; `summarize()` now shows
+   the ASR line and — importantly — runs its `gate`-specific branch BEFORE
+   the generic `!d.ok` early-return (gate exiting non-zero because it found
+   a real failure is the expected, informative case, not a crash to hide
+   behind a raw stdout tail).
+2/8 (`result.ts`) — `parseWallSeconds` took the FIRST "wall time:" line only,
+   silently dropping any upscale/second-stage add-on's own timing line.
+   Fixed: sums every occurrence (`allMatches`, not `firstMatch`).
+3-5/8 (`paths.ts`, `validateExtraArgs`) — three related argv-injection gaps
+   in the extraArgs escape hatch (agent-reachable via `extensions/pi-ltx.ts`'s
+   `extraArgs` param): `--flag=value` syntax bypassed validation on the value
+   half entirely; a bare-word value (no `/`, no long extension) skipped
+   `assertPathAllowed` under the old `looksPathy` heuristic — a symlink named
+   e.g. `shortcut` dropped under an allowed root would escape undetected;
+   and `--lora path:strength` values weren't stripped of their suffix before
+   the exists-check, unlike the equivalent structured-field path. Fixed by
+   always validating every non-flag value (relative bare words resolve
+   harmlessly under `repoRoot`, so this doesn't reject legitimate scalars)
+   and stripping `--flag=` values / `:strength` suffixes the same way the
+   structured-field path already does. 4 new regression tests in
+   `paths.test.ts` (including a real symlink escape).
+6/8 (`index.ts`/`check-flags.ts`) — `EXTRA_ARG_ALLOW` (the flat, cross-command
+   allow-list backing the extraArgs escape hatch) was invisible to
+   `check:flags`, which only ever diffs `commands.ts`'s typed fields. Fixed:
+   `EXTRA_ARG_ALLOW` exported, `check-flags.ts` now accumulates the union of
+   every command's real `--help` flags and fails if any allow-list entry
+   doesn't match one — the same "guard the guard" fix as item 14's
+   subcommand check, applied to a second blind spot.
+7/8 (`index.ts`) — `ensureBinary()` inside `runOnce` had no try/catch, so a
+   fresh-checkout `swift build` failure would crash the caller with an
+   unhandled rejection instead of the documented `details.ok=false`
+   contract. Fixed: wrapped, converted to a synthetic failed `InvokeResult`
+   run through the normal per-command `buildDetails` path. (No dedicated
+   regression test — forcing a deterministic build failure without either a
+   slow real `swift build` or risky process-global env mutation wasn't
+   worth it; verified by code inspection + full suite still green.)
+
+**8/8 NOT fixed, left as a known remaining gap**: if the ASR Python bridge
+crashes internally (e.g. `mlx_whisper` not installed) and Swift's `try?`
+swallows it, the JSON entry gets no `asr` key at all — and nothing on this
+side can currently tell "ASR was requested via `asrPrompt` but silently
+never ran" from "ASR wasn't requested," because `result.ts`'s `buildDetails`
+only sees stdout, not the original `options`. Fixing this needs threading
+`options.asrPrompt` through into `buildGateDetails` (a signature change to
+`buildDetails`/`runOnce`), deferred as a separate, smaller follow-up rather
+than folded into this pass.
+
+99 → 105 tests (4 new in `paths.test.ts` for items 3-5, 2 new in
+`result.test.ts` for item 1); `check:flags` still 12/12, no drift.
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged
