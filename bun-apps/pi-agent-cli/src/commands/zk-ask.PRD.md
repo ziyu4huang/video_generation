@@ -63,9 +63,30 @@ zk-ask <question> --max-note-tokens <n>  # max tokens per note in full-read tier
 zk-ask <question> --summarize            # summarize each tag cluster before generating
 zk-ask <question> --no-refine            # skip seed quality gate
 zk-ask <question> --folder <name>        # restrict seed search scope
+zk-ask <question> --blend three-way      # semantic + lexical + graph (needs vault-mind)
 ```
 
 All pi-global flags apply: `--model`, `--vault`, `--mode json`, etc.
+
+### `--blend` retrieval modes
+
+| Mode | Seed strategies | Rank score | Tools |
+|------|-----------------|------------|-------|
+| `default` (the default) | title fuzzy + tags + body (`obsidian_search`) + graph neighbors | `0.7 × lexical + 0.3 × link_count` | `obsidian_search/query/read/list` |
+| `three-way` | adds `obsidian_semantic_search` (vault-mind vector) as a 4th seed | `0.4 × semantic + 0.3 × lexical + 0.3 × link_count` | + `obsidian_semantic_search` |
+
+The default mode is unchanged from the original design (no regression). Three-way
+rebalances so the vector seed leads but cannot dominate — a strongly-graph-linked
+card both text modes miss still ranks. Three-way requires the vault-mind service
+(`VAULT_MIND_BASE_URL`, default `127.0.0.1:8000`) and the vault indexed there; if
+semantic search errors (service down), the pipeline falls back to the 3 lexical
+strategies and never aborts. Under `--retrieve-only --blend three-way`, each
+reference is tagged with its source mode(s) (`semantic`, `lexical:*`, `graph`).
+
+The blend score is a pure exported function `rankBlendScore(parts, mode)` in
+`pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in
+`__tests__/blend.test.ts`, re-used by the `retrieval-quality-self-improve`
+engine workflow to prove (or refute) blend > lexical with a blind judge.
 
 ---
 

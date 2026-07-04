@@ -114,6 +114,8 @@ export interface ParsedArgs {
 	maxNoteTokens?: number;
 	/** zk-ask: skip seed quality gate */
 	noRefine?: boolean;
+	/** zk-ask: retrieval blend mode ("default" | "three-way") */
+	blend?: string;
 	/** zk-ingest: source family label (default: workflow-jsonl) */
 	source?: string;
 	/** zk-ingest: human-readable provenance string */
@@ -253,7 +255,7 @@ type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
 	| "vlmModel" | "source" | "sourceLabel"
-	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs";
+	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend";
 
 /** String value flags: `--flag <value>` or `--flag=value`. */
 const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
@@ -276,6 +278,7 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 	{ flag: "--exclude-from-kb", field: "excludeFromKb" },
 	{ flag: "--exclude-ids", field: "excludeIds" },
 	{ flag: "--args", field: "workflowArgs" },
+	{ flag: "--blend", field: "blend" },
 ];
 
 type BoolField =

@@ -87,11 +87,28 @@ run through the engine.
 > ⚠️ **Parser strictness differs.** The engine parses scripts with a strict
 > acorn config (`sourceType: module`, no top-level `import`). Scripts authored
 > only for Claude Code's `Workflow` tool may not parse under the engine —
-> `workflow run --dry-run` surfaces this immediately. Example:
-> `.claude/workflows/closed-loop-proof.js` currently fails the engine parse
-> (unescaped backticks inside a template literal + a `const x =` with its value
-> commented out) — a real authoring bug, not a runner bug. `--dry-run` is the
-> fast way to catch this class of issue before a live run.
+> `workflow run --dry-run` surfaces this immediately. The parser also enforces
+> determinism: `Date.now()` / `Math.random()` / no-arg `new Date()` throw (they
+> break resume) — get timestamps via an `agent()` Bash call (`date -u`), and the
+> literal `Math.random` token is rejected even inside a comment, so reword any
+> prose that mentions it.
+>
+> This is how `.claude/workflows/closed-loop-proof.js` was repaired: three
+> authoring bugs (unescaped backticks in a template literal, a `const vault =`
+> with its value commented out, and a `${vault}` reference in a scope where it
+> was undefined) were surfaced by `--dry-run`, fixed, and the script now runs
+> live end-to-end (`pi-agent workflow run closed-loop-proof` → receipt with
+> `graphKnowledge.count`, `publishKnowledge.published`, `contract.graphHealth.ok`).
+
+## Engine workflows shipped
+
+| Workflow | Location | Purpose |
+|----------|----------|---------|
+| `closed-loop-proof` | `.claude/workflows/` | End-to-end proof of the knowledge-graph closed loop (READ + gate + WRITE) — a live receipt is the proof. |
+| `knowledge-distill` | `bun-apps/pi-agent-cli/workflows/` | WRITE-side distill: PR/markdown → atomic vault cards under gate/retry + garden gate. |
+| `retrieval-quality-self-improve` | `bun-apps/pi-agent-cli/workflows/` | READ-side retrieval loop: adversarial query-gen → zk-ask in two blend modes → blind judge → receipt + `.knowledge.jsonl`. |
+
+All three are runnable via `pi-agent workflow run <name> --model <spec>`.
 
 ## Why this matters
 
