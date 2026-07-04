@@ -20,9 +20,24 @@ supplied image — frame 0 was hardcoded to always come from
 --input-image <path>` (skips T2I, VAE-encodes the supplied image as
 frame-0 conditioning instead), 3 new `NativeI2VStageRealCheckpointTests`
 cases including a real-checkpoint chain test proving the image reaches
-generation (not silently ignored). `relay` itself (multi-segment
-chaining/concat/audio-overlay) is still not built — see PLAN.md's
-matching milestone for the concrete remaining pieces.
+generation (not silently ignored).
+
+**Same session, `native-relay` core chaining landed too** (turned out
+`--input-image` was the only missing piece): new `NativeRelayStage` +
+`ltx-video native-relay` chains N segments (each segment's last decoded
+frame feeds the next segment's `--input-image`), mp4-per-segment via the
+existing `MP4Writer`, then concatenates all segments into one final
+`relay.mp4` via a new `VideoConcatenator` (`AVMutableComposition` +
+`AVAssetExportSession` — pure Swift, no ffmpeg). Real 2-segment run
+verified: chaining is real (segment 2's `source.png` byte-identical to
+segment 1's actual last frame, visually confirmed too), concatenation is
+real (`ffprobe` shows both segments' frames present in the final file).
+A synthetic no-audio test case caught a real bug along the way — an empty
+composition audio track (when no segment has audio) made
+`AVAssetExportSession` fail outright; fixed by dropping the audio track
+before export if nothing was ever inserted into it. Still open: custom
+audio overlay (`--relay-audio`), TTS narration, and the variant A/B
+harness — see PLAN.md's matching milestone for the full writeup.
 
 # ASR voice-content gate (zh-TW/zh-CN aware) — landed, transcription still bridged (2026-07-04)
 
