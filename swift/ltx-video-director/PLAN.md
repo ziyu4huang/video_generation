@@ -2298,26 +2298,55 @@ real generation's `--input-image` and asserts the second run's recorded
 actually reaches frame-0 conditioning rather than being silently ignored
 in favor of a fresh T2I generation.
 
-**Still open**: `native-relay` itself (multi-segment chaining + last-frame
-extraction + concatenation + audio overlay/TTS, mirroring
-`app/commands/video-relay.py`) is NOT built yet — `--input-image` is the
-necessary prerequisite this session identified and shipped, not the
-orchestration layer itself. The remaining pieces, all new: (1) extracting
-"the last decoded frame" as a loadable image from a completed
-`NativeI2VStage.Result` (frames are already written as PNGs under
-`result.frameDirectory` — the last one just needs picking out and feeding
-forward as the next segment's `--input-image`, no new decode logic); (2)
-concatenating N segments' outputs into one final video — doable with
-`AVMutableComposition` (pure Swift, matches this package's
-no-ffmpeg-dependency convention, unlike the Python version's `ffmpeg
-concat` demuxer); (3) custom audio track overlay/replace on the final
-concatenated output — WAVReader/AudioVAEEncoder already exist for
-*generation-time* audio conditioning, but overlaying an arbitrary
-externally-supplied audio file onto an already-muxed mp4 is a distinct,
-not-yet-ported AVFoundation composition task. TTS narration
+**Update, same session: `native-relay` core chaining landed.** Built
+`NativeRelayStage` + `ltx-video native-relay` right after `--input-image`
+above, since that was the only missing piece: for each segment, run
+`NativeI2VStage.generate` with `inputImagePath` set to the PREVIOUS
+segment's last decoded PNG (`frame_%04d.png`, picked out by
+`result.frameCount - 1` — no new decode logic needed, the frames already
+exist on disk from `PNGFrameWriter`), mux each segment to its own mp4 via
+the existing `MP4Writer`, then concatenate all segment mp4s into one final
+`relay.mp4` via a new `VideoConcatenator` (`AVMutableComposition` +
+`AVAssetExportSession` — pure Swift/AVFoundation, no ffmpeg, unlike the
+Python version's `ffmpeg -f concat` demuxer).
+
+**Real-checkpoint end-to-end run**: `native-relay --prompts "a red ball
+rolls across a wooden floor" "the ball bounces off a wall and rolls
+back"` (2 segments, 320x320 request auto-scaled to 800x800, 9 frames each,
+126.8s wall). Verified the chaining is REAL, not coincidental: segment 2's
+recorded `source.png` is byte-identical to segment 1's actual last decoded
+frame (visually confirmed too — a red ball on a wooden floor, sharp and
+coherent). Verified the concatenation is real: `ffprobe` on the final
+`relay.mp4` shows 18 video frames (9+9, both segments genuinely present,
+not just the first or last) and a valid audio track spanning both
+segments' duration.
+
+**A real bug caught by testing at a DIFFERENT scale than the CLI proof
+above**: a fast synthetic `VideoConcatenatorTests` case (small
+video-only clips, no audio — deliberately cheap/no-checkpoint, unlike the
+CLI proof which always has audio since `NativeI2VStage` always generates
+some) failed with a cryptic `AVFoundationErrorDomain code=-11838` /
+"此媒體不支援此操作" export error. Root cause: `VideoConcatenator`
+unconditionally created a composition audio track even when zero segments
+had any audio to insert into it — a composition with a fully empty,
+zero-duration audio track fails `AVAssetExportSession` outright rather
+than just producing a silent track. Fixed by tracking whether the audio
+track ever received content and removing it from the composition before
+export if not. This means the ORIGINAL CLI proof run (which always has
+audio) would never have caught this — a real instance of "verify at more
+than one scale/config," not just the happiest path.
+
+**Still open, deliberately scoped out of this first cut** (see
+`NativeRelayStage.swift`'s header): custom audio track overlay/replace on
+the final concatenated output (`--relay-audio`) — WAVReader/AudioVAEEncoder
+exist for *generation-time* audio conditioning, but overlaying an
+arbitrary externally-supplied audio file onto an already-muxed mp4 is a
+distinct, not-yet-ported AVFoundation composition task. TTS narration
 (`--relay-tts-text`, macOS `say`/`edge-tts`) and the variant A/B
 comparison harness (`_RELAY_VARIANTS`) are lower-priority conveniences on
-top of the core chaining, not blockers for a first native `relay` cut.
+top of the core chaining that's now landed and verified. Each segment
+must run at the same resolution (inherent to feeding one segment's last
+frame as the next's `--input-image`, which requires an exact size match).
 
 ## Explicitly NOT doing
 
