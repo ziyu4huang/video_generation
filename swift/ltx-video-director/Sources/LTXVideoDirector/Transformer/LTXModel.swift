@@ -165,7 +165,8 @@ public struct LTXModel {
         videoTextEmbeds: MLXArray? = nil, audioTextEmbeds: MLXArray? = nil,
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
-        videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil
+        videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
+        audioOnly: Bool = false
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -222,7 +223,8 @@ public struct LTXModel {
                 videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
-                videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask
+                videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
+                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly
             )
             videoHidden = v
             audioHidden = a
@@ -253,7 +255,8 @@ public struct LTXModel {
         videoTextEmbeds: MLXArray? = nil, audioTextEmbeds: MLXArray? = nil,
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
-        videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil
+        videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
+        audioOnly: Bool = false
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -310,7 +313,8 @@ public struct LTXModel {
                 videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
-                videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask
+                videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
+                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly
             )
             MLX.eval(v, a)
             videoHidden = v

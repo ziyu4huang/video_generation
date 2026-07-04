@@ -1,3 +1,40 @@
+## T2A (pure text-to-audio) — LANDED (2026-07-04)
+
+New `native-t2a` command + `NativeT2AStage`, reusing existing audio VAE/Gemma
+text-encoder/DenoiseLoop infrastructure. Ported from the official Lightricks
+reference `docs/reference/comfyui_workflows/LTX-2.3_T2A_Single_Stage_Distilled.json`
+(`LTXVAudioOnlyModel` + `LTXVAudioOnlyEmptyVideoLatent`), found while
+investigating three RunningHub AI-app links whose own workflow JSON turned
+out to be paywalled behind a paid-group signup — see that README section for
+the full provenance chain. Read the model author's own `audio_only.py` +
+ComfyUI core `av_model.py` source directly (not guessed from widget values)
+to confirm the exact mechanism: `run_vx`/`a2v_cross_attn`/`v2a_cross_attn`
+transformer_options flags gate the ENTIRE video branch (self-attn + text
+cross-attn + FF) and both cross-modal directions, while a fixed (1,128,1,2,2)
+dummy video latent still threads through positionally (never attended to).
+
+Ported this as three new `runVideoStream`/`a2vCrossAttn`/`v2aCrossAttn`
+parameters on `BasicAVTransformerBlock.callAsFunction` (default `true`,
+zero behavior change for every existing caller), threaded through
+`LTXModel.callAsFunction`/`streamingForward` and `DenoiseLoop.runStreaming`
+as a single `audioOnly: Bool` flag. `NativeT2AStage` builds the dummy video
+latent + real audio noise, runs the same real 48-block distilled transformer
++ `SigmaSchedule.distilledSigmas` (confirmed byte-identical to the reference
+workflow's own `ManualSigmas` — no new schedule needed), and decodes ONLY
+the audio (dummy video output is discarded, never decoded).
+
+Verified real-checkpoint: `NativeT2AStageRealCheckpointTests
+.testGenerateProducesRealNonSilentAudio` — real WAV, dBFS computed directly
+from PCM samples (not trusting exit-code self-report), confirmed non-silent
+(-29.6dB mean / -8.5dB peak via an independent `ffmpeg volumedetect` check
+outside the test too). 4.5s wall time for a 3.85s clip. Full `swift test`
+run completed clean afterward: **132/132 pass** (130 -> 132, the 2 new T2A
+tests), 1 test skipped (expected — `LoRAFusionTests`' real-vendor-reference
+test, unrelated to this change), 0 failures, 1446.8s wall — confirms the new
+`runVideoStream`/`a2vCrossAttn`/`v2aCrossAttn` block parameters (all
+default-`true`) didn't regress any existing caller, including
+`BasicAVTransformerBlockParityTests`.
+
 ## True N-stage upscale cascade — LANDED (2026-07-04)
 
 Closes the "True N-stage cascade" gap flagged open since the second

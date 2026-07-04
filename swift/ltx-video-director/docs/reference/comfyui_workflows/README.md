@@ -19,6 +19,45 @@ All four use ComfyUI's subgraph feature (`definitions.subgraphs`) — the
 top-level `nodes` array is mostly subgraph *instances* (referenced by UUID
 `type`), so the real pipeline structure lives in `definitions.subgraphs`.
 
+## Official Lightricks reference workflows (added 2026-07-04)
+
+Source: `https://github.com/Lightricks/ComfyUI-LTXVideo/tree/master/example_workflows/2.3`
+— the model author's own official example workflows (flat node graphs, no
+subgraph indirection), fetched via public raw GitHub URLs, no auth required.
+Added while investigating three RunningHub AI Apps marketplace listings
+("Dasiwa V2", "Sulphur" prompt-optimized/distilled LTX2.3 apps) whose actual
+workflow JSON is paywalled behind a group/coaching signup (confirmed via
+each page's `og:description`: "Join the group to unlock ... download
+workflows of this collection" + a Feishu-wiki signup link) — not pursued
+further since that's a paid-community gate, not a login/registration one.
+`Dasiwa` and `Sulphur` are public community terms independent of RunningHub
+(DaSiWa = darksidewalker's LTX-2 LoRA/workflow pack on Civitai; Sulphur =
+Winnougan's Sulphur-2 LTX-2.3 style LoRA on HuggingFace/Civitai) — the
+official Lightricks base workflows below cover the same underlying node
+plumbing those apps are built on, without needing either paywall.
+
+| File | What it shows |
+|------|----------------|
+| `LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json` | Base T2V/I2V + audio, single stage, no upscale — matches this package's `NativeI2VStage` core path node-for-node (`LTXVImgToVideoConditionOnly`, `LTXVSeparateAVLatent`/`LTXVConcatAVLatent`, `LTXVAudioVAELoader`/`Decode`). |
+| `LTX-2.3_T2V_I2V_Two_Stage_Distilled.json` | Adds `LTXVLatentUpsampler` + `LatentUpscaleModelLoader` second pass — matches the just-landed `NativeUpscaleStage.generate(secondStage:)` cascade; useful as an **official** cross-check against the community `WhatDreamsCost` 2-/3-stage files already used to build it. |
+| `LTX-2.3_ICLoRA_Pixel_Spatial_Upscaler_Distilled.json` | A *different* upscale mechanism: `LTXICLoRALoaderModelOnly` + `LTXAddVideoICLoRAGuide` + `LTXVCropGuides` conditioning a video-to-video pass, not the neural-latent-upsampler path. Not yet ported. |
+| `LTX-2.3_T2A_Single_Stage_Distilled.json` | **Pure text-to-audio, no video at all** — `LTXVAudioOnlyEmptyVideoLatent` + `LTXVAudioOnlyModel` replace the video latent/model entirely. A genuinely new, previously-undocumented gap: no video decode, no `LTXVImgToVideoConditionOnly`, no `CreateVideo`/`SaveVideo` — just `PreviewAudio`. Smallest and most cleanly scoped of the new findings here. |
+| `LTX-2.3_ICLoRA_Motion_Track_Distilled.json` | IC-LoRA conditioning driven by `LTXVDrawTracks`/`LTXVSparseTrackEditor` (sparse point-track motion control) — same `LTXICLoRALoaderModelOnly`/`LTXAddVideoICLoRAGuide` family as the upscaler above. |
+| `LTX-2.3_ICLoRA_Union_Control_Distilled.json` | Same IC-LoRA family, guided by `CannyEdgePreprocessor` + `DWPreprocessor` (pose) + `VideoDepthAnythingProcess` — a multi-modal ControlNet-equivalent for LTX-2.3. |
+| `LTX-2.3_ICLoRA_Lipdub_Two_Stage_Distilled.json` | Same IC-LoRA family + `LTXVAudioVAEEncode`/`LTXVSetAudioRefTokens` — audio-driven lip-sync conditioning, two-stage (base + upscale). |
+
+**Net finding**: all five IC-LoRA workflows (upscaler/motion-track/union-
+control/lipdub, plus this repo's already-known `--mode hd` restoration
+IC-LoRA) share one general mechanism — `LTXICLoRALoaderModelOnly` +
+`LTXAddVideoICLoRAGuide` + `LTXVCropGuides` conditioning a *video* (not
+image) input — that this package has never ported in general form, only
+the one specific restoration application. Porting the general IC-LoRA
+video-conditioning primitive once would unlock all four control modes as
+thin call-site variations, rather than requiring four separate ports. This
+is a bigger, multi-session-shaped item — see `PLAN.md` backlog, not picked
+as the immediate next goal because of that size, in favor of the smaller
+`T2A` (pure text-to-audio) gap.
+
 ## Pipeline structure (FFLF workflows, 2-stage and 3-stage)
 
 ```
