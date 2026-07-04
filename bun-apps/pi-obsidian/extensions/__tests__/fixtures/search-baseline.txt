@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-04T02:23
-Vault note count: 37
+Generated: 2026-07-04T03:08
+Vault note count: 42
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -58,7 +58,7 @@ Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:52: ## #obsidian
 Tags/Index.md:141: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:244: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 
 ### title-ish term [SUBSTRING-DEFAULT]
 query="Zettelkasten"
@@ -166,7 +166,7 @@ Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:52: ## #obsidian
 Tags/Index.md:141: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:244: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 
 ### case-sensitive mismatch
 query="Obsidian"
@@ -214,23 +214,27 @@ Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:33: - 上層概�
 query="#tag"
 2 match(es):
 Inbox/Plan - Enhance obsidian_search.md:28: - `tags`：解析 frontmatter `tags` 與內文 `#tag`。
-Tags/Index.md:208: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+Tags/Index.md:243: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
 
 ### frontmatter key [SUBSTRING-DEFAULT]
 query="sources:"
-27 match(es):
+32 match(es):
 Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:5: sources: []
 Zettelkasten/Agentic Loop - bun-agent-demo.md:5: sources: []
 Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery.md:5: sources: []
 Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver.md:5: sources: []
+Zettelkasten/Bug Pattern - CFG Advice Does Not Transfer to Distilled Models.md:5: sources: [https://fal.ai/learn/devs/flux-2-klein-prompt-guide]
 Zettelkasten/Bug Pattern - Holistic VLM Score Over-Praises Poses.md:5: sources: [arXiv:2407.06937, arXiv:2509.21227]
 Zettelkasten/Bug Pattern - Orchestrator Tool Contamination.md:5: sources: []
 Zettelkasten/Bug Pattern - PDFKit Rasterization Orientation Trap.md:5: sources: []
 Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift.md:5: sources: []
+Zettelkasten/Bug Pattern - Self-Improve Loop Is Review-Only Single-Shot.md:5: sources: []
+Zettelkasten/Implementation Pattern - LLM Prompt Expansion.md:5: sources: [https://github.com/krea-ai/krea-2/blob/main/docs/prompting.md, https://github.com/krea-ai/krea-2/blob/main/docs/expansion.txt]
 Zettelkasten/Implementation Pattern - PDF to PNG via macOS PDFKit.md:5: sources: []
 Zettelkasten/Implementation Pattern - PDFKit PDF Extraction macOS Native.md:5: sources: []
 Zettelkasten/Implementation Pattern - Per-Atom Regression Matrix.md:5: sources: []
+Zettelkasten/Implementation Pattern - Prompt Structure Hierarchy for T2I.md:5: sources: [https://fal.ai/learn/devs/flux-2-klein-prompt-guide, https://github.com/krea-ai/krea-2/blob/main/docs/prompting.md]
 Zettelkasten/Implementation Pattern - Resolution Transparency Triple.md:5: sources: []
 Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK.md:5: sources: []
 Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle.md:5: sources: []
@@ -245,6 +249,7 @@ Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:5: sources: []
 Zettelkasten/Workflow Pattern - Meta Name Consistency.md:5: sources: []
 Zettelkasten/Workflow Pattern - PR Cleanup and Squash.md:5: sources: []
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:5: sources: []
+Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms.md:5: sources: [https://yoheinakajima.com/better-ways-to-build-self-improving-ai-agents/, https://arxiv.org/abs/2303.17651, NeurIPS2025]
 Zettelkasten/Workflow Pattern - Style-Aware Judge Branching.md:5: sources: []
 
 ### no-match term [SUBSTRING-DEFAULT]
@@ -293,8 +298,12 @@ Tags/Index.md:157: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
 Tags/Index.md:158: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
 Tags/Index.md:159: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
 Tags/Index.md:167: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
-Tags/Index.md:213: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:179: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:224: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:227: ## #agent-loop
+Tags/Index.md:229: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
+Tags/Index.md:244: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:248: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:4: tags: [zettel, agent, obsidian, integration]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
@@ -307,8 +316,4 @@ Zettelkasten/Agentic Loop - bun-agent-demo.md:8: # Agentic Loop — bun-agent-de
 Zettelkasten/Agentic Loop - bun-agent-demo.md:11: - `bun-agent-demo` 以簡化版 Observe → Think → Act → Observe 迴圈展示 agentic loop：用字串樣式比對模擬 LLM 推理，挑選工具執行後把結果 append 進 history，直到得出最終答案或撞到 `maxIterations`。
 Zettelkasten/Agentic Loop - bun-agent-demo.md:14: An analysis of the `bun-agent-demo` project, which demonstrates a basic implementation of the Agentic Loop.
 Zettelkasten/Agentic Loop - bun-agent-demo.md:16: **Core Mechanism: The Agentic Loop**
-Zettelkasten/Agentic Loop - bun-agent-demo.md:17: 1. **Observe**: The agent receives a user prompt and maintains a conversation history.
-Zettelkasten/Agentic Loop - bun-agent-demo.md:19: 3. **Act**: The agent selects a tool (e.g., `bash`, `write_file`, `read_file`) and executes it via its `execute` function.
-Zettelkasten/Agentic Loop - bun-agent-demo.md:23: - **AgentDemo Class**: Manages the tool registry, conversation history, and the execution loop.
-Zettelkasten/Agentic Loop - bun-agent-demo.md:36: - 相關：[[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
 
