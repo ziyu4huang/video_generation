@@ -104,6 +104,31 @@ public enum FrameLoad {
         return ctx.makeImage() ?? cgImage
     }
 
+    /// Split a single image containing an NxN grid of storyboard panels
+    /// into `columns * rows` separate tiles, row-major order (top-left,
+    /// top-right, ..., bottom-right) — mirrors the reference ComfyUI
+    /// `TD_LTXVAddGuideFromGrid` node's `_split_grid` (see
+    /// docs/reference/comfyui_workflows), except done here with plain
+    /// CoreGraphics cropping instead of a Python/numpy tensor split.
+    /// Any remainder pixels (grid dimensions not evenly divisible by
+    /// columns/rows) are dropped from the last row/column's tiles.
+    public static func splitGrid(_ cgImage: CGImage, columns: Int, rows: Int) -> [CGImage] {
+        precondition(columns > 0 && rows > 0, "splitGrid: columns/rows must be positive")
+        let tileWidth = cgImage.width / columns
+        let tileHeight = cgImage.height / rows
+        var tiles: [CGImage] = []
+        for row in 0..<rows {
+            for col in 0..<columns {
+                let rect = CGRect(x: col * tileWidth, y: row * tileHeight, width: tileWidth, height: tileHeight)
+                guard let tile = cgImage.cropping(to: rect) else {
+                    preconditionFailure("splitGrid: cropping(to:) failed for tile (row \(row), col \(col))")
+                }
+                tiles.append(tile)
+            }
+        }
+        return tiles
+    }
+
     /// Save a CGImage as PNG (for VLM upload via CaptionClient, which reads files).
     @discardableResult
     public static func savePNG(_ cgImage: CGImage, to url: URL) -> Bool {

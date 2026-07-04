@@ -77,6 +77,24 @@ struct NativeI2V: ParsableCommand {
           help: "When --last-frame is given: derive the BASE generation --width/--height as half the last-frame image's own dimensions (snapped to the nearest 32), overriding any explicit --width/--height. Implies --last-frame-auto-resize (the full-resolution image is downscaled to the derived base resolution for conditioning). Pairs with --upscale (on by default) to bring the final output back to the last-frame image's own resolution — mirrors the reference ComfyUI FFLF workflows' GetImageSize->EmptyLTXVLatentVideo auto-sizing (see docs/reference/comfyui_workflows/README.md).")
     var lastFrameDerivesResolution: Bool = false
 
+    @Option(name: .customLong("grid-image"),
+            help: "Grid guide: a single image containing an NxN grid of storyboard panels, split in-memory and pinned as N independent keyframe guides (see --grid-frame-indices/--grid-strengths). Requires --grid-frame-indices.")
+    var gridImage: String?
+
+    @Option(name: .customLong("grid-columns"), help: "Grid guide column count.")
+    var gridColumns: Int = 2
+
+    @Option(name: .customLong("grid-rows"), help: "Grid guide row count.")
+    var gridRows: Int = 2
+
+    @Option(name: .customLong("grid-frame-indices"), parsing: .upToNextOption,
+            help: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly --grid-columns * --grid-rows entries.")
+    var gridFrameIndices: [Int] = []
+
+    @Option(name: .customLong("grid-strengths"), parsing: .upToNextOption,
+            help: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match --grid-frame-indices count when given.")
+    var gridStrengths: [Double] = []
+
     @Option(name: .customLong("audio-track"),
             help: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count (resampled to 16kHz, mono duplicated to stereo). If shorter than the clip, only the covered portion is preserved; the rest is still generated.")
     var audioTrack: String?
@@ -127,6 +145,16 @@ struct NativeI2V: ParsableCommand {
         request.lastFrameImagePath = lastFrame.map { URL(fileURLWithPath: $0) }
         request.lastFrameStrength = Float(lastFrameStrength)
         request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution
+        if let gridImage {
+            guard !gridFrameIndices.isEmpty else {
+                throw ValidationError("--grid-image requires --grid-frame-indices")
+            }
+            request.gridImagePath = URL(fileURLWithPath: gridImage)
+            request.gridColumns = gridColumns
+            request.gridRows = gridRows
+            request.gridFrameIndices = gridFrameIndices
+            request.gridStrengths = gridStrengths.map { Float($0) }
+        }
         request.audioTrackPath = audioTrack.map { URL(fileURLWithPath: $0) }
         request.inputImagePath = inputImage.map { URL(fileURLWithPath: $0) }
         request.loraPaths = try loras.map { spec in
