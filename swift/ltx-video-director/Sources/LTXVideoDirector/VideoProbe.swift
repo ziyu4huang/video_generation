@@ -23,10 +23,12 @@ public struct VideoInfo {
 public enum VideoProbeError: Error, CustomStringConvertible {
     case noVideoTrack(URL)
     case frameExtractionFailed(Double)
+    case readerFailedToStart(URL)
     public var description: String {
         switch self {
         case .noVideoTrack(let u): return "no video track in \(u.path)"
         case .frameExtractionFailed(let t): return "could not extract frame at t=\(t)s"
+        case .readerFailedToStart(let u): return "cannot open/decode video: \(u.path)"
         }
     }
 }
