@@ -2033,6 +2033,95 @@ real underlying gaps were different from what they first appeared to be.
 Full writeup: `docs/reference/comfyui_workflows/README.md`'s "Fourth pass"
 section; `docs/TODO.md`'s matching entry.
 
+## Research: scoping the general IC-LoRA video-conditioning primitive (2026-07-04)
+
+Driven by `/goal resolve` a backlog item carried across several sessions:
+`docs/reference/comfyui_workflows/README.md`'s research passes identified
+10 official/community LTX-2.3 ComfyUI applications (restoration/hd,
+spatial upscaler, motion-track, union-control, lipdub, HDR, ingredients,
+inpaint, outpaint, V2V) that all share the `LTXICLoRALoaderModelOnly` +
+`LTXAddVideoICLoRAGuide[Advanced]` + `LTXVCropGuides` node family, framed
+as "port the primitive once, unlock all ten as call-site variations." That
+framing undersells the remaining work — read the actual current code
+(`NativeUpscaleStage.generateHD`, `LoRAWeights`/`LoRAFusion`,
+`VideoConditionByReferenceLatent`) rather than re-deriving from the JSON
+files again, to get an honest picture of what's shared vs. bespoke.
+
+**What's actually already general, today, no further work needed**:
+1. `LoRAWeights.load`/`LoRAFusion.apply` (`Transformer/LoRAWeights.swift`,
+   `Transformer/LoRAFusion.swift`) — generic safetensors LoRA loading +
+   `scale * (up @ down)` fusion into any dequantized block weight. Already
+   used by THREE unrelated call sites (`native-i2v --lora`,
+   `native-t2a --lora`, `generateHD`'s restoration+upscale LoRA pair) — not
+   restoration-specific in any way.
+2. `VideoConditionByReferenceLatent` (`Sampling/LatentConditioning.swift`)
+   — the actual IC-LoRA reference-conditioning MATH (append a reference
+   clip's clean latent tokens, mask=0, to the generation sequence). Also
+   already general: takes an arbitrary `referenceLatent`/`referencePositions`/
+   `downscaleFactor`/`strength`, with zero restoration-specific assumptions
+   baked in. This IS the ported primitive the research passes were asking
+   for — it's done, not a gap.
+
+**What's actually bespoke per application** (the real remaining work,
+and why "one primitive, ten applications" overstates how close this is):
+what each application needs is not the conditioning math above but a
+DIFFERENT PREPROCESSING PIPELINE to produce the reference latent's input
+video in the first place, plus (for some) a different LoRA checkpoint.
+`generateHD` only demonstrates the case where the reference video IS the
+raw input frames, unchanged — the easy case. Prioritized by how much new
+preprocessing each needs beyond "encode a video/image via the existing
+`VideoEncoder`":
+
+- **Easiest (near-zero new preprocessing)**: **V2V restyle**
+  (`LTX-2.3_V2V_ICLoRA_Single_Stage_Distilled.json`) — reference video is
+  just an existing clip loaded via `LoadVideo`, i.e. structurally the same
+  "encode an existing video as reference" `generateHD` already does, minus
+  the restoration-specific two-LoRA/two-stage structure. **Ingredients**
+  (`LTX-2.3_ICLoRA_Ingredients_Single_Stage_Distilled.json`) is comparably
+  easy — reference is a single still image repeated across frames
+  (`LoadImage` + `RepeatImageBatch`), i.e. one VAE-encode + a repeat, no
+  new perception model. Both are realistic "next concrete step" candidates
+  if this item is picked up before the harder ones.
+- **Medium (new preprocessing, but algorithmic — no new neural network)**:
+  **Inpaint**/**Outpaint** — need `LTXVInpaintPreprocess`-equivalent
+  masking, `LTXVDilateVideoMask`, and `LTXVLaplacianPyramidBlend` (a
+  multi-scale blend between original and generated content at the
+  mask boundary) ported as their own small modules. Non-trivial but
+  bounded — pure image-processing math, comparable in scope to
+  `VideoTiling.swift`'s existing tiling logic, not a new checkpoint.
+- **Hard (each needs its own separate perception-model port)**:
+  **Union-control**'s `CannyEdgePreprocessor` (algorithmic, cheap) is easy,
+  but its `DWPreprocessor` (pose estimation) and `VideoDepthAnythingProcess`
+  (monocular depth) are full neural networks with their own checkpoints —
+  each is its own multi-session port, comparable in size to porting
+  Whisper or the Gemma encoder, not a quick addition. **Motion-track**
+  needs `LTXVDrawTracks`/`LTXVSparseTrackEditor`'s point-track
+  visualization-rendering mechanism ported (a real, non-trivial algorithm,
+  though not a neural network). **Lipdub** needs `LTXVAudioVAEEncode`/
+  `LTXVSetAudioRefTokens` audio-reference-token wiring — likely the
+  cheapest of this "hard" tier since this package already has a working
+  audio VAE encode path (custom-audio injection, `--audio-track`), so it's
+  mostly new glue rather than a new model, but still needs its own
+  verification pass against the reference.
+- **Different in kind, not a conditioning application at all**: **HDR**'s
+  distinguishing node is `LTXVHDRDecodePostprocess` — a tone-mapping step
+  applied AFTER decode, not a reference-conditioning input. It happens to
+  ride on the same IC-LoRA base checkpoint in the reference workflow, but
+  the actual novel piece (if ever wanted) is a decode-time postprocess,
+  architecturally unrelated to everything else in this list.
+
+**Revised backlog framing**: the shared primitive (LoRA fusion + reference
+conditioning) is DONE, not a blocker. What remains is 9 independent,
+unequally-sized preprocessing ports, ranging from "an afternoon" (V2V,
+Ingredients) to "its own multi-session Whisper-sized effort" (pose/depth
+control). Pick from the top of the easy tier (V2V or Ingredients) as the
+next concrete step if/when this is picked up — not a "port the primitive"
+task, since that part is already done.
+
+Nothing implemented this pass — pure scope-capture, same convention as the
+prior ComfyUI research passes, to leave an accurate map instead of
+re-discovering "is this really one primitive?" from scratch a fourth time.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what

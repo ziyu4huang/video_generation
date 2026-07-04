@@ -11,6 +11,7 @@
 import { COMMANDS, modeledFlags } from "../src/commands.ts";
 import { ensureBinary, resolveRepoRoot } from "../src/binary.ts";
 import { invokeLtx } from "../src/invoke.ts";
+import { EXTRA_ARG_ALLOW } from "../src/index.ts";
 
 // Flags ltx-video emits that we deliberately do NOT model (builtins / diagnostic-only).
 const ALLOW_SKIP: Record<string, string[]> = {
@@ -62,6 +63,7 @@ async function main() {
 
   const reports: Report[] = [];
   let drift = false;
+  const allRealFlags = new Set<string>(); // union across every command's --help, for EXTRA_ARG_ALLOW's cross-check below
 
   for (const [name, spec] of Object.entries(COMMANDS)) {
     if (!declaredSubcommands.has(name)) {
@@ -76,6 +78,7 @@ async function main() {
       continue;
     }
     const cliFlags = new Set(parseHelpFlags(help.stdout));
+    for (const f of cliFlags) allRealFlags.add(f);
     const modeled = new Set(modeledFlags(spec));
     const allow = new Set([...(ALLOW_SKIP["*"] ?? []), ...(ALLOW_SKIP[name] ?? [])]);
     const extraAllow = new Set(EXTRA_ALLOW[name] ?? []);
@@ -91,6 +94,14 @@ async function main() {
     if (missing.length || extra.length) drift = true;
     reports.push({ command: name, missing, extra, unknownCmd: false });
   }
+
+  // index.ts's EXTRA_ARG_ALLOW is a flat, cross-command allow-list — invisible
+  // to the per-command missing/extra checks above. Every entry must still
+  // name a real flag on SOME command's --help, or it's silently stale.
+  const staleExtraArgAllow = [...EXTRA_ARG_ALLOW]
+    .filter((name) => !allRealFlags.has(`--${name}`))
+    .sort();
+  if (staleExtraArgAllow.length) drift = true;
 
   const topLevelAllow = new Set(ALLOW_SKIP["*"] ?? []);
   const unmodeled = [...declaredSubcommands].filter((c) => !(c in COMMANDS) && !topLevelAllow.has(c)).sort();
@@ -112,6 +123,11 @@ async function main() {
   console.log(`\n${okCount}/${reports.length} commands fully modeled.`);
   if (unmodeled.length) {
     console.log(`\n✗ ltx-video --help declares subcommand(s) not in commands.ts at all: ${unmodeled.join(", ")}`);
+  }
+  if (staleExtraArgAllow.length) {
+    console.log(
+      `\n✗ index.ts's EXTRA_ARG_ALLOW has entr(y/ies) matching no real flag on any command: ${staleExtraArgAllow.join(", ")}`,
+    );
   }
 
   if (drift) {

@@ -58,8 +58,14 @@ export interface RunLtxOutput {
   stderrTail: string;
 }
 
-/** Flags the agent may pass via extraArgs (escape hatch), validated prefix set. */
-const EXTRA_ARG_ALLOW = new Set<string>([
+/**
+ * Flags the agent may pass via extraArgs (escape hatch), validated prefix set.
+ * Exported so `scripts/check-flags.ts` can cross-check every entry here still
+ * names a real `ltx-video` flag — this set is otherwise invisible to that
+ * drift guard, which only diffs `commands.ts`'s typed fields (found by
+ * pi-agent-ext-ltx-self-improve's review lane, 2026-07-04).
+ */
+export const EXTRA_ARG_ALLOW = new Set<string>([
   "help", "version",
   "prompt", "action", "seconds", "fps", "width", "height", "seed", "steps",
   "t2i-transformer", "transformer", "text-max-length", "output", "upscale",
@@ -194,7 +200,27 @@ async function runOnce(
   assertModelsRootExists(roots.repoRoot, roots.modelsRoot);
   ensureOutputDir(roots.repoRoot, roots.outputDir);
 
-  const bin = await ensureBinary(onProgress);
+  // ensureBinary() throws a plain Error on repo-root/`swift build`/missing-
+  // binary failures (binary.ts) — NOT part of the documented "throws
+  // PathSafetyError, otherwise details.ok=false" contract runLtx's own
+  // JSDoc promises. Catch it here so a fresh-checkout build failure surfaces
+  // the same structured way as a non-zero ltx-video exit, instead of an
+  // unhandled rejection (found by pi-agent-ext-ltx-self-improve's review
+  // lane, 2026-07-04).
+  let bin: string;
+  try {
+    bin = await ensureBinary(onProgress);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const details = buildDetails(command, {
+      exitCode: 1,
+      output: message,
+      stdout: message,
+      stderr: message,
+      aborted: false,
+    });
+    return { details, res: { exitCode: 1, output: message, stdout: message, stderr: message, aborted: false } };
+  }
   const args = buildArgv(spec, options, roots, extraArgs);
 
   onProgress?.({ kind: "progress", text: `$ ltx-video ${[spec.name, ...args].join(" ")}` });
