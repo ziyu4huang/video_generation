@@ -43,7 +43,7 @@
  *
  * Env (passed through from pi-obsidian): OB_VAULT_PATH / OB_VAULT_DIR.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
 	parseFrontmatter,
@@ -126,6 +126,83 @@ export interface IngestSummary {
 }
 
 // ---------------------------------------------------------------------------
+// input collection (directory expansion)
+// ---------------------------------------------------------------------------
+
+/** File extension each source family ingests. */
+const SOURCE_EXT: Record<SourceFamily, "md" | "knowledge.jsonl"> = {
+	"workflow-jsonl": "knowledge.jsonl",
+	hermes: "md",
+	"auto-memory": "md",
+};
+
+/** Basenames to skip when expanding a directory (rollup/index files, not
+ *  atomic topics — their content is already carried by the per-topic files). */
+const DIR_SKIP_BASENAMES = new Set(["MEMORY.md", "README.md"]);
+
+/** Recursively collect files under `dir` matching `ext`, skipping index
+ *  basenames. Returns absolute paths. */
+function collectDir(dir: string, ext: "md" | "knowledge.jsonl"): string[] {
+	const out: string[] = [];
+	let entries: string[];
+	try {
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return out;
+	}
+	// `withFileTypes` typing under Bun's node-compat can be loose; guard.
+	for (const ent of entries) {
+		const isDir = ent.isDirectory();
+		const isFile = ent.isFile();
+		const abs = join(dir, ent.name);
+		if (isDir) {
+			out.push(...collectDir(abs, ext));
+		} else if (isFile) {
+			if (DIR_SKIP_BASENAMES.has(ent.name)) continue;
+			if (abs.endsWith(`.${ext}`)) out.push(abs);
+		}
+	}
+	return out;
+}
+
+/** Expand input paths: directories are recursively globbed for the source's
+ *  file type (.md for auto-memory/hermes, .knowledge.jsonl for workflow-jsonl);
+ *  files pass through unchanged. Missing paths are reported in `skipped` rather
+ *  than thrown. Non-memory `.md` (no `name`+`description` frontmatter) is NOT
+ *  filtered here — `adaptAutoMemoryMarkdown` returns null for those and the
+ *  caller records a parse error, keeping concerns separated.
+ *
+ *  Returned files are absolute, sorted, and unique. */
+export function collectInputFiles(
+	paths: string[],
+	opts: { source: SourceFamily; cwd: string },
+): { files: string[]; skipped: { path: string; reason: string }[] } {
+	const ext = SOURCE_EXT[opts.source] ?? "md";
+	const collected: string[] = [];
+	const skipped: { path: string; reason: string }[] = [];
+	for (const p of paths) {
+		const abs = /^\//.test(p) ? p : join(opts.cwd, p);
+		let st;
+		try {
+			// existsSync + statSync (lstatSync to avoid following symlinks). */
+			st = statSync(abs);
+		} catch {
+			skipped.push({ path: p, reason: "not found" });
+			continue;
+		}
+		if (st.isDirectory()) {
+			collected.push(...collectDir(abs, ext));
+		} else if (st.isFile()) {
+			collected.push(abs);
+		} else {
+			skipped.push({ path: p, reason: "not a regular file or directory" });
+		}
+	}
+	const unique = [...new Set(collected)].sort();
+	return { files: unique, skipped };
+}
+
+// ---------------------------------------------------------------------------
 // auto-memory parsing (the second convergence source)
 // ---------------------------------------------------------------------------
 
@@ -192,23 +269,51 @@ export function adaptAutoMemoryMarkdown(content: string): KnowledgeRecord | null
 	// Body = everything after the frontmatter block.
 	const body = content.split("\n").slice(bodyStart).join("\n").trim();
 
-	// Harvest [[wiki-link]] targets as cross-link tags so memory cards connect
-	// to workflow cards that name the same concept (e.g. both link [[git-pr-workflow-...]]).
+	// Harvest [[wiki-link]] targets AND body #hashtags as cross-link tags so
+	// memory cards connect to workflow cards that name the same concept (e.g.
+	// both link [[git-pr-workflow-...]] or both tag the concept #flux2).
 	const linkTags = new Set<string>();
 	const linkRe = /\[\[([^\]]+)\]\]/g;
+	// `#\w[\w-]*` — a leading-# token. Avoid matching inside code/urls by
+	// requiring a word char right after `#` and a non-word char before it.
+	const hashRe = /(^|[^\w/])#([a-z0-9][\w-]*)/gi;
 	for (const line of content.split("\n")) {
 		let m: RegExpExecArray | null;
 		while ((m = linkRe.exec(line)) !== null) {
 			const t = normTag(m[1]!.split(/[#|]/)[0]!);
 			if (t) linkTags.add(t);
 		}
+		hashRe.lastIndex = 0;
+		while ((m = hashRe.exec(line)) !== null) {
+			const t = normTag(m[2]!);
+			if (t) linkTags.add(t);
+		}
 	}
+
+	// Strip inline `[[sibling-name]]` wiki-link brackets from the body, keeping
+	// the link text as plain prose. Memory files cross-reference sibling memory
+	// topics by bare `name` slug (per the auto-memory convention), but converged
+	// cards are namespaced + slugified (`auto-memory-<slugify(name)>.md`), so
+	// raw body links would mostly be dead links (namespace mismatch, `.`→`-`
+	// slug divergence, or pointers to topics absent from this vault). Graph
+	// connectivity does NOT depend on these: the tag harvest above drives the
+	// real cross-source edges via `## 連結` (computed from shared tags against
+	// actual folder cards). Stripping keeps the prose readable and the graph
+	// dead-link-free. `[[X|alias]]` → `alias`; `[[X#anchor]]` → `X`.
+	const detailBody = body
+		? body.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
+				const parts = String(inner).split("|");
+				const target = parts[0]!.split("#")[0]!.trim();
+				const alias = parts[1]?.trim();
+				return alias || target || String(inner);
+			})
+		: body;
 
 	return {
 		id: `auto-memory:${name}`,
 		type: "pattern",
 		title: description.replace(/^["']|["']$/g, ""),
-		detail: body || description,
+		detail: detailBody || description,
 		tags: ["auto-memory", memType, ...[...linkTags].slice(0, 8)],
 		dimension: memType,
 		confidence: 1,
@@ -573,20 +678,25 @@ export async function ingestRecords(
 	// 3. Compute cross-link neighbours for each planned card against the full
 	//    folder tag graph (existing + this batch). Shared-tag count ranks.
 	const plannedTags = new Map(planned.map((p) => [p.basename, new Set(cardTags(p.rec))]));
+	// Candidate pool keyed by basename so a card present BOTH on disk
+	// (`existing`) AND in this batch (`planned`) — i.e. an upsert / re-ingest
+	// — is counted ONCE (planned tags win, they're the freshest). Without this
+	// dedup, re-ingesting a source that already has on-disk neighbours would
+	// emit duplicate `相關：[[...]]` lines.
+	const pool = new Map<string, Set<string>>();
+	for (const [n, m] of existing.entries()) pool.set(n, m.tags);
+	for (const [n, t] of plannedTags.entries()) pool.set(n, t);
 	const allNeighbours: Map<string, string[]> = new Map(); // basename -> targets
 	for (const p of planned) {
 		const myTags = plannedTags.get(p.basename)!;
 		const scored: { name: string; shared: number }[] = [];
-		for (const [name, meta] of [
-			...[...existing.entries()].map(([n, m]) => [n, m] as const),
-			...[...plannedTags.entries()].map(([n, t]) => [n, { abs: "", tags: t }] as const),
-		]) {
+		for (const [name, tags] of pool) {
 			if (name === p.basename) continue;
 			let shared = 0;
-			for (const t of myTags) if (meta.tags.has(t)) shared++;
+			for (const t of myTags) if (tags.has(t)) shared++;
 			// Only count the meaningful tag overlaps (exclude the ubiquitous
 			// "zettel" tag, which every card has and would flatten ranking).
-			if (myTags.has("zettel") && meta.tags.has("zettel")) shared -= 1;
+			if (myTags.has("zettel") && tags.has("zettel")) shared -= 1;
 			if (shared > 0) scored.push({ name, shared });
 		}
 		scored.sort((a, b) => b.shared - a.shared || a.name.localeCompare(b.name));
