@@ -9,6 +9,7 @@
  *        bun-pi-agent-cli zk-card <sub> [options]                 CRUD for Zettelkasten notes (add/find/update/remove/check)
  *        bun-pi-agent-cli zk-ask <question> [options]             graph-enhanced vault Q&A
  *        bun-pi-agent-cli zk-ingest <jsonl-files...> [options]    converge structured records → shared knowledge-graph vault
+ *        bun-pi-agent-cli zk-query [options]                       cross-workflow retrieval + graph health (READ side)
  *        bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]   PDF → md → vault (resumable)
  *
  *      Plus meta commands: list | version | help.
@@ -26,6 +27,7 @@ import { zkExtractCommand } from "./commands/zk-extract.ts";
 import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
+import { zkQueryCommand } from "./commands/zk-query.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { doctorCommand } from "./commands/doctor.ts";
@@ -76,6 +78,12 @@ const COMMANDS: Command[] = [
     summary: zkIngestCommand.summary,
     details: zkIngestCommand.details,
     run: zkIngestCommand.run,
+  },
+  {
+    name: "zk-query",
+    summary: zkQueryCommand.summary,
+    details: zkQueryCommand.details,
+    run: zkQueryCommand.run,
   },
   {
     name: "doctor",

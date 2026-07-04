@@ -301,7 +301,7 @@ export function extractDate(...candidates: (string | undefined | null)[]): strin
 }
 
 /** Normalise a tag for cross-link matching (lowercase, trimmed, spaces->-). */
-function normTag(t: string): string {
+export function normTag(t: string): string {
 	return t.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
@@ -413,7 +413,7 @@ function yamlScalar(v: unknown): string {
 
 /** Read a card file's frontmatter tags (normalised) + source_id, for link
  *  computation and collision detection. Returns null if not a valid card. */
-function readCardMeta(absPath: string): { tags: Set<string>; source_id?: string } | null {
+export function readCardMeta(absPath: string): { tags: Set<string>; source_id?: string } | null {
 	try {
 		const content = readFileSync(absPath, "utf8");
 		const { data } = parseFrontmatter(content);
@@ -434,7 +434,7 @@ function readCardMeta(absPath: string): { tags: Set<string>; source_id?: string 
 /** Build (or rebuild) a MOC grouping every card in the folder by record_type
  *  then by tag. Fully deterministic — regenerated from the on-disk cards each
  *  run, so it never drifts. */
-function writeMoc(
+export function writeMoc(
 	vaultPath: string,
 	mocRel: string,
 	cardsAbs: string[],
