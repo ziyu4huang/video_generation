@@ -32,6 +32,10 @@ import {
   selectProvider,
   selectAndGenerate,
   probedMenuSummary,
+  composeVideo,
+  finalReview,
+  type EditDecisions,
+  projectDir,
   NoConfiguredProviderError,
   GateViolationError,
   type CheckpointStatus,
@@ -47,6 +51,8 @@ const COMMANDS = [
   "read-checkpoint",
   "validate-artifact",
   "generate",
+  "compose",
+  "final-review",
   "cost-estimate",
   "cost-reserve",
   "cost-reconcile",
@@ -92,6 +98,11 @@ const DESCRIPTION = [
   "                        (krea2/flux2/ltx), runs it, returns a ToolResult {success, artifacts[], cost_usd, duration_seconds,",
   "                        seed, model}. When projectId is given, the full estimate→reserve→reconcile cost lifecycle runs and",
   "                        the costEntryId is returned alongside. This is the assets-stage bridge: it actually produces files.",
+  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?} → trims each cut to its",
+  "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
+  "                        transitions/overlays are the templated-composer tier). Returns a render_report.",
+  "  • final-review     — {mp4Path} → 6 delivery checks (container, duration>0, video stream, audio stream,",
+  "                        volumedetect, midpoint frame) → {verdict:'pass'|'fail', checks[]}. A fail blocks publish.",
   "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
@@ -235,6 +246,26 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           ok: true,
           text: jsonOut({ provider: entry.provider, invoke: entry.invoke, costEntryId: costEntryId ?? null, result }),
         };
+      }
+      case "compose": {
+        const edit = opts.editDecisions as EditDecisions | undefined;
+        if (!edit || !Array.isArray(edit.cuts)) {
+          return { ok: false, error: "compose requires {editDecisions:{version,cuts:[...]}}" };
+        }
+        const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose"));
+        const report = await composeVideo(edit, {
+          workDir,
+          output: opts.output ? String(opts.output) : undefined,
+          resolution: opts.resolution ? String(opts.resolution) : undefined,
+          fps: opts.fps ? Number(opts.fps) : undefined,
+        });
+        return { ok: true, text: jsonOut(report) };
+      }
+      case "final-review": {
+        const mp4 = String(opts.mp4Path ?? opts.path ?? "");
+        if (!mp4) return { ok: false, error: "final-review requires {mp4Path}" };
+        const review = await finalReview(mp4);
+        return { ok: true, text: jsonOut(review) };
       }
       case "cost-estimate": {
         const id = costEstimate(String(opts.projectId ?? ""), String(opts.tool ?? ""), String(opts.operation ?? ""), Number(opts.estimatedUsd ?? 0));
