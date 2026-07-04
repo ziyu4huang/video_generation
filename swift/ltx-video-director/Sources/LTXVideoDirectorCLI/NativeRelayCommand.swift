@@ -5,7 +5,8 @@
 //  `ltx-video native-relay` — PURE SWIFT (no run.py, no ffmpeg) port of the
 //  CORE chaining mechanism in app/commands/video-relay.py's Prompt-Relay
 //  pattern. See NativeRelayStage.swift's header for exactly what's scoped
-//  out of this first version (no audio overlay, no TTS, no variant A/B).
+//  out of this first version (audio overlay is "replace" mode only; no
+//  TTS, no variant A/B).
 //
 
 import ArgumentParser
@@ -53,6 +54,10 @@ struct NativeRelay: ParsableCommand {
     @Option(name: .shortAndLong, help: "Output directory (seg01/, seg02/, ..., relay.mp4).")
     var output: String = "native_relay_output"
 
+    @Option(name: .customLong("relay-audio"),
+            help: "Custom audio track that REPLACES the final concatenated video's audio entirely (any AVFoundation-decodable format: WAV, MP3, M4A, AAC — no ffmpeg needed). Trimmed to the video's duration if longer.")
+    var relayAudio: String?
+
     func run() throws {
         guard !prompts.isEmpty else {
             throw ValidationError("--prompts requires at least one prompt")
@@ -62,6 +67,7 @@ struct NativeRelay: ParsableCommand {
             prompts: prompts, seconds: seconds, fps: fps, width: width, height: height,
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.firstImagePath = firstImage.map { URL(fileURLWithPath: $0) }
+        request.audioOverlayPath = relayAudio.map { URL(fileURLWithPath: $0) }
         request.loraPaths = try loras.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
             let path = String(parts[0])

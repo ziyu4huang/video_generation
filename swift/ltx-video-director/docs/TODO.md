@@ -1,3 +1,15 @@
+# `native-relay --relay-audio` custom audio overlay (2026-07-05)
+
+Follow-up to `native-relay`'s "still open" list — the custom audio
+overlay/replace item. New `VideoConcatenator.replaceAudioTrack` (video
+track from the concatenated relay + audio track from a user-supplied
+file, via `AVMutableComposition`) wired into `Request.audioOverlayPath` /
+`--relay-audio <path>`. AVFoundation decodes WAV/MP3/M4A/AAC natively —
+matches the Python `mix`/`replace`/`keep` mode set's default (`replace`
+only; `mix`/`keep` not ported) without needing ffmpeg. 7/7 new+existing
+tests pass, all using real (non-mocked) mp4/wav files. See PLAN.md's
+matching milestone for the full writeup.
+
 # `native-upscale --mode hd` restoration LoRA pair FOUND + verified (2026-07-05)
 
 Standing backlog item, blocked across two prior sessions as "doesn't exist

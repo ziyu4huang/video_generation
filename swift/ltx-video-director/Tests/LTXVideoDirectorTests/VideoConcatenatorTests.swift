@@ -63,4 +63,52 @@ final class VideoConcatenatorTests: XCTestCase {
             }
         }
     }
+
+    // MARK: replaceAudioTrack (native-relay's --relay-audio overlay)
+
+    func testReplaceAudioTrackAddsRealAudioToVideoOnlyClip() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let videoURL = tmp.appendingPathComponent("video_only.mp4")
+        try makeSegmentMP4(frameCount: 8, width: 64, height: 48, fps: 8.0, to: videoURL)  // 1.0s, no audio
+
+        let audioURL = tmp.appendingPathComponent("overlay.wav")
+        let sampleRate = 16000
+        let samples = [Float](repeating: 0.1, count: sampleRate * 2)  // 2.0s tone, longer than the video
+        try WAVWriter.write(channels: [samples, samples], sampleRate: sampleRate, to: audioURL)
+
+        let outputURL = tmp.appendingPathComponent("overlaid.mp4")
+        try VideoConcatenator.replaceAudioTrack(videoURL: videoURL, audioURL: audioURL, to: outputURL)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let info = try VideoProbe.info(url: outputURL)
+        XCTAssertTrue(info.hasAudioTrack, "output must have an audio track after replaceAudioTrack")
+        // Video-only source was silent/absent audio; overlay is 2s but the
+        // video is only 1s — output duration should follow the VIDEO track
+        // (audio gets trimmed to match, not the other way around).
+        XCTAssertEqual(info.duration, 1.0, accuracy: 0.2)
+    }
+
+    func testReplaceAudioTrackMissingAudioThrowsNoAudioTrack() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        let videoURL = tmp.appendingPathComponent("video_only.mp4")
+        try makeSegmentMP4(frameCount: 8, width: 64, height: 48, fps: 8.0, to: videoURL)
+        // Deliberately reuse the video-only mp4 as the "audio" source — it has no audio track.
+        let outputURL = tmp.appendingPathComponent("overlaid.mp4")
+
+        XCTAssertThrowsError(try VideoConcatenator.replaceAudioTrack(videoURL: videoURL, audioURL: videoURL, to: outputURL)) { error in
+            guard let concatError = error as? VideoConcatenator.ConcatError else {
+                XCTFail("expected ConcatError, got \(error)")
+                return
+            }
+            if case .noAudioTrack = concatError {} else {
+                XCTFail("expected .noAudioTrack, got \(concatError)")
+            }
+        }
+    }
 }
