@@ -27,7 +27,7 @@
  *
  * INVOCATION
  *   bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run retrieval-quality-self-improve \
- *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low \
+ *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium \
  *     --args '{"queryCount":3,"folder":"Zettelkasten/knowledge-graph"}'
  *
  * REQUIRES vault-mind running (VAULT_MIND_BASE_URL; default 127.0.0.1:8000) for
@@ -151,10 +151,13 @@ async function retrieveBothModes(qObj, _originalItem, idx) {
 CRITICAL: run the two Bash commands SEQUENTIALLY (one at a time, await each
 fully before the next) — they share one LM Studio model and concurrent runs
 truncate each other's output. Do NOT issue them as parallel tool calls.
+(thinking=medium, not low: a low-thinking gemma judge over the ~4-8k-token
+retrieve context inverts its own relevance verdicts — see receipt
+2026-07-04T17-13-01. top-k 4 + medium is the proven-clean combination.)
 1. DEFAULT (lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend default --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low -p > '${lexFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend default --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium -p > '${lexFile}' 2>&1")
 2. THREE-WAY (semantic+lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend three-way --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low -p > '${blendFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend three-way --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium -p > '${blendFile}' 2>&1")
    The vault-mind service is running at the default 127.0.0.1:8000 — do NOT override VAULT_MIND_BASE_URL.
 3. Bash("wc -c '${lexFile}' '${blendFile}'")
 4. Peek each file's tail to set flags, but DO NOT relay the content — the judge reads the files directly:
