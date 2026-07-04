@@ -253,13 +253,28 @@ function worseStatus(a: string | null, b: string | undefined): string | null {
 }
 
 /** `gate --json`: array of {path, status, reasons, ...}. Falls back to text parsing if --json wasn't set. */
-function buildGateDetails(res: InvokeResult): LtxDetails {
+function buildGateDetails(res: InvokeResult, asrPrompt?: string): LtxDetails {
   let entries: GateEntry[] = [];
   try {
     const parsed = JSON.parse(res.stdout) as GateEntry[];
     if (Array.isArray(parsed)) entries = parsed;
   } catch {
     /* non-JSON text output — leave empty, stdout still carries the human-readable verdicts */
+  }
+  // If asrPrompt was given, Swift's `try? ASRGate.evaluate(...)` swallows any
+  // bridge crash (e.g. mlx_whisper not installed) to `nil`, which just omits
+  // the `asr` key entirely — indistinguishable from "asrPrompt not passed" to
+  // anything reading only stdout. Since we DO know asrPrompt was requested
+  // here, flag entries missing `asr` as a FAIL rather than silently reporting
+  // whatever entries[i].status alone says (TODO.md item 15, gap 8/8,
+  // 2026-07-04).
+  if (asrPrompt) {
+    for (const e of entries) {
+      if (!e.asr) {
+        e.reasons = [...(e.reasons ?? []), "ASR requested (asrPrompt) but no asr result was returned — likely a swallowed Python-bridge crash"];
+        e.status = worseStatus(e.status, "FAIL") as "PASS" | "WARN" | "FAIL";
+      }
+    }
   }
   // Combine each entry's own status with its `asr` sub-check (present only
   // when asrPrompt was given) — the Swift CLI's own `failed`/`strict` logic
@@ -406,8 +421,8 @@ function buildTextDetails(command: string, res: InvokeResult): LtxDetails {
   };
 }
 
-/** Dispatch to the right per-command parser. */
-export function buildDetails(command: string, res: InvokeResult): LtxDetails {
+/** Dispatch to the right per-command parser. `options` is the original per-command input (only `gate` reads it, for `asrPrompt`). */
+export function buildDetails(command: string, res: InvokeResult, options?: Record<string, unknown>): LtxDetails {
   switch (command) {
     case "native-i2v":
       return buildNativeI2VDetails(res);
@@ -424,7 +439,7 @@ export function buildDetails(command: string, res: InvokeResult): LtxDetails {
     case "upscale":
       return buildUpscaleDetails(res);
     case "gate":
-      return buildGateDetails(res);
+      return buildGateDetails(res, typeof options?.asrPrompt === "string" ? options.asrPrompt : undefined);
     case "verify":
       return buildVerifyDetails(res);
     case "audio-decode":

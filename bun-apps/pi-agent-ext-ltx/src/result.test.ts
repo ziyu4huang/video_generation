@@ -238,6 +238,22 @@ describe("buildDetails: gate", () => {
     const d = buildDetails("gate", ok(stdout));
     expect(d.gate).toBe("WARN");
   });
+
+  test("asrPrompt was requested but Swift's try? swallowed the bridge crash — no asr key at all — flags FAIL, not silent PASS", () => {
+    const stdout = JSON.stringify([{ path: "a.mp4", status: "PASS", reasons: [] }]);
+    const d = buildDetails("gate", ok(stdout), { videos: ["a.mp4"], asrPrompt: "「你好」" });
+    expect(d.gate).toBe("FAIL");
+    expect(d.gateResults?.[0].reasons).toContain(
+      "ASR requested (asrPrompt) but no asr result was returned — likely a swallowed Python-bridge crash",
+    );
+  });
+
+  test("without asrPrompt, a missing asr key is NOT flagged (it just wasn't requested)", () => {
+    const stdout = JSON.stringify([{ path: "a.mp4", status: "PASS", reasons: [] }]);
+    const d = buildDetails("gate", ok(stdout), { videos: ["a.mp4"] });
+    expect(d.gate).toBe("PASS");
+    expect(d.gateResults?.[0].reasons).toEqual([]);
+  });
 });
 
 describe("buildDetails: verify", () => {
