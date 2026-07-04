@@ -112,6 +112,7 @@ export interface GraphHealthResult {
 export interface HealResult {
 	mocRegenerated: boolean;
 	deadLinksPruned: number;
+	linksDeduped: number;
 	cardsTouched: string[];
 }
 
@@ -354,7 +355,7 @@ export async function healGraph(opts: GraphHealthOptions): Promise<HealResult> {
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const mocPath = opts.mocPath ?? "Tags/Knowledge Graph.md";
 	const folderAbs = join(opts.vaultPath, folder);
-	const result: HealResult = { mocRegenerated: false, deadLinksPruned: 0, cardsTouched: [] };
+	const result: HealResult = { mocRegenerated: false, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] };
 
 	if (!existsSync(folderAbs)) return result;
 
@@ -405,6 +406,49 @@ export async function healGraph(opts: GraphHealthOptions): Promise<HealResult> {
 			writeFileSync(abs, content, "utf8");
 			result.deadLinksPruned += pruned;
 			result.cardsTouched.push(srcRel);
+		}
+	}
+
+	// 3. Dedup identical canonical link lines within each card's `## 連結`
+	//    section. Older ingest runs (pre pool-dedup fix in ingestRecords) could
+	//    emit duplicate `- 相關：[[target]]` lines when re-ingesting a source
+	//    whose cards were already on disk; this normalises them in place. Only
+	//    touches lines matching the canonical link format inside the section.
+	for (const abs of cardAbs) {
+		let content: string;
+		try {
+			content = readFileSync(abs, "utf8");
+		} catch {
+			continue;
+		}
+		// Operate only on the `## 連結` section (from the heading to the next
+		// `## ` heading, or EOF). Slice boundaries use `indexOf` from after the
+		// `## 連結` heading so the heading itself isn't mistaken for the "next"
+		// heading.
+		const start = content.indexOf("\n## 連結");
+		if (start < 0) continue;
+		const bodyStart = start + "\n## 連結".length; // index just after heading text
+		const nextIdx = content.indexOf("\n## ", bodyStart);
+		const sectionEnd = nextIdx < 0 ? content.length : nextIdx;
+		const before = content.slice(0, bodyStart);
+		const section = content.slice(bodyStart, sectionEnd);
+		const tail = content.slice(sectionEnd);
+		const seen = new Set<string>();
+		const deduped = section
+			.split("\n")
+			.filter((line) => {
+				if (!/^-\s+相關：\[\[([^\]]+)\]\]/.test(line)) return true; // non-link passes through
+				if (seen.has(line)) return false; // exact duplicate dropped
+				seen.add(line);
+				return true;
+			})
+			.join("\n");
+		const next = before + deduped + tail;
+		if (next !== content) {
+			writeFileSync(abs, next, "utf8");
+			result.linksDeduped += content.split("\n").filter((l) => /^-\s+相關：\[\[/.test(l)).length -
+				next.split("\n").filter((l) => /^-\s+相關：\[\[/.test(l)).length;
+			if (!result.cardsTouched.includes(abs)) result.cardsTouched.push(abs);
 		}
 	}
 

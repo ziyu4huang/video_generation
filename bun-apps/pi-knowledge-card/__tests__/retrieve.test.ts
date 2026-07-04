@@ -257,6 +257,32 @@ describe("healGraph", () => {
 		// The nonexistent target link should be gone.
 		expect(content).not.toContain("[[nonexistent-target]]");
 	});
+
+	test("dedups duplicate 相關：[[...]] lines left by a buggy prior ingest", async () => {
+		// Two cards with a shared tag → a-1 has a LIVE `相關：[[b-2]]` link (not a
+		// dead link, so the dead-link pruner in step 2 leaves it alone; only the
+		// dedup step in step 3 should collapse the duplicate).
+		await ingest([
+			rec({ id: "a:1", tags: ["argv"] }),
+			rec({ id: "b:2", tags: ["argv"] }),
+		]);
+		const cardPath = join(vault, FOLDER, "a-1.md");
+		const original = readFileSync(cardPath, "utf8");
+		expect(original).toContain("[[b-2]]"); // live link present
+		// Duplicate the live link line.
+		const duped = original.replace(
+			/^(## 連結\n)(-\s+相關：\[\[b-2\]\]\n)/m,
+			"$1$2$2",
+		);
+		writeFileSync(cardPath, duped);
+		const before = readFileSync(cardPath, "utf8");
+		expect(before.match(/相關：\[\[b-2\]\]/g)!.length).toBe(2);
+
+		const healed = await healGraph({ vaultPath: vault, folder: FOLDER, mocPath: MOC });
+		expect(healed.linksDeduped).toBeGreaterThanOrEqual(1);
+		const after = readFileSync(cardPath, "utf8");
+		expect(after.match(/相關：\[\[b-2\]\]/g)!.length).toBe(1);
+	});
 });
 
 describe("formatHealth", () => {
