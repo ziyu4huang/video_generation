@@ -61,6 +61,13 @@ const FLUX2 = REPO_ROOT + "/swift/flux2-image-director/.build/release/flux2";
 const OUT_DIR = String(a.outDir || REPO_ROOT + "/../video_generation__output/wf-self-improve-flux2");
 const NAME = String(a.name || "wf_self_improve");
 const SEED_BASE = Number(a.seed ?? a.seedBase ?? 42);
+// Explicit per-attempt seed set (best-of-N). When non-empty, attempt i uses
+// seeds[i] (clamped to the last entry). Empty → SEED_BASE + attempt. This is
+// how best-of-N samples a controlled seed set (e.g. [300,500,700]) and lets the
+// comparative picker prove it selects the clean seed from a mix.
+const SEEDS = (Array.isArray(a.seeds) ? a.seeds : [])
+  .map((x) => Number(x))
+  .filter((x) => Number.isFinite(x) && x >= 0);
 const WIDTH = Number(a.width ?? 768);
 const HEIGHT = Number(a.height ?? 768);
 const STEPS = Number(a.steps ?? 4);
@@ -216,10 +223,13 @@ const JUDGE_POSE_SCHEMA = {
 };
 
 // Generate one PNG per (expanded) prompt for this attempt. SEED IS LOCKED PER
-// ATTEMPT (seed = SEED_BASE + attempt) so the retry trace is reproducible; the
-// --name suffix keeps each attempt's files distinct (never collide / overwrite).
+// ATTEMPT so the retry trace is reproducible. In best-of-N mode the natural
+// unit is a sampled seed SET — pass `seeds: [n0, n1, ...]` and attempt i uses
+// seeds[i] (clamped to the last entry if attempts > seeds.length). Without it,
+// seed = SEED_BASE + attempt (the reflection-mode default: each retry is a
+// fresh consecutive roll). The --name suffix keeps each attempt's files distinct.
 async function generate(attempt, expandedPrompts) {
-  const seed = SEED_BASE + attempt;
+  const seed = (SEEDS.length > 0) ? SEEDS[Math.min(attempt, SEEDS.length - 1)] : (SEED_BASE + attempt);
   const nameSuffix = NAME + "_attempt" + attempt;
   try {
     const g = await agent(

@@ -510,6 +510,54 @@ describe("flux2 self-improve loop", () => {
     assert.ok(/ABSENT/.test(retryPrompt), "reflection clause names the absent atom (failed-atom feedback)");
   });
 
+  it("best-of-N seed set: args.seeds controls per-attempt seeds (the comparative picker's sample set)", async () => {
+    // In best-of-N the natural unit is a sampled seed SET. args.seeds=[n0,n1,n2]
+    // makes attempt i use seeds[i]. The mock generate agent records the --seed
+    // value so we can assert each attempt used its assigned seed exactly once.
+    const usedSeeds: number[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, mode: "best-of-n", seeds: [300, 500, 700] },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            const m = /--seed (\d+)/.exec(p);
+            if (m) usedSeeds.push(Number(m[1]));
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            const seed = usedSeeds.length ? usedSeeds[usedSeeds.length - 1] : 0;
+            const pass = seed === 500;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 1.0 : 0.4,
+              anatomy: { limb_count: true, hands: pass, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    // Each seed fired exactly once, in order — the best-of-N sample set.
+    assert.deepEqual(usedSeeds, [300, 500], "seeds consumed in order (loop converges at seed 500)");
+    assert.equal(r.converged, true, "best-of-N converged on the clean seed (500)");
+    assert.equal(r.mode, "best-of-n");
+    // The winner MUST be the clean-seed attempt, picked comparatively (fewest failed atoms).
+    assert.ok(r.winnerVerdict, "winner chosen");
+    assert.equal(r.winnerVerdict!.seed, 500, "winner seed = the clean sample, not 300");
+  });
+
   it("few-shot injection: args.fewShot seeds attempt 0's generation prompt", async () => {
     // A few-shot string passed via args is prepended into attempt 0's generation
     // (the workflow seeds target 0 with it). The mock generate agent records the

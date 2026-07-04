@@ -48,6 +48,7 @@ PROMPT=""
 MODE="best-of-n"
 JUDGE_MODEL=""
 CONSECUTIVE_STATIC=""
+SEEDS=""
 DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do
     --mode)     MODE="$2";     shift 2;;
     --judge-model) JUDGE_MODEL="$2"; shift 2;;
     --consecutive-static) CONSECUTIVE_STATIC="$2"; shift 2;;
+    --seeds)    SEEDS="$2";    shift 2;;
     --dry-run)  DRY=1;         shift;;
     -h|--help)  sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2;;
@@ -73,6 +75,15 @@ if [ -n "$JUDGE_MODEL" ]; then
 fi
 if [ -n "$CONSECUTIVE_STATIC" ]; then
   ARGS="$ARGS,\"consecutiveStatic\":$CONSECUTIVE_STATIC"
+fi
+if [ -n "$SEEDS" ]; then
+  # comma-separated → JSON number array, validated as digits
+  SEEDS_JSON="$(echo "$SEEDS" | tr ',' '\n' | grep -E '^[0-9]+$' | paste -sd, -)"
+  if [ -z "$SEEDS_JSON" ]; then echo "error: --seeds must be comma-separated integers" >&2; exit 2; fi
+  ARGS="$ARGS,\"seeds\":[$SEEDS_JSON]"
+  # attempts should cover the seed set; bump if too few.
+  SEEDS_N="$(echo "$SEEDS_JSON" | tr -cd ',' | wc -c | tr -d ' ')"
+  if [ "$((SEEDS_N + 1))" -gt "$ATTEMPTS" ]; then ATTEMPTS="$((SEEDS_N + 1))"; fi
 fi
 
 if [ -n "$PROMPT" ]; then
