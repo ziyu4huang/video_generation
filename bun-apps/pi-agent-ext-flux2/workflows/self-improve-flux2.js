@@ -74,6 +74,11 @@ const CONSECUTIVE_STATIC = Math.max(0, Number(a.consecutiveStatic ?? 2));
 // this pose (loaded by the driver from the exemplars jsonl). Injected into
 // attempt 0's generation. Empty/absent → no few-shot (first run).
 const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.fewShot) : "";
+// Optional judge-model override. The pose_dsg judge's default served model
+// (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images (measured
+// 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. gemma-4-31b-qat)
+// analyzes them correctly. Injected into the run.py caption --model flag when set.
+const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
 
 const VENV_CANDIDATES = [
   REPO_ROOT + "/python/venv/bin/python",
@@ -257,7 +262,7 @@ async function judgePose(p, i, pose) {
         "  cat > " + atomsFile + " <<'POSE_ATOMS_EOF'",
         atomsJson,
         "POSE_ATOMS_EOF",
-        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + " --lang en",
+        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + (JUDGE_MODEL ? " --model " + JSON.stringify(JUDGE_MODEL) : "") + " --lang en",
         "This loads a VLM (Qwen3-VL/Gemma) — ~1 min. Use a long timeout.",
         "It saves <p>.caption.json with styles.pose_dsg = {atoms:[{id,q,present,confidence}], faithfulness, anatomy:{limb_count,hands,face,pose_plausible}, anatomy_pass, issues, summary}. faithfulness and anatomy_pass are RECOMPUTED in Python (not the model's own).",
         "Parse that JSON (read <p>.caption.json, take styles.pose_dsg). Return ok=true iff you got anatomy_pass (boolean) + faithfulness (number) + atoms[]. Copy anatomy_pass, faithfulness, anatomy, atoms[] (id/q/present/confidence), issues[] verbatim. Set path=" + JSON.stringify(p) + " and poseId=" + JSON.stringify(pose.id || "") + ". Put a short scorer output tail in rawTail.",
