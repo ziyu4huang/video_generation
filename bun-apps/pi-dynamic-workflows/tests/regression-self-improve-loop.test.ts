@@ -102,6 +102,7 @@ const common = {
 type LoopResult = {
   ok: boolean;
   converged: boolean;
+  mode?: string;
   staticExit?: boolean;
   terminationReason?: string;
   needsReview: boolean;
@@ -379,6 +380,278 @@ describe("flux2 self-improve loop", () => {
     assert.equal(verdicts.length, 1);
     assert.equal(verdicts[0].scored, false, "empty-atoms verdict MUST be scored:false");
     assert.ok(/0 atoms/i.test(verdicts[0].error || ""), "error names the empty-atoms cause");
+  });
+
+  it("judge-tier auto-fallback: 0 atoms under default → retry ONCE with 31b → scored (no longer unscored)", async () => {
+    // Goal 0704 §1 pure-win fix: the 0612 arc DOCUMENTED that the default judge
+    // (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images while 31b
+    // analyzes them, but only shipped --judge-model (a manual footgun — the user
+    // had to KNOW). judgePose now auto-retries ONCE with the fallback tier when 0
+    // atoms are returned. This test proves the retry converts unscored→scored:
+    // a mock that returns 0 atoms for the default judge and full atoms for the
+    // 31b call must end with a SCORED verdict, not an exhausted/unscored loop.
+    let judgeCalls = 0;
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 1, seed: 8 },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            judgeCalls += 1;
+            // The fallback retry appends ` --model "google/gemma-4-31b-qat"` to
+            // the run.py caption command. Distinguish the two calls by it.
+            const isFallback = /--model "google\/gemma-4-31b-qat"/.test(p);
+            if (!isFallback) {
+              // default judge → 0 atoms (the multi-subject footgun)
+              return {
+                ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+                anatomy_pass: false, faithfulness: 0,
+                anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
+                atoms: [], issues: [], rawTail: "",
+              };
+            }
+            // 31b fallback → full atoms, faith=1.0, anatomy passes
+            return {
+              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+              anatomy_pass: true, faithfulness: 1.0,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: true },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: true },
+                { id: "a4", q: "x", present: true },
+              ],
+              issues: [], rawTail: "",
+            };
+          }
+          if (/Append a self-improve exemplar/.test(p)) {
+            return { written: true, total_lines: 1 };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(judgeCalls, 2, "exactly one default call + one fallback retry (no infinite loop)");
+    assert.equal(r.ok, true, "the fallback verdict makes the attempt pass — no longer unscored");
+    assert.equal(r.converged, true);
+    assert.equal(r.needsReview, false);
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.equal(verdicts.length, 1);
+    assert.equal(verdicts[0].scored, true, "the 0-atom footgun is recovered — verdict is scored");
+  });
+
+  it("judge-tier auto-fallback is a no-op when the user already pinned the fallback tier", async () => {
+    // If the user passed --judge-model gemma-4-31b-qat explicitly and it STILL
+    // returns 0 atoms, there is no stronger tier to try — declare unscored
+    // instead of looping. Guards against a retry storm on a pinned fallback.
+    let judgeCalls = 0;
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "google/gemma-4-31b-qat" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            judgeCalls += 1;
+            return {
+              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+              anatomy_pass: false, faithfulness: 0,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
+              atoms: [], issues: [], rawTail: "",
+            };
+          }
+          if (/Append a self-improve exemplar/.test(p)) return { written: true, total_lines: 1 };
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(judgeCalls, 1, "no retry when the pinned judge IS the fallback tier");
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.equal(verdicts[0].scored, false, "genuine unscored when the fallback itself flakes");
+  });
+
+  it("plateau catches REPEATED unscored (0-atom) attempts — does not burn the full budget", async () => {
+    // Real-silicon finding (goal 0704 §2 / memory
+    // self-improve-loop-plateau-blind-to-empty-atoms): the most common hard-pose
+    // failure mode under a weak multi-subject judge is empty-atoms (scored:false,
+    // unscored). Pre-fix, unscored → failedSignature "" → the `if (firstSig && ...)`
+    // guard short-circuited → plateau NEVER fired → the loop exhausted the full
+    // budget (measured 3/3 on L4-02/26b). The fix tags the signature with
+    // `unscored:N` so repeated judge flakes plateau like any other stuck signal.
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 5, seed: 300, consecutiveStatic: 2 },
+      agent: makeLoopMock({
+        // Every pose verdict returns ZERO atoms → judged scored:false (unscored)
+        // on every attempt, identically.
+        poseVerdicts: [{ anatomy_pass: false, faithfulness: 0, atoms: [] }],
+      }),
+    });
+    const r = result.result as LoopResult;
+
+    assert.equal(r.staticExit, true, "repeated unscored attempts MUST trip plateau");
+    assert.equal(r.terminationReason, "static");
+    assert.equal(r.converged, false);
+    assert.equal(r.needsReview, true);
+    assert.equal(r.attemptsUsed, 2, "halts after consecutiveStatic(2) identical unscored rounds");
+    assert.ok(r.attemptsUsed < 5, "must stop strictly before maxAttempts — the bug burned all 5");
+    // The unscored attempts surface as scored:false judgments on the winner.
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.ok(
+      verdicts.some((v) => v.scored === false),
+      "unscored judgment is on the record",
+    );
+  });
+
+  it("mode=best-of-n (default): validator feedback is NOT injected into retry prompts (bare-prompt fresh-seed sampling)", async () => {
+    // Goal 0704 §1 verdict acted on: on flux2-klein, reflection does not beat
+    // best-of-N, so best-of-N is the DEFAULT. The validator still computes
+    // feedback (and convergence/plateau gates still fire), but generateThenJudge
+    // must NOT inject it — each attempt is a bare-prompt fresh-seed sample. The
+    // mock records every generation prompt so we can assert attempt 1's prompt
+    // carries NO "REFLECT on the previous attempt" clause.
+    const seen: string[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, seed: 42, mode: "best-of-n" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            seen.push(p);
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            // attempt 0 fails a2 (would produce reflection feedback), attempt 1 passes.
+            const call = seen.length; // generate calls so far ≈ attempt index+1
+            const pass = call >= 2;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 0.9 : 0.3,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(r.mode, "best-of-n");
+    assert.equal(r.converged, true, "converges on attempt 1");
+    // attempt 1's generation prompt (the retry) must be BARE — no reflection clause.
+    const retryPrompt = seen[1] ?? "";
+    assert.ok(retryPrompt.length > 0, "attempt 1 generation ran");
+    assert.ok(!/REFLECT on the previous attempt/.test(retryPrompt), "best-of-N must NOT inject reflection feedback");
+  });
+
+  it("mode=reflect (opt-in): validator feedback IS injected into retry prompts", async () => {
+    // Reflection is retained but opt-in. When mode=reflect, a failed attempt 0
+    // drives the validator's failed-atom feedback into attempt 1's prompt.
+    const seen: string[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, seed: 42, mode: "reflect" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            seen.push(p);
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            const call = seen.length;
+            const pass = call >= 2;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 0.9 : 0.3,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(r.mode, "reflect");
+    assert.equal(r.converged, true);
+    const retryPrompt = seen[1] ?? "";
+    assert.ok(retryPrompt.length > 0, "attempt 1 generation ran");
+    assert.ok(/REFLECT on the previous attempt/.test(retryPrompt), "reflect mode MUST inject the reflection clause");
+    assert.ok(/ABSENT/.test(retryPrompt), "reflection clause names the absent atom (failed-atom feedback)");
+  });
+
+  it("best-of-N seed set: args.seeds controls per-attempt seeds (the comparative picker's sample set)", async () => {
+    // In best-of-N the natural unit is a sampled seed SET. args.seeds=[n0,n1,n2]
+    // makes attempt i use seeds[i]. The mock generate agent records the --seed
+    // value so we can assert each attempt used its assigned seed exactly once.
+    const usedSeeds: number[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, mode: "best-of-n", seeds: [300, 500, 700] },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            const m = /--seed (\d+)/.exec(p);
+            if (m) usedSeeds.push(Number(m[1]));
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            const seed = usedSeeds.length ? usedSeeds[usedSeeds.length - 1] : 0;
+            const pass = seed === 500;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 1.0 : 0.4,
+              anatomy: { limb_count: true, hands: pass, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    // Each seed fired exactly once, in order — the best-of-N sample set.
+    assert.deepEqual(usedSeeds, [300, 500], "seeds consumed in order (loop converges at seed 500)");
+    assert.equal(r.converged, true, "best-of-N converged on the clean seed (500)");
+    assert.equal(r.mode, "best-of-n");
+    // The winner MUST be the clean-seed attempt, picked comparatively (fewest failed atoms).
+    assert.ok(r.winnerVerdict, "winner chosen");
+    assert.equal(r.winnerVerdict!.seed, 500, "winner seed = the clean sample, not 300");
   });
 
   it("few-shot injection: args.fewShot seeds attempt 0's generation prompt", async () => {

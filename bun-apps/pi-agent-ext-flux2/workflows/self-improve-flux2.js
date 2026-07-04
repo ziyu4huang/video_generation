@@ -45,7 +45,7 @@
 export const meta = {
   name: "self_improve_flux2",
   description:
-    "Closed, bounded self-improve loop for flux2: generate → judge (pose_dsg/score) → on fail, reflect (failed_atoms → targeted prompt expansion) → retry via the engine gate(), seed-locked per attempt, best-so-far ranked comparatively by per-atom matrix. Appends winning exemplars. Propose-only — never auto-applies.",
+    "Closed, bounded self-improve loop for flux2. DEFAULT mode=best-of-N: generate → judge (pose_dsg/score) → retry on fail with a FRESH seed and BARE prompts, best-so-far ranked comparatively by per-atom matrix (seed sampling is the measured quality lever on flux2-klein; reflection has not been observed to beat it). mode=reflect (opt-in) injects the validator's failed-atom feedback into the next attempt's prompts. Bounded by the engine gate(): convergence early-exit + plateau-aware static exit. Appends winning exemplars. Propose-only — never auto-applies.",
   phases: [
     { title: "Resolve" },
     { title: "Loop" },
@@ -61,6 +61,13 @@ const FLUX2 = REPO_ROOT + "/swift/flux2-image-director/.build/release/flux2";
 const OUT_DIR = String(a.outDir || REPO_ROOT + "/../video_generation__output/wf-self-improve-flux2");
 const NAME = String(a.name || "wf_self_improve");
 const SEED_BASE = Number(a.seed ?? a.seedBase ?? 42);
+// Explicit per-attempt seed set (best-of-N). When non-empty, attempt i uses
+// seeds[i] (clamped to the last entry). Empty → SEED_BASE + attempt. This is
+// how best-of-N samples a controlled seed set (e.g. [300,500,700]) and lets the
+// comparative picker prove it selects the clean seed from a mix.
+const SEEDS = (Array.isArray(a.seeds) ? a.seeds : [])
+  .map((x) => Number(x))
+  .filter((x) => Number.isFinite(x) && x >= 0);
 const WIDTH = Number(a.width ?? 768);
 const HEIGHT = Number(a.height ?? 768);
 const STEPS = Number(a.steps ?? 4);
@@ -74,6 +81,40 @@ const CONSECUTIVE_STATIC = Math.max(0, Number(a.consecutiveStatic ?? 2));
 // this pose (loaded by the driver from the exemplars jsonl). Injected into
 // attempt 0's generation. Empty/absent → no few-shot (first run).
 const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.fewShot) : "";
+// Optional judge-model override. The pose_dsg judge's default served model
+// (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images (measured
+// 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. gemma-4-31b-qat)
+// analyzes them correctly. Injected into the run.py caption --model flag when set.
+const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
+// Fallback judge tier for 0-atom verdicts (goal 0704 §1 — the pure-win fix the
+// 0612 arc left documented-but-not-coded). The default served pose_dsg judge
+// (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images (measured 3/3
+// on L4-02 — see [[pose-dsg-empty-atoms-multi-subject-judge-tier]]); a stronger
+// tier analyzes them correctly. judgePose auto-retries ONCE with this tier when
+// 0 atoms are returned under any other judge, so a user no longer has to KNOW to
+// pass --judge-model on multi-subject. Single-subject poses judge fine under the
+// default and never trigger this → no latency cost there.
+const FALLBACK_JUDGE_MODEL = "google/gemma-4-31b-qat";
+
+// Loop MODE (measured verdict, goal 0704 §1). On flux2-klein, the loop's
+// reflection machinery does NOT beat single-shot best-of-N — seed sampling is
+// the quality lever (corr 0.96 with human pref, see [[klein-int8-local-models]]);
+// reflection's targeted prompt expansion could not fix the one defect it found
+// (fused fingers — a structural generation weakness, not a prompt-coverage gap).
+// So the DEFAULT mode is best-of-N: each attempt samples a fresh seed with BARE
+// prompts (no reflection feedback injected), and the winner is picked
+// comparatively by fewest failed_atoms — exactly best-of-N with a convergence
+// gate (early-exit on attempt 0) + plateau-aware bounded exit.
+//   "best-of-n" (default) — bare prompts, feedback ignored, seed varies per attempt
+//   "reflect"             — CURRENT-PRE-0704 behavior: validator's failed-atom
+//                          feedback is injected into the next attempt's prompts.
+// Reflection is retained (opt-in) for generators where defects may be
+// prompt-coverage gaps (untested on krea2 / non-distilled flux2).
+const MODE = (() => {
+  const m = String(a.mode || "best-of-n").trim().toLowerCase();
+  return m === "reflect" ? "reflect" : "best-of-n";
+})();
+const REFLECT = MODE === "reflect";
 
 const VENV_CANDIDATES = [
   REPO_ROOT + "/python/venv/bin/python",
@@ -114,7 +155,8 @@ const BASE_PROMPTS = POSE_MODE ? POSES.map((p) => p.prompt) : PROMPTS;
 
 log(
   "self-improve flux2: " + BASE_PROMPTS.length + " target(s), " + ATTEMPTS + " attempt(s) max, "
-  + (POSE_MODE ? "pose_dsg" : "score") + " judging, seedBase=" + SEED_BASE,
+  + (POSE_MODE ? "pose_dsg" : "score") + " judging, seedBase=" + SEED_BASE + ", mode=" + MODE
+  + (JUDGE_MODEL ? ", judge=" + JUDGE_MODEL : ""),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -190,10 +232,13 @@ const JUDGE_POSE_SCHEMA = {
 };
 
 // Generate one PNG per (expanded) prompt for this attempt. SEED IS LOCKED PER
-// ATTEMPT (seed = SEED_BASE + attempt) so the retry trace is reproducible; the
-// --name suffix keeps each attempt's files distinct (never collide / overwrite).
+// ATTEMPT so the retry trace is reproducible. In best-of-N mode the natural
+// unit is a sampled seed SET — pass `seeds: [n0, n1, ...]` and attempt i uses
+// seeds[i] (clamped to the last entry if attempts > seeds.length). Without it,
+// seed = SEED_BASE + attempt (the reflection-mode default: each retry is a
+// fresh consecutive roll). The --name suffix keeps each attempt's files distinct.
 async function generate(attempt, expandedPrompts) {
-  const seed = SEED_BASE + attempt;
+  const seed = (SEEDS.length > 0) ? SEEDS[Math.min(attempt, SEEDS.length - 1)] : (SEED_BASE + attempt);
   const nameSuffix = NAME + "_attempt" + attempt;
   try {
     const g = await agent(
@@ -248,8 +293,12 @@ async function judgeScore(p, i) {
 async function judgePose(p, i, pose) {
   const atomsJson = JSON.stringify({ atoms: pose.atoms }, null, 2);
   const atomsFile = "/tmp/flux2_pose_atoms_" + i + ".json";
-  try {
-    const j = await agent(
+  // One pose_dsg VLM call with an optional --model override ("" = let run.py
+  // auto-resolve among served models). Extracted into a closure so the
+  // auto-fallback below can re-invoke with the stronger tier without
+  // duplicating the prompt.
+  const runOnce = (modelArg, callLabel) =>
+    agent(
       [
         "Validate this generated pose image with the local VLM's pose_dsg scorer. Repo root: " + REPO_ROOT + ".",
         venvProbeInstruction(),
@@ -257,29 +306,52 @@ async function judgePose(p, i, pose) {
         "  cat > " + atomsFile + " <<'POSE_ATOMS_EOF'",
         atomsJson,
         "POSE_ATOMS_EOF",
-        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + " --lang en",
+        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + (modelArg ? " --model " + JSON.stringify(modelArg) : "") + " --lang en",
         "This loads a VLM (Qwen3-VL/Gemma) — ~1 min. Use a long timeout.",
         "It saves <p>.caption.json with styles.pose_dsg = {atoms:[{id,q,present,confidence}], faithfulness, anatomy:{limb_count,hands,face,pose_plausible}, anatomy_pass, issues, summary}. faithfulness and anatomy_pass are RECOMPUTED in Python (not the model's own).",
         "Parse that JSON (read <p>.caption.json, take styles.pose_dsg). Return ok=true iff you got anatomy_pass (boolean) + faithfulness (number) + atoms[]. Copy anatomy_pass, faithfulness, anatomy, atoms[] (id/q/present/confidence), issues[] verbatim. Set path=" + JSON.stringify(p) + " and poseId=" + JSON.stringify(pose.id || "") + ". Put a short scorer output tail in rawTail.",
       ].join("\n"),
-      { label: "vlm pose_dsg output " + (i + 1), tier: "small", schema: JUDGE_POSE_SCHEMA },
+      { label: callLabel, tier: "small", schema: JUDGE_POSE_SCHEMA },
     );
+  try {
+    // The model for the first call: an explicit --judge-model override wins;
+    // otherwise "" lets run.py auto-resolve (typically gemma-4-26b-a4b-qat when
+    // that is the only model served).
+    let modelUsed = JUDGE_MODEL;
+    let j = await runOnce(modelUsed, "vlm pose_dsg output " + (i + 1));
+    // ── Judge-tier auto-fallback (goal 0704 §1) ──────────────────────────────
+    // The default served judge (gemma-4-26b-a4b-qat) returns 0 atoms on
+    // multi-subject images (measured 3/3 on L4-02). A 0-atom verdict means the
+    // VLM did not actually analyze the image (faithfulness 0 + anatomy all-false
+    // is the tell) — untrustworthy, not a real fail. Rather than declare unscored
+    // (the old footgun: the user had to KNOW to pass --judge-model), retry ONCE
+    // with the stronger tier that can analyze multi-subject. Single-subject poses
+    // judge fine under the default and never trigger this, so they pay no latency
+    // cost. Logged + flagged on the verdict so the tier dependency stays
+    // OBSERVABLE, not silent. No retry when the user already pinned the fallback.
+    let fellBack = false;
+    if (j && Array.isArray(j.atoms) && j.atoms.length === 0 && modelUsed !== FALLBACK_JUDGE_MODEL) {
+      log("[judge] pose_dsg returned 0 atoms under " + (modelUsed || "auto-resolved judge") + " → retrying once with " + FALLBACK_JUDGE_MODEL);
+      modelUsed = FALLBACK_JUDGE_MODEL;
+      fellBack = true;
+      j = await runOnce(modelUsed, "vlm pose_dsg output " + (i + 1) + " [fallback " + FALLBACK_JUDGE_MODEL + "]");
+    }
     if (!j || typeof j.anatomy_pass !== "boolean" || typeof j.faithfulness !== "number" || !Array.isArray(j.atoms)) {
-      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned no parseable verdict", rawTail: (j && j.rawTail) || "" };
+      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned no parseable verdict", rawTail: (j && j.rawTail) || "", judgeFallback: fellBack };
     }
     if (j.atoms.length === 0) {
-      // The VLM returned a verdict shape but ZERO atoms — it did not actually
-      // analyze the image (faithfulness 0 + anatomy all-false is the tell). This
-      // is untrustworthy, not a real fail. Surface as scored:false so it doesn't
-      // masquerade as a judged attempt (and the loop can retry instead of logging
-      // a phantom 0-faith "pass").
-      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned 0 atoms (VLM did not analyze the image)", rawTail: (j && j.rawTail) || "" };
+      // Still 0 atoms even under the fallback tier (or the user pinned the
+      // fallback and it still flaked). Genuine unscored — surface it, naming the
+      // judge(s) that failed so the tier dependency is visible in the record.
+      const judgeTried = fellBack ? FALLBACK_JUDGE_MODEL + " (fallback)" : (JUDGE_MODEL || "auto-resolved judge");
+      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned 0 atoms under " + judgeTried + " (VLM did not analyze the image)", rawTail: (j && j.rawTail) || "", judgeFallback: fellBack };
     }
     const failed = j.atoms.filter((x) => x && x.present === false).map((x) => x.id);
     return {
       scored: true, style: "pose_dsg", path: p, poseId: pose.id || "",
       anatomy_pass: j.anatomy_pass, faithfulness: j.faithfulness, anatomy: j.anatomy || {},
       atoms: j.atoms, failed_atoms: failed, issues: Array.isArray(j.issues) ? j.issues : [],
+      judgeFallback: fellBack,
     };
   } catch (e) {
     return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: (e && e.message) ? String(e.message) : String(e) };
@@ -356,8 +428,14 @@ async function generateThenJudge(feedback, attempt) {
   // "self-generated in-context examples" loop (goal 0402 criterion #3). On later
   // attempts, feedback (reflection) drives the expansion as usual.
   const seeds = (attempt === 0 && FEWSHOT) ? BASE_PROMPTS.map((p, i) => (i === 0 ? FEWSHOT : p)) : BASE_PROMPTS;
-  // Expand each prompt with the feedback clause (reflection injection).
-  const expanded = feedback
+  // Expand each prompt with the feedback clause (reflection injection). ONLY in
+  // reflect mode — in best-of-n (the default, see MODE) feedback is ignored so
+  // each attempt is a BARE-prompt fresh-seed sample (seed sampling is the measured
+  // quality lever on flux2-klein; reflection has not been observed to beat it).
+  // The validator still computes `feedback` and the convergence/plateau gates
+  // still fire in both modes — only the prompt injection differs.
+  const injectFeedback = REFLECT && feedback;
+  const expanded = injectFeedback
     ? seeds.map((p) => p + " // " + feedback)
     : seeds.slice();
 
@@ -391,15 +469,29 @@ async function generateThenJudge(feedback, attempt) {
   const meanFaith = faiths.length ? faiths.reduce((s, x) => s + x, 0) / faiths.length : 0;
 
   // failedSignature: a stable string of WHAT failed (sorted failed atom ids +
-  // failed-score count), so the validator can detect a plateau (same failures
-  // across rounds). Empty string when nothing failed (a converged attempt has
-  // no plateau signature).
+  // failed-score count + unscored count), so the validator can detect a plateau
+  // (same failures across rounds). Empty string when nothing failed (a converged
+  // attempt has no plateau signature).
+  //
+  // The `unscored:N` token is CRITICAL: an unscored judgment (judge flake, 0-atom
+  // verdict) contributes no failed atom ids and no failed-score count, so WITHOUT
+  // this token its signature would be "" — and the validator's plateau guard
+  // `if (firstSig && ...)` short-circuits on empty, making the most common hard-
+  // pose failure mode (empty-atoms on multi-subject under a weak judge) BYPASS
+  // plateau and burn the full budget (measured 3/3 on L4-02/26b). Counting
+  // unscored judgments gives them a stable non-empty signature so repeated judge
+  // flakes are caught as a plateau. See goal 0704 §2 + memory
+  // self-improve-loop-plateau-blind-to-empty-atoms.
   const failedAtomIds = judgments
     .filter((j) => j.scored && j.style === "pose_dsg")
     .flatMap((j) => (j.failed_atoms || []).map((id) => (j.poseId || "") + ":" + id))
     .sort();
   const failedScoreCount = judgments.filter((j) => j.scored && j.style !== "pose_dsg" && (j.overall < THRESHOLDS.overall || j.artifacts < THRESHOLDS.artifacts)).length;
-  const failedSignature = failedAtomIds.concat(failedScoreCount ? ["score:" + failedScoreCount] : []).join("|");
+  const unscoredCount = judgments.filter((j) => !j.scored).length;
+  const failedSignature = failedAtomIds
+    .concat(failedScoreCount ? ["score:" + failedScoreCount] : [])
+    .concat(unscoredCount ? ["unscored:" + unscoredCount] : [])
+    .join("|");
 
   const entry = { attempt, seed: gen.seed, paths: outputs, judgments, poseMatrix, failedCount, meanFaith, ok: v.ok, reason: v.reason, failedSignature, expandedPrompt: expanded[0] || "" };
   trace.push(entry);
@@ -533,6 +625,7 @@ return {
   ok: converged,
   ext: "flux2",
   loop: true,
+  mode: MODE,
   attemptsUsed,
   maxAttempts: ATTEMPTS,
   converged,

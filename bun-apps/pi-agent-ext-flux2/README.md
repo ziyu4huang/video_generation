@@ -111,3 +111,80 @@ over-praises. Use the atomic `pose_dsg` validator instead — see
 atoms + AbHuman anatomy gate, aggregates recomputed in Python) and the
 [`workflows/poses.json`](workflows/poses.json) pose library fixture.
 
+## Closed self-improve loop (`self-improve-flux2.js`)
+
+A bounded, propose-only closed loop: generate → judge (pose_dsg / score) → retry
+on fail → pick best-so-far comparatively (fewest failed atoms). Driven
+synchronously by `scripts/self-improve-loop.driver.ts` via the engine's `gate()`
+combinator — control flow is pure JS, so a weak driver model cannot break the
+multi-attempt trace. Run it with:
+
+```bash
+bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --pose-id L3-01 --seed 42
+```
+
+Flags: `--attempts`, `--seed`, `--steps`, `--pose-id`, `--prompt` (non-pose),
+`--mode {best-of-n|reflect}`, `--judge-model <provider/modelId>`, `--dry-run`.
+
+### `--mode` (default `best-of-n`)
+
+The default is **best-of-N**, not reflection. This is a measured verdict, not a
+hunch: across the pose library on real flux2-klein (2026-07-04 value-measurement
+arc, 7 real-silicon runs), seed sampling was the quality lever that actually
+moved quality (correlates 0.96 with human preference — see `klein-int8-local-models`),
+while the loop's reflection feedback (failed atoms → targeted prompt expansion)
+could **not** fix the one defect it found (fused fingers — a structural
+generation weakness, not a prompt-coverage gap). So:
+
+- **`best-of-n` (default)** — each attempt samples a fresh seed with **bare**
+  prompts; the validator's reflection feedback is computed but **not** injected.
+  The convergence gate (early-exit on attempt 0) and plateau-aware bounded exit
+  still fire. This is best-of-N with a cheap early-exit on the easy majority.
+- **`reflect` (opt-in, `--mode reflect`)** — pre-0704 behavior: failed-atom
+  feedback is injected into the next attempt's prompts. Retained for generators
+  where defects may be prompt-coverage gaps (untested on krea2 / non-distilled
+  flux2). On flux2-klein it has **not** been observed to beat best-of-N.
+
+### Judge-tier contract — multi-subject poses REQUIRE the 31b judge
+
+The pose_dsg judge's default served model (`lm-studio/google/gemma-4-26b-a4b-qat`)
+**returns 0 atoms on multi-subject images** — measured 3/3 on the two-person
+pose L4-02 (the verdict comes back well-shaped but with zero atoms, faithfulness
+0, anatomy all-false; ~3× latency). It judges single-subject poses correctly.
+For any multi-subject pose you MUST pass a stronger tier:
+
+```bash
+bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --pose-id L4-02 \
+  --judge-model google/gemma-4-31b-qat
+```
+
+Without `--judge-model`, multi-subject poses will exhaust the full attempt budget
+on unscored (0-atom) attempts. (Since 2026-07-04, repeated unscored attempts do
+trip the plateau guard — see below — but the verdict is still untrustworthy.)
+The 26b default is fine for single-subject poses.
+
+#### Judge-tier auto-fallback (2026-07-04)
+
+`judgePose` now **auto-retries ONCE with `google/gemma-4-31b-qat`** when the
+configured judge returns a 0-atom verdict, so multi-subject poses no longer
+silently fail when you forget `--judge-model`. The fallback is logged visibly
+(`[judge] pose_dsg returned 0 atoms under ... → retrying once with ...`) and
+flagged on the verdict (`judgeFallback: true`) so the tier dependency stays
+observable. Single-subject poses judge fine under the 26b default and never
+trigger the fallback, so they pay no latency cost. The fallback is suppressed
+when `--judge-model` is already the 31b tier (no retry storm on a pinned
+fallback). Explicit `--judge-model google/gemma-4-31b-qat` is still the
+cheapest path for a known multi-subject run (avoids the ~60s wasted 26b call),
+but forgetting it is no longer a hard failure.
+
+### Plateau guard (and the unscored blind-spot fix)
+
+The loop tracks a stable "failed signature" per attempt and halts early when it
+is unchanged for `--consecutive-static` (default 2) rounds — surfacing an
+unfixable structural defect as `needsReview` instead of burning the full budget.
+Since 2026-07-04 this signature includes an `unscored:N` token, so repeated
+judge flakes / 0-atom verdicts are caught as a plateau (previously the empty
+signature bypassed the guard — the most common hard-pose failure mode exhausted
+the full budget). Regression-tested in
+`pi-dynamic-workflows/tests/regression-self-improve-loop.test.ts`.
+
