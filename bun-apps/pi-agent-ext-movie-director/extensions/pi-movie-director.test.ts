@@ -29,6 +29,7 @@ describe("pi-movie-director extension", () => {
     for (const cmd of [
       "preflight", "pipeline-list", "pipeline-show", "init-project", "next-stage",
       "write-checkpoint", "read-checkpoint", "validate-artifact", "generate",
+      "compose", "final-review",
       "cost-estimate", "cost-reserve", "cost-reconcile", "cost-snapshot",
     ]) {
       expect(tool.description).toContain(cmd);
