@@ -28,7 +28,7 @@ describe("pi-movie-director extension", () => {
     const tool = captureRegisteredTool();
     for (const cmd of [
       "preflight", "pipeline-list", "pipeline-show", "init-project", "next-stage",
-      "write-checkpoint", "read-checkpoint", "validate-artifact",
+      "write-checkpoint", "read-checkpoint", "validate-artifact", "generate",
       "cost-estimate", "cost-reserve", "cost-reconcile", "cost-snapshot",
     ]) {
       expect(tool.description).toContain(cmd);
@@ -66,5 +66,18 @@ describe("pi-movie-director extension", () => {
     );
     expect(res.details.ok).toBe(false);
     expect(res.content[0].text).toContain("GATE VIOLATION");
+  });
+
+  test("generate surfaces a no-configured-provider error as a structured failure (no spawn)", async () => {
+    // tts has NO configured provider → the selector throws NoConfiguredProviderError,
+    // which dispatch converts to {ok:false, error}. No subprocess is ever spawned.
+    const tool = captureRegisteredTool();
+    const res = await tool.execute(
+      "id",
+      { command: "generate", options: { capability: "tts", command: "synthesize" } },
+      undefined, undefined, undefined,
+    );
+    expect(res.details.ok).toBe(false);
+    expect(res.details.error).toContain("no configured provider");
   });
 });

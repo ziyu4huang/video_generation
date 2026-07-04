@@ -30,6 +30,9 @@ import {
   reserve as costReserve,
   reconcile as costReconcile,
   costSnapshot,
+  selectProvider,
+  selectAndGenerate,
+  NoConfiguredProviderError,
   GateViolationError,
   type CheckpointStatus,
 } from "../src/index.ts";
@@ -43,6 +46,7 @@ const COMMANDS = [
   "write-checkpoint",
   "read-checkpoint",
   "validate-artifact",
+  "generate",
   "cost-estimate",
   "cost-reserve",
   "cost-reconcile",
@@ -84,6 +88,10 @@ const DESCRIPTION = [
   "                        (status=completed on an approval-gated stage requires humanApproved=true).",
   "  • read-checkpoint  — {projectId, pipeline, stage?} → that stage's checkpoint, or the latest if stage omitted.",
   "  • validate-artifact— {artifact (e.g. 'script'), data} → schema validation against the canonical artifact set.",
+  "  • generate         — {capability, command, options?, provider?, projectId?, ...} → selects a configured native director",
+  "                        (krea2/flux2/ltx), runs it, returns a ToolResult {success, artifacts[], cost_usd, duration_seconds,",
+  "                        seed, model}. When projectId is given, the full estimate→reserve→reconcile cost lifecycle runs and",
+  "                        the costEntryId is returned alongside. This is the assets-stage bridge: it actually produces files.",
   "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
@@ -157,6 +165,76 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
         const name = String(opts.artifact ?? "");
         const v = validateArtifact(name, opts.data);
         return { ok: true, text: jsonOut(v) };
+      }
+      case "generate": {
+        const capability = String(opts.capability ?? "") as
+          | "image_generation"
+          | "video_generation"
+          | "tts"
+          | "music_generation"
+          | "video_post"
+          | "audio_processing"
+          | "analysis"
+          | "enhancement"
+          | "subtitle"
+          | "composition";
+        if (!capability) return { ok: false, error: "generate requires {capability}" };
+        const projectId = opts.projectId ? String(opts.projectId) : undefined;
+        const provider = opts.provider ? String(opts.provider) : undefined;
+        const operation = opts.operation ? String(opts.operation) : `${capability}:${opts.command ?? ""}`;
+
+        // Pre-resolve the selector so a no-configured-provider error is a clean
+        // structured failure (not a thrown stack trace) and so we know the
+        // entry before deciding whether to run the cost lifecycle.
+        let entry;
+        try {
+          entry = selectProvider(capability, { provider });
+        } catch (err) {
+          if (err instanceof NoConfiguredProviderError) {
+            return { ok: false, error: err.message };
+          }
+          throw err;
+        }
+
+        // Cost lifecycle: estimate → reserve → generate → reconcile. Only when a
+        // projectId is given (governance is per-project). Best-effort: a cost
+        // failure must NOT mask the generation result.
+        let costEntryId: string | undefined;
+        if (projectId) {
+          const estimated = Number(opts.estimatedUsd ?? 0);
+          try {
+            costEntryId = costEstimate(projectId, entry.provider, operation, estimated);
+            costReserve(projectId, costEntryId);
+          } catch {
+            // observe mode never throws; in cap mode a budget breach SHOULD block.
+            costEntryId = undefined;
+          }
+        }
+
+        const { result } = await selectAndGenerate(
+          capability,
+          {
+            command: String(opts.command ?? ""),
+            options: opts.options as Record<string, unknown> | undefined,
+            outputDir: opts.outputDir ? String(opts.outputDir) : undefined,
+            modelsRoot: opts.modelsRoot ? String(opts.modelsRoot) : undefined,
+            extraArgs: opts.extraArgs as string[] | undefined,
+          },
+          { provider },
+        );
+
+        if (projectId && costEntryId) {
+          try {
+            costReconcile(projectId, costEntryId, result.cost_usd, result.success);
+          } catch {
+            /* best-effort: don't mask the generation result */
+          }
+        }
+
+        return {
+          ok: true,
+          text: jsonOut({ provider: entry.provider, invoke: entry.invoke, costEntryId: costEntryId ?? null, result }),
+        };
       }
       case "cost-estimate": {
         const id = costEstimate(String(opts.projectId ?? ""), String(opts.tool ?? ""), String(opts.operation ?? ""), Number(opts.estimatedUsd ?? 0));
