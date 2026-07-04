@@ -5,8 +5,8 @@
 //  `ltx-video native-relay` — PURE SWIFT (no run.py, no ffmpeg) port of the
 //  CORE chaining mechanism in app/commands/video-relay.py's Prompt-Relay
 //  pattern. See NativeRelayStage.swift's header for exactly what's scoped
-//  out of this first version (audio overlay is "replace" mode only; no
-//  TTS, no variant A/B).
+//  out of this first version (audio overlay is "replace" mode only; TTS is
+//  macOS `say` only, no edge-tts; no variant A/B).
 //
 
 import ArgumentParser
@@ -55,8 +55,20 @@ struct NativeRelay: ParsableCommand {
     var output: String = "native_relay_output"
 
     @Option(name: .customLong("relay-audio"),
-            help: "Custom audio track that REPLACES the final concatenated video's audio entirely (any AVFoundation-decodable format: WAV, MP3, M4A, AAC — no ffmpeg needed). Trimmed to the video's duration if longer.")
+            help: "Custom audio track that REPLACES the final concatenated video's audio entirely (any AVFoundation-decodable format: WAV, MP3, M4A, AAC — no ffmpeg needed). Trimmed to the video's duration if longer. Ignored if --relay-tts-text is also set.")
     var relayAudio: String?
+
+    @Option(name: .customLong("relay-tts-text"),
+            help: "Narration text to synthesize via macOS 'say' and use as --relay-audio. Ignored if --relay-audio is also set.")
+    var relayTTSText: String?
+
+    @Option(name: .customLong("relay-tts-voice"),
+            help: "Voice name for --relay-tts-text (default: Meijia, zh-TW). List available voices with: say -v '?'")
+    var relayTTSVoice: String = "Meijia"
+
+    @Option(name: .customLong("relay-tts-rate"),
+            help: "Speech rate in words/min for --relay-tts-text.")
+    var relayTTSRate: Int = 145
 
     func run() throws {
         guard !prompts.isEmpty else {
@@ -68,6 +80,13 @@ struct NativeRelay: ParsableCommand {
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.firstImagePath = firstImage.map { URL(fileURLWithPath: $0) }
         request.audioOverlayPath = relayAudio.map { URL(fileURLWithPath: $0) }
+
+        if let ttsText = relayTTSText, relayAudio == nil {
+            let ttsURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("native_relay_tts_\(UUID().uuidString).aiff")
+            print("→ synthesizing TTS narration (voice=\(relayTTSVoice), rate=\(relayTTSRate))...")
+            try MacTTS.synthesize(text: ttsText, voice: relayTTSVoice, rate: relayTTSRate, to: ttsURL)
+            request.audioOverlayPath = ttsURL
+        }
         request.loraPaths = try loras.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
             let path = String(parts[0])
