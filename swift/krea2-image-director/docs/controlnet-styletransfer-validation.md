@@ -205,3 +205,93 @@ No regression. `Krea2ConfigTests` green; DiT parity tests skip (missing oracle,
 pre-existing). The new `cachedCtx` / `textPath` / knob params are all
 defaulted → existing t2i/i2i/controlnet calls unchanged.
 
+---
+
+# Composition addendum (2026-07-05): ControlNet + Style Transfer in one call
+
+The one untested combination of the two shipped features. They modify orthogonal
+DiT paths (LoRA on block linears + input projection vs. attention K/V injection),
+so they *should* stack — "should" is now tested. New engine path
+`Krea2Engine.controlStyle` + CLI `krea2 control-style` (`Sources/.../Krea2ControlStyle.swift`,
+`ControlStyleCommand.swift`). 512², steps=8, seed=42, aggressive style knobs.
+
+## Wiring (no port bug)
+A single DiT forward carries all three signals at once:
+- LoRA-injected weights (224 pairs, via `lin`) + `firstControl` input projection,
+- `controlTokens` (target batch = real control latent; **ref batch = zeros** so the
+  style image is not depth-conditioned — matches the no-control RF cache),
+- `Krea2StyleConfig` (styled attention in blocks 0..27) + `cachedCtx` text-path sharing.
+
+The RF cache integrates the ref on the **LoRA-injected** base DiT (no control
+tokens → control off for the ref). Loads 224/224 pairs, runs end-to-end, no OOM
+at 512² (the goal's 2-B + control OOM risk did not materialize at 512²).
+
+## Headline result — they compose, but the LoRA suppresses the style palette
+| panel | B−R | shift vs base |
+|---|---|---|
+| baseline (vanilla t2i) | −25.06 | — |
+| control-only (LoRA+portrait) | −15.68 | +9.37 |
+| style-only (teal, no LoRA) | +107.44 | **+132.50** (strong teal) |
+| both (LoRA+control+style) | −24.93 | **+0.13** (palette gone) |
+
+Both effects are **live simultaneously** (not inert):
+- control-image identity swap (portrait↔landscape, same seed): **MAD 9.28** ✓
+- style-mix liveness (mix=0 → mix=1.0): **MAD 51.22** ✓
+
+But the specific "palette shifts toward the teal ref" sub-metric **fails** (+132.5
+on the base model → +0.13 under the LoRA). The style still reshapes the image
+(≈51 MAD, manifesting as abstraction/texture per the VLM) — it just no longer
+moves toward the reference palette.
+
+### Isolated cause: the LoRA, not the control
+| config | B−R shift | palette |
+|---|---|---|
+| style-only (no LoRA, no control) | +132.50 | strong teal |
+| LoRA + style (control OFF) | −1.48 | palette gone |
+| LoRA + style + control (full) | +0.13 | palette gone |
+
+Turning control-strength to 0 (LoRA still on) collapses the palette just as hard
+(−1.48 ≈ +0.13). The 224 LoRA pairs reshape every block linear (`wq/wk/wv/wo/
+gate/mlp.*`), changing the Q/K/V projection geometry the ref-K/V injection
+assumes — exactly the goal §0/§5 hypothesis. This is a genuine distilled-model /
+LoRA interaction, **not a port bug** (the neutral gate below holds at MAD 0.12).
+
+## Corruption gates
+- **Regression (style-only s=0 byte-identical to vanilla t2i):** MAD 0.0000,
+  pixel-diff `None`. The `Krea2StyleTransfer` path is untouched by this arc.
+- **Composition neutral point (mix=0 vs control-only):** MAD **0.12**. The style
+  surgery is a clean no-op at `mix=0` even with the LoRA + control present.
+- **Combined neutral point, stated honestly:** ≡ LoRA-base + control (NOT vanilla
+  t2i — the 224 LoRA deltas apply unconditionally; the 46.69 MAD base shift from
+  the ControlNet arc carries through).
+
+## VLM (gemma-4-26b, palette-focused, aspect-ratio-constrained)
+- style-only: *"deep cobalt and navy blues … emerald and **teal greens** … rich
+  purples"* — strong teal transfer confirmed.
+- both (LoRA+control+style): *"stylized, dreamlike, abstract … luminous
+  indistinct figure … flowing light and fabric"* — **no teal cast mentioned**;
+  style present as abstraction, palette absent.
+- control-only / baseline: natural garden scene, no teal.
+
+VLM independently corroborates the deterministic B−R collapse. Per the prior arc's
+lesson (the VLM hallucinated aspect ratios in the ControlNet run), the deterministic
+palette + control-identity + neutral-gate metrics are load-bearing; the VLM is
+confirmation only.
+
+## Honest conclusion
+The composition is wired, both effects stack measurably, and the corruption gates
+hold. The style's *palette transfer* — the one effect that was unambiguous on the
+base model — does **not** survive the Control LoRA. Recovering it is genuine R&D
+(re-tuning the K/V-injection knobs for the LoRA-reshaped geometry, or the deferred
+Q/K-AdaIN path), explicitly out of this arc's scope. The krea2 director now has a
+single composable conditioning stack; this was the only untested combination of two
+shipped features, and it reaches an honest, characterized stopping point.
+
+## Artifacts
+`video_generation__output/krea2_port_validation/`:
+- `comp_AB_4way.png` — baseline | control-only | style-only | both.
+- `comp_AB_control_identity.png` — both(portrait) | both(landscape).
+- `comp_baseline_s42 / comp_control_s42 / comp_style_s42 / comp_both_s42 /
+  comp_both_landscape_s42 / comp_both_s0 / comp_both_ctrl0_s42 .png`.
+- `krea2_composition_sidebyside.html` — interactive viewer + full metric tables.
+

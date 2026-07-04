@@ -44,7 +44,17 @@ swift run -c release krea2 controlnet \
 # applies a style reference image's style to the prompt's generation. No weights.
 swift run -c release krea2 style-transfer \
   --prompt "..." --style-image reference.png --strength 1.0 --out out.png
+
+# ControlNet + Style Transfer composition (both features in one engine call).
+swift run -c release krea2 control-style \
+  --prompt "..." --control-image depth.png --style-image reference.png \
+  --control-strength 1.0 --strength 1.0 --out out.png
 ```
+
+> **Composition note:** `control-style` runs the LoRA-injected DiT + control
+> tokens + styled 2-B attention in one forward. Both effects stay live, but the
+> Control LoRA suppresses the style's palette transfer (style shift +132 → ~0).
+> See `docs/controlnet-styletransfer-validation.md` (composition addendum).
 
 ## ControlNet & Style Transfer
 
@@ -62,6 +72,9 @@ for the full design + the minimal-port scope.
   latent along the sampler sigmas with the base model velocity, Heun PC γ=0.5);
   (2) 2B batch `[target ; ref_noisy]` each step; (3) per-frequency-scaled K +
   AdaIN-mixed V injection in blocks 7…27. No adapter weights required.
+- **`control-style`** — both features in one engine call (LoRA + control + styled
+  2-B). The two modify orthogonal DiT paths so they compose; the LoRA's reshape
+  of the block linears suppresses the style's palette transfer (honest, characterized).
 
 ## Requirements
 
