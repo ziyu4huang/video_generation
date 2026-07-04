@@ -114,7 +114,7 @@ public extension Krea2Engine {
 
         // ── (1) RF cache: LoRA-injected base velocity, control OFF (ref has no
         //    control image). Mirrors styleTransfer's cache but on the LoRA base.
-        print("[4/6] RF cache (Heun PC, γ=\(d.gamma), LoRA base)...", terminator: " ")
+        print("[4/6] RF cache (\(RFMode.resolve(d.rfMode, fastRF: fastRF).rawValue), γ=\(d.gamma), LoRA base)...", terminator: " ")
         let rfT0 = Date()
         let eps = MLXRandom.normal([1, 16, Hl, Wl])
         var refCache: [Float: MLXArray] = [:]
@@ -122,25 +122,42 @@ public extension Krea2Engine {
         var lastSigma: Float = 0.0
         let ascending = ts.filter { $0 > 1e-6 }.sorted()
         var z = refClean
+        // Effective RF integrator (legacy fastRF=true → rfGamma back-compat).
+        let rfMode = RFMode.resolve(d.rfMode, fastRF: fastRF)
         for sigma in ascending {
-            let (imgS2, _, _) = Krea2Sampler.prepare(
-                noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
-            let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]),
-                             pos: pos1, mask: mask1, cachedCtx: ctx1Cache)
             let delta = sigma - lastSigma
-            let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: delta)
-            let zModel: MLXArray
-            if fastRF {
-                zModel = zPred
-            } else {
-                let (imgE2, _, _) = Krea2Sampler.prepare(
-                    noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
-                let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
-                                 pos: pos1, mask: mask1, cachedCtx: ctx1Cache)
-                zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
-                                    patch: patch, delta: delta)
-            }
             let zPrior = (1.0 - sigma) * refClean + sigma * eps
+            let zModel: MLXArray
+            if rfMode == .linear {
+                zModel = zPrior                                  // pure prior, no model call
+            } else {
+                let (imgS2, _, _) = Krea2Sampler.prepare(
+                    noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]),
+                                 pos: pos1, mask: mask1, cachedCtx: ctx1Cache)
+                let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: delta)
+                switch rfMode {
+                case .rfGamma:
+                    zModel = zPred
+                case .rfGammaRK2:
+                    let midSigma = 0.5 * (lastSigma + sigma)
+                    let zMid = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
+                                          delta: 0.5 * delta)
+                    let (imgMid, _, _) = Krea2Sampler.prepare(
+                        noise: zMid, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                    let vMid = baseDit(img: imgMid, context: context1, t: MLXArray([midSigma]),
+                                       pos: pos1, mask: mask1, cachedCtx: ctx1Cache)
+                    zModel = latentStep(z, vMid, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
+                                        delta: delta)
+                case .flowturboPC, .linear:   // .linear handled above; .flowturboPC = Heun PC
+                    let (imgE2, _, _) = Krea2Sampler.prepare(
+                        noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                    let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
+                                     pos: pos1, mask: mask1, cachedCtx: ctx1Cache)
+                    zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
+                                        patch: patch, delta: delta)
+                }
+            }
             z = MLXArray(d.gamma) * zModel + (1.0 - d.gamma) * zPrior
             MLX.eval(z)
             refCache[sigma] = z

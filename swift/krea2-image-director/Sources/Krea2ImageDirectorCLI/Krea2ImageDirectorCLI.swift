@@ -8,6 +8,12 @@
 import ArgumentParser
 import Krea2ImageDirector
 
+// Retroactive conformance so `--rf-mode flowturbo_pc|rf_gamma|rf_gamma_rk2|linear`
+// parses into the library's RFMode. ArgumentParser's default String initializer is
+// sufficient; the conformance lives in the CLI target (the library doesn't depend
+// on ArgumentParser).
+extension RFMode: ExpressibleByArgument {}
+
 @main
 struct Krea2ImageDirectorCLI: ParsableCommand {
     static let configuration = CommandConfiguration(

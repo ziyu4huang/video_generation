@@ -47,7 +47,9 @@ struct ControlStyleCommand: ParsableCommand {
     @Option var activeBlocksStart: Int = 7
     @Option var activeBlocksEnd: Int = 27
     @Option var gamma: Float = 0.5
-    @Flag(help: "Fast RF cache: single-Euler (skip Heun corrector). Halves RF cost; not strength=0-affecting.")
+    @Option(help: "RF-cache integrator: flowturbo_pc (Heun PC, default) | rf_gamma (single-Euler) | rf_gamma_rk2 (midpoint) | linear (pure prior, no model call).")
+    var rfMode: RFMode = .flowturboPC
+    @Flag(help: "Fast RF cache: single-Euler (legacy alias for rf_gamma).")
     var fastRF = false
     @Option var out: String?
 
@@ -69,6 +71,7 @@ struct ControlStyleCommand: ParsableCommand {
             refKStrength: refKStrength,
             gamma: gamma, lowScaleEnd: lowScaleEnd,
             adainStrength: adainStrength,
+            rfMode: rfMode,
             activeBlocks: activeBlocksStart...activeBlocksEnd)
         try Krea2Engine.controlStyle(
             prompt: prompt,

@@ -75,11 +75,20 @@ weighted/alternating schedules, Gaussian bumps, `late_release` fade) +
 `primary_reference` order shift. Per-ref knobs: `ref_k_1/ref_k_2`, weights from
 the bundle node `[0.5, 0.5]`. **Not a weighted average — order-sensitive.**
 
-### Gap 3 — RF integrator modes  ~ partial
-Swift has `flowturbo_pc` (Heun PC + γ-blend) + a Swift-only `fastRF` shortcut.
-Upstream ALSO has `rf_gamma` (plain Euler + γ-blended velocity), `rf_gamma_rk2`
-(midpoint), `linear` (no model call, pure prior), and `_flowturbo_pc_internal_sigmas`
-(midpoint grid refinement). Swift iterates the raw sampler grid.
+### Gap 3 — RF integrator modes  ✓ PORTED (2026-07-05)
+Swift now has all four upstream integrators via `RFMode` (exposed as
+`--rf-mode flowturbo_pc|rf_gamma|rf_gamma_rk2|linear`):
+- `flowturbo_pc` (default): Heun PC + γ-blend.
+- `rf_gamma`: plain single-Euler + γ-blend (formalized from the legacy `fastRF`
+  shortcut; `fastRF=true` is now a back-compat alias via `RFMode.resolve`).
+- `rf_gamma_rk2`: explicit midpoint RK2 (k1 at lastSigma, k2 at the midpoint,
+  full step on k2).
+- `linear`: pure linear prior `(1-σ)·refClean + σ·eps`, no model call (fastest).
+The cache loop dispatches on the mode in both Krea2StyleTransfer +
+Krea2ControlStyle. Gate-safe: the RF cache only feeds the styled path's
+ref_noisy, which `mix=0` discards at strength=0, so the integrator choice never
+affects the corruption gate. `_flowturbo_pc_internal_sigmas` (midpoint grid
+refinement) is still NOT ported — Swift iterates the raw sampler grid; low value.
 
 ### Gap 4 — `value_mode` variants  ✗ (only `target_adain_plus_ref` ported)
 Upstream supports `raw_reference | target | ref_mean | target_adain |

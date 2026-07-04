@@ -41,7 +41,9 @@ struct StyleTransferCommand: ParsableCommand {
     var activeBlocksEnd: Int = 27
     @Option(help: "RF-cache Heun blend gamma (model vs linear prior).")
     var gamma: Float = 0.5
-    @Flag(help: "Fast RF cache: single-Euler (skip Heun corrector). Halves RF cost; changes the cached ref trajectory but not strength=0.")
+    @Option(help: "RF-cache integrator: flowturbo_pc (Heun PC, default) | rf_gamma (single-Euler) | rf_gamma_rk2 (midpoint) | linear (pure prior, no model call).")
+    var rfMode: RFMode = .flowturboPC
+    @Flag(help: "Fast RF cache: single-Euler (skip Heun corrector). Legacy alias for rf_gamma; overridden by --rf-mode when set to a non-default value.")
     var fastRF = false
     @Option var out: String?
 
@@ -56,6 +58,7 @@ struct StyleTransferCommand: ParsableCommand {
             refKStrength: refKStrength,
             gamma: gamma, lowScaleEnd: lowScaleEnd,
             adainStrength: adainStrength,
+            rfMode: rfMode,
             activeBlocks: activeBlocksStart...activeBlocksEnd)
         try Krea2Engine.styleTransfer(
             prompt: prompt, styleImage: styleURL, strength: strength,
