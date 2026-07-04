@@ -85,7 +85,8 @@ public struct NativeUpscaleStage {
     public func generate(
         inputFrameDirectory: URL, outputDir: URL,
         refinePrompt: String? = nil, refineAudioURL: URL? = nil,
-        fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42
+        fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42,
+        preserveFirstAndLastFrame: Bool = false
     ) throws -> Result {
         if refinePrompt != nil, refineAudioURL == nil {
             throw StageError.refineNeedsAudioTrack
@@ -162,10 +163,11 @@ public struct NativeUpscaleStage {
         MLX.eval(upscaledLatent)
 
         if let refinePrompt, let refineAudioURL {
-            print("[3b/4] refine: low-strength denoise pass (stage-2 sigmas, real 48-block distilled transformer)...")
+            print("[3b/4] refine: low-strength denoise pass (stage-2 sigmas, real 48-block distilled transformer)\(preserveFirstAndLastFrame ? " — preserving first/last FFLF frames" : "")...")
             upscaledLatent = try refine(
                 normalizedLatent: upscaledLatent, prompt: refinePrompt, audioURL: refineAudioURL,
-                fps: fps, textMaxLength: textMaxLength, seed: seed)
+                fps: fps, textMaxLength: textMaxLength, seed: seed,
+                preserveFirstAndLastFrame: preserveFirstAndLastFrame)
             MLX.eval(upscaledLatent)
         }
 
@@ -405,15 +407,30 @@ public struct NativeUpscaleStage {
     /// transformer over that short schedule — a genuine partial
     /// re-denoise, not a fresh generation (mirrors the reference two-stage
     /// pipeline's Stage #2/#3, see docs/reference/comfyui_workflows). The
-    /// video mask is uniform (mask=1 everywhere): unlike I2V conditioning,
-    /// nothing here is "preserved" — the whole upscaled frame set is
-    /// lightly re-denoised to remove the neural upscaler's over-sharpening.
-    /// The audio track from `audioURL` IS preserved (denoiseMask=0
-    /// everywhere) purely so the joint transformer has a valid audio
-    /// branch — see this file's header.
+    /// video mask is uniform (mask=1 everywhere) EXCEPT any frames named in
+    /// `preserveFrameIndices`: unlike I2V conditioning, nothing else here is
+    /// "preserved" — the whole upscaled frame set is lightly re-denoised to
+    /// remove the neural upscaler's over-sharpening. The audio track from
+    /// `audioURL` IS preserved (denoiseMask=0 everywhere) purely so the
+    /// joint transformer has a valid audio branch — see this file's header.
+    ///
+    /// `preserveFrameIndices`: re-pins FFLF-conditioned frames (typically
+    /// [0, F-1]) so refine's re-denoise doesn't let them drift from their
+    /// originally-pinned content — the reference pipeline does the exact
+    /// same thing by re-applying its `LTXSequencer`/keyframe-guide nodes at
+    /// Stage #2/#3, not by re-loading the original images: this reads
+    /// ltx_sequencer.py's actual node source (append_keyframe/LTXVAddGuide)
+    /// rather than the ComfyUI JSON's widget values alone, which don't
+    /// disambiguate "per-frame refine schedule" from "keyframe re-insertion"
+    /// (see docs/reference/comfyui_workflows/README.md's fourth-pass note).
+    /// Uses the ALREADY-UPSCALED clean tokens at each index (not the
+    /// original pre-upscale images) since they already represent the pinned
+    /// content at the new resolution — this only needs to stop refine's
+    /// denoise from letting that content drift, not re-derive it.
     private func refine(
         normalizedLatent: MLXArray, prompt: String, audioURL: URL,
-        fps: Double, textMaxLength: Int, seed: UInt64
+        fps: Double, textMaxLength: Int, seed: UInt64,
+        preserveFirstAndLastFrame: Bool = false
     ) throws -> MLXArray {
         let (videoTokens, dims) = VideoLatentPatchifier.patchify(normalizedLatent)  // (1, F*H*W, 128)
 
@@ -423,9 +440,18 @@ public struct NativeUpscaleStage {
         let noisyTokens = (1 - startSigma) * videoTokens + startSigma * noise
 
         let videoPositions = Positions.computeVideoPositions(numFrames: dims.f, height: dims.h, width: dims.w, frameRate: Float(fps))
-        let videoState = LatentState(
+        var videoState = LatentState(
             latent: noisyTokens, cleanLatent: noisyTokens,
             denoiseMask: MLXArray.ones([1, dims.f * dims.h * dims.w, 1]), positions: videoPositions)
+
+        let preserveFrameIndices: [Int] = (preserveFirstAndLastFrame && dims.f >= 2) ? [0, dims.f - 1] : []
+        for frameIdx in preserveFrameIndices where frameIdx >= 0 && frameIdx < dims.f {
+            let tokensPerFrame = dims.h * dims.w
+            let start = frameIdx * tokensPerFrame
+            let cleanFrameTokens = videoTokens[0..., start..<(start + tokensPerFrame), 0...]
+            let conditioner = VideoConditionByLatentIndex(frameIndices: [frameIdx], cleanLatent: cleanFrameTokens, strength: 1.0)
+            videoState = conditioner.apply(to: videoState, spatialDims: (dims.f, dims.h, dims.w))
+        }
 
         // Preserve the existing audio track fully (not refined) — same
         // resample-then-encode path --audio-track uses, just pinned over

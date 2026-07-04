@@ -93,6 +93,25 @@ public struct NativeI2VStage {
         /// docs/reference/comfyui_workflows/README.md. When nil, behaves
         /// exactly as before (frame-0-only I2V conditioning).
         public var lastFrameImagePath: URL?
+        /// Conditioning strength for the last-frame image, ported from the
+        /// reference ComfyUI workflows' per-slot `MultiImageLoader` strength
+        /// (docs/reference/comfyui_workflows/README.md third-pass finding
+        /// 3). 1.0 = fully preserved/pinned (the previous, only supported
+        /// behavior); lower values partially blend it with generated
+        /// content (denoiseMask = 1 - strength, see
+        /// VideoConditionByLatentIndex). Ignored when lastFrameImagePath is
+        /// nil. Frame 0 has no equivalent knob — unlike the reference, it's
+        /// always the T2I-generated `prompt` image, never a second
+        /// user-supplied slot, so "strength" isn't a meaningful concept there.
+        public var lastFrameStrength: Float = 1.0
+        /// When true, a `lastFrameImagePath` that isn't already exactly
+        /// `width`x`height` is resized (aspect-fill + center-crop, bicubic)
+        /// instead of throwing `lastFrameImageWrongSize` — matches the
+        /// reference `MultiImageLoader`'s auto-resize behavior (same
+        /// third-pass finding). Default false preserves this package's
+        /// established "fail fast on mismatched input, don't silently
+        /// degrade" convention; auto-resize is opt-in.
+        public var lastFrameAutoResize: Bool = false
         /// Custom audio injection: an optional user-supplied WAV whose
         /// content is preserved through generation instead of the audio
         /// modality being generated from scratch — mirrors the reference
@@ -186,9 +205,11 @@ public struct NativeI2VStage {
             guard let cgImage = FrameLoad.loadCGImage(from: lastFrameImagePath) else {
                 throw StageError.lastFrameImageNotFound(lastFrameImagePath)
             }
-            guard cgImage.width == request.width, cgImage.height == request.height else {
-                throw StageError.lastFrameImageWrongSize(
-                    expected: (request.width, request.height), actual: (cgImage.width, cgImage.height))
+            if !request.lastFrameAutoResize {
+                guard cgImage.width == request.width, cgImage.height == request.height else {
+                    throw StageError.lastFrameImageWrongSize(
+                        expected: (request.width, request.height), actual: (cgImage.width, cgImage.height))
+                }
             }
         }
         if let audioTrackPath = request.audioTrackPath {
@@ -241,32 +262,42 @@ public struct NativeI2VStage {
         let videoPositions = Positions.computeVideoPositions(numFrames: fLat, height: hLat, width: wLat, frameRate: Float(request.fps))
         let audioPositions = Positions.computeAudioPositions(numTokens: numAudioTokens)
 
-        // FFLF: pin an optional user-supplied image as the last latent frame,
-        // on top of the always-present frame-0 conditioning above (see
-        // Request.lastFrameImagePath's header and docs/reference/comfyui_workflows).
-        var conditionFrameIndices = [0]
-        var conditionCleanTokens = conditionTokens
+        // Frame 0: always the T2I-generated image, always fully preserved
+        // (strength 1.0 — this slot has no reference-workflow strength
+        // equivalent, see Request.lastFrameStrength's header).
+        let videoState0 = LatentState(latent: videoNoise, cleanLatent: videoNoise, denoiseMask: MLXArray.ones([1, fLat * hLat * wLat, 1]), positions: videoPositions)
+        let frame0Conditioner = VideoConditionByLatentIndex(frameIndices: [0], cleanLatent: conditionTokens, strength: 1.0)
+        var videoState = frame0Conditioner.apply(to: videoState0, spatialDims: (fLat, hLat, wLat))
+
+        // FFLF: pin an optional user-supplied image as the last latent
+        // frame, chained on top of frame-0 conditioning above (applying two
+        // VideoConditionByLatentIndex calls in sequence is equivalent to one
+        // call with combined indices, since neither changes the sequence
+        // length — see Request.lastFrameImagePath/lastFrameStrength headers
+        // and docs/reference/comfyui_workflows).
         if let lastFrameImagePath = request.lastFrameImagePath {
             guard fLat >= 2 else {
                 throw StageError.invalidDimensions("--last-frame needs at least 2 latent frames (increase --seconds) — got \(fLat)")
             }
-            // Existence + exact-size already validated up-front, before any
-            // expensive generation work — see the fail-fast check above.
-            let cgImage = FrameLoad.loadCGImage(from: lastFrameImagePath)!
-            print("[fflf] pinning last frame from \(lastFrameImagePath.lastPathComponent)")
+            // Existence already validated up-front, before any expensive
+            // generation work — see the fail-fast check above. Size is only
+            // pre-validated when lastFrameAutoResize is false (otherwise
+            // resized just below).
+            var cgImage = FrameLoad.loadCGImage(from: lastFrameImagePath)!
+            if request.lastFrameAutoResize, (cgImage.width != request.width || cgImage.height != request.height) {
+                print("[fflf] auto-resizing last frame \(cgImage.width)x\(cgImage.height) -> \(request.width)x\(request.height) (aspect-fill + center-crop)")
+                cgImage = FrameLoad.resizeAspectFillCenterCrop(cgImage, targetWidth: request.width, targetHeight: request.height)
+            }
+            print("[fflf] pinning last frame from \(lastFrameImagePath.lastPathComponent) (strength \(request.lastFrameStrength))")
             let lastPixels01 = FrameLoad.toArray(cgImage)  // (1, 3, H, W) [0, 1]
             let lastPixelsNeg1to1 = lastPixels01.asType(.float32) * 2.0 - 1.0
             let lastPixelsBCFHW = lastPixelsNeg1to1.reshaped([1, 3, 1, request.height, request.width])
             let lastLatentBCFHW = videoEncoder(lastPixelsBCFHW)
             MLX.eval(lastLatentBCFHW)
             let (lastTokens, _) = VideoLatentPatchifier.patchify(lastLatentBCFHW)
-            conditionFrameIndices = [0, fLat - 1]
-            conditionCleanTokens = MLX.concatenated([conditionTokens, lastTokens], axis: 1)
+            let lastFrameConditioner = VideoConditionByLatentIndex(frameIndices: [fLat - 1], cleanLatent: lastTokens, strength: request.lastFrameStrength)
+            videoState = lastFrameConditioner.apply(to: videoState, spatialDims: (fLat, hLat, wLat))
         }
-
-        let videoState0 = LatentState(latent: videoNoise, cleanLatent: videoNoise, denoiseMask: MLXArray.ones([1, fLat * hLat * wLat, 1]), positions: videoPositions)
-        let conditioner = VideoConditionByLatentIndex(frameIndices: conditionFrameIndices, cleanLatent: conditionCleanTokens, strength: 1.0)
-        let videoState = conditioner.apply(to: videoState0, spatialDims: (fLat, hLat, wLat))
         var audioState = LatentState(latent: audioNoise, cleanLatent: audioNoise, denoiseMask: MLXArray.ones([1, numAudioTokens, 1]), positions: audioPositions)
 
         // Custom audio injection: pin a user-supplied WAV as preserved audio

@@ -62,8 +62,20 @@ struct NativeI2V: ParsableCommand {
     var loras: [String] = []
 
     @Option(name: .customLong("last-frame"),
-            help: "First-Last-Frame (FFLF): pin this image as the clip's LAST frame (frame 0 is always the T2I-generated --prompt image). Must already be exactly --width x --height.")
+            help: "First-Last-Frame (FFLF): pin this image as the clip's LAST frame (frame 0 is always the T2I-generated --prompt image). Must already be exactly --width x --height unless --last-frame-auto-resize is given.")
     var lastFrame: String?
+
+    @Option(name: .customLong("last-frame-strength"),
+            help: "Conditioning strength for --last-frame, 0.0-1.0 (default 1.0 = fully preserved/pinned; lower values partially blend it with generated content instead of hard-pinning it). Matches the reference ComfyUI workflows' per-slot MultiImageLoader strength.")
+    var lastFrameStrength: Double = 1.0
+
+    @Flag(name: .customLong("last-frame-auto-resize"),
+          help: "Auto-resize --last-frame to exactly --width x --height (aspect-fill + center-crop, bicubic) instead of requiring an exact match. Off by default (fails fast on a size mismatch instead of silently degrading input).")
+    var lastFrameAutoResize: Bool = false
+
+    @Flag(name: .customLong("last-frame-derives-resolution"),
+          help: "When --last-frame is given: derive the BASE generation --width/--height as half the last-frame image's own dimensions (snapped to the nearest 32), overriding any explicit --width/--height. Implies --last-frame-auto-resize (the full-resolution image is downscaled to the derived base resolution for conditioning). Pairs with --upscale (on by default) to bring the final output back to the last-frame image's own resolution — mirrors the reference ComfyUI FFLF workflows' GetImageSize->EmptyLTXVLatentVideo auto-sizing (see docs/reference/comfyui_workflows/README.md).")
+    var lastFrameDerivesResolution: Bool = false
 
     @Option(name: .customLong("audio-track"),
             help: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count (resampled to 16kHz, mono duplicated to stereo). If shorter than the clip, only the covered portion is preserved; the rest is still generated.")
@@ -74,11 +86,28 @@ struct NativeI2V: ParsableCommand {
     var mp4: Bool = true
 
     func run() throws {
+        var effectiveWidth = width
+        var effectiveHeight = height
+        if lastFrameDerivesResolution {
+            guard let lastFrame else {
+                throw ValidationError("--last-frame-derives-resolution requires --last-frame")
+            }
+            guard let cgImage = FrameLoad.loadCGImage(from: URL(fileURLWithPath: lastFrame)) else {
+                throw ValidationError("--last-frame-derives-resolution: could not load image at \(lastFrame)")
+            }
+            let halved = ResolutionResolver.optimize(width: cgImage.width / 2, height: cgImage.height / 2)
+            print("[fflf] --last-frame-derives-resolution: deriving base resolution \(halved.width)x\(halved.height) "
+                + "from \(cgImage.width)x\(cgImage.height) last-frame image (halved — --upscale brings it back)")
+            effectiveWidth = halved.width
+            effectiveHeight = halved.height
+        }
         var request = NativeI2VStage.Request(
-            prompt: prompt, seconds: seconds, fps: fps, width: width, height: height,
+            prompt: prompt, seconds: seconds, fps: fps, width: effectiveWidth, height: effectiveHeight,
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.fps = fps
         request.lastFrameImagePath = lastFrame.map { URL(fileURLWithPath: $0) }
+        request.lastFrameStrength = Float(lastFrameStrength)
+        request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution
         request.audioTrackPath = audioTrack.map { URL(fileURLWithPath: $0) }
         request.loraPaths = try loras.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
@@ -125,7 +154,8 @@ struct NativeI2V: ParsableCommand {
                     inputFrameDirectory: result.frameDirectory, outputDir: upscaleDir,
                     refinePrompt: refine ? prompt : nil,
                     refineAudioURL: refine ? result.audioURL : nil,
-                    fps: fps)
+                    fps: fps,
+                    preserveFirstAndLastFrame: lastFrame != nil)
                 let upscaleSeconds = Date().timeIntervalSince(upscaleStart)
                 print("✅ upscale wall time: \(String(format: "%.1f", upscaleSeconds))s")
                 print("   \(upscaleResult.inputSize.width)x\(upscaleResult.inputSize.height) -> "

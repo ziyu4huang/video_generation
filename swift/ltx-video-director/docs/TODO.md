@@ -1,3 +1,71 @@
+# All four ComfyUI FFLF+Custom-Audio parity gaps — SOLVED (2026-07-04)
+
+`/goal solve this gaps` — closes out all four gaps found by the function
+audit below. Three shipped real code + regression tests; the fourth was
+confirmed to already be correct (not actually a gap).
+
+1. **FFLF per-slot strength + auto-resize — IMPLEMENTED.**
+   `NativeI2VStage.Request` gained `lastFrameStrength: Float = 1.0` and
+   `lastFrameAutoResize: Bool = false`. The last-frame conditioner is now
+   applied as its OWN `VideoConditionByLatentIndex` call (chained after
+   frame-0's, not concatenated into one shared-strength call), so it can
+   carry an independent strength. Auto-resize uses a new
+   `FrameLoad.resizeAspectFillCenterCrop` (bicubic, aspect-fill + center
+   crop, matching the reference `MultiImageLoader`'s convention) — opt-in
+   via `--last-frame-auto-resize`, default off (preserves the existing
+   fail-fast-on-mismatch convention). New CLI flags: `--last-frame-strength`,
+   `--last-frame-auto-resize`. Two new real-checkpoint regression tests in
+   `NativeI2VStageFFLFTests.swift`: auto-resize (wrong-size + wrong-aspect
+   input, still matches within the existing tight tolerance since a solid
+   color survives resize losslessly) and strength (0.0 vs 1.0 measurably
+   diverge — 1.0 stays under the existing 0.04 tolerance, 0.0 is
+   significantly higher). Both pass on real generation (56.9s, 353.4s).
+
+2. **Half-res `ImageScaleBy` "guide pass" — RESOLVED, wasn't a quality
+   pass at all.** Traced the actual link graph (not just widget values):
+   `ImageScaleBy(bilinear, 0.5)` feeds `GetImageSize`, which feeds
+   `EmptyLTXVLatentVideo`'s width/height inputs directly. This is pure
+   resolution auto-derivation — the reference computes the BASE generation
+   resolution as half the user's FFLF image size, then its Stage #2 2x
+   upscale brings it back to that image's own resolution. Implemented the
+   equivalent: `native-i2v --last-frame-derives-resolution` derives
+   `--width`/`--height` as half the `--last-frame` image's dimensions
+   (snapped to the nearest 32), overriding any explicit `--width`/`--height`,
+   and implies `--last-frame-auto-resize` (the full-resolution image must
+   still be downscaled to the derived base resolution for conditioning).
+
+3. **`LTXSequencer`'s per-frame denoise-mask schedule in refine — WAS A
+   MISREAD, real gap found underneath it once corrected.** Read
+   `ltx_sequencer.py`'s actual node source (from the WhatDreamsCost-ComfyUI
+   checkout, not just the workflow JSON's widget arrays) — `LTXSequencer`
+   subclasses `LTXVAddGuide` and is the SAME keyframe-insertion mechanism
+   as `MultiImageLoader`, just reused inside Stage #2/#3 to RE-APPLY the
+   FFLF first/last-frame guides onto the newly-upscaled latent, not a novel
+   per-frame refine-strength schedule. The real, previously-undocumented
+   gap this exposes: `NativeUpscaleStage.refine()` had NO re-pinning at
+   all — an FFLF-conditioned clip's first/last frames could drift during
+   the low-strength re-denoise. Fixed: `refine()`/`generate()` gained
+   `preserveFirstAndLastFrame: Bool`, which re-applies
+   `VideoConditionByLatentIndex(strength: 1.0)` at frames `[0, F-1]` using
+   the ALREADY-UPSCALED clean tokens (not the original images — they
+   already represent the pinned content at the new resolution; this only
+   stops the refine denoise from letting it drift). Wired from both
+   `native-i2v --upscale --refine --last-frame` (automatic) and standalone
+   `native-upscale --preserve-first-last-frame` (opt-in, for chaining after
+   a separate `native-i2v --last-frame` run).
+
+4. **`VAEDecodeTiled`'s spatial tiling vs. this package's temporal-only
+   tiling — CONFIRMED NOT A GAP.** `VideoTiling.swift`'s own header already
+   states the vendor reference's real AUTO-tiling logic
+   (`_compute_decode_tiling`) is temporal-axis only — "spatial tiling
+   exists there but is never auto-selected." `VAEDecodeTiled`'s spatial
+   tile/overlap parameters are a ComfyUI-specific MANUAL override knob, not
+   part of the automatic behavior this package mirrors. No code change;
+   this package already matches the reference's real tiling strategy.
+
+Full writeup with exact link-graph traces and source-code citations in
+`docs/reference/comfyui_workflows/README.md`'s "Fourth pass" section.
+
 # Exhaustive function audit vs ComfyUI FFLF+Custom-Audio workflow — VERIFIED (2026-07-04)
 
 `/goal verify if we have implemented all function of the ComfyUI workflow`

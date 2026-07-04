@@ -50,6 +50,10 @@ struct NativeUpscale: ParsableCommand {
           help: "Mux the upscaled PNG frame sequence + --refine-audio (if given) into a real H.264+AAC output.mp4 via AVAssetWriter. On by default — --no-mp4 to skip and keep just the frame sequence. (fast mode only; hd mode doesn't reach this.)")
     var mp4: Bool = true
 
+    @Flag(name: .customLong("preserve-first-last-frame"),
+          help: "When --refine-prompt is also given: re-pin the input's first and last frames during the refine pass so they don't drift from their original content — set this when --input came from a native-i2v run that used --last-frame (FFLF). Mirrors the reference ComfyUI pipeline's re-application of its keyframe-guide nodes at its own upscale-refine stages (see docs/reference/comfyui_workflows/README.md).")
+    var preserveFirstLastFrame: Bool = false
+
     func run() throws {
         guard mode == "fast" || mode == "hd" else {
             throw ValidationError("--mode must be 'fast' or 'hd', got '\(mode)'")
@@ -84,7 +88,8 @@ struct NativeUpscale: ParsableCommand {
                 outputDir: URL(fileURLWithPath: output),
                 refinePrompt: refinePrompt,
                 refineAudioURL: finalAudioURL,
-                fps: fps)
+                fps: fps,
+                preserveFirstAndLastFrame: preserveFirstLastFrame)
         }
         let wallSeconds = Date().timeIntervalSince(wallStart)
 

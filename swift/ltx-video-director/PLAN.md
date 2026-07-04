@@ -1749,6 +1749,42 @@ with a definitive answer rather than a guess: most of this specific
 workflow's functionality IS covered; the four gaps above are the honest
 remainder.
 
+## Milestone: all four ComfyUI FFLF+Custom-Audio parity gaps closed (2026-07-04)
+
+`/goal solve this gaps`, closing out the third-pass audit's four findings:
+
+1. **FFLF per-slot strength + auto-resize** — `Request.lastFrameStrength`/
+   `lastFrameAutoResize`, chained conditioner calls (frame-0 and last-frame
+   are now independent `VideoConditionByLatentIndex` applications instead
+   of one shared-strength call), `FrameLoad.resizeAspectFillCenterCrop`.
+   New CLI flags `--last-frame-strength`/`--last-frame-auto-resize`. Two
+   new real-checkpoint tests, both pass (56.9s, 353.4s).
+2. **Half-res guide pass** — traced the actual link graph rather than
+   guessing from widget values: it's pure resolution auto-derivation
+   (base resolution = half the FFLF image's own size), not a quality pass.
+   Implemented as `--last-frame-derives-resolution`.
+3. **`LTXSequencer` "per-frame schedule"** — read the actual node source
+   (`ltx_sequencer.py`, not just JSON widgets): it's the same
+   `MultiImageLoader` keyframe mechanism, reused to re-pin FFLF frames
+   after upscale. The REAL gap it exposed: `NativeUpscaleStage.refine()`
+   had no re-pinning at all. Fixed with `preserveFirstAndLastFrame`,
+   wired from both `native-i2v` (automatic) and standalone
+   `native-upscale --preserve-first-last-frame`.
+4. **Spatial vs. temporal VAE-decode tiling** — confirmed NOT a gap:
+   `VideoTiling.swift`'s own header already documents that the vendor
+   reference's real auto-tiling is temporal-only; ComfyUI's spatial-tile
+   params are a manual override outside that auto path.
+
+Two of the four required going back to actual source (the ComfyUI custom
+node's Python file for #3, the workflow JSON's link topology rather than
+just widget values for #2) rather than accepting the first-pass audit's
+surface-level reading — both initial guesses (a mysterious per-frame
+refine schedule; a distinct quality/preview pass) were wrong, and the
+real underlying gaps were different from what they first appeared to be.
+
+Full writeup: `docs/reference/comfyui_workflows/README.md`'s "Fourth pass"
+section; `docs/TODO.md`'s matching entry.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what

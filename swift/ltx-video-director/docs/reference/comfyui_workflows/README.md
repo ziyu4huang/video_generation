@@ -287,3 +287,112 @@ Net: no code changed this pass — pure verification. Four newly-identified
 gaps (1-4 above) added to the backlog; everything else this specific file
 exercises is either already implemented or already tracked from the first
 two passes.
+
+## Fourth pass (2026-07-04) — closing all four third-pass gaps
+
+Driven by `/goal solve this gaps`. Two of the four gaps turned out to be
+misreadings once actually investigated properly, rather than guessed from
+widget-value arrays alone — worth recording HOW they were resolved, not
+just the resolution.
+
+**Gap 1 (FFLF per-slot strength/resize) — genuinely was a gap, fixed as
+described.** `NativeI2VStage.Request.lastFrameStrength: Float = 1.0` and
+`lastFrameAutoResize: Bool = false` added. The conditioning code was
+restructured: frame-0 and the last-frame image are now each their own
+`VideoConditionByLatentIndex` call, applied in sequence (`videoState` is
+threaded through both), instead of one call sharing a single `strength`
+across concatenated tokens — chaining two single-frame-index calls is
+equivalent to one two-index call when neither changes sequence length, so
+this is a pure refactor plus a new independent knob, not a behavior change
+to the frame-0 path. `FrameLoad.resizeAspectFillCenterCrop` added
+(aspect-fill + center-crop via `CGContext.interpolationQuality = .high`,
+matching the reference `MultiImageLoader`'s "keep proportion" + crop
+convention). New CLI: `--last-frame-strength`, `--last-frame-auto-resize`.
+
+New tests in `NativeI2VStageFFLFTests.swift`, both against real
+checkpoints:
+- `testLastFrameAutoResizeAcceptsWrongSizeAndStillPreservesContent`: a
+  solid-color image at the WRONG size and WRONG aspect ratio (exercises
+  both the resize and crop paths) still passes with
+  `--last-frame-auto-resize` and the decoded output matches the pinned
+  color within the same tight tolerance as the exact-size case — a solid
+  color is invariant under resize/crop, so this isolates "did auto-resize
+  actually run" from "how much loss does resizing introduce." 56.9s.
+- `testLastFrameStrengthBelowOneDivergesFromFullyPinnedResult`: runs the
+  same clip at `strength=1.0` (must match the existing tight tolerance)
+  and `strength=0.0` (fully generated, no pinning) and asserts the
+  strength=0.0 result diverges from the solid-color target MORE than
+  strength=1.0 does — proves strength actually changes behavior, not just
+  that it doesn't crash. 353.4s (two full real generations).
+
+**Gap 2 (half-res `ImageScaleBy` "guide pass") — was a misread; traced the
+actual link graph instead of trusting widget values.** The nodes
+`GetImageSize`/`ImageScaleBy(bilinear, 0.5)` looked, from widget values
+alone, like a mysterious lower-resolution preview/guide pass. Reading the
+`links` array in the raw JSON instead shows: `ImageScaleBy`'s output feeds
+`GetImageSize`, whose width/height outputs feed `EmptyLTXVLatentVideo`'s
+width/height inputs DIRECTLY. This is pure resolution auto-derivation —
+the reference computes its BASE generation resolution as half the user's
+FFLF input image size, relying on Stage #2's 2x upscale to bring the final
+output back to that image's own resolution. Not a quality/preview pass at
+all. Implemented the equivalent as a CLI convenience:
+`native-i2v --last-frame-derives-resolution` derives `--width`/`--height`
+from half the `--last-frame` image's own dimensions (`ResolutionResolver
+.optimize`-snapped to the nearest 32), overriding any explicit
+`--width`/`--height`. Implies `--last-frame-auto-resize` automatically
+(the full-resolution image must still be downscaled to the derived base
+resolution to serve as I2V conditioning) — this coupling is load-bearing,
+not optional, so it's enforced in code rather than left to the user to
+remember.
+
+**Gap 3 (`LTXSequencer`'s "per-frame denoise-mask schedule") — was a
+misread from a different angle: the JSON alone can't distinguish "per-frame
+refine schedule" from "keyframe re-insertion," so the earlier passes'
+interpretation was wrong.** Found and read the ACTUAL node source,
+`ltx_sequencer.py`, from the `WhatDreamsCost-ComfyUI` checkout (not
+available in this repo — a separate project checkout on the same
+machine): `class LTXSequencer(LTXVAddGuide)` — it's literally the SAME
+`MultiImageLoader`/keyframe-insertion mechanism as `Process Latents`'s FFLF
+conditioning, just called again inside Stage #2/#3 to RE-APPLY those same
+first/last-frame guides onto the newly-upscaled latent (`append_keyframe`
+splices clean tokens + sets a noise mask at each guide's frame index,
+architecturally identical to this package's own
+`VideoConditionByLatentIndex`). Not a novel per-frame refine-strength
+schedule at all.
+
+This correction exposed the REAL, previously-undocumented gap underneath
+it: `NativeUpscaleStage.refine()` had NO re-pinning mechanism whatsoever —
+an FFLF-conditioned clip's first/last frames could silently drift during
+the refine pass's low-strength re-denoise, since refine's mask was
+uniformly 1.0 (fully re-denoise) everywhere. Fixed: `refine()` gained
+`preserveFirstAndLastFrame: Bool = false`; when true, it re-applies
+`VideoConditionByLatentIndex(frameIndices: [idx], strength: 1.0)` at
+frames `[0, F-1]` using the clean tokens FROM THE JUST-UPSCALED LATENT
+ITSELF (not the original conditioning images — the upscaled latent's
+frame-0/frame-(F-1) already represent the pinned content at the new
+resolution; this only needs to stop the refine denoise from letting that
+content drift, not re-derive it from scratch). `generate()` gained the
+same parameter, threaded through. Wired at two call sites:
+`native-i2v --upscale --refine --last-frame` (automatic — the CLI already
+knows `--last-frame` was given) and standalone
+`native-upscale --preserve-first-last-frame` (opt-in, for the case where
+`native-upscale` runs separately against a frame directory that was
+FFLF-conditioned by an earlier `native-i2v --last-frame` call and the CLI
+has no way to know that on its own).
+
+**Gap 4 (spatial vs. temporal VAE-decode tiling) — confirmed NOT a
+functional gap, no code change.** `VideoTiling.swift`'s own file header
+(written when temporal tiling was first ported) already states: "spatial
+tiling exists there but is never auto-selected" — referring to the
+vendor's own `_compute_decode_tiling` auto-tiling entry point, which this
+package's `VideoDecodeTiling.computeAuto` already mirrors exactly
+(temporal-only). `VAEDecodeTiled`'s spatial tile/overlap widget values in
+the reference workflow are a ComfyUI-specific MANUAL override a user could
+set, not part of the automatic behavior being ported. This package already
+matches the reference's real (automatic) tiling strategy — the earlier
+pass's framing of this as an open gap was itself imprecise, not the
+underlying implementation.
+
+**Verification**: `NativeI2VStageFFLFTests` (4/4, including the 2 new
+tests) pass against real checkpoints. Full suite run separately to confirm
+no regressions from the refine()/generate() signature changes.
