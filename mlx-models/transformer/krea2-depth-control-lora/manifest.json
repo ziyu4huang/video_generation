@@ -1,0 +1,21 @@
+{
+  "_comment": "Krea 2 depth Control LoRA (Patil/Krea-2-depth-controlnet) for the pure-Swift krea2-image-director `controlnet` subcommand. NOT a standalone ControlNet — a rank-64 Control LoRA (224 pairs on blocks.0..27 × {attn.wq,wk,wv,wo,gate, mlp.gate,up,down}) + an expanded first.weight (6144,128) whose control half [:,64:128] projects the control latent at the DiT input. α=rank=64 → scale 1.0. bf16, NOT quantized. Weights externalized to the content-addressed store; this in-tree entry is a symlink.",
+  "name": "krea2-depth-control-lora",
+  "type": "transformer",
+  "arch": "krea2-control-lora",
+  "format": "safetensors-bf16",
+  "description": "Krea 2 depth Control LoRA (rank 64, 224 pairs + expanded input projection). Loaded by Krea2ControlLoRA.swift; injected into the DiT weight dict and applied in Krea2DiT.lin().",
+  "source": "huggingface.co/Patil/Krea-2-depth-controlnet",
+  "source_url": "https://huggingface.co/Patil/Krea-2-depth-controlnet",
+  "weight_file": "model.safetensors",
+  "pipeline": ["krea2"],
+  "cli": {"action": "krea2 controlnet", "control_lora": "krea2-depth-control-lora"},
+  "compatible_with": ["transformer/krea2-turbo"],
+  "size_bytes": 861995928,
+  "md5": "f0f9bfe007c08ce9e00265867c529e8b",
+  "created_at": "2026-07-04T00:00:00Z",
+  "rank": 64,
+  "lora_pairs": 224,
+  "first_weight_shape": [6144, 128],
+  "author_notes": "Downloaded 2026-07-04 from HF as depth-control-lora.safetensors (862MB), relocated to the content-addressed store, symlinked here as model.safetensors (the loader's expected name). Real-silicon validated: loader reports 224/224 pairs; control signal monotonic + control-image identity matters. See docs/controlnet-styletransfer-validation.md."
+}
