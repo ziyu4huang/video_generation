@@ -69,6 +69,16 @@ VIEW_PROMPTS = {
 # The angle command uses short prompts and achieves excellent style matching —
 # the reference latent does the heavy lifting for both style and identity.
 # Profile adopts the same approach: minimal text, let the reference speak.
+#
+# ANTI-TWIST clauses (back/side): a recurring multi-view failure mode on the
+# reference-conditioned edit pipeline is that the HEAD turns to the requested
+# angle but the TORSO/BODY stays front-facing (dominated by the front-facing
+# reference latent — the head is small and responds to text; the large body
+# mass tracks the reference). The result is an anatomically twisted pose. The
+# `detailed` prompt-style already fights this with long anatomy prose, but at
+# the cost of style drift. These clauses extract JUST the anti-twist essence
+# (whole-body rotation + head/body alignment + an explicit "do not turn only
+# the head") into the short default style — targeted at the failure, no drift.
 VIEW_PROMPTS_FLUX2 = {
     "front": (
         "保持人物外貌、服裝、髮型完全一致，"
@@ -77,12 +87,17 @@ VIEW_PROMPTS_FLUX2 = {
     ),
     "back": (
         "保持人物外貌、服裝、髮型完全一致，"
-        "back view, A-pose, full body from head to toes including feet and shoes, white background, "
+        "back view (180°), the ENTIRE body — head, shoulders, torso, hips, and legs — turned fully away from the camera, "
+        "A-pose, full body from head to toes including feet and shoes, white background. "
+        "Back of the head and back of the outfit visible; NO face visible. "
+        "The torso and shoulders MUST also face away — do NOT merely turn the head while keeping the body front-facing. "
         "photorealistic, maintain character identity and appearance consistency"
     ),
     "side": (
         "保持人物外貌、服裝、髮型完全一致，"
-        "side profile view (90 degrees), A-pose, full body from head to toes including feet and shoes, white background, "
+        "side profile view (90°), the head AND the body both turned to the same side — head and torso aligned, not twisted, "
+        "A-pose, full body from head to toes including feet and shoes, white background. "
+        "Only one shoulder and one side of the outfit visible; nose in profile silhouette. "
         "photorealistic, maintain character identity and appearance consistency"
     ),
 }
@@ -283,6 +298,35 @@ def _vlm_verify_profile_view(image_path: str, expected_view: str,
     return None
 
 
+def _vlm_verify_identity(reference_path: str, view_path: str,
+                          vlm_api_url: str, vlm_model: str) -> dict | None:
+    """Call Qwen3-VL (multi-image) to verify a generated view depicts the SAME
+    character as the reference image.
+
+    Uses _call_vlm_multi with [reference, view] so the VLM can compare identity
+    attributes directly. Returns a dict with: same_identity, face_match,
+    hair_match, skin_match, outfit_match, accessories_match, identity_score,
+    issues, summary. Returns None if VLM is unavailable / unparseable.
+
+    This measures the multi-view IDENTITY-preservation concern (is it the same
+    person?) which the angle verify (_vlm_verify_profile_view) does NOT cover
+    (it only checks camera-angle correctness). The two are complementary:
+    a view can be the correct angle but show a different character.
+    """
+    try:
+        from app.commands.caption import _image_to_base64, _call_vlm_multi, get_profile_identity_prompt
+        ref_b64 = _image_to_base64(reference_path)
+        view_b64 = _image_to_base64(view_path)
+        prompt = get_profile_identity_prompt()
+        raw = _call_vlm_multi(vlm_api_url, vlm_model, [ref_b64, view_b64], prompt)
+        result = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(result, dict) and "same_identity" in result:
+            return result
+    except Exception as e:
+        print(f"skipped ({type(e).__name__})")
+    return None
+
+
 def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
     from PIL import Image as PILImage
     max_h = max(img.height for img in images)
@@ -295,25 +339,32 @@ def _stitch_horizontal(images, gap: int = 0, bg_color=(255, 255, 255)):
     return strip
 
 
-def _load_view_verify(view_path: str) -> dict | None:
-    """Load VLM view-verification result from .caption.json, or None."""
+def _load_view_verify(view_path: str) -> tuple[dict | None, dict | None]:
+    """Load VLM verification result from .caption.json.
+
+    Returns (angle_verify, identity_verify) — either may be None. The angle
+    verify dict carries view_correct/full_body/...; the identity dict carries
+    same_identity/outfit_match/... (None when no reference was available).
+    """
     caption_path = os.path.splitext(view_path)[0] + ".caption.json"
     if not os.path.exists(caption_path):
-        return None
+        return None, None
     try:
         with open(caption_path) as f:
             data = json.load(f)
         if data.get("style") == "profile-verify":
             caption = data.get("caption", {})
-            if isinstance(caption, dict) and "view_correct" in caption:
-                return caption
+            angle = caption if isinstance(caption, dict) and "view_correct" in caption else None
+            identity = data.get("identity")
+            identity = identity if isinstance(identity, dict) and "same_identity" in identity else None
+            return angle, identity
     except (OSError, json.JSONDecodeError):
         pass
-    return None
+    return None, None
 
 
-def _render_verify_badges(verify: dict) -> str:
-    """Return HTML badge row from a view-verify dict."""
+def _render_verify_badges(verify: dict, identity: dict | None = None) -> str:
+    """Return HTML badge row from a view-verify dict (+ optional identity dict)."""
     import html as html_mod
     checks = [
         ("view_correct", "View angle"),
@@ -330,10 +381,33 @@ def _render_verify_badges(verify: dict) -> str:
     score = verify.get("score")
     if score is not None:
         badges += f'<span class="vbadge-score">Score: {score}/10</span>'
-    summary = verify.get("summary", "")
-    if summary:
-        safe_sum = html_mod.escape(summary[:120])
-        badges += f'<div class="vsummary">{safe_sum}</div>'
+    # Identity badges — the multi-view same-character check (per-attribute atoms).
+    if identity:
+        id_checks = [
+            ("same_identity",     "Same ID"),
+            ("outfit_match",      "Outfit"),
+            ("hair_match",        "Hair"),
+            ("face_match",        "Face"),
+            ("skin_match",        "Skin"),
+            ("accessories_match", "Acc."),
+        ]
+        for key, label in id_checks:
+            val = identity.get(key)
+            icon = "✓" if val is True else "✗" if val is False else "?"
+            cls = "vbadge-ok" if val is True else "vbadge-err" if val is False else "vbadge-unk"
+            badges += f'<span class="{cls}">{icon} {label}</span>'
+        id_score = identity.get("identity_score")
+        if id_score is not None:
+            badges += f'<span class="vbadge-score">ID: {id_score}/10</span>'
+        id_sum = identity.get("summary", "")
+        if id_sum:
+            safe = html_mod.escape(id_sum[:120])
+            badges += f'<div class="vsummary">{safe}</div>'
+    else:
+        summary = verify.get("summary", "")
+        if summary:
+            safe_sum = html_mod.escape(summary[:120])
+            badges += f'<div class="vsummary">{safe_sum}</div>'
     return f'<div class="verify-row">{badges}</div>'
 
 
@@ -344,19 +418,20 @@ def _write_html_viewer(html_path: str, out_dir: str, ref_image, ref_path: str | 
     # Build card entries: reference (if any) + generated views
     cards = []
     if ref_path:
-        cards.append({"label": "Reference", "file": "reference.png", "verify": None})
+        cards.append({"label": "Reference", "file": "reference.png", "verify": None, "identity": None})
     for vo in view_outputs:
         if vo.get("view") in ("html", "strip"):
             continue
         label = vo["view"].capitalize()
-        verify = _load_view_verify(vo["path"]) if "path" in vo else None
-        cards.append({"label": label, "file": os.path.basename(vo["path"]), "verify": verify})
+        verify, identity = _load_view_verify(vo["path"]) if "path" in vo else (None, None)
+        cards.append({"label": label, "file": os.path.basename(vo["path"]),
+                      "verify": verify, "identity": identity})
 
     cards_html = ""
     for c in cards:
         safe_label = html_mod.escape(c["label"])
         safe_file = html_mod.escape(c["file"])
-        verify_html = _render_verify_badges(c["verify"]) if c.get("verify") else ""
+        verify_html = _render_verify_badges(c["verify"], c.get("identity")) if c.get("verify") else ""
         cards_html += (
             f'      <div class="card">\n'
             f'        <img src="{safe_file}" alt="{safe_label}">\n'
@@ -656,7 +731,7 @@ def run_profile(args):
             and input_image is not None
         )
         if use_chain_ref:
-            print(f"Chain-ref: ON (order: front → side → back, dual reference)")
+            print("Chain-ref: ON (order: front → side → back, dual reference)")
 
         # Multi-ref: pass the reference image N times for stronger conditioning.
         ref_count = max(1, getattr(args, "ref_count", 3))
@@ -785,15 +860,29 @@ def run_profile(args):
                     continue
                 print(f"  [view-verify] {view}...", end=" ", flush=True)
                 result_v = _vlm_verify_profile_view(vo["path"], view, vlm_api_url, vlm_model)
+                # Identity verify: compare this view against the reference character.
+                # Measures the multi-view IDENTITY concern (same person?) which the
+                # angle verify above does NOT cover. Skipped when no reference image
+                # (flux2 always has one; zimage-t2i path does not). The front view is
+                # also compared (sanity — front should match strongly; a low front
+                # score flags a VLM/judge issue rather than a generation drift).
+                result_id = None
+                if input_image:
+                    result_id = _vlm_verify_identity(input_image, vo["path"], vlm_api_url, vlm_model)
                 if result_v:
                     ok = "✓" if result_v.get("view_correct") else "✗"
-                    print(f"{ok} score={result_v.get('score', '?')}")
+                    id_str = ""
+                    if result_id:
+                        id_ok = "✓" if result_id.get("same_identity") else "✗"
+                        id_str = f" | identity {id_ok} ({result_id.get('identity_score', '?')}/10)"
+                    print(f"{ok} score={result_v.get('score', '?')}{id_str}")
                     caption_data = {
                         "image": vo["path"],
                         "style": "profile-verify",
                         "view": view,
                         "model": vlm_model,
                         "caption": result_v,
+                        "identity": result_id,
                     }
                     caption_path = os.path.splitext(vo["path"])[0] + ".caption.json"
                     with open(caption_path, "w") as _f:

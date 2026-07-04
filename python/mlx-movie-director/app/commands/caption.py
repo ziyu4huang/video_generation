@@ -694,6 +694,46 @@ def get_profile_verify_prompt(expected_view: str) -> str:
     )
 
 
+def get_profile_identity_prompt() -> str:
+    """Build a VLM prompt to verify a generated view depicts the SAME character
+    as the reference image.
+
+    Two images are supplied (reference first, generated view second) via
+    _call_vlm_multi(). Identity is decomposed into per-attribute atoms (face,
+    hair, skin, outfit, accessories) rather than a single holistic judgement —
+    a model aggregate is never trusted if it can be recomputed (the repo's
+    null→default lesson), and per-attribute atoms localize WHICH part of the
+    identity drifted (the actionable signal for multi-view turnaround work).
+
+    Returns JSON: {same_identity, face_match, hair_match, skin_match,
+    outfit_match, accessories_match, identity_score, issues, summary}.
+    `same_identity` is the hard gate; identity_score is 1-10 supporting detail.
+    """
+    return (
+        "The FIRST image is the reference character. The SECOND image is a "
+        "generated view (front/side/back) that SHOULD depict the SAME character. "
+        "Judge whether the second image shows the same person/character as the "
+        "reference, attribute by attribute.\n\n"
+        "Respond ONLY with a JSON object (no markdown, no explanation):\n"
+        '{"same_identity": true/false, "face_match": true/false, '
+        '"hair_match": true/false, "skin_match": true/false, '
+        '"outfit_match": true/false, "accessories_match": true/false, '
+        '"identity_score": 1-10, "issues": ["..."], "summary": "one sentence"}\n\n'
+        "Per-attribute criteria (judge each independently; use the reference as ground truth):\n"
+        "- face_match: Same face identity — for a back view (no face visible) judge by head shape / hairline / "
+        "any visible profile cues; if genuinely undeterminable from the angle, still judge from the cues present.\n"
+        "- hair_match: Same hair (color, length, style, parting).\n"
+        "- skin_match: Same skin tone / ethnicity cues.\n"
+        "- outfit_match: Same clothing (color, cut, pattern, texture, garment type). THIS IS THE STRONGEST "
+        "identity signal across views — outfit must be the same garments, just seen from a different angle.\n"
+        "- accessories_match: Same accessories (glasses, jewelry, hats, bags, shoes); false only if clearly different.\n"
+        "- same_identity: Overall — is this recognizably the SAME character? True iff the majority of attributes "
+        "match, with outfit + hair weighted highest.\n"
+        "- identity_score: 1-10 how well identity is preserved (10 = same character, no drift).\n"
+        "- issues: list any identity drifts observed (e.g. 'different hair color', 'outfit changed from red to blue')."
+    )
+
+
 # Per-view EXPECTED framing elements for fair multi-view scoring (同類比較).
 # `caption --view <front|back|side>` injects these so each angle is evaluated on a
 # common, view-appropriate yardstick. Multi-view images are usually scored with the
