@@ -163,9 +163,14 @@ public extension Krea2Engine {
         for i in 0..<(ts.count - 1) {
             let tcurr = ts[i], tprev = ts[i + 1]
             let progress = Float(i) / Float(max(ts.count - 2, 1))
+            // Upstream rescales the per-frequency scale endpoints by strength
+            // (nodes.py:1987-1989). Identity at strength=1.0; only diverges at
+            // partial strength. See `effectiveScaleEndpoints` for the gate analysis.
+            let (effHighStart, effLowEnd) = effectiveScaleEndpoints(
+                highStart: d.highScaleStart, lowEnd: d.lowScaleEnd, strength: strength)
             let scaleVec = styleScaleVec(progress: progress, beta: d.beta,
-                                         highStart: d.highScaleStart, highEnd: d.highScaleEnd,
-                                         lowStart: d.lowScaleStart, lowEnd: d.lowScaleEnd,
+                                         highStart: effHighStart, highEnd: d.highScaleEnd,
+                                         lowStart: d.lowScaleStart, lowEnd: effLowEnd,
                                          headDim: cfg.headDim)
             // Upstream rescales adain by strength (nodes.py effective_adain).
             let mix = max(0, min(1, strength))

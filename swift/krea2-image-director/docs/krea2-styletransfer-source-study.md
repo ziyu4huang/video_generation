@@ -86,15 +86,20 @@ Upstream supports `raw_reference | target | ref_mean | target_adain |
 target_adain_plus_ref`. Both patchers hardcode `target_adain_plus_ref`, so this
 is low-value.
 
-### Gap 5 — strength-rescaling of scale endpoints  ~ partial
+### Gap 5 — strength-rescaling of scale endpoints  ✓ PORTED (2026-07-05)
 At patch-time upstream rescales (nodes.py:1987-1989):
 ```
 effective_high = 1 + (high_scale_start-1)·min(strength,1.5)
 effective_low  = 1 + (low_scale_end-1)·strength
 effective_adain = clamp(adain_strength·min(strength,1.25), 0, 1)
 ```
-Swift passes knob values verbatim. Identity at `strength=1.0`; only diverges at
-partial strength. Cheap fidelity fix.
+Previously Swift passed the scale-endpoint knob values verbatim (adain was
+already rescaled). Now `effHighStart`/`effLowEnd` are computed and fed to
+`styleScaleVec` in both Krea2StyleTransfer.swift and Krea2ControlStyle.swift.
+Identity at `strength=1.0`; dampens toward 1 at partial strength. The corruption
+gate (strength=0 byte-identical) is preserved: at strength=0 the endpoints →1,
+but `mix=0` discards the styled path (scaleVec only feeds refK on the styled
+path), so vanilla output is unaffected.
 
 ### Gap 6 — `stat` method  ✗ (alternative path, not in recommended)
 Per-frequency cross-batch stat transfer on Q/K/V + `prototype_tokens` pooling.
