@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 107,
+  "count": 109,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -430,6 +430,14 @@
     "transformer/krea2-depth-control-lora/model.safetensors": {
       "md5": "f0f9bfe007c08ce9e00265867c529e8b",
       "size": 861995928
+    },
+    "lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors": {
+      "md5": "0ad6142ee6f845949e5eecf71de1bf40",
+      "size": 100767488
+    },
+    "lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors": {
+      "md5": "f536a2858e0055b6314883c48c65c45a",
+      "size": 327287384
     }
   }
 }

@@ -22,9 +22,27 @@ Filenames **must** match exactly — `app/config.py` references them as
 
 ## Source
 
-Download from Lightricks / CivitAI (search "LTX 2.3 IC-LoRA restoration" /
-"IC video upscale"). Both are required for `video restore` unless overridden via
-`--restoration-lora` / `--upscale-lora`.
+**Found and verified 2026-07-05**: `joyfox/LTX2.3-ICEdit-Insight` on HuggingFace
+(Apache-2.0, non-gated) contains both files by their exact required filenames:
+
+```
+https://huggingface.co/joyfox/LTX2.3-ICEdit-Insight/resolve/main/ltx2.3-video-restoration-general.safetensors
+https://huggingface.co/joyfox/LTX2.3-ICEdit-Insight/resolve/main/ltx2.3-ic-video-upscale-general.safetensors
+```
+
+(The official `Lightricks/LTX-2.3-22b-IC-LoRA-Decompression` also exists but is
+gate-flagged — needs a one-time HuggingFace license click before download.)
+
+Both are required for `video restore` (Python) / `native-upscale --mode hd`
+(Swift) unless overridden via `--restoration-lora`/`--upscale-lora` /
+`--restoration-lora`/`--upscale-lora`. Download with `curl -L -o <name>.safetensors
+<url>` (plain `curl -I` without `-L` misreports the size as a ~1 KB LFS
+pointer — follow the redirect to see the real ~100/327 MB). Externalize
+like every other LoRA in this repo (copy into `../video_generation__models/`,
+replace with a relative symlink, update `mlx-models/store-manifest.json`) —
+this directory's raw-weights convention (see `.raw-download`) only means
+"skip the MLX-manifest pipeline," not "exempt from the never-commit-raw-
+safetensors rule."
 
 ## Why this lives here (not in `comfyui_data/`)
 
