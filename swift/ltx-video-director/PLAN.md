@@ -1639,6 +1639,76 @@ schedule is really Stage #2/#3's UPSCALE-REFINE mechanism (separately
 scoped, still not implemented — see the "no refine pass" item above),
 not something FFLF itself required.
 
+## Research: ComfyUI reference workflows, second pass (2026-07-04)
+
+Re-reviewed the same 4 workflow JSONs under `docs/reference/comfyui_workflows/`
+against this package's CURRENT code (not the 2026-07-03 snapshot) — items 1/3/4/5
+from the first pass are now confirmed DONE (refine pass, `--lora` strength, FFLF,
+`--audio-track` masking all shipped since). Full findings in that directory's
+`README.md`'s new "Second pass" section; summary of what's still genuinely open:
+
+1. Only a single upscale+refine pass is ported — the reference's chainable
+   2-stage cascade (a second upscale at a *different* checkpoint, 1.5x vs 2x
+   total, with a bypass toggle) isn't. Bounded follow-up when >2x total upscale
+   is wanted in one command.
+2. **New finding, not previously captured**: reference pipelines load a
+   lightweight "tiny" preview VAE (`taeltx2_3.safetensors`) alongside the full
+   one, behind an "optimized decoding" toggle — this package has no fast-preview
+   decode path. Candidate for a `--preview-vae`-style flag.
+3. FFLF's 2-frame conditioning generalizes to N arbitrary keyframes in the
+   reference (`MultiImageLoader`/`LTXSequencer`, per-slot frame index + strength).
+   `VideoConditionByLatentIndex` already takes `frameIndices: [Int]` — no new
+   conditioning math needed, just `NativeI2VStage.Request` + CLI surface work.
+4. **`LTX_Director_2_Workflow_Hotfix.json`** (explicitly unanalyzed in the first
+   pass) is a full segment-timeline editor — `segments`/`motionSegments`/
+   `audioSegments` tracks plus a "retake" mechanism that re-denoises one
+   sub-range of an already-generated clip at a given prompt/strength. This is
+   the first real-production reference for scoping this repo's own
+   `run.py video segment`/`relay` commands' eventual native Swift port (see
+   [[project_ltx_swift_native_port]] memory) — the retake pattern maps to the
+   same `VideoConditionByLatentIndex` primitive already used for FFLF/audio,
+   applied to a mid-clip range instead of frame 0/last-frame.
+
+Nothing implemented this pass — pure scope-capture, explicitly to avoid
+re-discovering the same four files from scratch a third time.
+
+## Milestone: `MP4Writer` real audio+video deadlock found + fixed (2026-07-04)
+
+A user-directed live proof ("prove FFLF works" via the real `pi-agent` CLI +
+`ltx` tool — `t2i` → `t2i` → `native-i2v --last-frame`, real generation, no
+mocks) hung indefinitely: `video.mp4` stayed at 0 bytes for 15+ minutes at
+~0% CPU. `sample`'d the stuck process rather than guessing — the main
+thread was parked in `MP4Writer.write → appendVideoFrames`'s
+`isReadyForMoreMediaData` poll loop, having never once called `appendAudio`.
+
+Root cause: `write()` appended 100% of the video frames to completion
+before ever touching the audio input. AVAssetWriter throttles
+`isReadyForMoreMediaData` on whichever track outruns the other in
+presentation time, expecting both to be fed roughly in parallel — with
+audio sitting untouched at zero samples, video ran far enough ahead (a real
+~2s/49-frame 640×960 clip, unlike the 8-frame/1s synthetic clip the existing
+`MP4WriterTests.testWriteVideoWithAudio` used) to trip that throttle
+permanently.
+
+Fix: video and audio inputs now append **concurrently** — a `DispatchGroup`
+with one queue per track, not sequential video-then-audio. New regression
+test `testWriteVideoWithAudioAtRealisticScaleDoesNotDeadlock` (49 frames,
+320×480, duration-matched audio, wrapped in an `XCTestExpectation` with a
+60s timeout so a regression fails fast instead of hanging CI) passes in
+1.1s post-fix. `MP4WriterTests`: 4/4 pass.
+
+**Re-verified against the real, rebuilt release binary**, not just the unit
+test: reran the exact FFLF proof through the real `pi-agent` CLI end to end.
+Independent `ffprobe` (not the tool's own report): `h264 1280×1920, 49
+frames` / `aac, 97 frames` / `duration 2.041667s` (requested `--seconds
+2.0`) — both tracks present, valid container, matches requested duration.
+See `docs/TODO.md`'s matching entry for the full trace.
+
+**Scope**: silently affected *every* real `--mp4` output carrying audio at
+non-trivial scale (not FFLF-specific) — no error, no crash, just an
+unbounded hang, only surfaced by running a real generation at production
+scale rather than the tiny synthetic clips the original tests used.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what

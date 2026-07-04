@@ -22,11 +22,11 @@
 //      auto-budgeted via LTX2_VAE_DECODE_BUDGET_GB) — long clips no
 //      longer exhaust memory in the decode graph. VideoEncoder still
 //      encodes a single conditioning frame, which never needs tiling.
-//    - NO mp4 muxing. Output is a PNG frame sequence + a separate WAV
-//      file (same convention VideoDecodeCommand/AudioDecodeCommand
-//      already use) — muxing them into one .mp4 needs either an
-//      AVAssetWriter integration or an ffmpeg subprocess, neither of
-//      which exists in this package yet.
+//    - Output is a PNG frame sequence + a separate WAV file (same
+//      convention VideoDecodeCommand/AudioDecodeCommand already use).
+//      `native-i2v`'s CLI command optionally muxes these into a real
+//      `.mp4` via MP4Writer.swift (AVAssetWriter) — on by default,
+//      `--no-mp4` to skip.
 //    - `DenoiseLoop.runStreaming` rebuilds all 48 blocks from the raw
 //      checkpoint on every sigma step (no persistent block cache), so
 //      wall-clock is expected to be meaningfully slower than run.py's

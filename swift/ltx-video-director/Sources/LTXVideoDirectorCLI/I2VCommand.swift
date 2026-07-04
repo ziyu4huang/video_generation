@@ -105,9 +105,18 @@ extension LTXVideoDirectorCLI {
                     "transformer": transformer.rawValue,
                     "manifest": result.manifest,
                 ]
-                if let v = gateVerdict, let data = try? JSONEncoder().encode(v),
-                   let obj = try? JSONSerialization.jsonObject(with: data) {
-                    payload["gate"] = obj
+                if let v = gateVerdict {
+                    // v.meanDBFS is -.infinity for audio-less clips; JSONEncoder's
+                    // default strategy throws on any non-finite Double, which used
+                    // to silently drop the whole "gate" key from the payload with
+                    // no error at all — see GateCommand.swift's identical fix and
+                    // docs/TODO.md's "gate --json false negative" writeup.
+                    let encoder = JSONEncoder()
+                    encoder.nonConformingFloatEncodingStrategy = .convertToString(
+                        positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
+                    if let data = try? encoder.encode(v), let obj = try? JSONSerialization.jsonObject(with: data) {
+                        payload["gate"] = obj
+                    }
                 }
                 let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
                 try data.write(to: URL(fileURLWithPath: jsonOut))

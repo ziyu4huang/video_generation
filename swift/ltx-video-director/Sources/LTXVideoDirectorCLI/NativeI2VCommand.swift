@@ -69,6 +69,10 @@ struct NativeI2V: ParsableCommand {
             help: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count (resampled to 16kHz, mono duplicated to stereo). If shorter than the clip, only the covered portion is preserved; the rest is still generated.")
     var audioTrack: String?
 
+    @Flag(name: .customLong("mp4"), inversion: .prefixedNo,
+          help: "Mux the final PNG frame sequence (post-upscale if --upscale is on) + audio.wav into a real H.264+AAC output.mp4 via AVAssetWriter. On by default — --no-mp4 to skip and keep just the frame sequence.")
+    var mp4: Bool = true
+
     func run() throws {
         var request = NativeI2VStage.Request(
             prompt: prompt, seconds: seconds, fps: fps, width: width, height: height,
@@ -110,27 +114,43 @@ struct NativeI2V: ParsableCommand {
         print("   audio: \(result.audioURL.path)")
         print("   100% native Swift/MLX — zero run.py calls.")
 
-        guard upscale else { return }
-        let refineNote = refine ? " + refine pass" : ""
-        print("\n[upscale] auto-upscaling (native LatentUpsampler, 2x spatial\(refineNote), --no-upscale to skip)...")
-        let upscaleStart = Date()
-        let upscaleDir = URL(fileURLWithPath: output).appendingPathComponent("upscaled")
+        var finalFrameDirectory = result.frameDirectory
+        if upscale {
+            let refineNote = refine ? " + refine pass" : ""
+            print("\n[upscale] auto-upscaling (native LatentUpsampler, 2x spatial\(refineNote), --no-upscale to skip)...")
+            let upscaleStart = Date()
+            let upscaleDir = URL(fileURLWithPath: output).appendingPathComponent("upscaled")
+            do {
+                let upscaleResult = try NativeUpscaleStage().generate(
+                    inputFrameDirectory: result.frameDirectory, outputDir: upscaleDir,
+                    refinePrompt: refine ? prompt : nil,
+                    refineAudioURL: refine ? result.audioURL : nil,
+                    fps: fps)
+                let upscaleSeconds = Date().timeIntervalSince(upscaleStart)
+                print("✅ upscale wall time: \(String(format: "%.1f", upscaleSeconds))s")
+                print("   \(upscaleResult.inputSize.width)x\(upscaleResult.inputSize.height) -> "
+                    + "\(upscaleResult.outputSize.width)x\(upscaleResult.outputSize.height)")
+                print("   \(upscaleResult.frameCount) frames: \(upscaleResult.frameDirectory.path)")
+                finalFrameDirectory = upscaleResult.frameDirectory
+            } catch {
+                // Upscaling is a value-add, not the primary deliverable — a failure
+                // here (e.g. missing spatial_upscaler_x2_v1_1.safetensors) should not
+                // make the overall native-i2v run look like it failed.
+                print("⚠️  auto-upscale failed, base-resolution output above is still valid: \(error)")
+            }
+        }
+
+        guard mp4 else { return }
+        let mp4URL = URL(fileURLWithPath: output).appendingPathComponent("video.mp4")
         do {
-            let upscaleResult = try NativeUpscaleStage().generate(
-                inputFrameDirectory: result.frameDirectory, outputDir: upscaleDir,
-                refinePrompt: refine ? prompt : nil,
-                refineAudioURL: refine ? result.audioURL : nil,
-                fps: fps)
-            let upscaleSeconds = Date().timeIntervalSince(upscaleStart)
-            print("✅ upscale wall time: \(String(format: "%.1f", upscaleSeconds))s")
-            print("   \(upscaleResult.inputSize.width)x\(upscaleResult.inputSize.height) -> "
-                + "\(upscaleResult.outputSize.width)x\(upscaleResult.outputSize.height)")
-            print("   \(upscaleResult.frameCount) frames: \(upscaleResult.frameDirectory.path)")
+            try MP4Writer.write(frameDirectory: finalFrameDirectory, audioURL: result.audioURL, fps: fps, to: mp4URL)
+            print("\n[mp4] muxed: \(mp4URL.path)")
         } catch {
-            // Upscaling is a value-add, not the primary deliverable — a failure
-            // here (e.g. missing spatial_upscaler_x2_v1_1.safetensors) should not
-            // make the overall native-i2v run look like it failed.
-            print("⚠️  auto-upscale failed, base-resolution output above is still valid: \(error)")
+            // Muxing is a convenience on top of the PNG+WAV output above, not
+            // the primary deliverable — a failure here (e.g. an unsupported
+            // codec configuration on this machine) should not make the
+            // overall native-i2v run look like it failed.
+            print("⚠️  mp4 mux failed, PNG frame sequence + audio.wav above are still valid: \(error)")
         }
     }
 }

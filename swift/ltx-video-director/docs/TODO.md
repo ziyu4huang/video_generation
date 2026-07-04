@@ -1,3 +1,132 @@
+# `MP4Writer` deadlocked on real audio+video FFLF clips — FIXED (2026-07-04)
+
+Driven by a live, user-directed proof: "prove FFLF works" via the real
+`pi-agent` CLI + `ltx` tool, same pattern as an independent Flux-tool
+verification the user ran in parallel (`t2i` → `t2i` → `native-i2v
+--last-frame`, natural-language prompt, local model, real generation, no
+mocks). The run hung indefinitely — `video.mp4` sat at 0 bytes for 15+
+minutes with the `ltx-video` process at ~0% CPU.
+
+Diagnosed with `sample` (not guessed): the process's stack showed the main
+thread parked in `MP4Writer.write(...) → appendVideoFrames → NSThread
+sleepForTimeInterval → nanosleep`, i.e. permanently stuck in
+`appendVideoFrames`'s `while !input.isReadyForMoreMediaData { Thread.sleep
+(...) }` poll — before `appendAudio` had even been called once. Root cause:
+`write()` appended **all** video frames to completion first, only starting
+the audio input afterward. AVAssetWriter throttles `isReadyForMoreMediaData`
+on whichever input runs furthest ahead in presentation time, to bound its
+own internal buffering, and expects the *other* declared input to be
+actively draining in parallel to relieve that throttle — video, with a
+never-touched audio input sitting at zero samples, ran far enough ahead to
+trip that throttle and never got released.
+
+**Why the existing tests missed it**: `MP4WriterTests.testWriteVideoWithAudio`
+uses an 8-frame/1s synthetic clip — small enough that the writer's internal
+threshold for "one track is too far ahead" is never crossed. It took a real
+~2s/49-frame 640×960 FFLF clip (the same reproduction size as the actual
+user-facing failure) to hit it.
+
+Fix (`MP4Writer.swift`): video and audio inputs are now fed **concurrently**
+— a `DispatchGroup` with one `DispatchQueue.global` task per track, instead
+of a sequential video-then-audio append — matching how AVAssetWriter
+actually expects multi-track muxing to be driven.
+
+New regression test,
+`MP4WriterTests.testWriteVideoWithAudioAtRealisticScaleDoesNotDeadlock`:
+49 frames at 320×480 with a duration-matched real audio track, wrapped in
+an `XCTestExpectation` with a 60s timeout so a reintroduced deadlock **fails
+fast** instead of hanging the whole test suite. Passes in 1.1s post-fix (an
+infinite hang pre-fix). `MP4WriterTests`: 4/4 pass.
+
+**Re-verified end-to-end, not just unit-tested**: reran the exact same FFLF
+proof (`native-i2v --last-frame`, real generation, real audio) through the
+rebuilt release binary via the real `pi-agent` CLI. Completed cleanly.
+Independent `ffprobe` on the output (not the tool's own self-report):
+`video: h264, 1280×1920, 49 frames` / `audio: aac, 97 frames` / `duration:
+2.041667s` (requested `--seconds 2.0`) — both tracks present, valid
+container, matches the requested duration.
+
+**Scope**: this deadlock would have hit *every* real `--mp4` output that
+also carries audio at non-trivial scale (any `native-i2v` run without
+`--no-mp4`/`--no-refine-audio` shenanigans, not just FFLF specifically) —
+it was silent (no error, no crash, just an unbounded hang) until reproduced
+live at real generation scale.
+
+# `gate --json` false negative on audio-less clips — FIXED (2026-07-04)
+
+Driven by `pi-agent-ext-ltx`'s live A/B upscale-verification run (chain
+`native-i2v` → `native-upscale` → independent `ffprobe` cross-check → `gate`
+on both outputs, through the real pi-agent `ltx` tool — see that package's
+`TODO.md` items 7-10). `native-upscale`'s own mp4 output (video-only, no
+`--refine-audio` given) came back from `gate --json --no-expect-voice` as
+`"could not read/probe video"` — but an independent `ffprobe` AND a
+standalone AVFoundation probe both confirmed the file was completely valid
+(1 video track, correct dims, readable).
+
+Traced rather than guessed, in order: (1) reproduced directly against the
+release binary, ruled out the voice-check business-logic path (fails
+identically with `--expect-voice`/`--no-expect-voice`); (2) a standalone
+AVFoundation probe confirmed both the base and upscaled files parse fine —
+`isReadable=true`, correct track counts; (3) instrumented
+`VideoGate.evaluate()`'s `try?` with a real `do/catch` + stderr print,
+rebuilt, reran on the failing file — **nothing printed**, meaning
+`evaluate()` never actually throws for this file; (4) re-read
+`GateCommand.swift`'s JSON branch with that constraint and found it treats
+*any* JSON-encoding failure of the verdict the same as "couldn't read the
+file," not just a thrown `evaluate()` error; (5) confirmed with a minimal
+isolated repro that `JSONEncoder` throws `EncodingError.invalidValue` on a
+non-finite `Double` — and `VideoGateVerdict.meanDBFS` is set to
+`-.infinity` whenever a clip has no audio track (exactly this file's
+situation). The thrown encoding error was silently caught by `try?
+encoder.encode($0)` and mapped to the wrong, misleading reason string.
+
+Fix (`GateCommand.swift`): `encoder.nonConformingFloatEncodingStrategy =
+.convertToString(positiveInfinity: "inf", negativeInfinity: "-inf", nan:
+"nan")` before encoding each verdict. The real verdict now survives
+encoding intact — re-run on the same file reports its honest reasons
+(`"video duration too short"`, `"no audio track present"` when
+`--expect-voice`) instead of the false "unreadable" message.
+
+New `Tests/LTXVideoDirectorTests/VideoGateTests.swift` (2 tests): builds a
+real audio-less mp4 via `MP4Writer` (same convention as
+`MP4WriterTests.swift` — read the write path's own output back, don't just
+check it didn't throw), asserts `VideoGate.evaluate` returns a normal
+verdict with `meanDBFS == -.infinity`, and asserts the **default**
+`JSONEncoder` throws on that verdict while the fixed
+`.convertToString`-configured one succeeds — documents both why the bug
+happened and that the fix holds. Full suite: **124/124 pass** (1 skipped —
+the unrelated hd-mode real-checkpoint test, still blocked on missing LoRA
+files, see `NativeUpscaleStageRealCheckpointTests`).
+
+**Not fixed by this, and not a bug**: `native-upscale` without
+`--refine-audio` still produces a video-only mp4 — `gate`'s default
+`--expect-voice` correctly FAILs it with `"no audio track present"`. Pass
+`--no-expect-voice` when gating a deliberately video-only output, or
+`--refine-audio <base>/audio.wav` to `native-upscale` if the upscaled clip
+should carry sound.
+
+## Second confirmed instance found + fixed the same day: `I2VCommand.swift`'s `--json-out`
+
+A grep for other `JSONEncoder`/`VideoGateVerdict` call sites (prompted by
+the fix above) turned up `I2VCommand.swift:108` — `i2v --self-verify
+--json-out` encoded the same `VideoGateVerdict` with the same bare `try?
+JSONEncoder().encode(v)`. Worse than the gate command's version: this one
+doesn't even emit a misleading error, it silently **omits the whole `gate`
+key** from the JSON output whenever the generated clip's gate verdict has
+`meanDBFS == -.infinity` (i.e. any audio-less video, though `i2v`'s own
+production path normally generates audio so this was rarer to hit than
+`native-upscale`'s case). Fixed with the identical
+`nonConformingFloatEncodingStrategy` before encoding. No dedicated test
+added here (no existing CLI-level test harness for `I2VCommand`'s
+`--json-out` — it bridges through `RunPyBridge`, real generation only); the
+`VideoGateTests.swift` coverage of the underlying `JSONEncoder` behavior
+already documents why this class of fix is needed.
+
+Any *other* `Codable` struct with a `Double`/`Float` field that could
+plausibly be `.infinity`/`.nan` (e.g. `VLMVerify`'s score types, if any) is
+still worth a scan before it causes a third silent incident — but the two
+known real call sites (`gate`, `i2v --json-out`) are both fixed now.
+
 # Upscale refine pass — DONE (2026-07-03)
 
 Driven by `/goal generate high quality First-Last-Frame image generation`.

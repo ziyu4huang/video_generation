@@ -136,4 +136,48 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    /// `generateHD`'s restoration IC-LoRA files are user-downloaded,
+    /// gitignored external binaries (see mlx-models/lora/ltx-2.3-restore/
+    /// README.md) — not present in CI/dev environments without a manual
+    /// download. This exercises the ONE path fully reachable without them:
+    /// a clear, typed error naming the exact missing file, instead of a
+    /// generic crash deep in LoRAWeights.load — the same contract every
+    /// other checkpoint-gated stage in this package already guarantees
+    /// (videoEncoderCheckpointNotFound, transformerCheckpointNotFound, etc).
+    func testGenerateHDMissingLoraThrowsNamedError() throws {
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard FileManager.default.fileExists(atPath: vaeEncoderURL.path) else {
+            throw XCTSkip("checkpoint not found at \(vaeEncoderURL.path) — skipping")
+        }
+        let restorationLoraURL = RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors")
+        guard !FileManager.default.fileExists(atPath: restorationLoraURL.path) else {
+            throw XCTSkip("restoration LoRA IS present in this environment — the missing-file path this test targets doesn't apply")
+        }
+
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_out_\(UUID().uuidString)")
+        let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_audio_\(UUID().uuidString).wav")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(11)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+        try WAVWriter.write(channels: [[Float](repeating: 0, count: 1600)], sampleRate: 16000, to: audioURL)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateHD(
+            inputFrameDirectory: inputDir, outputDir: outputDir, prompt: "a test prompt", audioURL: audioURL)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .restorationLoraNotFound = stageError {} else {
+                XCTFail("expected .restorationLoraNotFound, got \(stageError)")
+            }
+        }
+    }
 }

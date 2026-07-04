@@ -111,3 +111,94 @@ port, not a same-session addition to the LoRA/upscale/resolution work this
 `/goal` already covered) — this document exists so that scope is captured
 accurately for whenever they're picked up, instead of being re-discovered
 from scratch.
+
+## Second pass (2026-07-04) — status check + previously-unexplored `LTXDirector` pack
+
+Items 1, 3, 4, 5 above are now DONE (confirmed against this package's own
+code, not re-guessed): the upscale refine pass, `--lora path:strength`,
+FFLF (`--last-frame`), and `--audio-track` noise-masking all shipped in the
+2026-07-03 "native VAE tiling, upscale+refine, LoRA fusion, FFLF, custom
+audio" milestone. Re-verified live against `NativeI2VStage.swift`/
+`NativeUpscaleStage.swift`/`LatentConditioning.swift`: `--audio-track`
+genuinely uses the mask=0-preserve mechanism this doc predicted
+(`VideoConditionByLatentIndex(..., strength: 1.0)` → `applyDenoiseMask`
+forces the audio tokens back to the clean input after every step — the
+real analogue of ComfyUI's `SetLatentNoiseMask`+`SolidMask`, not a
+post-hoc waveform overwrite).
+
+What's genuinely new this pass — either not looked at before, or looked at
+but not acted on:
+
+1. **True N-stage cascade is still NOT ported — only a single refine pass
+   is.** Item 1 above was resolved as "one upscale + one low-strength
+   refine," which is exactly Stage #2. The 3-stage workflow chains a
+   SECOND upscale+refine (Stage #3: a *different* 1.5x checkpoint,
+   `ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors` — not the x2 model used
+   twice — at 4 steps/shift 0.42, with a `PrimitiveBoolean` toggle to pick
+   1.5x-total vs 2x-total, and a `LazySwitchKJ` bypass to skip it
+   entirely). `NativeUpscaleStage.refine()` isn't structured to be called
+   twice with a different upscaler + progressively fewer steps — it would
+   need a chain/loop, not new sampling math (the schedule math is already
+   ported). Not needed until someone asks for >2x total upscale in one
+   command; noted so the shape carries over from the reference cleanly
+   when it is.
+2. **Tiny/fast preview VAE (`taeltx2_3.safetensors`) — never previously
+   captured.** Every reference workflow loads THREE VAEs (audio, full
+   video, and this "tiny" one) plus a `PrimitiveBoolean` "Use Optimized
+   Decoding" toggle in the `Decode` subgraph. This package has exactly one
+   VAE decode path (the full checkpoint, tiled for memory, not speed) in
+   both `NativeI2VStage` and `NativeUpscaleStage` — no lightweight preview
+   option. Concrete idea: a `--preview-vae` (or similar) flag that decodes
+   through a distilled/tiny VAE for a fast low-fidelity look before
+   committing to the full decode — useful for iterating on seed/prompt
+   before paying the full VAE cost, and a natural fit for a GUI "quick
+   preview" button. Scoped, not started.
+3. **Multi-keyframe insertion beyond FFLF's 2 frames — genuinely open.**
+   `MultiImageLoader` + `LTXSequencer` support inserting arbitrarily many
+   images at arbitrary frame indices OR by seconds, each with its own
+   per-slot strength — FFLF (frame 0 + last frame only) is the special
+   case with just 2 slots. Confirmed (via code read) this doesn't need new
+   conditioning machinery: `VideoConditionByLatentIndex` already takes
+   `frameIndices: [Int]` and applies per-call `strength` — `NativeI2VStage`
+   would just need `lastFrameImagePath: URL?` generalized to something like
+   `keyframes: [(imagePath: URL, frameIndex: Int, strength: Double)]` and a
+   CLI surface for it (repeatable `--keyframe path:index[:strength]`,
+   mirroring the existing `--lora path:strength` spec-string convention).
+   Not started — no concrete use case has asked for >2 keyframes yet.
+4. **`LTX_Director_2_Workflow_Hotfix.json` — the one file explicitly
+   flagged "not analyzed in depth" last time — is the closest existing
+   reference for this repo's own `run.py video segment`/`relay`/`vbvr`
+   commands, still un-ported to native Swift** (see
+   `project_ltx_swift_native_port` memory: "transformer/encoder/audio
+   remain" — segment/relay specifically were never scoped against a real
+   reference before). Its `LTXDirector` node is a full timeline editor, not
+   a simple FFLF workflow: JSON config carries `segments`/`motionSegments`/
+   `audioSegments` arrays (independent per-modality tracks, each entry
+   presumably `{start, length, prompt, strength}` — empty in this example's
+   default state) plus a **"retake" mechanism**
+   (`retakeMode`/`retakeStart`/`retakeLength`/`retakePrompt`/
+   `retakeStrength`/`retakeVideo`) that re-denoises a specific sub-range of
+   an ALREADY-GENERATED video at a given strength, driven by a new prompt
+   — i.e. partial regeneration of one segment without redoing the whole
+   clip. `LTXDirectorGuide` nodes (2 present, strengths 1.0 and 0.5) feed
+   per-segment reference images, each independently weighted — the
+   generalized version of idea 3 above, but wired through a segment/track
+   model instead of a flat keyframe list. `LTXDirectorCropGuides` (2
+   instances) removes the guide/reference frames from the final decoded
+   output before muxing — this pack DOES crop guides, unlike the FFLF pack
+   (which this repo's own FFLF milestone confirmed doesn't need cropping
+   at current scope — still true, not contradicted). **Relevance**: this
+   is the first concrete, real-production shape to scope
+   `video segment`/`relay` porting against, once that becomes the active
+   goal — the "retake a sub-range at strength X with a new prompt" pattern
+   maps directly to a native `VideoConditionByLatentIndex`-based partial
+   re-denoise over an existing decoded (then re-encoded) clip range, same
+   primitive already used for FFLF/audio-track, applied to a mid-clip
+   range instead of frame 0/last-frame. Not started — flagged as the
+   concrete starting point for whenever `run.py`'s `segment`/`relay`
+   subcommands get their native Swift port.
+
+Net: nothing in this second pass required immediate code changes — it's
+scope-capture for genuinely open follow-ups (items 1-4 above), confirming
+work already done (items 1/3/4/5 from the first pass) rather than
+re-discovering it from scratch.

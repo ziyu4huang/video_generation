@@ -49,6 +49,8 @@ public struct NativeUpscaleStage {
         case transformerCheckpointNotFound(URL)
         case audioEncoderCheckpointNotFound(URL)
         case refineNeedsAudioTrack
+        case restorationLoraNotFound(URL)
+        case upscaleLoraNotFound(URL)
 
         public var description: String {
             switch self {
@@ -59,6 +61,8 @@ public struct NativeUpscaleStage {
             case .transformerCheckpointNotFound(let url): return "NativeUpscaleStage: LTX-2.3 distilled transformer checkpoint not found at \(url.path)"
             case .audioEncoderCheckpointNotFound(let url): return "NativeUpscaleStage: LTX-2.3 audio VAE checkpoint not found at \(url.path)"
             case .refineNeedsAudioTrack: return "NativeUpscaleStage: --refine-prompt requires --refine-audio (the joint audio-video transformer needs a preserved audio track to attend to during refinement, even though audio itself isn't refined)"
+            case .restorationLoraNotFound(let url): return "NativeUpscaleStage: hd mode's restoration IC-LoRA not found at \(url.path) — download `ltx2.3-video-restoration-general.safetensors` per mlx-models/lora/ltx-2.3-restore/README.md"
+            case .upscaleLoraNotFound(let url): return "NativeUpscaleStage: hd mode's upscale IC-LoRA not found at \(url.path) — download `ltx2.3-ic-video-upscale-general.safetensors` per mlx-models/lora/ltx-2.3-restore/README.md"
             }
         }
     }
@@ -180,6 +184,198 @@ public struct NativeUpscaleStage {
         return Result(
             frameDirectory: frameDir, frameCount: frameCount,
             inputSize: (width, height), outputSize: (width * 2, height * 2))
+    }
+
+    /// `native-upscale --mode hd`: real native IC-LoRA restoration —
+    /// fuses the actual `ltx2.3-video-restoration-general` +
+    /// `ltx2.3-ic-video-upscale-general` LoRAs (see mlx-models/lora/
+    /// ltx-2.3-restore/README.md) into the distilled transformer via
+    /// LoRAFusion.swift (the same mechanism `NativeI2VStage`'s `--lora`
+    /// already uses), VAE-encodes `inputFrameDirectory` as IC-LoRA
+    /// REFERENCE conditioning (appended, always-preserved tokens the
+    /// generation attends to — VideoConditionByReferenceLatent.swift, real
+    /// parity-tested port of `ltx_core_mlx.conditioning.types
+    /// .reference_video_cond.VideoConditionByReferenceLatent`), and runs a
+    /// full noise-to-clean denoise (DISTILLED_SIGMAS) at the REFERENCE's
+    /// own resolution — a restoration/deartifact pass, not a resolution
+    /// increase.
+    ///
+    /// Deliberately scoped narrower than the vendor `ICLoraPipeline`
+    /// (PLAN.md's "Research: native spatial upscaling"): the vendor runs
+    /// this as HALF-resolution Stage 1 of a two-stage pipeline (Stage 2
+    /// upscales 2x + refines, LoRA removed). This method IS the real
+    /// LoRA-fused, reference-conditioned restoration technique — just
+    /// single-stage, at the reference's own resolution. `native-upscale
+    /// --mode hd`'s CLI command chains this method's output through
+    /// `generate()` (the already-verified, already-native 2x
+    /// LatentUpsampler) to get the actual resolution increase, instead of
+    /// the vendor's bit-exact Stage 2. Not a claim of output-identical
+    /// parity with `ltx-video upscale`'s run.py-bridged IC-LoRA path — a
+    /// different, real, fully-native composition of the same underlying
+    /// LoRA + reference-conditioning mechanism.
+    ///
+    /// UNVERIFIED against a real checkpoint as of introduction: the two
+    /// restoration LoRA `.safetensors` files are user-downloaded, gitignored
+    /// external binaries (see mlx-models/lora/ltx-2.3-restore/README.md) not
+    /// present in this development environment. `VideoConditionByReferenceLatent`
+    /// itself IS real-checkpoint-free numerically parity-tested (bit-exact
+    /// vs the vendor Python reference, see VideoConditionByReferenceLatentParityTests
+    /// / scripts/dump_reference_conditioning.py) — only the end-to-end
+    /// generation quality (LoRA fusion correctness + reference-attention
+    /// behavior in a real forward pass) is unverified. A visual-inspection
+    /// pass with the real LoRA files is the natural next step, matching
+    /// this package's established practice (see NativeUpscaleStage's own
+    /// milestone note on the color-fringing bug shape/finite checks alone
+    /// didn't catch).
+    public func generateHD(
+        inputFrameDirectory: URL, outputDir: URL, prompt: String, audioURL: URL,
+        fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42,
+        restorationLoraURL: URL? = nil, upscaleLoraURL: URL? = nil,
+        restorationLoraStrength: Float = 1.0, upscaleLoraStrength: Float = 1.0
+    ) throws -> Result {
+        let fm = FileManager.default
+        let frameFiles = (try fm.contentsOfDirectory(atPath: inputFrameDirectory.path))
+            .filter { $0.hasPrefix("frame_") && $0.hasSuffix(".png") }
+            .sorted()
+        guard !frameFiles.isEmpty else {
+            throw StageError.noFramesFound(inputFrameDirectory)
+        }
+
+        print("[1/5] Loading \(frameFiles.count) reference frames...")
+        var frameArrays: [MLXArray] = []
+        var width = 0, height = 0
+        for file in frameFiles {
+            let url = inputFrameDirectory.appendingPathComponent(file)
+            guard let cgImage = FrameLoad.loadCGImage(from: url) else { continue }
+            let arr = FrameLoad.toArray(cgImage)  // (1, 3, H, W) [0, 1]
+            width = arr.dim(3); height = arr.dim(2)
+            frameArrays.append(arr)
+        }
+        guard !frameArrays.isEmpty else {
+            throw StageError.noFramesFound(inputFrameDirectory)
+        }
+        let stacked = MLX.stacked(frameArrays.map { $0[0] }, axis: 1)  // (3, F, H, W)
+        let pixelsBCFHW = (stacked.asType(.float32) * 2.0 - 1.0).expandedDimensions(axis: 0)
+
+        print("[2/5] VideoEncoder: encoding reference video to latent (IC-LoRA conditioning)...")
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard fm.fileExists(atPath: vaeEncoderURL.path) else {
+            throw StageError.videoEncoderCheckpointNotFound(vaeEncoderURL)
+        }
+        let encRaw = try MLX.loadArrays(url: vaeEncoderURL)
+        var encWeights: [String: MLXArray] = [:]
+        for (key, value) in encRaw {
+            let stripped = key.hasPrefix("vae_encoder.") ? String(key.dropFirst("vae_encoder.".count)) : key
+            encWeights[stripped] = value.asType(.float32)
+        }
+        let videoEncoder = VideoEncoder(weights: encWeights)
+        let referenceLatentRaw = videoEncoder(pixelsBCFHW)  // (1, 128, Fr, Hr, Wr), normalized
+        MLX.eval(referenceLatentRaw)
+        let (referenceTokens, dims) = VideoLatentPatchifier.patchify(referenceLatentRaw)
+        let positions = Positions.computeVideoPositions(numFrames: dims.f, height: dims.h, width: dims.w, frameRate: Float(fps))
+        let genTokenCount = dims.f * dims.h * dims.w
+
+        print("[3/5] LoRA: loading + fusing restoration + upscale IC-LoRA into distilled transformer...")
+        let restorationURL = restorationLoraURL ?? RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors")
+        let upscaleURL = upscaleLoraURL ?? RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors")
+        guard fm.fileExists(atPath: restorationURL.path) else {
+            throw StageError.restorationLoraNotFound(restorationURL)
+        }
+        guard fm.fileExists(atPath: upscaleURL.path) else {
+            throw StageError.upscaleLoraNotFound(upscaleURL)
+        }
+        let loraSources: [(weights: LoRAWeights, strength: Float)] = [
+            (weights: try LoRAWeights.load(url: restorationURL), strength: restorationLoraStrength),
+            (weights: try LoRAWeights.load(url: upscaleURL), strength: upscaleLoraStrength),
+        ]
+
+        print("[4/5] denoise: LoRA-fused 48-block distilled transformer, IC-LoRA reference conditioning...")
+        let noise = MLXRandom.normal([1, genTokenCount, 128], key: MLXRandom.key(seed))
+        let baseVideoState = LatentState(
+            latent: noise, cleanLatent: MLXArray.zeros([1, genTokenCount, 128]),
+            denoiseMask: MLXArray.ones([1, genTokenCount, 1]), positions: positions)
+        let videoState = VideoConditionByReferenceLatent(
+            referenceLatent: referenceTokens, referencePositions: positions,
+            downscaleFactor: 1, strength: 1.0
+        ).apply(to: baseVideoState)
+
+        // Preserve the existing audio track fully (denoiseMask=0 everywhere)
+        // — same mechanism `refine()` uses for the same reason (see this
+        // file's header): the joint audio-video transformer needs a valid
+        // audio branch to attend to.
+        let wav = try WAVReader.read(url: audioURL)
+        var channels = wav.channels
+        if channels.count == 1 { channels = [channels[0], channels[0]] }
+        channels = Array(channels.prefix(2))
+        let resampled = channels.map { LinearResampler.resample($0, fromRate: wav.sampleRate, toRate: 16000) }
+        let minLen = resampled.map(\.count).min() ?? 0
+        let waveform = MLX.stacked(resampled.map { MLXArray($0.prefix(minLen)) }, axis: 0)  // (2, T)
+
+        let audioEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/audio_vae.safetensors")
+        guard fm.fileExists(atPath: audioEncoderURL.path) else {
+            throw StageError.audioEncoderCheckpointNotFound(audioEncoderURL)
+        }
+        let audioEncoder = try AudioVAEEncoderLoader.loadReal(checkpointURL: audioEncoderURL)
+        let mel = AudioProcessor().waveformToMel(waveform).expandedDimensions(axis: 0)  // (1, 2, T', 64)
+        let audioLatent = audioEncoder(mel)  // (1, 8, T, 16)
+        MLX.eval(audioLatent)
+        let (audioTokens, audioTokenCount) = AudioPatchifier.patchify(audioLatent)
+        let audioState = LatentState(
+            latent: audioTokens, cleanLatent: audioTokens,
+            denoiseMask: MLXArray.zeros([1, audioTokenCount, 1]),
+            positions: Positions.computeAudioPositions(numTokens: audioTokenCount))
+
+        let textStage = NativeTextEncodeStage(maxLength: textMaxLength)
+        let textResult = try textStage.encode(prompt)
+
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        guard fm.fileExists(atPath: transformerURL.path) else {
+            throw StageError.transformerCheckpointNotFound(transformerURL)
+        }
+        let rawTransformer = try MLX.loadArrays(url: transformerURL)
+        var strippedTransformer: [String: MLXArray] = [:]
+        for (key, value) in rawTransformer {
+            guard key.hasPrefix("transformer.") else { continue }
+            strippedTransformer[String(key.dropFirst("transformer.".count))] = value
+        }
+
+        let numLayers = 48
+        let cfg = distilledConfig(numLayers: numLayers)
+        let model = TransformerCheckpointLoader.makeModel(
+            TransformerCheckpointLoader.topLevelWeights(raw: strippedTransformer, loraSources: loraSources),
+            config: cfg, transformerBlocks: [])
+
+        let denoiseResult = DenoiseLoop.runStreaming(
+            model: model, numLayers: numLayers,
+            blockProvider: { idx in
+                TransformerCheckpointLoader.makeBlock(
+                    TransformerCheckpointLoader.blockWeights(raw: strippedTransformer, blockIndex: idx, loraSources: loraSources),
+                    config: cfg)
+            },
+            videoState: videoState, audioState: audioState,
+            videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
+            sigmas: SigmaSchedule.distilledSigmas)
+        MLX.eval(denoiseResult.videoLatent)
+
+        // Extract only the generation tokens (drop the appended reference tokens).
+        let genTokens = denoiseResult.videoLatent[0..., 0..<genTokenCount, 0...]
+        let restoredLatent = VideoLatentPatchifier.unpatchify(genTokens, dims: dims)
+
+        print("[5/5] VideoDecoder: decoding restored latent to \(width)x\(height) frames...")
+        let videoDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        guard fm.fileExists(atPath: videoDecoderURL.path) else {
+            throw StageError.videoDecoderCheckpointNotFound(videoDecoderURL)
+        }
+        let videoDecoder = try VideoDecoderLoader.loadReal(checkpointURL: videoDecoderURL)
+        let pixels = videoDecoder(restoredLatent.asType(.float32))  // (1, 3, F, H, W), [-1, 1]
+        MLX.eval(pixels)
+
+        let frameDir = outputDir.appendingPathComponent("frames")
+        let frameCount = try PNGFrameWriter.writeFrames(pixels, to: frameDir)
+
+        return Result(
+            frameDirectory: frameDir, frameCount: frameCount,
+            inputSize: (width, height), outputSize: (width, height))
     }
 
     // Mirrors NativeI2VStage.distilledConfig — kept as its own private copy
