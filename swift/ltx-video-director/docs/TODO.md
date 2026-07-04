@@ -1,3 +1,18 @@
+# `native-relay --relay-tts-text` narration (2026-07-05)
+
+Follow-up to `--relay-audio` — TTS narration item. New `MacTTS.swift`
+shells out to macOS's built-in `say` (voice "Meijia"/145wpm defaults,
+matching the Python version; `edge-tts` not ported — external
+network/PyPI dependency, out of scope for a native port). Writes AIFF
+directly, which `VideoConcatenator.replaceAudioTrack` already reads
+natively — no ffmpeg conversion step needed. Wired into `native-relay
+--relay-tts-text` by feeding the synthesized AIFF into the SAME
+`audioOverlayPath` mechanism the audio-overlay milestone just built. 2
+new `MacTTSTests` using a real `say` invocation (fast, local, no mock
+needed) — caught a wrong assumption along the way (unknown voice names
+don't make `say` fail, an unwritable output path does; verified
+manually, not guessed).
+
 # `native-relay --relay-audio` custom audio overlay (2026-07-05)
 
 Follow-up to `native-relay`'s "still open" list — the custom audio

@@ -2348,6 +2348,39 @@ top of the core chaining that's now landed and verified. Each segment
 must run at the same resolution (inherent to feeding one segment's last
 frame as the next's `--input-image`, which requires an exact size match).
 
+## Milestone: `native-relay --relay-tts-text` narration (2026-07-05)
+
+Follow-up to the `--relay-audio` milestone above — picks up the "TTS
+narration" item of `native-relay`'s remaining "still open" list. New
+`MacTTS.swift`: shells out to macOS's built-in `say` (same `Process`
+pattern `RunPyBridge.swift` already establishes for spawning
+subprocesses), matching the Python version's `_generate_tts_say` defaults
+(voice "Meijia", 145 words/min). Only `say` is ported — the Python
+version's `edge-tts` neural-TTS option is an external network/PyPI
+dependency, out of scope for a native port whose whole point is fewer
+moving parts. `say` writes AIFF directly, which
+`VideoConcatenator.replaceAudioTrack` already reads natively (AVFoundation
+decodes AIFF out of the box) — no format-conversion step needed, unlike
+the Python version's AIFF→AAC ffmpeg re-encode.
+
+Wired into `native-relay --relay-tts-text <text> [--relay-tts-voice]
+[--relay-tts-rate]`: when given (and `--relay-audio` is NOT also given),
+synthesizes to a temp AIFF and feeds it into the SAME
+`Request.audioOverlayPath` mechanism the previous milestone already
+built and verified — no new pipeline plumbing needed, just reusing the
+existing audio-overlay path with a synthesized source instead of a
+user-supplied file.
+
+Two new `MacTTSTests`, both using a REAL `say` invocation (fast, fully
+local, no network — no reason to mock it): `testSynthesizeProducesReadableAudio`
+(confirms the output isn't just "say exited 0" — the AIFF is decodable by
+AVFoundation, the same read path `replaceAudioTrack` uses, with a
+non-zero duration) and `testUnwritableOutputPathThrowsNamedError`. A first
+version of the second test assumed an unknown VOICE name would make `say`
+fail — manually verified that's wrong (`say` silently falls back to the
+default voice, exit 0); an unwritable OUTPUT PATH is the real failure
+mode `say` exits non-zero for. Both tests pass.
+
 ## Milestone: `native-relay --relay-audio` custom audio overlay (2026-07-05)
 
 Follow-up to the `native-relay` milestone above — picks up the first item
