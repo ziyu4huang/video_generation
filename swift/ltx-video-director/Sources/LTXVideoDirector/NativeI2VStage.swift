@@ -49,6 +49,8 @@ public struct NativeI2VStage {
         case audioEncoderCheckpointNotFound(URL)
         case inputImageNotFound(URL)
         case inputImageWrongSize(expected: (width: Int, height: Int), actual: (width: Int, height: Int))
+        case gridImageNotFound(URL)
+        case gridConfigMismatch(String)
 
         public var description: String {
             switch self {
@@ -66,6 +68,8 @@ public struct NativeI2VStage {
             case .inputImageWrongSize(let expected, let actual):
                 return "--input-image is \(actual.width)x\(actual.height), expected \(expected.width)x\(expected.height) "
                     + "(same resolution as the requested clip — resize it first, e.g. with sips)"
+            case .gridImageNotFound(let url): return "--grid-image not found at \(url.path)"
+            case .gridConfigMismatch(let msg): return "NativeI2VStage grid guide: \(msg)"
             }
         }
     }
@@ -143,6 +147,42 @@ public struct NativeI2VStage {
         /// fail-fast, no-auto-resize convention `lastFrameImagePath` used
         /// before FFLF added its own auto-resize opt-in).
         public var inputImagePath: URL?
+
+        /// Grid-guide conditioning: an optional single image containing an
+        /// NxN grid of storyboard panels (e.g. a 2x2 four-panel image), each
+        /// panel split in-memory and pinned as its own keyframe guide at an
+        /// independent latent frame index + strength — one generation call
+        /// conditioned on N keyframes instead of only frame-0/last-frame.
+        /// Ported conceptually from the reference ComfyUI custom node
+        /// `TD_LTXVAddGuideFromGrid` (`ComfyUI-TDNodes`, MIT), which splits a
+        /// grid image and calls the equivalent of this repo's own
+        /// `VideoConditionByLatentIndex` once per panel — same generic
+        /// mechanism this package's FFLF feature already exercises twice per
+        /// call (frame 0 + last frame), generalized here to an arbitrary
+        /// panel count. Applied AFTER frame-0 and FFLF conditioning, so a
+        /// grid panel's frame index colliding with 0 or the last frame wins
+        /// (later `VideoConditionByLatentIndex.apply` calls overwrite the
+        /// same token positions). When nil (default), behaves exactly as
+        /// before (no grid conditioning).
+        public var gridImagePath: URL?
+        /// Grid layout: `gridColumns * gridRows` must equal
+        /// `gridFrameIndices.count` (and `gridStrengths.count` when
+        /// non-empty). Ignored when `gridImagePath` is nil.
+        public var gridColumns: Int = 2
+        public var gridRows: Int = 2
+        /// Latent frame index each grid panel (row-major: top-left,
+        /// top-right, ..., bottom-right) is pinned at. Must have exactly
+        /// `gridColumns * gridRows` entries, each `< fLat` (the generation's
+        /// total latent frame count, only known once `frames`/resolution are
+        /// resolved — validated inside `generate`, not at construction
+        /// time). Empty (default) disables grid conditioning even if
+        /// `gridImagePath` is set.
+        public var gridFrameIndices: [Int] = []
+        /// Per-panel conditioning strength, same semantics as
+        /// `lastFrameStrength` (1.0 = fully pinned, lower values partially
+        /// blend with generated content). Empty means "all panels at
+        /// strength 1.0"; otherwise must match `gridFrameIndices.count`.
+        public var gridStrengths: [Float] = []
 
         public init(
             prompt: String, seconds: Double = 0.5, fps: Double = 24.0,
@@ -246,6 +286,20 @@ public struct NativeI2VStage {
                     expected: (request.width, request.height), actual: (cgImage.width, cgImage.height))
             }
         }
+        if let gridImagePath = request.gridImagePath, !request.gridFrameIndices.isEmpty {
+            guard FileManager.default.fileExists(atPath: gridImagePath.path) else {
+                throw StageError.gridImageNotFound(gridImagePath)
+            }
+            let panelCount = request.gridColumns * request.gridRows
+            guard request.gridFrameIndices.count == panelCount else {
+                throw StageError.gridConfigMismatch(
+                    "gridFrameIndices has \(request.gridFrameIndices.count) entries, expected \(panelCount) (gridColumns=\(request.gridColumns) * gridRows=\(request.gridRows))")
+            }
+            guard request.gridStrengths.isEmpty || request.gridStrengths.count == panelCount else {
+                throw StageError.gridConfigMismatch(
+                    "gridStrengths has \(request.gridStrengths.count) entries, expected \(panelCount) or 0 (0 = all panels default to strength 1.0)")
+            }
+        }
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
@@ -338,6 +392,36 @@ public struct NativeI2VStage {
             let (lastTokens, _) = VideoLatentPatchifier.patchify(lastLatentBCFHW)
             let lastFrameConditioner = VideoConditionByLatentIndex(frameIndices: [fLat - 1], cleanLatent: lastTokens, strength: request.lastFrameStrength)
             videoState = lastFrameConditioner.apply(to: videoState, spatialDims: (fLat, hLat, wLat))
+        }
+
+        // Grid guide: split one NxN storyboard-panel image into panels and
+        // pin each as its own keyframe guide (see Request.gridImagePath's
+        // header). Applied after frame-0/FFLF so an overlapping index wins,
+        // same last-writer-wins semantics FFLF already relies on above.
+        if let gridImagePath = request.gridImagePath, !request.gridFrameIndices.isEmpty {
+            guard let gridCGImage = FrameLoad.loadCGImage(from: gridImagePath) else {
+                throw StageError.gridImageNotFound(gridImagePath)
+            }
+            let panels = FrameLoad.splitGrid(gridCGImage, columns: request.gridColumns, rows: request.gridRows)
+            let strengths = request.gridStrengths.isEmpty ? Array(repeating: Float(1.0), count: panels.count) : request.gridStrengths
+            for (i, frameIdx) in request.gridFrameIndices.enumerated() {
+                guard frameIdx >= 0, frameIdx < fLat else {
+                    throw StageError.gridConfigMismatch("gridFrameIndices[\(i)]=\(frameIdx) out of range [0, \(fLat))")
+                }
+                var panel = panels[i]
+                if panel.width != request.width || panel.height != request.height {
+                    panel = FrameLoad.resizeAspectFillCenterCrop(panel, targetWidth: request.width, targetHeight: request.height)
+                }
+                print("[grid-guide] panel \(i) -> latent frame \(frameIdx) (strength \(strengths[i]))")
+                let panelPixels01 = FrameLoad.toArray(panel)
+                let panelPixelsNeg1to1 = panelPixels01.asType(.float32) * 2.0 - 1.0
+                let panelPixelsBCFHW = panelPixelsNeg1to1.reshaped([1, 3, 1, request.height, request.width])
+                let panelLatentBCFHW = videoEncoder(panelPixelsBCFHW)
+                MLX.eval(panelLatentBCFHW)
+                let (panelTokens, _) = VideoLatentPatchifier.patchify(panelLatentBCFHW)
+                let panelConditioner = VideoConditionByLatentIndex(frameIndices: [frameIdx], cleanLatent: panelTokens, strength: strengths[i])
+                videoState = panelConditioner.apply(to: videoState, spatialDims: (fLat, hLat, wLat))
+            }
         }
         var audioState = LatentState(latent: audioNoise, cleanLatent: audioNoise, denoiseMask: MLXArray.ones([1, numAudioTokens, 1]), positions: audioPositions)
 
