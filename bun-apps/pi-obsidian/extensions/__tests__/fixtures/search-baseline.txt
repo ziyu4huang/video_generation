@@ -1,6 +1,6 @@
 # obsidian_search baseline (original substring implementation)
-Generated: 2026-06-28T00:16
-Vault note count: 33
+Generated: 2026-07-04T02:09
+Vault note count: 18
 
 This file is the regression baseline. After each phase, re-run the substring
 default path and diff against this file — the output MUST be identical for the
@@ -55,10 +55,10 @@ Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:35: ## #obsidian
 Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:51: ## #obsidian
-Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:52: ## #obsidian
+Tags/Index.md:141: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 
 ### title-ish term [SUBSTRING-DEFAULT]
 query="Zettelkasten"
@@ -79,40 +79,40 @@ Tags/Index.md:42: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
 Tags/Index.md:43: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
 Tags/Index.md:44: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
 Tags/Index.md:45: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
-Tags/Index.md:49: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:53: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
-Tags/Index.md:54: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
-Tags/Index.md:55: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
-Tags/Index.md:59: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:60: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
-Tags/Index.md:65: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
-Tags/Index.md:71: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:72: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:73: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
-Tags/Index.md:77: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:46: - [[Zettelkasten/Workflow Pattern - Style-Aware Judge Branching]]
+Tags/Index.md:50: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:54: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
+Tags/Index.md:55: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
+Tags/Index.md:56: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
+Tags/Index.md:60: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:61: - [[Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver]]
+Tags/Index.md:66: - [[Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift]]
+Tags/Index.md:67: - [[Zettelkasten/Bug Pattern - Holistic VLM Score Over-Praises Poses]]
+Tags/Index.md:73: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:74: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:75: - [[Zettelkasten/Implementation Pattern - Resolution Transparency Triple]]
+Tags/Index.md:76: - [[Zettelkasten/Implementation Pattern - pose_dsg Atomic Pose Validator]]
+Tags/Index.md:77: - [[Zettelkasten/Implementation Pattern - Per-Atom Regression Matrix]]
 Tags/Index.md:81: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:85: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
-Tags/Index.md:89: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
-Tags/Index.md:93: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:99: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:100: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
-Tags/Index.md:101: - [[Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle]]
-Tags/Index.md:102: - [[Zettelkasten/Implementation Pattern - vlm-describe Pipeline]]
-Tags/Index.md:106: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:111: - [[Zettelkasten/Bug Pattern - Orchestrator Tool Contamination]]
-Tags/Index.md:138: - [[Zettelkasten/Pi Packages]]
-Tags/Index.md:142: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:147: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:148: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
-Tags/Index.md:149: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
-Tags/Index.md:150: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
-Tags/Index.md:151: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
-Tags/Index.md:152: - [[Zettelkasten/Skill Verification Process]]
-Tags/Index.md:153: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:154: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:155: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:156: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
+Tags/Index.md:85: - [[Zettelkasten/Skill Verification Process]]
+Tags/Index.md:89: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:93: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:97: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:103: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:104: - [[Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven]]
+Tags/Index.md:105: - [[Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle]]
+Tags/Index.md:106: - [[Zettelkasten/Implementation Pattern - vlm-describe Pipeline]]
+Tags/Index.md:110: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:115: - [[Zettelkasten/Bug Pattern - Orchestrator Tool Contamination]]
+Tags/Index.md:142: - [[Zettelkasten/Pi Packages]]
+Tags/Index.md:146: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:151: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:152: - [[Zettelkasten/Workflow Pattern - Knowledge Schema Drift]]
+Tags/Index.md:153: - [[Zettelkasten/Workflow Pattern - Meta Name Consistency]]
+Tags/Index.md:154: - [[Zettelkasten/Workflow Pattern - Bun Workspaces node_modules Dedup]]
+Tags/Index.md:155: - [[Zettelkasten/Workflow Pattern - PR Cleanup and Squash]]
+Tags/Index.md:156: - [[Zettelkasten/Skill Verification Process]]
 
 ### mixed-case query, default insensitive [SUBSTRING-DEFAULT]
 query="Obsidian"
@@ -163,10 +163,10 @@ Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:35: ## #obsidian
 Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:51: ## #obsidian
-Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:52: ## #obsidian
+Tags/Index.md:141: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 
 ### case-sensitive mismatch
 query="Obsidian"
@@ -187,8 +187,8 @@ Tags/Index.md:18: - [[Design/pi-Obsidian Integration]]
 Tags/Index.md:19: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:27: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:137: - [[Design/pi-Obsidian Package]]
-Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:141: - [[Design/pi-Obsidian Package]]
+Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
@@ -214,25 +214,28 @@ Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:33: - 上層概�
 query="#tag"
 2 match(es):
 Inbox/Plan - Enhance obsidian_search.md:28: - `tags`：解析 frontmatter `tags` 與內文 `#tag`。
-Tags/Index.md:171: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
+Tags/Index.md:208: > 💡 維護方式：新增筆記後，把它的 wiki-link 加到對應的 `#tag` 段落下。
 
 ### frontmatter key [SUBSTRING-DEFAULT]
 query="sources:"
-23 match(es):
+27 match(es):
 Inbox/Plan - Enhance obsidian_search.md:5: sources: ["packages/pi-obsidian/extensions/obsidian.ts"]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:5: sources: []
 Zettelkasten/Agentic Loop - bun-agent-demo.md:5: sources: []
 Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery.md:5: sources: []
 Zettelkasten/Architecture Pattern - Wrapper Tools Share Base Resolver.md:5: sources: []
+Zettelkasten/Bug Pattern - Holistic VLM Score Over-Praises Poses.md:5: sources: [arXiv:2407.06937, arXiv:2509.21227]
 Zettelkasten/Bug Pattern - Orchestrator Tool Contamination.md:5: sources: []
 Zettelkasten/Bug Pattern - PDFKit Rasterization Orientation Trap.md:5: sources: []
 Zettelkasten/Bug Pattern - Persistent Config Silent Stale Drift.md:5: sources: []
 Zettelkasten/Implementation Pattern - PDF to PNG via macOS PDFKit.md:5: sources: []
 Zettelkasten/Implementation Pattern - PDFKit PDF Extraction macOS Native.md:5: sources: []
+Zettelkasten/Implementation Pattern - Per-Atom Regression Matrix.md:5: sources: []
 Zettelkasten/Implementation Pattern - Resolution Transparency Triple.md:5: sources: []
 Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK.md:5: sources: []
 Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle.md:5: sources: []
 Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven.md:5: sources: []
+Zettelkasten/Implementation Pattern - pose_dsg Atomic Pose Validator.md:5: sources: [arXiv:2407.06937, arXiv:2509.21227, tifa-benchmark.github.io]
 Zettelkasten/Implementation Pattern - vlm-describe Pipeline.md:5: sources: []
 Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount.md:5: sources: []
 Zettelkasten/Pi Packages.md:5: sources: []
@@ -242,6 +245,7 @@ Zettelkasten/Workflow Pattern - Knowledge Schema Drift.md:5: sources: []
 Zettelkasten/Workflow Pattern - Meta Name Consistency.md:5: sources: []
 Zettelkasten/Workflow Pattern - PR Cleanup and Squash.md:5: sources: []
 Zettelkasten/Workflow Pattern - Schema-less Consumed Agents.md:5: sources: []
+Zettelkasten/Workflow Pattern - Style-Aware Judge Branching.md:5: sources: []
 
 ### no-match term [SUBSTRING-DEFAULT]
 query="zzznomatchzzz"
@@ -276,21 +280,21 @@ Tags/Index.md:31: ## #agentic-loop
 Tags/Index.md:33: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
 Tags/Index.md:37: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:41: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:59: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:71: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:72: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:93: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:99: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:106: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:142: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:146: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Index.md:147: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
-Tags/Index.md:153: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
-Tags/Index.md:154: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Index.md:155: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
-Tags/Index.md:163: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
-Tags/Index.md:172: > pi agent 可用 `obsidian_append_section` 工具自動追加。
-Tags/Index.md:176: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:60: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:73: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:74: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:97: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:103: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:110: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:146: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:150: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
+Tags/Index.md:151: - [[Zettelkasten/Workflow Pattern - Schema-less Consumed Agents]]
+Tags/Index.md:157: - [[Zettelkasten/Agentic Loop - bun-agent-demo]]
+Tags/Index.md:158: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
+Tags/Index.md:159: - [[Zettelkasten/Implementation Pattern - User Model Resolution in pi-agent SDK]]
+Tags/Index.md:167: - [[Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount]]
+Tags/Index.md:209: > pi agent 可用 `obsidian_append_section` 工具自動追加。
+Tags/Index.md:213: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:4: tags: [zettel, agent, obsidian, integration]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
