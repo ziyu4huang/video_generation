@@ -16,6 +16,7 @@ Obsidian app. Fresh vaults are auto-seeded with starter notes on first use.
 | `obsidian_append` | Append text to a note (creates it if missing) |
 | `obsidian_append_section` | Insert text under a heading; creates the heading if absent |
 | `obsidian_search` | Full-text search (substring/regex/words/fuzzy), field/folder filters, relevance/recency sort, context snippets, groupByFile, and graph queries (`graph`: backlinks/outgoing/orphans/dead-links/neighbors) |
+| `obsidian_semantic_search` | Meaning-based (vector) search via an external [vault-mind](https://github.com/reza899/vault-mind) ChromaDB service. Finds cards whose wording differs from the query but is conceptually on-point — the complement to lexical `obsidian_search`. Optional infrastructure: see [Semantic search](#semantic-search-optional) |
 | `obsidian_query` | Structured metadata query (Dataview-lite): filter by tags (AND/OR), folder, created date — index-only, no body reads |
 | `obsidian_move` | Move/rename a note and auto-rewrite all inbound `[[wiki-links]]` |
 | `obsidian_rename` | Same-directory rename alias of `move` |
@@ -175,6 +176,7 @@ bun-apps/pi-obsidian/
 | `OB_GARDEN_AUDIT_TOOLS` / `OB_GARDEN_FIX_TOOLS` | *(built-in set)* | Same for garden audit / fix modes. Fix defaults to audit + write tools. |
 | `OB_PARENT_MODEL` / `OB_SUBAGENT_MODEL` | — | Model-id inheritance floor for distill/garden subagents (B2). `OB_SUBAGENT_MODEL` is a trusted floor; a known-weak `OB_PARENT_MODEL` is refused. |
 | `OB_SUBAGENT_TIMEOUT_MS` | `300000` | Per-call timeout for distill/garden subagents. |
+| `VAULT_MIND_BASE_URL` | `http://127.0.0.1:8000` | Base URL of the vault-mind service for `obsidian_semantic_search`. A path prefix is honoured (e.g. `http://host:9999/vm/` → `…/vm/api/search`). Unset + no service → the tool returns a structured `isError` so the agent falls back to `obsidian_search`. |
 
 ### C6 `.cache/` note
 
@@ -232,6 +234,68 @@ Produces a Traditional-Chinese Markdown report: overview stats, tag clusters,
 topic clusters (per folder), and health (orphans / dead links / title-style
 outliers). Add `--llm` to also generate semantic per-topic summaries via the
 `obsidian_distill` subagent (offline by default).
+
+## Semantic search (optional)
+
+`obsidian_semantic_search` is an **optional** meaning-based (vector) retrieval
+mode that complements `obsidian_search` (lexical). It calls an external
+**[vault-mind](https://github.com/reza899/vault-mind)** service — a FastAPI +
+ChromaDB app that indexes the vault into embeddings. It is the only `obsidian_*`
+tool that makes an HTTP call; pi-obsidian otherwise stays hermetic (filesystem
+only). Because it is optional infrastructure:
+
+- With `VAULT_MIND_BASE_URL` unset **or** the service down, the tool returns a
+  structured `isError` result pointing at `obsidian_search` — the agent falls
+  back to lexical search. No crash, no hard dependency.
+- It is opt-in per environment; it adds no runtime dependencies to pi-obsidian
+  (uses the platform `fetch`).
+
+### When to use it
+
+Lexical search fails when the query is phrased differently from a card's
+title/keywords. A natural-language question like *"how do I avoid the gpu
+exploding on big images"* shares **no tokens** with the relevant
+`MemoryError` / OOM-guard cards, so `obsidian_search` returns nothing.
+Semantic search surfaces them by meaning. Empirically (425-card `pi-agent-vault`,
+`all-MiniLM-L6-v2`): *"switching git branches broke my downloaded model
+weights"* → top hit 0.618 `model-symlink-silent-skip-on-commit`, the exact card
+lexical substring search could not reach.
+
+### Stand up vault-mind (one-time)
+
+```bash
+git clone https://github.com/reza899/vault-mind.git ../vault-mind
+( cd ../vault-mind && make quick-start )   # docker, or `make dev-local` without
+
+# Index the same vault pi-obsidian resolves — give it the host filesystem path.
+curl -X POST http://127.0.0.1:8000/api/index \
+  -H "Content-Type: application/json" \
+  -d '{"vault_name":"pi-agent-vault","vault_path":"/abs/path/to/vaults_root/pi-agent-vault"}'
+
+# Verify (returns ranked chunks + metadata):
+curl -G http://127.0.0.1:8000/api/search \
+  --data-urlencode "vault_name=pi-agent-vault" \
+  --data-urlencode "query=git branches broke my model weights"
+```
+
+Then point the tool at it and (re)index after `obsidian_distill` / `zk_ingest`:
+
+```bash
+export VAULT_MIND_BASE_URL=http://127.0.0.1:8000   # default; set only if non-default
+```
+
+**Re-index path (gap #5 — manual for v1):** after ingesting new cards, re-POST
+`/api/index` with `force_reindex:true`. An auto-hook on `obsidian_distill` /
+`zk_ingest` is a documented follow-up.
+
+### Embedding model quality (honest caveat)
+
+vault-mind's default `all-MiniLM-L6-v2` is multilingual but lightweight; on
+CJK + technical corpora (mlx / 知識圖譜 / CFG) similarity scores land in the
+0.3–0.6 band — relevant cards still surface but the tool defaults
+`similarity_threshold` to **0.3** (down from vault-mind's 0.4) so weak-but-relevant
+hits are not silently dropped. For higher quality, swap to a stronger
+multilingual model via vault-mind's `EMBEDDING_MODEL`.
 
 ## Known limitations
 
