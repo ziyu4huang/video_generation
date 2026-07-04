@@ -21,6 +21,7 @@ const NAME = "closed-loop-proof"
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation__pi"
 let HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
 let KB_FILE = `${PROJECT_ROOT}/.claude/workflows/pi-infra-self-improve.knowledge.jsonl`
+let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
 
 // Resolve repo root dynamically
 {
@@ -34,6 +35,7 @@ let KB_FILE = `${PROJECT_ROOT}/.claude/workflows/pi-infra-self-improve.knowledge
     PROJECT_ROOT = resolved
     HISTORY_DIR = `${PROJECT_ROOT}/.claude/workflows/history/${NAME}`
     KB_FILE = `${PROJECT_ROOT}/.claude/workflows/${A.kbFile ?? "pi-infra-self-improve"}.knowledge.jsonl`
+    VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   }
 }
 
@@ -79,8 +81,8 @@ async function loadGraphKnowledge(kbFile, graphTags) {
     `Check PI_GRAPH_KNOWLEDGE env var, then run cross-workflow retrieval if enabled.
 1. Bash("printenv PI_GRAPH_KNOWLEDGE || echo 1")
    If "0", return { count: 0, digest: "", published: false, reason: "opt-out" }.
-2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
-3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
+2. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
+3. Parse the JSON output. The "count" field gives the number of matched cards, "digest" gives the grouped digest.
 Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
     { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
       schema: { type: "object", properties: {
@@ -138,8 +140,7 @@ log(`Knowledge: extract skipped (proof run — KB untouched)`)
 
 // ── publishKnowledge (WRITE side) ───────────────────────────────────────────
 async function publishKnowledge(kbFile, workflowName) {
-  
-  const vault = //  `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const vault = VAULT
   const sourceLabel = `workflow-jsonl:${workflowName}`
   const cli = await agent(
     `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.

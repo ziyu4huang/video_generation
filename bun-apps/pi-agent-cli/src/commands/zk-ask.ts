@@ -13,7 +13,7 @@
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
-import { buildRagTask, RAG_TOOLS } from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
+import { buildRagTask, ragToolsFor, type BlendMode } from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
 
 const DETAILS = `Ask a natural language question; returns a synthesized answer grounded in vault notes.
 
@@ -48,6 +48,10 @@ Options:
   --summarize            Summarize each tag cluster before generating
   --retrieve-only        Output assembled context only (no generation step)
   --no-refine            Skip seed quality gate (no query rewrite on poor seeds)
+  --blend <mode>         Retrieval blend: "default" (lexical+graph) | "three-way"
+                         (adds semantic vector seed; needs vault-mind service).
+                         Default: default. Three-way tags each seed with its
+                         source mode(s) under --retrieve-only.
   --folder <name>        Restrict seed search to folder (default: Zettelkasten)
   --vault <path>         Absolute path to the vault
   --vault-dir <name>     Vault folder name under cwd (default: vault)
@@ -82,11 +86,13 @@ export const zkAskCommand = {
     const maxNoteTokens = parsed.maxNoteTokens ?? 2000;
     const noRefine = !!parsed.noRefine;
     const folder = parsed.folder;
+    const blendRaw = String(parsed.blend ?? "default");
+    const blend: BlendMode = blendRaw === "three-way" ? "three-way" : "default";
 
-    const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder);
+    const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder, blend);
     applyVaultEnv(parsed);
     await runAgentSession(parsed, {
-      tools: parsed.tools ?? RAG_TOOLS,
+      tools: parsed.tools ?? ragToolsFor(blend),
       task,
       labelName: "zk-ask",
     });

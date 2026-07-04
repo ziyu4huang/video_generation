@@ -102,6 +102,59 @@ export const RAG_TOOLS = [
 	"obsidian_list",
 ];
 
+/** Three-way blend adds the vault-mind semantic (vector) seed. Kept out of the
+ *  default allowlist because it needs a running vault-mind service. */
+export const RAG_TOOLS_THREE_WAY = [
+	...RAG_TOOLS,
+	"obsidian_semantic_search",
+];
+
+/** zk-ask retrieval blend mode. */
+export type BlendMode = "default" | "three-way";
+
+/** Per-note retrieval signals used by the blend score. Any field may be
+ *  undefined when a mode did not produce it; undefined contributes 0. */
+export interface BlendScoreParts {
+	/** Vector similarity (0-1) from obsidian_semantic_search. */
+	semantic?: number;
+	/** Lexical search_score (0-1) from obsidian_search (title/tags/body). */
+	lexical?: number;
+	/** Count of [[wikilink]] occurrences in the note body (graph signal). */
+	linkCount?: number;
+}
+
+/** Blend-score weights per mode. The default keeps the historical lexical+graph
+ *  formula (0.7×lexical + 0.3×link) so existing behaviour is unchanged.
+ *  three-way rebalances to 0.4 semantic / 0.3 lexical / 0.3 graph so the vector
+ *  seed leads but cannot dominate — a card the graph strongly links still ranks
+ *  even when both text modes miss it. */
+const BLEND_WEIGHTS: Record<BlendMode, { semantic: number; lexical: number; link: number }> = {
+	default: { semantic: 0.0, lexical: 0.7, link: 0.3 },
+	"three-way": { semantic: 0.4, lexical: 0.3, link: 0.3 },
+};
+
+/**
+ * Pure, deterministic blend-score used by zk-ask's Step 3 ranking. Exported so
+ * it can be unit-tested and re-used by the retrieval-quality loop. Undefined
+ * signals contribute 0; negative inputs are clamped to 0 (a search_score of -1
+ * sentinel from obsidian_search is treated as "no signal").
+ */
+export function rankBlendScore(parts: BlendScoreParts, mode: BlendMode = "default"): number {
+	const w = BLEND_WEIGHTS[mode] ?? BLEND_WEIGHTS.default;
+	const clamp = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
+	return (
+		w.semantic * clamp(parts.semantic) +
+		w.lexical * clamp(parts.lexical) +
+		w.link * clamp(parts.linkCount)
+	);
+}
+
+/** Resolve the RAG tool allowlist for a blend mode. three-way unlocks the
+ *  semantic vector tool; default keeps the lexical+graph set. */
+export function ragToolsFor(blend: BlendMode = "default"): string[] {
+	return blend === "three-way" ? [...RAG_TOOLS_THREE_WAY] : [...RAG_TOOLS];
+}
+
 /** One-line vault header prepended to every zk_* tool result so the active
  *  vault is always visible (never silently operating on the wrong one).
  *  Resolves independently of the subagent so it works even if the subagent
@@ -282,7 +335,9 @@ export function buildRagTask(
 	maxNoteTokens: number = 2000,
 	noRefine: boolean = false,
 	folder?: string,
+	blend: BlendMode = "default",
 ): string {
+	const threeWay = blend === "three-way";
 	const outputInstruction = retrieveOnly
 		? [
 				"## Step 5: Context output",
@@ -331,13 +386,29 @@ export function buildRagTask(
 		`Execute the graph-enhanced RAG pipeline below to answer the following question:`,
 		`<question>${query}</question>`,
 		"",
-		"## Step 1: Seed retrieval (run all 3 strategies)",
-		"Run all 3 strategies and integrate results to identify the top 3 seed note paths:",
-		"1. obsidian_search matchMode:fuzzy fields:title — title similarity (highest priority)",
-		"2. obsidian_search matchMode:words fields:tags — tag match",
-		"3. obsidian_search matchMode:words fields:body — body keyword (lowest priority)",
-		folderScope,
-		seedQualityGate,
+		threeWay
+			? [
+					"## Step 1: Seed retrieval (run all 4 strategies — three-way blend)",
+					"Run all 4 strategies and integrate results to identify the top 3 seed note paths.",
+					"Track which mode(s) surfaced each seed — you will tag it in Step 3 provenance:",
+					"1. obsidian_search matchMode:fuzzy fields:title — title lexical (lexical:title)",
+					"2. obsidian_search matchMode:words fields:tags — tag lexical (lexical:tags)",
+					"3. obsidian_search matchMode:words fields:body — body keyword (lexical:body)",
+					"4. obsidian_semantic_search query:\"<the question>\" limit:8 similarity_threshold:0.3 — vector (semantic).",
+					"   If obsidian_semantic_search returns isError (vault-mind unreachable), skip it",
+					"   and fall back to the 3 lexical strategies — never abort the pipeline.",
+					folderScope,
+					seedQualityGate,
+				]
+			: [
+					"## Step 1: Seed retrieval (run all 3 strategies)",
+					"Run all 3 strategies and integrate results to identify the top 3 seed note paths:",
+					"1. obsidian_search matchMode:fuzzy fields:title — title similarity (highest priority)",
+					"2. obsidian_search matchMode:words fields:tags — tag match",
+					"3. obsidian_search matchMode:words fields:body — body keyword (lowest priority)",
+					folderScope,
+					seedQualityGate,
+				],
 		"",
 		"## Step 2: Graph expansion",
 		`For each seed note, run obsidian_search graph:"neighbors" up to ${safeDepth} hop(s).`,
@@ -350,8 +421,20 @@ export function buildRagTask(
 		"## Step 3: Cluster & rank",
 		`Score each note in the expanded node set using the formula below, then select the top ${topK}:`,
 		"",
-		"  score = 0.7 × search_score  (the score field from obsidian_search; use 0.5 if unavailable)",
-		"        + 0.3 × link_count    (number of [[wikilink]] occurrences in the note body)",
+		threeWay
+			? [
+					"  score = 0.4 × semantic   (cosine similarity from obsidian_semantic_search; 0 if not surfaced by it)",
+					"        + 0.3 × lexical    (the search_score from obsidian_search; use 0.5 if unavailable, -1 sentinel → 0)",
+					"        + 0.3 × link_count (number of [[wikilink]] occurrences in the note body)",
+					"",
+					"Provenance: for each selected note, record which mode(s) surfaced it —",
+					"  semantic, lexical:title, lexical:tags, lexical:body, and/or graph (neighbor).",
+					"  A note reached only as a graph neighbor of a semantic seed is tagged `semantic,graph`.",
+				]
+			: [
+					"  score = 0.7 × search_score  (the score field from obsidian_search; use 0.5 if unavailable)",
+					"        + 0.3 × link_count    (number of [[wikilink]] occurrences in the note body)",
+				],
 		"",
 		`List notes in descending score order and confirm the top ${topK} paths.`,
 		"Group selected notes by tag (cluster).",
@@ -372,7 +455,9 @@ export function buildRagTask(
 		"",
 		"Append a reference list at the end:",
 		"**Reference notes:**",
-		"- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
+		threeWay && retrieveOnly
+			? "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical|graph] — one-line reason for inclusion"
+			: "- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
 	].join("\n");
 }
 
@@ -762,6 +847,12 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					description: "Restrict seed search to this vault folder.",
 				}),
 			),
+			blend: Type.Optional(
+				Type.Union([Type.Literal("default"), Type.Literal("three-way")], {
+					description:
+						"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph. 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. Three-way requires a running vault-mind service; falls back gracefully. Default: 'default'.",
+				}),
+			),
 			model: Type.Optional(
 				Type.String({
 					description:
@@ -787,12 +878,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.max_note_tokens ?? 2000,
 				params.no_refine ?? false,
 				params.folder,
+				params.blend ?? "default",
 			);
 			const { output, exitCode, stderr, timedOut } = await runSubagentWithRetry(
 				cwd,
 				"",
 				task,
-				RAG_TOOLS.join(","),
+				ragToolsFor(params.blend ?? "default").join(","),
 				signal,
 				"pi-kc-rag-",
 				{ model: params.model, excludeTools: params.exclude_tools },
