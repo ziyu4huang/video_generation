@@ -22,6 +22,9 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",
+    "@repo/pi-agent-ext-flux2": "workspace:*",
+    "@repo/pi-agent-ext-krea2": "workspace:*",
+    "@repo/pi-agent-ext-ltx": "workspace:*",
     "ajv": "latest",
     "ajv-formats": "latest",
     "yaml": "latest",
