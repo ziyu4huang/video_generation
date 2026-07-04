@@ -1,0 +1,72 @@
+# obsidian_search contract baseline (frozen in-package vault)
+Generated: 2026-07-04T02:23
+Vault: fixtures/frozen-vault/ — note count: 4
+
+This snapshot is the backward-compatibility contract for searchVault's
+substring-default path. It runs against a CONTENT-CONTROLLED fixture vault
+(not the real submodule vault), so it executes in CI and does NOT drift when
+real notes are added. The [SUBSTRING-DEFAULT] cases MUST stay byte-identical.
+If you intentionally change searchVault behavior OR edit frozen-vault notes,
+regenerate via `bun run --cwd bun-apps/pi-obsidian regen:contract`.
+
+### common word (lowercase) [SUBSTRING-DEFAULT]
+query="obsidian"
+4 match(es):
+Agent Notes.md:10: obsidian integration is wired for the agent.
+Daily/2026-01-02.md:8: Working on obsidian search today.
+Index.md:7: # Obsidian Index
+Index.md:9: This is the obsidian search baseline fixture. #baseline
+
+### title-ish term [SUBSTRING-DEFAULT]
+query="Zettelkasten"
+4 match(es):
+Index.md:11: See Zettelkasten Note for atomic notes.
+Zettelkasten Note.md:7: # Zettelkasten
+Zettelkasten Note.md:9: An atomic Zettelkasten note. #zettel
+Zettelkasten Note.md:10: The lowercase zettelkasten spelling also appears here.
+
+### mixed-case query, default insensitive [SUBSTRING-DEFAULT]
+query="Obsidian"
+4 match(es):
+Agent Notes.md:10: obsidian integration is wired for the agent.
+Daily/2026-01-02.md:8: Working on obsidian search today.
+Index.md:7: # Obsidian Index
+Index.md:9: This is the obsidian search baseline fixture. #baseline
+
+### case-sensitive mismatch
+query="Obsidian"
+1 match(es):
+Index.md:7: # Obsidian Index
+
+### tag-like inline token [SUBSTRING-DEFAULT]
+query="#tag"
+1 match(es):
+Index.md:10: Inline tokens like #tag must be findable by substring search.
+
+### frontmatter key [SUBSTRING-DEFAULT]
+query="sources:"
+3 match(es):
+Agent Notes.md:4: sources: [arXiv:0000.00000]
+Index.md:4: sources: []
+Zettelkasten Note.md:4: sources: []
+
+### no-match term [SUBSTRING-DEFAULT]
+query="zzznomatchzzz"
+No matches.
+
+### max cap = 3
+query="obsidian"
+3 match(es):
+Agent Notes.md:10: obsidian integration is wired for the agent.
+Daily/2026-01-02.md:8: Working on obsidian search today.
+Index.md:7: # Obsidian Index
+
+### short substring inside word [SUBSTRING-DEFAULT]
+query="agent"
+5 match(es):
+Agent Notes.md:3: tags: [agent, reference]
+Agent Notes.md:7: # Agent Notes
+Agent Notes.md:9: Notes about the agent tooling and agentic loops.
+Agent Notes.md:10: obsidian integration is wired for the agent.
+Index.md:12: The pi agent can search this vault.
+

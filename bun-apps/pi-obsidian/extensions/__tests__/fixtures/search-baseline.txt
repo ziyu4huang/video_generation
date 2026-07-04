@@ -1,10 +1,10 @@
-# obsidian_search baseline (original substring implementation)
-Generated: 2026-07-04T02:09
-Vault note count: 18
+# obsidian_search baseline (real submodule vault — drifts on content growth)
+Generated: 2026-07-04T02:23
+Vault note count: 37
 
-This file is the regression baseline. After each phase, re-run the substring
-default path and diff against this file — the output MUST be identical for the
-cases marked [SUBSTRING-DEFAULT], which exercise only default params.
+Real-vault snapshot (NOT the contract). This legitimately drifts whenever
+notes are added/removed; baseline.test.mjs is skip-gated on submodule
+availability. The backward-compat CONTRACT lives in frozen-baseline.txt.
 
 ### common word (lowercase) [SUBSTRING-DEFAULT]
 query="obsidian"

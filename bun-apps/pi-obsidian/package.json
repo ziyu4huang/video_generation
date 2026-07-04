@@ -6,7 +6,9 @@
   "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
   "type": "module",
   "scripts": {
-    "test": "bun test extensions/__tests__/"
+    "test": "bun test extensions/__tests__/",
+    "regen:contract": "bun run extensions/__tests__/fixtures/frozen-baseline.gen.mjs > extensions/__tests__/fixtures/frozen-baseline.txt",
+    "regen:baseline": "bun run extensions/__tests__/fixtures/search-baseline.real.mjs > extensions/__tests__/fixtures/search-baseline.txt"
   },
   "files": [
     "extensions",

@@ -1,8 +1,13 @@
-// Produces the SAME 9-case output as search-baseline.gen.js, but using the REAL
-// searchVault from the extension. Diff against fixtures/search-baseline.txt —
-// for substring-default cases the output MUST be identical (backward compat).
-//   bun run packages/pi-obsidian/extensions/__tests__/fixtures/search-baseline.real.mjs > search-baseline.real.txt
-//   diff search-baseline.txt search-baseline.real.txt
+// Produces the 9-case snapshot for the REAL submodule vault, using the REAL
+// searchVault from the extension (the same code path baseline.test.mjs asserts,
+// so the snapshot cannot diverge from what the test checks).
+//   bun run --cwd bun-apps/pi-obsidian regen:baseline
+// NOTE: this drifts whenever real vault notes are added/removed — that is by
+// design. The backward-compatibility CONTRACT (impl behavior must not change)
+// lives in frozen-baseline.txt / baseline-contract.test.mjs, which runs against
+// a content-controlled in-package vault and does NOT drift on real growth.
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { buildMatcher, searchVault } from "../../obsidian.ts";
 
 // __tests__/fixtures/ → vault is 5 levels up then under vaults_root/ (remounted
@@ -27,14 +32,29 @@ function fmt(query, matches, label) {
 	return `${header}\n${matches.length} match(es):\n` + matches.map(m => `${m.file}:${m.line}: ${m.text}`).join("\n");
 }
 
+// Live note count (was previously hardcoded to 18 and silently went stale).
+function countNotes() {
+	let n = 0;
+	const walk = (dir) => {
+		for (const e of readdirSync(dir, { withFileTypes: true })) {
+			if (e.name === ".obsidian" || e.name.startsWith(".")) continue;
+			const full = join(dir, e.name);
+			if (e.isDirectory()) walk(full);
+			else if (e.name.endsWith(".md")) n++;
+		}
+	};
+	walk(VAULT);
+	return n;
+}
+
 const out = [
-	"# obsidian_search baseline (original substring implementation)",
+	"# obsidian_search baseline (real submodule vault — drifts on content growth)",
 	`Generated: ${new Date().toISOString().slice(0,16)}`,
-	`Vault note count: 18`,
+	`Vault note count: ${countNotes()}`,
 	"",
-	"This file is the regression baseline. After each phase, re-run the substring",
-	"default path and diff against this file — the output MUST be identical for the",
-	"cases marked [SUBSTRING-DEFAULT], which exercise only default params.",
+	"Real-vault snapshot (NOT the contract). This legitimately drifts whenever",
+	"notes are added/removed; baseline.test.mjs is skip-gated on submodule",
+	"availability. The backward-compat CONTRACT lives in frozen-baseline.txt.",
 	"",
 ];
 for (const [label, query, opts] of cases) {
