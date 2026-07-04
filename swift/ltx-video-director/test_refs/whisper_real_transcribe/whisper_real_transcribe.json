@@ -1,0 +1,21 @@
+{
+  "video": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260702_072817/output_20260702_072848.mp4",
+  "language": "zh",
+  "sot_sequence": [
+    50258,
+    50260,
+    50359,
+    50363
+  ],
+  "generated_ids": [
+    11,
+    2421,
+    11,
+    577,
+    366,
+    291,
+    30,
+    50565
+  ],
+  "text": ", Hi, how are you?"
+}

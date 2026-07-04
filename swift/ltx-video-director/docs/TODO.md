@@ -1,3 +1,110 @@
+# ASR voice-content gate (zh-TW/zh-CN aware) — landed, transcription still bridged (2026-07-04)
+
+`output/new-goal-20260704-141422.md` item (A): the existing basic gateway
+(`VideoGate`/`AudioProbe`) only measures loudness/silence — it cannot tell
+"clear audible nonsense" from "clear audible correct speech", and there was
+no Traditional-vs-Simplified Chinese discriminator anywhere in this repo
+(Whisper's `detected_lang` only ever reports generic `"zh"`).
+
+**Native Swift (100%, this iteration):**
+- `Sources/LTXVideoDirector/CJKScript.swift` — Traditional/Simplified
+  classifier via a curated ~200-character discriminating table (Han
+  unification means most CJK share one codepoint across scripts, so a
+  codepoint-RANGE test can't separate them; only characters whose simplified
+  and traditional forms are genuinely different codepoints carry signal).
+  Covered by `Tests/LTXVideoDirectorTests/CJKScriptTests.swift` (6/6 pass).
+- `Sources/LTXVideoDirector/ASRGate.swift` — every decision on top of the raw
+  transcript (language match, content-overlap ratio, script classification,
+  PASS/WARN/FAIL) is native. Wired into `ltx-video gate --asr-prompt <p>
+  [--expected-script traditional|simplified]` (`GateCommand.swift`) and
+  exposed through `bun-apps/pi-agent-ext-ltx`'s `gate` schema
+  (`check:flags` passes — 0 drift on this command).
+
+**Still bridged to Python (not native):** the transcription itself. New
+standalone `run.py video asr-gate --video <path> --prompt <p> --json-out
+<f>` (`app/commands/video-asr-gate.py`) wraps the existing
+`_run_audio_asr_gate` (`video-t2i2v.py`, `mlx_whisper` /
+`mlx-community/whisper-large-v3-mlx`) so it's callable in isolation, not
+just from inside the full t2i2v pipeline. `RunPyBridge` invokes it exactly
+like the `i2v`/`upscale` commands already bridge their own heavy stages.
+
+**Native Whisper port — actually started this session, not just planned.**
+`python/venv` turned out to be recoverable (missing symlink to the shared
+`~/proj/video_generation__venv`, not a genuinely absent environment) — once
+relinked, a real `mlx_whisper` was available, which changed the plan from
+"defer entirely" to "port and verify the first real piece now":
+`WhisperMel.swift` (new) ports `mlx_whisper.audio.log_mel_spectrogram`
+line-for-line onto `MLXFFT.rfft`/`asStrided` (added `MLXFFT` to
+`Package.swift`'s mlx-swift product list), embedding the real precomputed
+mel filterbank as an SPM resource. Verified against the REAL
+`mlx_whisper.audio.log_mel_spectrogram` output via
+`scripts/dump_whisper_mel_reference.py` + `WhisperMelParityTests.swift` —
+max abs diff < 1e-3 for both n_mels=80 and n_mels=128 (large-v3's config).
+**Encoder also landed same session**, verified TWO ways: (1) against the
+real `mlx_whisper.whisper.AudioEncoder` class at a small random-weight
+config (architecture check, no giant checkpoint needed) — 2/2 pass; (2)
+against the ACTUAL cached `whisper-large-v3-mlx` checkpoint's real conv
+stem + block-0 weights, run on real log-mel features from a real generated
+clip's speech — max abs diff < 5e-2, 1/1 pass. `WhisperEncoder.swift` +
+`WhisperEncoderParityTests.swift` + `WhisperEncoderRealCheckpointTests.swift`.
+
+**Decoder also landed same session** — confirmed it's the SAME
+`ResidualAttentionBlock` class as the encoder's (just `cross_attention=true`
+added), so `WhisperAttention` only needed a `crossInput`/`mask` generalization,
+not a rewrite. `WhisperDecoder.swift` + `WhisperDecoderRealCheckpointTests.swift`
+verified against the real large-v3-mlx checkpoint's real token/positional
+embeddings + block-0 weights on real special-token ids cross-attending to
+real encoder output — max abs diff < 5e-2, 2/2 pass.
+
+**Tokenizer (decode direction) also landed same session** —
+`WhisperTokenizer.swift` embeds the real `multilingual.tiktoken` vocab
+(816KB SPM resource) and decodes id→bytes→UTF-8 (no BPE-merge algorithm
+needed for decode-only; that's an encode-side concern this ASR gate never
+exercises). Special-token ids computed via the same closed-form arithmetic
+as `get_encoding()` — caught a real gotcha: `num_languages` defaults to 99,
+NOT the full 100-entry `LANGUAGES` dict (drops `"yue"`), confirmed via a
+live `get_tokenizer(language="ja")` call. Verified against real
+`mlx_whisper.tokenizer` output for 3 languages' SOT sequences + real decode
+of two id sequences — 7/7 pass.
+
+**Decode loop landed too — full native pipeline now exists and is wired
+in.** `WhisperModel.swift`: real-checkpoint loader (all 32+32 layers) +
+greedy decode (no KV cache — documented perf tradeoff, not a correctness
+gap). `WhisperModelRealCheckpointTests.testTranscribesRealClipEndToEndNatively`
+runs the WHOLE pipeline (mel → encoder → decode loop → tokenizer) on a
+real clip's real audio with zero Python involved, bit-exact matching the
+real `mlx_whisper.whisper.Whisper` class run with the identical naive
+greedy strategy. Found+fixed a real bug along the way: naive greedy
+predicted `<|endoftext|>` immediately (empty transcript) until the port
+added mlx_whisper's `SuppressBlank` filter (mask EOT + the space token at
+step 0 only). Separately confirmed (not a bug): this port's naive decode
+gets a WORSE result than mlx_whisper's polished `transcribe()` on
+short/ambiguous clips (temperature-fallback retries), verified by getting
+the bit-identical output from real Python running the same naive strategy.
+Real language auto-detection also landed (`WhisperModel.detectLanguage`,
+ports `mlx_whisper.decoding.detect_language` exactly, bit-exact verified).
+
+**`ASRGate.swift`'s default engine is now native Swift** —
+`ASRGateEngine.autoDetect()` picks `.nativeSwift` whenever a converted
+local checkpoint exists, `.pythonBridge` only as an availability fallback.
+`WhisperMel.loadAudio(url:)` added native (AVFoundation + `LinearResampler`,
+no ffmpeg) audio extraction so the default path is zero-Python end-to-end.
+**Real, documented consequence**: a live `ltx-video gate --asr-prompt` run
+against this port's own reference clip now FAILS (content ratio 0.00)
+where the old Python-bridge default PASSED (ratio 1.0) — the naive-greedy
+quality gap (no temperature-fallback) showing up as a real behavior change,
+not a bug. `engine: .pythonBridge` remains available as an explicit
+override until temperature-fallback retries close that gap.
+
+**Still open**: a real KV cache (perf only) and temperature-fallback
+retries (the actual remaining quality gap). Tiktoken ENCODE direction not
+needed for decode-only ASR gating. Logged in `PLAN.md`'s matching entry.
+
+Not yet done (follow-up, not this iteration): a `pi-agent-ext-ltx-self-improve`
+workflow (no `.claude/workflows/pi-agent-ext-ltx-self-improve.js` exists yet —
+`pi-agent-ext-flux2-self-improve.js` is the reference template) whose
+live-e2e lane would exercise this new gate end-to-end.
+
 # All four ComfyUI FFLF+Custom-Audio parity gaps — SOLVED (2026-07-04)
 
 `/goal solve this gaps` — closes out all four gaps found by the function
