@@ -1,0 +1,161 @@
+{
+  "_doc": "Complex-pose library for the pose_dsg validator (run.py caption --style pose_dsg). Each pose is decomposed into atomic yes/no propositions (DSG/TIFA-style) so faithfulness is judged atom-by-atom instead of a holistic 1-10 score that over-praises. Levels map to failure modes from the AbHuman/HumanRefiner taxonomy (limb count, hands/fingers, face, pose plausibility). See docs/pose-validation.md. To use one pose's atoms: caption img.png --style pose_dsg --prompt '<pose.prompt>' --atoms <(jq '{atoms: .levels[L].poses[P].atoms}' workflows/poses.json) — or pass the file path of a stripped {atoms:[...]} JSON.",
+  "_consumes": "pose_dsg --atoms accepts {atoms:[{id,q}]} (object) OR [{id,q}] (bare list). Each pose.atoms below is ready to lift out as that object's value.",
+  "levels": [
+    {
+      "level": 1,
+      "name": "hands — occlusion, overlap, foreshortening (the most common failure surface)",
+      "poses": [
+        {
+          "id": "L1-01",
+          "prompt": "a young woman standing, both hands resting on top of her head, elbows pointing outward, front-facing studio photograph",
+          "failure_modes": ["hand-count", "finger-fusion", "limb-position"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is the main subject"},
+            {"id": "a2", "q": "both of her hands are resting on top of her head"},
+            {"id": "a3", "q": "her elbows point outward to the sides"},
+            {"id": "a4", "q": "each visible hand has at most five fingers and none are fused"},
+            {"id": "a5", "q": "she is facing the camera (front view)"}
+          ]
+        },
+        {
+          "id": "L1-02",
+          "prompt": "a portrait of a woman with her hands clasped together in front of her chest, fingers interlaced, close-up",
+          "failure_modes": ["finger-fusion", "hand-count", "extra-limbs"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "both her hands are clasped together in front of her chest"},
+            {"id": "a3", "q": "the fingers are visibly interlaced (not merged into a single mass)"},
+            {"id": "a4", "q": "there are exactly two hands and two arms visible"},
+            {"id": "a5", "q": "no fingers are fused, missing, or extra"}
+          ]
+        },
+        {
+          "id": "L1-03",
+          "prompt": "a woman holding her open right palm toward the camera in a stop gesture, foreshortened hand close to the lens",
+          "failure_modes": ["finger-fusion", "hand-count", "foreshortening"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "her right palm faces the camera in a stop gesture"},
+            {"id": "a3", "q": "the visible hand has exactly five fingers"},
+            {"id": "a4", "q": "the hand appears larger due to foreshortening (closer to camera)"}
+          ]
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "name": "limb position & viewpoint — 3D spatial relations, partial occlusion",
+      "poses": [
+        {
+          "id": "L2-01",
+          "prompt": "a woman sitting cross-legged on the floor, seen from a 3/4 angle, knees toward the camera",
+          "failure_modes": ["limb-position", "limb-count", "pose-plausibility"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "she is sitting cross-legged"},
+            {"id": "a3", "q": "the camera angle is a 3/4 (three-quarter) view, not straight-on"},
+            {"id": "a4", "q": "her knees point toward the camera"},
+            {"id": "a5", "q": "there are exactly two legs and two arms (no extras from occlusion)"}
+          ]
+        },
+        {
+          "id": "L2-02",
+          "prompt": "a woman looking over her shoulder, body turned away in 3/4 profile, head turned toward the viewer",
+          "failure_modes": ["pose-plausibility", "face", "limb-position"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "her body is turned away from the camera (3/4 profile)"},
+            {"id": "a3", "q": "her head is turned to look back over her shoulder at the viewer"},
+            {"id": "a4", "q": "the neck twist looks within a plausible human range of motion"},
+            {"id": "a5", "q": "her face is visible and not distorted"}
+          ]
+        },
+        {
+          "id": "L2-03",
+          "prompt": "a woman captured mid-jump, one knee tucked up toward her chest, arms spread, dynamic action",
+          "failure_modes": ["pose-plausibility", "limb-position", "extra-limbs"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "she is airborne (mid-jump)"},
+            {"id": "a3", "q": "one knee is tucked up toward her chest"},
+            {"id": "a4", "q": "her arms are spread outward"},
+            {"id": "a5", "q": "the pose is physically plausible (no broken joints)"}
+          ]
+        }
+      ]
+    },
+    {
+      "level": 3,
+      "name": "full-body complex structure — multi-joint + occlusion + face",
+      "poses": [
+        {
+          "id": "L3-01",
+          "prompt": "a woman in a dancer's pose (nataraja), standing on one leg, the other leg lifted behind, one arm reaching back to hold the raised ankle",
+          "failure_modes": ["pose-plausibility", "limb-count", "limb-position", "face"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "she stands on one leg"},
+            {"id": "a3", "q": "her other leg is lifted behind her"},
+            {"id": "a4", "q": "one of her arms reaches back toward the raised ankle"},
+            {"id": "a5", "q": "all four limbs are accounted for (two arms, two legs, none duplicated)"},
+            {"id": "a6", "q": "the joints are within a plausible human range of motion"}
+          ]
+        },
+        {
+          "id": "L3-02",
+          "prompt": "a woman seen from the back, twisting her torso to face the viewer, hands on hips",
+          "failure_modes": ["pose-plausibility", "limb-position", "extra-limbs"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "her back is toward the camera"},
+            {"id": "a3", "q": "her torso is twisted to face the viewer"},
+            {"id": "a4", "q": "both her hands rest on her hips"},
+            {"id": "a5", "q": "the torso twist looks plausible (not a broken spine)"}
+          ]
+        },
+        {
+          "id": "L3-03",
+          "prompt": "a woman reclining on her side on a couch, propped up on one elbow, head supported by her hand",
+          "failure_modes": ["pose-plausibility", "limb-position", "limb-count"],
+          "atoms": [
+            {"id": "a1", "q": "exactly one woman is shown"},
+            {"id": "a2", "q": "she is reclining on her side"},
+            {"id": "a3", "q": "she is propped up on one elbow"},
+            {"id": "a4", "q": "her head is supported by her hand"},
+            {"id": "a5", "q": "exactly two arms and two legs are present"}
+          ]
+        }
+      ]
+    },
+    {
+      "level": 4,
+      "name": "multi-subject / interaction — limb-handoff boundaries (fused/extra limbs most likely here)",
+      "poses": [
+        {
+          "id": "L4-01",
+          "prompt": "two women standing back-to-back, both looking at the camera over their outer shoulders",
+          "failure_modes": ["extra-limbs", "limb-count", "face"],
+          "atoms": [
+            {"id": "a1", "q": "exactly two women are shown"},
+            {"id": "a2", "q": "they stand back-to-back"},
+            {"id": "a3", "q": "each has her own two arms and two legs (no shared/fused limbs)"},
+            {"id": "a4", "q": "both look at the camera over their outer shoulders"}
+          ]
+        },
+        {
+          "id": "L4-02",
+          "prompt": "two women holding hands facing the camera, side by side",
+          "failure_modes": ["extra-limbs", "hand-count", "limb-count"],
+          "atoms": [
+            {"id": "a1", "q": "exactly two women are shown"},
+            {"id": "a2", "q": "they stand side by side facing the camera"},
+            {"id": "a3", "q": "they are holding each other's hand"},
+            {"id": "a4", "q": "the total hand count is four and none are fused"},
+            {"id": "a5", "q": "the total arm count is four"}
+          ]
+        }
+      ]
+    }
+  ]
+}

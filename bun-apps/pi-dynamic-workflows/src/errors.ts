@@ -76,8 +76,13 @@ export function isProviderUsageLimit(error: unknown): error is WorkflowError {
  */
 export function classifyProviderLimit(text: string | undefined): { matched: boolean; resetHint?: string } {
   if (!text) return { matched: false };
+  // NOTE: bare `\bquota\b` / `\bbilling\b` were removed — they matched any tool
+  // error that merely MENTIONED quota/billing (e.g. an agent analyzing a billing
+  // document, or a request whose context contains "quota"), misclassifying a
+  // recoverable failure as a non-recoverable PROVIDER_USAGE_LIMIT and pausing the
+  // whole run. The specific phrases below still cover every real provider wording.
   const matched =
-    /usage limit|limit reached|insufficient[_\s]?quota|quota exceeded|exceeded your current quota|out of budget|available balance|\bquota\b|rate.?limit|too many requests|\b429\b|GoUsageLimitError|FreeUsageLimitError|\bbilling\b/i.test(
+    /usage limit|limit reached|insufficient[_\s]?quota|quota exceeded|exceeded your current quota|out of budget|available balance|rate.?limit|too many requests|\b429\b|GoUsageLimitError|FreeUsageLimitError/i.test(
       text,
     );
   if (!matched) return { matched: false };

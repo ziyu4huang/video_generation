@@ -102,3 +102,12 @@ src/vlm.ts               # thin adapter over pi-vlm's shared VLM subagent
 scripts/check-flags.ts   # drift guard
 scripts/build-bundle.ts  # single-file bundle
 ```
+
+## Validating complex poses
+
+For complex human poses (hands, limbs, face) the holistic `--style score`
+over-praises. Use the atomic `pose_dsg` validator instead — see
+[`docs/pose-validation.md`](docs/pose-validation.md) for the method (DSG/TIFA
+atoms + AbHuman anatomy gate, aggregates recomputed in Python) and the
+[`workflows/poses.json`](workflows/poses.json) pose library fixture.
+

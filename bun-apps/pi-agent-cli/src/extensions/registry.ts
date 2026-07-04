@@ -12,11 +12,12 @@
 import type { Command } from "../cli.ts";
 import { runExtensionSubcommand } from "./runner.ts";
 import type { ExtensionSubcommandSpec } from "./types.ts";
-import { flux2Subcommand } from "@repo/pi-agent-ext-flux2/extensions/cli-subcommand.ts";
+import { flux2Subcommand, selfImproveSubcommand } from "@repo/pi-agent-ext-flux2/extensions/cli-subcommand.ts";
 
 /** The extension sub-commands to expose on the CLI. */
 export const EXTENSION_SPECS: ExtensionSubcommandSpec[] = [
 	flux2Subcommand,
+	selfImproveSubcommand,
 ];
 
 /** Wrap an extension spec as a `Command` (same shape as commands/*.ts). */
