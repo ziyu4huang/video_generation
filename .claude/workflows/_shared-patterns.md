@@ -570,6 +570,148 @@ const upheld = verifiedFindings.filter(v => v.upheld)
 
 Full pattern: see `mlx-movie-director-review-optimize.js`.
 
+## Self-Fix (Code-Review-Based) — the review→fix loop
+
+For **code-review** workflows (unlike the score-based self-fix above, which is for
+VLM-scored image generation). Closes the loop that review-only workflows leave
+open: each adversarially-upheld finding → propose a minimal patch → apply →
+re-run the contract gate → adversarially re-verify the finding is actually closed.
+First shipped in `pi-infra-self-improve.js`.
+
+**Hard guarantees** (port ALL of them — a half implementation is worse than none):
+- **opt-in** — only runs when `args.fix === true`. Default off.
+- **dirty-tree-refuse** — `git status --porcelain` must be empty before applying
+  ANY patch. A dirty tree means WIP the lane could corrupt; refuse and log, never
+  apply. (This is why the lane cannot be used to "clean up" a messy tree.)
+- **dryRun-capable** — `args.dryRun === true` proposes patches and returns them
+  WITHOUT applying. Lets you preview before committing.
+- **never pushes** — the apply path commits to the CURRENT local branch only
+  (`git commit` on `HEAD`). Pushing is a human action; the lane never runs
+  `git push`, so it can never reach `main` directly. Run the workflow on a feature
+  branch (the repo SOP already mandates main-via-PR).
+
+```javascript
+// ── Self-Fix (Code-Review-Based) helper — copy VERBATIM into every code-review workflow ──
+
+const FIX_PROPOSE_SCHEMA = {
+  type: "object",
+  properties: {
+    file: { type: "string", description: "repo-relative path" },
+    oldString: { type: "string", description: "exact text to replace; MUST be unique in the file (Edit tool contract)" },
+    newString: { type: "string", description: "the replacement" },
+    rationale: { type: "string", description: "why this closes the finding's failure_scenario" },
+    confidence: { type: "number", description: "0..1" },
+  },
+  required: ["file", "oldString", "newString", "rationale"],
+}
+const FIX_DIRTY_SCHEMA = {
+  type: "object",
+  properties: { dirty: { type: "boolean" }, output: { type: "string" } },
+  required: ["dirty"],
+}
+const FIX_APPLY_SCHEMA = {
+  type: "object",
+  properties: { applied: { type: "boolean" }, detail: { type: "string" } },
+  required: ["applied"],
+}
+
+// `contractCmd`: the Bash string that re-runs the workflow's deterministic gate
+// (e.g. the bun-test / build command the contract lane uses). Findings MUST come
+// from the review lane's adversarially-upheld set, not raw findings.
+async function runFixLane({ findings, projectRoot, contractCmd, dryRun }) {
+  // 1. refuse on dirty tree — never collide with WIP
+  const dirty = await agent(
+    `Bash("git -C '${projectRoot}' status --porcelain") and return whether the output is non-empty.`,
+    { label: "fix:dirty-check", phase: "Self-Fix", model: "haiku", schema: FIX_DIRTY_SCHEMA },
+  )
+  if (dirty?.dirty) {
+    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first.`)
+    return { skipped: true, reason: "dirty tree", porcelain: dirty.output }
+  }
+
+  if (!findings?.length) {
+    log(`Self-Fix: no upheld findings to fix — lane is a no-op.`)
+    return { applied: [], dryRun, reason: "no upheld findings" }
+  }
+
+  // 2. propose a minimal patch per finding (parallel); each reads the actual file
+  const proposals = await parallel(
+    findings.map((f) => () =>
+      agent(
+        `Propose a MINIMAL, TARGETED patch for this verified code-review finding. Read the actual file first.
+Finding: ${JSON.stringify(f)}
+Repo root: ${projectRoot}.
+Rules:
+- oldString MUST be unique in the file (the Edit tool rejects ambiguous matches). Include just enough surrounding context to be unique.
+- newString MUST be the smallest change that closes the finding's failure_scenario. NEVER reformat or rewrite surrounding code.
+- If the finding is not safely patchable (needs design discussion, ambiguous fix), return confidence < 0.5 and the smallest possible guard rather than a rewrite.`,
+        { label: `fix:propose:${f.file}`, phase: "Self-Fix", model: "sonnet", schema: FIX_PROPOSE_SCHEMA },
+      ).then((p) => ({ finding: f, proposal: p })),
+    ),
+  )
+  const valid = proposals.filter(Boolean).filter((p) => p.proposal?.file && p.proposal?.oldString)
+
+  // 3. dryRun → return proposals WITHOUT applying
+  if (dryRun) {
+    log(`Self-Fix: dryRun — ${valid.length} patch(es) proposed, NOT applied.`)
+    return { dryRun: true, proposals: valid.map((p) => p.proposal) }
+  }
+
+  // 4. apply each patch (Edit tool via subagent), then 5. re-run the contract gate
+  const applied = await parallel(
+    valid.map((p) => () =>
+      agent(
+        `Apply this patch with the Edit tool, then verify it landed.
+Edit({ file_path: "${projectRoot}/${p.proposal.file}", old_string: ${JSON.stringify(p.proposal.oldString)}, new_string: ${JSON.stringify(p.proposal.newString)} })
+Then Bash("grep -c '<a unique snippet from newString>' '${projectRoot}/${p.proposal.file}'") to confirm the new text is present.
+If Edit reports the old_string was not found (file changed since propose), report applied:false with the error — do NOT retry blindly.
+Return { applied, detail }.`,
+        { label: `fix:apply:${p.proposal.file}`, phase: "Self-Fix", model: "sonnet", schema: FIX_APPLY_SCHEMA },
+      ).then((a) => ({ finding: p.finding, proposal: p.proposal, apply: a })),
+    ),
+  )
+  const appliedOk = applied.filter(Boolean).filter((a) => a.apply?.applied)
+
+  // 5. re-run the deterministic contract gate (must still be green after patches)
+  const recontract = await agent(
+    `Re-run the contract gate after applying fixes.
+Bash("${contractCmd}")
+Return { pass: <true iff the gate is green>, summary: <the pass/fail line> }.`,
+    { label: "fix:recontract", phase: "Self-Fix", model: "sonnet",
+      schema: { type: "object", properties: { pass: { type: "boolean" }, summary: { type: "string" } }, required: ["pass"] } },
+  )
+
+  // 6. adversarially re-verify each applied finding is actually CLOSED
+  const reverified = await parallel(
+    appliedOk.map((a) => () =>
+      agent(
+        `Adversarially verify this finding is now CLOSED by reading the patched file. Default to closed=false if the failure_scenario could still occur.
+Finding: ${JSON.stringify(a.finding)}
+Patch applied: ${JSON.stringify(a.proposal)}
+Repo root: ${projectRoot}.`,
+        { label: `fix:reverify:${a.proposal.file}`, phase: "Self-Fix", model: "sonnet",
+          schema: { type: "object", properties: { closed: { type: "boolean" }, reason: { type: "string" } }, required: ["closed"] } },
+      ).then((v) => ({ finding: a.finding, closed: v?.closed })),
+    ),
+  )
+  const closedCount = reverified.filter(Boolean).filter((v) => v.closed).length
+  log(`Self-Fix: applied ${appliedOk.length}/${valid.length}; contract ${recontract?.pass ? "green" : "RED"}; ${closedCount}/${appliedOk.length} findings re-verified closed.`)
+
+  return { dryRun: false, proposed: valid.length, applied: appliedOk, recontract, reverified, closedCount }
+}
+```
+
+**Persist** — one history entry per finding with `{applied, verified, rationale}`,
+folded into the run's signals (`key_metric` = upheld findings remaining AFTER fix).
+If `recontract.pass` is false, the run quality is `degraded` regardless of
+anything else — a fix that breaks the gate is a regression and must surface loudly.
+
+**Port checklist when adopting** (e.g. flux2/mlx/gui self-improve): copy the three
+schemas + `runFixLane` verbatim; pass YOUR contract gate command as `contractCmd`
+and YOUR review lane's upheld findings as `findings`; gate the whole lane behind
+`args.fix === true` and thread `args.dryRun`. Do NOT specialize the dirty-tree
+refuse or the never-push guarantee — those are invariant across workflows.
+
 ## Schema Conventions
 
 All structured outputs use JSON Schema objects:

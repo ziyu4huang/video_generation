@@ -29,26 +29,30 @@
 //   • review   — agent-based multi-dimension code review (correctness /
 //                path-safety+extension-loading / schema-consistency /
 //                error-handling) over the infra packages, each finding
-//                adversarially verified before it counts. REVIEW-ONLY — no
-//                git-stash auto-fix in this version (the fix lane is a planned
-//                pi-dynamic-workflows shared primitive, not a per-workflow bolt-on).
+//                adversarially verified before it counts.
+//   • fix      — CLOSES the review→fix loop (opt-in, fix:true). For each upheld
+//                review finding: propose a minimal patch → apply (Edit) → re-run
+//                the contract gate → adversarially re-verify the finding closed.
+//                dirty-tree-refuse, dryRun-capable, never pushes. First adopter
+//                of the "Self-Fix (Code-Review-Based)" shared primitive in
+//                _shared-patterns.md — the flux2/mlx/gui self-improve workflows
+//                adopt the same helper without copy-paste divergence.
 //
 // Modes (selected by args):
 //
-//   ROUTINE SCAN (default — cheap-ish, collision-safe):
+//   ROUTINE SCAN (default — cheap-ish, collision-safe, review-only):
 //     Workflow({ name: "pi-infra-self-improve" })
 //       → contract + build + review (effort:low). Build is opt-OUT via
 //         skipBuild:true for a fast re-run (build:all is the slowest lane).
+//
+//   CLOSE THE LOOP (opt-in):
+//     args: { fix: true }                 // review → propose → apply → re-verify
+//     args: { fix: true, dryRun: true }   // propose patches, DON'T apply
 //
 //   SINGLE LANE:
 //     args: { lanes: ["contract"] }   // gate-each-package only
 //     args: { lanes: ["build"] }      // build:all + getAllTools probe only
 //     args: { lanes: ["review"] }     // code review only
-//
-//   FOCUS / TARGET:
-//     args: { focus: "path-safety" }            // single review dimension
-//     args: { files: ["bun-apps/pi-agent/src/deploy.ts"] }  // review only these
-//     args: { skipBuild: true }                 // skip the slow build lane
 //
 // Mirrors _shared-patterns.md verbatim for: Phase Tracking, History Persist
 // (saveHistory), Workflow Knowledge (loadKnowledge/extractKnowledge). When you
@@ -57,12 +61,12 @@
 export const meta = {
   name: "pi-infra-self-improve",
   description:
-    "Self-improve loop for the pi-agent / pi-ext INFRASTRUCTURE layer (pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, pi-obsidian) — deterministic contract lane (each package's real test gate), a build lane that runs pi-agent build:all + getAllTools() probe to catch the recurring deploy/bundle footguns unit tests can't, and a multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify. Review-only — no auto-fix yet. The infrastructure counterpart to the image-scoped self-improve workflows.",
+    "Self-improve loop for the pi-agent / pi-ext INFRASTRUCTURE layer (pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, pi-obsidian) — deterministic contract lane (each package's real test gate), a build lane that runs pi-agent build:all + getAllTools() probe to catch the recurring deploy/bundle footguns unit tests can't, a multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify, AND an opt-in fix lane (fix:true) that closes the review→fix loop: propose-patch → apply → re-run contract → re-verify, dirty-tree-refuse + dryRun-capable + never-pushes. First adopter of the Self-Fix (Code-Review-Based) shared primitive. The infrastructure counterpart to the image-scoped self-improve workflows.",
   whenToUse:
-    "Run after touching bun-apps/pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, or pi-obsidian — the runtime + extension-mechanism + workflow-engine layer. Default = contract + build + review (effort:low, review-only). lanes:['contract'|'build'|'review'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. skipBuild:true drops the slow build:all lane for fast re-runs.",
+    "Run after touching bun-apps/pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, or pi-obsidian — the runtime + extension-mechanism + workflow-engine layer. Default = contract + build + review (effort:low, review-only). fix:true closes the loop (propose→apply→re-verify; refuses on dirty tree, never pushes); fix:true+dryRun:true proposes without applying. lanes:['contract'|'build'|'review'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. skipBuild:true drops the slow build:all lane for fast re-runs.",
   phases: [
     { title: "Resolve", detail: "Resolve repo root, timestamp, load knowledge base" },
-    { title: "Run", detail: "Lanes: contract (each package's gate) + build (build:all + getAllTools probe) + review (multi-dimension + adversarial verify)" },
+    { title: "Run", detail: "Lanes: contract (each package's gate) + build (build:all + getAllTools probe) + review (multi-dimension + adversarial verify) + fix (opt-in: propose→apply→re-contract→re-verify)" },
     { title: "Persist", detail: "One unified history entry + extractKnowledge" },
     { title: "Report", detail: "Merged health report: contract status + build status + review findings" },
   ],
@@ -88,7 +92,12 @@ const LANES = LANES_RAW.filter((l) => ALL_LANES.includes(l))
 const DO_CONTRACT = LANES.includes("contract")
 // build is the slowest lane; allow skipBuild to drop it even when included.
 const DO_BUILD = LANES.includes("build") && A.skipBuild !== true
-const DO_REVIEW = LANES.includes("review")
+// fix lane is opt-in (fix:true), NOT part of ALL_LANES (never runs by default),
+// and consumes the review lane's upheld findings — so fix forces review on.
+const FIX_REQ = A.fix === true
+const DRY_RUN = A.dryRun === true
+const DO_REVIEW = LANES.includes("review") || FIX_REQ
+const DO_FIX = FIX_REQ
 
 const EFFORT = ["low", "medium", "high"].includes(A.effort) ? A.effort : "low"
 const FOCUS = A.focus || null
@@ -285,6 +294,10 @@ const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 const knowledge = await loadKnowledge(KB_FILE)
 const knowledgeDigest = knowledge?.digest || ""
 
+if (FIX_REQ) {
+  log(`fix:true requested — review→propose→apply→re-verify loop is ON (dryRun=${DRY_RUN}). The lane refuses on a dirty tree and never pushes.`)
+}
+
 markPhase("resolve", "completed")
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -461,7 +474,8 @@ const [contractResult, buildResult, reviewResult] = await parallel([
 
 const contractOk = contractResult ? contractResult.overallOk : true
 const buildOk = buildResult ? buildResult.overallOk : true
-const reviewFindingsCount = reviewResult?.findings?.length ?? 0
+const reviewFindings = reviewResult?.findings ?? []
+const reviewFindingsCount = reviewFindings.length
 
 if (contractResult) {
   const pkgs = (contractResult.packages || []).map((p) => `${p.name}=${p.ok ? "ok" : "FAIL"}`).join(", ")
@@ -470,7 +484,125 @@ if (contractResult) {
 if (buildResult) log(`Build: build:all=${buildResult.buildAllOk ? "ok" : "FAIL"}, verify(getAllTools)=${buildResult.verifyOk ? "ok" : "FAIL"} — ${buildResult.buildSummary || "?"} | ${buildResult.verifySummary || "?"}`)
 if (reviewResult) log(`Review: ${reviewFindingsCount} upheld finding(s) across ${reviewResult.dimensionsRun?.join(", ") || "?"} (${reviewResult.rawCount ?? "?"} raw before adversarial verify)`)
 
-markPhase("run", (contractOk && buildOk) ? "completed" : "failed")
+// ── fix lane: closes the review→fix loop (opt-in, after review) ────────────
+// Ported from _shared-patterns.md "Self-Fix (Code-Review-Based)". The contract
+// re-run gate: all 5 infra packages green (same as the contract lane).
+const FIX_PROPOSE_SCHEMA = {
+  type: "object",
+  properties: {
+    file: { type: "string", description: "repo-relative path" },
+    oldString: { type: "string", description: "exact text to replace; MUST be unique in the file (Edit tool contract)" },
+    newString: { type: "string", description: "the replacement" },
+    rationale: { type: "string", description: "why this closes the finding's failure_scenario" },
+    confidence: { type: "number", description: "0..1" },
+  },
+  required: ["file", "oldString", "newString", "rationale"],
+}
+const FIX_DIRTY_SCHEMA = {
+  type: "object",
+  properties: { dirty: { type: "boolean" }, output: { type: "string" } },
+  required: ["dirty"],
+}
+const FIX_APPLY_SCHEMA = {
+  type: "object",
+  properties: { applied: { type: "boolean" }, detail: { type: "string" } },
+  required: ["applied"],
+}
+const RECONTRACT_CMD = `cd '${PROJECT_ROOT}' && PI_AGENT_E2E=1 bun test bun-apps/pi-agent >/dev/null 2>&1 && bun test bun-apps/pi-agent-cli >/dev/null 2>&1 && bun run --cwd bun-apps/pi-dynamic-workflows test >/dev/null 2>&1 && bun test bun-apps/pi-vlm >/dev/null 2>&1 && bun test bun-apps/pi-obsidian >/dev/null 2>&1 && echo ALL_GREEN`
+
+async function runFixLane(findings) {
+  // 1. refuse on dirty tree — never collide with WIP
+  const dirty = await agent(
+    `Bash("git -C '${PROJECT_ROOT}' status --porcelain") and return whether the output is non-empty.`,
+    { label: "fix:dirty-check", phase: "Run", model: "haiku", schema: FIX_DIRTY_SCHEMA },
+  )
+  if (dirty?.dirty) {
+    log(`Self-Fix: SKIPPED — dirty tree (fix lane refuses to avoid corrupting WIP). Stash or commit first.`)
+    return { skipped: true, reason: "dirty tree", porcelain: dirty.output }
+  }
+
+  if (!findings?.length) {
+    log(`Self-Fix: no upheld findings to fix — lane is a no-op.`)
+    return { applied: [], dryRun: DRY_RUN, reason: "no upheld findings" }
+  }
+
+  // 2. propose a minimal patch per finding (parallel); each reads the actual file
+  const proposals = await parallel(
+    findings.map((f) => () =>
+      agent(
+        `Propose a MINIMAL, TARGETED patch for this verified code-review finding. Read the actual file first.
+Finding: ${JSON.stringify(f)}
+Repo root: ${PROJECT_ROOT}.
+Rules:
+- oldString MUST be unique in the file (the Edit tool rejects ambiguous matches). Include just enough surrounding context to be unique.
+- newString MUST be the smallest change that closes the finding's failure_scenario. NEVER reformat or rewrite surrounding code.
+- If the finding is not safely patchable (needs design discussion, ambiguous fix), return confidence < 0.5 and the smallest possible guard rather than a rewrite.`,
+        { label: `fix:propose:${f.file}`, phase: "Run", model: "sonnet", schema: FIX_PROPOSE_SCHEMA },
+      ).then((p) => ({ finding: f, proposal: p })),
+    ),
+  )
+  const valid = proposals.filter(Boolean).filter((p) => p.proposal?.file && p.proposal?.oldString)
+
+  // 3. dryRun → return proposals WITHOUT applying
+  if (DRY_RUN) {
+    log(`Self-Fix: dryRun — ${valid.length} patch(es) proposed, NOT applied.`)
+    return { dryRun: true, proposals: valid.map((p) => p.proposal) }
+  }
+
+  // 4. apply each patch (Edit tool via subagent)
+  const applied = await parallel(
+    valid.map((p) => () =>
+      agent(
+        `Apply this patch with the Edit tool, then verify it landed.
+Edit({ file_path: "${PROJECT_ROOT}/${p.proposal.file}", old_string: ${JSON.stringify(p.proposal.oldString)}, new_string: ${JSON.stringify(p.proposal.newString)} })
+Then Bash("grep -c '<a unique snippet from newString>' '${PROJECT_ROOT}/${p.proposal.file}'") to confirm the new text is present.
+If Edit reports the old_string was not found (file changed since propose), report applied:false with the error — do NOT retry blindly.
+Return { applied, detail }.`,
+        { label: `fix:apply:${p.proposal.file}`, phase: "Run", model: "sonnet", schema: FIX_APPLY_SCHEMA },
+      ).then((a) => ({ finding: p.finding, proposal: p.proposal, apply: a })),
+    ),
+  )
+  const appliedOk = applied.filter(Boolean).filter((a) => a.apply?.applied)
+
+  // 5. re-run the deterministic contract gate (must still be green after patches)
+  const recontract = await agent(
+    `Re-run the infra contract gate after applying fixes. pass=true iff output contains ALL_GREEN.
+Bash("${RECONTRACT_CMD}")
+Return { pass, summary }.`,
+    { label: "fix:recontract", phase: "Run", model: "sonnet",
+      schema: { type: "object", properties: { pass: { type: "boolean" }, summary: { type: "string" } }, required: ["pass"] } },
+  )
+
+  // 6. adversarially re-verify each applied finding is actually CLOSED
+  const reverified = await parallel(
+    appliedOk.map((a) => () =>
+      agent(
+        `Adversarially verify this finding is now CLOSED by reading the patched file. Default to closed=false if the failure_scenario could still occur.
+Finding: ${JSON.stringify(a.finding)}
+Patch applied: ${JSON.stringify(a.proposal)}
+Repo root: ${PROJECT_ROOT}.`,
+        { label: `fix:reverify:${a.proposal.file}`, phase: "Run", model: "sonnet",
+          schema: { type: "object", properties: { closed: { type: "boolean" }, reason: { type: "string" } }, required: ["closed"] } },
+      ).then((v) => ({ finding: a.finding, closed: v?.closed })),
+    ),
+  )
+  const closedCount = reverified.filter(Boolean).filter((v) => v.closed).length
+  log(`Self-Fix: applied ${appliedOk.length}/${valid.length}; contract ${recontract?.pass ? "green" : "RED"}; ${closedCount}/${appliedOk.length} findings re-verified closed.`)
+
+  return { dryRun: false, proposed: valid.length, applied: appliedOk, recontract, reverified, closedCount }
+}
+
+const fixResult = DO_FIX ? await runFixLane(reviewFindings) : null
+const fixOk = fixResult ? (fixResult.skipped || fixResult.dryRun ? true : (fixResult.recontract?.pass && (fixResult.closedCount ?? 0) >= 0)) : true
+const fixBrokeGate = fixResult && !fixResult.dryRun && !fixResult.skipped && fixResult.recontract?.pass === false
+
+if (fixResult) {
+  if (fixResult.skipped) log(`Fix: SKIPPED (${fixResult.reason})`)
+  else if (fixResult.dryRun) log(`Fix: dryRun — ${fixResult.proposals?.length ?? 0} patch(es) proposed, not applied`)
+  else log(`Fix: ${fixResult.closedCount}/${fixResult.applied?.length ?? 0} closed; contract ${fixResult.recontract?.pass ? "green" : "RED"}`)
+}
+
+markPhase("run", (contractOk && buildOk && !fixBrokeGate) ? "completed" : "failed")
 
 // ═════════════════════════════════════════════════════════════════════════
 phase("Persist")
@@ -481,18 +613,30 @@ const runResult = {
   contract: contractResult,
   build: buildResult,
   review: reviewResult,
+  fix: fixResult,
 }
 
+// After a fix lane run, "remaining" findings = those NOT re-verified closed.
+const findingsRemaining = fixResult && !fixResult.dryRun && !fixResult.skipped
+  ? Math.max(0, reviewFindingsCount - (fixResult.closedCount ?? 0))
+  : reviewFindingsCount
+
 const signals = {
-  run_quality: (contractOk && buildOk && reviewFindingsCount === 0) ? "good" : (contractOk && buildOk) ? "fair" : "degraded",
-  key_metric: reviewFindingsCount,
+  run_quality: fixBrokeGate
+    ? "degraded"
+    : (contractOk && buildOk && findingsRemaining === 0) ? "good" : (contractOk && buildOk) ? "fair" : "degraded",
+  key_metric: findingsRemaining,
   delta_from_last: null,
   highlights: [
     contractResult ? `contract: ${contractResult.overallOk ? "all packages pass" : "package(s) failed"} (${(contractResult.packages || []).filter((p) => !p.ok).map((p) => p.name).join(",") || "none"})` : null,
     buildResult ? `build: build:all ${buildResult.buildAllOk ? "ok" : "FAIL"}, getAllTools ${buildResult.verifyOk ? "ok" : "FAIL"}` : null,
     reviewResult ? `review: ${reviewFindingsCount} upheld finding(s)` : null,
+    fixResult ? (fixResult.skipped ? `fix: SKIPPED (${fixResult.reason})` : fixResult.dryRun ? `fix: dryRun, ${fixResult.proposals?.length ?? 0} proposed` : `fix: ${fixResult.closedCount}/${fixResult.applied?.length ?? 0} closed, contract ${fixResult.recontract?.pass ? "green" : "RED"}`) : null,
   ].filter(Boolean),
-  warnings: reviewFindingsCount > 0 ? [`${reviewFindingsCount} unresolved review finding(s) — this version does not auto-fix`] : [],
+  warnings: [
+    reviewFindingsCount > 0 && !fixResult ? `${reviewFindingsCount} unresolved review finding(s) — fix:true closes the loop` : null,
+    fixBrokeGate ? `fix lane broke the contract gate — patches are a regression, do not commit` : null,
+  ].filter(Boolean),
 }
 
 const historyEntry = {
@@ -500,7 +644,7 @@ const historyEntry = {
   run_id: RUN_ID,
   workflow: NAME,
   started_at: RUN_TIMESTAMP,
-  args: { lanes: LANES, effort: EFFORT, focus: FOCUS, files: FILES, skipBuild: A.skipBuild === true },
+  args: { lanes: LANES, effort: EFFORT, focus: FOCUS, files: FILES, skipBuild: A.skipBuild === true, fix: FIX_REQ, dryRun: DRY_RUN },
   phases_completed: phasesCompleted,
   phases_failed: phasesFailed,
   status: phasesFailed.length === 0 ? "complete" : "partial",
@@ -527,5 +671,7 @@ return {
   contract: contractResult,
   build: buildResult,
   reviewFindings: reviewResult?.findings ?? [],
-  overallOk: contractOk && buildOk,
+  fix: fixResult,
+  findingsRemaining,
+  overallOk: contractOk && buildOk && !fixBrokeGate,
 }
