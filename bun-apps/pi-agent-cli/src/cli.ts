@@ -8,6 +8,7 @@
  *        bun-pi-agent-cli zk-extract <files.../folders...> [options] markdown → Zettelkasten notes
  *        bun-pi-agent-cli zk-card <sub> [options]                 CRUD for Zettelkasten notes (add/find/update/remove/check)
  *        bun-pi-agent-cli zk-ask <question> [options]             graph-enhanced vault Q&A
+ *        bun-pi-agent-cli zk-ingest <jsonl-files...> [options]    converge structured records → shared knowledge-graph vault
  *        bun-pi-agent-cli pipeline pdf-to-vault <pdf> [options]   PDF → md → vault (resumable)
  *
  *      Plus meta commands: list | version | help.
@@ -24,6 +25,7 @@ import { parsePiArgs } from "./args.ts";
 import { zkExtractCommand } from "./commands/zk-extract.ts";
 import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
+import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { doctorCommand } from "./commands/doctor.ts";
@@ -68,6 +70,12 @@ const COMMANDS: Command[] = [
     summary: zkAskCommand.summary,
     details: zkAskCommand.details,
     run: zkAskCommand.run,
+  },
+  {
+    name: "zk-ingest",
+    summary: zkIngestCommand.summary,
+    details: zkIngestCommand.details,
+    run: zkIngestCommand.run,
   },
   {
     name: "doctor",
