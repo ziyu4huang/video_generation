@@ -279,6 +279,30 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   }
   return extract
 }
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  if (process.env.PI_PUBLISH_KNOWLEDGE === "0") return { published: false, reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  const cli = await agent(
+    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
 
 // ── pruneKnowledge — DETECT stale active records whose referenced SOURCE file is gone ──
 // The 12-key lifecycle (status: active|superseded|retired) is WRITE-ONLY: extractKnowledge
@@ -1857,6 +1881,7 @@ try {
   await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
   log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
   await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, null)
+  await publishKnowledge(KB_FILE, meta.name)
   // Prune stale-active knowledge (DETECT-ONLY): flag records whose referenced source file
   // is gone, every run. Never writes/retires — operator manually retires confirmed ones.
   try {

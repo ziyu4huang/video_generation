@@ -628,6 +628,30 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   }
   return extract
 }
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  if (process.env.PI_PUBLISH_KNOWLEDGE === "0") return { published: false, reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  const cli = await agent(
+    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  GUI_DIR: ${GUI_DIR}`)
@@ -668,6 +692,7 @@ Return { seedResult: { run_count, findings_by_dimension, recurring_patterns: [..
       }, required: ["seedResult"] } },
   )
   await extractKnowledge(KB_FILE, RUN_ID, seed?.seedResult || {}, seed?.reflection || null)
+  await publishKnowledge(KB_FILE, meta.name)
   log(`Knowledge: SEEDED from ${HISTORY_DIR} → ${KB_FILE}. Re-run without seedKnowledge to resume normal operation.`)
   markPhase("resolve", "completed")
   markPhase("persist", "completed")
@@ -1713,6 +1738,7 @@ const historyEntry = {
 await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, priorReflection)
+  await publishKnowledge(KB_FILE, meta.name)
 
 // ── Reflect: synthesize patterns across all prior runs ────────────────────────
 const REFLECT_SCHEMA = {

@@ -258,6 +258,60 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   return extract
 }
 
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  if (process.env.PI_PUBLISH_KNOWLEDGE === "0") return { published: false, reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  const cli = await agent(
+    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Retrieves CROSS-WORKFLOW cards from the shared graph for this run's tag scope.
+// Default-on (PI_GRAPH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  if (process.env.PI_GRAPH_KNOWLEDGE === "0") return { found: false, digest: "", reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const tags = (Array.isArray(graphTags) ? graphTags : []).join(",")
+  const wfName = workflowName || meta.name
+  if (!tags) return { found: false, digest: "", reason: "no-tags" }
+  const q = await agent(
+    `Run the knowledge-graph retrieve CLI (read-only). Capture stdout (the digest) + the status line.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+3. The output is a digest block ending with a status line like "(matched N/253 in ..., returned M, excluded K own-id(s))".
+   - If the digest starts with "(graph: 0 cross-workflow" OR the run errored (no "matched" line), return found:false.
+   - Parse M (the "returned" count) from the status line.
+Return { found: <true iff M > 0>, digest: <the digest text, verbatim>, count: <M> }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        digest: { type: "string", description: "Cross-workflow card digest from zk-query (verbatim stdout)" },
+        count: { type: "number", description: "Number of cards returned (parsed from status line)" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Number(q?.count) || 0
+  log(`Graph: ${n} cross-workflow card(s) for tags [${tags}] (${wfName}) ← ${vault}`)
+  return q
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 phase("Resolve")
 // ═════════════════════════════════════════════════════════════════════════
@@ -292,7 +346,12 @@ const RUN_TIMESTAMP = await agent(
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 
 const knowledge = await loadKnowledge(KB_FILE)
-const knowledgeDigest = knowledge?.digest || ""
+// Retrieve CROSS-WORKFLOW cards from the shared graph (closed loop). Excludes
+// pi-infra's own ids. Default-on; PI_GRAPH_KNOWLEDGE=0 kills it.
+const GRAPH_TAGS = ["path-safety", "schema-consistency", "argparse", "argparse-integrity", "bundle", "deploy"]
+const graphKnowledge = await loadGraphKnowledge(KB_FILE, GRAPH_TAGS, meta.name)
+const knowledgeDigest = [knowledge?.digest || "", graphKnowledge?.digest || ""]
+  .filter(Boolean).join("\n\n") || ""
 
 if (FIX_REQ) {
   log(`fix:true requested — review→propose→apply→re-verify loop is ON (dryRun=${DRY_RUN}). The lane refuses on a dirty tree and never pushes.`)
@@ -320,9 +379,19 @@ const CONTRACT_SCHEMA = {
         required: ["name", "ok"],
       },
     },
+    graphHealth: {
+      type: "object",
+      description: "Shared knowledge-graph integrity gate (dead-link / MOC-drift / orphan).",
+      properties: {
+        ran: { type: "boolean", description: "false if the vault is absent (non-fatal)" },
+        ok: { type: "boolean", description: "true iff no dead links + no MOC drift (orphans non-fatal)" },
+        summary: { type: "string", description: "the status line verbatim" },
+      },
+      required: ["ran", "ok"],
+    },
     overallOk: { type: "boolean" },
   },
-  required: ["packages", "overallOk"],
+  required: ["packages", "graphHealth", "overallOk"],
 }
 
 async function runContractLane() {
@@ -357,7 +426,14 @@ Repo root: ${PROJECT_ROOT}. Run each command and capture whether it passed.
 11. pi-agent-ext-power-tool (power-tool extension):
    Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-power-tool test 2>&1 | tail -20")
 
-For each package report { name, ok, summary }. overallOk = true iff every package ok.
+12. Graph-health gate (shared knowledge-graph integrity — dead-link / MOC-drift /
+    orphan over vaults_root/pi-agent-vault). Non-fatal if the vault is absent:
+   Bash("cd '${PROJECT_ROOT}' && test -d vaults_root/pi-agent-vault && OB_VAULT_PATH='${PROJECT_ROOT}/vaults_root/pi-agent-vault' bun --cwd bun-apps/pi-agent-cli src/cli.ts zk-query --health 2>&1 | tail -15 || echo 'VAULT ABSENT (non-fatal)'")
+   graphHealth.ran = true iff the vault exists (not "VAULT ABSENT"). graphHealth.ok = true iff
+   the status line is "status:  OK" (DRIFT → ok:false). summary = the "status:" + "dead-links:" lines.
+
+For each package report { name, ok, summary }. graphHealth = { ran, ok, summary } from step 12.
+overallOk = true iff every package ok AND graphHealth.ok is true (a DRIFT graph is a real defect).
 If a package dir doesn't exist, report ok:false with summary "package dir missing".
 Report each command's tail in your summary text even though the schema only needs booleans.`
     ,
@@ -493,7 +569,9 @@ const reviewFindingsCount = reviewFindings.length
 
 if (contractResult) {
   const pkgs = (contractResult.packages || []).map((p) => `${p.name}=${p.ok ? "ok" : "FAIL"}`).join(", ")
-  log(`Contract: ${contractResult.overallOk ? "PASS" : "FAIL"} — ${pkgs}`)
+  const gh = contractResult.graphHealth
+  const ghLine = gh?.ran ? ` | graph-health=${gh.ok ? "OK" : "DRIFT"}` : " | graph-health=(vault absent, skipped)"
+  log(`Contract: ${contractResult.overallOk ? "PASS" : "FAIL"} — ${pkgs}${ghLine}`)
 }
 if (buildResult) log(`Build: build:all=${buildResult.buildAllOk ? "ok" : "FAIL"}, verify(getAllTools)=${buildResult.verifyOk ? "ok" : "FAIL"} — ${buildResult.buildSummary || "?"} | ${buildResult.verifySummary || "?"}`)
 if (reviewResult) log(`Review: ${reviewFindingsCount} upheld finding(s) across ${reviewResult.dimensionsRun?.join(", ") || "?"} (${reviewResult.rawCount ?? "?"} raw before adversarial verify)`)
@@ -670,6 +748,10 @@ await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 
 await extractKnowledge(KB_FILE, RUN_ID, runResult, null)
+// Converge the just-written records into the shared graph (default-on,
+// PI_PUBLISH_KNOWLEDGE=0 kills it; best-effort). The infra loop that GATES the
+// graph primitive also FEEDS it.
+await publishKnowledge(KB_FILE, meta.name)
 
 markPhase("persist", "completed")
 

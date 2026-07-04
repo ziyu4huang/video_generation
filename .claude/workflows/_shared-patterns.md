@@ -345,10 +345,84 @@ const knowledge = await loadKnowledge(KB_FILE)
 
 // Persist phase — AFTER `await saveHistory(...)`:
 await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj or */ null)
-// Optional: converge the just-written records into the shared knowledge graph.
-// Opt-in via PI_PUBLISH_KNOWLEDGE=1 — see `publishKnowledge` below. Best-effort.
+// Converge the just-written records into the shared knowledge graph (default-on;
+// PI_PUBLISH_KNOWLEDGE=0 kills it). Best-effort. See `publishKnowledge` below.
 await publishKnowledge(KB_FILE, meta.name)
 markPhase("persist", "completed")
+```
+
+### `loadGraphKnowledge` helper — the loop RETRIEVES what every other loop learned
+
+`loadKnowledge` reads ONLY this workflow's own colocated `.knowledge.jsonl`. The
+shared graph (converged by `publishKnowledge` / `zk-ingest`) is a one-way
+projection unless something READS it back. `loadGraphKnowledge` is that read: it
+shells out to the deterministic `zk-query` CLI (see
+`bun-apps/pi-knowledge-card/src/retrieve.ts`), which drives the same pi-obsidian
+`getIndex` substrate to retrieve cards matching this workflow's tag scope,
+**excluding the caller's own active record ids** — so the digest it returns is
+genuinely CROSS-WORKFLOW (a card whose id this workflow never wrote). Inject it
+alongside `loadKnowledge` at Resolve so committed cross-workflow knowledge wins
+alongside own-workflow knowledge.
+
+**Deterministic + cheap.** No LLM, no network — tag-overlap ranking over the
+index is O(candidates) and byte-identical across runs, so the contract lane stays
+deterministic. This is the Resolve-time counterpart to `zk_ask` (which IS the
+right tool for ad-hoc cross-source Q&A, just not for "inject 8 gotchas before
+Review"). **Default-on with a kill switch** (`PI_GRAPH_KNOWLEDGE=0`): the vault
+is read-only here, so there is no write-risk and no submodule dirtied. Best-effort
++ non-fatal — a missing vault / failed query logs a warning and the run continues.
+
+`graphTags` is the workflow's scope of interest (an array of tags it cares about
+— e.g. flux2 passes `["argv", "path-validation", "schema-consistency"]`,
+`argparse`-family code review passes `["argparse", "argparse-integrity"]`). Pick
+tags that already appear on cards in `Zettelkasten/knowledge-graph/` (inspect
+with `zk-query --tags <csv>`); a tag no card carries yields an empty digest.
+
+```javascript
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Retrieves CROSS-WORKFLOW cards from the shared graph for this run's tag scope.
+// Default-on (PI_GRAPH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+// kbFile: this workflow's own .knowledge.jsonl — its active ids are EXCLUDED so the
+//         digest surfaces only cards OTHER workflows contributed (closed-loop proof).
+// graphTags: array of tags defining this workflow's retrieval scope.
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  if (process.env.PI_GRAPH_KNOWLEDGE === "0") return { found: false, digest: "", reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const tags = (Array.isArray(graphTags) ? graphTags : []).join(",")
+  const wfName = workflowName || meta.name
+  if (!tags) return { found: false, digest: "", reason: "no-tags" }
+  const q = await agent(
+    `Run the knowledge-graph retrieve CLI (read-only). Capture stdout (the digest) + the status line.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+3. The output is a digest block ending with a status line like "(matched N/253 in ..., returned M, excluded K own-id(s))".
+   - If the digest starts with "(graph: 0 cross-workflow" OR the run errored (no "matched" line), return found:false.
+   - Parse M (the "returned" count) from the status line.
+Return { found: <true iff M > 0>, digest: <the digest text, verbatim>, count: <M> }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        digest: { type: "string", description: "Cross-workflow card digest from zk-query (verbatim stdout)" },
+        count: { type: "number", description: "Number of cards returned (parsed from status line)" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Number(q?.count) || 0
+  log(`Graph: ${n} cross-workflow card(s) for tags [${tags}] (${wfName}) ← ${vault}`)
+  return q
+}
+```
+
+Inject at Resolve, right after `loadKnowledge` — own-workflow knowledge first,
+then the cross-workflow superset, then reflection:
+
+```javascript
+const knowledge = await loadKnowledge(KB_FILE)
+const GRAPH_TAGS = ["argv", "path-validation", "schema-consistency"] // this workflow's scope
+const graphKnowledge = await loadGraphKnowledge(KB_FILE, GRAPH_TAGS, meta.name)
+const knowledgeDigest = [knowledge?.digest || "", graphKnowledge?.digest || ""]
+  .filter(Boolean).join("\n\n") || ""
+// Thread knowledgeDigest into review prompts / dead-end checks / self-fix rules.
 ```
 
 ### `publishKnowledge` helper — the loop that LEARNS also PUBLISHES
@@ -361,22 +435,29 @@ deterministic `zk-ingest` CLI (see `bun-apps/pi-knowledge-card/src/ingest.ts`),
 converging the records into the SHARED vault as zettel cards, dedup'd by id,
 cross-linked by tag, indexed by a MOC. The graph then spans every workflow.
 
-**Opt-in.** Default is OFF (no behavior change for existing runs). Set
-`PI_PUBLISH_KNOWLEDGE=1` to enable. This keeps the contract lane deterministic
-and lets a run opt into publishing only when a vault is configured + a graph
-convergence is desired. The vault path is `PI_VAULT_PATH` or defaults to
-`${PROJECT_ROOT}/vaults_root/pi-agent-vault` (the repo submodule convention).
+**Default-on with a kill switch.** The graph stays live without per-run opt-in:
+every learning workflow publishes unless `PI_PUBLISH_KNOWLEDGE=0` is set. This
+keeps `loadGraphKnowledge` (the read side) fed — a workflow can only retrieve
+cross-workflow cards if other workflows are actively publishing. The vault path
+is `PI_VAULT_PATH` or defaults to `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+(the repo submodule convention).
 
 **Best-effort, never fatal.** A missing vault, a failed ingest, or a missing
 CLI is logged as a warning and the run continues — publishing is a projection
 over the canonical `.knowledge.jsonl`, never a critical path.
 
+**Submodule-note.** The vault is a git submodule; a publish that converges new
+cards dirties `vaults_root/pi-agent-vault`. Commit the submodule pointer bump
+between runs (the existing SOP — see memory `pi-agent-vault-submodule-and-search-
+baseline`). If a follow-on fix-lane run refuses on the dirty submodule, either
+commit the bump or set `PI_PUBLISH_KNOWLEDGE=0` for that run.
+
 ```javascript
 // ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
 // Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
-// Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
 async function publishKnowledge(kbFile, workflowName) {
-  if (process.env.PI_PUBLISH_KNOWLEDGE !== "1") return { published: false, reason: "off" }
+  if (process.env.PI_PUBLISH_KNOWLEDGE === "0") return { published: false, reason: "off" }
   const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   const sourceLabel = `workflow-jsonl:${workflowName}`
   // Resolve the pi-agent-cli entry. Prefer the built dist binary when present

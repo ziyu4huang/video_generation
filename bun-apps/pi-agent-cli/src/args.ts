@@ -120,6 +120,18 @@ export interface ParsedArgs {
 	sourceLabel?: string;
 	/** zk-ingest: report only, write nothing */
 	dryRun?: boolean;
+	/** zk-query: tags to match (csv) */
+	tags?: string;
+	/** zk-query: read active ids from this .knowledge.jsonl and exclude them */
+	excludeFromKb?: string;
+	/** zk-query: explicit record ids to exclude (csv) */
+	excludeIds?: string;
+	/** zk-query: skip cards whose frontmatter source matches this label */
+	excludeSource?: string;
+	/** zk-query: run the integrity gate instead of retrieval */
+	health?: boolean;
+	/** zk-query: MOC note path for drift check */
+	mocPath?: string;
 	/** Tool event verbosity: 0=silent (name only), 1=args summary,
 	 *  2=debug (full args + result preview). Set by -V/--verbose/--debug or PI_VERBOSE. */
 	verbose: number;
@@ -235,7 +247,8 @@ const NUMERIC_FLAGS: ReadonlyArray<{
 type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
-	| "vlmModel" | "source" | "sourceLabel";
+	| "vlmModel" | "source" | "sourceLabel" | "tags" | "excludeFromKb"
+	| "excludeIds" | "excludeSource" | "mocPath";
 
 /** String value flags: `--flag <value>` or `--flag=value`. */
 const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
@@ -254,12 +267,17 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 	{ flag: "--vlm-model", field: "vlmModel" },
 	{ flag: "--source", field: "source" },
 	{ flag: "--source-label", field: "sourceLabel" },
+	{ flag: "--tags", field: "tags" },
+	{ flag: "--exclude-from-kb", field: "excludeFromKb" },
+	{ flag: "--exclude-ids", field: "excludeIds" },
+	{ flag: "--exclude-source", field: "excludeSource" },
+	{ flag: "--moc-path", field: "mocPath" },
 ];
 
 type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools" | "dryRun";
+	| "noBuiltinTools" | "dryRun" | "health";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -275,6 +293,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["-nt", "--no-tools"], field: "noTools" },
 	{ flags: ["-nbt", "--no-builtin-tools"], field: "noBuiltinTools" },
 	{ flags: ["--dry-run"], field: "dryRun" },
+	{ flags: ["--health"], field: "health" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */

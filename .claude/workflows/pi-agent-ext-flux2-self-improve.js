@@ -247,9 +247,9 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
 
 // ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
 // Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
-// Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
 async function publishKnowledge(kbFile, workflowName) {
-  if (process.env.PI_PUBLISH_KNOWLEDGE !== "1") return { published: false, reason: "off" }
+  if (process.env.PI_PUBLISH_KNOWLEDGE === "0") return { published: false, reason: "off" }
   const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   const sourceLabel = `workflow-jsonl:${workflowName}`
   const cli = await agent(
@@ -267,6 +267,36 @@ async function publishKnowledge(kbFile, workflowName) {
   if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
   else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
   return cli
+}
+
+// ── loadGraphKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Retrieves CROSS-WORKFLOW cards from the shared graph for this run's tag scope.
+// Default-on (PI_GRAPH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
+  if (process.env.PI_GRAPH_KNOWLEDGE === "0") return { found: false, digest: "", reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const tags = (Array.isArray(graphTags) ? graphTags : []).join(",")
+  const wfName = workflowName || meta.name
+  if (!tags) return { found: false, digest: "", reason: "no-tags" }
+  const q = await agent(
+    `Run the knowledge-graph retrieve CLI (read-only). Capture stdout (the digest) + the status line.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tags}' --exclude-from-kb '${kbFile}' --top-k 10 2>&1")
+3. The output is a digest block ending with a status line like "(matched N/253 in ..., returned M, excluded K own-id(s))".
+   - If the digest starts with "(graph: 0 cross-workflow" OR the run errored (no "matched" line), return found:false.
+   - Parse M (the "returned" count) from the status line.
+Return { found: <true iff M > 0>, digest: <the digest text, verbatim>, count: <M> }.`,
+    { label: "load-graph-knowledge", phase: "Resolve", model: "haiku",
+      schema: { type: "object", properties: {
+        found: { type: "boolean" },
+        digest: { type: "string", description: "Cross-workflow card digest from zk-query (verbatim stdout)" },
+        count: { type: "number", description: "Number of cards returned (parsed from status line)" },
+      }, required: ["found", "digest"] } },
+  )
+  const n = Number(q?.count) || 0
+  log(`Graph: ${n} cross-workflow card(s) for tags [${tags}] (${wfName}) ← ${vault}`)
+  return q
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -302,7 +332,13 @@ const RUN_TIMESTAMP = await agent(
 const RUN_ID = RUN_TIMESTAMP?.timestamp || "unknown"
 
 const knowledge = await loadKnowledge(KB_FILE)
-const knowledgeDigest = knowledge?.digest || ""
+// Retrieve CROSS-WORKFLOW cards from the shared graph (closed loop: this run
+// learns what OTHER loops learned). Excludes flux2's own ids so the digest is
+// genuinely foreign. Default-on; PI_GRAPH_KNOWLEDGE=0 kills it.
+const GRAPH_TAGS = ["argv", "path-validation", "schema-consistency", "argparse", "path-safety"]
+const graphKnowledge = await loadGraphKnowledge(KB_FILE, GRAPH_TAGS, meta.name)
+const knowledgeDigest = [knowledge?.digest || "", graphKnowledge?.digest || ""]
+  .filter(Boolean).join("\n\n") || ""
 
 if (FIX_REQ) {
   log(`fix:true was requested but this workflow is REVIEW-ONLY in its current version — no auto-fix will be applied. See the header NOTE.`)
@@ -513,8 +549,8 @@ await saveHistory(HISTORY_DIR, INDEX_FILE, historyEntry, signals)
 log(`History: ${HISTORY_DIR}/${RUN_ID}.json`)
 
 await extractKnowledge(KB_FILE, RUN_ID, runResult, null)
-// Converge the just-written records into the shared knowledge graph (opt-in,
-// best-effort). The loop that LEARNS also PUBLISHES — see _shared-patterns.md.
+// Converge the just-written records into the shared knowledge graph (default-on,
+// PI_PUBLISH_KNOWLEDGE=0 kills it; best-effort). The loop that LEARNS also PUBLISHES.
 await publishKnowledge(KB_FILE, meta.name)
 
 markPhase("persist", "completed")
