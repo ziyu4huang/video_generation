@@ -126,6 +126,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       loras: { flag: "--lora", type: "string[]", isPathSpecArray: true, description: "LoRA safetensors to fuse, repeatable to stack: path[:strength] (strength defaults to 1.0), e.g. ['a.safetensors:0.8', 'b.safetensors']." },
       lastFrame: { flag: "--last-frame", type: "string", isPath: true, description: "First-Last-Frame (FFLF): pin this image as the clip's LAST frame (frame 0 is always the T2I-generated --prompt image). Must already be exactly width x height." },
       audioTrack: { flag: "--audio-track", type: "string", isPath: true, description: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count." },
+      mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence (post-upscale if upscale is on) + audio.wav into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4 and keep just the frame sequence." },
     },
   },
 
@@ -136,10 +137,13 @@ export const COMMANDS: Record<string, CommandSpec> = {
     fields: {
       input: { flag: "--input", type: "string", isPath: true, description: "Input frame directory (frame_%04d.png sequence, e.g. native-i2v's frames/ output)." },
       output: { flag: "--output", type: "string", isPath: true, description: "Output directory (frames/ subdirectory holds the upscaled PNG sequence). Default native_upscale_output." },
-      mode: { flag: "--mode", type: "string", description: "'fast' = LatentUpsampler 2x, native, ~1-2s (default, recommended for preview). 'hd' is not natively ported — just prints the equivalent run.py-bridged `ltx-video upscale` invocation instead of running." },
-      refinePrompt: { flag: "--refine-prompt", type: "string", description: "Follow the neural upscale with a low-strength transformer denoise refine pass (fixes over-sharpened/halo artifact). Requires refineAudio. Reuse the same prompt as the source native-i2v run." },
-      refineAudio: { flag: "--refine-audio", type: "string", isPath: true, description: "WAV to preserve through the refine pass (required with refinePrompt) — the joint audio-video transformer needs a valid audio branch even though audio itself isn't refined. Typically the source native-i2v run's own audio.wav." },
-      fps: { flag: "--fps", type: "number", description: "Output frame rate of the source clip (only used by refinePrompt, for RoPE video positions). Default 24.0." },
+      mode: { flag: "--mode", type: "string", description: "'fast' = LatentUpsampler 2x, native, ~1-2s (default, recommended for preview). 'hd' = native IC-LoRA reference-conditioned restoration chained into the fast upscaler (real LoRA fusion + reference conditioning, UNVERIFIED against a real checkpoint — see NativeUpscaleStage.generateHD's doc comment) — requires refinePrompt + refineAudio and the restoration LoRA files under mlx-models/lora/ltx-2.3-restore/." },
+      refinePrompt: { flag: "--refine-prompt", type: "string", description: "fast mode: optional low-strength refine pass prompt (requires refineAudio). hd mode: REQUIRED — the IC-LoRA restoration generation prompt. Reuse the same prompt as the source native-i2v run." },
+      refineAudio: { flag: "--refine-audio", type: "string", isPath: true, description: "WAV to preserve through the refine/restoration pass — the joint audio-video transformer needs a valid audio branch even though audio itself isn't refined. Typically the source native-i2v run's own audio.wav. Required with refinePrompt (fast mode) and always required for hd mode." },
+      fps: { flag: "--fps", type: "number", description: "Output frame rate of the source clip (used for RoPE video positions in refinePrompt/hd mode). Default 24.0." },
+      restorationLora: { flag: "--restoration-lora", type: "string", isPath: true, description: "hd mode only: override the restoration IC-LoRA path (default mlx-models/lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors)." },
+      upscaleLora: { flag: "--upscale-lora", type: "string", isPath: true, description: "hd mode only: override the upscale IC-LoRA path (default mlx-models/lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors)." },
+      mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence + refineAudio (if given) into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4." },
     },
   },
 

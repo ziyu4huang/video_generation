@@ -64,6 +64,57 @@ describe("pi-ltx extension", () => {
     expect(result.details.ok).toBe(false);
     expect(result.content[0].text).toContain("Unknown ltx-video command");
   });
+
+  // Regression: at least one provider/model pair (zai/glm-5.2) serializes the
+  // `Type.Any()` options param as a JSON STRING in the tool-call payload.
+  // Before coerceOptions, `key in options` then threw "options is not an
+  // Object" and killed EVERY call (including ones the agent reported as `{}`).
+  // Confirmed live via a real A/B upscale-verification run (see
+  // pi-agent-ext-ltx TODO): native-i2v/gate calls broke this exact way through
+  // the real tool boundary. These prove the boundary normalizes a string into
+  // a real object so the downstream path-validation / command-dispatch path
+  // actually runs. Mirrors pi-agent-ext-flux2/extensions/pi-flux2.test.ts.
+  test("execute() accepts options as a JSON string and still reaches path validation", async () => {
+    const tool = captureRegisteredTool();
+    const result = await tool.execute(
+      "call-str",
+      { command: "upscale", options: JSON.stringify({ input: "/definitely/does/not/exist.mp4" }) },
+      undefined,
+      undefined,
+      {},
+    );
+    expect(result.details.ok).toBe(false);
+    expect(result.details.pathSafety).toBe(true);
+    expect(result.content[0].text).toContain("path-safety");
+  });
+
+  test("execute() accepts options as undefined/empty-string without throwing", async () => {
+    const tool = captureRegisteredTool();
+    for (const opts of [undefined, "", "   "]) {
+      const result = await tool.execute(
+        "call-empty",
+        { command: "not-a-real-command", options: opts },
+        undefined,
+        undefined,
+        {},
+      );
+      expect(result.details.ok).toBe(false);
+      expect(result.content[0].text).toContain("Unknown ltx-video command");
+    }
+  });
+
+  test("execute() accepts a JSON string array for gate's positional videos field", async () => {
+    const tool = captureRegisteredTool();
+    const result = await tool.execute(
+      "call-gate-str",
+      { command: "gate", options: JSON.stringify({ videos: ["/definitely/does/not/exist.mp4"], json: true }) },
+      undefined,
+      undefined,
+      {},
+    );
+    expect(result.details.ok).toBe(false);
+    expect(result.details.pathSafety).toBe(true);
+  });
 });
 
 // Sanity: PathSafetyError is re-exported from src/index.ts (used above and by

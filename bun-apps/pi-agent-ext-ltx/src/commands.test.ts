@@ -23,6 +23,21 @@ describe("buildArgs", () => {
     expect(buildArgs(COMMANDS["native-i2v"], { refine: false })).toEqual(["--no-refine"]);
   });
 
+  test("mp4 inversion: true emits --mp4, false emits --no-mp4 (native-i2v and native-upscale)", () => {
+    expect(buildArgs(COMMANDS["native-i2v"], { mp4: true })).toEqual(["--mp4"]);
+    expect(buildArgs(COMMANDS["native-i2v"], { mp4: false })).toEqual(["--no-mp4"]);
+    expect(buildArgs(COMMANDS["native-upscale"], { mp4: true })).toEqual(["--mp4"]);
+    expect(buildArgs(COMMANDS["native-upscale"], { mp4: false })).toEqual(["--no-mp4"]);
+  });
+
+  test("native-upscale's restorationLora/upscaleLora emit their flags as plain string options", () => {
+    const args = buildArgs(COMMANDS["native-upscale"], {
+      restorationLora: "restore.safetensors",
+      upscaleLora: "upscale.safetensors",
+    });
+    expect(args).toEqual(["--restoration-lora", "restore.safetensors", "--upscale-lora", "upscale.safetensors"]);
+  });
+
   test("omits fields that are undefined/null/absent", () => {
     expect(buildArgs(COMMANDS.t2i, { prompt: undefined, seed: null as unknown as undefined })).toEqual([]);
     expect(buildArgs(COMMANDS.t2i, {})).toEqual([]);
@@ -64,6 +79,12 @@ describe("pathFieldKeys", () => {
     expect(keys).toContain("audioTrack");
     expect(keys).toContain("output");
     expect(keys).not.toContain("loras");
+  });
+
+  test("native-upscale includes restorationLora/upscaleLora as path-validated fields", () => {
+    const keys = pathFieldKeys(COMMANDS["native-upscale"]);
+    expect(keys).toContain("restorationLora");
+    expect(keys).toContain("upscaleLora");
   });
 
   test("gate's positional `videos` field is a path array", () => {
