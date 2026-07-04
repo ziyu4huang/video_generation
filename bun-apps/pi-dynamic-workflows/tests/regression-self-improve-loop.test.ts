@@ -164,11 +164,11 @@ describe("flux2 self-improve loop", () => {
     assert.equal(r.maxAttempts, 3);
     assert.equal(r.needsReview, false);
     assert.ok(r.winnerVerdict, "winnerVerdict present");
-    assert.equal(r.winnerVerdict!.attempt, 1, "winner is the converging attempt (0-indexed)");
-    assert.equal(r.winnerVerdict!.ok, true);
+    assert.equal(r.winnerVerdict?.attempt, 1, "winner is the converging attempt (0-indexed)");
+    assert.equal(r.winnerVerdict?.ok, true);
     assert.ok(r.winnerPath.length > 0, "a winner path is selected");
     assert.ok(r.exemplar, "exemplar built from the winner");
-    assert.equal(r.exemplar!.params.seed, 43, "winner seed = seedBase(42) + winning attempt(1)");
+    assert.equal(r.exemplar?.params.seed, 43, "winner seed = seedBase(42) + winning attempt(1)");
     assert.equal(
       (r as { exemplarPersisted?: boolean }).exemplarPersisted,
       undefined,
@@ -355,10 +355,10 @@ describe("flux2 self-improve loop", () => {
     assert.equal(r.ok, false);
     assert.equal(r.needsReview, true);
     assert.ok(r.winnerVerdict, "a best-so-far winner is still chosen");
-    assert.equal(r.winnerVerdict!.attempt, 1, "attempt 1 has 0 failed atoms — wins by comparative ranking");
-    assert.equal(r.winnerVerdict!.failedCount, 0);
+    assert.equal(r.winnerVerdict?.attempt, 1, "attempt 1 has 0 failed atoms — wins by comparative ranking");
+    assert.equal(r.winnerVerdict?.failedCount, 0);
     // NOT attempt 2 despite its higher meanFaith (0.9 > 0.5): failedCount dominates.
-    assert.equal(r.best!.attempt, 1);
+    assert.equal(r.best?.attempt, 1);
   });
 
   it("empty-atoms pose verdict (VLM did not analyze) → scored:false, not a phantom 0-faith fail", async () => {
@@ -408,23 +408,32 @@ describe("flux2 self-improve loop", () => {
             if (!isFallback) {
               // default judge → 0 atoms (the multi-subject footgun)
               return {
-                ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
-                anatomy_pass: false, faithfulness: 0,
+                ok: true,
+                path: "/tmp/wf-loop-test/p0.png",
+                poseId: POSE.id,
+                anatomy_pass: false,
+                faithfulness: 0,
                 anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
-                atoms: [], issues: [], rawTail: "",
+                atoms: [],
+                issues: [],
+                rawTail: "",
               };
             }
             // 31b fallback → full atoms, faith=1.0, anatomy passes
             return {
-              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
-              anatomy_pass: true, faithfulness: 1.0,
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: true,
+              faithfulness: 1.0,
               anatomy: { limb_count: true, hands: true, face: true, pose_plausible: true },
               atoms: [
                 { id: "a1", q: "x", present: true },
                 { id: "a2", q: "x", present: true },
                 { id: "a4", q: "x", present: true },
               ],
-              issues: [], rawTail: "",
+              issues: [],
+              rawTail: "",
             };
           }
           if (/Append a self-improve exemplar/.test(p)) {
@@ -461,10 +470,15 @@ describe("flux2 self-improve loop", () => {
           if (/Validate this generated pose/.test(p)) {
             judgeCalls += 1;
             return {
-              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
-              anatomy_pass: false, faithfulness: 0,
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: false,
+              faithfulness: 0,
               anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
-              atoms: [], issues: [], rawTail: "",
+              atoms: [],
+              issues: [],
+              rawTail: "",
             };
           }
           if (/Append a self-improve exemplar/.test(p)) return { written: true, total_lines: 1 };
@@ -651,7 +665,7 @@ describe("flux2 self-improve loop", () => {
     assert.equal(r.mode, "best-of-n");
     // The winner MUST be the clean-seed attempt, picked comparatively (fewest failed atoms).
     assert.ok(r.winnerVerdict, "winner chosen");
-    assert.equal(r.winnerVerdict!.seed, 500, "winner seed = the clean sample, not 300");
+    assert.equal(r.winnerVerdict?.seed, 500, "winner seed = the clean sample, not 300");
   });
 
   it("few-shot injection: args.fewShot seeds attempt 0's generation prompt", async () => {

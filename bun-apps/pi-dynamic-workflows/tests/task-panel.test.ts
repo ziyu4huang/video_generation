@@ -414,7 +414,7 @@ describe("redeliverPendingResults", () => {
   });
 
   it("skips a run whose sendMessage throws without marking it (so it retries next session)", () => {
-    const pi = createMockPi();
+    const _pi = createMockPi();
     // First sendMessage throws (stale ctx), the run must NOT be marked delivered.
     let callCount = 0;
     const throwingPi = {
