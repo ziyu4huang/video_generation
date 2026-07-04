@@ -382,6 +382,102 @@ describe("flux2 self-improve loop", () => {
     assert.ok(/0 atoms/i.test(verdicts[0].error || ""), "error names the empty-atoms cause");
   });
 
+  it("judge-tier auto-fallback: 0 atoms under default → retry ONCE with 31b → scored (no longer unscored)", async () => {
+    // Goal 0704 §1 pure-win fix: the 0612 arc DOCUMENTED that the default judge
+    // (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images while 31b
+    // analyzes them, but only shipped --judge-model (a manual footgun — the user
+    // had to KNOW). judgePose now auto-retries ONCE with the fallback tier when 0
+    // atoms are returned. This test proves the retry converts unscored→scored:
+    // a mock that returns 0 atoms for the default judge and full atoms for the
+    // 31b call must end with a SCORED verdict, not an exhausted/unscored loop.
+    let judgeCalls = 0;
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 1, seed: 8 },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            judgeCalls += 1;
+            // The fallback retry appends ` --model "google/gemma-4-31b-qat"` to
+            // the run.py caption command. Distinguish the two calls by it.
+            const isFallback = /--model "google\/gemma-4-31b-qat"/.test(p);
+            if (!isFallback) {
+              // default judge → 0 atoms (the multi-subject footgun)
+              return {
+                ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+                anatomy_pass: false, faithfulness: 0,
+                anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
+                atoms: [], issues: [], rawTail: "",
+              };
+            }
+            // 31b fallback → full atoms, faith=1.0, anatomy passes
+            return {
+              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+              anatomy_pass: true, faithfulness: 1.0,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: true },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: true },
+                { id: "a4", q: "x", present: true },
+              ],
+              issues: [], rawTail: "",
+            };
+          }
+          if (/Append a self-improve exemplar/.test(p)) {
+            return { written: true, total_lines: 1 };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(judgeCalls, 2, "exactly one default call + one fallback retry (no infinite loop)");
+    assert.equal(r.ok, true, "the fallback verdict makes the attempt pass — no longer unscored");
+    assert.equal(r.converged, true);
+    assert.equal(r.needsReview, false);
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.equal(verdicts.length, 1);
+    assert.equal(verdicts[0].scored, true, "the 0-atom footgun is recovered — verdict is scored");
+  });
+
+  it("judge-tier auto-fallback is a no-op when the user already pinned the fallback tier", async () => {
+    // If the user passed --judge-model gemma-4-31b-qat explicitly and it STILL
+    // returns 0 atoms, there is no stronger tier to try — declare unscored
+    // instead of looping. Guards against a retry storm on a pinned fallback.
+    let judgeCalls = 0;
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "google/gemma-4-31b-qat" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            judgeCalls += 1;
+            return {
+              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
+              anatomy_pass: false, faithfulness: 0,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: false },
+              atoms: [], issues: [], rawTail: "",
+            };
+          }
+          if (/Append a self-improve exemplar/.test(p)) return { written: true, total_lines: 1 };
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(judgeCalls, 1, "no retry when the pinned judge IS the fallback tier");
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.equal(verdicts[0].scored, false, "genuine unscored when the fallback itself flakes");
+  });
+
   it("plateau catches REPEATED unscored (0-atom) attempts — does not burn the full budget", async () => {
     // Real-silicon finding (goal 0704 §2 / memory
     // self-improve-loop-plateau-blind-to-empty-atoms): the most common hard-pose

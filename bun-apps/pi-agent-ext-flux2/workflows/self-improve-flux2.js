@@ -86,6 +86,15 @@ const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.few
 // 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. gemma-4-31b-qat)
 // analyzes them correctly. Injected into the run.py caption --model flag when set.
 const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
+// Fallback judge tier for 0-atom verdicts (goal 0704 §1 — the pure-win fix the
+// 0612 arc left documented-but-not-coded). The default served pose_dsg judge
+// (gemma-4-26b-a4b-qat) returns 0 atoms on multi-subject images (measured 3/3
+// on L4-02 — see [[pose-dsg-empty-atoms-multi-subject-judge-tier]]); a stronger
+// tier analyzes them correctly. judgePose auto-retries ONCE with this tier when
+// 0 atoms are returned under any other judge, so a user no longer has to KNOW to
+// pass --judge-model on multi-subject. Single-subject poses judge fine under the
+// default and never trigger this → no latency cost there.
+const FALLBACK_JUDGE_MODEL = "google/gemma-4-31b-qat";
 
 // Loop MODE (measured verdict, goal 0704 §1). On flux2-klein, the loop's
 // reflection machinery does NOT beat single-shot best-of-N — seed sampling is
@@ -284,8 +293,12 @@ async function judgeScore(p, i) {
 async function judgePose(p, i, pose) {
   const atomsJson = JSON.stringify({ atoms: pose.atoms }, null, 2);
   const atomsFile = "/tmp/flux2_pose_atoms_" + i + ".json";
-  try {
-    const j = await agent(
+  // One pose_dsg VLM call with an optional --model override ("" = let run.py
+  // auto-resolve among served models). Extracted into a closure so the
+  // auto-fallback below can re-invoke with the stronger tier without
+  // duplicating the prompt.
+  const runOnce = (modelArg, callLabel) =>
+    agent(
       [
         "Validate this generated pose image with the local VLM's pose_dsg scorer. Repo root: " + REPO_ROOT + ".",
         venvProbeInstruction(),
@@ -293,29 +306,52 @@ async function judgePose(p, i, pose) {
         "  cat > " + atomsFile + " <<'POSE_ATOMS_EOF'",
         atomsJson,
         "POSE_ATOMS_EOF",
-        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + (JUDGE_MODEL ? " --model " + JSON.stringify(JUDGE_MODEL) : "") + " --lang en",
+        "Then run: <python> " + REPO_ROOT + "/python/mlx-movie-director/run.py caption " + JSON.stringify(p) + " --style pose_dsg --prompt " + JSON.stringify(pose.prompt) + " --atoms " + atomsFile + (modelArg ? " --model " + JSON.stringify(modelArg) : "") + " --lang en",
         "This loads a VLM (Qwen3-VL/Gemma) — ~1 min. Use a long timeout.",
         "It saves <p>.caption.json with styles.pose_dsg = {atoms:[{id,q,present,confidence}], faithfulness, anatomy:{limb_count,hands,face,pose_plausible}, anatomy_pass, issues, summary}. faithfulness and anatomy_pass are RECOMPUTED in Python (not the model's own).",
         "Parse that JSON (read <p>.caption.json, take styles.pose_dsg). Return ok=true iff you got anatomy_pass (boolean) + faithfulness (number) + atoms[]. Copy anatomy_pass, faithfulness, anatomy, atoms[] (id/q/present/confidence), issues[] verbatim. Set path=" + JSON.stringify(p) + " and poseId=" + JSON.stringify(pose.id || "") + ". Put a short scorer output tail in rawTail.",
       ].join("\n"),
-      { label: "vlm pose_dsg output " + (i + 1), tier: "small", schema: JUDGE_POSE_SCHEMA },
+      { label: callLabel, tier: "small", schema: JUDGE_POSE_SCHEMA },
     );
+  try {
+    // The model for the first call: an explicit --judge-model override wins;
+    // otherwise "" lets run.py auto-resolve (typically gemma-4-26b-a4b-qat when
+    // that is the only model served).
+    let modelUsed = JUDGE_MODEL;
+    let j = await runOnce(modelUsed, "vlm pose_dsg output " + (i + 1));
+    // ── Judge-tier auto-fallback (goal 0704 §1) ──────────────────────────────
+    // The default served judge (gemma-4-26b-a4b-qat) returns 0 atoms on
+    // multi-subject images (measured 3/3 on L4-02). A 0-atom verdict means the
+    // VLM did not actually analyze the image (faithfulness 0 + anatomy all-false
+    // is the tell) — untrustworthy, not a real fail. Rather than declare unscored
+    // (the old footgun: the user had to KNOW to pass --judge-model), retry ONCE
+    // with the stronger tier that can analyze multi-subject. Single-subject poses
+    // judge fine under the default and never trigger this, so they pay no latency
+    // cost. Logged + flagged on the verdict so the tier dependency stays
+    // OBSERVABLE, not silent. No retry when the user already pinned the fallback.
+    let fellBack = false;
+    if (j && Array.isArray(j.atoms) && j.atoms.length === 0 && modelUsed !== FALLBACK_JUDGE_MODEL) {
+      log("[judge] pose_dsg returned 0 atoms under " + (modelUsed || "auto-resolved judge") + " → retrying once with " + FALLBACK_JUDGE_MODEL);
+      modelUsed = FALLBACK_JUDGE_MODEL;
+      fellBack = true;
+      j = await runOnce(modelUsed, "vlm pose_dsg output " + (i + 1) + " [fallback " + FALLBACK_JUDGE_MODEL + "]");
+    }
     if (!j || typeof j.anatomy_pass !== "boolean" || typeof j.faithfulness !== "number" || !Array.isArray(j.atoms)) {
-      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned no parseable verdict", rawTail: (j && j.rawTail) || "" };
+      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned no parseable verdict", rawTail: (j && j.rawTail) || "", judgeFallback: fellBack };
     }
     if (j.atoms.length === 0) {
-      // The VLM returned a verdict shape but ZERO atoms — it did not actually
-      // analyze the image (faithfulness 0 + anatomy all-false is the tell). This
-      // is untrustworthy, not a real fail. Surface as scored:false so it doesn't
-      // masquerade as a judged attempt (and the loop can retry instead of logging
-      // a phantom 0-faith "pass").
-      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned 0 atoms (VLM did not analyze the image)", rawTail: (j && j.rawTail) || "" };
+      // Still 0 atoms even under the fallback tier (or the user pinned the
+      // fallback and it still flaked). Genuine unscored — surface it, naming the
+      // judge(s) that failed so the tier dependency is visible in the record.
+      const judgeTried = fellBack ? FALLBACK_JUDGE_MODEL + " (fallback)" : (JUDGE_MODEL || "auto-resolved judge");
+      return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: "pose_dsg returned 0 atoms under " + judgeTried + " (VLM did not analyze the image)", rawTail: (j && j.rawTail) || "", judgeFallback: fellBack };
     }
     const failed = j.atoms.filter((x) => x && x.present === false).map((x) => x.id);
     return {
       scored: true, style: "pose_dsg", path: p, poseId: pose.id || "",
       anatomy_pass: j.anatomy_pass, faithfulness: j.faithfulness, anatomy: j.anatomy || {},
       atoms: j.atoms, failed_atoms: failed, issues: Array.isArray(j.issues) ? j.issues : [],
+      judgeFallback: fellBack,
     };
   } catch (e) {
     return { scored: false, style: "pose_dsg", path: p, poseId: pose.id || "", error: (e && e.message) ? String(e.message) : String(e) };
