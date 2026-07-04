@@ -297,6 +297,23 @@ public struct Krea2DiT {
 
     // MARK: - forward
 
+    /// Compute only the text path (txtFusion + txtMLP) — the post-fusion context
+    /// tokens `(B, txtlen, features)`. Identical across all denoise steps and
+    /// across the 2B batch (same prompt), so style-transfer calls this ONCE and
+    /// passes the result to `callAsFunction(cachedCtx:)` to skip ~23 redundant
+    /// text-path evaluations (the named "2-B text-path sharing" cost lever).
+    public func textPath(context: MLXArray, mask: MLXArray?) -> MLXArray {
+        let txtlenPre = context.dim(1)
+        let txtFusionMask: MLXArray? = {
+            guard let m = mask else { return nil }
+            let tm = m[0..., 0..<txtlenPre]
+            let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)
+            let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)
+            return row * col
+        }()
+        return txtMLP(txtFusion(context, mask: txtFusionMask))
+    }
+
     /// Forward. `controlTokens` (optional, (B, Ht*Wt, 64)) carries the Control
     /// LoRA's control latent; when present + `firstControl` set, the control
     /// half is added at the input projection:
@@ -305,7 +322,8 @@ public struct Krea2DiT {
     public func callAsFunction(img: MLXArray, context: MLXArray, t: MLXArray,
                                pos: MLXArray, mask: MLXArray?,
                                controlTokens: MLXArray? = nil,
-                               controlStrength: Float = 1.0) -> MLXArray {
+                               controlStrength: Float = 1.0,
+                               cachedCtx: MLXArray? = nil) -> MLXArray {
         let cfg = config
         var x = lin(img, "first")
         if let ctrl = controlTokens, let fc = firstControl {
@@ -317,18 +335,27 @@ public struct Krea2DiT {
         let tmlpOut = lin(MLXNN.geluApproximate(lin(tH, "tmlp.0")), "tmlp.2")  // (B, features)
         let tvec = lin(MLXNN.geluApproximate(tmlpOut), "tproj.1")       // (B, 6*features)
 
-        // txtFusion mask: BOOL (True = attend), matching torch _mask(). The
-        // earlier `mask: nil` deviated from the reference (which masks text
-        // padding). Built from the text slice of the key-padding mask.
-        let txtlenPre = context.dim(1)
-        let txtFusionMask: MLXArray? = {
-            guard let m = mask else { return nil }
-            let tm = m[0..., 0..<txtlenPre]                          // (B, txtlen) bool
-            let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)  // (B,1,1,txtlen)
-            let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)  // (B,1,txtlen,1)
-            return row * col                                          // (B,1,txtlen,txtlen) bool
-        }()
-        let ctx = txtMLP(txtFusion(context, mask: txtFusionMask))
+        // The text path (txtFusion + txtMLP) depends only on (context, mask's
+        // text slice) — identical across every denoise step and across the 2B
+        // batch (same prompt). Style-transfer computes it ONCE via `textPath`
+        // and passes it as `cachedCtx` to skip ~23 redundant text-path evals.
+        let ctx: MLXArray
+        if let cached = cachedCtx {
+            ctx = cached
+        } else {
+            // txtFusion mask: BOOL (True = attend), matching torch _mask(). The
+            // earlier `mask: nil` deviated from the reference (which masks text
+            // padding). Built from the text slice of the key-padding mask.
+            let txtlenPre = context.dim(1)
+            let txtFusionMask: MLXArray? = {
+                guard let m = mask else { return nil }
+                let tm = m[0..., 0..<txtlenPre]                          // (B, txtlen) bool
+                let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)  // (B,1,1,txtlen)
+                let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)  // (B,1,txtlen,1)
+                return row * col                                          // (B,1,txtlen,txtlen) bool
+            }()
+            ctx = txtMLP(txtFusion(context, mask: txtFusionMask))
+        }
         let txtlen = ctx.dim(1)
         var combined = MLX.concatenated([ctx, x], axis: 1)
         var posP = pos

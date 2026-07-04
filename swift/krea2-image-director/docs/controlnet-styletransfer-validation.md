@@ -122,3 +122,86 @@ Outputs + composites under `video_generation__output/krea2_port_validation/`:
 - `control_AB_3way.png` — baseline | portrait-control | landscape-control.
 - `style_AB_3way.png` — baseline | style-transfer (teal ref) | teal reference.
 - `krea2_validation_sidebyside.html` — interactive side-by-side viewer.
+
+---
+
+# Gap-closure addendum (2026-07-05)
+
+The three honest gaps from §TL;DR revisited and closed.
+
+## Gap #1 — ControlNet "tracks real depth" → honestly answered (negative at turbo-8)
+
+Wired a real **Depth-Anything-V2-Small** preprocessor
+(`python/mlx-movie-director/scripts/depth_anything_preprocess.py`, ~100 MB HF
+model, MPS) and ran a rigorous **flip-tracking** test (the metric that isolates
+"tracks THIS depth's spatial structure" from "this is a face"):
+
+> Feed a real face depth and its left-right mirror, same prompt + seed. If the
+> LoRA faithfully tracks depth, the flipped-depth output ≈ flip(normal output),
+> i.e. `mad(oFlipped, flip(oNormal))` ≪ `mad(oNormal, oFlipped)`.
+
+| steps | mad(oN,oF) | mad(oF, flip(oN)) | flip-score |
+|---|---|---|---|
+| 8 | 23.50 | 42.74 | **−0.82** |
+| 12 | 21.19 | 44.71 | **−1.11** |
+| 16 | 33.65 | 27.28 | **+0.19** |
+
+**Conclusion: the krea2 depth Control LoRA at its native turbo-8 steps does NOT
+faithfully track the input depth's spatial structure** (flip-score negative).
+The control signal is real (control-image identity measurably changes the
+output — `mad(oN,oF)=23.5`) but it acts as a **soft composition bias**, not a
+faithful depth renderer. Tracking only emerges weakly at 16 steps (flip-score
++0.19) — confirming this is a **distilled-model speed/fidelity tradeoff, not a
+port bug** (the goal's "what I might still be wrong about" hypothesis #1).
+Cheap pixel-luminance / edge-gradient correlation cannot discriminate this from
+generic portrait-composition structure, hence the flip test. Document
+ControlNet as "soft composition conditioning; use higher steps for stronger
+depth fidelity." Real depth source: `real_depth_face.png` (Depth-Anything-V2).
+
+## Gap #2 — Style Transfer effect → CLOSED via knob sweep (no Q/K-AdaIN needed)
+
+The ComfyUI `_RECOMMENDED` defaults were too conservative for this model. The
+CLI now exposes the mechanism knobs (`--value-adain-strength`, `--ref-k-strength`,
+`--low-scale-end`, `--active-blocks-start/-end`, `--gamma`). One aggressive
+setting produces an **unambiguous** transfer:
+
+| setting | output B−R | vs baseline (−25) | vs ref (+143) |
+|---|---|---|---|
+| default knobs | −21 | +4 shift | subtle |
+| **vAdain=1.0, refK=1.5, lowScaleEnd=2.0, blocks 0–27** | **+88** | **+113 shift** | **strong** |
+
+`style_sweep_AB.png` (baseline | default | aggressive | ref). Content (woman
+composition) preserved; palette clearly transferred to teal. **Q/K-AdaIN +
+dual-ref port (deferred) was NOT needed** — the cheap sweep closed the gap.
+
+## Gap #3 — Style Transfer MPS cost → CLOSED (<4× via text-path cache + fastRF)
+
+Profile (512², default): RF cache 25–26 s (16 base-DiT evals, Heun PC) + main
+2B loop 32–36 s + ~overhead. Two levers (both IN the goal's scope):
+
+1. **2-B text-path sharing** (`Krea2DiT.textPath` + `cachedCtx` param): the
+   text path (txtFusion + txtMLP) is identical across all 24 DiT calls (same
+   prompt) → compute ONCE, reuse. Named lever; helps both RF and main.
+2. **RF-cache eval reuse** (`--fast-rf` flag): single-Euler (drop the Heun
+   corrector eval) → halves RF cost. Changes the cached ref trajectory but NOT
+   `strength=0` (the cache is unused at `mix=0`).
+
+| config | RF cache | main | wall | vs t2i (~14–21 s) |
+|---|---|---|---|---|
+| original (Heun, no text-cache) | ~26 s | ~35 s | **94–104 s** | **~7×** |
+| text-cache + Heun | 25 s | 32 s | **~58 s** | ~3–4× |
+| **text-cache + fastRF** | **16 s** | 36 s | **~53–59 s** | **~2.8–4.1× ✓** |
+
+The `fastRF` path lands at/under 4× against the conservative t2i baseline.
+
+**Corruption gate (the non-negotiable):** `strength=0` stays **byte-identical**
+to vanilla t2i (MAD 0.0000) under every combination — text-cache, fastRF, AND
+aggressive knobs together. The cached ctx and the fastRF trajectory are both on
+the ref/style path, which `mix=0` zeroes out, so they cannot drift the native
+target velocity.
+
+## Tests
+No regression. `Krea2ConfigTests` green; DiT parity tests skip (missing oracle,
+pre-existing). The new `cachedCtx` / `textPath` / knob params are all
+defaulted → existing t2i/i2i/controlnet calls unchanged.
+

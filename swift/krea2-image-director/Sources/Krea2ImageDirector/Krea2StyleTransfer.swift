@@ -24,31 +24,53 @@ import MLX
 import MLXRandom
 
 /// "recommended" mode baked defaults (ComfyUI-Krea2-StyleTransfer _RECOMMENDED).
+/// All fields have package defaults; the CLI / sweep overrides individual knobs
+/// via the memberwise init so a `Krea2StyleDefaults()` with no args == the
+/// ComfyUI recommended preset.
 public struct Krea2StyleDefaults {
-    public let styleStrength: Float = 1.0
-    public let valueAdainStrength: Float = 0.65
-    public let refValueMix: Float = 1.0
-    public let refKStrength: Float = 1.06
-    public let gamma: Float = 0.5
-    public let beta: Float = 2.5
-    public let highScaleStart: Float = 1.04
-    public let highScaleEnd: Float = 0.0
-    public let lowScaleStart: Float = 1.0
-    public let lowScaleEnd: Float = 1.10
-    public let activeBlocks: ClosedRange<Int> = 7...27
+    public var styleStrength: Float
+    public var valueAdainStrength: Float
+    public var refValueMix: Float
+    public var refKStrength: Float
+    public var gamma: Float
+    public var beta: Float
+    public var highScaleStart: Float
+    public var highScaleEnd: Float
+    public var lowScaleStart: Float
+    public var lowScaleEnd: Float
+    public var activeBlocks: ClosedRange<Int>
+
+    public init(styleStrength: Float = 1.0, valueAdainStrength: Float = 0.65,
+                refValueMix: Float = 1.0, refKStrength: Float = 1.06,
+                gamma: Float = 0.5, beta: Float = 2.5,
+                highScaleStart: Float = 1.04, highScaleEnd: Float = 0.0,
+                lowScaleStart: Float = 1.0, lowScaleEnd: Float = 1.10,
+                activeBlocks: ClosedRange<Int> = 7...27) {
+        self.styleStrength = styleStrength
+        self.valueAdainStrength = valueAdainStrength
+        self.refValueMix = refValueMix
+        self.refKStrength = refKStrength
+        self.gamma = gamma; self.beta = beta
+        self.highScaleStart = highScaleStart; self.highScaleEnd = highScaleEnd
+        self.lowScaleStart = lowScaleStart; self.lowScaleEnd = lowScaleEnd
+        self.activeBlocks = activeBlocks
+    }
 }
 
 public extension Krea2Engine {
 
     /// Pure-Swift training-free style transfer. `styleImage` is the visual
     /// style reference; generation follows `prompt`. `strength` is style_strength.
+    /// `knobs` overrides the ComfyUI recommended defaults (e.g. for a sweep).
     @discardableResult
     static func styleTransfer(
         prompt: String, styleImage: URL, strength: Float = 1.0,
         width: Int = 1024, height: Int = 1024,
-        steps: Int = 8, seed: Int = 42, mu: Double = 1.15, out: URL
+        steps: Int = 8, seed: Int = 42, mu: Double = 1.15,
+        knobs: Krea2StyleDefaults = Krea2StyleDefaults(),
+        fastRF: Bool = false, out: URL
     ) throws -> Krea2GenerateResult {
-        let d = Krea2StyleDefaults()
+        let d = knobs
         let cfg = Krea2Config()
         let patch = cfg.patch, compression = 8
         let align = compression * patch
@@ -95,9 +117,16 @@ public extension Krea2Engine {
         let mask = MLX.repeated(mask1, count: 2, axis: 0)
         let ts = Krea2Sampler.timesteps(seqLen: N, steps: steps, mu: mu)
 
+        // Text path is identical across every denoise step + both batches (same
+        // prompt) → compute ONCE and reuse (cuts ~23 redundant text-path evals).
+        let ctx1 = baseDit.textPath(context: context1, mask: mask1)
+        MLX.eval(ctx1)
+        let ctx2 = MLX.repeated(ctx1, count: 2, axis: 0)              // for the 2B main loop
+
         // ── (1) Reference-Forecast cache: integrate refClean forward through
         //    each sigma with the base model velocity (Heun PC, γ=0.5).
         print("[4/6] RF cache (Heun PC, γ=\(d.gamma))...", terminator: " ")
+        let rfT0 = Date()
         let eps = MLXRandom.normal([1, 16, Hl, Wl])                       // fixed noise for the prior
         var refCache: [Float: MLXArray] = [:]
         let prevSigma: Float = 0.0
@@ -111,29 +140,39 @@ public extension Krea2Engine {
             let (imgS2, _, _) = Krea2Sampler.prepare(
                 noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
             let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]),
-                             pos: pos1, mask: mask1)
+                             pos: pos1, mask: mask1, cachedCtx: ctx1)
             // Euler step from lastSigma → sigma (delta = sigma - lastSigma).
             let delta = sigma - lastSigma
             // Predict z at sigma via the model velocity (latent-space Euler).
             // v0 is a token-space velocity; unpatchify → latent → step.
             let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
                                     delta: delta)
-            let (imgE2, _, _) = Krea2Sampler.prepare(
-                noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
-            let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
-                             pos: pos1, mask: mask1)
-            let zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
+            // Heun predictor-corrector (default, faithful to ComfyUI) vs single-
+            // Euler fast path (halves RF cost; `fastRF`). Both feed the same
+            // γ-blend with the linear prior. fastRF changes the cached ref
+            // trajectory but NOT strength=0 (the cache is unused at mix=0).
+            let zModel: MLXArray
+            if fastRF {
+                zModel = zPred
+            } else {
+                let (imgE2, _, _) = Krea2Sampler.prepare(
+                    noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
+                                 pos: pos1, mask: mask1, cachedCtx: ctx1)
+                zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
                                     patch: patch, delta: delta)
+            }
             let zPrior = (1.0 - sigma) * refClean + sigma * eps
             z = MLXArray(d.gamma) * zModel + (1.0 - d.gamma) * zPrior
             MLX.eval(z)
             refCache[sigma] = z
             lastSigma = sigma
         }
-        print("cached \(refCache.count) sigmas")
+        print("cached \(refCache.count) sigmas in \(String(format: "%.1f", Date().timeIntervalSince(rfT0)))s")
 
         // ── (2)+(3) Main denoise: 2B batch [target ; ref_noisy_σ], styled DiT.
         print("[5/6] denoise (styled 2B)...", terminator: " ")
+        let mainT0 = Date()
         MLXRandom.seed(UInt64(seed))                                     // re-seed for the target noise
         let targetNoise = MLXRandom.normal([1, 16, Hl, Wl])
         var (imgTokens, _, _) = Krea2Sampler.prepare(
@@ -160,13 +199,13 @@ public extension Krea2Engine {
                 noise: refNoisy, txtlen: txtlen, patch: patch, txtmask: txtmask1)
             let img2 = MLX.concatenated([imgTokens, refTokens], axis: 0)  // (2,N,64)
             let t2 = MLXArray([tcurr, tcurr])
-            let v2 = styledDit(img: img2, context: context, t: t2, pos: pos, mask: mask)
+            let v2 = styledDit(img: img2, context: context, t: t2, pos: pos, mask: mask, cachedCtx: ctx2)
             let vT = v2[0..<1]                                            // target velocity
             imgTokens = imgTokens + (tprev - tcurr) * vT
             MLX.eval(imgTokens)
             if (i + 1) % 2 == 0 || i == ts.count - 2 { print("\(i+1)/\(ts.count-1)", terminator: " ") }
         }
-        print()
+        print("(\(String(format: "%.1f", Date().timeIntervalSince(mainT0)))s)")
 
         print("[6/6] VAE decode...", terminator: " ")
         let (Ht, Wt) = (Hl / patch, Wl / patch)
