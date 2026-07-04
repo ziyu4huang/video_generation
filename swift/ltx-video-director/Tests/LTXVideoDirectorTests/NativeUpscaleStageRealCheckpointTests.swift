@@ -263,6 +263,60 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
         }
     }
 
+    /// Real-checkpoint SUCCESS path for `generateHD`, now that a working
+    /// restoration+upscale IC-LoRA pair has been located and verified (a
+    /// non-gated community release, `joyfox/LTX2.3-ICEdit-Insight` on
+    /// HuggingFace — apache-2.0, exact filename match with this package's
+    /// expected `ltx2.3-video-restoration-general.safetensors` /
+    /// `ltx2.3-ic-video-upscale-general.safetensors`, unlike the earlier
+    /// gated Lightricks official release). Two full sessions of prior
+    /// search found no exact-match checkpoint at all; this closes that gap.
+    /// Skips gracefully if the LoRA pair isn't present in this environment
+    /// (still a manual/external download, per mlx-models/lora/ltx-2.3-restore/README.md).
+    func testGenerateHDProducesRestoredUpscaledFrames() throws {
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        let vaeDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        let upsamplerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors")
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        let restorationLoraURL = RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors")
+        let upscaleLoraURL = RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors")
+        for url in [vaeEncoderURL, vaeDecoderURL, upsamplerURL, transformerURL, restorationLoraURL, upscaleLoraURL] {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw XCTSkip("checkpoint/LoRA not found at \(url.path) — skipping generateHD real-checkpoint test")
+            }
+        }
+
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_success_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_success_out_\(UUID().uuidString)")
+        let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_success_audio_\(UUID().uuidString).wav")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(13)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+        try WAVWriter.write(channels: [[Float](repeating: 0, count: 1600)], sampleRate: 16000, to: audioURL)
+
+        let result = try NativeUpscaleStage().generateHD(
+            inputFrameDirectory: inputDir, outputDir: outputDir, prompt: "a test scene", audioURL: audioURL)
+
+        // generateHD is the RESTORATION pass only — same resolution in and
+        // out. Chaining the separate fast-mode 2x upscale afterward (what
+        // `native-upscale --mode hd` does at the CLI level) is a distinct
+        // stage.generate() call, not part of generateHD itself.
+        XCTAssertEqual(result.inputSize.width, 64)
+        XCTAssertEqual(result.inputSize.height, 64)
+        XCTAssertEqual(result.outputSize.width, 64)
+        XCTAssertEqual(result.outputSize.height, 64)
+        XCTAssertEqual(result.frameCount, 9)
+        let frameFiles = (try? FileManager.default.contentsOfDirectory(atPath: result.frameDirectory.path)) ?? []
+        XCTAssertEqual(frameFiles.count, 9)
+    }
+
     /// `generateRestyle` (V2V restyle — see NativeUpscaleStage.swift's
     /// header) has NO bundled default LoRA at all, unlike `generateHD`'s
     /// restoration pair — `loraURL` is always user-supplied. This checks

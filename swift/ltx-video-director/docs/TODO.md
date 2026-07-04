@@ -1,3 +1,27 @@
+# `native-upscale --mode hd` restoration LoRA pair FOUND + verified (2026-07-05)
+
+Standing backlog item, blocked across two prior sessions as "doesn't exist
+in that form" (not "nobody's tried"). A fresh search this session found a
+genuinely new, non-gated match: `joyfox/LTX2.3-ICEdit-Insight` on
+HuggingFace (Apache-2.0) contains BOTH required files
+(`ltx2.3-video-restoration-general.safetensors` +
+`ltx2.3-ic-video-upscale-general.safetensors`) by their exact expected
+filenames — confirmed via the HF API, not guessed. Downloaded both
+(100.8 MB + 327.3 MB), externalized to the external model store + symlinks
+(same primitive this session's `import-lora-image.py` fix uses — the
+target directory's `.raw-download` marker predates the externalization
+convention and doesn't exempt it from "never commit raw safetensors").
+`check-model`: 66/66 pass.
+
+Real end-to-end `native-upscale --mode hd` run against a real 25-frame
+clip: 109.2s wall, all 5 stages completed, 1280×1920 output + muxed mp4.
+Visually confirmed: same scene, genuinely higher resolution, with a
+moderate fur-texture over-sharpening artifact from this particular
+LoRA pair's own training (not a correctness bug). New
+`NativeUpscaleStageRealCheckpointTests.testGenerateHDProducesRestoredUpscaledFrames`
+— 10/10 suite pass (1 pre-existing unrelated skip). See PLAN.md's
+matching milestone for the full writeup.
+
 # VBVR reasoning LoRA verified native + `--input-image` generalization (2026-07-05)
 
 Standing backlog item (`run.py video vbvr`'s native-port target). Turned

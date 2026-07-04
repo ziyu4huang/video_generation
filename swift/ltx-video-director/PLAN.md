@@ -2348,6 +2348,60 @@ top of the core chaining that's now landed and verified. Each segment
 must run at the same resolution (inherent to feeding one segment's last
 frame as the next's `--input-image`, which requires an exact size match).
 
+## Milestone: `native-upscale --mode hd` restoration LoRA pair FOUND + verified (2026-07-05)
+
+Standing backlog item carried across several sessions — two prior search
+passes found no exact-match checkpoint for `mlx-models/lora/ltx-2.3-restore/`'s
+required pair (`ltx2.3-video-restoration-general.safetensors` +
+`ltx2.3-ic-video-upscale-general.safetensors`, per that directory's own
+README) and correctly classified it as "doesn't exist in that form," not
+"nobody's tried." A fresh web search this session (re-checked rather than
+re-deferred a third time, per the last two goal notes' own recommendation)
+turned up a genuinely NEW, non-gated match: `joyfox/LTX2.3-ICEdit-Insight`
+on HuggingFace (Apache-2.0, `lastModified: 2026-06-05` — plausibly newer
+than the prior sessions' searches, or simply missed). Its repo contains
+BOTH required files by their EXACT expected filenames — confirmed via the
+HF API's `siblings` listing, not guessed from the model card. Unlike the
+official `Lightricks/LTX-2.3-22b-IC-LoRA-Decompression` (also found this
+session, but `"gated": "auto"` — same one-time-human-license-click
+situation as last session's Ingredients checkpoint), `joyfox`'s repo is
+`"gated": false` — downloadable immediately, no blocked wait this time.
+
+Downloaded both files directly (100.8 MB restoration + 327.3 MB upscale,
+confirmed via HTTP `content-length` after following the redirect — `curl
+-I` without `-L` reports a misleading ~1 KB LFS-pointer size). Externalized
+both to `../video_generation__models/<md5>.safetensors` + symlinks (same
+`_store_to_external` primitive this session's `import-lora-image.py` fix
+uses) rather than leaving them as trackable raw binaries in
+`mlx-models/lora/ltx-2.3-restore/` — that directory's own `.raw-download`
+marker predates this repo's now-established externalization convention
+and only means "skip the MLX-manifest pipeline," not "exempt from the
+never-commit-raw-safetensors rule." `check-model`: 66/66 manifests pass,
+no new warnings (the `.raw-download` marker correctly keeps `check-model`'s
+orphan scanner from flagging the un-manifested symlinks).
+
+**Real-checkpoint end-to-end run**: `ltx-video native-upscale --mode hd`
+against a real 25-frame VBVR-generated clip (previous milestone), with
+`--refine-prompt`/`--refine-audio` — 109.2s wall. Ran cleanly through all
+5 stages (reference encode → LoRA fusion → IC-LoRA-conditioned denoise →
+decode → chained 2x fast upscale), producing 25 frames at 1280×1920 (2x
+the 640×960 restoration-stage resolution) + a muxed `video.mp4`. Visually
+inspected frame 0: same scene/pose as the source clip, genuinely
+higher-resolution, though with a moderate fur-texture over-sharpening
+artifact (a mesh-like pattern) — a quality nuance from this particular
+community LoRA pair's own training, not a correctness bug; the
+restoration+conditioning mechanism itself is confirmed working.
+
+New `NativeUpscaleStageRealCheckpointTests.testGenerateHDProducesRestoredUpscaledFrames`
+— the real success-path counterpart to the existing
+`testGenerateHDMissingLoraThrowsNamedError` (which now correctly
+self-skips, since the LoRA pair is present). Confirmed `generateHD` itself
+is restoration-only (`outputSize == inputSize`) — the CLI's 2x upscale is
+a separate chained `stage.generate()` call, not part of `generateHD`; an
+initial version of this test wrongly assumed `generateHD` itself doubles
+resolution and failed on a real run before the assertion was corrected.
+Full suite: **10/10 pass** (1 pre-existing unrelated skip).
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what
