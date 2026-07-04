@@ -12,13 +12,56 @@ import Foundation
 import MLX
 import MLXNN
 
+/// Style-transfer attention-injection config (training-free, jieg9341-lab
+/// port). When set + active for a block, the DiT runs as a 2B batch
+/// `[target ; ref_noisy]` and the target's image-token attention is extended
+/// with the reference batch's K/V (scaled per-frequency + V-AdaIN-mixed).
+/// See docs/controlnet-styletransfer-port.md Feature B.
+public struct Krea2StyleConfig {
+    public let targetB: Int                  // size of the target batch (batch index [0..<targetB])
+    public let imgS: Int                      // image-token range start (== txtlen)
+    public let imgE: Int                      // image-token range end (== L)
+    public let activeBlocks: Set<Int>         // blocks to inject in (default 7...27)
+    public let scaleVec: MLXArray             // (headDim,) per-frequency K scale, broadcastable
+    public let refKStrength: Float            // extra K multiplier (1.06)
+    public let valueAdainStrength: Float      // V AdaIN mix α (0.65)
+    public let refValueMix: Float             // raw-ref V mix (1.0)
+    public let mix: Float                     // styled-vs-native blend (1.0)
+
+    public init(targetB: Int, imgS: Int, imgE: Int, activeBlocks: Set<Int>,
+                scaleVec: MLXArray, refKStrength: Float = 1.06,
+                valueAdainStrength: Float = 0.65, refValueMix: Float = 1.0, mix: Float = 1.0) {
+        self.targetB = targetB; self.imgS = imgS; self.imgE = imgE
+        self.activeBlocks = activeBlocks; self.scaleVec = scaleVec
+        self.refKStrength = refKStrength; self.valueAdainStrength = valueAdainStrength
+        self.refValueMix = refValueMix; self.mix = mix
+    }
+}
+
 public struct Krea2DiT {
     public let config: Krea2Config
     let w: [String: MLXArray]
+    /// Optional Control LoRA control-half input projection (features, 64) +
+    /// bias. When set, `callAsFunction(controlTokens:)` adds
+    /// `controlStrength * (controlTokens @ firstControl.T)` to the image
+    /// projection at the DiT input (facok input-concat mechanism). See
+    /// Krea2ControlLoRA.swift + docs/controlnet-styletransfer-port.md.
+    public let firstControl: MLXArray?
+    public let firstControlBias: MLXArray?
+    /// Optional training-free style-transfer config. When set, the caller runs
+    /// the DiT on a 2·targetB batch `[target ; ref_noisy]` and `attention`
+    /// injects the reference batch's image-token K/V into the target attention
+    /// for blocks in `style.activeBlocks`. See Krea2StyleConfig.
+    public let style: Krea2StyleConfig?
 
-    public init(config: Krea2Config, weights: [String: MLXArray]) {
+    public init(config: Krea2Config, weights: [String: MLXArray],
+                firstControl: MLXArray? = nil, firstControlBias: MLXArray? = nil,
+                style: Krea2StyleConfig? = nil) {
         self.config = config
         self.w = weights
+        self.firstControl = firstControl
+        self.firstControlBias = firstControlBias
+        self.style = style
     }
 
     // MARK: - primitives
@@ -27,14 +70,22 @@ public struct Krea2DiT {
     /// g64) via the `<prefix>.weight.scales` companion key and dispatches to
     /// quantizedMM; otherwise plain matmul. Matches python
     /// scripts/krea2_quantize_turbo.py (BITS=8, GROUP=64).
+    ///
+    /// Also adds a Control-LoRA low-rank delta when `<prefix>.lora.A`/`.B` are
+    /// present (A is (in,r), B is (out,r); scale = 1 since α=rank). The delta
+    /// is `matmul(matmul(x, A), B.T)` — keeps the base Q8 weights untouched.
     @inline(__always) func lin(_ x: MLXArray, _ prefix: String) -> MLXArray {
         let wk = "\(prefix).weight"
-        let y: MLXArray
+        var y: MLXArray
         if let scales = w["\(wk).scales"] {
             y = MLX.quantizedMM(x, w[wk]!, scales: scales, biases: w["\(wk).biases"],
                                 transpose: true, groupSize: 64, bits: 8)
         } else {
             y = MLX.matmul(x, w[wk]!.transposed(1, 0))
+        }
+        if let a = w["\(prefix).lora.A"], let b = w["\(prefix).lora.B"] {
+            // Δ = (x @ A) @ Bᵀ ; A:(in,r) B:(out,r) → (.,r) → (.,out)
+            y = y + MLX.matmul(MLX.matmul(x, a), b.transposed(1, 0))
         }
         if let b = w["\(prefix).bias"] { return y + b }
         return y
@@ -89,7 +140,7 @@ public struct Krea2DiT {
     // MARK: - attention (manual GQA)
 
     func attention(_ qkv: MLXArray, _ prefix: String, heads: Int, kvh: Int, hd: Int,
-                   freqs: MLXArray?, mask: MLXArray?) -> MLXArray {
+                   freqs: MLXArray?, mask: MLXArray?, blockIndex: Int? = nil) -> MLXArray {
         let (B, L) = (qkv.dim(0), qkv.dim(1))
         var q = lin(qkv, "\(prefix).wq").reshaped([B, L, heads, hd])
         var k = lin(qkv, "\(prefix).wk").reshaped([B, L, kvh, hd])
@@ -103,12 +154,90 @@ public struct Krea2DiT {
         k = MLX.repeated(k, count: rep, axis: 1)
         v = MLX.repeated(v, count: rep, axis: 1)
         let scale = Float(Foundation.pow(Double(hd), -0.5))
-        var scores = MLX.matmul(q, k.transposed(0, 1, 3, 2)) * scale     // (B,H,L,L)
-        if let mask { scores = MLX.where(mask, scores, MLXArray(-1e9)) }
-        let a = MLX.softmax(scores, axis: -1)
-        var out = MLX.matmul(a, v).transposed(0, 2, 1, 3).reshaped([B, L, heads * hd])
+
+        // ── Style-transfer K/V injection (training-free). When a style config
+        //    is attached, this is a 2·targetB batch [target ; ref_noisy] and
+        //    the block is in the active set: extend the target attention with
+        //    the reference batch's image-token K (per-frequency scaled) + V
+        //    (AdaIN-mixed). See Krea2StyleConfig + docs Feature B.
+        var out: MLXArray
+        if let st = style, let bi = blockIndex, st.activeBlocks.contains(bi), B == 2 * st.targetB {
+            out = styledAttention(q: q, k: k, v: v, scale: scale, mask: mask, st: st)
+        } else {
+            var scores = MLX.matmul(q, k.transposed(0, 1, 3, 2)) * scale     // (B,H,L,L)
+            if let mask { scores = MLX.where(mask, scores, MLXArray(-1e9)) }
+            let a = MLX.softmax(scores, axis: -1)
+            out = MLX.matmul(a, v).transposed(0, 2, 1, 3).reshaped([B, L, heads * hd])
+        }
         out = lin(out * MLX.sigmoid(gate), "\(prefix).wo")
         return out
+    }
+
+    /// Style-transfer attention. q,k,v are (B,H,L,D) post-rope, post-KV-repeat,
+    /// with B == 2·targetB and batch order [target ; ref]. The target's
+    /// attention is extended with the ref batch's image-token K/V; the ref
+    /// batch attends natively (unchanged). Returns (B,L,H·D).
+    /// Minimal viable port: V-AdaIN + per-frequency K scale (the core mechanism
+    /// per the repo README); Q/K AdaIN + dual-ref deferred (see docs).
+    func styledAttention(q: MLXArray, k: MLXArray, v: MLXArray, scale: Float,
+                         mask: MLXArray?, st: Krea2StyleConfig) -> MLXArray {
+        let (B, H, L, D) = (q.dim(0), q.dim(1), q.dim(2), q.dim(3))
+        let tb = st.targetB
+        let ir = st.imgS..<st.imgE
+        let qT = q[0..<tb], qR = q[tb..<B]
+        let kT = k[0..<tb], kR = k[tb..<B]
+        let vT = v[0..<tb], vR = v[tb..<B]
+
+        // Reference K slice (image tokens) × per-frequency scale × refKStrength.
+        let scaleVec = st.scaleVec.expandedDimensions(axis: 0).expandedDimensions(axis: 0)
+            .expandedDimensions(axis: 0)                                  // (1,1,1,D)
+        let refK = kR[0..., 0..., ir, 0...] * scaleVec * st.refKStrength  // (tb,H,imgLen,D)
+
+        // V AdaIN over image tokens: ref stats → target shape, then blend.
+        let refV = vR[0..., 0..., ir, 0...]                              // (tb,H,imgLen,D)
+        let tgtV = vT[0..., 0..., ir, 0...]
+        let eps = MLXArray(1e-6)
+        let muT = tgtV.mean(axis: 2, keepDims: true), sdT = MLX.sqrt(tgtV.variance(axis: 2, keepDims: true) + eps)
+        let muR = refV.mean(axis: 2, keepDims: true), sdR = MLX.sqrt(refV.variance(axis: 2, keepDims: true) + eps)
+        let adaV = (tgtV - muT) / sdT * sdR + muR
+        let baseV = tgtV * (1 - st.valueAdainStrength) + adaV * st.valueAdainStrength
+        let injV = baseV * (1 - st.refValueMix) + refV * st.refValueMix   // (tb,H,imgLen,D)
+
+        // Target attends to its own K/V PLUS the ref K/V (extended sequence).
+        let kTarget = MLX.concatenated([kT, refK], axis: 2)               // (tb,H,L+imgLen,D)
+        let vTarget = MLX.concatenated([vT, injV], axis: 2)
+        var scoresT = MLX.matmul(qT, kTarget.transposed(0, 1, 3, 2)) * scale  // (tb,H,L,L+imgLen)
+        // Native target attention (for the mix blend).
+        let nativeScores = MLX.matmul(qT, kT.transposed(0, 1, 3, 2)) * scale
+        // Mask: `mask` is the (B,1,L,L) key-padding product row*col. Extract
+        // the per-batch KEY-validity vector mask[b,0,0,:] (== col == mp[b])
+        // and reshape to (tb,1,1,L) so it broadcasts over heads + query rows.
+        // The appended imgLen ref columns are fully attended (ones).
+        if let mask {
+            let keyT = mask[0..<tb, 0, 0, 0...]                          // (tb, L)
+            let keyTb = keyT.expandedDimensions(axis: 1).expandedDimensions(axis: 2)  // (tb,1,1,L)
+            let nm = MLX.where(keyTb, nativeScores, MLXArray(-1e9))      // (tb,H,L,L)
+            let nativeOut = MLX.matmul(MLX.softmax(nm, axis: -1), vT)    // (tb,H,L,D)
+            let ones = MLX.ones([tb, 1, 1, ir.count], dtype: keyT.dtype)
+            let mExt = MLX.concatenated([keyTb, ones], axis: 3)          // (tb,1,1,L+imgLen)
+            let sm = MLX.where(mExt, scoresT, MLXArray(-1e9))            // (tb,H,L,L+imgLen)
+            let styledOut = MLX.matmul(MLX.softmax(sm, axis: -1), vTarget)
+            let outT = nativeOut * (1 - st.mix) + styledOut * st.mix
+            // Ref batch: native attention, unchanged.
+            let keyR = mask[tb..<B, 0, 0, 0...]                          // (tb, L)
+            let keyRb = keyR.expandedDimensions(axis: 1).expandedDimensions(axis: 2)
+            var scoresR = MLX.matmul(qR, kR.transposed(0, 1, 3, 2)) * scale
+            scoresR = MLX.where(keyRb, scoresR, MLXArray(-1e9))
+            let outR = MLX.matmul(MLX.softmax(scoresR, axis: -1), vR)
+            return MLX.concatenated([outT, outR], axis: 0).transposed(0, 2, 1, 3).reshaped([B, L, H * D])
+        } else {
+            let nativeA = MLX.softmax(nativeScores, axis: -1)
+            let nativeOut = MLX.matmul(nativeA, vT)
+            let styledOut = MLX.matmul(MLX.softmax(scoresT, axis: -1), vTarget)
+            let outT = nativeOut * (1 - st.mix) + styledOut * st.mix
+            let outR = MLX.matmul(MLX.softmax(MLX.matmul(qR, kR.transposed(0, 1, 3, 2)) * scale, axis: -1), vR)
+            return MLX.concatenated([outT, outR], axis: 0).transposed(0, 2, 1, 3).reshaped([B, L, H * D])
+        }
     }
 
     // MARK: - blocks / fusion / mlp
@@ -151,7 +280,7 @@ public struct Krea2DiT {
         let attnIn = (1 + e(ch[0])) * rms(x, "\(p).prenorm") + e(ch[1])
         var h = x + e(ch[2]) * attention(attnIn, "\(p).attn",
                                           heads: config.heads, kvh: config.kvheads, hd: config.headDim,
-                                          freqs: freqs, mask: mask)
+                                          freqs: freqs, mask: mask, blockIndex: i)
         let mlpIn = (1 + e(ch[3])) * rms(h, "\(p).postnorm") + e(ch[4])
         h = h + e(ch[5]) * swiGLU(mlpIn, "\(p).mlp")
         return h
@@ -168,26 +297,65 @@ public struct Krea2DiT {
 
     // MARK: - forward
 
+    /// Compute only the text path (txtFusion + txtMLP) — the post-fusion context
+    /// tokens `(B, txtlen, features)`. Identical across all denoise steps and
+    /// across the 2B batch (same prompt), so style-transfer calls this ONCE and
+    /// passes the result to `callAsFunction(cachedCtx:)` to skip ~23 redundant
+    /// text-path evaluations (the named "2-B text-path sharing" cost lever).
+    public func textPath(context: MLXArray, mask: MLXArray?) -> MLXArray {
+        let txtlenPre = context.dim(1)
+        let txtFusionMask: MLXArray? = {
+            guard let m = mask else { return nil }
+            let tm = m[0..., 0..<txtlenPre]
+            let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)
+            let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)
+            return row * col
+        }()
+        return txtMLP(txtFusion(context, mask: txtFusionMask))
+    }
+
+    /// Forward. `controlTokens` (optional, (B, Ht*Wt, 64)) carries the Control
+    /// LoRA's control latent; when present + `firstControl` set, the control
+    /// half is added at the input projection:
+    ///   x = first_base(img) + controlStrength * (controlTokens @ firstControl.T [+ bias])
+    /// This is the facok input-concat mechanism (see Krea2ControlLoRA.swift).
     public func callAsFunction(img: MLXArray, context: MLXArray, t: MLXArray,
-                               pos: MLXArray, mask: MLXArray?) -> MLXArray {
+                               pos: MLXArray, mask: MLXArray?,
+                               controlTokens: MLXArray? = nil,
+                               controlStrength: Float = 1.0,
+                               cachedCtx: MLXArray? = nil) -> MLXArray {
         let cfg = config
-        let x = lin(img, "first")
+        var x = lin(img, "first")
+        if let ctrl = controlTokens, let fc = firstControl {
+            var c = MLX.matmul(ctrl, fc.transposed(1, 0)) * controlStrength   // (B,N,features)
+            if let cb = firstControlBias { c = c + cb }
+            x = x + c
+        }
         let tH = temb(t, cfg.tdim).reshaped([t.dim(0), cfg.tdim])
         let tmlpOut = lin(MLXNN.geluApproximate(lin(tH, "tmlp.0")), "tmlp.2")  // (B, features)
         let tvec = lin(MLXNN.geluApproximate(tmlpOut), "tproj.1")       // (B, 6*features)
 
-        // txtFusion mask: BOOL (True = attend), matching torch _mask(). The
-        // earlier `mask: nil` deviated from the reference (which masks text
-        // padding). Built from the text slice of the key-padding mask.
-        let txtlenPre = context.dim(1)
-        let txtFusionMask: MLXArray? = {
-            guard let m = mask else { return nil }
-            let tm = m[0..., 0..<txtlenPre]                          // (B, txtlen) bool
-            let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)  // (B,1,1,txtlen)
-            let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)  // (B,1,txtlen,1)
-            return row * col                                          // (B,1,txtlen,txtlen) bool
-        }()
-        let ctx = txtMLP(txtFusion(context, mask: txtFusionMask))
+        // The text path (txtFusion + txtMLP) depends only on (context, mask's
+        // text slice) — identical across every denoise step and across the 2B
+        // batch (same prompt). Style-transfer computes it ONCE via `textPath`
+        // and passes it as `cachedCtx` to skip ~23 redundant text-path evals.
+        let ctx: MLXArray
+        if let cached = cachedCtx {
+            ctx = cached
+        } else {
+            // txtFusion mask: BOOL (True = attend), matching torch _mask(). The
+            // earlier `mask: nil` deviated from the reference (which masks text
+            // padding). Built from the text slice of the key-padding mask.
+            let txtlenPre = context.dim(1)
+            let txtFusionMask: MLXArray? = {
+                guard let m = mask else { return nil }
+                let tm = m[0..., 0..<txtlenPre]                          // (B, txtlen) bool
+                let row = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 2)  // (B,1,1,txtlen)
+                let col = tm.expandedDimensions(axis: 1).expandedDimensions(axis: 3)  // (B,1,txtlen,1)
+                return row * col                                          // (B,1,txtlen,txtlen) bool
+            }()
+            ctx = txtMLP(txtFusion(context, mask: txtFusionMask))
+        }
         let txtlen = ctx.dim(1)
         var combined = MLX.concatenated([ctx, x], axis: 1)
         var posP = pos

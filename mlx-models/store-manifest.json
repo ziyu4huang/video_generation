@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 106,
+  "count": 107,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -426,6 +426,10 @@
     "lora/ltx-2-3-ingredients/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors": {
       "md5": "19e25a8526f2b11ccec2e271185806ed",
       "size": 1308778338
+    },
+    "transformer/krea2-depth-control-lora/model.safetensors": {
+      "md5": "f0f9bfe007c08ce9e00265867c529e8b",
+      "size": 861995928
     }
   }
 }
