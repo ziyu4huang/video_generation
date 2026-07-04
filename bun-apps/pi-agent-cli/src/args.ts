@@ -114,6 +114,12 @@ export interface ParsedArgs {
 	maxNoteTokens?: number;
 	/** zk-ask: skip seed quality gate */
 	noRefine?: boolean;
+	/** zk-ingest: source family label (default: workflow-jsonl) */
+	source?: string;
+	/** zk-ingest: human-readable provenance string */
+	sourceLabel?: string;
+	/** zk-ingest: report only, write nothing */
+	dryRun?: boolean;
 	/** Tool event verbosity: 0=silent (name only), 1=args summary,
 	 *  2=debug (full args + result preview). Set by -V/--verbose/--debug or PI_VERBOSE. */
 	verbose: number;
@@ -229,7 +235,7 @@ const NUMERIC_FLAGS: ReadonlyArray<{
 type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
-	| "vlmModel";
+	| "vlmModel" | "source" | "sourceLabel";
 
 /** String value flags: `--flag <value>` or `--flag=value`. */
 const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
@@ -246,12 +252,14 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 	{ flag: "--pages", field: "pages" },
 	{ flag: "--file", field: "file" },
 	{ flag: "--vlm-model", field: "vlmModel" },
+	{ flag: "--source", field: "source" },
+	{ flag: "--source-label", field: "sourceLabel" },
 ];
 
 type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools";
+	| "noBuiltinTools" | "dryRun";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -266,6 +274,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["-p", "--print"], field: "print" },
 	{ flags: ["-nt", "--no-tools"], field: "noTools" },
 	{ flags: ["-nbt", "--no-builtin-tools"], field: "noBuiltinTools" },
+	{ flags: ["--dry-run"], field: "dryRun" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */

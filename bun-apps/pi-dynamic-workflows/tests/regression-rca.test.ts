@@ -9,8 +9,9 @@
  *     decision; the expected correct behavior is documented as a pending test so
  *     it is a visible regression target, not a silent gap.
  */
-import assert from "node:assert/strict";
+
 import { describe, it, test } from "bun:test";
+import assert from "node:assert/strict";
 import { WorkflowErrorCode, wrapError } from "../src/errors.js";
 import type { JournalEntry } from "../src/workflow.js";
 import { runWorkflow } from "../src/workflow.js";
@@ -69,7 +70,11 @@ return r`;
     async function hashFor(isoLit: string): Promise<string> {
       const journal: JournalEntry[] = [];
       await runWorkflow(script(isoLit), {
-        agent: { async run() { return "x"; } },
+        agent: {
+          async run() {
+            return "x";
+          },
+        },
         persistLogs: false,
         onAgentJournal: (e) => journal.push(e),
       });
@@ -79,7 +84,11 @@ return r`;
 
     const hNone = await hashFor("undefined");
     const hWorktree = await hashFor("'worktree'");
-    assert.notEqual(hNone, hWorktree, "isolation must be part of the resume hash so the cache is invalidated on toggle");
+    assert.notEqual(
+      hNone,
+      hWorktree,
+      "isolation must be part of the resume hash so the cache is invalidated on toggle",
+    );
   });
 });
 
@@ -98,7 +107,11 @@ const v = await verify('the earth is flat', { reviewers: 3 })
 return v`,
       {
         // Every reviewer call throws a recoverable error → agent() returns null.
-        agent: { async run() { throw new Error("transient network error"); } },
+        agent: {
+          async run() {
+            throw new Error("transient network error");
+          },
+        },
         agentRetries: 0,
         persistLogs: false,
       },

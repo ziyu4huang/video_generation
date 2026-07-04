@@ -7,6 +7,7 @@
   "type": "module",
   "files": [
     "extensions",
+    "src",
     "README.md"
   ],
   "pi": {

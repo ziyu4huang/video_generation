@@ -61,9 +61,9 @@
 export const meta = {
   name: "pi-infra-self-improve",
   description:
-    "Self-improve loop for the pi-agent / pi-ext INFRASTRUCTURE layer (pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, pi-obsidian) — deterministic contract lane (each package's real test gate), a build lane that runs pi-agent build:all + getAllTools() probe to catch the recurring deploy/bundle footguns unit tests can't, a multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify, AND an opt-in fix lane (fix:true) that closes the review→fix loop: propose-patch → apply → re-run contract → re-verify, dirty-tree-refuse + dryRun-capable + never-pushes. First adopter of the Self-Fix (Code-Review-Based) shared primitive. The infrastructure counterpart to the image-scoped self-improve workflows.",
+    "Self-improve loop for the pi-agent / pi-ext INFRASTRUCTURE layer (pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, pi-obsidian, pi-knowledge-card, pi-hermes-memory, pi-agent-ext-flux2, pi-agent-ext-krea2, pi-agent-ext-ltx, pi-agent-ext-power-tool) — deterministic contract lane (each package's real test gate), a build lane that runs pi-agent build:all + getAllTools() probe to catch the recurring deploy/bundle footguns unit tests can't, a multi-dimension code review (correctness/path-safety/schema-consistency/error-handling) with adversarial verify, AND an opt-in fix lane (fix:true) that closes the review→fix loop: propose-patch → apply → re-run contract → re-verify, dirty-tree-refuse + dryRun-capable + never-pushes. First adopter of the Self-Fix (Code-Review-Based) shared primitive. The infrastructure counterpart to the image-scoped self-improve workflows.",
   whenToUse:
-    "Run after touching bun-apps/pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, or pi-obsidian — the runtime + extension-mechanism + workflow-engine layer. Default = contract + build + review (effort:low, review-only). fix:true closes the loop (propose→apply→re-verify; refuses on dirty tree, never pushes); fix:true+dryRun:true proposes without applying. lanes:['contract'|'build'|'review'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. skipBuild:true drops the slow build:all lane for fast re-runs.",
+    "Run after touching bun-apps/pi-agent, pi-agent-cli, pi-dynamic-workflows, pi-vlm, pi-obsidian, pi-knowledge-card, pi-hermes-memory, or any pi-agent-ext-* (flux2/krea2/ltx/power-tool) — the runtime + extension-mechanism + workflow-engine + content-extension-integration layer. Default = contract + build + review (effort:low, review-only). fix:true closes the loop (propose→apply→re-verify; refuses on dirty tree, never pushes); fix:true+dryRun:true proposes without applying. lanes:['contract'|'build'|'review'] picks a subset; lanes:'all' is the same as the default. focus/files narrow the review lane. skipBuild:true drops the slow build:all lane for fast re-runs. NOTE: this loop gates the ext INTEGRATION plumbing (bundle/deploy/knowledge-emission), not the image-gen content params — those stay in the image worktree.",
   phases: [
     { title: "Resolve", detail: "Resolve repo root, timestamp, load knowledge base" },
     { title: "Run", detail: "Lanes: contract (each package's gate) + build (build:all + getAllTools probe) + review (multi-dimension + adversarial verify) + fix (opt-in: propose→apply→re-contract→re-verify)" },
@@ -342,6 +342,20 @@ Repo root: ${PROJECT_ROOT}. Run each command and capture whether it passed.
    Bash("cd '${PROJECT_ROOT}' && bun test bun-apps/pi-vlm 2>&1 | tail -25")
 5. pi-obsidian (vault tool — includes frozen baseline-contract):
    Bash("cd '${PROJECT_ROOT}' && bun test bun-apps/pi-obsidian 2>&1 | tail -25")
+6. pi-knowledge-card (zettelkasten engine — zk_extract/zk_card/zk_ask/zk_ingest + ingest library):
+   Bash("cd '${PROJECT_ROOT}' && bun test bun-apps/pi-knowledge-card 2>&1 | tail -25")
+7. pi-hermes-memory (memory extension — contract tests via shell runner, NOT plain bun test):
+   Bash("cd '${PROJECT_ROOT}' && ( cd bun-apps/pi-hermes-memory && ./tests/run-all.sh ) 2>&1 | tail -30")
+   ok iff output contains "passed" with no failures.
+8. pi-agent-ext-flux2 (flux2 content extension — bun test + flag-drift guard):
+   Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-flux2 test 2>&1 | tail -20 && bun run --cwd bun-apps/pi-agent-ext-flux2 check:flags 2>&1 | tail -5")
+   ok iff tests show "0 fail" AND check:flags shows "No drift".
+9. pi-agent-ext-krea2 (krea2 content extension):
+   Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-krea2 test 2>&1 | tail -20")
+10. pi-agent-ext-ltx (ltx content extension):
+   Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-ltx test 2>&1 | tail -20")
+11. pi-agent-ext-power-tool (power-tool extension):
+   Bash("cd '${PROJECT_ROOT}' && bun run --cwd bun-apps/pi-agent-ext-power-tool test 2>&1 | tail -20")
 
 For each package report { name, ok, summary }. overallOk = true iff every package ok.
 If a package dir doesn't exist, report ok:false with summary "package dir missing".
@@ -388,7 +402,7 @@ Report both commands' tails in your summary text.`,
 }
 
 // ── review lane: multi-dimension + adversarial verify ──────────────────────
-const INFRA_SCOPE = `bun-apps/pi-agent/src, bun-apps/pi-agent-cli/src, bun-apps/pi-dynamic-workflows/src, bun-apps/pi-vlm/src, bun-apps/pi-obsidian/extensions, bun-apps/pi-agent/scripts (build.ts, build-extensions.ts, deploy.ts, verify-extensions.ts)`
+const INFRA_SCOPE = `bun-apps/pi-agent/src, bun-apps/pi-agent-cli/src, bun-apps/pi-dynamic-workflows/src, bun-apps/pi-vlm/src, bun-apps/pi-obsidian/extensions, bun-apps/pi-knowledge-card (extensions + src), bun-apps/pi-hermes-memory/src, bun-apps/pi-agent-ext-flux2, bun-apps/pi-agent-ext-krea2, bun-apps/pi-agent-ext-ltx, bun-apps/pi-agent-ext-power-tool, bun-apps/pi-agent/scripts (build.ts, build-extensions.ts, deploy.ts, verify-extensions.ts)`
 
 const REVIEW_DIMENSIONS = [
   {
@@ -508,7 +522,7 @@ const FIX_APPLY_SCHEMA = {
   properties: { applied: { type: "boolean" }, detail: { type: "string" } },
   required: ["applied"],
 }
-const RECONTRACT_CMD = `cd '${PROJECT_ROOT}' && PI_AGENT_E2E=1 bun test bun-apps/pi-agent >/dev/null 2>&1 && bun test bun-apps/pi-agent-cli >/dev/null 2>&1 && bun run --cwd bun-apps/pi-dynamic-workflows test >/dev/null 2>&1 && bun test bun-apps/pi-vlm >/dev/null 2>&1 && bun test bun-apps/pi-obsidian >/dev/null 2>&1 && echo ALL_GREEN`
+const RECONTRACT_CMD = `cd '${PROJECT_ROOT}' && PI_AGENT_E2E=1 bun test bun-apps/pi-agent >/dev/null 2>&1 && bun test bun-apps/pi-agent-cli >/dev/null 2>&1 && bun run --cwd bun-apps/pi-dynamic-workflows test >/dev/null 2>&1 && bun test bun-apps/pi-vlm >/dev/null 2>&1 && bun test bun-apps/pi-obsidian >/dev/null 2>&1 && bun test bun-apps/pi-knowledge-card >/dev/null 2>&1 && ( cd bun-apps/pi-hermes-memory && ./tests/run-all.sh ) >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-flux2 test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-flux2 check:flags >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-krea2 test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-ltx test >/dev/null 2>&1 && bun run --cwd bun-apps/pi-agent-ext-power-tool test >/dev/null 2>&1 && echo ALL_GREEN`
 
 async function runFixLane(findings) {
   // 1. refuse on dirty tree — never collide with WIP

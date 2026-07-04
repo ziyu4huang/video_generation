@@ -9,8 +9,22 @@ This package is the **single source of truth** for the task builders
 `buildRemoveTask` / `buildRagTask`) and the per-action tool allowlists
 (`DISTILL_TOOLS` / `ADD_TOOLS` / `FIND_TOOLS` / `UPDATE_TOOLS` / `REMOVE_TOOLS` /
 `CHECK_TOOLS` / `RAG_TOOLS`). The `bun-pi-agent-cli` commands `zk-extract`,
-`zk-card`, and `zk-ask` import these same builders so the CLI and the extension
-never drift apart.
+`zk-card`, `zk-ask`, and `zk-ingest` import these same builders (and the
+deterministic ingest library) so the CLI and the extension never drift apart.
+
+## Two ingestion modes
+
+| Mode | Tool | Backed by | When |
+| ---- | ---- | --------- | ---- |
+| **LLM distill** | `zk_extract` | an isolated subagent (`obsidian_distill`) | free-form markdown/text → atomic notes |
+| **Deterministic ingest** | `zk_ingest` | `src/ingest.ts` (no LLM, no network) | structured `.knowledge.jsonl` records → one card each |
+
+`zk_ingest` is the **convergence sink**: it dissolves the per-workflow
+`.knowledge.jsonl` silos into ONE shared, queryable, backlinked graph. Every
+record becomes a zettel card (dedup'd by canonical id, cross-linked by shared
+tags, indexed by a Knowledge Graph MOC) so `zk_ask` can answer cross-source
+questions. See `src/ingest.ts` for the schema mapping + `src/emit.ts` for the
+in-session `pi:knowledge` event-bus contract that lets any extension publish.
 
 ## Requires
 

@@ -23,12 +23,21 @@
  */
 
 import { relative } from "node:path";
+import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
 	runSubagentWithRetry,
 	resolveVault,
 } from "pi-obsidian/extensions/obsidian.ts";
+import {
+	ingestRecords,
+	parseKnowledgeJsonl,
+	adaptAutoMemoryMarkdown,
+	formatSummary,
+	type KnowledgeRecord,
+	type SourceFamily,
+} from "../src/ingest.ts";
 
 // ---------------------------------------------------------------------------
 // Tool allowlists (per command) — exported so the CLI reuses the exact same
@@ -819,6 +828,144 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					},
 				],
 				details: { exitCode, stderr },
+			};
+		},
+	});
+
+	// ---- Tool: zk_ingest ----------------------------------------------------
+	// Deterministic convergence primitive (the only zk_* tool that does NOT
+	// spawn a subagent). Maps structured .knowledge.jsonl records 1:1 onto
+	// zettel cards in the shared vault, dedup'd by record id, cross-linked by
+	// shared tags, indexed by a MOC. See src/ingest.ts for the schema mapping.
+	pi.registerTool({
+		name: "zk_ingest",
+		label: "ZK Ingest",
+		description: [
+			"Deterministically converge structured .knowledge.jsonl records into the shared Zettelkasten vault.",
+			"One card per record (id/type/title/detail/tags/dimension/confidence/status/superseded_by/evidence),",
+			"dedup'd by canonical record id (re-ingest upserts in place), cross-linked by shared tags,",
+			"and indexed by a Knowledge Graph MOC. No LLM — lossless + idempotent, unlike zk_extract.",
+			"This is the convergence sink that lets every self-improve loop's distilled knowledge flow",
+			"into ONE queryable, backlinked graph that zk_ask can traverse cross-source.",
+		].join(" "),
+		promptSnippet:
+			"Ingest structured .knowledge.jsonl records into the shared knowledge-graph vault",
+		parameters: Type.Object({
+			files: Type.Array(Type.String(), {
+				description:
+					"Paths to .knowledge.jsonl files (absolute or relative to cwd). Each non-blank line is one record.",
+			}),
+			source: Type.Optional(
+				Type.String({
+					description:
+						"Source family label written to each card's frontmatter (default: workflow-jsonl).",
+					default: "workflow-jsonl",
+				}),
+			),
+			source_label: Type.Optional(
+				Type.String({
+					description:
+						"Human-readable provenance string. Defaults to '<source>:<first file basename>'.",
+				}),
+			),
+			folder: Type.Optional(
+				Type.String({
+					description:
+						"Convergence folder inside the vault (default: Zettelkasten/knowledge-graph). All sources converge into the SAME folder so cross-source edges form.",
+				}),
+			),
+			dry_run: Type.Optional(
+				Type.Boolean({
+					description:
+						"Report what would be created/updated without writing anything.",
+				}),
+			),
+			vault: Type.Optional(
+				Type.String({
+					description:
+						"Override the vault path (else resolved via OB_VAULT_PATH / --vault-dir / cwd/vault through pi-obsidian).",
+				}),
+			),
+		}),
+		async execute(_id, params, _signal, _u, ctx) {
+			const { cwd } = ctx;
+			const files = params.files ?? [];
+			if (files.length === 0) {
+				return {
+					content: [{ type: "text", text: "No input files provided." }],
+					isError: true,
+					details: null,
+				};
+			}
+			const source = (params.source ?? "workflow-jsonl") as SourceFamily;
+			const sourceLabel =
+				params.source_label ??
+				`${source}:${files[0]!.split("/").pop()!.replace(/\.knowledge\.jsonl$/, "")}`;
+			let vaultPath: string;
+			try {
+				vaultPath = params.vault ?? (await resolveVault(cwd)).path;
+			} catch (e) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: `zk_ingest: vault resolution failed: ${(e as Error).message}`,
+						},
+					],
+					isError: true,
+					details: { code: "vault_resolution_failed" },
+				};
+			}
+
+			const records: KnowledgeRecord[] = [];
+			const parseErrors: { line: number; reason: string }[] = [];
+			for (const f of files) {
+				const abs = /^\//.test(f) ? f : `${cwd}/${f}`;
+				let content: string;
+				try {
+					content = readFileSync(abs, "utf8");
+				} catch (e) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `zk_ingest: cannot read ${f}: ${(e as Error).message}`,
+							},
+						],
+						isError: true,
+						details: { code: "read_failed", file: f },
+					};
+				}
+				if (source === "auto-memory") {
+					const rec = adaptAutoMemoryMarkdown(content);
+					if (!rec) {
+						parseErrors.push({ line: 0, reason: `${f}: not a memory file` });
+						continue;
+					}
+					records.push(rec);
+				} else {
+					const parsed = parseKnowledgeJsonl(content);
+					records.push(...parsed.records);
+					parseErrors.push(...parsed.parseErrors);
+				}
+			}
+
+			const summary = await ingestRecords(records, {
+				vaultPath,
+				source,
+				sourceLabel,
+				folder: params.folder,
+				dryRun: params.dry_run === true,
+			});
+			summary.parseErrors.push(...parseErrors);
+			return {
+				content: [
+					{
+						type: "text",
+						text: withVault(await vaultHeader(cwd), formatSummary(summary)),
+					},
+				],
+				details: summary,
 			};
 		},
 	});

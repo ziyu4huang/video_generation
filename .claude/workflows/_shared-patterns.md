@@ -345,7 +345,59 @@ const knowledge = await loadKnowledge(KB_FILE)
 
 // Persist phase — AFTER `await saveHistory(...)`:
 await extractKnowledge(KB_FILE, RUN_ID, historyEntry.result, /* reflection obj or */ null)
+// Optional: converge the just-written records into the shared knowledge graph.
+// Opt-in via PI_PUBLISH_KNOWLEDGE=1 — see `publishKnowledge` below. Best-effort.
+await publishKnowledge(KB_FILE, meta.name)
 markPhase("persist", "completed")
+```
+
+### `publishKnowledge` helper — the loop that LEARNS also PUBLISHES
+
+`extractKnowledge` writes a per-workflow `.knowledge.jsonl`. Without a publish
+step, that knowledge is trapped: it reloads into the NEXT run of the SAME
+workflow, but a different workflow (or a human querying the vault) never sees
+it. `publishKnowledge` is the wire that closes that gap — it shells out to the
+deterministic `zk-ingest` CLI (see `bun-apps/pi-knowledge-card/src/ingest.ts`),
+converging the records into the SHARED vault as zettel cards, dedup'd by id,
+cross-linked by tag, indexed by a MOC. The graph then spans every workflow.
+
+**Opt-in.** Default is OFF (no behavior change for existing runs). Set
+`PI_PUBLISH_KNOWLEDGE=1` to enable. This keeps the contract lane deterministic
+and lets a run opt into publishing only when a vault is configured + a graph
+convergence is desired. The vault path is `PI_VAULT_PATH` or defaults to
+`${PROJECT_ROOT}/vaults_root/pi-agent-vault` (the repo submodule convention).
+
+**Best-effort, never fatal.** A missing vault, a failed ingest, or a missing
+CLI is logged as a warning and the run continues — publishing is a projection
+over the canonical `.knowledge.jsonl`, never a critical path.
+
+```javascript
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  if (process.env.PI_PUBLISH_KNOWLEDGE !== "1") return { published: false, reason: "off" }
+  const vault = process.env.PI_VAULT_PATH || `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  // Resolve the pi-agent-cli entry. Prefer the built dist binary when present
+  // (production), fall back to the workspace source (dev) — both accept the
+  // same zk-ingest subcommand.
+  const cli = await agent(
+    `Run the knowledge-graph ingest CLI. Capture stdout+stderr and report exit code.
+1. Bash("test -f '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' && echo DIST || echo SRC")
+2. If DIST: Bash("OB_VAULT_PATH='${vault}' node '${PROJECT_ROOT}/dist/pi-agent-cli/cli.js' zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+   If SRC : Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
 ```
 
 ### Knowledge lifecycle — prune stale-active records (detect-only, every run)

@@ -132,16 +132,26 @@ describe("flux2 self-improve loop", () => {
       args: { ...common.args, attempts: 3, seed: 42 },
       agent: makeLoopMock({
         poseVerdicts: [
-          { anatomy_pass: false, faithfulness: 0.3, atoms: [ // attempt 0: fails
-            { id: "a1", q: "x", present: true },
-            { id: "a2", q: "x", present: false },
-            { id: "a4", q: "x", present: false },
-          ]},
-          { anatomy_pass: true, faithfulness: 0.9, atoms: [ // attempt 1: passes
-            { id: "a1", q: "x", present: true },
-            { id: "a2", q: "x", present: true },
-            { id: "a4", q: "x", present: true },
-          ]},
+          {
+            anatomy_pass: false,
+            faithfulness: 0.3,
+            atoms: [
+              // attempt 0: fails
+              { id: "a1", q: "x", present: true },
+              { id: "a2", q: "x", present: false },
+              { id: "a4", q: "x", present: false },
+            ],
+          },
+          {
+            anatomy_pass: true,
+            faithfulness: 0.9,
+            atoms: [
+              // attempt 1: passes
+              { id: "a1", q: "x", present: true },
+              { id: "a2", q: "x", present: true },
+              { id: "a4", q: "x", present: true },
+            ],
+          },
         ],
       }),
     });
@@ -158,7 +168,11 @@ describe("flux2 self-improve loop", () => {
     assert.ok(r.winnerPath.length > 0, "a winner path is selected");
     assert.ok(r.exemplar, "exemplar built from the winner");
     assert.equal(r.exemplar!.params.seed, 43, "winner seed = seedBase(42) + winning attempt(1)");
-    assert.equal((r as { exemplarPersisted?: boolean }).exemplarPersisted, undefined, "workflow no longer persists (driver does) — exemplarPersisted field removed");
+    assert.equal(
+      (r as { exemplarPersisted?: boolean }).exemplarPersisted,
+      undefined,
+      "workflow no longer persists (driver does) — exemplarPersisted field removed",
+    );
   });
 
   it("fail-forever → bounded exit: hits maxAttempts, needsReview=true, never hangs", async () => {
@@ -168,10 +182,14 @@ describe("flux2 self-improve loop", () => {
       args: { ...common.args, attempts: 3, seed: 100, consecutiveStatic: 0 },
       agent: makeLoopMock({
         poseVerdicts: [
-          { anatomy_pass: false, faithfulness: 0.2, atoms: [
-            { id: "a1", q: "x", present: false },
-            { id: "a2", q: "x", present: false },
-          ]},
+          {
+            anatomy_pass: false,
+            faithfulness: 0.2,
+            atoms: [
+              { id: "a1", q: "x", present: false },
+              { id: "a2", q: "x", present: false },
+            ],
+          },
         ],
       }),
     });
@@ -193,10 +211,14 @@ describe("flux2 self-improve loop", () => {
       args: { ...common.args, attempts: 5, seed: 200, consecutiveStatic: 2 },
       agent: makeLoopMock({
         poseVerdicts: [
-          { anatomy_pass: false, faithfulness: 0.3, atoms: [
-            { id: "a1", q: "x", present: true },
-            { id: "a2", q: "x", present: false },
-          ]},
+          {
+            anatomy_pass: false,
+            faithfulness: 0.3,
+            atoms: [
+              { id: "a1", q: "x", present: true },
+              { id: "a2", q: "x", present: false },
+            ],
+          },
         ],
       }),
     });
@@ -235,13 +257,30 @@ describe("flux2 self-improve loop", () => {
     assert.ok(r.attemptsUsed <= 3, "bounded");
     // The null surfaced as a scored:false / needsReview judgment on attempt 1.
     const nulledTraceSeed = 7 + 1;
-    assert.ok(r.trace.some((t) => t.seed === nulledTraceSeed), "the nulled attempt is in the trace");
+    assert.ok(
+      r.trace.some((t) => t.seed === nulledTraceSeed),
+      "the nulled attempt is in the trace",
+    );
   });
 
   it("determinism: same mock + same seeds → identical retry trace across two runs", async () => {
     const verdicts: PoseVerdict[] = [
-      { anatomy_pass: false, faithfulness: 0.4, atoms: [{ id: "a1", q: "x", present: false }, { id: "a2", q: "x", present: true }] },
-      { anatomy_pass: true, faithfulness: 0.85, atoms: [{ id: "a1", q: "x", present: true }, { id: "a2", q: "x", present: true }] },
+      {
+        anatomy_pass: false,
+        faithfulness: 0.4,
+        atoms: [
+          { id: "a1", q: "x", present: false },
+          { id: "a2", q: "x", present: true },
+        ],
+      },
+      {
+        anatomy_pass: true,
+        faithfulness: 0.85,
+        atoms: [
+          { id: "a1", q: "x", present: true },
+          { id: "a2", q: "x", present: true },
+        ],
+      },
     ];
     const run1 = await runWorkflow(SOURCE, {
       ...common,
@@ -276,21 +315,36 @@ describe("flux2 self-improve loop", () => {
       args: { ...common.args, attempts: 3, seed: 50 },
       agent: makeLoopMock({
         poseVerdicts: [
-          { anatomy_pass: false, faithfulness: 0.2, atoms: [ // attempt 0: 3 failed
-            { id: "a1", q: "x", present: false },
-            { id: "a2", q: "x", present: false },
-            { id: "a4", q: "x", present: false },
-          ]},
-          { anatomy_pass: false, faithfulness: 0.5, atoms: [ // attempt 1: 0 failed (but anatomy hard-fail)
-            { id: "a1", q: "x", present: true },
-            { id: "a2", q: "x", present: true },
-            { id: "a4", q: "x", present: true },
-          ]},
-          { anatomy_pass: false, faithfulness: 0.9, atoms: [ // attempt 2: 1 failed, HIGHER faithfulness
-            { id: "a1", q: "x", present: true },
-            { id: "a2", q: "x", present: false },
-            { id: "a4", q: "x", present: true },
-          ]},
+          {
+            anatomy_pass: false,
+            faithfulness: 0.2,
+            atoms: [
+              // attempt 0: 3 failed
+              { id: "a1", q: "x", present: false },
+              { id: "a2", q: "x", present: false },
+              { id: "a4", q: "x", present: false },
+            ],
+          },
+          {
+            anatomy_pass: false,
+            faithfulness: 0.5,
+            atoms: [
+              // attempt 1: 0 failed (but anatomy hard-fail)
+              { id: "a1", q: "x", present: true },
+              { id: "a2", q: "x", present: true },
+              { id: "a4", q: "x", present: true },
+            ],
+          },
+          {
+            anatomy_pass: false,
+            faithfulness: 0.9,
+            atoms: [
+              // attempt 2: 1 failed, HIGHER faithfulness
+              { id: "a1", q: "x", present: true },
+              { id: "a2", q: "x", present: false },
+              { id: "a4", q: "x", present: true },
+            ],
+          },
         ],
       }),
     });
@@ -344,10 +398,15 @@ describe("flux2 self-improve loop", () => {
           }
           if (/Validate this generated pose/.test(p)) {
             return {
-              ok: true, path: "/tmp/wf-loop-test/p0.png", poseId: POSE.id,
-              anatomy_pass: true, faithfulness: 0.9,
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: true,
+              faithfulness: 0.9,
               anatomy: { limb_count: true, hands: true, face: true, pose_plausible: true },
-              atoms: [{ id: "a1", q: "x", present: true }], issues: [], rawTail: "",
+              atoms: [{ id: "a1", q: "x", present: true }],
+              issues: [],
+              rawTail: "",
             };
           }
           return null;
