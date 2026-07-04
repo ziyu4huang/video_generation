@@ -262,4 +262,41 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    /// `generateRestyle` (V2V restyle — see NativeUpscaleStage.swift's
+    /// header) has NO bundled default LoRA at all, unlike `generateHD`'s
+    /// restoration pair — `loraURL` is always user-supplied. This checks
+    /// the same "named error, not a generic crash" contract for a
+    /// definitely-nonexistent path, reachable in every environment (no
+    /// checkpoint download needed to exercise this specific path).
+    func testGenerateRestyleMissingLoraThrowsNamedError() throws {
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_restyle_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_restyle_out_\(UUID().uuidString)")
+        let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_restyle_audio_\(UUID().uuidString).wav")
+        let missingLoraURL = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).safetensors")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(13)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+        try WAVWriter.write(channels: [[Float](repeating: 0, count: 1600)], sampleRate: 16000, to: audioURL)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateRestyle(
+            inputFrameDirectory: inputDir, outputDir: outputDir, prompt: "a test prompt",
+            audioURL: audioURL, loraURL: missingLoraURL)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .restyleLoraNotFound(let url) = stageError {
+                XCTAssertEqual(url, missingLoraURL)
+            } else {
+                XCTFail("expected .restyleLoraNotFound, got \(stageError)")
+            }
+        }
+    }
 }

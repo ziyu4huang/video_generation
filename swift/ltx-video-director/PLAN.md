@@ -2122,6 +2122,44 @@ Nothing implemented this pass — pure scope-capture, same convention as the
 prior ComfyUI research passes, to leave an accurate map instead of
 re-discovering "is this really one primitive?" from scratch a fourth time.
 
+## Milestone: V2V restyle ported — `native-restyle` (2026-07-04)
+
+Picked up the top item of the "easy tier" from the scoping research above.
+`NativeUpscaleStage.generateRestyle` (`NativeUpscaleStage.swift`) is
+`generateHD`'s reference-conditioning core (VAE-encode reference clip ->
+fuse IC-LoRA via `LoRAFusion` -> `VideoConditionByReferenceLatent` ->
+full noise-to-clean `DenoiseLoop` at the reference's own resolution ->
+decode) with the restoration-specific two-LoRA/two-stage structure
+removed: a single, always user-supplied style IC-LoRA (`loraURL`, no
+bundled default under `mlx-models/lora/`, unlike `generateHD`'s
+restoration pair), one stage, output at input resolution (chain through
+`generate()` afterward for a resolution increase, same as `native-upscale
+--mode hd` already does). New CLI command `ltx-video native-restyle`
+(`--input`/`--prompt`/`--audio`/`--lora`/`--lora-strength`/`--fps`/
+`--seed`/`--mp4`).
+
+**Verification**: no real style IC-LoRA checkpoint exists in this
+environment (same situation `generateHD`'s restoration pair was in at
+introduction) — `VideoConditionByReferenceLatent` itself is already
+real-checkpoint-parity-tested (shared with `generateHD`, unchanged here).
+Added `testGenerateRestyleMissingLoraThrowsNamedError`, exercising the one
+path fully reachable without a checkpoint: a definitely-missing `--lora`
+path throws the new named `.restyleLoraNotFound` error (not a generic
+crash), matching the same contract test `generateHD`'s
+`testGenerateHDMissingLoraThrowsNamedError` already established.
+`NativeUpscaleStageRealCheckpointTests`: 7/7 pass. UNVERIFIED end-to-end
+against a real style adapter — natural next step once one is obtained
+(Lightricks hasn't published a distinct "V2V restyle" checkpoint by that
+exact name on HuggingFace/CivitAI as of this session's search; the
+closest official IC-LoRA family members are Decompression/Deblur/
+Colorization/Ingredients/Pixel-Spatial-Upscaler, none of which is a
+generic style-transfer adapter — a real style LoRA for this path is
+likely community-trained rather than an official Lightricks release).
+
+**Ingredients** (single-reference-image conditioning — the sibling "easy
+tier" item, `LoadImage` + `RepeatImageBatch` instead of `LoadVideo`)
+remains the next candidate if this area is picked up again.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what
