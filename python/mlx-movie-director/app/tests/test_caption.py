@@ -395,3 +395,123 @@ class TestRequestTimeout:
         with patch.object(caption.requests, "post", return_value=resp) as p:
             caption._call_vlm(_URL, "m", "b64", "t2i", auto_load=False)
         assert p.call_args.kwargs["timeout"] == caption._VLM_REQUEST_TIMEOUT
+
+
+class TestPoseDsg:
+    """pose_dsg — DSG-style atomic faithfulness + AbHuman anatomy gate.
+
+    Locks the contract that the L2 pose workflow + poses.json fixture depend on:
+    the style is registered, the prompt builds with/without explicit atoms, the
+    atoms loader tolerates the documented input shapes, and — critically — the
+    parser RECOMPUTES faithfulness/anatomy_pass in Python instead of trusting
+    the model's aggregate fields (the null→default lesson: never trust an
+    aggregate you can recompute from its parts).
+    """
+
+    def test_style_registered(self):
+        assert "pose_dsg" in caption._STYLE_PROMPTS
+
+    def test_prompt_builds_self_decompose(self):
+        p = caption.build_pose_dsg_prompt("a woman sitting cross-legged", None)
+        assert "a woman sitting cross-legged" in p
+        assert "Derive 5-10 atoms yourself" in p  # self-decompose branch
+
+    def test_prompt_builds_explicit_atoms(self):
+        atoms = [{"id": "a1", "q": "exactly one woman"},
+                 {"id": "a2", "q": "sitting cross-legged"}]
+        p = caption.build_pose_dsg_prompt("p", atoms)
+        assert "Use EXACTLY these atoms" in p
+        assert "a1: exactly one woman" in p
+        assert "a2: sitting cross-legged" in p
+
+    def test_load_atoms_inline_json_object(self):
+        s = '{"atoms":[{"id":"a1","q":"x"},{"q":"y"}]}'
+        assert caption._load_atoms(s) == [
+            {"id": "a1", "q": "x"}, {"id": "a2", "q": "y"},  # missing id → auto a2
+        ]
+
+    def test_load_atoms_bare_list(self):
+        s = '[{"id":"a1","q":"x"}]'
+        assert caption._load_atoms(s) == [{"id": "a1", "q": "x"}]
+
+    def test_load_atoms_from_file(self, tmp_path):
+        f = tmp_path / "atoms.json"
+        f.write_text('{"atoms":[{"id":"a1","q":"from file"}]}')
+        assert caption._load_atoms(str(f)) == [{"id": "a1", "q": "from file"}]
+
+    def test_load_atoms_none_when_omitted(self):
+        assert caption._load_atoms(None) is None
+
+    def test_load_atoms_rejects_malformed(self):
+        with pytest.raises(ValueError):
+            caption._load_atoms("not json")
+
+    def test_load_atoms_rejects_empty(self):
+        with pytest.raises(ValueError):
+            caption._load_atoms('{"atoms":[]}')
+
+    def test_load_atoms_rejects_missing_q(self):
+        with pytest.raises(ValueError):
+            caption._load_atoms('{"atoms":[{"id":"a1"}]}')
+
+    def test_parse_recomputes_faithfulness_from_atoms(self):
+        # Model claims faithfulness 1.0 but only half the atoms are present —
+        # the parser MUST override the model's (wrong) aggregate.
+        raw = json.dumps({
+            "atoms": [{"id": "a1", "q": "x", "present": True, "confidence": 0.9},
+                      {"id": "a2", "q": "y", "present": False, "confidence": 0.4}],
+            "faithfulness": 1.0,  # model slip
+            "anatomy": {"limb_count": True, "hands": True, "face": True,
+                        "pose_plausible": True},
+            "anatomy_pass": True,
+            "issues": [], "summary": "ok",
+        })
+        r = caption.parse_pose_dsg(raw)
+        assert r["faithfulness"] == 0.5
+        assert len(r["atoms"]) == 2
+        assert r["atoms"][0]["present"] is True
+        assert r["atoms"][1]["confidence"] == 0.4
+
+    def test_parse_anatomy_pass_true_when_face_na(self):
+        # Face not visible → face 'n/a' → must NOT fail the gate.
+        raw = json.dumps({
+            "atoms": [{"id": "a1", "q": "back of head", "present": True}],
+            "anatomy": {"limb_count": True, "hands": True, "face": "n/a",
+                        "pose_plausible": True},
+        })
+        r = caption.parse_pose_dsg(raw)
+        assert r["anatomy"]["face"] is None
+        assert r["anatomy_pass"] is True
+        assert r["faithfulness"] == 1.0
+
+    def test_parse_anatomy_pass_false_when_face_distorted(self):
+        raw = json.dumps({
+            "atoms": [{"id": "a1", "q": "woman", "present": True}],
+            "anatomy": {"limb_count": True, "hands": True, "face": False,
+                        "pose_plausible": True},
+        })
+        r = caption.parse_pose_dsg(raw)
+        assert r["anatomy"]["face"] is False
+        assert r["anatomy_pass"] is False  # visible + distorted face fails
+
+    def test_parse_anatomy_pass_false_on_extra_limbs(self):
+        raw = json.dumps({
+            "atoms": [{"id": "a1", "q": "woman", "present": True}],
+            "anatomy": {"limb_count": False, "hands": True, "face": True,
+                        "pose_plausible": True},
+        })
+        assert caption.parse_pose_dsg(raw)["anatomy_pass"] is False
+
+    def test_parse_tolerates_fences_and_prose(self):
+        raw = '```json\n{"atoms":[{"id":"a1","q":"x","present":true}],' \
+              '"anatomy":{"limb_count":true,"hands":true,"face":true,"pose_plausible":true}}\n```'
+        r = caption.parse_pose_dsg(raw)
+        assert r["faithfulness"] == 1.0
+        assert r["anatomy_pass"] is True
+
+    def test_parse_empty_response_is_zero_failure(self):
+        # Garbage / empty → no atoms, faithfulness 0, anatomy all-false, gate fail.
+        r = caption.parse_pose_dsg("the model returned prose with no json")
+        assert r["faithfulness"] == 0.0
+        assert r["atoms"] == []
+        assert r["anatomy_pass"] is False

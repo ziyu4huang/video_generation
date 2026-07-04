@@ -281,6 +281,47 @@ _STYLE_PROMPTS = {
         '"motion_summary": "one-sentence motion summary in English", '
         '"estimated_seconds": <integer seconds>}'
     ),
+    # pose_dsg — DSG/TIFA-style atomic faithfulness + AbHuman anatomy gate.
+    # See bun-apps/pi-agent-ext-flux2/docs/pose-validation.md. Uses {prompt} +
+    # {atoms_block} via str.replace (NOT .format — the JSON example has literal
+    # braces). Single VLM call (batched/Soft-TIFA style) for local-MLX practicality.
+    "pose_dsg": (
+        "You are a STRICT pose-faithfulness evaluator for a text-to-image output. AI models "
+        "routinely produce a pleasing image that DOES NOT match the requested pose — your job "
+        "is to verify ATOM-BY-ATOM, not to give a holistic impression.\n\n"
+        "ORIGINAL POSE PROMPT:\n"
+        "---\n"
+        "{prompt}\n"
+        "---\n\n"
+        + _DEFECT_BLOCK
+        + "STEP 1 — ATOMIC DECOMPOSITION (DSG-style).\n"
+        "{atoms_block}\n"
+        "STEP 2 — ATOM VERIFICATION. For EACH atom, look at the image and decide whether it is "
+        "TRUE (present=true) or FALSE (present=false), plus your confidence 0.0-1.0. Be literal: "
+        "an atom is true only if you can see it in the image.\n\n"
+        "STEP 3 — ANATOMY GATE (independent of atoms; hard pass/fail). These are NOT about the "
+        "prompt — they are structural correctness any human image must satisfy:\n"
+        "- limb_count: exactly 2 arms and 2 legs, no extra/fused/duplicated limbs\n"
+        "- hands: every visible hand has <= 5 fingers, none fused/malformed/extra\n"
+        "- face: IF the face is visible — features symmetric, two eyes, no melting/drift; "
+        "use the string \"n/a\" when the face is not visible in the frame\n"
+        "- pose_plausible: every joint within a plausible human range of motion, no twisted/"
+        "broken/unnatural limb orientation\n\n"
+        "Respond with ONLY a JSON object (no markdown fences, no prose, no comments):\n"
+        '{"atoms":[{"id":"a1","q":"the atom statement","present":true,"confidence":0.9}],\n'
+        ' "faithfulness": 0.0,\n'
+        ' "anatomy":{"limb_count":true,"hands":true,"face":true,"pose_plausible":true},\n'
+        ' "anatomy_pass": true,\n'
+        ' "issues":["every defect and every failed atom"],\n'
+        ' "summary":"one sentence"}\n'
+        "Rules:\n"
+        "- Each atom present is boolean true/false. confidence is a number 0.0-1.0.\n"
+        "- faithfulness = (number of atoms with present=true) / (total atoms). Recompute it;\n"
+        "  do not paste a round number.\n"
+        "- face may be true, false, or \"n/a\". anatomy_pass is false if limb_count, hands, or\n"
+        "  pose_plausible is false, OR if face is false (a visible-but-distorted face fails).\n"
+        "  face \"n/a\" never fails the gate."
+    ),
 }
 
 # Styles that require strict JSON output — response_format=json_object is set
@@ -338,7 +379,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help="Don't auto-load the VLM in LM Studio before captioning "
                         "(assume the model is already loaded)")
     parser.add_argument("--prompt", type=str, default=None, metavar="TEXT",
-                        help="Original T2I prompt (used by 'review' style for adherence evaluation)")
+                        help="Original T2I prompt (used by 'review' style for adherence evaluation, "
+                        "and by 'pose_dsg' for atomic pose-faithfulness evaluation)")
+    parser.add_argument("--atoms", type=str, default=None, metavar="PATH|JSON",
+                        help="Atomic yes/no propositions for 'pose_dsg' (DSG-style decomposition). "
+                        "Either a path to a JSON file ({atoms:[{id,q},...]}) or an inline JSON "
+                        "string. If omitted, the VLM self-decomposes the --prompt into atoms.")
     parser.add_argument("--view", choices=["front", "back", "side"], default=None,
                         help="Profile view label (front|back|side). With --style review/score, injects "
                              "per-view EXPECTED framing elements into the captured[]/missed[] checklist "
@@ -499,6 +545,12 @@ def run(args: argparse.Namespace) -> None:
                     print("ERROR: --prompt TEXT is required for 'review' style", file=sys.stderr)
                     sys.exit(1)
                 prompt_text = prompt_text.format(prompt=args.prompt)
+            elif style == "pose_dsg":
+                if not args.prompt:
+                    print("ERROR: --prompt TEXT is required for 'pose_dsg' style", file=sys.stderr)
+                    sys.exit(1)
+                atoms = _load_atoms(getattr(args, "atoms", None))
+                prompt_text = build_pose_dsg_prompt(args.prompt, atoms)
             elif style == "ltx_i2v":
                 if not getattr(args, "action", None):
                     print("ERROR: --action TEXT is required for 'ltx_i2v' style", file=sys.stderr)
@@ -530,7 +582,9 @@ def run(args: argparse.Namespace) -> None:
             # Thinking models (Gemma-4) consume large token budgets on reasoning;
             # give JSON-output styles 40k so complex scenes have room to think + answer.
             _max_tokens = 40000 if style in _JSON_OUTPUT_STYLES else 2048
-            if n_samples > 1:
+            # pose_dsg is single-call: its per-atom aggregation is not compatible
+            # with median_score_caption (score-specific). --samples is ignored.
+            if n_samples > 1 and style != "pose_dsg":
                 # Multi-sample denoising: N VLM calls in-process (model stays
                 # loaded), then median the numeric score dims in Python.
                 raws = [
@@ -545,7 +599,17 @@ def run(args: argparse.Namespace) -> None:
                                           auto_load=not getattr(args, "no_auto_load", False),
                                           max_tokens=_max_tokens)
             elapsed_sec = round(time.perf_counter() - t0, 2)
-            preview_text = caption_value
+            if style == "pose_dsg" and n_samples > 1:
+                print("  (pose_dsg ignores --samples; single VLM call used)", file=sys.stderr)
+            if style == "pose_dsg":
+                # Recompute faithfulness/anatomy_pass in Python — never trust a
+                # model-arithmetic slip in the stored verdict (the null→default
+                # lesson: don't trust an aggregate you can recompute).
+                caption_value = parse_pose_dsg(caption_value)
+                preview_text = (caption_value.get("summary")
+                                or json.dumps(caption_value, ensure_ascii=False))
+            else:
+                preview_text = caption_value
             entry = {"model": model, "elapsed_sec": elapsed_sec, "caption": caption_value}
             flat_record = {"image": input_path}
         new_entries[style] = entry
@@ -1107,6 +1171,156 @@ def median_score_caption(raws: list[str]) -> str:
     med["summary"] = carrier.get("summary", "")
     med["scoreSamples"] = len(parsed)
     return json.dumps(med, ensure_ascii=False)
+
+
+# ── pose_dsg — atomic faithfulness + anatomy gate ────────────────────────────
+# DSG/TIFA-style: decompose a pose prompt into atomic yes/no propositions, have
+# the VLM verify each against the image, and recompute the aggregates in Python.
+# Anatomy gate is AbHuman-derived (limb count, hands, face, pose plausibility).
+# See bun-apps/pi-agent-ext-flux2/docs/pose-validation.md.
+
+def _load_atoms(spec: str | None) -> list[dict] | None:
+    """Load explicit atoms for pose_dsg from a path or inline JSON string.
+
+    Accepts {"atoms":[{"id":"a1","q":"..."},...]} or a bare [{"id","q"},...].
+    Returns None when no spec is given (caller → VLM self-decomposes). Raises
+    ValueError with a actionable message on a malformed/missing file.
+    """
+    if not spec:
+        return None
+    text: str
+    if os.path.exists(spec):
+        with open(spec) as f:
+            text = f.read()
+    else:
+        text = spec  # treat as inline JSON
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"--atoms is not valid JSON: {e}") from e
+    atoms = data["atoms"] if isinstance(data, dict) else data
+    if not isinstance(atoms, list) or not atoms:
+        raise ValueError("--atoms JSON must be a non-empty list of {id, q} objects")
+    norm = []
+    for i, a in enumerate(atoms):
+        if not isinstance(a, dict) or not a.get("q"):
+            raise ValueError(f"--atoms[{i}] missing a 'q' statement: {a!r}")
+        norm.append({"id": str(a.get("id") or f"a{i + 1}"), "q": str(a["q"])})
+    return norm
+
+
+def build_atoms_block(atoms: list[dict] | None) -> str:
+    """STEP-1 instruction for pose_dsg: use explicit atoms, or self-decompose."""
+    if atoms:
+        lines = "\n".join(f"  - {a['id']}: {a['q']}" for a in atoms)
+        return (
+            "Use EXACTLY these atoms (do not add, merge, drop, or reword any):\n"
+            + lines + "\n"
+        )
+    return (
+        "Derive 5-10 atoms yourself from the pose prompt above. Each atom is a single "
+        "yes/no proposition about ONE thing: an object (e.g. 'exactly one woman'), a body "
+        "attribute ('sitting cross-legged'), a spatial relation ('left hand on top of head'), "
+        "a viewpoint ('3/4 profile view'), or a count ('exactly 5 fingers per visible hand').\n"
+    )
+
+
+def build_pose_dsg_prompt(prompt: str, atoms: list[dict] | None = None) -> str:
+    """Build the pose_dsg VLM prompt. Uses str.replace (not .format) because the
+    template's JSON example contains literal braces."""
+    return (
+        _STYLE_PROMPTS["pose_dsg"]
+        .replace("{prompt}", prompt)
+        .replace("{atoms_block}", build_atoms_block(atoms))
+    )
+
+
+def _as_bool(v) -> bool:
+    """Coerce a VLM anatomy field to bool. Strings like 'true'/'false'/missing → bool."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1", "pass")
+    return False
+
+
+def _face_value(v):
+    """Face field may be true / false / 'n/a' (face not visible). Map to True/False/None."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str) and v.strip().lower() in ("n/a", "na", "none", "not visible"):
+        return None
+    return _as_bool(v)
+
+
+def _clamp_conf(v) -> float:
+    try:
+        return max(0.0, min(1.0, round(float(v), 2)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def parse_pose_dsg(text: str | dict) -> dict:
+    """Parse a pose_dsg VLM response and RECOMPUTE the aggregates in Python.
+
+    The model returns atoms[] + anatomy{} + (possibly wrong) faithfulness /
+    anatomy_pass. We never trust those aggregates — faithfulness is recomputed
+    from the atoms, anatomy_pass from the anatomy fields. Returns a normalized:
+
+      {atoms:[{id,q,present,confidence}], faithfulness: float,
+       anatomy:{limb_count,hands,face,pose_plausible}, anatomy_pass: bool,
+       issues:[...], summary: str}
+    """
+    raw = _extract_caption_json(text) if not isinstance(text, dict) else text
+    if not isinstance(raw, dict):
+        raw = {}
+
+    src_atoms = raw.get("atoms") or []
+    atoms = []
+    for i, a in enumerate(src_atoms if isinstance(src_atoms, list) else []):
+        if not isinstance(a, dict):
+            continue
+        atoms.append({
+            "id": str(a.get("id") or f"a{i + 1}"),
+            "q": str(a.get("q") or a.get("question") or ""),
+            "present": bool(a.get("present")),
+            "confidence": _clamp_conf(a.get("confidence")),
+        })
+
+    present = sum(1 for a in atoms if a["present"])
+    faithfulness = round(present / len(atoms), 3) if atoms else 0.0
+
+    an = raw.get("anatomy") or {}
+    if not isinstance(an, dict):
+        an = {}
+    face = _face_value(an.get("face"))
+    anatomy = {
+        "limb_count": _as_bool(an.get("limb_count")),
+        "hands": _as_bool(an.get("hands")),
+        "face": face,  # True | False | None(n/a)
+        "pose_plausible": _as_bool(an.get("pose_plausible")),
+    }
+    # face=None (not visible) never fails the gate; face=False (visible+distorted) does.
+    anatomy_pass = (
+        anatomy["limb_count"]
+        and anatomy["hands"]
+        and anatomy["pose_plausible"]
+        and face is not False
+    )
+
+    issues = raw.get("issues") or []
+    if not isinstance(issues, list):
+        issues = [str(issues)]
+    summary = str(raw.get("summary") or "")
+
+    return {
+        "atoms": atoms,
+        "faithfulness": faithfulness,
+        "anatomy": anatomy,
+        "anatomy_pass": bool(anatomy_pass),
+        "issues": [str(x) for x in issues],
+        "summary": summary,
+    }
 
 
 def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str,

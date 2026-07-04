@@ -85,7 +85,20 @@ function buildDescription(): string {
     "--hand-repair.\n" +
     "Result: `details.output` is the winner's (or hand-repaired winner's) PNG path — chains " +
     "exactly like a single scene call. `details.scenePipeline.candidates[]` has every seed's " +
-    "output/gate/VLM verdict for inspection."
+    "output/gate/VLM verdict for inspection." +
+    "\n\n── Self-improve loop (generate→judge→reflect→retry) ──\n" +
+    "If the user asks to GENERATE AND IMPROVE / SELF-IMPROVE / iterate until good (e.g. " +
+    "\"generate + improve a dancer's pose until the anatomy is right\"), do NOT loop single " +
+    "flux2 calls yourself — instead run the closed loop, which judges each attempt with the " +
+    "atomic pose_dsg validator and feeds failed atoms back into the next prompt:\n" +
+    "  bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --pose-id <id|L1-01..L4-02> " +
+    "[--attempts N] [--seed S] [--steps N]   # pose library → pose_dsg judging\n" +
+    "  bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --prompt \"<text>\"            " +
+    "# non-pose → holistic score judging\n" +
+    "Poses live in bun-apps/pi-agent-ext-flux2/workflows/poses.json. The runner prints a " +
+    "structured result (converged, attemptsUsed, winnerPath, needsReview) — report it " +
+    "faithfully. It spends real GPU+VLM tokens, so invoke it ONCE and reuse its winnerPath " +
+    "(chain `upscale` on that path if useful)."
   );
 }
 

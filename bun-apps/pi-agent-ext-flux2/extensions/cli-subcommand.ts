@@ -79,3 +79,58 @@ Examples:
       "chain `upscale` if useful. Request:\n\n" + request;
   },
 };
+
+/**
+ * `flux2-self-improve` sub-command: the CLOSED self-improve loop
+ * (generate → judge → reflect → retry), reached as ONE top-level command so the
+ * user does not need to know the `-e workflow` incantation. It shells out to
+ * run-self-improve-loop.sh (which drives the loop workflow via the pi-agent
+ * workflow tool) — robust whether or not the workflow tool is registered in the
+ * current mode, because bash is always available to the agent.
+ *
+ *   bun-pi-agent-cli flux2-self-improve a dancer's pose, 3 attempts
+ *   bun-pi-agent-cli flux2-self-improve --pose-id L3-01 --attempts 5
+ */
+export const selfImproveSubcommand: ExtensionSubcommandSpec = {
+  name: "flux2-self-improve",
+  summary: "closed self-improve loop for Flux2 (generate→judge→reflect→retry via pose_dsg)",
+  details: `Usage:
+  bun-pi-agent-cli flux2-self-improve <request...> [options]
+
+Runs the closed, bounded self-improve loop for flux2: generate → judge (pose_dsg
+for complex poses, holistic score otherwise) → on below-threshold, reflect
+(failed atoms → targeted prompt expansion) → retry, seed-locked per attempt,
+best-so-far ranked comparatively by the per-atom matrix. Appends the winning
+(prompt → params → verdict) exemplar for future runs. PROPOSE-ONLY: never
+auto-applies edits.
+
+This command shells out to the runner, which drives the loop workflow via the
+pi-agent workflow tool. It spends real GPU + VLM tokens (opt-in, NOT in CI).
+
+The request is forwarded to the runner. To pick a pose from the library
+(bun-apps/pi-agent-ext-flux2/workflows/poses.json), name it in the request
+(e.g. "dancer's pose L3-01") or pass flux2-self-improve-specific flags after the
+request verbatim; the agent maps them onto the runner's --pose-id / --prompt /
+--attempts / --seed / --steps flags.
+
+Examples:
+  bun-pi-agent-cli flux2-self-improve a dancer's pose (nataraja), 3 attempts
+  bun-pi-agent-cli flux2-self-improve --pose-id L3-01 --attempts 5 --seed 42
+  bun-pi-agent-cli flux2-self-improve a red apple on a table (non-pose loop)`,
+  factory: extension,
+  tools: ["flux2"],
+  task: (parsed) => {
+    const request = parsed.positionals.join(" ").trim();
+    const base =
+      "Run the flux2 self-improve loop by shelling out to the runner script " +
+      "(do NOT call the flux2 tool yourself — the runner drives the full loop):\n" +
+      "  bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh\n" +
+      "Map the user's request onto the runner's flags: a named pose (e.g. " +
+      "'dancer\\'s pose', 'L3-01') → --pose-id <id> or the matching poses.json " +
+      "entry; otherwise pass the bare description as --prompt. Attempts/seed/steps " +
+      "if mentioned → --attempts/--seed/--steps. Report the structured result the " +
+      "runner prints (converged, attemptsUsed, winnerPath, needsReview). " +
+      "It spends real GPU+VLM tokens — run it once and report faithfully.\n";
+    return request ? base + "Request:\n\n" + request : base;
+  },
+};

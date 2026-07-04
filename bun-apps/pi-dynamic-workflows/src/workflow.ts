@@ -666,7 +666,18 @@ export async function runWorkflow<T = unknown>(
       )
     ).filter(Boolean) as Array<{ real?: boolean; reason?: string }>;
     const realCount = votes.filter((v) => v?.real).length;
-    return { real: votes.length > 0 && realCount / votes.length >= threshold, realCount, total: votes.length, votes };
+    // Surface reviewer failures so a caller can distinguish "verified false"
+    // from "could not verify" (all reviewers failed → null → filtered out, which
+    // previously masqueraded as a definitive real:false verdict). `requested` is
+    // the asked-for reviewer count; `failed` is how many returned no verdict.
+    return {
+      real: votes.length > 0 && realCount / votes.length >= threshold,
+      realCount,
+      total: votes.length,
+      requested: reviewers,
+      failed: reviewers - votes.length,
+      votes,
+    };
   };
 
   const JUDGE_SCHEMA = {
@@ -1101,6 +1112,10 @@ function hashAgentCall(
     // this call's cached result on a later resume.
     agentDef: agentDefKey,
     schema: options.schema ?? null,
+    // isolation changes which filesystem the agent runs in (worktree vs main) — a
+    // cached result from the non-isolated run MUST NOT be replayed when isolation
+    // is toggled, so it is part of the identity (RCA regression guard).
+    isolation: options.isolation ?? null,
   });
   return createHash("sha256").update(identity).digest("hex");
 }
