@@ -121,8 +121,7 @@ function renderPersistedResult(run: PersistedRunState): string {
   if (run.result === undefined || run.result === null) {
     return [head, ...meta, "", "(no result was recorded for this run)"].join("\n");
   }
-  const body =
-    typeof run.result === "string" ? run.result : JSON.stringify(run.result, null, 2);
+  const body = typeof run.result === "string" ? run.result : JSON.stringify(run.result, null, 2);
   let truncated = "";
   if (body.length > RESULT_MAX_CHARS) {
     truncated = `\n\n[… truncated; full result in the run record: ~/.pi/workflows/projects/<project>/runs/${run.runId}.json]`;
@@ -299,7 +298,9 @@ export function registerWorkflowCommands(
             return;
           }
           if (run.status === "running" || run.status === "pending" || run.status === "paused") {
-            await print(`${run.workflowName} (${id}) is still ${run.status} — no result yet. Use \`/workflows status ${id}\`.`);
+            await print(
+              `${run.workflowName} (${id}) is still ${run.status} — no result yet. Use \`/workflows status ${id}\`.`,
+            );
             return;
           }
           await print(renderPersistedResult(run));

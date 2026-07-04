@@ -1,6 +1,6 @@
+import { beforeAll, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
-import { beforeAll, describe, it } from "bun:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";

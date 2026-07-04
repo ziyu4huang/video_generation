@@ -11,8 +11,8 @@
  * 6. Pure helper functions: preview, shorten, statusIcon, statusLine
  */
 
-import assert from "node:assert/strict";
 import { describe, it, mock } from "bun:test";
+import assert from "node:assert/strict";
 import type { WorkflowMeta } from "../src/workflow.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

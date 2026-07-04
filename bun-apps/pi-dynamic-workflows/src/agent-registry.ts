@@ -17,10 +17,10 @@
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homeDir } from "./home.js";
 import { basename, join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { AGENTS_DIR } from "./config.js";
+import { homeDir } from "./home.js";
 
 export interface AgentDefinition {
   /** Stable identity used as the `agentType` value. */

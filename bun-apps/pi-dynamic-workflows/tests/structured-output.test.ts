@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
 import { test } from "bun:test";
+import assert from "node:assert/strict";
 import { Type } from "typebox";
 import { createStructuredOutputTool } from "../src/structured-output.js";
 

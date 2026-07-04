@@ -13,10 +13,10 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homeDir } from "./home.js";
 import { dirname, join } from "node:path";
 import { listAvailableModelSpecs } from "./agent.js";
 import { MODEL_TIERS_FILE } from "./config.js";
+import { homeDir } from "./home.js";
 
 // ---------------------------------------------------------------------------
 // Types

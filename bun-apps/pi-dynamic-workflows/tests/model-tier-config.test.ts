@@ -10,11 +10,11 @@
  * All tier configs are single-model-per-tier (Record<string, string>).
  */
 
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "bun:test";
 
 async function loadModule() {
   return await import("../src/model-tier-config.js");
