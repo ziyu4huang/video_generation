@@ -51,6 +51,17 @@ what remains by design or for later. Date-stamped; verified state noted.
   exercised there (no `OB_SUBAGENT_MODEL` in the validation env). Manual
   follow-up once a model is configured.
 
+## Testing
+
+- **Search backward-compat contract is now CI-enforced.** Two distinct concerns
+  are decoupled: `baseline-contract.test.mjs` asserts `searchVault`'s
+  substring-default output byte-for-byte against a **content-controlled in-package
+  fixture vault** (`fixtures/frozen-vault/`) — it has **no submodule dependency**
+  and runs everywhere (CI, fresh clone). The older `baseline.test.mjs` remains as
+  a *real-vault snapshot* that legitimately drifts on note growth and is
+  `skipIf(!vaultAvailable())`-gated. Regenerate either via `bun run
+  --cwd bun-apps/pi-obsidian regen:contract` / `regen:baseline`. *(2026-07)*
+
 ## Resolved (history)
 
 These were listed as TODOs previously and are now done (kept so the README stays

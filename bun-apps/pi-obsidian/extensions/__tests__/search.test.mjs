@@ -24,10 +24,12 @@ const { searchVault, buildMatcher, fuzzyMatch, findBacklinks, findTagNotes } =
 // initialized → searchVault returns nothing and the context assertions below
 // crash. Skip cleanly (fall through to the report with 0/0) instead.
 // Initialize with:  git submodule update --init vaults_root/pi-agent-vault
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
+// Anchor file proves the submodule is actually populated, not half-init'd
+// with a stray file from an aborted `submodule update`.
 function vaultAvailable() {
 	try {
-		return existsSync(VAULT) && readdirSync(VAULT).some((n) => !n.startsWith("."));
+		return existsSync(join(VAULT, "Tags", "Index.md"));
 	} catch {
 		return false;
 	}

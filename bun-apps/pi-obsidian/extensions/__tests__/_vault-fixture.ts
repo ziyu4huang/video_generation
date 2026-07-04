@@ -7,17 +7,21 @@
  *
  * Initialize the fixture with:  git submodule update --init vaults_root/pi-agent-vault
  */
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 const HERE = import.meta.dir;
 const REPO_ROOT = join(HERE, "..", "..", "..", "..");
 export const VAULT = join(REPO_ROOT, "vaults_root", "pi-agent-vault");
 
-/** True when the reference vault submodule is checked out (non-empty). */
+// Anchor file that proves the submodule was actually populated (not just
+// half-initialized with a stray file from an aborted `submodule update`).
+const VAULT_ANCHOR = join(VAULT, "Tags", "Index.md");
+
+/** True when the reference vault submodule is checked out AND populated. */
 export function vaultAvailable(): boolean {
 	try {
-		return existsSync(VAULT) && readdirSync(VAULT).some((n) => !n.startsWith("."));
+		return existsSync(VAULT_ANCHOR);
 	} catch {
 		return false;
 	}
