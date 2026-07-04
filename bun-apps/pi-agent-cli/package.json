@@ -28,6 +28,7 @@
     "pi-obsidian": "workspace:*",
     "pi-vlm": "workspace:*",
     "pi-knowledge-card": "workspace:*",
+    "@quintinshaw/pi-dynamic-workflows": "workspace:*",
     "typebox": "latest"
   },
   "devDependencies": {
