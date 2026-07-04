@@ -1,0 +1,15 @@
+{
+  "video": "/Users/huangziyu/proj/video_generation__output/t2i2v_20260702_072817/output_20260702_072848.mp4",
+  "checkpoint": "/Users/huangziyu/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-mlx/snapshots/49e6aa286ad60c14352c404340ded53710378a11/weights.npz",
+  "mel_input_shape": [
+    1,
+    80,
+    128
+  ],
+  "block0_output_shape": [
+    1,
+    40,
+    1280
+  ],
+  "n_head": 20
+}

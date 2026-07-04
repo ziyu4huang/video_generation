@@ -1,0 +1,19 @@
+{
+  "checkpoint": "/Users/huangziyu/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-mlx/snapshots/49e6aa286ad60c14352c404340ded53710378a11/weights.npz",
+  "tokens": [
+    [
+      50258,
+      50260,
+      50359,
+      50363,
+      1234,
+      5678
+    ]
+  ],
+  "block0_output_shape": [
+    1,
+    6,
+    1280
+  ],
+  "n_head": 20
+}
