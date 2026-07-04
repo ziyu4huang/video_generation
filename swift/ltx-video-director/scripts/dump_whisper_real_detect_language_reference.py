@@ -38,7 +38,12 @@ if __name__ == "__main__":
     model.update(mlx.utils.tree_unflatten(list(weights.items())))
     mx.eval(model.parameters())
 
-    tok = get_tokenizer(True, num_languages=99, language="zh", task="transcribe")
+    # num_languages=100 matches the REAL large-v3-mlx checkpoint's
+    # `Whisper.num_languages` (derived from its actual n_vocab=51866) — the
+    # tokenizer module's bare default (99) silently drops "yue" and shifts
+    # every trailing special-token id by one; see
+    # WhisperTokenizer.languageCodesInOrder's header for the full story.
+    tok = get_tokenizer(True, num_languages=model.num_languages, language="zh", task="transcribe")
     lang_tokens, _ = detect_language(model, mel, tok)
     detected_token = int(lang_tokens.item())
     detected_code = tok.decode([detected_token]).strip("<|>")

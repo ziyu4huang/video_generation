@@ -29,15 +29,29 @@
 import Foundation
 
 public enum WhisperTokenizer {
-    /// ISO 639-1 codes in mlx_whisper.tokenizer.LANGUAGES' exact dict order,
-    /// TRUNCATED to the first 99 — special-token ids are `sotBase + 1 +
-    /// index`, so both the order AND this exact count are load bearing, not
-    /// just documentation. mlx_whisper.tokenizer.get_encoding's default
-    /// `num_languages=99` slices `LANGUAGES.keys()[:99]`, which DROPS the
-    /// 100th ("yue") from the reserved language-token range — confirmed via
-    /// a live `mlx_whisper.get_tokenizer(multilingual=True, language="ja")`
-    /// call returning language-token id 50266 (index 7), which only lines
-    /// up if this list has exactly 99 entries, not the full 100-key dict.
+    /// ISO 639-1 codes in mlx_whisper.tokenizer.LANGUAGES' exact dict order —
+    /// special-token ids are `sotBase + 1 + index`, so both the order AND
+    /// this exact count (100) are load bearing, not just documentation.
+    ///
+    /// IMPORTANT correction (found while porting temperature-fallback
+    /// decoding — see WhisperDecoding.swift): this list previously
+    /// TRUNCATED to 99 entries, dropping the 100th ("yue"), based on
+    /// `mlx_whisper.tokenizer.get_encoding`'s bare default
+    /// `num_languages=99`. That default is WRONG for the actual
+    /// large-v3-mlx checkpoint this port targets: `Whisper.num_languages`
+    /// (derived from the checkpoint's real `n_vocab=51866`) is **100**, one
+    /// more than the bare-default tokenizer call. Every trailing special
+    /// token computed from `languageCodesInOrder.count` below (`translate`,
+    /// `transcribe`, `startOfLM`, `startOfPrev`, `noSpeech`,
+    /// `noTimestamps`, `timestampBegin`) was therefore off by one against
+    /// the real checkpoint — confirmed by comparing this port's decode
+    /// against the REAL `mlx_whisper.decoding.DecodingTask` (which
+    /// correctly threads `model.num_languages=100` through
+    /// `get_tokenizer`): `no_timestamps`=50364 / `timestamp_begin`=50365 on
+    /// the real checkpoint, not 50363/50364. Per-language token ids for
+    /// languages BEFORE "yue" (e.g. "zh"@1, "ja"@7) are unaffected — only
+    /// the trailing specials, which come after all 100 language slots,
+    /// shifted by one.
     public static let languageCodesInOrder: [String] = [
         "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv",
         "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
@@ -45,7 +59,7 @@ public enum WhisperTokenizer {
         "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
         "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu",
         "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
-        "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su",
+        "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
     ]
 
     /// Number of real (non-special) mergeable-BPE ranks — mlx_whisper's
@@ -61,6 +75,7 @@ public enum WhisperTokenizer {
     public static var startOfPrev: Int { startOfLM + 1 }
     public static var noSpeech: Int { startOfPrev + 1 }
     public static var noTimestamps: Int { noSpeech + 1 }
+    public static var timestampBegin: Int { noTimestamps + 1 }
 
     public static func languageToken(_ code: String) -> Int? {
         guard let idx = languageCodesInOrder.firstIndex(of: code) else { return nil }
@@ -77,6 +92,40 @@ public enum WhisperTokenizer {
         seq.append(noTimestamps)
         return seq
     }
+
+    /// The SOT sequence WITH timestamps allowed — matches
+    /// `Tokenizer.sot_sequence` (no trailing `<|notimestamps|>`). Real
+    /// `mlx_whisper.transcribe()` uses this by default (it never sets
+    /// `without_timestamps`), pairing it with `ApplyTimestampRules` logit
+    /// filtering. `WhisperModel.transcribeWithFallback` uses this sequence
+    /// to match `mlx_whisper.decoding.DecodingTask`'s actual decode path,
+    /// as opposed to `sotSequence(language:)` above, which the simpler,
+    /// documented-naive `WhisperModel.transcribe` uses.
+    public static func sotSequenceWithTimestamps(language: String) -> [Int] {
+        var seq = [startOfTranscript]
+        if let langTok = languageToken(language) { seq.append(langTok) }
+        seq.append(transcribe)
+        return seq
+    }
+
+    /// `mlx_whisper.tokenizer.Tokenizer.non_speech_tokens` — a FIXED,
+    /// checkpoint-independent token-id set (speaker tags / musical-note /
+    /// bracket annotations, e.g. "♪♪♪", "[DAVID]") that `SuppressTokens`
+    /// masks out during real decoding. Computing this from scratch needs
+    /// tiktoken's BPE ENCODER (regex pre-tokenizer + greedy merges), which
+    /// this decode-only tokenizer deliberately doesn't implement (see this
+    /// file's header) — since the set is invariant for the multilingual
+    /// vocab, it's precomputed once via
+    /// `get_tokenizer(multilingual=True).non_speech_tokens` and embedded
+    /// here as data, the same pattern `languageCodesInOrder` already uses.
+    public static let nonSpeechTokens: [Int] = [
+        1, 2, 7, 8, 9, 10, 14, 25, 26, 27, 28, 29, 31, 58, 59, 60, 61, 62, 63, 90, 91, 92, 93,
+        359, 503, 522, 542, 873, 893, 902, 918, 922, 931, 1350, 1853, 1982, 2460, 2627, 3246,
+        3253, 3268, 3536, 3846, 3961, 4183, 4667, 6585, 6647, 7273, 9061, 9383, 10428, 10929,
+        11938, 12033, 12331, 12562, 13793, 14157, 14635, 15265, 15618, 16553, 16604, 18362,
+        18956, 20075, 21675, 22520, 26130, 26161, 26435, 28279, 29464, 31650, 32302, 32470,
+        36865, 42863, 47425, 49870, 50254,
+    ]
 
     // rank -> raw bytes, loaded once from the bundled tiktoken vocab file.
     private static let rankToBytes: [[UInt8]] = {

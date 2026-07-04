@@ -21,15 +21,22 @@
 //  converted checkpoint is present at the standard local path (see
 //  ASRGateEngine.autoDetect's doc comment for the exact resolution rule),
 //  falling back to `.pythonBridge` only when that native checkpoint isn't
-//  set up on this machine — never for quality reasons. Known, honest
-//  quality gap of the native decode path vs. mlx_whisper's polished
-//  `transcribe()`: no temperature-fallback retries / beam search, so a
-//  materially worse transcript is possible on short/ambiguous clips
-//  (empirically confirmed AND cross-verified bit-identical against real
-//  Python running the same naive strategy — see
-//  WhisperModelRealCheckpointTests.swift's header). Closing that gap
-//  (temperature-fallback retries, a real KV cache for speed) is tracked as
-//  follow-up work, not blocking native being the default.
+//  set up on this machine — never for quality reasons.
+//
+//  Transcription goes through `WhisperModel.transcribeWithFallback`
+//  (WhisperDecoding.swift) — the REAL `mlx_whisper.transcribe()` decode
+//  path (timestamps-allowed SOT + SuppressBlank/SuppressTokens/
+//  ApplyTimestampRules + temperature-fallback retries), not the simpler
+//  notimestamps-forced `WhisperModel.transcribe`. Previously-documented
+//  quality gap ("Hi, Ni Hao" instead of "嗨你好" on this gate's reference
+//  clip) is now closed and bit-exact-verified against the real checkpoint
+//  (WhisperModelRealCheckpointTests) — it turned out to be two compounding
+//  bugs, not an inherent naive-decode limitation: (1) missing the
+//  temperature-fallback + full logit-filter stack, AND (2) a genuine
+//  off-by-one in `WhisperTokenizer.languageCodesInOrder` (99 entries
+//  instead of the real checkpoint's 100 — see that constant's header),
+//  which shifted every trailing special token id (`no_timestamps` etc.) by
+//  one. Fixing (2) alone already corrected even the naive decode.
 //
 
 import Foundation
@@ -209,7 +216,7 @@ public enum ASRGate {
         let chineseLangCodes: Set<String> = ["zh", "yue", "wuu"]  // matches video-t2i2v.py's _CHINESE_LANG_CODES
         let langOK = expectedLang == "zh" ? chineseLangCodes.contains(detectedLang) : (detectedLang == expectedLang)
 
-        let transcript = model.transcribe(mel: melBatched, language: expectedLang)
+        let transcript = model.transcribeWithFallback(mel: melBatched, language: expectedLang).text
         let contentRatio = contentOverlapRatio(expected: expectedSpeech, transcript: transcript)
         return buildVerdict(
             transcript: transcript, detectedLang: detectedLang, expectedLang: expectedLang,
