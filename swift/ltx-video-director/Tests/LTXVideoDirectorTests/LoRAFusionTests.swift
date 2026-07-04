@@ -120,6 +120,43 @@ final class LoRAFusionTests: XCTestCase {
         }
     }
 
+    // MARK: VBVR reasoning LoRA — same LoRAWeights/LoRAFusion machinery as
+    // the distilled structural LoRA above, applied to a DIFFERENT real LoRA
+    // family (run.py's `video vbvr` command / `_RELAY_VARIANTS`'
+    // "vbvr-licon-*" entries). No Python-dumped vendor reference exists for
+    // this file (unlike the distilled LoRA's dedicated dump script), so this
+    // is a lighter load-and-fuse regression rather than a numerical parity
+    // test — it still catches a real class of bug: silently loading zero
+    // deltas (e.g. a key-remap miss for this file's naming) that a real
+    // generation run wouldn't necessarily surface as a crash. A genuine
+    // end-to-end real-checkpoint generation with this LoRA fused (native-i2v
+    // --lora .../vbvr-licon-390k/...int8.safetensors) was separately run and
+    // visually inspected this session — 25/25 frames clean, no artifacts —
+    // see docs/TODO.md's "VBVR reasoning LoRA" entry.
+    func testVBVRLoRALoadsAndProducesNonZeroFusionDelta() throws {
+        let loraURL = RepoPaths.mlxModelsRoot.appendingPathComponent(
+            "lora/vbvr-licon-390k/Ltx2.3-Licon-VBVR-I2V-390K-R32.int8.safetensors")
+        guard FileManager.default.fileExists(atPath: loraURL.path) else {
+            throw XCTSkip("real VBVR LoRA not found — skipping VBVR fusion regression test")
+        }
+        let lora = try LoRAWeights.load(url: loraURL)
+        XCTAssertGreaterThan(lora.pairs.count, 0, "VBVR LoRA file loaded but contains no lora_A/lora_B pairs")
+
+        // Same key convention the distilled-LoRA test above already
+        // verified LoRAFusion.delta accepts (a real transformer block
+        // linear weight, video branch, self-attention output projection).
+        var foundNonZeroDelta = false
+        for key in lora.pairs.keys.prefix(20) {
+            guard let delta = LoRAFusion.delta(for: key, sources: [(weights: lora, strength: 1.0)]) else { continue }
+            if MLX.abs(delta).max().item(Float.self) > 0 {
+                foundNonZeroDelta = true
+                break
+            }
+        }
+        XCTAssertTrue(foundNonZeroDelta, "no VBVR LoRA key produced a non-zero fusion delta among the first 20 pairs — "
+            + "likely a key-remap mismatch for this file's naming convention")
+    }
+
     // MARK: Fusion wiring through TransformerCheckpointLoader
 
     func testBlockWeightsAppliesLoRAWhenSourcesProvided() throws {

@@ -87,4 +87,88 @@ final class NativeI2VStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    /// --input-image validation is a cheap, up-front check (image
+    /// existence/size) that must fail before any checkpoint loading —
+    /// doesn't need real checkpoints, mirrors testNonPositiveDimensionsThrowInvalidDimensions.
+    func testInputImageMissingThrowsNamedError() {
+        let stage = NativeI2VStage()
+        var request = NativeI2VStage.Request(prompt: "x", seconds: 9.0 / 24.0, width: 320, height: 320)
+        request.inputImagePath = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).png")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_bad_input_image_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeI2VStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .inputImageNotFound = stageError {} else {
+                XCTFail("expected .inputImageNotFound, got \(stageError)")
+            }
+        }
+    }
+
+    func testInputImageWrongSizeThrowsNamedError() throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue)
+        let ctx = CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 64 * 4, space: colorSpace, bitmapInfo: bitmapInfo)!
+        ctx.setFillColor(CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1.0))
+        ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+        let wrongSizeImage = ctx.makeImage()!
+        let imageURL = FileManager.default.temporaryDirectory.appendingPathComponent("input_image_wrong_size_\(UUID().uuidString).png")
+        FrameLoad.savePNG(wrongSizeImage, to: imageURL)
+        defer { try? FileManager.default.removeItem(at: imageURL) }
+
+        let stage = NativeI2VStage()
+        var request = NativeI2VStage.Request(prompt: "x", seconds: 9.0 / 24.0, width: 320, height: 320)
+        request.inputImagePath = imageURL
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_wrong_size_input_image_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeI2VStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .inputImageWrongSize = stageError {} else {
+                XCTFail("expected .inputImageWrongSize, got \(stageError)")
+            }
+        }
+    }
+
+    /// Real-checkpoint proof that --input-image actually reaches frame-0
+    /// conditioning (T2I is skipped, not just accepted-and-ignored): feed
+    /// the FIRST run's own T2I-generated source.png back in as the SECOND
+    /// run's --input-image, then confirm the second run's source.png (what
+    /// NativeI2VStage records as the frame-0 conditioning source) is a
+    /// byte-for-byte copy of the supplied input, not a fresh T2I output —
+    /// mirrors the FFLF real-checkpoint test's "prove the pinned image
+    /// reached generation" bar (docs/TODO.md's FFLF entry).
+    func testInputImageSkipsT2IAndIsUsedAsFrame0Source() throws {
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        guard FileManager.default.fileExists(atPath: transformerURL.path) else {
+            throw XCTSkip("real distilled transformer checkpoint not found — skipping integration smoke test")
+        }
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard FileManager.default.fileExists(atPath: vaeEncoderURL.path) else {
+            throw XCTSkip("real video VAE encoder checkpoint not found — skipping integration smoke test")
+        }
+
+        let firstOutputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_chain_seg1_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: firstOutputDir) }
+        let stage = NativeI2VStage()
+        var firstRequest = NativeI2VStage.Request(prompt: "a red ball on a table", seconds: 9.0 / 24.0, width: 320, height: 320, textMaxLength: 8)
+        firstRequest.fps = 24.0
+        let firstResult = try stage.generate(firstRequest, outputDir: firstOutputDir)
+
+        let secondOutputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_chain_seg2_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: secondOutputDir) }
+        var secondRequest = NativeI2VStage.Request(prompt: "the ball rolls off the table", seconds: 9.0 / 24.0, width: 320, height: 320, textMaxLength: 8)
+        secondRequest.fps = 24.0
+        secondRequest.inputImagePath = firstResult.sourceImageURL
+        let secondResult = try stage.generate(secondRequest, outputDir: secondOutputDir)
+
+        let suppliedData = try Data(contentsOf: firstResult.sourceImageURL)
+        let recordedData = try Data(contentsOf: secondResult.sourceImageURL)
+        XCTAssertEqual(suppliedData, recordedData,
+                       "--input-image must be copied through verbatim as the run's source.png, "
+                       + "not silently replaced by a fresh T2I generation")
+    }
 }
