@@ -97,7 +97,7 @@ export function buildParams(spec: CommandSpec) {
   return Type.Object(props);
 }
 
-// ─── The 12 ltx-video subcommands ────────────────────────────────────────────
+// ─── The 15 ltx-video subcommands ────────────────────────────────────────────
 
 export const COMMANDS: Record<string, CommandSpec> = {
   t2i: {
@@ -137,6 +137,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       lastFrameAutoResize: { flag: "--last-frame-auto-resize", type: "boolean", description: "Auto-resize lastFrame to exactly width x height (aspect-fill + center-crop, bicubic) instead of requiring an exact match. Off by default." },
       lastFrameDerivesResolution: { flag: "--last-frame-derives-resolution", type: "boolean", description: "When lastFrame is given: derive the BASE generation width/height as half the last-frame image's own dimensions (snapped to nearest 32), overriding any explicit width/height. Implies lastFrameAutoResize. Pairs with upscale (on by default) to bring the final output back to the last-frame image's own resolution." },
       audioTrack: { flag: "--audio-track", type: "string", isPath: true, description: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count." },
+      inputImage: { flag: "--input-image", type: "string", isPath: true, description: "I2V from an arbitrary supplied image instead of a T2I-generated one: skips T2I entirely and VAE-encodes this image as the frame-0 conditioning latent. Must already be exactly width x height. Useful for chaining (e.g. feeding a prior clip's last decoded frame back in as the next segment's start)." },
       mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence (post-upscale if upscale is on) + audio.wav into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4 and keep just the frame sequence." },
       secondStage: { flag: "--second-stage", type: "string", description: "When upscale/refine are on: chain a SECOND upscale+refine pass. 'x1.5' -> 2x*1.5x=3x total. 'x2' -> 2x*2x=4x total (reuses the x2 checkpoint again). Off by default." },
     },
@@ -149,7 +150,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
     fields: {
       input: { flag: "--input", type: "string", isPath: true, description: "Input frame directory (frame_%04d.png sequence, e.g. native-i2v's frames/ output)." },
       output: { flag: "--output", type: "string", isPath: true, description: "Output directory (frames/ subdirectory holds the upscaled PNG sequence). Default native_upscale_output." },
-      mode: { flag: "--mode", type: "string", description: "'fast' = LatentUpsampler 2x, native, ~1-2s (default, recommended for preview). 'hd' = native IC-LoRA reference-conditioned restoration chained into the fast upscaler (real LoRA fusion + reference conditioning, UNVERIFIED against a real checkpoint — see NativeUpscaleStage.generateHD's doc comment) — requires refinePrompt + refineAudio and the restoration LoRA files under mlx-models/lora/ltx-2.3-restore/." },
+      mode: { flag: "--mode", type: "string", description: "'fast' = LatentUpsampler 2x, native, ~1-2s (default, recommended for preview). 'hd' = native IC-LoRA reference-conditioned restoration chained into the fast upscaler (real LoRA fusion + reference conditioning) — verified end-to-end against a real, non-gated restoration+upscale LoRA pair externalized under mlx-models/lora/ltx-2.3-restore/; requires refinePrompt + refineAudio." },
       refinePrompt: { flag: "--refine-prompt", type: "string", description: "fast mode: optional low-strength refine pass prompt (requires refineAudio). hd mode: REQUIRED — the IC-LoRA restoration generation prompt. Reuse the same prompt as the source native-i2v run." },
       refineAudio: { flag: "--refine-audio", type: "string", isPath: true, description: "WAV to preserve through the refine/restoration pass — the joint audio-video transformer needs a valid audio branch even though audio itself isn't refined. Typically the source native-i2v run's own audio.wav. Required with refinePrompt (fast mode) and always required for hd mode." },
       fps: { flag: "--fps", type: "number", description: "Output frame rate of the source clip (used for RoPE video positions in refinePrompt/hd mode). Default 24.0." },
@@ -173,6 +174,66 @@ export const COMMANDS: Record<string, CommandSpec> = {
       textMaxLength: { flag: "--text-max-length", type: "int", description: "Gemma text-encoder max token length. Default 128." },
       output: { flag: "--output", type: "string", isPath: true, description: "Output directory (audio.wav). Default native_t2a_output." },
       loras: { flag: "--lora", type: "string[]", isPathSpecArray: true, description: "LoRA safetensors to fuse into the distilled transformer, repeatable to stack: path[:strength] (strength defaults to 1.0)." },
+    },
+  },
+
+  "native-relay": {
+    name: "native-relay",
+    writesOutput: true,
+    when: "Multi-segment prompt-relay video, 100% native Swift/MLX (no run.py, no ffmpeg) — experimental, distilled-only. Chains N I2V generations, each segment's last decoded frame feeding the next segment's start, concatenated into one video. Use for a scene that needs multiple distinct prompts in sequence.",
+    fields: {
+      prompts: { flag: "--prompts", type: "string[]", description: "One prompt per segment (2+ args = multi-segment relay)." },
+      firstImage: { flag: "--first-image", type: "string", isPath: true, description: "Reference image for segment 1 (I2V). Must already be exactly width x height. Omit for T2I-then-I2V on segment 1." },
+      seconds: { flag: "--seconds", type: "number", description: "Duration per segment in seconds (frame count snapped to LTX's 8k+1 stride). Default 2.0." },
+      fps: { flag: "--fps", type: "number", description: "Output frame rate. Default 24.0." },
+      width: { flag: "--width", type: "int", description: "Output width (must be a multiple of 32). Default 640." },
+      height: { flag: "--height", type: "int", description: "Output height (must be a multiple of 32). Default 960." },
+      seed: { flag: "--seed", type: "int", description: "Base random seed (each segment uses seed + segment index). Default 42." },
+      t2iTransformer: { flag: "--t2i-transformer", type: "string", isPathComponent: true, description: "T2I transformer variant under models/transformer/ (segment 1 only, when firstImage is omitted). Default moody-pro-mix." },
+      textMaxLength: { flag: "--text-max-length", type: "int", description: "Gemma text-encoder max token length. Default 128." },
+      loras: { flag: "--lora", type: "string[]", isPathSpecArray: true, description: "LoRA safetensors to fuse into the distilled transformer, repeatable to stack: path[:strength] (strength defaults to 1.0). Applied to every segment." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (seg01/, seg02/, ..., relay.mp4). Default native_relay_output." },
+      relayAudio: { flag: "--relay-audio", type: "string", isPath: true, description: "Custom audio track that REPLACES the final concatenated video's audio entirely (WAV/MP3/M4A/AAC — no ffmpeg needed). Trimmed to the video's duration if longer. Ignored if relayTtsText is also set." },
+      relayTtsText: { flag: "--relay-tts-text", type: "string", description: "Narration text to synthesize via macOS 'say' and use as relayAudio. Ignored if relayAudio is also set." },
+      relayTtsVoice: { flag: "--relay-tts-voice", type: "string", description: "Voice name for relayTtsText. Default Meijia (zh-TW). List available voices with: say -v '?'." },
+      relayTtsRate: { flag: "--relay-tts-rate", type: "int", description: "Speech rate in words/min for relayTtsText. Default 145." },
+      variant: { flag: "--variant", type: "string[]", description: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides loras for that run." },
+    },
+  },
+
+  "native-ingredients": {
+    name: "native-ingredients",
+    writesOutput: true,
+    when: "Generate a video from a single reference image, 100% native Swift/MLX (no run.py), via a user-supplied Ingredients IC-LoRA adapter (character/product/scene reference conditioning).",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Reference image (e.g. a character/product/scene reference sheet)." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (frames/ subdirectory holds the generated PNG sequence, audio.wav holds generated audio). Default native_ingredients_output." },
+      prompt: { flag: "--prompt", type: "string", description: "Generation prompt describing the target scene." },
+      lora: { flag: "--lora", type: "string", isPath: true, description: "Path to the Ingredients IC-LoRA .safetensors checkpoint (e.g. Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients's ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors). No bundled default." },
+      loraStrength: { flag: "--lora-strength", type: "number", description: "Fusion strength for lora. Default 1.0." },
+      width: { flag: "--width", type: "int", description: "Output width (snapped to a valid resolution). Default 640." },
+      height: { flag: "--height", type: "int", description: "Output height (snapped to a valid resolution). Default 960." },
+      seconds: { flag: "--seconds", type: "number", description: "Target duration in seconds (rounded to the nearest valid LTX frame count, 8k+1). Default 5.0." },
+      fps: { flag: "--fps", type: "number", description: "Output frame rate (used for RoPE video positions and audio token count). Default 24.0." },
+      seed: { flag: "--seed", type: "int", description: "Random seed for the denoise pass. Default 42." },
+      mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the generated PNG frame sequence + generated audio into a real H.264+AAC output.mp4 via AVAssetWriter. ON by default." },
+    },
+  },
+
+  "native-restyle": {
+    name: "native-restyle",
+    writesOutput: true,
+    when: "V2V restyle a PNG frame sequence, 100% native Swift/MLX (no run.py), via a user-supplied IC-LoRA style adapter. Use to change the visual style of an existing native-i2v frames/ output.",
+    fields: {
+      input: { flag: "--input", type: "string", isPath: true, description: "Input frame directory (frame_%04d.png sequence, e.g. native-i2v's frames/ output) — the reference clip to restyle." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory (frames/ subdirectory holds the restyled PNG sequence). Default native_restyle_output." },
+      prompt: { flag: "--prompt", type: "string", description: "Generation prompt describing the target style." },
+      audio: { flag: "--audio", type: "string", isPath: true, description: "WAV to preserve through the pass — the joint audio-video transformer needs a valid audio branch even though audio itself isn't restyled. Typically the source native-i2v run's own audio.wav." },
+      lora: { flag: "--lora", type: "string", isPath: true, description: "Path to the V2V-style IC-LoRA .safetensors checkpoint. No bundled default — user-supplied style adapter." },
+      loraStrength: { flag: "--lora-strength", type: "number", description: "Fusion strength for lora. Default 1.0." },
+      fps: { flag: "--fps", type: "number", description: "Output frame rate of the source clip (used for RoPE video positions). Default 24.0." },
+      seed: { flag: "--seed", type: "int", description: "Random seed for the denoise pass. Default 42." },
+      mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the restyled PNG frame sequence + audio into a real H.264+AAC output.mp4 via AVAssetWriter. ON by default." },
     },
   },
 

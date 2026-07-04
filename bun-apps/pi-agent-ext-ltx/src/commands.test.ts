@@ -66,6 +66,31 @@ describe("buildArgs", () => {
     const args = buildArgs(COMMANDS.t2i, { notARealField: "x", prompt: "ok" });
     expect(args).toEqual(["--prompt", "ok"]);
   });
+
+  test("native-i2v's inputImage emits --input-image as a plain string option", () => {
+    const args = buildArgs(COMMANDS["native-i2v"], { inputImage: "prior_last_frame.png" });
+    expect(args).toEqual(["--input-image", "prior_last_frame.png"]);
+  });
+
+  test("native-relay expands prompts/lora/variant as repeated flags", () => {
+    const args = buildArgs(COMMANDS["native-relay"], {
+      prompts: ["a cat walks", "the cat sits"],
+      loras: ["a.safetensors:0.8"],
+      variant: ["baseline", "vbvr=vbvr.safetensors:1.0"],
+    });
+    expect(args).toEqual([
+      "--prompts", "a cat walks", "--prompts", "the cat sits",
+      "--lora", "a.safetensors:0.8",
+      "--variant", "baseline", "--variant", "vbvr=vbvr.safetensors:1.0",
+    ]);
+  });
+
+  test("native-ingredients/native-restyle emit their required scalar flags", () => {
+    expect(buildArgs(COMMANDS["native-ingredients"], { input: "ref.png", prompt: "a scene", lora: "ing.safetensors" }))
+      .toEqual(["--input", "ref.png", "--prompt", "a scene", "--lora", "ing.safetensors"]);
+    expect(buildArgs(COMMANDS["native-restyle"], { input: "frames/", prompt: "anime style", audio: "a.wav", lora: "style.safetensors" }))
+      .toEqual(["--input", "frames/", "--prompt", "anime style", "--audio", "a.wav", "--lora", "style.safetensors"]);
+  });
 });
 
 describe("pathFieldKeys", () => {
@@ -73,10 +98,11 @@ describe("pathFieldKeys", () => {
     expect(pathFieldKeys(COMMANDS.t2i)).toEqual(["output"]);
   });
 
-  test("native-i2v includes lastFrame/audioTrack/output but NOT loras (that's a path-spec field)", () => {
+  test("native-i2v includes lastFrame/audioTrack/inputImage/output but NOT loras (that's a path-spec field)", () => {
     const keys = pathFieldKeys(COMMANDS["native-i2v"]);
     expect(keys).toContain("lastFrame");
     expect(keys).toContain("audioTrack");
+    expect(keys).toContain("inputImage");
     expect(keys).toContain("output");
     expect(keys).not.toContain("loras");
   });
@@ -93,13 +119,19 @@ describe("pathFieldKeys", () => {
 });
 
 describe("pathSpecFieldKeys", () => {
-  test("native-i2v/native-t2a's loras is the only path-spec field in the registry", () => {
+  test("native-i2v/native-t2a/native-relay's loras is the only path-spec field in the registry", () => {
     expect(pathSpecFieldKeys(COMMANDS["native-i2v"])).toEqual(["loras"]);
     expect(pathSpecFieldKeys(COMMANDS["native-t2a"])).toEqual(["loras"]);
+    expect(pathSpecFieldKeys(COMMANDS["native-relay"])).toEqual(["loras"]);
     for (const [name, spec] of Object.entries(COMMANDS)) {
-      if (name === "native-i2v" || name === "native-t2a") continue;
+      if (name === "native-i2v" || name === "native-t2a" || name === "native-relay") continue;
       expect(pathSpecFieldKeys(spec)).toEqual([]);
     }
+  });
+
+  test("native-relay's --variant is a plain string[] (name[=lora_path[:strength]]), NOT a path-spec field — its format doesn't match plain path[:strength]", () => {
+    expect(COMMANDS["native-relay"].fields.variant?.isPathSpecArray).toBeFalsy();
+    expect(COMMANDS["native-relay"].fields.variant?.isPath).toBeFalsy();
   });
 });
 
@@ -121,10 +153,11 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 12 documented ltx-video subcommands", () => {
+  test("has exactly the 15 documented ltx-video subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
-        "t2i", "native-i2v", "native-upscale", "native-t2a", "segment", "i2v", "upscale",
+        "t2i", "native-i2v", "native-upscale", "native-t2a", "native-relay",
+        "native-ingredients", "native-restyle", "segment", "i2v", "upscale",
         "gate", "verify", "models", "audio-decode", "video-decode",
       ].sort(),
     );
@@ -144,9 +177,10 @@ describe("COMMANDS registry", () => {
 });
 
 describe("isPathComponent fields (model-selector names Swift joins onto a root itself)", () => {
-  test("t2i/native-i2v/i2v's transformer fields are marked isPathComponent", () => {
+  test("t2i/native-i2v/native-relay/i2v's transformer fields are marked isPathComponent", () => {
     expect(COMMANDS.t2i.fields.transformer?.isPathComponent).toBe(true);
     expect(COMMANDS["native-i2v"].fields.t2iTransformer?.isPathComponent).toBe(true);
+    expect(COMMANDS["native-relay"].fields.t2iTransformer?.isPathComponent).toBe(true);
     expect(COMMANDS.i2v.fields.transformer?.isPathComponent).toBe(true);
   });
 

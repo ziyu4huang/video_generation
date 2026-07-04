@@ -21,25 +21,16 @@ resolves; if not, it forwards a clear `onProgress` warning (not a hard
 failure) instead of leaving the agent to discover the real cause only when
 the first MLX call crashes downstream.
 
-## 3. `hd` mode is unverified against a real checkpoint (upstream gap, tracked here for visibility)
+## 3. `hd` mode is unverified against a real checkpoint — RESOLVED upstream
 
-`native-upscale --mode hd`'s restoration IC-LoRA files
-(`mlx-models/lora/ltx-2.3-restore/*.safetensors`) are user-downloaded,
-gitignored external binaries — not present in any environment this package
-has been tested in so far. The Swift-side mechanism (LoRA fusion +
-`VideoConditionByReferenceLatent` reference conditioning) is real and
-parity-tested at the tensor-math layer (see
-`NativeUpscaleStageRealCheckpointTests.testGenerateHDMissingLoraThrowsNamedError`
-and `VideoConditionByReferenceLatentParityTests`), but end-to-end generation
-quality through this wrapper is unverified.
-
-**Next step once the LoRA files are available**: run
-`ltx native-upscale --mode hd` through this extension (not just the raw
-Swift binary) end-to-end, confirm `details.output`/`extraOutputs` parse
-correctly for the two-stage stdout, and do a visual-inspection pass (this
-package's own established practice — shape/exit-code checks alone have
-missed real bugs before, see `NativeUpscaleStage`'s color-fringing incident
-in PLAN.md).
+Resolved by PR #252: a real, non-gated restoration+upscale LoRA pair
+(`joyfox/LTX2.3-ICEdit-Insight` on HuggingFace, Apache-2.0) was found,
+downloaded, and externalized under `mlx-models/lora/ltx-2.3-restore/` —
+same convention every other LoRA in this repo follows. `native-upscale
+--mode hd` was run end-to-end through the raw Swift binary (109.2s wall,
+visually confirmed correct: same scene, genuinely higher resolution).
+`commands.ts`'s `mode` field description updated to drop the stale
+"UNVERIFIED"/"gitignored, user-downloaded" language.
 
 ## 4. No test coverage for the hd-mode CLI fields on this side — DONE
 
@@ -379,6 +370,51 @@ says. Without `asrPrompt`, a missing `asr` key is untouched (it just wasn't
 requested). 2 new tests in `result.test.ts` covering both branches.
 
 105 → 107 tests; `check:flags` still 12/12, no drift.
+
+## 17. Flag drift from the native-relay/native-i2v-input-image/restore-lora session — DONE
+
+A prior session's Swift-side work (`native-relay` built from scratch;
+`native-i2v` gained `--input-image`; `native-upscale --mode hd`'s
+restoration LoRA went from "doesn't exist" to real+externalized) silently
+drifted this wrapper out of sync — nothing caught it until a later
+self-reflection pass ran `check:flags` and found 3 concrete gaps:
+`native-i2v` missing `inputImage`, `native-relay` unmodeled entirely, and
+(pre-existing, not caused by that session but folded into this same pass)
+`native-ingredients`/`native-restyle` also entirely unmodeled.
+
+Fixed all four in one pass:
+- Added `inputImage` (`--input-image`) to `native-i2v`'s fields, same shape
+  as `lastFrame` (`isPath: true`).
+- Modeled `native-relay` as a full new command: `prompts` (string[]),
+  `firstImage`, `seconds`/`fps`/`width`/`height`/`seed`, `t2iTransformer`
+  (`isPathComponent`), `textMaxLength`, `loras` (`isPathSpecArray`, same
+  pattern as `native-i2v`), `output`, `relayAudio`, `relayTtsText`,
+  `relayTtsVoice`, `relayTtsRate` (int, confirmed against the Swift
+  `@Option var relayTTSRate: Int = 145`), and `variant` — the last one
+  deliberately a plain `string[]`, NOT `isPathSpecArray`: its
+  `name[=lora_path[:strength]]` format doesn't match the plain
+  `path[:strength]` shape `pathSpecFieldKeys`'s validator assumes (a bare
+  `"baseline"` would wrongly be checked as a real path). Path validation
+  for the embedded LoRA path is left to the Swift binary's own
+  `ValidationError`, matching this wrapper's existing pattern for
+  Swift-side-validated sub-formats.
+- Modeled `native-ingredients` and `native-restyle` as new commands
+  (single-reference-image / V2V-restyle IC-LoRA adapters, both
+  user-supplied — no bundled `lora` default, unlike every other LoRA path
+  in this package).
+- Updated `native-upscale`'s `mode` field description (item 3, above) to
+  drop the stale "UNVERIFIED"/"gitignored, user-downloaded" language now
+  that a real restoration+upscale LoRA pair is externalized and
+  end-to-end-verified.
+- README's command count/list and the `native-i2v` section updated to
+  match (12 → 15 commands); added a `native-relay` /
+  `native-ingredients` / `native-restyle` section.
+
+107 → 111 tests (new `buildArgs` coverage for `native-i2v`'s `inputImage`,
+`native-relay`'s array-flag expansion including `variant`'s
+`name=path:strength` shape, and `native-ingredients`/`native-restyle`'s
+required scalar flags; updated the 12-command and path-spec-field-keys
+registry assertions to the new 15); `check:flags` now 15/15, no drift.
 
 ## Not planned
 
