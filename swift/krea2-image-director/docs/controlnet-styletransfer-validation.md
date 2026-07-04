@@ -295,3 +295,72 @@ shipped features, and it reaches an honest, characterized stopping point.
   comp_both_landscape_s42 / comp_both_s0 / comp_both_ctrl0_s42 .png`.
 - `krea2_composition_sidebyside.html` — interactive viewer + full metric tables.
 
+
+---
+
+# Q/K-AdaIN re-port addendum (2026-07-05): the deferred mechanism recovers the palette
+
+Source study of the original `jieg9341-lab/ComfyUI-Krea2-StyleTransfer` (`nodes.py`,
+2566 lines — see `docs/krea2-styletransfer-source-study.md`) found the minimal Swift
+port had **11 of the 12 recommended-preset knobs**. The one missing —
+**`adain_strength=0.85`, the Q/K cross-batch AdaIN** — is ON by default upstream and
+operates on the target's image-token Q/K per-head mean/std BEFORE the K/V concat
+(`_cross_batch_adain_qk`). The Swift port only AdaIN'd V; Q and K got only the
+per-frequency scale, not stat-transfer.
+
+## The port
+- `Krea2StyleConfig.adainStrength` + `Krea2StyleDefaults.adainStrength` (default 0.85,
+  matching upstream recommended).
+- `Krea2DiT.adainImageTokens(...)` — cross-batch Q/K AdaIN over the image-token
+  range, applied in `styledAttention` before K/V concat; ref rows unchanged.
+- `effective_adain = clamp(adainStrength · min(strength, 1.25), 0, 1)` (upstream's
+  strength rescaling, nodes.py:1989).
+- CLI `--adain-strength` on `style-transfer` + `control-style`.
+
+## Result — answers the composition arc's open question (YES, palette recovers)
+512², seed=42, aggressive style knobs (vAdain=1.0, refK=1.5, lowScaleEnd=2.0,
+blocks 0–27). teal reference B−R = +143.
+
+| panel | B−R OLD (no Q/K-AdaIN) | B−R NEW (Q/K-AdaIN 0.85) |
+|---|---|---|
+| style-only | +107.44 | **+135.67** (within 7.6 of the +143 ref) |
+| composition (LoRA+control+style) | −24.93 (palette gone) | **+74.24** (strong teal recovered) |
+
+- **Style-only**: Q/K-AdaIN pushes the output to within ~5% of the pure teal
+  reference — near-complete palette transfer.
+- **Composition**: the palette shift recovers from **+0.13 → +99.29** vs baseline.
+  The Control LoRA still dampens it (~46%: +74 vs +136 style-only) but it is no
+  longer "gone." Q/K-AdaIN effect size under the LoRA: MAD 59.96 (live).
+- VLM (gemma-26b) on style-only: *"dominated by shades of blue … **teal, seafoam
+  green, and aqua**"* — explicit teal. Composition panel reads as abstract/
+  dreamlike (deterministic B−R +74.24 is the load-bearing signal per the prior arc).
+
+## What this rewrites
+The composition arc's headline ("the Control LoRA suppresses the style palette —
+genuine distilled-model interaction, not a port bug") was **a consequence of the
+incomplete port**, not a fundamental LoRA/style incompatibility. The deferred
+Q/K-AdaIN — stat transfer on the Q/K geometry, not just V — is the mechanism that
+carries the palette signal through the LoRA-reshaped attention. With the faithful
+mechanism, palette transfer under the LoRA is largely recovered.
+
+## Corruption gate (re-confirmed, non-negotiable)
+Style-only `strength=0` with the Q/K-AdaIN code path active: **byte-identical** to
+vanilla t2i (MAD 0.000000, pixel-diff `None`). At strength=0, `effective_adain = 0`
+(Q/K-AdaIN branch skipped) and `mix = 0` (styled path off) — zero drift.
+
+## Tests
+`swift test` green (Krea2ConfigTests pass; pre-existing metallib test-bundle skip
+unchanged). No call path regressed: `adainStrength` defaults to 0.85 but
+`effective_adain` is 0 at strength=0, so existing t2i/i2i/controlnet outputs
+unchanged; style-transfer/composition at strength>0 now match upstream more
+faithfully (intended).
+
+## Remaining gaps (documented, separate arcs)
+Dual-ref `multi_delta` + `step_cycle` fusion; `rf_gamma`/`rf_gamma_rk2`/`linear` RF
+modes; strength-rescaling of high/low scale endpoints; `value_mode` variants; `stat`
+method. See `docs/krea2-styletransfer-source-study.md` for the full gap table.
+
+## Artifacts
+`video_generation__output/krea2_port_validation/`:
+- `qkada_AB_before_after.png` — 2×2: style-only + composition, OLD vs NEW.
+- `qkada_style_s42 / qkada_both_s42 / qkada_s0 .png`.
