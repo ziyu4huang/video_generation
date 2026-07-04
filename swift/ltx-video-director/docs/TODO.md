@@ -1,3 +1,19 @@
+# `native-relay --variant` A/B comparison (2026-07-05)
+
+Closes the last `native-relay` "still open" item. `--variant
+name[=lora_path[:strength]]` (repeatable) runs the full relay once per
+variant to its own `<output>/<name>/` subdirectory, catching per-variant
+errors, printing a plain-text summary table. Only "which LoRA" varies
+(this native port is distilled-only, unlike Python's dev/distilled +
+cfg/stg toggle); no HTML side-by-side reviewer (no Swift-side
+equivalent to `video-review.py`). Real 2-variant end-to-end run
+(`baseline` vs `vbvr-licon-390k`) confirmed both ran independently and
+the LoRA genuinely fused only in the `vbvr` run (per-run log evidence).
+No dedicated unit test (CLI-orchestration logic, no existing CLI test
+harness in this package) — the real run is the verification. With this,
+all three of `native-relay`'s originally-scoped-out items (audio
+overlay, TTS, variant A/B) are done. See PLAN.md's matching milestone.
+
 # `native-relay --relay-tts-text` narration (2026-07-05)
 
 Follow-up to `--relay-audio` — TTS narration item. New `MacTTS.swift`

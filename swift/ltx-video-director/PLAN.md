@@ -2348,6 +2348,46 @@ top of the core chaining that's now landed and verified. Each segment
 must run at the same resolution (inherent to feeding one segment's last
 frame as the next's `--input-image`, which requires an exact size match).
 
+## Milestone: `native-relay --variant` A/B comparison (2026-07-05)
+
+Closes out the last item of `native-relay`'s "still open" list. Unlike
+the Python version's `_RELAY_VARIANTS` (which also toggles
+distilled-vs-dev pipeline + cfg/stg scale), this native port is
+distilled-only, so the only meaningful variant axis is "which LoRA(s), if
+any" — the CLI's `--variant name[=lora_path[:strength]]` (repeatable)
+runs the full relay once per variant, each to its own `<output>/<name>/`
+subdirectory, catching per-variant errors so one failure doesn't abort
+the rest, and prints a plain-text summary table (name/status/elapsed) at
+the end. No side-by-side HTML reviewer is launched afterward — the Python
+version's `video-review.py` has no Swift-side equivalent to hook into;
+reviewing the per-variant outputs is manual for now.
+
+Refactored `NativeRelayCommand` to share a `baseRequest()`/`runOnce()`
+pair between the plain single-run path and the variant loop, rather than
+duplicating the request-building/TTS-synthesis/printing logic.
+
+**Real end-to-end 2-variant run** (`--variant baseline --variant
+"vbvr=<vbvr-licon-390k path>:1.0"`, 1 segment, 320×320 request →
+800×800 resolved, 9 frames): both variants completed independently —
+`baseline` (0.9 min, no LoRA) and `vbvr` (2.5 min, LoRA genuinely fused —
+confirmed via the per-run log's `[lora] fusing
+Ltx2.3-Licon-VBVR-I2V-390K-R32.int8.safetensors at strength 1.0` line,
+present ONLY in the vbvr run's output, not baseline's — proving the
+per-variant LoRA override actually took effect rather than being silently
+ignored). Both output directories (`baseline/`, `vbvr/`) contain complete,
+independent `relay.mp4` + `seg01/` results. Summary table printed both
+variants as `✓ ok` with correct elapsed times.
+
+No dedicated unit test added — this is CLI-argument-parsing/orchestration
+logic (`ArgumentParser` struct), and this package has no existing
+CLI-level test harness to extend (same situation as `I2VCommand`'s
+`--json-out`, noted in an earlier milestone); the real end-to-end run
+above is this feature's verification.
+
+**With this, all three "still open" items from the `native-relay`
+milestone are now closed**: audio overlay, TTS narration, and variant
+A/B comparison.
+
 ## Milestone: `native-relay --relay-tts-text` narration (2026-07-05)
 
 Follow-up to the `--relay-audio` milestone above — picks up the "TTS
