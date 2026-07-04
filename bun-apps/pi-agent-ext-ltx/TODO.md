@@ -365,6 +365,21 @@ than folded into this pass.
 99 → 105 tests (4 new in `paths.test.ts` for items 3-5, 2 new in
 `result.test.ts` for item 1); `check:flags` still 12/12, no drift.
 
+## 16. Item 15's gap 8/8 fixed — ASR silently-swallowed-crash detection
+
+Threaded `options.asrPrompt` through `runOnce` -> `buildDetails` ->
+`buildGateDetails` (signature changes to all three, as scoped in item 15).
+When `asrPrompt` was passed but a `gate --json` entry has no `asr` key at
+all (Swift's `try? ASRGate.evaluate(...)` swallowed a bridge crash — e.g.
+`mlx_whisper` not installed — to `nil`), `buildGateDetails` now appends a
+synthetic reason ("ASR requested (asrPrompt) but no asr result was
+returned — likely a swallowed Python-bridge crash") and bumps that entry's
+status to FAIL, rather than reporting whatever the video-only status alone
+says. Without `asrPrompt`, a missing `asr` key is untouched (it just wasn't
+requested). 2 new tests in `result.test.ts` covering both branches.
+
+105 → 107 tests; `check:flags` still 12/12, no drift.
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged

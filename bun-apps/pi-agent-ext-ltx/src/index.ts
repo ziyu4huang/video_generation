@@ -233,7 +233,7 @@ async function runOnce(
     onProgress,
   });
 
-  const details = buildDetails(command, res);
+  const details = buildDetails(command, res, options);
   return { details, res };
 }
 
