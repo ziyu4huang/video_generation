@@ -2238,6 +2238,87 @@ specific to this conditioning path. Both the missing-checkpoint contract
 tests above and this real-checkpoint content-fidelity check now back this
 milestone — no longer UNVERIFIED.
 
+## Milestone: VBVR reasoning LoRA verified native + `--input-image` generalization (2026-07-05)
+
+Follow-up to a standing backlog item (`run.py video vbvr`'s native-port
+target, carried across several sessions per the last few goal notes).
+Re-read the actual Python command (`app/commands/video-vbvr.py`) rather
+than assuming from the name: VBVR is I2V generation with a specific
+reasoning LoRA fused in — no new conditioning mechanism, just LoRA fusion
+this package already has (`LoRAWeights`/`LoRAFusion`, landed for the
+distilled structural LoRA). run.py's version requires the non-distilled
+`dev` pipeline because "the distilled pipeline has no LoRA fusion stage"
+in that codebase — but Swift's `LoRAFusion` already fuses onto the
+**distilled** transformer (that's exactly what `native-i2v --lora` does),
+so this port doesn't inherit that dev-pipeline requirement at all.
+
+**Inventory check (cheap, done first)**: all 5 VBVR LoRA variants already
+exist locally under `mlx-models/lora/vbvr-*` (from earlier relay A/B
+review sessions) — no download/license gate needed, unlike Ingredients'
+HF-gate story last session. `vbvr-licon-390k`'s manifest declares
+`compatible_with: [transformer/ltx-2.3-dev-q8, transformer/ltx-2.3-distilled-q8]`
+(format `mlx-int8`, same as the distilled structural LoRA) — the
+LiconStudio 390K checkpoint, rated "best" (3★) in `_RELAY_REVIEWS`'
+human A/B scores across both the `kitchen` and `physics` presets.
+
+**Real-checkpoint verification**: ran `ltx-video native-i2v --lora
+.../vbvr-licon-390k/Ltx2.3-Licon-VBVR-I2V-390K-R32.int8.safetensors:1.0`
+end-to-end (384×576→resolved area floor, 1s/25 frames, prompt "a cat leaps
+onto a table, knocks a glass of water off the edge"), 6m19s wall. **PASS**:
+frame 0 and the last frame both visually inspected — coherent, matches the
+prompt, no corruption/artifacts across all 25 frames, audio decoded
+cleanly. `--lora` was already the correct, complete interface; no new CLI
+surface needed for the "does it run" question. New
+`LoRAFusionTests.testVBVRLoRALoadsAndProducesNonZeroFusionDelta` — a load
++ non-zero-delta regression (no Python-dumped vendor reference exists for
+this file, unlike the distilled LoRA's dedicated dump script, so this is
+deliberately a lighter contract check than a numerical parity test, not a
+downgrade in rigor for a case that doesn't have a reference to compare
+against).
+
+**Real gap found and fixed as a prerequisite, not scope creep**: while
+setting this up, found `NativeI2VStage` had no way to do I2V from an
+arbitrary *supplied* image at all — frame 0 was unconditionally
+`NativeT2IStage`-generated from `prompt` (`docs/TODO.md`'s NativeI2VStage
+header explicitly documented this as the scope). That's fine for VBVR
+(T2I-then-I2V is a valid single-shot use), but is a hard blocker for the
+`relay` backlog item below, which needs to feed a previous segment's real
+decoded last frame back in as the next segment's frame 0. Added
+`Request.inputImagePath: URL?` (+ `native-i2v --input-image <path>`):
+when set, skips `NativeT2IStage` entirely and VAE-encodes the supplied
+image as the frame-0 conditioning latent instead — same
+fail-fast-on-wrong-size convention `lastFrameImagePath` established
+before FFLF's auto-resize opt-in. Three new
+`NativeI2VStageRealCheckpointTests` cases: missing-file and
+wrong-size contract tests (no checkpoints needed, fast), plus a
+real-checkpoint chain test (`testInputImageSkipsT2IAndIsUsedAsFrame0Source`)
+that feeds one real generation's own T2I output back in as a SECOND
+real generation's `--input-image` and asserts the second run's recorded
+`source.png` is byte-identical to the supplied file — proves the image
+actually reaches frame-0 conditioning rather than being silently ignored
+in favor of a fresh T2I generation.
+
+**Still open**: `native-relay` itself (multi-segment chaining + last-frame
+extraction + concatenation + audio overlay/TTS, mirroring
+`app/commands/video-relay.py`) is NOT built yet — `--input-image` is the
+necessary prerequisite this session identified and shipped, not the
+orchestration layer itself. The remaining pieces, all new: (1) extracting
+"the last decoded frame" as a loadable image from a completed
+`NativeI2VStage.Result` (frames are already written as PNGs under
+`result.frameDirectory` — the last one just needs picking out and feeding
+forward as the next segment's `--input-image`, no new decode logic); (2)
+concatenating N segments' outputs into one final video — doable with
+`AVMutableComposition` (pure Swift, matches this package's
+no-ffmpeg-dependency convention, unlike the Python version's `ffmpeg
+concat` demuxer); (3) custom audio track overlay/replace on the final
+concatenated output — WAVReader/AudioVAEEncoder already exist for
+*generation-time* audio conditioning, but overlaying an arbitrary
+externally-supplied audio file onto an already-muxed mp4 is a distinct,
+not-yet-ported AVFoundation composition task. TTS narration
+(`--relay-tts-text`, macOS `say`/`edge-tts`) and the variant A/B
+comparison harness (`_RELAY_VARIANTS`) are lower-priority conveniences on
+top of the core chaining, not blockers for a first native `relay` cut.
+
 ## Explicitly NOT doing
 
 - Re-converting or re-deriving any checkpoint — always load what

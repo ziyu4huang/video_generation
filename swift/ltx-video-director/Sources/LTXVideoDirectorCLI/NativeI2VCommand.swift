@@ -81,6 +81,10 @@ struct NativeI2V: ParsableCommand {
             help: "Custom audio injection: preserve this WAV's content through generation instead of generating audio from scratch. Any sample rate/channel count (resampled to 16kHz, mono duplicated to stereo). If shorter than the clip, only the covered portion is preserved; the rest is still generated.")
     var audioTrack: String?
 
+    @Option(name: .customLong("input-image"),
+            help: "I2V from an arbitrary supplied image instead of a T2I-generated one: skips NativeT2IStage entirely and VAE-encodes this image as the frame-0 conditioning latent. Must already be exactly --width x --height. Useful for chaining (e.g. feeding a prior clip's last decoded frame back in as the next segment's start).")
+    var inputImage: String?
+
     @Flag(name: .customLong("mp4"), inversion: .prefixedNo,
           help: "Mux the final PNG frame sequence (post-upscale if --upscale is on) + audio.wav into a real H.264+AAC output.mp4 via AVAssetWriter. On by default — --no-mp4 to skip and keep just the frame sequence.")
     var mp4: Bool = true
@@ -124,6 +128,7 @@ struct NativeI2V: ParsableCommand {
         request.lastFrameStrength = Float(lastFrameStrength)
         request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution
         request.audioTrackPath = audioTrack.map { URL(fileURLWithPath: $0) }
+        request.inputImagePath = inputImage.map { URL(fileURLWithPath: $0) }
         request.loraPaths = try loras.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
             let path = String(parts[0])

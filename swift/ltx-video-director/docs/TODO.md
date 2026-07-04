@@ -1,3 +1,29 @@
+# VBVR reasoning LoRA verified native + `--input-image` generalization (2026-07-05)
+
+Standing backlog item (`run.py video vbvr`'s native-port target). Turned
+out to need ZERO new fusion code: VBVR is just I2V + a specific reasoning
+LoRA, and `native-i2v --lora` already fuses arbitrary LoRAs onto the
+distilled transformer — the Python version's dev-pipeline requirement
+("distilled has no LoRA fusion stage") doesn't apply here. All 5 VBVR
+LoRA variants already exist locally under `mlx-models/lora/vbvr-*` (no
+download needed). Ran `native-i2v --lora .../vbvr-licon-390k/...int8
+.safetensors:1.0` for real (25 frames, 6m19s) — PASS, visually clean
+throughout, matches the human-reviewed "best" (3★) LiconStudio 390K
+checkpoint from `_RELAY_VARIANTS`. New `LoRAFusionTests
+.testVBVRLoRALoadsAndProducesNonZeroFusionDelta` (load + non-zero-delta
+regression; no vendor reference dump exists for this file).
+
+Along the way, found and fixed a real prerequisite gap for the `relay`
+backlog item: `NativeI2VStage` had no way to do I2V from an arbitrary
+supplied image — frame 0 was hardcoded to always come from
+`NativeT2IStage`. Added `Request.inputImagePath` / `native-i2v
+--input-image <path>` (skips T2I, VAE-encodes the supplied image as
+frame-0 conditioning instead), 3 new `NativeI2VStageRealCheckpointTests`
+cases including a real-checkpoint chain test proving the image reaches
+generation (not silently ignored). `relay` itself (multi-segment
+chaining/concat/audio-overlay) is still not built — see PLAN.md's
+matching milestone for the concrete remaining pieces.
+
 # ASR voice-content gate (zh-TW/zh-CN aware) — landed, transcription still bridged (2026-07-04)
 
 `output/new-goal-20260704-141422.md` item (A): the existing basic gateway
