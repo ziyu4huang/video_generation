@@ -490,3 +490,42 @@ toggle branch), finite pixels, correct frame count. Plus
 `testSecondStageWithoutRefineThrowsClearError` (fail-fast validation).
 Full suite green after the change (see PLAN.md's matching entry for exact
 counts).
+
+## Sixth pass (2026-07-04) — five more official Lightricks workflows found + fetched
+
+Driven by a `/review pi-agent-ext-ltx, search the internet for ComfyUI
+workflow JSON related to LTX2` request. Re-checked
+`https://github.com/Lightricks/ComfyUI-LTXVideo/tree/master/example_workflows/2.3`
+via `gh api` (not a plain web search — the earlier fifth-pass fetch used the
+same source) and found the directory now lists 12 files, not the 7 already
+present here. Fetched the 5 new ones:
+
+| File | What it shows |
+|------|----------------|
+| `LTX-2.3_ICLoRA_HDR_Distilled.json` | IC-LoRA family + `LTXVHDRDecodePostprocess` — HDR tone-mapping applied at decode time, single stage. |
+| `LTX-2.3_ICLoRA_Ingredients_Single_Stage_Distilled.json` | IC-LoRA family conditioned on a reference "ingredient" image (`LoadImage` + `RepeatImageBatch`), single stage, with audio. |
+| `LTX-2.3_ICLoRA_Inpaint_Two_Stage_Distilled.json` | IC-LoRA family + `LTXVInpaintPreprocess`/`LTXVDilateVideoMask`/`LTXVLaplacianPyramidBlend` — mask-driven inpainting, two-stage (base + upscale). |
+| `LTX-2.3_ICLoRA_Outpaint_Two_Stage_Distilled.json` | Same inpaint machinery (`LTXVInpaintPreprocess`/`LTXVLaplacianPyramidBlend`) driven by `ImagePadForOutpaintTargetSize` instead of a mask — canvas extension, two-stage. |
+| `LTX-2.3_V2V_ICLoRA_Single_Stage_Distilled.json` | IC-LoRA family conditioned on an existing video (`LoadVideo` + `GetVideoComponents`) instead of an image — video restyle/V2V, single stage, with audio. |
+
+**Net finding: no new mechanism.** All five confirm rather than extend the
+fourth/fifth-pass conclusion — every one is the same
+`LTXICLoRALoaderModelOnly` + `LTXAddVideoICLoRAGuide`(`Advanced`) +
+`LTXVCropGuides` primitive already identified as the single highest-leverage
+unported item, now with **ten** known applications (restoration/hd,
+upscaler, motion-track, union-control, lipdub, HDR, ingredients, inpaint,
+outpaint, V2V) sharing one mechanism. Reinforces — does not change — the
+`PLAN.md` backlog call: porting the general IC-LoRA video-conditioning
+primitive once unlocks all ten as call-site variations, and remains a
+bigger, multi-session-shaped item, not picked up this pass.
+
+Separately, cross-referencing this reference collection against the ACTUAL
+current Swift CLI surface (`LTXVideoDirectorCLI.swift`'s `subcommands:`
+array) rather than just workflow JSON turned up a wrapper-side gap instead:
+`native-t2a` (the T2A gap this document's fourth-pass note called "smallest
+and most cleanly scoped") had, in fact, already been ported natively
+(`NativeT2ACommand.swift` exists) — but `bun-apps/pi-agent-ext-ltx` never
+picked it up, alongside the already-landed `segment` command. See that
+package's `TODO.md` item 14 for the fix (both now wrapped, plus a drift-
+guard blind spot and a real path-validation bug found by exercising them
+end-to-end).

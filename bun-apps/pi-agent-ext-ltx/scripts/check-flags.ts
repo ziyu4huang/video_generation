@@ -92,6 +92,10 @@ async function main() {
     reports.push({ command: name, missing, extra, unknownCmd: false });
   }
 
+  const topLevelAllow = new Set(ALLOW_SKIP["*"] ?? []);
+  const unmodeled = [...declaredSubcommands].filter((c) => !(c in COMMANDS) && !topLevelAllow.has(c)).sort();
+  if (unmodeled.length) drift = true;
+
   console.log("ltx-video flag drift check:");
   let okCount = 0;
   for (const r of reports) {
@@ -106,6 +110,9 @@ async function main() {
     }
   }
   console.log(`\n${okCount}/${reports.length} commands fully modeled.`);
+  if (unmodeled.length) {
+    console.log(`\n✗ ltx-video --help declares subcommand(s) not in commands.ts at all: ${unmodeled.join(", ")}`);
+  }
 
   if (drift) {
     console.error(

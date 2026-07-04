@@ -256,6 +256,53 @@ together. Sequencing note from the goal file: the live-e2e lane should
 exercise the new ASR/zh-TW gate (item 12) once it existed — which it now
 does, so this is unblocked.
 
+## 14. Two whole subcommands (`native-t2a`, `segment`) were unwrapped — DONE
+
+Prompted by a `/review and improve pi-ext-ltx, search ComfyUI workflow JSON`
+request. `check:flags` reported "10/10 commands fully modeled" — misleadingly
+green, because it only iterates `Object.entries(COMMANDS)` and checks each
+*already-modeled* command for flag drift; it never checked whether
+`ltx-video --help`'s own subcommand list contains commands NOT in
+`commands.ts` at all. Cross-checking `LTXVideoDirectorCLI.swift`'s
+`subcommands:` array directly found two real, already-shipped CLI commands
+with zero wrapper coverage: `native-t2a` (pure text-to-audio, ported per the
+ComfyUI research below) and `segment` (HSV-histogram scene-cut detection,
+landed via PR #234). Fixed both ways:
+
+1. **The drift guard's blind spot itself** — `check-flags.ts` now also diffs
+   `ltx-video --help`'s declared subcommand set against `Object.keys(COMMANDS)`
+   and fails with an explicit `unmodeled: [...]` list if the CLI has grown a
+   subcommand this package doesn't know about at all, not just flag-level
+   drift within known commands.
+2. **Both commands added** to `commands.ts` (full field maps, cross-checked
+   against `NativeT2ACommand.swift`/`SegmentCommand.swift`'s real `--help`
+   output) and `result.ts` (`buildNativeT2ADetails`, `buildSegmentDetails` —
+   the latter also gained a `LtxDetails.scenes: SceneEntry[]` field, the
+   first command in this package with a real per-item result array outside
+   of `gate`/`verify`). Verified via `check:flags` (12/12, no drift) and a
+   real end-to-end run through the actual `runLtx()` path (not `bun test`
+   mocks): `native-t2a` produced a real `audio.wav` (2.6s wall time),
+   `segment` correctly detected 1 real scene in a real 15s clip and wrote
+   its JSON report.
+3. **A second, independent bug found by that same real end-to-end run**:
+   `segment`'s `json` field (a WRITE target — the report path, which
+   legitimately doesn't exist yet) was rejected by `validateOptionPaths`
+   with "does not exist", because the `mustExist` check was a hardcoded
+   `key === "output"` string comparison — any differently-named output-path
+   field failed it. This is NOT new to this session: `i2v`'s pre-existing
+   `jsonOut` field (`--json-out`) had the exact same bug, just never
+   exercised end-to-end before. Fixed by adding an explicit
+   `FieldSpec.isOutputPath?: boolean` and setting it on both `segment.json`
+   and `i2v.jsonOut`, instead of relying on the field being literally named
+   `"output"`.
+
+96 -> 99 tests (2 new `native-t2a`/`segment` describe blocks in
+`result.test.ts`, existing `commands.test.ts` registry-count assertions
+updated 10 -> 12). `README.md`/`extensions/pi-ltx.ts` doc counts and command
+lists updated to match (also fixed a stale "no mp4 muxer yet" line for
+`native-i2v` — mp4 muxing shipped in an earlier pass and the README hadn't
+been updated).
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged

@@ -84,7 +84,7 @@ function validateOptionPaths(spec: CommandSpec, options: Record<string, unknown>
       if (!Array.isArray(v)) throw new PathSafetyError(`field "${key}" must be an array of paths`);
       for (const item of v) assertPathAllowed(String(item), roots, { kind: key, mustExist: true });
     } else {
-      const isOutput = key === "output";
+      const isOutput = key === "output" || field.isOutputPath === true;
       assertPathAllowed(String(v), roots, { kind: key, mustExist: !isOutput });
     }
   }

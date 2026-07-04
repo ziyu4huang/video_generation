@@ -17,6 +17,14 @@ export interface GateEntry {
   [key: string]: unknown;
 }
 
+export interface SceneEntry {
+  sceneNum: number;
+  startFrame: number;
+  endFrame: number;
+  frames: number;
+  durationSec: number;
+}
+
 export interface LtxDetails {
   ok: boolean;
   command: string;
@@ -32,6 +40,8 @@ export interface LtxDetails {
   gate: "PASS" | "WARN" | "FAIL" | null;
   gateResults?: GateEntry[];
   verify?: { meanOverall: number; worstOverall: number; pass: boolean };
+  /** `segment`: detected scene cuts, in order. */
+  scenes?: SceneEntry[];
   /** Raw stdout, always present, truncated in `summarize()` but kept whole here. */
   stdout: string;
 }
@@ -277,6 +287,61 @@ function buildVerifyDetails(res: InvokeResult): LtxDetails {
   };
 }
 
+/** `native-t2a`: "audio: <path>" + wall time, no video at all. */
+function buildNativeT2ADetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const audio = firstMatchLine(stdout, /audio:\s*(\S+)/);
+  return {
+    ok,
+    command: "native-t2a",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: audio,
+    extraOutputs: {},
+    width: null,
+    height: null,
+    wallSeconds: parseWallSeconds(stdout),
+    gate: null,
+    stdout,
+  };
+}
+
+/** `segment`: scene-cut detection — no generation, output is the optional --json report path. */
+function buildSegmentDetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const dims = firstMatch(stdout, /\[segment\]\s*\d+ frames,\s*(\d+)[×x](\d+)/);
+  const jsonReport = firstMatchLine(stdout, /\[segment\] JSON report:\s*(\S+)/);
+  const scenes: SceneEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/Scene (\d+): frames (\d+)-(\d+) \((\d+) frames, ([\d.]+)s\)/);
+    if (m) {
+      scenes.push({
+        sceneNum: Number(m[1]),
+        startFrame: Number(m[2]),
+        endFrame: Number(m[3]),
+        frames: Number(m[4]),
+        durationSec: Number(m[5]),
+      });
+    }
+  }
+  return {
+    ok,
+    command: "segment",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: jsonReport,
+    extraOutputs: {},
+    width: dims ? Number(dims[1]) : null,
+    height: dims ? Number(dims[2]) : null,
+    wallSeconds: null,
+    gate: null,
+    scenes,
+    stdout,
+  };
+}
+
 /** `audio-decode` / `video-decode`: "Wrote ... to <path> — 100% native Swift/MLX...". */
 function buildDecodeDetails(command: "audio-decode" | "video-decode", res: InvokeResult): LtxDetails {
   const ok = res.exitCode === 0 && !res.aborted;
@@ -322,6 +387,10 @@ export function buildDetails(command: string, res: InvokeResult): LtxDetails {
       return buildNativeI2VDetails(res);
     case "native-upscale":
       return buildNativeUpscaleDetails(res);
+    case "native-t2a":
+      return buildNativeT2ADetails(res);
+    case "segment":
+      return buildSegmentDetails(res);
     case "t2i":
       return buildT2IDetails(res);
     case "i2v":
@@ -359,6 +428,12 @@ export function summarize(d: LtxDetails): string {
   }
   if (d.command === "models") {
     return `models ok:\n${d.stdout.trim().split("\n").slice(0, 30).join("\n")}`;
+  }
+  if (d.command === "segment" && d.scenes) {
+    const list = d.scenes
+      .map((s) => `  Scene ${s.sceneNum}: frames ${s.startFrame}-${s.endFrame} (${s.frames} frames, ${s.durationSec}s)`)
+      .join("\n");
+    return `segment: ${d.scenes.length} scene(s) detected${d.output ? ` (report: ${d.output})` : ""}\n${list}`;
   }
   const dims = d.width && d.height ? ` ${d.width}x${d.height}` : "";
   const gateStr = d.gate ? ` gate ${d.gate}` : "";

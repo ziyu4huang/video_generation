@@ -99,6 +99,55 @@ describe("buildDetails: native-upscale", () => {
   });
 });
 
+describe("buildDetails: native-t2a", () => {
+  test("output points at the wav; no dims, wallSeconds parsed", () => {
+    const stdout = `→ native T2A (no run.py, no video): 96 virtual frames @ 25.0fps, transformer=distilled
+
+✅ wall time: 4.2s
+   audio: /tmp/t2a/audio.wav
+   100% native Swift/MLX — zero run.py calls, zero video generated.
+`;
+    const d = buildDetails("native-t2a", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/t2a/audio.wav");
+    expect(d.wallSeconds).toBe(4.2);
+    expect(d.width).toBeNull();
+  });
+});
+
+describe("buildDetails: segment", () => {
+  const stdout = `[segment] clip.mp4
+[segment] Threshold: 0.4, min frames: 8
+[segment] Detecting scene changes...
+[segment] 360 frames, 448×704, 24.0fps
+[segment] Detected 2 scene(s)
+
+  Scene 1: frames 0-199 (200 frames, 8.3s)
+  Scene 2: frames 200-359 (160 frames, 6.7s)
+
+[segment] JSON report: /tmp/seg/report.json
+`;
+
+  test("parses dims, scene list, and the JSON report path as output", () => {
+    const d = buildDetails("segment", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/seg/report.json");
+    expect(d.width).toBe(448);
+    expect(d.height).toBe(704);
+    expect(d.scenes).toEqual([
+      { sceneNum: 1, startFrame: 0, endFrame: 199, frames: 200, durationSec: 8.3 },
+      { sceneNum: 2, startFrame: 200, endFrame: 359, frames: 160, durationSec: 6.7 },
+    ]);
+  });
+
+  test("output is null when no --json path was given", () => {
+    const noJson = stdout.replace(/\n\[segment\] JSON report:.*\n/, "\n");
+    const d = buildDetails("segment", ok(noJson));
+    expect(d.output).toBeNull();
+    expect(d.scenes?.length).toBe(2);
+  });
+});
+
 describe("buildDetails: t2i", () => {
   test("parses the Wrote <path> line", () => {
     const stdout = `Generating natively (ZImageDirector in-process, no run.py)...
