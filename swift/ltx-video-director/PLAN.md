@@ -2348,6 +2348,43 @@ top of the core chaining that's now landed and verified. Each segment
 must run at the same resolution (inherent to feeding one segment's last
 frame as the next's `--input-image`, which requires an exact size match).
 
+## Milestone: `native-relay --relay-audio` custom audio overlay (2026-07-05)
+
+Follow-up to the `native-relay` milestone above — picks up the first item
+of that milestone's "still open" list. `VideoConcatenator.replaceAudioTrack`
+(new): builds an `AVMutableComposition` from the concatenated video's
+video track + a user-supplied audio file's audio track, exported the same
+way `concatenate` already is (factored the shared export logic into a
+private `_export` helper rather than duplicating it). Mirrors the Python
+version's default `--relay-audio-mode replace` only — `mix` (blend model
++ custom audio) and `keep` (explicit no-op) aren't ported, since `replace`
+is both the Python default and the simplest, most-requested case.
+AVFoundation decodes WAV/MP3/M4A/AAC natively, so this needed no new
+dependency to match the Python version's "any ffmpeg-supported format"
+claim.
+
+Wired into `NativeRelayStage.Request.audioOverlayPath` / `native-relay
+--relay-audio <path>`: when given, the concatenation step writes to an
+intermediate `relay_concat.mp4` instead of the final `relay.mp4`, then
+`replaceAudioTrack` produces the real `relay.mp4` from that. New tests,
+all using REAL (not mocked) mp4/wav files via the existing
+`MP4Writer`/`WAVWriter` — same convention as this package's other
+AVFoundation tests: `testReplaceAudioTrackAddsRealAudioToVideoOnlyClip`
+(a video-only clip gains a real audio track, and the output duration
+follows the shorter VIDEO track, not the longer supplied audio — proving
+the trim direction is correct) and `testReplaceAudioTrackMissingAudioThrowsNoAudioTrack`
+(a new `.noAudioTrack` error, not a generic crash, when the "audio" file
+has no audio track). Plus a fast `NativeRelayStageTests
+.testMissingAudioOverlayThrowsNamedError` fail-fast contract test. 7/7
+new+existing `VideoConcatenatorTests`/`NativeRelayStageTests` pass.
+
+Not re-run as a full real LTX generation this time — the expensive
+real-checkpoint proof for chaining+concatenation was already established
+by the previous milestone, and this increment only adds a post-processing
+step exercised end-to-end with real (non-mocked) media files in the new
+unit tests, which call the exact same `VideoConcatenator.replaceAudioTrack`
+function the CLI does.
+
 ## Milestone: `native-upscale --mode hd` restoration LoRA pair FOUND + verified (2026-07-05)
 
 Standing backlog item carried across several sessions — two prior search

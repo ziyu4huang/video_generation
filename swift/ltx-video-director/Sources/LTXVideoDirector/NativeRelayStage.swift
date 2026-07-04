@@ -13,9 +13,10 @@
 //
 //  Deliberately narrower than the Python version for this first cut (see
 //  PLAN.md's matching milestone for the full remaining-work writeup):
-//    - no custom audio track overlay/replace on the final concatenated
-//      output (WAVReader/AudioVAEEncoder exist for GENERATION-time audio
-//      conditioning, not for post-hoc mixing onto an already-muxed clip)
+//    - custom audio track overlay landed (Request.audioOverlayPath /
+//      VideoConcatenator.replaceAudioTrack), but only the Python version's
+//      default "replace" mode — "mix" (blend model + custom audio) and
+//      "keep" (explicit no-op) aren't ported
 //    - no TTS narration, no variant A/B comparison harness
 //    - each segment always runs at the SAME resolution (the "last frame of
 //      segment N becomes segment N+1's frame 0" invariant requires it,
@@ -28,11 +29,13 @@ public struct NativeRelayStage {
     public enum StageError: Error, CustomStringConvertible {
         case noSegments
         case firstImageNotFound(URL)
+        case audioOverlayNotFound(URL)
 
         public var description: String {
             switch self {
             case .noSegments: return "NativeRelayStage: at least one segment prompt is required"
             case .firstImageNotFound(let url): return "--relay-first-image not found at \(url.path)"
+            case .audioOverlayNotFound(let url): return "--relay-audio not found at \(url.path)"
             }
         }
     }
@@ -55,12 +58,21 @@ public struct NativeRelayStage {
         public var t2iTransformer: String
         public var textMaxLength: Int
         public var loraPaths: [(path: URL, strength: Float)]
+        /// Custom audio track that REPLACES the final concatenated video's
+        /// audio entirely (mirrors the Python version's default
+        /// `--relay-audio-mode replace`; `mix`/`keep` aren't ported — see
+        /// this file's header). Any AVFoundation-decodable format (WAV,
+        /// MP3, M4A, AAC — no ffmpeg dependency). Trimmed to the final
+        /// video's duration if longer; only the covered span is replaced
+        /// if shorter.
+        public var audioOverlayPath: URL?
 
         public init(
             prompts: [String], firstImagePath: URL? = nil, seconds: Double = 2.0, fps: Double = 24.0,
             width: Int = 640, height: Int = 960, seed: UInt64 = 42,
             t2iTransformer: String = "moody-pro-mix", textMaxLength: Int = 128,
-            loraPaths: [(path: URL, strength: Float)] = []
+            loraPaths: [(path: URL, strength: Float)] = [],
+            audioOverlayPath: URL? = nil
         ) {
             self.prompts = prompts
             self.firstImagePath = firstImagePath
@@ -72,6 +84,7 @@ public struct NativeRelayStage {
             self.t2iTransformer = t2iTransformer
             self.textMaxLength = textMaxLength
             self.loraPaths = loraPaths
+            self.audioOverlayPath = audioOverlayPath
         }
     }
 
@@ -88,6 +101,11 @@ public struct NativeRelayStage {
         if let firstImagePath = request.firstImagePath {
             guard FileManager.default.fileExists(atPath: firstImagePath.path) else {
                 throw StageError.firstImageNotFound(firstImagePath)
+            }
+        }
+        if let audioOverlayPath = request.audioOverlayPath {
+            guard FileManager.default.fileExists(atPath: audioOverlayPath.path) else {
+                throw StageError.audioOverlayNotFound(audioOverlayPath)
             }
         }
 
@@ -124,9 +142,18 @@ public struct NativeRelayStage {
             segmentVideoURLs.append(segMP4)
         }
 
-        let finalURL = outputDir.appendingPathComponent("relay.mp4")
-        print("[relay] concatenating \(segmentVideoURLs.count) segment(s) -> \(finalURL.lastPathComponent)")
-        try VideoConcatenator.concatenate(segmentVideoURLs, to: finalURL)
+        let concatenatedURL = outputDir.appendingPathComponent(
+            request.audioOverlayPath != nil ? "relay_concat.mp4" : "relay.mp4")
+        print("[relay] concatenating \(segmentVideoURLs.count) segment(s) -> \(concatenatedURL.lastPathComponent)")
+        try VideoConcatenator.concatenate(segmentVideoURLs, to: concatenatedURL)
+
+        var finalURL = concatenatedURL
+        if let audioOverlayPath = request.audioOverlayPath {
+            let overlaidURL = outputDir.appendingPathComponent("relay.mp4")
+            print("[relay] overlaying custom audio (replace): \(audioOverlayPath.lastPathComponent)")
+            try VideoConcatenator.replaceAudioTrack(videoURL: concatenatedURL, audioURL: audioOverlayPath, to: overlaidURL)
+            finalURL = overlaidURL
+        }
 
         return Result(segmentResults: segmentResults, segmentVideoURLs: segmentVideoURLs, finalVideoURL: finalURL)
     }

@@ -40,4 +40,20 @@ final class NativeRelayStageTests: XCTestCase {
             }
         }
     }
+
+    func testMissingAudioOverlayThrowsNamedError() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball on a table"])
+        request.audioOverlayPath = FileManager.default.temporaryDirectory.appendingPathComponent("does_not_exist_\(UUID().uuidString).wav")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_missing_audio_overlay_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeRelayStage.StageError else {
+                XCTFail("expected StageError, got \(error)")
+                return
+            }
+            if case .audioOverlayNotFound = stageError {} else {
+                XCTFail("expected .audioOverlayNotFound, got \(stageError)")
+            }
+        }
+    }
 }
