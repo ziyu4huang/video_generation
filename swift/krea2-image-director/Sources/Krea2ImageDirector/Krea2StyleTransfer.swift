@@ -27,6 +27,30 @@ import MLXRandom
 /// All fields have package defaults; the CLI / sweep overrides individual knobs
 /// via the memberwise init so a `Krea2StyleDefaults()` with no args == the
 /// ComfyUI recommended preset.
+/// Reference-Forecast cache integrator (upstream `rf_mode`, Gap 3).
+/// - `flowturboPC`: Heun predictor-corrector + γ-blended linear prior (default,
+///   faithful to ComfyUI `_flowturbo_pc_internal`).
+/// - `rfGamma`: plain single-Euler + γ-blend. Equivalent to the legacy `fastRF`
+///   shortcut; one model call per sigma (half the cost of flowturboPC).
+/// - `rfGammaRK2`: explicit midpoint (RK2) — k1 at lastSigma, k2 at the midpoint,
+///   full step on k2. Two model calls per sigma like flowturboPC but a different
+///   quadrature.
+/// - `linear`: pure linear prior `(1-σ)·refClean + σ·eps`, NO model call (fastest;
+///   the ref trajectory is just an interpolation — a diagnostic/baseline mode).
+public enum RFMode: String, CaseIterable {
+    case flowturboPC = "flowturbo_pc"
+    case rfGamma = "rf_gamma"
+    case rfGammaRK2 = "rf_gamma_rk2"
+    case linear = "linear"
+
+    /// Back-compat: the legacy `fastRF=true` flag means "single-Euler + γ-blend",
+    /// which is exactly `rfGamma`. Resolve the effective mode so old callers keep
+    /// their behavior when `rfMode` is left at the default.
+    public static func resolve(_ rfMode: RFMode, fastRF: Bool) -> RFMode {
+        (fastRF && rfMode == .flowturboPC) ? .rfGamma : rfMode
+    }
+}
+
 public struct Krea2StyleDefaults {
     public var styleStrength: Float
     public var valueAdainStrength: Float
@@ -39,6 +63,7 @@ public struct Krea2StyleDefaults {
     public var lowScaleStart: Float
     public var lowScaleEnd: Float
     public var adainStrength: Float          // Q/K cross-batch AdaIN (upstream recommended 0.85)
+    public var rfMode: RFMode                // RF-cache integrator (upstream rf_mode; Gap 3)
     public var activeBlocks: ClosedRange<Int>
 
     public init(styleStrength: Float = 1.0, valueAdainStrength: Float = 0.65,
@@ -47,6 +72,7 @@ public struct Krea2StyleDefaults {
                 highScaleStart: Float = 1.04, highScaleEnd: Float = 0.0,
                 lowScaleStart: Float = 1.0, lowScaleEnd: Float = 1.10,
                 adainStrength: Float = 0.85,
+                rfMode: RFMode = .flowturboPC,
                 activeBlocks: ClosedRange<Int> = 7...27) {
         self.styleStrength = styleStrength
         self.valueAdainStrength = valueAdainStrength
@@ -56,6 +82,7 @@ public struct Krea2StyleDefaults {
         self.highScaleStart = highScaleStart; self.highScaleEnd = highScaleEnd
         self.lowScaleStart = lowScaleStart; self.lowScaleEnd = lowScaleEnd
         self.adainStrength = adainStrength
+        self.rfMode = rfMode
         self.activeBlocks = activeBlocks
     }
 }
@@ -128,7 +155,7 @@ public extension Krea2Engine {
 
         // ── (1) Reference-Forecast cache: integrate refClean forward through
         //    each sigma with the base model velocity (Heun PC, γ=0.5).
-        print("[4/6] RF cache (Heun PC, γ=\(d.gamma))...", terminator: " ")
+        print("[4/6] RF cache (\(RFMode.resolve(d.rfMode, fastRF: fastRF).rawValue), γ=\(d.gamma))...", terminator: " ")
         let rfT0 = Date()
         let eps = MLXRandom.normal([1, 16, Hl, Wl])                       // fixed noise for the prior
         var refCache: [Float: MLXArray] = [:]
@@ -139,33 +166,48 @@ public extension Krea2Engine {
         let ascending = ts.filter { $0 > 1e-6 }.sorted()
         refCache[0.0] = refClean
         var lastSigma = prevSigma
+        // Effective RF integrator (legacy fastRF=true → rfGamma back-compat).
+        let rfMode = RFMode.resolve(d.rfMode, fastRF: fastRF)
         for sigma in ascending {
-            let (imgS2, _, _) = Krea2Sampler.prepare(
-                noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
-            let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]),
-                             pos: pos1, mask: mask1, cachedCtx: ctx1)
             // Euler step from lastSigma → sigma (delta = sigma - lastSigma).
             let delta = sigma - lastSigma
-            // Predict z at sigma via the model velocity (latent-space Euler).
-            // v0 is a token-space velocity; unpatchify → latent → step.
-            let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
-                                    delta: delta)
-            // Heun predictor-corrector (default, faithful to ComfyUI) vs single-
-            // Euler fast path (halves RF cost; `fastRF`). Both feed the same
-            // γ-blend with the linear prior. fastRF changes the cached ref
-            // trajectory but NOT strength=0 (the cache is unused at mix=0).
-            let zModel: MLXArray
-            if fastRF {
-                zModel = zPred
-            } else {
-                let (imgE2, _, _) = Krea2Sampler.prepare(
-                    noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
-                let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
-                                 pos: pos1, mask: mask1, cachedCtx: ctx1)
-                zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
-                                    patch: patch, delta: delta)
-            }
             let zPrior = (1.0 - sigma) * refClean + sigma * eps
+            // The RF cache feeds ONLY the styled path's ref_noisy, which mix=0
+            // discards at strength=0 — so rfMode never affects the corruption gate.
+            let zModel: MLXArray
+            if rfMode == .linear {
+                zModel = zPrior                                  // pure prior, no model call
+            } else {
+                let (imgS2, _, _) = Krea2Sampler.prepare(
+                    noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]),
+                                 pos: pos1, mask: mask1, cachedCtx: ctx1)
+                // Predict z at sigma via the model velocity (latent-space Euler).
+                let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
+                                       delta: delta)
+                switch rfMode {
+                case .rfGamma:
+                    zModel = zPred                               // single-Euler + γ-blend
+                case .rfGammaRK2:
+                    // Midpoint RK2: k1=v0@lastSigma; zMid = z+0.5·δ·v0; k2=vMid@mid; full step on k2.
+                    let midSigma = 0.5 * (lastSigma + sigma)
+                    let zMid = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
+                                          delta: 0.5 * delta)
+                    let (imgMid, _, _) = Krea2Sampler.prepare(
+                        noise: zMid, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                    let vMid = baseDit(img: imgMid, context: context1, t: MLXArray([midSigma]),
+                                       pos: pos1, mask: mask1, cachedCtx: ctx1)
+                    zModel = latentStep(z, vMid, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch,
+                                        delta: delta)
+                case .flowturboPC, .linear:   // .linear handled above; .flowturboPC = Heun PC
+                    let (imgE2, _, _) = Krea2Sampler.prepare(
+                        noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                    let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]),
+                                     pos: pos1, mask: mask1, cachedCtx: ctx1)
+                    zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl,
+                                        patch: patch, delta: delta)
+                }
+            }
             z = MLXArray(d.gamma) * zModel + (1.0 - d.gamma) * zPrior
             MLX.eval(z)
             refCache[sigma] = z
