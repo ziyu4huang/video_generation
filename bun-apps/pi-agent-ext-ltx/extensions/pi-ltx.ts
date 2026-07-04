@@ -2,7 +2,7 @@
  * pi-ltx — wraps the `swift/ltx-video-director` CLI (ltx-video) as ONE
  * agent-optimized tool.
  *
- * Design: a single `ltx` dispatcher. The agent picks `command` (one of 10
+ * Design: a single `ltx` dispatcher. The agent picks `command` (one of 12
  * ltx-video subcommands) and passes typed `options` (camelCase keys). The
  * tool:
  *   - resolves / auto-builds the Swift binary,
@@ -104,7 +104,7 @@ function makeLtxTool() {
     label: "LTX Video Director",
     description: buildDescription(),
     promptSnippet:
-      "Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, 10 subcommands; " +
+      "Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, 12 subcommands; " +
       "chain via details.output / details.extraOutputs.",
     parameters: Type.Object({
       command: COMMAND_ENUM,
