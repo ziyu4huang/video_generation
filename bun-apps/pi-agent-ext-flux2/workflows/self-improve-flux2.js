@@ -45,7 +45,7 @@
 export const meta = {
   name: "self_improve_flux2",
   description:
-    "Closed, bounded self-improve loop for flux2: generate → judge (pose_dsg/score) → on fail, reflect (failed_atoms → targeted prompt expansion) → retry via the engine gate(), seed-locked per attempt, best-so-far ranked comparatively by per-atom matrix. Appends winning exemplars. Propose-only — never auto-applies.",
+    "Closed, bounded self-improve loop for flux2. DEFAULT mode=best-of-N: generate → judge (pose_dsg/score) → retry on fail with a FRESH seed and BARE prompts, best-so-far ranked comparatively by per-atom matrix (seed sampling is the measured quality lever on flux2-klein; reflection has not been observed to beat it). mode=reflect (opt-in) injects the validator's failed-atom feedback into the next attempt's prompts. Bounded by the engine gate(): convergence early-exit + plateau-aware static exit. Appends winning exemplars. Propose-only — never auto-applies.",
   phases: [
     { title: "Resolve" },
     { title: "Loop" },
@@ -79,6 +79,26 @@ const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.few
 // 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. gemma-4-31b-qat)
 // analyzes them correctly. Injected into the run.py caption --model flag when set.
 const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
+
+// Loop MODE (measured verdict, goal 0704 §1). On flux2-klein, the loop's
+// reflection machinery does NOT beat single-shot best-of-N — seed sampling is
+// the quality lever (corr 0.96 with human pref, see [[klein-int8-local-models]]);
+// reflection's targeted prompt expansion could not fix the one defect it found
+// (fused fingers — a structural generation weakness, not a prompt-coverage gap).
+// So the DEFAULT mode is best-of-N: each attempt samples a fresh seed with BARE
+// prompts (no reflection feedback injected), and the winner is picked
+// comparatively by fewest failed_atoms — exactly best-of-N with a convergence
+// gate (early-exit on attempt 0) + plateau-aware bounded exit.
+//   "best-of-n" (default) — bare prompts, feedback ignored, seed varies per attempt
+//   "reflect"             — CURRENT-PRE-0704 behavior: validator's failed-atom
+//                          feedback is injected into the next attempt's prompts.
+// Reflection is retained (opt-in) for generators where defects may be
+// prompt-coverage gaps (untested on krea2 / non-distilled flux2).
+const MODE = (() => {
+  const m = String(a.mode || "best-of-n").trim().toLowerCase();
+  return m === "reflect" ? "reflect" : "best-of-n";
+})();
+const REFLECT = MODE === "reflect";
 
 const VENV_CANDIDATES = [
   REPO_ROOT + "/python/venv/bin/python",
@@ -119,7 +139,8 @@ const BASE_PROMPTS = POSE_MODE ? POSES.map((p) => p.prompt) : PROMPTS;
 
 log(
   "self-improve flux2: " + BASE_PROMPTS.length + " target(s), " + ATTEMPTS + " attempt(s) max, "
-  + (POSE_MODE ? "pose_dsg" : "score") + " judging, seedBase=" + SEED_BASE,
+  + (POSE_MODE ? "pose_dsg" : "score") + " judging, seedBase=" + SEED_BASE + ", mode=" + MODE
+  + (JUDGE_MODEL ? ", judge=" + JUDGE_MODEL : ""),
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -361,8 +382,14 @@ async function generateThenJudge(feedback, attempt) {
   // "self-generated in-context examples" loop (goal 0402 criterion #3). On later
   // attempts, feedback (reflection) drives the expansion as usual.
   const seeds = (attempt === 0 && FEWSHOT) ? BASE_PROMPTS.map((p, i) => (i === 0 ? FEWSHOT : p)) : BASE_PROMPTS;
-  // Expand each prompt with the feedback clause (reflection injection).
-  const expanded = feedback
+  // Expand each prompt with the feedback clause (reflection injection). ONLY in
+  // reflect mode — in best-of-n (the default, see MODE) feedback is ignored so
+  // each attempt is a BARE-prompt fresh-seed sample (seed sampling is the measured
+  // quality lever on flux2-klein; reflection has not been observed to beat it).
+  // The validator still computes `feedback` and the convergence/plateau gates
+  // still fire in both modes — only the prompt injection differs.
+  const injectFeedback = REFLECT && feedback;
+  const expanded = injectFeedback
     ? seeds.map((p) => p + " // " + feedback)
     : seeds.slice();
 
@@ -396,15 +423,29 @@ async function generateThenJudge(feedback, attempt) {
   const meanFaith = faiths.length ? faiths.reduce((s, x) => s + x, 0) / faiths.length : 0;
 
   // failedSignature: a stable string of WHAT failed (sorted failed atom ids +
-  // failed-score count), so the validator can detect a plateau (same failures
-  // across rounds). Empty string when nothing failed (a converged attempt has
-  // no plateau signature).
+  // failed-score count + unscored count), so the validator can detect a plateau
+  // (same failures across rounds). Empty string when nothing failed (a converged
+  // attempt has no plateau signature).
+  //
+  // The `unscored:N` token is CRITICAL: an unscored judgment (judge flake, 0-atom
+  // verdict) contributes no failed atom ids and no failed-score count, so WITHOUT
+  // this token its signature would be "" — and the validator's plateau guard
+  // `if (firstSig && ...)` short-circuits on empty, making the most common hard-
+  // pose failure mode (empty-atoms on multi-subject under a weak judge) BYPASS
+  // plateau and burn the full budget (measured 3/3 on L4-02/26b). Counting
+  // unscored judgments gives them a stable non-empty signature so repeated judge
+  // flakes are caught as a plateau. See goal 0704 §2 + memory
+  // self-improve-loop-plateau-blind-to-empty-atoms.
   const failedAtomIds = judgments
     .filter((j) => j.scored && j.style === "pose_dsg")
     .flatMap((j) => (j.failed_atoms || []).map((id) => (j.poseId || "") + ":" + id))
     .sort();
   const failedScoreCount = judgments.filter((j) => j.scored && j.style !== "pose_dsg" && (j.overall < THRESHOLDS.overall || j.artifacts < THRESHOLDS.artifacts)).length;
-  const failedSignature = failedAtomIds.concat(failedScoreCount ? ["score:" + failedScoreCount] : []).join("|");
+  const unscoredCount = judgments.filter((j) => !j.scored).length;
+  const failedSignature = failedAtomIds
+    .concat(failedScoreCount ? ["score:" + failedScoreCount] : [])
+    .concat(unscoredCount ? ["unscored:" + unscoredCount] : [])
+    .join("|");
 
   const entry = { attempt, seed: gen.seed, paths: outputs, judgments, poseMatrix, failedCount, meanFaith, ok: v.ok, reason: v.reason, failedSignature, expandedPrompt: expanded[0] || "" };
   trace.push(entry);
@@ -538,6 +579,7 @@ return {
   ok: converged,
   ext: "flux2",
   loop: true,
+  mode: MODE,
   attemptsUsed,
   maxAttempts: ATTEMPTS,
   converged,

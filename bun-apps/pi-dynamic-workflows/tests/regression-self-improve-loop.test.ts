@@ -102,6 +102,7 @@ const common = {
 type LoopResult = {
   ok: boolean;
   converged: boolean;
+  mode?: string;
   staticExit?: boolean;
   terminationReason?: string;
   needsReview: boolean;
@@ -379,6 +380,134 @@ describe("flux2 self-improve loop", () => {
     assert.equal(verdicts.length, 1);
     assert.equal(verdicts[0].scored, false, "empty-atoms verdict MUST be scored:false");
     assert.ok(/0 atoms/i.test(verdicts[0].error || ""), "error names the empty-atoms cause");
+  });
+
+  it("plateau catches REPEATED unscored (0-atom) attempts — does not burn the full budget", async () => {
+    // Real-silicon finding (goal 0704 §2 / memory
+    // self-improve-loop-plateau-blind-to-empty-atoms): the most common hard-pose
+    // failure mode under a weak multi-subject judge is empty-atoms (scored:false,
+    // unscored). Pre-fix, unscored → failedSignature "" → the `if (firstSig && ...)`
+    // guard short-circuited → plateau NEVER fired → the loop exhausted the full
+    // budget (measured 3/3 on L4-02/26b). The fix tags the signature with
+    // `unscored:N` so repeated judge flakes plateau like any other stuck signal.
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 5, seed: 300, consecutiveStatic: 2 },
+      agent: makeLoopMock({
+        // Every pose verdict returns ZERO atoms → judged scored:false (unscored)
+        // on every attempt, identically.
+        poseVerdicts: [{ anatomy_pass: false, faithfulness: 0, atoms: [] }],
+      }),
+    });
+    const r = result.result as LoopResult;
+
+    assert.equal(r.staticExit, true, "repeated unscored attempts MUST trip plateau");
+    assert.equal(r.terminationReason, "static");
+    assert.equal(r.converged, false);
+    assert.equal(r.needsReview, true);
+    assert.equal(r.attemptsUsed, 2, "halts after consecutiveStatic(2) identical unscored rounds");
+    assert.ok(r.attemptsUsed < 5, "must stop strictly before maxAttempts — the bug burned all 5");
+    // The unscored attempts surface as scored:false judgments on the winner.
+    const verdicts = r.winnerVerdict?.judgments ?? [];
+    assert.ok(
+      verdicts.some((v) => v.scored === false),
+      "unscored judgment is on the record",
+    );
+  });
+
+  it("mode=best-of-n (default): validator feedback is NOT injected into retry prompts (bare-prompt fresh-seed sampling)", async () => {
+    // Goal 0704 §1 verdict acted on: on flux2-klein, reflection does not beat
+    // best-of-N, so best-of-N is the DEFAULT. The validator still computes
+    // feedback (and convergence/plateau gates still fire), but generateThenJudge
+    // must NOT inject it — each attempt is a bare-prompt fresh-seed sample. The
+    // mock records every generation prompt so we can assert attempt 1's prompt
+    // carries NO "REFLECT on the previous attempt" clause.
+    const seen: string[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, seed: 42, mode: "best-of-n" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            seen.push(p);
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            // attempt 0 fails a2 (would produce reflection feedback), attempt 1 passes.
+            const call = seen.length; // generate calls so far ≈ attempt index+1
+            const pass = call >= 2;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 0.9 : 0.3,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(r.mode, "best-of-n");
+    assert.equal(r.converged, true, "converges on attempt 1");
+    // attempt 1's generation prompt (the retry) must be BARE — no reflection clause.
+    const retryPrompt = seen[1] ?? "";
+    assert.ok(retryPrompt.length > 0, "attempt 1 generation ran");
+    assert.ok(!/REFLECT on the previous attempt/.test(retryPrompt), "best-of-N must NOT inject reflection feedback");
+  });
+
+  it("mode=reflect (opt-in): validator feedback IS injected into retry prompts", async () => {
+    // Reflection is retained but opt-in. When mode=reflect, a failed attempt 0
+    // drives the validator's failed-atom feedback into attempt 1's prompt.
+    const seen: string[] = [];
+    const result = await runWorkflow(SOURCE, {
+      ...common,
+      args: { ...common.args, attempts: 3, seed: 42, mode: "reflect" },
+      agent: {
+        async run(prompt: string) {
+          const p = String(prompt ?? "");
+          if (/Generate one flux2 t2i PNG/.test(p)) {
+            seen.push(p);
+            return { ok: true, paths: ["/tmp/wf-loop-test/p0.png"], binaryReady: true, error: "" };
+          }
+          if (/Validate this generated pose/.test(p)) {
+            const call = seen.length;
+            const pass = call >= 2;
+            return {
+              ok: true,
+              path: "/tmp/wf-loop-test/p0.png",
+              poseId: POSE.id,
+              anatomy_pass: pass,
+              faithfulness: pass ? 0.9 : 0.3,
+              anatomy: { limb_count: true, hands: true, face: true, pose_plausible: pass },
+              atoms: [
+                { id: "a1", q: "x", present: true },
+                { id: "a2", q: "x", present: pass },
+              ],
+              issues: [],
+              rawTail: "",
+            };
+          }
+          return null;
+        },
+      },
+    });
+    const r = result.result as LoopResult;
+    assert.equal(r.mode, "reflect");
+    assert.equal(r.converged, true);
+    const retryPrompt = seen[1] ?? "";
+    assert.ok(retryPrompt.length > 0, "attempt 1 generation ran");
+    assert.ok(/REFLECT on the previous attempt/.test(retryPrompt), "reflect mode MUST inject the reflection clause");
+    assert.ok(/ABSENT/.test(retryPrompt), "reflection clause names the absent atom (failed-atom feedback)");
   });
 
   it("few-shot injection: args.fewShot seeds attempt 0's generation prompt", async () => {

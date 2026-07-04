@@ -17,6 +17,7 @@
 #   bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --attempts 5
 #   bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --pose-id L3-01 --seed 42
 #   bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --prompt "a red apple"   # non-pose
+#   bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --mode reflect           # opt-in reflection
 #   bash bun-apps/pi-agent/scripts/run-self-improve-loop.sh --dry-run                # print args, exit
 ########################################
 set -uo pipefail
@@ -44,6 +45,9 @@ WIDTH=768
 HEIGHT=768
 POSE_ID=""
 PROMPT=""
+MODE="best-of-n"
+JUDGE_MODEL=""
+CONSECUTIVE_STATIC=""
 DRY=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -54,13 +58,22 @@ while [ $# -gt 0 ]; do
     --height)   HEIGHT="$2";   shift 2;;
     --pose-id)  POSE_ID="$2";  shift 2;;
     --prompt)   PROMPT="$2";   shift 2;;
+    --mode)     MODE="$2";     shift 2;;
+    --judge-model) JUDGE_MODEL="$2"; shift 2;;
+    --consecutive-static) CONSECUTIVE_STATIC="$2"; shift 2;;
     --dry-run)  DRY=1;         shift;;
-    -h|--help)  sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown flag: $1" >&2; exit 2;;
   esac
 done
 
-ARGS="{\"repoRoot\":\"$REPO_ROOT\",\"attempts\":$ATTEMPTS,\"seed\":$SEED,\"steps\":$STEPS,\"width\":$WIDTH,\"height\":$HEIGHT,\"outDir\":\"$REPO_ROOT/../video_generation__output/wf-self-improve-flux2\""
+ARGS="{\"repoRoot\":\"$REPO_ROOT\",\"attempts\":$ATTEMPTS,\"seed\":$SEED,\"steps\":$STEPS,\"width\":$WIDTH,\"height\":$HEIGHT,\"mode\":\"$MODE\",\"outDir\":\"$REPO_ROOT/../video_generation__output/wf-self-improve-flux2\""
+if [ -n "$JUDGE_MODEL" ]; then
+  ARGS="$ARGS,\"judgeModel\":\"$JUDGE_MODEL\""
+fi
+if [ -n "$CONSECUTIVE_STATIC" ]; then
+  ARGS="$ARGS,\"consecutiveStatic\":$CONSECUTIVE_STATIC"
+fi
 
 if [ -n "$PROMPT" ]; then
   # Holistic-score loop (non-pose).
