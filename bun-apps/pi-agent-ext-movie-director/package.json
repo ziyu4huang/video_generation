@@ -1,0 +1,38 @@
+{
+  "name": "@repo/pi-agent-ext-movie-director",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi extension: the movie-director orchestration layer — an instruction-driven (agent-first) video production pipeline rewriter. Pure Bun orchestration (pipeline manifest loader, gate-enforced checkpoints, artifact schema validation, cost tracker, tool registry) consuming the swift/MLX native directors (krea2/flux2/ltx) + ffmpeg/cloud providers. Rewrite of OpenMontage's Python orchestration.",
+  "license": "MIT",
+  "keywords": ["pi-package", "movie-director", "orchestration", "pipeline", "video", "mlx", "swift", "openmontage"],
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*",
+    "./extensions/*": "./extensions/*"
+  },
+  "files": ["extensions", "src", "scripts", "data", "README.md"],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "scripts": {
+    "test": "bun test",
+    "check:schemas": "bun scripts/validate-data.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "latest",
+    "ajv": "latest",
+    "ajv-formats": "latest",
+    "yaml": "latest",
+    "typebox": "latest"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}
