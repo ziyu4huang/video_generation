@@ -184,9 +184,14 @@ public extension Krea2Engine {
             let tcurr = ts[i], tprev = ts[i + 1]
             // progress: 0 at noise start (tcurr≈1), 1 at clean (tcurr≈0).
             let progress = Float(i) / Float(max(ts.count - 2, 1))
+            // Upstream rescales the per-frequency scale endpoints by strength
+            // (nodes.py:1987-1989). Identity at strength=1.0; only diverges at
+            // partial strength. See `effectiveScaleEndpoints` for the gate analysis.
+            let (effHighStart, effLowEnd) = effectiveScaleEndpoints(
+                highStart: d.highScaleStart, lowEnd: d.lowScaleEnd, strength: strength)
             let scaleVec = styleScaleVec(progress: progress, beta: d.beta,
-                                         highStart: d.highScaleStart, highEnd: d.highScaleEnd,
-                                         lowStart: d.lowScaleStart, lowEnd: d.lowScaleEnd,
+                                         highStart: effHighStart, highEnd: d.highScaleEnd,
+                                         lowStart: d.lowScaleStart, lowEnd: effLowEnd,
                                          headDim: cfg.headDim)
             // Upstream rescales adain by strength (nodes.py effective_adain).
             let mix = max(0, min(1, strength))
@@ -247,6 +252,19 @@ public extension Krea2Engine {
                 .transposed(0, 3, 1, 4, 2, 5).reshaped([1, 16, Hl, Wl])
         }
         return z + MLXArray(0.5 * delta) * (unpatch(v0) + unpatch(v1))
+    }
+
+    /// Strength-rescaled per-frequency K-scale endpoints (nodes.py:1987-1989).
+    /// Only the high-start and low-end endpoints are rescaled; the other two are
+    /// passed through. Identity at strength=1.0 (so recommended-preset output is
+    /// byte-unchanged); dampens toward 1 at partial strength. At strength=0 both
+    /// endpoints collapse to 1, but the styled path is discarded by mix=0 anyway,
+    /// so the corruption gate (strength=0 byte-identical) holds.
+    static func effectiveScaleEndpoints(highStart: Float, lowEnd: Float,
+                                        strength: Float) -> (effHighStart: Float, effLowEnd: Float) {
+        let effHighStart = 1 + (highStart - 1) * Swift.min(strength, 1.5)
+        let effLowEnd = 1 + (lowEnd - 1) * strength
+        return (effHighStart, effLowEnd)
     }
 
     /// Per-frequency K scale vector over headDim. axes_dims = [hd-12*(hd/16),
