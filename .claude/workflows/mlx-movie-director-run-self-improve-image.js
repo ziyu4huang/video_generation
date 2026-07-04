@@ -333,6 +333,33 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   }
   return extract
 }
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  // Resolve the pi-agent-cli entry. Prefer the built dist binary when present
+  // (production), fall back to the workspace source (dev) — both accept the
+  // same zk-ingest subcommand.
+  const cli = await agent(
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
+
 
 log(`Resolved: PROJECT_ROOT=${PROJECT_ROOT}`)
 log(`  PYTHON:  ${PYTHON}`)
@@ -2009,6 +2036,7 @@ const _t2i_histEntry = {
 
 await saveHistory(_t2i_HIST_DIR, _t2i_INDEX_FILE, _t2i_histEntry, _t2i_signals)
 await extractKnowledge(KB_FILE, _t2i_RUN_TS, { ..._t2i_histEntry.result, fixAnalysis }, null)
+await publishKnowledge(KB_FILE, _WF_NAME)
 markPhase("persist", "completed")
 log(`History: ${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json`)
 
@@ -2050,3 +2078,4 @@ return {
   reviewHtml,
   history: { runId: _t2i_RUN_TS, path: `${_t2i_HIST_DIR}/${_t2i_RUN_TS}.json` },
 }
+
