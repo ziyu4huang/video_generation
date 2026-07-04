@@ -49,7 +49,10 @@ if __name__ == "__main__":
     model.update(mlx.utils.tree_unflatten(list(weights.items())))
     mx.eval(model.parameters())
 
-    tok = get_tokenizer(multilingual=True, language="zh", task="transcribe")
+    # num_languages=model.num_languages (100 for this checkpoint), not the
+    # tokenizer module's bare default of 99 — see
+    # WhisperTokenizer.languageCodesInOrder's header for why that matters.
+    tok = get_tokenizer(multilingual=True, num_languages=model.num_languages, language="zh", task="transcribe")
     ids = list(tok.sot_sequence_including_notimestamps)
     prompt_len = len(ids)
 

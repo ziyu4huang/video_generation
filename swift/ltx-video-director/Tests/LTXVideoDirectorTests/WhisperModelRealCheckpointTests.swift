@@ -9,20 +9,22 @@
 //  no RunPyBridge anywhere in this test. This is what ASRGate.swift will
 //  eventually call instead of bridging to `run.py video asr-gate`.
 //
-//  IMPORTANT finding: this port's naive greedy decode (no beam search, no
-//  temperature-fallback retries — see WhisperModel.swift's header) produces
-//  ", Hi, how are you?" for this clip's actual "嗨你好" audio — an ENGLISH
-//  translation, not a zh transcription, despite forcing the zh language
-//  token. Cross-checked against the REAL mlx_whisper.whisper.Whisper class
-//  running the IDENTICAL naive greedy strategy on the SAME real weights
-//  (scripts/dump_whisper_real_transcribe_reference.py) — Python produces
-//  the EXACT SAME generated token ids. This is not a Swift bug: it's what
-//  this real checkpoint's naive greedy decoding actually does on this
-//  short/ambiguous clip. mlx_whisper's own polished `transcribe()` (which
-//  this test does NOT reimplement) uses temperature-fallback retries +
-//  additional logit filters to get a better result — a real follow-up if
-//  this port needs production-quality output, not a correctness bug in
-//  what's implemented today. This test therefore asserts BIT-EXACT parity
+//  HISTORICAL finding (now resolved — see testTranscribesRealClipWithFallbackEndToEndNatively
+//  and WhisperDecoding.swift): this port's naive greedy decode used to
+//  produce ", Hi, how are you?" for this clip's actual "嗨你好" audio,
+//  cross-checked bit-identical against the REAL mlx_whisper.whisper.Whisper
+//  class running the SAME naive strategy. That turned out to be two
+//  compounding bugs, not an inherent limitation of naive greedy decoding:
+//  (1) `WhisperTokenizer.languageCodesInOrder` was missing "yue" (99
+//  entries instead of the real large-v3-mlx checkpoint's 100), which
+//  shifted `no_timestamps` and every other trailing special token id by
+//  one — feeding the decoder a subtly WRONG `<|notimestamps|>` token was
+//  enough to corrupt the output on this short/ambiguous clip; and (2) real
+//  `mlx_whisper.transcribe()` additionally uses temperature-fallback
+//  retries + the full SuppressBlank/SuppressTokens/ApplyTimestampRules
+//  filter stack, which `WhisperModel.transcribe` still doesn't implement
+//  (`transcribeWithFallback` does). Fixing (1) alone already corrected the
+//  naive decode below to "嗨你好" — this test asserts BIT-EXACT parity
 //  against the real reference, not "does it say something Chinese."
 //
 //  Real GPU work (full 32-layer/1280-dim/20-head transformer, encoder +
@@ -138,5 +140,41 @@ final class WhisperModelRealCheckpointTests: XCTestCase {
         // Bit-exact parity against real mlx_whisper.decoding.detect_language
         // on the same real weights/audio (scripts/dump_whisper_real_detect_language_reference.py).
         XCTAssertEqual(detected, expectedCode)
+    }
+
+    /// Closes the gap `testTranscribesRealClipEndToEndNatively` documents:
+    /// `transcribeWithFallback` (WhisperDecoding.swift) ports the REAL
+    /// `mlx_whisper.transcribe()` decode path — timestamps-allowed SOT +
+    /// full SuppressBlank/SuppressTokens/ApplyTimestampRules filter stack +
+    /// temperature-fallback retries — rather than the naive notimestamps
+    /// decode above. On this clip, T=0 already succeeds (no fallback
+    /// needed) and produces the CORRECT "嗨你好", unlike the naive decode's
+    /// garbage — asserted bit-exact (tokens, not just text) against the
+    /// real `DecodingTask.run` output (scripts/dump_whisper_decode_with_fallback_reference.py).
+    func testTranscribesRealClipWithFallbackEndToEndNatively() throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: checkpointPath), "large-v3-mlx checkpoint not cached at \(checkpointPath)")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: realClipPath), "real test clip not present at \(realClipPath)")
+        let refFile = refsDir("whisper_decode_with_fallback").appendingPathComponent("whisper_decode_with_fallback.json")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: refFile.path), "whisper_decode_with_fallback reference not dumped — run scripts/dump_whisper_decode_with_fallback_reference.py")
+        let refData = try Data(contentsOf: refFile)
+        guard let ref = try JSONSerialization.jsonObject(with: refData) as? [String: Any],
+              let expectedText = ref["text"] as? String,
+              let expectedTokens = ref["tokens"] as? [Int],
+              let expectedTemperature = ref["landed_temperature"] as? Double,
+              let expectedAvgLogprob = ref["avg_logprob"] as? Double,
+              let expectedNoSpeechProb = ref["no_speech_prob"] as? Double else {
+            XCTFail("could not parse whisper_decode_with_fallback.json"); return
+        }
+
+        let melBatched = try loadRealClipMel()
+        let model = try WhisperModel.load(checkpointPath: checkpointPath, nEncoderLayer: 32, nDecoderLayer: 32, nHead: 20)
+        let result = model.transcribeWithFallback(mel: melBatched, language: "zh")
+
+        print("native Swift fallback transcript:", result.text, "temperature:", result.temperature)
+        XCTAssertEqual(result.temperature, expectedTemperature)
+        XCTAssertEqual(result.tokens, expectedTokens)
+        XCTAssertEqual(result.text, expectedText)
+        XCTAssertEqual(result.avgLogprob, expectedAvgLogprob, accuracy: 1e-3)
+        XCTAssertEqual(result.noSpeechProb, expectedNoSpeechProb, accuracy: 1e-3)
     }
 }

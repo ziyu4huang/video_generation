@@ -12,23 +12,26 @@ import XCTest
 
 final class WhisperTokenizerTests: XCTestCase {
     func testSotSequenceMatchesRealTokenizerForEnglish() {
-        // python: get_tokenizer(multilingual=True, language="en", task="transcribe")
-        //   .sot_sequence_including_notimestamps == (50258, 50259, 50359, 50363)
-        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "en"), [50258, 50259, 50359, 50363])
+        // python: get_tokenizer(multilingual=True, num_languages=100, language="en", task="transcribe")
+        //   .sot_sequence_including_notimestamps == (50258, 50259, 50360, 50364)
+        // num_languages=100 (not the tokenizer module's bare default of 99)
+        // is what the real large-v3-mlx checkpoint's `Whisper.num_languages`
+        // actually is — see WhisperTokenizer.languageCodesInOrder's header.
+        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "en"), [50258, 50259, 50360, 50364])
     }
 
     func testSotSequenceMatchesRealTokenizerForChinese() {
-        // python: same call with language="zh" -> (50258, 50260, 50359, 50363)
+        // python: same call with language="zh" -> (50258, 50260, 50360, 50364)
         // This is the exact prefix python/mlx-movie-director's ASR gate implicitly
         // relies on when mlx_whisper transcribes with language=None (auto-detect)
         // and later checks detected_lang against zh — this is the token sequence
         // a forced-zh decode would use.
-        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "zh"), [50258, 50260, 50359, 50363])
+        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "zh"), [50258, 50260, 50360, 50364])
     }
 
     func testSotSequenceMatchesRealTokenizerForJapanese() {
-        // python: same call with language="ja" -> (50258, 50266, 50359, 50363)
-        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "ja"), [50258, 50266, 50359, 50363])
+        // python: same call with language="ja" -> (50258, 50266, 50360, 50364)
+        XCTAssertEqual(WhisperTokenizer.sotSequence(language: "ja"), [50258, 50266, 50360, 50364])
     }
 
     func testEndOfTextMatchesRealTokenizer() {
