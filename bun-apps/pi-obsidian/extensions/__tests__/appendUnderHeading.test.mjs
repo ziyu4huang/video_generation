@@ -63,6 +63,42 @@ describe("appendUnderHeading — existing heading", () => {
 	});
 });
 
+// Tag-MOC sections are conventionally headed `## #tag`, but the distill/garden
+// subagent passes the heading sometimes as `#tag` and sometimes as `tag`. The
+// match must be robust to that leading-'#' variance, else it creates duplicate
+// sections at end-of-file (the real-world Tags/Index.md duplicate-MOC bug).
+describe("appendUnderHeading — leading '#' normalization (tag-MOC)", () => {
+	it("heading 'tag' matches existing '## #tag' (no duplicate created)", async () => {
+		await writeNote("t/moc1.md", "# MOC\n\n## #architecture-pattern\n\n- [[First]]\n");
+		const res = await appendUnderHeading(vault, "t/moc1.md", "architecture-pattern", "- [[Second]]");
+		expect(res.insertedAt).toBe("heading");
+		const after = await readNote("t/moc1.md");
+		// appended into the existing section, not a new one
+		expect(after).toContain("- [[Second]]");
+		const headings = [...after.matchAll(/^## .+$/gm)].map((m) => m[0]);
+		expect(headings.filter((h) => h === "## #architecture-pattern").length).toBe(1);
+		expect(headings).not.toContain("## architecture-pattern");
+	});
+
+	it("heading '#tag' matches existing '## #tag'", async () => {
+		await writeNote("t/moc2.md", "# MOC\n\n## #obsidian\n\n- [[A]]\n");
+		const res = await appendUnderHeading(vault, "t/moc2.md", "#obsidian", "- [[B]]");
+		expect(res.insertedAt).toBe("heading");
+		const after = await readNote("t/moc2.md");
+		expect(after).toContain("- [[B]]");
+		const headings = [...after.matchAll(/^## .+$/gm)].map((m) => m[0]);
+		expect(headings.filter((h) => h === "## #obsidian").length).toBe(1);
+	});
+
+	it("heading '#tag' also matches a bare '## tag' section", async () => {
+		await writeNote("t/moc3.md", "# MOC\n\n## design\n\n- [[X]]\n");
+		const res = await appendUnderHeading(vault, "t/moc3.md", "#design", "- [[Y]]");
+		expect(res.insertedAt).toBe("heading");
+		const after = await readNote("t/moc3.md");
+		expect(after).toContain("- [[Y]]");
+	});
+});
+
 describe("appendUnderHeading — missing heading", () => {
 	it("appends a new ## section at the end when heading absent", async () => {
 		await writeNote("t/missing.md", "# Title\n\nbody line\n");

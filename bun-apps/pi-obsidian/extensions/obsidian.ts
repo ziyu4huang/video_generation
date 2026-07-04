@@ -2686,10 +2686,18 @@ export async function appendUnderHeading(
 	if (conflict) throw conflict;
 
 	const lines = existing.split("\n");
-	const headingRe = new RegExp(
-		`^#{1,6}\\s+${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`,
-		"i",
-	);
+	// Heading match tolerates a leading '#' on EITHER side: a tag-MOC section
+	// is conventionally headed `## #tag`, but callers (distill/garden subagents)
+	// pass the heading sometimes as `#tag` and sometimes as `tag`. Without
+	// normalization, the `tag` form fails to match an existing `## #tag` line
+	// (regex `^#{1,6}\s+tag$` vs literal `#tag`), `findIndex` returns -1, and a
+	// DUPLICATE section is created at end-of-file — the exact failure behind the
+	// duplicated `## #architecture-pattern` / `## #obsidian` MOC sections. Strip
+	// one leading '#' from the arg, then make the line's tag-'#' optional (`#?`).
+	// `## foo` and `## #foo` are the same tag section; merging them is correct.
+	const headingNorm = heading.replace(/^#/, "");
+	const headingEsc = headingNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const headingRe = new RegExp(`^#{1,6}\\s+#?${headingEsc}\\s*$`, "i");
 	const idx = lines.findIndex((l) => headingRe.test(l));
 
 	const block = content.endsWith("\n") ? content : content + "\n";
