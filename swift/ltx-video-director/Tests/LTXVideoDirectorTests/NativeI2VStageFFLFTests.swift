@@ -108,4 +108,88 @@ final class NativeI2VStageFFLFTests: XCTestCase {
             }
         }
     }
+
+    /// Regression for docs/reference/comfyui_workflows/README.md's
+    /// third-pass finding 3: the reference's `MultiImageLoader` auto-resizes
+    /// mismatched inputs (bicubic + center-crop) instead of rejecting them.
+    /// A solid-color image is deliberately used (not a real photo) because
+    /// resizing/cropping a UNIFORM color still yields that same uniform
+    /// color everywhere — so this test can reuse the same tight round-trip
+    /// tolerance as testLastFrameImageIsPreservedThroughGeneration despite
+    /// the extra resize step, isolating "did auto-resize even run" from
+    /// "does resizing introduce acceptable loss."
+    func testLastFrameAutoResizeAcceptsWrongSizeAndStillPreservesContent() throws {
+        guard checkpointsAvailable() else {
+            throw XCTSkip("real checkpoints not found — skipping FFLF integration test")
+        }
+        let resolved = ResolutionResolver.optimize(width: 320, height: 320)
+
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_fflf_autoresize_\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: outputDir) }
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+        let lastFrameURL = outputDir.appendingPathComponent("wrong_size.png")
+        // Deliberately wrong size + wrong aspect ratio (half width, same
+        // height) so both the resize AND the center-crop paths are exercised.
+        makeSolidColorPNG(width: max(32, resolved.width / 2), height: resolved.height, gray: 40, to: lastFrameURL)
+
+        var request = NativeI2VStage.Request(
+            prompt: "a woman smiles at the camera", seconds: 17.0 / 24.0,
+            width: resolved.width, height: resolved.height, textMaxLength: 8)
+        request.fps = 24.0
+        request.lastFrameImagePath = lastFrameURL
+        request.lastFrameAutoResize = true
+
+        // Should NOT throw .lastFrameImageWrongSize despite the mismatched input.
+        let result = try NativeI2VStage().generate(request, outputDir: outputDir)
+        XCTAssertGreaterThan(result.frameCount, 1)
+
+        let frameFiles = (try FileManager.default.contentsOfDirectory(atPath: result.frameDirectory.path)).sorted()
+        let lastDecodedURL = result.frameDirectory.appendingPathComponent(frameFiles.last!)
+        let decodedArr = FrameLoad.toArray(FrameLoad.loadCGImage(from: lastDecodedURL)!)
+        let targetGray = MLXArray(Float(40.0 / 255.0))
+        let meanAbsDiff = MLX.mean(MLX.abs(decodedArr - targetGray)).item(Float.self)
+        XCTAssertLessThan(meanAbsDiff, 0.04, "auto-resized last frame should still closely match the solid-color input (mean abs diff \(meanAbsDiff))")
+    }
+
+    /// Regression for the same finding's per-slot strength: strength < 1.0
+    /// should partially blend generated content with the pinned image
+    /// instead of hard-pinning it, i.e. the decoded last frame should
+    /// diverge MORE from the pinned solid color than the strength=1.0 case.
+    func testLastFrameStrengthBelowOneDivergesFromFullyPinnedResult() throws {
+        guard checkpointsAvailable() else {
+            throw XCTSkip("real checkpoints not found — skipping FFLF integration test")
+        }
+        let resolved = ResolutionResolver.optimize(width: 320, height: 320)
+        let gray: UInt8 = 40
+        let targetGray = MLXArray(Float(gray) / 255.0)
+
+        func decodedLastFrameDiff(strength: Float, label: String) throws -> Float {
+            let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_i2v_fflf_strength_\(label)_\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: outputDir) }
+            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            let lastFrameURL = outputDir.appendingPathComponent("last_frame_input.png")
+            makeSolidColorPNG(width: resolved.width, height: resolved.height, gray: gray, to: lastFrameURL)
+
+            var request = NativeI2VStage.Request(
+                prompt: "a woman smiles at the camera", seconds: 17.0 / 24.0,
+                width: resolved.width, height: resolved.height, textMaxLength: 8)
+            request.fps = 24.0
+            request.lastFrameImagePath = lastFrameURL
+            request.lastFrameStrength = strength
+
+            let result = try NativeI2VStage().generate(request, outputDir: outputDir)
+            let frameFiles = (try FileManager.default.contentsOfDirectory(atPath: result.frameDirectory.path)).sorted()
+            let lastDecodedURL = result.frameDirectory.appendingPathComponent(frameFiles.last!)
+            let decodedArr = FrameLoad.toArray(FrameLoad.loadCGImage(from: lastDecodedURL)!)
+            return MLX.mean(MLX.abs(decodedArr - targetGray)).item(Float.self)
+        }
+
+        let fullStrengthDiff = try decodedLastFrameDiff(strength: 1.0, label: "full")
+        let zeroStrengthDiff = try decodedLastFrameDiff(strength: 0.0, label: "zero")
+
+        XCTAssertLessThan(fullStrengthDiff, 0.04, "strength=1.0 should match the existing fully-pinned behavior")
+        XCTAssertGreaterThan(zeroStrengthDiff, fullStrengthDiff,
+            "strength=0.0 (fully generated, no pinning) should diverge from the solid-color target more than strength=1.0 (fully pinned: \(fullStrengthDiff), unpinned: \(zeroStrengthDiff))")
+    }
 }

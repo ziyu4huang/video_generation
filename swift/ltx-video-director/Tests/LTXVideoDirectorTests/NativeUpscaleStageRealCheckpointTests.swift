@@ -136,4 +136,130 @@ final class NativeUpscaleStageRealCheckpointTests: XCTestCase {
             }
         }
     }
+
+    /// True N-stage cascade (docs/reference/comfyui_workflows/README.md's
+    /// second pass, "True N-stage cascade" finding): a SECOND upscale+refine
+    /// pass chained after the first, mirroring the reference 3-stage FFLF
+    /// workflow's Stage #3. Uses `.x2Again` (reuses the already-verified x2
+    /// checkpoint a second time) rather than `.x1_5` here since this test
+    /// only needs to prove the CASCADE mechanism is wired — the x1_5
+    /// checkpoint's own correctness has its own dedicated parity test
+    /// (LatentUpsamplerX1_5RealCheckpointParityTests).
+    func testGenerateWithSecondStageCascadeProducesQuadrupleResolution() throws {
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        let vaeDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
+        let upsamplerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/spatial_upscaler_x2_v1_1.safetensors")
+        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
+        let audioVAEURL = RepoPaths.mlxModelsRoot.appendingPathComponent("audio/ltx-2.3-audio/audio_vae.safetensors")
+        for url in [vaeEncoderURL, vaeDecoderURL, upsamplerURL, transformerURL, audioVAEURL] {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw XCTSkip("checkpoint not found at \(url.path) — skipping cascade integration test")
+            }
+        }
+
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_cascade_input_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_cascade_output_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(13)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+
+        let audioURL = inputDir.appendingPathComponent("audio.wav")
+        let sampleCount = 16000
+        var tone = [Float](repeating: 0, count: sampleCount)
+        for i in 0..<sampleCount { tone[i] = Float(0.5 * sin(2.0 * Double.pi * 440.0 * Double(i) / 16000.0)) }
+        try WAVWriter.write(channels: [tone, tone], sampleRate: 16000, to: audioURL)
+
+        let result = try NativeUpscaleStage().generate(
+            inputFrameDirectory: inputDir, outputDir: outputDir,
+            refinePrompt: "a woman smiles at the camera", refineAudioURL: audioURL,
+            secondStage: .x2Again)
+
+        XCTAssertEqual(result.inputSize.width, 64)
+        XCTAssertEqual(result.inputSize.height, 64)
+        // 2x (stage 1) * 2x (cascaded second stage) = 4x total.
+        XCTAssertEqual(result.outputSize.width, 256)
+        XCTAssertEqual(result.outputSize.height, 256)
+        XCTAssertEqual(result.frameCount, 9)
+
+        guard let firstFrame = FrameLoad.loadCGImage(from: result.frameDirectory.appendingPathComponent("frame_0000.png")) else {
+            XCTFail("failed to read back written frame")
+            return
+        }
+        XCTAssertEqual(firstFrame.width, 256)
+        XCTAssertEqual(firstFrame.height, 256)
+    }
+
+    func testSecondStageWithoutRefineThrowsClearError() throws {
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_cascade_norefine_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_cascade_norefine_out_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(17)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generate(
+            inputFrameDirectory: inputDir, outputDir: outputDir, secondStage: .x1_5)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .secondStageNeedsRefine = stageError {} else {
+                XCTFail("expected .secondStageNeedsRefine, got \(stageError)")
+            }
+        }
+    }
+
+    /// `generateHD`'s restoration IC-LoRA files are user-downloaded,
+    /// gitignored external binaries (see mlx-models/lora/ltx-2.3-restore/
+    /// README.md) — not present in CI/dev environments without a manual
+    /// download. This exercises the ONE path fully reachable without them:
+    /// a clear, typed error naming the exact missing file, instead of a
+    /// generic crash deep in LoRAWeights.load — the same contract every
+    /// other checkpoint-gated stage in this package already guarantees
+    /// (videoEncoderCheckpointNotFound, transformerCheckpointNotFound, etc).
+    func testGenerateHDMissingLoraThrowsNamedError() throws {
+        let vaeEncoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_encoder.safetensors")
+        guard FileManager.default.fileExists(atPath: vaeEncoderURL.path) else {
+            throw XCTSkip("checkpoint not found at \(vaeEncoderURL.path) — skipping")
+        }
+        let restorationLoraURL = RepoPaths.mlxModelsRoot.appendingPathComponent("lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors")
+        guard !FileManager.default.fileExists(atPath: restorationLoraURL.path) else {
+            throw XCTSkip("restoration LoRA IS present in this environment — the missing-file path this test targets doesn't apply")
+        }
+
+        let inputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_\(UUID().uuidString)")
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_out_\(UUID().uuidString)")
+        let audioURL = FileManager.default.temporaryDirectory.appendingPathComponent("native_upscale_hd_audio_\(UUID().uuidString).wav")
+        try FileManager.default.createDirectory(at: inputDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: inputDir)
+            try? FileManager.default.removeItem(at: outputDir)
+            try? FileManager.default.removeItem(at: audioURL)
+        }
+        let pixels = MLXRandom.uniform(low: -1.0, high: 1.0, [1, 3, 9, 64, 64], key: MLXRandom.key(11)).asType(.float32)
+        MLX.eval(pixels)
+        _ = try PNGFrameWriter.writeFrames(pixels, to: inputDir)
+        try WAVWriter.write(channels: [[Float](repeating: 0, count: 1600)], sampleRate: 16000, to: audioURL)
+
+        XCTAssertThrowsError(try NativeUpscaleStage().generateHD(
+            inputFrameDirectory: inputDir, outputDir: outputDir, prompt: "a test prompt", audioURL: audioURL)
+        ) { error in
+            guard let stageError = error as? NativeUpscaleStage.StageError else {
+                XCTFail("expected StageError, got \(error)"); return
+            }
+            if case .restorationLoraNotFound = stageError {} else {
+                XCTFail("expected .restorationLoraNotFound, got \(stageError)")
+            }
+        }
+    }
 }

@@ -74,6 +74,36 @@ public enum FrameLoad {
         return (buf, width, height)
     }
 
+    /// Resize + center-crop to exactly `targetWidth`x`targetHeight`, matching
+    /// the reference ComfyUI FFLF workflows' `MultiImageLoader` convention
+    /// ("keep proportion" resize + center crop, bicubic/lanczos resampling —
+    /// see docs/reference/comfyui_workflows/README.md's third-pass finding
+    /// 3). Aspect-FILLS the target (scales so the shorter dimension covers
+    /// it, crops the overflow on the longer axis) rather than letterboxing,
+    /// same behavior as ComfyUI's node. `CGContext.interpolationQuality =
+    /// .high` is Core Graphics' bicubic-equivalent resampler.
+    public static func resizeAspectFillCenterCrop(_ cgImage: CGImage, targetWidth: Int, targetHeight: Int) -> CGImage {
+        let srcW = Double(cgImage.width), srcH = Double(cgImage.height)
+        let dstW = Double(targetWidth), dstH = Double(targetHeight)
+        let scale = max(dstW / srcW, dstH / srcH)
+        let scaledW = srcW * scale, scaledH = srcH * scale
+        let originX = (scaledW - dstW) / 2.0
+        let originY = (scaledH - dstH) / 2.0
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue
+                                     | CGBitmapInfo.byteOrder32Big.rawValue)
+        guard let ctx = CGContext(
+            data: nil, width: targetWidth, height: targetHeight, bitsPerComponent: 8,
+            bytesPerRow: targetWidth * 4, space: colorSpace, bitmapInfo: bitmapInfo
+        ) else {
+            return cgImage
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(cgImage, in: CGRect(x: -originX, y: -originY, width: scaledW, height: scaledH))
+        return ctx.makeImage() ?? cgImage
+    }
+
     /// Save a CGImage as PNG (for VLM upload via CaptionClient, which reads files).
     @discardableResult
     public static func savePNG(_ cgImage: CGImage, to url: URL) -> Bool {

@@ -76,6 +76,10 @@ bun run build:bundle    # produce the single-file bundle
 `check:flags`. When the CLI adds/renames a flag, `check:flags` fails until `commands.ts` is
 updated.
 
+See [TODO.md](TODO.md) for open work on this wrapper (result-parsing gaps, error-surfacing,
+untested paths — not the underlying Swift CLI's own roadmap, which lives in
+`swift/ltx-video-director/PLAN.md`).
+
 ## Layout
 
 ```

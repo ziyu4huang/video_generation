@@ -1,3 +1,69 @@
+## T2A (pure text-to-audio) — LANDED (2026-07-04)
+
+New `native-t2a` command + `NativeT2AStage`, reusing existing audio VAE/Gemma
+text-encoder/DenoiseLoop infrastructure. Ported from the official Lightricks
+reference `docs/reference/comfyui_workflows/LTX-2.3_T2A_Single_Stage_Distilled.json`
+(`LTXVAudioOnlyModel` + `LTXVAudioOnlyEmptyVideoLatent`), found while
+investigating three RunningHub AI-app links whose own workflow JSON turned
+out to be paywalled behind a paid-group signup — see that README section for
+the full provenance chain. Read the model author's own `audio_only.py` +
+ComfyUI core `av_model.py` source directly (not guessed from widget values)
+to confirm the exact mechanism: `run_vx`/`a2v_cross_attn`/`v2a_cross_attn`
+transformer_options flags gate the ENTIRE video branch (self-attn + text
+cross-attn + FF) and both cross-modal directions, while a fixed (1,128,1,2,2)
+dummy video latent still threads through positionally (never attended to).
+
+Ported this as three new `runVideoStream`/`a2vCrossAttn`/`v2aCrossAttn`
+parameters on `BasicAVTransformerBlock.callAsFunction` (default `true`,
+zero behavior change for every existing caller), threaded through
+`LTXModel.callAsFunction`/`streamingForward` and `DenoiseLoop.runStreaming`
+as a single `audioOnly: Bool` flag. `NativeT2AStage` builds the dummy video
+latent + real audio noise, runs the same real 48-block distilled transformer
++ `SigmaSchedule.distilledSigmas` (confirmed byte-identical to the reference
+workflow's own `ManualSigmas` — no new schedule needed), and decodes ONLY
+the audio (dummy video output is discarded, never decoded).
+
+Verified real-checkpoint: `NativeT2AStageRealCheckpointTests
+.testGenerateProducesRealNonSilentAudio` — real WAV, dBFS computed directly
+from PCM samples (not trusting exit-code self-report), confirmed non-silent
+(-29.6dB mean / -8.5dB peak via an independent `ffmpeg volumedetect` check
+outside the test too). 4.5s wall time for a 3.85s clip. Full `swift test`
+run completed clean afterward: **132/132 pass** (130 -> 132, the 2 new T2A
+tests), 1 test skipped (expected — `LoRAFusionTests`' real-vendor-reference
+test, unrelated to this change), 0 failures, 1446.8s wall — confirms the new
+`runVideoStream`/`a2vCrossAttn`/`v2aCrossAttn` block parameters (all
+default-`true`) didn't regress any existing caller, including
+`BasicAVTransformerBlockParityTests`.
+
+## True N-stage upscale cascade — LANDED (2026-07-04)
+
+Closes the "True N-stage cascade" gap flagged open since the second
+ComfyUI-reference research pass (docs/reference/comfyui_workflows/
+README.md). `LatentUpsampler` gained the `spatial_x1_5` variant
+(`SpatialRationalResampler`: Conv2d -> pixelShuffle2D(3) ->
+blurDownsample2D(stride 2), real checkpoint blur kernel loaded from
+`upsampler.blur_down.kernel`, not recomputed) — verified real-checkpoint
+parity (max-abs-diff < 1e-3, 8→12 shape, passed first try). `NativeUpscaleStage
+.generate()` gained `secondStage: SecondStageUpscaler?` (`.x1_5` or
+`.x2Again`), chaining a second neural-upscale+refine pass entirely in
+latent space before the single final VideoDecoder call, mirroring the
+reference 3-stage FFLF workflow's Stage #3. Wired into both
+`native-upscale --second-stage x1.5|x2` and `native-i2v --second-stage
+x1.5|x2` (both off by default — existing default behavior unchanged).
+
+Verified real-checkpoint: `NativeUpscaleStageRealCheckpointTests
+.testGenerateWithSecondStageCascadeProducesQuadrupleResolution` (64x64 ->
+256x256, 2x*2x=4x total via `.x2Again`, real decoded output, correct frame
+count) + `testSecondStageWithoutRefineThrowsClearError` (fail-fast
+validation). Targeted suite run (`LatentUpsampler*`+`NativeUpscaleStage*`,
+8 tests): **8/8 pass, 0 failures**. Full from-scratch `swift test` runs
+were killed twice by the environment mid-run/mid-build with zero failures
+logged either time (background-process eviction under concurrent
+heavy-model contention — a known, previously-documented environment
+quirk, not a test failure) — relying on this direct, complete, unkilled
+targeted run instead. See docs/reference/comfyui_workflows/README.md's
+fifth pass for the full writeup.
+
 # ltx-video-director — porting plan
 
 Goal: port `python/mlx-movie-director/run.py video` (LTX-2.3 I2V + quality
@@ -1638,6 +1704,152 @@ seconds/resolution. The reference's per-segment `LTXSequencer` denoise
 schedule is really Stage #2/#3's UPSCALE-REFINE mechanism (separately
 scoped, still not implemented — see the "no refine pass" item above),
 not something FFLF itself required.
+
+## Research: ComfyUI reference workflows, second pass (2026-07-04)
+
+Re-reviewed the same 4 workflow JSONs under `docs/reference/comfyui_workflows/`
+against this package's CURRENT code (not the 2026-07-03 snapshot) — items 1/3/4/5
+from the first pass are now confirmed DONE (refine pass, `--lora` strength, FFLF,
+`--audio-track` masking all shipped since). Full findings in that directory's
+`README.md`'s new "Second pass" section; summary of what's still genuinely open:
+
+1. Only a single upscale+refine pass is ported — the reference's chainable
+   2-stage cascade (a second upscale at a *different* checkpoint, 1.5x vs 2x
+   total, with a bypass toggle) isn't. Bounded follow-up when >2x total upscale
+   is wanted in one command.
+2. **New finding, not previously captured**: reference pipelines load a
+   lightweight "tiny" preview VAE (`taeltx2_3.safetensors`) alongside the full
+   one, behind an "optimized decoding" toggle — this package has no fast-preview
+   decode path. Candidate for a `--preview-vae`-style flag.
+3. FFLF's 2-frame conditioning generalizes to N arbitrary keyframes in the
+   reference (`MultiImageLoader`/`LTXSequencer`, per-slot frame index + strength).
+   `VideoConditionByLatentIndex` already takes `frameIndices: [Int]` — no new
+   conditioning math needed, just `NativeI2VStage.Request` + CLI surface work.
+4. **`LTX_Director_2_Workflow_Hotfix.json`** (explicitly unanalyzed in the first
+   pass) is a full segment-timeline editor — `segments`/`motionSegments`/
+   `audioSegments` tracks plus a "retake" mechanism that re-denoises one
+   sub-range of an already-generated clip at a given prompt/strength. This is
+   the first real-production reference for scoping this repo's own
+   `run.py video segment`/`relay` commands' eventual native Swift port (see
+   [[project_ltx_swift_native_port]] memory) — the retake pattern maps to the
+   same `VideoConditionByLatentIndex` primitive already used for FFLF/audio,
+   applied to a mid-clip range instead of frame 0/last-frame.
+
+Nothing implemented this pass — pure scope-capture, explicitly to avoid
+re-discovering the same four files from scratch a third time.
+
+## Milestone: `MP4Writer` real audio+video deadlock found + fixed (2026-07-04)
+
+A user-directed live proof ("prove FFLF works" via the real `pi-agent` CLI +
+`ltx` tool — `t2i` → `t2i` → `native-i2v --last-frame`, real generation, no
+mocks) hung indefinitely: `video.mp4` stayed at 0 bytes for 15+ minutes at
+~0% CPU. `sample`'d the stuck process rather than guessing — the main
+thread was parked in `MP4Writer.write → appendVideoFrames`'s
+`isReadyForMoreMediaData` poll loop, having never once called `appendAudio`.
+
+Root cause: `write()` appended 100% of the video frames to completion
+before ever touching the audio input. AVAssetWriter throttles
+`isReadyForMoreMediaData` on whichever track outruns the other in
+presentation time, expecting both to be fed roughly in parallel — with
+audio sitting untouched at zero samples, video ran far enough ahead (a real
+~2s/49-frame 640×960 clip, unlike the 8-frame/1s synthetic clip the existing
+`MP4WriterTests.testWriteVideoWithAudio` used) to trip that throttle
+permanently.
+
+Fix: video and audio inputs now append **concurrently** — a `DispatchGroup`
+with one queue per track, not sequential video-then-audio. New regression
+test `testWriteVideoWithAudioAtRealisticScaleDoesNotDeadlock` (49 frames,
+320×480, duration-matched audio, wrapped in an `XCTestExpectation` with a
+60s timeout so a regression fails fast instead of hanging CI) passes in
+1.1s post-fix. `MP4WriterTests`: 4/4 pass.
+
+**Re-verified against the real, rebuilt release binary**, not just the unit
+test: reran the exact FFLF proof through the real `pi-agent` CLI end to end.
+Independent `ffprobe` (not the tool's own report): `h264 1280×1920, 49
+frames` / `aac, 97 frames` / `duration 2.041667s` (requested `--seconds
+2.0`) — both tracks present, valid container, matches requested duration.
+See `docs/TODO.md`'s matching entry for the full trace.
+
+**Scope**: silently affected *every* real `--mp4` output carrying audio at
+non-trivial scale (not FFLF-specific) — no error, no crash, just an
+unbounded hang, only surfaced by running a real generation at production
+scale rather than the tiny synthetic clips the original tests used.
+
+## Research: exhaustive function audit vs `LTX I2V FFLF Custom Audio Workflow ... V3.json` (2026-07-04)
+
+Driven by `/goal verify if we have implemented all function of the ComfyUI
+workflow`. Went node-by-node through one specific reference file (not a
+structural overview across all 4, like the first two ComfyUI research
+passes) and cross-checked every parameter against current Swift source.
+Full checklist in `docs/reference/comfyui_workflows/README.md`'s "Third
+pass" section; summary:
+
+Confirmed already correctly implemented: euler sampler, Stage #1's 8-step
+distilled schedule, the 2x latent upsampler + its checkpoint choice,
+`--lora path:strength`, the Gemma-3-12b encoder, both VAEs, custom-audio
+mask-preservation, FFLF frame-0/last-frame conditioning, the mp4 mux, and
+CFG=1 (implicit, since Swift has no negative-conditioning branch at all).
+
+Four newly-found gaps, not caught by the first two passes:
+1. `LTXSequencer`'s per-frame denoise-mask array in the upscale refine pass
+   isn't ported — `NativeUpscaleStage.refine()` uses one uniform mask, not
+   a per-segment strength schedule.
+2. A cheap `ImageScaleBy(bilinear, 0.5)` half-res guide/preview pass in the
+   reference's `Process Latents` stage has no Swift equivalent — unclear
+   yet whether it's a pure UI-preview convenience or feeds generation
+   quality.
+3. FFLF's per-slot conditioning strength, resize-mode, and crop-position
+   aren't ported — `NativeI2VStage` requires the last-frame image to
+   already be exactly `width`×`height` and hardcodes strength 1.0.
+4. `VAEDecodeTiled`'s spatial tile/overlap tiling is architecturally
+   different from this package's temporal-only tiling — not necessarily a
+   functional gap, but a different strategy worth knowing about.
+
+Also corrected a first-pass conflation: this V3 file has only Stage #1/#2
+(no Stage #3) and Stage #2 here runs 4 steps/shift 0.42, not the 6 steps
+quoted in the first pass's diagram — that 6-step figure belongs to the
+sibling 3-stage workflow, not this file.
+
+Nothing implemented this pass — pure verification, closing out the /goal
+with a definitive answer rather than a guess: most of this specific
+workflow's functionality IS covered; the four gaps above are the honest
+remainder.
+
+## Milestone: all four ComfyUI FFLF+Custom-Audio parity gaps closed (2026-07-04)
+
+`/goal solve this gaps`, closing out the third-pass audit's four findings:
+
+1. **FFLF per-slot strength + auto-resize** — `Request.lastFrameStrength`/
+   `lastFrameAutoResize`, chained conditioner calls (frame-0 and last-frame
+   are now independent `VideoConditionByLatentIndex` applications instead
+   of one shared-strength call), `FrameLoad.resizeAspectFillCenterCrop`.
+   New CLI flags `--last-frame-strength`/`--last-frame-auto-resize`. Two
+   new real-checkpoint tests, both pass (56.9s, 353.4s).
+2. **Half-res guide pass** — traced the actual link graph rather than
+   guessing from widget values: it's pure resolution auto-derivation
+   (base resolution = half the FFLF image's own size), not a quality pass.
+   Implemented as `--last-frame-derives-resolution`.
+3. **`LTXSequencer` "per-frame schedule"** — read the actual node source
+   (`ltx_sequencer.py`, not just JSON widgets): it's the same
+   `MultiImageLoader` keyframe mechanism, reused to re-pin FFLF frames
+   after upscale. The REAL gap it exposed: `NativeUpscaleStage.refine()`
+   had no re-pinning at all. Fixed with `preserveFirstAndLastFrame`,
+   wired from both `native-i2v` (automatic) and standalone
+   `native-upscale --preserve-first-last-frame`.
+4. **Spatial vs. temporal VAE-decode tiling** — confirmed NOT a gap:
+   `VideoTiling.swift`'s own header already documents that the vendor
+   reference's real auto-tiling is temporal-only; ComfyUI's spatial-tile
+   params are a manual override outside that auto path.
+
+Two of the four required going back to actual source (the ComfyUI custom
+node's Python file for #3, the workflow JSON's link topology rather than
+just widget values for #2) rather than accepting the first-pass audit's
+surface-level reading — both initial guesses (a mysterious per-frame
+refine schedule; a distinct quality/preview pass) were wrong, and the
+real underlying gaps were different from what they first appeared to be.
+
+Full writeup: `docs/reference/comfyui_workflows/README.md`'s "Fourth pass"
+section; `docs/TODO.md`'s matching entry.
 
 ## Explicitly NOT doing
 

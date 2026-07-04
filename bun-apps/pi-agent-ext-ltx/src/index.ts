@@ -69,7 +69,8 @@ const EXTRA_ARG_ALLOW = new Set<string>([
   "no-quality-check", "vlm-score", "no-vlm-score", "self-verify", "json-out",
   "scale", "keep-audio", "no-keep-audio", "json", "expect-voice",
   "no-expect-voice", "strict", "keyframes", "style", "threshold", "latent",
-  "zeros", "zeros-frames", "zeros-size",
+  "zeros", "zeros-frames", "zeros-size", "mp4", "no-mp4",
+  "restoration-lora", "upscale-lora",
 ]);
 
 /** Validate all path-typed fields (plain paths + path[:strength] specs) in options. */

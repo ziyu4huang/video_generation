@@ -78,6 +78,25 @@ describe("buildDetails: native-upscale", () => {
     expect(d.height).toBe(1920);
     expect(d.wallSeconds).toBe(1.8);
   });
+
+  test("hd mode: captures the intermediate [restoration] frames dir AND resolves output to the final upscaled dir", () => {
+    const stdout = `→ native upscale (no run.py): reading frames from in/ [hd mode]
+
+✅ wall time: 12.4s
+   640x960 -> 640x960
+   [restoration] 9 frames: /tmp/up/restored/frames
+
+✅ wall time: 1.8s
+   640x960 -> 1280x1920
+   9 frames: /tmp/up/frames
+   [mp4] muxed: /tmp/up/video.mp4
+   100% native Swift/MLX — zero run.py calls.
+`;
+    const d = buildDetails("native-upscale", ok(stdout));
+    expect(d.extraOutputs.restoredFrames).toBe("/tmp/up/restored/frames");
+    expect(d.extraOutputs.frames).toBe("/tmp/up/frames");
+    expect(d.output).toBe("/tmp/up/video.mp4");
+  });
 });
 
 describe("buildDetails: t2i", () => {

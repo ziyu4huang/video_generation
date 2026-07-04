@@ -103,18 +103,20 @@ function buildNativeI2VDetails(res: InvokeResult): LtxDetails {
   const framesDir = framesHits[0] ?? null;
   const upscaledFramesDir = framesHits.length > 1 ? framesHits[framesHits.length - 1] : null;
   const audio = firstMatchLine(stdout, /audio:\s*(\S+)/);
+  const mp4 = firstMatchLine(stdout, /\[mp4\] muxed:\s*(\S+)/);
   const dims = parseDims(stdout);
   return {
     ok,
     command: "native-i2v",
     exitCode: res.exitCode,
     aborted: res.aborted,
-    output: upscaledFramesDir ?? framesDir,
+    output: mp4 ?? upscaledFramesDir ?? framesDir,
     extraOutputs: {
       ...(sourceImage ? { sourceImage } : {}),
       ...(framesDir ? { frames: framesDir } : {}),
       ...(audio ? { audio } : {}),
       ...(upscaledFramesDir ? { upscaledFrames: upscaledFramesDir } : {}),
+      ...(mp4 ? { mp4 } : {}),
     },
     width: dims.width,
     height: dims.height,
@@ -129,14 +131,20 @@ function buildNativeUpscaleDetails(res: InvokeResult): LtxDetails {
   const ok = res.exitCode === 0 && !res.aborted;
   const stdout = res.stdout;
   const framesDir = lastMatch(stdout, /\d+ frames:\s*(\S+)/);
+  const restoredFrames = firstMatchLine(stdout, /\[restoration\]\s*\d+ frames:\s*(\S+)/);
+  const mp4 = firstMatchLine(stdout, /\[mp4\] muxed:\s*(\S+)/);
   const dims = parseDims(stdout);
   return {
     ok,
     command: "native-upscale",
     exitCode: res.exitCode,
     aborted: res.aborted,
-    output: framesDir,
-    extraOutputs: framesDir ? { frames: framesDir } : {},
+    output: mp4 ?? framesDir,
+    extraOutputs: {
+      ...(framesDir ? { frames: framesDir } : {}),
+      ...(restoredFrames ? { restoredFrames } : {}),
+      ...(mp4 ? { mp4 } : {}),
+    },
     width: dims.width,
     height: dims.height,
     wallSeconds: parseWallSeconds(stdout),

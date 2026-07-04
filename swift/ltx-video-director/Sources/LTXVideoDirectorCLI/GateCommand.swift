@@ -39,9 +39,20 @@ extension LTXVideoDirectorCLI {
             if json {
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                // VideoGateVerdict.meanDBFS is -.infinity for audio-less clips
+                // (see VideoGate.evaluate) — JSONEncoder's default strategy
+                // THROWS EncodingError.invalidValue on any non-finite Double,
+                // which `try? encoder.encode($0)` below then silently
+                // swallowed into the misleading "could not read/probe video"
+                // reason (confirmed via a real A/B upscale run: a genuinely
+                // valid, ffprobe-readable video-only mp4 from native-upscale
+                // reported this exact false error). Encoding -inf as a string
+                // keeps the verdict itself intact instead of losing it.
+                encoder.nonConformingFloatEncodingStrategy = .convertToString(
+                    positiveInfinity: "inf", negativeInfinity: "-inf", nan: "nan")
                 var arr: [[String: Any]] = []
                 for (path, v) in verdicts {
-                    if let data = v.flatMap({ try? encoder.encode($0) }),
+                    if let v, let data = try? encoder.encode(v),
                        var obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
                         obj["path"] = path
                         arr.append(obj)

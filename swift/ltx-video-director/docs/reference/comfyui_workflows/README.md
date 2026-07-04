@@ -19,6 +19,45 @@ All four use ComfyUI's subgraph feature (`definitions.subgraphs`) — the
 top-level `nodes` array is mostly subgraph *instances* (referenced by UUID
 `type`), so the real pipeline structure lives in `definitions.subgraphs`.
 
+## Official Lightricks reference workflows (added 2026-07-04)
+
+Source: `https://github.com/Lightricks/ComfyUI-LTXVideo/tree/master/example_workflows/2.3`
+— the model author's own official example workflows (flat node graphs, no
+subgraph indirection), fetched via public raw GitHub URLs, no auth required.
+Added while investigating three RunningHub AI Apps marketplace listings
+("Dasiwa V2", "Sulphur" prompt-optimized/distilled LTX2.3 apps) whose actual
+workflow JSON is paywalled behind a group/coaching signup (confirmed via
+each page's `og:description`: "Join the group to unlock ... download
+workflows of this collection" + a Feishu-wiki signup link) — not pursued
+further since that's a paid-community gate, not a login/registration one.
+`Dasiwa` and `Sulphur` are public community terms independent of RunningHub
+(DaSiWa = darksidewalker's LTX-2 LoRA/workflow pack on Civitai; Sulphur =
+Winnougan's Sulphur-2 LTX-2.3 style LoRA on HuggingFace/Civitai) — the
+official Lightricks base workflows below cover the same underlying node
+plumbing those apps are built on, without needing either paywall.
+
+| File | What it shows |
+|------|----------------|
+| `LTX-2.3_T2V_I2V_Single_Stage_Distilled_Full.json` | Base T2V/I2V + audio, single stage, no upscale — matches this package's `NativeI2VStage` core path node-for-node (`LTXVImgToVideoConditionOnly`, `LTXVSeparateAVLatent`/`LTXVConcatAVLatent`, `LTXVAudioVAELoader`/`Decode`). |
+| `LTX-2.3_T2V_I2V_Two_Stage_Distilled.json` | Adds `LTXVLatentUpsampler` + `LatentUpscaleModelLoader` second pass — matches the just-landed `NativeUpscaleStage.generate(secondStage:)` cascade; useful as an **official** cross-check against the community `WhatDreamsCost` 2-/3-stage files already used to build it. |
+| `LTX-2.3_ICLoRA_Pixel_Spatial_Upscaler_Distilled.json` | A *different* upscale mechanism: `LTXICLoRALoaderModelOnly` + `LTXAddVideoICLoRAGuide` + `LTXVCropGuides` conditioning a video-to-video pass, not the neural-latent-upsampler path. Not yet ported. |
+| `LTX-2.3_T2A_Single_Stage_Distilled.json` | **Pure text-to-audio, no video at all** — `LTXVAudioOnlyEmptyVideoLatent` + `LTXVAudioOnlyModel` replace the video latent/model entirely. A genuinely new, previously-undocumented gap: no video decode, no `LTXVImgToVideoConditionOnly`, no `CreateVideo`/`SaveVideo` — just `PreviewAudio`. Smallest and most cleanly scoped of the new findings here. |
+| `LTX-2.3_ICLoRA_Motion_Track_Distilled.json` | IC-LoRA conditioning driven by `LTXVDrawTracks`/`LTXVSparseTrackEditor` (sparse point-track motion control) — same `LTXICLoRALoaderModelOnly`/`LTXAddVideoICLoRAGuide` family as the upscaler above. |
+| `LTX-2.3_ICLoRA_Union_Control_Distilled.json` | Same IC-LoRA family, guided by `CannyEdgePreprocessor` + `DWPreprocessor` (pose) + `VideoDepthAnythingProcess` — a multi-modal ControlNet-equivalent for LTX-2.3. |
+| `LTX-2.3_ICLoRA_Lipdub_Two_Stage_Distilled.json` | Same IC-LoRA family + `LTXVAudioVAEEncode`/`LTXVSetAudioRefTokens` — audio-driven lip-sync conditioning, two-stage (base + upscale). |
+
+**Net finding**: all five IC-LoRA workflows (upscaler/motion-track/union-
+control/lipdub, plus this repo's already-known `--mode hd` restoration
+IC-LoRA) share one general mechanism — `LTXICLoRALoaderModelOnly` +
+`LTXAddVideoICLoRAGuide` + `LTXVCropGuides` conditioning a *video* (not
+image) input — that this package has never ported in general form, only
+the one specific restoration application. Porting the general IC-LoRA
+video-conditioning primitive once would unlock all four control modes as
+thin call-site variations, rather than requiring four separate ports. This
+is a bigger, multi-session-shaped item — see `PLAN.md` backlog, not picked
+as the immediate next goal because of that size, in favor of the smaller
+`T2A` (pure text-to-audio) gap.
+
 ## Pipeline structure (FFLF workflows, 2-stage and 3-stage)
 
 ```
@@ -111,3 +150,343 @@ port, not a same-session addition to the LoRA/upscale/resolution work this
 `/goal` already covered) — this document exists so that scope is captured
 accurately for whenever they're picked up, instead of being re-discovered
 from scratch.
+
+## Second pass (2026-07-04) — status check + previously-unexplored `LTXDirector` pack
+
+Items 1, 3, 4, 5 above are now DONE (confirmed against this package's own
+code, not re-guessed): the upscale refine pass, `--lora path:strength`,
+FFLF (`--last-frame`), and `--audio-track` noise-masking all shipped in the
+2026-07-03 "native VAE tiling, upscale+refine, LoRA fusion, FFLF, custom
+audio" milestone. Re-verified live against `NativeI2VStage.swift`/
+`NativeUpscaleStage.swift`/`LatentConditioning.swift`: `--audio-track`
+genuinely uses the mask=0-preserve mechanism this doc predicted
+(`VideoConditionByLatentIndex(..., strength: 1.0)` → `applyDenoiseMask`
+forces the audio tokens back to the clean input after every step — the
+real analogue of ComfyUI's `SetLatentNoiseMask`+`SolidMask`, not a
+post-hoc waveform overwrite).
+
+What's genuinely new this pass — either not looked at before, or looked at
+but not acted on:
+
+1. **True N-stage cascade is still NOT ported — only a single refine pass
+   is.** Item 1 above was resolved as "one upscale + one low-strength
+   refine," which is exactly Stage #2. The 3-stage workflow chains a
+   SECOND upscale+refine (Stage #3: a *different* 1.5x checkpoint,
+   `ltx-2.3-spatial-upscaler-x1.5-1.0.safetensors` — not the x2 model used
+   twice — at 4 steps/shift 0.42, with a `PrimitiveBoolean` toggle to pick
+   1.5x-total vs 2x-total, and a `LazySwitchKJ` bypass to skip it
+   entirely). `NativeUpscaleStage.refine()` isn't structured to be called
+   twice with a different upscaler + progressively fewer steps — it would
+   need a chain/loop, not new sampling math (the schedule math is already
+   ported). Not needed until someone asks for >2x total upscale in one
+   command; noted so the shape carries over from the reference cleanly
+   when it is.
+2. **Tiny/fast preview VAE (`taeltx2_3.safetensors`) — never previously
+   captured.** Every reference workflow loads THREE VAEs (audio, full
+   video, and this "tiny" one) plus a `PrimitiveBoolean` "Use Optimized
+   Decoding" toggle in the `Decode` subgraph. This package has exactly one
+   VAE decode path (the full checkpoint, tiled for memory, not speed) in
+   both `NativeI2VStage` and `NativeUpscaleStage` — no lightweight preview
+   option. Concrete idea: a `--preview-vae` (or similar) flag that decodes
+   through a distilled/tiny VAE for a fast low-fidelity look before
+   committing to the full decode — useful for iterating on seed/prompt
+   before paying the full VAE cost, and a natural fit for a GUI "quick
+   preview" button. Scoped, not started.
+3. **Multi-keyframe insertion beyond FFLF's 2 frames — genuinely open.**
+   `MultiImageLoader` + `LTXSequencer` support inserting arbitrarily many
+   images at arbitrary frame indices OR by seconds, each with its own
+   per-slot strength — FFLF (frame 0 + last frame only) is the special
+   case with just 2 slots. Confirmed (via code read) this doesn't need new
+   conditioning machinery: `VideoConditionByLatentIndex` already takes
+   `frameIndices: [Int]` and applies per-call `strength` — `NativeI2VStage`
+   would just need `lastFrameImagePath: URL?` generalized to something like
+   `keyframes: [(imagePath: URL, frameIndex: Int, strength: Double)]` and a
+   CLI surface for it (repeatable `--keyframe path:index[:strength]`,
+   mirroring the existing `--lora path:strength` spec-string convention).
+   Not started — no concrete use case has asked for >2 keyframes yet.
+4. **`LTX_Director_2_Workflow_Hotfix.json` — the one file explicitly
+   flagged "not analyzed in depth" last time — is the closest existing
+   reference for this repo's own `run.py video segment`/`relay`/`vbvr`
+   commands, still un-ported to native Swift** (see
+   `project_ltx_swift_native_port` memory: "transformer/encoder/audio
+   remain" — segment/relay specifically were never scoped against a real
+   reference before). Its `LTXDirector` node is a full timeline editor, not
+   a simple FFLF workflow: JSON config carries `segments`/`motionSegments`/
+   `audioSegments` arrays (independent per-modality tracks, each entry
+   presumably `{start, length, prompt, strength}` — empty in this example's
+   default state) plus a **"retake" mechanism**
+   (`retakeMode`/`retakeStart`/`retakeLength`/`retakePrompt`/
+   `retakeStrength`/`retakeVideo`) that re-denoises a specific sub-range of
+   an ALREADY-GENERATED video at a given strength, driven by a new prompt
+   — i.e. partial regeneration of one segment without redoing the whole
+   clip. `LTXDirectorGuide` nodes (2 present, strengths 1.0 and 0.5) feed
+   per-segment reference images, each independently weighted — the
+   generalized version of idea 3 above, but wired through a segment/track
+   model instead of a flat keyframe list. `LTXDirectorCropGuides` (2
+   instances) removes the guide/reference frames from the final decoded
+   output before muxing — this pack DOES crop guides, unlike the FFLF pack
+   (which this repo's own FFLF milestone confirmed doesn't need cropping
+   at current scope — still true, not contradicted). **Relevance**: this
+   is the first concrete, real-production shape to scope
+   `video segment`/`relay` porting against, once that becomes the active
+   goal — the "retake a sub-range at strength X with a new prompt" pattern
+   maps directly to a native `VideoConditionByLatentIndex`-based partial
+   re-denoise over an existing decoded (then re-encoded) clip range, same
+   primitive already used for FFLF/audio-track, applied to a mid-clip
+   range instead of frame 0/last-frame. Not started — flagged as the
+   concrete starting point for whenever `run.py`'s `segment`/`relay`
+   subcommands get their native Swift port.
+
+Net: nothing in this second pass required immediate code changes — it's
+scope-capture for genuinely open follow-ups (items 1-4 above), confirming
+work already done (items 1/3/4/5 from the first pass) rather than
+re-discovering it from scratch.
+
+## Third pass (2026-07-04) — exhaustive function audit of `LTX I2V FFLF Custom Audio Workflow ... V3.json` specifically
+
+Driven by `/goal verify if we have implemented all function of the ComfyUI
+workflow`. Unlike the first two passes (structural overviews across all 4
+files), this pass went node-by-node through ONE specific file end to end
+and cross-checked every parameter against the current Swift source, to
+answer "have we actually covered everything this file does," not just
+"what interesting ideas does it contain."
+
+**Correction to the first pass**: this V3 file has only **Stage #1 and
+Stage #2** subgraphs — no Stage #3. The "6 steps/shift 0.42" figure quoted
+for Stage #2 in the first pass's pipeline diagram belongs to the *sibling*
+3-stage workflow; this file's own Stage #2 `BasicScheduler` is
+**`linear_quadratic, 4 steps, shift 0.42`**. Worth flagging since it's easy
+to conflate parameters across the 4 files when they share subgraph names.
+
+**Confirmed IMPLEMENTED, matching**: euler sampler; Stage #1's
+`linear_quadratic`/8-steps/shift-1 schedule (`SigmaSchedule.distilledSigmas`);
+`LTXVLatentUpsampler` 2x (`NativeUpscaleStage.swift`); the
+`spatial-upscaler-x2-1.1` checkpoint choice; `--lora path:strength` as a
+mechanism; the Gemma-3-12b text encoder; audio+video VAE loading; custom
+audio's `SetLatentNoiseMask`/mask=0-preserve mechanism
+(`VideoConditionByLatentIndex` + `applyDenoiseMask`); FFLF's first+last
+frame conditioning; the H.264+AAC mp4 mux (`MP4Writer.swift`); CFG=1
+(implicit — Swift has no negative-conditioning branch at all, which is
+equivalent to this workflow's `CFGGuider(cfg=1)`, not a gap).
+
+**Confirmed IMPLEMENTED, but with a differing default/formula** (working as
+designed, not bugs): `--lora` defaults to a pre-fused distilled checkpoint
+at effective strength 1.0, vs. the workflow's dev-checkpoint + 0.5-strength
+LoRA (pass-1 item 3, still not wired to a specific mode); `--seconds` snaps
+to LTX's 8k+1 frame stride vs. the workflow's plain `seconds*fps+1`; default
+640×960 vs. the workflow's 768×512.
+
+**Newly found gaps this pass** (not previously captured in passes 1/2):
+1. **`LTXSequencer`'s per-frame denoise-mask array in Stage #2 isn't
+   ported** — `NativeUpscaleStage.refine()` applies a single uniform
+   mask=1 (full-strength refine) across every frame, not the reference's
+   per-segment strength schedule. This is a different, smaller gap than
+   the "no N-stage cascade" gap already known from the second pass — it's
+   about *per-frame* refine strength within the ALREADY-ported single
+   refine pass, not about chaining multiple passes.
+2. **`ImageScaleBy(bilinear, 0.5)` half-resolution guide/preview pass in
+   `Process Latents`** — the reference generates a cheap half-res pass
+   before the real generation (likely for a fast preview/guide signal);
+   `NativeI2VStage` generates directly at target resolution with no
+   equivalent lower-res pre-pass. Unclear if this is purely a UI/preview
+   convenience in ComfyUI or feeds back into generation quality — worth
+   understanding the reference's actual data-flow before deciding whether
+   to port it.
+3. **FFLF's per-slot strength, resize-mode, and crop-position aren't
+   ported** — `MultiImageLoader` supports resizing/cropping input images
+   to fit (`bicubic`/`lanczos`, `center` crop) and a per-image conditioning
+   strength; `NativeI2VStage.Request.lastFrameImagePath` requires the input
+   to already be EXACTLY `width`×`height` (fails fast otherwise — this
+   package's established "don't silently degrade on mismatched input"
+   convention) and hardcodes strength 1.0. This extends the previously-known
+   ">2 keyframes" gap (second pass, item 3) with two more dimensions:
+   even for the 2-keyframe FFLF case, per-image strength and auto-resize
+   aren't there.
+4. **`VAEDecodeTiled`'s spatial tile/overlap parameters (512px tile,
+   128px overlap) are architecturally different from this package's own
+   tiling** — `VideoDecodeTiling.computeAuto` tiles temporally
+   (frame-chunked, memory-budgeted), not spatially. Not necessarily a
+   functional gap (both approaches target the same "don't blow up memory
+   on long/large decodes" goal) but worth knowing they're different
+   strategies if a spatial-tiling-specific artifact ever needs debugging.
+
+**Still open from earlier passes, reconfirmed present in this specific
+file**: the tiny/optimized preview VAE toggle (second pass item 2) and the
+dev+partial-LoRA mode (first pass item 3) are both used by this exact
+workflow, not just the sibling ones.
+
+**Not applicable** (ComfyUI graph plumbing with no Swift-CLI equivalent to
+check): `SamplerCustomAdvanced`/`LTXVSeparateAVLatent`/`LTXVConcatAVLatent`
+(covered by Swift's joint AV denoise+decode), `ConditioningZeroOut` (moot
+under CFG=1), `LazySwitchKJ` bypass toggles (covered by flag
+presence/absence), `GetImageSize`/`CM_IntToFloat` (graph-internal type
+plumbing).
+
+Net: no code changed this pass — pure verification. Four newly-identified
+gaps (1-4 above) added to the backlog; everything else this specific file
+exercises is either already implemented or already tracked from the first
+two passes.
+
+## Fourth pass (2026-07-04) — closing all four third-pass gaps
+
+Driven by `/goal solve this gaps`. Two of the four gaps turned out to be
+misreadings once actually investigated properly, rather than guessed from
+widget-value arrays alone — worth recording HOW they were resolved, not
+just the resolution.
+
+**Gap 1 (FFLF per-slot strength/resize) — genuinely was a gap, fixed as
+described.** `NativeI2VStage.Request.lastFrameStrength: Float = 1.0` and
+`lastFrameAutoResize: Bool = false` added. The conditioning code was
+restructured: frame-0 and the last-frame image are now each their own
+`VideoConditionByLatentIndex` call, applied in sequence (`videoState` is
+threaded through both), instead of one call sharing a single `strength`
+across concatenated tokens — chaining two single-frame-index calls is
+equivalent to one two-index call when neither changes sequence length, so
+this is a pure refactor plus a new independent knob, not a behavior change
+to the frame-0 path. `FrameLoad.resizeAspectFillCenterCrop` added
+(aspect-fill + center-crop via `CGContext.interpolationQuality = .high`,
+matching the reference `MultiImageLoader`'s "keep proportion" + crop
+convention). New CLI: `--last-frame-strength`, `--last-frame-auto-resize`.
+
+New tests in `NativeI2VStageFFLFTests.swift`, both against real
+checkpoints:
+- `testLastFrameAutoResizeAcceptsWrongSizeAndStillPreservesContent`: a
+  solid-color image at the WRONG size and WRONG aspect ratio (exercises
+  both the resize and crop paths) still passes with
+  `--last-frame-auto-resize` and the decoded output matches the pinned
+  color within the same tight tolerance as the exact-size case — a solid
+  color is invariant under resize/crop, so this isolates "did auto-resize
+  actually run" from "how much loss does resizing introduce." 56.9s.
+- `testLastFrameStrengthBelowOneDivergesFromFullyPinnedResult`: runs the
+  same clip at `strength=1.0` (must match the existing tight tolerance)
+  and `strength=0.0` (fully generated, no pinning) and asserts the
+  strength=0.0 result diverges from the solid-color target MORE than
+  strength=1.0 does — proves strength actually changes behavior, not just
+  that it doesn't crash. 353.4s (two full real generations).
+
+**Gap 2 (half-res `ImageScaleBy` "guide pass") — was a misread; traced the
+actual link graph instead of trusting widget values.** The nodes
+`GetImageSize`/`ImageScaleBy(bilinear, 0.5)` looked, from widget values
+alone, like a mysterious lower-resolution preview/guide pass. Reading the
+`links` array in the raw JSON instead shows: `ImageScaleBy`'s output feeds
+`GetImageSize`, whose width/height outputs feed `EmptyLTXVLatentVideo`'s
+width/height inputs DIRECTLY. This is pure resolution auto-derivation —
+the reference computes its BASE generation resolution as half the user's
+FFLF input image size, relying on Stage #2's 2x upscale to bring the final
+output back to that image's own resolution. Not a quality/preview pass at
+all. Implemented the equivalent as a CLI convenience:
+`native-i2v --last-frame-derives-resolution` derives `--width`/`--height`
+from half the `--last-frame` image's own dimensions (`ResolutionResolver
+.optimize`-snapped to the nearest 32), overriding any explicit
+`--width`/`--height`. Implies `--last-frame-auto-resize` automatically
+(the full-resolution image must still be downscaled to the derived base
+resolution to serve as I2V conditioning) — this coupling is load-bearing,
+not optional, so it's enforced in code rather than left to the user to
+remember.
+
+**Gap 3 (`LTXSequencer`'s "per-frame denoise-mask schedule") — was a
+misread from a different angle: the JSON alone can't distinguish "per-frame
+refine schedule" from "keyframe re-insertion," so the earlier passes'
+interpretation was wrong.** Found and read the ACTUAL node source,
+`ltx_sequencer.py`, from the `WhatDreamsCost-ComfyUI` checkout (not
+available in this repo — a separate project checkout on the same
+machine): `class LTXSequencer(LTXVAddGuide)` — it's literally the SAME
+`MultiImageLoader`/keyframe-insertion mechanism as `Process Latents`'s FFLF
+conditioning, just called again inside Stage #2/#3 to RE-APPLY those same
+first/last-frame guides onto the newly-upscaled latent (`append_keyframe`
+splices clean tokens + sets a noise mask at each guide's frame index,
+architecturally identical to this package's own
+`VideoConditionByLatentIndex`). Not a novel per-frame refine-strength
+schedule at all.
+
+This correction exposed the REAL, previously-undocumented gap underneath
+it: `NativeUpscaleStage.refine()` had NO re-pinning mechanism whatsoever —
+an FFLF-conditioned clip's first/last frames could silently drift during
+the refine pass's low-strength re-denoise, since refine's mask was
+uniformly 1.0 (fully re-denoise) everywhere. Fixed: `refine()` gained
+`preserveFirstAndLastFrame: Bool = false`; when true, it re-applies
+`VideoConditionByLatentIndex(frameIndices: [idx], strength: 1.0)` at
+frames `[0, F-1]` using the clean tokens FROM THE JUST-UPSCALED LATENT
+ITSELF (not the original conditioning images — the upscaled latent's
+frame-0/frame-(F-1) already represent the pinned content at the new
+resolution; this only needs to stop the refine denoise from letting that
+content drift, not re-derive it from scratch). `generate()` gained the
+same parameter, threaded through. Wired at two call sites:
+`native-i2v --upscale --refine --last-frame` (automatic — the CLI already
+knows `--last-frame` was given) and standalone
+`native-upscale --preserve-first-last-frame` (opt-in, for the case where
+`native-upscale` runs separately against a frame directory that was
+FFLF-conditioned by an earlier `native-i2v --last-frame` call and the CLI
+has no way to know that on its own).
+
+**Gap 4 (spatial vs. temporal VAE-decode tiling) — confirmed NOT a
+functional gap, no code change.** `VideoTiling.swift`'s own file header
+(written when temporal tiling was first ported) already states: "spatial
+tiling exists there but is never auto-selected" — referring to the
+vendor's own `_compute_decode_tiling` auto-tiling entry point, which this
+package's `VideoDecodeTiling.computeAuto` already mirrors exactly
+(temporal-only). `VAEDecodeTiled`'s spatial tile/overlap widget values in
+the reference workflow are a ComfyUI-specific MANUAL override a user could
+set, not part of the automatic behavior being ported. This package already
+matches the reference's real (automatic) tiling strategy — the earlier
+pass's framing of this as an open gap was itself imprecise, not the
+underlying implementation.
+
+**Verification**: `NativeI2VStageFFLFTests` (4/4, including the 2 new
+tests) pass against real checkpoints. Full suite run separately to confirm
+no regressions from the refine()/generate() signature changes.
+
+## Fifth pass (2026-07-04) — the true N-stage upscale cascade lands
+
+Closes the "True N-stage cascade" item flagged as still-open in the second
+pass ("`NativeUpscaleStage.refine()` isn't structured to be called twice
+with a different upscaler + progressively fewer steps"). Two real pieces
+of new work, not just wiring:
+
+1. **`LatentUpsampler` gained the `spatial_x1_5` variant** (`SpatialRationalResampler`:
+   Conv2d -> `pixelShuffle2D(factor: 3)` -> `blurDownsample2D(stride: 2)`,
+   net 3x-then-÷2 = 1.5x) — direct port of `model.py`'s
+   `SpatialRationalResampler`/`BlurDownsampleModule`, read line-by-line
+   rather than assumed from the x2 variant's shape. One real finding: the
+   depthwise blur kernel is a REAL checkpoint tensor
+   (`upsampler.blur_down.kernel`, shape `(1,5,5,1)` BF16 — confirmed via
+   direct safetensors header inspection), not derived on load from the
+   binomial-coefficient formula the Python reference only falls back to
+   when the checkpoint omits it — so the Swift port loads it like any
+   other weight instead of recomputing it. Verified via
+   `scripts/dump_latent_upsampler_x1_5_reference.py` (same fixed-seed
+   `(1,128,2,8,8)` input as the existing x2 dump, real
+   `spatial_upscaler_x1_5_v1_0.safetensors` checkpoint) +
+   `LatentUpsamplerX1_5RealCheckpointParityTests.swift`: max-abs-diff <
+   1e-3, **passed on the first attempt**, correct `8→12` (1.5x) shape.
+2. **`NativeUpscaleStage.generate()` gained `secondStage:
+   SecondStageUpscaler?`** (`.x1_5` or `.x2Again`) — chains a SECOND
+   neural-upscale + low-strength-refine pass entirely in latent space
+   (denorm → upsample → renorm → refine, reusing the exact same
+   `videoEncoder` per-channel mean/std stats and `refine()` method the
+   first stage already uses) before the single final `VideoDecoder` call —
+   matching the reference's own structure of one decode at the very end,
+   not a decode between stages. Requires `refinePrompt`/`refineAudioURL`
+   (new `.secondStageNeedsRefine` error if omitted) since the reference
+   always refines every cascaded stage. Wired into both
+   `native-upscale --second-stage x1.5|x2` and
+   `native-i2v --second-stage x1.5|x2` (off by default, requires
+   `--upscale`/`--refine`, both already on by default).
+
+**Scope note, stated plainly**: `.x2Again` reuses the already-verified x2
+checkpoint a second time (the reference's own "2x-total" toggle branch,
+which does the same) rather than requiring the numerically-close-but-not-
+identical claim of bit-parity with a specific ComfyUI run — this package
+has no CFG/negative-prompt path either (see first pass, item confirming
+CFG=1 is implicit), so exact pixel parity with any single reference render
+was never the bar; matching the reference's *structure* (checkpoint
+choice, chain shape, refine-every-stage behavior) is.
+
+Verified real-checkpoint: `NativeUpscaleStageRealCheckpointTests
+.testGenerateWithSecondStageCascadeProducesQuadrupleResolution` — a
+64x64 input through `secondStage: .x2Again` produces a real, decoded
+256x256 output (2x * 2x = 4x total, matching the reference's "2x-total"
+toggle branch), finite pixels, correct frame count. Plus
+`testSecondStageWithoutRefineThrowsClearError` (fail-fast validation).
+Full suite green after the change (see PLAN.md's matching entry for exact
+counts).

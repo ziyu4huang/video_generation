@@ -88,3 +88,63 @@ public struct VideoConditionByLatentIndex {
         return LatentState(latent: newLatent, cleanLatent: newClean, denoiseMask: newMask, positions: state.positions, attentionMask: state.attentionMask)
     }
 }
+
+/// Native port of `ltx_core_mlx.conditioning.types.reference_video_cond
+/// .VideoConditionByReferenceLatent` — IC-LoRA style reference conditioning.
+/// Unlike `VideoConditionByLatentIndex` (which REPLACES tokens at fixed
+/// positions, same sequence length), this APPENDS a whole reference clip's
+/// clean latent tokens to the end of the sequence — used by
+/// `NativeUpscaleStage`'s `hd` mode: the low-res/degraded input video is
+/// VAE-encoded and appended as always-preserved (denoiseMask=0) context the
+/// generation tokens can attend to via ordinary self-attention (no special
+/// cross-attention path needed — this package's `Attention.swift`/
+/// `DenoiseLoop.swift` already thread a per-state `attentionMask` end to
+/// end for exactly this kind of masked joint sequence).
+///
+/// Scope: this port covers `strength == 1.0` (fully preserved reference,
+/// `attn_mask == nil` in the reference — the common case; see
+/// `ic_lora.py`'s `_create_conditionings`, which only builds a real
+/// `attn_mask` for partial `conditioning_attention_strength`/an explicit
+/// mask video, neither of which `NativeUpscaleStage.generateHD` uses).
+/// Partial-strength/masked reference conditioning (`update_attention_mask`'s
+/// general case) is not ported — no current call site needs it.
+public struct VideoConditionByReferenceLatent {
+    public let referenceLatent: MLXArray      // (B, Nr, C)
+    public let referencePositions: MLXArray?  // (B, Nr, numAxes)
+    public let downscaleFactor: Int           // target/reference resolution ratio; scales H/W positions only
+    public let strength: Float                // 1.0 = fully preserved (mask=0)
+
+    public init(referenceLatent: MLXArray, referencePositions: MLXArray? = nil, downscaleFactor: Int = 1, strength: Float = 1.0) {
+        self.referenceLatent = referenceLatent
+        self.referencePositions = referencePositions
+        self.downscaleFactor = downscaleFactor
+        self.strength = strength
+    }
+
+    public func apply(to state: LatentState) -> LatentState {
+        let numRef = referenceLatent.dim(1)
+        let maskValue = 1.0 - strength
+
+        let newLatent = MLX.concatenated([state.latent, referenceLatent], axis: 1)
+        let newClean = MLX.concatenated([state.cleanLatent, referenceLatent], axis: 1)
+
+        let b = state.denoiseMask.dim(0)
+        let refMask = MLXArray(Array(repeating: maskValue, count: b * numRef)).reshaped([b, numRef, 1])
+        let newMask = MLX.concatenated([state.denoiseMask, refMask], axis: 1)
+
+        var newPositions = state.positions
+        if let statePositions = state.positions, let referencePositions {
+            var refPos = referencePositions
+            if downscaleFactor != 1 {
+                // Scale spatial axes only (index 1 = height, index 2 = width), not temporal (index 0).
+                let scale = MLXArray([Float(1.0), Float(downscaleFactor), Float(downscaleFactor)]).reshaped([1, 1, 3])
+                refPos = refPos * scale
+            }
+            newPositions = MLX.concatenated([statePositions, refPos], axis: 1)
+        }
+
+        // attentionMask left as state.attentionMask (nil in the strength==1.0,
+        // no-mask-video case this port covers) — see this type's header.
+        return LatentState(latent: newLatent, cleanLatent: newClean, denoiseMask: newMask, positions: newPositions, attentionMask: state.attentionMask)
+    }
+}

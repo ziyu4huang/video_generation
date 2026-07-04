@@ -80,6 +80,17 @@ public struct BasicAVTransformerBlock {
         }
     }
 
+    /// Mirrors ComfyUI's `av_model.py` `transformer_options` flags
+    /// (`run_vx`/`a2v_cross_attn`/`v2a_cross_attn`), read from the reference
+    /// source rather than guessed from widget names. `runVideoStream=false`
+    /// skips the ENTIRE video branch (self-attn, text cross-attn, FF) —
+    /// verified against reference: `run_a2v` there is defined as
+    /// `run_vx AND a2v_cross_attn AND audio.numel()>0`, i.e. a2v is already
+    /// gated off whenever the video stream is off, independent of its own
+    /// flag. `v2aCrossAttn` is independent — it only depends on the audio
+    /// stream running (always true here) and its own flag, which is why
+    /// `LTXVAudioOnlyModel` sets it separately (to stop the dummy video
+    /// latent's cross-attn contribution from leaking into the audio output).
     public func callAsFunction(
         videoHidden: MLXArray, audioHidden: MLXArray,
         videoAdaLNParams: MLXArray, audioAdaLNParams: MLXArray,
@@ -89,12 +100,15 @@ public struct BasicAVTransformerBlock {
         videoTextEmbeds: MLXArray? = nil, audioTextEmbeds: MLXArray? = nil,
         videoRopeFreqs: RoPE.Freqs? = nil, audioRopeFreqs: RoPE.Freqs? = nil,
         videoCrossRopeFreqs: RoPE.Freqs? = nil, audioCrossRopeFreqs: RoPE.Freqs? = nil,
-        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil
+        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
+        runVideoStream: Bool = true, a2vCrossAttn: Bool = true, v2aCrossAttn: Bool = true
     ) -> (video: MLXArray, audio: MLXArray) {
         var video = videoHidden
         var audio = audioHidden
         let vdim = video.dim(-1)
         let adim = audio.dim(-1)
+        let runA2V = runVideoStream && a2vCrossAttn
+        let runV2A = v2aCrossAttn
 
         let vParams = unpackAdaLN(videoAdaLNParams, table: scaleShiftTable, numParams: 9, dim: vdim)
         let (vShiftSA, vScaleSA, vGateSA, vShiftFF, vScaleFF, vGateFF, vShiftCA, vScaleCA, vGateCA) =
@@ -127,18 +141,21 @@ public struct BasicAVTransformerBlock {
         }()
 
         // 1. Video self-attention
-        var videoNormed = rmsNorm(video) * (1.0 + vScaleSA) + vShiftSA
-        let videoSAOut = attn1(videoNormed, ropeFreqs: videoRopeFreqs, attentionMask: videoAttentionMask)
-        video = video + videoSAOut * vGateSA
+        if runVideoStream {
+            let videoNormed = rmsNorm(video) * (1.0 + vScaleSA) + vShiftSA
+            let videoSAOut = attn1(videoNormed, ropeFreqs: videoRopeFreqs, attentionMask: videoAttentionMask)
+            video = video + videoSAOut * vGateSA
+        }
 
         // 2. Audio self-attention
         var audioNormed = rmsNorm(audio) * (1.0 + aScaleSA) + aShiftSA
         let audioSAOut = audioAttn1(audioNormed, ropeFreqs: audioRopeFreqs, attentionMask: audioAttentionMask)
         audio = audio + audioSAOut * aGateSA
 
-        // 3. Video text cross-attention
-        if let videoTextEmbeds {
-            videoNormed = rmsNorm(video) * (1.0 + vScaleCA) + vShiftCA
+        // 3. Video text cross-attention (gated with the rest of the video branch,
+        // matching reference `if run_vx:` wrapping self-attn + text cross-attn + FF together)
+        if runVideoStream, let videoTextEmbeds {
+            let videoNormed = rmsNorm(video) * (1.0 + vScaleCA) + vShiftCA
             let vp = unpackAdaLN(videoPromptAdaLNParams, table: promptScaleShiftTable, numParams: 2, dim: vdim)
             let textScaled = videoTextEmbeds * (1.0 + vp[1]) + vp[0]
             video = video + attn2(videoNormed, encoderHiddenStates: textScaled) * vGateCA
@@ -153,28 +170,36 @@ public struct BasicAVTransformerBlock {
         }
 
         // 5-6. Audio-video cross-modal attention (norm both ONCE, shared by A2V and V2A)
-        let videoNorm3 = rmsNorm(video)
-        let audioNorm3 = rmsNorm(audio)
+        if runA2V || runV2A {
+            let videoNorm3 = rmsNorm(video)
+            let audioNorm3 = rmsNorm(audio)
 
-        let videoQA2V = videoNorm3 * (1.0 + avVScaleA2V) + avVShiftA2V
-        let audioKVA2V = audioNorm3 * (1.0 + avAScaleA2V) + avAShiftA2V
-        let a2vOut = audioToVideoAttn(
-            videoQA2V, encoderHiddenStates: audioKVA2V,
-            ropeFreqs: videoCrossRopeFreqs, ropeFreqsK: audioCrossRopeFreqs
-        ) * avVGateA2V
-        video = video + a2vOut
+            if runA2V {
+                let videoQA2V = videoNorm3 * (1.0 + avVScaleA2V) + avVShiftA2V
+                let audioKVA2V = audioNorm3 * (1.0 + avAScaleA2V) + avAShiftA2V
+                let a2vOut = audioToVideoAttn(
+                    videoQA2V, encoderHiddenStates: audioKVA2V,
+                    ropeFreqs: videoCrossRopeFreqs, ropeFreqsK: audioCrossRopeFreqs
+                ) * avVGateA2V
+                video = video + a2vOut
+            }
 
-        let audioQV2A = audioNorm3 * (1.0 + avAScaleV2A) + avAShiftV2A
-        let videoKVV2A = videoNorm3 * (1.0 + avVScaleV2A) + avVShiftV2A
-        let v2aOut = videoToAudioAttn(
-            audioQV2A, encoderHiddenStates: videoKVV2A,
-            ropeFreqs: audioCrossRopeFreqs, ropeFreqsK: videoCrossRopeFreqs
-        ) * avAGateV2A
-        audio = audio + v2aOut
+            if runV2A {
+                let audioQV2A = audioNorm3 * (1.0 + avAScaleV2A) + avAShiftV2A
+                let videoKVV2A = videoNorm3 * (1.0 + avVScaleV2A) + avVShiftV2A
+                let v2aOut = videoToAudioAttn(
+                    audioQV2A, encoderHiddenStates: videoKVV2A,
+                    ropeFreqs: audioCrossRopeFreqs, ropeFreqsK: videoCrossRopeFreqs
+                ) * avAGateV2A
+                audio = audio + v2aOut
+            }
+        }
 
         // 7. Video feed-forward
-        videoNormed = rmsNorm(video) * (1.0 + vScaleFF) + vShiftFF
-        video = video + ff(videoNormed) * vGateFF
+        if runVideoStream {
+            let videoNormed = rmsNorm(video) * (1.0 + vScaleFF) + vShiftFF
+            video = video + ff(videoNormed) * vGateFF
+        }
 
         // 8. Audio feed-forward
         audioNormed = rmsNorm(audio) * (1.0 + aScaleFF) + aShiftFF

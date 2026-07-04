@@ -126,6 +126,18 @@ export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): 
     proc.on("error", () => resolveP()); // metallib build is best-effort; don't fail the run
     proc.on("close", () => resolveP());
   });
+  // Best-effort above means a broken setup-metallib.sh run produces no signal here —
+  // the agent would only find out several layers downstream when the first actual
+  // MLX call inside ltx-video crashes with a generic "Failed to load the default
+  // metallib". Surface a clear warning now instead, without failing the run (some
+  // environments may have a system-wide metallib and never needed this script).
+  const metallib = join(repoRoot, "swift", "ltx-video-director", ".build", "release", "mlx.metallib");
+  if (!isFile(metallib)) {
+    onProgress?.({
+      kind: "progress",
+      text: `⚠ mlx.metallib still missing after setup-metallib.sh (expected at ${metallib}) — MLX calls may fail with "Failed to load the default metallib".`,
+    });
+  }
 }
 
 /**

@@ -142,7 +142,8 @@ public enum DenoiseLoop {
         videoState: LatentState, audioState: LatentState,
         videoTextEmbeds: MLXArray, audioTextEmbeds: MLXArray,
         sigmas: [Float],
-        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil
+        videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
+        audioOnly: Bool = false
     ) -> DenoiseResult {
         var videoX = videoState.latent
         var audioX = audioState.latent
@@ -167,7 +168,8 @@ public enum DenoiseLoop {
                 videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
                 videoPositions: videoState.positions, audioPositions: audioState.positions,
                 videoAttentionMask: vMask, audioAttentionMask: aMask,
-                videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps)
+                videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                audioOnly: audioOnly)
 
             let sigmaB = sigmaArray.reshaped([b, 1, 1]).asType(.float32)
             var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
