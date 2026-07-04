@@ -214,6 +214,22 @@ own upscale path yet. Worth a dedicated follow-up item once
 against — grading a fast-mode upscale on VMAF today would just be inventing
 a threshold with nothing to validate it.
 
+## 11. Swift CLI gained `--second-stage` (N-stage upscale cascade) — not yet wrapped here
+
+`native-upscale`/`native-i2v` on the Swift side (`swift/ltx-video-director`)
+gained a `--second-stage x1.5|x2` flag (2026-07-04) that chains a second
+neural-upscale+refine pass, mirroring the reference 3-stage FFLF workflow's
+Stage #3 — see `PLAN.md`'s "True N-stage upscale cascade" milestone and
+`docs/reference/comfyui_workflows/README.md`'s fifth pass in that package.
+Not yet added to `src/commands.ts`'s `nativeUpscale`/`native-i2v` field
+schemas here — this package only wraps whatever the Swift CLI exposes
+(see "Not planned" below), and per this file's own convention (item 3),
+wrapper coverage for new Swift-side flags is added when there's a concrete
+need to drive them through the pi-agent tool, not automatically on landing.
+**Next step if picked up**: add a `secondStage: { flag: "--second-stage",
+type: "string", ... }` field to both commands' schemas, matching the
+existing `mode`/`refinePrompt` field style.
+
 ## Not planned
 
 - Bit-exact parity between `native-upscale --mode hd` and the run.py-bridged

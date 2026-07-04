@@ -85,7 +85,22 @@ struct NativeI2V: ParsableCommand {
           help: "Mux the final PNG frame sequence (post-upscale if --upscale is on) + audio.wav into a real H.264+AAC output.mp4 via AVAssetWriter. On by default — --no-mp4 to skip and keep just the frame sequence.")
     var mp4: Bool = true
 
+    @Option(name: .customLong("second-stage"),
+            help: "When --upscale/--refine are on: chain a SECOND upscale+refine pass, mirroring the reference 3-stage FFLF workflow's Stage #3 (see NativeUpscaleStage.SecondStageUpscaler). 'x1.5' -> spatial_upscaler_x1_5_v1_0 (2x*1.5x=3x total). 'x2' -> spatial_upscaler_x2_v1_1 reused a second time (2x*2x=4x total). Off by default.")
+    var secondStage: String?
+
     func run() throws {
+        var secondStageUpscaler: NativeUpscaleStage.SecondStageUpscaler?
+        if let secondStage {
+            switch secondStage {
+            case "x1.5", "x1_5": secondStageUpscaler = .x1_5
+            case "x2": secondStageUpscaler = .x2Again
+            default: throw ValidationError("--second-stage must be 'x1.5' or 'x2', got '\(secondStage)'")
+            }
+            guard upscale, refine else {
+                throw ValidationError("--second-stage requires --upscale and --refine (both on by default)")
+            }
+        }
         var effectiveWidth = width
         var effectiveHeight = height
         if lastFrameDerivesResolution {
@@ -155,7 +170,8 @@ struct NativeI2V: ParsableCommand {
                     refinePrompt: refine ? prompt : nil,
                     refineAudioURL: refine ? result.audioURL : nil,
                     fps: fps,
-                    preserveFirstAndLastFrame: lastFrame != nil)
+                    preserveFirstAndLastFrame: lastFrame != nil,
+                    secondStage: refine ? secondStageUpscaler : nil)
                 let upscaleSeconds = Date().timeIntervalSince(upscaleStart)
                 print("✅ upscale wall time: \(String(format: "%.1f", upscaleSeconds))s")
                 print("   \(upscaleResult.inputSize.width)x\(upscaleResult.inputSize.height) -> "

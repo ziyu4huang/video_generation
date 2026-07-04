@@ -54,9 +54,21 @@ struct NativeUpscale: ParsableCommand {
           help: "When --refine-prompt is also given: re-pin the input's first and last frames during the refine pass so they don't drift from their original content — set this when --input came from a native-i2v run that used --last-frame (FFLF). Mirrors the reference ComfyUI pipeline's re-application of its keyframe-guide nodes at its own upscale-refine stages (see docs/reference/comfyui_workflows/README.md).")
     var preserveFirstLastFrame: Bool = false
 
+    @Option(name: .customLong("second-stage"),
+            help: "fast mode only: chain a SECOND upscale+refine pass after the first, mirroring the reference 3-stage FFLF workflow's Stage #3 (see NativeUpscaleStage.SecondStageUpscaler). 'x1.5' -> spatial_upscaler_x1_5_v1_0 (2x*1.5x=3x total). 'x2' -> spatial_upscaler_x2_v1_1 reused a second time (2x*2x=4x total). Requires --refine-prompt/--refine-audio (every cascaded stage is refined, not just upscaled).")
+    var secondStage: String?
+
     func run() throws {
         guard mode == "fast" || mode == "hd" else {
             throw ValidationError("--mode must be 'fast' or 'hd', got '\(mode)'")
+        }
+        var secondStageUpscaler: NativeUpscaleStage.SecondStageUpscaler?
+        if let secondStage {
+            switch secondStage {
+            case "x1.5", "x1_5": secondStageUpscaler = .x1_5
+            case "x2": secondStageUpscaler = .x2Again
+            default: throw ValidationError("--second-stage must be 'x1.5' or 'x2', got '\(secondStage)'")
+            }
         }
 
         let stage = NativeUpscaleStage()
@@ -89,7 +101,8 @@ struct NativeUpscale: ParsableCommand {
                 refinePrompt: refinePrompt,
                 refineAudioURL: finalAudioURL,
                 fps: fps,
-                preserveFirstAndLastFrame: preserveFirstLastFrame)
+                preserveFirstAndLastFrame: preserveFirstLastFrame,
+                secondStage: secondStageUpscaler)
         }
         let wallSeconds = Date().timeIntervalSince(wallStart)
 

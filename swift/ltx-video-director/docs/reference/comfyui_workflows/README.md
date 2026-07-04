@@ -396,3 +396,58 @@ underlying implementation.
 **Verification**: `NativeI2VStageFFLFTests` (4/4, including the 2 new
 tests) pass against real checkpoints. Full suite run separately to confirm
 no regressions from the refine()/generate() signature changes.
+
+## Fifth pass (2026-07-04) — the true N-stage upscale cascade lands
+
+Closes the "True N-stage cascade" item flagged as still-open in the second
+pass ("`NativeUpscaleStage.refine()` isn't structured to be called twice
+with a different upscaler + progressively fewer steps"). Two real pieces
+of new work, not just wiring:
+
+1. **`LatentUpsampler` gained the `spatial_x1_5` variant** (`SpatialRationalResampler`:
+   Conv2d -> `pixelShuffle2D(factor: 3)` -> `blurDownsample2D(stride: 2)`,
+   net 3x-then-÷2 = 1.5x) — direct port of `model.py`'s
+   `SpatialRationalResampler`/`BlurDownsampleModule`, read line-by-line
+   rather than assumed from the x2 variant's shape. One real finding: the
+   depthwise blur kernel is a REAL checkpoint tensor
+   (`upsampler.blur_down.kernel`, shape `(1,5,5,1)` BF16 — confirmed via
+   direct safetensors header inspection), not derived on load from the
+   binomial-coefficient formula the Python reference only falls back to
+   when the checkpoint omits it — so the Swift port loads it like any
+   other weight instead of recomputing it. Verified via
+   `scripts/dump_latent_upsampler_x1_5_reference.py` (same fixed-seed
+   `(1,128,2,8,8)` input as the existing x2 dump, real
+   `spatial_upscaler_x1_5_v1_0.safetensors` checkpoint) +
+   `LatentUpsamplerX1_5RealCheckpointParityTests.swift`: max-abs-diff <
+   1e-3, **passed on the first attempt**, correct `8→12` (1.5x) shape.
+2. **`NativeUpscaleStage.generate()` gained `secondStage:
+   SecondStageUpscaler?`** (`.x1_5` or `.x2Again`) — chains a SECOND
+   neural-upscale + low-strength-refine pass entirely in latent space
+   (denorm → upsample → renorm → refine, reusing the exact same
+   `videoEncoder` per-channel mean/std stats and `refine()` method the
+   first stage already uses) before the single final `VideoDecoder` call —
+   matching the reference's own structure of one decode at the very end,
+   not a decode between stages. Requires `refinePrompt`/`refineAudioURL`
+   (new `.secondStageNeedsRefine` error if omitted) since the reference
+   always refines every cascaded stage. Wired into both
+   `native-upscale --second-stage x1.5|x2` and
+   `native-i2v --second-stage x1.5|x2` (off by default, requires
+   `--upscale`/`--refine`, both already on by default).
+
+**Scope note, stated plainly**: `.x2Again` reuses the already-verified x2
+checkpoint a second time (the reference's own "2x-total" toggle branch,
+which does the same) rather than requiring the numerically-close-but-not-
+identical claim of bit-parity with a specific ComfyUI run — this package
+has no CFG/negative-prompt path either (see first pass, item confirming
+CFG=1 is implicit), so exact pixel parity with any single reference render
+was never the bar; matching the reference's *structure* (checkpoint
+choice, chain shape, refine-every-stage behavior) is.
+
+Verified real-checkpoint: `NativeUpscaleStageRealCheckpointTests
+.testGenerateWithSecondStageCascadeProducesQuadrupleResolution` — a
+64x64 input through `secondStage: .x2Again` produces a real, decoded
+256x256 output (2x * 2x = 4x total, matching the reference's "2x-total"
+toggle branch), finite pixels, correct frame count. Plus
+`testSecondStageWithoutRefineThrowsClearError` (fail-fast validation).
+Full suite green after the change (see PLAN.md's matching entry for exact
+counts).

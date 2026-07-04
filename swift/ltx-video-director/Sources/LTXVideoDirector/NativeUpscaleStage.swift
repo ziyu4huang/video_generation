@@ -49,6 +49,7 @@ public struct NativeUpscaleStage {
         case transformerCheckpointNotFound(URL)
         case audioEncoderCheckpointNotFound(URL)
         case refineNeedsAudioTrack
+        case secondStageNeedsRefine
         case restorationLoraNotFound(URL)
         case upscaleLoraNotFound(URL)
 
@@ -61,8 +62,50 @@ public struct NativeUpscaleStage {
             case .transformerCheckpointNotFound(let url): return "NativeUpscaleStage: LTX-2.3 distilled transformer checkpoint not found at \(url.path)"
             case .audioEncoderCheckpointNotFound(let url): return "NativeUpscaleStage: LTX-2.3 audio VAE checkpoint not found at \(url.path)"
             case .refineNeedsAudioTrack: return "NativeUpscaleStage: --refine-prompt requires --refine-audio (the joint audio-video transformer needs a preserved audio track to attend to during refinement, even though audio itself isn't refined)"
+            case .secondStageNeedsRefine: return "NativeUpscaleStage: --second-stage requires --refine-prompt/--refine-audio (the reference 3-stage pipeline always refines each cascaded upscale stage, not just the last one)"
             case .restorationLoraNotFound(let url): return "NativeUpscaleStage: hd mode's restoration IC-LoRA not found at \(url.path) — download `ltx2.3-video-restoration-general.safetensors` per mlx-models/lora/ltx-2.3-restore/README.md"
             case .upscaleLoraNotFound(let url): return "NativeUpscaleStage: hd mode's upscale IC-LoRA not found at \(url.path) — download `ltx2.3-ic-video-upscale-general.safetensors` per mlx-models/lora/ltx-2.3-restore/README.md"
+            }
+        }
+    }
+
+    /// Which second-stage neural upscaler checkpoint to chain after the
+    /// mandatory first (spatial_x2) stage — mirrors the reference 3-stage
+    /// FFLF workflow's `LatentUpscaleModelLoader` + `PrimitiveBoolean`
+    /// 1.5x-total/2x-total toggle (see docs/reference/comfyui_workflows/
+    /// README.md's second pass, "True N-stage cascade" finding): `.x1_5`
+    /// gives 2x*1.5x=3x total (the reference's "1.5x-total" label refers to
+    /// the SECOND stage's own factor, not the cumulative total — confirmed
+    /// against the workflow JSON's stage graph, not assumed), `.x2Again`
+    /// gives 2x*2x=4x total using the SAME already-ported x2 checkpoint
+    /// twice (the reference's "2x-total" toggle branch, which reuses
+    /// spatial_upscaler_x2_v1_1 rather than loading a distinct checkpoint).
+    public enum SecondStageUpscaler {
+        case x1_5
+        case x2Again
+
+        var checkpointFilename: String {
+            switch self {
+            case .x1_5: return "spatial_upscaler_x1_5_v1_0.safetensors"
+            case .x2Again: return "spatial_upscaler_x2_v1_1.safetensors"
+            }
+        }
+        var checkpointPrefix: String {
+            switch self {
+            case .x1_5: return "spatial_upscaler_x1_5_v1_0."
+            case .x2Again: return "spatial_upscaler_x2_v1_1."
+            }
+        }
+        var latentUpsamplerVariant: LatentUpsampler.Variant {
+            switch self {
+            case .x1_5: return .spatialX1_5
+            case .x2Again: return .spatialX2
+            }
+        }
+        var factor: Double {
+            switch self {
+            case .x1_5: return 1.5
+            case .x2Again: return 2.0
             }
         }
     }
@@ -82,14 +125,28 @@ public struct NativeUpscaleStage {
     /// with `refineAudioURL`), follows the neural upscale with a
     /// low-strength transformer denoise refinement pass — see this file's
     /// header for why both are needed together.
+    /// `secondStage`: chains a SECOND upscale+refine pass after the first
+    /// (mirroring the reference 3-stage FFLF workflow's Stage #3 — see
+    /// `SecondStageUpscaler`'s doc comment). Both stages refine in latent
+    /// space before any pixel decode happens — only one final VideoDecoder
+    /// call, matching the reference's own single-decode-at-the-end
+    /// structure (LTXVSeparateAVLatent only appears once per stage in the
+    /// reference too, but nothing is decoded to pixels between stages).
+    /// Requires `refinePrompt`/`refineAudioURL` (see `.secondStageNeedsRefine`)
+    /// since the reference always refines every cascaded stage, not just
+    /// upscales it.
     public func generate(
         inputFrameDirectory: URL, outputDir: URL,
         refinePrompt: String? = nil, refineAudioURL: URL? = nil,
         fps: Double = 24.0, textMaxLength: Int = 128, seed: UInt64 = 42,
-        preserveFirstAndLastFrame: Bool = false
+        preserveFirstAndLastFrame: Bool = false,
+        secondStage: SecondStageUpscaler? = nil
     ) throws -> Result {
         if refinePrompt != nil, refineAudioURL == nil {
             throw StageError.refineNeedsAudioTrack
+        }
+        if secondStage != nil, refinePrompt == nil || refineAudioURL == nil {
+            throw StageError.secondStageNeedsRefine
         }
         let fm = FileManager.default
         let frameFiles = (try fm.contentsOfDirectory(atPath: inputFrameDirectory.path))
@@ -171,13 +228,44 @@ public struct NativeUpscaleStage {
             MLX.eval(upscaledLatent)
         }
 
-        print("[4/4] VideoDecoder: decoding upscaled latent to \(width * 2)x\(height * 2) frames...")
+        var totalScale = 2.0
+        if let secondStage, let refinePrompt, let refineAudioURL {
+            print("[3c/4] second-stage cascade: \(secondStage.checkpointFilename) neural upscale (\(secondStage.factor)x) + refine...")
+            let secondUpsamplerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/\(secondStage.checkpointFilename)")
+            guard fm.fileExists(atPath: secondUpsamplerURL.path) else {
+                throw StageError.upsamplerCheckpointNotFound(secondUpsamplerURL)
+            }
+            let secondUpRaw = try MLX.loadArrays(url: secondUpsamplerURL)
+            var secondUpWeights: [String: MLXArray] = [:]
+            for (key, value) in secondUpRaw {
+                let stripped = key.hasPrefix(secondStage.checkpointPrefix) ? String(key.dropFirst(secondStage.checkpointPrefix.count)) : key
+                secondUpWeights[stripped] = value.asType(.float32)
+            }
+            let secondUpsampler = LatentUpsampler(weights: secondUpWeights, variant: secondStage.latentUpsamplerVariant)
+
+            let secondDenorm = upscaledLatent * stdC + meanC
+            let secondUpscaledDenorm = secondUpsampler(secondDenorm)
+            upscaledLatent = (secondUpscaledDenorm - meanC) / stdC
+            MLX.eval(upscaledLatent)
+
+            print("[3d/4] second-stage refine: low-strength denoise pass\(preserveFirstAndLastFrame ? " — preserving first/last FFLF frames" : "")...")
+            upscaledLatent = try refine(
+                normalizedLatent: upscaledLatent, prompt: refinePrompt, audioURL: refineAudioURL,
+                fps: fps, textMaxLength: textMaxLength, seed: seed &+ 1,
+                preserveFirstAndLastFrame: preserveFirstAndLastFrame)
+            MLX.eval(upscaledLatent)
+            totalScale *= secondStage.factor
+        }
+
+        let outWidth = Int((Double(width) * totalScale).rounded())
+        let outHeight = Int((Double(height) * totalScale).rounded())
+        print("[4/4] VideoDecoder: decoding upscaled latent to \(outWidth)x\(outHeight) frames...")
         let videoDecoderURL = RepoPaths.mlxModelsRoot.appendingPathComponent("vae/ltx-2.3-vae/vae_decoder.safetensors")
         guard fm.fileExists(atPath: videoDecoderURL.path) else {
             throw StageError.videoDecoderCheckpointNotFound(videoDecoderURL)
         }
         let videoDecoder = try VideoDecoderLoader.loadReal(checkpointURL: videoDecoderURL)
-        let pixels = videoDecoder(upscaledLatent.asType(.float32))  // (1, 3, F, 2H, 2W), [-1, 1]
+        let pixels = videoDecoder(upscaledLatent.asType(.float32))  // (1, 3, F, outH, outW), [-1, 1]
         MLX.eval(pixels)
 
         let frameDir = outputDir.appendingPathComponent("frames")
@@ -185,7 +273,7 @@ public struct NativeUpscaleStage {
 
         return Result(
             frameDirectory: frameDir, frameCount: frameCount,
-            inputSize: (width, height), outputSize: (width * 2, height * 2))
+            inputSize: (width, height), outputSize: (outWidth, outHeight))
     }
 
     /// `native-upscale --mode hd`: real native IC-LoRA restoration —

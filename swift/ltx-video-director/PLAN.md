@@ -1,3 +1,32 @@
+## True N-stage upscale cascade — LANDED (2026-07-04)
+
+Closes the "True N-stage cascade" gap flagged open since the second
+ComfyUI-reference research pass (docs/reference/comfyui_workflows/
+README.md). `LatentUpsampler` gained the `spatial_x1_5` variant
+(`SpatialRationalResampler`: Conv2d -> pixelShuffle2D(3) ->
+blurDownsample2D(stride 2), real checkpoint blur kernel loaded from
+`upsampler.blur_down.kernel`, not recomputed) — verified real-checkpoint
+parity (max-abs-diff < 1e-3, 8→12 shape, passed first try). `NativeUpscaleStage
+.generate()` gained `secondStage: SecondStageUpscaler?` (`.x1_5` or
+`.x2Again`), chaining a second neural-upscale+refine pass entirely in
+latent space before the single final VideoDecoder call, mirroring the
+reference 3-stage FFLF workflow's Stage #3. Wired into both
+`native-upscale --second-stage x1.5|x2` and `native-i2v --second-stage
+x1.5|x2` (both off by default — existing default behavior unchanged).
+
+Verified real-checkpoint: `NativeUpscaleStageRealCheckpointTests
+.testGenerateWithSecondStageCascadeProducesQuadrupleResolution` (64x64 ->
+256x256, 2x*2x=4x total via `.x2Again`, real decoded output, correct frame
+count) + `testSecondStageWithoutRefineThrowsClearError` (fail-fast
+validation). Targeted suite run (`LatentUpsampler*`+`NativeUpscaleStage*`,
+8 tests): **8/8 pass, 0 failures**. Full from-scratch `swift test` runs
+were killed twice by the environment mid-run/mid-build with zero failures
+logged either time (background-process eviction under concurrent
+heavy-model contention — a known, previously-documented environment
+quirk, not a test failure) — relying on this direct, complete, unkilled
+targeted run instead. See docs/reference/comfyui_workflows/README.md's
+fifth pass for the full writeup.
+
 # ltx-video-director — porting plan
 
 Goal: port `python/mlx-movie-director/run.py video` (LTX-2.3 I2V + quality
