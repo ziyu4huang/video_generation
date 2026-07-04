@@ -13,3 +13,4 @@ export * from "./registry.ts";
 export * from "./paths.ts";
 export * from "./selector.ts";
 export * from "./bridge.ts";
+export * from "./providers.ts";
