@@ -979,12 +979,16 @@ def _run_local_import(file_args: list[str], args) -> None:
     if detected_link:
         print(f"  Link file:  {os.path.basename(detected_link)}")
 
-    # Copy file and create directory
+    # Copy file, externalize to ../video_generation__models/<md5>.safetensors
+    # + replace with a symlink (mirrors the URL-import path's
+    # _store_to_external call) so only the tiny symlink/manifest/README ever
+    # need to be committed to git, never the raw binary.
     os.makedirs(target_dir, exist_ok=True)
     dest_file = os.path.join(target_dir, os.path.basename(src_path))
     shutil.copy2(src_path, dest_file)
     file_size = os.path.getsize(dest_file)
     filename = os.path.basename(dest_file)
+    _store_to_external(dest_file, file_size)
 
     # Parse optional fields
     trigger_words = None
