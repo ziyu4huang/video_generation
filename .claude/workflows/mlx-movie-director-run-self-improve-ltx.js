@@ -393,6 +393,33 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
   }
   return extract
 }
+// ── publishKnowledge — identical in every workflow; update _shared-patterns.md first ──
+// Converges kbFile's records into the shared knowledge-graph vault via zk-ingest.
+// Default-on (PI_PUBLISH_KNOWLEDGE=0 kills it); best-effort (never throws, never fails the run).
+async function publishKnowledge(kbFile, workflowName) {
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const sourceLabel = `workflow-jsonl:${workflowName}`
+  // Resolve the pi-agent-cli entry. Prefer the built dist binary when present
+  // (production), fall back to the workspace source (dev) — both accept the
+  // same zk-ingest subcommand.
+  const cli = await agent(
+    `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.
+1. Bash("printenv PI_PUBLISH_KNOWLEDGE || echo 1")
+   If "0", return { published: false, reason: "opt-out" }.
+2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ingest '${kbFile}' --source-label '${sourceLabel}' 2>&1 | tail -20")
+3. Report { published: <true iff output contains "created" or "unchanged" or "updated" with no "Error">, summary: <the tail output> }.`,
+    { label: "publish-knowledge", phase: "Persist", model: "sonnet",
+      schema: { type: "object", properties: {
+        published: { type: "boolean" },
+        summary: { type: "string" },
+      }, required: ["published"] } },
+  )
+  if (cli?.published) log(`Knowledge: published → ${vault} (zk-ingest)`)
+  else log(`WARNING: knowledge publish skipped/failed — run continues. ${(cli?.summary || "").slice(0, 160)}`)
+  return cli
+}
+
+
 log(`Resolve: runId=${R.runId} | priorRuns=${(R.priorRuns || []).length} | deadEnds=${(R.knownDeadEnds || []).length} | dryRun=${dryRun}`)
 
 const deadEnds = new Set((R.knownDeadEnds || []).map((s) => s.trim()).filter(Boolean))
@@ -704,6 +731,7 @@ const ltxRunResult = {
   priorKbDigest: R.kbDigest || null,
 }
 const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult,
+await publishKnowledge(KB_FILE, _WF_NAME)
   reflections.length > 0 ? reflections.map((r) => r.insight).join('; ') : null)
 if (knowledge) log(`Knowledge: ${knowledge.new_ids?.length || 0} new record(s) (active≈${knowledge.active ?? "?"})`)
 
@@ -781,3 +809,4 @@ return {
   knowledge: knowledge?.new_ids || [],
   html: summary?.htmlPath || null,
 }
+

@@ -102,7 +102,11 @@ Examples:
 				console.error(`heal: MOC ${healed.mocRegenerated ? "regenerated" : "(no change)"}, ${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`);
 			}
 			const h = await graphHealth({ vaultPath, folder, mocPath });
-			console.log(formatHealth(h));
+			if (parsed.json || parsed.mode === "json") {
+				console.log(JSON.stringify({ mode: "health", ...h }, null, 2));
+			} else {
+				console.log(formatHealth(h));
+			}
 			if (!h.ok) {
 				process.exitCode = 1;
 			}
@@ -140,17 +144,21 @@ Examples:
 			topK,
 		});
 
-		console.error(`vault:   ${vaultPath}`);
-		console.error(`folder:  ${folder}/  (${result.scanned} card(s) scanned, ${result.excluded} own-id(s) excluded)`);
-		console.error(`tags:    [${tags.join(", ")}]`);
-		console.error(`matched: ${result.count} cross-workflow card(s) (topK=${topK})`);
-		console.error();
-
-		if (result.digest) {
-			console.log(result.digest);
-			console.log(`\n(matched ${result.count}/${result.scanned} in ${folder}, excluded ${result.excluded} own-id(s))`);
+		if (parsed.json || parsed.mode === "json") {
+			console.log(JSON.stringify({ mode: "retrieve", ...result }, null, 2));
 		} else {
-			console.log("(no cross-workflow cards matched — the graph may be empty or tag overlap is zero)");
+			console.error(`vault:   ${vaultPath}`);
+			console.error(`folder:  ${folder}/  (${result.scanned} card(s) scanned, ${result.excluded} own-id(s) excluded)`);
+			console.error(`tags:    [${tags.join(", ")}]`);
+			console.error(`matched: ${result.count} cross-workflow card(s) (topK=${topK})`);
+			console.error();
+
+			if (result.digest) {
+				console.log(result.digest);
+				console.log(`\n(matched ${result.count}/${result.scanned} in ${folder}, excluded ${result.excluded} own-id(s))`);
+			} else {
+				console.log("(no cross-workflow cards matched — the graph may be empty or tag overlap is zero)");
+			}
 		}
 	},
 };

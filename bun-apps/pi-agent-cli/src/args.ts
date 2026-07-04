@@ -130,6 +130,8 @@ export interface ParsedArgs {
 	health?: boolean;
 	/** zk-query: auto-heal (with --health) */
 	fix?: boolean;
+	/** Emit JSON output (supported by zk-query, etc.) */
+	json?: boolean;
 	/** Tool event verbosity: 0=silent (name only), 1=args summary,
 	 *  2=debug (full args + result preview). Set by -V/--verbose/--debug or PI_VERBOSE. */
 	verbose: number;
@@ -148,6 +150,7 @@ export function emptyParsed(): ParsedArgs {
 		appendSystemPrompt: [],
 		mode: "text",
 		print: false,
+		json: false,
 		noSession: false,
 		noTools: false,
 		noBuiltinTools: false,
@@ -273,7 +276,7 @@ const VALUE_FLAGS: ReadonlyArray<{ flag: string; field: ValueField }> = [
 type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools" | "dryRun" | "health" | "fix";
+	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -291,6 +294,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["--dry-run"], field: "dryRun" },
 	{ flags: ["--health"], field: "health" },
 	{ flags: ["--fix"], field: "fix" },
+	{ flags: ["--json"], field: "json" },
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
