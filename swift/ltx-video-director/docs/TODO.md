@@ -719,3 +719,22 @@ frame comes back out of the DECODED output within mean abs diff < 0.04 in
 [0,1] pixel space (same order as the VAE round-trip loss already
 documented for frame-0 conditioning) — proves the last frame is genuinely
 the pinned image, not model-generated content. Passed on the first run.
+
+# V2V restyle — `native-restyle` (2026-07-04)
+
+Follow-up to "Research: scoping the general IC-LoRA video-conditioning
+primitive" — picked the top item of its "easy tier" (V2V, near-zero new
+preprocessing beyond what `generateHD` already does). New
+`NativeUpscaleStage.generateRestyle` + `ltx-video native-restyle` CLI
+command: `generateHD`'s reference-conditioning core with the
+restoration-specific two-LoRA/two-stage structure stripped to a single,
+always user-supplied style IC-LoRA, one stage, output at input resolution.
+
+New `.restyleLoraNotFound` `StageError` case (no bundled default LoRA
+exists for this path, unlike `generateHD`'s restoration pair) +
+`testGenerateRestyleMissingLoraThrowsNamedError`, checked in
+`NativeUpscaleStageRealCheckpointTests` (7/7 pass). UNVERIFIED end-to-end
+against a real style checkpoint — none found under that description on
+HuggingFace/CivitAI as of this session; likely needs a community-trained
+adapter rather than an official Lightricks release. Full writeup:
+PLAN.md's matching milestone.
