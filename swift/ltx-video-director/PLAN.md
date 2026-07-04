@@ -2209,17 +2209,34 @@ one checkpoint. Correctly did not force a workaround; this is a different
 kind of "blocked" than the restoration pair's — "exists but needs one-time
 human license click" rather than "doesn't exist in the form asked for."
 
-**Verification**: same situation as `generateRestyle` at introduction — no
-real Ingredients IC-LoRA checkpoint available in this environment yet.
-Added `testGenerateIngredientsMissingLoraThrowsNamedError` and
-`testGenerateIngredientsMissingReferenceImageThrowsNamedError`, exercising
-both paths reachable without a checkpoint (missing `--lora` throws
-`.ingredientsLoraNotFound`, missing `--input` throws
-`.referenceImageNotFound`) — same "named error, not a generic crash"
-contract test convention `generateHD`/`generateRestyle` established.
-`swift build` clean; `NativeUpscaleStageRealCheckpointTests`: 9/9 pass.
-UNVERIFIED end-to-end pending either the user accepting the HF license
-gate, or supplying the checkpoint another way.
+**Verification**: `NativeUpscaleStageRealCheckpointTests` (9/9 pass) covers
+the no-checkpoint contract paths — `testGenerateIngredientsMissingLoraThrowsNamedError`
+and `testGenerateIngredientsMissingReferenceImageThrowsNamedError` (missing
+`--lora` throws `.ingredientsLoraNotFound`, missing `--input` throws
+`.referenceImageNotFound`), matching `generateHD`/`generateRestyle`'s
+"named error, not a generic crash" convention.
+
+**Real-checkpoint end-to-end run (2026-07-05)**: the user accepted the
+HuggingFace license gate for `Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients`
+same-day, unblocking the download this milestone's introduction left
+pending. Downloaded via authenticated `curl` (the `HF_TOKEN`-gated file the
+`import-lora-image.py` download path still can't reach directly — see this
+milestone's checkpoint-search note above, unchanged), then imported the
+local file via `import-lora --arch ltx-2.3`. Ran `ltx-video
+native-ingredients` against a freshly `t2i`-generated reference photo (a red
+apple on a wooden table) with a real IC-LoRA fusion, 33 frames at 800x800 (a
+512x512 request auto-scaled up by `ResolutionResolver`'s minimum-validated-
+area floor), 130.8s wall time. **PASS**: frame 0 reproduces the reference
+image's content (same apple, table, lighting) almost exactly — the actual
+signal that matters for IC-LoRA reference conditioning — and stays visually
+stable/coherent (no corruption or noise) across all 33 frames, with audio
+decoding and mp4 mux completing cleanly. One quality caveat, not a
+correctness bug: the prompt's "slowly rotating" produced negligible visible
+motion — consistent with the distilled model's cfg=1.0 / short sigma
+schedule limiting prompt-driven motion elsewhere in this codebase, not
+specific to this conditioning path. Both the missing-checkpoint contract
+tests above and this real-checkpoint content-fidelity check now back this
+milestone — no longer UNVERIFIED.
 
 ## Explicitly NOT doing
 

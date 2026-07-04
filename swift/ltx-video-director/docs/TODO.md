@@ -758,8 +758,14 @@ time found an EXACT match by name on HuggingFace
 (`Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients`,
 `ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors`) — but the repo is
 gate-flagged and returns HTTP 403 even with a valid `HF_TOKEN`, since this
-account hasn't accepted the license on huggingface.co (a one-time human
+account hadn't accepted the license on huggingface.co (a one-time human
 click, not something the CIVITAI_TOKEN-only download path supports or is
-worth automating around). UNVERIFIED end-to-end pending that license
-acceptance or another way to obtain the checkpoint. Full writeup: PLAN.md's
-matching milestone.
+worth automating around).
+
+**Update (2026-07-05)**: user accepted the HF license gate same-day.
+Downloaded the checkpoint via authenticated `curl` + imported locally via
+`import-lora`. Real end-to-end run against a fresh `t2i`-generated reference
+photo: PASS — frame 0 reproduces the reference image's content almost
+exactly (the key IC-LoRA reference-conditioning signal), stable/coherent
+across all 33 frames, audio + mp4 mux clean. No longer UNVERIFIED. Full
+writeup: PLAN.md's matching milestone.
