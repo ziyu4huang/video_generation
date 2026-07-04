@@ -6,7 +6,15 @@
 //  CORE chaining mechanism in app/commands/video-relay.py's Prompt-Relay
 //  pattern. See NativeRelayStage.swift's header for exactly what's scoped
 //  out of this first version (audio overlay is "replace" mode only; TTS is
-//  macOS `say` only, no edge-tts; no variant A/B).
+//  macOS `say` only, no edge-tts).
+//
+//  --variant (A/B comparison): unlike the Python version's _RELAY_VARIANTS
+//  (which also toggles distilled-vs-dev pipeline + cfg/stg scale — this
+//  native port is distilled-only, so those axes don't apply), the only
+//  variant axis available here is "which LoRA(s), if any." No side-by-side
+//  HTML reviewer is launched afterward (the Python version's video-review.py
+//  has no Swift-side equivalent) — this only runs each variant and prints a
+//  plain-text summary table; reviewing the outputs is manual.
 //
 
 import ArgumentParser
@@ -70,24 +78,12 @@ struct NativeRelay: ParsableCommand {
             help: "Speech rate in words/min for --relay-tts-text.")
     var relayTTSRate: Int = 145
 
-    func run() throws {
-        guard !prompts.isEmpty else {
-            throw ValidationError("--prompts requires at least one prompt")
-        }
+    @Option(name: .customLong("variant"), parsing: .upToNextOption,
+            help: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides --lora for that run.")
+    var variantSpecs: [String] = []
 
-        var request = NativeRelayStage.Request(
-            prompts: prompts, seconds: seconds, fps: fps, width: width, height: height,
-            seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
-        request.firstImagePath = firstImage.map { URL(fileURLWithPath: $0) }
-        request.audioOverlayPath = relayAudio.map { URL(fileURLWithPath: $0) }
-
-        if let ttsText = relayTTSText, relayAudio == nil {
-            let ttsURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("native_relay_tts_\(UUID().uuidString).aiff")
-            print("→ synthesizing TTS narration (voice=\(relayTTSVoice), rate=\(relayTTSRate))...")
-            try MacTTS.synthesize(text: ttsText, voice: relayTTSVoice, rate: relayTTSRate, to: ttsURL)
-            request.audioOverlayPath = ttsURL
-        }
-        request.loraPaths = try loras.map { spec in
+    private func parseLoRASpecs(_ specs: [String]) throws -> [(path: URL, strength: Float)] {
+        try specs.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
             let path = String(parts[0])
             let strength: Float
@@ -101,18 +97,82 @@ struct NativeRelay: ParsableCommand {
             }
             return (path: URL(fileURLWithPath: path), strength: strength)
         }
+    }
 
-        print("→ native relay (no run.py, no ffmpeg): \(prompts.count) segment(s) @ \(width)x\(height), \(seconds)s/segment, transformer=distilled")
-        let wallStart = Date()
+    private func baseRequest() throws -> NativeRelayStage.Request {
+        var request = NativeRelayStage.Request(
+            prompts: prompts, seconds: seconds, fps: fps, width: width, height: height,
+            seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
+        request.firstImagePath = firstImage.map { URL(fileURLWithPath: $0) }
+        request.audioOverlayPath = relayAudio.map { URL(fileURLWithPath: $0) }
+
+        if let ttsText = relayTTSText, relayAudio == nil {
+            let ttsURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("native_relay_tts_\(UUID().uuidString).aiff")
+            print("→ synthesizing TTS narration (voice=\(relayTTSVoice), rate=\(relayTTSRate))...")
+            try MacTTS.synthesize(text: ttsText, voice: relayTTSVoice, rate: relayTTSRate, to: ttsURL)
+            request.audioOverlayPath = ttsURL
+        }
+        return request
+    }
+
+    private func runOnce(_ request: NativeRelayStage.Request, outputDir: URL) throws -> NativeRelayStage.Result {
+        print("→ native relay (no run.py, no ffmpeg): \(request.prompts.count) segment(s) @ \(width)x\(height), \(seconds)s/segment, transformer=distilled")
         let stage = NativeRelayStage()
-        let result = try stage.generate(request, outputDir: URL(fileURLWithPath: output))
-        let wallSeconds = Date().timeIntervalSince(wallStart)
-
-        print("\n✅ wall time: \(String(format: "%.1f", wallSeconds))s")
+        let result = try stage.generate(request, outputDir: outputDir)
         for (i, url) in result.segmentVideoURLs.enumerated() {
             print("   segment \(i + 1): \(url.path)")
         }
         print("   final: \(result.finalVideoURL.path)")
         print("   100% native Swift/MLX + AVFoundation — zero run.py calls, zero ffmpeg calls.")
+        return result
+    }
+
+    func run() throws {
+        guard !prompts.isEmpty else {
+            throw ValidationError("--prompts requires at least one prompt")
+        }
+
+        if variantSpecs.isEmpty {
+            var request = try baseRequest()
+            request.loraPaths = try parseLoRASpecs(loras)
+            let wallStart = Date()
+            _ = try runOnce(request, outputDir: URL(fileURLWithPath: output))
+            print("\n✅ wall time: \(String(format: "%.1f", Date().timeIntervalSince(wallStart)))s")
+            return
+        }
+
+        print("═══ Relay Variant A/B Comparison: \(variantSpecs.count) variant(s) ═══")
+        var results: [(name: String, status: String, elapsed: Double)] = []
+        for spec in variantSpecs {
+            let parts = spec.split(separator: "=", maxSplits: 1)
+            let name = String(parts[0])
+            let loraSpecs = parts.count == 2 ? [String(parts[1])] : []
+
+            print("\n═══ Variant: \(name) (\(loraSpecs.isEmpty ? "no LoRA" : loraSpecs[0])) ═══")
+            var request = try baseRequest()
+            do {
+                request.loraPaths = try parseLoRASpecs(loraSpecs)
+            } catch {
+                results.append((name, "error: \(error)", 0))
+                continue
+            }
+
+            let variantDir = URL(fileURLWithPath: output).appendingPathComponent(name)
+            let wallStart = Date()
+            do {
+                _ = try runOnce(request, outputDir: variantDir)
+                results.append((name, "ok", Date().timeIntervalSince(wallStart)))
+            } catch {
+                results.append((name, "error: \(error)", Date().timeIntervalSince(wallStart)))
+                print("⚠️  variant '\(name)' failed: \(error)")
+            }
+        }
+
+        print("\n═══ Variant Comparison Summary ═══")
+        for r in results {
+            let tag = r.status == "ok" ? "✓" : "✗"
+            let minutes = String(format: "%.1f", r.elapsed / 60)
+            print("  \(r.name.padding(toLength: 20, withPad: " ", startingAt: 0)) \(tag) \(r.status)  \(minutes) min")
+        }
     }
 }
