@@ -40,6 +40,8 @@ struct ControlStyleCommand: ParsableCommand {
     @Option var mu: Double = 1.15
     // Style-mechanism knobs (default to ComfyUI _RECOMMENDED; sweep for stronger transfer).
     @Option var valueAdainStrength: Float = 0.65
+    @Option(help: "Q/K cross-batch AdaIN strength 0..1 (ref Q/K stats → target; upstream recommended 0.85).")
+    var adainStrength: Float = 0.85
     @Option var refKStrength: Float = 1.06
     @Option var lowScaleEnd: Float = 1.10
     @Option var activeBlocksStart: Int = 7
@@ -63,8 +65,10 @@ struct ControlStyleCommand: ParsableCommand {
         try? FileManager.default.createDirectory(at: outURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         let knobs = Krea2StyleDefaults(
-            valueAdainStrength: valueAdainStrength, refKStrength: refKStrength,
+            valueAdainStrength: valueAdainStrength,
+            refKStrength: refKStrength,
             gamma: gamma, lowScaleEnd: lowScaleEnd,
+            adainStrength: adainStrength,
             activeBlocks: activeBlocksStart...activeBlocksEnd)
         try Krea2Engine.controlStyle(
             prompt: prompt,

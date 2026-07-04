@@ -26,15 +26,17 @@ public struct Krea2StyleConfig {
     public let refKStrength: Float            // extra K multiplier (1.06)
     public let valueAdainStrength: Float      // V AdaIN mix α (0.65)
     public let refValueMix: Float             // raw-ref V mix (1.0)
+    public let adainStrength: Float           // Q/K cross-batch AdaIN α (0.85 upstream recommended)
     public let mix: Float                     // styled-vs-native blend (1.0)
 
     public init(targetB: Int, imgS: Int, imgE: Int, activeBlocks: Set<Int>,
                 scaleVec: MLXArray, refKStrength: Float = 1.06,
-                valueAdainStrength: Float = 0.65, refValueMix: Float = 1.0, mix: Float = 1.0) {
+                valueAdainStrength: Float = 0.65, refValueMix: Float = 1.0,
+                adainStrength: Float = 0.0, mix: Float = 1.0) {
         self.targetB = targetB; self.imgS = imgS; self.imgE = imgE
         self.activeBlocks = activeBlocks; self.scaleVec = scaleVec
         self.refKStrength = refKStrength; self.valueAdainStrength = valueAdainStrength
-        self.refValueMix = refValueMix; self.mix = mix
+        self.refValueMix = refValueMix; self.adainStrength = adainStrength; self.mix = mix
     }
 }
 
@@ -184,9 +186,22 @@ public struct Krea2DiT {
         let (B, H, L, D) = (q.dim(0), q.dim(1), q.dim(2), q.dim(3))
         let tb = st.targetB
         let ir = st.imgS..<st.imgE
-        let qT = q[0..<tb], qR = q[tb..<B]
-        let kT = k[0..<tb], kR = k[tb..<B]
+        let qT0 = q[0..<tb], qR = q[tb..<B]
+        let kT0 = k[0..<tb], kR = k[tb..<B]
         let vT = v[0..<tb], vR = v[tb..<B]
+        let eps = MLXArray(1e-6)
+
+        // Q/K cross-batch AdaIN (training-free; nodes.py `_cross_batch_adain_qk`):
+        // blend the target's image-token Q/K per-head mean/std toward the ref's,
+        // BEFORE the K/V concat + styled attention. ON by default upstream
+        // (adain_strength=0.85); ref rows are unchanged. Gated by adainStrength.
+        let qT: MLXArray, kT: MLXArray
+        if st.adainStrength > 0 {
+            qT = Self.adainImageTokens(qT0, qR, ir, L: L, alpha: st.adainStrength, eps: eps)
+            kT = Self.adainImageTokens(kT0, kR, ir, L: L, alpha: st.adainStrength, eps: eps)
+        } else {
+            qT = qT0; kT = kT0
+        }
 
         // Reference K slice (image tokens) × per-frequency scale × refKStrength.
         let scaleVec = st.scaleVec.expandedDimensions(axis: 0).expandedDimensions(axis: 0)
@@ -196,17 +211,16 @@ public struct Krea2DiT {
         // V AdaIN over image tokens: ref stats → target shape, then blend.
         let refV = vR[0..., 0..., ir, 0...]                              // (tb,H,imgLen,D)
         let tgtV = vT[0..., 0..., ir, 0...]
-        let eps = MLXArray(1e-6)
         let muT = tgtV.mean(axis: 2, keepDims: true), sdT = MLX.sqrt(tgtV.variance(axis: 2, keepDims: true) + eps)
         let muR = refV.mean(axis: 2, keepDims: true), sdR = MLX.sqrt(refV.variance(axis: 2, keepDims: true) + eps)
         let adaV = (tgtV - muT) / sdT * sdR + muR
         let baseV = tgtV * (1 - st.valueAdainStrength) + adaV * st.valueAdainStrength
         let injV = baseV * (1 - st.refValueMix) + refV * st.refValueMix   // (tb,H,imgLen,D)
 
-        // Target attends to its own K/V PLUS the ref K/V (extended sequence).
+        // Target attends to its own (Q/K-adained) K/V PLUS the ref K/V (extended).
         let kTarget = MLX.concatenated([kT, refK], axis: 2)               // (tb,H,L+imgLen,D)
         let vTarget = MLX.concatenated([vT, injV], axis: 2)
-        var scoresT = MLX.matmul(qT, kTarget.transposed(0, 1, 3, 2)) * scale  // (tb,H,L,L+imgLen)
+        let scoresT = MLX.matmul(qT, kTarget.transposed(0, 1, 3, 2)) * scale  // (tb,H,L,L+imgLen)
         // Native target attention (for the mix blend).
         let nativeScores = MLX.matmul(qT, kT.transposed(0, 1, 3, 2)) * scale
         // Mask: `mask` is the (B,1,L,L) key-padding product row*col. Extract
@@ -238,6 +252,28 @@ public struct Krea2DiT {
             let outR = MLX.matmul(MLX.softmax(MLX.matmul(qR, kR.transposed(0, 1, 3, 2)) * scale, axis: -1), vR)
             return MLX.concatenated([outT, outR], axis: 0).transposed(0, 2, 1, 3).reshaped([B, L, H * D])
         }
+    }
+
+    /// Cross-batch Q/K AdaIN over the image-token range (nodes.py
+    /// `_cross_batch_adain_qk`). `tgt`/`ref` are (tb,H,L,D) post-rope; returns a
+    /// copy of `tgt` whose `ir` (`[imgS,imgE)`) token slice is blended (`alpha`)
+    /// toward the ref's per-head mean/std over that slice. Text tokens (outside
+    /// `ir`) and the ref tensor are unchanged. At `alpha=0` returns `tgt`-as-is.
+    static func adainImageTokens(_ tgt: MLXArray, _ ref: MLXArray,
+                                 _ ir: Range<Int>, L: Int, alpha: Float, eps: MLXArray) -> MLXArray {
+        let t = tgt[0..., 0..., ir, 0...]                                 // (tb,H,imgLen,D)
+        let r = ref[0..., 0..., ir, 0...]
+        let mt = t.mean(axis: 2, keepDims: true)
+        let sdt = MLX.sqrt(t.variance(axis: 2, keepDims: true) + eps)
+        let mr = r.mean(axis: 2, keepDims: true)
+        let sdr = MLX.sqrt(r.variance(axis: 2, keepDims: true) + eps)
+        let ada = (t - mt) / sdt * sdr + mr
+        let blended = t * (1 - alpha) + ada * alpha
+        var parts: [MLXArray] = []
+        if ir.lowerBound > 0 { parts.append(tgt[0..., 0..., 0..<ir.lowerBound, 0...]) }
+        parts.append(blended)
+        if ir.upperBound < L { parts.append(tgt[0..., 0..., ir.upperBound..<L, 0...]) }
+        return MLX.concatenated(parts, axis: 2)
     }
 
     // MARK: - blocks / fusion / mlp

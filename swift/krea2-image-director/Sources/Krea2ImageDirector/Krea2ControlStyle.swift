@@ -167,12 +167,16 @@ public extension Krea2Engine {
                                          highStart: d.highScaleStart, highEnd: d.highScaleEnd,
                                          lowStart: d.lowScaleStart, lowEnd: d.lowScaleEnd,
                                          headDim: cfg.headDim)
+            // Upstream rescales adain by strength (nodes.py effective_adain).
+            let mix = max(0, min(1, strength))
+            let effAdain = max(0, min(d.adainStrength * min(strength, 1.25), 1.0))
             let styleCfg = Krea2StyleConfig(
                 targetB: 1, imgS: txtlen, imgE: txtlen + N,
                 activeBlocks: Set(d.activeBlocks),
                 scaleVec: scaleVec, refKStrength: d.refKStrength,
                 valueAdainStrength: d.valueAdainStrength, refValueMix: d.refValueMix,
-                mix: max(0, min(1, strength)))
+                adainStrength: effAdain,
+                mix: mix)
             // Per-step DiT: LoRA weights + firstControl + style. (Rebuilding the
             // thin struct per step is cheap — weights are shared by reference.)
             let styledDit = Krea2DiT(config: cfg, weights: ditWeights,

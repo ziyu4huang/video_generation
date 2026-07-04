@@ -38,6 +38,7 @@ public struct Krea2StyleDefaults {
     public var highScaleEnd: Float
     public var lowScaleStart: Float
     public var lowScaleEnd: Float
+    public var adainStrength: Float          // Q/K cross-batch AdaIN (upstream recommended 0.85)
     public var activeBlocks: ClosedRange<Int>
 
     public init(styleStrength: Float = 1.0, valueAdainStrength: Float = 0.65,
@@ -45,6 +46,7 @@ public struct Krea2StyleDefaults {
                 gamma: Float = 0.5, beta: Float = 2.5,
                 highScaleStart: Float = 1.04, highScaleEnd: Float = 0.0,
                 lowScaleStart: Float = 1.0, lowScaleEnd: Float = 1.10,
+                adainStrength: Float = 0.85,
                 activeBlocks: ClosedRange<Int> = 7...27) {
         self.styleStrength = styleStrength
         self.valueAdainStrength = valueAdainStrength
@@ -53,6 +55,7 @@ public struct Krea2StyleDefaults {
         self.gamma = gamma; self.beta = beta
         self.highScaleStart = highScaleStart; self.highScaleEnd = highScaleEnd
         self.lowScaleStart = lowScaleStart; self.lowScaleEnd = lowScaleEnd
+        self.adainStrength = adainStrength
         self.activeBlocks = activeBlocks
     }
 }
@@ -185,12 +188,16 @@ public extension Krea2Engine {
                                          highStart: d.highScaleStart, highEnd: d.highScaleEnd,
                                          lowStart: d.lowScaleStart, lowEnd: d.lowScaleEnd,
                                          headDim: cfg.headDim)
+            // Upstream rescales adain by strength (nodes.py effective_adain).
+            let mix = max(0, min(1, strength))
+            let effAdain = max(0, min(d.adainStrength * min(strength, 1.25), 1.0))
             let styleCfg = Krea2StyleConfig(
                 targetB: 1, imgS: txtlen, imgE: txtlen + N,
                 activeBlocks: Set(d.activeBlocks),
                 scaleVec: scaleVec, refKStrength: d.refKStrength,
                 valueAdainStrength: d.valueAdainStrength, refValueMix: d.refValueMix,
-                mix: max(0, min(1, strength)))
+                adainStrength: effAdain,
+                mix: mix)
             let styledDit = Krea2DiT(config: cfg, weights: ditWeights, style: styleCfg)
 
             // ref_noisy at tcurr (closest cached sigma).

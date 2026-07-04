@@ -29,6 +29,8 @@ struct StyleTransferCommand: ParsableCommand {
     // Style-mechanism knobs (default to ComfyUI _RECOMMENDED). Override for sweeps.
     @Option(help: "V-AdaIN strength 0..1 (how strongly ref V statistics replace target V).")
     var valueAdainStrength: Float = 0.65
+    @Option(help: "Q/K cross-batch AdaIN strength 0..1 (ref Q/K stats → target; upstream recommended 0.85).")
+    var adainStrength: Float = 0.85
     @Option(help: "Extra reference-K multiplier (per-frequency scale on top of scaleVec).")
     var refKStrength: Float = 1.06
     @Option(help: "High-frequency K-scale ceiling at progress=0 (low-scale at high freqs).")
@@ -50,8 +52,10 @@ struct StyleTransferCommand: ParsableCommand {
         try? FileManager.default.createDirectory(at: outURL.deletingLastPathComponent(),
                                                  withIntermediateDirectories: true)
         let knobs = Krea2StyleDefaults(
-            valueAdainStrength: valueAdainStrength, refKStrength: refKStrength,
+            valueAdainStrength: valueAdainStrength,
+            refKStrength: refKStrength,
             gamma: gamma, lowScaleEnd: lowScaleEnd,
+            adainStrength: adainStrength,
             activeBlocks: activeBlocksStart...activeBlocksEnd)
         try Krea2Engine.styleTransfer(
             prompt: prompt, styleImage: styleURL, strength: strength,
