@@ -34,7 +34,10 @@ import {
   probedMenuSummary,
   composeVideo,
   finalReview,
+  renderRemotion,
+  preComposeGate,
   type EditDecisions,
+  type RemotionEditDecisions,
   projectDir,
   NoConfiguredProviderError,
   GateViolationError,
@@ -52,6 +55,8 @@ const COMMANDS = [
   "validate-artifact",
   "generate",
   "compose",
+  "compose-remotion",
+  "pre-compose",
   "final-review",
   "cost-estimate",
   "cost-reserve",
@@ -101,6 +106,14 @@ const DESCRIPTION = [
   "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?} → trims each cut to its",
   "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
   "                        transitions/overlays are the templated-composer tier). Returns a render_report.",
+  "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?} → renders the edit through a",
+  "                        Remotion composition (templated compose tier): per-cut ken-burns/zoom/pan motion, crossfade",
+  "                        transitions, section_title overlays, narration/music audio. editDecisions.cuts carry optional",
+  "                        animation/type/text; overlays[] + audio{} + transition + theme drive the composition.",
+  "                        Spawns the `remotion` binary (set REMOTION_BIN or install on PATH; falls back to bunx).",
+  "                        Returns a render_report (render_grammar:'remotion').",
+  "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
+  "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction). {verdict, checks[]}.",
   "  • final-review     — {mp4Path} → 6 delivery checks (container, duration>0, video stream, audio stream,",
   "                        volumedetect, midpoint frame) → {verdict:'pass'|'fail', checks[]}. A fail blocks publish.",
   "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
@@ -260,6 +273,29 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           fps: opts.fps ? Number(opts.fps) : undefined,
         });
         return { ok: true, text: jsonOut(report) };
+      }
+      case "compose-remotion": {
+        const edit = opts.editDecisions as RemotionEditDecisions | undefined;
+        if (!edit || !Array.isArray(edit.cuts)) {
+          return { ok: false, error: "compose-remotion requires {editDecisions:{version,cuts:[...]}}" };
+        }
+        const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_remotion"));
+        const report = await renderRemotion(edit, {
+          workDir,
+          output: opts.output ? String(opts.output) : undefined,
+          width: opts.width ? Number(opts.width) : undefined,
+          height: opts.height ? Number(opts.height) : undefined,
+          fps: opts.fps ? Number(opts.fps) : undefined,
+        });
+        return { ok: true, text: jsonOut(report) };
+      }
+      case "pre-compose": {
+        const edit = opts.editDecisions as RemotionEditDecisions | undefined;
+        if (!edit || !Array.isArray(edit.cuts)) {
+          return { ok: false, error: "pre-compose requires {editDecisions:{version,cuts:[...]}}" };
+        }
+        const gate = preComposeGate(edit);
+        return { ok: true, text: jsonOut(gate) };
       }
       case "final-review": {
         const mp4 = String(opts.mp4Path ?? opts.path ?? "");
