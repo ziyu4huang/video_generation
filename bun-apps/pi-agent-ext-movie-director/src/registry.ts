@@ -45,7 +45,8 @@ export interface ProviderEntry {
     | "bun:builtin"
     | "bun:whisper"
     | "bun:clip"
-    | "bun:esrgan";
+    | "bun:esrgan"
+    | "compose:remotion";
   configured: boolean;
   notes?: string;
 }
@@ -66,7 +67,7 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "ltx_video", capability: "video_generation", provider: "ltx", backend: "native_swift", invoke: "swift:ltx", configured: true, notes: "swift/ltx-video-director (LTX-2.3 T2V/i2v/relay/upscale)" },
 
   // Composition runtimes.
-  { name: "compose_remotion", capability: "composition", provider: "remotion", backend: "cloud_http", invoke: "fetch", configured: false, notes: "Remotion as Node subprocess (iteration 4)" },
+  { name: "compose_remotion", capability: "composition", provider: "remotion", backend: "native_swift", invoke: "compose:remotion", configured: true, notes: "Remotion Node subprocess (src/remotion.ts, iteration G #280) — resolves REMOTION_BIN/PATH/bunx; callable when the binary resolves + a browser is present" },
   { name: "compose_hyperframes", capability: "composition", provider: "hyperframes", backend: "cloud_http", invoke: "fetch", configured: false, notes: "npx hyperframes (later)" },
   { name: "compose_ffmpeg", capability: "composition", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true, notes: "concat/trim/subtitle-burn via ffmpeg" },
 

@@ -19,6 +19,7 @@ import {
   esrganScriptPath,
   resolveVisionPython,
   _setFfmpegAvailableForTest,
+  _setRemotionProbeForTest,
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
   type WhisperResult,
@@ -29,12 +30,14 @@ import { REGISTRY } from "./registry.ts";
 
 beforeAll(() => {
   _setFfmpegAvailableForTest(true);
+  _setRemotionProbeForTest(false);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
   _setVisionRuntimeForTest("esrgan", true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
+  _setRemotionProbeForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
   _setVisionRuntimeForTest("esrgan", undefined);
@@ -211,6 +214,42 @@ describe("probeConfigured + probedMenuSummary", () => {
     // subtitle_gen (bun:builtin, non-gap) is callable.
     const sub = m.capabilities.find((c) => c.capability === "subtitle")!;
     expect(sub.available_providers).toContain("openmontage");
+  });
+
+  it("compose_remotion is reclassified (Item A): callable iff binary resolves", () => {
+    const remotion = REGISTRY.find((p) => p.name === "compose_remotion")!;
+    // The drift fix: native_swift + compose:remotion + configured (was cloud_http/fetch/false).
+    expect(remotion.configured).toBe(true);
+    expect(remotion.backend).toBe("native_swift");
+    expect(remotion.invoke).toBe("compose:remotion");
+    // Default (probe-pinned false): not callable, so it lists under unavailable.
+    expect(probeConfigured(remotion, NO_ENV)).toBe(false);
+    // Binary resolves (REMOTION_BIN points at a real file) → callable.
+    const env = { REMOTION_BIN: process.execPath }; // a real binary on disk
+    _setRemotionProbeForTest(undefined); // re-evaluate against env
+    try {
+      expect(probeConfigured(remotion, env)).toBe(true);
+    } finally {
+      _setRemotionProbeForTest(false); // restore the deterministic default
+    }
+  });
+
+  it("Item A acceptance: composition GAPs list is [hyperframes] only after remotion repair", () => {
+    // When remotion resolves, composition.available_providers includes remotion
+    // AND ffmpeg; the only remaining GAP is hyperframes.
+    _setRemotionProbeForTest(true);
+    try {
+      const m = probedMenuSummary(NO_ENV);
+      const composition = m.capabilities.find((c) => c.capability === "composition")!;
+      expect(composition.available_providers).toContain("remotion");
+      expect(composition.available_providers).toContain("ffmpeg");
+      expect(composition.unavailable_providers).toEqual(["hyperframes"]);
+      // composition_runtimes rollup reflects the same truth.
+      expect(m.composition_runtimes.remotion).toBe(true);
+      expect(m.composition_runtimes.hyperframes).toBe(false);
+    } finally {
+      _setRemotionProbeForTest(false);
+    }
   });
 });
 

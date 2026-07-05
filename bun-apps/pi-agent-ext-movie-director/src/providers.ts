@@ -16,11 +16,13 @@
  * the probe is the runtime truth (it can upgrade a cloud provider to callable
  * when a key appears, or downgrade an ffmpeg provider when the binary is gone).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
 import { EXT_ROOT } from "./paths.ts";
+import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
+import type { RenderReport } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
 
@@ -45,6 +47,37 @@ function ffmpegAvailable(): boolean {
 /** Force a ffmpeg-availability result (tests inject a deterministic value). */
 export function _setFfmpegAvailableForTest(v: boolean | undefined): void {
   ffmpegCached = v;
+}
+
+// ─── Remotion binary probe (compose:remotion) ────────────────────────────────
+
+/**
+ * True if a usable `remotion` binary resolves (NOT the bunx fallback). Mirrors
+ * `remotionAvailable()` in remotion.ts but SYNCHRONOUS (probeConfigured must be
+ * sync) and cached per process. Resolution order: REMOTION_BIN env (must exist
+ * on disk) → `remotion --version` on PATH (exit 0). The bunx fallback is treated
+ * as "not really installed" (matches remotion.ts:176).
+ */
+function remotionOnPath(): boolean {
+  try {
+    const r = spawnSync("remotion", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+let remotionCached: boolean | undefined;
+function remotionBinaryAvailable(env: Record<string, string | undefined>): boolean {
+  if (remotionCached != null) return remotionCached;
+  if (env.REMOTION_BIN && existsSync(env.REMOTION_BIN)) remotionCached = true;
+  else remotionCached = remotionOnPath();
+  return remotionCached;
+}
+
+/** Force the remotion-binary probe result (tests inject a deterministic value). */
+export function _setRemotionProbeForTest(v: boolean | undefined): void {
+  remotionCached = v;
 }
 
 const CLOUD_KEY_FOR: Record<string, string> = {
@@ -82,6 +115,10 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "bun:esrgan":
       // callable iff the vision-venv python + esrgan entry script resolve.
       return entry.configured && visionRuntimePresent(env, ESRGAN_SCRIPT);
+    case "compose:remotion":
+      // callable iff the registry flag is set AND a real remotion binary resolves
+      // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
+      return entry.configured && remotionBinaryAvailable(env);
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.
@@ -881,6 +918,53 @@ function fail(req: GenerateRequest, provider: string, error: string, durationSec
   };
 }
 
+// ─── compose:remotion adapter (delegates to renderRemotion) ──────────────────
+
+/**
+ * Adapter wrapper so `selectAndGenerate("composition", {...})` routes to the
+ * Remotion runtime (the compose-remotion action in the extension calls
+ * renderRemotion directly; this wrapper exposes the same path through the
+ * selector/bridge). Maps the RenderReport → ToolResult.
+ */
+export const composeRemotionAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number; fps?: number };
+  const edit = opts.editDecisions;
+  if (!edit || !Array.isArray(edit.cuts)) {
+    return fail(req, "remotion", "compose:remotion requires options.editDecisions.{version,cuts:[...]}");
+  }
+  const outputDir = req.outputDir ?? process.cwd();
+  const workDir = opts.workDir ?? outputDir;
+  const started = Date.now();
+  try {
+    const report: RenderReport = await renderRemotion(edit, {
+      workDir,
+      output: opts.output,
+      width: opts.width,
+      height: opts.height,
+      fps: opts.fps,
+    });
+    const ok = report.outputs.length > 0;
+    return {
+      success: ok,
+      provider: "remotion",
+      command: req.command || "compose-remotion",
+      artifacts: report.outputs.map((o) => ({
+        path: resolve(o.path),
+        kind: "video" as const,
+        bytes: o.file_size_bytes,
+        role: "composed",
+      })),
+      error: ok ? null : (report.warnings[0] ?? "remotion produced no output"),
+      cost_usd: 0, // local Node subprocess — honest $0 marginal
+      duration_seconds: report.render_time_seconds ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: "remotion",
+    };
+  } catch (err) {
+    return fail(req, "remotion", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
 /** The non-native adapter map (merged into realAdapters by bridge.ts). */
 export function nonNativeAdapters(_env?: Record<string, string | undefined>): Partial<Record<ProviderEntry["invoke"], Adapter>> {
   return {
@@ -889,6 +973,7 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:whisper": whisperAdapter, // transcriber (Item I) spawns mlx-whisper via python
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
     "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
+    "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
 }
