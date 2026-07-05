@@ -105,12 +105,16 @@ public final class T2IPipeline {
 
     /// One transformer forward step: latent → noise prediction.
     /// Mirrors the Python step_fn (compiled closure).
-    public func stepFn(latent: MLXArray, timestep: MLXArray, capFeats: MLXArray, inputs: StepInputs) -> MLXArray {
+    public func stepFn(
+        latent: MLXArray, timestep: MLXArray, capFeats: MLXArray, inputs: StepInputs,
+        onBlockTimings: ((BlockTimings) -> Void)? = nil
+    ) -> MLXArray {
         let channels = config.inChannels  // 16
         let xTokens = LatentOps.patchify(latent, hTok: inputs.hTok, wTok: inputs.wTok)
         let out = transformer(
             x: xTokens, t: timestep, capFeats: capFeats,
-            xPos: inputs.xPos, capPos: inputs.capPos, cos: inputs.cos, sin: inputs.sin, capMask: nil
+            xPos: inputs.xPos, capPos: inputs.capPos, cos: inputs.cos, sin: inputs.sin, capMask: nil,
+            onBlockTimings: onBlockTimings
         )
         return LatentOps.unpack(out, hTok: inputs.hTok, wTok: inputs.wTok, channels: channels)
     }
@@ -120,7 +124,8 @@ public final class T2IPipeline {
     /// every step (it doesn't depend on the timestep or current latent).
     public func stepFnControlnet(
         latent: MLXArray, timestep: MLXArray, capFeats: MLXArray, inputs: StepInputs,
-        controlnet: ZImageControlNet, controlContext: MLXArray, strength: Float
+        controlnet: ZImageControlNet, controlContext: MLXArray, strength: Float,
+        onBlockTimings: ((BlockTimings) -> Void)? = nil
     ) -> MLXArray {
         let channels = config.inChannels
         let xTokens = LatentOps.patchify(latent, hTok: inputs.hTok, wTok: inputs.wTok)
@@ -129,7 +134,8 @@ public final class T2IPipeline {
             xPos: inputs.xPos, capPos: inputs.capPos, cos: inputs.cos, sin: inputs.sin,
             capMask: nil,
             controlnet: controlnet, controlnetContext: controlContext,
-            controlnetStrength: strength
+            controlnetStrength: strength,
+            onBlockTimings: onBlockTimings
         )
         return LatentOps.unpack(out, hTok: inputs.hTok, wTok: inputs.wTok, channels: channels)
     }
@@ -153,7 +159,15 @@ public final class T2IPipeline {
         // real overhead absent in the default path — same "opt-in, bounded"
         // pattern as DenoiseLoop's cachedBlockCount). When false, timing and
         // stepTimesMs are byte-identical to before this flag existed.
-        profileSubsteps: Bool = false
+        profileSubsteps: Bool = false,
+        // Opt-in per-block breakdown of the forward pass itself (noiseRefiner /
+        // contextRefiner / main layers), now that profileSubsteps has already
+        // shown forward ≈ 100% of step time. Same "opt-in, bounded" cost
+        // pattern: byte-identical to before this flag existed when false.
+        // When CFG is active, timings from the cond and uncond forward calls
+        // are summed (both run every step; splitting them further isn't
+        // useful since they share the same block structure).
+        profileBlocks: Bool = false
         // NOTE on MLX compile: this pipeline does NOT use MLX.compile for the
         // denoise step, despite Python's @mx.compile step_fn. Measured verdict
         // (4-run interleaved benchmark, 2026-06-29): compile gave ZERO speed
@@ -246,21 +260,28 @@ public final class T2IPipeline {
             // t_input = (1.0 - t_curr)[None] as bfloat16
             let tInput = (1.0 - tCurr).expandedDimensions(axis: -1).asType(.bfloat16)
 
+            var blockTimings = BlockTimings()
+            let onBlocks: ((BlockTimings) -> Void)? = profileBlocks ? { t in
+                blockTimings.noiseRefinerMs += t.noiseRefinerMs
+                blockTimings.contextRefinerMs += t.contextRefinerMs
+                blockTimings.layersMs += t.layersMs
+            } : nil
+
             let noisePred: MLXArray
             if useCnet, let cnet = controlnet, let ctx = cnetContext {
                 if cfgActive, let uncond = uncondFeats {
-                    let cond = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
-                    let uncondPred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
+                    let cond = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
+                    let uncondPred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
                     noisePred = uncondPred + cfgScale * (cond - uncondPred)
                 } else {
-                    noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength)
+                    noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
                 }
             } else if cfgActive, let uncond = uncondFeats {
-                let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
-                let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs)
+                let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks)
+                let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, onBlockTimings: onBlocks)
                 noisePred = uncondPred + cfgScale * (cond - uncondPred)
             } else {
-                noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
+                noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks)
             }
 
             // When profiling, force the forward pass to materialize now so its
@@ -317,6 +338,11 @@ public final class T2IPipeline {
                     "avg \(String(format: "%.0f", avgMs)) ms)"
             }
             print(stepMsg)
+            if profileBlocks {
+                print("         blocks: noiseRefiner \(String(format: "%.0f", blockTimings.noiseRefinerMs)) ms, " +
+                    "contextRefiner \(String(format: "%.0f", blockTimings.contextRefinerMs)) ms, " +
+                    "layers \(String(format: "%.0f", blockTimings.layersMs)) ms")
+            }
         }
         let runSteps = steps - startStep
         let totalMs = stepTimes.reduce(0, +)

@@ -9,6 +9,14 @@ import Foundation
 import MLX
 import MLXNN
 
+/// Opt-in per-block breakdown of one transformer forward pass, produced only
+/// when `callAsFunction`'s `onBlockTimings` handler is non-nil.
+public struct BlockTimings {
+    public var noiseRefinerMs: Double = 0
+    public var contextRefinerMs: Double = 0
+    public var layersMs: Double = 0
+}
+
 /// Pure-Swift Z-Image 6B S3-DiT transformer. T2I forward path only (no
 /// ControlNet injection — that is a separate model, not part of T2I).
 public final class ZImageTransformer: Module {
@@ -97,8 +105,16 @@ public final class ZImageTransformer: Module {
         xMask: MLXArray? = nil, capMask: MLXArray? = nil,
         controlnet: ZImageControlNet? = nil,
         controlnetContext: MLXArray? = nil,
-        controlnetStrength: Float = 1.0
+        controlnetStrength: Float = 1.0,
+        // Opt-in per-block breakdown (noiseRefiner / contextRefiner / main
+        // layers). Forces an extra MLX.eval sync point after each stage to
+        // split the timing — real overhead absent when nil, same "opt-in,
+        // bounded" pattern as T2IPipeline's profileSubsteps. When nil (the
+        // default), this forward pass is byte-identical to before this
+        // parameter existed.
+        onBlockTimings: ((BlockTimings) -> Void)? = nil
     ) -> MLXArray {
+        let profiling = onBlockTimings != nil
         let useCnet = controlnet != nil && controlnetContext != nil
         let temb = tEmbedder(t * tScale)
         var xi = xEmbedder(x)
@@ -113,6 +129,9 @@ public final class ZImageTransformer: Module {
         if let capMask = capMask {
             cap = MLX.where(capMask.expandedDimensions(axis: -1), capPadToken, cap)
         }
+
+        var timings = BlockTimings()
+        let noiseRefinerStart = profiling ? Date() : nil
 
         // Noise refiners — interleaved with ControlNet noise refiner blocks.
         var cnetCtx = controlnetContext
@@ -133,11 +152,20 @@ public final class ZImageTransformer: Module {
                 xi = xi + residual * controlnetStrength
             }
         }
+        if profiling {
+            MLX.eval(xi)
+            timings.noiseRefinerMs = noiseRefinerStart!.distance(to: Date()) * 1000
+        }
 
+        let contextRefinerStart = profiling ? Date() : nil
         // Context refiners (caption tokens).
         for blk in contextRefiner {
             cap = blk(cap, mask: nil, positions: capPos, adalnInput: nil,
                       cos: cos[0..., xi.dim(1)...], sin: sin[0..., xi.dim(1)...])
+        }
+        if profiling {
+            MLX.eval(cap)
+            timings.contextRefinerMs = contextRefinerStart!.distance(to: Date()) * 1000
         }
 
         let xLen = xi.dim(1)
@@ -155,6 +183,7 @@ public final class ZImageTransformer: Module {
             : 2
         var cnetLayerIdx = 0
 
+        let layersStart = profiling ? Date() : nil
         for (i, blk) in layers.enumerated() {
             if useCnet, let cnet = controlnet, let ctx = cnetCtx, let mainImg = unifiedOriginalImg {
                 let cnetIdx = i / div
@@ -174,7 +203,13 @@ public final class ZImageTransformer: Module {
             }
             unified = blk(unified, mask: nil, positions: unifiedPos, adalnInput: temb, cos: cos, sin: sin)
         }
+        if profiling {
+            MLX.eval(unified)
+            timings.layersMs = layersStart!.distance(to: Date()) * 1000
+        }
 
-        return finalLayer(unified[0..., 0..<xLen, 0...], temb)
+        let result = finalLayer(unified[0..., 0..<xLen, 0...], temb)
+        onBlockTimings?(timings)
+        return result
     }
 }
