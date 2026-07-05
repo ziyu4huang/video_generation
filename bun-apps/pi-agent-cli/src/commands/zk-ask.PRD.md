@@ -94,6 +94,27 @@ cleanest semantic-vs-lexical comparison; the measured trade-off lives alongside
 the `retrieval-quality-self-improve` receipts. Reference tags are `semantic` /
 `lexical:*` only (no `graph`).
 
+### Default-flip decision (iter-5 full-vault measurement)
+
+**Default stays `default` (lexical + graph). `semantic-lexical` remains opt-in.**
+
+Full-vault measurement (run `run-mr840sic`, 2026-07-05, 425 knowledge-graph cards,
+5 adversarial queries, blind LLM judge, `top-k=4`, `thinking=medium`, both modes
+live — `semanticLive=5/5`):
+
+| Mode | Mean relevance@4 | Wins | Notable |
+|---|---|---|---|
+| `default` (lexical+graph) | **0.802** | 4/5 | Q3 UI-hot-reload 1.00 vs 0.75; Q5 CLI-options 0.85 vs 0.50 |
+| `semantic-lexical` | 0.640 | 1/5 (a 1.00–1.00 tie) | Never beat lexical outright |
+
+Lexical body-search matches the English/mixed-language terms in this codebase +
+knowledge-graph corpus well, so semantic-lexical underperforms here. This matches
+the iter-4 controlled-corpus result (lexical near ceiling at 80% on 24 cards) and
+the honest-uncertainty prediction: **semantic-lexical wins only on pure
+cross-lingual / paraphrase subsets**, not on the default English-leaning vault.
+Flipping the default is therefore not justified by the data; keep `--blend
+semantic-lexical` as the opt-in for cross-lingual / anti-lexical-dilution use.
+
 The blend score is a pure exported function `rankBlendScore(parts, mode)` in
 `pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in
 `__tests__/blend.test.ts`, re-used by the `retrieval-quality-self-improve`
