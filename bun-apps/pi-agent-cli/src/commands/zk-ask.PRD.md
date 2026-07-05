@@ -64,6 +64,7 @@ zk-ask <question> --summarize            # summarize each tag cluster before gen
 zk-ask <question> --no-refine            # skip seed quality gate
 zk-ask <question> --folder <name>        # restrict seed search scope
 zk-ask <question> --blend three-way      # semantic + lexical + graph (needs vault-mind)
+zk-ask <question> --blend semantic-lexical # semantic + lexical, NO graph (iter-4)
 ```
 
 All pi-global flags apply: `--model`, `--vault`, `--mode json`, etc.
@@ -74,6 +75,7 @@ All pi-global flags apply: `--model`, `--vault`, `--mode json`, etc.
 |------|-----------------|------------|-------|
 | `default` (the default) | title fuzzy + tags + body (`obsidian_search`) + graph neighbors | `0.7 × lexical + 0.3 × link_count` | `obsidian_search/query/read/list` |
 | `three-way` | adds `obsidian_semantic_search` (vault-mind vector) as a 4th seed | `0.4 × semantic + 0.3 × lexical + 0.3 × link_count` | + `obsidian_semantic_search` |
+| `semantic-lexical` | same 4-strategy seed, but graph expansion dropped (Step 2 skipped) | `0.55 × semantic + 0.45 × lexical` (no link term) | + `obsidian_semantic_search` |
 
 The default mode is unchanged from the original design (no regression). Three-way
 rebalances so the vector seed leads but cannot dominate — a strongly-graph-linked
@@ -82,6 +84,15 @@ card both text modes miss still ranks. Three-way requires the vault-mind service
 semantic search errors (service down), the pipeline falls back to the 3 lexical
 strategies and never aborts. Under `--retrieve-only --blend three-way`, each
 reference is tagged with its source mode(s) (`semantic`, `lexical:*`, `graph`).
+
+`semantic-lexical` (iter-4) isolates the semantic win from **graph-neighbor
+dilution**: `link_count` is a popularity signal — it boosts heavily-linked cards
+regardless of query relevance, so off-topic graph neighbors drag down the
+three-way top-k on paraphrase / cross-lingual queries where semantic retrieval is
+the whole point. Dropping graph entirely (Step 2 skipped, no link term) gives the
+cleanest semantic-vs-lexical comparison; the measured trade-off lives alongside
+the `retrieval-quality-self-improve` receipts. Reference tags are `semantic` /
+`lexical:*` only (no `graph`).
 
 The blend score is a pure exported function `rankBlendScore(parts, mode)` in
 `pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in

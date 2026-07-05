@@ -288,6 +288,30 @@ export VAULT_MIND_BASE_URL=http://127.0.0.1:8000   # default; set only if non-de
 `/api/index` with `force_reindex:true`. An auto-hook on `obsidian_distill` /
 `zk_ingest` is a documented follow-up.
 
+**Indexing gotchas (vault-mind v1.4, learned iter-4):**
+
+- **Use `/api/index` `force_reindex:true`, never `/api/collections/{name}/reindex`.**
+  The `/reindex` endpoint stalls — its document count freezes mid-rebuild and the
+  collection is left partial. `/api/index force_reindex:true` returns a `job_id`
+  that completes reliably (~18s for a 493-file vault); poll
+  `GET /api/index/job/{job_id}` until `status:"completed"`, then confirm via
+  `GET /api/collections/{name}/status` (`status:"indexed"`). The listing endpoint's
+  `document_count` is cached/stale — trust the per-collection `/status`.
+- **vault-mind auto-prefixes `vault_`.** It derives `collection_name = "vault_" +
+  vault_name`, so POST `vault_name` **without** the `vault_` prefix: the canonical
+  pi-agent collection is `vault_pi_agent_vault`, so POST
+  `"vault_name":"pi-agent-vault"` (or `pi_agent_vault`) — never
+  `"vault_name":"vault_pi_agent_vault"` (that creates a misnamed
+  `vault_vault_pi_agent_vault` duplicate). `/api/search` accepts either hyphen or
+  underscore form for `vault_name` (it normalizes). Deleting a collection is a
+  two-step confirmation-token flow: DELETE returns a `confirmation_token` (300s
+  TTL), then `DELETE ...?confirmation_token=<tok>` starts an async cleanup job —
+  poll `GET /api/collections` until empty.
+- **Controlled-corpus harness:** `scripts/controlled-corpus.mjs` stages a tiny
+  paper+distill vault (~24 cards, two distinct domains) as its own collection so
+  semantic/lexical/graph retrieval can be measured on a noise-free field instead
+  of the full 2900-doc vault. Idempotent; `--status` / `--search "query"` probe.
+
 ### Embedding model quality (honest caveat)
 
 vault-mind's default `all-MiniLM-L6-v2` is multilingual but lightweight; on
