@@ -29,6 +29,15 @@ export class NoConfiguredProviderError extends Error {
 export interface SelectorOptions {
   /** Explicit provider name; wins if it names a configured provider for the capability. */
   provider?: string;
+  /**
+   * Director subcommand the caller addressed (e.g. "video_understand", "transcribe").
+   * When a configured provider declares `commands` including it, that provider wins
+   * — addressing a tool by {capability, command} is the documented shape, so a
+   * command match outranks backend-rank/declaration-order. Capabilities whose
+   * providers don't declare `commands` are unaffected (today: only `analysis`
+   * partitions by command: whisper owns `transcribe`, clip owns `video_understand`).
+   */
+  command?: string;
   /** Restrict to a backend class (e.g. native_swift). Rarely needed. */
   backend?: ProviderBackend;
   /** Env to probe provider availability against (defaults to process.env). */
@@ -60,6 +69,18 @@ export function selectProvider(capability: Capability, opts: SelectorOptions = {
     const hit = configured.find((p) => p.provider === opts.provider);
     if (hit) return hit;
     // Soft hint: a non-matching provider name is ignored, not fatal.
+  }
+
+  // Command routing: if the caller addressed a subcommand a configured provider
+  // explicitly owns, that wins over backend-rank/declaration-order. This is what
+  // lets `{capability:"analysis", command:"video_understand"}` reach CLIP without
+  // a manual `provider:"clip"` hint (both are native_swift, whisper is declared
+  // first, so the prior backend-then-declaration tiebreak always picked whisper).
+  // A command no provider declares falls through to today's behavior (soft).
+  if (opts.command) {
+    const cmd = opts.command;
+    const hit = configured.find((p) => p.commands?.includes(cmd));
+    if (hit) return hit;
   }
 
   // Stable sort by backend rank (registry order breaks ties implicitly —

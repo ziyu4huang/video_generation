@@ -241,10 +241,13 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
 
         // Pre-resolve the selector so a no-configured-provider error is a clean
         // structured failure (not a thrown stack trace) and so we know the
-        // entry before deciding whether to run the cost lifecycle.
+        // entry before deciding whether to run the cost lifecycle. Pass `command`
+        // so {capability, command} addressing routes to the provider that owns
+        // the command (e.g. analysis:video_understand → clip, not whisper).
+        const command = String(opts.command ?? "");
         let entry;
         try {
-          entry = selectProvider(capability, { provider });
+          entry = selectProvider(capability, { provider, command: command || undefined });
         } catch (err) {
           if (err instanceof NoConfiguredProviderError) {
             return { ok: false, error: err.message };

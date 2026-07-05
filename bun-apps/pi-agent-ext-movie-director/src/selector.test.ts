@@ -4,23 +4,28 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
-// Pin ffmpeg-present + remotion-absent + motion-filters-absent + empty env so
-// tests are deterministic regardless of host: compose_ffmpeg stays the top
-// composition backend (a dev box with remotion/motion filters would otherwise
-// flip the pick).
+// Pin ffmpeg-present + remotion-absent + motion-filters-absent + whisper/clip
+// runtimes present + empty env so tests are deterministic regardless of host:
+// compose_ffmpeg stays the top composition backend and BOTH analysis providers
+// are callable (a dev box with remotion/motion filters or no whisper-venv would
+// otherwise flip the pick / make the command-routing tests host-dependent).
 beforeAll(() => {
   _setFfmpegAvailableForTest(true);
   _setRemotionProbeForTest(false);
   _setMotionFiltersForTest(false);
+  _setWhisperRuntimeForTest(true);
+  _setVisionRuntimeForTest("clip", true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
   _setRemotionProbeForTest(undefined);
   _setMotionFiltersForTest(undefined);
+  _setWhisperRuntimeForTest(undefined);
+  _setVisionRuntimeForTest("clip", undefined);
 });
 
 const NO_ENV: Record<string, string | undefined> = {};
@@ -106,5 +111,37 @@ describe("selectProvider", () => {
         expect(() => selectProvider(cap, { env: NO_ENV })).toThrow();
       }
     }
+  });
+});
+
+// Command routing (Item B): {capability:"analysis", command:"video_understand"}
+// must reach CLIP without a provider hint. whisper and clip are both native_swift,
+// whisper declared first → the prior backend-then-declaration tiebreak always
+// picked whisper. A command a provider owns now outranks that tie.
+describe("selectProvider command routing", () => {
+  it("routes analysis:video_understand → clip with no provider hint", () => {
+    const e = selectProvider("analysis", { command: "video_understand", env: NO_ENV });
+    expect(e.provider).toBe("clip");
+    expect(e.invoke).toBe("bun:clip");
+  });
+
+  it("routes analysis:transcribe → whisper with no provider hint", () => {
+    const e = selectProvider("analysis", { command: "transcribe", env: NO_ENV });
+    expect(e.provider).toBe("whisper");
+    expect(e.invoke).toBe("bun:whisper");
+  });
+
+  it("a command no provider declares falls back to the backend-rank pick (soft)", () => {
+    // image_generation providers don't declare `commands`; an arbitrary command
+    // must NOT change behavior — the pick matches the command-less selector.
+    const withCmd = selectProvider("image_generation", { command: "t2i", env: NO_ENV });
+    const noCmd = selectProvider("image_generation", { env: NO_ENV });
+    expect(withCmd.name).toBe(noCmd.name);
+  });
+
+  it("an explicit provider hint still wins over a command match", () => {
+    // provider is a hard pin; command is a tiebreak below it.
+    const e = selectProvider("analysis", { provider: "whisper", command: "video_understand", env: NO_ENV });
+    expect(e.provider).toBe("whisper");
   });
 });

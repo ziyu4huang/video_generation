@@ -23,7 +23,8 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { RenderReport } from "./compose.ts";
+import type { RenderReport, CaptionsOptions } from "./compose.ts";
+import { burnCaptions, planBurn, buildDrawtextFilter, drawtextFilterAvailable, resolveCaptionFont, type CaptionOutcome } from "./captions.ts";
 import type { Animation, RemotionEditDecisions, RemotionCut } from "./remotion.ts";
 
 // ─── spawn helper (mirrors remotion.ts) ───────────────────────────────────────
@@ -64,6 +65,13 @@ export interface MotionComposeOptions {
   fps?: number;
   /** Crossfade duration in seconds (used when edit.transition === "crossfade"). Default 0.5. */
   transitionSeconds?: number;
+  /**
+   * Optional captions sourced from an SRT (typically the whisper transcript →
+   * subtitle_gen output). Mirrors ComposeOptions.captions: burns via the shared
+   * libass → drawtext → sidecar ladder so the motion tier is caption-honest on
+   * the same macOS stock-ffmpeg platform that lacks libass.
+   */
+  captions?: CaptionsOptions;
 }
 
 // ─── zoompan expression builder ───────────────────────────────────────────────
@@ -143,28 +151,41 @@ export async function composeMotion(
 
   mkdirSync(opts.workDir, { recursive: true });
 
-  // Text cuts have no media to motionize — drop with a warning (the Remotion
-  // runtime renders them as overlay layers; that's its tier, not this one).
-  const mediaCuts = edit.cuts.filter((c) => {
-    if (c.type === "text") {
-      warnings.push(`cut "${c.id}" is a text cut — compose-motion is media-only, dropped (use compose-remotion for text overlays)`);
-      return false;
-    }
-    return true;
-  });
-  // Resolve sources; warn (don't crash) on missing files.
-  const valid: RemotionCut[] = mediaCuts.filter((c) => {
-    if (c.source && existsSync(c.source)) return true;
-    warnings.push(`cut "${c.id}" source missing: ${c.source ?? "(none)"}`);
-    return false;
-  });
-  if (valid.length === 0) {
-    return { version: "1.0", outputs: [], warnings, verification_notes: ["compose-motion failed: no cut sources existed"] };
-  }
+  // Partition text cuts from media cuts. Media cuts motionize normally; text
+  // cuts (title cards / section dividers) render as a solid-color + centered
+  // drawtext segment via the SAME drawtext primitive the captions ladder uses —
+  // closing the prior "text cuts dropped, use compose-remotion" gap without a
+  // browser runtime. Segments are emitted in original cut order.
+  const canRenderText = drawtextFilterAvailable() && resolveCaptionFont() != null;
 
-  // 1. Per-cut: trim → pre-scale 2x → bake zoompan animation → normalized segment.
+  // 1. Per-cut: media → trim + pre-scale 2x + zoompan; text → color + drawtext.
+  //    Both produce a normalized segment mp4 so the join strategies are agnostic.
   const segments: string[] = [];
-  for (const c of valid) {
+  for (const c of edit.cuts) {
+    if (c.type === "text") {
+      if (!c.text) {
+        warnings.push(`cut "${c.id}" is a text cut with no text — dropped`);
+        continue;
+      }
+      if (!canRenderText) {
+        warnings.push(`cut "${c.id}" is a text cut but ffmpeg lacks drawtext or no font resolved — dropped (install ffmpeg-full OR use compose-remotion for text overlays)`);
+        continue;
+      }
+      const seg = join(opts.workDir, `motion_${c.id}.mp4`);
+      const ok = await renderTextCut(c, width, height, fps, seg, run);
+      if (ok) {
+        segments.push(seg);
+        notes.push(`cut "${c.id}" text card ("${c.text.slice(0, 32)}")`);
+      } else {
+        warnings.push(`cut "${c.id}" text-card render failed`);
+      }
+      continue;
+    }
+    // media cut: resolve source (warn + skip on missing).
+    if (!c.source || !existsSync(c.source)) {
+      warnings.push(`cut "${c.id}" source missing: ${c.source ?? "(none)"}`);
+      continue;
+    }
     const seg = join(opts.workDir, `motion_${c.id}.mp4`);
     const duration = Math.max(0.1, (c.out_seconds - c.in_seconds));
     const totalFrames = Math.ceil(duration * fps);
@@ -195,7 +216,7 @@ export async function composeMotion(
     }
   }
   if (segments.length === 0) {
-    return { version: "1.0", outputs: [], warnings, verification_notes: ["compose-motion failed: every cut render failed"] };
+    return { version: "1.0", outputs: [], warnings, verification_notes: ["compose-motion failed: every cut render failed (or dropped)"] };
   }
 
   const output = opts.output ?? join(opts.workDir, `compose_motion_${Math.floor(Date.now() / 1000)}.mp4`);
@@ -244,6 +265,29 @@ export async function composeMotion(
     }
   }
 
+  // 2c. Optional captions sub-pass (mirrors compose.ts): burn or sidecar the
+  //     SRT onto the joined+mixed output via the shared libass → drawtext →
+  //     sidecar ladder. On macOS stock ffmpeg this reaches drawtext (hard-burn
+  //     plain text without libass) — the same fix compose.ts got.
+  if (opts.captions) {
+    const wantBurn = opts.captions.burn !== false;
+    const srtExists = existsSync(opts.captions.srtPath);
+    const plan = planBurn(wantBurn, srtExists);
+    if (plan.outcome === "skip") {
+      warnings.push(`captions srt not found: ${opts.captions.srtPath}`);
+    } else {
+      if (plan.warning) warnings.push(plan.warning);
+      const captioned = join(opts.workDir, `motion_captioned_${Math.floor(Date.now() / 1000)}.mp4`);
+      const burn = await burnCaptions(finalOutput, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run });
+      if (burn.ok && existsSync(captioned)) {
+        finalOutput = captioned;
+        notes.push(motionCaptionNote(burn.outcome, opts.captions.srtPath));
+      } else {
+        warnings.push(`captions pass failed (${burn.detail}); output has no captions`);
+      }
+    }
+  }
+
   // 3. ffprobe → RenderReport.
   const probe = await probeOutput(finalOutput, run);
   notes.push(`rendered via ffmpeg zoompan+xfade (${segments.length} cuts)`);
@@ -264,6 +308,18 @@ export async function composeMotion(
     verification_notes: notes,
     render_grammar: "motion",
   };
+}
+
+/** Human-readable note for which caption burn tier the motion tier ran. */
+function motionCaptionNote(outcome: CaptionOutcome, srtPath: string): string {
+  switch (outcome) {
+    case "libass":
+      return `captions burned (libass subtitles) from ${srtPath}`;
+    case "drawtext":
+      return `captions burned (drawtext) from ${srtPath}`;
+    case "sidecar":
+      return `captions sidecar (mov_text) from ${srtPath}`;
+  }
 }
 
 // ─── audio mix pass ───────────────────────────────────────────────────────────
@@ -313,6 +369,50 @@ async function mixAudioOnto(
 
   const r = await run("ffmpeg", argv);
   return { ok: r.code === 0 && existsSync(output), detail: `exit ${r.code}` };
+}
+
+/**
+ * Render a text cut as a solid-color + centered-drawtext segment (a title card).
+ * Uses the SAME drawtext primitive as the captions ladder, so a text cut is now
+ * first-class on compose_motion WITHOUT a browser runtime (the prior gap). The
+ * color lavfi source fixes the segment's duration + size; drawtext paints the
+ * text centered with a readable outline. Returns true on a produced segment.
+ */
+async function renderTextCut(
+  cut: RemotionCut,
+  width: number,
+  height: number,
+  fps: number,
+  output: string,
+  run: SpawnImpl,
+): Promise<boolean> {
+  const duration = Math.max(0.1, cut.out_seconds - cut.in_seconds);
+  const totalFrames = Math.ceil(duration * fps);
+  const fontfile = resolveCaptionFont()!;
+  // Normalize a CSS-style hex (#RRGGBB) → ffmpeg's 0xRRGGBB; names pass through.
+  const bg = normalizeColor(cut.backgroundColor) ?? "black";
+  const vf = buildDrawtextFilter(cut.text!, {
+    fontfile,
+    fontsize: Math.round(Math.min(width, height) / 12), // scales with target size
+  });
+  const argv = [
+    "-y",
+    "-f", "lavfi", "-i", `color=c=${bg}:s=${width}x${height}:d=${duration.toFixed(3)}:r=${fps}`,
+    "-vf", vf,
+    "-frames:v", String(totalFrames),
+    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", String(fps),
+    "-an",
+    output,
+  ];
+  const r = await run("ffmpeg", argv);
+  return r.code === 0 && existsSync(output);
+}
+
+/** "#1a2b3c" | "0x1a2b3c" | "red" → ffmpeg color spec (0x1a2b3c | red). */
+function normalizeColor(c?: string): string | undefined {
+  if (!c) return undefined;
+  if (c.startsWith("#")) return `0x${c.slice(1)}`;
+  return c;
 }
 
 // ─── join strategies ──────────────────────────────────────────────────────────
