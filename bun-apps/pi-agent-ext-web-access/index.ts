@@ -1192,35 +1192,37 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
-	pi.registerShortcut(curateKey, {
-		description: "Review search results",
-		handler: async (ctx) => {
-			const entries = [...pendingCurates.entries()];
-			if (entries.length === 0) return;
-			const [callId, pc] = entries[entries.length - 1];
+	if (typeof pi.registerShortcut === "function") {
+		pi.registerShortcut(curateKey, {
+			description: "Review search results",
+			handler: async (ctx) => {
+				const entries = [...pendingCurates.entries()];
+				if (entries.length === 0) return;
+				const [callId, pc] = entries[entries.length - 1];
 
-			if (pc.phase === "searching") {
-				pc.browserPromise = openCuratorBrowser(callId, pc, false);
-				ctx.ui.notify("Opening curator — remaining searches will stream in", "info");
-				return;
-			}
-		},
-	});
+				if (pc.phase === "searching") {
+					pc.browserPromise = openCuratorBrowser(callId, pc, false);
+					ctx.ui.notify("Opening curator — remaining searches will stream in", "info");
+					return;
+				}
+			},
+		});
 
-	pi.registerShortcut(activityKey, {
-		description: "Toggle web search activity",
-		handler: async (ctx) => {
-			widgetVisible = !widgetVisible;
-			if (widgetVisible) {
-				widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
-				updateWidget(ctx);
-			} else {
-				widgetUnsubscribe?.();
-				widgetUnsubscribe = null;
-				ctx.ui.setWidget("web-activity", undefined);
-			}
-		},
-	});
+		pi.registerShortcut(activityKey, {
+			description: "Toggle web search activity",
+			handler: async (ctx) => {
+				widgetVisible = !widgetVisible;
+				if (widgetVisible) {
+					widgetUnsubscribe = activityMonitor.onUpdate(() => updateWidget(ctx));
+					updateWidget(ctx);
+				} else {
+					widgetUnsubscribe?.();
+					widgetUnsubscribe = null;
+					ctx.ui.setWidget("web-activity", undefined);
+				}
+			},
+		});
+	}
 
 	pi.on("session_start", async (_event, ctx) => handleSessionChange(ctx));
 	pi.on("session_tree", async (_event, ctx) => handleSessionChange(ctx));
