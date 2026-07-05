@@ -1,0 +1,4 @@
+The upscaled image has been generated.
+
+**Output Path:** `/tmp/md-agent-upscale/input_4x.png`
+**Dimensions:** 1024 × 1024

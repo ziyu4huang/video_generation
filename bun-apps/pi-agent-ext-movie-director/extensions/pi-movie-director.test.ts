@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import extension from "./pi-movie-director.ts";
+import { scopeViolationForToolCall } from "../src/index.ts";
 
 // Wiring test for the extension factory — registers one well-formed tool and
 // dispatch() shapes results correctly. Deep behavior is covered in src/*.test.ts.
@@ -9,6 +10,9 @@ function captureRegisteredTool() {
   const fakePi = {
     registerTool(tool: any) {
       registered = tool;
+    },
+    on() {
+      /* tool_call guard registration; exercised via scopeViolationForToolCall tests */
     },
   } as any;
   extension(fakePi);
@@ -80,5 +84,28 @@ describe("pi-movie-director extension", () => {
     );
     expect(res.details.ok).toBe(false);
     expect(res.details.error).toContain("no configured provider");
+  });
+
+  test("the factory registers the tool_call scope guard", () => {
+    // The extension calls pi.on("tool_call", handler) with the scope-violation
+    // predicate. Capture the handler and prove it blocks the #291 path.
+    let registeredHandler: ((e: any) => any) | null = null;
+    const fakePi = {
+      registerTool() {},
+      on(event: string, handler: (e: any) => any) {
+        if (event === "tool_call") registeredHandler = handler;
+      },
+    } as any;
+    extension(fakePi);
+    expect(registeredHandler).not.toBeNull();
+    const block = registeredHandler!({ toolName: "edit", input: { path: "python/mlx-movie-director/app/config.py", edits: [] } });
+    expect(block?.block).toBe(true);
+    expect(block?.reason).toContain("out of scope");
+    // A safe path is allowed through.
+    expect(registeredHandler!({ toolName: "write", input: { path: "/tmp/x.mp4", content: "x" } })).toBeUndefined();
+    // And the handler delegates to the pure predicate (same verdict for the same input).
+    expect(registeredHandler!({ toolName: "edit", input: { path: "swift/x.swift", edits: [] } })).toEqual(
+      scopeViolationForToolCall({ toolName: "edit", input: { path: "swift/x.swift", edits: [] } }),
+    );
   });
 });

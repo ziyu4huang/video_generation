@@ -43,6 +43,7 @@ import {
   NoConfiguredProviderError,
   GateViolationError,
   type CheckpointStatus,
+  scopeViolationForToolCall,
 } from "../src/index.ts";
 
 const COMMANDS = [
@@ -105,9 +106,16 @@ const DESCRIPTION = [
   "                        (krea2/flux2/ltx), runs it, returns a ToolResult {success, artifacts[], cost_usd, duration_seconds,",
   "                        seed, model}. When projectId is given, the full estimate→reserve→reconcile cost lifecycle runs and",
   "                        the costEntryId is returned alongside. This is the assets-stage bridge: it actually produces files.",
-  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?} → trims each cut to its",
+  "                        capability:'analysis' command:'transcribe' options:{audio, model?, language?} → mlx-whisper transcript",
+  "                        + word-level timestamps (artifacts: transcript.txt, words.json). Feed words.json → subtitle_gen cues →",
+  "                        compose {captions:{srtPath, burn?}} to burn captions; pass transcript.txt to final-review for the",
+  "                        advisory spoken-content check. capability:'subtitle' options:{wordsPath, cueMode?, wordsPerCue?, cues?}",
+  "                        → SRT/VTT; pass the transcribe words.json as `wordsPath` and subtitle_gen derives cues itself (the",
+  "                        agent-driven captions path needs no timestamp math). `cues` may also be supplied directly.",
+  "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?} → trims each cut to its",
   "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
-  "                        transitions/overlays are the templated-composer tier). Returns a render_report.",
+  "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
+  "                        true) hard-burns or sidecars an SRT — typically subtitle_gen output from whisper word timestamps.",
   "  • compose-remotion — {editDecisions, workDir?, output?, width?, height?, fps?} → renders the edit through a",
   "                        Remotion composition (templated compose tier): per-cut ken-burns/zoom/pan motion, crossfade",
   "                        transitions, section_title overlays, narration/music audio. editDecisions.cuts carry optional",
@@ -116,8 +124,9 @@ const DESCRIPTION = [
   "                        Returns a render_report (render_grammar:'remotion').",
   "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
   "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction). {verdict, checks[]}.",
-  "  • final-review     — {mp4Path} → 6 delivery checks (container, duration>0, video stream, audio stream,",
-  "                        volumedetect, midpoint frame) → {verdict:'pass'|'fail', checks[]}. A fail blocks publish.",
+  "  • final-review     — {mp4Path, transcriptPath?} → 6 delivery checks (container, duration>0, video stream, audio stream,",
+  "                        volumedetect, midpoint frame) + an advisory transcript check when transcriptPath is given →",
+  "                        {verdict:'pass'|'fail', checks[], transcript?}. A fail blocks publish (the transcript check is advisory).",
   "  • cost-estimate    — {projectId, tool, operation, estimatedUsd} → entryId.",
   "  • cost-reserve     — {projectId, entryId} → reserves budget (cap mode raises BudgetExceededError).",
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
@@ -281,11 +290,15 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           return { ok: false, error: "compose requires {editDecisions:{version,cuts:[...]}}" };
         }
         const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose"));
+        const captions = opts.captions
+          ? { srtPath: String((opts.captions as Record<string, unknown>).srtPath ?? ""), burn: (opts.captions as Record<string, unknown>).burn !== false }
+          : undefined;
         const report = await composeVideo(edit, {
           workDir,
           output: opts.output ? String(opts.output) : undefined,
           resolution: opts.resolution ? String(opts.resolution) : undefined,
           fps: opts.fps ? Number(opts.fps) : undefined,
+          captions,
         });
         return { ok: true, text: jsonOut(report) };
       }
@@ -315,7 +328,8 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
       case "final-review": {
         const mp4 = String(opts.mp4Path ?? opts.path ?? "");
         if (!mp4) return { ok: false, error: "final-review requires {mp4Path}" };
-        const review = await finalReview(mp4);
+        const transcriptPath = opts.transcriptPath ? String(opts.transcriptPath) : undefined;
+        const review = await finalReview(mp4, {}, transcriptPath ? { transcriptPath } : {});
         return { ok: true, text: jsonOut(review) };
       }
       case "cost-estimate": {
@@ -370,6 +384,11 @@ function makeMovieTool() {
 
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeMovieTool());
+  // Tool-scope guard: block the built-in edit/write tools when the movie-director
+  // agent targets a repo infra root (python/, swift/, …). Prevents the ungrounded
+  // edit class observed in the #291 agent-driven run. No-op for non-edit tools.
+  // See src/tool-scope.ts for the pure logic + tests.
+  pi.on("tool_call", (event) => scopeViolationForToolCall(event));
 };
 
 export default extension;
