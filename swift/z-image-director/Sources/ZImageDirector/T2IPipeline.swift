@@ -147,7 +147,13 @@ public final class T2IPipeline {
         cleanLatent: MLXArray? = nil, denoiseStrength: Float = 1.0,
         mask: MLXArray? = nil,
         controlnet: ZImageControlNet? = nil, controlImage33ch: MLXArray? = nil,
-        controlnetStrength: Float = 1.0
+        controlnetStrength: Float = 1.0,
+        // Opt-in per-step forward/scheduler breakdown (default off: forces an
+        // extra MLX.eval sync point per step to split the timing, which adds
+        // real overhead absent in the default path — same "opt-in, bounded"
+        // pattern as DenoiseLoop's cachedBlockCount). When false, timing and
+        // stepTimesMs are byte-identical to before this flag existed.
+        profileSubsteps: Bool = false
         // NOTE on MLX compile: this pipeline does NOT use MLX.compile for the
         // denoise step, despite Python's @mx.compile step_fn. Measured verdict
         // (4-run interleaved benchmark, 2026-06-29): compile gave ZERO speed
@@ -235,6 +241,7 @@ public final class T2IPipeline {
 
         var stepTimes: [Double] = []
         for idx in startStep..<steps {
+            let iterStart = Date()
             let tCurr = scheduler.timesteps![idx]
             // t_input = (1.0 - t_curr)[None] as bfloat16
             let tInput = (1.0 - tCurr).expandedDimensions(axis: -1).asType(.bfloat16)
@@ -255,6 +262,18 @@ public final class T2IPipeline {
             } else {
                 noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs)
             }
+
+            // When profiling, force the forward pass to materialize now so its
+            // cost is separated from the scheduler step below. This eval is an
+            // EXTRA sync point that does not exist on the default path (see
+            // comment on the profileSubsteps parameter).
+            var forwardMs: Double = 0
+            if profileSubsteps {
+                MLX.eval(noisePred)
+                forwardMs = iterStart.distance(to: Date()) * 1000
+            }
+
+            let schedStart = Date()
             latents = scheduler.step(modelOutput: noisePred, timestepIdx: idx, sample: latents)
 
             // Repaint (latent inpainting): re-inject the LOCKED region (mask=1,
@@ -275,14 +294,28 @@ public final class T2IPipeline {
                 latents = inpaintMask * locked + (1.0 - inpaintMask) * latents
             }
 
-            let stepStart = Date()
             MLX.eval(latents)
-            let stepMs = stepStart.distance(to: Date()) * 1000
+            let schedMs = schedStart.distance(to: Date()) * 1000
+            // When not profiling, schedStart was set right after building the
+            // (still-unevaluated) noisePred graph, so schedMs already captures
+            // the whole step (forward + scheduler + repaint + eval) — identical
+            // to the original single-timer measurement. When profiling,
+            // forwardMs covers the piece schedStart no longer includes.
+            let stepMs = forwardMs + schedMs
             stepTimes.append(stepMs)
             let avgMs = stepTimes.reduce(0, +) / Double(stepTimes.count)
-            let stepMsg = "      step \(idx + 1)/\(steps) done  " +
-                "(\(String(format: "%.0f", stepMs)) ms, " +
-                "avg \(String(format: "%.0f", avgMs)) ms)"
+            let stepMsg: String
+            if profileSubsteps {
+                stepMsg = "      step \(idx + 1)/\(steps) done  " +
+                    "(forward \(String(format: "%.0f", forwardMs)) ms, " +
+                    "sched \(String(format: "%.0f", schedMs)) ms, " +
+                    "total \(String(format: "%.0f", stepMs)) ms, " +
+                    "avg \(String(format: "%.0f", avgMs)) ms)"
+            } else {
+                stepMsg = "      step \(idx + 1)/\(steps) done  " +
+                    "(\(String(format: "%.0f", stepMs)) ms, " +
+                    "avg \(String(format: "%.0f", avgMs)) ms)"
+            }
             print(stepMsg)
         }
         let runSteps = steps - startStep

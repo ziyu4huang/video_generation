@@ -45,12 +45,13 @@ public struct NativeT2IStage {
     public let vae: String
     public let encoder: String
     public let tokenizerDir: String
+    public let profileSubsteps: Bool
 
     public init(
         transformer: String = "moody-pro-mix", width: Int = 640, height: Int = 960,
         steps: Int? = nil, cfgScale: Float = 1.0, seed: UInt64 = 99,
         vae: String = "zimage-ae", encoder: String = "qwen3-4b",
-        tokenizerDir: String = "qwen3"
+        tokenizerDir: String = "qwen3", profileSubsteps: Bool = false
     ) {
         self.transformer = transformer
         self.width = width
@@ -61,6 +62,7 @@ public struct NativeT2IStage {
         self.vae = vae
         self.encoder = encoder
         self.tokenizerDir = tokenizerDir
+        self.profileSubsteps = profileSubsteps
     }
 
     /// Generates an image natively (no run.py) and saves it as a PNG.
@@ -101,7 +103,8 @@ public struct NativeT2IStage {
 
         let image = pipeline.generate(
             capFeats: capFeats, uncondFeats: uncondFeats,
-            seed: seed, width: width, height: height, steps: resolvedSteps, cfgScale: cfgScale)
+            seed: seed, width: width, height: height, steps: resolvedSteps, cfgScale: cfgScale,
+            profileSubsteps: profileSubsteps)
 
         try ImageSave.savePNG(image, to: outputURL)
         return image
