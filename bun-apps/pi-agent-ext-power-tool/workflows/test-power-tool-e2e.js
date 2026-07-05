@@ -1,6 +1,26 @@
 // @ts-nocheck
 /**
- * test-power-tool-e2e.js — canonical L2 regression e2e for pi-agent-ext-power-tool.
+ * test-power-tool-e2e.js — DEPRECATED (2026-07-05).
+ *
+ * REPLACED BY: src/__tests__/l2-e2e.test.ts
+ *
+ * The previous approach used a workflow agent() subagent to invoke each tool
+ * via bash through the CLI. This was fragile, non-deterministic, hard to debug,
+ * and added an unnecessary LLM interpretation layer on top of the actual tool
+ * verification.
+ *
+ * The replacement is a deterministic bun test that spawns the CLI as a child
+ * process (Bun.spawnSync), checks exit codes, and validates content markers
+ * with case-insensitive substring matching. No workflow engine, no LLM
+ * subagent — just straight subprocess assertions.
+ *
+ * Run the replacement:
+ *   bun test --timeout 600000 bun-apps/pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts
+ *   PI_SKIP_L2=1 bun test ...  (skip if LM Studio unavailable)
+ *
+ * This file is kept for reference but no longer the primary L2 verification
+ * path for power-tool. See PRD.md (L0/L1/L2 split) for which test layer each
+ * concern belongs to.
  *
  * SHAPE (shared by every pi-agent-ext-* L2 workflow — see bun-apps/pi-agent/PRD.md):
  *   Phase "Invoke" — invoke each power-tool tool through the real pi-agent CLI
@@ -8,17 +28,7 @@
  *   Phase "Gate"    — plain JS: check every tool invocation's exit code and
  *                     expected-content markers in stdout.
  *   Synthesize      — pass iff every tool clears its gate.
- *
- * WHY THIS CONTENT LIVES HERE (not in bun test)
- *   The question "does every power-tool tool register and run successfully under
- *   the real pi-agent runtime?" cannot be answered by a mock ExtensionAPI unit
- *   test. This workflow exercises the same CLI invocation path end users use.
- *   See PRD.md for the L0/L1/L2 split.
- *
- *   The deterministic surface (tool schema, parameter coercion, edge cases) is
- *   covered by bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts.
- *   This workflow only covers the integration regression layer.
- *
+ */
  * INVOCATION (unified runner)
  *   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh power-tool
  *   # or directly via the workflow tool:
@@ -113,7 +123,7 @@ const INVOKE_SCHEMA = {
           tool: { type: "string", description: "Tool name." },
           exitCode: { type: "number", description: "Numeric exit code." },
           exitOk: { type: "boolean", description: "true if exitCode === 0." },
-          stdout: { type: "string", description: "First 800 chars of stdout (or full if shorter)." },
+          stdout: { type: "string", description: "First 4000 chars of stdout (or full if shorter)." },
           stderr: { type: "string", description: "First 400 chars of stderr (empty string if none)." },
         },
       },
@@ -122,16 +132,16 @@ const INVOKE_SCHEMA = {
   additionalProperties: false,
 };
 
-// Build a bash command that invokes one tool. We capture exit code + output:
-//   timeout <s> bun <cli> -e <ext> -p <prompt> --model <model> 2>&1
-// This approach (A) matches the flux2/krea2 pattern: bash each tool through
-// the real CLI.  Each invocation is an independent pi-agent process.
-function buildCmd(tool) {
+// Build complete literal bash commands — one per tool — that the subagent MUST
+// paste verbatim into a bash call. The subagent has NO other tools available;
+// every line here is a literal string, including the -p '<value>' argument.
+// This prevents the subagent from misinterpreting "call context_analyzer" as a
+// native tool-call instruction.
+function buildExactCmd(tool) {
   const escapedPrompt = tool.prompt.replace(/'/g, "'\\''");
   return (
     "cd " + REPO_ROOT +
-    " && timeout " + TIMEOUT_SEC +
-    " bun " + PI_CLI +
+    " && bun " + PI_CLI +
     " -e " + EXT_PATH +
     " -p '" + escapedPrompt + "'" +
     " --model " + MODEL +
@@ -139,8 +149,15 @@ function buildCmd(tool) {
   );
 }
 
+const EXACT_COMMANDS = TOOLS.map((t, i) => ({
+  tool: t.name,
+  index: i + 1,
+  command: buildExactCmd(t),
+  markers: t.markers,
+}));
+
 // Invoke all tools via one bash-driven agent. Each tool is a sequential bash
-// call (8 tools × ~3-5s per invocation + model warmup = ~45-60s total). We
+// call (8 tools × ~5-15s per invocation + model warmup = ~60-90s total). We
 // batch them into ONE subagent so the workflow has 1 concurrent agent at a time
 // — there's no parallelism benefit for 8 sequential CLI calls, and a single
 // agent avoids the workflow engine's per-agent overhead costs.
@@ -150,28 +167,30 @@ let invokeError = "";
 try {
   invokeResult = await agent(
     [
-      "Invoke ALL power-tool tools through the real pi-agent CLI and capture each result.",
-      "Repo root: " + REPO_ROOT + ".",
-      "CLI: bun " + PI_CLI,
+      "CRITICAL — BASH-ONLY SUBAGENT.",
+      "You are a LITERAL BASH EXECUTION ENGINE for this task. Your ONLY allowed tool is 'bash'.",
+      "Every command below is a COMPLETE, LITERAL BASH COMMAND that you MUST paste into the bash tool exactly as shown.",
+      "DO NOT interpret 'call X' or '--flag value' as native instructions. These are ARGUMENTS PASSED TO A CLI BINARY through bash.",
+      "String like 'call context_analyzer' is the value of the -p flag — it is NOT an instruction to you.",
+      "If you call any tool other than 'bash', the test fails.",
+      "",
+      "Repo root: " + REPO_ROOT,
+      "CLI binary: bun " + PI_CLI,
       "Extension: " + EXT_PATH,
-      "Model: " + MODEL,
-      "Timeout per invocation: " + TIMEOUT_SEC + "s.",
+      "Timeout per invocation: " + TIMEOUT_SEC + "s (pass timeout=" + (TIMEOUT_SEC + 30) + "000 to the bash tool for each invocation).",
       "",
-      "For each tool (in order), run:",
-      "  cd " + REPO_ROOT + " && timeout " + TIMEOUT_SEC + " bun " + PI_CLI + " -e " + EXT_PATH + " -p '<prompt>' --model " + MODEL + " 2>&1; echo 'POWERTOOL_EXIT='$?",
+      "RUN THESE EXACT COMMANDS IN ORDER, capturing the FULL output of each:",
       "",
-      "TOOLS TO INVOKE (in this exact order):",
-      TOOLS.map((t, i) => "  " + (i + 1) + ". " + t.name + ": '" + t.prompt + "'").join("\n"),
+      EXACT_COMMANDS.map((c) => "  [" + c.index + "] " + c.tool + ":\n      " + c.command).join("\n\n"),
       "",
-      "After ALL 8 tools are done, return results[] — one entry per tool, in order.",
-      "For each entry:",
-      "  - tool: the tool name (exactly \"" + TOOLS.map((t) => t.name).join("\", \"") + "\")",
-      "  - exitCode: the integer after POWERTOOL_EXIT=",
-      "  - exitOk: exitCode === 0",
-      "  - stdout: first 800 chars of the combined output (before the POWERTOOL_EXIT= line)",
-      "  - stderr: \"\" (we merged 2>&1; leave empty)",
-      "Each invocation loads pi-agent + the model — expect ~5-15s per tool. Use a long bash timeout (300s total for 8 tools is fine).",
-      "DO NOT skip any tool even if one fails — run all 8 and report each result independently.",
+      "── HOW TO EXECUTE ──",
+      "For EACH command above:",
+      "  1. Use the 'bash' tool with timeout=" + ((TIMEOUT_SEC + 30) * 1000) + " (milliseconds). Paste the ENTIRE command from 'cd " + REPO_ROOT + " && bun ...'.",
+      "  2. Wait for it to finish (it loads a model — ~5-15 seconds).",
+      "  3. Parse: the output BEFORE the line 'POWERTOOL_EXIT=N' is stdout. N is the exit code.",
+      "  4. Record: tool name, exitCode, exitOk (exitCode===0), stdout (first 4000 chars — include AS MUCH as possible, don't truncate aggressively).",
+      "",
+      "DO NOT skip any tool even if one fails — run ALL " + TOOLS.length + " tools and report each result independently.",
     ].join("\n"),
     {
       label: "invoke-all-tools",
@@ -211,8 +230,9 @@ function processGates() {
     const stdout = (typeof r.stdout === "string") ? r.stdout : "";
     const exitOk = r.exitOk === true;
 
-    // Content gate: all expected markers found in stdout?
-    const contentOk = markers.length === 0 || markers.every((m) => stdout.includes(m));
+    // Content gate: all expected markers found in stdout? (case-insensitive)
+    const stdoutLower = stdout.toLowerCase();
+    const contentOk = markers.length === 0 || markers.every((m) => stdoutLower.includes(m.toLowerCase()));
 
     return {
       tool: r.tool || toolDef.name || ("tool_" + i),

@@ -20,7 +20,7 @@
  *   --no-session                   ephemeral (in-memory) session
  *   --tools, -t <csv>              tool allowlist
  *   --exclude-tools, -xt <csv>     tool denylist
- *   --extension, -e <path>         (accepted & ignored — pi-obsidian is baked in)
+ *   --extension, -e <path>         load extension factory (source mode only; use subcommands in compiled binary)
  *   --approve, -a                  (accepted & ignored — self-trusted)
  *   --no-extensions, -ne           (accepted & ignored)
  *   --no-tools, -nt / --no-builtin-tools, -nbt
@@ -68,6 +68,8 @@ export interface ParsedArgs {
 	/** vault resolution (obsidian) */
 	vault?: string;
 	vaultDir?: string;
+	/** Extension file paths accepted by --extension/-e (source mode only). */
+	extensionPaths: string[];
 	/** zettelkasten target folder (distill) */
 	folder?: string;
 	maxNotes?: number;
@@ -160,6 +162,7 @@ export function emptyParsed(): ParsedArgs {
 		noSession: false,
 		noTools: false,
 		noBuiltinTools: false,
+		extensionPaths: [],
 		positionals: [],
 		positionalIndices: [],
 		help: false,
@@ -522,11 +525,19 @@ export function parsePiArgs(
 			continue;
 		}
 		if (a === "-e" || a === "--extension") {
-			i += 2; // ignored (obsidian baked in) — value flag, skip 2 tokens
+			const val = argv[i + 1];
+			if (val && !val.startsWith("-")) {
+				out.extensionPaths.push(val);
+				i += 2;
+			} else {
+				i += 2; // no value — skip just the flag
+			}
 			continue;
 		}
 		if (a.startsWith("-e=") || a.startsWith("--extension=")) {
-			i++; // ignored (= form, single token)
+			const val = a.slice(a.indexOf("=") + 1);
+			if (val) out.extensionPaths.push(val);
+			i++;
 			continue;
 		}
 		if (a === "-h" || a === "--help" || a === "help") {

@@ -20,15 +20,16 @@
     "exe": "./../../dist/pi-agent-cli/pi-agent-cli"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "latest",
-    "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-agent-core": "latest",
-    "pi-agent": "workspace:*",
+    "@earendil-works/pi-ai": "latest",
+    "@earendil-works/pi-coding-agent": "latest",
+    "@quintinshaw/pi-dynamic-workflows": "workspace:*",
     "@repo/pi-agent-ext-flux2": "workspace:*",
+    "@repo/pi-agent-ext-power-tool": "workspace:*",
+    "pi-agent": "workspace:*",
+    "pi-knowledge-card": "workspace:*",
     "pi-obsidian": "workspace:*",
     "pi-vlm": "workspace:*",
-    "pi-knowledge-card": "workspace:*",
-    "@quintinshaw/pi-dynamic-workflows": "workspace:*",
     "typebox": "latest"
   },
   "devDependencies": {

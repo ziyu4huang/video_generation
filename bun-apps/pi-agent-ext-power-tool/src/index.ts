@@ -18,6 +18,7 @@
  */
 import {
   type BuildSystemPromptOptions,
+  type ExtensionContext,
   type ExtensionFactory,
   type ExtensionAPI,
   type ToolInfo,
@@ -45,25 +46,6 @@ import { TOOL_NAME } from "./todo/tool/types";
 import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
 import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 import goal from "./goal/goal.js";
-
-// ─── Snapshot captured from before_agent_start ────────────────────────────────
-
-interface Snapshot {
-  systemPrompt: string;
-  opts: BuildSystemPromptOptions;
-}
-
-let snapshot: Snapshot | null = null;
-
-/**
- * Test-only: clear the module-level snapshot singleton. The power-tool captures
- * `before_agent_start` state in a closure (like pi-obsidian's getVault cache),
- * so it persists across tests in one file — tests that exercise the no-snapshot
- * graceful path must reset it first.
- */
-export function __resetSnapshotForTests(): void {
-  snapshot = null;
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +87,8 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
 
     async execute(_id, _params, _signal, _onUpdate, ctx) {
       const usage = ctx.getContextUsage();
-      const snap = snapshot;
+      const opts = (ctx as ExtensionContext).getSystemPromptOptions();
+      const fullSystemPrompt = (ctx as ExtensionContext).getSystemPrompt();
       const lines: string[] = [];
 
       // ── Header ────────────────────────────────────────────────────────────
@@ -125,16 +108,10 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
       }
       lines.push("");
 
-      if (!snap) {
-        lines.push("  No before_agent_start snapshot yet — run this after a prompt.");
-        return { content: [{ type: "text" as const, text: lines.join("\n") }], details: null };
-      }
-
-      const opts = snap.opts;
 
       // ── Measure both token buckets ────────────────────────────────────────
       // Bucket A: system prompt text (what buildSystemPrompt() returns)
-      const sysPromptChars = snap.systemPrompt.length;
+      const sysPromptChars = fullSystemPrompt.length;
       const sysPromptTok = estTok(sysPromptChars);
 
       // Bucket B: API tools schema (desc + params per tool) — NOT in system prompt text.
@@ -378,44 +355,37 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
       }));
 
       // Get system prompt options for skills and context files
-      const opts = snapshot?.opts;
-      if (opts) {
-        // Skills
-        inventory.skills = (opts.skills ?? []).map((skill) => ({
-          name: skill.name,
-          description: skill.description,
-          file_path: skill.filePath,
-          base_dir: skill.baseDir,
-          disable_model_invocation: skill.disableModelInvocation,
-          source: skill.sourceInfo
-            ? {
-                source: skill.sourceInfo.source,
-                scope: skill.sourceInfo.scope,
-                origin: skill.sourceInfo.origin,
-              }
-            : null,
-        }));
+      const opts = (ctx as ExtensionContext).getSystemPromptOptions();
+      // Skills
+      inventory.skills = (opts.skills ?? []).map((skill: any) => ({
+        name: skill.name,
+        description: skill.description,
+        file_path: skill.filePath,
+        base_dir: skill.baseDir,
+        disable_model_invocation: skill.disableModelInvocation,
+        source: skill.sourceInfo
+          ? {
+              source: skill.sourceInfo.source,
+              scope: skill.sourceInfo.scope,
+              origin: skill.sourceInfo.origin,
+            }
+          : null,
+      }));
 
-        // Context files
-        inventory.context_files = (opts.contextFiles ?? []).map((file) => ({
-          path: file.path,
-          chars: file.content.length,
-          estimated_tokens: Math.round(file.content.length / TOKEN_RATIO),
-        }));
+      // Context files
+      inventory.context_files = (opts.contextFiles ?? []).map((file: { path: string; content: string }) => ({
+        path: file.path,
+        chars: file.content.length,
+        estimated_tokens: Math.round(file.content.length / TOKEN_RATIO),
+      }));
 
-        // Guidelines
-        inventory.guidelines = opts.promptGuidelines ?? [];
+      // Guidelines
+      inventory.guidelines = opts.promptGuidelines ?? [];
 
-        // Tool snippets
-        inventory.tool_snippets = Object.fromEntries(
-          Object.entries(opts.toolSnippets ?? {}).map(([k, v]) => [k, v.substring(0, 200)])
-        );
-      } else {
-        inventory.skills = [];
-        inventory.context_files = [];
-        inventory.guidelines = [];
-        inventory.tool_snippets = {};
-      }
+      // Tool snippets
+      inventory.tool_snippets = Object.fromEntries(
+        Object.entries(opts.toolSnippets ?? {}).map(([k, v]) => [k, (v as string).substring(0, 200)])
+      );
 
       // Convert to YAML
       const yamlContent = yaml.dump(inventory, {
@@ -805,14 +775,7 @@ function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
     }),
 
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const snap = snapshot;
-      if (!snap) {
-        return {
-          content: [{ type: "text" as const, text: "No before_agent_start snapshot yet — run this after a prompt." }],
-          details: null,
-        };
-      }
-      const opts = snap.opts;
+      const opts = (_ctx as ExtensionContext).getSystemPromptOptions();
       const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
       const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
       const allTools = getAllTools();
@@ -1023,11 +986,6 @@ function isStaleCtxError(e: unknown): boolean {
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
-  // Capture system prompt breakdown before each agent turn.
-  pi.on("before_agent_start", (event) => {
-    snapshot = { systemPrompt: event.systemPrompt, opts: event.systemPromptOptions };
-  });
-
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
   const getAllTools = () => pi.getAllTools();
