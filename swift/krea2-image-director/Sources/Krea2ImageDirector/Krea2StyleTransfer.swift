@@ -273,6 +273,177 @@ public extension Krea2Engine {
         return Krea2GenerateResult(imageURL: out, seed: seed)
     }
 
+    /// Dual-reference style transfer (plain_average fusion). `styleImages` are TWO
+    /// visual references; their K/V contributions are weighted-mean fused (the
+    /// simplest of upstream's 5 fusion modes — `step_cycle` etc. deferred). Mirrors
+    /// `styleTransfer` but builds one RF cache per ref and runs a 3-B batch
+    /// [target ; ref1_noisy_σ ; ref2_noisy_σ]. strength=0 is byte-identical to
+    /// vanilla t2i at `seed` (same gate as single-ref: mix=0 discards the styled
+    /// path; the 3-B batch sliced to [:1] is batch-invariant).
+    @discardableResult
+    static func dualStyleTransfer(
+        prompt: String, styleImages: [URL], weights: [Float], strength: Float = 1.0,
+        width: Int = 1024, height: Int = 1024,
+        steps: Int = 8, seed: Int = 42, mu: Double = 1.15,
+        knobs: Krea2StyleDefaults = Krea2StyleDefaults(),
+        fastRF: Bool = false, out: URL
+    ) throws -> Krea2GenerateResult {
+        guard styleImages.count == 2 else {
+            throw NSError(domain: "Krea2StyleTransfer", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "dualStyleTransfer requires exactly 2 styleImages (plain_average)"])
+        }
+        let d = knobs
+        let cfg = Krea2Config()
+        let patch = cfg.patch, compression = 8
+        let align = compression * patch
+        let W = ((width + align - 1) / align) * align
+        let H = ((height + align - 1) / align) * align
+        let (Hl, Wl) = (H / compression, W / compression)
+        let wnorm = Krea2DiT.normalizeWeights(weights)
+        print("[krea2] native dual-style-transfer \(W)x\(H) strength=\(strength) weights=\(wnorm) steps=\(steps) seed=\(seed)")
+
+        print("[1/6] text encoder...", terminator: " ")
+        let enc = try Krea2TextEncoder(weightsDir: instructDir, tokenizerDir: tokenizerDir)
+        let (context1, txtmask1) = enc.encode([prompt])
+        MLX.eval(context1, txtmask1); print("ok")
+
+        // 3-B batch [target ; ref1 ; ref2] share the prompt.
+        let context = MLX.repeated(context1, count: 3, axis: 0)
+        let txtmask = MLX.repeated(txtmask1, count: 3, axis: 0)
+        let txtlen = context1.dim(1)
+
+        print("[2/6] 2 style images → ref_clean latents...", terminator: " ")
+        let vaeRaw = try loadArrays(url: vaeWeights)
+        let (mean, std) = vaeMeanStd()
+        var refCleans: [MLXArray] = []
+        for img in styleImages {
+            let (arr, _, _) = try loadImageResized(img, width: W, height: H)
+            let native = Krea2VAE.encode(arr, vaeRaw)
+            let cl = (native - mean) / std
+            refCleans.append(cl.transposed(0, 3, 1, 2))   // (1,16,Hl,Wl)
+        }
+        MLX.eval(refCleans[0], refCleans[1]); print("ok")
+
+        print("[3/6] DiT weights (base, no LoRA)...", terminator: " ")
+        let ditWeights = try loadArrays(url: turboWeights)
+        let baseDit = Krea2DiT(config: cfg, weights: ditWeights)
+        print("ok")
+
+        MLXRandom.seed(UInt64(seed))
+        let noiseT = MLXRandom.normal([1, 16, Hl, Wl])
+        let (imgTokens1, pos1, mask1) = Krea2Sampler.prepare(
+            noise: noiseT, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+        let N = imgTokens1.dim(1)
+        let pos = MLX.repeated(pos1, count: 3, axis: 0)
+        let mask = MLX.repeated(mask1, count: 3, axis: 0)
+        let ts = Krea2Sampler.timesteps(seqLen: N, steps: steps, mu: mu)
+
+        let ctx1 = baseDit.textPath(context: context1, mask: mask1)
+        MLX.eval(ctx1)
+        let ctx3 = MLX.repeated(ctx1, count: 3, axis: 0)
+
+        // ── (1) ONE RF cache per ref (same integrator as single-ref). Local closure
+        //    so the working single-ref path is untouched.
+        let rfMode = RFMode.resolve(d.rfMode, fastRF: fastRF)
+        let ascending = ts.filter { $0 > 1e-6 }.sorted()
+        let epsPrior = MLXRandom.normal([1, 16, Hl, Wl])
+        let buildCache: (MLXArray) -> [Float: MLXArray] = { refClean in
+            var cache: [Float: MLXArray] = [0.0: refClean]
+            var z = refClean
+            var lastSigma: Float = 0.0
+            for sigma in ascending {
+                let delta = sigma - lastSigma
+                let zPrior = (1.0 - sigma) * refClean + sigma * epsPrior
+                let zModel: MLXArray
+                if rfMode == .linear {
+                    zModel = zPrior
+                } else {
+                    let (imgS2, _, _) = Krea2Sampler.prepare(noise: z, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                    let v0 = baseDit(img: imgS2, context: context1, t: MLXArray([lastSigma]), pos: pos1, mask: mask1, cachedCtx: ctx1)
+                    let zPred = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: delta)
+                    switch rfMode {
+                    case .rfGamma: zModel = zPred
+                    case .rfGammaRK2:
+                        let midSigma = 0.5 * (lastSigma + sigma)
+                        let zMid = latentStep(z, v0, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: 0.5 * delta)
+                        let (imgMid, _, _) = Krea2Sampler.prepare(noise: zMid, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                        let vMid = baseDit(img: imgMid, context: context1, t: MLXArray([midSigma]), pos: pos1, mask: mask1, cachedCtx: ctx1)
+                        zModel = latentStep(z, vMid, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: delta)
+                    case .flowturboPC, .linear:
+                        let (imgE2, _, _) = Krea2Sampler.prepare(noise: zPred, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                        let v1 = baseDit(img: imgE2, context: context1, t: MLXArray([sigma]), pos: pos1, mask: mask1, cachedCtx: ctx1)
+                        zModel = latentHeun(z, v0, v1, imgTokens: imgS2, Hl: Hl, Wl: Wl, patch: patch, delta: delta)
+                    }
+                }
+                z = MLXArray(d.gamma) * zModel + (1.0 - d.gamma) * zPrior
+                MLX.eval(z)
+                cache[sigma] = z
+                lastSigma = sigma
+            }
+            return cache
+        }
+        print("[4/6] RF cache (×2 refs, \(rfMode.rawValue), γ=\(d.gamma))...", terminator: " ")
+        let rfT0 = Date()
+        let refCaches = refCleans.map { buildCache($0) }
+        print("cached 2×\(refCaches[0].count) sigmas in \(String(format: "%.1f", Date().timeIntervalSince(rfT0)))s")
+
+        // ── (2)+(3) Main denoise: 3-B batch [target ; ref1_noisy ; ref2_noisy].
+        print("[5/6] denoise (styled 3B)...", terminator: " ")
+        let mainT0 = Date()
+        MLXRandom.seed(UInt64(seed))
+        let targetNoise = MLXRandom.normal([1, 16, Hl, Wl])
+        var (imgTokens, _, _) = Krea2Sampler.prepare(
+            noise: targetNoise, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+        for i in 0..<(ts.count - 1) {
+            let tcurr = ts[i], tprev = ts[i + 1]
+            let progress = Float(i) / Float(max(ts.count - 2, 1))
+            let (effHighStart, effLowEnd) = effectiveScaleEndpoints(
+                highStart: d.highScaleStart, lowEnd: d.lowScaleEnd, strength: strength)
+            let scaleVec = styleScaleVec(progress: progress, beta: d.beta,
+                                         highStart: effHighStart, highEnd: d.highScaleEnd,
+                                         lowStart: d.lowScaleStart, lowEnd: effLowEnd,
+                                         headDim: cfg.headDim)
+            let mix = max(0, min(1, strength))
+            let effAdain = max(0, min(d.adainStrength * min(strength, 1.25), 1.0))
+            let styleCfg = Krea2StyleConfig(
+                targetB: 1, imgS: txtlen, imgE: txtlen + N,
+                activeBlocks: Set(d.activeBlocks),
+                scaleVec: scaleVec, refKStrength: d.refKStrength,
+                valueAdainStrength: d.valueAdainStrength, refValueMix: d.refValueMix,
+                adainStrength: effAdain, mix: mix,
+                refB: 2, refWeights: wnorm)
+            let styledDit = Krea2DiT(config: cfg, weights: ditWeights, style: styleCfg)
+
+            // Both refs' ref_noisy at tcurr (closest cached sigma per ref).
+            var parts: [MLXArray] = [imgTokens]
+            for cache in refCaches {
+                let refNoisy = cache[nearestSigma(tcurr, in: cache)] ?? refCleans[0]
+                let (refTokens, _, _) = Krea2Sampler.prepare(
+                    noise: refNoisy, txtlen: txtlen, patch: patch, txtmask: txtmask1)
+                parts.append(refTokens)
+            }
+            let img3 = MLX.concatenated(parts, axis: 0)                  // (3,N,64)
+            let t3 = MLXArray([tcurr, tcurr, tcurr])
+            let v3 = styledDit(img: img3, context: context, t: t3, pos: pos, mask: mask, cachedCtx: ctx3)
+            let vT = v3[0..<1]                                           // target velocity
+            imgTokens = imgTokens + (tprev - tcurr) * vT
+            MLX.eval(imgTokens)
+            if (i + 1) % 2 == 0 || i == ts.count - 2 { print("\(i+1)/\(ts.count-1)", terminator: " ") }
+        }
+        print("(\(String(format: "%.1f", Date().timeIntervalSince(mainT0)))s)")
+
+        print("[6/6] VAE decode...", terminator: " ")
+        let (Ht, Wt) = (Hl / patch, Wl / patch)
+        var lat = imgTokens.reshaped([1, Ht, Wt, 16, patch, patch])
+            .transposed(0, 3, 1, 4, 2, 5).reshaped([1, 16, Hl, Wl])
+        lat = lat.transposed(0, 2, 3, 1) * std + mean
+        MLX.eval(lat)
+        let pixels = Krea2VAE.decode(lat, vaeRaw)
+        try savePNG(pixels, width: W, height: H, to: out)
+        print("saved \(out.path)")
+        return Krea2GenerateResult(imageURL: out, seed: seed)
+    }
+
     // MARK: - helpers
 
     /// Token-velocity → latent-space Euler step. v is (1,N,64); unpatchify to

@@ -66,7 +66,7 @@ the most likely reason the composition arc (#249) found the style palette
 collapses under the Control LoRA — the palette-relevant signal lives in the
 Q/K geometry that V-only injection never touches.
 
-### Gap 2 — Dual-ref `multi_delta`  ~ FOUNDATION ported (plain_average); rich fusion modes + pipeline deferred (2026-07-05)
+### Gap 2 — Dual-ref `multi_delta`  ~ plain_average PORTED end-to-end (pipeline+CLI); rich fusion modes deferred (2026-07-05)
 `Krea2TwoStyleTransfer` builds one RF cache per ref, concatenates
 `[target ; ref1_noisy ; ref2_noisy]`, computes per-ref style deltas vs native,
 fuses them. Fusion modes: `plain_average`, `step_cycle` (default), `block_cycle`,
@@ -80,9 +80,17 @@ the bundle node `[0.5, 0.5]`. **Not a weighted average — order-sensitive.**
 injection while each ref row's own attention output is preserved; gate is now
 `B == (1+refB)·targetB`. `refB=1`/weights `[1]` → single ref unchanged → single-ref
 byte-identical (no regression). `DualRefTests` covers the pure weight-normalization.
-**Deferred:** `step_cycle`/`block_cycle`/`rms_balanced`/`consensus` fusion,
-`primary_reference`, per-ref `ref_k_1/ref_k_2`, and the `dualStyleTransfer`
-pipeline + CLI (the DiT path is wired but no call site produces a 3-B batch yet).
+
+**Pipeline + CLI ported (2026-07-05):** `Krea2Engine.dualStyleTransfer` builds one RF
+cache per ref (shared integrator via a local closure — the single-ref path is
+untouched) and runs a 3-B batch `[target; ref1_noisy; ref2_noisy]` with `refB=2`.
+`krea2 dual-style-transfer --style-images A,B --weights 0.5,0.5` — verified
+end-to-end on real silicon (2 RF caches, 3-B denoise, image produced). Gate
+(strength=0 == vanilla t2i) holds by the same mix=0 routing + batch-invariance as
+single-ref (krea2 vanilla is manual attention; at mix=0 the styled path reduces to
+native manual == vanilla). **Still deferred:** `step_cycle`/`block_cycle`/
+`rms_balanced`/`consensus` fusion, `primary_reference` order shift, per-ref
+`ref_k_1/ref_k_2`.
 
 ### Gap 3 — RF integrator modes  ✓ PORTED (2026-07-05)
 Swift now has all four upstream integrators via `RFMode` (exposed as
