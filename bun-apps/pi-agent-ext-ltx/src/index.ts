@@ -10,7 +10,7 @@
  * stdout-regex-based (result.ts) rather than a .manifest.json sidecar.
  */
 import { ensureBinary, resolveRepoRoot } from "./binary.ts";
-import { buildArgs, COMMANDS, pathFieldKeys, pathSpecFieldKeys, type CommandSpec } from "./commands.ts";
+import { buildArgs, COMMANDS, pathFieldKeys, pathSpecFieldKeys, variantSpecFieldKeys, type CommandSpec } from "./commands.ts";
 import { invokeLtx, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertModelsRootExists,
@@ -111,10 +111,32 @@ function validateOptionPaths(spec: CommandSpec, options: Record<string, unknown>
     }
   }
 
+  // "name[=path[:strength]]" spec fields (native-relay's --variant): a bare
+  // name (no "=") has no embedded path and is left untouched (still subject
+  // to the rejectFlagLike pass below); when "=" is present, the path portion
+  // (everything between "=" and the LAST ":" if present) is validated the
+  // same way as pathSpecFieldKeys above.
+  for (const key of variantSpecFieldKeys(spec)) {
+    if (!(key in options)) continue;
+    const v = options[key];
+    if (v == null) continue;
+    if (!Array.isArray(v)) throw new PathSafetyError(`field "${key}" must be an array of "name[=path[:strength]]" specs`);
+    for (const item of v) {
+      const raw = String(item);
+      rejectFlagLike(raw, key);
+      const eqIdx = raw.indexOf("=");
+      if (eqIdx < 0) continue; // bare name, no embedded path
+      const afterEq = raw.slice(eqIdx + 1);
+      const colonIdx = afterEq.lastIndexOf(":");
+      const pathPart = colonIdx > 0 ? afterEq.slice(0, colonIdx) : afterEq;
+      assertPathAllowed(pathPart, roots, { kind: key, mustExist: true });
+    }
+  }
+
   // Reject flag-like values in free-form string (or string[]) fields that
   // aren't paths (e.g. a prompt accidentally starting with '-').
   for (const [key, field] of Object.entries(spec.fields)) {
-    if (field.isPath || field.isPathArray || field.isPathSpecArray || field.positional) continue;
+    if (field.isPath || field.isPathArray || field.isPathSpecArray || field.isVariantSpecArray || field.positional) continue;
     if (!(key in options)) continue;
     const v = options[key];
     if (field.isPathComponent) {

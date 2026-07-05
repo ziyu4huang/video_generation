@@ -41,6 +41,19 @@ export interface FieldSpec {
    */
   isPathSpecArray?: boolean;
   /**
+   * Value (or each array element) is a "name[=path[:strength]]" spec
+   * (native-relay's --variant) — a bare name with NO embedded path (e.g.
+   * "baseline") is valid and left untouched; when an "=" is present, the
+   * portion after it is a "path[:strength]" spec whose path portion is
+   * validated exactly like isPathSpecArray. Distinct from isPathSpecArray
+   * because that flag assumes the ENTIRE value is "path[:strength]" with
+   * no name= prefix — treating --variant that way would either skip the
+   * embedded path's validation entirely or wrongly reject bare names as
+   * missing files (see pi-agent-ext-ltx-self-improve's path-safety finding,
+   * 2026-07-05).
+   */
+  isVariantSpecArray?: boolean;
+  /**
    * A path field the CLI WRITES to rather than reads from — must NOT be
    * required to already exist. Implied automatically when the field key is
    * literally "output" (the common case); set explicitly for a differently
@@ -202,7 +215,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       relayTtsText: { flag: "--relay-tts-text", type: "string", description: "Narration text to synthesize via macOS 'say' and use as relayAudio. Ignored if relayAudio is also set." },
       relayTtsVoice: { flag: "--relay-tts-voice", type: "string", description: "Voice name for relayTtsText. Default Meijia (zh-TW). List available voices with: say -v '?'." },
       relayTtsRate: { flag: "--relay-tts-rate", type: "int", description: "Speech rate in words/min for relayTtsText. Default 145." },
-      variant: { flag: "--variant", type: "string[]", description: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides loras for that run." },
+      variant: { flag: "--variant", type: "string[]", isVariantSpecArray: true, description: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides loras for that run." },
       gridImage: { flag: "--grid-image", type: "string", isPath: true, description: "Grid guide: a single image containing an NxN grid of storyboard panels, split in-memory and pinned as N independent keyframe guides, applied to EVERY segment (see gridFrameIndices/gridStrengths). Requires gridFrameIndices." },
       gridColumns: { flag: "--grid-columns", type: "int", description: "Grid guide column count. Default 2." },
       gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
@@ -418,6 +431,13 @@ export function pathFieldKeys(spec: CommandSpec): string[] {
 export function pathSpecFieldKeys(spec: CommandSpec): string[] {
   return Object.entries(spec.fields)
     .filter(([, f]) => f.isPathSpecArray)
+    .map(([k]) => k);
+}
+
+/** Keys of "name[=path[:strength]]"-spec fields (native-relay's --variant). */
+export function variantSpecFieldKeys(spec: CommandSpec): string[] {
+  return Object.entries(spec.fields)
+    .filter(([, f]) => f.isVariantSpecArray)
     .map(([k]) => k);
 }
 

@@ -209,10 +209,30 @@ describe("buildDetails: gate", () => {
     expect(d.gateResults).toHaveLength(2);
   });
 
-  test("non-JSON stdout (no --json) leaves gateResults empty but still ok", () => {
+  test("non-JSON stdout (no --json) falls back to regex-parsing the human-readable verdict", () => {
     const d = buildDetails("gate", ok("✅ PASS  a.mp4\n     all good"));
-    expect(d.gateResults).toEqual([]);
+    expect(d.gateResults).toEqual([{ path: "a.mp4", status: "PASS", reasons: ["all good"] }]);
+    expect(d.gate).toBe("PASS");
     expect(d.ok).toBe(true);
+  });
+
+  test("text-mode fallback also parses a FAIL entry with a nested ASR sub-result", () => {
+    const stdout = [
+      "❌ FAIL  a.mp4",
+      "     duration too short (0.38s)",
+      "     ASR ❌ FAIL  content ratio 0.00 below threshold",
+      "     transcript: 謝謝",
+    ].join("\n");
+    const d = buildDetails("gate", ok(stdout));
+    expect(d.gateResults).toEqual([
+      {
+        path: "a.mp4",
+        status: "FAIL",
+        reasons: ["duration too short (0.38s)"],
+        asr: { status: "FAIL", reasons: ["content ratio 0.00 below threshold"], detectedLang: "", transcript: "謝謝" },
+      },
+    ]);
+    expect(d.gate).toBe("FAIL");
   });
 
   test("folds a FAILing nested `asr` sub-check into the worst status, even when the video-only status is PASS", () => {
