@@ -288,7 +288,8 @@ struct Flux2ParallelSelfAttention {
 
     func callAsFunction(_ hiddenStates: MLXArray,
                         imageRotaryEmb: (MLXArray, MLXArray),
-                        mask: MLXArray? = nil) -> MLXArray
+                        mask: MLXArray? = nil,
+                        style: Flux2StyleConfig? = nil) -> MLXArray
     {
         let batchSize = hiddenStates.dim(0)
         let proj = toQkvMlpProj(hiddenStates)
@@ -312,9 +313,20 @@ struct Flux2ParallelSelfAttention {
         let (cos, sin) = imageRotaryEmb
         (q, k) = F2Rope.apply(q, k, cos: cos, sin: sin)
 
-        let attn = F2AttentionOps.compute(q, k, vT, batchSize: batchSize,
+        // Routing-preserved style gate: when no style is active OR effective strength
+        // is 0, run the ORIGINAL SDPA path byte-for-byte (flux2 vanilla == this).
+        // The styled manual-attention path runs only when style.mix > 0.
+        let scale = 1.0 / Float(headDim).squareRoot()
+        let attn: MLXArray
+        if let st = style, st.mix > 0 {
+            let styled = F2StyleOps.styledAttention(q: q, k: k, v: vT, scale: scale, st: st)
+            // styled returns (B, S, H*D) already; reuse the layout compute() produces.
+            attn = styled
+        } else {
+            attn = F2AttentionOps.compute(q, k, vT, batchSize: batchSize,
                                           numHeads: heads, headDim: headDim,
                                           mask: mask)
+        }
         let mlpOut = mlpAct(mlpHidden)
         let cat = MLX.concatenated([attn, mlpOut], axis: -1)
         return toOut(cat)
@@ -373,11 +385,12 @@ struct Flux2SingleTransformerBlock {
 
     func callAsFunction(_ hiddenStates: MLXArray, tembModParams: [MLXArray],
                         imageRotaryEmb: (MLXArray, MLXArray),
-                        regionMask: MLXArray? = nil) -> MLXArray {
+                        regionMask: MLXArray? = nil,
+                        style: Flux2StyleConfig? = nil) -> MLXArray {
         let modShift = tembModParams[0], modScale = tembModParams[1], modGate = tembModParams[2]
         var normHidden = norm(hiddenStates)
         normHidden = (1 + modScale) * normHidden + modShift
-        let attnOut = attn(normHidden, imageRotaryEmb: imageRotaryEmb, mask: regionMask)
+        let attnOut = attn(normHidden, imageRotaryEmb: imageRotaryEmb, mask: regionMask, style: style)
         return hiddenStates + modGate * attnOut
     }
 }
@@ -445,7 +458,8 @@ public struct Flux2Transformer {
                                timestep: MLXArray,
                                imgIds: MLXArray,
                                txtIds: MLXArray,
-                               regionMask: MLXArray? = nil) -> MLXArray
+                               regionMask: MLXArray? = nil,
+                               styleBuilder: ((Int) -> Flux2StyleConfig?)? = nil) -> MLXArray
     {
         let cfg = config
         // Timestep scaling: if max <= 1.0, multiply by 1000.
@@ -484,9 +498,23 @@ public struct Flux2Transformer {
         // Single stream: concat [text, image] along seq axis.
         hidden = MLX.concatenated([encHidden, hidden], axis: 1)
         let modSingle = singleStreamMod(temb)[0]  // single param set
-        for block in singleTransformerBlocks {
+        let txtLenSingle = encHidden.dim(1)
+        for (i, block) in singleTransformerBlocks.enumerated() {
+            // Style transfer: build the per-block style config (nil for inactive blocks
+            // or when no style is configured → vanilla SDPA, byte-identical to t2i).
+            // The builder returns image-relative imgS/imgE; offset by txtLen for the
+            // absolute [text;image] positions the styled attention slices on q/k/v.
+            var style: Flux2StyleConfig? = nil
+            if let builder = styleBuilder, let cfg = builder(i) {
+                style = Flux2StyleConfig(targetB: cfg.targetB, imgS: txtLenSingle + cfg.imgS,
+                                         imgE: txtLenSingle + cfg.imgE, scaleVec: cfg.scaleVec,
+                                         refKStrength: cfg.refKStrength,
+                                         valueAdainStrength: cfg.valueAdainStrength,
+                                         refValueMix: cfg.refValueMix,
+                                         adainStrength: cfg.adainStrength, mix: cfg.mix)
+            }
             hidden = block(hidden, tembModParams: modSingle, imageRotaryEmb: concatRot,
-                           regionMask: regionMask)
+                           regionMask: regionMask, style: style)
         }
 
         // Slice off text tokens, keep image.

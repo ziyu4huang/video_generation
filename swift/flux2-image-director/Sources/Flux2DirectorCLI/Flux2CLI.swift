@@ -28,7 +28,7 @@ struct Flux2CLI: ParsableCommand {
             T2I.self, Edit.self, Angle.self, Segment.self, Swap.self, Style.self,
             Story.self, Scene.self, Expand.self, Upscale.self, Gate.self, Models.self, VerifyVAE.self, VerifyEncoder.self,
             VerifyTokenizer.self, VerifyTransformer.self, VerifyE2E.self,
-            VerifyEdit.self,
+            VerifyEdit.self, KVStyleTransfer.self,
         ]
     )
 }
