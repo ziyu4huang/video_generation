@@ -175,17 +175,20 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers exactly context_analyzer, agent_inventory, and extension_analyzer", () => {
+  test("registers all 5 tools (including knowledge_query and graph_health)", () => {
     const { captured } = loadExtension([]);
     expect(Object.keys(captured).sort()).toEqual([
       "agent_inventory",
       "context_analyzer",
       "extension_analyzer",
+      "graph_health",
+      "knowledge_query",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
+    expect(Object.keys(captured).length).toBe(5);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
