@@ -115,6 +115,39 @@ cross-lingual / paraphrase subsets**, not on the default English-leaning vault.
 Flipping the default is therefore not justified by the data; keep `--blend
 semantic-lexical` as the opt-in for cross-lingual / anti-lexical-dilution use.
 
+### Cross-lingual regime test (iter-6)
+
+**The predicted cross-lingual win zone did NOT materialize.** The iter-5
+prediction was that semantic-lexical would win when queries are in a different
+language from the cards (zh-TW queries → English cards), because lexical search
+cannot bridge the vocabulary gap. The iter-6 measurement **refutes** this:
+
+Cross-lingual measurement (run `2026-07-05T22-57-51`, 425 English
+knowledge-graph cards, 5 **zh-TW** adversarial queries, overlap-gated,
+blind LLM judge, `top-k=4`, `thinking=medium`, `semanticLive=5/5`):
+
+| Mode | Mean relevance@4 | Wins | Notable |
+|---|---|---|---|
+| `default` (lexical+graph) | **0.332** | 2/5 | Q3 bundle-size 1.00 vs 0.00 (found bun-isolated-linker card) |
+| `semantic-lexical` | 0.100 | 1/5 | Q5 HMR-stale-bundle 0.50 vs 0.33 (only outright win) |
+
+Even with pure zh-TW queries and zero lexical vocabulary overlap with the
+English card titles/tags (enforced by the iter-6 adversarial-overlap gate),
+default (lexical+graph) STILL beats semantic-lexical. The reason: **dropping
+graph expansion hurts more than the semantic seed helps** — graph links bridge
+concepts across languages better than vector similarity alone, and the
+lexical body-search still finds CJK substrings inside English card bodies
+that happen to mention the concept. Semantic-lexical is therefore not
+recommended for any measured regime on this vault.
+
+### Regime guidance summary
+
+| Regime | Recommended blend | Rationale |
+|---|---|---|
+| Default (English-leaning vault, mixed queries) | `default` | iter-5: 0.802 vs 0.640, lexical wins 4/5 |
+| Cross-lingual (zh-TW queries → English cards) | `default` | iter-6: 0.332 vs 0.100, lexical wins 2/5 — graph bridges better than semantic |
+| Anti-lexical-dilution (diagnostic only) | `semantic-lexical` | No measured regime where it wins outright; keep as a diagnostic, not a recommendation |
+
 The blend score is a pure exported function `rankBlendScore(parts, mode)` in
 `pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in
 `__tests__/blend.test.ts`, re-used by the `retrieval-quality-self-improve`

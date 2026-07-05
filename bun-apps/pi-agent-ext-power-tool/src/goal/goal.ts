@@ -225,6 +225,14 @@ let goalRecovery: GoalRecovery | undefined;
 let staleGoalToolCallsBlocked = false;
 const cancelledContinuationMarkers = new Set<string>();
 
+// 1s heartbeat that re-calls ctx.ui.setStatus so the `active <elapsed>` indicator
+// ticks every second while idle (needs the footer-extension-status-notify patch
+// to actually re-render on each setStatus). Only active for active goals
+// WITHOUT a token budget (budget-tracked goals show token usage, which changes
+// on agent activity, not on a timer).
+let statusHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+let heartbeatCtx: StatusContext | undefined;
+
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 const goalCompleteTool = defineTool({
@@ -342,7 +350,10 @@ export default function goal(pi: ExtensionAPI) {
 		clearStaleGoalToolCallBlock();
 		activeGoal = loadGoalFromSession(ctx);
 		if (activeGoal) updateStatus(ctx, activeGoal);
-		else ctx.ui.setStatus(STATUS_KEY, undefined);
+		else {
+			stopStatusHeartbeat();
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
 	});
 
 	pi.on("session_shutdown", (_event: unknown, ctx: StatusContext) => {
@@ -350,6 +361,7 @@ export default function goal(pi: ExtensionAPI) {
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		stopStatusHeartbeat();
 		// Don't clear if showCompletionStatus timer is active — it manages its own lifecycle.
 		// Without this guard, a goal_complete + terminate:true clears the "complete" footer
 		// indicator immediately, making it invisible to the user.
@@ -810,6 +822,47 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 function updateStatus(ctx: StatusContext, goal: ActiveGoal) {
 	clearCompletionStatusTimer();
 	ctx.ui.setStatus(STATUS_KEY, formatStatus(goal));
+	// Manage the 1s heartbeat: only active goals without a token budget show a
+	// ticking elapsed duration. Budget-tracked goals show token usage (updates on
+	// agent activity, not a timer). All other statuses (paused/budget_limited/
+	// complete) are static — no heartbeat needed.
+	if (goal.status === "active" && goal.tokenBudget === undefined) {
+		startStatusHeartbeat(ctx, goal);
+	} else {
+		stopStatusHeartbeat();
+	}
+}
+
+/**
+ * Start a 1s heartbeat that recomputes the `active <elapsed>` status text so
+ * the elapsed duration ticks live in the footer. Stops itself if the goal is
+ * no longer the active, active-status goal it was started for.
+ */
+function startStatusHeartbeat(ctx: StatusContext, goal: ActiveGoal) {
+	stopStatusHeartbeat();
+	heartbeatCtx = ctx;
+	const goalId = goal.id;
+	statusHeartbeatTimer = setInterval(() => {
+		const current = activeGoal;
+		// Auto-stop if the goal changed, completed, or was cleared.
+		if (!current || current.id !== goalId || current.status !== "active") {
+			stopStatusHeartbeat();
+			return;
+		}
+		// Budget-tracked goals show tokens (not elapsed) — nothing to tick.
+		if (current.tokenBudget !== undefined) return;
+		const elapsed = Math.max(0, Math.floor((Date.now() - current.startedAt) / 1000));
+		heartbeatCtx?.ui.setStatus(STATUS_KEY, `active ${formatDuration(elapsed)}`);
+	}, 1000);
+}
+
+/** Stop the 1s status heartbeat (e.g. on pause/budget/complete/clear/shutdown). */
+function stopStatusHeartbeat() {
+	if (statusHeartbeatTimer) {
+		clearInterval(statusHeartbeatTimer);
+		statusHeartbeatTimer = undefined;
+	}
+	heartbeatCtx = undefined;
 }
 
 export function formatStatus(goal: ActiveGoal | undefined) {
@@ -1109,11 +1162,13 @@ function clearActiveGoal(ctx: StatusContext) {
 	clearStaleGoalToolCallBlock();
 	activeGoal = undefined;
 	clearPersistedGoal(ctx.cwd);
+	stopStatusHeartbeat();
 	ctx.ui.setStatus(STATUS_KEY, undefined);
 }
 
 function showCompletionStatus(ctx: StatusContext) {
 	clearCompletionStatusTimer();
+	stopStatusHeartbeat();
 	ctx.ui.setStatus(STATUS_KEY, "complete");
 	completionStatusTimer = setTimeout(() => {
 		completionStatusTimer = undefined;

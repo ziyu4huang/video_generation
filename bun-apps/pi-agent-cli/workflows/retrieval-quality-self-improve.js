@@ -82,6 +82,13 @@ const MODE_B = BLEND_MODES[1]
 // per-run via args.topK / args.thinkingLevel without code edits.
 const TOP_K = Math.max(1, Number(A.topK ?? 4))
 const THINKING = String(A.thinkingLevel ?? "medium")
+// The model used by the INNER zk-ask retrieve + the judge/gen agents. Defaults
+// to the local gemma (the proven-clean config). Override via args.retrieveModel
+// (and --model) to e.g. "deepseek-v4-flash" when LM Studio is contended — the
+// remote API doesn't share the local model, so a contended box no longer
+// truncates the retrieve. The semantic SEED still comes from vault-mind's local
+// embedding model (independent of this LLM), so semantic recall is preserved.
+const RETRIEVE_MODEL = String(A.retrieveModel ?? "lm-studio/google/gemma-4-26b-a4b-qat")
 
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation__pi"
 let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
@@ -150,10 +157,38 @@ Return { queries: [{ id: <int>, text: <string>, lexicalMissReason: <string>, exp
   async (r) => {
     const n = Array.isArray(r?.queries) ? r.queries.length : 0
     const allText = n > 0 && r.queries.every((q) => typeof q?.text === "string" && q.text.trim().length > 5)
-    return { ok: n >= QUERY_COUNT && !!allText,
-      feedback: `need ${QUERY_COUNT} queries each with a non-empty text (got ${n})` }
+    if (!allText || n < QUERY_COUNT) {
+      return { ok: false,
+        feedback: `need ${QUERY_COUNT} queries each with a non-empty text (got ${n})` }
+    }
+    // ── Adversarial-query lexical-overlap gate (iter-6) ────────────────────
+    // Reject + regenerate any query that shares a title/tag token with a card in
+    // the target folder — otherwise lexical search wins by cheating (matching on
+    // the shared vocabulary), not by semantic understanding. The check runs as a
+    // standalone CLI (workflows/lib/lexical-overlap-check.mjs) so the pure
+    // tokenization + overlap logic is unit-tested independently.
+    const qFile = `/tmp/rq-${RUN_ID}-gen-queries.json`
+    const escQueries = JSON.stringify(r.queries.map((q) => ({ id: q.id, text: q.text })))
+      .replace(/'/g, "'\\''")
+    const overlap = await agent(
+      `Write the queries JSON to a file, then run the lexical-overlap gate.
+1. Bash("cat > '${qFile}' <<'__QJSON__'\n${escQueries}\n__QJSON__")
+2. Bash("bun '${PROJECT_ROOT}/bun-apps/pi-agent-cli/workflows/lib/lexical-overlap-check.mjs' --queries '${qFile}' --vault '${VAULT}' --folder '${FOLDER}'")
+Return the JSON object printed by step 2 (parse it). If the script errors, return { clean: true, overlaps: [], error: <msg> }.`,
+      { label: "overlap-check", phase: "Generate",
+        schema: { type: "object", properties: {
+          clean: { type: "boolean" },
+          overlaps: { type: "array", items: { type: "object" } },
+          cardTermCount: { type: "number" },
+        }, required: ["clean"] } },
+    )
+    if (overlap?.clean) return { ok: true }
+    const overlapSummary = (overlap?.overlaps ?? []).map((o) =>
+      `query ${o.queryId}: shares [${(o.matchedTerms ?? []).join(", ")}] with card terms`).join("; ")
+    return { ok: false,
+      feedback: `LEXICAL OVERLAP DETECTED — ${overlapSummary}. These queries share vocabulary with card titles/tags, so lexical search would win by cheating. Regenerate ALL ${QUERY_COUNT} queries as TRUE paraphrases: use synonyms, colloquial phrasings, symptom-to-cause framings, or a different language's vocabulary with ZERO overlap with the card terms. Do not reuse any of the flagged words/phrases.` }
   },
-  { attempts: 2 },
+  { attempts: 3 },
 )
 const QUERIES = (genResult.value?.queries ?? []).slice(0, QUERY_COUNT)
 log(`Generate: ${QUERIES.length}/${QUERY_COUNT} adversarial queries (attempts ${genResult.attempts})`)
@@ -168,6 +203,15 @@ phase("Retrieve")
  * Stage 1 of the per-query pipeline: run BOTH blend modes via zk-ask
  * --retrieve-only and capture each mode's assembled context. Reports
  * semanticLive so a fallback run is excluded from the blend-wins tally.
+ *
+ * A1+A3 — also gathers EXECUTION diagnostics so a retrieval-EXECUTION failure
+ * (the triage #2 "tool execution trace with no retrieved content" case) is
+ * detected, marked execution_failed, and EXCLUDED from the mean + win tally
+ * with a logged reason — not silently scored as blendRel=0. The WHY is
+ * captured (semantic tool err? vault-mind fallback? empty seed?) so the next
+ * empty result is diagnosable. semanticLive now also treats a semantic tool
+ * that ended (err) as non-live (the prior grep missed this, classifying an
+ * errored semantic call as live-with-no-content → the empty-retrieval bug).
  */
 async function retrieveBothModes(qObj, _originalItem, idx) {
   const q = qObj.text
@@ -186,15 +230,22 @@ truncate each other's output. Do NOT issue them as parallel tool calls.
 retrieve context inverts its own relevance verdicts — see receipt
 2026-07-04T17-13-01. top-k 4 + medium is the proven-clean combination.)
 1. MODE A (${MODE_A}):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_A} --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${lexFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_A} --folder '${FOLDER}' --top-k ${TOP_K} --model ${RETRIEVE_MODEL} --thinking ${THINKING} -p > '${lexFile}' 2>&1")
 2. MODE B (${MODE_B}):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_B} --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${blendFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_B} --folder '${FOLDER}' --top-k ${TOP_K} --model ${RETRIEVE_MODEL} --thinking ${THINKING} -p > '${blendFile}' 2>&1")
    The vault-mind service is running at the default 127.0.0.1:8000 — do NOT override VAULT_MIND_BASE_URL.
 3. Bash("wc -c '${lexFile}' '${blendFile}'")
-4. Peek the semantic-mode file (${semanticFile}) to set the live flag, but DO NOT relay content:
-   Bash("grep -c 'obsidian_semantic_search' '${semanticFile}'; grep -Ei 'iserror|fall back|unreachable' '${semanticFile}' | head -1")
-   semanticLive = true iff that file's semantic_search count > 0 AND no isError/fallback/unreachable line.
-Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bool>, lexicalBytes: <int>, blendBytes: <int> }.`,
+4. Gather EXECUTION diagnostics (do NOT relay retrieved content — the judge reads the files). Run ONE Bash call:
+   Bash("echo '=SEM='; grep -c 'obsidian_semantic_search' '${semanticFile}'; echo '=SEMERR='; grep '\\[tool done\\] obsidian_semantic_search (err)' '${semanticFile}' | head -1; echo '=FB='; grep -Ei 'isError|fall back|fallback|unreachable|could not reach|semantically' '${semanticFile}' | head -2; echo '=BCARDS='; grep -c '\\.md' '${blendFile}'; echo '=ACARDS='; grep -c '\\.md' '${lexFile}'")
+   Interpret the labeled counts (semanticFile is the semantic-mode lane: ${semanticFile}):
+   - semanticLive = true iff =SEM= count > 0 AND no =SEMERR= line AND no =FB= line. (A semantic call that ended (err), or an explicit fallback line, means the semantic stage did NOT contribute live.)
+   - executionFailed = true iff =BCARDS= == 0 (the blend lane produced a tool trace but ZERO surfaced card paths — a retrieval-EXECUTION failure, NOT a ranking loss).
+   - failureReason = the =SEMERR= line if present; else the first =FB= line; else "blend lane surfaced 0 cards (empty seed / no note exceeded threshold)" if executionFailed; else "".
+Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}",
+  semanticLive: <bool>, semanticCalled: <bool>, semanticErr: <bool>,
+  fallbackLine: <string or "">, lexicalBytes: <int>, blendBytes: <int>,
+  aCardRefs: <int>, bCardRefs: <int>,
+  executionFailed: <bool>, failureReason: <string> }.`,
     { label: `retrieve-${idx + 1}`, phase: "Retrieve",
       // Runs TWO sequential zk-ask calls (each 1-3 min with thinking=medium on
       // the full vault). The 10-min global default is tight for two back-to-back
@@ -203,12 +254,15 @@ Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bo
       timeoutMs: 900000,
       schema: { type: "object", properties: {
         lexicalFile: { type: "string" }, blendFile: { type: "string" },
-        semanticLive: { type: "boolean" },
+        semanticLive: { type: "boolean" }, semanticCalled: { type: "boolean" },
+        semanticErr: { type: "boolean" }, fallbackLine: { type: "string" },
         lexicalBytes: { type: "number" }, blendBytes: { type: "number" },
-      }, required: ["lexicalFile", "blendFile", "semanticLive"] } },
+        aCardRefs: { type: "number" }, bCardRefs: { type: "number" },
+        executionFailed: { type: "boolean" }, failureReason: { type: "string" },
+      }, required: ["lexicalFile", "blendFile", "semanticLive", "executionFailed", "failureReason"] } },
   )
-  log(`Retrieve [${idx + 1}/${QUERIES.length}] "${q.slice(0, 40)}…" — semanticLive ${r?.semanticLive ?? false} (${MODE_A} ${r?.lexicalBytes ?? 0}B, ${MODE_B} ${r?.blendBytes ?? 0}B)`)
-  return { query: qObj, retrieve: r ?? { lexicalFile: lexFile, blendFile, semanticLive: false } }
+  log(`Retrieve [${idx + 1}/${QUERIES.length}] "${q.slice(0, 40)}…" — semanticLive ${r?.semanticLive ?? false} execFailed ${r?.executionFailed ?? false} (${MODE_A} ${r?.lexicalBytes ?? 0}B, ${MODE_B} ${r?.blendBytes ?? 0}B)${r?.failureReason ? " — " + r.failureReason.slice(0, 60) : ""}`)
+  return { query: qObj, retrieve: r ?? { lexicalFile: lexFile, blendFile, semanticLive: false, executionFailed: true, failureReason: "retrieve agent returned no result" } }
 }
 
 /**
@@ -220,6 +274,32 @@ Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bo
 async function blindJudge(item, _originalItem, idx) {
   if (!item?.retrieve) return null
   const { query, retrieve } = item
+  // A1 — a retrieval-EXECUTION failure (blend lane surfaced 0 cards) is NOT a
+  // ranking loss. Skip the judge entirely (judging an empty trace is exactly
+  // what produced the contaminated blendRel=0 in triage #2) and emit an
+  // excluded verdict with the captured reason. Same for a semanticLive:false
+  // run where the blend competed without its core advantage (triage #4).
+  if (retrieve.executionFailed || retrieve.semanticLive === false) {
+    const reason = retrieve.executionFailed
+      ? `execution_failed: ${retrieve.failureReason || "blend lane surfaced 0 cards"}`
+      : `non_live: ${retrieve.fallbackLine || (retrieve.semanticErr ? "semantic tool ended (err)" : "semantic stage did not run live")}`
+    const verdict = {
+      id: query.id ?? idx + 1, query: query.text, expectedConcept: query.expectedConcept,
+      lexicalMissReason: query.lexicalMissReason,
+      semanticLive: retrieve.semanticLive,
+      execution_failed: !!retrieve.executionFailed,
+      excluded: true, exclusionReason: reason,
+      lexicalRelevance: null, blendRelevance: null, winner: "excluded",
+      judgeReason: "excluded from mean/win tally — retrieval execution failure or non-live semantic stage",
+      diagnostics: {
+        semanticCalled: retrieve.semanticCalled, semanticErr: retrieve.semanticErr,
+        fallbackLine: retrieve.fallbackLine, aCardRefs: retrieve.aCardRefs,
+        bCardRefs: retrieve.bCardRefs, blendBytes: retrieve.blendBytes,
+      },
+    }
+    log(`Judge [${idx + 1}/${QUERIES.length}] EXCLUDED — ${reason}`)
+    return verdict
+  }
   const lexicalIsA = (idx % 2) === 0
   const fileA = lexicalIsA ? retrieve.lexicalFile : retrieve.blendFile
   const fileB = lexicalIsA ? retrieve.blendFile : retrieve.lexicalFile
@@ -261,6 +341,7 @@ Return { winner: "A" | "B" | "tie", relevanceA: <0-1>, relevanceB: <0-1>,
     id: query.id ?? idx + 1, query: query.text, expectedConcept: query.expectedConcept,
     lexicalMissReason: query.lexicalMissReason,
     semanticLive: retrieve.semanticLive,
+    execution_failed: false, excluded: false, exclusionReason: null,
     lexicalRelevance: lexicalRel, blendRelevance: blendRel,
     winner: tie ? "tie" : (blendWins ? "blend" : "lexical"),
     judgeReason: j?.reason ?? "",
@@ -278,7 +359,11 @@ for (let i = 0; i < QUERIES.length; i++) {
   const verdict = await blindJudge(retrieved, QUERIES[i], i)
   if (verdict) verdicts.push(verdict)
 }
-const valid = verdicts.filter((v) => v && v.semanticLive !== false && v.semanticLive !== undefined)
+// A1+A3 — valid = ranked verdicts ONLY. Execution-failed and non-live verdicts
+// are excluded (with a logged reason) so a retrieval-EXECUTION failure or a
+// coverage gap is never scored as a ranking loss.
+const valid = verdicts.filter((v) => v && !v.excluded)
+const excluded = verdicts.filter((v) => v && v.excluded)
 const semanticLiveCount = verdicts.filter((v) => v?.semanticLive).length
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -298,9 +383,17 @@ const meanLexicalRel = valid.length ? tally.sumLexicalRel / valid.length : 0
 const meanBlendRel = valid.length ? tally.sumBlendRel / valid.length : 0
 const blendBetter = tally.blendWins > tally.lexicalWins && meanBlendRel > meanLexicalRel
 
+// A1+A3 — log every excluded verdict with its reason, so no signal is unread.
+const exclusions = excluded.map((v) => ({ id: v.id, query: v.query, reason: v.exclusionReason }))
+if (exclusions.length) log(`Excluded ${exclusions.length}/${verdicts.length} verdicts from mean/win tally:`)
+for (const e of exclusions) log(`  · #${e.id} ${e.reason}`)
+
 const runResult = {
   blendModes: { modeA: MODE_A, modeB: MODE_B },
   queryCount: QUERIES.length,
+  rankedCount: valid.length,
+  excludedCount: excluded.length,
+  exclusions,
   semanticLiveCount,
   semanticLiveRatio: QUERIES.length ? semanticLiveCount / QUERIES.length : 0,
   verdicts,
@@ -324,9 +417,10 @@ const signals = {
   run_quality: blendBetter ? "good" : (semanticLiveCount > 0 ? "fair" : "poor"),
   key_metric: tally.blendWins,
   highlights: [
-    `blend wins = ${tally.blendWins} / ${valid.length} (lexical ${tally.lexicalWins}, ties ${tally.ties})`,
+    `blend wins = ${tally.blendWins} / ${valid.length} ranked (lexical ${tally.lexicalWins}, ties ${tally.ties})`,
     `mean relevance@${TOP_K}: lexical ${meanLexicalRel.toFixed(3)} vs blend ${meanBlendRel.toFixed(3)}`,
     `semanticLive = ${semanticLiveCount}/${QUERIES.length} queries`,
+    `excluded = ${excluded.length}/${verdicts.length} (execution_failed or non-live; see exclusions)`,
     `blendBetterOverall = ${blendBetter}`,
   ],
 }
@@ -352,6 +446,8 @@ log(`KB: ${KB_FILE}`)
 return {
   runId: RUN_ID,
   queryCount: QUERIES.length,
+  rankedCount: valid.length,
+  excludedCount: excluded.length,
   blendWins: tally.blendWins,
   lexicalWins: tally.lexicalWins,
   ties: tally.ties,
