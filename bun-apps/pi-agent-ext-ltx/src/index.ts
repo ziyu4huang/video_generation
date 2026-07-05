@@ -203,6 +203,14 @@ function withDefaultOutput(
  * Run ONE ltx-video command invocation end-to-end (validate paths -> build
  * args -> spawn -> parse).
  */
+/** Convert a thrown Error into the same structured failure shape a non-zero ltx-video exit produces. */
+function toFailureResult(command: CommandName, err: unknown): { details: LtxDetails; res: InvokeResult } {
+  const message = err instanceof Error ? err.message : String(err);
+  const res: InvokeResult = { exitCode: 1, output: message, stdout: message, stderr: message, aborted: false };
+  const details = buildDetails(command, res);
+  return { details, res };
+}
+
 async function runOnce(
   command: CommandName,
   optionsIn: Record<string, unknown>,
@@ -220,7 +228,17 @@ async function runOnce(
   validateOptionPaths(spec, options, roots);
 
   assertModelsRootExists(roots.repoRoot, roots.modelsRoot);
-  ensureOutputDir(roots.repoRoot, roots.outputDir);
+  // ensureOutputDir()'s mkdirSync can throw a raw fs error (ENOTDIR if a
+  // parent segment is already a regular file, EACCES/ENOSPC on a read-only
+  // or full volume) — NOT part of the documented "throws PathSafetyError,
+  // otherwise details.ok=false" contract, same class of gap as
+  // ensureBinary()'s build failure below (found by
+  // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+  try {
+    ensureOutputDir(roots.repoRoot, roots.outputDir);
+  } catch (err) {
+    return toFailureResult(command, err);
+  }
 
   // ensureBinary() throws a plain Error on repo-root/`swift build`/missing-
   // binary failures (binary.ts) — NOT part of the documented "throws
@@ -233,19 +251,19 @@ async function runOnce(
   try {
     bin = await ensureBinary(onProgress);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const details = buildDetails(command, {
-      exitCode: 1,
-      output: message,
-      stdout: message,
-      stderr: message,
-      aborted: false,
-    });
-    return { details, res: { exitCode: 1, output: message, stdout: message, stderr: message, aborted: false } };
+    return toFailureResult(command, err);
   }
   const args = buildArgv(spec, options, roots, extraArgs);
 
-  onProgress?.({ kind: "progress", text: `$ ltx-video ${[spec.name, ...args].join(" ")}` });
+  // onProgress runs before invokeLtx is even called — a throw here must not
+  // crash runOnce, same reasoning as every other onProgress call site guarded
+  // in invoke.ts/binary.ts (found by pi-agent-ext-ltx-self-improve's review
+  // lane, 2026-07-05: this call site was missed in that earlier pass).
+  try {
+    onProgress?.({ kind: "progress", text: `$ ltx-video ${[spec.name, ...args].join(" ")}` });
+  } catch {
+    /* progress callback failures must not crash the run */
+  }
 
   const res = await invokeLtx({
     bin,

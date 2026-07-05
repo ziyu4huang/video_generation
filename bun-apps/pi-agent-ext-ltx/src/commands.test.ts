@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildArgs, COMMANDS, COMMAND_LIST, modeledFlags, pathFieldKeys, pathSpecFieldKeys } from "./commands.ts";
+import { buildArgs, buildParams, COMMANDS, COMMAND_LIST, modeledFlags, pathFieldKeys, pathSpecFieldKeys } from "./commands.ts";
 
 describe("buildArgs", () => {
   test("emits a scalar string flag", () => {
@@ -194,5 +194,18 @@ describe("isPathComponent fields (model-selector names Swift joins onto a root i
         }
       }
     }
+  });
+});
+
+describe("enumValues fields (restricted to a fixed set of values)", () => {
+  test("gate's expectedScript is restricted to 'traditional'/'simplified' in the generated typebox schema", () => {
+    // Regression: expectedScript used to be an unconstrained free-form string
+    // — an invalid value (e.g. "zh-TW") silently disabled the whole
+    // script-mismatch check on the Swift side instead of erroring (found by
+    // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+    expect(COMMANDS.gate.fields.expectedScript?.enumValues).toEqual(["traditional", "simplified"]);
+    const schema = buildParams(COMMANDS.gate) as { properties: Record<string, unknown> };
+    const expectedScriptSchema = schema.properties.expectedScript as { anyOf: Array<{ const: string }> };
+    expect(expectedScriptSchema.anyOf.map((s) => s.const)).toEqual(["traditional", "simplified"]);
   });
 });

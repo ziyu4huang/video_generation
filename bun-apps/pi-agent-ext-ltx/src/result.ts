@@ -112,7 +112,10 @@ function parseDims(stdout: string): { width: number | null; height: number | nul
   // "9 frames @ 24.0fps, 640x960" line, no arrow).
   const arrow = firstMatch(stdout, /\d+x\d+\s*->\s*(\d+)x(\d+)/);
   if (arrow) return { width: Number(arrow[1]), height: Number(arrow[2]) };
-  const m = firstMatch(stdout, /(\d+)x(\d+)(?:\s*$|,|\))/);
+  // native-restyle's dims line has a trailing annotation ("504x504 (unchanged
+  // — restyle, not upscale)") — a bare space after the digits also ends the
+  // match, not just end-of-line/comma/close-paren.
+  const m = firstMatch(stdout, /(\d+)x(\d+)(?:\s|$|,|\))/);
   if (!m) return { width: null, height: null };
   return { width: Number(m[1]), height: Number(m[2]) };
 }
@@ -403,6 +406,80 @@ function buildNativeT2ADetails(res: InvokeResult): LtxDetails {
   };
 }
 
+/** `native-relay`: "final: <path>" (concatenated relay.mp4) + per-segment prints + wall time. */
+function buildNativeRelayDetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const final = firstMatchLine(stdout, /final:\s*(\S+)/);
+  const segments = allMatches(stdout, /segment \d+:\s*(\S+)/);
+  const dims = parseDims(stdout);
+  return {
+    ok,
+    command: "native-relay",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: final,
+    extraOutputs: segments.length ? { segments } : {},
+    width: dims.width,
+    height: dims.height,
+    wallSeconds: parseWallSeconds(stdout),
+    gate: null,
+    stdout,
+  };
+}
+
+/** `native-ingredients`: single reference-image I2V — frames dir / audio.wav / optional mp4. */
+function buildNativeIngredientsDetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const framesDir = firstMatchLine(stdout, /\d+ frames:\s*(\S+)/);
+  const audio = firstMatchLine(stdout, /audio:\s*(\S+)/);
+  const mp4 = firstMatchLine(stdout, /\[mp4\] muxed:\s*(\S+)/);
+  const dims = parseDims(stdout);
+  return {
+    ok,
+    command: "native-ingredients",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: mp4 ?? framesDir,
+    extraOutputs: {
+      ...(framesDir ? { frames: framesDir } : {}),
+      ...(audio ? { audio } : {}),
+      ...(mp4 ? { mp4 } : {}),
+    },
+    width: dims.width,
+    height: dims.height,
+    wallSeconds: parseWallSeconds(stdout),
+    gate: null,
+    stdout,
+  };
+}
+
+/** `native-restyle`: V2V restyle — frames dir (dims unchanged from input) / optional mp4, no audio. */
+function buildNativeRestyleDetails(res: InvokeResult): LtxDetails {
+  const ok = res.exitCode === 0 && !res.aborted;
+  const stdout = res.stdout;
+  const framesDir = firstMatchLine(stdout, /\d+ frames:\s*(\S+)/);
+  const mp4 = firstMatchLine(stdout, /\[mp4\] muxed:\s*(\S+)/);
+  const dims = parseDims(stdout);
+  return {
+    ok,
+    command: "native-restyle",
+    exitCode: res.exitCode,
+    aborted: res.aborted,
+    output: mp4 ?? framesDir,
+    extraOutputs: {
+      ...(framesDir ? { frames: framesDir } : {}),
+      ...(mp4 ? { mp4 } : {}),
+    },
+    width: dims.width,
+    height: dims.height,
+    wallSeconds: parseWallSeconds(stdout),
+    gate: null,
+    stdout,
+  };
+}
+
 /** `segment`: scene-cut detection — no generation, output is the optional --json report path. */
 function buildSegmentDetails(res: InvokeResult): LtxDetails {
   const ok = res.exitCode === 0 && !res.aborted;
@@ -485,6 +562,12 @@ export function buildDetails(command: string, res: InvokeResult, options?: Recor
       return buildNativeUpscaleDetails(res);
     case "native-t2a":
       return buildNativeT2ADetails(res);
+    case "native-relay":
+      return buildNativeRelayDetails(res);
+    case "native-ingredients":
+      return buildNativeIngredientsDetails(res);
+    case "native-restyle":
+      return buildNativeRestyleDetails(res);
     case "segment":
       return buildSegmentDetails(res);
     case "t2i":

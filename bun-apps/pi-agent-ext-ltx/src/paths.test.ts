@@ -259,9 +259,12 @@ describe("resolveOutputDir", () => {
     expect(resolveOutputDir(repoRoot, "custom-out")).toBe(join(repoRoot, "custom-out"));
   });
 
-  test("uses an absolute override as-is", () => {
+  test("uses an absolute override as-is when it resolves under repoRoot's own parent", () => {
+    // "/abs/out" used to be accepted verbatim regardless of location — that was
+    // the vulnerability (see the "rejects an override that escapes..." test
+    // below). A sibling-of-repoRoot absolute path is still accepted as-is.
     const repoRoot = "/repo";
-    expect(resolveOutputDir(repoRoot, "/abs/out")).toBe("/abs/out");
+    expect(resolveOutputDir(repoRoot, "/sibling-out")).toBe("/sibling-out");
   });
 
   test("falls back to ../video_generation__output when no override/env", () => {
@@ -273,6 +276,30 @@ describe("resolveOutputDir", () => {
     } finally {
       if (savedEnv !== undefined) process.env.MLX_OUTPUT_DIR = savedEnv;
     }
+  });
+
+  test("rejects an override that escapes to an unrelated part of the filesystem (self-defeating-allowlist fix)", () => {
+    // Regression for the finding: an agent-supplied outputDir override used to be
+    // trusted verbatim and admitted straight into AllowedRoots, making the
+    // "every path must resolve under an allowed root" guarantee circular.
+    // `outsideDir` from makeRoots() is a SIBLING of repoRoot (both under the same
+    // parent), which is legitimately allowed by the fix's sibling-store
+    // convention — so this needs a genuinely unrelated temp dir instead.
+    const { repoRoot } = makeRoots();
+    const unrelatedDir = mkdtempSync(join(tmpdir(), "pi-ltx-unrelated-"));
+    expect(() => resolveOutputDir(repoRoot, unrelatedDir)).toThrow(PathSafetyError);
+  });
+
+  test("rejects a leading-dash override value (flag-injection guard)", () => {
+    const { repoRoot } = makeRoots();
+    expect(() => resolveOutputDir(repoRoot, "--models-root=/etc")).toThrow(PathSafetyError);
+  });
+
+  test("accepts an override under the repo root's own parent directory (sibling-store convention)", () => {
+    const { base, repoRoot } = makeRoots();
+    const sibling = join(base, "video_generation__output");
+    mkdirSync(sibling, { recursive: true });
+    expect(resolveOutputDir(repoRoot, sibling)).toBe(sibling);
   });
 });
 
@@ -291,6 +318,20 @@ describe("resolveModelsRoot", () => {
     } finally {
       if (savedEnv !== undefined) process.env.MLX_MODELS_DIR = savedEnv;
     }
+  });
+
+  test("rejects an override that escapes to an unrelated part of the filesystem (arbitrary-file-read fix)", () => {
+    // Regression for the finding: modelsRoot:"/etc" used to be trusted verbatim,
+    // making every loras/lastFrame/audioTrack/etc. path field accept files under
+    // it (e.g. "/etc/passwd:1.0" as a --lora value).
+    const { repoRoot } = makeRoots();
+    const unrelatedDir = mkdtempSync(join(tmpdir(), "pi-ltx-unrelated-"));
+    expect(() => resolveModelsRoot(repoRoot, unrelatedDir)).toThrow(PathSafetyError);
+  });
+
+  test("rejects a leading-dash modelsRoot override value (flag-injection guard)", () => {
+    const { repoRoot } = makeRoots();
+    expect(() => resolveModelsRoot(repoRoot, "--output=/etc")).toThrow(PathSafetyError);
   });
 });
 
