@@ -24,10 +24,15 @@
  *   }                                                            }
  * }
  *
- * createCommandContext() already spreads from createContext() via
- * Object.defineProperties({}, Object.getOwnPropertyDescriptors(this.createContext())),
- * so adding `getSystemPromptOptions` to createContext() automatically propagates it
- * to command contexts — no separate change needed there.
+ * createCommandContext() copies descriptors from createContext() via
+ * Object.defineProperties({}, Object.getOwnPropertyDescriptors(this.createContext()))
+ * and then OVERWRITES `getSystemPromptOptions` on the command context via plain
+ * assignment (`context.getSystemPromptOptions = () => {...}`). For that assignment
+ * to succeed, the property we add here MUST be a writable, configurable DATA
+ * property — NOT a getter-only accessor. A getter-only accessor copied through
+ * getOwnPropertyDescriptors makes the command-context property non-assignable,
+ * and strict-mode assignment throws `Attempted to assign to readonly property`,
+ * which breaks EVERY extension slash-command (e.g. /goal) at dispatch time.
  *
  * Env gate: BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS (default on). Reversible.
  */
@@ -56,11 +61,17 @@ export function applyGetSystemPromptOptionsPatch(): boolean {
       getSystemPromptOptionsFn: () => Record<string, unknown>;
       assertActive: () => void;
     };
+    // IMPORTANT: define as a writable data property, NOT a getter. createCommandContext()
+    // copies this property's descriptor via getOwnPropertyDescriptors + defineProperties
+    // and then overwrites it with `context.getSystemPromptOptions = () => {...}`. A
+    // getter-only accessor would make that assignment throw in strict mode
+    // ("Attempted to assign to readonly property"), breaking all /commands.
     Object.defineProperty(ctx, "getSystemPromptOptions", {
-      get: () => {
+      value: () => {
         self.assertActive();
         return self.getSystemPromptOptionsFn();
       },
+      writable: true,
       enumerable: true,
       configurable: true,
     });
