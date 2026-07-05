@@ -46,7 +46,8 @@ export interface ProviderEntry {
     | "bun:whisper"
     | "bun:clip"
     | "bun:esrgan"
-    | "compose:remotion";
+    | "compose:remotion"
+    | "compose:motion";
   configured: boolean;
   notes?: string;
 }
@@ -68,7 +69,8 @@ export const REGISTRY: ProviderEntry[] = [
 
   // Composition runtimes.
   { name: "compose_remotion", capability: "composition", provider: "remotion", backend: "native_swift", invoke: "compose:remotion", configured: true, notes: "Remotion Node subprocess (src/remotion.ts, iteration G #280) — resolves REMOTION_BIN/PATH/bunx; callable when the binary resolves + a browser is present" },
-  { name: "compose_hyperframes", capability: "composition", provider: "hyperframes", backend: "cloud_http", invoke: "fetch", configured: false, notes: "npx hyperframes (later)" },
+  { name: "compose_motion", capability: "composition", provider: "motion", backend: "ffmpeg", invoke: "compose:motion", configured: true, notes: "ffmpeg motion compositor (src/compose_motion.ts, Item J) — per-cut ken-burns/zoom/pan via zoompan + xfade crossfade; callable wherever ffmpeg+zoompan+xfade resolve (no browser/swift)" },
+  { name: "compose_hyperframes", capability: "composition", provider: "hyperframes", backend: "cloud_http", invoke: "fetch", configured: false, notes: "GAP: vendor-gated — HyperFrames/Motion Canvas are browser-only React frameworks (no headless CLI; @motion-canvas/cli 404 on npm). Not callable on this machine; use compose_motion (lightweight) or compose_remotion (templated)" },
   { name: "compose_ffmpeg", capability: "composition", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true, notes: "concat/trim/subtitle-burn via ffmpeg" },
 
   // TTS — cloud HTTP (iteration 3) + local fallback.

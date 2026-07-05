@@ -20,6 +20,7 @@ import {
   resolveVisionPython,
   _setFfmpegAvailableForTest,
   _setRemotionProbeForTest,
+  _setMotionFiltersForTest,
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
   type WhisperResult,
@@ -31,6 +32,7 @@ import { REGISTRY } from "./registry.ts";
 beforeAll(() => {
   _setFfmpegAvailableForTest(true);
   _setRemotionProbeForTest(false);
+  _setMotionFiltersForTest(true);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
   _setVisionRuntimeForTest("esrgan", true);
@@ -38,6 +40,7 @@ beforeAll(() => {
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
   _setRemotionProbeForTest(undefined);
+  _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
   _setVisionRuntimeForTest("esrgan", undefined);
@@ -236,20 +239,55 @@ describe("probeConfigured + probedMenuSummary", () => {
 
   it("Item A acceptance: composition GAPs list is [hyperframes] only after remotion repair", () => {
     // When remotion resolves, composition.available_providers includes remotion
-    // AND ffmpeg; the only remaining GAP is hyperframes.
+    // AND ffmpeg AND motion (the Item J runtime); the only remaining GAP is
+    // hyperframes (browser-only, vendor-gated).
     _setRemotionProbeForTest(true);
     try {
       const m = probedMenuSummary(NO_ENV);
       const composition = m.capabilities.find((c) => c.capability === "composition")!;
       expect(composition.available_providers).toContain("remotion");
       expect(composition.available_providers).toContain("ffmpeg");
+      expect(composition.available_providers).toContain("motion");
       expect(composition.unavailable_providers).toEqual(["hyperframes"]);
       // composition_runtimes rollup reflects the same truth.
       expect(m.composition_runtimes.remotion).toBe(true);
+      expect(m.composition_runtimes.motion).toBe(true);
       expect(m.composition_runtimes.hyperframes).toBe(false);
     } finally {
       _setRemotionProbeForTest(false);
     }
+  });
+
+  it("Item J: compose_motion is callable iff ffmpeg + zoompan/xfade filters resolve", () => {
+    const motion = REGISTRY.find((p) => p.name === "compose_motion")!;
+    expect(motion.configured).toBe(true);
+    expect(motion.backend).toBe("ffmpeg");
+    expect(motion.invoke).toBe("compose:motion");
+    // ffmpeg present + motion filters present (test-pinned true) → callable.
+    expect(probeConfigured(motion, NO_ENV)).toBe(true);
+    // motion filters absent → not callable even with ffmpeg present.
+    _setMotionFiltersForTest(false);
+    try {
+      expect(probeConfigured(motion, NO_ENV)).toBe(false);
+    } finally {
+      _setMotionFiltersForTest(true);
+    }
+    // ffmpeg absent → not callable even with filters present.
+    _setFfmpegAvailableForTest(false);
+    try {
+      expect(probeConfigured(motion, NO_ENV)).toBe(false);
+    } finally {
+      _setFfmpegAvailableForTest(true);
+    }
+  });
+
+  it("Item J: compose_hyperframes stays a documented vendor-gated GAP", () => {
+    const hf = REGISTRY.find((p) => p.name === "compose_hyperframes")!;
+    expect(hf.configured).toBe(false);
+    expect(hf.notes.startsWith("GAP")).toBe(true);
+    expect(probeConfigured(hf, NO_ENV)).toBe(false); // never callable headless
+    const m = probedMenuSummary(NO_ENV);
+    expect(m.gaps.map((g) => g.name)).toContain("compose_hyperframes");
   });
 });
 

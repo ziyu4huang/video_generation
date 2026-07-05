@@ -36,6 +36,7 @@ import {
   composeVideo,
   finalReview,
   renderRemotion,
+  composeMotion,
   preComposeGate,
   type EditDecisions,
   type RemotionEditDecisions,
@@ -58,6 +59,7 @@ const COMMANDS = [
   "generate",
   "compose",
   "compose-remotion",
+  "compose-motion",
   "pre-compose",
   "final-review",
   "cost-estimate",
@@ -122,6 +124,12 @@ const DESCRIPTION = [
   "                        animation/type/text; overlays[] + audio{} + transition + theme drive the composition.",
   "                        Spawns the `remotion` binary (set REMOTION_BIN or install on PATH; falls back to bunx).",
   "                        Returns a render_report (render_grammar:'remotion').",
+  "  • compose-motion   — {editDecisions, workDir?, output?, width?, height?, fps?, transitionSeconds?} → renders the edit",
+  "                        through the ffmpeg motion compositor (Item J lightweight tier): per-cut ken-burns/zoom/pan via",
+  "                        ffmpeg `zoompan` + `xfade` crossfade transitions. Same editDecisions shape as compose-remotion,",
+  "                        but no React/browser/swift — callable wherever ffmpeg+zoompan+xfade resolve. Use this when",
+  "                        compose-remotion's binary doesn't resolve (the agent-driven default for motion on this machine).",
+  "                        Returns a render_report (render_grammar:'motion').",
   "  • pre-compose      — {editDecisions} → deterministic gate BEFORE the expensive render: delivery promise",
   "                        (cuts/duration/sources/audio) + slideshow risk (static-image fraction). {verdict, checks[]}.",
   "  • final-review     — {mp4Path, transcriptPath?} → 6 delivery checks (container, duration>0, video stream, audio stream,",
@@ -314,6 +322,22 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
           width: opts.width ? Number(opts.width) : undefined,
           height: opts.height ? Number(opts.height) : undefined,
           fps: opts.fps ? Number(opts.fps) : undefined,
+        });
+        return { ok: true, text: jsonOut(report) };
+      }
+      case "compose-motion": {
+        const edit = opts.editDecisions as RemotionEditDecisions | undefined;
+        if (!edit || !Array.isArray(edit.cuts)) {
+          return { ok: false, error: "compose-motion requires {editDecisions:{version,cuts:[...]}}" };
+        }
+        const workDir = opts.workDir ? String(opts.workDir) : projectDir(String(opts.projectId ?? "_compose_motion"));
+        const report = await composeMotion(edit, {
+          workDir,
+          output: opts.output ? String(opts.output) : undefined,
+          width: opts.width ? Number(opts.width) : undefined,
+          height: opts.height ? Number(opts.height) : undefined,
+          fps: opts.fps ? Number(opts.fps) : undefined,
+          transitionSeconds: opts.transitionSeconds ? Number(opts.transitionSeconds) : undefined,
         });
         return { ok: true, text: jsonOut(report) };
       }

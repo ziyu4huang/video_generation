@@ -22,6 +22,7 @@ import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
 import { EXT_ROOT } from "./paths.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
+import { composeMotion } from "./compose_motion.ts";
 import type { RenderReport } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
@@ -80,6 +81,33 @@ export function _setRemotionProbeForTest(v: boolean | undefined): void {
   remotionCached = v;
 }
 
+// ─── ffmpeg motion-filter probe (compose:motion) ─────────────────────────────
+
+/**
+ * True if this ffmpeg build has BOTH the `zoompan` (ken-burns/zoom/pan) and
+ * `xfade` (crossfade) filters the motion compositor needs. Standard builds
+ * (including Homebrew ffmpeg on macOS) ship both; cached per process. Mirrors
+ * the libass probe in compose.ts.
+ */
+let motionFiltersCached: boolean | undefined;
+function motionFiltersAvailable(): boolean {
+  if (motionFiltersCached != null) return motionFiltersCached;
+  try {
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-filters"], { encoding: "utf8" });
+    const list = r.stdout ?? "";
+    const has = (name: string) => new RegExp(`(?:^|\\s).{0,3}${name}\\s`).test(list);
+    motionFiltersCached = has("zoompan") && has("xfade");
+  } catch {
+    motionFiltersCached = false;
+  }
+  return motionFiltersCached;
+}
+
+/** Force the motion-filter probe result (tests inject a deterministic value). */
+export function _setMotionFiltersForTest(v: boolean | undefined): void {
+  motionFiltersCached = v;
+}
+
 const CLOUD_KEY_FOR: Record<string, string> = {
   elevenlabs: "ELEVENLABS_API_KEY",
   openai: "OPENAI_API_KEY",
@@ -119,6 +147,10 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // callable iff the registry flag is set AND a real remotion binary resolves
       // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
       return entry.configured && remotionBinaryAvailable(env);
+    case "compose:motion":
+      // callable iff ffmpeg is on PATH AND its build has zoompan+xfade (the motion
+      // compositor's only deps — no browser, no swift). Reuses the ffmpeg cache.
+      return entry.configured && ffmpegAvailable() && motionFiltersAvailable();
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.
@@ -965,6 +997,54 @@ export const composeRemotionAdapter: Adapter = async (req: GenerateRequest): Pro
   }
 };
 
+// ─── compose:motion adapter (delegates to composeMotion) ─────────────────────
+
+/**
+ * Adapter wrapper so `selectAndGenerate("composition", {...})` and the
+ * `compose-motion` action route to the ffmpeg motion compositor. Maps the
+ * RenderReport → ToolResult. Same edit shape as compose-remotion
+ * (RemotionEditDecisions) so an agent can drive either runtime from one edit.
+ */
+export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number; fps?: number; transitionSeconds?: number };
+  const edit = opts.editDecisions;
+  if (!edit || !Array.isArray(edit.cuts)) {
+    return fail(req, "motion", "compose:motion requires options.editDecisions.{version,cuts:[...]}");
+  }
+  const outputDir = req.outputDir ?? process.cwd();
+  const workDir = opts.workDir ?? outputDir;
+  const started = Date.now();
+  try {
+    const report: RenderReport = await composeMotion(edit, {
+      workDir,
+      output: opts.output,
+      width: opts.width,
+      height: opts.height,
+      fps: opts.fps,
+      transitionSeconds: opts.transitionSeconds,
+    });
+    const ok = report.outputs.length > 0;
+    return {
+      success: ok,
+      provider: "motion",
+      command: req.command || "compose-motion",
+      artifacts: report.outputs.map((o) => ({
+        path: resolve(o.path),
+        kind: "video" as const,
+        bytes: o.file_size_bytes,
+        role: "composed",
+      })),
+      error: ok ? null : (report.warnings[0] ?? "motion produced no output"),
+      cost_usd: 0, // local ffmpeg — honest $0 marginal
+      duration_seconds: report.render_time_seconds ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: "ffmpeg-zoompan-xfade",
+    };
+  } catch (err) {
+    return fail(req, "motion", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
 /** The non-native adapter map (merged into realAdapters by bridge.ts). */
 export function nonNativeAdapters(_env?: Record<string, string | undefined>): Partial<Record<ProviderEntry["invoke"], Adapter>> {
   return {
@@ -974,6 +1054,7 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
     "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
     "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
+    "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
 }
