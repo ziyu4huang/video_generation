@@ -176,9 +176,51 @@ function fmtToolEnd(
 // Runners
 // ---------------------------------------------------------------------------
 
+/** Nudge sent when a turn completes with tool calls but no final synthesis text.
+ *  Reuses the in-session tool results — no re-retrieval. Traditional Chinese
+ *  to match the RAG task's output language. */
+const SYNTHESIS_NUDGE =
+  "你上一輪完成了工具呼叫但沒有輸出最終內容。請根據已檢索的筆記，現在輸出組合後的上下文，並在結尾附上 **Reference notes:** 清單。不要再次呼叫工具。";
+
+/** Detect whether a completed prompt produced any assistant text or tool
+ *  activity. Local models (LM Studio) intermittently return a completely empty
+ *  turn — no tool calls, no text — which the SDK treats as a normal completion.
+ *  Without a retry the CLI prints the done footer over empty output and exits 0
+ *  (silent failure); this is the dominant source of refs=0 in retrieval runs. */
+interface TurnActivity {
+  textChars: number;
+  toolCalls: number;
+}
+
+function runPrettyTaskOnce(
+  session: TaskSession,
+  task: string,
+  verbose: number,
+  act: TurnActivity,
+): () => void {
+  return session.subscribe((event: any) => {
+    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+      const d = event.assistantMessageEvent.delta as string;
+      act.textChars += d.length;
+      process.stdout.write(d);
+    } else if (event.type === "tool_execution_start") {
+      act.toolCalls++;
+      console.error(fmtToolStart(event.toolName, event.args, verbose));
+    } else if (event.type === "tool_execution_end") {
+      console.error(fmtToolEnd(event.toolName, event.result, !!event.isError, verbose));
+    }
+  });
+}
+
 /**
  * Pretty-print a prompt() run to stdout/stderr, then emit a
  * `--- <doneLabel> done ---` footer. Used in the default (non-json) mode.
+ *
+ * Retries once on an empty model turn: if the first prompt produces neither
+ * assistant text nor tool calls (a local-model hiccup), or produces tool calls
+ * but no synthesis text, a single focused follow-up recovers it. Without this,
+ * `zk-ask --retrieve-only -p` intermittently prints just the done footer over
+ * empty output — the dominant refs=0 cause in retrieval measurement.
  *
  * @param verbose  tool-event verbosity (0 silent, 1 args summary, 2 debug).
  */
@@ -188,17 +230,17 @@ export async function runPrettyTask(
   doneLabel: string,
   verbose = 0,
 ): Promise<void> {
-  const unsub = session.subscribe((event: any) => {
-    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-      process.stdout.write(event.assistantMessageEvent.delta);
-    } else if (event.type === "tool_execution_start") {
-      console.error(fmtToolStart(event.toolName, event.args, verbose));
-    } else if (event.type === "tool_execution_end") {
-      console.error(fmtToolEnd(event.toolName, event.result, !!event.isError, verbose));
-    }
-  });
+  const act: TurnActivity = { textChars: 0, toolCalls: 0 };
+  const unsub = runPrettyTaskOnce(session, task, verbose, act);
   try {
     await session.prompt(task);
+    if (act.textChars === 0) {
+      // Empty synthesis: tools ran but no final text → nudge (reuses context);
+      // nothing ran at all → retry the original task (the model hiccuped).
+      const followUp = act.toolCalls > 0 ? SYNTHESIS_NUDGE : task;
+      console.error(`[retry] empty ${act.toolCalls > 0 ? "synthesis" : "turn"} — issuing one follow-up`);
+      await session.prompt(followUp);
+    }
     console.log(`\n\n--- ${doneLabel} done ---`);
   } finally {
     unsub();
@@ -223,6 +265,7 @@ export async function runJsonTask(
   verbose = 0,
 ): Promise<void> {
   let assistantText = "";
+  let toolCalls = 0;
   const emit = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
   const unsub = session.subscribe((event: any) => {
     if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
@@ -232,6 +275,7 @@ export async function runJsonTask(
         assistantMessageEvent: { type: "text_delta", delta: event.assistantMessageEvent.delta },
       });
     } else if (event.type === "tool_execution_start") {
+      toolCalls++;
       const base: Record<string, unknown> = {
         type: "tool_execution_start",
         toolName: event.toolName,
@@ -257,6 +301,14 @@ export async function runJsonTask(
   });
   try {
     await session.prompt(task);
+    // Same empty-turn recovery as runPrettyTask: local models occasionally
+    // return a turn with no text (and sometimes no tools). Retry once so json
+    // consumers don't see a silent empty message_end.
+    if (assistantText.length === 0) {
+      const followUp = toolCalls > 0 ? SYNTHESIS_NUDGE : task;
+      emit({ type: "retry", reason: toolCalls > 0 ? "empty_synthesis" : "empty_turn" });
+      await session.prompt(followUp);
+    }
     emit({
       type: "message_end",
       message: { role: "assistant", content: [{ type: "text", text: assistantText }] },

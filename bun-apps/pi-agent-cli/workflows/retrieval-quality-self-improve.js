@@ -135,6 +135,9 @@ phrasings, or symptom→cause framings with no keyword overlap with card titles.
 Avoid generic queries where title-match trivially wins.
 Return { queries: [{ id: <int>, text: <string>, lexicalMissReason: <string>, expectedConcept: <string> }] }.${langInstr}${hint}`,
       { label: "gen-queries", phase: "Generate",
+        // Reads several cards + crafts N queries; needs headroom beyond the
+        // 10-min global defaultAgentTimeoutMs when the vault is large.
+        timeoutMs: 900000,
         schema: { type: "object", properties: {
           queries: { type: "array", items: { type: "object", properties: {
             id: { type: "number" }, text: { type: "string" },
@@ -193,6 +196,11 @@ retrieve context inverts its own relevance verdicts — see receipt
    semanticLive = true iff that file's semantic_search count > 0 AND no isError/fallback/unreachable line.
 Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bool>, lexicalBytes: <int>, blendBytes: <int> }.`,
     { label: `retrieve-${idx + 1}`, phase: "Retrieve",
+      // Runs TWO sequential zk-ask calls (each 1-3 min with thinking=medium on
+      // the full vault). The 10-min global default is tight for two back-to-back
+      // retrievals; give 15 min so a slow full-vault run doesn't cascade to
+      // AGENT_TIMEOUT mid-retrieval (see crash mr7rdisz root cause).
+      timeoutMs: 900000,
       schema: { type: "object", properties: {
         lexicalFile: { type: "string" }, blendFile: { type: "string" },
         semanticLive: { type: "boolean" },
