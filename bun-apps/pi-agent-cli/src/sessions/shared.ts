@@ -407,10 +407,18 @@ export async function createSharedSession(
  * the ToolInfo[] from the session. Tolerant of model resolution: falls back to
  * the first registered model if the default isn't in the registry (tool
  * listing must not require a working model).
+ *
+ * @param extraExtensionFactories  additional inline extension factories to load
+ *                                  (e.g. for tools-metrics --full). Obsidian is
+ *                                  always included.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function listRegisteredTools(): Promise<any[]> {
-	const { services } = await getSharedServices();
+export async function listRegisteredTools(
+	extraExtensionFactories?: unknown[],
+): Promise<any[]> {
+	const { services } = await getSharedServices({
+		extraExtensionFactories,
+	});
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let model: any;
 	try {

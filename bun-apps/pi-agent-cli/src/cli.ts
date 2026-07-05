@@ -32,6 +32,7 @@ import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
+import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
@@ -92,6 +93,12 @@ const COMMANDS: Command[] = [
     details: doctorCommand.details,
     run: doctorCommand.run,
   },
+  {
+    name: "tools-metrics",
+    summary: toolsMetricsCommand.summary,
+    details: toolsMetricsCommand.details,
+    run: toolsMetricsCommand.run,
+  },
   // Extension-backed sub-commands (each = one workspace extension exporting an
   // ExtensionSubcommandSpec). See src/extensions/registry.ts.
   ...EXTENSION_COMMANDS,
@@ -131,7 +138,7 @@ const WORKFLOWS: Command[] = [
 ];
 
 /** Meta commands (not agent workflows). */
-const META = ["list", "list-tools", "version", "help"] as const;
+const META = ["list", "list-tools", "tools-metrics", "version", "help"] as const;
 
 /** Reserved tokens that must never be treated as a passthrough prompt. */
 const RESERVED = new Set<string>([
@@ -194,6 +201,7 @@ Meta:
   --list-models, -lm             Alias for the list command (pi-compatible)
   list-tools                      List registered tools (for --tools discovery)
   --list-tools, -lt              Alias for the list-tools command
+  tools-metrics                   Measure token cost of each registered tool
   version                         Print version
   help [command]                  Show help (root, or a command's details)
 
