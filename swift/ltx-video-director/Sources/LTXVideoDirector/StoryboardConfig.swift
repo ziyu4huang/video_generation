@@ -44,6 +44,21 @@ public struct StoryboardConfig: Codable {
     public enum TransitionMode: String, Codable {
         case cameraMove = "camera-move"
         case hardCut = "hard-cut"
+
+        /// Reference-derived default per-panel guide strength for a segment
+        /// that omits `strength`. Taken from RunningHub's paired camera-move/
+        /// hard-cut ComfyUI workflows (avg 0.8 across [0.7, 0.75, 0.9, 0.85]
+        /// vs avg 0.525 across [0.5, 0.48, 0.6, 0.52]) — higher strength
+        /// favors smooth interpolation for a continuous moving shot, lower
+        /// strength lets a clean cut happen without the guide fighting the
+        /// transition. See PR #289 comment thread for the full node-graph
+        /// diff this came from.
+        public var defaultGridStrength: Double {
+            switch self {
+            case .cameraMove: return 0.8
+            case .hardCut: return 0.525
+            }
+        }
     }
 
     public struct GridSpec: Codable {
@@ -67,8 +82,9 @@ public struct StoryboardConfig: Codable {
         /// "hard-cut" (each segment's own panel always conditions ITS OWN
         /// frame 0 — the establishing frame of that segment's shot).
         public var frameIndex: Int?
-        /// Conditioning strength for this panel, 0.0-1.0. Default 1.0 (fully
-        /// pinned) in both modes.
+        /// Conditioning strength for this panel, 0.0-1.0. Defaults to
+        /// `transitionMode.defaultGridStrength` (0.8 for "camera-move", 0.525
+        /// for "hard-cut") when omitted.
         public var strength: Double?
     }
 
@@ -76,6 +92,15 @@ public struct StoryboardConfig: Codable {
         public var path: String
         public var strength: Double?
     }
+
+    /// Known candidate LoRA for a "camera-move"-style continuous shot: the
+    /// motion-reinforcement LoRA RunningHub's camera-move reference workflow
+    /// fuses at strength 0.5 (absent entirely from the hard-cut variant).
+    /// Not bundled with this repo and not applied automatically — recorded
+    /// here as a lead for whoever sources it (CivitAI/HuggingFace) and wants
+    /// to wire it into a "camera-move" storyboard's `loras` array.
+    public static let referenceCameraMoveLoRAFilename =
+        "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors"
 
     public struct AudioSpec: Codable {
         /// "hard-cut" only (mirrors NativeRelayStage.Request.audioOverlayPath) —
@@ -161,7 +186,7 @@ public struct StoryboardConfig: Codable {
                 throw ConfigError.cameraMoveMissingFrameIndex(panel: segment.panel)
             }
             frameIndices[segment.panel] = frameIndex
-            strengths[segment.panel] = Float(segment.strength ?? 1.0)
+            strengths[segment.panel] = Float(segment.strength ?? transitionMode.defaultGridStrength)
             covered[segment.panel] = true
         }
         guard covered.allSatisfy({ $0 }) else {
@@ -207,7 +232,7 @@ public struct StoryboardConfig: Codable {
             }
             prompts.append(segPrompt)
             panels.append(segment.panel)
-            strengths.append(Float(segment.strength ?? 1.0))
+            strengths.append(Float(segment.strength ?? transitionMode.defaultGridStrength))
         }
 
         var request = NativeRelayStage.Request(
