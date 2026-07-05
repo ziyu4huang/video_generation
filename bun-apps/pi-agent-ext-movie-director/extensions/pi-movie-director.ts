@@ -43,6 +43,7 @@ import {
   NoConfiguredProviderError,
   GateViolationError,
   type CheckpointStatus,
+  scopeViolationForToolCall,
 } from "../src/index.ts";
 
 const COMMANDS = [
@@ -108,7 +109,9 @@ const DESCRIPTION = [
   "                        capability:'analysis' command:'transcribe' options:{audio, model?, language?} → mlx-whisper transcript",
   "                        + word-level timestamps (artifacts: transcript.txt, words.json). Feed words.json → subtitle_gen cues →",
   "                        compose {captions:{srtPath, burn?}} to burn captions; pass transcript.txt to final-review for the",
-  "                        advisory spoken-content check.",
+  "                        advisory spoken-content check. capability:'subtitle' options:{wordsPath, cueMode?, wordsPerCue?, cues?}",
+  "                        → SRT/VTT; pass the transcribe words.json as `wordsPath` and subtitle_gen derives cues itself (the",
+  "                        agent-driven captions path needs no timestamp math). `cues` may also be supplied directly.",
   "  • compose          — {editDecisions, workDir?, output?, resolution?, fps?, captions?} → trims each cut to its",
   "                        [in,out] window and concatenates them into a real .mp4 (ffmpeg straight-cut foundation;",
   "                        transitions/overlays are the templated-composer tier). captions:{srtPath, burn?} (burn default",
@@ -381,6 +384,11 @@ function makeMovieTool() {
 
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeMovieTool());
+  // Tool-scope guard: block the built-in edit/write tools when the movie-director
+  // agent targets a repo infra root (python/, swift/, …). Prevents the ungrounded
+  // edit class observed in the #291 agent-driven run. No-op for non-edit tools.
+  // See src/tool-scope.ts for the pure logic + tests.
+  pi.on("tool_call", (event) => scopeViolationForToolCall(event));
 };
 
 export default extension;

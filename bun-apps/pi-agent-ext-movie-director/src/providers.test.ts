@@ -81,6 +81,59 @@ describe("subtitleAdapter", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("derives cues from a whisper wordsPath (agent-driven captions path)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-sub-words-"));
+    try {
+      const wordsPath = join(dir, "words.json");
+      writeFileSync(
+        wordsPath,
+        JSON.stringify({
+          language: "en",
+          segments: [
+            {
+              start: 0,
+              end: 2,
+              text: "hello world",
+              words: [
+                { word: "hello", start: 0, end: 1 },
+                { word: "world", start: 1, end: 2 },
+              ],
+            },
+          ],
+        }),
+        "utf8",
+      );
+      const r = await subtitleAdapter({
+        capability: "subtitle",
+        command: "srt",
+        outputDir: dir,
+        options: { wordsPath, wordsPerCue: 2 },
+      });
+      expect(r.success).toBe(true);
+      const srt = readFileSync(r.artifacts[0]!.path, "utf8");
+      expect(srt).toContain("hello world");
+      expect(srt).toContain("00:00:00,000 --> 00:00:02,000");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails cleanly when wordsPath does not exist", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-sub-missing-"));
+    try {
+      const r = await subtitleAdapter({
+        capability: "subtitle",
+        command: "srt",
+        outputDir: dir,
+        options: { wordsPath: join(dir, "nope.json") },
+      });
+      expect(r.success).toBe(false);
+      expect(r.error).toContain("wordsPath not found");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("probeConfigured + probedMenuSummary", () => {

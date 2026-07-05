@@ -116,3 +116,19 @@ from HuggingFace on first use). The end-to-end proof is reproducible:
 bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-whisper-e2e.ts
 ```
 
+The agent-driven path (gemma-4-26b drives the chain via the `movie` tool, no
+deterministic script) feeds the transcribe `words.json` straight into
+`generate {capability:"subtitle", options:{wordsPath}}` — `subtitle_gen` derives
+the cues itself, so the agent does no timestamp math. See
+`receipts/agent-captions-20260705.md`.
+
+## Tool-scope guard (agent guardrail)
+
+When the extension is loaded, it registers a pi-agent `tool_call` PreToolUse
+handler that **blocks the built-in `edit`/`write` tools from touching repo infra
+roots** (`python/`, `swift/`, `mlx-models/`, `comfyui_data/`, `bun-apps/`,
+`.claude/`, `.githooks/`, `scripts/`) during a `movie` run. This prevents the
+ungrounded-edit class observed in the #291 agent-driven run (a wrong
+`python/.../config.py` edit). Pure logic in `src/tool-scope.ts` (override the
+denylist via `MD_TOOL_SCOPE_DENY`; bypass via `MD_TOOL_SCOPE_DISABLE=1`).
+

@@ -219,6 +219,17 @@ export interface SubtitleOptions {
   format?: "srt" | "vtt";
   /** Word/cue timestamps: {text, start (s), end (s), speaker?}. */
   cues?: Array<{ text: string; start: number; end: number; speaker?: string }>;
+  /**
+   * Path to a whisper `words.json` (the word-timestamps artifact from the
+   * `analysis:transcribe` generate command). When `cues` is absent, the adapter
+   * reads this file + runs `cuesFromWhisper` to derive cues — so an agent-driven
+   * run needs no timestamp math, just transcribe → subtitle(compose). Optional.
+   */
+  wordsPath?: string;
+  /** Cue grouping when deriving from wordsPath: "words" (default) or "segments". */
+  cueMode?: "words" | "segments";
+  /** Words per cue when cueMode="words" (default 6). */
+  wordsPerCue?: number;
   /** Output path. Defaults under outputDir. */
   output?: string;
 }
@@ -256,7 +267,18 @@ export const subtitleAdapter: Adapter = async (req: GenerateRequest): Promise<To
   const output = opts.output ?? join(outputDir, `subtitles.${format}`);
   const started = Date.now();
   try {
-    const text = buildSubtitle(opts);
+    // Derive cues from a whisper words.json when the caller did not supply them
+    // directly — the agent-driven captions path (transcribe → subtitle) hands
+    // the words artifact path and lets subtitle_gen do the timestamp math.
+    let cues = opts.cues;
+    if (!cues && opts.wordsPath) {
+      if (!existsSync(opts.wordsPath)) {
+        return fail(req, "openmontage", `wordsPath not found: ${opts.wordsPath}`, (Date.now() - started) / 1000);
+      }
+      const words = JSON.parse(readFileSync(opts.wordsPath, "utf8")) as WhisperResult;
+      cues = cuesFromWhisper(words, opts.cueMode ?? "words", opts.wordsPerCue ?? 6);
+    }
+    const text = buildSubtitle({ ...opts, cues });
     writeFileSync(output, text, "utf8");
     return {
       success: true,

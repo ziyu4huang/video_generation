@@ -17,3 +17,4 @@ export * from "./providers.ts";
 export * from "./compose.ts";
 export * from "./remotion.ts";
 export * from "./precompose-gate.ts";
+export * from "./tool-scope.ts";
