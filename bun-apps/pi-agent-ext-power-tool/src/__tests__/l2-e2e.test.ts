@@ -20,21 +20,11 @@
  *   the tool-output level (different model runs produce different prose), but
  *   the verification logic is 100% deterministic.
  *
- * SELF-TEST MODE:
- *   Three tools (context_analyzer, agent_inventory, extension_analyzer) now
- *   support `--self-test true`, which makes execute() return deterministic mock
- *   output without requiring live ctx. When all tools use `--self-test`, a
- *   model IS still needed to route the prompt to the tool call — but the test
- *   shortens the per-test timeout so a non-responsive model fails fast rather
- *   than hanging for 120s.
- *
  * REQUIREMENTS:
- *   - LM Studio running on localhost:1234 with an inference-ready model
- *     (or a different endpoint configured via PI_L2_MODEL)
+ *   - LM Studio running on localhost:1234 with google/gemma-4-26b-a4b-qat
+ *     loaded (or a different model configured via PI_L2_MODEL)
  *   - pi-agent dependencies installed (bun install at repo root)
  *   - Model inference per tool: ~5-15s (warming) + ~2-5s (steady)
- *   - Self-test mode does NOT require context data but still needs model
- *     inference to route the tool call from the LLM
  *
  * RUN (from repo root):
  *   bun test bun-apps/pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts

@@ -890,28 +890,6 @@ function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
     }),
 
     async execute(_id, params, _signal, _onUpdate, _ctx) {
-      if (params.self_test) {
-        const findings = analyzeExtensions(SELF_TEST_ANALYSIS_INPUT);
-        if (params.return_json) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(
-                  { findings, summary: summarizeFindings(findings), total_extension_tokens: 0 },
-                  null,
-                  2,
-                ),
-              },
-            ],
-            details: null,
-          };
-        }
-        return {
-          content: [{ type: "text" as const, text: formatExtensionReport(findings) }],
-          details: null,
-        };
-      }
       const opts = (_ctx as ExtensionContext).getSystemPromptOptions();
       const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
       const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
