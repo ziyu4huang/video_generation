@@ -58,7 +58,7 @@ export function parseSrt(content: string): CaptionCue[] {
       .slice(i + 1)
       .join("\n")
       .trim();
-    if (text) cues.push({ text, start, end });
+    if (text) cues.push({ text: stripSrtMarkup(text), start, end });
   }
   return cues;
 }
@@ -73,6 +73,52 @@ function parseTimestamp(ts: string): number | undefined {
   if (parts.length === 2) return parts[0]! * 60 + parts[1]!;
   if (parts.length === 1) return parts[0]!;
   return undefined;
+}
+
+/**
+ * Strip SRT/ASS/HTML inline markup drawtext would otherwise burn as raw text.
+ * Handles `<i>`/`<b>`/`<u>`/`<font ...>` (HTML-style SRT markup) and `{\an8}` /
+ * `{\...}` (ASS override blocks). Whitespace inside `<font>` tags is tolerated.
+ * drawtext cannot honor italics/bold/positioning, so these are removed (not
+ * interpreted) — the cue's plain text is what burns.
+ */
+export function stripSrtMarkup(s: string): string {
+  return s
+    .replace(/<\/?(i|b|u|s|font|small|sub|sup)\b[^>]*>/gi, "") // <i></i><b></b><u></u><font ...></font>
+    .replace(/\{[^}]*\}/g, "") // ASS override blocks {\an8}{\b1}
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/**
+ * Word-wrap a cue for the drawtext tier so a long line doesn't overflow frame
+ * width. `maxCharsPerLine` is derived from fontsize + frame width by the caller
+ * (≈ 0.5 × fontsize average glyph advance). Existing `\n` (explicit cue breaks)
+ * are preserved; each segment is then wrapped by word to the per-line budget.
+ */
+export function wrapCueText(text: string, maxCharsPerLine: number): string {
+  const budget = Math.max(8, maxCharsPerLine);
+  return text
+    .split("\n")
+    .map((seg) => {
+      const words = seg.split(/\s+/).filter(Boolean);
+      if (words.length === 0) return "";
+      const lines: string[] = [];
+      let cur = "";
+      for (const w of words) {
+        if (!cur) {
+          cur = w;
+        } else if ((cur + " " + w).length <= budget) {
+          cur += " " + w;
+        } else {
+          lines.push(cur);
+          cur = w;
+        }
+      }
+      if (cur) lines.push(cur);
+      return lines.join("\n");
+    })
+    .join("\n");
 }
 
 // ─── filter availability probes (cached per process) ─────────────────────────
@@ -176,6 +222,10 @@ export interface BurnResult {
 
 export interface BurnDeps {
   spawnImpl?: (cmd: string, argv: string[], opts?: { cwd?: string }) => Promise<{ code: number; stdout: string; stderr: string }>;
+  /** Frame width (px) for drawtext word-wrap (default 1920). libass/sidecar ignore it. */
+  width?: number;
+  /** drawtext font size (px), default 48. */
+  fontsize?: number;
 }
 
 /**
@@ -225,7 +275,7 @@ export async function burnCaptions(
   if (plan.outcome === "libass") {
     argv = ["-y", "-i", video, "-vf", `subtitles=${srtPath}`, "-c:a", "copy", output];
   } else if (plan.outcome === "drawtext") {
-    argv = await buildDrawtextArgv(video, srtPath, output);
+    argv = await buildDrawtextArgv(video, srtPath, output, { width: deps.width, fontsize: deps.fontsize });
   } else {
     // sidecar (soft mov_text)
     argv = ["-y", "-i", video, "-i", srtPath, "-c", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=eng", output];
@@ -243,11 +293,22 @@ export async function burnCaptions(
  * once (resolveCaptionFont); box + bordercolor give a readable outline over any
  * background. Position: bottom-center (~72px from bottom).
  */
-async function buildDrawtextArgv(video: string, srtPath: string, output: string): Promise<string[]> {
+async function buildDrawtextArgv(
+  video: string,
+  srtPath: string,
+  output: string,
+  wrap: { width?: number; fontsize?: number } = {},
+): Promise<string[]> {
   const fontfile = resolveCaptionFont() ?? "";
   const cues = parseSrt(readFileText(srtPath));
+  // Per-line char budget from fontsize + frame width (~0.5 × fontsize advance,
+  // capped to 80% of the frame). Long cues word-wrap so they stack with
+  // line_spacing instead of overflowing frame width.
+  const fontsize = wrap.fontsize ?? 48;
+  const frameW = wrap.width ?? 1920;
+  const maxChars = Math.max(8, Math.floor((frameW * 0.8) / (fontsize * 0.5)));
   const vf = cues.length
-    ? cues.map((c) => drawtextNode(c, fontfile)).join(",")
+    ? cues.map((c) => drawtextNode({ ...c, text: wrapCueText(c.text, maxChars) }, fontfile, fontsize)).join(",")
     // No parseable cues → still emit a no-op filter so the encode is valid.
     : "null";
   return ["-y", "-i", video, "-vf", vf, "-c:a", "copy", output];
@@ -266,8 +327,10 @@ function readFileText(path: string): string {
 /**
  * One drawtext node for a cue. Escapes the text + fontfile per ffmpeg's rules.
  * `enable='between(t,start,end)'` makes the node active only during the cue.
+ * The cue text may contain `\n` (explicit or word-wrap) → drawtext renders each
+ * as a stacked line; `y=h-text_h-72` anchors the whole block by its total height.
  */
-function drawtextNode(cue: CaptionCue, fontfile: string): string {
+function drawtextNode(cue: CaptionCue, fontfile: string, fontsize = 48): string {
   const text = escapeDrawtextText(cue.text);
   const f = escapeDrawtextPath(fontfile);
   // ffmpeg filter syntax: `filtername=key=val:key=val`. The first separator
@@ -276,7 +339,7 @@ function drawtextNode(cue: CaptionCue, fontfile: string): string {
     `fontfile='${f}'`,
     `text='${text}'`,
     `enable='between(t,${cue.start.toFixed(3)},${cue.end.toFixed(3)})'`,
-    "fontsize=48",
+    `fontsize=${fontsize}`,
     "fontcolor=white",
     "borderw=3",
     "bordercolor=black",

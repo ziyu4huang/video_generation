@@ -128,6 +128,14 @@ export interface CaptionsOptions {
    * Default: true (the animated-explainer captions primitive).
    */
   burn?: boolean;
+  /**
+   * Video frame width (px). Used only by the drawtext tier to word-wrap long cues
+   * so they don't overflow frame width. Default 1920. (libass wraps itself; the
+   * sidecar tier is unaffected.)
+   */
+  width?: number;
+  /** drawtext font size (px). Default 48 (matches the burn ladder's fixed size). */
+  fontsize?: number;
 }
 
 /**
@@ -209,7 +217,7 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
     } else {
       if (plan.warning) warnings.push(plan.warning);
       const captioned = join(opts.workDir, `captioned_${Math.floor(Date.now() / 1000)}.mp4`);
-      const burn = await burnCaptions(output, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run });
+      const burn = await burnCaptions(output, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run, width: opts.captions.width, fontsize: opts.captions.fontsize });
       if (burn.ok && existsSync(captioned)) {
         finalOutput = captioned;
         notes.push(captionNote(burn.outcome, opts.captions.srtPath));

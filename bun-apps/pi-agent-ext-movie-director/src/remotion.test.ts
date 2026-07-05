@@ -6,10 +6,12 @@ import {
   renderRemotion,
   resolveRemotionBin,
   _resetRemotionBinCacheForTest,
+  _BUNDLED_REMOTION_BIN_FOR_TEST,
   type RemotionEditDecisions,
   type SpawnImpl,
   type SpawnResult,
 } from "./remotion.ts";
+import { existsSync } from "node:fs";
 
 // Drive binary resolution deterministically: point REMOTION_BIN at a real file
 // (this test file itself) so resolveRemotionBin returns it verbatim — no PATH
@@ -67,6 +69,25 @@ describe("resolveRemotionBin", () => {
     _resetRemotionBinCacheForTest();
     const bin = await resolveRemotionBin();
     expect(bin).toBeNull();
+  });
+
+  it("falls back to the bundled local install when REMOTION_BIN/PATH miss", async () => {
+    // No env, PATH probe fails → resolution reaches the bundled-install step.
+    delete process.env.REMOTION_BIN;
+    _resetRemotionBinCacheForTest();
+    const failing: SpawnImpl = async (_cmd, argv) =>
+      argv.includes("--version") ? { code: 1, stdout: "", stderr: "not on PATH" } : { code: 0, stdout: "", stderr: "" };
+    const bin = await resolveRemotionBin(failing);
+    // Machine-portable: the bundled install resolves ONLY where `bun install`
+    // ran in ../remotion/ (present here, absent on a fresh clone). Either way the
+    // resolution must NOT silently pick bunx when a real install exists.
+    if (existsSync(_BUNDLED_REMOTION_BIN_FOR_TEST)) {
+      expect(bin).not.toBeNull();
+      expect(bin!.cmd).toBe(_BUNDLED_REMOTION_BIN_FOR_TEST);
+      expect(bin!.pre).toEqual([]);
+    } else {
+      expect(bin!.cmd).toBe("bunx");
+    }
   });
 });
 

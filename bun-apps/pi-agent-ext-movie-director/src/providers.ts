@@ -54,11 +54,22 @@ export function _setFfmpegAvailableForTest(v: boolean | undefined): void {
 // ─── Remotion binary probe (compose:remotion) ────────────────────────────────
 
 /**
+ * The bundled local install's `remotion` binary, mirroring remotion.ts. Present
+ * iff `bun install` was run in the shipped <EXT_ROOT>/remotion/ project (whose
+ * node_modules are gitignored). This is the install path that makes compose_remotion
+ * callable without REMOTION_BIN/PATH — probed last, after the explicit env + PATH.
+ */
+const BUNDLED_REMOTION_BIN = join(EXT_ROOT, "remotion", "node_modules", ".bin", "remotion");
+
+/**
  * True if a usable `remotion` binary resolves (NOT the bunx fallback). Mirrors
- * `remotionAvailable()` in remotion.ts but SYNCHRONOUS (probeConfigured must be
+ * `resolveRemotionBin()` in remotion.ts but SYNCHRONOUS (probeConfigured must be
  * sync) and cached per process. Resolution order: REMOTION_BIN env (must exist
- * on disk) → `remotion --version` on PATH (exit 0). The bunx fallback is treated
- * as "not really installed" (matches remotion.ts:176).
+ * on disk) → `remotion --version` on PATH (exit 0) → the bundled local install
+ * (<EXT_ROOT>/remotion/node_modules/.bin/remotion, present after `bun install`
+ * there). The bunx fallback is treated as "not really installed" (matches
+ * remotion.ts) — it is NOT probed here, so compose_remotion reports uncallable
+ * on a fresh clone until the bundled install lands.
  */
 function remotionOnPath(): boolean {
   try {
@@ -73,7 +84,8 @@ let remotionCached: boolean | undefined;
 function remotionBinaryAvailable(env: Record<string, string | undefined>): boolean {
   if (remotionCached != null) return remotionCached;
   if (env.REMOTION_BIN && existsSync(env.REMOTION_BIN)) remotionCached = true;
-  else remotionCached = remotionOnPath();
+  else if (remotionOnPath()) remotionCached = true;
+  else remotionCached = existsSync(BUNDLED_REMOTION_BIN);
   return remotionCached;
 }
 
