@@ -19,10 +19,6 @@
  *   covered by bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts.
  *   This workflow only covers the integration regression layer.
  *
- * Phase 3 (todo-specific): verifies the todo tool registers correctly and
- *   doesn't crash on empty state (state isolation verifiable via L2 regression
- *   pattern — invoke list/get on empty todos after other tools have run).
- *
  * INVOCATION (unified runner)
  *   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh power-tool
  *   # or directly via the workflow tool:
@@ -89,6 +85,16 @@ const TOOLS = [
     prompt: "call todo --action list",
     markers: ["No tasks", "todos"],
   },
+  {
+    name: "ask_user_question",
+    prompt: "call ask_user_question --questions '[{\"question\":\"test\",\"header\":\"Test\",\"options\":[{\"label\":\"a\",\"description\":\"opt a\"},{\"label\":\"b\",\"description\":\"opt b\"}]}]'",
+    markers: ["ask_user_question"],
+  },
+  {
+    name: "goal_complete",
+    prompt: "call goal_complete --summary 'test'",
+    markers: ["goal_complete", "no active goal"],
+  },
 ];
 
 // ─── Phase 1: invoke each tool through the real pi-agent CLI ─────────────────
@@ -134,9 +140,9 @@ function buildCmd(tool) {
 }
 
 // Invoke all tools via one bash-driven agent. Each tool is a sequential bash
-// call (5 tools × ~3-5s per invocation + model warmup = ~30-45s total). We
+// call (8 tools × ~3-5s per invocation + model warmup = ~45-60s total). We
 // batch them into ONE subagent so the workflow has 1 concurrent agent at a time
-// — there's no parallelism benefit for 5 sequential CLI calls, and a single
+// — there's no parallelism benefit for 8 sequential CLI calls, and a single
 // agent avoids the workflow engine's per-agent overhead costs.
 let invokeResult = null;
 let invokeError = "";
@@ -157,15 +163,15 @@ try {
       "TOOLS TO INVOKE (in this exact order):",
       TOOLS.map((t, i) => "  " + (i + 1) + ". " + t.name + ": '" + t.prompt + "'").join("\n"),
       "",
-      "After ALL 5 tools are done, return results[] — one entry per tool, in order.",
+      "After ALL 8 tools are done, return results[] — one entry per tool, in order.",
       "For each entry:",
       "  - tool: the tool name (exactly \"" + TOOLS.map((t) => t.name).join("\", \"") + "\")",
       "  - exitCode: the integer after POWERTOOL_EXIT=",
       "  - exitOk: exitCode === 0",
       "  - stdout: first 800 chars of the combined output (before the POWERTOOL_EXIT= line)",
       "  - stderr: \"\" (we merged 2>&1; leave empty)",
-      "Each invocation loads pi-agent + the model — expect ~5-15s per tool. Use a long bash timeout (300s total for 5 tools is fine).",
-      "DO NOT skip any tool even if one fails — run all 6 and report each result independently.",
+      "Each invocation loads pi-agent + the model — expect ~5-15s per tool. Use a long bash timeout (300s total for 8 tools is fine).",
+      "DO NOT skip any tool even if one fails — run all 8 and report each result independently.",
     ].join("\n"),
     {
       label: "invoke-all-tools",
