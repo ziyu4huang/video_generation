@@ -35,14 +35,15 @@ The L2 workflow for power-tool needs NO model to judge — exit codes and conten
 markers are deterministic. This makes it faster and cheaper than the image-gen
 counterparts (~1-2 min vs ~5-10 min for flux2/krea2).
 
-## Phase 3 (future, post-todo-embedding)
+## Phase 3 (todo tool, added alongside embedding)
 
-After [rpiv-todo embedding Phase 1](output/next-goal-20260705_000105.md) is
-complete, this workflow will gain a Phase 3 for the todo tool:
+The `todo` tool is tested alongside the other tools in the same Invoke → Gate
+cycle:
 
-- Registration: no name conflict with existing tools
-- Invoke `/todos`: no crash on empty state
-- State isolation: mutable task state doesn't corrupt other tools' snapshots
+- Invoke `todo --action list`: verifies the tool is registered and returns the
+  expected empty-state message ("No tasks") rather than crashing.
+- State isolation is verified implicitly: running 5 other tools before `todo`
+  confirms the mutable todo state doesn't corrupt other tools' snapshots.
 
 ## Run
 

@@ -19,6 +19,7 @@
 import {
   type BuildSystemPromptOptions,
   type ExtensionFactory,
+  type ExtensionAPI,
   type ToolInfo,
   defineTool,
   formatSkillsForPrompt,
@@ -36,6 +37,11 @@ import {
   type GraphHealthOptions,
   type GraphHealthResult,
 } from "pi-knowledge-card/src/retrieve.ts";
+import { registerTodoTool, registerTodosCommand } from "./todo/todo";
+import { TodoOverlay } from "./todo/overlay";
+import { replayFromBranch } from "./todo/state/replay";
+import { replaceState } from "./todo/state/store";
+import { TOOL_NAME } from "./todo/tool/types";
 
 // ─── Snapshot captured from before_agent_start ────────────────────────────────
 
@@ -1006,7 +1012,14 @@ function makeGraphHealthTool() {
 
 // ─── Extension factory ────────────────────────────────────────────────────────
 
-const extension: ExtensionFactory = (pi) => {
+// ─── Stale-ctx error guard (matches pi-core's throw phrase) ─────────────────
+function isStaleCtxError(e: unknown): boolean {
+  return /stale after session replacement/.test(String(e));
+}
+
+// ─── Extension factory ────────────────────────────────────────────────────────
+
+const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // Capture system prompt breakdown before each agent turn.
   pi.on("before_agent_start", (event) => {
     snapshot = { systemPrompt: event.systemPrompt, opts: event.systemPromptOptions };
@@ -1020,6 +1033,56 @@ const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeExtensionAnalyzerTool(getAllTools));
   pi.registerTool(makeKnowledgeQueryTool());
   pi.registerTool(makeGraphHealthTool());
+
+  // ── Todo tool + /todos command ────────────────────────────────────────
+  let todoOverlay: TodoOverlay | undefined;
+
+  registerTodoTool(pi);
+  registerTodosCommand(pi);
+
+  pi.on("session_start", async (_event, ctx) => {
+    replaceState(replayFromBranch(ctx));
+    if (ctx.hasUI) {
+      todoOverlay ??= new TodoOverlay();
+      todoOverlay.setUICtx(ctx.ui);
+      todoOverlay.resetCompletedDisplayState();
+      todoOverlay.update();
+    }
+  });
+
+  pi.on("session_compact", async (_event, ctx) => {
+    try {
+      replaceState(replayFromBranch(ctx));
+    } catch (e) {
+      if (!isStaleCtxError(e)) throw e;
+    }
+    todoOverlay?.resetCompletedDisplayState();
+    todoOverlay?.update();
+  });
+
+  pi.on("session_tree", async (_event, ctx) => {
+    try {
+      replaceState(replayFromBranch(ctx));
+    } catch (e) {
+      if (!isStaleCtxError(e)) throw e;
+    }
+    todoOverlay?.resetCompletedDisplayState();
+    todoOverlay?.update();
+  });
+
+  pi.on("session_shutdown", async () => {
+    todoOverlay?.dispose();
+    todoOverlay = undefined;
+  });
+
+  pi.on("tool_execution_end", async (event) => {
+    if (event.toolName !== TOOL_NAME || event.isError) return;
+    todoOverlay?.update();
+  });
+
+  pi.on("agent_start", async () => {
+    todoOverlay?.hideCompletedTasksFromPreviousTurn();
+  });
 };
 
 export default extension;

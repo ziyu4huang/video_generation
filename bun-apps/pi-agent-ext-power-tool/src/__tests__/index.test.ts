@@ -63,10 +63,15 @@ function loadExtension(tools: ToolInfoStub[]) {
         execute: def.execute,
       };
     },
+    registerCommand: (_name: string, _def: any) => {
+      // no-op mock — slash commands are exercised by real e2e tests
+    },
     on: (event: string, handler: any) => {
       if (event === "before_agent_start") {
         beforeAgentStartHandler = handler;
       }
+      // lifecycle event handlers (session_start, tool_execution_end, etc.)
+      // are accepted without capture — exercised by real e2e tests
     },
     getAllTools: () => tools,
   };
@@ -175,7 +180,7 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 5 tools (including knowledge_query and graph_health)", () => {
+  test("registers all 6 tools (including knowledge_query, graph_health, and todo)", () => {
     const { captured } = loadExtension([]);
     expect(Object.keys(captured).sort()).toEqual([
       "agent_inventory",
@@ -183,12 +188,13 @@ describe("tool registration", () => {
       "extension_analyzer",
       "graph_health",
       "knowledge_query",
+      "todo",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(5);
+    expect(Object.keys(captured).length).toBe(6);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
