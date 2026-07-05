@@ -23,6 +23,7 @@
 //      since inputImagePath needs an exact width/height match)
 //
 
+import CoreGraphics
 import Foundation
 
 public struct NativeRelayStage {
@@ -30,12 +31,24 @@ public struct NativeRelayStage {
         case noSegments
         case firstImageNotFound(URL)
         case audioOverlayNotFound(URL)
+        case segmentGridPanelsCountMismatch(panels: Int, segments: Int)
+        case segmentGridPanelsRequireGridImage
+        case segmentGridImageNotFound(URL)
+        case invalidSegmentGridPanel(segment: Int, panel: Int, panelCount: Int)
 
         public var description: String {
             switch self {
             case .noSegments: return "NativeRelayStage: at least one segment prompt is required"
             case .firstImageNotFound(let url): return "--relay-first-image not found at \(url.path)"
             case .audioOverlayNotFound(let url): return "--relay-audio not found at \(url.path)"
+            case .segmentGridPanelsCountMismatch(let panels, let segments):
+                return "NativeRelayStage: segmentGridPanels has \(panels) entries, expected \(segments) (one per segment/prompt)"
+            case .segmentGridPanelsRequireGridImage:
+                return "NativeRelayStage: segmentGridPanels requires gridImagePath to also be set"
+            case .segmentGridImageNotFound(let url):
+                return "NativeRelayStage: grid image not found at \(url.path)"
+            case .invalidSegmentGridPanel(let segment, let panel, let panelCount):
+                return "NativeRelayStage: segmentGridPanels[\(segment)]=\(panel) out of range [0, \(panelCount)) for gridColumns*gridRows"
             }
         }
     }
@@ -76,6 +89,30 @@ public struct NativeRelayStage {
         public var gridRows: Int = 2
         public var gridFrameIndices: [Int] = []
         public var gridStrengths: [Float] = []
+
+        /// Per-segment single-panel override for a "hard-cut" storyboard
+        /// (see StoryboardConfig.swift): when set, must have exactly
+        /// `prompts.count` entries, each a row-major panel index into the
+        /// SHARED `gridImagePath` grid. Segment `i` skips the default
+        /// continuity chaining (previous segment's last decoded frame
+        /// feeding this segment's frame 0) entirely — it generates fresh
+        /// from its own `prompts[i]` via T2I, then pins panel
+        /// `segmentGridPanels[i]` at that segment's OWN frame 0 (via the
+        /// existing single-panel grid-guide mechanism —
+        /// `NativeI2VStage.Request.gridImagePath`/gridColumns=1/gridRows=1/
+        /// gridFrameIndices=[0]) at `segmentGridStrengths[i]` (default 1.0 =
+        /// fully pinned; lower values blend the panel with the fresh T2I
+        /// generation instead). Distinct from `gridFrameIndices` above,
+        /// which applies the SAME whole-grid conditioning identically to
+        /// every segment — this applies a DIFFERENT single panel per
+        /// segment, which is what "each storyboard panel becomes its own
+        /// shot" (a true hard cut) requires. When nil (default), behaves
+        /// exactly as before.
+        public var segmentGridPanels: [Int]?
+        /// Per-segment strength paired with `segmentGridPanels`, same
+        /// count when both are set. Missing entries (nil array, or this
+        /// left empty) default to 1.0 for every segment.
+        public var segmentGridStrengths: [Float]?
 
         public init(
             prompts: [String], firstImagePath: URL? = nil, seconds: Double = 2.0, fps: Double = 24.0,
@@ -118,6 +155,23 @@ public struct NativeRelayStage {
                 throw StageError.audioOverlayNotFound(audioOverlayPath)
             }
         }
+        if let segmentGridPanels = request.segmentGridPanels {
+            guard segmentGridPanels.count == request.prompts.count else {
+                throw StageError.segmentGridPanelsCountMismatch(panels: segmentGridPanels.count, segments: request.prompts.count)
+            }
+            guard let gridImagePath = request.gridImagePath else {
+                throw StageError.segmentGridPanelsRequireGridImage
+            }
+            guard FileManager.default.fileExists(atPath: gridImagePath.path) else {
+                throw StageError.segmentGridImageNotFound(gridImagePath)
+            }
+            let panelCount = request.gridColumns * request.gridRows
+            for (i, panel) in segmentGridPanels.enumerated() {
+                guard panel >= 0, panel < panelCount else {
+                    throw StageError.invalidSegmentGridPanel(segment: i, panel: panel, panelCount: panelCount)
+                }
+            }
+        }
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
@@ -126,10 +180,22 @@ public struct NativeRelayStage {
         var segmentVideoURLs: [URL] = []
         var nextInputImage: URL? = request.firstImagePath
 
+        // Split the shared grid image once, up front, if any segment needs a
+        // panel from it — avoids re-decoding the same PNG per segment.
+        var gridPanels: [CGImage] = []
+        if let segmentGridPanels = request.segmentGridPanels, !segmentGridPanels.isEmpty {
+            guard let gridImagePath = request.gridImagePath,
+                  let gridCGImage = FrameLoad.loadCGImage(from: gridImagePath) else {
+                throw StageError.segmentGridImageNotFound(request.gridImagePath ?? URL(fileURLWithPath: ""))
+            }
+            gridPanels = FrameLoad.splitGrid(gridCGImage, columns: request.gridColumns, rows: request.gridRows)
+        }
+
         for (index, prompt) in request.prompts.enumerated() {
             let segNum = index + 1
             print("[relay] ═══ Segment \(segNum)/\(request.prompts.count) ═══")
             let segDir = outputDir.appendingPathComponent("seg\(String(format: "%02d", segNum))")
+            try FileManager.default.createDirectory(at: segDir, withIntermediateDirectories: true)
 
             var segRequest = NativeI2VStage.Request(
                 prompt: prompt, seconds: request.seconds, fps: request.fps,
@@ -137,13 +203,31 @@ public struct NativeRelayStage {
                 seed: request.seed &+ UInt64(index),
                 t2iTransformer: request.t2iTransformer, textMaxLength: request.textMaxLength,
                 loraPaths: request.loraPaths)
-            segRequest.inputImagePath = nextInputImage
-            if !request.gridFrameIndices.isEmpty {
-                segRequest.gridImagePath = request.gridImagePath
-                segRequest.gridColumns = request.gridColumns
-                segRequest.gridRows = request.gridRows
-                segRequest.gridFrameIndices = request.gridFrameIndices
-                segRequest.gridStrengths = request.gridStrengths
+
+            if let segmentGridPanels = request.segmentGridPanels, index < segmentGridPanels.count {
+                // Hard-cut storyboard segment: a NEW shot, not a continuation
+                // — deliberately skip the continuity chain (`nextInputImage`)
+                // so this segment's frame 0 is generated fresh from its own
+                // `prompt`, then pinned to its own storyboard panel below.
+                let panelIdx = segmentGridPanels[index]
+                let panelPNG = segDir.appendingPathComponent("panel_source.png")
+                FrameLoad.savePNG(gridPanels[panelIdx], to: panelPNG)
+                let strength = request.segmentGridStrengths.flatMap { index < $0.count ? $0[index] : nil } ?? 1.0
+                print("[relay] segment \(segNum) pinned to grid panel \(panelIdx) (strength \(strength)) — hard cut, no continuity from previous segment")
+                segRequest.gridImagePath = panelPNG
+                segRequest.gridColumns = 1
+                segRequest.gridRows = 1
+                segRequest.gridFrameIndices = [0]
+                segRequest.gridStrengths = [strength]
+            } else {
+                segRequest.inputImagePath = nextInputImage
+                if !request.gridFrameIndices.isEmpty {
+                    segRequest.gridImagePath = request.gridImagePath
+                    segRequest.gridColumns = request.gridColumns
+                    segRequest.gridRows = request.gridRows
+                    segRequest.gridFrameIndices = request.gridFrameIndices
+                    segRequest.gridStrengths = request.gridStrengths
+                }
             }
 
             let result = try stage.generate(segRequest, outputDir: segDir)

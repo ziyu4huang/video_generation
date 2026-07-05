@@ -110,7 +110,7 @@ export function buildParams(spec: CommandSpec) {
   return Type.Object(props);
 }
 
-// ─── The 15 ltx-video subcommands ────────────────────────────────────────────
+// ─── The 16 ltx-video subcommands ────────────────────────────────────────────
 
 export const COMMANDS: Record<string, CommandSpec> = {
   t2i: {
@@ -221,6 +221,16 @@ export const COMMANDS: Record<string, CommandSpec> = {
       gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
       gridFrameIndices: { flag: "--grid-frame-indices", type: "number[]", description: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly gridColumns * gridRows entries." },
       gridStrengths: { flag: "--grid-strengths", type: "number[]", description: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match gridFrameIndices count when given." },
+    },
+  },
+
+  "native-storyboard": {
+    name: "native-storyboard",
+    writesOutput: true,
+    when: "Multi-segment/multi-panel storyboard video from a single JSON config file, 100% native Swift/MLX (no run.py, no ffmpeg). The config's transitionMode picks the underlying stage: 'camera-move' = one continuous shot (native-i2v under the hood, grid panels as keyframes); 'hard-cut' = discrete per-panel segments concatenated with a true cut (native-relay under the hood). Prefer this over hand-assembling native-i2v/native-relay's --grid-* flags for anything beyond a couple of panels.",
+    fields: {
+      config: { flag: "--config", type: "string", isPath: true, description: "Path to the storyboard JSON config file (transitionMode, segments with per-panel prompt/frameIndex/strength, shared grid image path/columns/rows). Asset paths inside the JSON (grid image, LoRA paths, audio overlay) resolve relative to the config file's own directory." },
+      output: { flag: "--output", type: "string", isPath: true, description: "Output directory override. Defaults to the config file's own `output` field, or native_storyboard_output." },
     },
   },
 

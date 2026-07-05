@@ -153,11 +153,11 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 15 documented ltx-video subcommands", () => {
+  test("has exactly the 16 documented ltx-video subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
         "t2i", "native-i2v", "native-upscale", "native-t2a", "native-relay",
-        "native-ingredients", "native-restyle", "segment", "i2v", "upscale",
+        "native-storyboard", "native-ingredients", "native-restyle", "segment", "i2v", "upscale",
         "gate", "verify", "models", "audio-decode", "video-decode",
       ].sort(),
     );
