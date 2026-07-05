@@ -192,6 +192,14 @@ export interface WorkflowAgentOptions {
   cwd?: string;
   /** Extra tools available to the subagent in addition to the structured output tool. */
   tools?: ToolDefinition[];
+  /**
+   * Extension-registered tool definitions inherited from the parent session. Child
+   * sessions created by createAgentSession() start with a fresh extension load from
+   * disk and would NOT pick up programmatic ExtensionFactory tools (e.g. tools
+   * registered via `-e` or pi.registerTool()) — this field bridges the gap so
+   * workflow subagents can call the same extension tools the parent session has.
+   */
+  extensionTools?: ToolDefinition[];
   /** Override any createAgentSession option (model, authStorage, resourceLoader, etc.). */
   session?: Partial<CreateAgentSessionOptions>;
   /** Extra system guidance prepended to every subagent task. */
@@ -290,6 +298,7 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
 export class WorkflowAgent {
   private readonly cwd: string;
   private readonly baseTools: ToolDefinition[];
+  private readonly extensionTools: ToolDefinition[];
   private readonly sessionOptions: Partial<CreateAgentSessionOptions>;
   private readonly instructions?: string;
   private readonly mainModel?: string;
@@ -299,6 +308,7 @@ export class WorkflowAgent {
   constructor(options: WorkflowAgentOptions = {}) {
     this.cwd = options.cwd ?? process.cwd();
     this.baseTools = options.tools ?? createCodingTools(this.cwd);
+    this.extensionTools = options.extensionTools ?? [];
     this.sessionOptions = options.session ?? {};
     this.instructions = options.instructions;
     this.mainModel = options.mainModel;
@@ -341,7 +351,7 @@ export class WorkflowAgent {
     // Apply the agentType tool policy BEFORE adding structured_output, so a
     // restrictive allowlist never strips the schema tool.
     const customTools: ToolDefinition[] = applyToolPolicy(
-      [...baseTools, ...(options.tools ?? [])],
+      [...baseTools, ...this.extensionTools, ...(options.tools ?? [])],
       options.toolNames,
       options.disallowedToolNames,
     );

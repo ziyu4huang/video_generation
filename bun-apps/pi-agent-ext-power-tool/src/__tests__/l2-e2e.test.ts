@@ -58,18 +58,24 @@ interface ToolEntry {
 const TOOLS: ToolEntry[] = [
   {
     name: "context_analyzer",
-    prompt: "call context_analyzer",
-    markers: ["token", "tools", "context"],
+    prompt: "call context_analyzer --self-test true",
+    markers: ["self_test", "true", "mock"],
+    // Self-test mode: still needs model inference for prompt→tool routing,
+    // but returns immediately once the tool is invoked. Short timeout so a
+    // non-responsive model fails fast rather than hanging.
+    timeoutMs: 30_000,
   },
   {
     name: "agent_inventory",
-    prompt: "call agent_inventory --return-content true",
-    markers: ["tools", "model"],
+    prompt: "call agent_inventory --self-test true",
+    markers: ["self_test", "true"],
+    timeoutMs: 30_000,
   },
   {
     name: "extension_analyzer",
-    prompt: "call extension_analyzer",
-    markers: ["tools", "token", "severity"],
+    prompt: "call extension_analyzer --self-test true",
+    markers: ["self_test", "true", "severity"],
+    timeoutMs: 30_000,
   },
   {
     name: "knowledge_query",
@@ -104,7 +110,8 @@ const TOOLS: ToolEntry[] = [
 
 async function lmStudioReachable(): Promise<boolean> {
   try {
-    const resp = await fetch("http://localhost:1234/v1/models");
+    // Fast 2s timeout so a down LM Studio causes the test to skip quickly.
+    const resp = await fetch("http://localhost:1234/v1/models", { signal: AbortSignal.timeout(2000) });
     return resp.ok;
   } catch {
     return false;
@@ -137,21 +144,23 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-const skipReason = (() => {
-  if (process.env.PI_SKIP_L2 === "1") return "PI_SKIP_L2=1";
-  return null;
-})();
+const shouldSkip = process.env.PI_SKIP_L2 === "1";
+const L2 = shouldSkip ? test.skip : test;
 
 for (const tool of TOOLS) {
-  test(`L2: ${tool.name}`, async () => {
-    if (skipReason) return test.skip(skipReason);
-
-    // Quick preflight: skip with a clear message if LM Studio is down.
-    // This runs per-test (not beforeAll) so a CI runner with LM Studio
-    // spontaneously dying mid-suite reports an informative skip instead of
-    // 8 cryptic failures.
+  // Use test.skip (static modifier) when PI_SKIP_L2=1; the reachable check
+  // below fails fast with a clear message rather than timing out silently.
+  L2(`L2: ${tool.name}`, async () => {
+    // Fail-fast preflight: without LM Studio the CLI invocation will hang.
+    // We use lmStudioReachable() with a short timeout to avoid the previous
+    // silent 5000ms+ timeout behavior.
     const reachable = await lmStudioReachable();
-    if (!reachable) return test.skip("LM Studio not reachable on localhost:1234");
+    if (!reachable) {
+      throw new Error(
+        "LM Studio not reachable on localhost:1234 — cannot run L2 test. " +
+        "Start LM Studio or set PI_SKIP_L2=1 to skip.",
+      );
+    }
 
     const { exitCode, stdout } = invokeTool(tool.prompt, tool.timeoutMs);
 

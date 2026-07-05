@@ -16,7 +16,8 @@ export type PatchName =
 	| "pre-load-providers"
 	| "load-run-dir-resources"
 	| "default-model-env"
-	| "ensure-extension-deps";
+	| "ensure-extension-deps"
+	| "ext-context-get-system-prompt-options";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -52,6 +53,11 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // graph (so try-native succeeds and jiti never transforms — see the patch
   // file for the >4 KB tempfile bug this sidesteps). Still before main().
   { name: "ensure-extension-deps", env: "BUN_PI_ENSURE_EXT_DEPS", defaultValue: true },
+  // ext-context-get-system-prompt-options: patches ExtensionRunner.prototype.createContext
+  // so getSystemPromptOptions() is available on ExtensionContext (not just
+  // ExtensionCommandContext). Must run after ensure-extension-deps (which sets up
+  // the repo-root symlinks needed to import @earendil-works/pi-coding-agent).
+  { name: "ext-context-get-system-prompt-options", env: "BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS", defaultValue: true },
 ];
 
 /**
@@ -116,6 +122,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ensure-extension-deps":
         await import("./ensure-extension-deps.ts");
+        break;
+      case "ext-context-get-system-prompt-options":
+        await import("./ext-context-get-system-prompt-options.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.

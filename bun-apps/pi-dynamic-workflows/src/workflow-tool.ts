@@ -138,6 +138,12 @@ export interface WorkflowToolOptions {
    * Controlled via workflowSettings.verboseWorkflowGuidelines.
    */
   verboseWorkflowGuidelines?: boolean;
+  /**
+   * Extension-registered tool definitions inherited from the parent session.
+   * Passed through to child WorkflowAgent sessions so workflow subagents can
+   * call the same extension tools the parent session has.
+   */
+  extensionTools?: ToolDefinition[];
 }
 
 /**
@@ -178,6 +184,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       loadSavedWorkflow: (name: string) => storage.load(name)?.script,
       defaultAgentTimeoutMs: defaults.agentTimeoutMs,
       defaultAgentRetries: defaults.agentRetries,
+      extensionTools: options.extensionTools,
     });
 
   return defineTool({

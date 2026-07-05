@@ -3,6 +3,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { WorkflowAgent } from "./agent.js";
 import { preview, type WorkflowSnapshot } from "./display.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
@@ -77,6 +78,12 @@ export interface WorkflowManagerOptions {
   defaultAgentTimeoutMs?: number | null;
   /** Default retry attempts after recoverable agent failures. */
   defaultAgentRetries?: number;
+  /**
+   * Extension-registered tool definitions inherited from the parent session.
+   * Passed through to child WorkflowAgent sessions so workflow subagents can
+   * call the same extension tools the parent session has.
+   */
+  extensionTools?: ToolDefinition[];
 }
 
 export class WorkflowManager extends EventEmitter {
@@ -92,6 +99,7 @@ export class WorkflowManager extends EventEmitter {
   private sessionId?: string;
   private defaultAgentTimeoutMs: number | null;
   private defaultAgentRetries: number;
+  private extensionTools: ToolDefinition[];
 
   constructor(options: WorkflowManagerOptions = {}) {
     super();
@@ -103,6 +111,7 @@ export class WorkflowManager extends EventEmitter {
     this.sessionId = options.sessionId;
     this.defaultAgentTimeoutMs = options.defaultAgentTimeoutMs ?? null;
     this.defaultAgentRetries = options.defaultAgentRetries ?? 0;
+    this.extensionTools = options.extensionTools ?? [];
     this.persistence = createRunPersistence(this.cwd);
     this.recoverStaleRuns();
   }
@@ -291,6 +300,7 @@ export class WorkflowManager extends EventEmitter {
         args,
         agent: this.agent,
         mainModel: this.mainModel,
+        extensionTools: this.extensionTools,
         signal: managed.controller.signal,
         concurrency: resolvedConcurrency,
         agentRetries: resolvedAgentRetries,

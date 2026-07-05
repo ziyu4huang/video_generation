@@ -63,11 +63,12 @@ describe("PATCH_TABLE", () => {
     for (const e of PATCH_TABLE) expect(e.defaultValue).toBe(true);
   });
 
-  test("covers the six known patches", () => {
+  test("covers all known patches", () => {
     expect(PATCH_TABLE.map((p) => p.name).sort()).toEqual(
       [
         "default-model-env",
         "ensure-extension-deps",
+        "ext-context-get-system-prompt-options",
         "load-run-dir-resources",
         "pre-load-providers",
         "set-package-dir",
