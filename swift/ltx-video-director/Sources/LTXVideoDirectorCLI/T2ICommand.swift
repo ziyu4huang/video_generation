@@ -41,10 +41,13 @@ struct T2I: ParsableCommand {
     @Flag(help: "Break each denoise step's timing into forward-pass vs scheduler-step (adds an extra sync point per step; off by default).")
     var profileSubsteps: Bool = false
 
+    @Flag(help: "Break each forward pass's timing into noiseRefiner/contextRefiner/layers blocks (adds extra sync points per step; off by default).")
+    var profileBlocks: Bool = false
+
     func run() throws {
         let stage = NativeT2IStage(
             transformer: transformer, width: width, height: height, steps: steps, seed: seed,
-            profileSubsteps: profileSubsteps)
+            profileSubsteps: profileSubsteps, profileBlocks: profileBlocks)
         print("Generating natively (ZImageDirector in-process, no run.py)...")
         print("  transformer: \(transformer), size: \(width)x\(height), seed: \(seed)")
         _ = try stage.generate(prompt: prompt, outputURL: URL(fileURLWithPath: output))
