@@ -138,10 +138,23 @@ interface BinCmd {
 let remotionCached: BinCmd | null | undefined;
 
 /**
+ * The bundled local install's `remotion` binary, if `bun install` was run in the
+ * shipped `../remotion/` project (NOT a workspace member — its node_modules are
+ * gitignored). Present iff the user opted into the install-and-probe path; absent
+ * on a fresh clone. This is what makes a real Remotion render callable WITHOUT
+ * PATH/REMOTION_BIN gymnastics — the install the extension ships resolves itself.
+ */
+const BUNDLED_REMOTION_BIN = join(REMOTION_DIR, "node_modules", ".bin", "remotion");
+/** @internal — exported for the resolution-order test (machine-portable). */
+export const _BUNDLED_REMOTION_BIN_FOR_TEST = BUNDLED_REMOTION_BIN;
+
+/**
  * Locate a usable `remotion` binary. Resolution order:
  *   1. `REMOTION_BIN` env (absolute path, used verbatim with no prefix),
  *   2. `remotion` on PATH (probe `remotion --version`),
- *   3. `bunx remotion` fallback (assumed available — not probed; render will
+ *   3. the bundled local install at <EXT_ROOT>/remotion/node_modules/.bin/remotion
+ *      (present after `bun install` in ../remotion/; probed by existence),
+ *   4. `bunx remotion` fallback (assumed available — not probed; render will
  *      surface the error if bunx/remotion are both missing).
  * Cached after first resolution. Returns null if REMOTION_BIN is set but the
  * file does not exist (explicit-but-broken beats silent fallback).
@@ -157,6 +170,13 @@ export async function resolveRemotionBin(run: SpawnImpl = runSpawn): Promise<Bin
   const probe = await run("remotion", ["--version"]);
   if (probe.code === 0) {
     remotionCached = { cmd: "remotion", pre: [] };
+    return remotionCached;
+  }
+  // Probe the bundled local install (the shipped `../remotion/` project, if
+  // installed). Running its .bin/remotion with cwd=REMOTION_DIR resolves the
+  // sibling node_modules — the install is self-contained, no PATH needed.
+  if (existsSync(BUNDLED_REMOTION_BIN)) {
+    remotionCached = { cmd: BUNDLED_REMOTION_BIN, pre: [] };
     return remotionCached;
   }
   // Last resort: bunx remotion (not probed — let the render surface a clear error).

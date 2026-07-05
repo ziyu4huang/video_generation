@@ -80,9 +80,10 @@ export interface MotionComposeOptions {
  * Build the `zoompan=` filter string for a cut's animation. `totalFrames` is the
  * segment's output frame count (ceil(duration_s * fps)); we bake it in so the
  * `on` (output frame index) variable drives a smooth, monotonic motion across
- * the whole clip. Output size `s=WxH` and `fps=F`; `d=1` keeps one output frame
- * per input frame (no slow-mo / frame duplication). Returns null for "static"
- * (no motion filter — the caller just scales).
+ * the whole clip. Output size `s=WxH` (the WORKING size — rendered at 2x target,
+ * see composeMotion) and `fps=F`; `d=1` keeps one output frame per input frame
+ * (no slow-mo / frame duplication). Returns null for "static" (no motion filter
+ * — the caller just scales).
  *
  * x,y are the top-left of the zoom window in INPUT pixels, in range
  * [0, iw - iw/zoom]. We center by default; pan animations move that window.
@@ -191,22 +192,43 @@ export async function composeMotion(
     const totalFrames = Math.ceil(duration * fps);
     const anim: Animation = c.animation ?? "static";
     const vf: string[] = [];
-    // Pre-scale to 2x target (cover) so zoompan has working pixels; crop to a
-    // clean 2Wx2H so aspect is uniform across heterogeneous sources.
-    vf.push(`scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase`);
+    // Sharp ken-burns path (Item B). Pre-scale to 2x target (cover) with lanczos
+    // so zoompan has working pixels; bake the animation at the 2x WORKING size
+    // (zoompan's internal resample then maps a zoom window within a 2x frame to a
+    // 2x output — more pixels per output, less per-pixel blur); finally a lanczos
+    // DOWNSCALE to the target. The measured lift (scripts/probe-zoompan-lanczos.ts,
+    // laplacian-variance on a 1080p testsrc2 frame): old 2x-bilinear 124 vs this
+    // 2x-zoompan + final-lanczos 174 (+40%). Lanczos downscaling rarely rings
+    // (ringing is an upscale artifact), so the gain is genuine sharpness.
+    // The final downscale runs for BOTH animated and static cuts, which also keeps
+    // every segment at a uniform target resolution (a prior static-cut path left
+    // static segments at 2x — mismatching animated segments and breaking the join).
+    vf.push(`scale=${width * 2}:${height * 2}:force_original_aspect_ratio=increase:flags=lanczos`);
     vf.push(`crop=${width * 2}:${height * 2}`);
-    const z = zoompanFilter(anim, totalFrames, width, height, fps);
+    const z = zoompanFilter(anim, totalFrames, width * 2, height * 2, fps);
     if (z) vf.push(z);
+    vf.push(`scale=${width}:${height}:flags=lanczos`);
     vf.push(`fps=${fps}`);
-    // Set the segment's actual duration precisely (avoid off-by-one drift into xfade offsets).
-    const argv = [
-      "-y", "-ss", String(c.in_seconds ?? 0), "-i", c.source!,
-      "-t", String(duration),
-      "-vf", vf.join(","),
+    // Image vs video input shape the input flags. A still image (PNG/JPG/WebP) is
+    // a SINGLE frame — without `-loop 1` ffmpeg exhausts it after one frame and the
+    // segment renders as ~1 frame regardless of `-t`, so the downstream xfade
+    // offset math sees a near-zero duration and the join fails. `-loop 1` loops the
+    // image as a continuous input so zoompan has `totalFrames` frames to animate
+    // across the full `-t` window (ken-burns on a still is this runtime's main case).
+    // A video source keeps the seek-then-trim shape (`-ss` before `-i`).
+    const isImage = !/\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(c.source!);
+    const argv: string[] = ["-y"];
+    if (isImage) {
+      argv.push("-loop", "1");
+    } else {
+      argv.push("-ss", String(c.in_seconds ?? 0));
+    }
+    argv.push("-i", c.source!, "-t", String(duration), "-vf", vf.join(","),
+      "-sws_flags", "lanczos+accurate_rnd",
       "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", String(fps),
       "-an", // drop audio at the segment stage; the final mux adds a unified bed
       seg,
-    ];
+    );
     const r = await run("ffmpeg", argv);
     if (r.code !== 0 || !existsSync(seg)) {
       warnings.push(`cut "${c.id}" motion render failed (exit ${r.code})`);
@@ -278,7 +300,7 @@ export async function composeMotion(
     } else {
       if (plan.warning) warnings.push(plan.warning);
       const captioned = join(opts.workDir, `motion_captioned_${Math.floor(Date.now() / 1000)}.mp4`);
-      const burn = await burnCaptions(finalOutput, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run });
+      const burn = await burnCaptions(finalOutput, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run, width: opts.captions.width ?? width, fontsize: opts.captions.fontsize });
       if (burn.ok && existsSync(captioned)) {
         finalOutput = captioned;
         notes.push(motionCaptionNote(burn.outcome, opts.captions.srtPath));

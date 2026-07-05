@@ -105,6 +105,46 @@ describe("composeMotion (mocked ffmpeg)", () => {
     }
   });
 
+  it("loops still-image inputs (-loop 1) and seeks video inputs (-ss)", async () => {
+    // A still image is a single frame; without -loop 1 zoompan exhausts it after
+    // one frame and the segment renders as ~1 frame (xfade offset math then sees
+    // a near-zero duration and the join fails). Video inputs keep seek-then-trim.
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-loop-"));
+    try {
+      const img = join(dir, "scene.png");
+      const vid = join(dir, "clip.mp4");
+      writeFileSync(img, "x");
+      writeFileSync(vid, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [
+          { id: "img", source: img, in_seconds: 0, out_seconds: 2, animation: "ken-burns" },
+          { id: "vid", source: vid, in_seconds: 1, out_seconds: 3, animation: "zoom-in" },
+        ],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+      const report = await composeMotion(edit, { workDir: dir, output: out, width: 160, height: 90, fps: 5 }, deps);
+      expect(report.outputs).toHaveLength(1);
+      const calls = callsOf(deps.spawnImpl!).filter((c) => c.cmd === "ffmpeg" && c.argv.includes("-vf"));
+      // Two per-cut renders.
+      expect(calls).toHaveLength(2);
+      const imgArgv = calls.find((c) => c.argv.includes(img))!.argv;
+      const vidArgv = calls.find((c) => c.argv.includes(vid))!.argv;
+      // Image: -loop 1 present, no -ss.
+      expect(imgArgv).toContain("-loop");
+      expect(imgArgv).toContain("1");
+      expect(imgArgv).not.toContain("-ss");
+      // Video: -ss present (seek to in_seconds=1), no -loop.
+      expect(vidArgv).toContain("-ss");
+      expect(vidArgv[vidArgv.indexOf("-ss") + 1]).toBe("1");
+      expect(vidArgv).not.toContain("-loop");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("static cut omits zoompan; transition=none joins via plain concat", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-motion-static-"));
     try {
