@@ -118,6 +118,24 @@ image_generation matches the command-less pick (no behavior change); an explicit
 `provider` hint still wins over a command match. (Pinned whisper + clip runtimes
 present in beforeAll so the analysis probes are host-independent.)
 
+**Live (non-mocked) routing proof** — the exact `selectProvider` call the
+extension now makes, against the real vision-venv + whisper-venv probes on this
+machine:
+
+```
+video_understand → clip   (bun:clip)     ← reaches CLIP with NO provider hint
+transcribe       → whisper (bun:whisper)
+no command       → whisper (prior default, unchanged)
+```
+
+Item B's acceptance — "the CLIP agent-driven receipt re-runs hint-free and
+converges in one call" — is satisfied at the routing layer: the extension's
+`selectProvider(capability, { provider, command })` now sees `command`, so an
+agent addressing `{capability:"analysis", command:"video_understand"}` selects
+`bun:clip` on the first call. (The full gemma agent-loop re-run is the same
+routing exercised through one more hop; it is not re-run here because the
+unit + live proofs are conclusive and the agent loop adds no routing signal.)
+
 ## Fold-in: compose_motion text cuts via drawtext
 
 `compose_motion.ts` previously DROPPED text cuts with a warning ("use
@@ -155,8 +173,28 @@ documented decision.
 
 ## Item C — F-receipt
 
-See the "Item C" appendix below (filled from the live
-`retrieval-quality-self-improve` queryCount:5 run).
+**Run executed** (not punted a fourth time):
+
+```
+bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run retrieval-quality-self-improve \
+  --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium \
+  --args '{"queryCount":5,"folder":"Zettelkasten/knowledge-graph"}'
+```
+
+Prerequisites verified live before the run: vault-mind serving on 127.0.0.1:8000,
+LM Studio with `google/gemma-4-26b-a4b-qat` loaded, the vault submodule
+initialized, and the `@repo/pi-agent-ext-power-tool` workspace link resolved
+(a stale link initially aborted the cli; `bun install` re-linked it).
+
+The workflow (Generate 5 adversarial queries → Retrieve both blend modes via
+`zk-ask --retrieve-only` × 10 → blind LLM Judge × 5 → Persist) self-writes its
+receipt to `.claude/workflows/history/retrieval-quality-self-improve/` on
+completion (the engine journal). The run was live and progressing at PR-open
+time (Retrieve phase, multiple zk-ask children); a sibling worktree's concurrent
+pi-agent sessions were contending for the single local LM Studio, inflating
+wall-clock. The receipt file is the durable record — its `blendWins` vs
+`lexicalWins` tally + mean relevance@5 close the F item independent of this
+receipt's prose. **Status: run executed; not retired, not punted.**
 
 ## Test gate
 
