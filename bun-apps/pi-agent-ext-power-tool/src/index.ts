@@ -42,6 +42,8 @@ import { TodoOverlay } from "./todo/overlay";
 import { replayFromBranch } from "./todo/state/replay";
 import { replaceState } from "./todo/state/store";
 import { TOOL_NAME } from "./todo/tool/types";
+import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
+import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 
 // ─── Snapshot captured from before_agent_start ────────────────────────────────
 
@@ -1039,6 +1041,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
   registerTodoTool(pi);
   registerTodosCommand(pi);
+
+  // ── Ask User Question tool ───────────────────────────────────────────
+  registerAskUserQuestionTool(pi);
+  registerAskUserQuestionReconciler(pi);
 
   pi.on("session_start", async (_event, ctx) => {
     replaceState(replayFromBranch(ctx));
