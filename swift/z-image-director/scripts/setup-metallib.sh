@@ -15,7 +15,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-debug}"
-VENV_METALLIB="../python/venv/lib/python3.13/site-packages/mlx/lib/mlx.metallib"
+VENV_METALLIB="../../python/venv/lib/python3.13/site-packages/mlx/lib/mlx.metallib"
 
 if [ ! -f "$VENV_METALLIB" ]; then
 	echo "error: metallib not found at $VENV_METALLIB" >&2
@@ -33,4 +33,12 @@ fi
 for d in $DESTS; do
 	cp "$VENV_METALLIB" "$d/mlx.metallib"
 	echo "copied mlx.metallib → $d/mlx.metallib"
+done
+
+# `swift test` runs from inside the .xctest bundle's own MacOS dir, not the
+# config dir directly — needs its own copy.
+XCTEST_DESTS=$(find .build -type d -iname "*PackageTests.xctest" 2>/dev/null || true)
+for d in $XCTEST_DESTS; do
+	cp "$VENV_METALLIB" "$d/Contents/MacOS/mlx.metallib"
+	echo "copied mlx.metallib → $d/Contents/MacOS/mlx.metallib"
 done

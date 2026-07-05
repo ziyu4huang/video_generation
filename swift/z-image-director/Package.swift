@@ -59,7 +59,10 @@ let package = Package(
         ),
         .testTarget(
             name: "ZImageDirectorTests",
-            dependencies: ["ZImageDirector"],
+            dependencies: [
+                "ZImageDirector",
+                .product(name: "CommonImageDirector", package: "common-image-director"),
+            ],
             path: "Tests/ZImageDirectorTests"
         ),
     ]

@@ -1,5 +1,6 @@
 import XCTest
 import MLX
+import CommonImageDirector
 @testable import ZImageDirector
 
 final class ZImageDirectorTests: XCTestCase {
