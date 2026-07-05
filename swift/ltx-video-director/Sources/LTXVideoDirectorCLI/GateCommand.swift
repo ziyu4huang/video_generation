@@ -35,13 +35,28 @@ extension LTXVideoDirectorCLI {
         var expectedScript: String?
 
         func run() throws {
+            // An unrecognized --expected-script used to silently become `nil`
+            // via `ScriptVariant(rawValue:)`'s Optional init, which DISABLES
+            // the whole script-mismatch check rather than erroring — the
+            // exact zh-CN-vs-zh-TW bug this flag exists to catch would then
+            // slip through with no warning the flag value was invalid (found
+            // by pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+            // "ambiguous" is a real ScriptVariant case but not a meaningful
+            // EXPECTATION to assert, so it's rejected here too.
+            var scriptVariant: ScriptVariant? = nil
+            if let expectedScript {
+                guard let variant = ScriptVariant(rawValue: expectedScript.lowercased()), variant != .ambiguous else {
+                    throw ValidationError("--expected-script must be 'traditional' or 'simplified', got '\(expectedScript)'")
+                }
+                scriptVariant = variant
+            }
+
             var verdicts: [(path: String, verdict: VideoGateVerdict?, asr: ASRGateVerdict?)] = []
             for path in videos {
                 let url = URL(fileURLWithPath: path)
                 let v = try? VideoGate.evaluate(videoURL: url, expectVoice: expectVoice)
                 var asr: ASRGateVerdict? = nil
                 if let asrPrompt {
-                    let scriptVariant: ScriptVariant? = expectedScript.flatMap { ScriptVariant(rawValue: $0.lowercased()) }
                     asr = try? ASRGate.evaluate(videoURL: url, prompt: asrPrompt, expectedScript: scriptVariant)
                 }
                 verdicts.append((path, v, asr))

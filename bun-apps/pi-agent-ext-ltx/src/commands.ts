@@ -71,6 +71,17 @@ export interface FieldSpec {
    * Omit for plain boolean flags (default false, presence sets true).
    */
   invertedFlag?: string;
+  /**
+   * Restrict a "string" field to a fixed set of values (e.g. gate's
+   * expectedScript: 'traditional' | 'simplified'). Enforced at the typebox
+   * schema level so an invalid value is rejected before ever reaching the
+   * Swift binary — added after a caller-passed invalid expectedScript
+   * silently disabled the whole script-mismatch check on the Swift side
+   * instead of erroring (pi-agent-ext-ltx-self-improve's review lane,
+   * 2026-07-05; GateCommand.swift now ALSO validates this independently,
+   * so drift between the two is still caught even if this goes stale).
+   */
+  enumValues?: string[];
 }
 
 export interface CommandSpec {
@@ -89,6 +100,9 @@ function fieldSchema(f: FieldSpec): TSchema {
   const wrap = (t: TSchema): TSchema => Type.Optional(t);
   switch (f.type) {
     case "string":
+      if (f.enumValues) {
+        return wrap(Type.Union(f.enumValues.map((v) => Type.Literal(v)), { description: f.description }));
+      }
       return wrap(Type.String({ description: f.description }));
     case "number":
       return wrap(Type.Number({ description: f.description }));
@@ -317,7 +331,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       expectVoice: { flag: "--expect-voice", invertedFlag: "--no-expect-voice", type: "boolean", description: "Expect an audio/voice track (FAIL if missing). ON by default — set false to allow silent clips." },
       strict: { flag: "--strict", type: "boolean", description: "Treat WARN as failure too (exit 1)." },
       asrPrompt: { flag: "--asr-prompt", type: "string", description: "Also run the ASR voice-content gate: transcribes the audio (mlx_whisper bridge) and checks language + content overlap against 「...」 speech markers in this prompt. Omit to skip (default — the loudness-only gate above still runs)." },
-      expectedScript: { flag: "--expected-script", type: "string", description: "With asrPrompt, additionally require the transcript to classify natively (no ML) as 'traditional' or 'simplified' Chinese — catches zh-CN output when zh-TW was expected, which Whisper's own language detection cannot tell apart." },
+      expectedScript: { flag: "--expected-script", type: "string", enumValues: ["traditional", "simplified"], description: "With asrPrompt, additionally require the transcript to classify natively (no ML) as 'traditional' or 'simplified' Chinese — catches zh-CN output when zh-TW was expected, which Whisper's own language detection cannot tell apart." },
     },
   },
 

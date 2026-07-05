@@ -179,7 +179,13 @@ struct NativeI2V: ParsableCommand {
                 + "aspect). Non-default sizes still work (auto-snapped to the nearest multiple of 32) but are "
                 + "less validated.")
         }
-        print("→ native I2V (no run.py): \(request.frames) frames @ \(fps)fps, \(width)x\(height), transformer=distilled")
+        // effectiveWidth/effectiveHeight (not width/height) — when
+        // --last-frame-derives-resolution overrides the requested dims, this
+        // line must report what generation ACTUALLY ran at, since
+        // pi-agent-ext-ltx's result.ts parses this exact line for
+        // details.width/details.height (found by
+        // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+        print("→ native I2V (no run.py): \(request.frames) frames @ \(fps)fps, \(effectiveWidth)x\(effectiveHeight), transformer=distilled")
         let wallStart = Date()
         let stage = NativeI2VStage()
         let result = try stage.generate(request, outputDir: URL(fileURLWithPath: output))

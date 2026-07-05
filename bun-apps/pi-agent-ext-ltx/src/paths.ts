@@ -33,8 +33,11 @@ export interface AllowedRoots {
 }
 
 function under(child: string, root: string): boolean {
-  const c = child + sep;
-  const r = root + sep;
+  // Normalize so a root that already ends with the separator (notably "/"
+  // itself, the filesystem root) doesn't get doubled into "//" — which would
+  // never match any real child path and wrongly reject everything under it.
+  const c = child.endsWith(sep) ? child : child + sep;
+  const r = root.endsWith(sep) ? root : root + sep;
   return c === r || c.startsWith(r);
 }
 
@@ -185,10 +188,38 @@ export function validateExtraArgs(
   return out;
 }
 
+/**
+ * Guard an agent-supplied `outputDir`/`modelsRoot` OVERRIDE itself, before it
+ * is admitted into AllowedRoots and starts being trusted as a sandbox
+ * boundary for every other path field. Without this, an agent could set
+ * `outputDir: "/etc"` (or any directory) and the "every path must resolve
+ * under an allowed root" guarantee becomes circular — the override IS the
+ * allowed root, so nothing is actually rejected (found by
+ * pi-agent-ext-ltx-self-improve's review lane, 2026-07-05). Allowed to be
+ * ANYWHERE under repoRoot's PARENT directory — this still covers the
+ * repo's own sibling-directory convention (`../video_generation__output`,
+ * `../video_generation__models`, both external stores per CLAUDE.md) and
+ * any path under the repo itself, while rejecting an override that escapes
+ * to an unrelated part of the filesystem.
+ */
+function assertOverrideRootAllowed(overrideAbs: string, repoRoot: string, kind: string): void {
+  const real = realpathOfNearestExisting(overrideAbs);
+  const parent = dirname(repoRoot);
+  if (!under(real, realOrSelf(repoRoot)) && !under(real, realOrSelf(parent))) {
+    throw new PathSafetyError(
+      `${kind} override "${overrideAbs}" is outside the allowed sandbox — must resolve under the repo root ` +
+        `(${repoRoot}) or its parent directory (${parent}), not an arbitrary location.`,
+    );
+  }
+}
+
 /** Resolve the default MLX output dir, mirroring run.py / pi-agent-ext-flux2's own resolution. */
 export function resolveOutputDir(repoRoot: string, override?: string): string {
   if (override && override.length > 0) {
-    return isAbsolute(override) ? override : pResolve(repoRoot, override);
+    rejectFlagLike(override, "outputDir");
+    const abs = isAbsolute(override) ? override : pResolve(repoRoot, override);
+    assertOverrideRootAllowed(abs, repoRoot, "outputDir");
+    return abs;
   }
   if (process.env.MLX_OUTPUT_DIR) return pResolve(process.env.MLX_OUTPUT_DIR);
   return pResolve(repoRoot, "..", "video_generation__output");
@@ -208,7 +239,10 @@ export function ensureOutputDir(repoRoot: string, override?: string): string {
 /** Resolve the models root, mirroring RepoPaths.mlxModelsRoot / $MLX_MODELS_DIR. */
 export function resolveModelsRoot(repoRoot: string, override?: string): string {
   if (override && override.length > 0) {
-    return isAbsolute(override) ? override : pResolve(repoRoot, override);
+    rejectFlagLike(override, "modelsRoot");
+    const abs = isAbsolute(override) ? override : pResolve(repoRoot, override);
+    assertOverrideRootAllowed(abs, repoRoot, "modelsRoot");
+    return abs;
   }
   if (process.env.MLX_MODELS_DIR) return pResolve(process.env.MLX_MODELS_DIR);
   return pResolve(repoRoot, "mlx-models");

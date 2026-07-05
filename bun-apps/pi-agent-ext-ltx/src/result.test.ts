@@ -61,6 +61,26 @@ describe("buildDetails: native-i2v", () => {
     const d = buildDetails("native-i2v", ok("some partial output\nerror: models missing", 1));
     expect(d.ok).toBe(false);
   });
+
+  test("reports the DERIVED resolution from the '→ native I2V' line (post-fix Swift print), not a stale requested value", () => {
+    // Regression: NativeI2VCommand.swift's "→ native I2V ..." print used to
+    // interpolate the pre-override `width`/`height` @Option vars instead of
+    // `effectiveWidth`/`effectiveHeight` when --last-frame-derives-resolution
+    // overrides them — since this exact line is what parseDims() falls back
+    // to, a stale print silently mis-reported details.width/height. This
+    // fixture reflects the FIXED Swift print (512x768, the derived
+    // resolution) to confirm parseDims correctly surfaces it end-to-end.
+    const derivedStdout = `→ native I2V (no run.py): 9 frames @ 24.0fps, 512x768, transformer=distilled
+✅ wall time: 100.0s
+   source image: /tmp/out3/source.png
+   9 frames: /tmp/out3/frames
+   audio: /tmp/out3/audio.wav
+   100% native Swift/MLX — zero run.py calls.
+`;
+    const d = buildDetails("native-i2v", ok(derivedStdout));
+    expect(d.width).toBe(512);
+    expect(d.height).toBe(768);
+  });
 });
 
 describe("buildDetails: native-upscale", () => {
@@ -112,6 +132,72 @@ describe("buildDetails: native-t2a", () => {
     expect(d.output).toBe("/tmp/t2a/audio.wav");
     expect(d.wallSeconds).toBe(4.2);
     expect(d.width).toBeNull();
+  });
+});
+
+describe("buildDetails: native-relay", () => {
+  // Real stdout shape from NativeRelayCommand.swift's runOnce (non-variant path).
+  const stdout = `→ native relay (no run.py, no ffmpeg): 2 segment(s) @ 640x960, 2.0s/segment, transformer=distilled
+[relay] ═══ Segment 1/2 ═══
+[relay] ═══ Segment 2/2 ═══
+   segment 1: /tmp/relay/seg01/segment.mp4
+   segment 2: /tmp/relay/seg02/segment.mp4
+   final: /tmp/relay/relay.mp4
+   100% native Swift/MLX + AVFoundation — zero run.py calls, zero ffmpeg calls.
+
+✅ wall time: 92.3s
+`;
+
+  test("output points at the final concatenated video; dims + wallSeconds parsed", () => {
+    const d = buildDetails("native-relay", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/relay/relay.mp4");
+    expect(d.extraOutputs.segments).toEqual(["/tmp/relay/seg01/segment.mp4", "/tmp/relay/seg02/segment.mp4"]);
+    expect(d.width).toBe(640);
+    expect(d.height).toBe(960);
+    expect(d.wallSeconds).toBe(92.3);
+  });
+});
+
+describe("buildDetails: native-ingredients", () => {
+  const stdout = `→ native ingredients (no run.py): reference=/tmp/ref.png [lora=/tmp/ic.safetensors]
+
+✅ wall time: 51.2s
+   512x512
+   9 frames: /tmp/ingredients/frames
+   audio: /tmp/ingredients/audio.wav
+   100% native Swift/MLX — zero run.py calls.
+
+[mp4] muxed: /tmp/ingredients/output.mp4
+`;
+
+  test("output points at the mp4 when muxed; frames/audio in extraOutputs", () => {
+    const d = buildDetails("native-ingredients", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/ingredients/output.mp4");
+    expect(d.extraOutputs).toEqual({ frames: "/tmp/ingredients/frames", audio: "/tmp/ingredients/audio.wav", mp4: "/tmp/ingredients/output.mp4" });
+    expect(d.width).toBe(512);
+    expect(d.height).toBe(512);
+    expect(d.wallSeconds).toBe(51.2);
+  });
+});
+
+describe("buildDetails: native-restyle", () => {
+  const stdout = `→ native restyle (no run.py): reading frames from /tmp/in [V2V, lora=/tmp/style.safetensors]
+
+✅ wall time: 30.5s
+   504x504 (unchanged — restyle, not upscale)
+   9 frames: /tmp/restyle/frames
+   100% native Swift/MLX — zero run.py calls.
+`;
+
+  test("output points at frames dir when no mp4; dims parsed despite the trailing annotation", () => {
+    const d = buildDetails("native-restyle", ok(stdout));
+    expect(d.ok).toBe(true);
+    expect(d.output).toBe("/tmp/restyle/frames");
+    expect(d.width).toBe(504);
+    expect(d.height).toBe(504);
+    expect(d.wallSeconds).toBe(30.5);
   });
 });
 

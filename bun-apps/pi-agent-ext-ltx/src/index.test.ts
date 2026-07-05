@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { resolveRepoRoot } from "./binary.ts";
 import { PathSafetyError, runLtx } from "./index.ts";
 
 // These tests exercise the validation layers that run BEFORE ltx-video is
@@ -89,5 +90,46 @@ describe("runLtx — pre-spawn validation", () => {
       signal: controller.signal,
     });
     expect(result.details.aborted).toBe(true);
+  });
+
+  test("throws PathSafetyError when outputDir override escapes to an unrelated filesystem location", () => {
+    // Regression for pi-agent-ext-ltx-self-improve's path-safety finding
+    // (2026-07-05): outputDir used to be admitted into AllowedRoots verbatim,
+    // making the "every path must resolve under an allowed root" guarantee
+    // circular for this override.
+    const outsideDir = mkdtempSync(join(tmpdir(), "pi-ltx-unrelated-root-"));
+    expect(
+      runLtx({ command: "t2i", options: { prompt: "x" }, outputDir: outsideDir }),
+    ).rejects.toThrow(PathSafetyError);
+  });
+
+  test("throws PathSafetyError when modelsRoot override escapes to an unrelated filesystem location", () => {
+    const outsideDir = mkdtempSync(join(tmpdir(), "pi-ltx-unrelated-root-"));
+    expect(
+      runLtx({ command: "t2i", options: { prompt: "x" }, modelsRoot: outsideDir }),
+    ).rejects.toThrow(PathSafetyError);
+  });
+
+  test("surfaces an ensureOutputDir mkdir failure as details.ok=false instead of an uncaught exception", async () => {
+    // Regression for pi-agent-ext-ltx-self-improve's error-handling finding
+    // (2026-07-05): ensureOutputDir()'s mkdirSync used to have no try/catch in
+    // runOnce, so an ENOTDIR (a parent path segment already being a regular
+    // file) propagated as a raw uncaught exception instead of the documented
+    // details.ok=false contract.
+    // Must live under repoRoot's own parent (the allowed sandbox for an
+    // outputDir override, per the path-safety fix above) so this test
+    // exercises the ENOTDIR failure itself, not the (already-tested)
+    // override-location rejection.
+    const repoRoot = resolveRepoRoot();
+    const base = mkdtempSync(join(dirname(repoRoot), "pi-ltx-outputdir-enotdir-"));
+    try {
+      const blockerFile = join(base, "blocker");
+      writeFileSync(blockerFile, "x"); // a regular file, not a directory
+      const outputDir = join(blockerFile, "nested-out"); // mkdir under a FILE -> ENOTDIR
+      const result = await runLtx({ command: "t2i", options: { prompt: "x" }, outputDir });
+      expect(result.details.ok).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

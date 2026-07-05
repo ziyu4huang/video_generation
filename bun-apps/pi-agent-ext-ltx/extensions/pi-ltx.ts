@@ -2,9 +2,11 @@
  * pi-ltx — wraps the `swift/ltx-video-director` CLI (ltx-video) as ONE
  * agent-optimized tool.
  *
- * Design: a single `ltx` dispatcher. The agent picks `command` (one of 12
- * ltx-video subcommands) and passes typed `options` (camelCase keys). The
- * tool:
+ * Design: a single `ltx` dispatcher. The agent picks `command` (one of the
+ * ltx-video subcommands modeled in src/commands.ts — see COMMAND_LIST.length
+ * for the current count; this header deliberately doesn't hardcode a number
+ * that would go stale again, per pi-agent-ext-ltx-self-improve's review lane,
+ * 2026-07-05) and passes typed `options` (camelCase keys). The tool:
  *   - resolves / auto-builds the Swift binary,
  *   - validates every image/video/model path against allowed roots (anti-argv-injection),
  *   - streams progress and honors abort,
@@ -104,7 +106,7 @@ function makeLtxTool() {
     label: "LTX Video Director",
     description: buildDescription(),
     promptSnippet:
-      "Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, 12 subcommands; " +
+      `Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, ${COMMAND_LIST.length} subcommands; ` +
       "chain via details.output / details.extraOutputs.",
     parameters: Type.Object({
       command: COMMAND_ENUM,
