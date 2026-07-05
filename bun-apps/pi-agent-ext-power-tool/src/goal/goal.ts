@@ -282,7 +282,6 @@ const goalCompleteTool = defineTool({
 			persistGoal(activeGoal);
 		}
 
-		ctx.ui.setStatus(STATUS_KEY, completedGoal ? formatStatus(activeGoal) : undefined);
 		clearActiveGoal(ctx);
 		showCompletionStatus(ctx);
 		ctx.ui.notify(`Goal complete: ${goal}`, "info");
@@ -335,6 +334,8 @@ export default function goal(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event: unknown, ctx: StatusContext) => {
+		// Clear any stale completion timer from a previous session — its ctx is stale
+		// and firing it during the new session would clobber the real goal status.
 		clearCompletionStatusTimer();
 		clearContinuationTracking();
 		clearGoalRecovery();
@@ -349,7 +350,12 @@ export default function goal(pi: ExtensionAPI) {
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		// Don't clear if showCompletionStatus timer is active — it manages its own lifecycle.
+		// Without this guard, a goal_complete + terminate:true clears the "complete" footer
+		// indicator immediately, making it invisible to the user.
+		if (!completionStatusTimer) {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
 		clearCompletionStatusTimer();
 	});
 
