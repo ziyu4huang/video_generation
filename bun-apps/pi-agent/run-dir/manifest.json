@@ -15,10 +15,6 @@
   ],
   "npmExtensions": [
     {
-      "pkg": "@juicesharp/rpiv-ask-user-question",
-      "entry": "index.ts"
-    },
-    {
       "pkg": "pi-web-access",
       "entry": "index.ts"
     }
