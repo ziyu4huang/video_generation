@@ -205,6 +205,25 @@ export const COMMANDS: Record<string, CommandSpec> = {
     },
   },
 
+  "kv-style-transfer": {
+    name: "kv-style-transfer",
+    writesImage: true,
+    acceptsGlobals: true,
+    when: "Training-free K/V-injection style transfer (krea2 mechanism port — V-AdaIN + per-frequency K-scale + Q/K-AdaIN). strength=0 is byte-identical to vanilla t2i at the same seed.",
+    fields: {
+      prompt: { flag: "--prompt", type: "string", description: "Text prompt (content + composition)." },
+      styleImage: { flag: "--style-image", type: "string", isPath: true, description: "Style reference image path (PNG/JPG)." },
+      strength: { flag: "--strength", type: "number", description: "Style strength 0..1 (0 = byte-identical to vanilla t2i at --seed)." },
+      valueAdainStrength: { flag: "--value-adain-strength", type: "number", description: "V-AdaIN strength 0..1 (default 0.65)." },
+      adainStrength: { flag: "--adain-strength", type: "number", description: "Q/K cross-batch AdaIN strength 0..1 (upstream recommended 0.85)." },
+      refKStrength: { flag: "--ref-k-strength", type: "number", description: "Extra reference-K multiplier (per-frequency scale on top of scaleVec; default 1.06)." },
+      lowScaleEnd: { flag: "--low-scale-end", type: "number", description: "High-frequency K-scale ceiling (default 1.10)." },
+      activeBlocksStart: { flag: "--active-blocks-start", type: "int", description: "First single DiT block to inject style into (default 7)." },
+      activeBlocksEnd: { flag: "--active-blocks-end", type: "int", description: "Last single DiT block to inject style into (default 27)." },
+      ...GEN_FIELDS_NO_STRICT_GATE,
+    },
+  },
+
   angle: {
     name: "angle",
     writesImage: true,

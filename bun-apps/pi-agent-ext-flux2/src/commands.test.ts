@@ -113,10 +113,10 @@ describe("modeledFlags", () => {
 });
 
 describe("COMMANDS registry", () => {
-  test("has exactly the 18 documented flux2 subcommands", () => {
+  test("has exactly the 19 documented flux2 subcommands", () => {
     expect(Object.keys(COMMANDS).sort()).toEqual(
       [
-        "angle", "edit", "expand", "gate", "models", "scene", "segment",
+        "angle", "edit", "expand", "gate", "kv-style-transfer", "models", "scene", "segment",
         "story", "style", "swap", "t2i", "upscale",
         "verify-e2e", "verify-edit", "verify-encoder", "verify-tokenizer",
         "verify-transformer", "verify-vae",
