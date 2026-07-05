@@ -41,8 +41,7 @@
       },
       "dependencies": {
         "@earendil-works/pi-coding-agent": "latest",
-        "@juicesharp/rpiv-ask-user-question": "^1.20.0",
-        "pi-web-access": "^0.13.0",
+        "@repo/pi-agent-ext-web-access": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -152,6 +151,27 @@
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^6.0.3",
+      },
+    },
+    "bun-apps/pi-agent-ext-web-access": {
+      "name": "@repo/pi-agent-ext-web-access",
+      "version": "0.1.0",
+      "dependencies": {
+        "@mozilla/readability": "^0.6.0",
+        "linkedom": "^0.16.0",
+        "p-limit": "^6.1.0",
+        "turndown": "^7.2.0",
+        "unpdf": "^1.6.2",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^6.0.3",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+        "typebox": "*",
       },
     },
     "bun-apps/pi-agent-sdk-demo": {
@@ -450,10 +470,6 @@
 
     "@javascript-obfuscator/estraverse": ["@javascript-obfuscator/estraverse@5.4.0", "", {}, "sha512-CZFX7UZVN9VopGbjTx4UXaXsi9ewoM1buL0kY7j1ftYdSs7p2spv9opxFjHlQ/QGTgh4UqufYqJJ0WKLml7b6w=="],
 
-    "@juicesharp/rpiv-ask-user-question": ["@juicesharp/rpiv-ask-user-question@1.20.0", "", { "dependencies": { "@juicesharp/rpiv-config": "^1.20.0" }, "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "@juicesharp/rpiv-i18n": "*", "typebox": "*" }, "optionalPeers": ["@juicesharp/rpiv-i18n"] }, "sha512-nccqKqeKoMDO9EZtAotyA/OkHBj+tl2jJBBSpP+1Ndyf7fnU592AO8Ax2Xk9VywHOYVz2X/66d/wC3oFUekV5Q=="],
-
-    "@juicesharp/rpiv-config": ["@juicesharp/rpiv-config@1.20.0", "", { "peerDependencies": { "typebox": "*" } }, "sha512-eu/sEBDt/+9kP40yCtlu04kRUxkQNaG1APzNIgnt5dGsualcwruedLWX9vtt0Fg4NSCAlNx5b2r9VjcWgAJirQ=="],
-
     "@mariozechner/clipboard": ["@mariozechner/clipboard@0.3.9", "", { "optionalDependencies": { "@mariozechner/clipboard-darwin-arm64": "0.3.9", "@mariozechner/clipboard-darwin-universal": "0.3.9", "@mariozechner/clipboard-darwin-x64": "0.3.9", "@mariozechner/clipboard-linux-arm64-gnu": "0.3.9", "@mariozechner/clipboard-linux-arm64-musl": "0.3.9", "@mariozechner/clipboard-linux-riscv64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-gnu": "0.3.9", "@mariozechner/clipboard-linux-x64-musl": "0.3.9", "@mariozechner/clipboard-win32-arm64-msvc": "0.3.9", "@mariozechner/clipboard-win32-x64-msvc": "0.3.9" } }, "sha512-ABnA53mdfkGZwOFUdZNv2S0CWGO/EIuPj8Vv9xmBFmSYg/qFc7ihO6q5FcQjvoE67kZpWkEc4AhD6B/os04yuA=="],
 
     "@mariozechner/clipboard-darwin-arm64": ["@mariozechner/clipboard-darwin-arm64@0.3.9", "", { "os": "darwin", "cpu": "arm64" }, "sha512-BfgV7vCEWZwJwZJw03r6bP5+tf0iI/ANuQYCxi9RNn7FrWB3yzGuMKCrNLRl6V761vXRdL8+OqZ0wd4TqlsNOQ=="],
@@ -573,6 +589,8 @@
     "@repo/pi-agent-ext-movie-director": ["@repo/pi-agent-ext-movie-director@workspace:bun-apps/pi-agent-ext-movie-director"],
 
     "@repo/pi-agent-ext-power-tool": ["@repo/pi-agent-ext-power-tool@workspace:bun-apps/pi-agent-ext-power-tool"],
+
+    "@repo/pi-agent-ext-web-access": ["@repo/pi-agent-ext-web-access@workspace:bun-apps/pi-agent-ext-web-access"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 
@@ -1157,8 +1175,6 @@
     "pi-obsidian": ["pi-obsidian@workspace:bun-apps/pi-obsidian"],
 
     "pi-vlm": ["pi-vlm@workspace:bun-apps/pi-vlm"],
-
-    "pi-web-access": ["pi-web-access@0.13.0", "", { "dependencies": { "@mozilla/readability": "^0.6.0", "linkedom": "^0.16.0", "p-limit": "^6.1.0", "turndown": "^7.2.0", "unpdf": "^1.6.2" }, "peerDependencies": { "@earendil-works/pi-ai": "*", "@earendil-works/pi-coding-agent": "*", "@earendil-works/pi-tui": "*", "typebox": "*" } }, "sha512-ny0bHisMWdobmu1hcMp/jqjaRh6pYrH7dctBK2CVyRF4ia7bP47RnOPYdG1yiks9ohtcanWir5Hl9EFap8h0zQ=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
