@@ -13,9 +13,10 @@
  * mean/peak, mid-point frame extractable). A `fail` verdict means the render is
  * not shippable.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { burnCaptions, planBurn, type CaptionOutcome } from "./captions.ts";
 
 // ─── edit_decisions / render_report shapes (subset of the JSON schemas) ──────
 
@@ -89,28 +90,19 @@ export function _setFfmpegAvailableForTest(v: boolean | undefined): void {
   ffmpegCached = v;
 }
 
-/**
- * Whether this ffmpeg build has the `subtitles` (libass) filter — required to
- * HARD-burn captions. The Homebrew ffmpeg on macOS often lacks libass, so
- * hard-burn silently falls back to a soft mov_text sidecar (the goal accepts
- * "burned-in OR sidecar"). Cached per process.
- */
-let subtitlesFilterCached: boolean | undefined;
-export function subtitlesFilterAvailable(): boolean {
-  if (subtitlesFilterCached != null) return subtitlesFilterCached;
-  try {
-    const r = spawnSync("ffmpeg", ["-hide_banner", "-filters"], { encoding: "utf8" });
-    // The filter list prints ".. subtitles V->V ..." (with flags prefix). Match
-    // the name as a whole token so "ass " doesn't false-match "bandpass".
-    subtitlesFilterCached = /(?:^|\s).{0,3}subtitles\s+V->V/.test(r.stdout ?? "");
-  } catch {
-    subtitlesFilterCached = false;
-  }
-  return subtitlesFilterCached;
-}
-export function _setSubtitlesFilterForTest(v: boolean | undefined): void {
-  subtitlesFilterCached = v;
-}
+// The captions filter probes + burn ladder live in `captions.ts` (shared with
+// compose_motion.ts). Re-exported here so existing compose.test.ts imports
+// (`_setSubtitlesFilterForTest`) keep resolving, and so callers that knew
+// compose.ts as the captions owner still see the API surface.
+export {
+  subtitlesFilterAvailable,
+  _setSubtitlesFilterForTest,
+  drawtextFilterAvailable,
+  _setDrawtextFilterForTest,
+  resolveCaptionFont,
+  _setCaptionFontForTest,
+  parseSrt,
+} from "./captions.ts";
 
 // ─── compose ─────────────────────────────────────────────────────────────────
 
@@ -201,31 +193,30 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
     return { version: "1.0", outputs: [], warnings: [...warnings, `concat failed (exit ${r.code})`], verification_notes: [`compose failed: ${r.stderr.slice(-400)}`] };
   }
 
-  // 2b. Optional captions pass (Item I): burn or sidecar the SRT onto the
-  //     concat output. The SRT typically comes from subtitle_gen consuming the
-  //     whisper adapter's word timestamps.
+  // 2b. Optional captions pass: burn or sidecar the SRT onto the concat output
+  //     via the shared libass → drawtext → sidecar ladder (src/captions.ts). The
+  //     SRT typically comes from subtitle_gen consuming the whisper adapter's
+  //     word timestamps. On macOS stock ffmpeg (no libass) the ladder reaches
+  //     drawtext, which hard-burns plain text WITHOUT libass — the fix for the
+  //     "captions always soft on macOS" defect.
   let finalOutput = output;
-  if (opts.captions && existsSync(opts.captions.srtPath)) {
-    let burn = opts.captions.burn !== false;
-    // Hard-burn needs the libass `subtitles` filter; many macOS ffmpeg builds
-    // lack it → fall back to a soft mov_text sidecar (goal accepts sidecar).
-    if (burn && !subtitlesFilterAvailable()) {
-      warnings.push("ffmpeg lacks the `subtitles` (libass) filter; falling back to soft mov_text sidecar captions");
-      burn = false;
-    }
-    const captioned = join(opts.workDir, `captioned_${Math.floor(Date.now() / 1000)}.mp4`);
-    const cargv = burn
-      ? ["-y", "-i", output, "-vf", `subtitles=${opts.captions.srtPath}`, "-c:a", "copy", captioned]
-      : ["-y", "-i", output, "-i", opts.captions.srtPath, "-c", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=eng", captioned];
-    const cr = await run("ffmpeg", cargv);
-    if (cr.code === 0 && existsSync(captioned)) {
-      finalOutput = captioned;
-      notes.push(`captions ${burn ? "burned" : "sidecar"} from ${opts.captions.srtPath}`);
+  if (opts.captions) {
+    const wantBurn = opts.captions.burn !== false;
+    const srtExists = existsSync(opts.captions.srtPath);
+    const plan = planBurn(wantBurn, srtExists);
+    if (plan.outcome === "skip") {
+      warnings.push(`captions srt not found: ${opts.captions.srtPath}`);
     } else {
-      warnings.push(`captions pass failed (exit ${cr.code}); output has no captions`);
+      if (plan.warning) warnings.push(plan.warning);
+      const captioned = join(opts.workDir, `captioned_${Math.floor(Date.now() / 1000)}.mp4`);
+      const burn = await burnCaptions(output, opts.captions.srtPath, captioned, wantBurn, { spawnImpl: run });
+      if (burn.ok && existsSync(captioned)) {
+        finalOutput = captioned;
+        notes.push(captionNote(burn.outcome, opts.captions.srtPath));
+      } else {
+        warnings.push(`captions pass failed (${burn.detail}); output has no captions`);
+      }
     }
-  } else if (opts.captions) {
-    warnings.push(`captions srt not found: ${opts.captions.srtPath}`);
   }
 
   // 3. ffprobe the output for the render_report fields.
@@ -247,6 +238,18 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
     warnings,
     verification_notes: notes,
   };
+}
+
+/** Human-readable note for which burn tier ran (mirrors the prior vocabulary). */
+function captionNote(outcome: CaptionOutcome, srtPath: string): string {
+  switch (outcome) {
+    case "libass":
+      return `captions burned (libass subtitles) from ${srtPath}`;
+    case "drawtext":
+      return `captions burned (drawtext) from ${srtPath}`;
+    case "sidecar":
+      return `captions sidecar (mov_text) from ${srtPath}`;
+  }
 }
 
 // ─── ffprobe ─────────────────────────────────────────────────────────────────

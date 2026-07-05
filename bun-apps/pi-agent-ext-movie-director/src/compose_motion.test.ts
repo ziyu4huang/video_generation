@@ -133,27 +133,70 @@ describe("composeMotion (mocked ffmpeg)", () => {
     }
   });
 
-  it("drops text cuts and missing sources with warnings (never crashes)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "md-motion-drop-"));
+  it("drops text cuts and missing sources with warnings when drawtext is absent (never crashes)", async () => {
+    const { _setDrawtextFilterForTest, _setCaptionFontForTest } = await import("./captions.ts");
+    _setDrawtextFilterForTest(false);
+    _setCaptionFontForTest(null);
     try {
-      const a = join(dir, "a.png");
-      writeFileSync(a, "x");
-      const edit: RemotionEditDecisions = {
-        version: "1.0",
-        cuts: [
-          { id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "zoom-in" },
-          { id: "text1", type: "text", text: "hello", in_seconds: 0, out_seconds: 1 },
-          { id: "gone", source: "/no/such.png", in_seconds: 0, out_seconds: 1 },
-        ],
-        transition: "none",
-      };
-      const out = join(dir, "out.mp4");
-      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
-      expect(report.outputs).toHaveLength(1);
-      expect(report.warnings.some((w) => w.includes("text cut"))).toBe(true);
-      expect(report.warnings.some((w) => w.includes('"gone" source missing'))).toBe(true);
+      const dir = mkdtempSync(join(tmpdir(), "md-motion-drop-"));
+      try {
+        const a = join(dir, "a.png");
+        writeFileSync(a, "x");
+        const edit: RemotionEditDecisions = {
+          version: "1.0",
+          cuts: [
+            { id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "zoom-in" },
+            { id: "text1", type: "text", text: "hello", in_seconds: 0, out_seconds: 1 },
+            { id: "gone", source: "/no/such.png", in_seconds: 0, out_seconds: 1 },
+          ],
+          transition: "none",
+        };
+        const out = join(dir, "out.mp4");
+        const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
+        expect(report.outputs).toHaveLength(1);
+        expect(report.warnings.some((w) => w.includes("text cut") && w.includes("drawtext"))).toBe(true);
+        expect(report.warnings.some((w) => w.includes('"gone" source missing'))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
+    }
+  });
+
+  it("renders text cuts as color+drawtext segments when drawtext resolves", async () => {
+    const { _setDrawtextFilterForTest, _setCaptionFontForTest } = await import("./captions.ts");
+    _setDrawtextFilterForTest(true);
+    _setCaptionFontForTest("/System/Library/Fonts/Supplemental/Arial.ttf");
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "md-motion-text-"));
+      try {
+        const edit: RemotionEditDecisions = {
+          version: "1.0",
+          cuts: [
+            { id: "title", type: "text", text: "Chapter One", backgroundColor: "#1a1a2e", in_seconds: 0, out_seconds: 2 },
+          ],
+          transition: "none",
+        };
+        const out = join(dir, "out.mp4");
+        const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+        const report = await composeMotion(edit, { workDir: dir, output: out, width: 1280, height: 720 }, deps);
+        expect(report.outputs).toHaveLength(1);
+        expect(report.verification_notes.some((n) => n.includes("text card") && n.includes("Chapter One"))).toBe(true);
+        // The text-card render call is a color lavfi source + a drawtext -vf.
+        const calls = callsOf(deps.spawnImpl!);
+        const textArgv = calls.find((c) => c.argv.some((x) => typeof x === "string" && x.startsWith("color=c=")))?.argv;
+        expect(textArgv).toBeDefined();
+        expect(textArgv!.some((x) => typeof x === "string" && x.startsWith("drawtext=") && x.includes("Chapter One"))).toBe(true);
+        // The hex background normalized to ffmpeg's 0xRRGGBB form.
+        expect(textArgv!.some((x) => typeof x === "string" && x.includes("color=c=0x1a1a2e"))).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
     }
   });
 
@@ -242,6 +285,46 @@ describe("composeMotion (mocked ffmpeg)", () => {
       expect(report.outputs[0]!.path).toBe(out);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("composeMotion captions (drawtext ladder mirror)", () => {
+  it("burns captions via the drawtext tier when libass is absent", async () => {
+    // Pin the ladder: libass absent, drawtext present, font resolved → the motion
+    // tier's captions sub-pass must hit drawtext (same ladder compose.ts uses).
+    const { _setSubtitlesFilterForTest, _setDrawtextFilterForTest, _setCaptionFontForTest } = await import("./captions.ts");
+    _setSubtitlesFilterForTest(false);
+    _setDrawtextFilterForTest(true);
+    _setCaptionFontForTest("/System/Library/Fonts/Supplemental/Arial.ttf");
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "md-mocap-"));
+      try {
+        const src = join(dir, "src.mp4");
+        const srt = join(dir, "c.srt");
+        writeFileSync(src, "x");
+        writeFileSync(srt, "1\n00:00:00,500 --> 00:00:01,500\nmotion caption\n");
+        const edit: RemotionEditDecisions = {
+          version: "1.0",
+          cuts: [{ id: "a", type: "video", source: src, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
+          transition: "concat",
+        };
+        const out = join(dir, "motion.mp4");
+        const report = await composeMotion(
+          edit,
+          { workDir: dir, output: out, captions: { srtPath: srt, burn: true } },
+          { spawnImpl: fakeSpawn() },
+        );
+        expect(report.outputs).toHaveLength(1);
+        expect(report.verification_notes.some((n) => n.includes("burned (drawtext)"))).toBe(true);
+        expect(report.warnings.some((w) => w.includes("libass"))).toBe(false);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      _setSubtitlesFilterForTest(undefined);
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
     }
   });
 });

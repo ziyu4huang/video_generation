@@ -50,6 +50,15 @@ export interface ProviderEntry {
     | "compose:motion";
   configured: boolean;
   notes?: string;
+  /**
+   * The director subcommands this provider owns (e.g. "transcribe",
+   * "video_understand"). When a caller addresses a tool by {capability, command}
+   * (the documented shape), the selector uses this to break capability ties — a
+   * command match outranks backend-rank/declaration-order. Leave unset for
+   * capabilities whose commands all run on the SAME provider (e.g. image_generation's
+   * t2i/i2i/etc.); setting it there would needlessly constrain free-form commands.
+   */
+  commands?: string[];
 }
 
 /**
@@ -86,8 +95,8 @@ export const REGISTRY: ProviderEntry[] = [
 
   // Analysis — Whisper transcriber is wired (Item I: mlx-whisper via the
   // python/whisper_transcribe.py entry, spawned by the bun:whisper adapter).
-  { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:whisper", configured: true, notes: "mlx-whisper (python/whisper_transcribe.py) → word-level timestamps + transcript" },
-  { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:clip", configured: true, notes: "CLIP video understanding (python/clip_understand.py) — frame×prompt cosine score via transformers + torch MPS" },
+  { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:whisper", configured: true, commands: ["transcribe"], notes: "mlx-whisper (python/whisper_transcribe.py) → word-level timestamps + transcript" },
+  { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:clip", configured: true, commands: ["video_understand"], notes: "CLIP video understanding (python/clip_understand.py) — frame×prompt cosine score via transformers + torch MPS" },
 
   // Enhancement.
   { name: "bg_remove", capability: "enhancement", provider: "vision", backend: "macos_native", invoke: "macos:vision", configured: true, notes: "macOS Vision VNGeneratePersonSegmentationRequest" },

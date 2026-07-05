@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composeVideo, finalReview, _setFfmpegAvailableForTest, _setSubtitlesFilterForTest, type EditDecisions } from "./compose.ts";
+import { composeVideo, finalReview, _setFfmpegAvailableForTest, _setSubtitlesFilterForTest, _setDrawtextFilterForTest, _setCaptionFontForTest, type EditDecisions } from "./compose.ts";
 
 beforeAll(() => {
   _setFfmpegAvailableForTest(true);
@@ -171,7 +171,7 @@ describe("composeVideo captions (Item I)", () => {
     }
   });
 
-  it("falls back to mov_text sidecar when libass is unavailable", async () => {
+  it("falls back to mov_text sidecar when libass AND drawtext are unavailable", async () => {
     const dir = mkdtempSync(join(tmpdir(), "md-cap-side-"));
     try {
       const src = join(dir, "src.mp4");
@@ -179,16 +179,89 @@ describe("composeVideo captions (Item I)", () => {
       writeFileSync(src, "x");
       writeFileSync(srt, "1\n00:00:00,000 --> 00:00:01,000\nhi\n");
       _setSubtitlesFilterForTest(false);
+      _setDrawtextFilterForTest(false);
       const report = await composeVideo(
         { version: "1.0", cuts: [{ id: "a", source: src, in_seconds: 0, out_seconds: 1 }] },
         { workDir: dir, output: join(dir, "out.mp4"), captions: { srtPath: srt, burn: true } },
         { spawnImpl: fakeSpawn() },
       );
       expect(report.verification_notes.some((n) => n.includes("sidecar"))).toBe(true);
-      expect(report.warnings.some((w) => w.includes("libass") && w.includes("sidecar"))).toBe(true);
+      expect(report.warnings.some((w) => w.includes("libass") && w.includes("drawtext") && w.includes("sidecar"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       _setSubtitlesFilterForTest(true);
+      _setDrawtextFilterForTest(undefined);
+    }
+  });
+
+  it("hard-burns via drawtext when libass is absent but drawtext+font resolve", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-cap-dt-"));
+    try {
+      const src = join(dir, "src.mp4");
+      const srt = join(dir, "captions.srt");
+      writeFileSync(src, "x");
+      // Two cues to exercise the multi-node drawtext chain + text escaping.
+      writeFileSync(srt, [
+        "1", "00:00:00,500 --> 00:00:01,500", "Hello: world!", "",
+        "2", "00:00:02,000 --> 00:00:03,000", "It's 100% done", "",
+      ].join("\n"));
+      _setSubtitlesFilterForTest(false);
+      _setDrawtextFilterForTest(true);
+      _setCaptionFontForTest("/System/Library/Fonts/Supplemental/Arial.ttf");
+      const calls: string[][] = [];
+      const spawn = fakeSpawn();
+      const report = await composeVideo(
+        { version: "1.0", cuts: [{ id: "a", source: src, in_seconds: 0, out_seconds: 1 }] },
+        { workDir: dir, output: join(dir, "out.mp4"), captions: { srtPath: srt, burn: true } },
+        { spawnImpl: async (cmd, argv) => { calls.push(argv); return spawn(cmd, argv); } },
+      );
+      // The burn pass ran and reported the drawtext tier.
+      expect(report.verification_notes.some((n) => n.includes("burned (drawtext)"))).toBe(true);
+      expect(report.warnings.some((w) => w.includes("libass"))).toBe(false);
+      // The captions argv contains a drawtext node with enable='between(...)' per cue.
+      const capArgv = calls.find((a) => a.includes("-vf") && a.some((x) => x.startsWith("drawtext")));
+      expect(capArgv).toBeDefined();
+      const vf = capArgv![capArgv!.indexOf("-vf") + 1]!;
+      // Two cues → two drawtext nodes, each timeline-gated.
+      expect(vf.match(/drawtext=/g)?.length).toBe(2);
+      expect(vf).toContain("enable='between(t,0.500,1.500)'");
+      expect(vf).toContain("enable='between(t,2.000,3.000)'");
+      // Special chars escaped (colon, apostrophe, percent).
+      expect(vf).toContain("Hello\\: world!");
+      expect(vf).toContain("It\\'s 100\\% done");
+      // Fontfile resolved + bottom-center positioning.
+      expect(vf).toContain("fontfile='/System/Library/Fonts/Supplemental/Arial.ttf'");
+      expect(vf).toContain("y=h-text_h-72");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      _setSubtitlesFilterForTest(true);
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
+    }
+  });
+
+  it("falls to sidecar when drawtext is present but no font resolves", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-cap-nofont-"));
+    try {
+      const src = join(dir, "src.mp4");
+      const srt = join(dir, "captions.srt");
+      writeFileSync(src, "x");
+      writeFileSync(srt, "1\n00:00:00,000 --> 00:00:01,000\nhi\n");
+      _setSubtitlesFilterForTest(false);
+      _setDrawtextFilterForTest(true);
+      _setCaptionFontForTest(null);
+      const report = await composeVideo(
+        { version: "1.0", cuts: [{ id: "a", source: src, in_seconds: 0, out_seconds: 1 }] },
+        { workDir: dir, output: join(dir, "out.mp4"), captions: { srtPath: srt, burn: true } },
+        { spawnImpl: fakeSpawn() },
+      );
+      expect(report.verification_notes.some((n) => n.includes("sidecar"))).toBe(true);
+      expect(report.warnings.some((w) => w.includes("drawtext") && w.includes("font") && w.includes("sidecar"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      _setSubtitlesFilterForTest(true);
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
     }
   });
 

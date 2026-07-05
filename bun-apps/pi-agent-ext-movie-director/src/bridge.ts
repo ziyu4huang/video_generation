@@ -362,7 +362,10 @@ export async function selectAndGenerate(
   selectorOpts: SelectorOptions = {},
   deps: GenerateDeps = {},
 ): Promise<GenerateOutcome> {
-  const entry = selectProvider(capability, selectorOpts);
+  // Default the selector's command to the request's command so a caller that
+  // addresses {capability, command} routes correctly without re-passing command
+  // in selectorOpts (command-routing tiebreak lives in the selector).
+  const entry = selectProvider(capability, { ...selectorOpts, command: selectorOpts.command ?? req.command });
   const result = await generate(entry, { ...req, capability }, deps);
   return { entry, result };
 }
