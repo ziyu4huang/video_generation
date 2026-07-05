@@ -36,6 +36,15 @@ python/venv/bin/python python/mlx-movie-director/run.py <args>
 
 > **Invoke from repo root only.** The mlx venv is at `python/venv/` (not inside `python/mlx-movie-director/`). Running `cd python/mlx-movie-director && python/venv/bin/python run.py` fails — the relative path breaks after `cd`. `run.py` resolves model paths from `__file__`, so cwd doesn't matter.
 
+> **`python/venv` is NOT auto-created** (2026-07-05 drift check). It is gitignored and per-machine; on a fresh clone (or after `git clean`) it is absent and `run.py` will fail with `ModuleNotFoundError: mlx`. The sibling venvs (`python/whisper-venv`, `python/vision-venv`) back ONLY the movie-director Bun extension's Item I adapters (mlx-whisper, CLIP/ESRGAN via torch) — they do NOT hold the full MLX generation stack. Recreate the MLX venv on demand:
+> ```bash
+> uv venv python/venv --python 3.12
+> uv pip install -r python/mlx-movie-director/requirements.txt --python python/venv/bin/python
+> ```
+> The GUI (`bun run dev`) spawns `run.py` via this path; if image/video generation in the GUI errors with a missing `mlx` module, this venv needs recreating.
+
+
+
 ## Shell discipline — never top-level `cd`
 
 A `PreToolUse` hook (`no-cd-drift.sh`) **blocks any top-level `cd <dir>`** in the Bash tool — the tool's cwd persists across calls, so drifting out of the repo root breaks repo-root-relative paths (`python/venv`, `run.py`, `dist/...`). Always do ONE of:

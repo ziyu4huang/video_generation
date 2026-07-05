@@ -497,6 +497,33 @@ describe("whisperAdapter (mocked spawn)", () => {
       _setWhisperRuntimeForTest(true);
     }
   });
+
+  it("default outputDir is a per-call temp dir, NOT the repo root (fold-in)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-whisper-default-"));
+    try {
+      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
+        const outIdx = argv.indexOf("--output");
+        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(FIXTURE_RESULT, null, 2));
+        return 0;
+      };
+      const audio = join(dir, "narration.m4a");
+      writeFileSync(audio, "fake");
+      // NOTE: no outputDir on the request — the agent-driven shape.
+      const r = await whisperAdapter({
+        capability: "analysis",
+        command: "transcribe",
+        options: { audio, _spawnImpl: mockSpawn },
+      });
+      expect(r.success).toBe(true);
+      const transcriptPath = r.artifacts.find((a) => a.role === "transcript")!.path;
+      // The transcript lands in a per-call temp dir under os.tmpdir(), never cwd.
+      expect(transcriptPath.startsWith(tmpdir())).toBe(true);
+      expect(transcriptPath).not.toContain(process.cwd());
+      expect(existsSync(transcriptPath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── esrgan adapter (Item I sibling) ──────────────────────────────────────────

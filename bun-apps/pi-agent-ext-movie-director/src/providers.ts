@@ -17,7 +17,8 @@
  * when a key appears, or downgrade an ffmpeg provider when the binary is gone).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
 import { EXT_ROOT } from "./paths.ts";
@@ -480,7 +481,11 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   if (!opts.audio || !existsSync(opts.audio)) {
     return fail(req, "whisper", `audio missing or not found: ${opts.audio ?? "(none)"}`);
   }
-  const outputDir = req.outputDir ?? process.cwd();
+  // Workspace-relative default: when the caller omits outputDir (the common
+  // agent-driven case), write transcript.txt/words.json to a per-call temp dir
+  // instead of process.cwd() — so a run never litters the repo root. Callers
+  // that want a specific location still pass outputDir/output explicitly.
+  const outputDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-transcribe-"));
   const started = Date.now();
   try {
     const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
