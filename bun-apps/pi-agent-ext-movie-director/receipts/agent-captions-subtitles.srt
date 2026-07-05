@@ -1,0 +1,15 @@
+1
+00:00:00,000 --> 00:00:00,880
+Welcome to the movie
+2
+00:00:00,880 --> 00:00:02,900
+director pipeline. This clip
+3
+00:00:02,900 --> 00:00:04,940
+demonstrates native transcription with
+4
+00:00:04,940 --> 00:00:06,420
+word level timestamps burned
+5
+00:00:06,420 --> 00:00:07,060
+in as captions.

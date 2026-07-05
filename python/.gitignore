@@ -1,4 +1,5 @@
 venv
+whisper-venv
 */output/
 
 # Large model weight files — externalized to the content-addressed store
