@@ -137,13 +137,51 @@ public enum DenoiseLoop {
     /// AdaLN modulation) and are correctly seen as "clean" by every other
     /// token's cross-attention during the forward pass, not just corrected
     /// in the output afterward via `applyDenoiseMask`.
+    ///
+    /// `cachedBlockCount` bounds an opt-in cache of the FIRST `n` blocks'
+    /// dequantized+LoRA-fused weights across sigma steps (default 0 =
+    /// unchanged streaming behavior — every block rebuilt from the raw
+    /// checkpoint every step, zero behavior/memory change from before this
+    /// parameter existed).
+    ///
+    /// **Measured, not just theorized — and the measurement says this is a
+    /// memory-headroom-dependent tradeoff, not a free win:**
+    /// - Caching all 48 blocks (`cachedBlockCount: numLayers`) was measured
+    ///   end-to-end on a real i2v generation: it holds ~88GB of
+    ///   simultaneously-resident dequantized weights on this 22B-class
+    ///   model, and on this machine that drove free memory to ~0 and
+    ///   triggered real disk swap — a ~30-40% wall-time REGRESSION, not a
+    ///   speedup, because swap I/O cost dwarfed the redundant-dequant
+    ///   savings.
+    /// - A bounded prefix (`cachedBlockCount` small, e.g. 2 or 8) was
+    ///   expected to sidestep this by capping the extra resident footprint
+    ///   to `cachedBlockCount × ~1.8GB`. In practice, tested at
+    ///   `cachedBlockCount` 2 and 8 on a machine that already had ~40GB+
+    ///   claimed by unrelated background processes (browser, editor, etc.,
+    ///   leaving ~86GB nominally free but little real headroom once this
+    ///   pipeline's own baseline footprint — T2I model, text encoder, the
+    ///   19GB raw transformer checkpoint, VAE/vocoder — is accounted for):
+    ///   even `cachedBlockCount: 2` measurably increased `sysctl
+    ///   vm.swapusage`'s `used` figure during the run (new swap growth, not
+    ///   just pre-existing residual swap) and was slightly slower than
+    ///   `cachedBlockCount: 0`, not faster.
+    /// - **Conclusion: whether any non-zero `cachedBlockCount` is a net win
+    ///   depends on how much real free memory exists at generation time,
+    ///   which this codebase has no way to detect or adapt to today.**
+    ///   That's why the default is 0 (unconditionally safe) rather than
+    ///   some small "should be fine" constant — a future caller wiring this
+    ///   up should re-run the same before/after wall-time + `vm.swapusage`
+    ///   delta measurement on ITS target machine, ideally with a
+    ///   memory-headroom check (e.g. only enable when several tens of GB
+    ///   are genuinely free), before choosing a non-zero value.
     public static func runStreaming(
         model: LTXModel, numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
         videoState: LatentState, audioState: LatentState,
         videoTextEmbeds: MLXArray, audioTextEmbeds: MLXArray,
         sigmas: [Float],
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
-        audioOnly: Bool = false
+        audioOnly: Bool = false,
+        cachedBlockCount: Int = 0
     ) -> DenoiseResult {
         var videoX = videoState.latent
         var audioX = audioState.latent
@@ -154,41 +192,52 @@ public enum DenoiseLoop {
         let videoUniform = isUniformMask(videoState.denoiseMask)
         let audioUniform = isUniformMask(audioState.denoiseMask)
 
-        for i in 0..<(sigmas.count - 1) {
-            let sigma = sigmas[i]
-            let sigmaNext = sigmas[i + 1]
-            let sigmaArray = MLXArray(Array(repeating: sigma, count: b))
+        var blockCache: [Int: BasicAVTransformerBlock] = [:]
 
-            let videoTimesteps = videoUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: videoState.denoiseMask)
-            let audioTimesteps = audioUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: audioState.denoiseMask)
-
-            let (videoV, audioV) = model.streamingForward(
-                videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
-                numLayers: numLayers, blockProvider: blockProvider,
-                videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
-                videoPositions: videoState.positions, audioPositions: audioState.positions,
-                videoAttentionMask: vMask, audioAttentionMask: aMask,
-                videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
-                audioOnly: audioOnly)
-
-            let sigmaB = sigmaArray.reshaped([b, 1, 1]).asType(.float32)
-            var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
-            var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
-
-            videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)
-            audioX0 = applyDenoiseMask(x0: audioX0, cleanLatent: audioState.cleanLatent, denoiseMask: audioState.denoiseMask)
-
-            if sigma == 0 {
-                videoX = videoX0
-                audioX = audioX0
-            } else {
-                videoX = eulerStep(x: videoX, x0: videoX0, sigma: sigma, sigmaNext: sigmaNext)
-                audioX = eulerStep(x: audioX, x0: audioX0, sigma: sigma, sigmaNext: sigmaNext)
+        return withoutActuallyEscaping(blockProvider) { blockProvider in
+            let effectiveBlockProvider: (Int) -> BasicAVTransformerBlock = cachedBlockCount <= 0 ? blockProvider : { idx in
+                if let cached = blockCache[idx] { return cached }
+                let block = blockProvider(idx)
+                if idx < cachedBlockCount { blockCache[idx] = block }
+                return block
             }
-            MLX.eval(videoX, audioX)
-        }
 
-        return DenoiseResult(videoLatent: videoX, audioLatent: audioX)
+            for i in 0..<(sigmas.count - 1) {
+                let sigma = sigmas[i]
+                let sigmaNext = sigmas[i + 1]
+                let sigmaArray = MLXArray(Array(repeating: sigma, count: b))
+
+                let videoTimesteps = videoUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: videoState.denoiseMask)
+                let audioTimesteps = audioUniform ? nil : perTokenTimesteps(sigma: sigma, denoiseMask: audioState.denoiseMask)
+
+                let (videoV, audioV) = model.streamingForward(
+                    videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                    numLayers: numLayers, blockProvider: effectiveBlockProvider,
+                    videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                    videoPositions: videoState.positions, audioPositions: audioState.positions,
+                    videoAttentionMask: vMask, audioAttentionMask: aMask,
+                    videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                    audioOnly: audioOnly)
+
+                let sigmaB = sigmaArray.reshaped([b, 1, 1]).asType(.float32)
+                var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
+                var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
+
+                videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)
+                audioX0 = applyDenoiseMask(x0: audioX0, cleanLatent: audioState.cleanLatent, denoiseMask: audioState.denoiseMask)
+
+                if sigma == 0 {
+                    videoX = videoX0
+                    audioX = audioX0
+                } else {
+                    videoX = eulerStep(x: videoX, x0: videoX0, sigma: sigma, sigmaNext: sigmaNext)
+                    audioX = eulerStep(x: audioX, x0: audioX0, sigma: sigma, sigmaNext: sigmaNext)
+                }
+                MLX.eval(videoX, audioX)
+            }
+
+            return DenoiseResult(videoLatent: videoX, audioLatent: audioX)
+        }
     }
 
     /// Reference: mlx_arsenal.diffusion.euler_step —
