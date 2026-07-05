@@ -67,6 +67,16 @@ public struct NativeRelayStage {
         /// if shorter.
         public var audioOverlayPath: URL?
 
+        /// Grid guide (see NativeI2VStage.Request.gridImagePath's header):
+        /// applied IDENTICALLY to every segment, same as loraPaths — there
+        /// is one grid-guide config per relay run, not one per segment.
+        /// Ignored when `gridFrameIndices` is empty.
+        public var gridImagePath: URL?
+        public var gridColumns: Int = 2
+        public var gridRows: Int = 2
+        public var gridFrameIndices: [Int] = []
+        public var gridStrengths: [Float] = []
+
         public init(
             prompts: [String], firstImagePath: URL? = nil, seconds: Double = 2.0, fps: Double = 24.0,
             width: Int = 640, height: Int = 960, seed: UInt64 = 42,
@@ -128,6 +138,13 @@ public struct NativeRelayStage {
                 t2iTransformer: request.t2iTransformer, textMaxLength: request.textMaxLength,
                 loraPaths: request.loraPaths)
             segRequest.inputImagePath = nextInputImage
+            if !request.gridFrameIndices.isEmpty {
+                segRequest.gridImagePath = request.gridImagePath
+                segRequest.gridColumns = request.gridColumns
+                segRequest.gridRows = request.gridRows
+                segRequest.gridFrameIndices = request.gridFrameIndices
+                segRequest.gridStrengths = request.gridStrengths
+            }
 
             let result = try stage.generate(segRequest, outputDir: segDir)
             segmentResults.append(result)

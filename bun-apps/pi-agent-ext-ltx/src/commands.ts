@@ -203,6 +203,11 @@ export const COMMANDS: Record<string, CommandSpec> = {
       relayTtsVoice: { flag: "--relay-tts-voice", type: "string", description: "Voice name for relayTtsText. Default Meijia (zh-TW). List available voices with: say -v '?'." },
       relayTtsRate: { flag: "--relay-tts-rate", type: "int", description: "Speech rate in words/min for relayTtsText. Default 145." },
       variant: { flag: "--variant", type: "string[]", description: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides loras for that run." },
+      gridImage: { flag: "--grid-image", type: "string", isPath: true, description: "Grid guide: a single image containing an NxN grid of storyboard panels, split in-memory and pinned as N independent keyframe guides, applied to EVERY segment (see gridFrameIndices/gridStrengths). Requires gridFrameIndices." },
+      gridColumns: { flag: "--grid-columns", type: "int", description: "Grid guide column count. Default 2." },
+      gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
+      gridFrameIndices: { flag: "--grid-frame-indices", type: "number[]", description: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly gridColumns * gridRows entries." },
+      gridStrengths: { flag: "--grid-strengths", type: "number[]", description: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match gridFrameIndices count when given." },
     },
   },
 

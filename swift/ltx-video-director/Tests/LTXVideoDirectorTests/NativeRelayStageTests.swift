@@ -56,4 +56,34 @@ final class NativeRelayStageTests: XCTestCase {
             }
         }
     }
+
+    /// Grid-guide config is forwarded to every segment's NativeI2VStage.Request
+    /// (see NativeRelayStage.swift's generate() loop), so a mismatched
+    /// gridFrameIndices count surfaces as NativeI2VStage's own fail-fast
+    /// error on segment 1 — before any model loading, same as the checks
+    /// above. Real grid-guide *conditioning* behavior is covered end-to-end
+    /// by NativeI2VStageGridGuideTests (needs real checkpoints); this only
+    /// proves the relay-level plumbing forwards the config at all.
+    func testGridConfigMismatchThrowsThroughFirstSegment() {
+        let stage = NativeRelayStage()
+        var request = NativeRelayStage.Request(prompts: ["a red ball on a table"])
+        let gridURL = FileManager.default.temporaryDirectory.appendingPathComponent("grid_\(UUID().uuidString).png")
+        FileManager.default.createFile(atPath: gridURL.path, contents: Data())
+        defer { try? FileManager.default.removeItem(at: gridURL) }
+        request.gridImagePath = gridURL
+        request.gridColumns = 2
+        request.gridRows = 2
+        // Deliberately wrong: only 3 indices for a 2x2 (4-panel) grid.
+        request.gridFrameIndices = [0, 1, 2]
+        let outputDir = FileManager.default.temporaryDirectory.appendingPathComponent("native_relay_grid_mismatch_\(UUID().uuidString)")
+        XCTAssertThrowsError(try stage.generate(request, outputDir: outputDir)) { error in
+            guard let stageError = error as? NativeI2VStage.StageError else {
+                XCTFail("expected NativeI2VStage.StageError, got \(error)")
+                return
+            }
+            if case .gridConfigMismatch = stageError {} else {
+                XCTFail("expected .gridConfigMismatch, got \(stageError)")
+            }
+        }
+    }
 }

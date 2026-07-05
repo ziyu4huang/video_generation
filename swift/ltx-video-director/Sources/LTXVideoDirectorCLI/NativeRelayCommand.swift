@@ -82,6 +82,24 @@ struct NativeRelay: ParsableCommand {
             help: "Run once per named variant for A/B comparison: name[=lora_path[:strength]]. A bare name (no '=') runs with no LoRA (e.g. 'baseline'). Repeatable. Each variant's output goes to <output>/<name>/ and overrides --lora for that run.")
     var variantSpecs: [String] = []
 
+    @Option(name: .customLong("grid-image"),
+            help: "Grid guide: a single image containing an NxN grid of storyboard panels, split in-memory and pinned as N independent keyframe guides, applied to EVERY segment (see --grid-frame-indices/--grid-strengths). Requires --grid-frame-indices.")
+    var gridImage: String?
+
+    @Option(name: .customLong("grid-columns"), help: "Grid guide column count.")
+    var gridColumns: Int = 2
+
+    @Option(name: .customLong("grid-rows"), help: "Grid guide row count.")
+    var gridRows: Int = 2
+
+    @Option(name: .customLong("grid-frame-indices"), parsing: .upToNextOption,
+            help: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly --grid-columns * --grid-rows entries.")
+    var gridFrameIndices: [Int] = []
+
+    @Option(name: .customLong("grid-strengths"), parsing: .upToNextOption,
+            help: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match --grid-frame-indices count when given.")
+    var gridStrengths: [Double] = []
+
     private func parseLoRASpecs(_ specs: [String]) throws -> [(path: URL, strength: Float)] {
         try specs.map { spec in
             let parts = spec.split(separator: ":", maxSplits: 1)
@@ -105,6 +123,17 @@ struct NativeRelay: ParsableCommand {
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.firstImagePath = firstImage.map { URL(fileURLWithPath: $0) }
         request.audioOverlayPath = relayAudio.map { URL(fileURLWithPath: $0) }
+
+        if let gridImage {
+            guard !gridFrameIndices.isEmpty else {
+                throw ValidationError("--grid-image requires --grid-frame-indices")
+            }
+            request.gridImagePath = URL(fileURLWithPath: gridImage)
+            request.gridColumns = gridColumns
+            request.gridRows = gridRows
+            request.gridFrameIndices = gridFrameIndices
+            request.gridStrengths = gridStrengths.map { Float($0) }
+        }
 
         if let ttsText = relayTTSText, relayAudio == nil {
             let ttsURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("native_relay_tts_\(UUID().uuidString).aiff")
