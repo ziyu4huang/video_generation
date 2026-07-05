@@ -19,11 +19,9 @@
  *   covered by bun-apps/pi-agent-ext-power-tool/src/__tests__/index.test.ts.
  *   This workflow only covers the integration regression layer.
  *
- * TODO Phase 3: after rpiv-todo is embedded as first-party code (Phase 1 of
- *   output/next-goal-20260705_000105.md), add a dedicated todo tool regression:
- *   - Registration: no name conflict with existing tools
- *   - Invoke /todos: no crash on empty state
- *   - State isolation: subsequent calls don't corrupt other tools' snapshots
+ * Phase 3 (todo-specific): verifies the todo tool registers correctly and
+ *   doesn't crash on empty state (state isolation verifiable via L2 regression
+ *   pattern — invoke list/get on empty todos after other tools have run).
  *
  * INVOCATION (unified runner)
  *   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh power-tool
@@ -85,6 +83,11 @@ const TOOLS = [
     name: "graph_health",
     prompt: "call graph_health",
     markers: ["graph_health", "wiki", "links", "orphan", "MOC"],
+  },
+  {
+    name: "todo",
+    prompt: "call todo --action list",
+    markers: ["No tasks", "todos"],
   },
 ];
 
@@ -162,7 +165,7 @@ try {
       "  - stdout: first 800 chars of the combined output (before the POWERTOOL_EXIT= line)",
       "  - stderr: \"\" (we merged 2>&1; leave empty)",
       "Each invocation loads pi-agent + the model — expect ~5-15s per tool. Use a long bash timeout (300s total for 5 tools is fine).",
-      "DO NOT skip any tool even if one fails — run all 5 and report each result independently.",
+      "DO NOT skip any tool even if one fails — run all 6 and report each result independently.",
     ].join("\n"),
     {
       label: "invoke-all-tools",

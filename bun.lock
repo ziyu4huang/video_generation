@@ -144,6 +144,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@earendil-works/pi-coding-agent": "latest",
+        "@earendil-works/pi-tui": "^0.80.3",
         "js-yaml": "latest",
         "pi-knowledge-card": "workspace:*",
         "typebox": "latest",
