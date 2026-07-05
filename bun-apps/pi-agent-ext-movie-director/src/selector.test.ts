@@ -4,13 +4,24 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
-// Pin ffmpeg-present + empty env so tests are deterministic regardless of host.
-beforeAll(() => _setFfmpegAvailableForTest(true));
-afterAll(() => _setFfmpegAvailableForTest(undefined));
+// Pin ffmpeg-present + remotion-absent + motion-filters-absent + empty env so
+// tests are deterministic regardless of host: compose_ffmpeg stays the top
+// composition backend (a dev box with remotion/motion filters would otherwise
+// flip the pick).
+beforeAll(() => {
+  _setFfmpegAvailableForTest(true);
+  _setRemotionProbeForTest(false);
+  _setMotionFiltersForTest(false);
+});
+afterAll(() => {
+  _setFfmpegAvailableForTest(undefined);
+  _setRemotionProbeForTest(undefined);
+  _setMotionFiltersForTest(undefined);
+});
 
 const NO_ENV: Record<string, string | undefined> = {};
 

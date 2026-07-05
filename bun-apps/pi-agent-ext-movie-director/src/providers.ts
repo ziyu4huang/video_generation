@@ -16,11 +16,15 @@
  * the probe is the runtime truth (it can upgrade a cloud provider to callable
  * when a key appears, or downgrade an ffmpeg provider when the binary is gone).
  */
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
 import { EXT_ROOT } from "./paths.ts";
+import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
+import { composeMotion } from "./compose_motion.ts";
+import type { RenderReport } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
 
@@ -45,6 +49,64 @@ function ffmpegAvailable(): boolean {
 /** Force a ffmpeg-availability result (tests inject a deterministic value). */
 export function _setFfmpegAvailableForTest(v: boolean | undefined): void {
   ffmpegCached = v;
+}
+
+// ─── Remotion binary probe (compose:remotion) ────────────────────────────────
+
+/**
+ * True if a usable `remotion` binary resolves (NOT the bunx fallback). Mirrors
+ * `remotionAvailable()` in remotion.ts but SYNCHRONOUS (probeConfigured must be
+ * sync) and cached per process. Resolution order: REMOTION_BIN env (must exist
+ * on disk) → `remotion --version` on PATH (exit 0). The bunx fallback is treated
+ * as "not really installed" (matches remotion.ts:176).
+ */
+function remotionOnPath(): boolean {
+  try {
+    const r = spawnSync("remotion", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return r.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+let remotionCached: boolean | undefined;
+function remotionBinaryAvailable(env: Record<string, string | undefined>): boolean {
+  if (remotionCached != null) return remotionCached;
+  if (env.REMOTION_BIN && existsSync(env.REMOTION_BIN)) remotionCached = true;
+  else remotionCached = remotionOnPath();
+  return remotionCached;
+}
+
+/** Force the remotion-binary probe result (tests inject a deterministic value). */
+export function _setRemotionProbeForTest(v: boolean | undefined): void {
+  remotionCached = v;
+}
+
+// ─── ffmpeg motion-filter probe (compose:motion) ─────────────────────────────
+
+/**
+ * True if this ffmpeg build has BOTH the `zoompan` (ken-burns/zoom/pan) and
+ * `xfade` (crossfade) filters the motion compositor needs. Standard builds
+ * (including Homebrew ffmpeg on macOS) ship both; cached per process. Mirrors
+ * the libass probe in compose.ts.
+ */
+let motionFiltersCached: boolean | undefined;
+function motionFiltersAvailable(): boolean {
+  if (motionFiltersCached != null) return motionFiltersCached;
+  try {
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-filters"], { encoding: "utf8" });
+    const list = r.stdout ?? "";
+    const has = (name: string) => new RegExp(`(?:^|\\s).{0,3}${name}\\s`).test(list);
+    motionFiltersCached = has("zoompan") && has("xfade");
+  } catch {
+    motionFiltersCached = false;
+  }
+  return motionFiltersCached;
+}
+
+/** Force the motion-filter probe result (tests inject a deterministic value). */
+export function _setMotionFiltersForTest(v: boolean | undefined): void {
+  motionFiltersCached = v;
 }
 
 const CLOUD_KEY_FOR: Record<string, string> = {
@@ -82,6 +144,14 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "bun:esrgan":
       // callable iff the vision-venv python + esrgan entry script resolve.
       return entry.configured && visionRuntimePresent(env, ESRGAN_SCRIPT);
+    case "compose:remotion":
+      // callable iff the registry flag is set AND a real remotion binary resolves
+      // (REMOTION_BIN on disk OR `remotion` on PATH — NOT the bunx fallback).
+      return entry.configured && remotionBinaryAvailable(env);
+    case "compose:motion":
+      // callable iff ffmpeg is on PATH AND its build has zoompan+xfade (the motion
+      // compositor's only deps — no browser, no swift). Reuses the ffmpeg cache.
+      return entry.configured && ffmpegAvailable() && motionFiltersAvailable();
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.
@@ -411,7 +481,11 @@ export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<Too
   if (!opts.audio || !existsSync(opts.audio)) {
     return fail(req, "whisper", `audio missing or not found: ${opts.audio ?? "(none)"}`);
   }
-  const outputDir = req.outputDir ?? process.cwd();
+  // Workspace-relative default: when the caller omits outputDir (the common
+  // agent-driven case), write transcript.txt/words.json to a per-call temp dir
+  // instead of process.cwd() — so a run never litters the repo root. Callers
+  // that want a specific location still pass outputDir/output explicitly.
+  const outputDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-transcribe-"));
   const started = Date.now();
   try {
     const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
@@ -588,7 +662,12 @@ export const esrganAdapter: Adapter = async (req: GenerateRequest): Promise<Tool
     return fail(req, "esrgan", `model not found: ${model} (set MD_ESRGAN_MODEL)`);
   }
   const spawnImpl = opts._spawnImpl ?? runSpawn;
-  const jsonOut = join(req.outputDir ?? process.cwd(), `esrgan_${process.pid}_${Date.now() % 100000}.json`);
+  // Workspace-relative default (same drift fix as whisper/clip): when outputDir
+  // is omitted the per-call JSON scratch + any artifacts land in a temp dir, not
+  // the repo root. The upscaled PNG path comes from the python entry (next to
+  // the source image), so this only affects the JSON scratch file.
+  const esrganOutDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-esrgan-"));
+  const jsonOut = join(esrganOutDir, `esrgan_${process.pid}_${Date.now() % 100000}.json`);
   const argv = [ESRGAN_SCRIPT, "--image", opts.image, "--model", model, "--output", jsonOut];
   if (opts.output) argv.push("--out-image", opts.output);
   const started = Date.now();
@@ -707,7 +786,7 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
     return fail(req, "clip", "prompt is required for video_understand");
   }
   const env = process.env as Record<string, string | undefined>;
-  const outDir = req.outputDir ?? process.cwd();
+  const outDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-clip-"));
   const started = Date.now();
   try {
     // Resolve frames: caller-supplied, or sampled here via ffmpeg.
@@ -881,6 +960,101 @@ function fail(req: GenerateRequest, provider: string, error: string, durationSec
   };
 }
 
+// ─── compose:remotion adapter (delegates to renderRemotion) ──────────────────
+
+/**
+ * Adapter wrapper so `selectAndGenerate("composition", {...})` routes to the
+ * Remotion runtime (the compose-remotion action in the extension calls
+ * renderRemotion directly; this wrapper exposes the same path through the
+ * selector/bridge). Maps the RenderReport → ToolResult.
+ */
+export const composeRemotionAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number; fps?: number };
+  const edit = opts.editDecisions;
+  if (!edit || !Array.isArray(edit.cuts)) {
+    return fail(req, "remotion", "compose:remotion requires options.editDecisions.{version,cuts:[...]}");
+  }
+  const outputDir = req.outputDir ?? process.cwd();
+  const workDir = opts.workDir ?? outputDir;
+  const started = Date.now();
+  try {
+    const report: RenderReport = await renderRemotion(edit, {
+      workDir,
+      output: opts.output,
+      width: opts.width,
+      height: opts.height,
+      fps: opts.fps,
+    });
+    const ok = report.outputs.length > 0;
+    return {
+      success: ok,
+      provider: "remotion",
+      command: req.command || "compose-remotion",
+      artifacts: report.outputs.map((o) => ({
+        path: resolve(o.path),
+        kind: "video" as const,
+        bytes: o.file_size_bytes,
+        role: "composed",
+      })),
+      error: ok ? null : (report.warnings[0] ?? "remotion produced no output"),
+      cost_usd: 0, // local Node subprocess — honest $0 marginal
+      duration_seconds: report.render_time_seconds ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: "remotion",
+    };
+  } catch (err) {
+    return fail(req, "remotion", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
+// ─── compose:motion adapter (delegates to composeMotion) ─────────────────────
+
+/**
+ * Adapter wrapper so `selectAndGenerate("composition", {...})` and the
+ * `compose-motion` action route to the ffmpeg motion compositor. Maps the
+ * RenderReport → ToolResult. Same edit shape as compose-remotion
+ * (RemotionEditDecisions) so an agent can drive either runtime from one edit.
+ */
+export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number; fps?: number; transitionSeconds?: number };
+  const edit = opts.editDecisions;
+  if (!edit || !Array.isArray(edit.cuts)) {
+    return fail(req, "motion", "compose:motion requires options.editDecisions.{version,cuts:[...]}");
+  }
+  const outputDir = req.outputDir ?? process.cwd();
+  const workDir = opts.workDir ?? outputDir;
+  const started = Date.now();
+  try {
+    const report: RenderReport = await composeMotion(edit, {
+      workDir,
+      output: opts.output,
+      width: opts.width,
+      height: opts.height,
+      fps: opts.fps,
+      transitionSeconds: opts.transitionSeconds,
+    });
+    const ok = report.outputs.length > 0;
+    return {
+      success: ok,
+      provider: "motion",
+      command: req.command || "compose-motion",
+      artifacts: report.outputs.map((o) => ({
+        path: resolve(o.path),
+        kind: "video" as const,
+        bytes: o.file_size_bytes,
+        role: "composed",
+      })),
+      error: ok ? null : (report.warnings[0] ?? "motion produced no output"),
+      cost_usd: 0, // local ffmpeg — honest $0 marginal
+      duration_seconds: report.render_time_seconds ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: "ffmpeg-zoompan-xfade",
+    };
+  } catch (err) {
+    return fail(req, "motion", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
 /** The non-native adapter map (merged into realAdapters by bridge.ts). */
 export function nonNativeAdapters(_env?: Record<string, string | undefined>): Partial<Record<ProviderEntry["invoke"], Adapter>> {
   return {
@@ -889,6 +1063,8 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
     "bun:whisper": whisperAdapter, // transcriber (Item I) spawns mlx-whisper via python
     "bun:clip": clipAdapter, // video_understand (Item I sibling) — CLIP via torch MPS
     "bun:esrgan": esrganAdapter, // upscale (Item I sibling) — ESRGAN via torch MPS
+    "compose:remotion": composeRemotionAdapter, // composition runtime (iteration G #280) — Remotion Node subprocess
+    "compose:motion": composeMotionAdapter, // composition runtime (Item J) — ffmpeg zoompan+xfade motion compositor
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
 }

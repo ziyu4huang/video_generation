@@ -19,6 +19,8 @@ import {
   esrganScriptPath,
   resolveVisionPython,
   _setFfmpegAvailableForTest,
+  _setRemotionProbeForTest,
+  _setMotionFiltersForTest,
   _setWhisperRuntimeForTest,
   _setVisionRuntimeForTest,
   type WhisperResult,
@@ -29,12 +31,16 @@ import { REGISTRY } from "./registry.ts";
 
 beforeAll(() => {
   _setFfmpegAvailableForTest(true);
+  _setRemotionProbeForTest(false);
+  _setMotionFiltersForTest(true);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
   _setVisionRuntimeForTest("esrgan", true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
+  _setRemotionProbeForTest(undefined);
+  _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
   _setVisionRuntimeForTest("esrgan", undefined);
@@ -211,6 +217,77 @@ describe("probeConfigured + probedMenuSummary", () => {
     // subtitle_gen (bun:builtin, non-gap) is callable.
     const sub = m.capabilities.find((c) => c.capability === "subtitle")!;
     expect(sub.available_providers).toContain("openmontage");
+  });
+
+  it("compose_remotion is reclassified (Item A): callable iff binary resolves", () => {
+    const remotion = REGISTRY.find((p) => p.name === "compose_remotion")!;
+    // The drift fix: native_swift + compose:remotion + configured (was cloud_http/fetch/false).
+    expect(remotion.configured).toBe(true);
+    expect(remotion.backend).toBe("native_swift");
+    expect(remotion.invoke).toBe("compose:remotion");
+    // Default (probe-pinned false): not callable, so it lists under unavailable.
+    expect(probeConfigured(remotion, NO_ENV)).toBe(false);
+    // Binary resolves (REMOTION_BIN points at a real file) → callable.
+    const env = { REMOTION_BIN: process.execPath }; // a real binary on disk
+    _setRemotionProbeForTest(undefined); // re-evaluate against env
+    try {
+      expect(probeConfigured(remotion, env)).toBe(true);
+    } finally {
+      _setRemotionProbeForTest(false); // restore the deterministic default
+    }
+  });
+
+  it("Item A acceptance: composition GAPs list is [hyperframes] only after remotion repair", () => {
+    // When remotion resolves, composition.available_providers includes remotion
+    // AND ffmpeg AND motion (the Item J runtime); the only remaining GAP is
+    // hyperframes (browser-only, vendor-gated).
+    _setRemotionProbeForTest(true);
+    try {
+      const m = probedMenuSummary(NO_ENV);
+      const composition = m.capabilities.find((c) => c.capability === "composition")!;
+      expect(composition.available_providers).toContain("remotion");
+      expect(composition.available_providers).toContain("ffmpeg");
+      expect(composition.available_providers).toContain("motion");
+      expect(composition.unavailable_providers).toEqual(["hyperframes"]);
+      // composition_runtimes rollup reflects the same truth.
+      expect(m.composition_runtimes.remotion).toBe(true);
+      expect(m.composition_runtimes.motion).toBe(true);
+      expect(m.composition_runtimes.hyperframes).toBe(false);
+    } finally {
+      _setRemotionProbeForTest(false);
+    }
+  });
+
+  it("Item J: compose_motion is callable iff ffmpeg + zoompan/xfade filters resolve", () => {
+    const motion = REGISTRY.find((p) => p.name === "compose_motion")!;
+    expect(motion.configured).toBe(true);
+    expect(motion.backend).toBe("ffmpeg");
+    expect(motion.invoke).toBe("compose:motion");
+    // ffmpeg present + motion filters present (test-pinned true) → callable.
+    expect(probeConfigured(motion, NO_ENV)).toBe(true);
+    // motion filters absent → not callable even with ffmpeg present.
+    _setMotionFiltersForTest(false);
+    try {
+      expect(probeConfigured(motion, NO_ENV)).toBe(false);
+    } finally {
+      _setMotionFiltersForTest(true);
+    }
+    // ffmpeg absent → not callable even with filters present.
+    _setFfmpegAvailableForTest(false);
+    try {
+      expect(probeConfigured(motion, NO_ENV)).toBe(false);
+    } finally {
+      _setFfmpegAvailableForTest(true);
+    }
+  });
+
+  it("Item J: compose_hyperframes stays a documented vendor-gated GAP", () => {
+    const hf = REGISTRY.find((p) => p.name === "compose_hyperframes")!;
+    expect(hf.configured).toBe(false);
+    expect(hf.notes.startsWith("GAP")).toBe(true);
+    expect(probeConfigured(hf, NO_ENV)).toBe(false); // never callable headless
+    const m = probedMenuSummary(NO_ENV);
+    expect(m.gaps.map((g) => g.name)).toContain("compose_hyperframes");
   });
 });
 
@@ -420,6 +497,33 @@ describe("whisperAdapter (mocked spawn)", () => {
       _setWhisperRuntimeForTest(true);
     }
   });
+
+  it("default outputDir is a per-call temp dir, NOT the repo root (fold-in)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-whisper-default-"));
+    try {
+      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
+        const outIdx = argv.indexOf("--output");
+        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(FIXTURE_RESULT, null, 2));
+        return 0;
+      };
+      const audio = join(dir, "narration.m4a");
+      writeFileSync(audio, "fake");
+      // NOTE: no outputDir on the request — the agent-driven shape.
+      const r = await whisperAdapter({
+        capability: "analysis",
+        command: "transcribe",
+        options: { audio, _spawnImpl: mockSpawn },
+      });
+      expect(r.success).toBe(true);
+      const transcriptPath = r.artifacts.find((a) => a.role === "transcript")!.path;
+      // The transcript lands in a per-call temp dir under os.tmpdir(), never cwd.
+      expect(transcriptPath.startsWith(tmpdir())).toBe(true);
+      expect(transcriptPath).not.toContain(process.cwd());
+      expect(existsSync(transcriptPath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── esrgan adapter (Item I sibling) ──────────────────────────────────────────
@@ -595,6 +699,34 @@ describe("clipAdapter (mocked spawn)", () => {
       expect(r.error).toContain("clip runtime not found");
     } finally {
       _setVisionRuntimeForTest("clip", true);
+    }
+  });
+
+  it("default outputDir is a per-call temp dir, NOT the repo root (fold-in)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-clip-default-"));
+    try {
+      const f0 = join(dir, "f0.png");
+      const f1 = join(dir, "f1.png");
+      writeFileSync(f0, "fake");
+      writeFileSync(f1, "fake");
+      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
+        const outIdx = argv.indexOf("--output");
+        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(CLIP_RESULT, null, 2));
+        return 0;
+      };
+      // NOTE: no outputDir on the request — the agent-driven shape (live evidence:
+      // the CLIP agent run littered the repo root with clip_scores.json + frames).
+      const r = await clipAdapter({
+        capability: "analysis",
+        command: "video_understand",
+        options: { prompt: "a green screen", frames: [f0, f1], _spawnImpl: mockSpawn },
+      });
+      expect(r.success).toBe(true);
+      const scoresPath = r.artifacts.find((a) => a.role === "scores")!.path;
+      expect(scoresPath.startsWith(tmpdir())).toBe(true);
+      expect(scoresPath).not.toContain(process.cwd());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

@@ -1,0 +1,247 @@
+import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { composeMotion, type SpawnImpl, type SpawnResult, type MotionDeps } from "./compose_motion.ts";
+import type { RemotionEditDecisions } from "./remotion.ts";
+
+/**
+ * Drive the motion compositor with a mocked ffmpeg. The fake matches calls by
+ * argv pattern: per-cut motion renders + the final join (concat or xfade) write
+ * a placeholder at the LAST argv path; ffprobe calls return a fixed JSON. This
+ * verifies argv shape + report assembly WITHOUT a real ffmpeg render (the
+ * real-silicon smoke is the e2e script scripts/run-compose-motion-e2e.ts).
+ */
+function fakeSpawn(behavior: { motionExit?: number; joinExit?: number } = {}): SpawnImpl {
+  const calls: { cmd: string; argv: string[] }[] = [];
+  const impl: SpawnImpl = async (cmd: string, argv: string[]): Promise<SpawnResult> => {
+    calls.push({ cmd, argv });
+    if (cmd === "ffprobe") {
+      // duration probe: return a plain number (default=nw=1:nk=1) OR json.
+      if (argv.includes("-show_streams")) {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            format: { duration: "2.0", format_name: "mov,mp4" },
+            streams: [
+              { codec_type: "video", codec_name: "h264", width: 1920, height: 1080, avg_frame_rate: "30/1" },
+              { codec_type: "audio", codec_name: "aac" },
+            ],
+          }),
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: "2.0\n", stderr: "" }; // segment duration probe
+    }
+    // ffmpeg per-cut motion render: last arg is the segment path.
+    if (argv.includes("-vf")) {
+      if (behavior.motionExit != null) return { code: behavior.motionExit, stdout: "", stderr: "motion boom" };
+      const out = argv[argv.length - 1];
+      if (out) writeFileSync(out, "x");
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    // ffmpeg final join (concat or xfade): last arg is the output path.
+    if (argv.includes("-filter_complex")) {
+      if (behavior.joinExit != null) return { code: behavior.joinExit, stdout: "", stderr: "join boom" };
+      const out = argv[argv.length - 1];
+      if (out) writeFileSync(out, "x");
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  // Attach calls for inspection (TS: cast to a bag).
+  (impl as unknown as { _calls: { cmd: string; argv: string[] }[] })._calls = calls;
+  return impl;
+}
+
+function callsOf(impl: SpawnImpl): { cmd: string; argv: string[] }[] {
+  return (impl as unknown as { _calls: { cmd: string; argv: string[] }[] })._calls;
+}
+
+describe("composeMotion (mocked ffmpeg)", () => {
+  it("bakes a zoompan filter for animated cuts and joins via xfade crossfade", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-"));
+    try {
+      const a = join(dir, "a.png");
+      const b = join(dir, "b.png");
+      writeFileSync(a, "x");
+      writeFileSync(b, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [
+          { id: "a", source: a, in_seconds: 0, out_seconds: 2, animation: "ken-burns" },
+          { id: "b", source: b, in_seconds: 0, out_seconds: 2, animation: "zoom-in" },
+        ],
+        transition: "crossfade",
+        transitionSeconds: 0.5,
+      };
+      const out = join(dir, "out.mp4");
+      const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+      const report = await composeMotion(edit, { workDir: dir, output: out, width: 320, height: 180, fps: 10 }, deps);
+
+      expect(report.outputs).toHaveLength(1);
+      expect(report.outputs[0]!.path).toBe(out);
+      expect(report.outputs[0]!.duration_seconds).toBe(2.0);
+      expect(report.outputs[0]!.resolution).toBe("1920x1080"); // from the mocked ffprobe
+      expect(report.outputs[0]!.codec).toBe("h264");
+      expect(report.render_grammar).toBe("motion");
+      expect(report.warnings).toEqual([]);
+
+      const calls = callsOf(deps.spawnImpl!);
+      // Per-cut motion renders carry zoompan (animated cuts).
+      const motionVf = calls
+        .filter((c) => c.cmd === "ffmpeg" && c.argv.includes("-vf"))
+        .map((c) => c.argv[c.argv.indexOf("-vf") + 1]);
+      expect(motionVf).toHaveLength(2);
+      expect(motionVf.every((vf) => vf.includes("zoompan"))).toBe(true);
+      // The final join uses xfade (crossfade + 2 segments).
+      const joinCall = calls.find((c) => c.cmd === "ffmpeg" && c.argv.includes("-filter_complex"));
+      expect(joinCall).toBeDefined();
+      expect(joinCall!.argv[joinCall!.argv.indexOf("-filter_complex") + 1]).toContain("xfade");
+      // Verification note records the crossfade.
+      expect(report.verification_notes.some((n) => n.includes("crossfade"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("static cut omits zoompan; transition=none joins via plain concat", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-static-"));
+    try {
+      const a = join(dir, "a.png");
+      writeFileSync(a, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "static" }],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+      const report = await composeMotion(edit, { workDir: dir, output: out, width: 160, height: 90, fps: 5 }, deps);
+      expect(report.outputs).toHaveLength(1);
+      const calls = callsOf(deps.spawnImpl!);
+      const motionVf = calls
+        .filter((c) => c.cmd === "ffmpeg" && c.argv.includes("-vf"))
+        .map((c) => c.argv[c.argv.indexOf("-vf") + 1]);
+      expect(motionVf).toHaveLength(1);
+      expect(motionVf[0]!.includes("zoompan")).toBe(false); // static → no motion filter
+      // Single segment, transition=none → concat (no xfade).
+      const joinCall = calls.find((c) => c.cmd === "ffmpeg" && c.argv.includes("-filter_complex"));
+      expect(joinCall!.argv[joinCall!.argv.indexOf("-filter_complex") + 1]).toContain("concat");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops text cuts and missing sources with warnings (never crashes)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-drop-"));
+    try {
+      const a = join(dir, "a.png");
+      writeFileSync(a, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [
+          { id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "zoom-in" },
+          { id: "text1", type: "text", text: "hello", in_seconds: 0, out_seconds: 1 },
+          { id: "gone", source: "/no/such.png", in_seconds: 0, out_seconds: 1 },
+        ],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings.some((w) => w.includes("text cut"))).toBe(true);
+      expect(report.warnings.some((w) => w.includes('"gone" source missing'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("empty cuts → empty outputs, no spawn", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-empty-"));
+    try {
+      const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+      const report = await composeMotion({ version: "1.0", cuts: [] }, { workDir: dir }, deps);
+      expect(report.outputs).toEqual([]);
+      expect(report.warnings.some((w) => w.includes("no cuts"))).toBe(true);
+      expect(callsOf(deps.spawnImpl!)).toHaveLength(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces a warning + empty outputs when every motion render fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-fail-"));
+    try {
+      const a = join(dir, "a.png");
+      writeFileSync(a, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn({ motionExit: 1 }) });
+      expect(report.outputs).toEqual([]);
+      expect(report.warnings.some((w) => w.includes("motion render failed"))).toBe(true);
+      expect(existsSync(out)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("mixes narration onto the silent bed when edit.audio.narration is present", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-audio-"));
+    try {
+      const a = join(dir, "a.png");
+      const narration = join(dir, "narration.mp3");
+      writeFileSync(a, "x");
+      writeFileSync(narration, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "a", source: a, in_seconds: 0, out_seconds: 2, animation: "zoom-in" }],
+        audio: { narration: { src: narration, volume: 0.8 } },
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const deps: MotionDeps = { spawnImpl: fakeSpawn() };
+      const report = await composeMotion(edit, { workDir: dir, output: out }, deps);
+      expect(report.outputs).toHaveLength(1);
+      // The mix pass produces a separate file; the report carries THAT path.
+      expect(report.outputs[0]!.path).not.toBe(out);
+      expect(report.outputs[0]!.path).toMatch(/motion_audio_/);
+      expect(report.verification_notes.some((n) => n.includes("audio mixed"))).toBe(true);
+      // The mix ffmpeg call carries atrim + volume (narration fit to duration).
+      const calls = callsOf(deps.spawnImpl!);
+      const mixCall = calls.find((c) => c.cmd === "ffmpeg" && c.argv.includes("-shortest") && c.argv.includes("-c:v") && c.argv.includes("copy"));
+      expect(mixCall).toBeDefined();
+      const fc = mixCall!.argv[mixCall!.argv.indexOf("-filter_complex") + 1];
+      expect(fc).toContain("atrim");
+      expect(fc).toContain("volume=0.8");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns (does not crash) when narration src is missing", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-motion-narr-missing-"));
+    try {
+      const a = join(dir, "a.png");
+      writeFileSync(a, "x");
+      const edit: RemotionEditDecisions = {
+        version: "1.0",
+        cuts: [{ id: "a", source: a, in_seconds: 0, out_seconds: 1, animation: "zoom-in" }],
+        audio: { narration: { src: "/no/such.mp3" } },
+        transition: "none",
+      };
+      const out = join(dir, "out.mp4");
+      const report = await composeMotion(edit, { workDir: dir, output: out }, { spawnImpl: fakeSpawn() });
+      expect(report.outputs).toHaveLength(1);
+      expect(report.warnings.some((w) => w.includes("narration missing"))).toBe(true);
+      // No mix ran → output stays the join path.
+      expect(report.outputs[0]!.path).toBe(out);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
