@@ -6,7 +6,8 @@
   "description": "Pi extension: power-tool suite. Includes context-analyzer (context window breakdown by component).",
   "main": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./extensions/*": "./extensions/*"
   },
   "pi": {
     "extensions": ["./src/index.ts"]

@@ -7,8 +7,9 @@
  * re-invoke `process.argv[1]` with flags like
  *   --mode json -p --no-session --approve -e <pkg> --tools <csv>
  *   --append-system-prompt <tmpfile> <task>
- * — work transparently. The `-e` / `--approve` flags are accepted and ignored
- * because pi-obsidian is already baked into every session (self-contained).
+ * — work transparently. The `-e` flag dynamically imports extension factories
+ * (source mode only; compiled binary users should use the extension's registered
+ * subcommand). The `--approve` flag is accepted and ignored (self-trusted).
  *
  * Output modes:
  *   text  — stream assistant text deltas to stdout (human readable)
@@ -18,6 +19,36 @@
 import { resolveLLM, createSharedSession, type ResolvedLLM } from "./shared.ts";
 import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 import type { ParsedArgs } from "../args.ts";
+import { resolve } from "node:path";
+
+/**
+ * Dynamically import extension factories from file paths. Only works in source
+ * mode (Bun natively imports .ts). In compiled binary mode these imports fail
+ * gracefully — the user sees a warning and should use the extension's registered
+ * CLI subcommand instead (e.g. `bun-pi-agent-cli power-tool`).
+ *
+ * Paths are resolved against cwd (not the CLI's own location), matching how the
+ * original pi-agent's `-e` flag works.
+ */
+async function loadExtensions(paths: string[], cwd: string): Promise<unknown[]> {
+	const factories: unknown[] = [];
+	for (const p of paths) {
+		try {
+			// Resolve relative paths against cwd to match pi-agent's -e behavior.
+			const abs = resolve(cwd, p);
+			const mod = await import(abs);
+			const ext = mod.default ?? mod.extension ?? Object.values(mod)[0];
+			if (typeof ext === "function") {
+				factories.push(ext);
+			} else {
+				console.error(`[passthrough] extension "${p}" has no default export (expected a factory function)`);
+			}
+		} catch (e) {
+			console.error(`[passthrough] could not load extension "${p}": ${(e as Error).message}. Use the extension's CLI subcommand instead.`);
+		}
+	}
+	return factories;
+}
 
 /** Apply vault-related flags to the process environment (obsidian reads these). */
 export function applyVaultEnv(parsed: ParsedArgs): void {
@@ -91,10 +122,18 @@ export async function runPassthrough(
 	}
 
 	const llm = await resolveLLMFromArgs(parsed);
+
+	// If -e was provided, dynamically import extensions (source-mode only).
+	const extraFactories =
+		parsed.extensionPaths.length > 0
+			? await loadExtensions(parsed.extensionPaths, process.cwd())
+			: [];
+
 	const { session } = await createSharedSession(llm, {
 		tools: parsed.tools,
 		excludeTools: parsed.excludeTools,
 		appendSystemPrompt: parsed.appendSystemPrompt,
+		extraExtensionFactories: extraFactories.length > 0 ? extraFactories : undefined,
 		// --no-session is accepted for pi-compat but is a no-op: every passthrough
 		// turn is already ephemeral (in-memory SessionManager). No branching needed.
 	});

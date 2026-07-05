@@ -2,11 +2,9 @@
  * Tests for pi-agent-ext-power-tool.
  *
  * Strategy: drive the extension factory with a mock ExtensionAPI that captures
- * both registerTool() calls and the before_agent_start event handler. We then
- * fire the captured handler with a synthetic event to populate the module-level
- * snapshot, and invoke each tool's execute() directly.
- *
- * This mirrors the pattern in pi-knowledge-card/__tests__/pi-knowledge-card.test.ts.
+ * registerTool() calls, then invoke each tool's execute() directly with a mock
+ * ExtensionContext that provides the system prompt options via
+ * getSystemPromptOptions().
  */
 import { test, expect, describe } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "fs";
@@ -19,7 +17,6 @@ import extension, {
   analyzeExtensions,
   formatExtensionReport,
   summarizeFindings,
-  __resetSnapshotForTests,
   type AnalysisInput,
 } from "../index.ts";
 
@@ -40,18 +37,10 @@ interface CapturedTool {
   execute: ExecuteFn;
 }
 
-interface BeforeAgentStartEvent {
-  type: "before_agent_start";
-  systemPrompt: string;
-  systemPromptOptions: Record<string, unknown>;
-}
-
 // ─── Mock ExtensionAPI ───────────────────────────────────────────────────────
 
 function loadExtension(tools: ToolInfoStub[]) {
   const captured: Record<string, CapturedTool> = {};
-
-  const beforeAgentStartHandlers: Array<(event: BeforeAgentStartEvent, ctx?: Record<string, unknown>) => void> = [];
 
   const mockPi: any = {
     registerTool: (def: any) => {
@@ -65,10 +54,7 @@ function loadExtension(tools: ToolInfoStub[]) {
     registerCommand: (_name: string, _def: any) => {
       // no-op mock — slash commands are exercised by real e2e tests
     },
-    on: (event: string, handler: any) => {
-      if (event === "before_agent_start") {
-        beforeAgentStartHandlers.push(handler);
-      }
+    on: (_event: string, _handler: any) => {
       // lifecycle event handlers (session_start, tool_execution_end, etc.)
       // are accepted without capture — exercised by real e2e tests
     },
@@ -81,15 +67,7 @@ function loadExtension(tools: ToolInfoStub[]) {
 
   extension(mockPi);
 
-  return {
-    captured,
-    fireBeforeAgentStart: (event: BeforeAgentStartEvent, mockCtx?: Record<string, unknown>) => {
-      if (beforeAgentStartHandlers.length === 0) throw new Error("before_agent_start handlers not registered");
-      for (const handler of beforeAgentStartHandlers) {
-        handler(event, mockCtx ?? { hasUI: true });
-      }
-    },
-  };
+  return { captured };
 }
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -156,6 +134,8 @@ const BASE_CTX = {
   isIdle: () => true,
   isProjectTrusted: () => true,
   getContextUsage: () => ({ tokens: 1000, contextWindow: 200000, percent: 0.5 }),
+  getSystemPrompt: () => "x".repeat(1000),
+  getSystemPromptOptions: () => buildSnapshotOpts(),
   model: {
     id: "test-model",
     name: "Test Model",
@@ -212,7 +192,7 @@ describe("tool registration", () => {
 });
 
 describe("context_analyzer", () => {
-  test("graceful message when no snapshot yet", async () => {
+  test("reports tool breakdown from ctx API", async () => {
     const { captured } = loadExtension(TOOLS);
     const res = await captured.context_analyzer.execute(
       undefined,
@@ -223,24 +203,6 @@ describe("context_analyzer", () => {
     );
     const text = res.content[0].text;
     expect(text).toContain("Live context window");
-    expect(text).toContain("No before_agent_start snapshot");
-  });
-
-  test("reports tool breakdown after snapshot", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(1000),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
-    const res = await captured.context_analyzer.execute(
-      undefined,
-      {},
-      undefined,
-      undefined,
-      BASE_CTX,
-    );
-    const text = res.content[0].text;
     expect(text).toContain("Token budget");
     expect(text).toContain("System prompt text");
     expect(text).toContain("API tools schema");
@@ -248,17 +210,14 @@ describe("context_analyzer", () => {
     expect(text).toContain("bash");
     expect(text).toContain("Context files");
     expect(text).toContain("CLAUDE.md");
+    // No snapshot message — ctx.getSystemPromptOptions() is always available
+    expect(text).not.toContain("No before_agent_start snapshot");
   });
 });
 
 describe("agent_inventory", () => {
   test("return_content=true returns valid parseable YAML", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     const res = await captured.agent_inventory.execute(
       undefined,
       { return_content: true },
@@ -280,12 +239,7 @@ describe("agent_inventory", () => {
   //    (sourceInfo.type, skill.path, skill.whenToUse) and silently produced
   //    nulls. These tests pin the correct field names. ──────────────────────
   test("REGRESSION: tool.source is populated, not null", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     const res = await captured.agent_inventory.execute(
       undefined,
       { return_content: true },
@@ -302,12 +256,7 @@ describe("agent_inventory", () => {
   });
 
   test("REGRESSION: skill.file_path is populated, not null", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     const res = await captured.agent_inventory.execute(
       undefined,
       { return_content: true },
@@ -418,12 +367,7 @@ describe("agent_inventory", () => {
   });
 
   test("REGRESSION: context_usage is emitted as null, not dropped, when unavailable", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     const ctx = { ...BASE_CTX, getContextUsage: () => undefined };
     const res = await captured.agent_inventory.execute(
       undefined,
@@ -597,34 +541,19 @@ describe("formatExtensionReport", () => {
 });
 
 describe("extension_analyzer (tool end-to-end)", () => {
-  test("graceful message when no snapshot yet", async () => {
-    __resetSnapshotForTests();
+  test("text report from ctx API", async () => {
     const { captured } = loadExtension(TOOLS);
-    const res = await captured.extension_analyzer.execute(undefined, {}, undefined, undefined, BASE_CTX);
-    expect(res.content[0].text).toContain("No before_agent_start snapshot");
-  });
-
-  test("text report after snapshot", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
     const res = await captured.extension_analyzer.execute(undefined, {}, undefined, undefined, BASE_CTX);
     const text = res.content[0].text;
     expect(text).toContain("Extension Analyzer");
     expect(text).toContain("issue(s)");
     expect(text).toContain("Extension token tax");
+    // No snapshot message — ctx.getSystemPromptOptions() is always available
+    expect(text).not.toContain("No before_agent_start snapshot");
   });
 
   test("return_json returns parseable {findings, summary, total_extension_tokens}", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     const res = await captured.extension_analyzer.execute(
       undefined,
       { return_json: true },
@@ -639,12 +568,7 @@ describe("extension_analyzer (tool end-to-end)", () => {
   });
 
   test("custom thresholds flow through params into the analysis", async () => {
-    const { captured, fireBeforeAgentStart } = loadExtension(TOOLS);
-    fireBeforeAgentStart({
-      type: "before_agent_start",
-      systemPrompt: "x".repeat(500),
-      systemPromptOptions: buildSnapshotOpts(),
-    });
+    const { captured } = loadExtension(TOOLS);
     // Tiny context-file threshold so CLAUDE.md (100 chars in fixture) trips it.
     const res = await captured.extension_analyzer.execute(
       undefined,
