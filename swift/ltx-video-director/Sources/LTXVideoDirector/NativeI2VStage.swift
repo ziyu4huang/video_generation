@@ -506,14 +506,14 @@ public struct NativeI2VStage {
             print("[transformer] using \(variant.rawValue) — no classifier-free guidance in this native pipeline yet, "
                 + "manifest-recommended cfg_scale is not applied (see docs/native-i2v-dev-variant-study.md)")
         }
+        let checkpointLoadStart = stageClock.now
         let rawTransformer = try MLX.loadArrays(url: transformerURL)
         var strippedTransformer: [String: MLXArray] = [:]
         for (key, value) in rawTransformer {
             guard key.hasPrefix("transformer.") else { continue }
             strippedTransformer[String(key.dropFirst("transformer.".count))] = value
         }
-        print("   [4/5] checkpoint loaded (\(stageStart.duration(to: stageClock.now).formatted()))")
-        let denoiseSubStart = stageClock.now
+        print("   [4/5] checkpoint loaded (\(checkpointLoadStart.duration(to: stageClock.now).formatted()))")
 
         var loraSources: [(weights: LoRAWeights, strength: Float)] = []
         for (path, strength) in request.loraPaths {
@@ -539,6 +539,7 @@ public struct NativeI2VStage {
             ? SigmaSchedule.distilledSigmas
             : SigmaSchedule.ltx2Schedule(steps: 30, numTokens: fLat * hLat * wLat)
 
+        let denoiseSubStart = stageClock.now
         let denoiseResult = DenoiseLoop.runStreaming(
             model: model, numLayers: numLayers,
             blockProvider: { idx in
