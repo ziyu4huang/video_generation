@@ -41,7 +41,9 @@
 //  thread) — kept intentionally, not a gap to fix: the reference's own
 //  "hard-cut" variant is NOT a multi-segment relay at all, it's the SAME
 //  single continuous generation as "camera-move", just tuned with lower
-//  guide strength and no motion LoRA. This file's "hard-cut" ->
+//  guide strength and without the extra LoRA camera-move fuses on (see
+//  `referenceCameraMoveLoRAFilename`'s doc comment below for a correction
+//  on what that LoRA actually is — not a "motion LoRA"). This file's "hard-cut" ->
 //  NativeRelayStage routing was evaluated against that finding and kept
 //  as-is: relay buys independent per-segment prompts and unbounded total
 //  length (each segment is its own full text-conditioning pass), which the
@@ -106,12 +108,23 @@ public struct StoryboardConfig: Codable {
         public var strength: Double?
     }
 
-    /// Known candidate LoRA for a "camera-move"-style continuous shot: the
-    /// motion-reinforcement LoRA RunningHub's camera-move reference workflow
-    /// fuses at strength 0.5 (absent entirely from the hard-cut variant).
-    /// Not bundled with this repo and not applied automatically — recorded
-    /// here as a lead for whoever sources it (CivitAI/HuggingFace) and wants
-    /// to wire it into a "camera-move" storyboard's `loras` array.
+    /// CORRECTION (see PR #289 comment thread): this is NOT a
+    /// motion/camera-movement LoRA, despite the prior assumption recorded
+    /// here. It's Kijai's dev->distilled dynamic-RANK conversion LoRA
+    /// (`Kijai/LTX2.3_comfy`, "dynamic" = variable rank per layer, "fro09"
+    /// = the 0.9 Frobenius-norm training target) — meant to convert a DEV
+    /// checkpoint's behavior (30 steps, CFG>1) into distilled-style
+    /// behavior (8 steps, CFG=1), NOT to add camera motion. Its own model
+    /// card discussion explicitly warns against applying it to an
+    /// already-distilled checkpoint ("should not be used with the
+    /// distilled main model"). RunningHub's camera-move reference workflow
+    /// applies it at strength 0.5 on top of the already-distilled
+    /// `ltx-2.3-22b-distilled_transformer_only_bf16.safetensors` anyway —
+    /// exactly the discouraged combination — so whatever visual effect it
+    /// has there (if any) is an undocumented off-label side effect, not a
+    /// designed "motion strength" knob. Do not treat this filename as a
+    /// validated camera-motion lead; kept here only as a citation of what
+    /// the reference workflow literally does, not a recommendation.
     public static let referenceCameraMoveLoRAFilename =
         "ltx-2.3-22b-distilled-lora-dynamic_fro09_avg_rank_105_bf16.safetensors"
 
