@@ -591,3 +591,70 @@ Re-fetching the three RunningHub pages from an environment with real
 internet access and cross-checking the node graph against the design above
 is the highest-value follow-up if the camera-move/hard-cut split needs
 correcting.
+
+## Eighth pass (2026-07-05) — CFG audit across all 16 files: zero real dev-mode (cfg>1) examples exist in this corpus
+
+Driven by the `native-i2v --transformer` variant-wiring work
+(`docs/native-i2v-dev-variant-study.md`): before investing in Milestone 2
+(implementing real classifier-free guidance in `DenoiseLoop.swift`, needed
+for the `dev`/`dasiwa` checkpoints' manifest-recommended `cfg_scale=5.0`),
+checked whether this repo's own 16-file ComfyUI reference collection
+contains ANY real example of that mode running — earlier passes had only
+spot-checked 1-2 files and asserted "CFG=1 is implicit, not a gap" from
+that partial sample. Parsed all 16 files programmatically this time
+(`json.load` + walk `nodes` and every `definitions.subgraphs[].nodes`, not
+grep-on-widget-values) rather than trusting the earlier files' README
+summaries at face value.
+
+**Result, with hard numbers**:
+- **Every `CFGGuider` node in all 16 files has `widgets_values: [1]`** — 21
+  `CFGGuider` instances total across the corpus (files with 2-stage/3-stage
+  pipelines have 2-3 each), zero exceptions, zero other `cfg` value ever
+  appears.
+- **15 of 16 files' `CheckpointLoaderSimple` loads a checkpoint literally
+  named `ltx-2.3-22b-dev.safetensors` or `ltx-2.3-22b-dev-fp8.safetensors`**
+  — i.e. these workflows load the RAW dev weights, not a pre-fused
+  distilled checkpoint. The 16th (`LTX_Director_2_Workflow_Hotfix.json`)
+  loads an already-distilled transformer directly via `UNETLoader`
+  (`ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors`), no
+  LoRA needed.
+- Combined with the already-known `LoraLoaderModelOnly` finding (the
+  `dynamic_fro09` dev→distilled conversion LoRA, correctly identified in
+  PR #294 — see `project_runninghub_grid_guide_research.md`): **the
+  universal pattern across this entire corpus is "load dev weights → fuse
+  the conversion LoRA → sample at cfg=1," never "sample the dev weights
+  directly at their own manifest-recommended cfg>1."**
+- Confirmed via case-insensitive grep across all 16 files: **no
+  `STGGuider`/`DualCFGGuider` node type, and no genuine STG (spatio-temporal
+  guidance) mechanism anywhere** — the one substring hit for "stg" across
+  the corpus was `lastGroupId` (a false positive from ComfyUI's canvas
+  state, not a guidance-related field).
+
+**Why this matters for the native-i2v dev-variant work**: every other
+feature this package has ported from this reference corpus (FFLF,
+grid-guide, audio-track injection, upscale+refine, LoRA fusion, IC-LoRA
+family) had a node-for-node match in some workflow file to validate
+against. Real CFG (`cfg_scale>1`, needed for `mlx-models/transformer/ltx-2.3-dev-q8/manifest.json`'s
+recommended params) does not — this specific mode is entirely ABSENT from
+the community + official Lightricks reference material collected here,
+despite 16 files across 2026-07-03 through 2026-07-04 fetches. If Milestone
+2 (real CFG) is pursued, it has no ComfyUI graph to cross-check against in
+this repo's own reference material; correctness would need to be validated
+purely against the vendor Python `ltx_pipelines_mlx/utils/samplers.py`
+implementation (confirmed present and CFG-capable — see
+`native-i2v-dev-variant-study.md`), not by node-graph parity the way every
+prior port in this document was checked. Worth treating as a genuine open
+question, not just an implementation task: no production ComfyUI workflow
+in this corpus (RunningHub included, per the seventh pass and PR #294's
+correction) actually runs LTX-2.3's dev checkpoint in its own
+manifest-recommended guided mode — the community convention treats "dev"
+purely as a base weight to convert into fast distilled-style behavior, not
+as a directly-usable quality mode. Whether that's because raw dev+CFG
+sampling is genuinely less desirable in practice (slower, not obviously
+better output) or simply less commonly shared/document is unconfirmed —
+flagged for whoever decides whether Milestone 2 is worth building, rather
+than assumed either way.
+
+No code changed this pass — pure verification/corpus-audit, feeding
+directly into the Milestone 1/2 split already recorded in
+`docs/native-i2v-dev-variant-study.md`.

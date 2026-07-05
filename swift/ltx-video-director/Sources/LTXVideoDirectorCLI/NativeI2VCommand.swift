@@ -43,6 +43,9 @@ struct NativeI2V: ParsableCommand {
     @Option(help: "T2I transformer variant under models/transformer/.")
     var t2iTransformer: String = "moody-pro-mix"
 
+    @Option(help: "LTX-2.3 VIDEO transformer variant (mlx-models/ltx-mlx/{variant}/). Default distilled is the only variant this native pipeline has real-checkpoint tests for. dev/dasiwa load their own checkpoint and use the manifest's 30-step schedule instead of distilled's 8-step table, but there is no classifier-free guidance in this native pipeline yet, so dev's manifest-recommended cfg_scale has no effect (see docs/native-i2v-dev-variant-study.md). Not the same flag as --t2i-transformer (that's the T2I image model).")
+    var transformer: LTXTransformerVariant = .distilled
+
     @Option(help: "Gemma text-encoder max token length.")
     var textMaxLength: Int = 128
 
@@ -112,6 +115,10 @@ struct NativeI2V: ParsableCommand {
     var secondStage: String?
 
     func run() throws {
+        guard LTXModelRegistry.installedVariants().contains(transformer) else {
+            let installed = LTXModelRegistry.installedVariants().map(\.rawValue).joined(separator: ", ")
+            throw ValidationError("--transformer '\(transformer.rawValue)' not found under mlx-models/ltx-mlx/ (installed: \(installed.isEmpty ? "none" : installed))")
+        }
         var secondStageUpscaler: NativeUpscaleStage.SecondStageUpscaler?
         if let secondStage {
             switch secondStage {
@@ -142,6 +149,7 @@ struct NativeI2V: ParsableCommand {
             prompt: prompt, seconds: seconds, fps: fps, width: effectiveWidth, height: effectiveHeight,
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.fps = fps
+        request.transformerVariant = transformer
         request.lastFrameImagePath = lastFrame.map { URL(fileURLWithPath: $0) }
         request.lastFrameStrength = Float(lastFrameStrength)
         request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution
@@ -185,7 +193,7 @@ struct NativeI2V: ParsableCommand {
         // pi-agent-ext-ltx's result.ts parses this exact line for
         // details.width/details.height (found by
         // pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
-        print("→ native I2V (no run.py): \(request.frames) frames @ \(fps)fps, \(effectiveWidth)x\(effectiveHeight), transformer=distilled")
+        print("→ native I2V (no run.py): \(request.frames) frames @ \(fps)fps, \(effectiveWidth)x\(effectiveHeight), transformer=\(transformer.rawValue)")
         let wallStart = Date()
         let stage = NativeI2VStage()
         let result = try stage.generate(request, outputDir: URL(fileURLWithPath: output))

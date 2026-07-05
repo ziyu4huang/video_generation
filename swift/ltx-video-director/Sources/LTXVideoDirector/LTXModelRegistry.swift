@@ -45,4 +45,16 @@ public enum LTXModelRegistry {
             at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
         return files.filter { $0.pathExtension == "safetensors" }
     }
+
+    /// The variant's own transformer weights file, e.g.
+    /// `ltx-mlx/distilled/transformer-distilled-1.1.safetensors` or
+    /// `ltx-mlx/dev/transformer-dev.safetensors` — every variant directory
+    /// has exactly one `transformer-*.safetensors` (the rest are shared
+    /// VAE/audio/upscaler assets), so this filters `checkpointFiles` by
+    /// that prefix instead of hardcoding a per-variant filename. Used by
+    /// `NativeI2VStage` to load a caller-selected variant instead of the
+    /// hardcoded distilled checkpoint.
+    public static func transformerCheckpointURL(_ variant: LTXTransformerVariant) -> URL? {
+        checkpointFiles(variant).first { $0.lastPathComponent.hasPrefix("transformer-") }
+    }
 }

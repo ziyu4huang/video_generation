@@ -26,4 +26,19 @@ final class LTXVideoDirectorTests: XCTestCase {
         let installed = LTXModelRegistry.installedVariants()
         XCTAssertFalse(installed.isEmpty)
     }
+
+    func testModelRegistryTransformerCheckpointURLFindsEachInstalledVariant() {
+        // Every installed variant directory has exactly one
+        // transformer-*.safetensors (the rest are shared VAE/audio/upscaler
+        // assets) — NativeI2VStage.generate relies on this to pick the right
+        // file for --transformer dev/distilled/dasiwa.
+        for variant in LTXModelRegistry.installedVariants() {
+            let url = LTXModelRegistry.transformerCheckpointURL(variant)
+            XCTAssertNotNil(url, "expected a transformer-*.safetensors under \(variant.rawValue)/")
+            if let url {
+                XCTAssertTrue(url.lastPathComponent.hasPrefix("transformer-"))
+                XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+            }
+        }
+    }
 }

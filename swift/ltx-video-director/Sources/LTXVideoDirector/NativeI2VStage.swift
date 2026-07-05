@@ -5,17 +5,23 @@
 //  First end-to-end assembly of the native (no run.py, no Python) I2V
 //  path: NativeT2IStage -> VideoEncoder (source frame as I2V conditioning
 //  latent) -> NativeTextEncodeStage -> DenoiseLoop.runStreaming (real
-//  48-block LTX-2.3 distilled transformer) -> VideoDecoder +
-//  AudioVAEDecoder + VocoderWithBWE -> PNG frame sequence + WAV. Every
-//  piece here already had its own parity or real-checkpoint test before
-//  this file existed (see PLAN.md's milestones); this only composes them.
+//  48-block LTX-2.3 transformer, variant-selectable — see
+//  `transformerVariant` below) -> VideoDecoder + AudioVAEDecoder +
+//  VocoderWithBWE -> PNG frame sequence + WAV. Every piece here already had
+//  its own parity or real-checkpoint test before this file existed (see
+//  PLAN.md's milestones); this only composes them.
 //
 //  Scope, deliberately narrow for this first assembly:
-//    - distilled transformer ONLY (mlx-models/transformer/ltx-2.3-distilled-q8),
-//      using SigmaSchedule.distilledSigmas (8 steps) — the config this
-//      package's real-checkpoint tests have actually verified. dev/dasiwa
-//      would need their own configs confirmed against their
-//      embedded_config.json first.
+//    - `transformerVariant` (default `.distilled`) selects the checkpoint via
+//      LTXModelRegistry, matching the same mlx-models/ltx-mlx/{variant}/ tree
+//      `i2v`/RunPyBridge already reads. dev/dasiwa share distilled's exact
+//      embedded_config.json (confirmed byte-identical), so `distilledConfig`
+//      applies to all three. What does NOT vary yet: sigma schedule is a
+//      manifest-derived step count only (no classifier-free guidance) —
+//      dev's manifest-recommended cfg_scale=5.0/stg_scale=1.0 need a real
+//      CFG/STG implementation this package doesn't have (see
+//      docs/native-i2v-dev-variant-study.md). Selecting dev/dasiwa here is
+//      real checkpoint-loading wiring, not yet a quality-equivalent dev path.
 //    - no VLM prompt expansion (NativeVLMPromptStage) wired in yet — the
 //      `prompt` is used verbatim for both the T2I and video stages.
 //    - video decode is temporally tiled when needed (VideoDecodeTiling,
@@ -54,7 +60,7 @@ public struct NativeI2VStage {
 
         public var description: String {
             switch self {
-            case .transformerCheckpointNotFound(let url): return "LTX-2.3 distilled transformer checkpoint not found at \(url.path)"
+            case .transformerCheckpointNotFound(let url): return "LTX-2.3 transformer checkpoint not found at \(url.path)"
             case .videoEncoderCheckpointNotFound(let url): return "LTX-2.3 video VAE encoder checkpoint not found at \(url.path)"
             case .invalidDimensions(let msg): return "NativeI2VStage: \(msg)"
             case .loraNotFound(let url): return "LoRA safetensors not found at \(url.path)"
@@ -87,6 +93,17 @@ public struct NativeI2VStage {
         public var seed: UInt64
         public var t2iTransformer: String
         public var textMaxLength: Int
+        /// LTX-2.3 video transformer variant, selected via LTXModelRegistry's
+        /// mlx-models/ltx-mlx/{variant}/ tree. Default `.distilled` preserves
+        /// this stage's original (and only real-checkpoint-tested) behavior.
+        /// `.dev`/`.dasiwa` load their own checkpoint and use the manifest's
+        /// 30-step dynamic-shift schedule (SigmaSchedule.ltx2Schedule)
+        /// instead of the 8-step distilled table, but there is NO
+        /// classifier-free guidance in this native pipeline yet (see this
+        /// file's header) — dev's manifest-recommended cfg_scale=5.0 has no
+        /// effect. Selecting `.dev`/`.dasiwa` is real checkpoint-loading
+        /// wiring, not yet a quality-equivalent dev sampling path.
+        public var transformerVariant: LTXTransformerVariant = .distilled
         /// Additional LoRA(s) to fuse into the distilled transformer at
         /// block-dequantize time, on top of the checkpoint's own baked-in
         /// distilled behavior (see LoRAFusion.swift / LoRAWeights.swift).
@@ -462,9 +479,15 @@ public struct NativeI2VStage {
             audioState = audioConditioner.apply(to: audioState, spatialDims: (numAudioTokens, 1, 1))
         }
 
-        let transformerURL = RepoPaths.mlxModelsRoot.appendingPathComponent("transformer/ltx-2.3-distilled-q8/transformer-distilled-1.1.safetensors")
-        guard FileManager.default.fileExists(atPath: transformerURL.path) else {
-            throw StageError.transformerCheckpointNotFound(transformerURL)
+        let variant = request.transformerVariant
+        guard let transformerURL = LTXModelRegistry.transformerCheckpointURL(variant),
+              FileManager.default.fileExists(atPath: transformerURL.path) else {
+            let reportedURL = LTXModelRegistry.variantDir(variant) ?? RepoPaths.ltxModelsRoot.appendingPathComponent(variant.rawValue)
+            throw StageError.transformerCheckpointNotFound(reportedURL)
+        }
+        if variant != .distilled {
+            print("[transformer] using \(variant.rawValue) — no classifier-free guidance in this native pipeline yet, "
+                + "manifest-recommended cfg_scale is not applied (see docs/native-i2v-dev-variant-study.md)")
         }
         let rawTransformer = try MLX.loadArrays(url: transformerURL)
         var strippedTransformer: [String: MLXArray] = [:]
@@ -488,6 +511,15 @@ public struct NativeI2VStage {
             TransformerCheckpointLoader.topLevelWeights(raw: strippedTransformer, loraSources: loraSources),
             config: cfg, transformerBlocks: [])
 
+        // dev/dasiwa are trained for the manifest's 30-step dynamic-shift
+        // schedule, not the distilled 8-step table — using the latter would
+        // under-step them badly. Still no CFG (see the `variant != .distilled`
+        // warning above), so this is closer-but-not-equivalent to their
+        // Python-side recommended sampling.
+        let sigmas: [Float] = variant == .distilled
+            ? SigmaSchedule.distilledSigmas
+            : SigmaSchedule.ltx2Schedule(steps: 30, numTokens: fLat * hLat * wLat)
+
         let denoiseResult = DenoiseLoop.runStreaming(
             model: model, numLayers: numLayers,
             blockProvider: { idx in
@@ -497,7 +529,7 @@ public struct NativeI2VStage {
             },
             videoState: videoState, audioState: audioState,
             videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
-            sigmas: SigmaSchedule.distilledSigmas)
+            sigmas: sigmas)
         MLX.eval(denoiseResult.videoLatent, denoiseResult.audioLatent)
 
         // 5. Decode both modalities natively and write to disk.
