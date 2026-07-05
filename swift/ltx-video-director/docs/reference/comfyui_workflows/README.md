@@ -529,3 +529,65 @@ picked it up, alongside the already-landed `segment` command. See that
 package's `TODO.md` item 14 for the fix (both now wrapped, plus a drift-
 guard blind spot and a real path-validation bug found by exercising them
 end-to-end).
+
+## Seventh pass (2026-07-05) — `native-storyboard`: JSON-driven config for a 4-grid storyboard, RunningHub pages unreachable
+
+Driven by a task to study three specific RunningHub ComfyUI workflow posts
+("LTX-2.3 4-grid V3.0" — camera-move + hard-cut variants — and their
+author's collection page) and design a JSON storyboard config from them.
+**None of the three pages were reachable from this sandbox**: the
+outbound network policy's host allowlist rejects `runninghub.ai` at the
+CONNECT level (`gateway answered 403 to CONNECT`), and the Wayback Machine
+fallback (`archive.org`) is likewise not in the allowlist — this is an
+environment restriction, not a site-side block, so it should be re-checked
+from an environment with broader egress (or a local machine) before
+assuming the design below is the LAST word on what those specific posts
+show.
+
+In lieu of the actual pages, the closest REAL reference material already
+in this repo was used instead: `LTX_Director_2_Workflow_Hotfix.json`'s
+`LTXDirector` node (flagged "not analyzed in depth" in the second pass
+above) turns out to carry almost exactly the shape this task asked for —
+its config widget is a JSON blob (`{"segments":[...], "motionSegments":[...],
+"audioSegments":[...], "retakeMode":..., ...}`) rather than a flat set of
+per-panel flags, and its two `LTXDirectorGuide` nodes each carry an
+independent per-guide `strength` (1.0 and 0.5 in the example file) — i.e. a
+real production ComfyUI pipeline already prefers "one JSON config with a
+segments array" over "N individual guide-strength widgets," which is
+exactly the drift this task's `native-storyboard` command (see
+`StoryboardConfig.swift`) is meant to fix for this package's CLI.
+
+**Design consequence of not being able to inspect the actual 4-grid
+workflow's node graph**: the camera-move/hard-cut split implemented here is
+inferred from the task's own description (grid image split into panels,
+per-panel frame index + strength, "camera-move" vs "hard-cut" as the
+stated difference) and from this package's own two existing native stages,
+rather than confirmed node-for-node against RunningHub's actual graph:
+
+- `"camera-move"` → routes to `NativeI2VStage` (already has
+  `gridImagePath`/`gridFrameIndices`/`gridStrengths`) — ONE continuous
+  generation, every panel a keyframe at its own frame index. This is an
+  exact fit for the already-ported grid-guide mechanism, no stage changes
+  needed.
+- `"hard-cut"` → routes to `NativeRelayStage` — each panel becomes an
+  independent segment/shot, concatenated with a real cut. This DID need a
+  new mechanism: the existing `gridImagePath`/`gridFrameIndices` fields on
+  `NativeRelayStage.Request` apply the SAME whole grid identically to every
+  segment (by design, per that file's own doc comment) — there was no way
+  to say "segment 2 uses panel 2, segment 3 uses panel 3." Added
+  `segmentGridPanels: [Int]?` / `segmentGridStrengths: [Float]?`: each
+  segment crops its own panel from the shared grid (`FrameLoad.splitGrid`,
+  already used elsewhere) and pins it via the SAME single-panel grid-guide
+  call already used for the whole-grid case (`gridColumns=1, gridRows=1,
+  gridFrameIndices=[0]`), which also means each hard-cut segment
+  deliberately skips the relay's default continuity chaining (previous
+  segment's last frame forced into the next segment's frame 0) — a hard cut
+  is a new shot, not a continuation.
+
+**NOT verified this pass** (no macOS/Swift toolchain in this sandbox — see
+that PR's own checklist): `swift build -c release`, `bun test`, `bun run
+check:flags` all still need to run locally before this is mergeable.
+Re-fetching the three RunningHub pages from an environment with real
+internet access and cross-checking the node graph against the design above
+is the highest-value follow-up if the camera-move/hard-cut split needs
+correcting.

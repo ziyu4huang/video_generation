@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "transitionMode": "hard-cut",
+  "width": 640,
+  "height": 960,
+  "fps": 24,
+  "seed": 42,
+  "t2iTransformer": "moody-pro-mix",
+  "seconds": 2.0,
+  "grid": {
+    "image": "storyboard_grid.png",
+    "columns": 2,
+    "rows": 2
+  },
+  "segments": [
+    { "panel": 0, "prompt": "wide establishing shot, woman under an umbrella on a rainy street at night", "strength": 1.0 },
+    { "panel": 1, "prompt": "she pushes open the cafe door, warm light spilling out — new shot, hard cut from the street", "strength": 1.0 },
+    { "panel": 2, "prompt": "medium shot inside, she shakes off the umbrella — new shot, hard cut", "strength": 0.9 },
+    { "panel": 3, "prompt": "close-up, she smiles toward the counter — new shot, hard cut", "strength": 0.9 }
+  ],
+  "loras": [
+    { "path": "../../mlx-models/lora/some-style-lora.safetensors", "strength": 0.7 }
+  ],
+  "audio": {
+    "overlayPath": null
+  },
+  "output": "native_storyboard_hard_cut_output"
+}

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "transitionMode": "camera-move",
+  "prompt": "A woman walks from a rainy street into a warmly lit cafe, camera slowly pushing in and following her the whole way, continuous single take",
+  "width": 640,
+  "height": 960,
+  "fps": 24,
+  "seed": 42,
+  "t2iTransformer": "moody-pro-mix",
+  "seconds": 4.0,
+  "grid": {
+    "image": "storyboard_grid.png",
+    "columns": 2,
+    "rows": 2
+  },
+  "segments": [
+    { "panel": 0, "prompt": "wide shot, woman under an umbrella on a rainy street at night", "frameIndex": 0, "strength": 1.0 },
+    { "panel": 1, "prompt": "she pushes open the cafe door, warm light spilling out", "frameIndex": 8, "strength": 1.0 },
+    { "panel": 2, "prompt": "medium shot inside, she shakes off the umbrella", "frameIndex": 16, "strength": 0.85 },
+    { "panel": 3, "prompt": "close-up, she smiles and looks toward the counter", "frameIndex": 24, "strength": 0.85 }
+  ],
+  "output": "native_storyboard_camera_move_output"
+}
