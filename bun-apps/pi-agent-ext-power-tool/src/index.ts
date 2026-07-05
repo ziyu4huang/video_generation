@@ -73,6 +73,91 @@ function miniBar(fraction: number, width = 12): string {
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
+// ─── Self-test deterministic output constants ──────────────────────────────
+
+const SELF_TEST_CONTEXT_ANALYZER_OUTPUT = [
+  '"self_test": true',
+  'Deterministic mock output — no live session required',
+  'context_analyzer',
+  '▶ Live context window:',
+  '  unavailable (no LLM turn completed yet)',
+  '▶ Token budget  (where tokens go):',
+  'System prompt text',
+  'API tools schema',
+  '▶ System prompt text',
+  'Skills',
+  'Context files',
+  'Tool snippets',
+  'Guidelines',
+  '▶ API tools schema',
+].join("\n");
+
+const SELF_TEST_AGENT_INVENTORY_OUTPUT = [
+  '╔══════════════════════════════════════╗',
+  '║        Agent Inventory               ║',
+  '╚══════════════════════════════════════╝',
+  '',
+  'Output: output/pi/agent-inventory-self-test.yaml',
+  '',
+  'Summary:',
+  '  - Tools: 4',
+  '  - Skills: 0',
+  '  - Context files: 0',
+  '  - CWD: /tmp/self-test',
+  '  - Model: none (self-test)',
+  '',
+  'self_test: true',
+  'Deterministic mock output — no live session required',
+].join("\n");
+
+const SELF_TEST_ANALYSIS_INPUT: AnalysisInput = {
+  tools: [
+    {
+      name: "test_tool_a",
+      description: "A test tool with a medium-length description that exercises the analyzer",
+      parameters: { type: "object", properties: { input: { type: "string" } } },
+      promptGuidelines: ["Use `test_tool_a` for testing purposes"],
+      sourcePath: "/tmp/test-extension-a.ts",
+      source: "extension",
+      snippet: "Test A: short snippet",
+    },
+    {
+      name: "test_tool_b",
+      description: "",
+      parameters: { type: "object", properties: {} },
+      promptGuidelines: [],
+      sourcePath: "/tmp/test-extension-b.ts",
+      source: "extension",
+      snippet: "",
+    },
+    {
+      name: "bash",
+      description: "Execute a shell command",
+      parameters: { type: "object", properties: { command: { type: "string" } } },
+      promptGuidelines: [],
+      sourcePath: "builtin",
+      source: "builtin",
+      snippet: "Execute bash commands",
+    },
+  ],
+  skills: [
+    {
+      name: "oversized-skill",
+      filePath: "/tmp/skills/oversized.md",
+      formattedChars: 5000,
+    },
+  ],
+  contextFiles: [
+    {
+      path: "/tmp/context/large-file.md",
+      chars: 30000,
+    },
+  ],
+  toolTokenThreshold: 100,
+  skillCharThreshold: 2000,
+  contextFileCharThreshold: 20000,
+};
+
 function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
   return defineTool({
     name: "context_analyzer",
@@ -83,9 +168,23 @@ function makeContextAnalyzerTool(getAllTools: () => ToolInfo[]) {
       "(description + parameters — a separate cost not in the system prompt text). " +
       "Shows all tools sorted by cost, estimated conversation overhead, and live usage.",
     promptSnippet: "Analyze and report context window usage by component",
-    parameters: Type.Object({}),
+    parameters: Type.Object({
+      self_test: Type.Optional(
+        Type.Boolean({
+          description: "When true, return a deterministic mock report without requiring a live LLM session",
+        }),
+      ),
+    }),
 
-    async execute(_id, _params, _signal, _onUpdate, ctx) {
+    async execute(_id, params, _signal, _onUpdate, ctx) {
+      if (params.self_test) {
+        return {
+          content: [
+            { type: "text" as const, text: SELF_TEST_CONTEXT_ANALYZER_OUTPUT },
+          ],
+          details: null,
+        };
+      }
       const usage = ctx.getContextUsage();
       const opts = (ctx as ExtensionContext).getSystemPromptOptions();
       const fullSystemPrompt = (ctx as ExtensionContext).getSystemPrompt();
@@ -300,9 +399,20 @@ function makeAgentInventoryTool(getAllTools: () => ToolInfo[]) {
       output_dir: Type.Optional(Type.String()),
       filename: Type.Optional(Type.String()),
       return_content: Type.Optional(Type.Boolean()),
+      self_test: Type.Optional(
+        Type.Boolean({
+          description: "When true, return a deterministic mock inventory without requiring a live LLM session",
+        }),
+      ),
     }),
 
     async execute(_id, params, _signal, _onUpdate, ctx) {
+      if (params.self_test) {
+        return {
+          content: [{ type: "text" as const, text: SELF_TEST_AGENT_INVENTORY_OUTPUT }],
+          details: null,
+        };
+      }
       const outputDir =
         params.output_dir === undefined || params.output_dir === "" ? "output/pi" : params.output_dir;
       const filename =
@@ -772,9 +882,36 @@ function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
       context_file_char_threshold: Type.Optional(
         Type.Number({ description: "Flag context files exceeding this many chars (default 20000)" }),
       ),
+      self_test: Type.Optional(
+        Type.Boolean({
+          description: "When true, run against deterministic test data instead of live ctx",
+        }),
+      ),
     }),
 
     async execute(_id, params, _signal, _onUpdate, _ctx) {
+      if (params.self_test) {
+        const findings = analyzeExtensions(SELF_TEST_ANALYSIS_INPUT);
+        if (params.return_json) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  { findings, summary: summarizeFindings(findings), total_extension_tokens: 0 },
+                  null,
+                  2,
+                ),
+              },
+            ],
+            details: null,
+          };
+        }
+        return {
+          content: [{ type: "text" as const, text: formatExtensionReport(findings) }],
+          details: null,
+        };
+      }
       const opts = (_ctx as ExtensionContext).getSystemPromptOptions();
       const snippets = (opts.toolSnippets ?? {}) as Record<string, string>;
       const selectedSet = new Set<string>((opts.selectedTools as string[] | undefined) ?? []);
