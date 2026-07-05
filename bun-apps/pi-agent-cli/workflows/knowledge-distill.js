@@ -26,10 +26,11 @@
  *
  * INVOCATION
  *   bun --cwd bun-apps/pi-agent-cli src/cli.ts workflow run knowledge-distill \
- *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low \
+ *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium \
  *     --args '{"pr":244,"folder":"Zettelkasten/distill"}'
  *   # or from markdown sources:
  *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
+ *   # driver default: thinkingLevel=medium (args.thinkingLevel overrides)
  *
  * SAFETY: writes only to the target vault folder + history receipt. It never
  * touches source code, never git-applies, never pushes. The garden gate is a
@@ -62,6 +63,11 @@ const NAME = "knowledge-distill"
 const FOLDER = String(A.folder ?? "Zettelkasten/distill")
 const MAX_NOTES = Number(A.maxNotes ?? 16)
 const MIN_CARDS = Number(A.minCards ?? 10)
+// zk-extract spawns a distill subagent that makes many tool calls then writes
+// cards — same class of longer multi-tool pipeline as zk-ask --blend three-way.
+// --thinking low truncates it (subagent loops without emitting all cards); medium
+// is the proven-complete level. Tunable per-run via args.thinkingLevel.
+const THINKING = String(A.thinkingLevel ?? "medium")
 const PR_LIST = Array.isArray(A.pr) ? A.pr.map((n) => Number(n)).filter((n) => Number.isFinite(n))
   : (A.pr != null && Number.isFinite(Number(A.pr))) ? [Number(A.pr)]
   : []
@@ -181,7 +187,7 @@ async function distilSource(src, idx) {
       const hint = feedback ? `\nPrior attempt feedback: ${feedback}` : ""
       const r = await agent(
         `Atomise a source file into Zettelkasten atomic notes via zk-extract.
-1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-extract '${src}' --folder '${FOLDER}' --max-notes ${MAX_NOTES} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking low -p 2>&1 | tail -40")
+1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-extract '${src}' --folder '${FOLDER}' --max-notes ${MAX_NOTES} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p 2>&1 | tail -40")
 2. The command spawns a distill subagent that writes atomic notes to '${VAULT}/${FOLDER}'.
 3. After it returns, count the cards created:
    Bash("find '${VAULT}/${FOLDER}' -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' '")

@@ -61,7 +61,13 @@ const A = (typeof resolvedArgs === "object" && resolvedArgs !== null) ? resolved
 const NAME = "retrieval-quality-self-improve"
 const QUERY_COUNT = Math.max(1, Number(A.queryCount ?? 3))
 const FOLDER = String(A.folder ?? "Zettelkasten/knowledge-graph")
-const TOP_K = Math.max(1, Number(A.topK ?? 5))
+// --top-k 4 + --thinking medium is the PROVEN-complete driver config (iter-3
+// spike): at --thinking low the longer three-way pipeline loops on tool calls
+// without emitting the final synthesis turn, so the judge compares a real
+// lexical page against a truncated blend page → fake "lexical wins". Tunable
+// per-run via args.topK / args.thinkingLevel without code edits.
+const TOP_K = Math.max(1, Number(A.topK ?? 4))
+const THINKING = String(A.thinkingLevel ?? "medium")
 
 let PROJECT_ROOT = "/Users/huangziyu/proj/video_generation__pi"
 let VAULT = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
@@ -98,17 +104,22 @@ log(`Root: ${PROJECT_ROOT} · Vault: ${VAULT} · queries: ${QUERY_COUNT}`)
 const genResult = await gate(
   async (feedback) => {
     const hint = feedback ? `\nPrior attempt feedback: ${feedback}` : ""
+    const langInstr = A.queryLang ? `\nIMPORTANT: write every query (text, lexicalMissReason, expectedConcept) in ${A.queryLang}. This tests cross-lingual retrieval — the vault cards may be in a different language, so the queries MUST be in ${A.queryLang} with zero vocabulary overlap with likely card terms.` : ""
     const g = await agent(
       `Craft ${QUERY_COUNT} ADVERSARIAL retrieval-test queries for this Zettelkasten vault.
 The goal: queries a LEXICAL search (title/tags/body keyword) handles POORLY but
 SEMANTIC (vector) search should win — paraphrased concepts, synonyms, colloquial
 phrasings, or symptom→cause framings with no keyword overlap with card titles.
-1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-card find 'error' --limit 3 2>&1 | head -30")
-   to sample what cards exist.
-2. Produce ${QUERY_COUNT} queries. For each, give: a natural-language question,
+1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-card find 'error' --folder '${FOLDER}' --limit 5 2>&1 | head -40")
+   to sample what cards exist IN THE TARGET FOLDER ('${FOLDER}'). The queries
+   MUST be about concepts documented in THIS folder's cards (read several first
+   via zk-card find + obsidian_read if needed) — do NOT generate queries about
+   other vault content. The folder is the universe of testable concepts.
+2. Produce ${QUERY_COUNT} queries, each about a DISTINCT concept from this
+   folder's cards. For each, give: a natural-language question,
    a one-line reason lexical search should miss it, and the expected concept.
 Avoid generic queries where title-match trivially wins.
-Return { queries: [{ id: <int>, text: <string>, lexicalMissReason: <string>, expectedConcept: <string> }] }.${hint}`,
+Return { queries: [{ id: <int>, text: <string>, lexicalMissReason: <string>, expectedConcept: <string> }] }.${langInstr}${hint}`,
       { label: "gen-queries", phase: "Generate",
         schema: { type: "object", properties: {
           queries: { type: "array", items: { type: "object", properties: {
@@ -155,9 +166,9 @@ truncate each other's output. Do NOT issue them as parallel tool calls.
 retrieve context inverts its own relevance verdicts — see receipt
 2026-07-04T17-13-01. top-k 4 + medium is the proven-clean combination.)
 1. DEFAULT (lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend default --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium -p > '${lexFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend default --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${lexFile}' 2>&1")
 2. THREE-WAY (semantic+lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend three-way --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium -p > '${blendFile}' 2>&1")
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend three-way --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${blendFile}' 2>&1")
    The vault-mind service is running at the default 127.0.0.1:8000 — do NOT override VAULT_MIND_BASE_URL.
 3. Bash("wc -c '${lexFile}' '${blendFile}'")
 4. Peek each file's tail to set flags, but DO NOT relay the content — the judge reads the files directly:
