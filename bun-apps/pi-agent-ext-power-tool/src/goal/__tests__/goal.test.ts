@@ -245,6 +245,18 @@ describe("formatStatus", () => {
 
 // ─── buildGoalSystemPrompt ───────────────────────────────────────────────────
 
+describe("TUI status updates", () => {
+	test("sets 'goal' status to 'active <elapsed>' on start", async () => {
+		const { statuses } = await startGoalForTest();
+
+		// After starting, status must be set via ctx.ui.setStatus("goal", ...)
+		// No token budget → formatStatus returns "active <elapsed>"
+		const status = statuses.get("goal");
+		expect(status).toBeDefined();
+		expect(status).toMatch(/^active /);
+	});
+});
+
 describe("buildGoalSystemPrompt", () => {
 	test("escapes objective XML and includes budget rules", () => {
 		const prompt = buildGoalSystemPrompt({
