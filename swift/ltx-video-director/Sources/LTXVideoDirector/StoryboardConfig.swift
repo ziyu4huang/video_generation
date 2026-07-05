@@ -37,6 +37,19 @@
 //  JSON front-end and the segment/panel bookkeeping to route into one
 //  stage or the other.
 //
+//  Confirmed divergence from the RunningHub reference (PR #289 comment
+//  thread) — kept intentionally, not a gap to fix: the reference's own
+//  "hard-cut" variant is NOT a multi-segment relay at all, it's the SAME
+//  single continuous generation as "camera-move", just tuned with lower
+//  guide strength and no motion LoRA. This file's "hard-cut" ->
+//  NativeRelayStage routing was evaluated against that finding and kept
+//  as-is: relay buys independent per-segment prompts and unbounded total
+//  length (each segment is its own full text-conditioning pass), which the
+//  reference's single-generation approach cannot offer, at the cost of N×
+//  generation time instead of 1×. `defaultGridStrength` below still reuses
+//  the reference's tuning numbers since those are orthogonal to this
+//  architecture choice.
+//
 
 import Foundation
 
