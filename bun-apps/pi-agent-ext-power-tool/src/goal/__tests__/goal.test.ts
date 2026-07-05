@@ -884,6 +884,66 @@ describe("findFinalAssistantMessage", () => {
 	});
 });
 
+// ─── Regression: readonly session entry data ───────────────────────────────
+
+describe("frozen session entry data", () => {
+	// The pi runtime may freeze/canonicalize custom entry data. The goal loader
+	// must return a mutable copy; otherwise updateGoalUsage(activeGoal) throws
+	// "Attempted to assign to readonly property" on the live reference.
+	test("loadGoalFromSession returns a mutable copy (no readonly crash on /goal status)", async () => {
+		const frozenGoal = Object.freeze({
+			id: "frozen-1",
+			text: "persisted goal",
+			status: "active",
+			startedAt: Date.now(),
+			updatedAt: Date.now(),
+			iteration: 1,
+			tokensUsed: 10,
+			timeUsedSeconds: 5,
+			baselineTokens: 0,
+		});
+
+		const mock = createMockPi();
+		goal(mock.pi);
+
+		const sessionManager = {
+			getBranch: () => [
+				{ type: "custom", customType: "goal-state", data: Object.freeze({ goal: frozenGoal }) },
+			],
+			getEntries: () => [],
+		};
+		const { ctx } = createMockCtx({ sessionManager });
+
+		// session_start loads the goal from the (frozen) entry data.
+		const sessionStartHandlers = mock.events.get("session_start");
+		if (sessionStartHandlers && sessionStartHandlers.length > 0) {
+			(sessionStartHandlers[0] as (event: unknown, ctx: unknown) => void)({}, ctx);
+		}
+
+		// /goal status calls updateGoalUsage(activeGoal) — must NOT throw on the frozen ref.
+		const goalCmd = mock.commands.get("goal");
+		await expect(goalCmd?.handler("", ctx)).resolves.toBeUndefined();
+
+		// goal_complete rejection path also mutates the loaded goal via updateGoalUsage.
+		const tool = mock.tools[0]!;
+		const rejected = await tool.execute(
+			"call-frozen",
+			{ summary: "Not complete: tests still fail." },
+			new AbortController().signal,
+			() => undefined,
+			ctx,
+		);
+		expect(rejected.terminate).toBeUndefined();
+		expect(rejected.content?.[0]?.text ?? "").toMatch(/rejected/i);
+
+		// Cleanup
+		const shutdownHandlers = mock.events.get("session_shutdown");
+		if (shutdownHandlers && shutdownHandlers.length > 0) {
+			(shutdownHandlers[0] as (event: unknown, ctx: unknown) => void)({}, ctx);
+		}
+	});
+});
+
 // ─── validateObjective ───────────────────────────────────────────────────────
 
 describe("validateObjective", () => {
