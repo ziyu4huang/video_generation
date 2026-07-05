@@ -28,15 +28,20 @@ public struct Krea2StyleConfig {
     public let refValueMix: Float             // raw-ref V mix (1.0)
     public let adainStrength: Float           // Q/K cross-batch AdaIN α (0.85 upstream recommended)
     public let mix: Float                     // styled-vs-native blend (1.0)
+    public let refB: Int                      // number of reference rows (1=single-ref; 2=dual-ref plain_average)
+    public let refWeights: [Float]            // per-ref fusion weights (len refB; default equal)
 
     public init(targetB: Int, imgS: Int, imgE: Int, activeBlocks: Set<Int>,
                 scaleVec: MLXArray, refKStrength: Float = 1.06,
                 valueAdainStrength: Float = 0.65, refValueMix: Float = 1.0,
-                adainStrength: Float = 0.0, mix: Float = 1.0) {
+                adainStrength: Float = 0.0, mix: Float = 1.0,
+                refB: Int = 1, refWeights: [Float]? = nil) {
         self.targetB = targetB; self.imgS = imgS; self.imgE = imgE
         self.activeBlocks = activeBlocks; self.scaleVec = scaleVec
         self.refKStrength = refKStrength; self.valueAdainStrength = valueAdainStrength
         self.refValueMix = refValueMix; self.adainStrength = adainStrength; self.mix = mix
+        self.refB = max(1, refB)
+        self.refWeights = refWeights ?? Array(repeating: 1.0 / Float(self.refB), count: self.refB)
     }
 }
 
@@ -158,12 +163,12 @@ public struct Krea2DiT {
         let scale = Float(Foundation.pow(Double(hd), -0.5))
 
         // ── Style-transfer K/V injection (training-free). When a style config
-        //    is attached, this is a 2·targetB batch [target ; ref_noisy] and
-        //    the block is in the active set: extend the target attention with
-        //    the reference batch's image-token K (per-frequency scaled) + V
-        //    (AdaIN-mixed). See Krea2StyleConfig + docs Feature B.
+        //    is attached, this is a (1+refB)·targetB batch [target ; ref_noisy...]
+        //    and the block is in the active set: extend the target attention with
+        //    the (weighted-averaged, plain_average) reference batch's image-token
+        //    K (per-frequency scaled) + V (AdaIN-mixed). See Krea2StyleConfig.
         var out: MLXArray
-        if let st = style, let bi = blockIndex, st.activeBlocks.contains(bi), B == 2 * st.targetB {
+        if let st = style, let bi = blockIndex, st.activeBlocks.contains(bi), B == (1 + st.refB) * st.targetB {
             out = styledAttention(q: q, k: k, v: v, scale: scale, mask: mask, st: st)
         } else {
             var scores = MLX.matmul(q, k.transposed(0, 1, 3, 2)) * scale     // (B,H,L,L)
@@ -186,9 +191,17 @@ public struct Krea2DiT {
         let (B, H, L, D) = (q.dim(0), q.dim(1), q.dim(2), q.dim(3))
         let tb = st.targetB
         let ir = st.imgS..<st.imgE
-        let qT0 = q[0..<tb], qR = q[tb..<B]
-        let kT0 = k[0..<tb], kR = k[tb..<B]
-        let vT = v[0..<tb], vR = v[tb..<B]
+        // plain_average fusion: weighted-mean the refB reference rows into one
+        // effective ref for the K/V INJECTION (refB=1, weights=[1] → byte-identical
+        // to single-ref). The full ref block is retained for the ref rows' own
+        // self-attention output (outR, sliced off by the pipeline — but it must
+        // cover all refB rows so the concat matches the batch size B).
+        let qT0 = q[0..<tb], qRefAll = q[tb..<B]
+        let kT0 = k[0..<tb], kRefAll = k[tb..<B]
+        let vT = v[0..<tb], vRefAll = v[tb..<B]
+        let qR = Self.weightedRefMean(qRefAll, st.refWeights)
+        let kR = Self.weightedRefMean(kRefAll, st.refWeights)
+        let vR = Self.weightedRefMean(vRefAll, st.refWeights)
         let eps = MLXArray(1e-6)
 
         // Q/K cross-batch AdaIN (training-free; nodes.py `_cross_batch_adain_qk`):
@@ -237,21 +250,46 @@ public struct Krea2DiT {
             let sm = MLX.where(mExt, scoresT, MLXArray(-1e9))            // (tb,H,L,L+imgLen)
             let styledOut = MLX.matmul(MLX.softmax(sm, axis: -1), vTarget)
             let outT = nativeOut * (1 - st.mix) + styledOut * st.mix
-            // Ref batch: native attention, unchanged.
-            let keyR = mask[tb..<B, 0, 0, 0...]                          // (tb, L)
+            // Ref rows: each attends to itself (within-row), unchanged. Computed
+            // from the FULL ref block so all refB rows are present in the output.
+            let keyR = mask[tb..<B, 0, 0, 0...]                          // (refB·tb, L)
             let keyRb = keyR.expandedDimensions(axis: 1).expandedDimensions(axis: 2)
-            var scoresR = MLX.matmul(qR, kR.transposed(0, 1, 3, 2)) * scale
+            var scoresR = MLX.matmul(qRefAll, kRefAll.transposed(0, 1, 3, 2)) * scale
             scoresR = MLX.where(keyRb, scoresR, MLXArray(-1e9))
-            let outR = MLX.matmul(MLX.softmax(scoresR, axis: -1), vR)
+            let outR = MLX.matmul(MLX.softmax(scoresR, axis: -1), vRefAll)
             return MLX.concatenated([outT, outR], axis: 0).transposed(0, 2, 1, 3).reshaped([B, L, H * D])
         } else {
             let nativeA = MLX.softmax(nativeScores, axis: -1)
             let nativeOut = MLX.matmul(nativeA, vT)
             let styledOut = MLX.matmul(MLX.softmax(scoresT, axis: -1), vTarget)
             let outT = nativeOut * (1 - st.mix) + styledOut * st.mix
-            let outR = MLX.matmul(MLX.softmax(MLX.matmul(qR, kR.transposed(0, 1, 3, 2)) * scale, axis: -1), vR)
+            let outR = MLX.matmul(MLX.softmax(MLX.matmul(qRefAll, kRefAll.transposed(0, 1, 3, 2)) * scale, axis: -1), vRefAll)
             return MLX.concatenated([outT, outR], axis: 0).transposed(0, 2, 1, 3).reshaped([B, L, H * D])
         }
+    }
+
+    /// plain_average fusion: weighted mean of the refB reference rows over axis 0.
+    /// `block` is (refB·tb, H, L, D) (tb=1 in practice); returns (tb, H, L, D).
+    /// refB=1 with weights=[1] returns the single row unchanged (byte-identical).
+    static func weightedRefMean(_ block: MLXArray, _ weights: [Float]) -> MLXArray {
+        let refB = weights.count
+        guard refB > 1 else { return block }
+        let wn = normalizeWeights(weights)
+        let tb = block.dim(0) / refB
+        var acc = MLX.zeros([tb, block.dim(1), block.dim(2), block.dim(3)], dtype: block.dtype)
+        for i in 0..<refB {
+            acc = acc + MLXArray(wn[i]) * block[(i * tb)..<((i + 1) * tb), 0..., 0..., 0...]
+        }
+        return acc
+    }
+
+    /// Pure weight normalization for plain_average fusion (GPU-free testable).
+    /// Returns weights summing to 1; equal weights when the input sums to 0.
+    static func normalizeWeights(_ weights: [Float]) -> [Float] {
+        let refB = weights.count
+        let sum = weights.reduce(0, +)
+        guard sum > 0 else { return Array(repeating: 1.0 / Float(refB), count: refB) }
+        return weights.map { $0 / sum }
     }
 
     /// Cross-batch Q/K AdaIN over the image-token range (nodes.py

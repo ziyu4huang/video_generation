@@ -66,7 +66,7 @@ the most likely reason the composition arc (#249) found the style palette
 collapses under the Control LoRA — the palette-relevant signal lives in the
 Q/K geometry that V-only injection never touches.
 
-### Gap 2 — Dual-ref `multi_delta`  ✗ skipped  (separate, larger arc)
+### Gap 2 — Dual-ref `multi_delta`  ~ FOUNDATION ported (plain_average); rich fusion modes + pipeline deferred (2026-07-05)
 `Krea2TwoStyleTransfer` builds one RF cache per ref, concatenates
 `[target ; ref1_noisy ; ref2_noisy]`, computes per-ref style deltas vs native,
 fuses them. Fusion modes: `plain_average`, `step_cycle` (default), `block_cycle`,
@@ -74,6 +74,15 @@ fuses them. Fusion modes: `plain_average`, `step_cycle` (default), `block_cycle`
 weighted/alternating schedules, Gaussian bumps, `late_release` fade) +
 `primary_reference` order shift. Per-ref knobs: `ref_k_1/ref_k_2`, weights from
 the bundle node `[0.5, 0.5]`. **Not a weighted average — order-sensitive.**
+
+**Foundation ported (2026-07-05):** `Krea2StyleConfig` carries `refB` + `refWeights`;
+`styledAttention` weighted-averages the refB rows (`plain_average`) for the K/V
+injection while each ref row's own attention output is preserved; gate is now
+`B == (1+refB)·targetB`. `refB=1`/weights `[1]` → single ref unchanged → single-ref
+byte-identical (no regression). `DualRefTests` covers the pure weight-normalization.
+**Deferred:** `step_cycle`/`block_cycle`/`rms_balanced`/`consensus` fusion,
+`primary_reference`, per-ref `ref_k_1/ref_k_2`, and the `dualStyleTransfer`
+pipeline + CLI (the DiT path is wired but no call site produces a 3-B batch yet).
 
 ### Gap 3 — RF integrator modes  ✓ PORTED (2026-07-05)
 Swift now has all four upstream integrators via `RFMode` (exposed as
