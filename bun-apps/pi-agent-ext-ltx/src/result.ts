@@ -252,6 +252,56 @@ function worseStatus(a: string | null, b: string | undefined): string | null {
   return a === null || rank(b.toUpperCase()) > rank(a) ? b.toUpperCase() : a;
 }
 
+/**
+ * Regex-parse GateCommand.swift's human-readable text output (see that
+ * file's print() calls) into the same GateEntry[] shape `gate --json` would
+ * return. Per-video block:
+ *   "✅/⚠️/❌ STATUS  <path>"
+ *   "     <reasons joined by '; '>"
+ *   "     [<width>x<height> @ ...]"                         (video-only, ignored here)
+ *   "     ASR ✅/⚠️/❌ STATUS  <reasons>"                    (only when --asr-prompt given)
+ *   "     transcript: <text>"                                (only when --asr-prompt given)
+ */
+function parseGateTextOutput(stdout: string): GateEntry[] {
+  const lines = stdout.split("\n");
+  const entries: GateEntry[] = [];
+  const headerRe = /^(?:✅|⚠️|❌)\s*(PASS|WARN|FAIL)\s+(\S+)$/;
+  const asrRe = /^\s*ASR\s*(?:✅|⚠️|❌)\s*(PASS|WARN|FAIL)\s+(.*)$/;
+  const transcriptRe = /^\s*transcript:\s*(.*)$/;
+  let current: GateEntry | null = null;
+  for (const line of lines) {
+    const header = line.match(headerRe);
+    if (header) {
+      current = { path: header[2], status: header[1] as "PASS" | "WARN" | "FAIL" };
+      entries.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const asrMatch = line.match(asrRe);
+    if (asrMatch) {
+      current.asr = {
+        status: asrMatch[1] as "PASS" | "WARN" | "FAIL",
+        reasons: asrMatch[2].split(";").map((s) => s.trim()).filter(Boolean),
+        detectedLang: "",
+        transcript: "",
+      };
+      continue;
+    }
+    const transcriptMatch = line.match(transcriptRe);
+    if (transcriptMatch && current.asr) {
+      current.asr.transcript = transcriptMatch[1];
+      continue;
+    }
+    // First indented, non-bracketed, non-ASR/transcript line after a header
+    // is the video-only reasons line (e.g. "     could not read/probe video"
+    // or "     duration too short (0.38s)").
+    if (!current.reasons && /^\s{5}\S/.test(line) && !line.trimStart().startsWith("[")) {
+      current.reasons = line.trim().split(";").map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return entries;
+}
+
 /** `gate --json`: array of {path, status, reasons, ...}. Falls back to text parsing if --json wasn't set. */
 function buildGateDetails(res: InvokeResult, asrPrompt?: string): LtxDetails {
   let entries: GateEntry[] = [];
@@ -259,7 +309,12 @@ function buildGateDetails(res: InvokeResult, asrPrompt?: string): LtxDetails {
     const parsed = JSON.parse(res.stdout) as GateEntry[];
     if (Array.isArray(parsed)) entries = parsed;
   } catch {
-    /* non-JSON text output — leave empty, stdout still carries the human-readable verdicts */
+    // Non-JSON text output (caller didn't set json:true) — fall back to
+    // regex-parsing the same human-readable verdicts buildI2VDetails/
+    // buildUpscaleDetails already parse for their own embedded "gate:" line,
+    // instead of silently leaving entries/gate empty on a genuine FAIL
+    // (found by pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+    entries = parseGateTextOutput(res.stdout);
   }
   // If asrPrompt was given, Swift's `try? ASRGate.evaluate(...)` swallows any
   // bridge crash (e.g. mlx_whisper not installed) to `nil`, which just omits

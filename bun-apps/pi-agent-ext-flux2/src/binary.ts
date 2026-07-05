@@ -14,7 +14,7 @@
  *   2. walk up from this module to the dir containing swift/flux2-image-director
  */
 import { dirname, join, resolve as pResolve } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { isFile } from "./paths.ts";
 
@@ -130,6 +130,43 @@ export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): 
     proc.on("error", () => resolveP()); // metallib build is best-effort; don't fail the run
     proc.on("close", () => resolveP());
   });
+}
+
+/** Newest mtime (ms) of any .swift file under repoRoot/swift/flux2-image-director/Sources. */
+function newestSourceMtimeMs(repoRoot: string): number {
+  const sourcesDir = join(repoRoot, "swift", "flux2-image-director", "Sources");
+  let newest = 0;
+  const walk = (dir: string) => {
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry);
+      const stat = statSync(full);
+      if (stat.isDirectory()) walk(full);
+      else if (entry.endsWith(".swift") && stat.mtimeMs > newest) newest = stat.mtimeMs;
+    }
+  };
+  walk(sourcesDir);
+  return newest;
+}
+
+/**
+ * True if the built binary predates the newest .swift source file — i.e. it
+ * was NOT rebuilt after the most recent source change (`ensureBinary` only
+ * builds when the binary is entirely missing, so a stale cached binary from
+ * a prior `swift build` silently persists otherwise). Callers that need the
+ * CLI's true current flag/command surface (e.g. the check:flags drift guard)
+ * must check this — see pi-agent-ext-ltx's binary.ts, where this same gap
+ * caused a false "no drift" pass before the grid-guide fix (PR #270).
+ */
+export function isBinaryStale(repoRoot: string, bin: string): boolean {
+  if (!isFile(bin)) return true;
+  const binMtime = statSync(bin).mtimeMs;
+  return newestSourceMtimeMs(repoRoot) > binMtime;
 }
 
 /**

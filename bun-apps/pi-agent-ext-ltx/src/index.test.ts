@@ -58,4 +58,36 @@ describe("runLtx — pre-spawn validation", () => {
       runLtx({ command: "native-i2v", options: { prompt: "x", loras: ["--models-root:0.8"] } }),
     ).rejects.toThrow(PathSafetyError);
   });
+
+  test("throws PathSafetyError for the embedded path in a native-relay variant spec that doesn't exist", async () => {
+    await expect(
+      runLtx({
+        command: "native-relay",
+        options: { prompts: ["x"], variant: ["evil=/definitely/does/not/exist.safetensors:1.0"] },
+      }),
+    ).rejects.toThrow(PathSafetyError);
+  });
+
+  test("throws PathSafetyError for a flag-like value smuggled into a native-relay variant's embedded path", async () => {
+    await expect(
+      runLtx({ command: "native-relay", options: { prompts: ["x"], variant: ["evil=--models-root:1.0"] } }),
+    ).rejects.toThrow(PathSafetyError);
+  });
+
+  test("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
+    // Pre-abort so this never actually runs a real (multi-minute)
+    // generation — invokeLtx kills the process immediately post-spawn and
+    // resolves with aborted:true rather than rejecting. The only thing this
+    // exercises is that pre-spawn path-safety validation doesn't reject the
+    // bare name itself (it would have thrown PathSafetyError synchronously,
+    // before any process is even spawned, if it did).
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runLtx({
+      command: "native-relay",
+      options: { prompts: ["x"], variant: ["baseline"] },
+      signal: controller.signal,
+    });
+    expect(result.details.aborted).toBe(true);
+  });
 });

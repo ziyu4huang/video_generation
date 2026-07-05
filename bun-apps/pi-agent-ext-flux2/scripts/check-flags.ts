@@ -10,7 +10,7 @@
  * so renamed/removed subcommands surface immediately. Exits non-zero on drift.
  */
 import { COMMANDS, modeledFlags } from "../src/commands.ts";
-import { ensureBinary, resolveRepoRoot } from "../src/binary.ts";
+import { defaultBinaryPath, ensureBinary, isBinaryStale, resolveRepoRoot } from "../src/binary.ts";
 import { invokeFlux2 } from "../src/invoke.ts";
 
 // Flags flux2 emits that we deliberately do NOT model (builtins / globals we
@@ -53,6 +53,19 @@ const EXTRA_ALLOW: Record<string, string[]> = {};
 async function main() {
   const bin = await ensureBinary();
   const repoRoot = resolveRepoRoot();
+
+  // ensureBinary() only builds when the binary is entirely absent — a binary
+  // left over from before the latest `swift build` silently persists and
+  // `--help` reports its (older) flag surface, which reads as "no drift" even
+  // when commands.ts is actually behind. Refuse to guard against a stale
+  // binary; explicit env override is exempt (caller knows what they're doing).
+  if (!process.env.FLUX2_BIN && isBinaryStale(repoRoot, defaultBinaryPath(repoRoot))) {
+    console.error(
+      `✗ ${bin} is older than the newest .swift source file — rebuild before running check:flags:\n` +
+        `  ( cd swift/flux2-image-director && swift build -c release )`,
+    );
+    process.exit(1);
+  }
 
   // 1. Verify our command names exist in flux2 --help.
   const top = await invokeFlux2({ bin, args: ["--help"], cwd: repoRoot });

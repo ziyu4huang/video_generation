@@ -24,6 +24,24 @@ export interface ProgressFn {
   (update: { kind: "progress"; text: string }): void;
 }
 
+/**
+ * Wrap onProgress so a throw inside it can't crash the calling
+ * child_process 'data'/'close' handler — those run out-of-band, outside any
+ * caller's try/catch around `await buildBinary(...)`/`buildMetallib(...)`,
+ * so an unguarded call here would leave the wrapping Promise unsettled
+ * instead of surfacing as a normal rejection (found by
+ * pi-agent-ext-ltx-self-improve's review lane, 2026-07-05).
+ */
+function safeProgress(onProgress: ProgressFn | undefined): ProgressFn {
+  return (update) => {
+    try {
+      onProgress?.(update);
+    } catch {
+      /* progress callback failures must not crash the build */
+    }
+  };
+}
+
 let _cachedBin: string | null = null;
 
 /** Walk up from a starting dir until it contains `swift/ltx-video-director`. */
@@ -61,8 +79,9 @@ export function defaultBinaryPath(repoRoot: string): string {
 
 /** Run `swift build -c release`, streaming progress. Rejects on non-zero exit. */
 export async function buildBinary(repoRoot: string, onProgress?: ProgressFn): Promise<void> {
+  const progress = safeProgress(onProgress);
   const pkgPath = join(repoRoot, "swift", "ltx-video-director");
-  onProgress?.({ kind: "progress", text: "ltx-video binary missing — building (swift build -c release, ~minutes)…" });
+  progress({ kind: "progress", text: "ltx-video binary missing — building (swift build -c release, ~minutes)…" });
   await new Promise<void>((resolveP, rejectP) => {
     const proc = spawn("swift", ["build", "-c", "release", "--package-path", pkgPath], {
       stdio: ["ignore", "pipe", "pipe"],
@@ -76,7 +95,7 @@ export async function buildBinary(repoRoot: string, onProgress?: ProgressFn): Pr
         while ((nl = lineBuf[key].indexOf("\n")) >= 0) {
           const line = lineBuf[key].slice(0, nl).trim();
           lineBuf[key] = lineBuf[key].slice(nl + 1);
-          if (line) onProgress?.({ kind: "progress", text: line });
+          if (line) progress({ kind: "progress", text: line });
         }
       });
     };
@@ -85,7 +104,7 @@ export async function buildBinary(repoRoot: string, onProgress?: ProgressFn): Pr
     proc.on("error", (err) => rejectP(new Error(`swift build failed to spawn: ${err.message}`)));
     proc.on("close", (code) => {
       if (code === 0) {
-        onProgress?.({ kind: "progress", text: "ltx-video build complete." });
+        progress({ kind: "progress", text: "ltx-video build complete." });
         resolveP();
       } else {
         const tail = (lineBuf.out + lineBuf.err).slice(-2000);
@@ -104,9 +123,10 @@ export async function buildBinary(repoRoot: string, onProgress?: ProgressFn): Pr
 
 /** Build mlx.metallib and place it next to the ltx-video binary. Idempotent. */
 export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): Promise<void> {
+  const progress = safeProgress(onProgress);
   const script = join(repoRoot, "swift", "ltx-video-director", "scripts", "setup-metallib.sh");
   if (!existsSync(script)) return; // no such script yet in this package — skip silently
-  onProgress?.({ kind: "progress", text: "building mlx.metallib (Metal shaders)…" });
+  progress({ kind: "progress", text: "building mlx.metallib (Metal shaders)…" });
   await new Promise<void>((resolveP) => {
     const proc = spawn("bash", [script, "release"], { stdio: ["ignore", "pipe", "pipe"] });
     const lineBuf = { out: "", err: "" };
@@ -117,7 +137,7 @@ export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): 
         while ((nl = lineBuf[key].indexOf("\n")) >= 0) {
           const line = lineBuf[key].slice(0, nl).trim();
           lineBuf[key] = lineBuf[key].slice(nl + 1);
-          if (line) onProgress?.({ kind: "progress", text: line });
+          if (line) progress({ kind: "progress", text: line });
         }
       });
     };
@@ -133,7 +153,7 @@ export async function buildMetallib(repoRoot: string, onProgress?: ProgressFn): 
   // environments may have a system-wide metallib and never needed this script).
   const metallib = join(repoRoot, "swift", "ltx-video-director", ".build", "release", "mlx.metallib");
   if (!isFile(metallib)) {
-    onProgress?.({
+    progress({
       kind: "progress",
       text: `⚠ mlx.metallib still missing after setup-metallib.sh (expected at ${metallib}) — MLX calls may fail with "Failed to load the default metallib".`,
     });
