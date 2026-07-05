@@ -1074,8 +1074,13 @@ function currentTokenTotal(ctx: StatusContext): number {
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
+// Deep-clone before handing to the session store. The runtime may freeze or
+// canonicalize entry data; without a clone, our live `activeGoal` reference
+// could be frozen too, after which any updateGoalUsage(activeGoal) throws
+// "Attempted to assign to readonly property". The wrapper object is fresh,
+// but the nested `goal` must also be a copy we don't share with the store.
 function persistGoal(goal: ActiveGoal) {
-	extensionApi?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal });
+	extensionApi?.appendEntry(GOAL_STATE_ENTRY_TYPE, { goal: cloneGoal(goal) });
 }
 
 function clearPersistedGoal(cwd: string) {
@@ -1095,7 +1100,7 @@ function loadGoalFromSession(ctx: StatusContext): ActiveGoal | undefined {
 		.filter((entry) => entry.type === "custom" && entry.customType === GOAL_STATE_ENTRY_TYPE)
 		.pop();
 	const data = entry?.data as GoalStateEntryData | undefined;
-	return isGoal(data?.goal) && data.goal.status !== "complete" ? data.goal : undefined;
+	return isGoal(data?.goal) && data.goal.status !== "complete" ? cloneGoal(data.goal) : undefined;
 }
 
 function clearActiveGoal(ctx: StatusContext) {
@@ -1149,6 +1154,17 @@ function clearLegacyPersistedGoal(cwd: string) {
 }
 
 // ─── Validation ───────────────────────────────────────────────────────────────
+
+// Clone a goal so callers never mutate the session store's (possibly frozen)
+// canonical reference. structuredClone keeps the plain-JSON shape of ActiveGoal.
+function cloneGoal(goal: ActiveGoal): ActiveGoal {
+	try {
+		return structuredClone(goal);
+	} catch {
+		// Fallback for environments without structuredClone — ActiveGoal is plain data.
+		return JSON.parse(JSON.stringify(goal)) as ActiveGoal;
+	}
+}
 
 function isGoal(value: unknown): value is ActiveGoal {
 	if (!value || typeof value !== "object") return false;
