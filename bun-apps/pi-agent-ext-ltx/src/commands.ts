@@ -140,6 +140,11 @@ export const COMMANDS: Record<string, CommandSpec> = {
       inputImage: { flag: "--input-image", type: "string", isPath: true, description: "I2V from an arbitrary supplied image instead of a T2I-generated one: skips T2I entirely and VAE-encodes this image as the frame-0 conditioning latent. Must already be exactly width x height. Useful for chaining (e.g. feeding a prior clip's last decoded frame back in as the next segment's start)." },
       mp4: { flag: "--mp4", invertedFlag: "--no-mp4", type: "boolean", description: "Mux the final frame sequence (post-upscale if upscale is on) + audio.wav into a real H.264+AAC video.mp4 via AVAssetWriter. ON by default — set false to pass --no-mp4 and keep just the frame sequence." },
       secondStage: { flag: "--second-stage", type: "string", description: "When upscale/refine are on: chain a SECOND upscale+refine pass. 'x1.5' -> 2x*1.5x=3x total. 'x2' -> 2x*2x=4x total (reuses the x2 checkpoint again). Off by default." },
+      gridImage: { flag: "--grid-image", type: "string", isPath: true, description: "Grid guide: a single image containing an NxN grid of storyboard panels, split in-memory and pinned as N independent keyframe guides (see gridFrameIndices/gridStrengths). Requires gridFrameIndices." },
+      gridColumns: { flag: "--grid-columns", type: "int", description: "Grid guide column count. Default 2." },
+      gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
+      gridFrameIndices: { flag: "--grid-frame-indices", type: "number[]", description: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly gridColumns * gridRows entries." },
+      gridStrengths: { flag: "--grid-strengths", type: "number[]", description: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match gridFrameIndices count when given." },
     },
   },
 

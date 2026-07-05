@@ -9,7 +9,7 @@
  * so renamed/removed subcommands surface immediately. Exits non-zero on drift.
  */
 import { COMMANDS, modeledFlags } from "../src/commands.ts";
-import { ensureBinary, resolveRepoRoot } from "../src/binary.ts";
+import { defaultBinaryPath, ensureBinary, isBinaryStale, resolveRepoRoot } from "../src/binary.ts";
 import { invokeLtx } from "../src/invoke.ts";
 import { EXTRA_ARG_ALLOW } from "../src/index.ts";
 
@@ -49,6 +49,19 @@ const EXTRA_ALLOW: Record<string, string[]> = {};
 async function main() {
   const bin = await ensureBinary();
   const repoRoot = resolveRepoRoot();
+
+  // ensureBinary() only builds when the binary is entirely absent — a binary
+  // left over from before the latest `swift build` silently persists and
+  // `--help` reports its (older) flag surface, which reads as "no drift" even
+  // when commands.ts is actually behind. Refuse to guard against a stale
+  // binary; explicit env override is exempt (caller knows what they're doing).
+  if (!process.env.LTX_VIDEO_BIN && isBinaryStale(repoRoot, defaultBinaryPath(repoRoot))) {
+    console.error(
+      `✗ ${bin} is older than the newest .swift source file — rebuild before running check:flags:\n` +
+        `  ( cd swift/ltx-video-director && swift build -c release )`,
+    );
+    process.exit(1);
+  }
 
   const top = await invokeLtx({ bin, args: ["--help"], cwd: repoRoot });
   if (top.exitCode !== 0) {
