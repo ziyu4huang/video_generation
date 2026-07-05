@@ -1,0 +1,3 @@
+# Regenerable run artifacts (mp4/m4a/json/srt) produced by receipt scripts.
+# The receipt .md files themselves are tracked; these large binaries are not.
+whisper-e2e-artifacts/

@@ -85,8 +85,34 @@ The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
    subtitle_gen, TTS/music/stock via `fetch`).
 4. Compose (templated) — Remotion as a Node subprocess; `final_review` self-checks.
 5. First end-to-end pipeline (`animated-explainer`) → a shipped video.
-6. Native gap closure — Whisper (captions), CLIP, upscale.
+6. Native gap closure — ~~Whisper (captions)~~ ✓ (Item I — `mlx-whisper` director
+   via `bun:whisper`: word-level timestamps → `subtitle_gen` SRT → burned/sidecar
+   captions; `final_review` advisory transcript check), CLIP, upscale.
 7. More pipelines + the native atelier compose arc.
 
 ## Status
 Iteration 1 of a multi-iteration rewrite. Foundation only — no media calls yet.
+
+## Native transcriber (Item I — `mlx-whisper`)
+
+The `transcriber` provider (`capability:"analysis"`, `invoke:"bun:whisper"`)
+runs `mlx-whisper` on Apple Silicon via a small python entry
+(`python/whisper_transcribe.py`). It produces a transcript + word-level
+timestamps that flow into `subtitle_gen` (SRT) and burned/sidecar captions, and
+an advisory transcript check in `final_review`.
+
+One-time setup (the venv is gitignored infra, like `python/venv`):
+
+```bash
+uv venv --python 3.13 python/whisper-venv
+uv pip install --python python/whisper-venv/bin/python mlx-whisper
+```
+
+Override the python binary via `MD_WHISPER_PYTHON`; the model via
+`MD_WHISPER_MODEL` (default `mlx-community/whisper-small-mlx`, auto-downloads
+from HuggingFace on first use). The end-to-end proof is reproducible:
+
+```bash
+bun run --cwd bun-apps/pi-agent-ext-movie-director scripts/run-whisper-e2e.ts
+```
+

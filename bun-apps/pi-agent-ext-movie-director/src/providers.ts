@@ -17,9 +17,10 @@
  * when a key appears, or downgrade an ffmpeg provider when the binary is gone).
  */
 import { spawn } from "node:child_process";
-import { existsSync, statSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
+import { EXT_ROOT } from "./paths.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
 
@@ -71,6 +72,10 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "macos:vision":
     case "macos:screencapturekit":
       return entry.configured && process.platform === "darwin";
+    case "bun:whisper":
+      // callable iff we can resolve BOTH a python binary and the entry script.
+      // (cheap: stat only — we do NOT import mlx_whisper on every probe.)
+      return entry.configured && whisperRuntimePresent(env);
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.
@@ -269,6 +274,176 @@ export const subtitleAdapter: Adapter = async (req: GenerateRequest): Promise<To
   }
 };
 
+// ─── whisper adapter (native mlx-whisper via python subprocess) ──────────────
+
+/**
+ * The python entry script + the whisper venv. The script lives inside the ext
+ * (<EXT_ROOT>/python/whisper_transcribe.py); the venv is repo infra
+ * (<repo>/python/whisper-venv) created by `uv venv` + `uv pip install mlx-whisper`.
+ * Resolution order for the python binary:
+ *   1. MD_WHISPER_PYTHON env (explicit override — mirrors REMOTION_BIN).
+ *   2. <repo>/python/whisper-venv/bin/python — walk up from EXT_ROOT.
+ *   3. "python3" on PATH (last resort; needs mlx_whisper importable there).
+ */
+const WHISPER_SCRIPT = join(EXT_ROOT, "python", "whisper_transcribe.py");
+
+export function whisperScriptPath(): string {
+  return WHISPER_SCRIPT;
+}
+
+/** Resolve the python binary that runs mlx_whisper (cached per process). */
+export function resolveWhisperPython(env: Record<string, string | undefined> = process.env): string {
+  if (env.MD_WHISPER_PYTHON && existsSync(env.MD_WHISPER_PYTHON)) return env.MD_WHISPER_PYTHON;
+  // Walk up from EXT_ROOT looking for python/whisper-venv/bin/python.
+  let dir = EXT_ROOT;
+  for (let i = 0; i < 8; i++) {
+    const cand = join(dir, "python", "whisper-venv", "bin", "python");
+    if (existsSync(cand)) return cand;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "python3";
+}
+
+let whisperRuntimeCached: boolean | undefined;
+function whisperRuntimePresent(env: Record<string, string | undefined>): boolean {
+  if (whisperRuntimeCached != null) return whisperRuntimeCached;
+  const py = env.MD_WHISPER_PYTHON ? env.MD_WHISPER_PYTHON : resolveWhisperPython(env);
+  // "python3" resolves via PATH (existsSync("python3") is false but it is callable);
+  // an absolute resolved path must actually exist on disk.
+  const pyPresent = py === "python3" ? true : existsSync(py);
+  whisperRuntimeCached = pyPresent && existsSync(WHISPER_SCRIPT);
+  return whisperRuntimeCached;
+}
+
+/** Force the whisper-runtime probe result (tests inject a deterministic value). */
+export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
+  whisperRuntimeCached = v;
+}
+
+export interface WhisperOptions {
+  /** Path to the audio file to transcribe (required). */
+  audio: string;
+  /** HuggingFace mlx-whisper repo. Default: mlx-community/whisper-small-mlx. */
+  model?: string;
+  /** Language hint (e.g. "en"). Default: auto-detect. */
+  language?: string;
+  /** Skip word-level timestamps (segment-level only). */
+  noWords?: boolean;
+  /** Output dir for transcript.txt + words.json. Defaults to req.outputDir. */
+  output?: string;
+  /** Test-only spawn injection (the mock writes the JSON out file + returns 0). */
+  _spawnImpl?: (cmd: string, argv: string[]) => Promise<number>;
+}
+
+/** Normalized shape emitted by whisper_transcribe.py (the adapter's parse target). */
+export interface WhisperResult {
+  ok: boolean;
+  error?: string;
+  audio?: string;
+  model?: string;
+  language?: string | null;
+  duration_s?: number;
+  text?: string;
+  segments?: Array<{
+    start: number | null;
+    end: number | null;
+    text: string;
+    words?: Array<{ word: string; start: number | null; end: number | null; prob?: number | null }>;
+  }>;
+}
+
+/** Run the whisper python entry and parse its normalized JSON result. */
+async function runWhisper(opts: WhisperOptions, env: Record<string, string | undefined>): Promise<WhisperResult> {
+  const spawnImpl = opts._spawnImpl ?? runSpawn;
+  const py = resolveWhisperPython(env);
+  const outDir = opts.output ?? process.cwd();
+  const jsonOut = join(outDir, `whisper_${process.pid}_${Date.now() % 100000}.json`);
+  const argv = [WHISPER_SCRIPT, "--audio", opts.audio, "--output", jsonOut];
+  if (opts.model) argv.push("--model", opts.model);
+  if (opts.language) argv.push("--language", opts.language);
+  if (opts.noWords) argv.push("--no-words");
+  const code = await spawnImpl(py, argv);
+  let payload: WhisperResult;
+  try {
+    payload = JSON.parse(readFileSync(jsonOut, "utf8")) as WhisperResult;
+  } catch {
+    payload = { ok: false, error: `whisper exited ${code} (no JSON output)` };
+  }
+  return payload;
+}
+
+/** whisper adapter: spawns mlx-whisper, returns a ToolResult with transcript + words artifacts. */
+export const whisperAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
+  if (!whisperRuntimePresent(process.env as Record<string, string | undefined>)) {
+    return fail(req, "whisper", "whisper runtime not found (set MD_WHISPER_PYTHON or create python/whisper-venv)");
+  }
+  const opts = (req.options ?? {}) as WhisperOptions;
+  if (!opts.audio || !existsSync(opts.audio)) {
+    return fail(req, "whisper", `audio missing or not found: ${opts.audio ?? "(none)"}`);
+  }
+  const outputDir = req.outputDir ?? process.cwd();
+  const started = Date.now();
+  try {
+    const res = await runWhisper({ ...opts, output: outputDir }, process.env as Record<string, string | undefined>);
+    if (!res.ok || !res.text) {
+      return fail(req, "whisper", res.error ?? "whisper returned no text", (Date.now() - started) / 1000);
+    }
+    // Persist the transcript + word timestamps as workspace artifacts.
+    const transcriptPath = join(outputDir, "transcript.txt");
+    const wordsPath = join(outputDir, "words.json");
+    writeFileSync(transcriptPath, res.text + "\n", "utf8");
+    writeFileSync(wordsPath, JSON.stringify(res, null, 2), "utf8");
+    const artifacts: Artifact[] = [
+      { path: resolve(transcriptPath), kind: "data", bytes: Buffer.byteLength(res.text, "utf8"), role: "transcript" },
+      { path: resolve(wordsPath), kind: "data", bytes: Buffer.byteLength(JSON.stringify(res), "utf8"), role: "word-timestamps" },
+    ];
+    return {
+      success: true,
+      provider: "whisper",
+      command: req.command || "transcribe",
+      artifacts,
+      error: null,
+      cost_usd: 0, // local MLX — honest $0 marginal
+      duration_seconds: res.duration_s ?? (Date.now() - started) / 1000,
+      seed: null,
+      model: res.model ?? "whisper",
+    };
+  } catch (err) {
+    return fail(req, "whisper", err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000);
+  }
+};
+
+/**
+ * Convert whisper segments → subtitle cues (one cue per segment). Pure function —
+ * unit-testable. `subtitle_gen` (buildSubtitle) consumes these directly. Word
+ * boundaries are kept inside each segment so callers can re-group if desired.
+ */
+export function cuesFromWhisper(
+  result: WhisperResult,
+  mode: "segments" | "words" = "segments",
+  wordsPerCue = 6,
+): Array<{ text: string; start: number; end: number }> {
+  const segs = result.segments ?? [];
+  if (mode === "segments") {
+    return segs
+      .filter((s) => s.text && s.text.length > 0)
+      .map((s) => ({ text: s.text, start: Number(s.start ?? 0), end: Number(s.end ?? s.start ?? 0) }));
+  }
+  // words mode: group every `wordsPerCue` words into one cue.
+  const all = segs.flatMap((s) => s.words ?? []);
+  const cues: Array<{ text: string; start: number; end: number }> = [];
+  for (let i = 0; i < all.length; i += wordsPerCue) {
+    const group = all.slice(i, i + wordsPerCue);
+    if (group.length === 0) continue;
+    const text = group.map((w) => w.word).join(" ").trim();
+    if (!text) continue;
+    cues.push({ text, start: Number(group[0]!.start ?? 0), end: Number(group[group.length - 1]!.end ?? group[0]!.start ?? 0) });
+  }
+  return cues;
+}
+
 // ─── cloud HTTP adapter (TTS/music via fetch) ────────────────────────────────
 
 export interface CloudTtsOptions {
@@ -381,6 +556,7 @@ export function nonNativeAdapters(_env?: Record<string, string | undefined>): Pa
   return {
     ffmpeg: ffmpegAdapter,
     "bun:builtin": subtitleAdapter, // subtitle_gen is the shipped bun:builtin provider
+    "bun:whisper": whisperAdapter, // transcriber (Item I) spawns mlx-whisper via python
     fetch: (req: GenerateRequest) => cloudHttpAdapter(req, _env),
   };
 }

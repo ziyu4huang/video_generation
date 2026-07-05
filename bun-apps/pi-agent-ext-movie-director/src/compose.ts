@@ -13,8 +13,8 @@
  * mean/peak, mid-point frame extractable). A `fail` verdict means the render is
  * not shippable.
  */
-import { spawn } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // ─── edit_decisions / render_report shapes (subset of the JSON schemas) ──────
@@ -89,6 +89,29 @@ export function _setFfmpegAvailableForTest(v: boolean | undefined): void {
   ffmpegCached = v;
 }
 
+/**
+ * Whether this ffmpeg build has the `subtitles` (libass) filter — required to
+ * HARD-burn captions. The Homebrew ffmpeg on macOS often lacks libass, so
+ * hard-burn silently falls back to a soft mov_text sidecar (the goal accepts
+ * "burned-in OR sidecar"). Cached per process.
+ */
+let subtitlesFilterCached: boolean | undefined;
+export function subtitlesFilterAvailable(): boolean {
+  if (subtitlesFilterCached != null) return subtitlesFilterCached;
+  try {
+    const r = spawnSync("ffmpeg", ["-hide_banner", "-filters"], { encoding: "utf8" });
+    // The filter list prints ".. subtitles V->V ..." (with flags prefix). Match
+    // the name as a whole token so "ass " doesn't false-match "bandpass".
+    subtitlesFilterCached = /(?:^|\s).{0,3}subtitles\s+V->V/.test(r.stdout ?? "");
+  } catch {
+    subtitlesFilterCached = false;
+  }
+  return subtitlesFilterCached;
+}
+export function _setSubtitlesFilterForTest(v: boolean | undefined): void {
+  subtitlesFilterCached = v;
+}
+
 // ─── compose ─────────────────────────────────────────────────────────────────
 
 export interface ComposeOptions {
@@ -100,6 +123,19 @@ export interface ComposeOptions {
   resolution?: string;
   /** Target fps. Default: inherit. */
   fps?: number;
+  /** Optional captions sourced from the whisper transcript (subtitle_gen SRT). */
+  captions?: CaptionsOptions;
+}
+
+export interface CaptionsOptions {
+  /** Path to an SRT (or VTT) file. */
+  srtPath: string;
+  /**
+   * true  → hard-burn the subtitles into the video (re-encode, always visible).
+   * false → embed as a soft subtitle stream (mov_text; viewer-toggleable).
+   * Default: true (the animated-explainer captions primitive).
+   */
+  burn?: boolean;
 }
 
 /**
@@ -165,20 +201,47 @@ export async function composeVideo(edit: EditDecisions, opts: ComposeOptions, de
     return { version: "1.0", outputs: [], warnings: [...warnings, `concat failed (exit ${r.code})`], verification_notes: [`compose failed: ${r.stderr.slice(-400)}`] };
   }
 
+  // 2b. Optional captions pass (Item I): burn or sidecar the SRT onto the
+  //     concat output. The SRT typically comes from subtitle_gen consuming the
+  //     whisper adapter's word timestamps.
+  let finalOutput = output;
+  if (opts.captions && existsSync(opts.captions.srtPath)) {
+    let burn = opts.captions.burn !== false;
+    // Hard-burn needs the libass `subtitles` filter; many macOS ffmpeg builds
+    // lack it → fall back to a soft mov_text sidecar (goal accepts sidecar).
+    if (burn && !subtitlesFilterAvailable()) {
+      warnings.push("ffmpeg lacks the `subtitles` (libass) filter; falling back to soft mov_text sidecar captions");
+      burn = false;
+    }
+    const captioned = join(opts.workDir, `captioned_${Math.floor(Date.now() / 1000)}.mp4`);
+    const cargv = burn
+      ? ["-y", "-i", output, "-vf", `subtitles=${opts.captions.srtPath}`, "-c:a", "copy", captioned]
+      : ["-y", "-i", output, "-i", opts.captions.srtPath, "-c", "copy", "-c:s", "mov_text", "-metadata:s:s:0", "language=eng", captioned];
+    const cr = await run("ffmpeg", cargv);
+    if (cr.code === 0 && existsSync(captioned)) {
+      finalOutput = captioned;
+      notes.push(`captions ${burn ? "burned" : "sidecar"} from ${opts.captions.srtPath}`);
+    } else {
+      warnings.push(`captions pass failed (exit ${cr.code}); output has no captions`);
+    }
+  } else if (opts.captions) {
+    warnings.push(`captions srt not found: ${opts.captions.srtPath}`);
+  }
+
   // 3. ffprobe the output for the render_report fields.
-  const probe = await ffprobe(output, run);
+  const probe = await ffprobe(finalOutput, run);
   notes.push(`composed ${valid.length} cuts → ${trimmed.length} segments`);
   return {
     version: "1.0",
     outputs: [{
-      path: resolve(output),
+      path: resolve(finalOutput),
       format: probe.format || "mp4",
       codec: probe.videoCodec,
       audio_codec: probe.audioCodec,
       resolution: probe.resolution,
       fps: probe.fps,
       duration_seconds: probe.duration,
-      file_size_bytes: existsSync(output) ? statSync(output).size : undefined,
+      file_size_bytes: existsSync(finalOutput) ? statSync(finalOutput).size : undefined,
     }],
     render_time_seconds: (Date.now() - t0) / 1000,
     warnings,
@@ -237,6 +300,18 @@ export interface FinalReview {
   checks: ReviewCheck[];
   duration_seconds: number;
   mean_volume_db?: number;
+  /** The surfaced transcript text when a transcriptPath was supplied (Item I). */
+  transcript?: string;
+}
+
+export interface FinalReviewOptions {
+  /**
+   * Optional transcript artifact path (the whisper adapter's transcript.txt).
+   * When supplied + readable, an advisory `transcript` check is appended
+   * (NON-blocking — never flips the verdict) carrying the word count + a
+   * preview. This is the v1 surfacing of spoken content for final_review.
+   */
+  transcriptPath?: string;
 }
 
 /**
@@ -244,8 +319,9 @@ export interface FinalReview {
  * 1. container valid (ffprobe parses), 2. duration>0, 3. video stream present,
  * 4. audio stream present, 5. volumedetect (not silent, not clipping),
  * 6. mid-point frame extractable (file not corrupt mid-stream).
+ * Optional transcriptPath adds a 7th advisory (non-blocking) check (Item I).
  */
-export async function finalReview(mp4Path: string, deps: ComposeDeps = {}): Promise<FinalReview> {
+export async function finalReview(mp4Path: string, deps: ComposeDeps = {}, opts: FinalReviewOptions = {}): Promise<FinalReview> {
   const run = deps.spawnImpl ?? runSpawn;
   const checks: ReviewCheck[] = [];
   const t0 = Date.now();
@@ -281,6 +357,25 @@ export async function finalReview(mp4Path: string, deps: ComposeDeps = {}): Prom
   const frame = await run("ffmpeg", ["-hide_banner", "-y", "-ss", String(mid), "-i", mp4Path, "-frames:v", "1", "-f", "image2", "-"]);
   checks.push({ name: "midpoint_frame", status: frame.code === 0 ? "pass" : "fail", detail: frame.code === 0 ? "frame extracted at 50%" : `extract exit ${frame.code}` });
 
+  // 7 (advisory, Item I): transcript surfaced from the whisper adapter.
+  let transcript: string | undefined;
+  if (opts.transcriptPath) {
+    try {
+      const text = readFileSync(opts.transcriptPath, "utf8");
+      if (text) {
+        transcript = text;
+        const words = text.trim().split(/\s+/).filter(Boolean).length;
+        const preview = text.length > 80 ? `${text.slice(0, 80).trim()}…` : text.trim();
+        // Advisory only — `warn` (never `fail`) so v1 keeps final_review non-blocking.
+        checks.push({ name: "transcript", status: "warn", detail: `${words} words captured; preview: "${preview}"` });
+      } else {
+        checks.push({ name: "transcript", status: "warn", detail: "transcript file empty" });
+      }
+    } catch {
+      checks.push({ name: "transcript", status: "warn", detail: `transcript not readable: ${opts.transcriptPath}` });
+    }
+  }
+
   const verdict: "pass" | "fail" = checks.some((c) => c.status === "fail") ? "fail" : "pass";
-  return { verdict, checks, duration_seconds: (Date.now() - t0) / 1000, mean_volume_db: meanDb };
+  return { verdict, checks, duration_seconds: (Date.now() - t0) / 1000, mean_volume_db: meanDb, transcript };
 }

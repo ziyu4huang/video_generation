@@ -34,7 +34,16 @@ export interface ProviderEntry {
   provider: string;
   backend: ProviderBackend;
   /** How the Bun layer will invoke it (iteration 2+ wires these). */
-  invoke: "swift:krea2" | "swift:flux2" | "swift:ltx" | "fetch" | "ffmpeg" | "macos:vision" | "macos:screencapturekit" | "bun:builtin";
+  invoke:
+    | "swift:krea2"
+    | "swift:flux2"
+    | "swift:ltx"
+    | "fetch"
+    | "ffmpeg"
+    | "macos:vision"
+    | "macos:screencapturekit"
+    | "bun:builtin"
+    | "bun:whisper";
   configured: boolean;
   notes?: string;
 }
@@ -70,8 +79,9 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "video_stitch", capability: "video_post", provider: "ffmpeg", backend: "ffmpeg", invoke: "ffmpeg", configured: true },
   { name: "subtitle_gen", capability: "subtitle", provider: "openmontage", backend: "native_swift", invoke: "bun:builtin", configured: true, notes: "pure Bun (SRT/VTT from word timestamps)" },
 
-  // Analysis — gap (Whisper/CLIP need new native ports).
-  { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:builtin", configured: false, notes: "GAP: swift/whisper-director or whisper.cpp (iteration 6)" },
+  // Analysis — Whisper transcriber is wired (Item I: mlx-whisper via the
+  // python/whisper_transcribe.py entry, spawned by the bun:whisper adapter).
+  { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:whisper", configured: true, notes: "mlx-whisper (python/whisper_transcribe.py) → word-level timestamps + transcript" },
   { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:builtin", configured: false, notes: "GAP: swift/clip-director (later)" },
 
   // Enhancement.

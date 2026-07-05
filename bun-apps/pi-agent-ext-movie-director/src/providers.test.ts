@@ -9,12 +9,24 @@ import {
   cloudHttpAdapter,
   probeConfigured,
   probedMenuSummary,
+  whisperAdapter,
+  cuesFromWhisper,
+  resolveWhisperPython,
+  whisperScriptPath,
   _setFfmpegAvailableForTest,
+  _setWhisperRuntimeForTest,
+  type WhisperResult,
 } from "./providers.ts";
 import { REGISTRY } from "./registry.ts";
 
-beforeAll(() => _setFfmpegAvailableForTest(true));
-afterAll(() => _setFfmpegAvailableForTest(undefined));
+beforeAll(() => {
+  _setFfmpegAvailableForTest(true);
+  _setWhisperRuntimeForTest(true);
+});
+afterAll(() => {
+  _setFfmpegAvailableForTest(undefined);
+  _setWhisperRuntimeForTest(undefined);
+});
 
 describe("buildSubtitle (pure)", () => {
   it("formats SRT with 1-based indices + comma ms separator", () => {
@@ -97,10 +109,28 @@ describe("probeConfigured + probedMenuSummary", () => {
     expect(piper.configured).toBe(false);
     expect(probeConfigured(piper, NO_ENV)).toBe(false);
     expect(probeConfigured(piper, { PIPER_KEY: "x" })).toBe(false);
-    // transcriber: explicit GAP:, configured:false.
+    // transcriber: NOW configured (Item I wired the mlx-whisper backend).
     const transcriber = REGISTRY.find((p) => p.name === "transcriber")!;
-    expect(transcriber.configured).toBe(false);
-    expect(probeConfigured(transcriber, NO_ENV)).toBe(false);
+    expect(transcriber.configured).toBe(true);
+    expect(transcriber.invoke).toBe("bun:whisper");
+    // callable iff the whisper runtime probe passes (test-pinned true above).
+    expect(probeConfigured(transcriber, NO_ENV)).toBe(true);
+    _setWhisperRuntimeForTest(false);
+    try {
+      expect(probeConfigured(transcriber, NO_ENV)).toBe(false);
+    } finally {
+      _setWhisperRuntimeForTest(true);
+    }
+  });
+
+  it("transcriber is no longer listed as a gap in the menu summary", () => {
+    const m = probedMenuSummary(NO_ENV);
+    const gapNames = m.gaps.map((g) => g.name);
+    expect(gapNames).not.toContain("transcriber");
+    // clip remains a gap (the sibling analysis provider).
+    expect(gapNames).toContain("video_understand");
+    const analysis = m.capabilities.find((c) => c.capability === "analysis")!;
+    expect(analysis.available_providers).toContain("whisper");
   });
 
   it("probedMenuSummary reports callable providers per capability", () => {
@@ -194,6 +224,131 @@ describe("cloudHttpAdapter (mocked fetch)", () => {
     );
     expect(r.success).toBe(false);
     expect(r.error).toContain("OPENAI_API_KEY");
+  });
+});
+
+// ─── whisper adapter (Item I) ─────────────────────────────────────────────────
+
+const FIXTURE_RESULT: WhisperResult = {
+  ok: true,
+  audio: "/tmp/narration.m4a",
+  model: "mlx-community/whisper-small-mlx",
+  language: "en",
+  duration_s: 1.27,
+  text: "Welcome to the movie director pipeline.",
+  segments: [
+    {
+      start: 0,
+      end: 2.5,
+      text: "Welcome to the movie director pipeline.",
+      words: [
+        { word: "Welcome", start: 0, end: 0.5, prob: 0.9 },
+        { word: "to", start: 0.5, end: 0.6, prob: 0.95 },
+        { word: "the", start: 0.6, end: 0.7, prob: 0.99 },
+        { word: "movie", start: 0.7, end: 1.1, prob: 0.97 },
+        { word: "director", start: 1.1, end: 1.6, prob: 0.96 },
+        { word: "pipeline.", start: 1.6, end: 2.5, prob: 0.94 },
+      ],
+    },
+  ],
+};
+
+describe("resolveWhisperPython + whisperScriptPath", () => {
+  it("resolves the entry script under the ext root", () => {
+    expect(whisperScriptPath()).toMatch(/python[\/\\]whisper_transcribe\.py$/);
+  });
+  it("honors MD_WHISPER_PYTHON when the path exists", () => {
+    const fake = process.execPath; // a real binary on disk
+    expect(resolveWhisperPython({ MD_WHISPER_PYTHON: fake })).toBe(fake);
+  });
+  it("falls back when the override does not exist", () => {
+    // Walk-up discovery or python3 fallback — either is a non-empty string.
+    const got = resolveWhisperPython({ MD_WHISPER_PYTHON: "/no/such/python" });
+    expect(typeof got === "string" && got.length > 0).toBe(true);
+  });
+});
+
+describe("cuesFromWhisper (pure)", () => {
+  it("segments mode → one cue per segment", () => {
+    const cues = cuesFromWhisper(FIXTURE_RESULT, "segments");
+    expect(cues).toHaveLength(1);
+    expect(cues[0]!.text).toBe("Welcome to the movie director pipeline.");
+    expect(cues[0]!.start).toBe(0);
+    expect(cues[0]!.end).toBe(2.5);
+  });
+  it("words mode → groups every N words into a cue", () => {
+    const cues = cuesFromWhisper(FIXTURE_RESULT, "words", 3);
+    expect(cues).toHaveLength(2); // 6 words / 3 per cue
+    expect(cues[0]!.text).toBe("Welcome to the");
+    expect(cues[0]!.start).toBe(0);
+    expect(cues[0]!.end).toBe(0.7);
+    expect(cues[1]!.text).toBe("movie director pipeline.");
+  });
+  it("empty result → no cues", () => {
+    expect(cuesFromWhisper({ ok: true, segments: [] })).toEqual([]);
+    expect(cuesFromWhisper({ ok: true })).toEqual([]);
+  });
+});
+
+describe("whisperAdapter (mocked spawn)", () => {
+  it("writes transcript.txt + words.json and returns a well-formed ToolResult", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-whisper-"));
+    try {
+      // Mock spawn: write the normalized JSON to the --output path, return 0.
+      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
+        const outIdx = argv.indexOf("--output");
+        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(FIXTURE_RESULT, null, 2));
+        return 0;
+      };
+      const audio = join(dir, "narration.m4a");
+      writeFileSync(audio, "fake"); // adapter checks existence, not content
+      const r = await whisperAdapter({
+        capability: "analysis",
+        command: "transcribe",
+        outputDir: dir,
+        options: { audio, model: "mlx-community/whisper-small-mlx", _spawnImpl: mockSpawn },
+      });
+      expect(r.success).toBe(true);
+      expect(r.provider).toBe("whisper");
+      expect(r.command).toBe("transcribe");
+      expect(r.cost_usd).toBe(0); // local MLX — honest $0
+      expect(r.model).toBe("mlx-community/whisper-small-mlx");
+      expect(r.artifacts).toHaveLength(2);
+      const roles = r.artifacts.map((a) => a.role).sort();
+      expect(roles).toEqual(["transcript", "word-timestamps"]);
+      const transcriptPath = r.artifacts.find((a) => a.role === "transcript")!.path;
+      expect(readFileSync(transcriptPath, "utf8").trim()).toBe("Welcome to the movie director pipeline.");
+      const wordsPath = r.artifacts.find((a) => a.role === "word-timestamps")!.path;
+      const words = JSON.parse(readFileSync(wordsPath, "utf8")) as WhisperResult;
+      expect(words.segments?.[0]?.words).toHaveLength(6);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails cleanly when the audio file is missing", async () => {
+    const r = await whisperAdapter({
+      capability: "analysis",
+      command: "transcribe",
+      options: { audio: "/no/such.m4a" },
+    });
+    expect(r.success).toBe(false);
+    expect(r.error).toContain("audio missing");
+  });
+
+  it("fails cleanly when the runtime probe is off", async () => {
+    _setWhisperRuntimeForTest(false);
+    try {
+      const r = await whisperAdapter({
+        capability: "analysis",
+        command: "transcribe",
+        options: { audio: "/tmp/anything" },
+      });
+      expect(r.success).toBe(false);
+      expect(r.error).toContain("whisper runtime not found");
+    } finally {
+      _setWhisperRuntimeForTest(true);
+    }
   });
 });
 
