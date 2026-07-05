@@ -108,6 +108,12 @@ describe("ragToolsFor", () => {
 		for (const t of RAG_TOOLS) expect(tools).toContain(t);
 	});
 
+	test("semantic-lexical ALSO unlocks obsidian_semantic_search", () => {
+		const tools = ragToolsFor("semantic-lexical");
+		expect(tools).toContain("obsidian_semantic_search");
+		expect(tools).toEqual(RAG_TOOLS_THREE_WAY);
+	});
+
 	test("returns a fresh array (caller can mutate without side-effects)", () => {
 		const a = ragToolsFor("three-way");
 		a.push("MUTATED");
@@ -146,5 +152,48 @@ describe("buildRagTask — blend mode prompt wiring", () => {
 	test("default + retrieve-only does NOT add modes tag (no regression)", () => {
 		const task = buildRagTask("q", 2, 8, false, true, 5, 2000, false, undefined, "default");
 		expect(task).not.toContain("[modes:");
+	});
+});
+
+describe("rankBlendScore — semantic-lexical mode (semantic + lexical, NO graph)", () => {
+	test("applies 0.55 / 0.45 weights with NO link contribution", () => {
+		// semantic 0.9, lexical 0.6, link 3 → 0.55*0.9 + 0.45*0.6 + 0 = 0.495 + 0.27 = 0.765
+		expect(rankBlendScore({ semantic: 0.9, lexical: 0.6, linkCount: 3 }, "semantic-lexical")).toBeCloseTo(0.765, 6);
+	});
+
+	test("link_count is IGNORED even when semantic+lexical are zero", () => {
+		// A heavily-linked off-topic graph neighbor scores 0 — graph dilution removed.
+		expect(rankBlendScore({ linkCount: 10 }, "semantic-lexical")).toBe(0);
+		expect(rankBlendScore({ semantic: 0, lexical: 0, linkCount: 99 }, "semantic-lexical")).toBe(0);
+	});
+
+	test("semantic-only card beats lexical-only card per unit (semantic leads)", () => {
+		expect(rankBlendScore({ semantic: 1 }, "semantic-lexical")).toBeCloseTo(0.55, 6);
+		expect(rankBlendScore({ lexical: 1 }, "semantic-lexical")).toBeCloseTo(0.45, 6);
+		expect(rankBlendScore({ semantic: 1 }, "semantic-lexical"))
+			.toBeGreaterThan(rankBlendScore({ lexical: 1 }, "semantic-lexical"));
+	});
+});
+
+describe("buildRagTask — semantic-lexical mode prompt wiring", () => {
+	const baseArgs = ["q", 2, 8, false, false, 5, 2000, false, undefined] as const;
+
+	test("uses semantic seed + 0.55/0.45 formula + NO graph expansion", () => {
+		const task = buildRagTask(...baseArgs, "semantic-lexical");
+		expect(task).toContain("semantic-lexical blend");
+		expect(task).toContain("obsidian_semantic_search");
+		expect(task).toContain("0.55 × semantic");
+		expect(task).toContain("0.45 × lexical");
+		// graph expansion step is replaced by an explicit skip
+		expect(task).toContain("No graph expansion");
+		expect(task).toContain("NO link_count term");
+		// must still instruct graceful fallback when vault-mind is down
+		expect(task).toContain("isError");
+	});
+
+	test("retrieve-only tags references with semantic|lexical modes (no graph tag)", () => {
+		const task = buildRagTask("q", 2, 8, false, true, 5, 2000, false, undefined, "semantic-lexical");
+		expect(task).toContain("[modes: semantic|lexical]");
+		expect(task).not.toContain("[modes: semantic|lexical|graph]");
 	});
 });

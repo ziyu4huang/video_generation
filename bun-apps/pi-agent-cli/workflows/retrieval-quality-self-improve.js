@@ -30,6 +30,11 @@
  *     --model lm-studio/google/gemma-4-26b-a4b-qat --thinking medium \
  *     --args '{"queryCount":3,"folder":"Zettelkasten/knowledge-graph"}'
  *
+ * To isolate graph-dilution (iter-4), compare three-way vs semantic-lexical, or
+ * the graph-less fix vs lexical, on the controlled corpus (scripts/controlled-corpus.mjs):
+ *   --args '{"blendModes":["three-way","semantic-lexical"],"vault":"<staging>","folder":"Zettelkasten/papers-docagent"}'
+ *   --args '{"blendModes":["default","semantic-lexical"], ...}'
+ *
  * REQUIRES vault-mind running (VAULT_MIND_BASE_URL; default 127.0.0.1:8000) for
  * the three-way semantic seed. The retrieve agent detects semantic fallback and
  * flags it — a three-way run that fell back to lexical is reported as
@@ -61,6 +66,15 @@ const A = (typeof resolvedArgs === "object" && resolvedArgs !== null) ? resolved
 const NAME = "retrieval-quality-self-improve"
 const QUERY_COUNT = Math.max(1, Number(A.queryCount ?? 3))
 const FOLDER = String(A.folder ?? "Zettelkasten/knowledge-graph")
+// The two blend modes to compare. Defaults reproduce the iter-3 lexical-vs-blend
+// baseline. Pass e.g. ["three-way","semantic-lexical"] to isolate graph-dilution,
+// or ["default","semantic-lexical"] to test the graph-less fix against lexical.
+// modeA = "lexical" lane in the receipt; modeB = "blend" lane.
+const BLEND_MODES = Array.isArray(A.blendModes) && A.blendModes.length === 2
+  ? A.blendModes.map(String)
+  : ["default", "three-way"]
+const MODE_A = BLEND_MODES[0]
+const MODE_B = BLEND_MODES[1]
 // --top-k 4 + --thinking medium is the PROVEN-complete driver config (iter-3
 // spike): at --thinking low the longer three-way pipeline loops on tool calls
 // without emitting the final synthesis turn, so the judge compares a real
@@ -155,8 +169,11 @@ phase("Retrieve")
 async function retrieveBothModes(qObj, _originalItem, idx) {
   const q = qObj.text
   const esc = q.replace(/'/g, "'\\''")
-  const lexFile = `/tmp/rq-${RUN_ID}-${idx}-lexical.txt`
-  const blendFile = `/tmp/rq-${RUN_ID}-${idx}-blend.txt`
+  const lexFile = `/tmp/rq-${RUN_ID}-${idx}-modeA.txt`
+  const blendFile = `/tmp/rq-${RUN_ID}-${idx}-modeB.txt`
+  // the "semantic" lane = whichever configured mode is semantic-enabled.
+  const semanticMode = MODE_A === "three-way" || MODE_A === "semantic-lexical" ? MODE_A : MODE_B
+  const semanticFile = semanticMode === MODE_A ? lexFile : blendFile
   const r = await agent(
     `Run zk-ask in TWO retrieval modes, writing EACH mode's FULL output to a file.
 CRITICAL: run the two Bash commands SEQUENTIALLY (one at a time, await each
@@ -165,15 +182,15 @@ truncate each other's output. Do NOT issue them as parallel tool calls.
 (thinking=medium, not low: a low-thinking gemma judge over the ~4-8k-token
 retrieve context inverts its own relevance verdicts — see receipt
 2026-07-04T17-13-01. top-k 4 + medium is the proven-clean combination.)
-1. DEFAULT (lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend default --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${lexFile}' 2>&1")
-2. THREE-WAY (semantic+lexical+graph):
-   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend three-way --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${blendFile}' 2>&1")
+1. MODE A (${MODE_A}):
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_A} --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${lexFile}' 2>&1")
+2. MODE B (${MODE_B}):
+   Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-ask '${esc}' --retrieve-only --blend ${MODE_B} --folder '${FOLDER}' --top-k ${TOP_K} --model lm-studio/google/gemma-4-26b-a4b-qat --thinking ${THINKING} -p > '${blendFile}' 2>&1")
    The vault-mind service is running at the default 127.0.0.1:8000 — do NOT override VAULT_MIND_BASE_URL.
 3. Bash("wc -c '${lexFile}' '${blendFile}'")
-4. Peek each file's tail to set flags, but DO NOT relay the content — the judge reads the files directly:
-   Bash("grep -c 'obsidian_semantic_search' '${blendFile}'; grep -Ei 'iserror|fall back|unreachable' '${blendFile}' | head -1")
-   semanticLive = true iff the blend file's semantic_search count > 0 AND no isError/fallback/unreachable line.
+4. Peek the semantic-mode file (${semanticFile}) to set the live flag, but DO NOT relay content:
+   Bash("grep -c 'obsidian_semantic_search' '${semanticFile}'; grep -Ei 'iserror|fall back|unreachable' '${semanticFile}' | head -1")
+   semanticLive = true iff that file's semantic_search count > 0 AND no isError/fallback/unreachable line.
 Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bool>, lexicalBytes: <int>, blendBytes: <int> }.`,
     { label: `retrieve-${idx + 1}`, phase: "Retrieve",
       schema: { type: "object", properties: {
@@ -182,7 +199,7 @@ Return { lexicalFile: "${lexFile}", blendFile: "${blendFile}", semanticLive: <bo
         lexicalBytes: { type: "number" }, blendBytes: { type: "number" },
       }, required: ["lexicalFile", "blendFile", "semanticLive"] } },
   )
-  log(`Retrieve [${idx + 1}/${QUERIES.length}] "${q.slice(0, 40)}…" — semanticLive ${r?.semanticLive ?? false} (lex ${r?.lexicalBytes ?? 0}B, blend ${r?.blendBytes ?? 0}B)`)
+  log(`Retrieve [${idx + 1}/${QUERIES.length}] "${q.slice(0, 40)}…" — semanticLive ${r?.semanticLive ?? false} (${MODE_A} ${r?.lexicalBytes ?? 0}B, ${MODE_B} ${r?.blendBytes ?? 0}B)`)
   return { query: qObj, retrieve: r ?? { lexicalFile: lexFile, blendFile, semanticLive: false } }
 }
 
@@ -274,6 +291,7 @@ const meanBlendRel = valid.length ? tally.sumBlendRel / valid.length : 0
 const blendBetter = tally.blendWins > tally.lexicalWins && meanBlendRel > meanLexicalRel
 
 const runResult = {
+  blendModes: { modeA: MODE_A, modeB: MODE_B },
   queryCount: QUERIES.length,
   semanticLiveCount,
   semanticLiveRatio: QUERIES.length ? semanticLiveCount / QUERIES.length : 0,
@@ -312,7 +330,7 @@ await agent(
 1. Bash("mkdir -p '${HISTORY_DIR}'")
 2. Write({ file_path: "${targetPath}", content: <the JSON below> })
 3. Append (create if missing) one JSONL line to '${KB_FILE}' with this exact object on one line:
-   {"id":"retrieval-quality:${RUN_ID}","type":"finding","title":"three-way blend vs lexical — ${tally.blendWins}/${valid.length} blend wins (mean rel blend ${meanBlendRel.toFixed(2)} vs lexical ${meanLexicalRel.toFixed(2)})","detail":"${(signals.highlights.join("; ")).replace(/"/g, "'")}","tags":["retrieval","blend","semantic"],"dimension":"quality","confidence":${blendBetter ? 0.8 : 0.4},"status":"active","superseded_by":null}
+   {"id":"retrieval-quality:${RUN_ID}","type":"finding","title":"${MODE_B} vs ${MODE_A} — ${tally.blendWins}/${valid.length} ${MODE_B} wins (mean rel ${MODE_B} ${meanBlendRel.toFixed(2)} vs ${MODE_A} ${meanLexicalRel.toFixed(2)})","detail":"${(signals.highlights.join("; ")).replace(/"/g, "'")}","tags":["retrieval","blend","semantic"],"dimension":"quality","confidence":${blendBetter ? 0.8 : 0.4},"status":"active","superseded_by":null}
 4. Bash("test -s '${targetPath}' && echo OK || echo MISSING")
 JSON for step 2:
 ${histJson}

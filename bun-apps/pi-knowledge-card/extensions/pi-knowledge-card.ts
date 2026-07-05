@@ -109,8 +109,16 @@ export const RAG_TOOLS_THREE_WAY = [
 	"obsidian_semantic_search",
 ];
 
-/** zk-ask retrieval blend mode. */
-export type BlendMode = "default" | "three-way";
+/** zk-ask retrieval blend mode.
+ *  - default        : lexical (title/tags/body) + graph neighbors.
+ *  - three-way      : semantic + lexical + graph (graph can dilute — see below).
+ *  - semantic-lexical: semantic + lexical, NO graph expansion. The graph term
+ *    (`link_count`) is a popularity signal — it boosts heavily-linked cards
+ *    regardless of query relevance, so off-topic graph neighbors dilute the
+ *    three-way top-k on paraphrase / cross-lingual queries (measured iter-4).
+ *    Dropping graph entirely isolates the semantic win; add it back via gating
+ *    if concept-linking queries regress. */
+export type BlendMode = "default" | "three-way" | "semantic-lexical";
 
 /** Per-note retrieval signals used by the blend score. Any field may be
  *  undefined when a mode did not produce it; undefined contributes 0. */
@@ -131,6 +139,9 @@ export interface BlendScoreParts {
 const BLEND_WEIGHTS: Record<BlendMode, { semantic: number; lexical: number; link: number }> = {
 	default: { semantic: 0.0, lexical: 0.7, link: 0.3 },
 	"three-way": { semantic: 0.4, lexical: 0.3, link: 0.3 },
+	// semantic-lexical: drop the link term entirely, rebalance so semantic still
+	// leads (it carries the paraphrase / cross-lingual signal lexical misses).
+	"semantic-lexical": { semantic: 0.55, lexical: 0.45, link: 0.0 },
 };
 
 /**
@@ -149,10 +160,13 @@ export function rankBlendScore(parts: BlendScoreParts, mode: BlendMode = "defaul
 	);
 }
 
-/** Resolve the RAG tool allowlist for a blend mode. three-way unlocks the
- *  semantic vector tool; default keeps the lexical+graph set. */
+/** Resolve the RAG tool allowlist for a blend mode. three-way and
+ *  semantic-lexical both unlock the semantic vector tool; default keeps the
+ *  lexical+graph set. */
 export function ragToolsFor(blend: BlendMode = "default"): string[] {
-	return blend === "three-way" ? [...RAG_TOOLS_THREE_WAY] : [...RAG_TOOLS];
+	return blend === "three-way" || blend === "semantic-lexical"
+		? [...RAG_TOOLS_THREE_WAY]
+		: [...RAG_TOOLS];
 }
 
 /** One-line vault header prepended to every zk_* tool result so the active
@@ -338,6 +352,10 @@ export function buildRagTask(
 	blend: BlendMode = "default",
 ): string {
 	const threeWay = blend === "three-way";
+	// semantic-lexical and three-way both seed with the vector tool; default is
+	// lexical-only. semantic-lexical drops graph expansion (Step 2) entirely.
+	const semanticEnabled = blend === "three-way" || blend === "semantic-lexical";
+	const graphEnabled = blend !== "semantic-lexical";
 	const outputInstruction = retrieveOnly
 		? [
 				"## Step 5: Context output",
@@ -386,9 +404,9 @@ export function buildRagTask(
 		`Execute the graph-enhanced RAG pipeline below to answer the following question:`,
 		`<question>${query}</question>`,
 		"",
-		threeWay
+		semanticEnabled
 			? [
-					"## Step 1: Seed retrieval (run all 4 strategies — three-way blend)",
+					`## Step 1: Seed retrieval (run all 4 strategies — ${blend} blend)`,
 					"Run all 4 strategies and integrate results to identify the top 3 seed note paths.",
 					"Track which mode(s) surfaced each seed — you will tag it in Step 3 provenance:",
 					"1. obsidian_search matchMode:fuzzy fields:title — title lexical (lexical:title)",
@@ -410,18 +428,27 @@ export function buildRagTask(
 					seedQualityGate,
 				],
 		"",
-		"## Step 2: Graph expansion",
-		`For each seed note, run obsidian_search graph:"neighbors" up to ${safeDepth} hop(s).`,
-		"",
-		"Constraints (must follow):",
-		progressiveDeepening,
-		`- Limit to ${maxNeighbors} neighbor nodes per seed per hop.`,
-		"- Merge all seed results and deduplicate to build the expanded node set.",
+		graphEnabled
+			? [
+					"## Step 2: Graph expansion",
+					`For each seed note, run obsidian_search graph:"neighbors" up to ${safeDepth} hop(s).`,
+					"",
+					"Constraints (must follow):",
+					progressiveDeepening,
+					`- Limit to ${maxNeighbors} neighbor nodes per seed per hop.`,
+					"- Merge all seed results and deduplicate to build the expanded node set.",
+				]
+			: [
+					"## Step 2: No graph expansion (semantic-lexical blend)",
+					"Skip wiki-link neighbor traversal entirely. Rank the Step 1 seed set directly —",
+					"the link_count popularity term is disabled in Step 3, so graph neighbors carry no",
+					"score and would only dilute the top-k. Proceed to Step 3 with the seed set as-is.",
+				],
 		"",
 		"## Step 3: Cluster & rank",
-		`Score each note in the expanded node set using the formula below, then select the top ${topK}:`,
+		`Score each note in the candidate set using the formula below, then select the top ${topK}:`,
 		"",
-		threeWay
+		blend === "three-way"
 			? [
 					"  score = 0.4 × semantic   (cosine similarity from obsidian_semantic_search; 0 if not surfaced by it)",
 					"        + 0.3 × lexical    (the search_score from obsidian_search; use 0.5 if unavailable, -1 sentinel → 0)",
@@ -430,6 +457,15 @@ export function buildRagTask(
 					"Provenance: for each selected note, record which mode(s) surfaced it —",
 					"  semantic, lexical:title, lexical:tags, lexical:body, and/or graph (neighbor).",
 					"  A note reached only as a graph neighbor of a semantic seed is tagged `semantic,graph`.",
+				]
+			: blend === "semantic-lexical"
+			? [
+					"  score = 0.55 × semantic  (cosine similarity from obsidian_semantic_search; 0 if not surfaced by it)",
+					"        + 0.45 × lexical   (the search_score from obsidian_search; use 0.5 if unavailable, -1 sentinel → 0)",
+					"        (NO link_count term — graph popularity is disabled in this blend)",
+					"",
+					"Provenance: for each selected note, record which mode(s) surfaced it —",
+					"  semantic, lexical:title, lexical:tags, lexical:body. There is no graph neighbor tag.",
 				]
 			: [
 					"  score = 0.7 × search_score  (the score field from obsidian_search; use 0.5 if unavailable)",
@@ -455,8 +491,10 @@ export function buildRagTask(
 		"",
 		"Append a reference list at the end:",
 		"**Reference notes:**",
-		threeWay && retrieveOnly
-			? "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical|graph] — one-line reason for inclusion"
+		semanticEnabled && retrieveOnly
+			? graphEnabled
+				? "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical|graph] — one-line reason for inclusion"
+				: "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical] — one-line reason for inclusion"
 			: "- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
 	].join("\n");
 }
@@ -848,10 +886,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}),
 			),
 			blend: Type.Optional(
-				Type.Union([Type.Literal("default"), Type.Literal("three-way")], {
-					description:
-						"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph. 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. Three-way requires a running vault-mind service; falls back gracefully. Default: 'default'.",
-				}),
+				Type.Union(
+					[Type.Literal("default"), Type.Literal("three-way"), Type.Literal("semantic-lexical")],
+					{
+						description:
+							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph. 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term) — isolates the semantic win from graph-neighbor dilution; use for paraphrase / cross-lingual queries where popularity ranking hurts. Both semantic modes require a running vault-mind service and fall back gracefully. Default: 'default'.",
+					},
+				),
 			),
 			model: Type.Optional(
 				Type.String({

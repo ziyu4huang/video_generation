@@ -116,7 +116,7 @@ export interface ParsedArgs {
 	maxNoteTokens?: number;
 	/** zk-ask: skip seed quality gate */
 	noRefine?: boolean;
-	/** zk-ask: retrieval blend mode ("default" | "three-way") */
+	/** zk-ask: retrieval blend mode ("default" | "three-way" | "semantic-lexical") */
 	blend?: string;
 	/** zk-ingest: source family label (default: workflow-jsonl) */
 	source?: string;
