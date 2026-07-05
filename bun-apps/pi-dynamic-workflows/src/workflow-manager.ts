@@ -123,6 +123,17 @@ export class WorkflowManager extends EventEmitter {
   }
 
   /**
+   * Inject extension-registered tool definitions after construction.
+   * Called from the workflow extension's session_start handler once the
+   * extension runtime has registered all tools. These tools are then
+   * passed to child WorkflowAgent sessions via createAgentSession() so
+   * workflow subagents can call extension tools the parent session has.
+   */
+  setExtensionTools(tools: ToolDefinition[]): void {
+    this.extensionTools = tools;
+  }
+
+  /**
    * On startup, any persisted run still marked "running" belongs to a process
    * that died mid-run (this fresh manager has it nowhere in memory). Reconcile it
    * to "paused" — never "failed" — so its journal is preserved and resume() can
