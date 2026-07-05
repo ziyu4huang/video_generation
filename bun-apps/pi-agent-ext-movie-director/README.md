@@ -58,8 +58,24 @@ bun bun-apps/pi-agent/src/cli.ts \
 
 The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
 `init-project`, `next-stage`, `write-checkpoint`, `read-checkpoint`,
-`validate-artifact`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
+`validate-artifact`, `generate`, `compose`, `compose-remotion`, `pre-compose`,
+`final-review`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
 `cost-snapshot`. See the tool description for the per-command options.
+
+### Compose — ffmpeg foundation vs Remotion templated tier
+
+- `compose` — ffmpeg straight-cut: trims each cut to its `[in,out]` window and
+  concatenates. Always available (only needs ffmpeg on PATH). No animation.
+- `compose-remotion` — templated compose via a Remotion subprocess
+  (`remotion/` subdir): per-cut ken-burns/zoom/pan motion, crossfade
+  transitions, `section_title` overlays, narration/music audio. Each cut takes an
+  optional `animation` (`"ken-burns" | "zoom-in" | "zoom-out" | "pan-left" |
+  "pan-right" | "static"`); `type:"text"` cuts render a title card (no source
+  needed). Set `REMOTION_BIN` or install `remotion` on PATH (fallback `bunx`) and
+  run `bun install` once in `remotion/`. See `remotion/README.md`.
+- `pre-compose` — deterministic gate run before the expensive render: delivery
+  promise (cuts/duration/sources/audio) + slideshow risk (static-image
+  fraction). `verdict:"fail"` → don't render.
 
 ## Roadmap (later iterations)
 

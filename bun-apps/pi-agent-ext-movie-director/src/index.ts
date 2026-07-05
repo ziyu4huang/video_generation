@@ -15,3 +15,5 @@ export * from "./selector.ts";
 export * from "./bridge.ts";
 export * from "./providers.ts";
 export * from "./compose.ts";
+export * from "./remotion.ts";
+export * from "./precompose-gate.ts";

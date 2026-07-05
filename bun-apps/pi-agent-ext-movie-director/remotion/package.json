@@ -1,0 +1,20 @@
+{
+  "name": "movie-director-remotion-composer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone Remotion composition renderer for the movie-director templated-compose stage (iteration 4). Ported & focused from OpenMontage/remotion-composer. NOT a Bun workspace member — its node_modules are gitignored; run `bun install` (or `npm install`) here to enable real rendering.",
+  "scripts": {
+    "start": "remotion studio",
+    "render": "remotion render src/index.tsx Explainer"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.484",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "remotion": "^4.0.484"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "typescript": "^5.3.0"
+  }
+}
