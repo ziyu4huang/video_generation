@@ -8,17 +8,13 @@
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
-    "pi-hermes-memory/src/index.ts"
+    "pi-hermes-memory/src/index.ts",
+    "pi-agent-ext-web-access/index.ts"
   ],
   "skills": [
     "pi-obsidian/skills"
   ],
-  "npmExtensions": [
-    {
-      "pkg": "pi-web-access",
-      "entry": "index.ts"
-    }
-  ],
+  "npmExtensions": [],
   "lazyExtensions": {
     "workflow": "pi-dynamic-workflows/extensions/workflow.ts",
     "dynamic-workflows": "pi-dynamic-workflows/extensions/workflow.ts"
