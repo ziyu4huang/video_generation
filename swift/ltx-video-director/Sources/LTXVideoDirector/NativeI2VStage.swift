@@ -320,6 +320,17 @@ public struct NativeI2VStage {
 
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
+        // Per-stage wall-clock instrumentation (load-independent stage
+        // *proportions* matter more than absolute times, since this
+        // machine's ambient background load has been observed to shift
+        // absolute wall-time by ~2x between benchmarking rounds — see
+        // DenoiseLoop.runStreaming's doc comment). No existing convention
+        // for this in the codebase (checked: no Date()/ContinuousClock/
+        // signpost around any stage previously) — printed as
+        // `[n/5] ... (Xs)` immediately after each stage completes.
+        let stageClock = ContinuousClock()
+        var stageStart = stageClock.now
+
         // 1. Frame 0 source: either a user-supplied image (skips T2I
         // entirely) or the default NativeT2IStage generation from `prompt`.
         let sourceImageURL = outputDir.appendingPathComponent("source.png")
@@ -337,11 +348,15 @@ public struct NativeI2VStage {
             let t2i = NativeT2IStage(transformer: request.t2iTransformer, width: request.width, height: request.height, seed: request.seed)
             imagePixels01 = try t2i.generate(prompt: request.prompt, outputURL: sourceImageURL)  // (1, 3, H, W) in [0, 1]
         }
+        print("[1/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
+        stageStart = stageClock.now
 
         // 2. Text encode: native Gemma-3-12b -> connector (no run.py).
         print("[2/5] NativeTextEncodeStage: encoding prompt...")
         let textStage = NativeTextEncodeStage(maxLength: request.textMaxLength)
         let textResult = try textStage.encode(request.prompt)
+        print("[2/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
+        stageStart = stageClock.now
 
         // 3. VAE-encode the source frame as the I2V conditioning latent.
         print("[3/5] VideoEncoder: encoding source frame as I2V conditioning...")
@@ -361,6 +376,8 @@ public struct NativeI2VStage {
         let conditionLatentBCFHW = videoEncoder(pixelsBCFHW)  // (1, 128, 1, H', W')
         MLX.eval(conditionLatentBCFHW)
         let (conditionTokens, _) = VideoLatentPatchifier.patchify(conditionLatentBCFHW)
+        print("[3/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
+        stageStart = stageClock.now
 
         // 4. Build noise + positions, splice in the conditioning frame, denoise.
         print("[4/5] DenoiseLoop.runStreaming: real 48-block distilled transformer...")
@@ -489,12 +506,14 @@ public struct NativeI2VStage {
             print("[transformer] using \(variant.rawValue) — no classifier-free guidance in this native pipeline yet, "
                 + "manifest-recommended cfg_scale is not applied (see docs/native-i2v-dev-variant-study.md)")
         }
+        let checkpointLoadStart = stageClock.now
         let rawTransformer = try MLX.loadArrays(url: transformerURL)
         var strippedTransformer: [String: MLXArray] = [:]
         for (key, value) in rawTransformer {
             guard key.hasPrefix("transformer.") else { continue }
             strippedTransformer[String(key.dropFirst("transformer.".count))] = value
         }
+        print("   [4/5] checkpoint loaded (\(checkpointLoadStart.duration(to: stageClock.now).formatted()))")
 
         var loraSources: [(weights: LoRAWeights, strength: Float)] = []
         for (path, strength) in request.loraPaths {
@@ -520,6 +539,7 @@ public struct NativeI2VStage {
             ? SigmaSchedule.distilledSigmas
             : SigmaSchedule.ltx2Schedule(steps: 30, numTokens: fLat * hLat * wLat)
 
+        let denoiseSubStart = stageClock.now
         let denoiseResult = DenoiseLoop.runStreaming(
             model: model, numLayers: numLayers,
             blockProvider: { idx in
@@ -531,6 +551,9 @@ public struct NativeI2VStage {
             videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
             sigmas: sigmas)
         MLX.eval(denoiseResult.videoLatent, denoiseResult.audioLatent)
+        print("   [4/5] runStreaming (\(sigmas.count - 1) steps) (\(denoiseSubStart.duration(to: stageClock.now).formatted()))")
+        print("[4/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
+        stageStart = stageClock.now
 
         // 5. Decode both modalities natively and write to disk.
         print("[5/5] VideoDecoder + AudioVAEDecoder + VocoderWithBWE: decoding output...")
@@ -565,6 +588,7 @@ public struct NativeI2VStage {
         }
         let audioURL = outputDir.appendingPathComponent("audio.wav")
         try WAVWriter.write(channels: channels, sampleRate: 48000, to: audioURL)
+        print("[5/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
 
         return Result(sourceImageURL: sourceImageURL, frameDirectory: frameDir, frameCount: frameCount, audioURL: audioURL)
     }
