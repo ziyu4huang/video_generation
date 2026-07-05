@@ -701,6 +701,34 @@ describe("clipAdapter (mocked spawn)", () => {
       _setVisionRuntimeForTest("clip", true);
     }
   });
+
+  it("default outputDir is a per-call temp dir, NOT the repo root (fold-in)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-clip-default-"));
+    try {
+      const f0 = join(dir, "f0.png");
+      const f1 = join(dir, "f1.png");
+      writeFileSync(f0, "fake");
+      writeFileSync(f1, "fake");
+      const mockSpawn = async (_cmd: string, argv: string[]): Promise<number> => {
+        const outIdx = argv.indexOf("--output");
+        if (outIdx >= 0) writeFileSync(argv[outIdx + 1]!, JSON.stringify(CLIP_RESULT, null, 2));
+        return 0;
+      };
+      // NOTE: no outputDir on the request — the agent-driven shape (live evidence:
+      // the CLIP agent run littered the repo root with clip_scores.json + frames).
+      const r = await clipAdapter({
+        capability: "analysis",
+        command: "video_understand",
+        options: { prompt: "a green screen", frames: [f0, f1], _spawnImpl: mockSpawn },
+      });
+      expect(r.success).toBe(true);
+      const scoresPath = r.artifacts.find((a) => a.role === "scores")!.path;
+      expect(scoresPath.startsWith(tmpdir())).toBe(true);
+      expect(scoresPath).not.toContain(process.cwd());
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

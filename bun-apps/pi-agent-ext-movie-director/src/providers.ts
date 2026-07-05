@@ -662,7 +662,12 @@ export const esrganAdapter: Adapter = async (req: GenerateRequest): Promise<Tool
     return fail(req, "esrgan", `model not found: ${model} (set MD_ESRGAN_MODEL)`);
   }
   const spawnImpl = opts._spawnImpl ?? runSpawn;
-  const jsonOut = join(req.outputDir ?? process.cwd(), `esrgan_${process.pid}_${Date.now() % 100000}.json`);
+  // Workspace-relative default (same drift fix as whisper/clip): when outputDir
+  // is omitted the per-call JSON scratch + any artifacts land in a temp dir, not
+  // the repo root. The upscaled PNG path comes from the python entry (next to
+  // the source image), so this only affects the JSON scratch file.
+  const esrganOutDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-esrgan-"));
+  const jsonOut = join(esrganOutDir, `esrgan_${process.pid}_${Date.now() % 100000}.json`);
   const argv = [ESRGAN_SCRIPT, "--image", opts.image, "--model", model, "--output", jsonOut];
   if (opts.output) argv.push("--out-image", opts.output);
   const started = Date.now();
@@ -781,7 +786,7 @@ export const clipAdapter: Adapter = async (req: GenerateRequest): Promise<ToolRe
     return fail(req, "clip", "prompt is required for video_understand");
   }
   const env = process.env as Record<string, string | undefined>;
-  const outDir = req.outputDir ?? process.cwd();
+  const outDir = req.outputDir ?? mkdtempSync(join(tmpdir(), "md-clip-"));
   const started = Date.now();
   try {
     // Resolve frames: caller-supplied, or sampled here via ffmpeg.
