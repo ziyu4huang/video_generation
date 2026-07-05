@@ -17,7 +17,8 @@ export type PatchName =
 	| "load-run-dir-resources"
 	| "default-model-env"
 	| "ensure-extension-deps"
-	| "ext-context-get-system-prompt-options";
+	| "ext-context-get-system-prompt-options"
+	| "ext-api-get-all-tool-definitions";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -58,6 +59,10 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // ExtensionCommandContext). Must run after ensure-extension-deps (which sets up
   // the repo-root symlinks needed to import @earendil-works/pi-coding-agent).
   { name: "ext-context-get-system-prompt-options", env: "BUN_PI_EXT_CTX_GET_SYSTEM_PROMPT_OPTIONS", defaultValue: true },
+  // ext-api-get-all-tool-definitions: patches ExtensionRunner.prototype.bindCore
+  // so ExtensionRuntime gets getAllToolDefinitions(): ToolDefinition[] for passing
+  // full tool definitions (with execute) to WorkflowAgent child sessions.
+  { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
 ];
 
 /**
@@ -125,6 +130,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ext-context-get-system-prompt-options":
         await import("./ext-context-get-system-prompt-options.ts");
+        break;
+      case "ext-api-get-all-tool-definitions":
+        await import("./ext-api-get-all-tool-definitions.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.

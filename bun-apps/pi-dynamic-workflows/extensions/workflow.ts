@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   createEffortState,
   createWorkflowStorage,
@@ -56,6 +56,14 @@ export default function extension(pi: ExtensionAPI) {
     const active = pi.getActiveTools();
     if (!active.includes(workflowTool.name)) {
       pi.setActiveTools([...active, workflowTool.name]);
+    }
+    // Inject extension-registered tool definitions so WorkflowAgent child
+    // sessions can call the same extension tools the parent session has.
+    // getAllToolDefinitions() is added by the ext-api-get-all-tool-definitions
+    // runtime patch (not on the ExtensionAPI type, so we cast).
+    const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
+    if (extTools?.length) {
+      manager.setExtensionTools(extTools);
     }
     // Tell the manager the session's main model so "explore" agents auto-tier
     // down to a lighter same-family sibling (e.g. Claude → Haiku).
