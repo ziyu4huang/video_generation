@@ -1,0 +1,92 @@
+/**
+ * Questionnaire validation — catches bad params before the TUI renders.
+ * Ported from rpiv-ask-user-question tool/validate-questionnaire.ts.
+ */
+import {
+	MAX_QUESTIONS,
+	MAX_LABEL_LENGTH,
+	MIN_OPTIONS,
+	MAX_OPTIONS,
+	RESERVED_LABELS,
+	type QuestionParams,
+	type QuestionnaireError,
+} from "./types.js";
+
+export type ValidationResult =
+	| { ok: true }
+	| { ok: false; message: string; error: QuestionnaireError };
+
+const RESERVED_SET = new Set(RESERVED_LABELS);
+
+export function validateQuestionnaire(params: QuestionParams): ValidationResult {
+	const { questions } = params;
+
+	if (!questions || questions.length === 0) {
+		return { ok: false, message: "Error: no questions provided.", error: "no_questions" };
+	}
+
+	if (questions.length > MAX_QUESTIONS) {
+		return {
+			ok: false,
+			message: `Error: too many questions (${questions.length}, max ${MAX_QUESTIONS}).`,
+			error: "too_many_questions",
+		};
+	}
+
+	const seenLabels = new Map<string, number>();
+
+	for (let qi = 0; qi < questions.length; qi++) {
+		const q = questions[qi];
+		const opts = q.options;
+
+		if (!opts || opts.length === 0) {
+			return { ok: false, message: `Error: question ${qi + 1} has no options.`, error: "empty_options" };
+		}
+
+		if (opts.length < MIN_OPTIONS || opts.length > MAX_OPTIONS) {
+			return {
+				ok: false,
+				message: `Error: question ${qi + 1} has ${opts.length} options (need ${MIN_OPTIONS}-${MAX_OPTIONS}).`,
+				error: "empty_options",
+			};
+		}
+
+		for (let oi = 0; oi < opts.length; oi++) {
+			const opt = opts[oi];
+			if (!opt.label || opt.label.trim().length === 0) {
+				return {
+					ok: false,
+					message: `Error: question ${qi + 1}, option ${oi + 1} has an empty label.`,
+					error: "empty_options",
+				};
+			}
+			if (opt.label.length > MAX_LABEL_LENGTH) {
+				return {
+					ok: false,
+					message: `Error: question ${qi + 1}, option ${oi + 1} label exceeds ${MAX_LABEL_LENGTH} characters.`,
+					error: "empty_options",
+				};
+			}
+
+			const key = `${qi}:${opt.label.toLowerCase().trim()}`;
+			if (seenLabels.has(key)) {
+				return {
+					ok: false,
+					message: `Error: duplicate option label "${opt.label}" in question ${qi + 1}.`,
+					error: "duplicate_option_label",
+				};
+			}
+			seenLabels.set(key, oi);
+
+			if (RESERVED_SET.has(opt.label.trim())) {
+				return {
+					ok: false,
+					message: `Error: "${opt.label}" is a reserved label and cannot be used as an option. The "Type something." row is appended automatically.`,
+					error: "reserved_label",
+				};
+			}
+		}
+	}
+
+	return { ok: true };
+}

@@ -50,9 +50,8 @@ interface BeforeAgentStartEvent {
 
 function loadExtension(tools: ToolInfoStub[]) {
   const captured: Record<string, CapturedTool> = {};
-  let beforeAgentStartHandler:
-    | ((event: BeforeAgentStartEvent) => void)
-    | null = null;
+
+  const beforeAgentStartHandlers: Array<(event: BeforeAgentStartEvent, ctx?: Record<string, unknown>) => void> = [];
 
   const mockPi: any = {
     registerTool: (def: any) => {
@@ -68,21 +67,27 @@ function loadExtension(tools: ToolInfoStub[]) {
     },
     on: (event: string, handler: any) => {
       if (event === "before_agent_start") {
-        beforeAgentStartHandler = handler;
+        beforeAgentStartHandlers.push(handler);
       }
       // lifecycle event handlers (session_start, tool_execution_end, etc.)
       // are accepted without capture — exercised by real e2e tests
     },
     getAllTools: () => tools,
+    getActiveTools: () => [],
+    setActiveTools: () => {},
+    events: { emit: () => {} },
+    ui: {},
   };
 
   extension(mockPi);
 
   return {
     captured,
-    fireBeforeAgentStart: (event: BeforeAgentStartEvent) => {
-      if (!beforeAgentStartHandler) throw new Error("before_agent_start handler not registered");
-      beforeAgentStartHandler(event);
+    fireBeforeAgentStart: (event: BeforeAgentStartEvent, mockCtx?: Record<string, unknown>) => {
+      if (beforeAgentStartHandlers.length === 0) throw new Error("before_agent_start handlers not registered");
+      for (const handler of beforeAgentStartHandlers) {
+        handler(event, mockCtx ?? { hasUI: true });
+      }
     },
   };
 }
@@ -180,10 +185,11 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 6 tools (including knowledge_query, graph_health, and todo)", () => {
+  test("registers all 7 tools (including ask_user_question, knowledge_query, graph_health, and todo)", () => {
     const { captured } = loadExtension([]);
     expect(Object.keys(captured).sort()).toEqual([
       "agent_inventory",
+      "ask_user_question",
       "context_analyzer",
       "extension_analyzer",
       "graph_health",
@@ -194,7 +200,7 @@ describe("tool registration", () => {
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(6);
+    expect(Object.keys(captured).length).toBe(7);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
