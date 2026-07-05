@@ -13,6 +13,7 @@
  * to advance state, and presents at human-approval gates.
  */
 import { defineTool, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
 import { Type } from "typebox";
 import {
   listPipelines,
@@ -93,7 +94,8 @@ const DESCRIPTION = [
   "  • preflight        — provider-menu summary (capabilities configured/available, composition runtimes, gaps).",
   "  • pipeline-list    — available pipeline manifests.",
   "  • pipeline-show    — {pipeline} → stages, approval gates, produces.",
-  "  • init-project     — {projectId, pipeline} → create project workspace.",
+  "  • init-project     — {projectId, pipeline} → project workspace: stages + the resolved projectDir + assetsDir.",
+  "                        Pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
   "  • next-stage       — {projectId, pipeline, stage?} → next stage + its human-approval policy.",
   "  • write-checkpoint — {projectId, pipeline, stage, status, artifacts?, humanApproved?, ...} ENFORCES THE GATE",
   "                        (status=completed on an approval-gated stage requires humanApproved=true).",
@@ -140,10 +142,23 @@ async function dispatch(command: Command, opts: Record<string, unknown>): Promis
       case "init-project": {
         const projectId = String(opts.projectId ?? "");
         const pipeline = String(opts.pipeline ?? "");
-        // Writing an in_progress checkpoint at the first stage creates the dir.
+        // Resolve + return the actual projectDir so the caller knows where to
+        // place assets (e.g. outputDir for `generate`). The directory itself is
+        // materialized on the first write-checkpoint, but the path is stable.
         const order = getStageOrder(pipeline);
         if (order.length === 0) return { ok: false, error: `pipeline "${pipeline}" not loadable` };
-        return { ok: true, text: jsonOut({ projectId, pipeline, stages: order, projectDir: `(created on first write-checkpoint)` }) };
+        const assetsDir = projectId ? join(projectDir(projectId), "assets") : undefined;
+        return {
+          ok: true,
+          text: jsonOut({
+            projectId,
+            pipeline,
+            stages: order,
+            projectDir: projectId ? projectDir(projectId) : "(requires projectId)",
+            assetsDir,
+            note: "projectDir is created on first write-checkpoint; pass assetsDir as `outputDir` to `generate` so produced files land inside the project workspace.",
+          }),
+        };
       }
       case "next-stage": {
         const pipeline = String(opts.pipeline ?? "");
