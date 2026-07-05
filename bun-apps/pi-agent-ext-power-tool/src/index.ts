@@ -46,6 +46,7 @@ import { TOOL_NAME } from "./todo/tool/types";
 import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
 import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 import goal from "./goal/goal.js";
+import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1101,6 +1102,11 @@ function isStaleCtxError(e: unknown): boolean {
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
+  // Apply SDK compatibility shim: ensures getSystemPromptOptions() is available
+  // on the tool execution context (ExtensionContext). This is a memory-only
+  // monkey-patch — no filesystem writes. Safe to call multiple times.
+  ensureGetSystemPromptOptions();
+
   // getAllTools() is on ExtensionAPI (pi), not ExtensionContext (ctx).
   // Pass it as a closure into the tool so execute() can call it.
   const getAllTools = () => pi.getAllTools();

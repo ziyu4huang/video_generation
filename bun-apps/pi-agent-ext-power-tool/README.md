@@ -123,9 +123,7 @@ Reports a full breakdown of what is consuming the context window before the agen
 | Guidelines | All `promptGuidelines` bullets from all active tools |
 | Appended system prompt | Extra text appended by extensions |
 
-The tool hooks `before_agent_start` to capture the structured `systemPromptOptions` snapshot, then on call reports all sizes plus the live `ctx.getContextUsage()` reading.
-
-**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure.
+The tool calls `getSystemPromptOptions()` and `getSystemPrompt()` on the execution context at runtime (`ctx.getSystemPromptOptions()`), then reports all sizes plus the live `ctx.getContextUsage()` reading. No `before_agent_start` snapshot needed. (The SDK was previously missing this method on `ExtensionContext`; it is now available via the runtime shim in `src/sdk-patch.ts`.)\n\n**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure.","newText":"The tool calls `getSystemPromptOptions()` and `getSystemPrompt()` on the execution context at runtime (`ctx.getSystemPromptOptions()`), then reports all sizes plus the live `ctx.getContextUsage()` reading. No `before_agent_start` snapshot needed — the SDK exposes this data via the tool execution context directly.\n\n**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure."}
 
 ---
 

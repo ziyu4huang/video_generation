@@ -37,10 +37,26 @@
  */
 
 import { test, expect } from "bun:test";
+import { resolve, join } from "node:path";
+import { existsSync } from "node:fs";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const REPO_ROOT = process.cwd();
+// Resolve repo root by walking up from this file to find bun-apps/ — works
+// regardless of whether the test is run from the repo root or from the package dir.
+function findRepoRoot(from: string): string {
+	let dir = from;
+	for (let i = 0; i < 8; i++) {
+		if (existsSync(join(dir, "bun-apps"))) return dir;
+		const parent = resolve(dir, "..");
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return from; // fallback to input dir if bun-apps/ not found
+}
+
+const FILE_DIR = resolve(import.meta.dirname ?? process.cwd());
+const REPO_ROOT = findRepoRoot(FILE_DIR);
 const CLI = `${REPO_ROOT}/bun-apps/pi-agent/src/cli.ts`;
 const EXT = `${REPO_ROOT}/bun-apps/pi-agent-ext-power-tool/src/index.ts`;
 const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-26b-a4b-qat";
