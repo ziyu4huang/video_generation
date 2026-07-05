@@ -38,8 +38,13 @@ struct T2I: ParsableCommand {
     @Option(name: .shortAndLong, help: "Output PNG path.")
     var output: String = "t2i_native_output.png"
 
+    @Flag(help: "Break each denoise step's timing into forward-pass vs scheduler-step (adds an extra sync point per step; off by default).")
+    var profileSubsteps: Bool = false
+
     func run() throws {
-        let stage = NativeT2IStage(transformer: transformer, width: width, height: height, steps: steps, seed: seed)
+        let stage = NativeT2IStage(
+            transformer: transformer, width: width, height: height, steps: steps, seed: seed,
+            profileSubsteps: profileSubsteps)
         print("Generating natively (ZImageDirector in-process, no run.py)...")
         print("  transformer: \(transformer), size: \(width)x\(height), seed: \(seed)")
         _ = try stage.generate(prompt: prompt, outputURL: URL(fileURLWithPath: output))
