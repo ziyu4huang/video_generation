@@ -188,7 +188,7 @@ See [`.claude/memory/MEMORY.md`](.claude/memory/MEMORY.md) for lessons learned a
 
 ## Dynamic Workflow Self-Improve
 
-See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (dev retired), clean tree required for `fix:true`, always use `{scriptPath}` not `{name}`, do NOT `--delete-branch` on PR merge.
+See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (dev retired), clean tree required for `fix:true`, always use `{scriptPath}` not `{name}`, and after PR squash-merge DELETE both branches + detach (set 2026-07-06; overwrites the old "do NOT --delete-branch" rule). Steps: `git push origin --delete <br>` → `git checkout --detach origin/main` → `git branch -D <br>` → `git fetch --prune origin` → `git checkout -b feat/<next>` (detach before local delete).
 
 **Models for executing the loop** — this pi-agent + pi-dynamic-workflow combination is the core of the **AI loop self-development** setup (the `.claude/workflows/*` self-improve loops are the agent runtime improving itself). When executing these workflows, prefer:
 - **Primary (local):** LM Studio serving `google/gemma-4-26b-a4b-qat`.
