@@ -1,17 +1,10 @@
 {
-  "tools": 26,
-  "totalTokens": 12046,
+  "tools": 28,
+  "totalTokens": 10747,
   "builtinCount": 4,
-  "extensionCount": 22,
+  "extensionCount": 24,
   "errors": [],
   "toolsRanked": [
-    {
-      "name": "movie",
-      "approxTokens": 1718,
-      "descLen": 5881,
-      "paramsLen": 992,
-      "source": "movie-director"
-    },
     {
       "name": "ltx",
       "approxTokens": 1610,
@@ -25,13 +18,6 @@
       "descLen": 3155,
       "paramsLen": 2324,
       "source": "flux2"
-    },
-    {
-      "name": "krea2",
-      "approxTokens": 811,
-      "descLen": 2273,
-      "paramsLen": 970,
-      "source": "krea2"
     },
     {
       "name": "zk_ask",
@@ -60,6 +46,13 @@
       "descLen": 805,
       "paramsLen": 1474,
       "source": "web-access"
+    },
+    {
+      "name": "krea2",
+      "approxTokens": 539,
+      "descLen": 1177,
+      "paramsLen": 978,
+      "source": "krea2"
     },
     {
       "name": "zk_ingest",
@@ -97,6 +90,13 @@
       "source": "flux2"
     },
     {
+      "name": "movie",
+      "approxTokens": 306,
+      "descLen": 208,
+      "paramsLen": 1014,
+      "source": "movie-director"
+    },
+    {
       "name": "edit",
       "approxTokens": 290,
       "descLen": 326,
@@ -109,6 +109,13 @@
       "descLen": 307,
       "paramsLen": 853,
       "source": "ltx"
+    },
+    {
+      "name": "movie_help",
+      "approxTokens": 283,
+      "descLen": 277,
+      "paramsLen": 855,
+      "source": "movie-director"
     },
     {
       "name": "zk_extract",
@@ -172,6 +179,13 @@
       "descLen": 266,
       "paramsLen": 140,
       "source": "power-tool"
+    },
+    {
+      "name": "krea2_help",
+      "approxTokens": 102,
+      "descLen": 247,
+      "paramsLen": 159,
+      "source": "krea2"
     },
     {
       "name": "goal_complete",

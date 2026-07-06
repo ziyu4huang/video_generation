@@ -5,58 +5,77 @@ import { scopeViolationForToolCall } from "../src/index.ts";
 // Wiring test for the extension factory — registers one well-formed tool and
 // dispatch() shapes results correctly. Deep behavior is covered in src/*.test.ts.
 
-function captureRegisteredTool() {
-  let registered: any = null;
+function captureRegisteredTools(): any[] {
+  const tools: any[] = [];
   const fakePi = {
     registerTool(tool: any) {
-      registered = tool;
+      tools.push(tool);
     },
     on() {
       /* tool_call guard registration; exercised via scopeViolationForToolCall tests */
     },
   } as any;
   extension(fakePi);
-  return registered;
+  return tools;
+}
+
+/** Find a registered tool by name (movie / movie_help). */
+function captureTool(name: string): any {
+  return captureRegisteredTools().find((t) => t.name === name) ?? null;
+}
+
+/** The full command reference as movie_help returns it (no command arg). */
+async function movieHelpReference(): Promise<string> {
+  const help = captureTool("movie_help");
+  const res = await help.execute("id", {}, undefined, undefined, undefined);
+  return res.content[0].text;
 }
 
 describe("pi-movie-director extension", () => {
-  test("registers exactly one tool named 'movie' with a non-empty description", () => {
-    const tool = captureRegisteredTool();
-    expect(tool).not.toBeNull();
-    expect(tool.name).toBe("movie");
-    expect(typeof tool.description).toBe("string");
-    expect(tool.description.length).toBeGreaterThan(100);
+  test("registers the movie + movie_help tools with non-empty descriptions", () => {
+    const tools = captureRegisteredTools();
+    const movie = tools.find((t) => t.name === "movie");
+    const help = tools.find((t) => t.name === "movie_help");
+    expect(movie).toBeDefined();
+    expect(help).toBeDefined();
+    expect(typeof movie.description).toBe("string");
+    expect(movie.description.length).toBeGreaterThan(100);
+    // The movie tool's routing description is deliberately slim; the heavy
+    // command reference lives in movie_help (dispatcher/help-tool split, same
+    // pattern as flux2/ltx/krea2/workflow).
+    expect(movie.description).toContain("movie_help");
   });
 
-  test("the description documents every command", () => {
-    const tool = captureRegisteredTool();
+  test("the movie_help reference documents every command", async () => {
+    const reference = await movieHelpReference();
     for (const cmd of [
       "preflight", "pipeline-list", "pipeline-show", "init-project", "next-stage",
       "write-checkpoint", "read-checkpoint", "validate-artifact", "generate",
       "compose", "final-review",
       "cost-estimate", "cost-reserve", "cost-reconcile", "cost-snapshot",
     ]) {
-      expect(tool.description).toContain(cmd);
+      expect(reference).toContain(cmd);
     }
   });
 
-  test("the generate description documents BOTH analysis subcommands (agent-discoverability)", () => {
-    // Regression: the `movie` tool's generate description used to mention only
+  test("the generate reference documents BOTH analysis subcommands (agent-discoverability)", async () => {
+    // Regression: the `movie` tool's generate reference used to mention only
     // `analysis:transcribe` (audio). A hint-free "identify the VISUAL content"
     // prompt left the agent unable to discover the CLIP path, so it guessed
     // `transcribe` and omitted `capability` → a non-converging retry loop
-    // (the "video_understand agent-path block"). The description MUST surface
+    // (the "video_understand agent-path block"). The reference MUST surface
     // `video_understand` and its options so a hint-free agent routes correctly.
-    const tool = captureRegisteredTool();
-    expect(tool.description).toContain("video_understand");
-    expect(tool.description).toContain("transcribe");
+    // (Lives in movie_help's reference now; the main movie tool is routing-only.)
+    const reference = await movieHelpReference();
+    expect(reference).toContain("video_understand");
+    expect(reference).toContain("transcribe");
     // The visual-analysis option keys (so the agent doesn't guess `video_path`).
-    expect(tool.description).toMatch(/video_understand[^]*options:\{video,\s*prompt/);
-    expect(tool.description).toContain("VISUAL");
+    expect(reference).toMatch(/video_understand[^]*options:\{video,\s*prompt/);
+    expect(reference).toContain("VISUAL");
   });
 
   test("preflight returns the provider-menu summary", async () => {
-    const tool = captureRegisteredTool();
+    const tool = captureTool("movie");
     const res = await tool.execute("id", { command: "preflight", options: {} }, undefined, undefined, undefined);
     const text = res.content[0].text;
     const parsed = JSON.parse(text);
@@ -65,14 +84,14 @@ describe("pi-movie-director extension", () => {
   });
 
   test("pipeline-list returns the bundled manifests", async () => {
-    const tool = captureRegisteredTool();
+    const tool = captureTool("movie");
     const res = await tool.execute("id", { command: "pipeline-list", options: {} }, undefined, undefined, undefined);
     const parsed = JSON.parse(res.content[0].text);
     expect(parsed).toContain("talking-head");
   });
 
   test("write-checkpoint surfaces gate violation as a non-throwing error result", async () => {
-    const tool = captureRegisteredTool();
+    const tool = captureTool("movie");
     const res = await tool.execute(
       "id",
       {
@@ -91,7 +110,7 @@ describe("pi-movie-director extension", () => {
   test("generate surfaces a no-configured-provider error as a structured failure (no spawn)", async () => {
     // tts has NO configured provider → the selector throws NoConfiguredProviderError,
     // which dispatch converts to {ok:false, error}. No subprocess is ever spawned.
-    const tool = captureRegisteredTool();
+    const tool = captureTool("movie");
     const res = await tool.execute(
       "id",
       { command: "generate", options: { capability: "tts", command: "synthesize" } },
