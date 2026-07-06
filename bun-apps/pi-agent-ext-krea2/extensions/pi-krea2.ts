@@ -158,8 +158,8 @@ function makeKrea2Tool() {
     promptGuidelines: [
       "Before first use of any krea2 command (or when unsure of an option key), call krea2_help " +
       "with that command name to get its exact options, defaults, and path rules.",
-      "Use krea2 for a fast single-image draft or light i2i edit (8 steps). Escalate to flux2 for " +
-      "multi-character scene composition, style transfer, or higher-fidelity generation; use ltx for video.",
+      "Use krea2 for a fast single-image draft or light i2i edit (8 steps); escalate to flux2 for " +
+      "multi-character scenes, style transfer, or higher fidelity.",
     ],
     parameters: Type.Object({
       command: COMMAND_ENUM,

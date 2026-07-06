@@ -178,7 +178,7 @@ function makeLtxTool() {
     promptGuidelines: [
       "Before first use of any ltx command (or when unsure of an option key), call ltx_help with that " +
       "command name to get its exact options, defaults, and path rules.",
-      "Use ltx for video; use flux2 for image generation/editing; use krea2 for a fast single-image draft.",
+      "Use ltx for video.",
     ],
     parameters: Type.Object({
       command: COMMAND_ENUM,

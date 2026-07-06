@@ -29,13 +29,13 @@ import { formatCommandTaskLine, formatStatusLabel, renderTodoCall, renderTodoRes
 
 export const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	"Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions to capture requirements. Skip it for single trivial tasks and purely conversational requests.",
-	"When starting any task, mark it in_progress BEFORE beginning work. Mark it completed IMMEDIATELY when done — never batch completions. Exactly one task should be in_progress at a time.",
-	"Never mark a task completed if tests are failing, the implementation is partial, or you hit unresolved errors — keep it in_progress and create a new task for the blocker instead.",
-	"Task status is a 4-state machine: pending → in_progress → completed, plus deleted as a tombstone. Pass activeForm (present-continuous label, e.g. 'researching existing tool') when marking in_progress.",
-	"Use blockedBy to express dependencies (A is blocked by B). On create, pass blockedBy as the initial set. On update, use addBlockedBy / removeBlockedBy (additive merge — do not resend the full array). Cycles are rejected.",
-	"list hides tombstoned (deleted) tasks by default; pass includeDeleted:true to see them. Pass status to filter by a single status.",
-	"Subject must be short and imperative (e.g. 'Research existing tool'); description is for long-form detail. activeForm is a present-continuous label shown while in_progress.",
+	"Use `todo` for 3+ step work, a list of tasks, or right after new instructions to capture requirements; skip single trivial or conversational turns.",
+	"Mark a task in_progress before starting it; complete it immediately when done — never batch. Exactly one in_progress at a time.",
+	"Never complete a task while tests fail, work is partial, or errors are open — keep it in_progress and add a task for the blocker.",
+	"Status machine: pending → in_progress → completed, plus deleted (tombstone). Pass activeForm (present-continuous label) when going in_progress.",
+	"blockedBy = dependencies (A blocked by B): set on create; on update use addBlockedBy / removeBlockedBy (additive — don't resend the full array). Cycles rejected.",
+	"list hides deleted (tombstoned) tasks by default — includeDeleted:true to see them; status filters by one status.",
+	"Subject: short + imperative; description: long-form; activeForm: present-continuous label shown while in_progress.",
 ];
 
 // ---------------------------------------------------------------------------

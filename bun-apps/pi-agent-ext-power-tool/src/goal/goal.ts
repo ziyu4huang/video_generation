@@ -226,9 +226,9 @@ const goalCompleteTool = defineTool({
 		"Mark the active /goal as complete after all required work is done and verified. Do not use for partial progress, blockers, failing, or unverified work.",
 	promptSnippet: "Mark the active /goal as complete after fully finishing and verifying it",
 	promptGuidelines: [
-		"When a /goal is active, keep working until the goal is complete; do not stop with only a plan or partial progress.",
-		"Before calling goal_complete, audit the active goal requirement by requirement against the current files, command output, tests, or external state.",
-		"Call goal_complete only after the requested goal is fully implemented, verified, and no known required work remains; otherwise keep working.",
+		"When a /goal is active, keep working until complete — don't stop at a plan or partial progress.",
+		"Before goal_complete, audit the goal requirement-by-requirement against files, command output, tests, and external state.",
+		"Call goal_complete only when the goal is fully implemented, verified, and no required work remains — else keep working.",
 	],
 	parameters: Type.Object({
 		summary: Type.String({
