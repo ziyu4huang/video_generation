@@ -9,6 +9,13 @@ import Foundation
 import MLX
 import MLXNN
 
+/// Opt-in attention-vs-MLP breakdown of one block's forward pass, produced
+/// only when `callAsFunction`'s `onAttnMlpTimings` handler is non-nil.
+public struct AttnMlpTimings {
+    public var attnMs: Double = 0
+    public var mlpMs: Double = 0
+}
+
 /// One DiT block. `modulation=true` → has adaLN_modulation (noise refiners,
 /// main layers); `false` → plain residual (context refiners).
 public final class ZImageTransformerBlock: Module {
@@ -42,9 +49,18 @@ public final class ZImageTransformerBlock: Module {
 
     public func callAsFunction(
         _ x: MLXArray, mask: MLXArray?, positions: MLXArray?,
-        adalnInput: MLXArray? = nil, cos: MLXArray? = nil, sin: MLXArray? = nil
+        adalnInput: MLXArray? = nil, cos: MLXArray? = nil, sin: MLXArray? = nil,
+        // Opt-in attention-vs-MLP sub-stage timing (the next granularity down
+        // from ZImageTransformer's per-stage BlockTimings, now that the
+        // noiseRefiner/contextRefiner/layers split has shown `layers`
+        // dominates at ~90%+ of forward time — see PR #315). Forces an extra
+        // MLX.eval sync point after each half; nil by default, so the forward
+        // pass is byte-identical to before this parameter existed.
+        onAttnMlpTimings: ((AttnMlpTimings) -> Void)? = nil
     ) -> MLXArray {
+        let profiling = onAttnMlpTimings != nil
         var x = x
+        var timings = AttnMlpTimings()
         if modulation, let adalnInput = adalnInput, let ada = adaLNModulation {
             // chunks = adaLN_modulation(adaln_input); split into 4 along last axis
             let chunks = ada(adalnInput)
@@ -57,16 +73,41 @@ public final class ZImageTransformerBlock: Module {
             scaleMlp = scaleMlp.expandedDimensions(axis: -2)
             gateMlp = gateMlp.expandedDimensions(axis: -2)
 
+            let attnStart = profiling ? Date() : nil
             let normX = attentionNorm1(x) * (1 + scaleMsa)
             let attnOut = attention(normX, mask: mask, positions: positions, cos: cos, sin: sin)
+            if profiling {
+                MLX.eval(attnOut)
+                timings.attnMs = attnStart!.distance(to: Date()) * 1000
+            }
             x = x + MLX.tanh(gateMsa) * attentionNorm2(attnOut)
 
+            let mlpStart = profiling ? Date() : nil
             let normFfn = ffnNorm1(x) * (1 + scaleMlp)
-            x = x + MLX.tanh(gateMlp) * ffnNorm2(feedForward(normFfn))
+            let ffnOut = feedForward(normFfn)
+            if profiling {
+                MLX.eval(ffnOut)
+                timings.mlpMs = mlpStart!.distance(to: Date()) * 1000
+            }
+            x = x + MLX.tanh(gateMlp) * ffnNorm2(ffnOut)
         } else {
-            x = x + attentionNorm2(attention(attentionNorm1(x), mask: mask, positions: positions, cos: cos, sin: sin))
-            x = x + ffnNorm2(feedForward(ffnNorm1(x)))
+            let attnStart = profiling ? Date() : nil
+            let attnOut = attention(attentionNorm1(x), mask: mask, positions: positions, cos: cos, sin: sin)
+            if profiling {
+                MLX.eval(attnOut)
+                timings.attnMs = attnStart!.distance(to: Date()) * 1000
+            }
+            x = x + attentionNorm2(attnOut)
+
+            let mlpStart = profiling ? Date() : nil
+            let ffnOut = feedForward(ffnNorm1(x))
+            if profiling {
+                MLX.eval(ffnOut)
+                timings.mlpMs = mlpStart!.distance(to: Date()) * 1000
+            }
+            x = x + ffnNorm2(ffnOut)
         }
+        onAttnMlpTimings?(timings)
         return x
     }
 }
