@@ -75,9 +75,36 @@ function fieldHints(cmdName: CommandName): string {
 }
 
 /** The cheap one-line-per-subcommand index (kept in the slim description). */
+/**
+ * Terse routing tags shown in the always-on description + the flux2_help "list
+ * all" view. The full `when` sentence + per-field reference stay in
+ * flux2_help's per-command path (fieldHints). Falls back to `when` if untagged.
+ */
+const SUBCOMMAND_TAGS: Record<string, string> = {
+  "t2i": "Text → image (basic gen)",
+  "scene": "Multi-character scene compose",
+  "edit": "Reference-conditioned edit",
+  "style": "Identity-preserving style transfer",
+  "kv-style-transfer": "K/V-injection style transfer",
+  "angle": "Multi-angle character views",
+  "swap": "Swap object via reference",
+  "expand": "Outpaint / expand canvas",
+  "upscale": "4× super-resolution",
+  "gate": "Score images (no generation)",
+  "segment": "SAM3 segmentation → mask",
+  "story": "One character, many scenes",
+  "models": "List installed models (read-only)",
+  "verify-vae": "Diagnostic: VAE vs reference",
+  "verify-encoder": "Diagnostic: encoder vs reference",
+  "verify-tokenizer": "Diagnostic: tokenizer vs reference",
+  "verify-transformer": "Diagnostic: transformer vs reference",
+  "verify-e2e": "Diagnostic: full denoise vs reference",
+  "verify-edit": "Diagnostic: edit conditioning vs reference",
+};
+
 function commandIndex(): string {
   return COMMAND_LIST.map(
-    (c) => `  • ${c.name}${c.writesImage ? " 📤" : ""} — ${c.when}`,
+    (c) => `  • ${c.name}${c.writesImage ? " 📤" : ""} — ${SUBCOMMAND_TAGS[c.name] ?? c.when}`,
   ).join("\n");
 }
 
