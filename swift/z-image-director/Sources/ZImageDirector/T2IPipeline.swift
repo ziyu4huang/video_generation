@@ -167,7 +167,19 @@ public final class T2IPipeline {
         // When CFG is active, timings from the cond and uncond forward calls
         // are summed (both run every step; splitting them further isn't
         // useful since they share the same block structure).
-        profileBlocks: Bool = false
+        profileBlocks: Bool = false,
+        // Opt-in measurement of adjacent-timestep redundancy in the final
+        // noise prediction (L1 + cosine similarity vs the previous step's
+        // noisePred). Answers, empirically, whether TeaCache-style step
+        // caching is even plausible for this model's 9-step distilled
+        // schedule — see project_teacache_style_caching_research memory:
+        // every published caching method (TeaCache/FasterCache/BWCache) was
+        // validated only on ≥30-step schedules, none report results for
+        // few-step distilled models, so the "adjacent steps are similar"
+        // assumption is unverified here. This is measurement only — it does
+        // NOT cache or reuse anything. Forces two extra scalar reads
+        // (`.item()`) per step after the first; zero cost when false.
+        profileSimilarity: Bool = false
         // NOTE on MLX compile: this pipeline does NOT use MLX.compile for the
         // denoise step, despite Python's @mx.compile step_fn. Measured verdict
         // (4-run interleaved benchmark, 2026-06-29): compile gave ZERO speed
@@ -254,6 +266,7 @@ public final class T2IPipeline {
         print("   denoising \(img2img ? (steps - startStep) : steps) steps (cfg=\(cfgScale), mu=\(String(format: "%.3f", mu)))\(inpaintActive ? ", inpaint=on" : "")\(useCnet ? ", controlnet=on" : "")...")
 
         var stepTimes: [Double] = []
+        var previousNoisePred: MLXArray? = nil
         for idx in startStep..<steps {
             let iterStart = Date()
             let tCurr = scheduler.timesteps![idx]
@@ -342,6 +355,18 @@ public final class T2IPipeline {
                 print("         blocks: noiseRefiner \(String(format: "%.0f", blockTimings.noiseRefinerMs)) ms, " +
                     "contextRefiner \(String(format: "%.0f", blockTimings.contextRefinerMs)) ms, " +
                     "layers \(String(format: "%.0f", blockTimings.layersMs)) ms")
+            }
+            if profileSimilarity {
+                let curr = noisePred.asType(.float32)
+                if let prev = previousNoisePred {
+                    let l1 = MLX.abs(curr - prev).mean().item(Float.self)
+                    let dot = (curr * prev).sum().item(Float.self)
+                    let normCurr = MLX.sqrt((curr * curr).sum()).item(Float.self)
+                    let normPrev = MLX.sqrt((prev * prev).sum()).item(Float.self)
+                    let cosine = dot / (normCurr * normPrev + 1e-8)
+                    print("         similarity vs prev step: L1=\(String(format: "%.5f", l1)), cosine=\(String(format: "%.5f", cosine))")
+                }
+                previousNoisePred = curr
             }
         }
         let runSteps = steps - startStep
