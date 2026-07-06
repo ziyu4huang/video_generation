@@ -10,7 +10,7 @@ import type { PreviewPaneProps } from "../../view/components/preview/preview-pan
 import type { SubmitPickerProps } from "../../view/components/submit-picker.js";
 import type { TabBarProps } from "../../view/components/tab-bar.js";
 import type { BindingContext, PerTabBindingContext } from "./contract.js";
-import type { QuestionnaireState } from "./state.js";
+import type { QuestionnaireState } from "../state.js";
 import { selectActivePreviewPaneIndex } from "./derivations.js";
 
 export function selectDialogProps(state: QuestionnaireState, ctx: BindingContext): DialogProps {

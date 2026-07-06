@@ -3,11 +3,12 @@
  * Ported from rpiv-ask-user-question view/components/preview/preview-block-renderer.ts.
  */
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { QuestionData } from "../../../tool/types.js";
 
 interface PreviewBlockConfig {
 	question: QuestionData;
-	theme: { fg: (style: string, text: string) => string; bold: (text: string) => string };
+	theme: Theme;
 	markdownTheme: Record<string, (text: string) => string>;
 }
 

@@ -66,10 +66,20 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
   // footer-extension-status-notify: patches InteractiveMode.prototype.init so
   // FooterDataProvider.setExtensionStatus / clearExtensionStatuses notify
-  // subscribers + trigger ui.requestRender(). Without this, extension statuses
-  // (the /goal indicator) only render when the footer re-renders for an
-  // unrelated reason (git-branch change or agent activity) — the elapsed time
-  // never ticks while idle. Must run before main() constructs InteractiveMode.
+  // subscribers + trigger ui.requestRender().
+  //
+  // STATUS (2026-07-06): REDUNDANT BUT RETAINED. (1) SDK 0.80.3's
+  // InteractiveMode.setExtensionStatus already calls ui.requestRender() after
+  // delegating to FooterDataProvider, so the live-render this patch adds is a
+  // no-op duplicate. (2) Its original consumer — the /goal indicator — moved
+  // off ctx.ui.setStatus to a setWidget overlay (PR #324, power-tool), so the
+  // setStatus path is no longer used by any persistent feature. Retained
+  // because (a) this repo's patch invariant is opt-OFF-not-opt-IN (every entry
+  // defaults enabled — see index.test.ts), so the consistent options are
+  // keep-on or remove-entirely, and removing is cross-package churn for a
+  // harmless idempotent patch; and (b) ctx.ui.setStatus is still a public SDK
+  // API, and this patch keeps it correct for any future extension or SDK build
+  // that lacks the requestRender call. Disable with BUN_PI_FOOTER_EXT_STATUS_NOTIFY=0.
   { name: "footer-extension-status-notify", env: "BUN_PI_FOOTER_EXT_STATUS_NOTIFY", defaultValue: true },
 ];
 

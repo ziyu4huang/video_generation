@@ -16,6 +16,17 @@
 
 let patched = false;
 
+// Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions()
+// onto the tool execution context (ExtensionContext) — the SDK only declares
+// it on ExtensionCommandContext. This module augmentation mirrors that runtime
+// polyfill at the TYPE level, so power-tool tools can call it on ExtensionContext
+// without per-call casts. (Keep in sync with the runtime patch below.)
+declare module "@earendil-works/pi-coding-agent" {
+  interface ExtensionContext {
+    getSystemPromptOptions(): import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions;
+  }
+}
+
 export function ensureGetSystemPromptOptions(): boolean {
   if (patched) return true;
 
@@ -30,7 +41,7 @@ export function ensureGetSystemPromptOptions(): boolean {
         (v: unknown) =>
           typeof v === "function" &&
           (v as { name?: string }).name === "PiAgentRunner" &&
-          (v as Record<string, unknown>).prototype?.createContext,
+          (v as unknown as { prototype?: { createContext?: unknown } }).prototype?.createContext,
       );
 
     if (!Runner || typeof Runner !== "function") {
@@ -40,7 +51,7 @@ export function ensureGetSystemPromptOptions(): boolean {
       return false;
     }
 
-    const proto = (Runner as Record<string, unknown>).prototype as Record<
+    const proto = (Runner as unknown as Record<string, unknown>).prototype as Record<
       string,
       unknown
     >;

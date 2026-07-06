@@ -46,10 +46,10 @@ function createMockPi() {
 function createMockCtx(over: Partial<ExtensionContext> = {}): ExtensionContext {
 	return {
 		hasUI: over.hasUI ?? true,
-		mode: over.mode ?? "interactive",
+		mode: over.mode ?? "tui",
 		extensionName: "power-tool",
 		currentToolName: undefined,
-	} as ExtensionContext;
+	} as unknown as ExtensionContext;
 }
 
 // ─── reconcileAskUserQuestionTool ────────────────────────────────────────────
@@ -141,7 +141,7 @@ describe("reconcileAskUserQuestionTool", () => {
 	test("restores ask_user_question in TUI mode (mode: 'interactive' + hasUI)", () => {
 		const { pi } = createMockPi();
 		pi.setActiveTools(["other"]);
-		reconcileAskUserQuestionTool(pi, createMockCtx({ hasUI: true, mode: "interactive" }));
+		reconcileAskUserQuestionTool(pi, createMockCtx({ hasUI: true, mode: "tui" }));
 		expect(pi.getActiveTools()).toEqual(["other", ASK_USER_QUESTION_TOOL_NAME]);
 	});
 });

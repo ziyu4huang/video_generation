@@ -40,12 +40,14 @@ import {
 } from "pi-knowledge-card/src/retrieve.ts";
 import { registerTodoTool, registerTodosCommand } from "./todo/todo";
 import { TodoOverlay } from "./todo/overlay";
+import { PowerToolStatusWidget } from "./shared/status-widget.js";
 import { replayFromBranch } from "./todo/state/replay";
 import { replaceState } from "./todo/state/store";
 import { TOOL_NAME } from "./todo/tool/types";
 import { registerAskUserQuestionTool } from "./ask-user/ask-user-question";
 import { registerAskUserQuestionReconciler } from "./ask-user/reconcile";
 import goal from "./goal/goal.js";
+import { GoalOverlay } from "./goal/overlay.js";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1117,8 +1119,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool(makeGraphHealthTool());
 
   // ── Todo tool + /todos command ────────────────────────────────────────
-  let todoOverlay: TodoOverlay | undefined;
-
   registerTodoTool(pi);
   registerTodosCommand(pi);
 
@@ -1126,16 +1126,26 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   registerAskUserQuestionTool(pi);
   registerAskUserQuestionReconciler(pi);
 
-  // ── Goal tool ──────────────────────────────────────────────────
-  goal(pi);
+  // ── Goal + Todo overlays → ONE composite above-editor widget ─────────────
+  // A single widget key makes stacking deterministic (the SDK orders widgets
+  // by Map insertion order with no index API; two keys flicker on clear/re-
+  // register). Goal renders on top, todo below. All setWidget lifecycle lives
+  // in PowerToolStatusWidget; the overlays are thin render() state-holders.
+  const statusWidget = new PowerToolStatusWidget();
+  const goalOverlay = new GoalOverlay();
+  const todoOverlay = new TodoOverlay();
+  goal(pi, goalOverlay);
+  goalOverlay.setRefresh(() => statusWidget.update());
+  todoOverlay.setRefresh(() => statusWidget.update());
+  statusWidget.addSection({ id: "goal", render: (t, w) => goalOverlay.render(t, w) });
+  statusWidget.addSection({ id: "todo", render: (t, w) => todoOverlay.render(t, w) });
 
   pi.on("session_start", async (_event, ctx) => {
     replaceState(replayFromBranch(ctx));
     if (ctx.hasUI) {
-      todoOverlay ??= new TodoOverlay();
-      todoOverlay.setUICtx(ctx.ui);
+      statusWidget.setUICtx(ctx.ui);
       todoOverlay.resetCompletedDisplayState();
-      todoOverlay.update();
+      statusWidget.update();
     }
   });
 
@@ -1145,8 +1155,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
     } catch (e) {
       if (!isStaleCtxError(e)) throw e;
     }
-    todoOverlay?.resetCompletedDisplayState();
-    todoOverlay?.update();
+    todoOverlay.resetCompletedDisplayState();
+    statusWidget.update();
   });
 
   pi.on("session_tree", async (_event, ctx) => {
@@ -1155,22 +1165,23 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
     } catch (e) {
       if (!isStaleCtxError(e)) throw e;
     }
-    todoOverlay?.resetCompletedDisplayState();
-    todoOverlay?.update();
+    todoOverlay.resetCompletedDisplayState();
+    statusWidget.update();
   });
 
   pi.on("session_shutdown", async () => {
-    todoOverlay?.dispose();
-    todoOverlay = undefined;
+    goalOverlay.dispose();
+    todoOverlay.dispose();
+    statusWidget.dispose();
   });
 
   pi.on("tool_execution_end", async (event) => {
     if (event.toolName !== TOOL_NAME || event.isError) return;
-    todoOverlay?.update();
+    todoOverlay.update();
   });
 
   pi.on("agent_start", async () => {
-    todoOverlay?.hideCompletedTasksFromPreviousTurn();
+    todoOverlay.hideCompletedTasksFromPreviousTurn();
   });
 };
 

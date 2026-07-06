@@ -74,8 +74,10 @@ async function run(
 	tool: { execute?: (...args: unknown[]) => unknown },
 	params: unknown,
 	ctx: unknown,
-) {
-	return await tool.execute?.("tc", params as never, undefined as never, undefined as never, ctx as never);
+): Promise<{ details?: unknown; content: Array<{ text?: string; type?: string }> } | undefined> {
+	return (await tool.execute?.("tc", params as never, undefined as never, undefined as never, ctx as never)) as
+		| { details?: unknown; content: Array<{ text?: string; type?: string }> }
+		| undefined;
 }
 
 // ─── hasDialogUI ─────────────────────────────────────────────────────────────

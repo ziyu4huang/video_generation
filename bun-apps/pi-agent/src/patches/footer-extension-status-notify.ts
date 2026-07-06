@@ -34,10 +34,13 @@
  *
  * Env gate: BUN_PI_FOOTER_EXT_STATUS_NOTIFY (default on). Reversible.
  *
- * NOTE: This makes the indicator *appear* on change. For the elapsed time to
- * *tick* every second while idle, the goal extension additionally runs a 1s
- * heartbeat that re-calls `ctx.ui.setStatus` with the recomputed duration —
- * see the heartbeat timer in `pi-agent-ext-power-tool/src/goal/goal.ts`.
+ * NOTE: This makes the indicator *appear* on change. As of 2026-07-06 this patch
+ * is REDUNDANT in SDK 0.80.3 (InteractiveMode.setExtensionStatus already calls
+ * ui.requestRender()) and its original consumer moved off ctx.ui.setStatus to a
+ * setWidget overlay (PR #324). Retained for the public setStatus API + this
+ * repo's opt-OFF-not-opt-IN patch invariant. See patches/index.ts for the full
+ * rationale. The 1s heartbeat this NOTE used to reference was removed with the
+ * goal setStatus path.
  */
 
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";

@@ -1,76 +1,48 @@
 /**
- * todo-overlay.ts — Persistent widget showing todo list above the editor.
+ * todo/overlay.ts — todo section renderer for the PowerToolStatusWidget.
+ *
+ * Refactored for overlay unification: no longer owns a `setWidget` lifecycle.
+ * The PowerToolStatusWidget (shared/status-widget.ts) owns the single
+ * above-editor widget key and renders this section alongside the goal section
+ * in a fixed order. TodoOverlay is now a state-holder that exposes
+ * `render(theme, width)` and pokes `refresh()` (the composite's update) when
+ * its content changes.
  *
  * Stripped of external i18n dependency (@juicesharp/rpiv-i18n):
  * - formatStatusLabel imported from sister module (view/format.ts — English-only inline)
  * - All t(key, fallback) calls replaced with fallback literals
  */
 
-import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import { type TUI, truncateToWidth } from "@earendil-works/pi-tui";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import { formatStatusLabel } from "./view/format";
 import { selectHasActive, selectOverlayLayout, selectShowTaskIds, selectTodoCounts } from "./state/selectors";
 import { getState } from "./state/store";
 import { formatOverlayTaskLine } from "./view/format";
 
-const WIDGET_KEY = "rpiv-todos";
 const MAX_WIDGET_LINES = 12;
 
 export class TodoOverlay {
-	private uiCtx: ExtensionUIContext | undefined;
-	private widgetRegistered = false;
-	private tui: TUI | undefined;
+	private refresh: (() => void) | undefined;
 	private completedTaskIdsPendingHide = new Set<number>();
 	private hiddenCompletedTaskIds = new Set<number>();
 	private lastNextId: number | undefined;
 
-	setUICtx(ctx: ExtensionUIContext): void {
-		if (ctx !== this.uiCtx) {
-			this.uiCtx = ctx;
-			this.widgetRegistered = false;
-			this.tui = undefined;
-		}
+	/** Register the composite's update as the refresh callback. */
+	setRefresh(fn: () => void): void {
+		this.refresh = fn;
 	}
 
+	/** Re-render via the composite. Call after any state change. */
 	update(): void {
-		if (!this.uiCtx) return;
-		const snapshot = this.getSnapshot();
-		const visible = this.selectOverlayTasks(snapshot);
-
-		if (visible.length === 0) {
-			if (this.widgetRegistered) {
-				this.uiCtx.setWidget(WIDGET_KEY, undefined);
-				this.widgetRegistered = false;
-				this.tui = undefined;
-			}
-			return;
-		}
-
-		if (!this.widgetRegistered) {
-			this.uiCtx.setWidget(
-				WIDGET_KEY,
-				(tui, theme) => {
-					this.tui = tui;
-					return {
-						render: (width: number) => this.renderWidget(theme, width),
-						invalidate: () => {
-							this.widgetRegistered = false;
-							this.tui = undefined;
-						},
-					};
-				},
-				{ placement: "aboveEditor" },
-			);
-			this.widgetRegistered = true;
-		} else {
-			this.tui?.requestRender();
-		}
+		this.refresh?.();
 	}
 
 	resetCompletedDisplayState(): void {
 		this.completedTaskIdsPendingHide.clear();
 		this.hiddenCompletedTaskIds.clear();
 		this.lastNextId = undefined;
+		this.refresh?.();
 	}
 
 	hideCompletedTasksFromPreviousTurn(): void {
@@ -79,7 +51,11 @@ export class TodoOverlay {
 			this.hiddenCompletedTaskIds.add(taskId);
 		}
 		this.completedTaskIdsPendingHide.clear();
-		this.tui?.requestRender();
+		this.refresh?.();
+	}
+
+	dispose(): void {
+		this.resetCompletedDisplayState();
 	}
 
 	private getSnapshot() {
@@ -108,7 +84,8 @@ export class TodoOverlay {
 		return task.status === "completed" && this.hiddenCompletedTaskIds.has(task.id);
 	}
 
-	private renderWidget(theme: Theme, width: number): string[] {
+	/** Render the todo section lines (heading + visible tasks + overflow). Empty if no tasks. */
+	render(theme: Theme, width: number): string[] {
 		const snapshot = this.getSnapshot();
 		const overlayTasks = this.selectOverlayTasks(snapshot);
 		if (overlayTasks.length === 0) return [];
@@ -145,7 +122,7 @@ export class TodoOverlay {
 		if (layout.hiddenCompleted === 0 && layout.truncatedTail === 0) {
 			const last = lines.length - 1;
 			lines[last] = lines[last].replace("├─", "└─");
-			return this.withTrailingSpacer(lines);
+			return lines;
 		}
 
 		const totalHidden = layout.hiddenCompleted + layout.truncatedTail;
@@ -154,20 +131,6 @@ export class TodoOverlay {
 		if (layout.truncatedTail > 0) overflowParts.push(`${layout.truncatedTail} ${formatStatusLabel("pending")}`);
 		const summary = overflowParts.length > 0 ? `+${totalHidden} more (${overflowParts.join(", ")})` : `+${totalHidden} more`;
 		lines.push(truncate(`${theme.fg("dim", "└─")} ${theme.fg("dim", summary)}`));
-		return this.withTrailingSpacer(lines);
-	}
-
-	private withTrailingSpacer(lines: string[]): string[] {
-		if (lines.length === 0) return lines;
-		lines.push("");
 		return lines;
-	}
-
-	dispose(): void {
-		if (this.uiCtx) this.uiCtx.setWidget(WIDGET_KEY, undefined);
-		this.widgetRegistered = false;
-		this.tui = undefined;
-		this.uiCtx = undefined;
-		this.resetCompletedDisplayState();
 	}
 }
