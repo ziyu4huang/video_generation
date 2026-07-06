@@ -63,8 +63,32 @@ function fieldHints(cmdName: CommandName): string {
 }
 
 /** The cheap one-line-per-subcommand index (kept in the slim description). */
+/**
+ * Terse routing tags shown in the always-on description + the ltx_help "list
+ * all" view. The full `when` sentence + per-field reference stay in ltx_help's
+ * per-command path. Falls back to `when` if untagged.
+ */
+const SUBCOMMAND_TAGS: Record<string, string> = {
+  "t2i": "Text → image (native)",
+  "native-i2v": "Image → video (flagship, native)",
+  "native-upscale": "2× upscale frames (native)",
+  "native-t2a": "Text → audio only (native)",
+  "native-relay": "Multi-segment prompt-relay video",
+  "native-storyboard": "Multi-panel storyboard (JSON config)",
+  "native-ingredients": "Video from reference image (IC-LoRA)",
+  "native-restyle": "V2V restyle frames (IC-LoRA)",
+  "segment": "Detect scene cuts (no generation)",
+  "i2v": "Production I2V (bridges run.py)",
+  "upscale": "Upscale video (bridges run.py)",
+  "gate": "Score video quality (no generation)",
+  "verify": "VLM verify quality / prompt adherence",
+  "models": "List transformer variants (read-only)",
+  "audio-decode": "Decode audio latent → WAV (diagnostic)",
+  "video-decode": "Decode video latent → frames (diagnostic)",
+};
+
 function commandIndex(): string {
-  return COMMAND_LIST.map((c) => `  • ${c.name}${c.writesOutput ? " 📤" : ""} — ${c.when}`).join("\n");
+  return COMMAND_LIST.map((c) => `  • ${c.name}${c.writesOutput ? " 📤" : ""} — ${SUBCOMMAND_TAGS[c.name] ?? c.when}`).join("\n");
 }
 
 /** Exact per-command field-reference block (same text the old description embedded). */
