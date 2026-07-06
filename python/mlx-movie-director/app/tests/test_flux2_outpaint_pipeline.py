@@ -43,9 +43,18 @@ def patched_edit():
 
 class TestModuleImport:
     def test_mflux_src_points_at_vendored_dir(self):
+        # See test_flux2_controlnet_pipeline.py for rationale: under the
+        # canonical sibling-fork setup (CLAUDE.md) the vendored mflux dir is
+        # absent and mflux imports from ../mflux, so the vendored assertion is
+        # N/A rather than a failure.
         import app.flux2_outpaint_pipeline as m
-        assert os.path.isdir(m._MFLUX_SRC)
+        if not os.path.isdir(m._MFLUX_SRC):
+            pytest.skip("vendored mflux absent — sibling-fork (../mflux) setup per CLAUDE.md")
         assert m._MFLUX_SRC.endswith(os.path.join("vendor", "mflux", "src"))
+
+    def test_mflux_importable_with_z_image(self):
+        # The real requirement (CLAUDE.md): mflux must expose models.z_image.
+        from mflux.models import z_image  # noqa: F401
 
 
 class TestInitResolution:
