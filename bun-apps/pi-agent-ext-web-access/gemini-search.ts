@@ -5,13 +5,14 @@ import { getApiKey, getVersionedApiBase, buildKeyParam, buildAuthHeaders, isGate
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { isPerplexityAvailable, searchWithPerplexity, type SearchResult, type SearchResponse, type SearchOptions } from "./perplexity.ts";
 import { hasExaApiKey, isExaAvailable, searchWithExa } from "./exa.ts";
+import { isZaiAvailable, searchWithZai, ZaiQuotaError } from "./zai.ts";
 import { isBraveAvailable, searchWithBrave } from "./brave.ts";
 import { isOpenAISearchAvailable, searchWithOpenAI } from "./openai-search.ts";
 import { isParallelAvailable, searchWithParallel } from "./parallel.ts";
 import { isTavilyAvailable, searchWithTavily } from "./tavily.ts";
 import { getWebSearchConfigPath } from "./utils.ts";
 
-export type SearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "perplexity" | "gemini" | "exa";
+export type SearchProvider = "auto" | "zai" | "openai" | "brave" | "parallel" | "tavily" | "perplexity" | "gemini" | "exa";
 export type ResolvedSearchProvider = Exclude<SearchProvider, "auto">;
 
 export interface AttributedSearchResponse extends SearchResponse {
@@ -61,7 +62,7 @@ function normalizeSearchModel(value: unknown): string | undefined {
 
 function normalizeSearchProvider(value: unknown): SearchProvider {
 	const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-	const valid: SearchProvider[] = ["auto", "openai", "brave", "parallel", "tavily", "perplexity", "gemini", "exa"];
+	const valid: SearchProvider[] = ["auto", "zai", "openai", "brave", "parallel", "tavily", "perplexity", "gemini", "exa"];
 	return valid.includes(normalized as SearchProvider) ? normalized as SearchProvider : "auto";
 }
 
@@ -121,6 +122,22 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	const config = getSearchConfig();
 	const provider = options.provider ?? config.searchProvider;
 
+	if (provider === "zai") {
+		const zaiConfigured = isZaiAvailable();
+		try {
+			const result = await searchWithZai(query, options);
+			if (result) return { ...result, provider: "zai" };
+			if (zaiConfigured) throw new Error("Z.ai search returned no results.");
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			// Quota exhausted (ZaiQuotaError) → fall through to the fallback chain
+			// (honors "use Z.ai first, fall back on quota"). Other failures
+			// surface only when Z.ai was actually configured; otherwise allow
+			// the auto chain to pick another provider.
+			if (!(err instanceof ZaiQuotaError) && zaiConfigured) throw err;
+		}
+	}
+
 	if (provider === "openai") {
 		const result = await searchWithOpenAI(query, options, options.extensionContext);
 		return { ...result, provider: "openai" };
@@ -174,6 +191,18 @@ export async function search(query: string, options: FullSearchOptions = {}): Pr
 	}
 
 	const fallbackErrors: string[] = [];
+
+	// Z.ai is the PREFERRED provider when available (user priority: use Z.ai
+	// first). On quota exhaustion or any failure, continue down the chain.
+	if (provider !== "zai" && isZaiAvailable()) {
+		try {
+			const result = await searchWithZai(query, options);
+			if (result) return { ...result, provider: "zai" };
+		} catch (err) {
+			if (isAbortError(err)) throw err;
+			fallbackErrors.push(`Zai: ${errorMessage(err)}`);
+		}
+	}
 
 	if (shouldTryOpenAIInAuto(options)) {
 		try {

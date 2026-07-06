@@ -1,6 +1,5 @@
 {
   "extensions": [
-    "zai-mcp/extensions/zai-mcp.ts",
     "pi-obsidian/extensions/obsidian.ts",
     "pi-vlm/extensions/pi-vlm.ts",
     "pi-knowledge-card/extensions/pi-knowledge-card.ts",
