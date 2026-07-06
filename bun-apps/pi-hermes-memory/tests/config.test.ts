@@ -18,8 +18,8 @@ describe("loadConfig", () => {
     assert.strictEqual(config.memoryMode, "policy-only");
     assert.strictEqual(config.memoryPolicyStyle, "full");
     assert.strictEqual(config.memoryPolicyCustomText, undefined);
-    assert.strictEqual(config.memoryCharLimit, 5000);
-    assert.strictEqual(config.userCharLimit, 5000);
+    assert.strictEqual(config.memoryCharLimit, 10000);
+    assert.strictEqual(config.userCharLimit, 10000);
     assert.strictEqual(config.nudgeInterval, 10);
     assert.strictEqual(config.reviewRecentMessages, 0);
     assert.strictEqual(config.reviewEnabled, true);
@@ -72,7 +72,7 @@ describe("loadConfig", () => {
     assert.strictEqual(config.llmModelOverride, "openrouter/deepseek/deepseek-v4-flash");
     assert.strictEqual(config.llmThinkingOverride, "minimal");
     // Unset values use defaults
-    assert.strictEqual(config.userCharLimit, 5000);
+    assert.strictEqual(config.userCharLimit, 10000);
     assert.strictEqual(config.reviewEnabled, true);
   });
 
@@ -83,7 +83,7 @@ describe("loadConfig", () => {
     assert.strictEqual(config.reviewEnabled, false);
     assert.strictEqual(config.memoryMode, "policy-only");
     assert.strictEqual(config.memoryPolicyStyle, "full");
-    assert.strictEqual(config.memoryCharLimit, 5000); // default
+    assert.strictEqual(config.memoryCharLimit, 10000); // default
     assert.strictEqual(config.reviewRecentMessages, 0);
     assert.strictEqual(config.flushRecentMessages, 0);
     assert.strictEqual(config.failureInjectionEnabled, true);
@@ -149,8 +149,8 @@ describe("loadConfig", () => {
     assert.strictEqual(config.flushOnCompact, false);
     assert.strictEqual(config.flushOnShutdown, false);
     assert.strictEqual(config.flushMinTurns, 20);
-    assert.strictEqual(config.memoryCharLimit, 5000);
-    assert.strictEqual(config.userCharLimit, 5000);
+    assert.strictEqual(config.memoryCharLimit, 10000);
+    assert.strictEqual(config.userCharLimit, 10000);
     assert.strictEqual(config.nudgeInterval, 10);
   });
 
@@ -187,7 +187,7 @@ describe("loadConfig", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
     fs.writeFileSync(TEST_CONFIG_PATH, "{ bad json }");
     const config = loadConfig(TEST_CONFIG_PATH);
-    assert.strictEqual(config.memoryCharLimit, 5000);
+    assert.strictEqual(config.memoryCharLimit, 10000);
     assert.strictEqual(config.reviewEnabled, true);
   });
 

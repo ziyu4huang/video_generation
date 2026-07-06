@@ -73,7 +73,8 @@ export class MemoryStore {
     return target === "user" ? this.config.userCharLimit : this.config.memoryCharLimit;
   }
 
-  private charCount(target: "memory" | "user" | "failure"): number {
+  /** Returns the current character count for a target (entries joined with delimiter). */
+  charCount(target: "memory" | "user" | "failure"): number {
     const entries = this.entriesFor(target);
     return entries.length ? entries.join(ENTRY_DELIMITER).length : 0;
   }
@@ -90,10 +91,11 @@ export class MemoryStore {
     this.userEntries = await this.readFile(this.pathFor("user"));
     this.failureEntries = await this.readFile(this.pathFor("failure"));
 
-    // Deduplicate preserving order
-    this.memoryEntries = [...new Set(this.memoryEntries)];
-    this.userEntries = [...new Set(this.userEntries)];
-    this.failureEntries = [...new Set(this.failureEntries)];
+    // Deduplicate — normalize (strip metadata, collapse whitespace) and
+    // keep the longest entry when near-identical variants exist.
+    this.memoryEntries = this.dedupEntries(this.memoryEntries);
+    this.userEntries = this.dedupEntries(this.userEntries);
+    this.failureEntries = this.dedupEntries(this.failureEntries);
 
     // Capture frozen snapshot for system prompt injection
     // Strip metadata comments — the LLM doesn't need to see timestamps
@@ -120,6 +122,64 @@ export class MemoryStore {
   }): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
     return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category);
+  }
+
+  /**
+   * Transfer entries matching a query out of the memory store.
+   * Returns transferred entries (stripped of metadata) and removes them from
+   * the in-memory array and disk. The caller is responsible for archiving these
+   * entries (e.g. writing to .knowledge.jsonl for zk_ingest).
+   *
+   * @param target - Which memory target to transfer from
+   * @param query - Substring to match against stripped entry text. Omit to transfer all.
+   * @returns Result with transferred_entries array + freed char count.
+   */
+  async transferEntries(
+    target: "memory" | "user" | "failure",
+    query?: string,
+  ): Promise<MemoryResult> {
+    const entries = this.entriesFor(target);
+
+    let transfer: string[];
+    if (query && query.trim()) {
+      const q = query.trim();
+      transfer = entries.filter((e) => this.stripMetadata(e).includes(q));
+    } else {
+      transfer = [...entries];
+    }
+
+    if (transfer.length === 0) {
+      return {
+        success: false,
+        error: query
+          ? `No entries matched '${query}'.`
+          : "No entries to transfer (target is empty).",
+      };
+    }
+
+    const strippedTransferred = transfer.map((e) => this.stripMetadata(e));
+    const freedChars = transfer.join(ENTRY_DELIMITER).length;
+
+    // Remove transferred entries from the in-memory array
+    const transferSet = new Set(transfer);
+    const remaining = entries.filter((e) => !transferSet.has(e));
+    this.setEntries(target, remaining);
+    await this.saveToDisk(target);
+
+    const afterCount = this.charCount(target);
+    const limit = this.charLimit(target);
+    const pct = limit > 0 ? Math.min(100, Math.floor((afterCount / limit) * 100)) : 0;
+
+    return {
+      success: true,
+      target,
+      message: `Transferred ${transfer.length} ${transfer.length === 1 ? "entry" : "entries"} (${freedChars} chars freed).`,
+      usage: `${pct}% — ${afterCount}/${limit} chars`,
+      entry_count: remaining.length,
+      transferred_entries: strippedTransferred,
+      transferred_count: strippedTransferred.length,
+      freed_chars: freedChars,
+    };
   }
 
   getFailureEntries(maxAgeDays = 7): string[] {
@@ -169,6 +229,10 @@ export class MemoryStore {
         return this.fifoEvictAndAdd(target, entries, encoded, content.length, limit);
       }
 
+      if (strategy === "vault-offload") {
+        return this.vaultOffloadAndAdd(target, entries, encoded, content.length, limit);
+      }
+
       // Auto-consolidate once if configured — limit retries to prevent infinite loops
       if (strategy === "auto-consolidate" && this.consolidator && _retriesLeft > 0) {
         try {
@@ -191,6 +255,87 @@ export class MemoryStore {
     await this.saveToDisk(target);
 
     return this.successResponse(target, addedMessage);
+  }
+
+  /**
+   * Vault-offload: evict oldest entries but write them to a .knowledge.jsonl
+   * archive file for later zk_ingest import, instead of discarding them.
+   * Like fifoEvictAndAdd but preservationist.
+   */
+  private async vaultOffloadAndAdd(
+    target: "memory" | "user" | "failure",
+    entries: string[],
+    encoded: string,
+    contentLength: number,
+    limit: number,
+  ): Promise<MemoryResult> {
+    if (encoded.length > limit) {
+      return this.memoryFullError(target, contentLength);
+    }
+
+    const remaining = [...entries];
+    const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string }> = [];
+
+    while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
+      const evicted = remaining.shift()!;
+      evictedDecoded.push(this.decodeEntry(evicted));
+    }
+
+    remaining.push(encoded);
+    this.setEntries(target, remaining);
+    await this.saveToDisk(target);
+
+    // Write evicted entries to a .knowledge.jsonl archive file
+    const archivePath = await this.writeKnowledgeArchive(target, evictedDecoded);
+
+    const strippedEvicted = evictedDecoded.map((e) => e.text);
+    return {
+      ...this.successResponse(
+        target,
+        `Memory updated. Offloaded ${evictedDecoded.length} older ${evictedDecoded.length === 1 ? "entry" : "entries"} to vault archive to stay within the limit.`,
+      ),
+      evicted_entries: strippedEvicted,
+      evicted_count: evictedDecoded.length,
+      transferred_entries: strippedEvicted,
+      transferred_count: evictedDecoded.length,
+      freed_chars: strippedEvicted.join(ENTRY_DELIMITER).length,
+      archive_path: archivePath,
+    };
+  }
+
+  /**
+   * Write evicted entries as a .knowledge.jsonl file in a temp directory.
+   * Returns the path of the archive file for the caller to pass to zk_ingest.
+   */
+  private async writeKnowledgeArchive(
+    target: "memory" | "user" | "failure",
+    evicted: Array<{ text: string; created: string; lastReferenced: string }>,
+  ): Promise<string> {
+    const { tmpdir } = await import("node:os");
+
+    const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const dir = path.join(tmpdir(), "pi-memory-archive");
+    await fs.mkdir(dir, { recursive: true });
+
+    const jsonlPath = path.join(dir, `memory-transfer-${target}-${ts}.knowledge.jsonl`);
+
+    const lines = evicted.map((e) => {
+      const record = {
+        id: `pi-memory-${target}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: "memory_entry",
+        title: e.text.slice(0, 80).replace(/\n/g, " "),
+        detail: e.text,
+        tags: ["pi-memory", `target:${target}`],
+        dimension: "operational",
+        confidence: "high",
+        status: "active",
+        evidence: `Transferred from pi-hermes-memory ${target} target on ${new Date().toISOString().split("T")[0]}. Originally created: ${e.created}.`,
+      };
+      return JSON.stringify(record);
+    });
+
+    await fs.writeFile(jsonlPath, lines.join("\n") + "\n", "utf-8");
+    return jsonlPath;
   }
 
   private async fifoEvictAndAdd(
@@ -382,6 +527,34 @@ export class MemoryStore {
   /** Strip metadata comment from entry text for display. */
   private stripMetadata(text: string): string {
     return this.decodeEntry(text).text;
+  }
+
+  /**
+   * Normalize an entry for deduplication comparison.
+   * Strips metadata, trims whitespace, collapses consecutive whitespace.
+   * Two entries with the same normalized text are considered duplicates
+   * even if their metadata comments or whitespace differ.
+   */
+  private dedupNormalize(entry: string): string {
+    return this.stripMetadata(entry).trim().replace(/\s+/g, " ");
+  }
+
+  /**
+   * Deduplicate entries preserving the position of first occurrence,
+   * but keeping the longest raw variant when normalized duplicates exist.
+   * This catches both byte-identical duplicates (from exact Set) and
+   * near-identical duplicates (same content, different metadata/whitespace).
+   */
+  private dedupEntries(entries: string[]): string[] {
+    const seen = new Map<string, string>();
+    for (const entry of entries) {
+      const key = this.dedupNormalize(entry);
+      const existing = seen.get(key);
+      if (!existing || entry.length > existing.length) {
+        seen.set(key, entry);
+      }
+    }
+    return [...seen.values()];
   }
 
   private buildFailureMemoryText(content: string, options: {
