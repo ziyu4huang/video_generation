@@ -22,6 +22,9 @@ from app.comfyui_workflow_parser import (
     get_outpaint_params,
     print_workflow_summary,
     _NODE_WIDGET_MAP,
+    _is_api_format,
+    _parse_api_workflow,
+    _resolve_reroutes,
 )
 
 
@@ -368,6 +371,146 @@ class TestParseWorkflow:
         result = parse_workflow(workflow)
         assert result.outpaint_params["padding"]["left"] == 64
         assert result.outpaint_params["feathering"] == 10
+
+    def test_muted_mode2_excluded(self):
+        """Muted nodes (mode==2) are excluded just like bypassed (mode==4).
+
+        Regression: previously only mode==4 was filtered, so muted nodes leaked
+        into the summary and could be misclassified as active sources.
+        """
+        workflow = {
+            "nodes": [
+                {"id": 1, "type": "KSampler", "mode": 0,
+                 "widgets_values": [0, "r", 9, 5, "e", "n", 1.0]},
+                {"id": 2, "type": "CLIPTextEncode", "mode": 2,
+                 "widgets_values": ["muted prompt"]},
+            ],
+            "links": [],
+        }
+        result = parse_workflow(workflow)
+        assert result.node_count == 1
+        assert result.prompts == []  # muted prompt node excluded
+
+    def test_reroute_pass_through(self):
+        """Reroute is transparent: a consumer input resolves to the producer
+        behind the Reroute, not the Reroute itself. Also Reroute is core."""
+        workflow = {
+            "nodes": [
+                # UNETLoader (producer) -> Reroute -> KSampler.model
+                {"id": 10, "type": "UNETLoader", "mode": 0,
+                 "widgets_values": ["model.safetensors", "fp8"],
+                 "outputs": [{"links": [50]}]},
+                {"id": 11, "type": "Reroute", "mode": 0,
+                 "inputs": [{"name": "", "link": 50}],
+                 "outputs": [{"links": [51]}]},
+                {"id": 12, "type": "KSampler", "mode": 0,
+                 "inputs": [{"name": "model", "link": 51}],
+                 "widgets_values": [0, "r", 9, 5, "e", "n", 1.0]},
+            ],
+            "links": [
+                [50, 10, 0, 11, 0, "MODEL"],
+                [51, 11, 0, 12, 0, "MODEL"],
+            ],
+        }
+        result = parse_workflow(workflow)
+        ksampler = [n for n in result.nodes if n.type == "KSampler"][0]
+        # Resolved past the Reroute (id 11) to the UNETLoader (id 10).
+        assert ksampler.inputs["model"] == "10"
+        # Reroute is NOT flagged as a custom node.
+        assert "Reroute" not in result.custom_nodes
+        # The model still resolves through the routed link.
+        assert any(m.model_name == "model.safetensors" for m in result.models)
+
+    def test_reroute_chain_transparency(self):
+        """Multiple Reroutes in series collapse to the producer."""
+        workflow = {
+            "nodes": [
+                {"id": 1, "type": "UNETLoader", "mode": 0,
+                 "widgets_values": ["m.safetensors", "fp8"],
+                 "outputs": [{"links": [1]}]},
+                {"id": 2, "type": "Reroute", "mode": 0,
+                 "inputs": [{"name": "", "link": 1}], "outputs": [{"links": [2]}]},
+                {"id": 3, "type": "Reroute", "mode": 0,
+                 "inputs": [{"name": "", "link": 2}], "outputs": [{"links": [3]}]},
+                {"id": 4, "type": "KSampler", "mode": 0,
+                 "inputs": [{"name": "model", "link": 3}],
+                 "widgets_values": [0, "r", 9, 5, "e", "n", 1.0]},
+            ],
+            "links": [
+                [1, 1, 0, 2, 0, "MODEL"],
+                [2, 2, 0, 3, 0, "MODEL"],
+                [3, 3, 0, 4, 0, "MODEL"],
+            ],
+        }
+        result = parse_workflow(workflow)
+        ks = [n for n in result.nodes if n.type == "KSampler"][0]
+        assert ks.inputs["model"] == "1"  # past two Reroutes
+
+    def test_primitive_string_prompt_extraction(self):
+        """A PrimitiveStringMultiline holding the prompt is extracted even when
+        no CLIPTextEncode carries a literal text. Mirrors face-head-swap
+        workflows where the prompt lives in a Primitive wired into CLIPTextEncode."""
+        workflow = {
+            "nodes": [
+                {"id": 1, "type": "PrimitiveStringMultiline", "mode": 0,
+                 "widgets_values": ["a cinematic portrait, detailed skin"]},
+                {"id": 2, "type": "KSampler", "widgets_values": [0, "r", 9, 5, "e", "n", 1.0]},
+            ],
+            "links": [],
+        }
+        result = parse_workflow(workflow)
+        assert result.prompts == ["a cinematic portrait, detailed skin"]
+        # Primitive string is core, not custom.
+        assert "PrimitiveStringMultiline" not in result.custom_nodes
+
+
+# ==========================================================================
+# API-format auto-detect + parse
+# ==========================================================================
+
+class TestApiFormatDetection:
+    def test_is_api_format_true(self):
+        data = {"3": {"class_type": "KSampler", "inputs": {"seed": 1}}}
+        assert _is_api_format(data) is True
+
+    def test_ui_format_not_api(self):
+        # UI format has nodes/links keys, values are not class_type dicts.
+        assert _is_api_format({"nodes": [], "links": []}) is False
+        assert _is_api_format({"version": 0.4, "nodes": [{}]}) is False
+
+    def test_empty_not_api(self):
+        assert _is_api_format({}) is False
+
+
+class TestParseApiWorkflow:
+    def test_api_format_sampler_and_prompt(self):
+        """API format: literals become params, [node_id, slot] become inputs."""
+        data = {
+            "1": {"class_type": "UNETLoader", "inputs": {"unet_name": "flux.safetensors", "weight_dtype": "fp8"}},
+            "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "a photo of a cat", "clip": ["3", 0]}},
+            "3": {"class_type": "DualCLIPLoader", "inputs": {"clip_name1": "t5.safetensors", "clip_name2": "c.safetensors", "type": "flux"}},
+            "4": {"class_type": "KSampler", "inputs": {
+                "seed": 42, "steps": 9, "cfg": 1.0, "sampler_name": "euler",
+                "scheduler": "normal", "denoise": 1.0,
+                "model": ["1", 0], "positive": ["2", 0]}},
+        }
+        result = parse_workflow(data, name="api_wf")
+        assert result.node_count == 4
+        # Literal inputs land in params; connections land in inputs.
+        ks = [n for n in result.nodes if n.type == "KSampler"][0]
+        assert ks.params["steps"] == 9
+        assert ks.inputs["model"] == "1"
+        assert ks.inputs["positive"] == "2"
+        # Extractors run on the API graph.
+        assert result.sampler_params["steps"] == 9
+        assert result.prompts == ["a photo of a cat"]
+        assert any(m.model_name == "flux.safetensors" for m in result.models)
+        assert result.link_count == 0  # API format has no link table
+
+    def test_api_format_empty(self):
+        result = parse_workflow({}, name="empty_api")
+        assert result.node_count == 0
+        assert "No active nodes found (all muted/bypassed?)" in result.warnings
 
 
 # ==========================================================================

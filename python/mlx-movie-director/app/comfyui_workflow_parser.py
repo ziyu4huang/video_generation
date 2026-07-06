@@ -3,6 +3,11 @@
 Extracts key parameters from node graph: sampler settings, outpaint padding,
 model references, prompts, and custom node dependencies.
 
+Supports both ComfyUI JSON formats with auto-detection in :func:`parse_workflow`:
+  - **UI/save format** — ``{"nodes": [...], "links": [...]}`` (the editor export).
+  - **API/prompt format** — ``{node_id: {"class_type": ..., "inputs": {...}}}``
+    (the result of ``/prompt`` queueing; inputs are literals or ``[node_id, slot]``).
+
 Usage:
     from app.comfyui_workflow_parser import parse_workflow_file, print_workflow_summary
     summary = parse_workflow_file("workflow.json")
@@ -29,7 +34,7 @@ class NodeInfo:
     inputs: dict[str, str]        # input_name → connected node_id
     outputs: list[dict[str, Any]]           # Output slot info
     widget_values: list[Any]                # Raw positional widget values
-    mode: int = 0                 # 0=normal, 4=bypassed/muted
+    mode: int = 0                 # 0=active, 2=muted, 4=bypassed
 
 
 @dataclass
@@ -97,6 +102,9 @@ _NODE_WIDGET_MAP: dict[str, tuple[list[str], str]] = {
     "CR Prompt Text": (["prompt"], "prompt"),
     "PrimitiveInt": (["value", "control"], "primitive"),
     "PrimitiveFloat": (["value", "control"], "primitive"),
+    "PrimitiveString": (["value"], "primitive"),
+    "PrimitiveStringMultiline": (["value"], "primitive"),
+    "Reroute": ([], "utility"),
     "GetImageSize": ([], "utility"),
 }
 
@@ -159,6 +167,7 @@ def _is_custom_node(node_type: str) -> bool:
         "SetNode", "GetNode", "MarkdownNote", "VAEDecode", "VAEEncode",
         "ConditioningZeroOut", "ReferenceLatent", "GetImageSize",
         "ImageScale", "ImageScaleBy", "ImageInvert", "CLIPSetLastLayer",
+        "Reroute", "Reroute (rgthree)", "PrimitiveString", "PrimitiveStringMultiline",
     }
     return node_type not in core_nodes
 
@@ -274,7 +283,17 @@ def _extract_inpaint_params(nodes: list[NodeInfo]) -> dict[str, Any]:
 
 
 def _extract_prompts(nodes: list[NodeInfo]) -> list[str]:
-    """Extract prompt texts from text encoding and prompt nodes."""
+    """Extract prompt texts from text encoding and prompt nodes.
+
+    Sources, in priority order:
+      - CLIPTextEncode.text (the canonical positive/negative prompt slot)
+      - CR Prompt Text.prompt
+      - PrimitiveString / PrimitiveStringMultiline.value — the converted-widget
+        prompt primitives used by face-head-swap style workflows (e.g. a
+        "Main Prompt" PrimitiveStringMultiline wired into CLIPTextEncode's
+        ``text`` widget). Without this, workflows that externalize their prompt
+        into a Primitive yield zero extracted prompts.
+    """
     prompts = []
     seen = set()
     for node in nodes:
@@ -283,14 +302,121 @@ def _extract_prompts(nodes: list[NodeInfo]) -> list[str]:
             text = node.params.get("text")
         elif node.type == "CR Prompt Text":
             text = node.params.get("prompt")
+        elif node.type in ("PrimitiveString", "PrimitiveStringMultiline"):
+            text = node.params.get("value")
         if text and isinstance(text, str) and text.strip() and text not in seen:
             prompts.append(text)
             seen.add(text)
     return prompts
 
 
+def _is_api_format(data: Any) -> bool:
+    """Detect ComfyUI API/prompt format.
+
+    API format is a dict mapping node id → ``{"class_type": ..., "inputs": {...}}``.
+    Contrast with the UI/save format which has a ``nodes`` list (plus ``links``,
+    ``version``, ...). Empty or non-dict input is treated as UI format.
+    """
+    if not isinstance(data, dict) or not data:
+        return False
+    # UI format has well-known scalar/list top-level keys, never class_type dicts.
+    return all(
+        isinstance(v, dict) and "class_type" in v for v in data.values()
+    )
+
+
+def _parse_api_workflow(data: dict[str, Any], name: str) -> WorkflowSummary:
+    """Parse ComfyUI API/prompt format into a WorkflowSummary.
+
+    In API format each node's ``inputs`` already names its widgets: a literal
+    value is the widget value itself, while a ``[node_id, slot]`` pair is a
+    connection. No link-resolution table exists (and none is needed).
+    """
+    nodes: list[NodeInfo] = []
+    for nid, spec in data.items():
+        if not isinstance(spec, dict):
+            continue
+        ctype = spec.get("class_type", "")
+        inputs_spec = spec.get("inputs", {}) or {}
+        params: dict[str, Any] = {}
+        node_inputs: dict[str, str] = {}
+        for k, v in inputs_spec.items():
+            # A connection is encoded as [source_node_id, output_slot].
+            if isinstance(v, list) and len(v) >= 1 and isinstance(v[0], (str, int)):
+                node_inputs[k] = str(v[0])
+            else:
+                params[k] = v
+        nodes.append(NodeInfo(
+            id=str(nid), type=ctype, title=ctype, params=params,
+            inputs=node_inputs, outputs=[], widget_values=[], mode=0,
+        ))
+
+    models = _extract_models(nodes)
+    sampler_params = _extract_sampler_params(nodes)
+    outpaint_params = _extract_outpaint_params(nodes)
+    inpaint_params = _extract_inpaint_params(nodes)
+    prompts = _extract_prompts(nodes)
+    custom_nodes = {n.type for n in nodes if _is_custom_node(n.type)}
+
+    warnings = []
+    if not sampler_params:
+        warnings.append("No sampler parameters found")
+    if not nodes:
+        warnings.append("No active nodes found (all muted/bypassed?)")
+
+    return WorkflowSummary(
+        name=name or "unnamed",
+        node_count=len(nodes),
+        nodes=nodes,
+        models=models,
+        sampler_params=sampler_params,
+        outpaint_params=outpaint_params,
+        inpaint_params=inpaint_params,
+        prompts=prompts,
+        custom_nodes=custom_nodes,
+        link_count=0,
+        warnings=warnings,
+    )
+
+
+def _resolve_reroutes(active_nodes: list[NodeInfo]) -> None:
+    """Rewrite consumer inputs to point past Reroute nodes.
+
+    A Reroute forwards its single input to its outputs unchanged. When a
+    consumer connects to a Reroute, link resolution otherwise stops at the
+    Reroute id — so model/prompt attribution breaks for any signal routed
+    through one. Walk Reroute chains (cycle-guarded) so each consumer input
+    resolves to the first non-Reroute producer.
+    """
+    id_to_node = {n.id: n for n in active_nodes}
+    reroute_ids = {n.id for n in active_nodes if n.type == "Reroute"}
+    if not reroute_ids:
+        return
+
+    def _walk(nid: str) -> str:
+        seen: set[str] = set()
+        while nid in reroute_ids and nid not in seen:
+            seen.add(nid)
+            rn = id_to_node.get(nid)
+            if rn is None:
+                break
+            src = next(iter(rn.inputs.values()), None)
+            if src is None:
+                break
+            nid = src
+        return nid
+
+    for node in active_nodes:
+        for k, v in list(node.inputs.items()):
+            if v in reroute_ids:
+                node.inputs[k] = _walk(v)
+
+
 def parse_workflow(workflow_json: dict[str, Any], name: str = "") -> WorkflowSummary:
     """Parse a ComfyUI workflow JSON into a structured summary.
+
+    Auto-detects format: ComfyUI API/prompt format (a dict of node id →
+    ``{class_type, inputs}``) vs the UI/save format (``nodes`` + ``links``).
 
     Args:
         workflow_json: The parsed JSON dict from a .json workflow file.
@@ -299,13 +425,16 @@ def parse_workflow(workflow_json: dict[str, Any], name: str = "") -> WorkflowSum
     Returns:
         WorkflowSummary with extracted parameters.
     """
+    if _is_api_format(workflow_json):
+        return _parse_api_workflow(workflow_json, name)
+
     raw_nodes = workflow_json.get("nodes", [])
     links = workflow_json.get("links", [])
 
     nodes = [_parse_node(n) for n in raw_nodes]
 
-    # Filter out muted/bypassed nodes
-    active_nodes = [n for n in nodes if n.mode != 4]
+    # Filter out muted (mode==2) and bypassed (mode==4) nodes.
+    active_nodes = [n for n in nodes if n.mode not in (2, 4)]
 
     # Resolve link references: link_id → (from_node_id, from_slot, to_node_id, to_slot)
     # link format: [link_id, from_node_id, from_slot, to_node_id, to_slot, type_name]
@@ -327,6 +456,10 @@ def parse_workflow(workflow_json: dict[str, Any], name: str = "") -> WorkflowSum
             except (ValueError, TypeError):
                 resolved[inp_name] = link_id_str
         node.inputs = resolved
+
+    # Make Reroute nodes transparent: consumer inputs resolve to the producer
+    # behind the Reroute, not the Reroute itself.
+    _resolve_reroutes(active_nodes)
 
     models = _extract_models(active_nodes)
     sampler_params = _extract_sampler_params(active_nodes)
