@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   createEffortState,
+  createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
   installResultDelivery,
@@ -38,6 +39,11 @@ export default function extension(pi: ExtensionAPI) {
     verboseWorkflowGuidelines: settings.verboseWorkflowGuidelines,
   });
   pi.registerTool(workflowTool);
+  // On-demand reference companion (helpers/budget/phases/patterns/models).
+  // The workflow tool's always-on guidelines stay slim; advanced docs live here
+  // and appear only in the turn they are requested (tool result, not schema).
+  const workflowHelpTool = createWorkflowHelpTool();
+  pi.registerTool(workflowHelpTool);
   // Standing /effort opt-in (off|high|ultra): auto-arms a workflow for substantive
   // messages, like CC's ultracode. Shared with the editor's input hook below and
   // with the explicit /workflows run <prompt> manual trigger.
@@ -54,9 +60,9 @@ export default function extension(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     const active = pi.getActiveTools();
-    if (!active.includes(workflowTool.name)) {
-      pi.setActiveTools([...active, workflowTool.name]);
-    }
+    const wantActive = [workflowTool.name, workflowHelpTool.name];
+    const missing = wantActive.filter((nm) => !active.includes(nm));
+    if (missing.length) pi.setActiveTools([...active, ...missing]);
     // Inject extension-registered tool definitions so WorkflowAgent child
     // sessions can call the same extension tools the parent session has.
     // getAllToolDefinitions() is added by the ext-api-get-all-tool-definitions
