@@ -8,7 +8,14 @@
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
-    "pi-hermes-memory/src/index.ts",
+    {
+      "name": "pi-hermes-memory",
+      "entry": "pi-hermes-memory/src/index.ts",
+      "bundleMode": "thin",
+      "fullReason": "Was FULL due to deep pi-ai/* subpath imports + better-sqlite3 native addon. Switched to THIN after the Bun.resolveSync fix (criterion 1) — deep subpaths now resolve, and better-sqlite3 stays as a residual bare specifier (same as FULL).",
+      "testGate": "cd bun-apps/pi-hermes-memory && bun test",
+      "version": "0.80.3"
+    },
     "pi-agent-ext-web-access/index.ts"
   ],
   "skills": [

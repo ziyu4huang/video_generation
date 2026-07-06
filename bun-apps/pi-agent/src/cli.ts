@@ -60,6 +60,14 @@ if (argv[0] === "doctor" || argv.includes("--doctor")) {
 	process.exit(report.ok ? 0 : 1);
 }
 
+// `ext doctor`: per-extension health report (loads every manifest extension,
+// checks factory + tools/commands/events + cross-extension conflicts). Offline.
+if (argv[0] === "ext" && argv[1] === "doctor") {
+	const { runExtDoctor } = await import("./ext-doctor.ts");
+	const report = await runExtDoctor({ json: argv.includes("--json") });
+	process.exit(report.ok ? 0 : 1);
+}
+
 // Patches MUST be applied before main() constructs ModelRegistry. Among other
 // things, this splices run-dir/ extension + skill paths into process.argv.
 await applyPatches();

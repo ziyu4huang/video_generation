@@ -72,6 +72,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
 
 const argv = process.argv.slice(2);
 if (argv.some((a) => a === "-h" || a === "--help")) {
@@ -104,6 +105,11 @@ const WITH_NM_COPY = argv.includes("--with-nm-copy");
 // hardening (JITI_FS_CACHE=0 for --release's .ts extensions, PI_CODING_AGENT_DIR
 // default) that makes a frozen deploy actually run.
 const WRITABLE = argv.includes("--writable");
+// --verify: after deploy, boot the deployed pi-agent.js from a FOREIGN cwd and
+// probe pi.getAllTools() — catches resolve.ts mode bugs, broken bundles, and
+// tool-conflicts at DEPLOY time, not at runtime. Adds ~3-5s (no model call;
+// kills the instant the probe fires). Off by default; opt in with --verify.
+const VERIFY = argv.includes("--verify");
 const READONLY = !WRITABLE;
 if (RELEASE && PORTABLE) die("--release and --portable are mutually exclusive");
 const positionalOutdir = argv.find((a) => !a.startsWith("-"));
@@ -209,15 +215,18 @@ function pinRange(range: string, pkg: string, warnFn: (m: string) => void = cons
 // ── manifest = the single source of truth for what to bundle ─────────────────
 const manifestPath = join(piAgentDir, "run-dir", "manifest.json");
 const manifest = readJson<{
-	extensions?: string[];
+	extensions?: (string | { entry: string })[];
 	skills?: string[];
 	npmExtensions?: { pkg: string; entry: string }[];
 }>(manifestPath);
 if (!manifest) die(`run-dir/manifest.json not found at ${manifestPath}`);
 
+// Normalize manifest v2 entries: objects → their `entry` string, strings pass through.
+const extEntries = (manifest.extensions ?? []).map((e) => (typeof e === "string" ? e : e.entry));
+
 // Collect the package DIR names to copy (top-level segment of each ext/skill path).
 const pkgDirs = new Set<string>();
-for (const rel of [...(manifest.extensions ?? []), ...(manifest.skills ?? [])]) {
+for (const rel of [...extEntries, ...(manifest.skills ?? [])]) {
 	const seg = rel.split("/")[0];
 	if (seg) pkgDirs.add(seg);
 }
@@ -280,6 +289,57 @@ if (READONLY) {
 	);
 	const chmod = Bun.spawn(["chmod", "-R", "a-w", OUTDIR], { stdout: "inherit", stderr: "inherit" });
 	if ((await chmod.exited) !== 0) die("chmod -R a-w failed");
+}
+
+// ── --verify: boot the deployed artifact + probe getAllTools from a foreign cwd ─
+// Catches resolve.ts mode bugs, broken extension bundles, and tool-conflicts at
+// DEPLOY time. Writes a probe extension to /tmp, boots pi-agent.js with -ne -e
+// <probe> -p, reads the [PROBE] output, kills the process (no model call).
+if (VERIFY) {
+	console.log(`\n${G("▶")} verify — boot deployed artifact + probe getAllTools`);
+	const PROBE_TS = join(tmpdir(), `deploy-verify-${Date.now()}.ts`);
+	writeFileSync(
+		PROBE_TS,
+		`export default (pi) => {
+  pi.on("session_start", () => {
+    const tools = pi.getAllTools();
+    const names = tools.map((t) => t.name).sort();
+    const dupes = names.filter((n, i) => n === names[i - 1]);
+    const ok = names.length > 0 && dupes.length === 0;
+    // console.log flushes synchronously in Bun; process.exit() would skip the flush.
+    console.log("[PROBE] " + JSON.stringify({ toolCount: names.length, dupes, ok }));
+    setTimeout(() => process.exit(ok ? 0 : 1), 100);
+  });
+};\n`,
+	);
+	const agentJs = join(OUTDIR, "pi-agent.js");
+	if (!existsSync(agentJs)) {
+		console.error(`${R("✗")} verify: ${agentJs} not found — nothing to probe`);
+		process.exit(1);
+	}
+	// Boot from /tmp (foreign cwd) to catch cwd-coupled resolve.ts bugs.
+	const proc = Bun.spawn(
+		["bun", agentJs, "-ne", "-e", PROBE_TS, "-p", "verify"],
+		{ cwd: tmpdir(), stdout: "pipe", stderr: "pipe", env: { ...process.env, PI_VERIFY_MODE: "deploy" } },
+	);
+	const [stdout, stderr] = await Promise.all([
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+	]);
+	const code = await proc.exited;
+	rmSync(PROBE_TS, { force: true });
+	const probeLine = stdout.split("\n").find((l) => l.startsWith("[PROBE]"));
+	if (!probeLine) {
+		console.error(`${R("✗")} verify: no [PROBE] line — agent failed to boot or probe never fired`);
+		if (stderr) console.error(stderr.slice(0, 500));
+		process.exit(1);
+	}
+	const probe = JSON.parse(probeLine.slice("[PROBE] ".length));
+	if (!probe.ok) {
+		console.error(`${R("✗")} verify FAILED: ${probe.toolCount} tools, dupes: ${JSON.stringify(probe.dupes)}`);
+		process.exit(1);
+	}
+	console.log(`    ${G("✓")} deployed artifact booted from ${tmpdir()}: ${probe.toolCount} tools, 0 conflicts`);
 }
 
 // ── done ─────────────────────────────────────────────────────────────────────
