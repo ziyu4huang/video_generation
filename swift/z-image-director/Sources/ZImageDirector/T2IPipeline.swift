@@ -309,13 +309,11 @@ public final class T2IPipeline {
                 attnMlpTimings.mlpMs += t.mlpMs
             } : nil
 
+            let reusedCache = cacheSkipStep == idx + 1 && previousNoisePredRaw != nil
             let noisePred: MLXArray
-            let reusedCache: Bool
-            if let skipStep = cacheSkipStep, skipStep == idx + 1, let cached = previousNoisePredRaw {
-                noisePred = cached
-                reusedCache = true
+            if reusedCache {
+                noisePred = previousNoisePredRaw!
             } else if useCnet, let cnet = controlnet, let ctx = cnetContext {
-                reusedCache = false
                 if cfgActive, let uncond = uncondFeats {
                     let cond = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
                     let uncondPred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
@@ -324,12 +322,10 @@ public final class T2IPipeline {
                     noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
                 }
             } else if cfgActive, let uncond = uncondFeats {
-                reusedCache = false
                 let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
                 let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
                 noisePred = uncondPred + cfgScale * (cond - uncondPred)
             } else {
-                reusedCache = false
                 noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
             }
 
@@ -374,19 +370,18 @@ public final class T2IPipeline {
             let stepMs = forwardMs + schedMs
             stepTimes.append(stepMs)
             let avgMs = stepTimes.reduce(0, +) / Double(stepTimes.count)
+            let cacheSuffix = reusedCache ? "  [REUSED cached noise pred — forward skipped]" : ""
             let stepMsg: String
             if profileSubsteps {
                 stepMsg = "      step \(idx + 1)/\(steps) done  " +
                     "(forward \(String(format: "%.0f", forwardMs)) ms, " +
                     "sched \(String(format: "%.0f", schedMs)) ms, " +
                     "total \(String(format: "%.0f", stepMs)) ms, " +
-                    "avg \(String(format: "%.0f", avgMs)) ms)" +
-                    (reusedCache ? "  [REUSED cached noise pred — forward skipped]" : "")
+                    "avg \(String(format: "%.0f", avgMs)) ms)" + cacheSuffix
             } else {
                 stepMsg = "      step \(idx + 1)/\(steps) done  " +
                     "(\(String(format: "%.0f", stepMs)) ms, " +
-                    "avg \(String(format: "%.0f", avgMs)) ms)" +
-                    (reusedCache ? "  [REUSED cached noise pred — forward skipped]" : "")
+                    "avg \(String(format: "%.0f", avgMs)) ms)" + cacheSuffix
             }
             print(stepMsg)
             if profileBlocks {
@@ -410,7 +405,9 @@ public final class T2IPipeline {
                 }
                 previousNoisePred = curr
             }
-            previousNoisePredRaw = noisePred
+            if cacheSkipStep != nil {
+                previousNoisePredRaw = noisePred
+            }
         }
         let runSteps = steps - startStep
         let totalMs = stepTimes.reduce(0, +)
