@@ -1,6 +1,13 @@
 node_modules
+# pi project-local runtime state. pi-agent itself does NOT generate this
+# (run-dir/manifest npmExtensions is []; it loads extensions via absolute -e
+# paths, never <cwd>/.pi). The .pi/npm/ dir is written only by pi CORE's
+# DefaultPackageManager on an explicit project-scope `pi install` — ignore it
+# so a stray install while cwd is in-repo can't pollute git status. Tracked
+# hand-authored files (.pi/obsidian_config.json, .pi/agents/*.md) stay tracked.
 .pi/agent/auth.json
 .pi/agent/trust.json
+**/.pi/npm/
 
 # Bun monorepo SOP — bun.lock at the root is the single canonical lockfile.
 # Per-package npm lockfiles (package-lock.json) are NOT used here and must not
