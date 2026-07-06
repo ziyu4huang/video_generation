@@ -47,11 +47,14 @@ struct T2I: ParsableCommand {
     @Flag(help: "Log L1 + cosine similarity of the noise prediction between adjacent denoise steps — measures whether TeaCache-style step caching is even plausible for this model's few-step schedule (measurement only, no caching; adds extra sync points per step; off by default).")
     var profileSimilarity: Bool = false
 
+    @Flag(help: "Break the main `layers` stage's timing into attention vs MLP, summed across all 30 blocks (adds extra sync points per block; off by default).")
+    var profileAttnMlp: Bool = false
+
     func run() throws {
         let stage = NativeT2IStage(
             transformer: transformer, width: width, height: height, steps: steps, seed: seed,
             profileSubsteps: profileSubsteps, profileBlocks: profileBlocks,
-            profileSimilarity: profileSimilarity)
+            profileSimilarity: profileSimilarity, profileAttnMlp: profileAttnMlp)
         print("Generating natively (ZImageDirector in-process, no run.py)...")
         print("  transformer: \(transformer), size: \(width)x\(height), seed: \(seed)")
         _ = try stage.generate(prompt: prompt, outputURL: URL(fileURLWithPath: output))

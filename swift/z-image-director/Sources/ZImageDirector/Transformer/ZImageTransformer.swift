@@ -112,9 +112,16 @@ public final class ZImageTransformer: Module {
         // bounded" pattern as T2IPipeline's profileSubsteps. When nil (the
         // default), this forward pass is byte-identical to before this
         // parameter existed.
-        onBlockTimings: ((BlockTimings) -> Void)? = nil
+        onBlockTimings: ((BlockTimings) -> Void)? = nil,
+        // Opt-in attention-vs-MLP breakdown, accumulated ONLY across the main
+        // `layers` stage (the ~90%+-of-forward-time stage confirmed by
+        // BlockTimings in PR #315) — noiseRefiner/contextRefiner are skipped
+        // since they're a small, fixed fraction and would just add noise to
+        // the split. Nil by default; same zero-cost-when-off pattern.
+        onLayerAttnMlpTimings: ((AttnMlpTimings) -> Void)? = nil
     ) -> MLXArray {
         let profiling = onBlockTimings != nil
+        let profilingAttnMlp = onLayerAttnMlpTimings != nil
         let useCnet = controlnet != nil && controlnetContext != nil
         let temb = tEmbedder(t * tScale)
         var xi = xEmbedder(x)
@@ -201,7 +208,11 @@ public final class ZImageTransformer: Module {
                     cnetLayerIdx += 1
                 }
             }
-            unified = blk(unified, mask: nil, positions: unifiedPos, adalnInput: temb, cos: cos, sin: sin)
+            let onAttnMlp: ((AttnMlpTimings) -> Void)? = profilingAttnMlp ? { t in
+                onLayerAttnMlpTimings?(t)
+            } : nil
+            unified = blk(unified, mask: nil, positions: unifiedPos, adalnInput: temb, cos: cos, sin: sin,
+                          onAttnMlpTimings: onAttnMlp)
         }
         if profiling {
             MLX.eval(unified)

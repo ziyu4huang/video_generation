@@ -107,14 +107,16 @@ public final class T2IPipeline {
     /// Mirrors the Python step_fn (compiled closure).
     public func stepFn(
         latent: MLXArray, timestep: MLXArray, capFeats: MLXArray, inputs: StepInputs,
-        onBlockTimings: ((BlockTimings) -> Void)? = nil
+        onBlockTimings: ((BlockTimings) -> Void)? = nil,
+        onLayerAttnMlpTimings: ((AttnMlpTimings) -> Void)? = nil
     ) -> MLXArray {
         let channels = config.inChannels  // 16
         let xTokens = LatentOps.patchify(latent, hTok: inputs.hTok, wTok: inputs.wTok)
         let out = transformer(
             x: xTokens, t: timestep, capFeats: capFeats,
             xPos: inputs.xPos, capPos: inputs.capPos, cos: inputs.cos, sin: inputs.sin, capMask: nil,
-            onBlockTimings: onBlockTimings
+            onBlockTimings: onBlockTimings,
+            onLayerAttnMlpTimings: onLayerAttnMlpTimings
         )
         return LatentOps.unpack(out, hTok: inputs.hTok, wTok: inputs.wTok, channels: channels)
     }
@@ -179,7 +181,15 @@ public final class T2IPipeline {
         // assumption is unverified here. This is measurement only — it does
         // NOT cache or reuse anything. Forces two extra scalar reads
         // (`.item()`) per step after the first; zero cost when false.
-        profileSimilarity: Bool = false
+        profileSimilarity: Bool = false,
+        // Opt-in attention-vs-MLP breakdown of the main `layers` stage — the
+        // next granularity down now that BlockTimings (PR #315) confirmed
+        // `layers` dominates at ~90%+ of forward time. Summed across all 30
+        // layer blocks (and cond+uncond under CFG). No-op under ControlNet
+        // (stepFnControlnet doesn't wire this through — out of scope for the
+        // T2I timing investigation this belongs to). Same zero-cost-when-off
+        // pattern as the other profile* flags.
+        profileAttnMlp: Bool = false
         // NOTE on MLX compile: this pipeline does NOT use MLX.compile for the
         // denoise step, despite Python's @mx.compile step_fn. Measured verdict
         // (4-run interleaved benchmark, 2026-06-29): compile gave ZERO speed
@@ -280,6 +290,12 @@ public final class T2IPipeline {
                 blockTimings.layersMs += t.layersMs
             } : nil
 
+            var attnMlpTimings = AttnMlpTimings()
+            let onAttnMlp: ((AttnMlpTimings) -> Void)? = profileAttnMlp ? { t in
+                attnMlpTimings.attnMs += t.attnMs
+                attnMlpTimings.mlpMs += t.mlpMs
+            } : nil
+
             let noisePred: MLXArray
             if useCnet, let cnet = controlnet, let ctx = cnetContext {
                 if cfgActive, let uncond = uncondFeats {
@@ -290,11 +306,11 @@ public final class T2IPipeline {
                     noisePred = stepFnControlnet(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, controlnet: cnet, controlContext: ctx, strength: controlnetStrength, onBlockTimings: onBlocks)
                 }
             } else if cfgActive, let uncond = uncondFeats {
-                let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks)
-                let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, onBlockTimings: onBlocks)
+                let cond = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
+                let uncondPred = stepFn(latent: latents, timestep: tInput, capFeats: uncond, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
                 noisePred = uncondPred + cfgScale * (cond - uncondPred)
             } else {
-                noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks)
+                noisePred = stepFn(latent: latents, timestep: tInput, capFeats: capFeats, inputs: stepInputs, onBlockTimings: onBlocks, onLayerAttnMlpTimings: onAttnMlp)
             }
 
             // When profiling, force the forward pass to materialize now so its
@@ -355,6 +371,10 @@ public final class T2IPipeline {
                 print("         blocks: noiseRefiner \(String(format: "%.0f", blockTimings.noiseRefinerMs)) ms, " +
                     "contextRefiner \(String(format: "%.0f", blockTimings.contextRefinerMs)) ms, " +
                     "layers \(String(format: "%.0f", blockTimings.layersMs)) ms")
+            }
+            if profileAttnMlp {
+                print("         layers attn/mlp: attn \(String(format: "%.0f", attnMlpTimings.attnMs)) ms, " +
+                    "mlp \(String(format: "%.0f", attnMlpTimings.mlpMs)) ms")
             }
             if profileSimilarity {
                 let curr = noisePred.asType(.float32)
