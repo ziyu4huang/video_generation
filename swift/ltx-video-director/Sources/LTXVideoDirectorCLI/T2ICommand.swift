@@ -50,11 +50,15 @@ struct T2I: ParsableCommand {
     @Flag(help: "Break the main `layers` stage's timing into attention vs MLP, summed across all 30 blocks (adds extra sync points per block; off by default).")
     var profileAttnMlp: Bool = false
 
+    @Option(help: "EXPERIMENT: 1-based step number (matching the printed \"step N/steps\" line) whose forward pass is skipped, reusing the previous step's noise prediction instead. Omit for normal (uncached) generation. See project_teacache_style_caching_research memory — this is a quality-verdict prototype, not a default-on optimization.")
+    var cacheSkipStep: Int?
+
     func run() throws {
         let stage = NativeT2IStage(
             transformer: transformer, width: width, height: height, steps: steps, seed: seed,
             profileSubsteps: profileSubsteps, profileBlocks: profileBlocks,
-            profileSimilarity: profileSimilarity, profileAttnMlp: profileAttnMlp)
+            profileSimilarity: profileSimilarity, profileAttnMlp: profileAttnMlp,
+            cacheSkipStep: cacheSkipStep)
         print("Generating natively (ZImageDirector in-process, no run.py)...")
         print("  transformer: \(transformer), size: \(width)x\(height), seed: \(seed)")
         _ = try stage.generate(prompt: prompt, outputURL: URL(fileURLWithPath: output))

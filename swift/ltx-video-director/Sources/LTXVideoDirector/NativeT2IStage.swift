@@ -49,6 +49,7 @@ public struct NativeT2IStage {
     public let profileBlocks: Bool
     public let profileSimilarity: Bool
     public let profileAttnMlp: Bool
+    public let cacheSkipStep: Int?
 
     public init(
         transformer: String = "moody-pro-mix", width: Int = 640, height: Int = 960,
@@ -56,7 +57,7 @@ public struct NativeT2IStage {
         vae: String = "zimage-ae", encoder: String = "qwen3-4b",
         tokenizerDir: String = "qwen3", profileSubsteps: Bool = false,
         profileBlocks: Bool = false, profileSimilarity: Bool = false,
-        profileAttnMlp: Bool = false
+        profileAttnMlp: Bool = false, cacheSkipStep: Int? = nil
     ) {
         self.transformer = transformer
         self.width = width
@@ -71,6 +72,7 @@ public struct NativeT2IStage {
         self.profileBlocks = profileBlocks
         self.profileSimilarity = profileSimilarity
         self.profileAttnMlp = profileAttnMlp
+        self.cacheSkipStep = cacheSkipStep
     }
 
     /// Generates an image natively (no run.py) and saves it as a PNG.
@@ -113,7 +115,8 @@ public struct NativeT2IStage {
             capFeats: capFeats, uncondFeats: uncondFeats,
             seed: seed, width: width, height: height, steps: resolvedSteps, cfgScale: cfgScale,
             profileSubsteps: profileSubsteps, profileBlocks: profileBlocks,
-            profileSimilarity: profileSimilarity, profileAttnMlp: profileAttnMlp)
+            profileSimilarity: profileSimilarity, profileAttnMlp: profileAttnMlp,
+            cacheSkipStep: cacheSkipStep)
 
         try ImageSave.savePNG(image, to: outputURL)
         return image
