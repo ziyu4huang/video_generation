@@ -27,6 +27,11 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+import {
+	buildSchemaCostReport,
+	formatSchemaCostReport,
+	formatSchemaCostJson,
+} from "./schema-cost.ts";
 
 // --- types -------------------------------------------------------------------
 
@@ -76,8 +81,18 @@ export interface ToolStat {
 	calls: number;
 	results: number;
 	errors: number;
+	/** Errors followed by a successful same-tool call within RECOVERY_WINDOW results (same session). */
+	recoveredErrors: number;
 	latencies: number[]; // ms, one per matched result (subset of `results`)
 }
+
+/**
+ * Recovery window: an error counts as "recovered" if a successful call of the
+ * SAME tool follows it within this many same-tool results in the same session.
+ * Small → undercounts (legit slow retries missed); large → credits unrelated
+ * successes. 3 matches the typical edit/ask_user retry cadence (fail → read → retry).
+ */
+export const RECOVERY_WINDOW = 3;
 
 /** Aggregate report across all scanned sessions. */
 export interface MetricsReport {
@@ -180,7 +195,7 @@ export function computeMetrics(
 	const acc = (name: string): ToolStat => {
 		let s = byName.get(name);
 		if (!s) {
-			s = { name, calls: 0, results: 0, errors: 0, latencies: [] };
+			s = { name, calls: 0, results: 0, errors: 0, recoveredErrors: 0, latencies: [] };
 			byName.set(name, s);
 		}
 		return s;
@@ -206,8 +221,11 @@ export function computeMetrics(
 			if (lastTs === undefined || start > lastTs) lastTs = start;
 		}
 
-		// index this session's calls by id for latency pairing
+		// index this session's calls by id for latency pairing, AND keep an ordered
+		// per-tool result sequence for recovery detection (errors followed by a
+		// successful same-tool call within RECOVERY_WINDOW results).
 		const callById = new Map<string, CallRec>();
+		const resByTool = new Map<string, ResultRec[]>();
 		for (const c of sc.calls) {
 			acc(c.name).calls++;
 			callById.set(c.callId, c);
@@ -216,10 +234,31 @@ export function computeMetrics(
 			const st = acc(r.name);
 			st.results++;
 			if (r.isError) st.errors++;
+			let seq = resByTool.get(r.name);
+			if (!seq) {
+				seq = [];
+				resByTool.set(r.name, seq);
+			}
+			seq.push(r);
 			const c = callById.get(r.callId);
 			if (c) {
 				const dt = r.t1 - c.t0;
 				if (Number.isFinite(dt) && dt >= 0) st.latencies.push(dt);
+			}
+		}
+		// recovery: an error is "recovered" iff a successful same-tool result follows
+		// within RECOVERY_WINDOW positions in this session's ordered sequence.
+		for (const [name, seq] of resByTool) {
+			const st = acc(name);
+			for (let i = 0; i < seq.length; i++) {
+				if (!seq[i].isError) continue;
+				const hi = Math.min(i + RECOVERY_WINDOW, seq.length - 1);
+				for (let j = i + 1; j <= hi; j++) {
+					if (!seq[j].isError) {
+						st.recoveredErrors++;
+						break;
+					}
+				}
 			}
 		}
 	}
@@ -310,14 +349,15 @@ export function formatReport(report: MetricsReport, opts: FormatOpts = {}): stri
 			calls: String(t.calls),
 			results: String(t.results),
 			errors: String(t.errors),
-			errPct: pct(t.errors, t.results),
+			"err%": pct(t.errors, t.results),
+			"recov%": pct(t.recoveredErrors, t.errors),
 			p50: fmtMs(percentile(t.latencies, 50)),
 			p95: fmtMs(percentile(t.latencies, 95)),
 			max: fmtMs(Math.max(0, ...t.latencies)),
 			mean: fmtMs(t.latencies.length ? sum(t.latencies) / t.latencies.length : 0),
 		}));
 		printTable(lines, rows, [
-			"tool", "calls", "results", "errors", "err%", "p50", "p95", "max", "mean",
+			"tool", "calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean",
 		]);
 	} else {
 		const rows = shown.map((t) => ({
@@ -325,7 +365,7 @@ export function formatReport(report: MetricsReport, opts: FormatOpts = {}): stri
 			calls: String(t.calls),
 			results: String(t.results),
 			errors: String(t.errors),
-			errPct: pct(t.errors, t.results),
+			"err%": pct(t.errors, t.results),
 			p50: fmtMs(percentile(t.latencies, 50)),
 		}));
 		printTable(lines, rows, ["tool", "calls", "results", "errors", "err%", "p50"]);
@@ -344,7 +384,7 @@ function printTable(
 	cols: string[],
 ): void {
 	if (rows.length === 0) return;
-	const numeric = new Set(["calls", "results", "errors", "err%", "p50", "p95", "max", "mean"]);
+	const numeric = new Set(["calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean"]);
 	const widths = cols.map(
 		(c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? "").length)),
 	);
@@ -393,6 +433,8 @@ export function formatJson(report: MetricsReport, opts: FormatOpts = {}): string
 				results: t.results,
 				errors: t.errors,
 				errorRate: t.results ? t.errors / t.results : 0,
+				recoveredErrors: t.recoveredErrors,
+				recoveryRate: t.errors ? t.recoveredErrors / t.errors : 0,
 				latencyMs: lat(t.latencies),
 			})),
 		},
@@ -492,13 +534,41 @@ Output:
   --json             Emit a single JSON object to stdout
   --sessions-dir <p> Override the sessions root (default: ~/.pi/agent/sessions)
 
+Schema-cost mode (estimates per-request API schema token cost, NO session scan):
+  --schema-cost      Rank every registered tool by estimated schema tokens
+                     (description + TypeBox params JSON). Built-ins via the SDK
+                     factory + extensions via a capturing mock API (no agent boot).
+                     With --json, emits the full ranked baseline as JSON.
+  --ext <paths>      Override the extension entry points (csv of .ts paths)
+
 Examples:
   bun-pi-agent-cli tools-metrics
   bun-pi-agent-cli tools-metrics --since 2026-07-01 --details
   bun-pi-agent-cli tools-metrics --cwd video_generation__pi --tool bash,edit
-  bun-pi-agent-cli tools-metrics --json --top 20 > metrics.json`,
+  bun-pi-agent-cli tools-metrics --json --top 20 > metrics.json
+  bun-pi-agent-cli tools-metrics --schema-cost
+  bun-pi-agent-cli tools-metrics --schema-cost --json > schema-cost-baseline.json`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const rest = parsed.rest;
+
+		// --- schema-cost mode (no session scan) ---
+		if (hasFlag(rest, "--schema-cost")) {
+			const extRaw = takeFlag(rest, "--ext");
+			const entries = extRaw
+				? extRaw.split(",").map((s) => s.trim()).filter(Boolean).map((p) => {
+					const source = p.replace(/\.ts$/, "").split("/").pop() ?? p;
+					return { source, path: p };
+				  })
+				: undefined;
+			const report = await buildSchemaCostReport(undefined, entries);
+			if (parsed.json || parsed.mode === "json") {
+				console.log(formatSchemaCostJson(report));
+			} else {
+				for (const line of formatSchemaCostReport(report)) console.log(line);
+			}
+			return;
+		}
+
 		const since = parseBoundary(takeFlag(rest, "--since"), "start");
 		const until = parseBoundary(takeFlag(rest, "--until"), "end");
 		const cwdSubstr = takeFlag(rest, "--cwd");
