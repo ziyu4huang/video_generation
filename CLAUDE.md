@@ -42,6 +42,24 @@ python/venv/bin/python python/mlx-movie-director/run.py <args>
 > uv pip install -r python/mlx-movie-director/requirements.txt --python python/venv/bin/python
 > ```
 > The GUI (`bun run dev`) spawns `run.py` via this path; if image/video generation in the GUI errors with a missing `mlx` module, this venv needs recreating.
+>
+> **Both generation paths need sibling-fork deps not on PyPI.** `requirements.txt`
+> pins `transformers<5` (5.x breaks `mlx_lm`'s `AutoTokenizer.register`) and
+> `opencv-python`, but TWO packages come from sibling repos because their PyPI
+> versions lack required modules:
+> - **`mflux` fork** (`../mflux`, v0.17.5+) — provides `mflux.models.z_image`
+>   (the Z-Image VAE loader). REQUIRED for the IMAGE path. Upstream PyPI mflux
+>   (0.12.x) lacks `models.z_image`, so it is deliberately NOT in requirements.txt.
+> - **`ltx-2-mlx` workspace** (`../ltx-2-mlx`) — provides `ltx_core_mlx` /
+>   `ltx_pipelines_mlx` / `ltx_trainer`. REQUIRED for the VIDEO path.
+>
+> After the requirements install, run:
+> ```bash
+> bash scripts/setup-repo-deps.sh   # installs both sibling forks editable + re-asserts transformers<5
+> ```
+> Override locations with `MFLUX_DIR=...` / `LTX_2_MLX_DIR=...` if they are not
+> at the default siblings. Both forks leave `transformers` unpinned, so the
+> script re-asserts `<5` at the end (otherwise mlx_lm breaks at import).
 
 
 

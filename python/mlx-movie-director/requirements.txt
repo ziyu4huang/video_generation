@@ -3,13 +3,26 @@ torch
 torchvision
 numpy
 diffusers>=0.25.0
-transformers
+# transformers MUST stay <5: transformers 5.x changed AutoTokenizer.register to
+# require a config CLASS, but mlx_lm (pulled by ltx-2-mlx) passes a name STRING
+# at import time (tokenizer_utils.py: NewlineTokenizer) → AttributeError on
+# `key.__module__`. This breaks the entire video path (vendor_patches →
+# ltx_core_mlx → mlx_lm). Pin <5 until mlx_lm adapts. See G1 receipt.
+transformers>=4.46,<5
 huggingface_hub
 Pillow
 safetensors
 accelerate
 hf_transfer
 tqdm
+# image-quality.py imports cv2 (without it the whole `run.py image` command
+# fails to register).
+opencv-python
+# NOTE: `mflux` is NOT listed here — the upstream PyPI mflux (0.12.x) lacks
+# `models.z_image`, which this repo's Z-Image VAE loader requires. A fork
+# (v0.17.5+) with z_image lives in the sibling `mflux` repo and is installed
+# editable by scripts/setup-repo-deps.sh. Installing PyPI mflux here would
+# shadow the fork and break `run.py image` at VAE decode.
 
 # dev / test
 pytest>=8.0
