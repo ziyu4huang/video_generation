@@ -40,6 +40,21 @@ describe("pi-movie-director extension", () => {
     }
   });
 
+  test("the generate description documents BOTH analysis subcommands (agent-discoverability)", () => {
+    // Regression: the `movie` tool's generate description used to mention only
+    // `analysis:transcribe` (audio). A hint-free "identify the VISUAL content"
+    // prompt left the agent unable to discover the CLIP path, so it guessed
+    // `transcribe` and omitted `capability` → a non-converging retry loop
+    // (the "video_understand agent-path block"). The description MUST surface
+    // `video_understand` and its options so a hint-free agent routes correctly.
+    const tool = captureRegisteredTool();
+    expect(tool.description).toContain("video_understand");
+    expect(tool.description).toContain("transcribe");
+    // The visual-analysis option keys (so the agent doesn't guess `video_path`).
+    expect(tool.description).toMatch(/video_understand[^]*options:\{video,\s*prompt/);
+    expect(tool.description).toContain("VISUAL");
+  });
+
   test("preflight returns the provider-menu summary", async () => {
     const tool = captureRegisteredTool();
     const res = await tool.execute("id", { command: "preflight", options: {} }, undefined, undefined, undefined);
