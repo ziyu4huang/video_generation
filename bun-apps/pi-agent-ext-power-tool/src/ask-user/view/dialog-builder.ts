@@ -63,10 +63,12 @@ export class DialogView implements StatefulView<DialogProps> {
 		this.liveProps = initialProps;
 		this.questionStrategy = new QuestionTabStrategy({
 			render: (w: number) => this.renderQuestionBody(w),
+			invalidate: () => {},
 		});
 		this.submitStrategy = config.isMulti
 			? new SubmitTabStrategy({
 					render: (w: number) => this.renderSubmitBody(w),
+					invalidate: () => {},
 				})
 			: undefined;
 	}
