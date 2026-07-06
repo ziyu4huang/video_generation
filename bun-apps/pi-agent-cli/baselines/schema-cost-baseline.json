@@ -1,6 +1,6 @@
 {
   "tools": 28,
-  "totalTokens": 10747,
+  "totalTokens": 10770,
   "builtinCount": 4,
   "extensionCount": 24,
   "errors": [],
@@ -34,17 +34,17 @@
       "source": "power-tool"
     },
     {
+      "name": "web_search",
+      "approxTokens": 593,
+      "descLen": 858,
+      "paramsLen": 1514,
+      "source": "web-access"
+    },
+    {
       "name": "fetch_content",
       "approxTokens": 570,
       "descLen": 647,
       "paramsLen": 1634,
-      "source": "web-access"
-    },
-    {
-      "name": "web_search",
-      "approxTokens": 570,
-      "descLen": 805,
-      "paramsLen": 1474,
       "source": "web-access"
     },
     {
