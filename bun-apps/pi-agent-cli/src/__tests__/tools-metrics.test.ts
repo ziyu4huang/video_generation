@@ -12,6 +12,7 @@ import {
 	percentile,
 	formatReport,
 	formatJson,
+	type SessionScan,
 } from "../commands/tools-metrics.ts";
 
 // Build a transcript line from a partial event object.
@@ -233,5 +234,102 @@ describe("formatReport / formatJson", () => {
 		expect(obj.totals.calls).toBe(1);
 		expect(obj.tools[0].name).toBe("bash");
 		expect(obj.tools[0].latencyMs.p50).toBe(2000);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Recovery-rate telemetry (errors followed by a successful same-tool call)
+// ---------------------------------------------------------------------------
+
+	describe("computeMetrics — recovery rate", () => {
+	/** Build a flat in-session sequence of edit results (success/error) by name. */
+	function editSequence(results: boolean[]): SessionScan {
+		const lines: string[] = [sessionLine("/p", baseIso(0))];
+		results.forEach((isErr, i) => {
+			const id = `e${i}`;
+			const callTs = `2026-07-01T00:00:${String(i + 1).padStart(2, "0")}.000Z`;
+			const resTs = `2026-07-01T00:00:${String(i + 1).padStart(2, "0")}.500Z`;
+			lines.push(callEvent(id, "edit", callTs));
+			lines.push(resultEvent(id, "edit", resTs, isErr));
+		});
+		return parseSessionLines(lines);
+	}
+
+	test("an error recovered by a later success within the window counts", () => {
+		// error then success → recovered.
+		const scan = editSequence([true, false]);
+		const r = computeMetrics([scan]);
+		const edit = r.tools.find((t) => t.name === "edit")!;
+		expect(edit.errors).toBe(1);
+		expect(edit.recoveredErrors).toBe(1);
+	});
+
+	test("an error with NO later success is not recovered", () => {
+		const scan = editSequence([true, true, true]);
+		const r = computeMetrics([scan]);
+		const edit = r.tools.find((t) => t.name === "edit")!;
+		expect(edit.errors).toBe(3);
+		expect(edit.recoveredErrors).toBe(0);
+	});
+
+	test("recovery is bounded by RECOVERY_WINDOW (3)", () => {
+		// error, then 3 more errors, then success: the success at the end recovers
+		// the 3 errors within window (positions 1,2,3) but NOT the error at position 0
+		// (4 positions before — outside the window).
+		const scan = editSequence([true, true, true, true, false]);
+		const r = computeMetrics([scan]);
+		const edit = r.tools.find((t) => t.name === "edit")!;
+		expect(edit.errors).toBe(4);
+		expect(edit.recoveredErrors).toBe(3); // errors at 1,2,3 recovered; error at 0 not
+	});
+
+	test("recovery is per-session (an error in session A is not recovered by session B)", () => {
+		const a = editSequence([true]); // session A: error, no recovery
+		const b = editSequence([false]); // session B: success (different context)
+		const r = computeMetrics([a, b]);
+		const edit = r.tools.find((t) => t.name === "edit")!;
+		expect(edit.errors).toBe(1);
+		expect(edit.recoveredErrors).toBe(0);
+	});
+
+	test("recoveryRate appears in JSON output", () => {
+		const scan = editSequence([true, false, true, false]);
+		const r = computeMetrics([scan]);
+		const obj = JSON.parse(formatJson(r));
+		const edit = obj.tools.find((t: { name: string }) => t.name === "edit");
+		expect(edit.recoveredErrors).toBe(2);
+		expect(edit.recoveryRate).toBe(1); // 2 errors, both recovered
+		expect(edit.errorRate).toBe(0.5); // 2 errors / 4 results
+	});
+});
+
+describe("formatReport — column display", () => {
+	test("err% column renders (regression: was blank due to errPct/err% key mismatch)", () => {
+		const scan = parseSessionLines([
+			sessionLine("/p", baseIso(0)),
+			callEvent("c1", "edit", baseIso(1)),
+			resultEvent("c1", "edit", baseIso(2), true),
+		]);
+		const r = computeMetrics([scan]);
+		const out = formatReport(r).join("\n");
+		expect(out).toMatch(/err%/); // header present
+		const dataLine = out.split("\n").find((l) => l.startsWith("edit"));
+		expect(dataLine).toBeTruthy();
+		expect(dataLine!).toContain("100.0%"); // 1 error / 1 result
+	});
+
+	test("recov% column renders in --details", () => {
+		const scan = parseSessionLines([
+			sessionLine("/p", baseIso(0)),
+			callEvent("c1", "edit", baseIso(1)),
+			resultEvent("c1", "edit", baseIso(2), true),
+			callEvent("c2", "edit", baseIso(3)),
+			resultEvent("c2", "edit", baseIso(4), false),
+		]);
+		const r = computeMetrics([scan]);
+		const out = formatReport(r, { details: true }).join("\n");
+		expect(out).toMatch(/recov%/);
+		const dataLine = out.split("\n").find((l) => l.startsWith("edit"));
+		expect(dataLine!).toContain("100.0%"); // 1 error recovered
 	});
 });

@@ -1,0 +1,205 @@
+{
+  "tools": 28,
+  "totalTokens": 10770,
+  "builtinCount": 4,
+  "extensionCount": 24,
+  "errors": [],
+  "toolsRanked": [
+    {
+      "name": "ltx",
+      "approxTokens": 1610,
+      "descLen": 5007,
+      "paramsLen": 1431,
+      "source": "ltx"
+    },
+    {
+      "name": "flux2",
+      "approxTokens": 1370,
+      "descLen": 3155,
+      "paramsLen": 2324,
+      "source": "flux2"
+    },
+    {
+      "name": "zk_ask",
+      "approxTokens": 652,
+      "descLen": 330,
+      "paramsLen": 2276,
+      "source": "knowledge-card"
+    },
+    {
+      "name": "ask_user_question",
+      "approxTokens": 604,
+      "descLen": 889,
+      "paramsLen": 1525,
+      "source": "power-tool"
+    },
+    {
+      "name": "web_search",
+      "approxTokens": 593,
+      "descLen": 858,
+      "paramsLen": 1514,
+      "source": "web-access"
+    },
+    {
+      "name": "fetch_content",
+      "approxTokens": 570,
+      "descLen": 647,
+      "paramsLen": 1634,
+      "source": "web-access"
+    },
+    {
+      "name": "krea2",
+      "approxTokens": 539,
+      "descLen": 1177,
+      "paramsLen": 978,
+      "source": "krea2"
+    },
+    {
+      "name": "zk_ingest",
+      "approxTokens": 463,
+      "descLen": 543,
+      "paramsLen": 1309,
+      "source": "knowledge-card"
+    },
+    {
+      "name": "todo",
+      "approxTokens": 448,
+      "descLen": 392,
+      "paramsLen": 1401,
+      "source": "power-tool"
+    },
+    {
+      "name": "zk_card",
+      "approxTokens": 390,
+      "descLen": 269,
+      "paramsLen": 1292,
+      "source": "knowledge-card"
+    },
+    {
+      "name": "vlm_describe",
+      "approxTokens": 346,
+      "descLen": 228,
+      "paramsLen": 1154,
+      "source": "vlm"
+    },
+    {
+      "name": "flux2_help",
+      "approxTokens": 325,
+      "descLen": 319,
+      "paramsLen": 979,
+      "source": "flux2"
+    },
+    {
+      "name": "movie",
+      "approxTokens": 306,
+      "descLen": 208,
+      "paramsLen": 1014,
+      "source": "movie-director"
+    },
+    {
+      "name": "edit",
+      "approxTokens": 290,
+      "descLen": 326,
+      "paramsLen": 834,
+      "source": "(builtin)"
+    },
+    {
+      "name": "ltx_help",
+      "approxTokens": 290,
+      "descLen": 307,
+      "paramsLen": 853,
+      "source": "ltx"
+    },
+    {
+      "name": "movie_help",
+      "approxTokens": 283,
+      "descLen": 277,
+      "paramsLen": 855,
+      "source": "movie-director"
+    },
+    {
+      "name": "zk_extract",
+      "approxTokens": 268,
+      "descLen": 317,
+      "paramsLen": 754,
+      "source": "knowledge-card"
+    },
+    {
+      "name": "extension_analyzer",
+      "approxTokens": 246,
+      "descLen": 312,
+      "paramsLen": 672,
+      "source": "power-tool"
+    },
+    {
+      "name": "knowledge_query",
+      "approxTokens": 168,
+      "descLen": 313,
+      "paramsLen": 357,
+      "source": "power-tool"
+    },
+    {
+      "name": "read",
+      "approxTokens": 152,
+      "descLen": 303,
+      "paramsLen": 304,
+      "source": "(builtin)"
+    },
+    {
+      "name": "get_search_content",
+      "approxTokens": 131,
+      "descLen": 71,
+      "paramsLen": 452,
+      "source": "web-access"
+    },
+    {
+      "name": "bash",
+      "approxTokens": 116,
+      "descLen": 248,
+      "paramsLen": 217,
+      "source": "(builtin)"
+    },
+    {
+      "name": "context_analyzer",
+      "approxTokens": 115,
+      "descLen": 299,
+      "paramsLen": 162,
+      "source": "power-tool"
+    },
+    {
+      "name": "agent_inventory",
+      "approxTokens": 104,
+      "descLen": 154,
+      "paramsLen": 261,
+      "source": "power-tool"
+    },
+    {
+      "name": "graph_health",
+      "approxTokens": 102,
+      "descLen": 266,
+      "paramsLen": 140,
+      "source": "power-tool"
+    },
+    {
+      "name": "krea2_help",
+      "approxTokens": 102,
+      "descLen": 247,
+      "paramsLen": 159,
+      "source": "krea2"
+    },
+    {
+      "name": "goal_complete",
+      "approxTokens": 99,
+      "descLen": 151,
+      "paramsLen": 243,
+      "source": "power-tool"
+    },
+    {
+      "name": "write",
+      "approxTokens": 88,
+      "descLen": 127,
+      "paramsLen": 225,
+      "source": "(builtin)"
+    }
+  ]
+}

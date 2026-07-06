@@ -88,7 +88,7 @@ function coerceOptions(v: unknown): Record<string, unknown> {
   return {};
 }
 
-const DESCRIPTION = [
+const COMMAND_REFERENCE = [
   "The movie-director orchestration layer — an instruction-driven (agent-first) video production pipeline.",
   "Pure Bun orchestration (pipeline manifests, gate-enforced checkpoints, artifact schema validation, budget",
   "governance, provider preflight) consuming the swift/MLX native directors. Rewrite of OpenMontage.",
@@ -145,6 +145,31 @@ const DESCRIPTION = [
   "  • cost-reconcile   — {projectId, entryId, actualUsd, success} → settles the reservation.",
   "  • cost-snapshot    — {projectId} → {total_spent_usd, total_reserved_usd, budget_remaining_usd}.",
 ].join("\n");
+
+/**
+ * Slim routing description for the `movie` tool. The heavy per-command reference
+ * (option keys, defaults, worked examples) lives in `movie_help` and is fetched
+ * on demand — the same dispatcher/help-tool split flux2/ltx/krea2/workflow use.
+ * Kept deliberately short: movie is consistently the #1 schema-cost tool, and a
+ * routing-only description (vs. the full inline reference) is what clears the
+ * ≥30% top-3 schema-cost reduction (verified via `tools-metrics --schema-cost`).
+ */
+const ROUTING_DESCRIPTION =
+  "Video orchestrator (OpenMontage rewrite). Consumes the native krea2/flux2/ltx " +
+  "directors with gate-enforced checkpoints. Call movie_help for the command list + " +
+  "per-command options + examples, BEFORE first use.";
+
+/** Slice the COMMAND_REFERENCE block for a single command (its `• <name>` section). */
+function commandReferenceBlock(command: string): string {
+  const full = COMMAND_REFERENCE;
+  const marker = `  • ${command} `;
+  const start = full.indexOf(marker);
+  if (start === -1) {
+    return `Unknown command "${command}". Known: ${COMMANDS.join(", ")}.`;
+  }
+  const next = full.indexOf("  • ", start + marker.length);
+  return full.slice(start, next === -1 ? undefined : next).trimEnd();
+}
 
 function jsonOut(obj: unknown): string {
   return JSON.stringify(obj, null, 2);
@@ -392,14 +417,14 @@ function makeMovieTool() {
   return defineTool({
     name: "movie",
     label: "Movie Director Orchestrator",
-    description: DESCRIPTION,
+    description: ROUTING_DESCRIPTION,
     promptSnippet:
       "Instruction-driven video production orchestrator (OpenMontage rewrite). Drives idea→script→scene_plan→assets→edit→compose→publish " +
-      "with gate-enforced checkpoints; consumes native krea2/flux2/ltx directors.",
+      "with gate-enforced checkpoints; consumes native krea2/flux2/ltx directors. Call movie_help for the command reference.",
     parameters: Type.Object({
       command: COMMAND_ENUM,
       options: Type.Any({
-        description: "Per-command options (see the command reference in this tool's description).",
+        description: "Per-command options. Call movie_help (command:<name>) for the exact option keys + worked example.",
       }),
     }),
     async execute(_id, params) {
@@ -414,8 +439,33 @@ function makeMovieTool() {
   });
 }
 
+function makeMovieHelpTool() {
+  return defineTool({
+    name: "movie_help",
+    label: "Movie Director Command Reference",
+    description:
+      "On-demand reference for the `movie` tool. Call BEFORE first use of a command (or anytime you are unsure of " +
+      "an option key) to get the command list, exact option keys, and worked examples. Omit `command` to list all " +
+      "commands; pass command:<name> for one command's full reference.",
+    promptSnippet: "Look up movie-director command options/examples on demand (call before using a command).",
+    parameters: Type.Object({
+      command: Type.Optional(COMMAND_ENUM),
+    }),
+    async execute(_id, params) {
+      const text = params.command
+        ? commandReferenceBlock(params.command)
+        : COMMAND_REFERENCE;
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { ok: true, command: params.command ?? null },
+      };
+    },
+  });
+}
+
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeMovieTool());
+  pi.registerTool(makeMovieHelpTool());
   // Tool-scope guard: block the built-in edit/write tools when the movie-director
   // agent targets a repo infra root (python/, swift/, …). Prevents the ungrounded
   // edit class observed in the #291 agent-driven run. No-op for non-edit tools.
