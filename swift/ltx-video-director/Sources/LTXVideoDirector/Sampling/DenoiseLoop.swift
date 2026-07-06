@@ -174,6 +174,19 @@ public enum DenoiseLoop {
     ///   delta measurement on ITS target machine, ideally with a
     ///   memory-headroom check (e.g. only enable when several tens of GB
     ///   are genuinely free), before choosing a non-zero value.
+    /// - Parameters:
+    ///   - uncondVideoTextEmbeds: Negative-prompt video text embeds (e.g.
+    ///     `NativeTextEncodeStage.encode(CFGGuidance.defaultNegativePrompt)`).
+    ///     When non-nil and `cfgScale` is active, an extra unconditional
+    ///     forward pass runs every step and is blended in via
+    ///     `CFGGuidance.blend` — Milestone 2a of the CFG/STG port (video
+    ///     guidance only; audio and STG/modality guidance are not covered,
+    ///     see `docs/native-i2v-dev-variant-study.md`).
+    ///   - cfgScale: Classifier-free guidance scale. `1.0` (default) means
+    ///     no guidance — behavior-identical to before this parameter existed.
+    ///   - rescaleScale: Variance-preserving rescale strength applied after
+    ///     the CFG blend (`0` disables rescaling). Ignored when CFG is
+    ///     inactive.
     public static func runStreaming(
         model: LTXModel, numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
         videoState: LatentState, audioState: LatentState,
@@ -181,7 +194,10 @@ public enum DenoiseLoop {
         sigmas: [Float],
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
         audioOnly: Bool = false,
-        cachedBlockCount: Int = 0
+        cachedBlockCount: Int = 0,
+        uncondVideoTextEmbeds: MLXArray? = nil,
+        cfgScale: Float = 1.0,
+        rescaleScale: Float = 0.0
     ) -> DenoiseResult {
         var videoX = videoState.latent
         var audioX = audioState.latent
@@ -193,6 +209,7 @@ public enum DenoiseLoop {
         let audioUniform = isUniformMask(audioState.denoiseMask)
 
         var blockCache: [Int: BasicAVTransformerBlock] = [:]
+        let cfgActive = uncondVideoTextEmbeds != nil && CFGGuidance.isActive(cfgScale: cfgScale)
 
         return withoutActuallyEscaping(blockProvider) { blockProvider in
             let effectiveBlockProvider: (Int) -> BasicAVTransformerBlock = cachedBlockCount <= 0 ? blockProvider : { idx in
@@ -222,6 +239,23 @@ public enum DenoiseLoop {
                 let sigmaB = sigmaArray.reshaped([b, 1, 1]).asType(.float32)
                 var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
                 var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
+
+                if cfgActive, let uncondVideoTextEmbeds {
+                    // Second forward pass with the negative prompt (video
+                    // stream only — audio guidance is a separate
+                    // sub-milestone, see CFGGuidance.swift's header). The
+                    // audio output of this pass is discarded.
+                    let (uncondVideoV, _) = model.streamingForward(
+                        videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                        numLayers: numLayers, blockProvider: effectiveBlockProvider,
+                        videoTextEmbeds: uncondVideoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                        videoPositions: videoState.positions, audioPositions: audioState.positions,
+                        videoAttentionMask: vMask, audioAttentionMask: aMask,
+                        videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                        audioOnly: audioOnly)
+                    let uncondVideoX0 = (videoX.asType(.float32) - sigmaB * uncondVideoV.asType(.float32)).asType(videoX.dtype)
+                    videoX0 = CFGGuidance.blend(cond: videoX0, uncond: uncondVideoX0, cfgScale: cfgScale, rescaleScale: rescaleScale)
+                }
 
                 videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)
                 audioX0 = applyDenoiseMask(x0: audioX0, cleanLatent: audioState.cleanLatent, denoiseMask: audioState.denoiseMask)

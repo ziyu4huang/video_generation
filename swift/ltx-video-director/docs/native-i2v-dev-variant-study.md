@@ -176,3 +176,114 @@ question, not an assumed-necessary next step, until there's a concrete
 reason (a specific quality complaint about `.distilled`/`.dasiwa` output,
 or a specific request to match `mlx-models/transformer/ltx-2.3-dev-q8`'s
 manifest params exactly) to invest in it.
+
+## Status update (2026-07-07): a concrete reason now exists — production's own default is dasiwa+CFG, and the "no-CFG dev usage" assumption above is wrong for THIS repo
+
+Re-checked `LTXModelRegistry.defaultForI2V` — it's `.dasiwa`, not
+`.distilled`. `mlx-models/transformer/ltx-2.3-dasiwa-golden-lace-v3-q8/manifest.json`
+recommends `cfg_scale: 5.0, stg_scale: 1.0` (same shape as `dev`, not
+`distilled`'s `cfg=1.0`). And `python/mlx-movie-director/app/ltx_pipeline.py`
+confirms **production actually samples dasiwa/dev at real cfg>1 with the
+distilled LoRA fused only at `0.999` strength for stability** — the LoRA
+fusion is not a CFG-avoidance trick here, it runs genuine two-(or more-)pass
+guidance on top. This means the "Milestone 2 priority check" conclusion two
+sections up (no example anywhere samples dev at cfg>1, so maybe skip it) does
+**not** hold for this repo's own production usage, even though it holds for
+the external ComfyUI reference corpus. `native-i2v`'s hardcoded `.distilled`
+default is a real, silent quality gap versus what `I2VEngine`'s `.dasiwa`
+default actually produces.
+
+**The guidance is bigger than plain 2-pass CFG.** Read
+`ltx_pipeline.py:53-56` and `guiders.py` in full:
+
+```python
+_GUIDER_RESCALE_SCALE = 0.7
+_GUIDER_MODALITY_SCALE = 3.0   # NOT 1.0 — modality (cross-modal A2V/V2A) guidance is ON by default
+_GUIDER_STG_BLOCKS = [28]
+```
+
+Production's video guider for a joint audio+video dasiwa/dev call runs up to
+**4 forward passes per step** (`samplers.py:374-442`,
+`MultiModalGuider.calculate`):
+
+1. `cond` — normal conditioned prediction (always).
+2. `uncond_text` — CFG, active whenever `cfg_scale != 1.0` (dasiwa: 5.0).
+3. `uncond_perturbed` — STG, active whenever `stg_scale != 0.0` (dasiwa: 1.0);
+   perturbation = skip self-attention in `stg_blocks` (`[28]`) only.
+4. `uncond_modality` — cross-modal guidance, active whenever
+   `modality_scale != 1.0` (constant `3.0`, so **always on** for any joint
+   audio+video call); perturbation = skip A2V/V2A cross-attention.
+
+Combine formula (`guiders.py:107-135`, exact):
+
+```
+pred = cond
+     + (cfg_scale - 1)      * (cond - uncond_text)
+     + stg_scale             * (cond - uncond_perturbed)
+     + (modality_scale - 1) * (cond - uncond_modality)
+
+if rescale_scale != 0:
+    factor = sqrt(var(cond)) / (sqrt(var(pred)) + 1e-8)
+    factor = rescale_scale * factor + (1 - rescale_scale)
+    pred = pred * factor
+```
+
+Audio uses its own `MultiModalGuiderParams` with `cfg_scale=7.0` (`_FLF2V_AUDIO_CFG_SCALE`
+is the FLF2V-specific 7.0 override; the general audio CFG default is also 7.0
+per `samplers.py:363`), same `stg_scale`/`stg_blocks`/`rescale_scale` as video.
+
+**Revised Milestone 2 scope** (supersedes the two-milestone plan above — this
+is now milestone 2a/2b, not a single "implement CFG" unit):
+- **2a (CFG only, video)**: unconditional pass + `(cfg_scale-1)*(cond-uncond)`
+  blend + rescale. Minimum viable — makes cfg_scale meaningful at all.
+- **2b (STG)**: perturbed pass with self-attention skip on `stg_blocks`.
+  Needs a way to run the transformer with block 28's self-attention masked
+  out — check whether `Transformer/*.swift` has any hook for this or if it's
+  net-new plumbing through the block stack.
+- **2c (modality guidance)**: only relevant when audio is requested alongside
+  video (native-i2v generates both by default per its joint audio+video
+  design) — cross-attention skip (A2V/V2A) is a 4th pass. Given
+  `modality_scale=3.0` is production's actual constant (not a knob anyone
+  tunes down), this can't be skipped for parity unless a product decision is
+  made to accept audio-guidance being worse in native than production.
+- Each sub-milestone should get its own before/after quality check
+  (a `--self-test` case), not be bundled — 2a alone is testable against a
+  video-only (no-audio) dasiwa call; 2c requires an audio-bearing call.
+
+**Memory cost**: 4 passes ≈ 4x per-step transformer forward cost (dev/dasiwa
+already the heaviest checkpoint). The vendor Python side already documents
+this is why some of ITS OWN pipelines default `stg_scale=0.0` for 32GB Macs
+(`CLAUDE.md`'s "Guidance System" section) — dasiwa's manifest recommending
+`stg_scale=1.0` regardless may be a copied template value, not a verified
+memory-safe choice on this hardware; worth confirming empirically (does the
+existing Python `run.py video t2i2v --transformer dasiwa` actually run with
+stg_scale=1.0 today without OOM on this machine?) before committing the
+native Swift port to replicate it exactly.
+
+## Status update (2026-07-07, later): Milestone 2a (CFG only) shipped
+
+`Sampling/CFGGuidance.swift` (new) implements the CFG term of
+`MultiModalGuider.calculate` (`guiders.py`) — `cond + (cfgScale-1)*(cond-uncond)`
+plus the optional variance-preserving rescale — and
+`DEFAULT_NEGATIVE_PROMPT` copied verbatim from `utils/constants.py`.
+`DenoiseLoop.runStreaming` gained `uncondVideoTextEmbeds`/`cfgScale`/
+`rescaleScale` parameters (all default to off — `cfgScale: Float = 1.0`,
+`uncondVideoTextEmbeds: MLXArray? = nil` — so every existing caller is
+behavior-identical unless it opts in). When active, an extra unconditional
+forward pass runs per step (video stream only — audio guidance is 2c, not
+implemented), doubling per-step transformer cost for `.dev`/`.dasiwa`.
+
+`NativeI2VStage.Request` gained `cfgScale: Double?` (nil = variant default:
+`1.0` for `.distilled`, `5.0` for `.dev`/`.dasiwa`, matching their manifest
+and `ltx_pipeline.py`'s own default) and `rescaleScale: Float = 0.7`
+(matches production's `_GUIDER_RESCALE_SCALE`). `NativeI2VCommand` exposes
+both as `--cfg-scale`/`--rescale-scale`. The negative prompt is encoded via
+a second `NativeTextEncodeStage.encode` call, only when CFG is active.
+
+**Not yet done** (tracked as 2b/2c above, unchanged): STG (block-28
+self-attention perturbation) and modality guidance (cross-modal A2V/V2A
+perturbation) — so `.dev`/`.dasiwa` output is now CFG-guided but still not
+full parity with production's 4-pass guidance. No real-checkpoint parity
+test has been run yet (build + existing regression suite only) — before
+trusting this for quality-sensitive use, run a real `.dasiwa` generation and
+visually compare against the Python `run.py` equivalent.
