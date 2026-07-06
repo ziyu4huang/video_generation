@@ -4,7 +4,7 @@
 
 import type { TextContent } from "@earendil-works/pi-ai";
 
-export type MemoryOverflowStrategy = "auto-consolidate" | "reject" | "fifo-evict";
+export type MemoryOverflowStrategy = "auto-consolidate" | "reject" | "fifo-evict" | "vault-offload";
 
 export type SessionSearchVariant = "legacy" | "anchors";
 
@@ -103,6 +103,10 @@ export interface MemoryResult {
   evicted_entries?: string[];
   evicted_count?: number;
   matches?: string[];
+  transferred_entries?: string[];
+  transferred_count?: number;
+  freed_chars?: number;
+  archive_path?: string;
 }
 
 export interface MemorySnapshot {

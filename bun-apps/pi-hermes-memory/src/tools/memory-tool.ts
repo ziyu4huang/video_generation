@@ -16,6 +16,9 @@ import {
   replaceSyncedMemories,
   syncMemoryEntry,
 } from "../store/sqlite-memory-store.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as pathJoin } from "node:path";
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
 
@@ -30,22 +33,99 @@ function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult 
   } as MemoryResult;
 }
 
+/**
+ * Write transferred entries as a .knowledge.jsonl archive file.
+ * Returns the file path for the caller to pass to zk_ingest.
+ */
+function writeTransferArchive(
+  target: "memory" | "user" | "failure",
+  entries: string[],
+): string {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const dir = pathJoin(tmpdir(), "pi-memory-archive");
+  mkdirSync(dir, { recursive: true });
+
+  const jsonlPath = pathJoin(dir, `memory-transfer-${target}-${ts}.knowledge.jsonl`);
+
+  const lines = entries.map((entry) => {
+    const record = {
+      id: `pi-memory-${target}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "memory_entry",
+      title: entry.slice(0, 80).replace(/\n/g, " "),
+      detail: entry,
+      tags: ["pi-memory", `target:${target}`],
+      dimension: "operational",
+      confidence: "high",
+      status: "active",
+      evidence: `Transferred from pi-hermes-memory ${target} target on ${new Date().toISOString().split("T")[0]}.`,
+    };
+    return JSON.stringify(record);
+  });
+
+  writeFileSync(jsonlPath, lines.join("\n") + "\n", "utf-8");
+  return jsonlPath;
+}
+
+function formatTransferResult(result: MemoryResult, archivePath?: string): string {
+  const lines: string[] = [];
+  lines.push(result.message ?? "Transfer complete.");
+  lines.push("");
+  lines.push("Transferred entries:");
+  lines.push("");
+
+  const transferred = result.transferred_entries ?? [];
+  transferred.forEach((entry, i) => {
+    lines.push(`${i + 1}. ${entry}`);
+    lines.push("");
+  });
+
+  if (archivePath) {
+    lines.push(`Archive file: ${archivePath}`);
+    lines.push("");
+    lines.push("Run zk_ingest on this file to import entries into the Obsidian vault:");
+    lines.push(`  zk_ingest --files "${archivePath}"`);
+    lines.push("");
+  }
+
+  if (result.usage) lines.push(`Usage: ${result.usage}`);
+  if (result.freed_chars) lines.push(`Chars freed: ${result.freed_chars}`);
+  return lines.join("\n").trim();
+}
+
 function formatMemoryToolText(result: MemoryResult): string {
   const evictedEntries = result.evicted_entries ?? [];
+  const archivePath = result.archive_path;
+
   if (result.success && evictedEntries.length > 0) {
     const lines = [
       result.message ?? `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
       "",
-      "Rotated active memory entries:",
-      "",
     ];
+
+    if (archivePath) {
+      // Vault-offload: entries preserved in archive, not lost
+      lines.push("Offloaded entries (saved to vault archive):");
+    } else {
+      // FIFO eviction: entries are lost
+      lines.push("Rotated active memory entries:");
+    }
+    lines.push("");
 
     evictedEntries.forEach((entry, index) => {
       lines.push(`${index + 1}. ${entry}`);
       lines.push("");
     });
 
-    lines.push("If one of these entries should stay active, add it again.");
+    if (archivePath) {
+      lines.push(`Archive file: ${archivePath}`);
+      lines.push("");
+      lines.push("Run zk_ingest to import these entries into the Obsidian vault:");
+      lines.push(`  zk_ingest --files "${archivePath}"`);
+      lines.push("");
+    } else {
+      lines.push("If one of these entries should stay active, add it again.");
+    }
+
     if (result.usage) lines.push(`Usage: ${result.usage}`);
     return lines.join("\n").trim();
   }
@@ -205,7 +285,7 @@ export function registerMemoryTool(
       "Use target='failure' with category to save what didn't work (failures, corrections, insights).",
     ],
     parameters: Type.Object({
-      action: StringEnum(["add", "replace", "remove"] as const),
+      action: StringEnum(["add", "replace", "remove", "transfer"] as const),
       target: StringEnum(["memory", "user", "project", "failure"] as const),
       content: Type.Optional(
         Type.String({ description: "Entry content for add/replace" })
@@ -214,6 +294,12 @@ export function registerMemoryTool(
         Type.String({
           description:
             "Substring identifying entry for replace/remove",
+        })
+      ),
+      query: Type.Optional(
+        Type.String({
+          description:
+            "Substring to match entries for transfer. Omit to transfer all entries from the target.",
         })
       ),
       category: Type.Optional(
@@ -226,7 +312,7 @@ export function registerMemoryTool(
       ),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { action, target: rawTarget, content, old_text, category, failure_reason } = params;
+      const { action, target: rawTarget, content, old_text, query, category, failure_reason } = params;
 
       // Route 'project' to projectStore using the normal MEMORY.md target.
       const target = rawTarget === "project" ? "memory" : rawTarget as "memory" | "user" | "failure";
@@ -335,10 +421,46 @@ export function registerMemoryTool(
           }
           break;
 
+        case "transfer":
+          if (rawTarget === "project") {
+            return {
+              content: [{ type: "text", text: JSON.stringify({ success: false, error: "Transfer is not supported for project target. Use 'memory', 'user', or 'failure'." }) }],
+              details: {},
+            };
+          }
+          result = await store_.transferEntries(target, query);
+          if (result.success && result.transferred_entries && result.transferred_entries.length > 0) {
+            // Write a .knowledge.jsonl archive and attach the path
+            const archivePath = writeTransferArchive(target, result.transferred_entries);
+            result = { ...result, archive_path: archivePath };
+
+            // Sync removal to SQLite — use exact match to avoid overly broad removal
+            if (dbManager) {
+              const sqliteTarget = sqliteTargetFor(rawTarget);
+              const sqliteProject = sqliteProjectFor(rawTarget, projectName);
+              for (const entry of result.transferred_entries) {
+                try {
+                  removeExactSyncedMemories(dbManager, entry, {
+                    target: sqliteTarget,
+                    project: sqliteProject,
+                  });
+                } catch {
+                  // Best-effort SQLite sync only
+                }
+              }
+            }
+
+            return {
+              content: [{ type: "text", text: formatTransferResult(result, archivePath) }],
+              details: result,
+            };
+          }
+          break;
+
         default:
           result = {
             success: false,
-            error: `Unknown action '${action}'. Use: add, replace, remove`,
+            error: `Unknown action '${action}'. Use: add, replace, remove, transfer`,
           };
       }
 
