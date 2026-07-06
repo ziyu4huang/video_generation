@@ -1,47 +1,60 @@
 import { describe, expect, test } from "bun:test";
 import extension, { coerceOptions } from "./pi-flux2.ts";
-import { PathSafetyError } from "../src/index.ts";
+import { PathSafetyError, COMMAND_LIST } from "../src/index.ts";
 
 // Wiring test for the extension factory itself — exercises the same
 // execute() path a real pi agent session would call, without spinning up a
 // live LLM (no provider/API key needed). runFlux2()'s own behavior is
 // covered exhaustively in src/*.test.ts; this only checks the extension
-// registers a well-formed tool and that execute() shapes results correctly.
+// registers well-formed tools and that execute() shapes results correctly.
 
-function captureRegisteredTool() {
-  let registered: any = null;
+function captureRegisteredTools() {
+  const registered: any[] = [];
   const fakePi = {
     registerTool(tool: any) {
-      registered = tool;
+      registered.push(tool);
     },
   } as any;
   extension(fakePi);
   return registered;
 }
 
+function getTool(name: string) {
+  const tool = captureRegisteredTools().find((t) => t.name === name);
+  if (!tool) throw new Error(`tool '${name}' not registered`);
+  return tool;
+}
+
+const ALL_COMMANDS = COMMAND_LIST.map((c) => c.name);
+
 describe("pi-flux2 extension", () => {
-  test("registers exactly one tool named 'flux2' with a non-empty description", () => {
-    const tool = captureRegisteredTool();
-    expect(tool).not.toBeNull();
-    expect(tool.name).toBe("flux2");
-    expect(typeof tool.description).toBe("string");
-    expect(tool.description.length).toBeGreaterThan(100);
+  test("registers exactly two tools: flux2 + flux2_help", () => {
+    const tools = captureRegisteredTools();
+    expect(tools.map((t: any) => t.name).sort()).toEqual(["flux2", "flux2_help"]);
   });
 
-  test("the description documents every one of the 18 subcommands", () => {
-    const tool = captureRegisteredTool();
-    for (const cmd of [
-      "t2i", "scene", "edit", "style", "angle", "swap", "expand", "upscale",
-      "gate", "segment", "story", "models",
-      "verify-vae", "verify-encoder", "verify-tokenizer", "verify-transformer",
-      "verify-e2e", "verify-edit",
-    ]) {
+  test("flux2 has a non-empty, slim description that still documents every subcommand", () => {
+    const tool = getTool("flux2");
+    expect(typeof tool.description).toBe("string");
+    expect(tool.description.length).toBeGreaterThan(100);
+    // Slim description keeps the 18-subcommand index (routing info).
+    for (const cmd of ALL_COMMANDS) {
       expect(tool.description).toContain(cmd);
     }
+    // The slim description must point the model at flux2_help.
+    expect(tool.description).toContain("flux2_help");
+  });
+
+  test("flux2 description no longer embeds the heavy per-command field reference", () => {
+    const tool = getTool("flux2");
+    // The old description embedded every option key for every command. The slim
+    // one must NOT carry, e.g., the scene-specific option lines.
+    expect(tool.description).not.toContain("[--ref-count-per-image]");
+    expect(tool.description).not.toContain("[--hand-repair-strength]");
   });
 
   test("execute() surfaces a PathSafetyError as a non-throwing tool result", async () => {
-    const tool = captureRegisteredTool();
+    const tool = getTool("flux2");
     const result = await tool.execute(
       "call-1",
       { command: "upscale", options: { input: "/definitely/does/not/exist.png" } },
@@ -55,7 +68,7 @@ describe("pi-flux2 extension", () => {
   });
 
   test("execute() surfaces an unknown-command error as a non-throwing tool result", async () => {
-    const tool = captureRegisteredTool();
+    const tool = getTool("flux2");
     const result = await tool.execute(
       "call-2",
       { command: "not-a-real-command", options: {} },
@@ -74,7 +87,7 @@ describe("pi-flux2 extension", () => {
   // These prove the boundary normalizes a string into a real object so the
   // downstream path-validation / command-dispatch path actually runs.
   test("execute() accepts options as a JSON string and still reaches path validation", async () => {
-    const tool = captureRegisteredTool();
+    const tool = getTool("flux2");
     const result = await tool.execute(
       "call-str",
       { command: "upscale", options: JSON.stringify({ input: "/definitely/does/not/exist.png" }) },
@@ -90,7 +103,7 @@ describe("pi-flux2 extension", () => {
   });
 
   test("execute() accepts options as undefined/empty-string without throwing", async () => {
-    const tool = captureRegisteredTool();
+    const tool = getTool("flux2");
     for (const opts of [undefined, "", "   "]) {
       const result = await tool.execute(
         "call-empty",
@@ -104,6 +117,77 @@ describe("pi-flux2 extension", () => {
       expect(result.details.ok).toBe(false);
       expect(result.content[0].text).toContain("Unknown flux2 command");
     }
+  });
+});
+
+describe("flux2_help companion tool", () => {
+  test("command omitted → returns the subcommand index mentioning every command", async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h0", {}, undefined, undefined, {});
+    const text = result.content[0].text;
+    for (const cmd of ALL_COMMANDS) {
+      expect(text).toContain(cmd);
+    }
+    expect(text).toContain("scene-pipeline");
+    expect(text).toContain("self-improve");
+  });
+
+  test("command:'scene' → returns the SAME field reference the old description embedded", async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-scene", { command: "scene" }, undefined, undefined, {});
+    const text = result.content[0].text;
+    // No lost capability: every scene option key + its CLI flag is present, in
+    // the exact "• key[] path [flag] — desc" shape the old description used.
+    expect(text).toContain("── scene ──");
+    expect(text).toContain("ref[] path [--ref]");
+    expect(text).toContain("refCountPerImage [--ref-count-per-image]");
+    expect(text).toContain("refStrength[] [--ref-strength]");
+    expect(text).toContain("handRepair [--hand-repair]");
+    expect(text).toContain("handRepairStrength [--hand-repair-strength]");
+    expect(text).toContain("bg path [--bg]");
+    expect(text).toContain("lora[] [--lora]");
+    expect(text).toContain("strictGate [--strict-gate]");
+    // The flagship command must carry a worked example.
+    expect(text).toContain("Example:");
+  });
+
+  test("command:'gate' → positional flag noted + example present", async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-gate", { command: "gate" }, undefined, undefined, {});
+    const text = result.content[0].text;
+    expect(text).toContain("── gate ──");
+    expect(text).toContain("(positional)");
+    expect(text).toContain("Example:");
+  });
+
+  test('topic:"scene-pipeline" → returns the multi-seed pipeline docs', async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-sp", { topic: "scene-pipeline" }, undefined, undefined, {});
+    const text = result.content[0].text;
+    expect(text).toContain("Multi-seed scene pipeline");
+    expect(text).toContain("verifyPrompt");
+    expect(text).toContain("handRepairWinner");
+  });
+
+  test('topic:"self-improve" → returns the self-improve loop docs', async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-si", { topic: "self-improve" }, undefined, undefined, {});
+    const text = result.content[0].text;
+    expect(text).toContain("Self-improve loop");
+    expect(text).toContain("run-self-improve-loop.sh");
+  });
+
+  test("topic takes precedence over command when both are set", async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-both", { command: "scene", topic: "self-improve" }, undefined, undefined, {});
+    expect(result.content[0].text).toContain("Self-improve loop");
+  });
+
+  test("unknown command → helpful error, no throw", async () => {
+    const help = getTool("flux2_help");
+    const result = await help.execute("h-bad", { command: "nope" }, undefined, undefined, {});
+    expect(result.content[0].text).toContain("Unknown command");
+    expect(result.content[0].text).toContain("scene");
   });
 });
 

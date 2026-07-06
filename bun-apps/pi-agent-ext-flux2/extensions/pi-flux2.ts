@@ -1,9 +1,26 @@
 /**
  * pi-flux2 — wraps the `swift/flux2-image-director` CLI (flux2) as ONE agent-
- * optimized tool.
+ * optimized tool PLUS a cheap `flux2_help` companion.
  *
- * Design: a single `flux2` dispatcher. The agent picks `command` (one of 18
- * flux2 subcommands) and passes typed `options` (camelCase keys). The tool:
+ * Design: TWO tools, on the Tool-Search / Lazy-Loading pattern.
+ *
+ *   • `flux2` — the dispatcher. The agent picks `command` (one of 18 flux2
+ *     subcommands) and passes typed `options` (camelCase keys). Its
+ *     `description` is intentionally SHORT (~150 tok): only what the model
+ *     needs for ROUTING (what flux2 is, the 18-subcommand index, the
+ *     `details.output` chaining convention). The heavy per-command field
+ *     reference is NOT embedded here — it is far too expensive to ship on
+ *     every turn.
+ *
+ *   • `flux2_help` — an on-demand reference tool (~120 tok schema). The model
+ *     calls it only when it needs a command's exact option keys / defaults /
+ *     path rules, or the multi-seed scene-pipeline / self-improve-loop docs.
+ *     Its output is a tool RESULT (lives in conversation history, not the
+ *     static schema), so the heavy text appears only in the turn where it is
+ *     requested. It reads the SAME `COMMANDS` spec / `fieldHints()` as the
+ *     dispatcher, so it can never drift from what the CLI actually accepts.
+ *
+ * The dispatcher still:
  *   • resolves / auto-builds the Swift binary,
  *   • validates every image/model path against allowed roots (anti-argv-injection),
  *   • streams progress and honors abort,
@@ -32,8 +49,15 @@ import {
   type Flux2Details,
 } from "../src/index.ts";
 
-// ─── Per-command field reference (teaches the agent the exact option keys) ───
+// ─── On-demand reference builders (shared by the slim description + help tool) ─
+//
+// These are the SINGLE source of the per-command field reference. The slim
+// `flux2` description only embeds the cheap index (commandIndex); the heavy
+// per-command block (fieldHints) + the scene-pipeline / self-improve docs live
+// behind `flux2_help`, which calls these same functions. Editing a field in
+// src/commands.ts therefore updates BOTH surfaces at once — no drift.
 
+/** Per-command field reference (teaches the agent the exact option keys). */
 function fieldHints(cmdName: CommandName): string {
   const spec = COMMANDS[cmdName];
   // cmdName is a CommandName (keyof COMMANDS), so the lookup is defined.
@@ -50,24 +74,21 @@ function fieldHints(cmdName: CommandName): string {
     .join("\n");
 }
 
-function buildDescription(): string {
-  const cmdLines = COMMAND_LIST.map(
+/** The cheap one-line-per-subcommand index (kept in the slim description). */
+function commandIndex(): string {
+  return COMMAND_LIST.map(
     (c) => `  • ${c.name}${c.writesImage ? " 📤" : ""} — ${c.when}`,
   ).join("\n");
-  const fieldRef = COMMAND_LIST.map(
-    (c) => `── ${c.name} ──\n${fieldHints(c.name as CommandName)}`,
-  ).join("\n");
+}
+
+/** Exact per-command field-reference block (same text the old description embedded). */
+function commandFieldBlock(cmdName: CommandName): string {
+  return `── ${cmdName} ──\n${fieldHints(cmdName)}`;
+}
+
+/** Multi-seed scene-pipeline reference (deferred to flux2_help). */
+function scenePipelineDoc(): string {
   return (
-    "Generate or edit images with the Flux2 Klein model (pure Swift/MLX on Apple Silicon) " +
-    "via the `flux2` CLI. Pass `command` (one of the subcommands below) and `options` " +
-    "(camelCase keys; only the options relevant to that command are read). Every path in " +
-    "`options` must resolve under the repo / output dir / models tree. The result's " +
-    "`details.output` is the generated PNG path — reuse it to chain commands " +
-    "(e.g. scene → gate → upscale). Set options.strictGate true to abort on a FAIL gate.\n\n" +
-    "Subcommands (📤 = produces an image):\n" + cmdLines + "\n\n" +
-    "Per-command `options` reference (camelCase → flux2 flag shown in brackets):\n" + fieldRef +
-    "\n\nNotes: defaults are the CLI's own (omit a field to use it). Repeatable flags " +
-    "(--ref, --lora, --ref-strength, --lora-scale, --ref-mask, --ref-region-mask) take arrays.\n\n" +
     "── Multi-seed scene pipeline (command: 'scene' + scenePipeline) ──\n" +
     "`scene` refs are GLOBAL tokens (no identity→region binding), so placement/pose is " +
     "prompt-driven & reliable-but-probabilistic. Set `scenePipeline` to render the SAME scene " +
@@ -85,8 +106,14 @@ function buildDescription(): string {
     "--hand-repair.\n" +
     "Result: `details.output` is the winner's (or hand-repaired winner's) PNG path — chains " +
     "exactly like a single scene call. `details.scenePipeline.candidates[]` has every seed's " +
-    "output/gate/VLM verdict for inspection." +
-    "\n\n── Self-improve loop (generate→judge→reflect→retry) ──\n" +
+    "output/gate/VLM verdict for inspection."
+  );
+}
+
+/** Self-improve loop reference (deferred to flux2_help). */
+function selfImproveDoc(): string {
+  return (
+    "── Self-improve loop (generate→judge→reflect→retry) ──\n" +
     "If the user asks to GENERATE AND IMPROVE / SELF-IMPROVE / iterate until good (e.g. " +
     "\"generate + improve a dancer's pose until the anatomy is right\"), do NOT loop single " +
     "flux2 calls yourself — instead run the closed loop, which judges each attempt with the " +
@@ -102,9 +129,57 @@ function buildDescription(): string {
   );
 }
 
+/** One concise worked example per command (illustrative; fieldHints is authoritative). */
+const COMMAND_EXAMPLES: Partial<Record<CommandName, string>> = {
+  t2i: 'flux2({command:"t2i", options:{prompt:"a red panda eating bamboo, studio light", seed:42, width:1024, height:1024}})',
+  scene: 'flux2({command:"scene", options:{prompt:"two characters sitting in a classroom", ref:["alice.png","bob.png"], seed:7}})  → then chain details.output into flux2 upscale',
+  edit: 'flux2({command:"edit", options:{prompt:"add sunglasses", images:["face.png"]}})',
+  style: 'flux2({command:"style", options:{input:"anime_girl.png", preset:"anime2real", refCount:3}})',
+  "kv-style-transfer": 'flux2({command:"kv-style-transfer", options:{prompt:"a cat in a forest", styleImage:"monet.png", strength:0.8}})',
+  angle: 'flux2({command:"angle", options:{input:"hero.png", angle:"right-high", refCount:3}})',
+  swap: 'flux2({command:"swap", options:{source:"scene.png", reference:"product.png", prompt:"the coffee mug"}})',
+  expand: 'flux2({command:"expand", options:{input:"portrait.png", expand:"all", pixels:128}})',
+  upscale: 'flux2({command:"upscale", options:{input:"out.png"}})  → 4x super-resolution',
+  gate: 'flux2({command:"gate", options:{images:["out.png"], json:true}})  → quality verdict, no generation',
+  segment: 'flux2({command:"segment", options:{image:"out.png", prompt:"woman\'s face"}})  → mask PNG',
+  story: 'flux2({command:"story", options:{character:"a young woman with red hair in armor", scenes:"right:walking through forest,front-high:standing on a cliff"}})',
+  models: 'flux2({command:"models", options:{}})  → list installed model variants (read-only)',
+};
+
+function commandExample(cmdName: CommandName): string {
+  const ex = COMMAND_EXAMPLES[cmdName];
+  if (ex) return `Example:\n  ${ex}`;
+  return "Example:\n  (diagnostic command — see option list above; pass the --ref path and a threshold).";
+}
+
+/** Slim (~150 tok) description: routing info only. Heavy reference → flux2_help. */
+function buildDescription(): string {
+  return (
+    "Generate or edit images with the Flux2 Klein model (pure Swift/MLX on Apple Silicon) via " +
+    "the `flux2` CLI. Pass `command` (one of the 18 subcommands below) and `options` " +
+    "(camelCase keys; only options relevant to that command are read). Every path in `options` " +
+    "must resolve under the repo / output dir / models tree. The result's `details.output` is " +
+    "the generated PNG path — reuse it to chain commands (e.g. scene → gate → upscale). Set " +
+    "options.strictGate true to abort on a FAIL gate.\n\n" +
+    "The exact option keys, defaults, and path rules for each command are NOT listed here — " +
+    "call `flux2_help({command:\"<name>\"})` to look them up before first use of a command " +
+    "(or anytime you are unsure of a key). Unknown/wrong keys are silently ignored and waste a " +
+    "generation. For the multi-seed winner-picking flow call `flux2_help({topic:\"scene-pipeline\"})`; " +
+    "for generate-and-improve loops call `flux2_help({topic:\"self-improve\"})`.\n\n" +
+    "Subcommands (📤 = produces an image):\n" + commandIndex() + "\n\n" +
+    "Notes: defaults are the CLI's own (omit a field to use it). Repeatable flags " +
+    "(--ref, --lora, --ref-strength, --lora-scale, --ref-mask, --ref-region-mask) take arrays."
+  );
+}
+
 const COMMAND_ENUM = Type.Union(
   COMMAND_LIST.map((c) => Type.Literal(c.name)),
   { description: "flux2 subcommand to run." },
+);
+
+const HELP_TOPIC_ENUM = Type.Union(
+  [Type.Literal("scene-pipeline"), Type.Literal("self-improve")],
+  { description: "Reference topic to look up instead of a single command." },
 );
 
 /**
@@ -141,14 +216,20 @@ function makeFlux2Tool() {
     description: buildDescription(),
     promptSnippet:
       "Generate/edit/gate images with Flux2 (Swift/MLX). One tool, 18 subcommands; " +
-      "chain via details.output.",
+      "call flux2_help for a command's options; chain via details.output.",
+    promptGuidelines: [
+      "Before first use of any flux2 command (or when unsure of an option key), call flux2_help " +
+      "with that command name to get its exact options, defaults, and path rules.",
+      "Use flux2 for image generation/editing; use krea2 for a fast single-image draft; use ltx " +
+      "for video. For multi-character composition use flux2 scene.",
+    ],
     parameters: Type.Object({
       command: COMMAND_ENUM,
       options: Type.Any({
         description:
-          "Object of camelCase options for the chosen command (see the per-command reference " +
-          "in this tool's description). Only options valid for `command` are read. Paths must " +
-          "be under an allowed root.",
+          "Object of camelCase options for the chosen command. Only options valid for `command` " +
+          "are read. Get the exact keys/defaults/path rules from flux2_help({command}). Paths " +
+          "must be under an allowed root.",
       }),
       outputDir: Type.Optional(
         Type.String({
@@ -173,32 +254,27 @@ function makeFlux2Tool() {
         Type.Object(
           {
             seeds: Type.Array(Type.Integer(), {
-              description: "Render this scene once per seed, in order. Required to trigger the pipeline.",
+              description: "One render per seed, in order. Required to trigger the pipeline.",
             }),
             verifyPrompt: Type.Optional(
-              Type.String({ description: "Question asked of a VLM subagent about each rendered candidate." }),
+              Type.String({ description: "VLM question about each candidate." }),
             ),
             verifyMatch: Type.Optional(
               Type.Array(Type.String(), {
-                description:
-                  "Case-insensitive substrings that must ALL appear in a candidate's VLM reply to win " +
-                  "(first matching seed, in order). Falls back to the best-gated candidate otherwise.",
+                description: "Substrings that must ALL appear in a candidate's VLM reply to win.",
               }),
             ),
             vlmModel: Type.Optional(
-              Type.String({
-                description: "\"provider/modelId\" override for the VLM subagent (default lm-studio/google/gemma-4-26b-a4b-qat).",
-              }),
+              Type.String({ description: "VLM subagent model override." }),
             ),
             handRepairWinner: Type.Optional(
-              Type.Boolean({ description: "Re-render the winning seed once more with --hand-repair." }),
+              Type.Boolean({ description: "Re-render the winner once more with --hand-repair." }),
             ),
           },
           {
             description:
-              "Only meaningful when command is 'scene'. Renders `options` across multiple seeds, gates + " +
-              "optionally VLM-verifies each, and returns the winner as details.output. See the tool " +
-              "description's 'Multi-seed scene pipeline' section.",
+              "Only when command is 'scene': render across multiple seeds, gate + optionally VLM-verify " +
+              "each, return the winner as details.output. Full docs: flux2_help({topic:\"scene-pipeline\"}).",
           },
         ),
       ),
@@ -252,10 +328,71 @@ function makeFlux2Tool() {
   });
 }
 
+// ─── The on-demand help tool (~120 tok schema) ───────────────────────────────
+//
+// A tool RESULT (lives in conversation history), so the heavy per-command
+// reference appears only in the turn it is requested — never in the static
+// schema. Reads the SAME COMMANDS spec / fieldHints() as the dispatcher, so the
+// two surfaces cannot drift.
+
+function makeFlux2HelpTool() {
+  return defineTool({
+    name: "flux2_help",
+    label: "Flux2 Command Reference",
+    description:
+      "On-demand reference for the `flux2` tool. Call BEFORE first use of a command (or anytime " +
+      "you are unsure of an option key) to get that command's exact option keys, defaults, path " +
+      "rules, and a worked example. Omit both args to list all subcommands. Use `topic` for the " +
+      "multi-seed scene-pipeline or self-improve-loop docs.",
+    promptSnippet:
+      "Look up flux2 command options/defaults/path-rules on demand (call before using a command).",
+    parameters: Type.Object({
+      command: Type.Optional(
+        COMMAND_ENUM,
+      ),
+      topic: Type.Optional(HELP_TOPIC_ENUM),
+    }),
+
+    async execute(_id, params) {
+      let text: string;
+      if (params.topic) {
+        text =
+          params.topic === "scene-pipeline" ? scenePipelineDoc() : selfImproveDoc();
+      } else if (params.command) {
+        const cmd = params.command as CommandName;
+        const spec = COMMANDS[cmd];
+        if (!spec) {
+          text =
+            `Unknown command "${params.command}". Known: ` +
+            COMMAND_LIST.map((c) => c.name).join(", ");
+        } else {
+          text =
+            `${commandFieldBlock(cmd)}\n\n` +
+            `When: ${spec.when}` +
+            (spec.writesImage ? "  (📤 produces an image)" : "  (no image output)") +
+            `\n\n${commandExample(cmd)}`;
+        }
+      } else {
+        text =
+          "flux2 subcommands (📤 = produces an image):\n" + commandIndex() +
+          "\n\nPass command:\"<name>\" for that command's exact option keys, defaults, and path " +
+          "rules (+ a worked example). Pass topic:\"scene-pipeline\" or topic:\"self-improve\" " +
+          "for those flows. Option-list legend: \"[]\" = array field; \"path\" = path-validated " +
+          "against repo/output/models roots; \"(positional)\" = bare positional arg.";
+      }
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { ok: true, command: params.command ?? null, topic: params.topic ?? null },
+      };
+    },
+  });
+}
+
 // ─── Extension factory ───────────────────────────────────────────────────────
 
 const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeFlux2Tool());
+  pi.registerTool(makeFlux2HelpTool());
 };
 
 export default extension;
