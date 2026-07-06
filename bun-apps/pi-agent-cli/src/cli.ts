@@ -32,6 +32,7 @@ import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
+import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
@@ -91,6 +92,12 @@ const COMMANDS: Command[] = [
     summary: doctorCommand.summary,
     details: doctorCommand.details,
     run: doctorCommand.run,
+  },
+  {
+    name: "tools-metrics",
+    summary: toolsMetricsCommand.summary,
+    details: toolsMetricsCommand.details,
+    run: toolsMetricsCommand.run,
   },
   // Extension-backed sub-commands (each = one workspace extension exporting an
   // ExtensionSubcommandSpec). See src/extensions/registry.ts.

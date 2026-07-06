@@ -890,7 +890,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					[Type.Literal("default"), Type.Literal("three-way"), Type.Literal("semantic-lexical")],
 					{
 						description:
-							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph. 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term) — isolates the semantic win from graph-neighbor dilution; use for paraphrase / cross-lingual queries where popularity ranking hurts. Both semantic modes require a running vault-mind service and fall back gracefully. Default: 'default'.",
+							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph — the vault-wide default, kept as default on purpose: the semantic blends were measured RETIRED as the default READ path on a clean queryCount-5 re-measure (lexical mean rel 0.332 vs semantic-lexical 0.100; receipt 2026-07-05T22-57-51). 'three-way' adds a semantic (vector) seed via obsidian_semantic_search and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term) — isolates the semantic win from graph-neighbor dilution; use for paraphrase / cross-lingual queries where popularity ranking hurts. Both semantic modes are explicit opt-in (not the default) and require a running vault-mind service and fall back gracefully. Default: 'default'.",
 					},
 				),
 			),

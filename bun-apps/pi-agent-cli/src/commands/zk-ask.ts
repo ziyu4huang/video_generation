@@ -54,6 +54,13 @@ Options:
                          Semantic modes need vault-mind service. Default: default.
                          Semantic modes tag each seed with source mode(s) under
                          --retrieve-only.
+                         NOTE: "default" (lexical) is the vault-wide default on
+                         purpose — the semantic blends were measured RETIRED as the
+                         default READ path on a clean queryCount-5 re-measure (lexical
+                         mean rel 0.332 vs semantic-lexical 0.100; receipt
+                         2026-07-05T22-57-51). Keep semantic blends as explicit opt-in
+                         for known paraphrase / cross-lingual queries where their
+                         canonical-case win matters.
   --folder <name>        Restrict seed search to folder (default: Zettelkasten)
   --vault <path>         Absolute path to the vault
   --vault-dir <name>     Vault folder name under cwd (default: vault)
