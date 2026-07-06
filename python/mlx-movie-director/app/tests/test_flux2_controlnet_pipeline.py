@@ -40,10 +40,21 @@ def patched_edit():
 class TestModuleImport:
     def test_mflux_src_points_at_vendored_dir(self):
         # The module-level _MFLUX_SRC must resolve to the real vendored mflux
-        # src dir so mflux is importable.
+        # src dir so mflux is importable. Under the canonical sibling-fork
+        # setup (CLAUDE.md: mflux installed editable from ../mflux, NOT
+        # vendored), this dir is absent and mflux is imported from the fork —
+        # so the vendored assertion is N/A, not a failure.
         import app.flux2_controlnet_pipeline as m
-        assert os.path.isdir(m._MFLUX_SRC)
+        if not os.path.isdir(m._MFLUX_SRC):
+            pytest.skip("vendored mflux absent — sibling-fork (../mflux) setup per CLAUDE.md")
         assert m._MFLUX_SRC.endswith(os.path.join("vendor", "mflux", "src"))
+
+    def test_mflux_importable_with_z_image(self):
+        # The real requirement (CLAUDE.md): mflux must expose models.z_image —
+        # the Z-Image VAE loader the IMAGE path depends on. Works under BOTH
+        # the vendored and the sibling-fork setup; this is the regression that
+        # actually matters (PyPI mflux 0.12.x lacks models.z_image).
+        from mflux.models import z_image  # noqa: F401
 
 
 class TestInitResolution:
