@@ -104,6 +104,22 @@ public struct NativeI2VStage {
         /// effect. Selecting `.dev`/`.dasiwa` is real checkpoint-loading
         /// wiring, not yet a quality-equivalent dev sampling path.
         public var transformerVariant: LTXTransformerVariant = .distilled
+        /// Classifier-free guidance scale for the video stream (Milestone 2a
+        /// of the CFG/STG port, see docs/native-i2v-dev-variant-study.md).
+        /// `nil` (default) means "use the variant's own default": `1.0`
+        /// (off) for `.distilled` — unchanged behavior — or `5.0` for
+        /// `.dev`/`.dasiwa`, matching their manifest's `recommended_params
+        /// .cfg_scale` and `python/mlx-movie-director/app/ltx_pipeline.py`'s
+        /// own `generate(cfg_scale: float = 5.0)` default. Set explicitly to
+        /// override (e.g. `1.0` to force CFG off even for `.dev`/`.dasiwa`).
+        /// STG (stg_scale) and modality guidance are NOT implemented — see
+        /// this file's header and the study doc's 2b/2c sub-milestones.
+        public var cfgScale: Double?
+        /// Variance-preserving rescale strength applied after the CFG blend
+        /// (reference: `guiders.py`'s `rescale_scale`, production constant
+        /// `_GUIDER_RESCALE_SCALE = 0.7`). `0` disables rescaling. Ignored
+        /// when CFG is inactive.
+        public var rescaleScale: Float = 0.7
         /// Additional LoRA(s) to fuse into the distilled transformer at
         /// block-dequantize time, on top of the checkpoint's own baked-in
         /// distilled behavior (see LoRAFusion.swift / LoRAWeights.swift).
@@ -355,6 +371,18 @@ public struct NativeI2VStage {
         print("[2/5] NativeTextEncodeStage: encoding prompt...")
         let textStage = NativeTextEncodeStage(maxLength: request.textMaxLength)
         let textResult = try textStage.encode(request.prompt)
+
+        // Milestone 2a of the CFG/STG port: `.dev`/`.dasiwa` default to real
+        // guidance (cfg_scale=5.0, matching their manifest + ltx_pipeline.py's
+        // own default) unless the caller overrides. `.distilled` stays off
+        // (cfg_scale=1.0) — unchanged behavior. See CFGGuidance.swift.
+        let effectiveCfgScale = Float(request.cfgScale ?? (request.transformerVariant == .distilled ? 1.0 : 5.0))
+        let cfgActive = CFGGuidance.isActive(cfgScale: effectiveCfgScale)
+        var uncondTextResult: NativeTextEncodeStage.Result?
+        if cfgActive {
+            print("   [cfg] cfg_scale=\(effectiveCfgScale) active — encoding negative prompt for unconditional pass")
+            uncondTextResult = try textStage.encode(CFGGuidance.defaultNegativePrompt)
+        }
         print("[2/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
         stageStart = stageClock.now
 
@@ -503,8 +531,10 @@ public struct NativeI2VStage {
             throw StageError.transformerCheckpointNotFound(reportedURL)
         }
         if variant != .distilled {
-            print("[transformer] using \(variant.rawValue) — no classifier-free guidance in this native pipeline yet, "
-                + "manifest-recommended cfg_scale is not applied (see docs/native-i2v-dev-variant-study.md)")
+            let guidanceNote = cfgActive
+                ? "cfg_scale=\(effectiveCfgScale) (CFG only — no STG/modality guidance yet, see docs/native-i2v-dev-variant-study.md)"
+                : "cfg_scale=1.0 (CFG explicitly disabled via request.cfgScale)"
+            print("[transformer] using \(variant.rawValue) — \(guidanceNote)")
         }
         let checkpointLoadStart = stageClock.now
         let rawTransformer = try MLX.loadArrays(url: transformerURL)
@@ -532,9 +562,10 @@ public struct NativeI2VStage {
 
         // dev/dasiwa are trained for the manifest's 30-step dynamic-shift
         // schedule, not the distilled 8-step table — using the latter would
-        // under-step them badly. Still no CFG (see the `variant != .distilled`
-        // warning above), so this is closer-but-not-equivalent to their
-        // Python-side recommended sampling.
+        // under-step them badly. CFG (Milestone 2a) now runs when active,
+        // but STG/modality guidance (2b/2c) don't exist yet, so this is
+        // closer-but-not-equivalent to their Python-side recommended
+        // sampling — see docs/native-i2v-dev-variant-study.md.
         let sigmas: [Float] = variant == .distilled
             ? SigmaSchedule.distilledSigmas
             : SigmaSchedule.ltx2Schedule(steps: 30, numTokens: fLat * hLat * wLat)
@@ -549,7 +580,9 @@ public struct NativeI2VStage {
             },
             videoState: videoState, audioState: audioState,
             videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
-            sigmas: sigmas)
+            sigmas: sigmas,
+            uncondVideoTextEmbeds: uncondTextResult?.videoEmbeds,
+            cfgScale: effectiveCfgScale, rescaleScale: request.rescaleScale)
         MLX.eval(denoiseResult.videoLatent, denoiseResult.audioLatent)
         print("   [4/5] runStreaming (\(sigmas.count - 1) steps) (\(denoiseSubStart.duration(to: stageClock.now).formatted()))")
         print("[4/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")

@@ -43,8 +43,14 @@ struct NativeI2V: ParsableCommand {
     @Option(help: "T2I transformer variant under models/transformer/.")
     var t2iTransformer: String = "moody-pro-mix"
 
-    @Option(help: "LTX-2.3 VIDEO transformer variant (mlx-models/ltx-mlx/{variant}/). Default distilled is the only variant this native pipeline has real-checkpoint tests for. dev/dasiwa load their own checkpoint and use the manifest's 30-step schedule instead of distilled's 8-step table, but there is no classifier-free guidance in this native pipeline yet, so dev's manifest-recommended cfg_scale has no effect (see docs/native-i2v-dev-variant-study.md). Not the same flag as --t2i-transformer (that's the T2I image model).")
+    @Option(help: "LTX-2.3 VIDEO transformer variant (mlx-models/ltx-mlx/{variant}/). Default distilled is the only variant this native pipeline has real-checkpoint tests for. dev/dasiwa load their own checkpoint and use the manifest's 30-step schedule; classifier-free guidance (CFG only, no STG/modality yet) runs automatically for them unless --cfg-scale overrides it (see docs/native-i2v-dev-variant-study.md). Not the same flag as --t2i-transformer (that's the T2I image model).")
     var transformer: LTXTransformerVariant = .distilled
+
+    @Option(help: "Classifier-free guidance scale for the video stream. Omit to use the transformer variant's own default: 1.0 (off) for distilled, 5.0 for dev/dasiwa. Set 1.0 to force CFG off even for dev/dasiwa.")
+    var cfgScale: Double?
+
+    @Option(help: "Variance-preserving rescale strength applied after the CFG blend (0 disables). Ignored when CFG is inactive.")
+    var rescaleScale: Double = 0.7
 
     @Option(help: "Gemma text-encoder max token length.")
     var textMaxLength: Int = 128
@@ -150,6 +156,8 @@ struct NativeI2V: ParsableCommand {
             seed: seed, t2iTransformer: t2iTransformer, textMaxLength: textMaxLength)
         request.fps = fps
         request.transformerVariant = transformer
+        request.cfgScale = cfgScale
+        request.rescaleScale = Float(rescaleScale)
         request.lastFrameImagePath = lastFrame.map { URL(fileURLWithPath: $0) }
         request.lastFrameStrength = Float(lastFrameStrength)
         request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution
