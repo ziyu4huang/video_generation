@@ -19,8 +19,19 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { randomUUID } from "crypto";
-import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI, type ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { GoalOverlay, type GoalOverlayLike } from "./overlay.js";
+import {
+	formatBudget,
+	formatDuration,
+	formatTokenCount,
+	type ActiveGoal,
+	type GoalStatus,
+} from "./format.js";
+
+// Re-export formatters + types for tests and downstream consumers.
+export { formatStatus, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
 
 // ─── Local types (replaces @earendil-works/pi-ai types) ───────────────────────
 
@@ -47,21 +58,7 @@ interface AssistantMessageContent {
 
 // ─── Goal-specific types ──────────────────────────────────────────────────────
 
-type GoalStatus = "active" | "paused" | "budget_limited" | "complete";
 type AgentStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
-
-interface ActiveGoal {
-	id: string;
-	text: string;
-	status: GoalStatus;
-	startedAt: number;
-	updatedAt: number;
-	iteration: number;
-	tokenBudget?: number;
-	tokensUsed: number;
-	timeUsedSeconds: number;
-	baselineTokens: number;
-}
 
 interface GoalCompleteDetails {
 	goal: string;
@@ -110,13 +107,9 @@ interface GoalArgumentCompletion {
 	description?: string;
 }
 
-interface StatusContext {
+export interface StatusContext {
 	cwd: string;
-	ui: {
-		confirm: (title: string, message: string) => Promise<boolean>;
-		notify: (message: string, level?: "info" | "warning" | "error") => void;
-		setStatus: (key: string, value: string | undefined) => void;
-	};
+	ui: ExtensionUIContext;
 	isIdle?: () => boolean;
 	hasPendingMessages?: () => boolean;
 	abort?: () => void;
@@ -125,7 +118,6 @@ interface StatusContext {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_KEY = "goal";
 const GOAL_STATE_ENTRY_TYPE = "goal-state";
 const MAX_OBJECTIVE_LENGTH = 4_000;
 const MAX_CANCELLED_CONTINUATION_PROMPTS = 20;
@@ -218,20 +210,12 @@ function isContextOverflow(message: { stopReason?: string; errorMessage?: string
 // ─── Module state ─────────────────────────────────────────────────────────────
 
 let activeGoal: ActiveGoal | undefined;
-let completionStatusTimer: ReturnType<typeof setTimeout> | undefined;
 let extensionApi: ExtensionAPI | undefined;
 let continuationPending: ContinuationPending | undefined;
 let goalRecovery: GoalRecovery | undefined;
 let staleGoalToolCallsBlocked = false;
+let goalOverlay: GoalOverlayLike | undefined;
 const cancelledContinuationMarkers = new Set<string>();
-
-// 1s heartbeat that re-calls ctx.ui.setStatus so the `active <elapsed>` indicator
-// ticks every second while idle (needs the footer-extension-status-notify patch
-// to actually re-render on each setStatus). Only active for active goals
-// WITHOUT a token budget (budget-tracked goals show token usage, which changes
-// on agent activity, not on a timer).
-let statusHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
-let heartbeatCtx: StatusContext | undefined;
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
@@ -291,7 +275,7 @@ const goalCompleteTool = defineTool({
 		}
 
 		clearActiveGoal(ctx);
-		showCompletionStatus(ctx);
+		showCompletionStatus(ctx, goal);
 		ctx.ui.notify(`Goal complete: ${goal}`, "info");
 
 		return {
@@ -304,8 +288,9 @@ const goalCompleteTool = defineTool({
 
 // ─── Public entry point ───────────────────────────────────────────────────────
 
-export default function goal(pi: ExtensionAPI) {
+export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new GoalOverlay()) {
 	extensionApi = pi;
+	goalOverlay = overlay;
 	pi.registerTool(goalCompleteTool);
 
 	pi.registerCommand("goal", {
@@ -342,33 +327,23 @@ export default function goal(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event: unknown, ctx: StatusContext) => {
-		// Clear any stale completion timer from a previous session — its ctx is stale
-		// and firing it during the new session would clobber the real goal status.
-		clearCompletionStatusTimer();
+		// Reset the overlay for the fresh session: rebind the UI ctx and drop any
+		// stale completion flash left over from the previous session.
+		goalOverlay?.setUICtx(ctx.ui);
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
 		activeGoal = loadGoalFromSession(ctx);
 		if (activeGoal) updateStatus(ctx, activeGoal);
-		else {
-			stopStatusHeartbeat();
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-		}
+		else goalOverlay?.update(undefined);
 	});
 
-	pi.on("session_shutdown", (_event: unknown, ctx: StatusContext) => {
+	pi.on("session_shutdown", (_event: unknown, _ctx: StatusContext) => {
 		if (activeGoal) persistGoal(activeGoal);
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
-		stopStatusHeartbeat();
-		// Don't clear if showCompletionStatus timer is active — it manages its own lifecycle.
-		// Without this guard, a goal_complete + terminate:true clears the "complete" footer
-		// indicator immediately, making it invisible to the user.
-		if (!completionStatusTimer) {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-		}
-		clearCompletionStatusTimer();
+		goalOverlay?.dispose();
 	});
 
 	pi.on("session_before_compact", (_event: unknown, ctx: StatusContext) => {
@@ -562,7 +537,7 @@ function clearGoal(ctx: StatusContext) {
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
 		clearPersistedGoal(ctx.cwd);
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		goalOverlay?.update(undefined);
 		return;
 	}
 
@@ -609,7 +584,7 @@ async function editGoal(
 function showGoal(ctx: StatusContext) {
 	if (!activeGoal) {
 		ctx.ui.notify("Usage: /goal <objective>\nNo goal is currently set.", "info");
-		ctx.ui.setStatus(STATUS_KEY, undefined);
+		goalOverlay?.update(undefined);
 		return;
 	}
 	updateGoalUsage(activeGoal, ctx);
@@ -818,64 +793,12 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 }
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
+// The GoalOverlay widget is the single UI surface for goal state. These are
+// thin delegates so command handlers / lifecycle hooks / agent_end read cleanly
+// while updateStatus keeps its (_ctx, goal) call sites unchanged.
 
-function updateStatus(ctx: StatusContext, goal: ActiveGoal) {
-	clearCompletionStatusTimer();
-	ctx.ui.setStatus(STATUS_KEY, formatStatus(goal));
-	// Manage the 1s heartbeat: only active goals without a token budget show a
-	// ticking elapsed duration. Budget-tracked goals show token usage (updates on
-	// agent activity, not a timer). All other statuses (paused/budget_limited/
-	// complete) are static — no heartbeat needed.
-	if (goal.status === "active" && goal.tokenBudget === undefined) {
-		startStatusHeartbeat(ctx, goal);
-	} else {
-		stopStatusHeartbeat();
-	}
-}
-
-/**
- * Start a 1s heartbeat that recomputes the `active <elapsed>` status text so
- * the elapsed duration ticks live in the footer. Stops itself if the goal is
- * no longer the active, active-status goal it was started for.
- */
-function startStatusHeartbeat(ctx: StatusContext, goal: ActiveGoal) {
-	stopStatusHeartbeat();
-	heartbeatCtx = ctx;
-	const goalId = goal.id;
-	statusHeartbeatTimer = setInterval(() => {
-		const current = activeGoal;
-		// Auto-stop if the goal changed, completed, or was cleared.
-		if (!current || current.id !== goalId || current.status !== "active") {
-			stopStatusHeartbeat();
-			return;
-		}
-		// Budget-tracked goals show tokens (not elapsed) — nothing to tick.
-		if (current.tokenBudget !== undefined) return;
-		const elapsed = Math.max(0, Math.floor((Date.now() - current.startedAt) / 1000));
-		heartbeatCtx?.ui.setStatus(STATUS_KEY, `active ${formatDuration(elapsed)}`);
-	}, 1000);
-}
-
-/** Stop the 1s status heartbeat (e.g. on pause/budget/complete/clear/shutdown). */
-function stopStatusHeartbeat() {
-	if (statusHeartbeatTimer) {
-		clearInterval(statusHeartbeatTimer);
-		statusHeartbeatTimer = undefined;
-	}
-	heartbeatCtx = undefined;
-}
-
-export function formatStatus(goal: ActiveGoal | undefined) {
-	if (!goal) return undefined;
-	if (goal.status === "complete") return "complete";
-	if (goal.status === "paused") return "paused";
-	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)}`;
-	if (goal.tokenBudget !== undefined) return `active ${formatBudget(goal)}`;
-	return `active ${formatDuration(goal.timeUsedSeconds)}`;
-}
-
-function formatBudget(goal: ActiveGoal) {
-	return `${formatTokenCount(goal.tokensUsed)}/${formatTokenCount(goal.tokenBudget ?? 0)}`;
+function updateStatus(_ctx: StatusContext, _goal: ActiveGoal) {
+	goalOverlay?.update(activeGoal);
 }
 
 function goalSummary(goal: ActiveGoal) {
@@ -893,20 +816,6 @@ function goalCommandHint(status: GoalStatus) {
 	if (status === "active") return "/goal edit <objective>, /goal pause, /goal clear";
 	if (status === "paused") return "/goal edit <objective>, /goal resume, /goal clear";
 	return "/goal edit <objective>, /goal clear";
-}
-
-export function formatDuration(seconds: number) {
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
-	const hours = Math.floor(minutes / 60);
-	return `${hours}h${minutes % 60}m`;
-}
-
-export function formatTokenCount(value: number) {
-	if (value < 1_000) return `${value}`;
-	if (value < 1_000_000) return `${Number.isInteger(value / 1_000) ? value / 1_000 : (value / 1_000).toFixed(1)}k`;
-	return `${Number.isInteger(value / 1_000_000) ? value / 1_000_000 : (value / 1_000_000).toFixed(1)}m`;
 }
 
 // ─── Prompt templates ─────────────────────────────────────────────────────────
@@ -1162,28 +1071,14 @@ function clearActiveGoal(ctx: StatusContext) {
 	clearStaleGoalToolCallBlock();
 	activeGoal = undefined;
 	clearPersistedGoal(ctx.cwd);
-	stopStatusHeartbeat();
-	ctx.ui.setStatus(STATUS_KEY, undefined);
+	goalOverlay?.update(undefined);
 }
 
-function showCompletionStatus(ctx: StatusContext) {
-	clearCompletionStatusTimer();
-	stopStatusHeartbeat();
-	ctx.ui.setStatus(STATUS_KEY, "complete");
-	completionStatusTimer = setTimeout(() => {
-		completionStatusTimer = undefined;
-		try {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-		} catch {
-			// Best effort — ctx may be stale after session replacement.
-		}
-	}, 8_000);
-}
-
-function clearCompletionStatusTimer() {
-	if (!completionStatusTimer) return;
-	clearTimeout(completionStatusTimer);
-	completionStatusTimer = undefined;
+// Transient "✓ goal complete" flash (~8s) shown after goal_complete, then the
+// overlay hides itself. The flash timer + render live entirely in GoalOverlay,
+// so there is no module-level timer or captured ctx to go stale across sessions.
+function showCompletionStatus(_ctx: StatusContext, objective: string) {
+	goalOverlay?.showCompletion(objective);
 }
 
 // ─── Legacy state file ────────────────────────────────────────────────────────

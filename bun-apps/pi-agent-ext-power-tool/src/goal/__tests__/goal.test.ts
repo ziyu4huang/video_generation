@@ -18,6 +18,7 @@
  */
 import { test, expect, describe, mock } from "bun:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { GoalOverlayLike } from "../overlay.js";
 import goal, {
 	buildGoalSystemPrompt,
 	completeGoalArguments,
@@ -30,6 +31,8 @@ import goal, {
 	parseCommand,
 	parseTokenBudget,
 	validateObjective,
+	type ActiveGoal,
+	type StatusContext,
 } from "../goal.js";
 
 // ─── Mock pi helpers ─────────────────────────────────────────────────────────
@@ -111,7 +114,35 @@ function createMockCtx(overrides: Record<string, unknown> = {}) {
 		sessionManager,
 	};
 
-	return { ctx, notifications, statuses };
+	return { ctx: ctx as unknown as StatusContext, notifications, statuses };
+}
+
+function createMockOverlay() {
+	let current: ActiveGoal | undefined;
+	let completion: string | undefined;
+	const impl: GoalOverlayLike = {
+		setUICtx() {},
+		update(goal) {
+			current = goal;
+			completion = undefined;
+		},
+		showCompletion(objective) {
+			completion = objective;
+		},
+		dispose() {
+			current = undefined;
+			completion = undefined;
+		},
+	};
+	return {
+		impl,
+		get current() {
+			return current;
+		},
+		get completion() {
+			return completion;
+		},
+	};
 }
 
 function lastGoalStatus(mock: ReturnType<typeof createMockPi>) {
@@ -121,7 +152,8 @@ function lastGoalStatus(mock: ReturnType<typeof createMockPi>) {
 
 async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 	const mock = createMockPi();
-	goal(mock.pi);
+	const overlay = createMockOverlay();
+	goal(mock.pi, overlay.impl);
 	const { ctx, notifications, statuses } = createMockCtx(overrides);
 
 	const sessionStartHandlers = mock.events.get("session_start");
@@ -132,7 +164,7 @@ async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 	const goalCmd = mock.commands.get("goal");
 	await goalCmd?.handler("finish", ctx);
 
-	return { mock, ctx, notifications, statuses };
+	return { mock, ctx, notifications, statuses, overlay };
 }
 
 // ─── Registration ────────────────────────────────────────────────────────────
@@ -245,15 +277,16 @@ describe("formatStatus", () => {
 
 // ─── buildGoalSystemPrompt ───────────────────────────────────────────────────
 
-describe("TUI status updates", () => {
-	test("sets 'goal' status to 'active <elapsed>' on start", async () => {
-		const { statuses } = await startGoalForTest();
+describe("overlay status updates", () => {
+	test("pushes the active goal to the overlay on start", async () => {
+		const { overlay } = await startGoalForTest();
 
-		// After starting, status must be set via ctx.ui.setStatus("goal", ...)
-		// No token budget → formatStatus returns "active <elapsed>"
-		const status = statuses.get("goal");
-		expect(status).toBeDefined();
-		expect(status).toMatch(/^active /);
+		// After starting, the overlay must receive the active goal. No token
+		// budget → formatStatus returns "active <elapsed>".
+		const activeGoal = overlay.current;
+		expect(activeGoal).toBeDefined();
+		expect(activeGoal?.status).toBe("active");
+		expect(formatStatus(activeGoal)).toMatch(/^active /);
 	});
 });
 
@@ -295,7 +328,7 @@ describe("goal_complete", () => {
 		expect(isContradictoryCompletionSummary("Was failing before, now passes.")).toBe(false);
 		expect(isContradictoryCompletionSummary("Coverage was below threshold, now passes.")).toBe(false);
 
-		const { mock, ctx } = await startGoalForTest();
+		const { mock, ctx, overlay } = await startGoalForTest();
 		const tool = mock.tools[0]!;
 
 		// Rejected: contradictory summary
@@ -332,6 +365,8 @@ describe("goal_complete", () => {
 		);
 		expect(accepted.terminate).toBe(true);
 		expect(lastGoalStatus(mock)).toBeNull();
+		// goal_complete flashes the completion overlay with the objective text.
+		expect(overlay.completion).toBe("finish");
 
 		// Rejected: no active goal
 		const noActiveRejected = await tool.execute(
@@ -358,7 +393,7 @@ describe("goal_complete", () => {
 describe("pause", () => {
 	test("aborts the current turn, blocks stale tools, and persists paused state", async () => {
 		let pauseAborts = 0;
-		const { mock, ctx, statuses } = await startGoalForTest({ abort: () => pauseAborts++ });
+		const { mock, ctx, overlay } = await startGoalForTest({ abort: () => pauseAborts++ });
 
 		const agentEndHandlers = mock.events.get("agent_end");
 		if (agentEndHandlers && agentEndHandlers.length > 0) {
@@ -376,7 +411,7 @@ describe("pause", () => {
 
 		expect(pauseAborts).toBe(1);
 		expect(lastGoalStatus(mock)).toBe("paused");
-		expect(statuses.get("goal")).toBe("paused");
+		expect(overlay.current?.status).toBe("paused");
 
 		// Consume stale continuation marker via input handler
 		const inputHandlers = mock.events.get("input");
@@ -411,7 +446,7 @@ describe("pause", () => {
 describe("clear", () => {
 	test("removes goal state without aborting or blocking stale tools", async () => {
 		let clearAborts = 0;
-		const { mock, ctx, statuses } = await startGoalForTest({ abort: () => clearAborts++ });
+		const { mock, ctx, overlay } = await startGoalForTest({ abort: () => clearAborts++ });
 
 		const agentEndHandlers = mock.events.get("agent_end");
 		if (agentEndHandlers && agentEndHandlers.length > 0) {
@@ -429,7 +464,7 @@ describe("clear", () => {
 
 		expect(clearAborts).toBe(0);
 		expect(lastGoalStatus(mock)).toBeNull();
-		expect(statuses.get("goal")).toBeUndefined();
+		expect(overlay.current).toBeUndefined();
 
 		// Stale continuation marker is consumed
 		const inputHandlers = mock.events.get("input");
@@ -475,7 +510,7 @@ describe("clear", () => {
 
 	test("clear releases stale tool-call block from a paused goal", async () => {
 		let pauseAborts = 0;
-		const { mock, ctx, statuses } = await startGoalForTest({ abort: () => pauseAborts++ });
+		const { mock, ctx, overlay } = await startGoalForTest({ abort: () => pauseAborts++ });
 
 		const agentEndHandlers = mock.events.get("agent_end");
 		if (agentEndHandlers && agentEndHandlers.length > 0) {
@@ -510,7 +545,7 @@ describe("clear", () => {
 		await goalCmd?.handler("clear", ctx);
 
 		expect(lastGoalStatus(mock)).toBeNull();
-		expect(statuses.get("goal")).toBeUndefined();
+		expect(overlay.current).toBeUndefined();
 		expect(
 			(toolCallHandlers![0] as (event: { toolName: string; toolCallId: string; input: unknown }) => unknown)({
 				toolName: "bash",
