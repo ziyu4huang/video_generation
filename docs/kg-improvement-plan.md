@@ -1,0 +1,313 @@
+# Knowledge-Graph Improvement Plan
+
+> **Planning doc — `plan/ecosystem-kg-review` cycle.** Research + design audit only.
+> No `zk_*` / `obsidian_*` code shipped from this cycle. Companion:
+> [`ecosystem-review.md`](./ecosystem-review.md).
+>
+> **Goal:** turn "improve the knowledge graph" from a vague ambition into a
+> ranked, measurable backlog — and force the semantic-blend question to be
+> answered with data, not vibes. Clarify the vault-mind ↔ pi-obsidian boundary
+> (semantic layer vs graph layer) so the next execution cycle doesn't blur them.
+
+---
+
+## TL;DR
+
+- **vault-mind IS our semantic backend.** `obsidian_semantic_search` calls
+  `VAULT_MIND_BASE_URL` (default `http://127.0.0.1:8000`) → vault-mind's
+  FastAPI `/api/search` → ChromaDB (`all-MiniLM-L6-v2`, 384-dim). The two
+  stacks are complementary, not competing. Our KG is **graph-first**;
+  vault-mind is **vector-first**.
+- **The spike confirmed one real gap:** vault-mind's `EnhancedMarkdownParser`
+  extracts **9 structured-feature categories** (callouts, tasks, embeds, math,
+  code blocks, tables, dataview, structure, link-stats) that our `zk_ingest`
+  drops entirely. See §3 + `output/spike-vaultmind-vs-zkingest-parsing.json`.
+  The gap is confined to *feature metadata*, not retrieval correctness — tags
+  + the wiki-link graph already drive our graph-RAG.
+- **The semantic-blend prior holds.** Re-confirmed from memory (iter-6,
+  2026-07-05): 5 zh-TW queries vs 425 English cards, adversarial zero-overlap
+  gate, mean relevance@4 **lexical+graph 0.332 vs semantic-lexical 0.100**,
+  lexical wins 2/5. The standing conclusion — *"semantic-lexical has no
+  measured regime where it wins outright — keep as diagnostic only"* — is
+  intact. Any "add more semantic" proposal must re-prove a win before
+  investment (proposal P3).
+- **Per-section chunking is CONFIRMED not applicable** to our atomic-zettel
+  model (proposal P5) — the wiki-link graph already captures structure.
+- **Next-cycle pick-list:** (1) re-run the semantic-blend measurement ONCE on
+  current vault state to retire-or-invest definitively; (2) prototype carrying
+  callout/task/embed frontmatter flags on the *human-authored* vault surface
+  and re-run queryCount-5 to see if feature metadata moves relevance.
+
+---
+
+## 1. The two stacks at a glance
+
+| Aspect | Our KG (`pi-knowledge-card` + `pi-obsidian`) | vault-mind (`../vault-mind/backend/`) |
+|---|---|---|
+| **Primary retrieval** | Graph (wiki-link edges + shared-tag cross-links) | Vector (ChromaDB cosine similarity) |
+| **Unit of storage** | One atomic zettel card per record | One chunk per ~1000-char semantic boundary |
+| **Ingest** | Deterministic (`zk_ingest`, no LLM) — 12-key `.knowledge.jsonl` → card | LLM-free parser → chunker → embedding |
+| **Embedding model** | None (graph edges are the signal) | `all-MiniLM-L6-v2` (384-dim, sentence-transformers) |
+| **Store** | Markdown files in an Obsidian vault | ChromaDB persistent client |
+| **Obsidian parsing** | frontmatter + body (wikilinks **stripped** to prose) | `EnhancedMarkdownParser` — callouts, tasks, embeds, math, code, tables, dataview, heading/block refs, link density |
+| **Metadata** | frontmatter (id/type/confidence/status/provenance) | `MetadataEnhancer` — content metrics, topic/content-type/purpose detection, search tags, change-detection fingerprint |
+| **Health** | `graphHealth` (orphans/dead-links/MOC drift) + `healGraph` auto-heal | `collection_manager.get_collection_health` + job-queue reindex |
+| **Language** | Bun/TypeScript | Python (FastAPI + ChromaDB + sentence-transformers) |
+| **Coupling** | `obsidian_semantic_search` → vault-mind `/api/search` (graceful fallback if down) | standalone service; indexed by vault name |
+
+The arrow that matters: **`obsidian_semantic_search` (ours) → vault-mind
+`/api/search` (theirs)**. That is the one shared seam. It degrades gracefully
+(`isError` if vault-mind is unreachable → `zk_ask` falls back to lexical). The
+two layers are loosely coupled **by design** — any proposal that makes the
+semantic layer a *hard* dependency is rejected (see P4).
+
+---
+
+## 2. Mechanism map — vault-mind → our KG surface
+
+For each vault-mind mechanism: **(a) already shared**, **(b) adoptable** (an
+idea worth a proposal), or **(c) not applicable** (rejected, with reason).
+
+### (a) Already shared
+
+| vault-mind mechanism | Our equivalent | Status |
+|---|---|---|
+| ChromaDB `/api/search` semantic query | `obsidian_semantic_search` tool (routes to it) | **Shared** — vault-mind IS our semantic backend |
+| `MarkdownParser` frontmatter + wikilink extraction | `parseFrontmatter` in `pi-obsidian` | **Shared** — both parse Obsidian frontmatter |
+| `collection_manager.get_collection_health` | `graphHealth` (dead-links/orphans/MOC-drift) | **Shared concept** — different scope (collection vs folder) |
+| Local-first, no cloud | Local-first, no cloud | **Shared** — both run on-device |
+
+### (b) Adoptable (ideas → proposals §4)
+
+| vault-mind mechanism | What we'd borrow | Why |
+|---|---|---|
+| `EnhancedMarkdownParser` feature extraction (callouts, tasks, embeds, math, heading-refs, link density) | Carry feature **metadata** as optional zettel frontmatter flags | Enables feature-aware retrieval filtering + callout-text surfacing in `zk_ask` context (spike-validated gap; P1) |
+| `MetadataEnhancer._generate_metadata_fingerprint` (md5 of significant fields) | A `content_hash` frontmatter key for fast unchanged-detection | Short-circuits the global re-write path in `ingestRecords` (P2) |
+| `MetadataEnhancer._detect_content_type` / `_detect_document_purpose` | A `content_type` retrieval filter axis | Our `record_type` (lever/avoid/gotcha) is domain-better, but content_type adds a second axis (P1 sub-option) |
+| `MetadataEnhancer` hierarchical-tag flattening (`a/b/c` → `a`, `a/b`, `a/b/c`) | Flatten nested tags in `retrieveRecords` matching | Better recall on hierarchical dimensions (P6) |
+| `collection_manager` async job-queue reindex (pause/resume/cancel + progress) | File-watch-triggered re-ingest | Only matters at 10× scale; logged for completeness (P4 adjacent) |
+
+### (c) Not applicable (rejected, with reason)
+
+| vault-mind mechanism | Why we don't adopt |
+|---|---|
+| **Per-section chunking** (`TextChunker`, 1000-char + 200-overlap, semantic boundaries) | Our atomic-zettel model is **intentionally one-card-per-record**. Chunking would fragment the wiki-link edge graph — and the graph IS our structure signal. Validated by design intent (the convergence sink's value proposition is one canonical card per record). See P5. |
+| **Python sentence-transformers / ChromaDB multi-collection** | We are Bun/TS; can't port. The vector layer is complementary (accessed via `obsidian_semantic_search`), not something to reimplement in-process. |
+| **ChromaDB `where`-clause query filters** | `retrieveRecords` uses in-memory tag-set intersection — fast, deterministic, no external service dependency. No need for DB-side filters. |
+| **FastAPI + WebSocket progress streaming** | Our ingest is a synchronous batch over hundreds of cards (sub-second). The async machinery is overhead we don't need at current scale. |
+
+---
+
+## 3. The spike — what vault-mind extracts that we drop
+
+> Throwaway script: `output/spike-vaultmind-vs-zkingest-parsing.py`
+> (sample: `output/spike-sample-note.md`, summary: `output/spike-vaultmind-vs-zkingest-parsing.json`).
+> Run: `../vault-mind/.venv/bin/python output/spike-vaultmind-vs-zkingest-parsing.py`
+
+**Claim tested:** *vault-mind's `EnhancedMarkdownParser` extracts structured
+Obsidian metadata that our `zk_ingest` drops.*
+
+**Result — CONFIRMED.** On a 1036-char sample note exercising all features,
+vault-mind extracted **9 structured-feature categories**; our `zk_ingest`
+captures **0** of them:
+
+| Feature | vault-mind count | Our `zk_ingest` |
+|---|---|---|
+| callouts (`> [!type]`) | 2 | dropped |
+| tasks (`- [x]`/`[ ]`/`[-]`) | 3 | dropped |
+| embeds (`![[...]]`) | 1 | dropped |
+| math blocks (`$...$`, `$$...$$`) | 2 | dropped |
+| code blocks (fenced + lang) | 1 | dropped |
+| tables (headers + rows) | 1 | dropped |
+| structure (heading outline) | 1 | dropped |
+| links (wikilinks + heading/block refs + md links + URLs) | 3 | **stripped to prose** ⚠ |
+| link_stats (internal/external/outgoing counts + density) | 3 | dropped |
+
+Our `zk_ingest` preserves: frontmatter keys, the detail body as plain prose,
+and tags (harvested for cross-linking). Body `[[wikilinks]]` are stripped to
+their display text — so they survive as *prose* but are **lost as graph edges**
+from the body (the real edges come from the tag-harvest in `adaptAutoMemoryMarkdown`
+and the shared-tag neighbour computation in `ingestRecords`).
+
+**Scope caveat (important):** the gap only matters for **human-authored** vault
+notes (`obsidian_distill` output, manual zettels). Our auto-generated cards
+(from `.knowledge.jsonl`) are deterministic prose + frontmatter — they rarely
+contain callouts/tasks/embeds. So P1 is scoped to the human-authored surface,
+not the convergence sink.
+
+---
+
+## 4. Proposals — ranked
+
+Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
+(the number that would prove it), **verdict**.
+
+### P1 — Carry richer Obsidian feature metadata in zettel frontmatter  *(Adopt)*
+
+- **Lever:** `retrieveRecords` could filter "only cards with warnings" or rank
+  callout-bearing cards higher; `zk_ask` context assembly could surface callout
+  text (warnings/tips are often the highest-signal lines in a note).
+- **Effort:** **M.** Add optional `has_callouts`, `callout_types`, `has_tasks`,
+  `embeds` frontmatter keys during ingest of *human-authored* notes; thread
+  them through `retrieveRecords` ranking + `zk_ask` context.
+- **Risk:** **low.** Additive frontmatter; backward-compatible (old cards just
+  lack the keys). Scoped to human-authored surface, not the deterministic sink.
+- **Proof metric:** spike already proves the 9-category drop. Re-run the
+  **queryCount-5 harness** (`retrieval-quality-self-improve.js` +
+  `lexical-overlap-check.mjs`) with feature-flagged human-authored cards vs
+  not, on a fixed 5-question set; relevance@4 must improve OR callout-aware
+  context must change ≥1 answer quality rating to be worth the M.
+- **Verdict:** **prototype next cycle** (pick-list #2). The spike de-risked the
+  "is the gap real?" question; the harness answers "does it help retrieval?".
+
+### P2 — Change-detection fingerprint for incremental re-ingest  *(Adopt, low urgency)*
+
+- **Lever:** `ingestRecords` currently recomputes cross-links globally and
+  detects unchanged cards by full content-string equality. A frontmatter
+  `content_hash` (md5 of significant fields, like vault-mind's
+  `_generate_metadata_fingerprint`) short-circuits unchanged detection without
+  reading the file body.
+- **Effort:** **S.**
+- **Risk:** **low** (we already detect unchanged via equality; fingerprint is a
+  faster path to the same result, not a behavior change).
+- **Proof metric:** benchmark `ingestRecords` on a 500-card folder — wall-clock
+  for a "no changes" re-ingest with vs without the fingerprint short-circuit.
+  Must show **>30% speedup** to be worth the added frontmatter key.
+- **Verdict:** **defer until scale demands it.** At current scale (hundreds of
+  cards) the global recompute is sub-second. Revisit if the vault grows 10×.
+
+### P3 — Re-confirm the semantic-blend measurement, then retire-or-invest  *(Re-confirm; likely DON'T invest)*
+
+- **The prior (re-confirmed from memory, 2026-07-05 iter-6):** 5 zh-TW queries
+  vs **425 English knowledge-graph cards**, adversarial zero-lexical-overlap
+  gate (`lexical-overlap-check.mjs`). Mean relevance@4:
+  **`default` (lexical+graph) = 0.332 vs `semantic-lexical` = 0.100**. Lexical
+  wins **2/5** outright. Standing conclusion in memory: *"semantic-lexical has
+  no measured regime where it wins outright — keep as diagnostic only, not a
+  recommendation. Graph expansion bridges concepts across languages better than
+  semantic vectors alone."*
+- **Why re-confirm:** the vault has changed since 2026-07-05 (more cards,
+  different tag distribution). A single re-run on current state either
+  **retires** the proposal definitively (expected) or surfaces a new regime
+  worth a three-way experiment. The goal §5 explicitly forbids assuming
+  embeddings improve graph-RAG by default.
+- **Lever:** IF semantic wins a regime, `three-way` blend (0.4 semantic / 0.3
+  lexical / 0.3 graph, already implemented + tested in `blend.test.ts`) could
+  improve cross-source recall. If not, we stop spending attention on it.
+- **Effort:** **S** (re-run the existing harness).
+- **Risk:** **low** (measurement only; no code change).
+- **Proof metric:** re-run `retrieval-quality-self-improve.js` on the current
+  vault with the same 5-query adversarial set. Gate: semantic-lexical mean
+  relevance@4 must **exceed** lexical+graph by ≥0.05 to justify any further
+  semantic investment; otherwise **RETIRE** and update the `zk_ask` tool
+  description's blend note to "measured-retired, diagnostic only".
+- **Verdict:** **re-confirm ONCE next cycle** (pick-list #1). This is the
+  highest-priority action because it's cheap, the goal mandates it, and it
+  unblocks (or closes) the whole semantic-investment question.
+
+### P4 — Graph-health-aware re-indexing (sync semantic + graph layers)  *(Adopt, opt-in only)*
+
+- **Lever:** after `healGraph` fixes the graph layer (prunes dead links,
+  regenerates MOC), trigger a vault-mind reindex so the semantic layer
+  (ChromaDB) reflects the same on-disk state. Currently the two layers can
+  drift (graph healed, ChromaDB stale).
+- **Effort:** **M.** Cross-process coordination: Bun `ingest`/`healGraph` →
+  vault-mind FastAPI `reindex_collection` endpoint.
+- **Risk:** **medium.** Auto-sync risks making the semantic layer a *hard*
+  dependency. Mitigation: keep the sync **opt-in** (a flag), never required —
+  `obsidian_semantic_search` must continue to degrade gracefully to lexical
+  when vault-mind is down.
+- **Proof metric:** after a `zk_ingest` run changing *N* cards, verify
+  vault-mind's `collection_manager` `document_count` increments by *N* and a
+  semantic query returns a new card within one reindex cycle (≤2s on current
+  vault).
+- **Verdict:** **defer behind P3.** Only worth building if P3 shows semantic is
+  worth investing in at all. If P3 retires semantic, this proposal collapses
+  (no point syncing a layer we don't rely on).
+
+### P5 — Finer chunking (per-section)  *(DECISION: not applicable — do not adopt)*
+
+- **vault-mind:** chunks by heading/section (1000 chars, 200 overlap, respects
+  paragraph/sentence/code boundaries).
+- **Our model:** one atomic card per record — **intentionally**.
+- **Decision (not assumed):** chunking would fragment the wiki-link edge graph,
+  and the graph IS our structure signal. The atomic-zettel + deterministic-
+  convergence model is the convergence sink's whole value proposition (one
+  canonical card per record, dedup'd by id, cross-linked by shared tags).
+- **Verdict:** **CONFIRMED not applicable.** Logged for completeness so the
+  question doesn't recur. The wiki-link graph already captures document
+  structure at the right granularity for our use case.
+
+### P6 — Search-friendly hierarchical-tag flattening  *(Adopt, likely low-value)*
+
+- **Lever:** vault-mind's `MetadataEnhancer` flattens `a/b/c` → `a`, `a/b`,
+  `a/b/c` so a search for `a` matches. Our `retrieveRecords` uses raw
+  normalised tags.
+- **Effort:** **S.**
+- **Risk:** **low.**
+- **Proof metric:** `grep` the convergence folder for `/` in frontmatter tags.
+  If **<5%** of cards carry hierarchical tags, **drop** the proposal as
+  low-value (our dimensions are already mostly flat: `flux2`, not
+  `generation/flux2`).
+- **Verdict:** **triage-and-likely-drop.** Cheap to check; probably not worth
+  the code if the tag space is already flat.
+
+---
+
+## 5. Ranking summary
+
+| # | Proposal | Effort | Risk | Priority | Gate metric |
+|---|---|---|---|---|---|
+| **P3** | Re-confirm semantic-blend measurement | S | low | **🔥 top** | semantic-lexical relevance@4 > lexical+graph +0.05, else retire |
+| **P1** | Richer feature metadata in zettel frontmatter | M | low | **🔥 top** | queryCount-5 relevance@4 improves OR ≥1 answer-quality change |
+| P4 | Graph-health-aware reindex sync | M | medium | behind P3 | document_count sync + new-card recall ≤2s (opt-in only) |
+| P2 | Change-detection fingerprint | S | low | defer (scale) | >30% speedup on 500-card no-op re-ingest |
+| P6 | Hierarchical-tag flattening | S | low | triage-drop | <5% hierarchical tags → drop |
+| P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
+
+---
+
+## 6. Next execution cycle — pick-list
+
+The top 1–2 proposals to actually build next, each with its proof metric.
+
+1. **[P3] Re-run the semantic-blend measurement on current vault state.**
+   - *Why:* the goal mandates the semantic prior be re-checked before any
+     investment; it's the cheapest action (S) and unblocks the whole
+     semantic-investment branch (P4 depends on its outcome).
+   - *Proof metric:* `retrieval-quality-self-improve.js` on the current vault,
+     same 5-query adversarial set; semantic-lexical mean relevance@4 must beat
+     lexical+graph by ≥0.05 to invest, else **retire** and update the `zk_ask`
+     tool description's blend note.
+   - *Effort:* S. *Risk:* low. *Outcome:* a definitive retire-or-invest decision.
+
+2. **[P1] Prototype feature-metadata frontmatter on the human-authored vault surface.**
+   - *Why:* the spike proved a real 9-category gap; the only open question is
+     whether carrying the metadata moves retrieval. Scoped to human-authored
+     notes (auto-generated cards don't have callouts), so blast radius is small.
+   - *Proof metric:* queryCount-5 harness with feature-flagged cards vs not;
+     relevance@4 improvement OR ≥1 answer-quality change on a fixed set.
+   - *Effort:* M. *Risk:* low (additive, backward-compatible).
+
+*Everything else is **defer** (P2/P4/P6) or **rejected** (P5) — not next-cycle
+actions. No `zk_*` / `obsidian_*` code ships until the plan is reviewed and
+P3's measurement has run.*
+
+---
+
+## 7. Methodology + caveats
+
+- **vault-mind ≠ our stack.** It's FastAPI + ChromaDB + sentence-transformers
+  (Python); our extensions are Bun/TS. "Learn from" means *ideas* (parsing,
+  chunking, hybrid retrieval), **not** a port. No proposal here rewrites our
+  KG in Python.
+- **The semantic-blend prior is a warning, not a license.** The 2026-07-05
+  receipt (lexical 0.332 vs semantic-lexical 0.100) means embeddings do *not*
+  improve our graph-RAG by default. P3 re-confirms before any investment; P4
+  is gated behind P3.
+- **Atomic-zettel is load-bearing.** P5 (chunking) is rejected *because* the
+  one-card-per-record model is the convergence sink's value proposition. Any
+  future "let's chunk like vault-mind" urge must re-litigate that design
+  decision, not quietly adopt it.
+- **No code changed producing this doc.** The only artifact created is the
+  throwaway spike under `output/` (never committed to a package).
