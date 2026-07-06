@@ -11,11 +11,11 @@ export const ENTRY_DELIMITER = "\n§\n";
 export const DEFAULT_PROJECTS_MEMORY_DIR = "projects-memory";
 
 // ─── Character limits (not tokens — model-independent) ───
-export const DEFAULT_MEMORY_CHAR_LIMIT = 5000;
-export const DEFAULT_USER_CHAR_LIMIT = 5000;
+export const DEFAULT_MEMORY_CHAR_LIMIT = 10000;
+export const DEFAULT_USER_CHAR_LIMIT = 10000;
 
 // ─── Learning loop defaults ───
-export const DEFAULT_PROJECT_CHAR_LIMIT = 5000;
+export const DEFAULT_PROJECT_CHAR_LIMIT = 10000;
 
 export const DEFAULT_NUDGE_INTERVAL = 10;
 export const DEFAULT_FLUSH_MIN_TURNS = 6;
@@ -125,7 +125,7 @@ THREE TARGETS:
 - 'memory': your global notes -- environment facts, tool quirks, lessons learned (shared across all projects)
 - 'project': project-specific notes -- architecture decisions, API quirks, team norms, codebase conventions (scoped to current project)
 
-ACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it).`;
+ACTIONS: add (new entry), replace (update existing -- old_text identifies it), remove (delete -- old_text identifies it), transfer (move entries to the Obsidian vault to free space).`;
 
 // ─── Background review prompt (ported from _COMBINED_REVIEW_PROMPT in run_agent.py ~L2855) ───
 export const COMBINED_REVIEW_PROMPT = `Review the conversation above and consider these aspects:
