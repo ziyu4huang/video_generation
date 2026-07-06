@@ -58,6 +58,66 @@ export function agentTypeGuideline(cwd: string = process.cwd()): string | undefi
   return `For workflow, opts.agentType routes an agent to a named definition that binds its tools, model, and role prompt. Available agentTypes: ${list}. An explicit opts.model still overrides the definition's model.`;
 }
 
+// ─── On-demand reference docs (deferred from the always-on guidelines) ───────
+//
+// The workflow tool's always-on promptGuidelines keep only correctness-essential
+// bullets (JS-only, meta header, globals, parallel()/null rules, budget-default,
+// background-default, model-routing essentials). The ADVANCED reference below is
+// served on demand by `workflow_help` — a tool RESULT that lives in conversation
+// history, so it appears only in the turn it is requested, never in the static
+// schema. Each doc is extracted (verbatim) from the verbose guideline set, so
+// there is zero information loss vs. verbose mode; the full available-model list
+// is also served here (topic "models") so the always-on guidelines no longer
+// inline it. modelRoutingGuideline() itself is unchanged (its unit tests hold).
+
+/** Quality helpers: verify / judgePanel / loopUntilDry / completenessCheck. */
+function workflowHelpersDoc(): string {
+  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic.";
+}
+
+/** Spend control: tokenBudget, phase budget, retry, gate, graceful degrade. */
+function workflowBudgetDoc(): string {
+  return "For workflow, do not set tokenBudget or agentTimeoutMs unless the user explicitly asks to cap spend or time; the defaults are unbounded. To bound spend: pass tokenBudget for a hard run-wide cap; carve a per-phase ceiling with phase('Name', {budget: N}) (that phase throws at its sub-budget without touching the run total — wrap its work in try/catch so later phases proceed); use retry(thunk, {attempts, until}) for bounded retry, and gate(thunk, validator, {attempts}) when a validator's feedback should steer the next attempt. To degrade gracefully, branch on budget.remaining() to skip optional rounds or choose a lighter tier.";
+}
+
+/** Phase tracking: phase('Exact Title') switching, declared-vs-entered semantics. */
+function workflowPhasesDoc(): string {
+  return "For workflow, when meta.phases declares more than one phase, call phase('Exact Title') at the start of each phase's work (or set opts.phase on each agent) so every agent groups under the correct phase; never declare a phase you don't switch into — a declared phase with no agents shows as 0/0 and any agent you forgot to move stays in the previous phase.";
+}
+
+/** Patterns: when-to-decompose, pipeline(), labels, synthesis agent, opts.schema, concurrency/retries. */
+function workflowPatternsDoc(): string {
+  return [
+    "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
+    "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
+    "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
+    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
+    "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
+    "For workflow, use low concurrency and agentRetries for unstable provider/transport fan-out runs; retries apply only to recoverable agent failures and still require explicit null handling after exhaustion.",
+  ].join("\n");
+}
+
+/**
+ * Slim, always-on model-routing bullet: tier tagging + opts.model priority,
+ * WITHOUT inlining the full available-model list (which is large and only
+ * needed when picking an exact opts.model). The full list is served by
+ * workflow_help({topic:"models"}) → modelRoutingGuideline().
+ */
+function modelRoutingEssentialGuideline(): string {
+  return "For workflow, the user configures per-tier models, so TAG EVERY agent with opts.tier by role: 'small' for lightweight exploration/search/inventory, 'medium' for balanced analysis, 'big' for synthesis/judgment/decision. opts.tier ('small'|'medium'|'big') is enforced at runtime. If the user named a specific model, pass it verbatim as opts.model (provider/id); opts.model always overrides opts.tier. An agent with neither falls back to the user's medium tier — don't rely on that, tag explicitly. Call workflow_help({topic:\"models\"}) for the exact list of currently-available model IDs.";
+}
+
+const WORKFLOW_HELP_TOPIC_ENUM = Type.Union(
+  [
+    Type.Literal("helpers"),
+    Type.Literal("budget"),
+    Type.Literal("phases"),
+    Type.Literal("patterns"),
+    Type.Literal("models"),
+  ],
+  { description: "Reference topic: helpers | budget | phases | patterns | models." },
+);
+
 const workflowToolSchema = Type.Object({
   script: Type.String({
     description: [
@@ -147,11 +207,12 @@ export interface WorkflowToolOptions {
 }
 
 /**
- * Minimal guidelines for everyday use. ~13 bullets vs 22 in the full set.
- * Covers correctness requirements (JS-only, globals, parallel/pipeline rules,
- * null filtering, budget safety) while omitting advanced options (quality
- * helpers, phase tracking, synthesis patterns, retry/concurrency tuning)
- * that are rarely needed and can be found in the tool description on demand.
+ * Minimal guidelines for everyday use. ~11 bullets vs 22 in the full set.
+ * Covers correctness essentials only (JS-only, globals, parallel()/null rules,
+ * budget safety, background-default, model-routing essentials). The advanced
+ * reference (quality helpers, phase tracking, synthesis/pipeline patterns,
+ * retry/concurrency tuning, the full available-model list) is served on demand
+ * by workflow_help({topic}), not inlined — see workflowHelpersDoc() etc. below.
  */
 function buildSimplifiedGuidelines(): string[] {
   return [
@@ -161,14 +222,13 @@ function buildSimplifiedGuidelines(): string[] {
     "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
     "For workflow, available globals are agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args, cwd, and budget. Every workflow must call agent() at least once.",
     "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
-    "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
     "For workflow, failed agent(), parallel(), or pipeline() branches return null — always filter nulls before synthesizing conclusions.",
     "For workflow, do not set tokenBudget or agentTimeoutMs unless the user explicitly asks to cap spend or time; the defaults are unbounded.",
-    "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object.",
     "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
     "For workflow, runs are background by default: the tool returns immediately with a run ID, and the result is delivered back into the conversation when it finishes. Pass background: false only when you must use the result inline in this same turn.",
-    modelRoutingGuideline(),
+    modelRoutingEssentialGuideline(),
     agentTypeGuideline(),
+    "For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: \"helpers\" (verify/judgePanel/loopUntilDry/completenessCheck), \"budget\" (tokenBudget/phase budget/retry/gate), \"phases\" (phase() tracking), \"patterns\" (pipeline()/opts.schema/synthesis), \"models\" (full available-model list).",
   ].filter((g): g is string => typeof g === "string" && g.length > 0);
 }
 
@@ -361,6 +421,64 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         .replace(/^##+\s*/gm, "")
         .trim();
       return new Text(clean || theme.fg("muted", "workflow"), 0, 0);
+    },
+  });
+}
+
+/**
+ * On-demand reference companion to the `workflow` tool (~100 tok schema).
+ * Serves the advanced docs that are NOT inlined in the always-on guidelines:
+ * quality helpers, spend control, phase() tracking, pipeline()/opts.schema/
+ * synthesis patterns, and the full available-model list. Output is a tool
+ * RESULT (conversation history), so it appears only when requested. Register
+ * it alongside createWorkflowTool() at the same call site.
+ */
+export function createWorkflowHelpTool() {
+  return defineTool({
+    name: "workflow_help",
+    label: "Workflow Reference",
+    description:
+      "On-demand reference for the `workflow` tool. Call when you need the advanced docs NOT inlined " +
+      "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck), " +
+      "spend control (tokenBudget/phase budget/retry/gate), phase() tracking, pipeline()/opts.schema/" +
+      "synthesis patterns, or the full available-model list. Omit `topic` for a menu.",
+    promptSnippet:
+      "On-demand advanced reference for the workflow tool (helpers/budget/phases/patterns/models).",
+    parameters: Type.Object({
+      topic: Type.Optional(WORKFLOW_HELP_TOPIC_ENUM),
+    }),
+    async execute(_id, params) {
+      let text: string;
+      switch (params.topic) {
+        case "helpers":
+          text = workflowHelpersDoc();
+          break;
+        case "budget":
+          text = workflowBudgetDoc();
+          break;
+        case "phases":
+          text = workflowPhasesDoc();
+          break;
+        case "patterns":
+          text = workflowPatternsDoc();
+          break;
+        case "models":
+          text = modelRoutingGuideline();
+          break;
+        default:
+          text =
+            "workflow_help topics:\n" +
+            "  • helpers — quality helpers (verify/judgePanel/loopUntilDry/completenessCheck)\n" +
+            "  • budget — spend control (tokenBudget, phase budget, retry, gate, degrade)\n" +
+            "  • phases — phase() tracking + declared-vs-entered semantics\n" +
+            "  • patterns — pipeline()/opts.schema/synthesis agent/concurrency/when-to-decompose\n" +
+            "  • models — the full list of currently-available model IDs (for opts.model)\n" +
+            'Pass topic:"<name>" for that reference.';
+      }
+      return {
+        content: [{ type: "text" as const, text }],
+        details: { ok: true, topic: params.topic ?? null },
+      };
     },
   });
 }
