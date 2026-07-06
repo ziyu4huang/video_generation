@@ -109,6 +109,10 @@ function makeKrea2Tool() {
     promptSnippet:
       "Generate/edit images with Krea 2 Turbo (Swift/MLX). One tool, 2 subcommands (t2i, i2i); " +
       "chain via details.output.",
+    promptGuidelines: [
+      "Use krea2 for a fast single-image draft or light i2i edit (8 steps). Escalate to flux2 for " +
+      "multi-character scene composition, style transfer, or higher-fidelity generation; use ltx for video.",
+    ],
     parameters: Type.Object({
       command: COMMAND_ENUM,
       options: Type.Any({
