@@ -130,8 +130,7 @@ Examples:
 Returns conversation snippets with session dates and project context.`,
     promptSnippet: 'Search past conversations for relevant context',
     promptGuidelines: [
-      'Use session_search when the user asks about previous discussions or past work.',
-      'Use session_search when you need context from earlier sessions.',
+      'Use session_search when the user asks about previous discussions or past work, or when you need context from earlier sessions.',
     ],
     parameters: Type.Object({
       query: Type.String({ description: 'Search query. Use natural language or specific terms.' }),
