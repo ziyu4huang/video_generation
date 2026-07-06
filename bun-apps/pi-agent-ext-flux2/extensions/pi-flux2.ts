@@ -220,8 +220,8 @@ function makeFlux2Tool() {
     promptGuidelines: [
       "Before first use of any flux2 command (or when unsure of an option key), call flux2_help " +
       "with that command name to get its exact options, defaults, and path rules.",
-      "Use flux2 for image generation/editing; use krea2 for a fast single-image draft; use ltx " +
-      "for video. For multi-character composition use flux2 scene.",
+      "Media routing: flux2 = image generation/editing (+ multi-character `scene`); krea2 = fast " +
+      "single-image draft or light i2i (8 steps); ltx = video.",
     ],
     parameters: Type.Object({
       command: COMMAND_ENUM,

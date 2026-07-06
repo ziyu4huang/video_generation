@@ -62,10 +62,10 @@ export function buildItemsForQuestion(question: QuestionData): WrappingSelectIte
 
 export const DEFAULT_PROMPT_SNIPPET = `Ask the user up to ${MAX_QUESTIONS} structured questions (${MIN_OPTIONS}-${MAX_OPTIONS} options each) when requirements are ambiguous`;
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	`Use ask_user_question whenever the user's request is underspecified and you cannot proceed without concrete decisions — you can ask up to ${MAX_QUESTIONS} questions per invocation.`,
-	`Each question MUST have ${MIN_OPTIONS}-${MAX_OPTIONS} options. Every option requires a concise label (1-5 words) and a description explaining what the choice means or its trade-offs. The user can additionally type a custom answer ("Type something." row is appended automatically to every question) or press Esc to abandon the questionnaire.`,
-	`Set multiSelect: true when multiple answers are valid. Provide an options[].preview markdown string when an option benefits from richer side-by-side context (mockups, code snippets, diagrams, configs) — single-select only.`,
-	"Do not stack multiple ask_user_question calls back-to-back — group all clarifying questions into one invocation.",
+	`Use ask_user_question when a request is underspecified and you can't proceed without concrete decisions — up to ${MAX_QUESTIONS} questions per call.`,
+	`Each question needs ${MIN_OPTIONS}-${MAX_OPTIONS} options, each with a concise label (1-5 words) + a description of meaning/trade-offs. The user can always type a custom answer (auto "Type something." row) or press Esc to quit.`,
+	`multiSelect: true when multiple answers apply; add a markdown preview to an option for side-by-side context (mockups, code, diagrams) — single-select only.`,
+	"Don't stack ask_user_question calls — batch all clarifying questions into one.",
 ];
 
 export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
