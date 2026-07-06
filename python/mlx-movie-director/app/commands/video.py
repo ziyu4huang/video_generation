@@ -29,6 +29,8 @@ Usage:
 import argparse
 import importlib
 
+from app.commands._shared import _arg_registered
+
 # Load sub-action modules (importlib required: filenames contain hyphens)
 _generate = importlib.import_module("app.commands.video-generate")
 _review = importlib.import_module("app.commands.video-review")
@@ -149,6 +151,18 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
     # ASR gate args: --video, --prompt, --json-out
     _asr_gate.add_asr_gate_args(parser)
+
+    # Machine-readable output for automation / CI (external subprocess callers,
+    # e.g. OpenMontage's tools/video/mlx_video.py, parse this instead of
+    # scanning the output dir). video.py deliberately does NOT call the full
+    # add_common_generation_args() (would also pull in image-oriented flags
+    # like --upscale/--count that don't apply here) — register just this one
+    # flag, matching what video-generate.py:875 already reads via getattr.
+    if not _arg_registered(parser, "json_summary"):
+        parser.add_argument("--json-summary", action="store_true", default=False,
+                            dest="json_summary",
+                            help="Print a JSON_SUMMARY:{...} line to stdout after "
+                                 "generation (for workflow integration)")
 
 
 def run(args: "argparse.Namespace") -> None:

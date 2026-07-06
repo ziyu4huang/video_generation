@@ -24,6 +24,21 @@ opencv-python
 # editable by scripts/setup-repo-deps.sh. Installing PyPI mflux here would
 # shadow the fork and break `run.py image` at VAE decode.
 
+# video path (ASR gate, restoration/upscale, quality analysis) — found missing
+# via a full import-scan of app/*.py diffed against this file; each is a real
+# top-level import, none covered by the sibling-fork editable installs above.
+scipy
+scikit-image
+mediapipe
+edge-tts
+mlx-whisper
+mlx-vlm
+spandrel
+psutil
+requests
+mlx-arsenal  # transitive dep of the ltx-2-mlx workspace's ltx-core-mlx package;
+             # listed explicitly in case that package's own pin ever drifts
+
 # dev / test
 pytest>=8.0
 pytest-cov
