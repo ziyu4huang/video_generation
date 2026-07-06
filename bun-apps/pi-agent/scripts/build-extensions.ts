@@ -63,6 +63,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { parseManifestEntries, type ExtensionManifestEntry } from "../run-dir/manifest-types.ts";
 
 // Anchor module resolution at the WORKSPACE ROOT: bun hoists every dep
 // (typebox, @earendil-works/*, @modelcontextprotocol/sdk, …) to
@@ -99,6 +100,12 @@ const FORCE = argv.includes("--force");
 // network-dependent. Off by default; the e2e (e2e-extensions.test.ts) covers
 // jiti live load more rigorously across cwds. Opt in with --live-verify.
 const LIVE_VERIFY = argv.includes("--live-verify");
+// --skip-live-verify: opt OUT of the default jiti live-boot verify for CHANGED
+// extensions. By default, every extension that was just built (hash changed)
+// gets the full 3-tier verify (factory → self-verify → jiti boot). This catches
+// the data-URL/NameTooLong crash at build time, not at runtime. Hash-matched
+// (skipped) extensions never reach verify at all.
+const SKIP_LIVE_VERIFY = argv.includes("--skip-live-verify");
 const outDirIdx = argv.indexOf("--out-dir");
 const OUTDIR = outDirIdx >= 0 ? resolve(argv[outDirIdx + 1]) : join(REPO_ROOT, "dist", "pi-ext-bundles");
 // `--portable` — FULL-bundle EVERY extension (incl. npm-sourced ones) so the
@@ -132,20 +139,21 @@ const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
 // resolved from node_modules (so they too become self-contained FULL bundles).
 // `pkgDir` (the extension's package root) feeds the hash cache so an edit to a
 // sibling source file the entry imports is caught, not just the entry itself.
-const exts: { name: string; entry: string; pkgDir: string }[] = [];
+const exts: { name: string; entry: string; pkgDir: string; bundleMode?: string }[] = [];
 // Track derived names so a collision (two entries whose entry basename matches
 // — e.g. pi-agent-ext-power-tool/src/index.ts + pi-hermes-memory/src/index.ts
 // both basename to "index") falls back to the package-dir segment instead of
 // one outfile silently overwriting the other.
 const usedNames = new Set<string>();
-for (const rel of manifest.extensions ?? []) {
+for (const entry of parseManifestEntries(manifest.extensions ?? [])) {
+	const rel = entry.entry;
 	const pkgSeg = rel.split("/")[0]!;
-	let name = basename(rel).replace(/\.ts$/, "");
+	let name = entry.name || basename(rel).replace(/\.ts$/, "");
 	if (name === "index" || usedNames.has(name)) name = pkgSeg;
 	while (usedNames.has(name)) name = `${pkgSeg}-${name}`;
 	usedNames.add(name);
 	const pkgDir = join(REPO_ROOT, "bun-apps", pkgSeg);
-	exts.push({ name, entry: join(REPO_ROOT, "bun-apps", rel), pkgDir });
+	exts.push({ name, entry: join(REPO_ROOT, "bun-apps", rel), pkgDir, bundleMode: entry.bundleMode });
 }
 if (PORTABLE) {
 	// These are deps of pi-agent (not the workspace root), so anchor at its pkg.
@@ -302,36 +310,60 @@ async function stageBundle(opts: { entry: string; outfile: string; thin: boolean
 // symlink transitive deps to the workspace root, so anchoring at repoRoot fails
 // for typebox (a peer of the extension packages, not a root dep). Anchoring at
 // the entry file mirrors pi-vlm's cwd-based resolution.
-function makeResolver(entryAbs: string) {
-	const r = createRequire(entryAbs);
-	return (spec: string): string | null => {
-		if (isBuiltin(spec)) return null; // leave builtins
+function makeResolver(entryAbs: string, repoRoot: string) {
+	// Try Bun's own resolution first (handles exports maps correctly — Node's
+	// createRequire can't resolve deep subpaths like @earendil-works/pi-ai/compat
+	// in Bun's isolated linker tree). Then fall back to createRequire for
+	// package.json-based main-export resolution.
+	const cwd = dirname(entryAbs);
+	return (spec: string): string | undefined => {
+		if (isBuiltin(spec)) return undefined; // leave builtins
+		// Primary: Bun.resolveSync (handles exports maps + Bun's linker tree)
 		try {
-			return r.resolve(spec);
+			return Bun.resolveSync(spec, cwd);
 		} catch {}
-		// package main export: bare resolve hits the exports map; go via package.json.
+		// Fallback: try from repo root (for deps not in the extension's own scope)
 		try {
+			return Bun.resolveSync(spec, repoRoot);
+		} catch {}
+		// Last resort: package main export via createRequire
+		try {
+			const r = createRequire(entryAbs);
 			const pjPath = r.resolve(`${spec}/package.json`);
 			const pj = JSON.parse(readFileSync(pjPath, "utf8"));
 			const dir = pjPath.replace(/\/package\.json$/, "");
 			const entry = pj.exports?.["."]?.import || pj.exports?.["."] || pj.main || "index.js";
 			return `${dir}/${String(entry).replace(/^\.\//, "")}`;
 		} catch {}
-		return null;
+		return ""; // unresolved — NOT a builtin (caller reports it)
 	};
 }
 
-function stageResolveExternals(outfile: string, resolveBare: (s: string) => string | null): string[] {
+// A valid module specifier: @scope/pkg, bare pkg name, or a subpath.
+// Filters out minification artifacts that the regex picks up from .from("...")
+// method calls or string concatenation in minified output.
+function isValidModuleSpec(s: string): boolean {
+	if (s.length < 2) return false;
+	if (/[\s(){}=;<>+]/.test(s)) return false; // contains code chars — not a specifier
+	return true;
+}
+
+function stageResolveExternals(outfile: string, resolveBare: (s: string) => string | undefined, thin: boolean): string[] {
 	let code = readFileSync(outfile, "utf8");
 	const bare = new Set<string>();
 	for (const m of code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)) {
-		bare.add(m[1]);
+		const spec = m[1];
+		// Skip dynamic-import variable patterns (minification artifacts like
+		// `${t}` or ` + path + ` — not static module specifiers, can't be resolved).
+		if (spec.includes("${") || spec.includes(" + ")) continue;
+		if (!isValidModuleSpec(spec)) continue;
+		bare.add(spec);
 	}
 	const unresolved: string[] = [];
 	let resolved = 0;
 	for (const spec of [...bare]) {
 		const abs = resolveBare(spec);
-		if (abs === null) continue; // builtin (isBuiltin) — leave as-is
+		if (abs === undefined) continue; // builtin (isBuiltin) — leave as-is
 		if (!abs) {
 			unresolved.push(spec);
 			continue;
@@ -343,12 +375,18 @@ function stageResolveExternals(outfile: string, resolveBare: (s: string) => stri
 		resolved++;
 	}
 	if (unresolved.length) {
-		throw new Error(
-			`could not resolve bare specifier(s): ${unresolved.join(", ")} — add to THIN_EXTERNALS or ensure the dep is resolvable from the extension's package`,
-		);
+		// THIN: strict — every bare specifier must resolve (else jiti crash).
+		// FULL: residual bare specifiers are expected (node-fetch, ws, native);
+		// they resolve at runtime via the host node_modules. Log, don't throw.
+		if (thin) {
+			throw new Error(
+				`could not resolve bare specifier(s): ${unresolved.join(", ")} — add to THIN_EXTERNALS or ensure the dep is resolvable from the extension's package`,
+			);
+		}
+		console.log(`    ${Y("·")} FULL: ${unresolved.length} residual bare specifier(s) (resolve at runtime via host node_modules)`);
 	}
 	writeFileSync(outfile, code);
-	return [...bare].filter((s) => resolveBare(s) !== null);
+	return [...bare].filter((s) => resolveBare(s) !== undefined);
 }
 
 // ── Stage 2 (verify tier B): factory test ───────────────────────────────────
@@ -459,7 +497,7 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 		const code = readFileSync(outfile, "utf8");
 		const bareLeft = [...code.matchAll(/(?:from|import\()\s*["']([^"'#.][^"'']*?)["']/g)]
 			.map((m) => m[1])
-			.filter((s) => !isBuiltin(s) && !s.startsWith("/"));
+			.filter((s) => !s.includes("${") && !s.includes(" + ") && isValidModuleSpec(s) && !isBuiltin(s) && !s.startsWith("/"));
 		if (bareLeft.length) {
 			failures.push(`bare specifier(s) not resolved to abs path: ${[...new Set(bareLeft)].slice(0, 5).join(", ")}`);
 		}
@@ -478,8 +516,10 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 		console.log(`    ${D("· FULL bundle — portability validated by the e2e (residual bare specifiers resolve via host node_modules at runtime)")}`);
 	}
 
-	// (C) jiti live boot — opt-in (--live-verify). Crash = hard fail, else info.
-	if (LIVE_VERIFY) {
+	// (C) jiti live boot — DEFAULT for built extensions (catches the data-URL/
+	// NameTooLong crash at build time). --live-verify forces it for ALL (including
+	// hash-skipped, though those don't reach stageVerify). --skip-live-verify opts out.
+	if (LIVE_VERIFY || !SKIP_LIVE_VERIFY) {
 		const boot = await liveBootTest(outfile);
 		if (boot.fail) failures.push(boot.fail);
 		else if (boot.ok) console.log(`    ${G("✓")} ${boot.detail}`);
@@ -503,7 +543,7 @@ async function stageVerify(name: string, outfile: string, thin: boolean) {
 // (re)write the sidecar after a successful verify.
 async function buildOne(spec: { name: string; entry: string; pkgDir: string }): Promise<boolean> {
 	const { name, entry, pkgDir } = spec;
-	const thin = !PORTABLE && !FULL_FOR.has(name) && !DEFAULT_FULL.has(name);
+	const thin = !PORTABLE && !FULL_FOR.has(name) && spec.bundleMode !== "full";
 	const tag = thin ? "thin" : "full";
 	const outfile = join(OUTDIR, `${name}.${tag}.js`);
 	const hashFile = join(OUTDIR, `${name}.${tag}.hash`);
@@ -534,7 +574,7 @@ async function buildOne(spec: { name: string; entry: string; pkgDir: string }): 
 	// so they resolve from the portable deploy's OWN node_modules (abs-paths
 	// into the repo store would break portability).
 	if (thin || !PORTABLE) {
-		const resolved = stageResolveExternals(outfile, makeResolver(entry));
+		const resolved = stageResolveExternals(outfile, makeResolver(entry, REPO_ROOT), thin);
 		console.log(`    ${G("✓")} ${resolved.length} bare specifier(s) abs-resolved`);
 	}
 	console.log(`    ${G("✓")} ${outfile}  ${D(`(${formatSize(Bun.file(outfile).size)})`)}`);
@@ -555,7 +595,7 @@ mkdirSync(OUTDIR, { recursive: true });
 // any .js/.hash not in it — but DON'T blanket-wipe, or the hash cache is useless.
 const expectedFiles = new Set(
 	exts.flatMap((spec) => {
-		const thin = !PORTABLE && !FULL_FOR.has(spec.name) && !DEFAULT_FULL.has(spec.name);
+		const thin = !PORTABLE && !FULL_FOR.has(spec.name) && spec.bundleMode !== "full";
 		const tag = thin ? "thin" : "full";
 		return [`${spec.name}.${tag}.js`, `${spec.name}.${tag}.hash`];
 	}),
@@ -563,18 +603,30 @@ const expectedFiles = new Set(
 for (const f of readdirSync(OUTDIR)) {
 	if (!expectedFiles.has(f)) rmSync(join(OUTDIR, f), { recursive: true, force: true });
 }
-let failed = 0;
-let built = 0;
-let skipped = 0;
-for (const spec of exts) {
-	try {
-		const did = await buildOne(spec);
-		if (did) built++;
-		else skipped++;
-	} catch (e: any) {
-		console.error(`    ${R("✗")} ${spec.name}: ${String(e?.message || e).slice(0, 200)}`);
-		failed++;
+// Run builds in parallel — the jiti tier-C verify (the default for changed
+// extensions) spawns an independent pi-agent.js subprocess per extension, so
+// concurrency overlaps the ~5s wait. Concurrency limited to avoid RSS blowup.
+const CONCURRENCY = Math.min(exts.length, 5);
+let failed = 0, built = 0, skipped = 0;
+const queue = [...exts];
+const results: { name: string; did: boolean; error?: string }[] = [];
+async function worker() {
+	while (queue.length > 0) {
+		const spec = queue.shift()!;
+		try {
+			const did = await buildOne(spec);
+			results.push({ name: spec.name, did });
+		} catch (e: any) {
+			console.error(`    ${R("✗")} ${spec.name}: ${String(e?.message || e).slice(0, 200)}`);
+			results.push({ name: spec.name, did: false, error: String(e?.message || e).slice(0, 200) });
+		}
 	}
+}
+await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+for (const r of results) {
+	if (r.error) failed++;
+	else if (r.did) built++;
+	else skipped++;
 }
 console.log("");
 if (skipped) console.log(D(`  (${built} built, ${skipped} skipped via hash cache)`));

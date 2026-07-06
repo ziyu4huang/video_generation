@@ -64,6 +64,7 @@ zk-ask <question> --summarize            # summarize each tag cluster before gen
 zk-ask <question> --no-refine            # skip seed quality gate
 zk-ask <question> --folder <name>        # restrict seed search scope
 zk-ask <question> --blend three-way      # semantic + lexical + graph (needs vault-mind)
+zk-ask <question> --blend semantic-lexical # semantic + lexical, NO graph (iter-4)
 ```
 
 All pi-global flags apply: `--model`, `--vault`, `--mode json`, etc.
@@ -74,6 +75,7 @@ All pi-global flags apply: `--model`, `--vault`, `--mode json`, etc.
 |------|-----------------|------------|-------|
 | `default` (the default) | title fuzzy + tags + body (`obsidian_search`) + graph neighbors | `0.7 × lexical + 0.3 × link_count` | `obsidian_search/query/read/list` |
 | `three-way` | adds `obsidian_semantic_search` (vault-mind vector) as a 4th seed | `0.4 × semantic + 0.3 × lexical + 0.3 × link_count` | + `obsidian_semantic_search` |
+| `semantic-lexical` | same 4-strategy seed, but graph expansion dropped (Step 2 skipped) | `0.55 × semantic + 0.45 × lexical` (no link term) | + `obsidian_semantic_search` |
 
 The default mode is unchanged from the original design (no regression). Three-way
 rebalances so the vector seed leads but cannot dominate — a strongly-graph-linked
@@ -82,6 +84,69 @@ card both text modes miss still ranks. Three-way requires the vault-mind service
 semantic search errors (service down), the pipeline falls back to the 3 lexical
 strategies and never aborts. Under `--retrieve-only --blend three-way`, each
 reference is tagged with its source mode(s) (`semantic`, `lexical:*`, `graph`).
+
+`semantic-lexical` (iter-4) isolates the semantic win from **graph-neighbor
+dilution**: `link_count` is a popularity signal — it boosts heavily-linked cards
+regardless of query relevance, so off-topic graph neighbors drag down the
+three-way top-k on paraphrase / cross-lingual queries where semantic retrieval is
+the whole point. Dropping graph entirely (Step 2 skipped, no link term) gives the
+cleanest semantic-vs-lexical comparison; the measured trade-off lives alongside
+the `retrieval-quality-self-improve` receipts. Reference tags are `semantic` /
+`lexical:*` only (no `graph`).
+
+### Default-flip decision (iter-5 full-vault measurement)
+
+**Default stays `default` (lexical + graph). `semantic-lexical` remains opt-in.**
+
+Full-vault measurement (run `run-mr840sic`, 2026-07-05, 425 knowledge-graph cards,
+5 adversarial queries, blind LLM judge, `top-k=4`, `thinking=medium`, both modes
+live — `semanticLive=5/5`):
+
+| Mode | Mean relevance@4 | Wins | Notable |
+|---|---|---|---|
+| `default` (lexical+graph) | **0.802** | 4/5 | Q3 UI-hot-reload 1.00 vs 0.75; Q5 CLI-options 0.85 vs 0.50 |
+| `semantic-lexical` | 0.640 | 1/5 (a 1.00–1.00 tie) | Never beat lexical outright |
+
+Lexical body-search matches the English/mixed-language terms in this codebase +
+knowledge-graph corpus well, so semantic-lexical underperforms here. This matches
+the iter-4 controlled-corpus result (lexical near ceiling at 80% on 24 cards) and
+the honest-uncertainty prediction: **semantic-lexical wins only on pure
+cross-lingual / paraphrase subsets**, not on the default English-leaning vault.
+Flipping the default is therefore not justified by the data; keep `--blend
+semantic-lexical` as the opt-in for cross-lingual / anti-lexical-dilution use.
+
+### Cross-lingual regime test (iter-6)
+
+**The predicted cross-lingual win zone did NOT materialize.** The iter-5
+prediction was that semantic-lexical would win when queries are in a different
+language from the cards (zh-TW queries → English cards), because lexical search
+cannot bridge the vocabulary gap. The iter-6 measurement **refutes** this:
+
+Cross-lingual measurement (run `2026-07-05T22-57-51`, 425 English
+knowledge-graph cards, 5 **zh-TW** adversarial queries, overlap-gated,
+blind LLM judge, `top-k=4`, `thinking=medium`, `semanticLive=5/5`):
+
+| Mode | Mean relevance@4 | Wins | Notable |
+|---|---|---|---|
+| `default` (lexical+graph) | **0.332** | 2/5 | Q3 bundle-size 1.00 vs 0.00 (found bun-isolated-linker card) |
+| `semantic-lexical` | 0.100 | 1/5 | Q5 HMR-stale-bundle 0.50 vs 0.33 (only outright win) |
+
+Even with pure zh-TW queries and zero lexical vocabulary overlap with the
+English card titles/tags (enforced by the iter-6 adversarial-overlap gate),
+default (lexical+graph) STILL beats semantic-lexical. The reason: **dropping
+graph expansion hurts more than the semantic seed helps** — graph links bridge
+concepts across languages better than vector similarity alone, and the
+lexical body-search still finds CJK substrings inside English card bodies
+that happen to mention the concept. Semantic-lexical is therefore not
+recommended for any measured regime on this vault.
+
+### Regime guidance summary
+
+| Regime | Recommended blend | Rationale |
+|---|---|---|
+| Default (English-leaning vault, mixed queries) | `default` | iter-5: 0.802 vs 0.640, lexical wins 4/5 |
+| Cross-lingual (zh-TW queries → English cards) | `default` | iter-6: 0.332 vs 0.100, lexical wins 2/5 — graph bridges better than semantic |
+| Anti-lexical-dilution (diagnostic only) | `semantic-lexical` | No measured regime where it wins outright; keep as a diagnostic, not a recommendation |
 
 The blend score is a pure exported function `rankBlendScore(parts, mode)` in
 `pi-knowledge-card/extensions/pi-knowledge-card.ts` — unit-tested in

@@ -409,7 +409,7 @@ export function buildBundleArgvFromLayout(
  *   - undefined base       → workspace extensions AND skills skipped + warned
  */
 export function buildArgvFromManifest(
-  m: { extensions?: string[]; skills?: string[] },
+  m: { extensions?: (string | { entry: string })[]; skills?: string[] },
   bunAppsDir: string | undefined,
   npmPaths: string[],
   exists: (p: string) => boolean,
@@ -418,7 +418,8 @@ export function buildArgvFromManifest(
   const argv: string[] = [];
   const extensionPaths: string[] = [];
   if (bunAppsDir) {
-    for (const rel of m.extensions ?? []) {
+    for (const entry of m.extensions ?? []) {
+      const rel = typeof entry === "string" ? entry : entry.entry;
       extensionPaths.push(join(bunAppsDir, rel));
     }
   } else {

@@ -49,9 +49,18 @@ Options:
   --retrieve-only        Output assembled context only (no generation step)
   --no-refine            Skip seed quality gate (no query rewrite on poor seeds)
   --blend <mode>         Retrieval blend: "default" (lexical+graph) | "three-way"
-                         (adds semantic vector seed; needs vault-mind service).
-                         Default: default. Three-way tags each seed with its
-                         source mode(s) under --retrieve-only.
+                         (semantic+lexical+graph) | "semantic-lexical" (semantic+
+                         lexical, NO graph — isolates semantic from graph dilution).
+                         Semantic modes need vault-mind service. Default: default.
+                         Semantic modes tag each seed with source mode(s) under
+                         --retrieve-only.
+                         NOTE: "default" (lexical) is the vault-wide default on
+                         purpose — the semantic blends were measured RETIRED as the
+                         default READ path on a clean queryCount-5 re-measure (lexical
+                         mean rel 0.332 vs semantic-lexical 0.100; receipt
+                         2026-07-05T22-57-51). Keep semantic blends as explicit opt-in
+                         for known paraphrase / cross-lingual queries where their
+                         canonical-case win matters.
   --folder <name>        Restrict seed search to folder (default: Zettelkasten)
   --vault <path>         Absolute path to the vault
   --vault-dir <name>     Vault folder name under cwd (default: vault)
@@ -87,7 +96,10 @@ export const zkAskCommand = {
     const noRefine = !!parsed.noRefine;
     const folder = parsed.folder;
     const blendRaw = String(parsed.blend ?? "default");
-    const blend: BlendMode = blendRaw === "three-way" ? "three-way" : "default";
+    const blend: BlendMode =
+      blendRaw === "three-way" ? "three-way"
+      : blendRaw === "semantic-lexical" ? "semantic-lexical"
+      : "default";
 
     const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder, blend);
     applyVaultEnv(parsed);

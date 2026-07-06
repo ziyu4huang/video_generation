@@ -52,8 +52,10 @@ describe("detectMode", () => {
 describe("buildArgvFromManifest", () => {
 	function setup() {
 		const base = mkdtempSync(join(tmpdir(), "pi-rundir-"));
+		// Normalize manifest v2 entries: objects → their `entry` string.
+		const extEntries = (manifest.extensions ?? []).map((e) => (typeof e === "string" ? e : (e as { entry: string }).entry));
 		// materialize the manifest's relative entries under base
-		for (const rel of manifest.extensions ?? []) {
+		for (const rel of extEntries) {
 			const full = join(base, rel);
 			mkdirSync(join(full, ".."), { recursive: true });
 			writeFileSync(full, "// ext");
@@ -69,7 +71,8 @@ describe("buildArgvFromManifest", () => {
 		const warns: string[] = [];
 		const argv = buildArgvFromManifest(manifest, base, [], () => true, (m) => warns.push(m));
 		// every declared extension appears as `-e <base>/<rel>`
-		for (const rel of manifest.extensions ?? []) {
+		const extEntries = (manifest.extensions ?? []).map((e) => (typeof e === "string" ? e : (e as { entry: string }).entry));
+		for (const rel of extEntries) {
 			expect(argv).toContain("-e");
 			expect(argv).toContain(join(base, rel));
 		}

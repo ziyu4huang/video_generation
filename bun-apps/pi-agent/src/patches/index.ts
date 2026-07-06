@@ -18,7 +18,8 @@ export type PatchName =
 	| "default-model-env"
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
-	| "ext-api-get-all-tool-definitions";
+	| "ext-api-get-all-tool-definitions"
+	| "footer-extension-status-notify";
 
 export interface AppliedPatch {
   name: PatchName;
@@ -63,6 +64,13 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // so ExtensionRuntime gets getAllToolDefinitions(): ToolDefinition[] for passing
   // full tool definitions (with execute) to WorkflowAgent child sessions.
   { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
+  // footer-extension-status-notify: patches InteractiveMode.prototype.init so
+  // FooterDataProvider.setExtensionStatus / clearExtensionStatuses notify
+  // subscribers + trigger ui.requestRender(). Without this, extension statuses
+  // (the /goal indicator) only render when the footer re-renders for an
+  // unrelated reason (git-branch change or agent activity) — the elapsed time
+  // never ticks while idle. Must run before main() constructs InteractiveMode.
+  { name: "footer-extension-status-notify", env: "BUN_PI_FOOTER_EXT_STATUS_NOTIFY", defaultValue: true },
 ];
 
 /**
@@ -133,6 +141,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ext-api-get-all-tool-definitions":
         await import("./ext-api-get-all-tool-definitions.ts");
+        break;
+      case "footer-extension-status-notify":
+        await import("./footer-extension-status-notify.ts");
         break;
       default: {
         // Exhaustiveness guard — a PATCH_TABLE entry with no matching case.

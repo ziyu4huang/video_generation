@@ -18,12 +18,14 @@
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { parseManifestEntries } from "../run-dir/manifest-types.ts";
 
 const PI_AGENT_DIR = path.resolve(import.meta.dirname, "..");
 const REPO_ROOT = path.resolve(PI_AGENT_DIR, "../..");
 const MANIFEST = JSON.parse(
 	readFileSync(path.join(PI_AGENT_DIR, "run-dir", "manifest.json"), "utf8"),
-) as { extensions: string[]; lazyExtensions?: Record<string, string> };
+) as { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
+const MANIFEST_ENTRIES = parseManifestEntries(MANIFEST.extensions ?? []);
 
 // Self-sufficient: import the patch so the repo-root node_modules symlinks exist
 // before we native-import any extension. The patch is a side-effect module
@@ -61,6 +63,7 @@ function makeMockPi() {
 
 type Result = {
 	ext: string;
+	entryPath: string;
 	ok: boolean;
 	wired: boolean;
 	error?: string;
@@ -88,19 +91,44 @@ async function loadOne(rel: string, dynamic = false): Promise<Result> {
 		// a load without error + at least one on()/registerTool/registerCommand
 		// call means the factory wired up correctly.
 		const wired = tools.length > 0 || commands.length > 0 || onEvents > 0;
-		return { ext, ok: true, wired, tools: tools.map((t) => String(t.name ?? "?")), commands, dynamic };
+		return { ext, entryPath: abs, ok: true, wired, tools: tools.map((t) => String(t.name ?? "?")), commands, dynamic };
 	} catch (e) {
-		return { ext, ok: false, wired: false, error: (e as Error).message?.split("\n")[0] ?? String(e), tools: [], commands: [], dynamic };
+		return { ext, entryPath: abs, ok: false, wired: false, error: (e as Error).message?.split("\n")[0] ?? String(e), tools: [], commands: [], dynamic };
 	}
 }
 
 const rows: Result[] = [];
-for (const rel of MANIFEST.extensions) rows.push(await loadOne(rel));
+for (const entry of MANIFEST_ENTRIES) rows.push(await loadOne(entry.entry));
 // Lazy extensions live in the manifest too — verify their factories load.
 if (MANIFEST.lazyExtensions) {
 	for (const [name, rel] of Object.entries(MANIFEST.lazyExtensions)) {
 		const r = await loadOne(rel, true);
 		rows.push({ ...r, ext: `${name} (lazy) <- ${r.ext}` });
+	}
+}
+
+// ── Cross-extension tool-conflict detection ─────────────────────────────────
+// Two extensions registering the same tool name crashes at agent boot
+// ("Tool X conflicts"). Catch it here — the mock pi records (name, ext) for
+// every registerTool call across the WHOLE set, so a duplicate is a structural
+// bug, not a runtime race.
+const toolOwners = new Map<string, Map<string, string[]>>(); // toolName → entryPath → [ext, ...]
+for (const r of rows) {
+	for (const toolName of r.tools) {
+		if (!toolOwners.has(toolName)) toolOwners.set(toolName, new Map());
+		const byPath = toolOwners.get(toolName)!;
+		const exts = byPath.get(r.entryPath ?? r.ext) ?? [];
+		exts.push(r.ext);
+		byPath.set(r.entryPath ?? r.ext, exts);
+	}
+}
+const conflicts: string[] = [];
+for (const [toolName, byPath] of toolOwners) {
+	// A real conflict = same tool registered from DIFFERENT entry paths.
+	// Same-path entries (lazy aliases to the same file) are NOT conflicts.
+	if (byPath.size > 1) {
+		const owners = [...byPath.values()].flat();
+		conflicts.push(`${toolName}: [${owners.join(", ")}]`);
 	}
 }
 
@@ -111,6 +139,14 @@ for (const r of rows) {
 	const status = r.ok ? (r.wired ? "OK   " : "OK?  ") : "FAIL ";
 	w(`${status} ${r.ext.padEnd(34)} tools=[${r.tools.join(", ")}]${r.commands.length ? ` cmds=[${r.commands.join(",")}]` : ""}${r.error ? `\n     ↳ ${r.error}` : ""}\n`);
 	if (!r.ok) fail++;
+}
+
+if (conflicts.length) {
+	w("\n\x1b[31m✗ tool-name conflicts across extensions:\x1b[0m\n");
+	for (const c of conflicts) w(`  ${c}\n`);
+	fail++;
+} else {
+	w("\n\x1b[32m✓ no cross-extension tool-name conflicts\x1b[0m\n");
 }
 
 w(`\n${rows.length - fail}/${rows.length} extensions loaded + wired.\n`);
