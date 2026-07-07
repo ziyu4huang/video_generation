@@ -62,6 +62,9 @@ export interface MemoryConfig {
   autoConsolidate: boolean;
   /** Detect user corrections and trigger immediate memory save. Default: true */
   correctionDetection: boolean;
+  /** Auto-capture lesson-worthy tool errors (stack traces, definitive
+   *  failures) to the failure store without an agent memory call. Default: true */
+  errorCapture?: boolean;
   /** Override strong correction regex sources. Missing = defaults; [] = none. */
   correctionStrongPatterns?: string[];
   /** Override weak correction regex sources. Missing = defaults; [] = none. */

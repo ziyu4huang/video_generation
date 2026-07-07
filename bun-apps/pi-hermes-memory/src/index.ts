@@ -40,6 +40,7 @@ import { setupSessionFlush } from "./handlers/session-flush.js";
 import { registerInsightsCommand } from "./handlers/insights.js";
 import { triggerConsolidation, registerConsolidateCommand } from "./handlers/auto-consolidate.js";
 import { setupCorrectionDetector } from "./handlers/correction-detector.js";
+import { setupErrorDetector } from "./handlers/error-detector.js";
 import { registerSkillsCommand } from "./handlers/skills-command.js";
 import { registerInterviewCommand } from "./handlers/interview.js";
 import { registerSwitchProjectCommand } from "./handlers/switch-project.js";
@@ -210,6 +211,9 @@ export default function (pi: ExtensionAPI) {
 
   // ── 8. Setup correction detection ──
   setupCorrectionDetector(pi, store, projectStore, config, dbManager, projectName);
+
+  // ── 8b. Setup lesson-worthy error capture (auto-trigger on tool failures) ──
+  setupErrorDetector(pi, store, projectStore, config, dbManager, projectName);
 
   // ── 9. Register commands ──
   registerInsightsCommand(pi, store, projectStore, projectName);

@@ -55,6 +55,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   memoryOverflowStrategy: "auto-consolidate",
   autoConsolidate: true,
   correctionDetection: true,
+  errorCapture: true,
   failureInjectionEnabled: true,
   failureInjectionMaxAgeDays: DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   failureInjectionMaxEntries: DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
@@ -111,6 +112,7 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): MemoryConfig {
         hasMemoryOverflowStrategy = true;
       }
       if (typeof parsed.correctionDetection === "boolean") config.correctionDetection = parsed.correctionDetection;
+      if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
       if (isStringArray(parsed.correctionStrongPatterns)) config.correctionStrongPatterns = parsed.correctionStrongPatterns;
       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
       if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
