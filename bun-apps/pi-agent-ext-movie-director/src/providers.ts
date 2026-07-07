@@ -23,8 +23,8 @@ import { dirname, join, resolve } from "node:path";
 import { REGISTRY as REGISTRY_ALL, type Capability, type ProviderEntry } from "./registry.ts";
 import { EXT_ROOT } from "./paths.ts";
 import { renderRemotion, type RemotionEditDecisions } from "./remotion.ts";
-import { composeMotion } from "./compose_motion.ts";
-import type { RenderReport } from "./compose.ts";
+import { composeMotion, type SpawnImpl } from "./compose_motion.ts";
+import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
 
@@ -1028,7 +1028,18 @@ export const composeRemotionAdapter: Adapter = async (req: GenerateRequest): Pro
  * (RemotionEditDecisions) so an agent can drive either runtime from one edit.
  */
 export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promise<ToolResult> => {
-  const opts = (req.options ?? {}) as { editDecisions?: RemotionEditDecisions; workDir?: string; output?: string; width?: number; height?: number; fps?: number; transitionSeconds?: number };
+  const opts = (req.options ?? {}) as {
+    editDecisions?: RemotionEditDecisions;
+    workDir?: string;
+    output?: string;
+    width?: number;
+    height?: number;
+    fps?: number;
+    transitionSeconds?: number;
+    captions?: CaptionsOptions;
+    /** Test-only spawn injection (mirrors the whisper/clip/esrgan adapters). */
+    _spawnImpl?: SpawnImpl;
+  };
   const edit = opts.editDecisions;
   if (!edit || !Array.isArray(edit.cuts)) {
     return fail(req, "motion", "compose:motion requires options.editDecisions.{version,cuts:[...]}");
@@ -1037,14 +1048,22 @@ export const composeMotionAdapter: Adapter = async (req: GenerateRequest): Promi
   const workDir = opts.workDir ?? outputDir;
   const started = Date.now();
   try {
-    const report: RenderReport = await composeMotion(edit, {
-      workDir,
-      output: opts.output,
-      width: opts.width,
-      height: opts.height,
-      fps: opts.fps,
-      transitionSeconds: opts.transitionSeconds,
-    });
+    const report: RenderReport = await composeMotion(
+      edit,
+      {
+        workDir,
+        output: opts.output,
+        width: opts.width,
+        height: opts.height,
+        fps: opts.fps,
+        transitionSeconds: opts.transitionSeconds,
+        // Honor the captions option (libass → drawtext → sidecar ladder). Without
+        // this the adapter silently dropped captions, so the local ffmpeg path could
+        // never burn subtitles even though composeMotion() fully supports it.
+        captions: opts.captions,
+      },
+      opts._spawnImpl ? { spawnImpl: opts._spawnImpl } : {},
+    );
     const ok = report.outputs.length > 0;
     return {
       success: ok,

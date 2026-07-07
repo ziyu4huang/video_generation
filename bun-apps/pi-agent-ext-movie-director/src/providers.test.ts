@@ -731,6 +731,83 @@ describe("clipAdapter (mocked spawn)", () => {
   });
 });
 
+describe("composeMotionAdapter forwards captions (regression: was silently dropped)", () => {
+  // The adapter once omitted opts.captions when calling composeMotion(), so the
+  // local ffmpeg composition path could never burn subtitles even though the
+  // underlying compositor supports the libass → drawtext → sidecar ladder. This
+  // guards the forwarding by injecting a spawn and asserting a drawtext burn pass
+  // actually runs when captions:{burn:true} is supplied.
+  it("runs a drawtext captions burn pass when options.captions is supplied", async () => {
+    const { _setSubtitlesFilterForTest, _setDrawtextFilterForTest, _setCaptionFontForTest } = await import("./captions.ts");
+    const { composeMotionAdapter } = await import("./providers.ts");
+    _setSubtitlesFilterForTest(false); // force the drawtext tier
+    _setDrawtextFilterForTest(true);
+    _setCaptionFontForTest("/System/Library/Fonts/Supplemental/Arial.ttf");
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "md-moca-"));
+      try {
+        const src = join(dir, "src.mp4");
+        const srt = join(dir, "c.srt");
+        writeFileSync(src, "x");
+        writeFileSync(srt, "1\n00:00:00,500 --> 00:00:01,500\nlocal motion caption\n");
+        const calls: { cmd: string; argv: string[] }[] = [];
+        const spawnImpl = async (cmd: string, argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> => {
+          calls.push({ cmd, argv });
+          if (cmd === "ffprobe") {
+            if (argv.includes("-show_streams")) {
+              return {
+                code: 0,
+                stdout: JSON.stringify({
+                  format: { duration: "2.0", format_name: "mov,mp4" },
+                  streams: [
+                    { codec_type: "video", codec_name: "h264", width: 512, height: 512, avg_frame_rate: "24/1" },
+                    { codec_type: "audio", codec_name: "aac" },
+                  ],
+                }),
+                stderr: "",
+              };
+            }
+            return { code: 0, stdout: "2.0\n", stderr: "" };
+          }
+          // Any ffmpeg call: write a placeholder to its output path (last argv).
+          const out = argv[argv.length - 1];
+          if (out) writeFileSync(out, "x");
+          return { code: 0, stdout: "", stderr: "" };
+        };
+        const result = await composeMotionAdapter({
+          capability: "composition",
+          command: "compose-motion",
+          outputDir: dir,
+          options: {
+            output: join(dir, "out.mp4"),
+            width: 512,
+            height: 512,
+            fps: 24,
+            editDecisions: {
+              version: "1.0",
+              transition: "none",
+              cuts: [{ id: "a", type: "media", source: src, in_seconds: 0, out_seconds: 2, animation: "ken-burns" }],
+            },
+            captions: { srtPath: srt, burn: true },
+            _spawnImpl: spawnImpl,
+          },
+        });
+        expect(result.success).toBe(true);
+        expect(result.provider).toBe("motion");
+        // A drawtext burn pass ran (the captions were NOT dropped).
+        const burned = calls.some((c) => c.cmd === "ffmpeg" && c.argv.some((a) => a.includes("drawtext=")));
+        expect(burned).toBe(true);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      _setSubtitlesFilterForTest(undefined);
+      _setDrawtextFilterForTest(undefined);
+      _setCaptionFontForTest(undefined);
+    }
+  });
+});
+
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function spawnCode(cmd: string, argv: string[]): Promise<number> {
