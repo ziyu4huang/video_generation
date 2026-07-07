@@ -38,6 +38,7 @@ export interface ProviderEntry {
     | "swift:krea2"
     | "swift:flux2"
     | "swift:ltx"
+    | "mlx:runpy"
     | "fetch"
     | "ffmpeg"
     | "macos:vision"
@@ -74,7 +75,14 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "z_image", capability: "image_generation", provider: "z-image", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "Z-Image T2I (via krea2 director family)" },
 
   // Video generation — native Swift/MLX director.
-  { name: "ltx_video", capability: "video_generation", provider: "ltx", backend: "native_swift", invoke: "swift:ltx", configured: true, notes: "swift/ltx-video-director (LTX-2.3 T2V/i2v/relay/upscale)" },
+  { name: "ltx_video", capability: "video_generation", provider: "ltx", backend: "native_swift", invoke: "swift:ltx", configured: true, notes: "swift/ltx-video-director (LTX-2.3 T2V/i2v/relay/upscale). probeConfigured checks the built binary; when unbuilt, mlx:runpy below wins." },
+  // run.py video adapter (Option A) — the canonical PYTHON generation runtime
+  // (CLAUDE.md: run.py is the only generation runtime). Reaches the SAME run.py
+  // call site the Swift `i2v` command bridges via RunPyBridge.swift, with ZERO
+  // swift build cost. Ranked below swift:ltx only because it is declared second
+  // (both are native_swift rank 0 — presence of the swift binary is the tiebreak,
+  // enforced by probeConfigured). LOCAL MLX: never a cloud GAI API.
+  { name: "ltx_video_runpy", capability: "video_generation", provider: "ltx-runpy", backend: "native_swift", invoke: "mlx:runpy", configured: true, notes: "run.py video t2i2v adapter (pi-agent-ext-ltx/src/runpy.ts) — local MLX, zero swift build. Wins video_generation when the swift:ltx binary is absent; otherwise the selector prefers swift:ltx." },
 
   // Composition runtimes.
   { name: "compose_remotion", capability: "composition", provider: "remotion", backend: "native_swift", invoke: "compose:remotion", configured: true, notes: "Remotion Node subprocess (src/remotion.ts) — the ONLY templated composer (layered section_title overlays, crossfade, per-cut animation). Binary resolves REMOTION_BIN → PATH → the bundled <EXT_ROOT>/remotion install (run `bun install` in remotion/ + `remotion browser ensure`); probeConfigured reflects that, so the composition rollup advertises remotion truthfully. compose_motion drops edit.overlays — use this runtime when overlays/layered text are required" },

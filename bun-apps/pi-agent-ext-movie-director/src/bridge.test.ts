@@ -3,6 +3,7 @@ import {
   adaptKrea2,
   adaptFlux2,
   adaptLtx,
+  adaptRunPy,
   generate,
   selectAndGenerate,
   tariffFor,
@@ -10,11 +11,14 @@ import {
   type GenerateRequest,
   type Adapter,
 } from "./bridge.ts";
-import { selectProvider } from "./selector.ts";
+import { selectProvider, rankedProviders } from "./selector.ts";
 import { REGISTRY, type ProviderEntry } from "./registry.ts";
+import { probeConfigured } from "./providers.ts";
+import { defaultBinaryPath } from "@repo/pi-agent-ext-ltx";
+import { existsSync } from "node:fs";
 import type { Krea2Details } from "@repo/pi-agent-ext-krea2";
 import type { Flux2Details } from "@repo/pi-agent-ext-flux2";
-import type { LtxDetails } from "@repo/pi-agent-ext-ltx";
+import type { LtxDetails, RunPyVideoDetails } from "@repo/pi-agent-ext-ltx";
 
 const imgReq: GenerateRequest = {
   capability: "image_generation",
@@ -136,6 +140,97 @@ describe("adaptLtx — contract parse", () => {
     expect(paths).toContain("/out/v.mp4");
     expect(paths).toContain("/out/audio.wav");
     expect(paths).toContain("/out/frames");
+  });
+});
+
+describe("adaptRunPy — run.py video adapter contract (Details → ToolResult)", () => {
+  it("maps a successful t2i2v run to one video artifact + local i2v model", () => {
+    const details: RunPyVideoDetails = {
+      ok: true,
+      command: "video t2i2v",
+      exitCode: 0,
+      aborted: false,
+      output: "/out/t2i2v_run/final.mp4",
+      manifest: { pipeline: "t2i2v", output_dir: "/out/t2i2v_run" },
+      outDir: "/out/t2i2v_run",
+      model: "dasiwa",
+      stdout: "[t2i2v] ✓ Done",
+      exitOk: true,
+      mp4Exists: true,
+    };
+    const r = adaptRunPy(
+      { capability: "video_generation", command: "t2i2v", options: { seed: 7 } },
+      details,
+      "video t2i2v: ✓ /out/t2i2v_run/final.mp4 [dasiwa]",
+      "",
+    );
+    expect(r.success).toBe(true);
+    expect(r.provider).toBe("ltx-runpy");
+    expect(r.command).toBe("video t2i2v");
+    expect(r.seed).toBe(7);
+    // model from the manifest's i2v stage — local silicon, NEVER a cloud id.
+    expect(r.model).toBe("dasiwa");
+    expect(r.artifacts).toEqual([
+      { path: "/out/t2i2v_run/final.mp4", kind: "video", role: "primary" },
+    ]);
+  });
+
+  it("flags failure + no artifact when run.py produced no mp4", () => {
+    const details: RunPyVideoDetails = {
+      ok: false,
+      command: "video t2i2v",
+      exitCode: 2,
+      aborted: false,
+      output: null,
+      manifest: null,
+      outDir: null,
+      model: null,
+      stdout: "[t2i2v] ERROR",
+      exitOk: false,
+      mp4Exists: false,
+    };
+    const r = adaptRunPy({ capability: "video_generation", command: "t2i2v", options: {} }, details, "exited 2", "boom");
+    expect(r.success).toBe(false);
+    expect(r.artifacts).toEqual([]);
+    expect(r.error).toContain("exited 2");
+    // Falls back to a local label so the result never reads as a cloud model id.
+    expect(r.model).toBe("run.py:t2i2v");
+  });
+});
+
+describe("video_generation selector — swift:ltx vs mlx:runpy presence tiebreak", () => {
+  // Regression for Option A: when the swift:ltx binary is unbuilt, the selector
+  // MUST fall through to the run.py adapter (mlx:runpy) rather than picking an
+  // unbuilt binary. Both are native_swift rank 0 — the binary's presence on disk
+  // is the only honest tiebreak (probeConfigured, not a hardcoded configured flag).
+  const ltxEntry = REGISTRY.find((p) => p.invoke === "swift:ltx")!;
+  const runpyEntry = REGISTRY.find((p) => p.invoke === "mlx:runpy")!;
+
+  it("registry carries BOTH video_generation providers", () => {
+    expect(ltxEntry).toBeTruthy();
+    expect(runpyEntry).toBeTruthy();
+    expect(runpyEntry.capability).toBe("video_generation");
+    expect(runpyEntry.backend).toBe("native_swift");
+  });
+
+  it("swift:ltx probe tracks the built binary; mlx:runpy probe tracks the venv+run.py", () => {
+    // Sanity: probeConfigured is the runtime truth, not the static configured flag.
+    expect(probeConfigured(runpyEntry)).toBe(true); // venv + run.py present on this machine
+    // swift:ltx is callable iff the binary exists — assert the probe AGREES with the disk.
+    const repoRoot = process.cwd();
+    expect(probeConfigured(ltxEntry)).toBe(existsSync(defaultBinaryPath(repoRoot)));
+  });
+
+  it("selects mlx:runpy when the swift:ltx binary is absent (the local-machine truth)", () => {
+    if (existsSync(defaultBinaryPath(process.cwd()))) {
+      // Binary present on this machine → swift:ltx wins (rank 0, declared first).
+      expect(selectProvider("video_generation").invoke).toBe("swift:ltx");
+    } else {
+      // Binary absent → mlx:runpy wins (the Option-A fallback, zero swift build).
+      expect(selectProvider("video_generation").invoke).toBe("mlx:runpy");
+      const ranked = rankedProviders("video_generation");
+      expect(ranked[0]!.invoke).toBe("mlx:runpy");
+    }
   });
 });
 
