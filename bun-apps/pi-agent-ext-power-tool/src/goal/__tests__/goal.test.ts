@@ -269,9 +269,9 @@ describe("formatStatus", () => {
 		};
 
 		expect(formatStatus(undefined)).toBeUndefined();
-		expect(formatStatus(activeGoal)).toBe("active 500/2k");
-		expect(formatStatus({ ...activeGoal, status: "paused" })).toBe("paused");
-		expect(formatStatus({ ...activeGoal, status: "budget_limited" })).toBe("budget 500/2k");
+		expect(formatStatus(activeGoal)).toBe("goal active 500/2k");
+		expect(formatStatus({ ...activeGoal, status: "paused" })).toBe("goal paused");
+		expect(formatStatus({ ...activeGoal, status: "budget_limited" })).toBe("goal budget 500/2k");
 	});
 });
 
@@ -282,11 +282,11 @@ describe("overlay status updates", () => {
 		const { overlay } = await startGoalForTest();
 
 		// After starting, the overlay must receive the active goal. No token
-		// budget → formatStatus returns "active <elapsed>".
+		// budget → formatStatus returns "goal active <elapsed>".
 		const activeGoal = overlay.current;
 		expect(activeGoal).toBeDefined();
 		expect(activeGoal?.status).toBe("active");
-		expect(formatStatus(activeGoal)).toMatch(/^active /);
+		expect(formatStatus(activeGoal)).toMatch(/^goal active /);
 	});
 });
 

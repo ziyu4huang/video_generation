@@ -35,11 +35,13 @@ export interface ActiveGoal {
 
 export function formatStatus(goal: ActiveGoal | undefined): string | undefined {
 	if (!goal) return undefined;
-	if (goal.status === "complete") return "complete";
-	if (goal.status === "paused") return "paused";
-	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)}`;
-	if (goal.tokenBudget !== undefined) return `active ${formatBudget(goal)}`;
-	return `active ${formatDuration(goal.timeUsedSeconds)}`;
+	// Every token is prefixed with "goal" so the widget line self-documents:
+	// "active 1m23s" alone never said *what* is active. "goal active ..." does.
+	if (goal.status === "complete") return "goal complete";
+	if (goal.status === "paused") return "goal paused";
+	if (goal.status === "budget_limited") return `goal budget ${formatBudget(goal)}`;
+	if (goal.tokenBudget !== undefined) return `goal active ${formatBudget(goal)}`;
+	return `goal active ${formatDuration(goal.timeUsedSeconds)}`;
 }
 
 export function formatBudget(goal: ActiveGoal): string {
@@ -71,7 +73,7 @@ export function goalStatusColor(status: GoalStatus): ThemeColor {
 
 /**
  * One-line, theme-colored goal indicator for the above-editor widget:
- *   🎯 active 1m23s · iter 3  <dim objective…>
+ *   🎯 goal active 1m23s · iter 3  <dim objective…>
  *
  * The status token is colored by status (active=accent, paused/budget=warning,
  * complete=success) so paused goals visually stand out without reading.
