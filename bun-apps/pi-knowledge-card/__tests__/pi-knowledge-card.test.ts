@@ -411,6 +411,14 @@ describe("buildRagTask", () => {
 		expect(t).toContain("Do NOT call obsidian_read");
 	});
 
+	// P1: callout surfacing instruction is wired into context assembly
+	test("Stage 4 instructs the agent to surface Obsidian callouts first", () => {
+		const t = buildRagTask(BASE.query, BASE.depth, BASE.topK, false, false);
+		expect(t).toContain("Feature surfacing (P1)");
+		expect(t).toContain("> [!warning|tip|info|caution|...]");
+		expect(t).toContain("must not be buried");
+	});
+
 	test("Stage 4 maxNoteTokens controls full-read truncation limit", () => {
 		const t = buildRagTask(
 			BASE.query,

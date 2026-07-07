@@ -172,6 +172,82 @@ describe("retrieveRecords", () => {
 	});
 });
 
+describe("retrieveRecords — feature-aware ranking (P1)", () => {
+	test("a callout card ranks AHEAD of an equal-tag prose card (tie-break boost)", async () => {
+		// Both cards share exactly the `argv` tag (shared=1). The callout card
+		// gets +0.5 → ranks first; the prose card stays at 1.0 → second.
+		//
+		// ISOLATION: ids are chosen so the PROSE card sorts FIRST alphabetically
+		// ("a:card-one" < "a:card-two"). Without the boost the prose card would
+		// win the id tie-break — so the callout ranking first is PROOF the boost
+		// fired, not an artifact of id ordering.
+		await ingest([
+			rec({
+				id: "a:card-one", title: "ProseOnly",
+				detail: "A plain mention of argv with no callout.",
+				tags: ["argv"],
+			}),
+			rec({
+				id: "a:card-two", title: "CalloutBearing",
+				detail: "> [!warning] Reject leading-dash argv.\nIt bypasses validation.",
+				tags: ["argv"],
+			}),
+		]);
+		const result = await retrieveRecords({
+			vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5,
+		});
+		expect(result.count).toBe(2);
+		expect(result.cards[0]!.title).toBe("CalloutBearing");
+		expect(result.cards[0]!.hasCallouts).toBe(true);
+		expect(result.cards[1]!.title).toBe("ProseOnly");
+		expect(result.cards[1]!.hasCallouts).toBe(false);
+		// sharedTags is the tag-overlap count (unaffected by the boost).
+		expect(result.cards[0]!.sharedTags).toBe(1);
+		expect(result.cards[1]!.sharedTags).toBe(1);
+	});
+
+	test("a callout card NEVER displaces a prose card with strictly MORE tag overlap", async () => {
+		// Prose card shares 2 tags (shared=2); callout card shares 1 tag
+		// (shared+0.5=1.5). The strictly-better-tagged prose card still wins.
+		await ingest([
+			rec({
+				id: "a:prose", title: "ProseTwoTags",
+				detail: "Plain prose.",
+				tags: ["argv", "argparse"],
+			}),
+			rec({
+				id: "a:callout", title: "CalloutOneTag",
+				detail: "> [!warning] something",
+				tags: ["argv"],
+			}),
+		]);
+		const result = await retrieveRecords({
+			vaultPath: vault, folder: FOLDER, tags: ["argv", "argparse"], topK: 5,
+		});
+		expect(result.cards[0]!.title).toBe("ProseTwoTags");
+		expect(result.cards[0]!.sharedTags).toBe(2);
+		expect(result.cards[1]!.title).toBe("CalloutOneTag");
+		expect(result.cards[1]!.sharedTags).toBe(1);
+	});
+
+	test("the digest surfaces the callout headline text for callout-bearing cards", async () => {
+		await ingest([
+			rec({
+				id: "a:callout", title: "WarnCard",
+				detail: "Some intro prose before the warning.\n> [!warning] Never run X without the guard.\nMore prose after.",
+				tags: ["argv"],
+			}),
+		]);
+		const result = await retrieveRecords({
+			vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5,
+		});
+		// The callout headline is lifted into the digest line, ahead of the prose.
+		expect(result.digest).toContain("[!warning]");
+		expect(result.digest).toContain("Never run X without the guard");
+		expect(result.cards[0]!.calloutText).toContain("[!warning]");
+	});
+});
+
 describe("graphHealth", () => {
 	test("reports OK on a freshly-ingested graph", async () => {
 		await ingest([

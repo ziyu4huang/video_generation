@@ -19,6 +19,8 @@ import {
 	slugify,
 	extractDate,
 	formatSummary,
+	extractFeatures,
+	readCardMeta,
 	type KnowledgeRecord,
 } from "../src/ingest.ts";
 import { validateZettelNote } from "pi-obsidian/extensions/obsidian.ts";
@@ -489,5 +491,123 @@ describe("formatSummary", () => {
 		const txt = formatSummary(s);
 		expect(txt).toContain("vault:");
 		expect(txt).toContain("1 created");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Stage 1 (P1) — Obsidian feature metadata extraction → additive frontmatter
+// ---------------------------------------------------------------------------
+
+describe("extractFeatures", () => {
+	test("detects a callout block + its type + headline text", () => {
+		const body = [
+			"Intro prose.",
+			"> [!warning] Never run X without the guard.",
+			"> It will corrupt the index.",
+			"More prose.",
+		].join("\n");
+		const f = extractFeatures(body);
+		expect(f.hasCallouts).toBe(true);
+		expect(f.calloutTypes).toEqual(["warning"]);
+		expect(f.calloutTexts[0]).toContain("[!warning]");
+		expect(f.calloutTexts[0]).toContain("Never run X without the guard");
+	});
+
+	test("callout headline falls back to first continuation line when title is empty", () => {
+		const f = extractFeatures("> [!tip]\n> Use cfg=7 for sharper edges.\n");
+		expect(f.calloutTypes).toEqual(["tip"]);
+		expect(f.calloutTexts[0]).toContain("Use cfg=7 for sharper edges");
+	});
+
+	test("counts open + closed tasks and embeds (not wiki-links)", () => {
+		const body = [
+			"- [ ] todo one",
+			"- [x] done thing",
+			"See ![[embedded-note]] and ![[image.png]].",
+			"A plain [[wiki-link]] must NOT count as an embed.",
+		].join("\n");
+		const f = extractFeatures(body);
+		expect(f.hasTasks).toBe(true);
+		expect(f.openTaskCount).toBe(1);
+		expect(f.closedTaskCount).toBe(1);
+		expect(f.embedCount).toBe(2);
+	});
+
+	test("does not count tasks/embeds inside fenced code blocks", () => {
+		const body = [
+			"```py",
+			"- [ ] this is code, not a task",
+			"![[not-an-embed]]",
+			"```",
+			"- [ ] real task",
+		].join("\n");
+		const f = extractFeatures(body);
+		expect(f.openTaskCount).toBe(1);
+		expect(f.embedCount).toBe(0);
+		expect(f.codeBlockCount).toBe(1);
+		expect(f.codeBlockLines).toBeGreaterThanOrEqual(2);
+	});
+
+	test("returns an empty result for feature-less prose", () => {
+		const f = extractFeatures("Just a plain paragraph about flux2. No features here.");
+		expect(f.hasCallouts).toBe(false);
+		expect(f.calloutTypes).toEqual([]);
+		expect(f.hasTasks).toBe(false);
+		expect(f.embedCount).toBe(0);
+		expect(f.codeBlockLines).toBe(0);
+	});
+});
+
+describe("ingestRecords — additive feature frontmatter (P1)", () => {
+	test("a callout + task body ingests with has_callouts + callout_types + has_tasks", async () => {
+		const detail = [
+			"A gotcha about argv injection.",
+			"> [!warning] Reject leading-dash argv.",
+			"> It bypasses path validation.",
+			"- [ ] add a regression test",
+		].join("\n");
+		await ingestRecords(
+			[rec({ id: "feat:callout", title: "Callout card", detail })],
+			{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "feat" },
+		);
+		const card = readFileSync(join(vault, FOLDER, "feat-callout.md"), "utf8");
+		expect(validateZettelNote(card).ok).toBe(true);
+		expect(card).toContain("has_callouts: true");
+		expect(card).toContain("callout_types: [warning]");
+		expect(card).toContain("has_tasks: true");
+		expect(card).toContain("open_task_count: 1");
+		// readCardMeta surfaces the flag for feature-aware retrieval.
+		const meta = readCardMeta(join(vault, FOLDER, "feat-callout.md"))!;
+		expect(meta.hasCallouts).toBe(true);
+		expect(meta.calloutTypes).toEqual(["warning"]);
+	});
+
+	test("a feature-less record gains NO feature keys (byte-identical, backward-compat)", async () => {
+		await ingestRecords(
+			[rec({ id: "feat:plain", title: "Plain card", detail: "Just prose, no callouts or tasks." })],
+			{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "feat" },
+		);
+		const card = readFileSync(join(vault, FOLDER, "feat-plain.md"), "utf8");
+		expect(card).not.toContain("has_callouts");
+		expect(card).not.toContain("callout_types");
+		expect(card).not.toContain("has_tasks");
+		expect(card).not.toContain("embed_count");
+		expect(validateZettelNote(card).ok).toBe(true);
+		const meta = readCardMeta(join(vault, FOLDER, "feat-plain.md"))!;
+		expect(meta.hasCallouts).toBe(false);
+		expect(meta.calloutTypes).toEqual([]);
+	});
+
+	test("multiple callout types are all captured in order", async () => {
+		const detail = [
+			"> [!warning] careful here",
+			"> [!tip] or do this instead",
+		].join("\n");
+		await ingestRecords(
+			[rec({ id: "feat:multi", title: "Multi", detail })],
+			{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "feat" },
+		);
+		const card = readFileSync(join(vault, FOLDER, "feat-multi.md"), "utf8");
+		expect(card).toContain("callout_types: [warning, tip]");
 	});
 });
