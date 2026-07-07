@@ -31,7 +31,7 @@ import {
 } from "./format.js";
 
 // Re-export formatters + types for tests and downstream consumers.
-export { formatStatus, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
+export { formatStatus, formatGoalMetric, formatDuration, formatTokenCount, type ActiveGoal } from "./format.js";
 
 // ─── Local types (replaces @earendil-works/pi-ai types) ───────────────────────
 

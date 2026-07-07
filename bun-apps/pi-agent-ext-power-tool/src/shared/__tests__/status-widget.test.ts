@@ -114,14 +114,15 @@ describe("PowerToolStatusWidget ordering", () => {
 // ─── GoalOverlay golden (A2) ────────────────────────────────────────────────
 
 describe("GoalOverlay.render", () => {
-	test("active goal: one line with icon, status token, iter, objective", () => {
+	test("active goal: one line with icon, status word, metric, iter, objective", () => {
 		const o = new GoalOverlay();
 		o.update(sampleGoal());
 		const lines = o.render(plainTheme, 80);
 		expect(lines.length).toBe(1);
 		const line = lines[0]!;
 		expect(line).toContain("🎯");
-		expect(line).toContain("active 2m"); // 142s → 2m
+		expect(line).toContain("goal active"); // status word (colored)
+		expect(line).toContain("2m"); // metric: 142s → 2m (dim)
 		expect(line).toContain("iter 3");
 		expect(line).toContain("Ship overlay unification");
 	});
@@ -132,10 +133,12 @@ describe("GoalOverlay.render", () => {
 		expect(o.render(plainTheme, 80)[0]!).toContain("paused");
 	});
 
-	test("budget-limited goal renders 'budget used/total'", () => {
+	test("budget-limited goal renders 'budget reached' + usage metric", () => {
 		const o = new GoalOverlay();
 		o.update(sampleGoal({ status: "budget_limited", tokenBudget: 2000, tokensUsed: 1500 }));
-		expect(o.render(plainTheme, 80)[0]!).toContain("budget 1.5k/2k");
+		const line = o.render(plainTheme, 80)[0]!;
+		expect(line).toContain("goal budget reached"); // status word (warning)
+		expect(line).toContain("1.5k/2k"); // usage metric (dim)
 	});
 
 	test("completion flash: '✓ goal complete' + objective", () => {

@@ -31,15 +31,39 @@ export interface ActiveGoal {
 	baselineTokens: number;
 }
 
-// ─── Compact status token (footer / summary) ─────────────────────────────────
+// ─── Status word + progress metric (overlay rendering) ───────────────────────
 
+/**
+ * The status WORD — what state the goal is in, with no metric attached.
+ * Used as the colored head of the overlay line; the metric lives in its own
+ * dim segment (formatGoalMetric) so "what state" (colored) is visually separate
+ * from "how long / how many tokens" (dim).
+ *
+ *   "goal active" · "goal paused" · "goal budget reached" · "goal complete"
+ */
 export function formatStatus(goal: ActiveGoal | undefined): string | undefined {
 	if (!goal) return undefined;
-	if (goal.status === "complete") return "complete";
-	if (goal.status === "paused") return "paused";
-	if (goal.status === "budget_limited") return `budget ${formatBudget(goal)}`;
-	if (goal.tokenBudget !== undefined) return `active ${formatBudget(goal)}`;
-	return `active ${formatDuration(goal.timeUsedSeconds)}`;
+	if (goal.status === "complete") return "goal complete";
+	if (goal.status === "paused") return "goal paused";
+	if (goal.status === "budget_limited") return "goal budget reached";
+	return "goal active";
+}
+
+/**
+ * The progress metric for the overlay's dim segment:
+ *   - budget-bearing states (active w/ budget, budget_limited) → "500/2k"
+ *   - time-bearing states (active w/o budget, paused) → "1m23s"
+ *   - complete → undefined (the completion flash handles display)
+ */
+export function formatGoalMetric(goal: ActiveGoal | undefined): string | undefined {
+	if (!goal) return undefined;
+	if (goal.status === "budget_limited" || (goal.status === "active" && goal.tokenBudget !== undefined)) {
+		return formatBudget(goal);
+	}
+	if (goal.status === "active" || goal.status === "paused") {
+		return formatDuration(goal.timeUsedSeconds);
+	}
+	return undefined;
 }
 
 export function formatBudget(goal: ActiveGoal): string {
@@ -71,17 +95,28 @@ export function goalStatusColor(status: GoalStatus): ThemeColor {
 
 /**
  * One-line, theme-colored goal indicator for the above-editor widget:
- *   🎯 active 1m23s · iter 3  <dim objective…>
+ *   🎯 goal active · 1m23s · iter 3  <dim objective…>
  *
- * The status token is colored by status (active=accent, paused/budget=warning,
- * complete=success) so paused goals visually stand out without reading.
+ * The status WORD (goal active / goal paused / goal budget reached) is the
+ * colored signal — colored by status (active=accent, paused/budget=warning,
+ * complete=success) so paused/budget-reached goals stand out without reading.
+ * The metric (elapsed time OR token budget) and iteration count are dim, so
+ * "what state" never blurs into "how long / how many tokens".
  */
 export function formatGoalOverlayLine(goal: ActiveGoal, theme: Theme, width: number): string {
 	const color = goalStatusColor(goal.status);
 	const icon = goal.status === "complete" ? "✓" : "🎯";
-	const token = formatStatus(goal) ?? goal.status;
-	const sep = theme.fg("dim", "·");
-	const head = `${theme.fg(color, icon)} ${theme.fg(color, token)} ${sep} ${theme.fg("dim", `iter ${goal.iteration}`)}`;
+	const statusWord = formatStatus(goal) ?? goal.status;
+	const metric = formatGoalMetric(goal);
+	const sep = ` ${theme.fg("dim", "·")} `;
+
+	// Colored status head first, then dim metrics joined by "·".
+	const headParts = [
+		`${theme.fg(color, icon)} ${theme.fg(color, statusWord)}`,
+		...(metric ? [theme.fg("dim", metric)] : []),
+		theme.fg("dim", `iter ${goal.iteration}`),
+	];
+	const head = headParts.join(sep);
 
 	// Objective fills the remaining width in dim. On narrow terminals, drop it
 	// entirely before truncating the status head (the head is the signal).

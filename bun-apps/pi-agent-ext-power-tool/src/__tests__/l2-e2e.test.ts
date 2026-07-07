@@ -32,8 +32,14 @@
  * RUN all power-tool tests:
  *   ( cd bun-apps/pi-agent-ext-power-tool && bun test )
  *
- * SKIP if LM Studio is unavailable:
- *   PI_SKIP_L2=1 bun test ...
+ * OPT-IN: L2 tests are SKIPPED by default. They spawn the real pi-agent CLI,
+ * load a real model from LM Studio, and (for knowledge_query/graph_health)
+ * query the real vault-mind ChromaDB — each takes 30s–10min, far over bun:test's
+ * 5s default timeout. Enable explicitly:
+ *   PI_RUN_L2=1 bun test bun-apps/pi-agent-ext-power-tool/src/__tests__/l2-e2e.test.ts
+ * If a required service is unreachable the test SKIPS with a reason in its title
+ * (no spurious 5s-timeout failure). PI_SKIP_L2=1 (legacy) is still honored as a
+ * force-skip.
  */
 
 import { test, expect } from "bun:test";
@@ -139,6 +145,21 @@ async function lmStudioReachable(): Promise<boolean> {
 }
 
 /**
+ * Is the vault-mind ChromaDB backend (VAULT_MIND_BASE_URL, default :8000) up?
+ * Any HTTP response (even 404) counts as "listening" — a wrong path still means
+ * the server is there; only a connection refusal/timeout means it's down.
+ */
+async function vaultMindReachable(): Promise<boolean> {
+  const base = process.env.VAULT_MIND_BASE_URL ?? "http://127.0.0.1:8000";
+  try {
+    await fetch(`${base}/api/v2/heartbeat`, { signal: AbortSignal.timeout(1500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Invoke one tool through the real CLI as a synchronous subprocess.
  * Returns exit code + combined stdout/stderr.
  */
@@ -164,24 +185,39 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-const shouldSkip = process.env.PI_SKIP_L2 === "1";
-const L2 = shouldSkip ? test.skip : test;
+// L2 tests are OPT-IN (see file header). bun:test has no runtime skip(), so the
+// skip decision is made at REGISTRATION time from a one-shot preflight below.
+// PI_SKIP_L2=1 (legacy) is honored as a force-skip regardless of PI_RUN_L2.
+const l2Enabled = process.env.PI_RUN_L2 === "1" && process.env.PI_SKIP_L2 !== "1";
+
+// Preflight once (top-level await is fine under bun:test ESM). When disabled we
+// skip the network probes entirely so default `bun test` registers fast.
+let lmStudioUp = false;
+let vaultMindUp = false;
+if (l2Enabled) {
+  lmStudioUp = await lmStudioReachable();
+  vaultMindUp = await vaultMindReachable();
+}
+
+// Tools that query the knowledge graph need the vault-mind ChromaDB service.
+const VAULT_TOOLS = new Set(["knowledge_query", "graph_health"]);
 
 for (const tool of TOOLS) {
-  // Use test.skip (static modifier) when PI_SKIP_L2=1; the reachable check
-  // below fails fast with a clear message rather than timing out silently.
-  L2(`L2: ${tool.name}`, async () => {
-    // Fail-fast preflight: without LM Studio the CLI invocation will hang.
-    // We use lmStudioReachable() with a short timeout to avoid the previous
-    // silent 5000ms+ timeout behavior.
-    const reachable = await lmStudioReachable();
-    if (!reachable) {
-      throw new Error(
-        "LM Studio not reachable on localhost:1234 — cannot run L2 test. " +
-        "Start LM Studio or set PI_SKIP_L2=1 to skip.",
-      );
-    }
+  const needsVault = VAULT_TOOLS.has(tool.name);
+  const blockers: string[] = [];
+  if (!l2Enabled) blockers.push("set PI_RUN_L2=1 to run L2 e2e");
+  else {
+    if (!lmStudioUp) blockers.push("LM Studio not reachable on :1234");
+    if (needsVault && !vaultMindUp) blockers.push("vault-mind not reachable on :8000");
+  }
+  const canRun = blockers.length === 0;
+  const runner = canRun ? test : test.skip;
+  // Skip reason goes in the title so it's visible in `bun test` output.
+  const title = canRun
+    ? `L2: ${tool.name}`
+    : `L2: ${tool.name} — skipped (${blockers.join("; ")})`;
 
+  runner(title, async () => {
     const { exitCode, stdout } = invokeTool(tool.prompt, tool.timeoutMs);
 
     // Gate 1: exit code must be 0
@@ -194,5 +230,5 @@ for (const tool of TOOLS) {
         expect(lower, `${tool.name}: stdout contains "${marker}"`).toInclude(marker.toLowerCase());
       }
     }
-  });
+  }, { timeout: (tool.timeoutMs ?? 120_000) + 5_000 });
 }
