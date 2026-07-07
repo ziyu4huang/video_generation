@@ -12,6 +12,18 @@ This package is the **single source of truth** for the task builders
 `zk-card`, `zk-ask`, and `zk-ingest` import these same builders (and the
 deterministic ingest library) so the CLI and the extension never drift apart.
 
+> **Architecture & dependencies** — see [`docs/`](./docs):
+> - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — two ingestion modes,
+>   4 tools, 4 src modules, data flow, load-bearing invariants.
+> - [`docs/DEPENDENCIES.md`](./docs/DEPENDENCIES.md) — the cross-package graph
+>   (pi-obsidian hard peer; pi-agent-cli + power-tool hard workspace;
+>   pi-hermes-memory optional peer) + the **two read paths** (retrieveRecords
+>   vs zk_ask) and why the P1 callout boost is retrieveRecords-only.
+> - [`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md) — the 12-key record → zettel
+>   card frontmatter (incl. P1 feature keys) + MOC + digest.
+> - [`docs/PR-HISTORY.md`](./docs/PR-HISTORY.md) — the knowledge-layer arc
+>   (#152 → #349).
+
 ## Two ingestion modes
 
 | Mode | Tool | Backed by | When |
@@ -85,6 +97,18 @@ Graph-enhanced RAG over the Zettelkasten vault. Pipeline:
 
 > **Note on `max_note_tokens`:** the token cap is enforced by instructing the
 > subagent; it is best-effort, not a hard tool-level limit.
+
+### `knowledge_query` · `graph_health` (the hub's direct no-LLM surface)
+
+Two deterministic tools that wrap `src/retrieve.ts` directly — **no subagent,
+no LLM, no network** — so they're cheaper than the `zk_*` tools and work as a
+fast read/audit path. These were migrated from `pi-agent-ext-power-tool` so the
+hub owns every agent-facing knowledge tool (consolidation cycle, 2026-07-07).
+
+| Tool | Description |
+| ---- | ----------- |
+| `knowledge_query` | Cross-workflow tag-ranked digest over the convergence folder. `tags[]` (ANY semantics) OR a natural-language `query` (tokenized into tags). Returns the grouped digest — the same one `zk-query` (CLI) produces. |
+| `graph_health` | Audit + auto-heal the convergence-folder graph: dead wiki-links, MOC drift, orphans. `fix: true` auto-heals (regenerate MOC + prune dead links, scoped — never touches human-authored cards). |
 
 ## Environment
 

@@ -1,4 +1,7 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import piKnowledgeCardExtension, {
 	ADD_TOOLS,
 	CHECK_TASK,
@@ -15,6 +18,7 @@ import piKnowledgeCardExtension, {
 	buildRemoveTask,
 	buildUpdateTask,
 } from "../extensions/pi-knowledge-card.ts";
+import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
 
 // ---------------------------------------------------------------------------
 // Tool allowlists — sanity checks (the CLI imports these verbatim)
@@ -632,9 +636,11 @@ describe("zk_card execute validation", () => {
 });
 
 describe("tool registration", () => {
-	test("registers exactly zk_extract, zk_card, zk_ask, zk_ingest", () => {
+	test("registers exactly zk_extract, zk_card, zk_ask, zk_ingest, knowledge_query, graph_health", () => {
 		const tools = loadTools();
 		expect(Object.keys(tools).sort()).toEqual([
+			"graph_health",
+			"knowledge_query",
 			"zk_ask",
 			"zk_card",
 			"zk_extract",
@@ -642,10 +648,101 @@ describe("tool registration", () => {
 		]);
 	});
 
+	test("the migrated knowledge_query + graph_health tools are wired (consolidation cycle)", () => {
+		const tools = loadTools();
+		// Migrated from pi-agent-ext-power-tool so the hub owns every agent-facing
+		// knowledge tool. Both are no-LLM surfaces over retrieve.ts.
+		expect(tools.knowledge_query).toBeDefined();
+		expect(tools.graph_health).toBeDefined();
+		expect(typeof tools.knowledge_query.execute).toBe("function");
+		expect(typeof tools.graph_health.execute).toBe("function");
+	});
+
 	test("each registered tool has a non-empty description and execute fn", () => {
 		const tools = loadTools();
 		for (const name of Object.keys(tools)) {
 			expect(typeof tools[name].execute).toBe("function");
 		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Migrated tools (knowledge_query / graph_health) — behavior preservation.
+// Proves the move from pi-agent-ext-power-tool kept the tool-level behavior:
+// they resolve the vault (OB_VAULT_PATH) and return the retrieve.ts digest /
+// graphHealth report. The underlying library contracts are covered by
+// retrieve.test.ts; this pins the tool EXECUTE wrappers.
+// ---------------------------------------------------------------------------
+
+describe("knowledge_query + graph_health (migrated tools)", () => {
+	let vault: string;
+	let prevVaultEnv: string | undefined;
+
+	beforeEach(() => {
+		vault = mkdtempSync(join(tmpdir(), "kc-migrated-"));
+		prevVaultEnv = process.env.OB_VAULT_PATH;
+		process.env.OB_VAULT_PATH = vault;
+	});
+	afterEach(() => {
+		if (prevVaultEnv === undefined) delete process.env.OB_VAULT_PATH;
+		else process.env.OB_VAULT_PATH = prevVaultEnv;
+		rmSync(vault, { recursive: true, force: true });
+	});
+
+	test("knowledge_query returns the cross-workflow digest for matched tags", async () => {
+		const rec: KnowledgeRecord = {
+			id: "migrated:argv", type: "gotcha", title: "Argv gotcha",
+			detail: "Reject leading-dash argv.", tags: ["argv"], dimension: "correctness",
+			confidence: 0.8, status: "active", superseded_by: null,
+		};
+		await ingestRecords([rec], {
+			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "migrated-test",
+		});
+		const res = await runTool("knowledge_query", { tags: ["argv"] });
+		expect(res.isError).toBeFalsy();
+		expect(res.content[0].text).toContain("Knowledge graph: 1 card(s) matched");
+		expect(res.content[0].text).toContain("Argv gotcha"); // digest surfaced the card
+	});
+
+	test("knowledge_query reports when no cards match", async () => {
+		// Vault exists but has no matching card.
+		await ingestRecords([{ ...{ id: "migrated:x", type: "gotcha", title: "X", detail: "d", tags: ["unrelated"], dimension: null, confidence: 0.5, status: "active", superseded_by: null } as KnowledgeRecord }], {
+			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t",
+		});
+		const res = await runTool("knowledge_query", { tags: ["argv"] });
+		expect(res.content[0].text).toContain("No knowledge cards matched");
+	});
+
+	test("knowledge_query infers tags from a natural-language query", async () => {
+		await ingestRecords([{
+			id: "migrated:argparse-lever", type: "lever", title: "Argparse lever",
+			detail: "Use argparse.", tags: ["argparse"], dimension: "quality",
+			confidence: 0.7, status: "active", superseded_by: null,
+		} as KnowledgeRecord], {
+			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t",
+		});
+		// No tags → the query "argparse configuration" is tokenized to [argparse, configuration].
+		const res = await runTool("knowledge_query", { query: "argparse configuration" });
+		expect(res.content[0].text).toContain("1 card(s) matched");
+	});
+
+	test("knowledge_query errors clearly when the vault cannot be resolved", async () => {
+		delete process.env.OB_VAULT_PATH;
+		process.env.OB_VAULT_DIR = "/no/such/dir/xyz";
+		const res = await runTool("knowledge_query", { tags: ["argv"] });
+		expect(res.content[0].text).toContain("Cannot resolve vault path");
+	});
+
+	test("graph_health audits a freshly-ingested graph as OK", async () => {
+		await ingestRecords([{
+			id: "migrated:g1", type: "gotcha", title: "G1", detail: "d", tags: ["argv"],
+			dimension: "correctness", confidence: 0.8, status: "active", superseded_by: null,
+		} as KnowledgeRecord], {
+			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t",
+		});
+		const res = await runTool("graph_health", {});
+		expect(res.content[0].text).toContain("status:");
+		expect(res.content[0].text).toContain("card(s)");
+		expect(res.details.ok).toBe(true);
 	});
 });

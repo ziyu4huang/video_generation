@@ -109,8 +109,9 @@ persistent features should use Tier 1, not Tier 3.
 ## Typecheck gate
 
 `cd bun-apps/pi-agent-ext-power-tool && bunx tsc --noEmit` must show **0 errors
-in power-tool's own source** (`src/**`). The only residual errors are in the
-external `pi-knowledge-card/src/ingest.ts` workspace dependency (out of scope —
-tracked in the goal file). The `bun:test` `Cannot find module 'bun:test'`
+in power-tool's own source** (`src/**`). (The `knowledge_query` + `graph_health`
+tools and their workspace dependency were moved out in the consolidation cycle —
+power-tool is now self-contained diagnostics, so no external workspace source
+contributes residual errors.) The `bun:test` `Cannot find module 'bun:test'`
 editor/LSP warning is a known false positive resolved at runtime (see
 `.claude/memory`); gate on `bun test` exit code, not the editor squiggle.
