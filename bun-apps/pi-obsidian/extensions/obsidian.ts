@@ -5115,17 +5115,50 @@ ${output.slice(-2000)}`,
 		}
 		try {
 			const v = await getVault(ctx.cwd);
-			// Type is "warning" on purpose, NOT "info": pi's showStatus() merges
-			// consecutive info notifies into one (overwriting the earlier text),
-			// so the obsidian startup line would be clobbered by the zai-mcp
-			// notify that fires right after. showWarning() always appends a new
-			// line, guaranteeing both startup messages are visible together.
-			// (The line renders with a "Warning:" prefix + warning color —
-			// acceptable trade-off for guaranteed visibility.)
-			ctx.ui.notify(
-				`obsidian: vault “${v.name}”${v.registered ? "" : " (local)"}`,
-				"warning",
-			);
+			// Above-editor banner (same placement as the /goal banner), delayed
+			// 10s. Delaying past the startup notify burst (zai-mcp fires right
+			// after this handler) sidesteps the clobbering that previously forced
+			// a "warning" type: by the time this lands, the startup notifies have
+			// settled, so we render a clean banner instead of the scary
+			// "Warning:" line. setWidget(key, [lines]) with default placement
+			// renders above the input editor (like /goal); setStatus would land in
+			// the footer status bar, which is the wrong spot for this. The vault
+			// is cached per-session (getVault). This is a TRANSIENT confirmation
+			// banner, not a persistent status indicator: it shows once to confirm
+			// which vault is active, then auto-dismisses (the setWidget API has
+			// no TTL, so we clear it ourselves with a second timer).
+			const theme = ctx.ui.theme;
+			const icon = v.registered ? "📓" : "📎";
+			const label = theme.fg("dim", "obsidian vault active:");
+			const name = theme.fg("accent", v.name);
+			const tag = v.registered ? "" : theme.fg("dim", " (local)");
+			// Timers can straddle a session switch (/resume, ctx.fork,
+			// ctx.switchSession): the captured ctx goes stale, and the ctx.ui
+			// getter throws assertActive() inside the callback ->
+			// uncaughtException -> pi crashes. Guard every deferred ctx.ui call;
+			// a stale session needs no banner (the replacement session renders
+			// its own on its own session_start).
+			const SHOW_DELAY_MS = 10_000; // past the startup notify burst (zai-mcp)
+			const DISPLAY_MS = 8_000; // visible window before auto-dismiss
+			setTimeout(() => {
+				try {
+					ctx.ui.setWidget("obsidian-vault", [
+						`${icon} ${label} ${name}${tag}`,
+					]);
+				} catch {
+					/* ctx stale after session switch — banner is non-essential */
+					return;
+				}
+				// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session
+				// switch between show and dismiss leaves ctx stale.
+				setTimeout(() => {
+					try {
+						ctx.ui.setWidget("obsidian-vault", undefined);
+					} catch {
+						/* ctx stale after session switch */
+					}
+				}, DISPLAY_MS);
+			}, SHOW_DELAY_MS);
 		} catch {
 			ctx.ui.notify("obsidian: no vault found", "warning");
 		}
