@@ -9,12 +9,13 @@ Multi-vault 佈局的根目錄。每個子資料夾是一個獨立的 Obsidian v
 ```
 vaults_root/
 ├── README.md                  ← 本檔，本 repo 追蹤
-└── pi-agent-vault/            ← git submodule → ziyu4huang/pi-agent-vault.git
-    ├── Design/
-    ├── Inbox/
-    ├── Zettelkasten/
-    ├── Tags/
-    └── .obsidian/
+├── pi-agent-vault/            ← git submodule → ziyu4huang/pi-agent-vault.git
+│   ├── Design/
+│   ├── Inbox/
+│   ├── Zettelkasten/
+│   ├── Tags/
+│   └── .obsidian/
+└── study-news/                ← git submodule → ziyu4huang/study-news.git
 ```
 
 ## 子 vault 一覽
@@ -22,6 +23,7 @@ vaults_root/
 | 資料夾 | 來源 | pin（commit） | 說明 |
 |--------|------|---------------|------|
 | `pi-agent-vault/` | `git@github.com:ziyu4huang/pi-agent-vault.git` (submodule) | `53febc7`（origin/main latest, 2026-06-27） | pi-agent 專案的主力知識庫；`bun-apps/pi-obsidian` 增強計畫的學習來源與目標驗證場域 |
+| `study-news/` | `git@github.com:ziyu4huang/study-news.git` (submodule) | `2d436daf`（origin/main latest, 2026-07-05） | LLM + Zettelkasten 敏捷知識圖譜開源專案研究（private） |
 
 ## 為什麼是 submodule
 
