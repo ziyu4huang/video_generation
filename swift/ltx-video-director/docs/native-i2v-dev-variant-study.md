@@ -287,3 +287,107 @@ full parity with production's 4-pass guidance. No real-checkpoint parity
 test has been run yet (build + existing regression suite only) — before
 trusting this for quality-sensitive use, run a real `.dasiwa` generation and
 visually compare against the Python `run.py` equivalent.
+
+## Status update (2026-07-07, later still): STG mechanism confirmed — self-attention perturbation IS "blend attn output with the value projection", not a mask/shuffle
+
+Before starting 2b, re-read the actual `ltx_core_mlx` source (not just
+`guiders.py`, which only has the blend math) to resolve the open "what does
+block-28 self-attention perturbation mean at the tensor level" question
+carried since before 2a. Answer, confirmed at
+`ltx_core_mlx/model/transformer/attention.py:129-133`:
+
+```python
+# STG perturbation: blend attn output with value projection
+if perturbation_mask is not None:
+    out = out * perturbation_mask + v * (1.0 - perturbation_mask)
+```
+
+i.e. for samples/blocks flagged perturbed, the self-attention output is
+replaced with the raw **value projection** `v` — equivalent to collapsing
+the attention map to identity (every token "attends" only to itself), NOT a
+score mask, NOT a shuffle/permutation. `perturbation_mask` is computed once
+per block by `BatchedPerturbationConfig.mask_like` (`guidance/perturbations.py`)
+keyed on `block_idx` against `stg_blocks` (`[28]`) — one scalar per batch
+sample, broadcast over the attention output's shape. This happens **before**
+the per-head sigmoid gate and `to_out` projection, on both the video
+(`attn1`) and audio (`audio_attn1`) self-attention calls independently
+(`transformer.py`'s `BasicAVTransformerBlock.__call__`); cross-modal A2V/V2A
+perturbation is applied differently ("OUTSIDE attention", per that file's own
+comment) — that's 2c, unchanged.
+
+## Status update (2026-07-07, later still): Milestone 2b (STG) shipped
+
+Mirrors 2a's pattern exactly, additive to the existing (untested-by-fixture,
+but structurally already-correct) `Attention.swift` perturbation-mask blend
+from Milestone 1:
+
+- `CFGGuidance.swift`: new `isSTGActive(stgScale:)` and a 6-arg `blend`
+  overload (`cond/uncond/uncondPerturbed/cfgScale/stgScale/rescaleScale`)
+  implementing the full `cond + (cfgScale-1)*(cond-uncond) +
+  stgScale*(cond-uncondPerturbed)` formula; the existing 4-arg `blend` is
+  now a thin wrapper (`uncondPerturbed: nil, stgScale: 0`) — no
+  call-site breakage.
+- `BasicAVTransformerBlock.swift`: new `videoPerturbationMask: MLXArray? =
+  nil` param, forwarded straight to `attn1` (video self-attention only,
+  matching 2a's video-only CFG scope — audio/cross-modal perturbation stay
+  unported).
+- `LTXModel.swift` (`callAsFunction` and `streamingForward`): new
+  `stgBlocks: Set<Int> = []` param. Per block index, constructs a single
+  scalar `MLXArray(0.0)` mask (the whole pass is uniformly perturbed or not
+  — this is a separate, non-batched forward pass, unlike the reference's
+  per-sample batched mask) and passes it only for blocks in `stgBlocks`.
+- `DenoiseLoop.runStreaming`: new `stgScale: Float = 0.0`/`stgBlocks: Set<Int>
+  = [28]` params. **STG is independent of CFG** — when only STG is active
+  (`cfgScale` at its 1.0 no-op default), the "uncond" pass is skipped
+  entirely and `cond` is substituted in its place before calling `blend`
+  (provably safe: `blend`'s `(cfgScale-1)` factor is exactly 0 in that case,
+  so the substituted value is never actually used) — avoids a wasted
+  negative-prompt forward pass just to satisfy the API. When STG is active,
+  a third forward pass runs with the perturbed `cond` (own text embeds, not
+  the negative prompt — "uncond" in `uncond_perturbed` names the guidance
+  role being subtracted, not the text conditioning) and `stgBlocks` active.
+- `NativeI2VStage.Request`/`NativeI2VCommand`: `stgScale: Double?` (nil =
+  variant default, `0.0` distilled / `1.0` dev-dasiwa, mirroring `cfgScale`)
+  and `stgBlocks: [Int] = [28]`, exposed as `--stg-scale`/`--stg-blocks`.
+
+**Cost**: STG active means a 3rd forward pass per step (on top of CFG's
+2nd) whenever both are active — `.dev`/`.dasiwa`'s real default is now
+3x per-step transformer cost, not 2x. Not yet re-measured against the
+34.4GB/9-frame OOM check from the prior segment (that check predates 2b);
+worth re-running before trusting memory-safety at this new pass count.
+
+**Tests added** (all pass): `AttentionParityTests
+.testSTGPerturbationMaskBlendsToValueProjection` (algebraic check of the
+mask blend against a from-scratch value projection, no fixture),
+`CFGGuidanceTests` (3 tests: `isSTGActive`, STG-inactive-equals-CFG-only,
+manual-arithmetic match for the combined formula), and
+`DenoiseLoopStreamingRealCheckpointTests
+.testStreamingLoopSTGChangesOutputAndDefaultIsUnchanged` (real checkpoint,
+2-block stack: `stgScale=0` is a byte-identical no-op regardless of
+`stgBlocks`; `stgScale=1` produces finite output that measurably differs
+from the baseline).
+
+**Not yet done**: real-checkpoint end-to-end visual comparison against
+`run.py`'s dasiwa output (same caveat 2a shipped with — build + unit tests
+only), and 2c (modality guidance).
+
+**Full-suite verification note**: the complete `swift test` run (100+
+tests) could not be completed end-to-end in this session — 3 separate
+attempts all hung/got killed at the identical point (`LoRAFusionTests` →
+`MP4WriterTests`/`MacTTSTests` → `MelSTFTParityTests.testMelSTFT` started
+but never finished), despite `MelSTFTParityTests` and its immediate
+neighbors passing instantly (<0.04s) in isolation. **Confirmed pre-existing
+and unrelated to this milestone**: stashed all 2b changes and re-ran the
+identical full suite against the pre-2b `main` baseline (`69f67e38`) — it
+hung at the exact same point. This is an environment/resource issue (likely
+Metal/thread-pool exhaustion from running the same heavy real-checkpoint
+suite repeatedly in one session), not a regression introduced by 2b. All
+2b-specific and directly-adjacent test targets (`AttentionParityTests`,
+`CFGGuidanceTests`, `BasicAVTransformerBlockParityTests`, `LTXModelParityTests`,
+`LTXModelRealCheckpointTests`, `DenoiseLoopParityTests`,
+`DenoiseLoopConditionedTests`, `DenoiseLoopI2VParityTests`,
+`DenoiseLoopStreamingRealCheckpointTests`) were run directly (not via the
+full suite) and all pass, including against real checkpoints — this is the
+verification basis for calling 2b done, not a completed full-suite run.
+Worth a fresh full-suite run in a later session (e.g. after a machine
+restart) to confirm the whole 100+ suite is still green end-to-end.

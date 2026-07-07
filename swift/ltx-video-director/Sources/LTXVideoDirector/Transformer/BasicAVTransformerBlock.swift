@@ -9,10 +9,12 @@
 //  cross-attn -> bidirectional audio<->video cross-modal attn -> video FF
 //  -> audio FF, each modulated by AdaLN scale/shift/gate parameters.
 //
-//  NOT YET PORTED: STG perturbation masking (BatchedPerturbationConfig —
-//  used for spatial-temporal guidance during inference, not needed for a
-//  basic forward pass). All `perturbations` branches in the reference are
-//  omitted here; this block always takes the un-perturbed path.
+//  STG perturbation (Milestone 2b, see docs/native-i2v-dev-variant-study.md):
+//  `videoPerturbationMask`, when non-nil, is forwarded to `attn1` (video
+//  self-attention only — audio/cross-modal perturbation are NOT ported,
+//  matching Milestone 2a's video-only CFG scope). Reference:
+//  `BatchedPerturbationConfig`'s `SKIP_VIDEO_SELF_ATTN` branch in
+//  `transformer.py`.
 //
 
 import MLX
@@ -101,7 +103,8 @@ public struct BasicAVTransformerBlock {
         videoRopeFreqs: RoPE.Freqs? = nil, audioRopeFreqs: RoPE.Freqs? = nil,
         videoCrossRopeFreqs: RoPE.Freqs? = nil, audioCrossRopeFreqs: RoPE.Freqs? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
-        runVideoStream: Bool = true, a2vCrossAttn: Bool = true, v2aCrossAttn: Bool = true
+        runVideoStream: Bool = true, a2vCrossAttn: Bool = true, v2aCrossAttn: Bool = true,
+        videoPerturbationMask: MLXArray? = nil
     ) -> (video: MLXArray, audio: MLXArray) {
         var video = videoHidden
         var audio = audioHidden
@@ -143,7 +146,7 @@ public struct BasicAVTransformerBlock {
         // 1. Video self-attention
         if runVideoStream {
             let videoNormed = rmsNorm(video) * (1.0 + vScaleSA) + vShiftSA
-            let videoSAOut = attn1(videoNormed, ropeFreqs: videoRopeFreqs, attentionMask: videoAttentionMask)
+            let videoSAOut = attn1(videoNormed, ropeFreqs: videoRopeFreqs, attentionMask: videoAttentionMask, perturbationMask: videoPerturbationMask)
             video = video + videoSAOut * vGateSA
         }
 

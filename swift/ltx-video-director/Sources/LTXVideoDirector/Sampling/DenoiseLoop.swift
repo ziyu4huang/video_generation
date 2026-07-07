@@ -185,8 +185,19 @@ public enum DenoiseLoop {
     ///   - cfgScale: Classifier-free guidance scale. `1.0` (default) means
     ///     no guidance — behavior-identical to before this parameter existed.
     ///   - rescaleScale: Variance-preserving rescale strength applied after
-    ///     the CFG blend (`0` disables rescaling). Ignored when CFG is
-    ///     inactive.
+    ///     the CFG/STG blend (`0` disables rescaling). Ignored when both
+    ///     CFG and STG are inactive.
+    ///   - stgScale: Spatio-temporal guidance scale (Milestone 2b, see
+    ///     `docs/native-i2v-dev-variant-study.md`). `0.0` (default) means
+    ///     no guidance — behavior-identical to before this parameter
+    ///     existed. When non-zero, an extra forward pass runs per step with
+    ///     `stgBlocks`' video self-attention perturbed (blended to the raw
+    ///     value projection — see `Attention.swift`), independent of
+    ///     `cfgScale`/`uncondVideoTextEmbeds`.
+    ///   - stgBlocks: Which transformer block indices get self-attention
+    ///     perturbed when `stgScale` is active. Default `[28]` matches
+    ///     production's `_GUIDER_STG_BLOCKS` constant for dev/dasiwa.
+    ///     Ignored when `stgScale` is inactive.
     public static func runStreaming(
         model: LTXModel, numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
         videoState: LatentState, audioState: LatentState,
@@ -197,7 +208,9 @@ public enum DenoiseLoop {
         cachedBlockCount: Int = 0,
         uncondVideoTextEmbeds: MLXArray? = nil,
         cfgScale: Float = 1.0,
-        rescaleScale: Float = 0.0
+        rescaleScale: Float = 0.0,
+        stgScale: Float = 0.0,
+        stgBlocks: Set<Int> = [28]
     ) -> DenoiseResult {
         var videoX = videoState.latent
         var audioX = audioState.latent
@@ -210,6 +223,7 @@ public enum DenoiseLoop {
 
         var blockCache: [Int: BasicAVTransformerBlock] = [:]
         let cfgActive = uncondVideoTextEmbeds != nil && CFGGuidance.isActive(cfgScale: cfgScale)
+        let stgActive = CFGGuidance.isSTGActive(stgScale: stgScale) && !stgBlocks.isEmpty
 
         return withoutActuallyEscaping(blockProvider) { blockProvider in
             let effectiveBlockProvider: (Int) -> BasicAVTransformerBlock = cachedBlockCount <= 0 ? blockProvider : { idx in
@@ -240,21 +254,54 @@ public enum DenoiseLoop {
                 var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
                 var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
 
-                if cfgActive, let uncondVideoTextEmbeds {
-                    // Second forward pass with the negative prompt (video
-                    // stream only — audio guidance is a separate
-                    // sub-milestone, see CFGGuidance.swift's header). The
-                    // audio output of this pass is discarded.
-                    let (uncondVideoV, _) = model.streamingForward(
-                        videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
-                        numLayers: numLayers, blockProvider: effectiveBlockProvider,
-                        videoTextEmbeds: uncondVideoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
-                        videoPositions: videoState.positions, audioPositions: audioState.positions,
-                        videoAttentionMask: vMask, audioAttentionMask: aMask,
-                        videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
-                        audioOnly: audioOnly)
-                    let uncondVideoX0 = (videoX.asType(.float32) - sigmaB * uncondVideoV.asType(.float32)).asType(videoX.dtype)
-                    videoX0 = CFGGuidance.blend(cond: videoX0, uncond: uncondVideoX0, cfgScale: cfgScale, rescaleScale: rescaleScale)
+                if cfgActive || stgActive {
+                    // Second forward pass with the negative prompt — only
+                    // needed when CFG itself is active (video stream only;
+                    // audio guidance is a separate sub-milestone, see
+                    // CFGGuidance.swift's header). When only STG is active
+                    // (cfgScale inactive), `uncondVideoX0` is set to `cond`
+                    // itself: `blend`'s `(cfgScale-1)` factor is exactly 0
+                    // in that case, so its value is provably unused —
+                    // avoids a wasted forward pass just to satisfy the
+                    // non-optional `uncond` parameter.
+                    var uncondVideoX0 = videoX0
+                    if cfgActive, let uncondVideoTextEmbeds {
+                        let (uncondVideoV, _) = model.streamingForward(
+                            videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                            numLayers: numLayers, blockProvider: effectiveBlockProvider,
+                            videoTextEmbeds: uncondVideoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                            videoPositions: videoState.positions, audioPositions: audioState.positions,
+                            videoAttentionMask: vMask, audioAttentionMask: aMask,
+                            videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                            audioOnly: audioOnly)
+                        uncondVideoX0 = (videoX.asType(.float32) - sigmaB * uncondVideoV.asType(.float32)).asType(videoX.dtype)
+                    }
+
+                    var uncondPerturbedVideoX0: MLXArray?
+                    if stgActive {
+                        // Third forward pass (Milestone 2b) — same
+                        // conditioned text embeds as the `cond` pass, but
+                        // with self-attention skipped (blended to the raw
+                        // value projection, see Attention.swift) in
+                        // `stgBlocks`. Reference: `MultiModalGuider
+                        // .calculate`'s `uncond_perturbed` term uses the
+                        // COND text embeds, not the negative prompt —
+                        // "uncond" here names the guidance role (the pass
+                        // being subtracted), not the text conditioning.
+                        let (perturbedV, _) = model.streamingForward(
+                            videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                            numLayers: numLayers, blockProvider: effectiveBlockProvider,
+                            videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                            videoPositions: videoState.positions, audioPositions: audioState.positions,
+                            videoAttentionMask: vMask, audioAttentionMask: aMask,
+                            videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                            audioOnly: audioOnly, stgBlocks: stgBlocks)
+                        uncondPerturbedVideoX0 = (videoX.asType(.float32) - sigmaB * perturbedV.asType(.float32)).asType(videoX.dtype)
+                    }
+
+                    videoX0 = CFGGuidance.blend(
+                        cond: videoX0, uncond: uncondVideoX0, uncondPerturbed: uncondPerturbedVideoX0,
+                        cfgScale: cfgScale, stgScale: stgScale, rescaleScale: rescaleScale)
                 }
 
                 videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)

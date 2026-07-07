@@ -49,8 +49,14 @@ struct NativeI2V: ParsableCommand {
     @Option(help: "Classifier-free guidance scale for the video stream. Omit to use the transformer variant's own default: 1.0 (off) for distilled, 5.0 for dev/dasiwa. Set 1.0 to force CFG off even for dev/dasiwa.")
     var cfgScale: Double?
 
-    @Option(help: "Variance-preserving rescale strength applied after the CFG blend (0 disables). Ignored when CFG is inactive.")
+    @Option(help: "Variance-preserving rescale strength applied after the CFG/STG blend (0 disables). Ignored when both CFG and STG are inactive.")
     var rescaleScale: Double = 0.7
+
+    @Option(help: "Spatio-temporal guidance scale for the video stream (self-attention perturbation on --stg-blocks). Omit to use the transformer variant's own default: 0.0 (off) for distilled, 1.0 for dev/dasiwa. Set 0.0 to force STG off even for dev/dasiwa.")
+    var stgScale: Double?
+
+    @Option(parsing: .upToNextOption, help: "Transformer block indices perturbed when STG is active. Default: 28 (matches production's _GUIDER_STG_BLOCKS).")
+    var stgBlocks: [Int] = [28]
 
     @Option(help: "Gemma text-encoder max token length.")
     var textMaxLength: Int = 128
@@ -158,6 +164,8 @@ struct NativeI2V: ParsableCommand {
         request.transformerVariant = transformer
         request.cfgScale = cfgScale
         request.rescaleScale = Float(rescaleScale)
+        request.stgScale = stgScale
+        request.stgBlocks = stgBlocks
         request.lastFrameImagePath = lastFrame.map { URL(fileURLWithPath: $0) }
         request.lastFrameStrength = Float(lastFrameStrength)
         request.lastFrameAutoResize = lastFrameAutoResize || lastFrameDerivesResolution

@@ -112,14 +112,27 @@ public struct NativeI2VStage {
         /// .cfg_scale` and `python/mlx-movie-director/app/ltx_pipeline.py`'s
         /// own `generate(cfg_scale: float = 5.0)` default. Set explicitly to
         /// override (e.g. `1.0` to force CFG off even for `.dev`/`.dasiwa`).
-        /// STG (stg_scale) and modality guidance are NOT implemented — see
-        /// this file's header and the study doc's 2b/2c sub-milestones.
+        /// Modality guidance (cross-modal A2V/V2A) is NOT implemented — see
+        /// this file's header and the study doc's 2c sub-milestone.
         public var cfgScale: Double?
-        /// Variance-preserving rescale strength applied after the CFG blend
-        /// (reference: `guiders.py`'s `rescale_scale`, production constant
-        /// `_GUIDER_RESCALE_SCALE = 0.7`). `0` disables rescaling. Ignored
-        /// when CFG is inactive.
+        /// Variance-preserving rescale strength applied after the CFG/STG
+        /// blend (reference: `guiders.py`'s `rescale_scale`, production
+        /// constant `_GUIDER_RESCALE_SCALE = 0.7`). `0` disables rescaling.
+        /// Ignored when both CFG and STG are inactive.
         public var rescaleScale: Float = 0.7
+        /// Spatio-temporal guidance scale for the video stream (Milestone 2b
+        /// of the CFG/STG port, see docs/native-i2v-dev-variant-study.md).
+        /// `nil` (default) means "use the variant's own default": `0.0`
+        /// (off) for `.distilled` — unchanged behavior — or `1.0` for
+        /// `.dev`/`.dasiwa`, matching their manifest's `recommended_params
+        /// .stg_scale` and `python/mlx-movie-director/app/ltx_pipeline.py`'s
+        /// own default. Set explicitly to override (e.g. `0.0` to force STG
+        /// off even for `.dev`/`.dasiwa`).
+        public var stgScale: Double?
+        /// Transformer block indices whose video self-attention is
+        /// perturbed when STG is active. Default `[28]` matches
+        /// production's `_GUIDER_STG_BLOCKS` constant.
+        public var stgBlocks: [Int] = [28]
         /// Additional LoRA(s) to fuse into the distilled transformer at
         /// block-dequantize time, on top of the checkpoint's own baked-in
         /// distilled behavior (see LoRAFusion.swift / LoRAWeights.swift).
@@ -383,6 +396,12 @@ public struct NativeI2VStage {
             print("   [cfg] cfg_scale=\(effectiveCfgScale) active — encoding negative prompt for unconditional pass")
             uncondTextResult = try textStage.encode(CFGGuidance.defaultNegativePrompt)
         }
+        // Milestone 2b: same default-by-variant pattern as cfgScale above.
+        let effectiveStgScale = Float(request.stgScale ?? (request.transformerVariant == .distilled ? 0.0 : 1.0))
+        let stgActive = CFGGuidance.isSTGActive(stgScale: effectiveStgScale) && !request.stgBlocks.isEmpty
+        if stgActive {
+            print("   [stg] stg_scale=\(effectiveStgScale) active — perturbing self-attention in blocks \(request.stgBlocks)")
+        }
         print("[2/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
         stageStart = stageClock.now
 
@@ -531,10 +550,9 @@ public struct NativeI2VStage {
             throw StageError.transformerCheckpointNotFound(reportedURL)
         }
         if variant != .distilled {
-            let guidanceNote = cfgActive
-                ? "cfg_scale=\(effectiveCfgScale) (CFG only — no STG/modality guidance yet, see docs/native-i2v-dev-variant-study.md)"
-                : "cfg_scale=1.0 (CFG explicitly disabled via request.cfgScale)"
-            print("[transformer] using \(variant.rawValue) — \(guidanceNote)")
+            let cfgNote = cfgActive ? "cfg_scale=\(effectiveCfgScale)" : "cfg_scale=1.0 (off)"
+            let stgNote = stgActive ? "stg_scale=\(effectiveStgScale)" : "stg_scale=0.0 (off)"
+            print("[transformer] using \(variant.rawValue) — \(cfgNote), \(stgNote) (no modality guidance yet, see docs/native-i2v-dev-variant-study.md)")
         }
         let checkpointLoadStart = stageClock.now
         let rawTransformer = try MLX.loadArrays(url: transformerURL)
@@ -582,7 +600,8 @@ public struct NativeI2VStage {
             videoTextEmbeds: textResult.videoEmbeds, audioTextEmbeds: textResult.audioEmbeds,
             sigmas: sigmas,
             uncondVideoTextEmbeds: uncondTextResult?.videoEmbeds,
-            cfgScale: effectiveCfgScale, rescaleScale: request.rescaleScale)
+            cfgScale: effectiveCfgScale, rescaleScale: request.rescaleScale,
+            stgScale: effectiveStgScale, stgBlocks: Set(request.stgBlocks))
         MLX.eval(denoiseResult.videoLatent, denoiseResult.audioLatent)
         print("   [4/5] runStreaming (\(sigmas.count - 1) steps) (\(denoiseSubStart.duration(to: stageClock.now).formatted()))")
         print("[4/5] done (\(stageStart.duration(to: stageClock.now).formatted()))")
