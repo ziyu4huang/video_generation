@@ -345,7 +345,8 @@ def _score_with_vlm(image_path: str, label: str) -> dict[str, Any] | None:
     print(f"[VLM] Scoring {label}...", end=" ", flush=True)
     try:
         b64 = _image_to_base64(image_path)
-        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b",
+        vlm_model = _caption_mod.resolve_default_model()
+        raw = _call_vlm("http://localhost:1234/v1", vlm_model,
                         b64, _score_prompt)
         # Strip Qwen3 <think/> blocks if present
         raw = re.sub(r"<think.*?</think\s*>", "", raw, flags=re.DOTALL).strip()

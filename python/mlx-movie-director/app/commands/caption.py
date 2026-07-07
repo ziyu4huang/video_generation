@@ -337,13 +337,27 @@ _LANG_INSTRUCTIONS = {
 }
 
 _DEFAULT_API_URL = "http://localhost:1234/v1"
-_DEFAULT_MODEL = "qwen/qwen3-vl-4b"
+# The canonical default VLM = the local LLM brain (gemma). Qwen3-VL-4B
+# over-praises on score/review styles ([[vlm-caption-overpraise-qa-gap]]) and is
+# load-flakey ([[lm-studio-vlm-load-failure]]); gemma-4-26b is already the
+# project brain + lens_reasoner default + outperforms Qwen on vision
+# (see note below). It is auto-loaded when nothing is running.
+_DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
 # Preferred VLMs in priority order — first loaded one wins.
 # Gemma-4 variants outperform Qwen3-VL-4B on vision tasks; prefer any loaded
-# Gemma-4 over Qwen. Never auto-loaded (too large); only used if already loaded.
+# Gemma-4 over Qwen. Gemma is auto-loadable as the default (the brain is
+# expected to be downloaded); 31B is preferred when already loaded but the 26B
+# a4b-qat is the auto-load target (better speed/quality tradeoff for cold start).
 _PREFERRED_MODELS = [
     "google/gemma-4-31b-qat",      # best quality (31B)
-    "google/gemma-4-26b-a4b-qat",  # good quality (26B, faster)
+    "google/gemma-4-26b-a4b-qat",  # good quality (26B, faster) — also the default
+]
+# Lightweight fallback chain — used ONLY when the default (gemma) is not
+# downloaded on this machine. Qwen3-VL-4B is the lightweight VL model that
+# auto-loads fast; it over-praises, so it is never the first choice, but it is
+# the honest last resort when no Gemma variant is available locally.
+_FALLBACK_MODELS = [
+    "qwen/qwen3-vl-4b",  # lightweight VL (4B); over-praises — fallback only
 ]
 # Keep for backward compat (single-model references elsewhere)
 _PREFERRED_MODEL = _PREFERRED_MODELS[0]
@@ -366,7 +380,9 @@ def add_args(parser: argparse.ArgumentParser) -> None:
                         help=f"VLM API base URL (default: {_DEFAULT_API_URL})")
     parser.add_argument("--model", type=str, default=None,
                         help="Model name. If omitted, auto-select: first loaded Gemma-4 variant "
-                        f"({', '.join(_PREFERRED_MODELS)}) wins; fallback to {_DEFAULT_MODEL}.")
+                        f"({', '.join(_PREFERRED_MODELS)}) wins; otherwise auto-load "
+                        f"{_DEFAULT_MODEL}; if that isn't downloaded, fall back to "
+                        f"{', '.join(_FALLBACK_MODELS)}.")
     parser.add_argument("--style", nargs="+", choices=list(_STYLE_PROMPTS.keys()), default=["t2i"],
                         help="Caption style(s) (default: t2i). Accepts ONE OR MORE styles; each is "
                         "a separate VLM call and all merge into the same <image>.caption.json "
@@ -476,11 +492,11 @@ def run(args: argparse.Namespace) -> None:
         print(f"Review HTML: {html_path}")
         return
 
-    # Auto-select VLM: an explicit --model always wins; otherwise prefer the
-    # heavier Gemma 26B when it is already loaded in LM Studio, else fall back
-    # to the Qwen default (actively loaded by _lmstudio_ensure_model). Resolved
+    # Auto-select VLM: an explicit --model always wins; otherwise the resolved
+    # default is the Gemma brain (preferred loaded variant, else auto-load
+    # gemma-4-26b; Qwen3-VL-4b only as the no-gemma-downloaded fallback). Resolved
     # once here so the video/image branches and the output JSON all record the
-    # actually-used model, and Qwen is never loaded on top of a running Gemma.
+    # actually-used model, and the over-praising Qwen is never silently picked.
     model = _resolve_model(args.api_url, args.model)
 
     from app.io_utils import require_file
@@ -914,18 +930,40 @@ def _loaded_model_keys(api_url: str):
         return None
 
 
+def _catalog_model_keys(api_url: str):
+    """Return the set of ALL downloaded (indexed) model keys, or None if
+    unreachable. Unlike _loaded_model_keys, this lists every model LM Studio
+    knows about regardless of load state — used to decide whether the default
+    (gemma) is available to auto-load vs. falling back to a lightweight model.
+    """
+    base = _lmstudio_base(api_url)
+    lms_base = f"{base}/api/v1"
+    try:
+        r = requests.get(f"{lms_base}/models", timeout=5)
+        r.raise_for_status()
+        data = r.json()
+        return {m.get("key", "") for m in data.get("models", []) if m.get("key")}
+    except (requests.RequestException, ValueError) as e:
+        print(f"[caption] LM Studio catalog query failed: {e}", file=sys.stderr)
+        return None
+
+
 def _resolve_model(api_url: str, explicit_model):
     """Pick which VLM to use for captioning.
 
     Priority:
     1. Explicit --model arg → use it immediately (no LM Studio query).
     2. Any preferred model (Gemma 31B > 26B) already loaded → use it.
-    3. Any model already loaded in LM Studio → use it (avoids forcing a
-       Qwen auto-load when the user already has something running).
-    4. Nothing loaded → auto-load _DEFAULT_MODEL (Qwen 4B, lightweight).
+    3. Any model already loaded in LM Studio → use it (avoids forcing an
+       auto-load when the user already has something running).
+    4. Nothing loaded → auto-load the default (gemma-4-26b). If gemma is not
+       downloaded on this machine, fall back through _FALLBACK_MODELS
+       (Qwen3-VL-4B, lightweight) — the over-praising but always-available
+       last resort.
 
-    Gemma is NEVER auto-loaded — only used when already running.
-    Returns the chosen model id string.
+    The default is gemma (the project brain), NOT Qwen — Qwen3-VL over-praises
+    on score/review styles. Qwen is demoted to an opt-in --vlm-model / no-gemma
+    fallback only. Returns the chosen model id string.
     """
     if explicit_model:
         return explicit_model
@@ -936,8 +974,8 @@ def _resolve_model(api_url: str, explicit_model):
             print(f"[caption] Auto: {candidate} already loaded — "
                   f"using it, no model load needed.", flush=True)
             return candidate
-    # Step 2: use any already-loaded model — avoid forcing a Qwen auto-load
-    # when the user already has something running in LM Studio.
+    # Step 2: use any already-loaded model — avoid forcing an auto-load when
+    # the user already has something running in LM Studio.
     available = {k for k in loaded if k}
     if available:
         if _DEFAULT_MODEL in available:
@@ -946,12 +984,37 @@ def _resolve_model(api_url: str, explicit_model):
             return _DEFAULT_MODEL
         chosen = next(iter(available))
         print(f"[caption] Auto: using already-loaded model {chosen} "
-              f"(no preferred model found, skipping Qwen auto-load).", flush=True)
+              f"(no preferred model found, skipping auto-load).", flush=True)
         return chosen
-    # Step 3: nothing loaded at all — auto-load the lightweight default
-    print(f"[caption] Auto: no VLM loaded — "
-          f"will auto-load {_DEFAULT_MODEL}.", flush=True)
+    # Step 3: nothing loaded at all — auto-load the default (gemma). If gemma
+    # is not downloaded here, fall back to the lightweight chain (Qwen).
+    catalog = _catalog_model_keys(api_url) or set()
+    if _DEFAULT_MODEL in catalog:
+        print(f"[caption] Auto: no VLM loaded — "
+              f"will auto-load {_DEFAULT_MODEL} (default brain).", flush=True)
+        return _DEFAULT_MODEL
+    for fb in _FALLBACK_MODELS:
+        if fb in catalog:
+            print(f"[caption] Auto: no VLM loaded and {_DEFAULT_MODEL} not "
+                  f"downloaded — falling back to {fb}.", flush=True)
+            return fb
+    # Nothing downloaded at all — return the default and let the load surface
+    # a clear failure (better than silently picking an unrelated model).
+    print(f"[caption] Auto: no VLM loaded or downloaded — "
+          f"will attempt to auto-load {_DEFAULT_MODEL}.", flush=True)
     return _DEFAULT_MODEL
+
+
+def resolve_default_model(api_url: str = _DEFAULT_API_URL) -> str:
+    """Public resolver for callers that used to hardcode a model id.
+
+    Returns the same model `run.py caption` would pick with no explicit
+    --model: preferred Gemma variant if loaded, else the auto-load default
+    (gemma-4-26b, or the Qwen fallback if gemma isn't downloaded). Routing
+    the review/faceswap/profile tiers through this makes gemma the universal
+    default and stops them silently using the over-praising Qwen3-VL.
+    """
+    return _resolve_model(api_url, None)
 
 
 def _warmup_vlm(api_url: str, model_id: str,

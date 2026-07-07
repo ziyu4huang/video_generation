@@ -110,7 +110,9 @@ _CIVITAI_BASEMODEL_TO_ARCH = {
 
 # LLM endpoint defaults (same as caption.py)
 _DEFAULT_API_URL = "http://localhost:1234/v1"
-_DEFAULT_MODEL = "qwen/qwen3-vl-4b"
+# Universal local default = the gemma brain (matches caption.py). Qwen3-VL-4b
+# over-praises; gemma is the project default LLM/VLM. Override with --model.
+_DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
 
 _LINK_EXTENSIONS = {".url", ".webloc", ".txt"}
 

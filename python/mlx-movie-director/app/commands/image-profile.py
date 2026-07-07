@@ -252,8 +252,10 @@ def add_profile_args(parser):
         help="VLM API base URL for auto-captioning (default: http://localhost:1234/v1)",
     )
     parser.add_argument(
-        "--vlm-model", type=str, default="qwen/qwen3-vl-4b",
-        help="VLM model name for auto-captioning (default: qwen/qwen3-vl-4b)",
+        "--vlm-model", type=str, default=None,
+        help="VLM model name for auto-captioning. If omitted, auto-resolve the "
+        "local default (gemma brain; Qwen3-VL-4b only as the no-gemma fallback). "
+        "Pass an explicit id to force a specific model (e.g. qwen/qwen3-vl-4b).",
     )
 
 
@@ -651,10 +653,12 @@ def run_profile(args):
     prompt_style = getattr(args, "prompt_style", "angle")
     if use_flux2 and input_image and getattr(args, "vlm", True):
         try:
-            from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
+            from app.commands.caption import (
+                _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, resolve_default_model,
+            )
             b64 = _image_to_base64(input_image)
             vlm_api_url = getattr(args, "vlm_api_url", "http://localhost:1234/v1")
-            vlm_model = getattr(args, "vlm_model", "qwen/qwen3-vl-4b")
+            vlm_model = getattr(args, "vlm_model", None) or resolve_default_model(vlm_api_url)
 
             # Art style description — only for "detailed" prompt style
             if prompt_style == "detailed" and (not base_prompt or not base_prompt.strip()):
@@ -851,8 +855,11 @@ def run_profile(args):
 
         # VLM view-angle verification (saves .caption.json; runs before HTML so badges appear)
         if getattr(args, "vlm", True):
+            from app.commands.caption import resolve_default_model
             vlm_api_url = getattr(args, "vlm_api_url", "http://localhost:1234/v1")
-            vlm_model = getattr(args, "vlm_model", "qwen/qwen3-vl-4b")
+            # Resolve once before the loop (gemma brain; Qwen3-VL only as the
+            # no-gemma fallback). --vlm-model, if explicitly passed, overrides.
+            vlm_model = getattr(args, "vlm_model", None) or resolve_default_model(vlm_api_url)
             print()
             for vo in view_outputs:
                 view = vo.get("view")

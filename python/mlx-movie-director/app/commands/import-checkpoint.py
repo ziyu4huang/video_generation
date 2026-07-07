@@ -61,7 +61,9 @@ _CIVITAI_API_MODEL = "https://civitai.com/api/v1/models/{model_id}"
 _CIVITAI_API_VERSION = "https://civitai.com/api/v1/model-versions/{version_id}"
 
 _DEFAULT_API_URL = "http://localhost:1234/v1"
-_DEFAULT_MODEL = "qwen/qwen3-vl-4b"
+# Universal local default = the gemma brain (matches caption.py). Qwen3-VL-4b
+# over-praises; gemma is the project default LLM/VLM. Override with --model.
+_DEFAULT_MODEL = "google/gemma-4-26b-a4b-qat"
 
 _MANIFEST_COMMENT = (
     "Private metadata for mlx-movie-director model registry. "
