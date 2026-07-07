@@ -4,6 +4,7 @@ import {
   adaptFlux2,
   adaptLtx,
   adaptRunPy,
+  adaptCaption,
   generate,
   selectAndGenerate,
   tariffFor,
@@ -195,6 +196,88 @@ describe("adaptRunPy — run.py video adapter contract (Details → ToolResult)"
     expect(r.error).toContain("exited 2");
     // Falls back to a local label so the result never reads as a cloud model id.
     expect(r.model).toBe("run.py:t2i2v");
+  });
+});
+
+describe("adaptCaption — run.py caption adapter contract (Details → ToolResult)", () => {
+  it("maps a successful caption run to one text artifact + the resolved gemma model", () => {
+    const details = {
+      ok: true,
+      command: "caption" as const,
+      exitCode: 0,
+      aborted: false,
+      captionPath: "/out/img.png.caption.json",
+      model: "google/gemma-4-26b-a4b-qat",
+      styles: ["score"],
+      text: '{"overall": 7, "issues": ["oversmoothed skin"]}',
+      stdout: "[caption] done",
+    };
+    const r = adaptCaption(
+      { capability: "analysis", command: "caption", options: { image: "/out/img.png", style: "score" } },
+      details,
+      "caption ✓ score → /out/img.png.caption.json [gemma-4-26b]",
+      "",
+    );
+    expect(r.success).toBe(true);
+    expect(r.provider).toBe("caption-vlm");
+    expect(r.command).toBe("caption");
+    expect(r.seed).toBeNull();
+    // model from the caption JSON — the local gemma brain, NEVER a cloud id.
+    expect(r.model).toBe("google/gemma-4-26b-a4b-qat");
+    expect(r.cost_usd).toBe(0); // local silicon analysis — honest $0
+    expect(r.artifacts).toEqual([
+      { path: "/out/img.png.caption.json", kind: "text", role: "caption" },
+    ]);
+  });
+
+  it("flags failure + no artifact when run.py wrote no caption JSON", () => {
+    const details = {
+      ok: false,
+      command: "caption" as const,
+      exitCode: 0,
+      aborted: false,
+      captionPath: null,
+      model: null,
+      styles: [],
+      text: null,
+      stdout: "",
+    };
+    const r = adaptCaption(
+      { capability: "analysis", command: "caption", options: {} },
+      details,
+      "caption FAILED (exit 0, no json)",
+      "model not loaded",
+    );
+    expect(r.success).toBe(false);
+    expect(r.artifacts).toEqual([]);
+    expect(r.error).toContain("FAILED");
+    expect(r.model).toBe("run.py:caption"); // local fallback label, never a cloud id
+    expect(r.cost_usd).toBe(0); // no cost on failure
+  });
+});
+
+describe("analysis selector — caption command resolves to mlx:caption (the local VLM tier)", () => {
+  // The explicit replacement for OM's "orchestrator-LLM-is-the-vision-model"
+  // assumption: a caller addressing {analysis, caption} must reach the local
+  // run.py→gemma path, not whisper/clip (which own transcribe/video_understand).
+  it("registry carries the caption_vlm provider under mlx:caption", () => {
+    const e = REGISTRY.find((p) => p.invoke === "mlx:caption")!;
+    expect(e).toBeTruthy();
+    expect(e.capability).toBe("analysis");
+    expect(e.commands).toEqual(["caption"]);
+    expect(e.configured).toBe(true);
+  });
+
+  it("selectProvider({command:'caption'}) picks mlx:caption for the analysis capability", () => {
+    const entry = selectProvider("analysis", { command: "caption" });
+    expect(entry.invoke).toBe("mlx:caption");
+    expect(entry.provider).toBe("caption-vlm");
+  });
+
+  it("mlx:caption probe tracks run.py+venv presence (same honest signal as mlx:runpy)", () => {
+    const e = REGISTRY.find((p) => p.invoke === "mlx:caption")!;
+    const runpy = REGISTRY.find((p) => p.invoke === "mlx:runpy")!;
+    expect(probeConfigured(e)).toBe(probeConfigured(runpy));
   });
 });
 

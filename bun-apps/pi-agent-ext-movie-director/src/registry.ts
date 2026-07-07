@@ -39,6 +39,7 @@ export interface ProviderEntry {
     | "swift:flux2"
     | "swift:ltx"
     | "mlx:runpy"
+    | "mlx:caption"
     | "fetch"
     | "ffmpeg"
     | "macos:vision"
@@ -105,6 +106,7 @@ export const REGISTRY: ProviderEntry[] = [
   // python/whisper_transcribe.py entry, spawned by the bun:whisper adapter).
   { name: "transcriber", capability: "analysis", provider: "whisper", backend: "native_swift", invoke: "bun:whisper", configured: true, commands: ["transcribe"], notes: "mlx-whisper (python/whisper_transcribe.py) → word-level timestamps + transcript" },
   { name: "video_understand", capability: "analysis", provider: "clip", backend: "native_swift", invoke: "bun:clip", configured: true, commands: ["video_understand"], notes: "CLIP video understanding (python/clip_understand.py) — frame×prompt cosine score via transformers + torch MPS" },
+  { name: "caption_vlm", capability: "analysis", provider: "caption-vlm", backend: "native_swift", invoke: "mlx:caption", configured: true, commands: ["caption"], notes: "Local VLM captioning (run.py caption → gemma brain; Qwen3-VL only as no-gemma fallback). 14 styles incl score/pose_dsg/photography. The explicit callable replacement for OM's 'orchestrator-LLM-is-the-vision-model' assumption — probeConfigured checks run.py+venv presence (model-load is runtime). Emits <image>.caption.json (kind:text artifact)" },
 
   // Enhancement.
   { name: "bg_remove", capability: "enhancement", provider: "vision", backend: "macos_native", invoke: "macos:vision", configured: true, notes: "macOS Vision VNGeneratePersonSegmentationRequest" },

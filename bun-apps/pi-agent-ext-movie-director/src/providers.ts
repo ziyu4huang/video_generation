@@ -200,6 +200,13 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present
       // on any machine that has recreated python/venv per CLAUDE.md.
       return entry.configured && runPyRuntimePresent();
+    case "mlx:caption":
+      // callable iff run.py + the MLX venv resolve — same presence signal as
+      // mlx:runpy (caption is a run.py subcommand). Whether a VLM is actually
+      // loaded is a RUNTIME concern (run.py auto-resolves the gemma brain, or
+      // auto-loads it, or falls back to Qwen); the static probe stays honest
+      // about the runtime being present, not the model being loaded.
+      return entry.configured && runPyRuntimePresent();
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.

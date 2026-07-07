@@ -34,6 +34,7 @@ import {
 import type { Capability, ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
+import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ export type ArtifactKind =
   | "frames"
   | "directory"
   | "data"
+  | "text"
   | "unknown";
 
 export interface Artifact {
@@ -325,6 +327,45 @@ async function realRunPy(req: GenerateRequest, env?: Record<string, string | und
   return adaptRunPy(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptCaption — normalize a run.py caption result into a ToolResult. The single
+ * artifact is the produced <image>.caption.json (kind:"text" — an analysis text
+ * output, the chaining handle for OM's review/retrieval tiers); ok = run.py
+ * exited 0 AND the caption JSON landed + parsed. The model id is the resolved
+ * local VLM recorded in the JSON (the gemma brain — never a cloud id).
+ */
+export function adaptCaption(
+  req: GenerateRequest,
+  details: CaptionDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.captionPath) {
+    artifacts.push({ path: details.captionPath, kind: "text", role: "caption" });
+  }
+  return {
+    success: details.ok,
+    provider: "caption-vlm",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    // Analysis is local silicon: nominal $0 (honest), env-overridable like image.
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: null,
+    // Prefer the JSON's recorded model (the resolved gemma brain); fall back to a
+    // local label so the result never reads as a cloud model id.
+    model: details.model ?? "run.py:caption",
+  };
+}
+
+async function realCaption(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const out = await runPyCaption({ options: (req.options ?? {}) as CaptionOptions });
+  return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -332,6 +373,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "swift:flux2": (req) => realFlux2(req, env),
     "swift:ltx": (req) => realLtx(req, env),
     "mlx:runpy": (req) => realRunPy(req, env),
+    "mlx:caption": (req) => realCaption(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
   };

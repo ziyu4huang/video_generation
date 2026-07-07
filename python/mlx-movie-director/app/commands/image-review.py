@@ -534,20 +534,26 @@ def _parse_caption_scores(caption_data: dict | None) -> dict | None:
 
 
 def _auto_score_image(image_file: str) -> dict | None:
-    """Call Qwen3-VL with style=score, save .caption.json, return data dict.
+    """Call the local VLM with style=score, save .caption.json, return data dict.
 
-    Silently skips if the VLM API is unavailable (connection refused / timeout).
+    Uses the resolved default (gemma brain; Qwen3-VL only as the no-gemma
+    fallback) so the quality tier stops over-praising. Silently skips if the
+    VLM API is unavailable (connection refused / timeout).
     """
     try:
-        from app.commands.caption import _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS
+        from app.commands.caption import (
+            _image_to_base64, _call_vlm, _STYLE_PROMPTS, _LANG_INSTRUCTIONS,
+            resolve_default_model,
+        )
         print(f"  [auto-score] scoring {os.path.basename(image_file)}...", end=" ", flush=True)
         b64 = _image_to_base64(image_file)
         prompt = _STYLE_PROMPTS["score"] + "\n" + _LANG_INSTRUCTIONS["en"]
-        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt)
+        vlm_model = resolve_default_model()
+        raw = _call_vlm("http://localhost:1234/v1", vlm_model, b64, prompt)
         data = {
             "image": image_file,
             "style": "score",
-            "model": "qwen/qwen3-vl-4b",
+            "model": vlm_model,
             "caption": raw,
         }
         caption_path = os.path.splitext(image_file)[0] + ".caption.json"
@@ -2662,6 +2668,9 @@ def _run_selftest_controlnet_i2i(args: argparse.Namespace, test_name: str, test_
 
     print(f"\n{'─' * 60}")
     print("[review] VLM-captioning all outputs...")
+    # Resolve the default VLM once (gemma brain; Qwen3-VL only as no-gemma
+    # fallback) so the whole review pass stops over-praising.
+    vlm_model = cap.resolve_default_model()
     results = []
     for key, fname, label, params in images:
         path = os.path.join(cfg.OUTPUT_DIR, fname)
@@ -2670,7 +2679,7 @@ def _run_selftest_controlnet_i2i(args: argparse.Namespace, test_name: str, test_
             continue
         try:
             b64_vlm = cap._image_to_base64(path)
-            caption = cap._call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64_vlm, pose_prompt)
+            caption = cap._call_vlm("http://localhost:1234/v1", vlm_model, b64_vlm, pose_prompt)
             img_data = base64.b64encode(open(path, "rb").read()).decode()
             ext = "jpeg" if fname.endswith(".jpg") else "png"
             img_src = f"data:image/{ext};base64,{img_data}"
@@ -3053,10 +3062,13 @@ def _vlm_verify_controlnet_pose(image_path: str):
         print(f"[verify] SKIP — image not found: {image_path}", file=sys.stderr)
         return
     try:
-        from app.commands.caption import _image_to_base64, _call_vlm, get_controlnet_verify_prompt
+        from app.commands.caption import (
+            _image_to_base64, _call_vlm, get_controlnet_verify_prompt, resolve_default_model,
+        )
         b64 = _image_to_base64(image_path)
         prompt = get_controlnet_verify_prompt()
-        raw = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt)
+        vlm_model = resolve_default_model()
+        raw = _call_vlm("http://localhost:1234/v1", vlm_model, b64, prompt)
         try:
             result = _json.loads(raw) if isinstance(raw, str) else raw
         except Exception:
@@ -3595,7 +3607,9 @@ def _run_selftest_profile(args: argparse.Namespace, test_name: str, test_cfg: di
     from app.flux2_pipeline import Flux2KleinPipeline
     from app.manifest import Manifest, collect_model_fingerprint
     from app.test_prompts_image import get_test_prompt
-    from app.commands.caption import _image_to_base64, _call_vlm, get_profile_verify_prompt
+    from app.commands.caption import (
+        _image_to_base64, _call_vlm, get_profile_verify_prompt, resolve_default_model,
+    )
     from app import config as cfg
     _profile_mod = importlib.import_module("app.commands.image-profile")
 
@@ -3616,7 +3630,9 @@ def _run_selftest_profile(args: argparse.Namespace, test_name: str, test_cfg: di
     labels = []
 
     vlm_api_url = "http://localhost:1234/v1"
-    vlm_model = "qwen/qwen3-vl-4b"
+    # Resolved default = gemma brain (Qwen3-VL only as the no-gemma fallback),
+    # so the profile-verify tier stops over-praising.
+    vlm_model = resolve_default_model()
 
     # For Flux2-Klein selftests: generate a reference portrait first (ZImage T2I → reference)
     # so that the profile views have a real character to condition on.
@@ -4590,7 +4606,10 @@ def _run_selftest_swap(args: argparse.Namespace, test_name: str, test_cfg: dict[
     print(f"[selftest] Generating image captions")
     print(f"{'='*60}")
 
-    from app.commands.caption import _image_to_base64, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, _call_vlm
+    from app.commands.caption import (
+        _image_to_base64, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, _call_vlm, resolve_default_model,
+    )
+    vlm_model = resolve_default_model()
     for img_path, lbl in images_to_score:
         base = img_path.rsplit('.', 1)[0]
         caption_file = base + '.caption.json'
@@ -4598,8 +4617,8 @@ def _run_selftest_swap(args: argparse.Namespace, test_name: str, test_cfg: dict[
             try:
                 prompt_text = _STYLE_PROMPTS["default"] + "\n" + _LANG_INSTRUCTIONS["zh_TW"]
                 b64 = _image_to_base64(img_path)
-                caption_text = _call_vlm("http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt_text)
-                cap_data = {"image": img_path, "style": "default", "model": "qwen/qwen3-vl-4b", "caption": caption_text}
+                caption_text = _call_vlm("http://localhost:1234/v1", vlm_model, b64, prompt_text)
+                cap_data = {"image": img_path, "style": "default", "model": vlm_model, "caption": caption_text}
                 with open(caption_file, "w") as f:
                     json.dump(cap_data, f, indent=2, ensure_ascii=False)
                 print(f"  [{lbl}] Caption saved: {caption_file}")
@@ -4679,6 +4698,7 @@ def _run_selftest_swap_all(args: argparse.Namespace, test_name: str, test_cfg: d
     from app.test_prompts_image import get_test
     from app.commands.caption import (
         _image_to_base64, _STYLE_PROMPTS, _LANG_INSTRUCTIONS, _call_vlm,
+        resolve_default_model,
     )
 
     sub_tests = test_cfg["tests"]
@@ -4742,6 +4762,7 @@ def _run_selftest_swap_all(args: argparse.Namespace, test_name: str, test_cfg: d
     print(f"\n{'='*60}")
     print(f"[swap-all] Generating captions ({len(all_images)} images)")
     print(f"{'='*60}")
+    vlm_model = resolve_default_model()
     for img_path, lbl in all_images:
         base = img_path.rsplit('.', 1)[0]
         caption_file = base + '.caption.json'
@@ -4750,11 +4771,11 @@ def _run_selftest_swap_all(args: argparse.Namespace, test_name: str, test_cfg: d
                 prompt_text = _STYLE_PROMPTS["default"] + "\n" + _LANG_INSTRUCTIONS["zh_TW"]
                 b64 = _image_to_base64(img_path)
                 caption_text = _call_vlm(
-                    "http://localhost:1234/v1", "qwen/qwen3-vl-4b", b64, prompt_text,
+                    "http://localhost:1234/v1", vlm_model, b64, prompt_text,
                 )
                 cap_data = {
                     "image": img_path, "style": "default",
-                    "model": "qwen/qwen3-vl-4b", "caption": caption_text,
+                    "model": vlm_model, "caption": caption_text,
                 }
                 with open(caption_file, "w") as f:
                     json.dump(cap_data, f, indent=2, ensure_ascii=False)
