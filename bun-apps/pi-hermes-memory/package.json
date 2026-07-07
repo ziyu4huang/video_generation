@@ -46,12 +46,20 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": ">=0.74.0"
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "pi-knowledge-card": "*",
+    "pi-obsidian": "*"
+  },
+  "peerDependenciesMeta": {
+    "pi-knowledge-card": { "optional": true },
+    "pi-obsidian": { "optional": true }
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "^0.80.2",
     "@earendil-works/pi-coding-agent": "^0.80.2",
     "@types/better-sqlite3": "^7.6.13",
+    "pi-knowledge-card": "workspace:*",
+    "pi-obsidian": "workspace:*",
     "tsx": "^4.21.0",
     "typebox": "^1.1.33",
     "typescript": "^6.0.3"
