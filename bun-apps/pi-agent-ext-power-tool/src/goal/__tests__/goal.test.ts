@@ -24,6 +24,7 @@ import goal, {
 	completeGoalArguments,
 	findFinalAssistantMessage,
 	formatDuration,
+	formatGoalMetric,
 	formatStatus,
 	formatTokenCount,
 	isContradictoryCompletionSummary,
@@ -269,9 +270,39 @@ describe("formatStatus", () => {
 		};
 
 		expect(formatStatus(undefined)).toBeUndefined();
-		expect(formatStatus(activeGoal)).toBe("goal active 500/2k");
+		expect(formatStatus(activeGoal)).toBe("goal active");
 		expect(formatStatus({ ...activeGoal, status: "paused" })).toBe("goal paused");
-		expect(formatStatus({ ...activeGoal, status: "budget_limited" })).toBe("goal budget 500/2k");
+		expect(formatStatus({ ...activeGoal, status: "budget_limited" })).toBe("goal budget reached");
+	});
+});
+
+// ─── formatGoalMetric ────────────────────────────────────────────────────────
+
+describe("formatGoalMetric", () => {
+	const activeWithBudget = {
+		id: "g1",
+		text: "finish",
+		status: "active" as const,
+		startedAt: 0,
+		updatedAt: 0,
+		iteration: 1,
+		tokenBudget: 2000,
+		tokensUsed: 500,
+		timeUsedSeconds: 90,
+		baselineTokens: 0,
+	};
+
+	test("budget-bearing states show token usage; others show elapsed", () => {
+		// active w/ budget → budget usage
+		expect(formatGoalMetric(activeWithBudget)).toBe("500/2k");
+		// active w/o budget → elapsed time
+		expect(formatGoalMetric({ ...activeWithBudget, tokenBudget: undefined })).toBe("1m");
+		// paused → elapsed time (how long it's been running)
+		expect(formatGoalMetric({ ...activeWithBudget, status: "paused" })).toBe("1m");
+		// budget_limited → budget usage
+		expect(formatGoalMetric({ ...activeWithBudget, status: "budget_limited" })).toBe("500/2k");
+		// complete → no metric (flash handles display)
+		expect(formatGoalMetric({ ...activeWithBudget, status: "complete" })).toBeUndefined();
 	});
 });
 
@@ -282,11 +313,13 @@ describe("overlay status updates", () => {
 		const { overlay } = await startGoalForTest();
 
 		// After starting, the overlay must receive the active goal. No token
-		// budget → formatStatus returns "goal active <elapsed>".
+		// budget → formatStatus is the bare status word, formatGoalMetric carries
+		// the elapsed time.
 		const activeGoal = overlay.current;
 		expect(activeGoal).toBeDefined();
 		expect(activeGoal?.status).toBe("active");
-		expect(formatStatus(activeGoal)).toMatch(/^goal active /);
+		expect(formatStatus(activeGoal)).toBe("goal active");
+		expect(formatGoalMetric(activeGoal)).toMatch(/^\d/);
 	});
 });
 
