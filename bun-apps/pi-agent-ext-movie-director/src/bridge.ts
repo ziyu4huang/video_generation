@@ -23,7 +23,14 @@
  */
 import { runKrea2, type Krea2Details, type CommandName as Krea2Command } from "@repo/pi-agent-ext-krea2";
 import { runFlux2, type Flux2Details, type CommandName as Flux2Command } from "@repo/pi-agent-ext-flux2";
-import { runLtx, type LtxDetails, type CommandName as LtxCommand } from "@repo/pi-agent-ext-ltx";
+import {
+  runLtx,
+  runPyVideo,
+  type LtxDetails,
+  type CommandName as LtxCommand,
+  type RunPyVideoDetails,
+  type RunPyVideoOptions,
+} from "@repo/pi-agent-ext-ltx";
 import type { Capability, ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
@@ -276,12 +283,55 @@ async function realLtx(req: GenerateRequest, env?: Record<string, string | undef
   return adaptLtx(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptRunPy — normalize a run.py video t2i2v result into the same ToolResult
+ * shape the swift directors emit. The single artifact is the produced .mp4
+ * (kind:"video"); ok = run.py exited 0 AND the mp4 landed on disk (a 0-exit
+ * review/empty run is NOT a generation success). The model id comes from the
+ * manifest's i2v stage transformer (local silicon — never cloud).
+ */
+export function adaptRunPy(
+  req: GenerateRequest,
+  details: RunPyVideoDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  if (details.output) {
+    artifacts.push({ path: details.output, kind: "video", role: "primary" });
+  }
+  return {
+    success: details.ok,
+    provider: "ltx-runpy",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: (req.options?.seed as number | undefined) ?? null,
+    // Prefer the manifest's i2v transformer (local) when present; fall back to a
+    // local label so the result never reads as a cloud model id.
+    model: details.model ?? "run.py:t2i2v",
+  };
+}
+
+async function realRunPy(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const out = await runPyVideo({
+    options: (req.options ?? {}) as RunPyVideoOptions,
+    outputDir: req.outputDir,
+    extraArgs: req.extraArgs,
+  });
+  return adaptRunPy(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
     "swift:krea2": (req) => realKrea2(req, env),
     "swift:flux2": (req) => realFlux2(req, env),
     "swift:ltx": (req) => realLtx(req, env),
+    "mlx:runpy": (req) => realRunPy(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
   };

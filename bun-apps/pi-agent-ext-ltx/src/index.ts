@@ -31,6 +31,15 @@ export * from "./paths.ts";
 export { invokeLtx } from "./invoke.ts";
 export type { LtxDetails, GateEntry } from "./result.ts";
 export { PathSafetyError } from "./paths.ts";
+export { resolveRepoRoot, defaultBinaryPath } from "./binary.ts";
+export {
+  runPyVideo,
+  resolveRunPyPaths,
+  type RunPyVideoInput,
+  type RunPyVideoOutput,
+  type RunPyVideoDetails,
+  type RunPyVideoOptions,
+} from "./runpy.ts";
 
 export type CommandName = keyof typeof COMMANDS;
 

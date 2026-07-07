@@ -27,6 +27,7 @@ import { composeMotion } from "./compose_motion.ts";
 import type { RenderReport } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
+import { resolveRepoRoot, defaultBinaryPath, resolveRunPyPaths } from "@repo/pi-agent-ext-ltx";
 
 // ─── Availability probe ──────────────────────────────────────────────────────
 
@@ -126,6 +127,29 @@ const CLOUD_KEY_FOR: Record<string, string> = {
   openai: "OPENAI_API_KEY",
 };
 
+/** True if the built swift/ltx-video-director binary is on disk (never throws). */
+function ltxBinaryPresent(): boolean {
+  try {
+    const repoRoot = resolveRepoRoot();
+    return existsSync(defaultBinaryPath(repoRoot));
+  } catch {
+    // resolveRepoRoot throws if it can't walk to swift/ltx-video-director — treat
+    // as "binary absent" so mlx:runpy wins rather than crashing the selector.
+    return false;
+  }
+}
+
+/** True if the MLX venv python AND run.py resolve (never throws). */
+function runPyRuntimePresent(): boolean {
+  try {
+    const repoRoot = resolveRepoRoot();
+    const { python, runPy } = resolveRunPyPaths(repoRoot);
+    return existsSync(python) && existsSync(runPy);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
@@ -164,6 +188,18 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // callable iff ffmpeg is on PATH AND its build has zoompan+xfade (the motion
       // compositor's only deps — no browser, no swift). Reuses the ffmpeg cache.
       return entry.configured && ffmpegAvailable() && motionFiltersAvailable();
+    case "swift:ltx":
+      // callable iff the built ltx-video binary exists on disk. Unlike krea2/flux2
+      // (which the GUI auto-builds), ltx-video's binary is NOT always present on a
+      // fresh checkout — when it is absent, the run.py adapter (mlx:runpy) wins
+      // video_generation instead. This is the honest "selector ranks by presence"
+      // tiebreak between two native_swift rank-0 providers.
+      return entry.configured && ltxBinaryPresent();
+    case "mlx:runpy":
+      // callable iff the MLX venv python AND run.py resolve (env-overridable via
+      // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present
+      // on any machine that has recreated python/venv per CLAUDE.md.
+      return entry.configured && runPyRuntimePresent();
     default:
       // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
       // on-platform / in-repo, availability == the registry's configured flag.
