@@ -205,6 +205,15 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// Read the card content for title/detail/type.
 		const content = readFileSync(abs, "utf8");
 		const { data } = parseFrontmatter(content);
+		// Defense-in-depth: never surface retired/superseded cards as live
+		// knowledge. Archived cards already live under _archive/ (excluded by
+		// the flat readdirSync), but this guard also catches any stale card that
+		// was marked retired in-place without being moved.
+		const status = typeof data.status === "string" ? data.status.trim() : "active";
+		if (status === "retired" || status === "superseded") {
+			excluded++;
+			continue;
+		}
 		const title = extractTitle(content);
 		const detail = extractDetail(content, maxDetailChars);
 		const type = typeof data.record_type === "string" ? data.record_type : "pattern";

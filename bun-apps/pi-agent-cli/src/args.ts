@@ -132,8 +132,12 @@ export interface ParsedArgs {
 	excludeIds?: string;
 	/** zk-query: graph health audit mode */
 	health?: boolean;
-	/** zk-query: auto-heal (with --health) */
+	/** zk-query: auto-heal (with --health) / apply merges (with --merge-duplicates) */
 	fix?: boolean;
+	/** zk-query: detect + merge near-duplicate cards */
+	mergeDuplicates?: boolean;
+	/** zk-query: merge similarity threshold (default 0.9) */
+	threshold?: number;
 	/** workflow: JSON args passed to the workflow script (its `args` global). */
 	workflowArgs?: string;
 	/** workflow: disable log persistence (logs persist by default). */
@@ -233,7 +237,7 @@ function parseNumericFlag(
 
 type NumericField =
 	| "maxNotes" | "contextLines" | "retries" | "retryWaitSec" | "limit"
-	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens";
+	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold";
 
 /** Numeric value flags validated through `parseNumericFlag` (fail-fast). */
 const NUMERIC_FLAGS: ReadonlyArray<{
@@ -252,6 +256,7 @@ const NUMERIC_FLAGS: ReadonlyArray<{
 	{ flag: "--max-neighbors", field: "maxNeighbors", example: "5" },
 	{ flag: "--top-k", field: "topK", example: "8" },
 	{ flag: "--max-note-tokens", field: "maxNoteTokens", example: "2000" },
+	{ flag: "--threshold", field: "threshold", example: "0.9" },
 ];
 
 type ValueField =
@@ -288,7 +293,7 @@ type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs";
+	| "noPersistLogs" | "mergeDuplicates";
 
 /** Boolean flags: presence sets the field true. Supports aliases. */
 const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
@@ -306,6 +311,7 @@ const BOOLEAN_FLAGS: ReadonlyArray<{ flags: string[]; field: BoolField }> = [
 	{ flags: ["--dry-run"], field: "dryRun" },
 	{ flags: ["--health"], field: "health" },
 	{ flags: ["--fix"], field: "fix" },
+	{ flags: ["--merge-duplicates"], field: "mergeDuplicates" },
 	{ flags: ["--json"], field: "json" },
 	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
 ];
