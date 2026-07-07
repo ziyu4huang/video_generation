@@ -257,6 +257,38 @@ Priority:
 
 Use the memory tool to save. If this contradicts an existing entry, use 'replace' to update it.`;
 
+// ─── Error-capture patterns (Stage 1: auto-trigger on lesson-worthy errors) ──
+// Distinguishes a REAL lesson (bug / misconfiguration worth remembering) from
+// trivial noise (grep no-match, exploratory path-not-found). A tool_result is
+// captured only when isError AND its text matches a LESSON_WORTHY pattern AND
+// not a NOISE pattern. The same shape as the security pattern table in
+// content-scanner.ts, but for the "capture this" decision instead of "block this".
+
+/** Lesson-worthy error markers — a definitive failure worth remembering. */
+export const LESSON_WORTHY_PATTERNS: RegExp[] = [
+  /Traceback \(most recent call last\)/i,
+  /^\s+at\s+\S[\s\S]*?:\d+/m, // JS/TS stack frame (at file:line)
+  /\b(ModuleNotFoundError|ImportError|AttributeError|TypeError|ReferenceError|SyntaxError|KeyError|ValueError|RuntimeError|NameError):/i,
+  /\b(ENOENT|EACCES|EADDRINUSE|ECONNREFUSED|ECONNRESET|EPIPE|EROFS|ENOSPC):/,
+  /command not found/i,
+  /No such file or directory/i,
+  /Permission denied/i,
+  /Cannot find module/i,
+  /\berror\[\w+\]:/i, // rust error[Variant]:
+  /\bfatal:/i,
+  /\bBUILD FAILED\b/i,
+  /\b\d+ (failed|failing)\b/i, // test runner: "3 failed"
+  /\bcompilation failed\b/i,
+  /PreToolUse hook.*rejected|blocked by (PreToolUse|hook)/i, // a hook blocked an action
+];
+
+/** Noise patterns — suppress capture even when isError (trivial / exploratory). */
+export const ERROR_NOISE_PATTERNS: RegExp[] = [
+  /No matches found/i, // grep returned nothing (agent exploring)
+  /operation aborted/i, // user/system aborted, not a lesson
+  /^Path not found: /m, // read/ls during exploration
+];
+
 // ─── Skill tool description ───
 export const SKILL_TOOL_DESCRIPTION = `Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something, not just what happened.
 

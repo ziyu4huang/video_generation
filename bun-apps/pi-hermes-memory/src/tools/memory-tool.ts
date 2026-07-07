@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
 import { MEMORY_TOOL_DESCRIPTION } from "../constants.js";
 import type { MemoryCategory, MemoryResult } from "../types.js";
+import { convergeToVault, type ConvergeResult } from "../store/vault-converge.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
   const warnings = [...(((result as any).warnings ?? []) as string[]), warning];
@@ -66,7 +67,11 @@ function writeTransferArchive(
   return jsonlPath;
 }
 
-function formatTransferResult(result: MemoryResult, archivePath?: string): string {
+function formatTransferResult(
+  result: MemoryResult,
+  archivePath: string | undefined,
+  converge: ConvergeResult | null,
+): string {
   const lines: string[] = [];
   lines.push(result.message ?? "Transfer complete.");
   lines.push("");
@@ -79,7 +84,26 @@ function formatTransferResult(result: MemoryResult, archivePath?: string): strin
     lines.push("");
   });
 
-  if (archivePath) {
+  // ── Single-hop convergence outcome ──
+  // When pi-knowledge-card is installed, the entries were ingested directly as
+  // atomic zettel cards in the default vault — no manual zk_ingest needed.
+  if (converge && converge.ok) {
+    const n = transferred.length;
+    lines.push(
+      `Converged ${n} entr${n === 1 ? "y" : "ies"} → ${
+        (converge.created ?? 0) + (converge.updated ?? 0)
+      } zettel card(s) in the default vault (${converge.created ?? 0} created, ${converge.updated ?? 0} updated, ${converge.unchanged ?? 0} unchanged, ${converge.linked ?? 0} cross-link(s)).`,
+    );
+    if (converge.vaultPath) lines.push(`vault: ${converge.vaultPath}`);
+  } else if (converge && converge.unavailable && archivePath) {
+    // Fallback: knowledge-card extension absent — keep the archive handoff.
+    lines.push(`Archive file: ${archivePath}`);
+    lines.push("");
+    lines.push("Run zk_ingest on this file to import entries into the Obsidian vault:");
+    lines.push(`  zk_ingest --files "${archivePath}"`);
+    lines.push("");
+    if (converge.reason) lines.push(`(auto-converge unavailable: ${converge.reason})`);
+  } else if (archivePath) {
     lines.push(`Archive file: ${archivePath}`);
     lines.push("");
     lines.push("Run zk_ingest on this file to import entries into the Obsidian vault:");
@@ -429,9 +453,21 @@ export function registerMemoryTool(
           }
           result = await store_.transferEntries(target, query);
           if (result.success && result.transferred_entries && result.transferred_entries.length > 0) {
-            // Write a .knowledge.jsonl archive and attach the path
+            // Write a .knowledge.jsonl archive (audit trail / fallback)
             const archivePath = writeTransferArchive(target, result.transferred_entries);
             result = { ...result, archive_path: archivePath };
+
+            // Single-hop convergence: ingest the entries directly into the
+            // default vault as atomic zettel cards. Stays standalone-safe —
+            // if pi-knowledge-card is absent, converge returns unavailable and
+            // the formatter falls back to the archive-handoff message.
+            const cwd = (ctx as { cwd?: string } | undefined)?.cwd ?? process.cwd();
+            const converge = await convergeToVault(
+              result.transferred_entries,
+              target,
+              cwd,
+              projectName,
+            );
 
             // Sync removal to SQLite — use exact match to avoid overly broad removal
             if (dbManager) {
@@ -450,8 +486,8 @@ export function registerMemoryTool(
             }
 
             return {
-              content: [{ type: "text", text: formatTransferResult(result, archivePath) }],
-              details: result,
+              content: [{ type: "text", text: formatTransferResult(result, archivePath, converge) }],
+              details: { ...result, converge },
             };
           }
           break;
