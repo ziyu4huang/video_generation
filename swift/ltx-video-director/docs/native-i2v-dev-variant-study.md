@@ -391,3 +391,51 @@ full suite) and all pass, including against real checkpoints — this is the
 verification basis for calling 2b done, not a completed full-suite run.
 Worth a fresh full-suite run in a later session (e.g. after a machine
 restart) to confirm the whole 100+ suite is still green end-to-end.
+
+## Status update (2026-07-08): 2b parity-verified via real generation (STG on/off) + OOM re-measured — both close clean
+
+**OOM re-check at the new 3-pass cost** (dasiwa, real defaults `cfg_scale=5.0
+stg_scale=1.0`, 320x320 request auto-snapped to 800x800, 9 frames,
+`--no-upscale`, `/usr/bin/time -l`): peak memory footprint **90.99 GiB**,
+maximum resident set size **22.41 GiB**, wall time 214.9s, on this 128 GB
+machine — completed with no OOM/crash. This is notably higher than the
+34.4 GB figure from the pre-2b (CFG-only) segment, consistent with the
+3x-per-step-forward-pass cost now active for dasiwa/dev by default. The
+metric type behind the old 34.4 GB number was never recorded precisely
+(likely `maximum resident set size`, which this run puts at 22.4 GB — i.e.
+plausibly *lower* than before, while the less-comparable "peak memory
+footprint" figure is the one that's large), so treat this as a fresh
+baseline rather than a strict apples-to-apples regression check. No action
+needed today (well within 128 GB), but worth watching on lower-memory
+hardware or if a 4th pass (2c) is added.
+
+**STG parity check** (same prompt/seed/resolution, `--stg-scale 0.0` vs the
+dasiwa default `1.0`, everything else identical): confirmed the log line
+correctly reports `stg_scale=0.0 (off)` and skips the `[stg] ... active`
+line; wall time dropped from 214.9s to 172.4s (~25% less, i.e. the 3rd
+forward pass genuinely executes and genuinely costs real time — not a
+no-op that got optimized away). Per-frame mean absolute pixel difference
+(RGB, 0-255 scale) between STG-on and STG-off output frames: **0.22 → 1.75
+across the 9 frames (mean 1.04)**, growing monotonically — a real, modest,
+temporally-increasing effect, consistent with a self-attention
+perturbation guidance term rather than either a no-op or a
+content-destroying bug.
+
+**Static re-diff against the vendor reference, now that the code is
+final**: re-read `ltx_core_mlx/components/guiders.py` (`MultiModalGuider
+.calculate`, confirmed formula `cond + (cfg_scale-1)*(cond-uncond_text) +
+stg_scale*(cond-uncond_perturbed)` — exact match to `CFGGuidance.blend`)
+and `ltx_pipelines_mlx/{cli.py,a2vid_two_stage.py}` (`stg_blocks=[28]` —
+exact match to the Swift default). **Resolved the discrepancy flagged in
+the prior next-goal file** ("Swift port's stg_scale default of 1.0 vs. the
+Python reference's stg_scale=1.5 for dasiwa"): that "1.5" claim was
+mistaken. `mlx-models/transformer/ltx-2.3-dasiwa-golden-lace-v3-q8/
+manifest.json` — the actual per-variant source of truth — specifies
+`"stg_scale": 1.0`, exactly matching the Swift default. No reconciliation
+needed; nothing to change.
+
+**Conclusion**: Milestone 2b is now parity-verified by real generation (not
+just unit/algebraic tests) in addition to being merged (PR #343,
+`b02d5b2e`). Remaining open item before considering the CFG/STG/modality
+guidance gate fully closed is Milestone 2c (modality/cross-modal A2V-V2A
+guidance) — still entirely unstarted.
