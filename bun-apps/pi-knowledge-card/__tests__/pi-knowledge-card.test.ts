@@ -17,6 +17,7 @@ import piKnowledgeCardExtension, {
 	buildRagTask,
 	buildRemoveTask,
 	buildUpdateTask,
+	__setVaultResolverForTest,
 } from "../extensions/pi-knowledge-card.ts";
 import { ingestRecords, type KnowledgeRecord } from "../src/ingest.ts";
 
@@ -726,11 +727,19 @@ describe("knowledge_query + graph_health (migrated tools)", () => {
 		expect(res.content[0].text).toContain("1 card(s) matched");
 	});
 
-	test("knowledge_query errors clearly when the vault cannot be resolved", async () => {
-		delete process.env.OB_VAULT_PATH;
-		process.env.OB_VAULT_DIR = "/no/such/dir/xyz";
-		const res = await runTool("knowledge_query", { tags: ["argv"] });
-		expect(res.content[0].text).toContain("Cannot resolve vault path");
+	test("knowledge_query returns isError when vault resolution fails", async () => {
+		// resolveVault has a Tier-2 (Obsidian app) fallback that resolves the real
+		// open vault on this dev machine, so clearing OB_VAULT_PATH can't force a
+		// failure deterministically. Inject a failing resolver via the test seam.
+		__setVaultResolverForTest(() => Promise.reject(new Error("no vault for test")));
+		try {
+			const res = await runTool("knowledge_query", { tags: ["argv"] });
+			expect(res.isError).toBe(true);
+			expect(res.details.code).toBe("vault_resolution_failed");
+			expect(res.content[0].text).toContain("vault resolution failed");
+		} finally {
+			__setVaultResolverForTest(null);
+		}
 	});
 
 	test("graph_health audits a freshly-ingested graph as OK", async () => {

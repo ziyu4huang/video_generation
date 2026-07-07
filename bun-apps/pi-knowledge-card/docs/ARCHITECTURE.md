@@ -9,11 +9,23 @@
 The **single source of truth** for Zettelkasten knowledge tooling in the pi
 ecosystem. It owns two things:
 
-1. **A pi extension** (`extensions/pi-knowledge-card.ts`) that registers 4 tools
-   (`zk_extract`, `zk_card`, `zk_ask`, `zk_ingest`) — the task-builder strings +
-   per-action tool allowlists every consumer (CLI, other extensions) imports.
+1. **A pi extension** (`extensions/pi-knowledge-card.ts`) that registers **6
+   tools** — the 4 task-builder tools (`zk_extract`, `zk_card`, `zk_ask`,
+   `zk_ingest`) PLUS the 2 no-LLM knowledge-graph tools (`knowledge_query`,
+   `graph_health`) migrated in from pi-agent-ext-power-tool (consolidation
+   cycle). The task-builder strings + per-action tool allowlists every consumer
+   (CLI, other extensions) imports.
 2. **A deterministic library** (`src/*.ts`) — the convergence sink (ingest) and
    the graph READ side (retrieve), with no LLM and no network.
+
+> **Vault resolution is delegated, not rolled-own.** Every tool resolves the
+> convergence vault through pi-obsidian's `resolveVault(cwd)` (the multi-tier
+> resolver: `OB_VAULT_PATH` env → run-dir config → Obsidian app → local). The
+> hub asks its hard forward-dep (pi-obsidian) to *serve* vault resolution; the
+> 2 no-LLM tools (`knowledge_query`/`graph_health`) use the same resolver as the
+> 4 subagent tools. (An earlier simplified resolver only checked env + cwd/"vault"
+> and failed at runtime when the vault was config-registered — fixed in the
+> consolidation cycle.)
 
 The thesis: **structured knowledge from many sources converges into ONE shared,
 queryable, backlinked graph** so `zk_ask` answers cross-source questions for

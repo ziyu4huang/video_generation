@@ -32,8 +32,8 @@
  *   OB_SUBAGENT_TIMEOUT_MS         subagent timeout (default 5 min)
  */
 
-import { relative, resolve } from "node:path";
-import { readFileSync, existsSync } from "node:fs";
+import { relative } from "node:path";
+import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -208,16 +208,31 @@ function withVault(header: string, body: string): string {
 }
 
 /** Resolve the convergence vault for the no-LLM knowledge tools
- *  (knowledge_query / graph_health). These tools bypass the subagent runner, so
- *  they resolve the vault directly: OB_VAULT_PATH env, else cwd/OB_VAULT_DIR
- *  (default "vault") if it exists, else null (the tool returns an error text).
- *  Migrated verbatim from pi-agent-ext-power-tool (consolidation cycle). */
-function resolveKnowledgeVault(): string | null {
-	const explicit = process.env.OB_VAULT_PATH;
-	if (explicit) return explicit;
-	const dir = process.env.OB_VAULT_DIR ?? "vault";
-	const abs = resolve(process.cwd(), dir);
-	return existsSync(abs) ? abs : null;
+ *  (knowledge_query / graph_health). Delegates to pi-obsidian's multi-tier
+ *  `resolveVault` (env → config → app → local) — the SAME resolver the native
+ *  zk_* tools use. The hub asks its forward-dep (pi-obsidian) to serve vault
+ *  resolution rather than rolling its own; this also reads the run-dir config
+ *  (`obsidian_config.json` vault_path) that the simplified resolver missed.
+ *  Throws if no vault can be resolved — callers catch and return isError.
+ *  (Consolidation-cycle fix: the power-tool version only checked OB_VAULT_PATH
+ *  + cwd/"vault", so it failed at runtime when the vault was config-registered
+ *  but not env-set. Now it resolves exactly like the sibling zk_* tools.) */
+// --- test seam (deterministic vault-failure injection) --------------------------
+// resolveVault has a Tier-2 (Obsidian app) fallback that resolves the real
+// open vault on any dev machine with Obsidian installed, so a unit test can't
+// make resolution fail by clearing OB_VAULT_PATH. This seam lets the error-
+// path test inject a failing resolver deterministically. Null = use real.
+let __vaultResolver: ((cwd: string) => Promise<string>) | null = null;
+/** @internal test-only override of the vault resolver (pass null to restore). */
+export function __setVaultResolverForTest(
+	fn: ((cwd: string) => Promise<string>) | null,
+): void {
+	__vaultResolver = fn;
+}
+
+async function resolveKnowledgeVault(cwd: string): Promise<string> {
+	if (__vaultResolver) return __vaultResolver(cwd);
+	return (await resolveVault(cwd)).path;
 }
 
 // ---------------------------------------------------------------------------
@@ -1193,12 +1208,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				default: 10,
 			})),
 		}),
-		async execute(_id, params, _signal, _onUpdate, _ctx) {
-			const vaultPath = resolveKnowledgeVault();
-			if (!vaultPath) {
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			let vaultPath: string;
+			try {
+				vaultPath = await resolveKnowledgeVault(ctx.cwd);
+			} catch (e) {
 				return {
-					content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
-					details: null,
+					content: [{ type: "text" as const, text: `knowledge_query: vault resolution failed: ${(e as Error).message}` }],
+					isError: true,
+					details: { code: "vault_resolution_failed" },
 				};
 			}
 
@@ -1272,12 +1290,15 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				default: false,
 			})),
 		}),
-		async execute(_id, params, _signal, _onUpdate, _ctx) {
-			const vaultPath = resolveKnowledgeVault();
-			if (!vaultPath) {
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			let vaultPath: string;
+			try {
+				vaultPath = await resolveKnowledgeVault(ctx.cwd);
+			} catch (e) {
 				return {
-					content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
-					details: null,
+					content: [{ type: "text" as const, text: `graph_health: vault resolution failed: ${(e as Error).message}` }],
+					isError: true,
+					details: { code: "vault_resolution_failed" },
 				};
 			}
 
