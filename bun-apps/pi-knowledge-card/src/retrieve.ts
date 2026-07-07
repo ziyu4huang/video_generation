@@ -41,6 +41,7 @@ import {
 	normTag,
 	readCardMeta,
 	writeMoc,
+	extractFeatures,
 	type KnowledgeRecord,
 } from "./ingest.ts";
 
@@ -59,12 +60,17 @@ export interface RetrievedCard {
 	detail: string;
 	/** Tags (normalised). */
 	tags: string[];
-	/** Shared-tag count with the query (the ranking score). */
+	/** Shared-tag count with the query (the ranking score before the callout boost). */
 	sharedTags: number;
 	/** Vault-relative card path. */
 	path: string;
 	/** Source provenance label. */
 	source: string;
+	/** True iff the card carries Obsidian callout(s) (P1 feature metadata). */
+	hasCallouts: boolean;
+	/** First callout headline ("[!warning] ...") — lifted into the digest so the
+	 *  highest-signal line is not buried in the truncated prose body. */
+	calloutText: string;
 }
 
 export interface RetrieveOptions {
@@ -202,7 +208,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		if (queryTags.has("zettel") && meta.tags.has("zettel")) shared -= 1;
 		if (shared <= 0) continue; // no overlap — skip
 
-		// Read the card content for title/detail/type.
+	// Read the card content for title/detail/type.
 		const content = readFileSync(abs, "utf8");
 		const { data } = parseFrontmatter(content);
 		// Defense-in-depth: never surface retired/superseded cards as live
@@ -219,6 +225,24 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		const type = typeof data.record_type === "string" ? data.record_type : "pattern";
 		const source = typeof data.source === "string" ? data.source : "unknown";
 
+		// Feature-aware ranking (kg-improvement-plan P1): a callout-bearing card
+		// gets a BOUNDED boost of +0.5, applied AFTER shared-tag count and BEFORE
+		// the id localeCompare tie-break. Because shared is an integer and the
+		// boost is < 1, a callout card ties-then-beats an equal-tag prose card
+		// (shared+0.5 > shared) but NEVER displaces a strictly-more-on-tag prose
+		// card (shared+0.5 < shared+1). The warning callout is usually the
+		// highest-signal line in a human-authored note; ranking it ahead on a
+		// tag tie surfaces it earlier without distorting clearly-better matches.
+		const calloutBoost = meta.hasCallouts ? 0.5 : 0;
+		// Lift the callout headline text into the digest so the highest-signal
+		// sentence is not buried in the truncated prose body. calloutTexts[0] is
+		// the first callout's headline ("[!warning] ... ").
+		let calloutText = "";
+		if (meta.hasCallouts) {
+			const feats = extractFeatures(content);
+			calloutText = feats.calloutTexts[0] ?? "";
+		}
+
 		scored.push({
 			id: meta.source_id ?? cardSlug,
 			title,
@@ -228,7 +252,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			sharedTags: shared,
 			path: `${folder}/${cardSlug}`,
 			source,
-			_score: shared,
+			hasCallouts: meta.hasCallouts,
+			calloutText,
+			_score: shared + calloutBoost,
 		});
 	}
 
@@ -264,7 +290,11 @@ function formatDigest(cards: RetrievedCard[], queryTags: string[]): string {
 	for (const g of present) {
 		parts.push(`[${g.toUpperCase()}]`);
 		for (const c of groups.get(g)!) {
-			parts.push(`- ${c.title} — ${c.detail.slice(0, 160)} (${c.source})`);
+			// P1 callout surfacing: when a card carries a callout, lift its headline
+			// (`[!warning] ...`) ahead of the truncated prose so the highest-signal
+			// sentence reaches the RAG context instead of being buried in the body.
+			const calloutPrefix = c.calloutText ? `${c.calloutText} — ` : "";
+			parts.push(`- ${c.title} — ${calloutPrefix}${c.detail.slice(0, 160)} (${c.source})`);
 		}
 	}
 	return parts.join("\n");

@@ -323,6 +323,108 @@ export function adaptAutoMemoryMarkdown(content: string): KnowledgeRecord | null
 }
 
 // ---------------------------------------------------------------------------
+// Obsidian feature extraction (callouts / tasks / embeds / code density)
+// ---------------------------------------------------------------------------
+
+/** Structured Obsidian feature metadata detected in a card body.
+ *
+ *  All keys are ADDITIVE: a feature-less body yields an empty result and the
+ *  card frontmatter gains nothing (byte-identical to pre-feature ingest), so
+ *  old cards validate + retrieve unchanged. Only the callout fields carry a
+ *  retrieval LEVER (ranking boost + context surfacing); tasks/embeds/code are
+ *  recorded as filter flags but are not ranked (deferred until a harness says
+ *  they help — kg-improvement-plan P1). */
+export interface MarkdownFeatures {
+	/** True iff at least one `> [!type]` callout block is present. */
+	hasCallouts: boolean;
+	/** Lowercased callout types, in source order (e.g. ["warning", "tip"]). */
+	calloutTypes: string[];
+	/** Headline text per callout (`[!type] headline`), lifted into the digest. */
+	calloutTexts: string[];
+	/** True iff any `- [ ]` or `- [x]` task line is present. */
+	hasTasks: boolean;
+	/** Count of open tasks (`- [ ]`). */
+	openTaskCount: number;
+	/** Count of closed tasks (`- [x]`). */
+	closedTaskCount: number;
+	/** Count of `![[...]]` embeds (image/note), NOT plain `[[...]]` links. */
+	embedCount: number;
+	/** Number of fenced code blocks (``` / ~~~). */
+	codeBlockCount: number;
+	/** Total lines inside fenced code blocks (density proxy). */
+	codeBlockLines: number;
+}
+
+function emptyFeatures(): MarkdownFeatures {
+	return {
+		hasCallouts: false,
+		calloutTypes: [],
+		calloutTexts: [],
+		hasTasks: false,
+		openTaskCount: 0,
+		closedTaskCount: 0,
+		embedCount: 0,
+		codeBlockCount: 0,
+		codeBlockLines: 0,
+	};
+}
+
+/** Detect Obsidian structured features in a markdown body. Callouts (`>
+ *  [!type]`), tasks (`- [ ]` / `- [x]`), embeds (`![[...]]`), and fenced-code
+ *  density are counted. Tasks/embeds inside code fences are NOT counted
+ *  (they are code, not prose). Returns an empty result for empty input. */
+export function extractFeatures(body: string): MarkdownFeatures {
+	if (!body || !body.trim()) return emptyFeatures();
+	const lines = body.split(/\r?\n/);
+	const f = emptyFeatures();
+
+	// 1. Callouts — a `> [!type]` line starts a block; the headline is the text
+	//    after `]` on that line, falling back to the first `>` continuation.
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i]!;
+		const m = line.match(/^>\s*\[!(\w+)\]\s*(.*)$/);
+		if (!m) continue;
+		const type = m[1]!.toLowerCase();
+		f.calloutTypes.push(type);
+		let headline = (m[2] ?? "").trim();
+		if (!headline) {
+			const next = lines[i + 1];
+			if (next) {
+				const nm = next.match(/^>\s?(.*)$/);
+				if (nm) headline = nm[1]!.trim();
+			}
+		}
+		f.calloutTexts.push(headline ? `[!${type}] ${headline}` : `[!${type}]`);
+	}
+	f.hasCallouts = f.calloutTypes.length > 0;
+
+	// 2. Tasks / embeds / code density — single pass, code-fence aware.
+	let inCode = false;
+	for (const line of lines) {
+		if (/^(\s*)```|^\s*~~~/.test(line)) {
+			if (inCode) {
+				f.codeBlockLines++;
+				inCode = false;
+			} else {
+				inCode = true;
+				f.codeBlockCount++;
+			}
+			continue;
+		}
+		if (inCode) {
+			f.codeBlockLines++;
+			continue;
+		}
+		if (/^[-*]\s+\[\s\]/.test(line)) f.openTaskCount++;
+		else if (/^[-*]\s+\[[xX]\]/.test(line)) f.closedTaskCount++;
+		// Embeds: `![[...]]` only (plain `[[...]]` wiki-links are NOT embeds).
+		for (const _ of line.matchAll(/!\[\[([^\]]+)\]\]/g)) f.embedCount++;
+	}
+	f.hasTasks = f.openTaskCount + f.closedTaskCount > 0;
+	return f;
+}
+
+// ---------------------------------------------------------------------------
 // .knowledge.jsonl parsing
 // ---------------------------------------------------------------------------
 
@@ -456,6 +558,26 @@ function renderCard(
 		confidence: rec.confidence,
 	};
 	if (rec.dimension !== null) fm.dimension = rec.dimension;
+
+	// Feature metadata (kg-improvement-plan P1): detect Obsidian callouts /
+	// tasks / embeds / code density in the body that becomes 核心想法, and
+	// carry them as ADDITIVE frontmatter keys. Written ONLY where the source
+	// body has the feature, so feature-less records stay byte-identical to
+	// pre-feature ingest (old cards validate + retrieve unchanged). Only the
+	// callout fields carry a retrieval lever (ranking boost + context
+	// surfacing); tasks/embeds/code are filter flags, not ranked.
+	const feats = extractFeatures(detail);
+	if (feats.hasCallouts) {
+		fm.has_callouts = true;
+		fm.callout_types = feats.calloutTypes;
+	}
+	if (feats.hasTasks) {
+		fm.has_tasks = true;
+		fm.open_task_count = feats.openTaskCount;
+	}
+	if (feats.embedCount > 0) fm.embed_count = feats.embedCount;
+	if (feats.codeBlockLines > 0) fm.code_block_lines = feats.codeBlockLines;
+
 	const fmText = renderFrontmatter(fm);
 
 	const evidenceLines = [
@@ -516,9 +638,16 @@ function yamlScalar(v: unknown): string {
 	return s;
 }
 
-/** Read a card file's frontmatter tags (normalised) + source_id, for link
- *  computation and collision detection. Returns null if not a valid card. */
-export function readCardMeta(absPath: string): { tags: Set<string>; source_id?: string } | null {
+/** Read a card file's frontmatter tags (normalised) + source_id + feature
+ *  flags, for link computation, collision detection, and feature-aware
+ *  retrieval ranking. Returns null if not a valid card. Feature keys are
+ *  ADDITIVE (old cards just lack them → hasCallouts:false, backward-compatible). */
+export function readCardMeta(absPath: string): {
+	tags: Set<string>;
+	source_id?: string;
+	hasCallouts: boolean;
+	calloutTypes: string[];
+} | null {
 	try {
 		const content = readFileSync(absPath, "utf8");
 		const { data } = parseFrontmatter(content);
@@ -526,7 +655,16 @@ export function readCardMeta(absPath: string): { tags: Set<string>; source_id?: 
 		const tags = new Set(
 			(data.tags as unknown[]).map((t) => normTag(String(t))),
 		);
-		return { tags, source_id: typeof data.source_id === "string" ? data.source_id : undefined };
+		const hasCallouts = data.has_callouts === true;
+		const calloutTypes = Array.isArray(data.callout_types)
+			? (data.callout_types as unknown[]).map((t) => String(t).toLowerCase())
+			: [];
+		return {
+			tags,
+			source_id: typeof data.source_id === "string" ? data.source_id : undefined,
+			hasCallouts,
+			calloutTypes,
+		};
 	} catch {
 		return null;
 	}
