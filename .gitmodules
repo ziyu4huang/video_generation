@@ -4,3 +4,6 @@
 [submodule "vaults_root/pi-agent-vault"]
 	path = vaults_root/pi-agent-vault
 	url = git@github.com:ziyu4huang/pi-agent-vault.git
+[submodule "vaults_root/study-news"]
+	path = vaults_root/study-news
+	url = git@github.com:ziyu4huang/study-news.git
