@@ -23,6 +23,7 @@ import {
 	healGraph,
 	formatHealth,
 } from "../src/retrieve.ts";
+import { buildRagTask } from "../extensions/pi-knowledge-card.ts";
 
 let vault: string;
 const FOLDER = "Zettelkasten/knowledge-graph";
@@ -245,6 +246,50 @@ describe("retrieveRecords — feature-aware ranking (P1)", () => {
 		expect(result.digest).toContain("[!warning]");
 		expect(result.digest).toContain("Never run X without the guard");
 		expect(result.cards[0]!.calloutText).toContain("[!warning]");
+	});
+});
+
+describe("ranking-split drift guard (consolidation cycle Stage 3)", () => {
+	// BY-DESIGN contract (pinned here so a future edit can't silently change one
+	// read path's callout handling without the other):
+	//   - retrieveRecords (deterministic lib, reads frontmatter at rank time)
+	//     APPLIES a bounded +0.5 callout boost (tie-break only).
+	//   - zk_ask's buildRagTask (agent computes score from search results, no
+	//     frontmatter at Step 3) does NOT put a callout term in the Step-3 score
+	//     formula — it SURFACES callouts via the Step-4 instruction instead.
+	// If either side changes, update BOTH + this test + ARCHITECTURE.md.
+
+	test("retrieveRecords applies the callout boost (boost term present in source)", async () => {
+		// Sanity: the boost is wired and observable (rank flip on a tag tie).
+		await ingest([
+			rec({ id: "d:a", title: "Prose", detail: "plain prose", tags: ["argv"] }),
+			rec({ id: "d:b", title: "Callout", detail: "> [!warning] x", tags: ["argv"] }),
+		]);
+		const result = await retrieveRecords({
+			vaultPath: vault, folder: FOLDER, tags: ["argv"], topK: 5,
+		});
+		expect(result.cards[0]!.title).toBe("Callout");
+		expect(result.cards[0]!.hasCallouts).toBe(true);
+	});
+
+	test("buildRagTask Step-3 score formula has NO callout term (surfaces, not boosts)", () => {
+		// Import the pure task builder (no vault / no agent needed).
+		// The deterministic score line is "0.7 × search_score ... + 0.3 × link_count"
+		// with NO callout term. zk_ask surfaces callouts via the Step-4 instruction
+		// instead (asserted below). If someone adds a callout term to Step 3, this
+		// guard fails and forces the by-design decision to be revisited.
+		const t = buildRagTask("q", 2, 8, false, false);
+		expect(t).toContain("0.7 × search_score");
+		expect(t).toContain("0.3 × link_count");
+		// A callout term MUST NOT appear on the score-formula line.
+		const scoreLine = t.split("\n").find((l) => l.includes("search_score"))!;
+		expect(scoreLine.toLowerCase()).not.toContain("callout");
+	});
+
+	test("buildRagTask carries the Step-4 callout-surfacing instruction (the zk_ask lever)", () => {
+		const t = buildRagTask("q", 2, 8, false, false);
+		expect(t).toContain("Feature surfacing (P1)");
+		expect(t).toContain("> [!warning|tip|info|caution|...]");
 	});
 });
 

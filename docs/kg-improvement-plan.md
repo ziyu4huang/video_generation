@@ -217,8 +217,11 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 - **Proof metric:** benchmark `ingestRecords` on a 500-card folder — wall-clock
   for a "no changes" re-ingest with vs without the fingerprint short-circuit.
   Must show **>30% speedup** to be worth the added frontmatter key.
-- **Verdict:** **defer until scale demands it.** At current scale (hundreds of
-  cards) the global recompute is sub-second. Revisit if the vault grows 10×.
+- **Verdict:** **DEFER (steady-state).** At current scale (429 converged cards,
+  2026-07-07) the global recompute is sub-second. **Reopen when:** the vault
+  grows ~10× (≈4000+ cards) AND a benchmark shows the no-op re-ingest wall-clock
+  exceeds the >30% speedup gate. Until then the fingerprint is unused
+  frontmatter bloat.
 
 ### P3 — Re-confirm the semantic-blend measurement, then retire-or-invest  ✅ **CLOSED (iter-7, 2026-07-07)**
 
@@ -290,9 +293,13 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   vault-mind's `collection_manager` `document_count` increments by *N* and a
   semantic query returns a new card within one reindex cycle (≤2s on current
   vault).
-- **Verdict:** **defer behind P3.** Only worth building if P3 shows semantic is
-  worth investing in at all. If P3 retires semantic, this proposal collapses
-  (no point syncing a layer we don't rely on).
+- **Verdict:** **COLLAPSED (P3 retired).** P3 (semantic blend) is CLOSED —
+  RETIRED from the default READ path (iter-7: lexical wins 4/5). This proposal
+  existed only to sync the semantic layer after `healGraph`; with semantic
+  retired, there is no layer to sync. **Reopen only if:** P3 is legitimately
+  re-opened by a NEW regime (10× vault OR a different vault-mind embedding
+  model) AND semantic wins — then the sync becomes worth building (opt-in,
+  never a hard dependency).
 
 ### P5 — Finer chunking (per-section)  *(DECISION: not applicable — do not adopt)*
 
@@ -318,8 +325,11 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   If **<5%** of cards carry hierarchical tags, **drop** the proposal as
   low-value (our dimensions are already mostly flat: `flux2`, not
   `generation/flux2`).
-- **Verdict:** **triage-and-likely-drop.** Cheap to check; probably not worth
-  the code if the tag space is already flat.
+- **Verdict:** **DROP (measured 2026-07-07).** A `grep` of the convergence
+  folder shows **2 / 429 cards (0.4%)** carry a hierarchical (`/`-bearing) tag
+  — far below the 5% reopen threshold. Our dimensions are flat (`flux2`, not
+  `generation/flux2`); the flattening code would touch <1% of cards. **Reopen
+  when:** hierarchical-tag rate exceeds 5% of the convergence folder.
 
 ---
 
@@ -329,9 +339,9 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 |---|---|---|---|---|---|
 | **P3** | Re-confirm semantic-blend measurement | S | low | ✅ CLOSED (retire) | semantic-lexical relevance@4 > lexical+graph +0.05, else retire |
 | **P1** | Richer feature metadata in zettel frontmatter | M | low | ✅ CLOSED (ship) | queryCount-5 relevance@4 improves OR ≥1 answer-quality change — proven via deterministic mechanism gate (corpus has 0 callouts) |
-| P4 | Graph-health-aware reindex sync | M | medium | behind P3 | document_count sync + new-card recall ≤2s (opt-in only) |
-| P2 | Change-detection fingerprint | S | low | defer (scale) | >30% speedup on 500-card no-op re-ingest |
-| P6 | Hierarchical-tag flattening | S | low | triage-drop | <5% hierarchical tags → drop |
+| P4 | Graph-health-aware reindex sync | M | medium | ❌ COLLAPSED (P3 retired) | reopen only if P3 reopens + semantic wins (opt-in) |
+| P2 | Change-detection fingerprint | S | low | ⏸ DEFER (scale) | >30% speedup on no-op re-ingest; reopen at ~4000+ cards |
+| P6 | Hierarchical-tag flattening | S | low | ❌ DROP (0.4% measured) | reopen if hierarchical-tag rate >5% (measured 2/429) |
 | P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
 
 ---

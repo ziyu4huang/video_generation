@@ -7,9 +7,19 @@
  * pi-obsidian to be available in the same session.
  *
  * Tools:
- *   zk_extract   decompose markdown/text files into atomic Zettelkasten notes
- *   zk_card      CRUD over vault notes: add | find | update | remove | check
- *   zk_ask       graph-enhanced RAG query over the vault
+ *   zk_extract       decompose markdown/text files into atomic Zettelkasten notes
+ *   zk_card          CRUD over vault notes: add | find | update | remove | check
+ *   zk_ask           graph-enhanced RAG query over the vault
+ *   zk_ingest        deterministic convergence of .knowledge.jsonl → cards
+ *   knowledge_query  deterministic cross-workflow tag-ranked digest (no LLM)
+ *   graph_health     audit + auto-heal the convergence-folder graph
+ *
+ * The last two (knowledge_query / graph_health) are the hub's direct agent
+ * surface over the retrieve.ts library — they do NOT spawn a subagent (no
+ * LLM, no network), so they work even where the subagent-backed zk_* tools
+ * are heavier. They were migrated here from pi-agent-ext-power-tool so the
+ * knowledge-graph hub owns every agent-facing knowledge tool (consolidation
+ * cycle, 2026-07-07).
  *
  * This module is the SINGLE SOURCE OF TRUTH for the task builders
  * (buildDistillTask / buildAddTask / … / buildRagTask) and tool allowlists
@@ -22,8 +32,8 @@
  *   OB_SUBAGENT_TIMEOUT_MS         subagent timeout (default 5 min)
  */
 
-import { relative } from "node:path";
-import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -39,6 +49,15 @@ import {
 	type KnowledgeRecord,
 	type SourceFamily,
 } from "../src/ingest.ts";
+import {
+	retrieveRecords,
+	graphHealth,
+	healGraph,
+	formatHealth,
+	type RetrieveOptions,
+	type GraphHealthOptions,
+	type GraphHealthResult,
+} from "../src/retrieve.ts";
 
 // ---------------------------------------------------------------------------
 // Tool allowlists (per command) — exported so the CLI reuses the exact same
@@ -186,6 +205,19 @@ async function vaultHeader(cwd: string): Promise<string> {
 /** Prepend the vault header to a result text block. */
 function withVault(header: string, body: string): string {
 	return header ? `${header}\n${body}` : body;
+}
+
+/** Resolve the convergence vault for the no-LLM knowledge tools
+ *  (knowledge_query / graph_health). These tools bypass the subagent runner, so
+ *  they resolve the vault directly: OB_VAULT_PATH env, else cwd/OB_VAULT_DIR
+ *  (default "vault") if it exists, else null (the tool returns an error text).
+ *  Migrated verbatim from pi-agent-ext-power-tool (consolidation cycle). */
+function resolveKnowledgeVault(): string | null {
+	const explicit = process.env.OB_VAULT_PATH;
+	if (explicit) return explicit;
+	const dir = process.env.OB_VAULT_DIR ?? "vault";
+	const abs = resolve(process.cwd(), dir);
+	return existsSync(abs) ? abs : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +524,11 @@ export function buildRagTask(
 		"the context you pass to generation — the warning/tip line is usually the",
 		"highest-signal sentence in a human-authored note and must not be buried in",
 		"the truncated prose body. Quote it verbatim (including the `[!type]`).",
+		"  BY-DESIGN: zk_ask SURFACES callouts (Step 4, after the note is read) but",
+		"  does NOT boost them in the Step-3 score. retrieveRecords (the other read",
+		"  path) DOES apply a +0.5 callout boost — because it reads frontmatter at",
+		"  rank time, which the agent cannot here (notes are read via obsidian_read",
+		"  only in Step 4). See src/retrieve.ts + the drift-guard test.",
 		...outputInstruction,
 		"",
 		"Append a reference list at the end:",
@@ -1126,6 +1163,141 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					},
 				],
 				details: { ...summary, skipped },
+			};
+		},
+	});
+
+	// ─── knowledge_query tool (migrated from pi-agent-ext-power-tool) ────────
+	// Deterministic, no-LLM cross-workflow digest over the convergence folder.
+	// This is the hub's direct agent surface over retrieve.ts — the same library
+	// zk-query (CLI) consumes. Behavior-preserving move (consolidation cycle).
+	pi.registerTool({
+		name: "knowledge_query",
+		label: "Knowledge Query",
+		description:
+			"Query the project's Zettelkasten knowledge graph for cards matching given tags " +
+			"or a natural-language question. Returns a compact digest of relevant stored " +
+			"knowledge (gotchas, patterns, levers, avoid, false_positive, metric cards). " +
+			"Call this BEFORE answering a question that may benefit from past workflow " +
+			"lessons.",
+		promptSnippet: "Query knowledge graph for relevant cards",
+		parameters: Type.Object({
+			tags: Type.Optional(Type.Array(Type.String(), {
+				description: "Tags to match (ANY semantics). e.g. [\"argparse\", \"lora\"]",
+			})),
+			query: Type.Optional(Type.String({
+				description: "Natural language query. If provided without tags, tags are inferred.",
+			})),
+			topK: Type.Optional(Type.Number({
+				description: "Max cards to return (default 10)",
+				default: 10,
+			})),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			const vaultPath = resolveKnowledgeVault();
+			if (!vaultPath) {
+				return {
+					content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
+					details: null,
+				};
+			}
+
+			const tags: string[] = params.tags ?? [];
+			const query: string = params.query ?? "";
+			const topK: number = params.topK ?? 10;
+
+			if (tags.length === 0 && !query) {
+				return {
+					content: [{ type: "text" as const, text: "Provide tags[], a query string, or both." }],
+					details: null,
+				};
+			}
+
+			// If no tags but a query is provided, split the query into word tokens as tags.
+			const effectiveTags = tags.length > 0 ? tags : (
+				query
+					.toLowerCase()
+					.replace(/[^a-z0-9-]+/g, " ")
+					.trim()
+					.split(/\s+/)
+					.filter((t) => t.length >= 3 && t.length <= 30)
+					.slice(0, 10)
+			);
+
+			const opts: RetrieveOptions = {
+				vaultPath,
+				folder: "Zettelkasten/knowledge-graph",
+				tags: effectiveTags,
+				topK,
+			};
+
+			const result = await retrieveRecords(opts);
+
+			if (result.count === 0) {
+				return {
+					content: [{ type: "text" as const, text: `No knowledge cards matched tags [${effectiveTags.join(", ")}].` }],
+					details: result,
+				};
+			}
+
+			const lines = [
+				`Knowledge graph: ${result.count} card(s) matched (scanned ${result.scanned}, excluded ${result.excluded})`,
+				"",
+				result.digest,
+			];
+
+			return {
+				content: [{ type: "text" as const, text: lines.join("\n") }],
+				details: result,
+			};
+		},
+	});
+
+	// ─── graph_health tool (migrated from pi-agent-ext-power-tool) ──────────
+	// Audit + auto-heal the convergence-folder graph (no LLM). Scoped to the
+	// convergence folder — never touches human-authored cards. Same library
+	// zk-query (CLI) consumes.
+	pi.registerTool({
+		name: "graph_health",
+		label: "Graph Health",
+		description:
+			"Audit the knowledge graph's structural health: dead wiki-links, MOC drift " +
+			"(stale/missing Tags/Knowledge Graph.md), and orphan cards. Supports --fix " +
+			"(auto-heal: regenerate MOC + prune dead links, scoped to the convergence " +
+			"folder — never touches human-authored cards).",
+		promptSnippet: "Audit graph health of the knowledge vault",
+		parameters: Type.Object({
+			fix: Type.Optional(Type.Boolean({
+				description: "Auto-heal drift: regenerate MOC + prune dead links",
+				default: false,
+			})),
+		}),
+		async execute(_id, params, _signal, _onUpdate, _ctx) {
+			const vaultPath = resolveKnowledgeVault();
+			if (!vaultPath) {
+				return {
+					content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
+					details: null,
+				};
+			}
+
+			const folder = "Zettelkasten/knowledge-graph";
+			const mocPath = "Tags/Knowledge Graph.md";
+			const hOpts: GraphHealthOptions = { vaultPath, folder, mocPath };
+
+			if (params.fix) {
+				const healed = await healGraph(hOpts);
+				const healMsg = `heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
+					`${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`;
+				console.error(healMsg);
+			}
+
+			const h: GraphHealthResult = await graphHealth(hOpts);
+			const report = formatHealth(h);
+
+			return {
+				content: [{ type: "text" as const, text: report }],
+				details: h,
 			};
 		},
 	});

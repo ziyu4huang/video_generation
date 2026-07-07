@@ -29,15 +29,6 @@ import { Type } from "typebox";
 import * as yaml from "js-yaml";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve, sep } from "path";
-import {
-  retrieveRecords,
-  graphHealth,
-  healGraph,
-  formatHealth,
-  type RetrieveOptions,
-  type GraphHealthOptions,
-  type GraphHealthResult,
-} from "pi-knowledge-card/src/retrieve.ts";
 import { registerTodoTool, registerTodosCommand } from "./todo/todo";
 import { TodoOverlay } from "./todo/overlay";
 import { PowerToolStatusWidget } from "./shared/status-widget.js";
@@ -948,152 +939,6 @@ function makeExtensionAnalyzerTool(getAllTools: () => ToolInfo[]) {
   });
 }
 
-// ─── knowledge_query tool ──────────────────────────────────────────────────
-
-/** Resolve vault path: env, then default under cwd. */
-function resolveKnowledgeVault(): string | null {
-  const explicit = process.env.OB_VAULT_PATH;
-  if (explicit) return explicit;
-  const dir = process.env.OB_VAULT_DIR ?? "vault";
-  const abs = resolve(process.cwd(), dir);
-  return existsSync(abs) ? abs : null;
-}
-
-function makeKnowledgeQueryTool() {
-  return defineTool({
-    name: "knowledge_query",
-    label: "Knowledge Query",
-    description:
-      "Query the project's Zettelkasten knowledge graph for cards matching given tags " +
-      "or a natural-language question. Returns a compact digest of relevant stored " +
-      "knowledge (gotchas, patterns, levers, avoid, false_positive, metric cards). " +
-      "Call this BEFORE answering a question that may benefit from past workflow " +
-      "lessons.",
-    promptSnippet: "Query knowledge graph for relevant cards",
-    parameters: Type.Object({
-      tags: Type.Optional(Type.Array(Type.String(), {
-        description: "Tags to match (ANY semantics). e.g. [\"argparse\", \"lora\"]",
-      })),
-      query: Type.Optional(Type.String({
-        description: "Natural language query. If provided without tags, tags are inferred.",
-      })),
-      topK: Type.Optional(Type.Number({
-        description: "Max cards to return (default 10)",
-        default: 10,
-      })),
-    }),
-
-    async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const vaultPath = resolveKnowledgeVault();
-      if (!vaultPath) {
-        return {
-          content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
-          details: null,
-        };
-      }
-
-      const tags: string[] = params.tags ?? [];
-      const query: string = params.query ?? "";
-      const topK: number = params.topK ?? 10;
-
-      if (tags.length === 0 && !query) {
-        return {
-          content: [{ type: "text" as const, text: "Provide tags[], a query string, or both." }],
-          details: null,
-        };
-      }
-
-      // If no tags but a query is provided, split the query into word tokens as tags.
-      const effectiveTags = tags.length > 0 ? tags : (
-        query
-          .toLowerCase()
-          .replace(/[^a-z0-9-]+/g, " ")
-          .trim()
-          .split(/\s+/)
-          .filter((t) => t.length >= 3 && t.length <= 30)
-          .slice(0, 10)
-      );
-
-      const opts: RetrieveOptions = {
-        vaultPath,
-        folder: "Zettelkasten/knowledge-graph",
-        tags: effectiveTags,
-        topK,
-      };
-
-      const result = await retrieveRecords(opts);
-
-      if (result.count === 0) {
-        return {
-          content: [{ type: "text" as const, text: `No knowledge cards matched tags [${effectiveTags.join(", ")}].` }],
-          details: result,
-        };
-      }
-
-      const lines = [
-        `Knowledge graph: ${result.count} card(s) matched (scanned ${result.scanned}, excluded ${result.excluded})`,
-        "",
-        result.digest,
-      ];
-
-      return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
-        details: result,
-      };
-    },
-  });
-}
-
-// ─── graphHealth tool ───────────────────────────────────────────────────────
-
-function makeGraphHealthTool() {
-  return defineTool({
-    name: "graph_health",
-    label: "Graph Health",
-    description:
-      "Audit the knowledge graph's structural health: dead wiki-links, MOC drift " +
-      "(stale/missing Tags/Knowledge Graph.md), and orphan cards. Supports --fix " +
-      "(auto-heal: regenerate MOC + prune dead links, scoped to the convergence " +
-      "folder — never touches human-authored cards).",
-    promptSnippet: "Audit graph health of the knowledge vault",
-    parameters: Type.Object({
-      fix: Type.Optional(Type.Boolean({
-        description: "Auto-heal drift: regenerate MOC + prune dead links",
-        default: false,
-      })),
-    }),
-
-    async execute(_id, params, _signal, _onUpdate, _ctx) {
-      const vaultPath = resolveKnowledgeVault();
-      if (!vaultPath) {
-        return {
-          content: [{ type: "text" as const, text: "Error: Cannot resolve vault path. Set OB_VAULT_PATH." }],
-          details: null,
-        };
-      }
-
-      const folder = "Zettelkasten/knowledge-graph";
-      const mocPath = "Tags/Knowledge Graph.md";
-      const hOpts: GraphHealthOptions = { vaultPath, folder, mocPath };
-
-      if (params.fix) {
-        const healed = await healGraph(hOpts);
-        const healMsg = `heal: MOC ${healed.mocRegenerated ? "regenerated" : "no change"}, ` +
-          `${healed.deadLinksPruned} dead link(s) pruned in ${healed.cardsTouched.length} card(s)`;
-        console.error(healMsg);
-      }
-
-      const h: GraphHealthResult = await graphHealth(hOpts);
-      const report = formatHealth(h);
-
-      return {
-        content: [{ type: "text" as const, text: report }],
-        details: h,
-      };
-    },
-  });
-}
-
 // ─── Extension factory ────────────────────────────────────────────────────────
 
 // ─── Stale-ctx error guard (matches pi-core's throw phrase) ─────────────────
@@ -1115,8 +960,6 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.registerTool(makeContextAnalyzerTool(getAllTools));
   pi.registerTool(makeAgentInventoryTool(getAllTools));
   pi.registerTool(makeExtensionAnalyzerTool(getAllTools));
-  pi.registerTool(makeKnowledgeQueryTool());
-  pi.registerTool(makeGraphHealthTool());
 
   // ── Todo tool + /todos command ────────────────────────────────────────
   registerTodoTool(pi);

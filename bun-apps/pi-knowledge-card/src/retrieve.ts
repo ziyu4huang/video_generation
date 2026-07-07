@@ -233,6 +233,17 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// card (shared+0.5 < shared+1). The warning callout is usually the
 		// highest-signal line in a human-authored note; ranking it ahead on a
 		// tag tie surfaces it earlier without distorting clearly-better matches.
+		//
+		// BY-DESIGN: this boost lives in retrieveRecords ONLY, not in zk_ask's
+		// buildRagTask Step-3 score (0.7×search + 0.3×links). The two read paths
+		// use different score signals AND have different access to feature
+		// metadata: retrieveRecords is the deterministic library — it reads each
+		// card's frontmatter directly (so hasCallouts is available at rank time);
+		// zk_ask's score is computed by the agent from obsidian_search results,
+		// where frontmatter is NOT available at Step 3 (notes are read via
+		// obsidian_read only in Step 4, after ranking). zk_ask instead surfaces
+		// callouts via the Step-4 "Feature surfacing" instruction. The split is
+		// pinned by the drift-guard test (retrieve.test.ts + pi-knowledge-card.test.ts).
 		const calloutBoost = meta.hasCallouts ? 0.5 : 0;
 		// Lift the callout headline text into the digest so the highest-signal
 		// sentence is not buried in the truncated prose body. calloutTexts[0] is

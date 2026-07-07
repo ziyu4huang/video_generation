@@ -165,23 +165,23 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 8 tools (including goal_complete, ask_user_question, knowledge_query, graph_health, and todo)", () => {
+  test("registers all 6 tools (knowledge_query + graph_health migrated to the knowledge-graph hub)", () => {
     const { captured } = loadExtension([]);
+    // knowledge_query + graph_health moved to the knowledge-graph hub
+    // (consolidation cycle) — power-tool is now self-contained diagnostics again.
     expect(Object.keys(captured).sort()).toEqual([
       "agent_inventory",
       "ask_user_question",
       "context_analyzer",
       "extension_analyzer",
       "goal_complete",
-      "graph_health",
-      "knowledge_query",
       "todo",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(8);
+    expect(Object.keys(captured).length).toBe(6);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);
