@@ -1,0 +1,39 @@
+{
+  "id": "iter7-semantic-closure",
+  "run_id": "2026-07-07T01-00-52",
+  "date": "2026-07-07",
+  "harness": "bun-apps/pi-agent-cli/workflows/retrieval-quality-self-improve.js",
+  "overlap_gate": "bun-apps/pi-agent-cli/workflows/lib/lexical-overlap-check.mjs",
+  "methodology": "adversarial zero-lexical-overlap queries, blind LLM judge, deterministic A/B alternation; vault-mind live for the semantic seed",
+  "config": {
+    "queryCount": 5,
+    "blendModes": ["default", "semantic-lexical"],
+    "folder": "Zettelkasten/knowledge-graph",
+    "topK": 4,
+    "thinking": "medium",
+    "retrieveModel": "lm-studio/google/gemma-4-26b-a4b-qat",
+    "cardCount": 425
+  },
+  "results": {
+    "rankedCount": 5,
+    "excludedCount": 0,
+    "semanticLiveCount": 5,
+    "meanLexicalRelevance_default": 0.77,
+    "meanBlendRelevance_semanticLexical": 0.466,
+    "lexicalWins": 4,
+    "blendWins": 1,
+    "ties": 0,
+    "blendBetterOverall": false
+  },
+  "per_query_relevance_at_4": [
+    { "id": 1, "winner": "lexical", "lexical_default": 1.0, "blend_semantic_lexical": 0.5 },
+    { "id": 2, "winner": "lexical", "lexical_default": 0.4, "blend_semantic_lexical": 0.35 },
+    { "id": 3, "winner": "lexical", "lexical_default": 1.0, "blend_semantic_lexical": 0.33 },
+    { "id": 4, "winner": "blend", "lexical_default": 0.5, "blend_semantic_lexical": 0.75 },
+    { "id": 5, "winner": "lexical", "lexical_default": 0.95, "blend_semantic_lexical": 0.4 }
+  ],
+  "verdict": "RETIRED — semantic-lexical did NOT exceed lexical+graph by >=0.05 (it was 0.304 worse); lexical+graph wins 4/5. Cross-regime confirmation: iter-6 (zh-TW) 0.332 vs 0.100, iter-7 (English) 0.770 vs 0.466. The graph layer (wiki-link expansion) is the structure signal.",
+  "prior_receipts": [
+    { "iter": "iter-6", "run_id": "2026-07-05T22-57-51", "language": "zh-TW", "lexical_default": 0.332, "semantic_lexical": 0.1, "lexical_wins": "2/5" }
+  ]
+}

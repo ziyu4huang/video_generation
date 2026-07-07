@@ -216,6 +216,16 @@ Wire these via the workflow's `model-routing` / `model-tier-config`. Only escala
 
 **Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-dynamic-workflows / pi-vlm / pi-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
 
+## Branch hygiene — delete at PR-merge time (SOP #320)
+
+Branches are deleted at **PR-merge time** per SOP #320, not left to accumulate.
+Enforcement is one command: run `./scripts/stale-branches.sh` after every merge
+(and at the start of each cycle) to list branches outside the keep-set
+(main / current / worktree-checked-out / open-PR), each annotated with its PR
+state. `--prune` deletes them; expect **0 stale** on a clean repo. The full
+procedure + pitfalls (squash-merge ancestry trap, worktree-concurrent safety)
+lives in the **`branch-cleanup`** project skill.
+
 ## Vendor patches (active)
 
 **Vendor patches** (ltx-2-mlx / mflux): live in `python/mlx-movie-director/app/vendor_patches.py`
