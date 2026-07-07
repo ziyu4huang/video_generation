@@ -61,4 +61,46 @@ final class AttentionParityTests: XCTestCase {
         let diff = MLX.abs(actual.asType(.float32) - expected.asType(.float32)).max().item(Float.self)
         XCTAssertLessThan(diff, 1e-3, "max abs diff \(diff)")
     }
+
+    /// STG (Milestone 2b): `perturbationMask` should blend the raw
+    /// attention output with the value projection — `out*mask + v*(1-mask)`
+    /// (reference: `ltx_core_mlx.model.transformer.attention.Attention
+    /// .__call__`'s `perturbation_mask` branch). No fixture needed: this
+    /// checks the blend algebra itself against a from-scratch value
+    /// projection, using random weights and no gate (so the only
+    /// post-attention op is `to_out`, keeping the manual comparison exact).
+    func testSTGPerturbationMaskBlendsToValueProjection() throws {
+        let numHeads = 2, headDim = 4, innerDim = numHeads * headDim, queryDim = 6
+        let x = MLXRandom.normal([1, 5, queryDim])
+        func randLinear(_ inDim: Int, _ outDim: Int) -> MLXArray { MLXRandom.normal([outDim, inDim]) * 0.1 }
+        let toQWeight = randLinear(queryDim, innerDim), toKWeight = randLinear(queryDim, innerDim), toVWeight = randLinear(queryDim, innerDim)
+        let toOutWeight = randLinear(innerDim, queryDim)
+        let attn = Attention(
+            numHeads: numHeads, headDim: headDim, useRope: false,
+            toQWeight: toQWeight, toQBias: nil,
+            toKWeight: toKWeight, toKBias: nil,
+            toVWeight: toVWeight, toVBias: nil,
+            toOutWeight: toOutWeight, toOutBias: MLXArray.zeros([queryDim]),
+            toGateLogitsWeight: nil, toGateLogitsBias: nil,
+            qNormWeight: MLXArray.ones([innerDim]), kNormWeight: MLXArray.ones([innerDim]))
+
+        // mask=1.0 (no perturbation) must be identical to the unperturbed call.
+        let unperturbed = attn(x)
+        let maskOne = attn(x, perturbationMask: MLXArray(Float(1.0)))
+        MLX.eval(unperturbed, maskOne)
+        XCTAssertLessThan(MLX.abs(unperturbed - maskOne).max().item(Float.self), 1e-6)
+
+        // mask=0.0 (full perturbation) must equal to_out(v) exactly, since
+        // there's no gate here to complicate the comparison.
+        let maskZero = attn(x, perturbationMask: MLXArray(Float(0.0)))
+        let v = MLX.matmul(x, toVWeight.transposed(1, 0))
+        let expectedFromV = MLX.matmul(v, toOutWeight.transposed(1, 0))
+        MLX.eval(maskZero, expectedFromV)
+        let diff = MLX.abs(maskZero - expectedFromV).max().item(Float.self)
+        XCTAssertLessThan(diff, 1e-4, "max abs diff \(diff)")
+
+        // Sanity: perturbation must actually change the output relative to
+        // the unperturbed pass (a no-op blend would silently defeat STG).
+        XCTAssertGreaterThan(MLX.abs(maskZero - unperturbed).max().item(Float.self), 1e-3)
+    }
 }

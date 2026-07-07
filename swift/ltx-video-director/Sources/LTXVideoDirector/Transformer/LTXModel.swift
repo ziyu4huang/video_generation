@@ -166,7 +166,7 @@ public struct LTXModel {
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
         videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
-        audioOnly: Bool = false
+        audioOnly: Bool = false, stgBlocks: Set<Int> = []
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -213,7 +213,10 @@ public struct LTXModel {
             computeRopeFreqs(positions: $0[0..., 0..., 0..<1], numHeads: config.avCrossNumHeads, headDim: config.avCrossHeadDim, maxPosOverride: [crossPEMaxPos])
         }
 
-        for block in transformerBlocks {
+        // STG (Milestone 2b) — see the matching comment in `streamingForward`.
+        let stgMask: MLXArray? = stgBlocks.isEmpty ? nil : MLXArray(Float(0.0))
+
+        for (blockIdx, block) in transformerBlocks.enumerated() {
             let (v, a) = block(
                 videoHidden: videoHidden, audioHidden: audioHidden,
                 videoAdaLNParams: videoAdalnEmb, audioAdaLNParams: audioAdalnEmb,
@@ -224,7 +227,8 @@ public struct LTXModel {
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
                 videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
-                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly
+                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly,
+                videoPerturbationMask: stgBlocks.contains(blockIdx) ? stgMask : nil
             )
             videoHidden = v
             audioHidden = a
@@ -256,7 +260,7 @@ public struct LTXModel {
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
         videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
-        audioOnly: Bool = false
+        audioOnly: Bool = false, stgBlocks: Set<Int> = []
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -302,6 +306,14 @@ public struct LTXModel {
             computeRopeFreqs(positions: $0[0..., 0..., 0..<1], numHeads: config.avCrossNumHeads, headDim: config.avCrossHeadDim, maxPosOverride: [crossPEMaxPos])
         }
 
+        // STG (Milestone 2b): a scalar 0.0 mask for blocks in `stgBlocks`
+        // makes Attention.callAsFunction's `out*mask + v*(1-mask)` blend
+        // resolve to `out = v` exactly — the whole batch is uniformly
+        // perturbed in this single-pass (non-batched-uncond) design, so a
+        // per-sample mask array isn't needed (reference: `Perturbation
+        // .is_perturbed` keyed only on `block_idx` here).
+        let stgMask: MLXArray? = stgBlocks.isEmpty ? nil : MLXArray(Float(0.0))
+
         for blockIdx in 0..<numLayers {
             let block = blockProvider(blockIdx)
             let (v, a) = block(
@@ -314,7 +326,8 @@ public struct LTXModel {
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
                 videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
-                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly
+                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly,
+                videoPerturbationMask: stgBlocks.contains(blockIdx) ? stgMask : nil
             )
             MLX.eval(v, a)
             videoHidden = v
