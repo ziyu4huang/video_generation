@@ -14,7 +14,7 @@ import {
 import { selectProvider, rankedProviders } from "./selector.ts";
 import { REGISTRY, type ProviderEntry } from "./registry.ts";
 import { probeConfigured } from "./providers.ts";
-import { defaultBinaryPath } from "@repo/pi-agent-ext-ltx";
+import { defaultBinaryPath, resolveRepoRoot } from "@repo/pi-agent-ext-ltx";
 import { existsSync } from "node:fs";
 import type { Krea2Details } from "@repo/pi-agent-ext-krea2";
 import type { Flux2Details } from "@repo/pi-agent-ext-flux2";
@@ -217,12 +217,16 @@ describe("video_generation selector — swift:ltx vs mlx:runpy presence tiebreak
     // Sanity: probeConfigured is the runtime truth, not the static configured flag.
     expect(probeConfigured(runpyEntry)).toBe(true); // venv + run.py present on this machine
     // swift:ltx is callable iff the binary exists — assert the probe AGREES with the disk.
-    const repoRoot = process.cwd();
+    // Use resolveRepoRoot() (NOT process.cwd()): under `bun test --cwd <pkg>` the cwd is
+    // the PACKAGE dir, so defaultBinaryPath(cwd) would point under <pkg>/swift/… and always
+    // read false — silently agreeing with probeConfigured only when the binary is absent.
+    // resolveRepoRoot() is exactly what probeConfigured/ltxBinaryPresent() uses.
+    const repoRoot = resolveRepoRoot();
     expect(probeConfigured(ltxEntry)).toBe(existsSync(defaultBinaryPath(repoRoot)));
   });
 
   it("selects mlx:runpy when the swift:ltx binary is absent (the local-machine truth)", () => {
-    if (existsSync(defaultBinaryPath(process.cwd()))) {
+    if (existsSync(defaultBinaryPath(resolveRepoRoot()))) {
       // Binary present on this machine → swift:ltx wins (rank 0, declared first).
       expect(selectProvider("video_generation").invoke).toBe("swift:ltx");
     } else {
