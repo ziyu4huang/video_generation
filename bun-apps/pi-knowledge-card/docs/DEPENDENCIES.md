@@ -35,7 +35,7 @@ deps; everything is a peer so consumers pin versions):
 
 | Dependency | Kind | Used for |
 | ---------- | ---- | -------- |
-| **`pi-obsidian`** | peer (workspace:*) | **The hard dependency.** `parseFrontmatter`, `validateZettelNote`, `ZETTEL_MAX_BYTES`, `getIndex`, `graphDeadLinks`/`graphOrphans`, `invalidateCache`, and `runSubagentWithRetry` (the subagent runner the tools spawn). Without pi-obsidian the subagents have nothing to call and the deterministic lib can't parse/validate cards. |
+| **`pi-obsidian`** | peer (workspace:*) | **The hard dependency.** `parseFrontmatter`, `validateZettelNote`, `ZETTEL_MAX_BYTES`, `getIndex`, `graphDeadLinks`/`graphOrphans`, `invalidateCache`, `runSubagentWithRetry` (the subagent runner the tools spawn), **and `resolveVault`** (the multi-tier vault resolver every tool uses to find the convergence vault: env → config → app → local). Without pi-obsidian the subagents have nothing to call, the deterministic lib can't parse/validate cards, **and no tool can resolve the vault.** |
 | `@earendil-works/pi-coding-agent` | peer | `ExtensionAPI` type (the `pi` registration handle), `Type` (typebox re-export in some consumers). |
 | `@earendil-works/pi-ai` · `pi-agent-core` · `pi-tui` | peer | SDK surface the extension/tool registration touches transitively. |
 | `typebox` | peer | `Type.Object(...)` schema definitions for tool parameters. |
@@ -52,10 +52,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 ```
 
 > **The pi-obsidian boundary is load-bearing.** This package does NOT parse
-> Obsidian markdown itself — it delegates to pi-obsidian's `parseFrontmatter`.
-> A schema change in pi-obsidian's frontmatter parser would ripple here. The
-> `allowlists.test.mjs` cross-package guard catches tool-name drift; the parser
-> contract is guarded by ingest/retrieve tests against real temp vaults. See
+> Obsidian markdown itself — it delegates to pi-obsidian's `parseFrontmatter`,
+> and it does NOT resolve the vault itself either — every tool delegates to
+> pi-obsidian's `resolveVault(cwd)` (the hub asks its forward-dep to serve vault
+> resolution, not roll its own; this reads the run-dir `obsidian_config.json`
+> the no-LLM tools need). A schema change in pi-obsidian's frontmatter parser
+> would ripple here. The `allowlists.test.mjs` cross-package guard catches
+> tool-name drift; the parser contract is guarded by ingest/retrieve tests
+> against real temp vaults. See
 > [`../../pi-obsidian/docs/KNOWLEDGE-LAYER.md`](../../pi-obsidian/docs/KNOWLEDGE-LAYER.md)
 > for the parser-contract surface this package depends on.
 

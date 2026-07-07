@@ -149,6 +149,15 @@ on pi-knowledge-card. The hub should own its tools.
   power-tool into this extension; power-tool's `pi-knowledge-card` dependency
   **deleted**. Reverse-dep graph: **3 → 2 consumers** (pi-agent-cli +
   pi-hermes-memory). power-tool is self-contained diagnostics again.
+- **Vault-resolution delegation (runtime fix, same cycle)** — the migrated
+  tools initially carried a simplified resolver (env + cwd/"vault" only) that
+  FAILED at runtime when the vault was config-registered (the common case:
+  `obsidian_config.json` vault_path). Fixed by delegating to pi-obsidian's
+  multi-tier `resolveVault(cwd)` — the SAME resolver the native zk_* tools use.
+  This is the hub "asking pi-obsidian to serve it" for vault resolution, not
+  rolling its own. Error path made deterministic via a test seam
+  (`__setVaultResolverForTest`) because resolveVault's Tier-2 (Obsidian app)
+  fallback resolves the real open vault on any dev machine.
 - **Ranking-split drift guard** — pinned the by-design decision that
   `retrieveRecords` applies the P1 callout boost (it reads frontmatter at rank
   time) while `zk_ask`'s `buildRagTask` surfaces-but-doesn't-boost (the agent
