@@ -277,10 +277,13 @@ export async function runPyVideo(input: RunPyVideoInput): Promise<RunPyVideoOutp
   const { python, runPy } = resolveRunPyPaths(repoRoot);
   const options = input.options ?? {};
   const extraArgs = validateExtraArgs(input.extraArgs ?? [], roots, [...EXTRA_ARG_ALLOW_RUNPY]);
-  const args = ["video", "t2i2v", ...buildArgs(options, roots.outputDir), ...extraArgs];
+  // invokeLtx does `spawn(python, args)` — so argv must be the run.py SCRIPT path
+  // first, then the run.py subcommand chain (`video t2i2v …`), NOT `video` as the
+  // first token (python would treat "video" as the script path: "can't open file '…/video'").
+  const args = [runPy, "video", "t2i2v", ...buildArgs(options, roots.outputDir), ...extraArgs];
 
   try {
-    input.onProgress?.({ kind: "progress", text: `$ ${python} ${runPy} ${args.join(" ")}` });
+    input.onProgress?.({ kind: "progress", text: `$ ${python} ${args.join(" ")}` });
   } catch {
     /* progress callback failures must not crash the run */
   }

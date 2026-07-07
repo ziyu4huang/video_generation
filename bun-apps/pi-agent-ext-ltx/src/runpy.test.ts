@@ -66,10 +66,12 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
         options: { selfTest: "default" },
         outputDir: box,
         _spawnImpl: async ({ bin, args }) => {
-          // Assert the spawn targets the venv python + run.py video t2i2v.
-          expect(bin).toBe(resolveRunPyPaths(repoRoot).python);
-          expect(args[0]).toBe("video");
-          expect(args[1]).toBe("t2i2v");
+          // Assert the spawn targets the venv python + run.py script + video t2i2v.
+          const { python, runPy } = resolveRunPyPaths(repoRoot);
+          expect(bin).toBe(python);
+          expect(args[0]).toBe(runPy); // run.py is the SCRIPT path (spawn(python, [runPy, …]))
+          expect(args[1]).toBe("video");
+          expect(args[2]).toBe("t2i2v");
           expect(args).toContain("--self-test");
           expect(args).toContain("default");
           expect(args.some((a, i) => a === "--gen-output-dir" && args[i + 1] === box)).toBe(true);
