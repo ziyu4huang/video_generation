@@ -75,6 +75,19 @@ describe("buildImageArgs", () => {
     expect(args).toContain("--prompt");
   });
 
+  it("cutout: action routes transparent-bg cutout (subject via extraArgs)", () => {
+    const args = buildImageArgs(
+      { action: "cutout", input: "/in/portrait.png" },
+      null,
+    );
+    expect(args[1]).toBe("cutout");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/portrait.png");
+    // --subject / --fill-holes / --trim reach run.py through the extraArgs allowlist.
+    expect(validateImageExtraArgs(["--subject", "woman", "--fill-holes", "--trim"]))
+      .toEqual(["--subject", "woman", "--fill-holes", "--trim"]);
+  });
+
   it("self-test boolean emits bare --self-test; string emits the fixture name", () => {
     expect(buildImageArgs({ selfTest: true }, null)).toContain("--self-test");
     const named = buildImageArgs({ action: "workflow", selfTest: "workflow:portrait" }, null);

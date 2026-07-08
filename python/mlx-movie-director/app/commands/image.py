@@ -88,6 +88,7 @@ _multicouple = importlib.import_module("app.commands.image-multicouple")
 _twosubject = importlib.import_module("app.commands.image-twosubject")
 _storyboard = importlib.import_module("app.commands.image-storyboard")
 _inpaint = importlib.import_module("app.commands.image-inpaint")
+_cutout = importlib.import_module("app.commands.image-cutout")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -120,6 +121,7 @@ PARSER_META = {
         "  quality       — No-reference image quality analysis + VAE A/B self-test\n"
         "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n"
 "  inpaint       — Masked latent redraw / object removal (Flux2 Klein latent-mask, OM C4)\n"
+"  cutout        — Transparent-background cutout: SAM3 text segment → alpha PNG (OM G/F)\n"
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
@@ -209,6 +211,9 @@ PARSER_META = {
         "  run.py image inpaint --input photo.png --mask mask.png --prompt 'clear sky, no object'\n"
         "  run.py image inpaint --input photo.png --mask mask.png --prompt 'a coffee cup' --crop\n"
         "  run.py image inpaint --self-test\n"
+        "  run.py image cutout --input portrait.png --subject 'woman'\n"
+        "  run.py image cutout --input char.png --subject 'the detective' --trim --fill-holes\n"
+        "  run.py image cutout --self-test\n"
         "  run.py image --self-test expansion:basic\n"
         "  run.py image purify --input-image output/photo.png\n"
         "  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x\n"
@@ -235,7 +240,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint | cutout",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -304,6 +309,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Inpaint-specific args: --mask/--inpaint-feather/--inpaint-ref-strength/--crop
     # (masked latent redraw / object removal; reuses --input/--prompt/--seed from common)
     _inpaint.add_inpaint_args(parser)
+
+    # Cutout-specific args: --subject/--sam-threshold/--feather/--fill-holes/--trim
+    # (SAM3 text segment → transparent RGBA PNG; reuses --input/--prompt/--seed)
+    _cutout.add_cutout_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -389,5 +398,7 @@ def run(args: "argparse.Namespace") -> None:
         _storyboard.run_storyboard(args)
     elif action == "inpaint":
         _inpaint.run_inpaint(args)
+    elif action == "cutout":
+        _cutout.run_cutout(args)
     else:
         _t2i.run_t2i(args)
