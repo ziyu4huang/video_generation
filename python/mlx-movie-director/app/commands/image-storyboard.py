@@ -106,6 +106,26 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
         help="Look/genre anchor baked into every panel (e.g. 'noir, 35mm film "
              "grain, teal-and-orange grade'). Optional.",
     )
+    # Step 1a (hardening): pin a FAST NON-THINKING instruct model for decomposition
+    # (a 7-12B instruct lands <60s vs gemma-4-26b's 3-5min thinking pass). Falls back
+    # to the gemma brain (vlm_model / the caption resolver) when unset.
+    parser.add_argument(
+        "--decompose-model", type=str, default=None, dest="decompose_model",
+        help="Local LM Studio model id for the story→scene decomposition. Pin a "
+             "fast NON-THINKING instruct model here (e.g. a 7-12B Qwen/Llama instruct) "
+             "for a <60s decomposition; the default gemma brain is a 3-5min thinking "
+             "pass. Unset → the gemma brain (vlm_model / the caption resolver).",
+    )
+    # Step 1b (hardening): the identity JUDGE tier. _vlm_verify_identity was authored
+    # for Qwen3-VL multi-image; gemma's multi-image JSON is flaky (1/4 parsed in #366).
+    parser.add_argument(
+        "--identity-judge-model", type=str, default="qwen/qwen3-vl-4b",
+        dest="identity_judge_model",
+        help="Local VLM model id for the multi-image identity judge "
+             "(_vlm_verify_identity). Default qwen/qwen3-vl-4b — the model the "
+             "identity prompt was authored for (gemma multi-image JSON is flaky). "
+             "Falls back to the gemma brain if Qwen3-VL is unavailable.",
+    )
     # NOTE: --vlm-api-url / --vlm-model are NOT re-registered here — image-profile's
     # add_profile_args already registers them on the shared `image` parser (image.py
     # calls it before add_storyboard_args), so args.vlm_api_url / args.vlm_model are
@@ -149,7 +169,9 @@ def _load_scenes(args: argparse.Namespace) -> list[SceneSpec]:
         num_panels = getattr(args, "num_panels", None) or 4
         style_hint = getattr(args, "style_hint", None)
         api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
-        model = getattr(args, "vlm_model", None)
+        # Step 1a: a pinned --decompose-model (fast non-thinking) wins; else the
+        # shared --vlm-model / gemma brain resolver.
+        model = getattr(args, "decompose_model", None) or getattr(args, "vlm_model", None)
         try:
             raw_scenes = _gemma_decompose(args.story, num_panels=num_panels,
                                           api_url=api_url, model=model,
@@ -381,7 +403,10 @@ def _judge_identity(frames: list[dict[str, Any]], hero: str,
     _vlm_verify_identity = _identity_judge()
 
     api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
-    model = getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
+    # Step 1b: the identity judge tier defaults to Qwen3-VL (the model the
+    # multi-image identity prompt was authored for; gemma's multi-image JSON is
+    # flaky). Falls back to the gemma brain when Qwen3-VL is unavailable.
+    model = _resolve_identity_judge_model(api_url, args)
     recurr_set = set(recurring_ids)
     for f in frames:
         if f.get("character_id") not in recurr_set:
@@ -411,7 +436,7 @@ def _regenerate_weak_identity(frames: list[dict[str, Any]], args: argparse.Names
     _vlm_verify_identity = _identity_judge()
 
     api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
-    model = getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
+    model = _resolve_identity_judge_model(api_url, args)
     weak = [f for f in frames if f.get("identity_weak") is True and not f.get("regen_attempted")]
     if not weak:
         return frames
@@ -454,6 +479,34 @@ def _resolve_brain_model(api_url: str) -> str:
         return resolve_default_model(api_url)
     except Exception:  # noqa: BLE001 — caller treats None as "let LM Studio pick"
         return None
+
+
+def _identity_judge_models(api_url: str) -> set[str]:
+    """The set of model ids currently loaded/available on LM Studio."""
+    try:
+        import requests
+        resp = requests.get(f"{api_url}/models", timeout=5)
+        resp.raise_for_status()
+        return {m.get("id", "") for m in resp.json().get("data", [])}
+    except Exception:  # noqa: BLE001 — unavailable → empty set → fallback
+        return set()
+
+
+def _resolve_identity_judge_model(api_url: str, args: argparse.Namespace) -> str | None:
+    """Resolve the identity-judge VLM, preferring Qwen3-VL (Step 1b).
+
+    ``_vlm_verify_identity`` was authored for Qwen3-VL multi-image; gemma's
+    multi-image JSON is the flaky path (1/4 parsed in PR #366). Default
+    ``--identity-judge-model`` is qwen3-vl-4b. If that model is NOT loaded we fall
+    back to the gemma brain (so the loop still runs) rather than hard-failing.
+    """
+    preferred = getattr(args, "identity_judge_model", None) or "qwen/qwen3-vl-4b"
+    available = _identity_judge_models(api_url)
+    # Exact match, or a loaded id that contains the preferred family token.
+    if preferred in available or any("qwen3-vl" in m.lower() for m in available):
+        return preferred
+    # Fall back to the gemma brain (the proven single-image path) — never None-bind.
+    return getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
 
 
 def _judge_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
