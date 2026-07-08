@@ -1,9 +1,14 @@
-"""video-generate — LTX-2.3 22B video generation (T2V, I2V, A2V, FLF2V) on Apple Silicon.
+"""video-generate — LTX-2.3 22B video generation (T2V, I2V, A2V, IA2V, FLF2V) on Apple Silicon.
 
 Modes:
   T2V   — text-to-video (--prompt only)
   I2V   — image-to-video (--input-image + --prompt)
   A2V   — audio-to-video (--audio + --prompt)
+  IA2V  — image+audio-to-video / talking-portrait (--input-image + --audio + --prompt).
+          Same A2V pipeline (A2VidPipelineTwoStage); --input-image is passed through as
+          the frame-0 I2V anchor alongside audio conditioning. Verified end-to-end
+          2026-07-08 after fixing a vendor bug (see vendor_patches.py Patch 6b) that
+          raised TypeError on any --input-image + --audio combination.
   FLF2V — first-last-frame interpolation (--begin-image + --end-image + --prompt)
 
 FLF2V keyframe generation best practice (proven across 6 experiments):
