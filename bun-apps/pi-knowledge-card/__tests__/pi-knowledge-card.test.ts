@@ -683,8 +683,15 @@ describe("knowledge_query + graph_health (migrated tools)", () => {
 		vault = mkdtempSync(join(tmpdir(), "kc-migrated-"));
 		prevVaultEnv = process.env.OB_VAULT_PATH;
 		process.env.OB_VAULT_PATH = vault;
+		// Deterministic vault resolution: inject the test seam so knowledge_query /
+		// graph_health resolve THIS temp vault directly, bypassing the multi-tier
+		// resolveVault (which reads OB_VAULT_PATH and — under bun's async test
+		// scheduling on CI — can observe a stale env value mid-await). Same seam
+		// the error-path test below uses; resolveKnowledgeVault checks it FIRST.
+		__setVaultResolverForTest(() => Promise.resolve(vault));
 	});
 	afterEach(() => {
+		__setVaultResolverForTest(null);
 		if (prevVaultEnv === undefined) delete process.env.OB_VAULT_PATH;
 		else process.env.OB_VAULT_PATH = prevVaultEnv;
 		rmSync(vault, { recursive: true, force: true });

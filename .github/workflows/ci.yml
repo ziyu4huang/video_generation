@@ -1,0 +1,197 @@
+# CI — the PR gate. Turns the manual-test trust model into an enforced gate.
+#
+# Every PR to main runs the full Bun test suite (16 packages), the extension
+# contract test, the deploy --verify probe, and the regression baselines
+# (schema-cost + 2 MB file-size guard). Machine-coupled tests (probing the
+# local Apple-Silicon generation stack: python/venv, built swift binaries,
+# run.py) skip under CI=true (set automatically by GitHub Actions) — see
+# .github/CI.md for what's tested vs. deferred and how to re-run locally.
+#
+# GPU / Metal / sibling-fork (mflux, ltx-2-mlx) tests are intentionally NOT here:
+# GitHub Actions runners lack Apple Silicon. Those stay local-only (documented).
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same ref (PR pushed again → kill the old run).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Thrust A — the core test gate. One matrix entry per package → native
+  # per-package pass/fail in the PR checks UI (a broken package goes red by
+  # name). fail-fast:false so every package reports even if one fails.
+  # ──────────────────────────────────────────────────────────────────────────
+  tests:
+    name: test · ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── uniform `bun test` runner ──
+          - { package: pi-agent, test-cmd: "bun test" }
+          - { package: pi-agent-cli, test-cmd: "bun test" }
+          - { package: pi-agent-ext-flux2, test-cmd: "bun test" }
+          - { package: pi-agent-ext-krea2, test-cmd: "bun test" }
+          - { package: pi-agent-ext-ltx, test-cmd: "bun test" }
+          - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
+          - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
+          - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
+          - { package: pi-agent-sdk-demo, test-cmd: "bun test" }
+          - { package: pi-vlm, test-cmd: "bun test" }
+          # gui-movie-director: lint is pure static analysis (CI-safe); the
+          # check-runtime suite probes run.py via the venv and skips under CI.
+          - { package: gui-movie-director, test-cmd: "bun run test" }
+          # ── scoped test paths (plain `bun test` discovers vault-needing
+          #    files outside extensions/__tests__ in pi-obsidian) ──
+          - { package: pi-knowledge-card, test-cmd: "bun test __tests__/" }
+          - { package: pi-obsidian, test-cmd: "bun test extensions/__tests__/" }
+          - { package: pi-schema-cost, test-cmd: "bun test __tests__/" }
+          # ── special runners (see CLAUDE.md testing section) ──
+          # pi-dynamic-workflows: build first (tests import compiled src/*.js);
+          # uses the CLAUDE.md canonical `build && bun test`, NOT the package's
+          # `npm run check` chain (biome has pre-existing formatting drift — out
+          # of scope for the CI cycle; the unit tests + build are the gate).
+          - { package: pi-dynamic-workflows, test-cmd: "bun run build && bun test" }
+          # pi-hermes-memory: one tsx process per file (avoids a node:test hang).
+          # Uses `npx tsx` → needs Node on PATH (setup-node below).
+          - { package: pi-hermes-memory, test-cmd: "bash tests/run-all.sh" }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+
+      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh).
+      # Cheap (~1 s) and harmless for the bun-only packages.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install (workspace, frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      # pi-dynamic-workflows ships TS source; its `main`/`exports` point at
+      # compiled dist/index.js (a gitignored artifact). Importers — notably
+      # pi-agent-cli/src/commands/workflow.ts, and anything transitively loading
+      # the CLI — resolve that dist/. A fresh CI checkout lacks it (locally it
+      # lingers from prior builds), so build it. ~2.5 s; the documented
+      # "builds first" workspace pattern (CLAUDE.md testing section).
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+
+      # movie-director's preflight test probes ffmpeg on PATH (the composition
+      # runtime). ubuntu-latest doesn't ship it; install only for that matrix
+      # entry. (compose.test.ts uses mocked ffmpeg; e2e.local is opt-in.)
+      - name: Install ffmpeg (movie-director preflight probe)
+        if: matrix.package == 'pi-agent-ext-movie-director'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Test
+        working-directory: bun-apps/${{ matrix.package }}
+        env:
+          # Set automatically by GitHub Actions; the signal machine-coupled
+          # tests use to skip (no venv / Metal / swift build on this runner).
+          CI: "true"
+        run: ${{ matrix.test-cmd }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Thrust B — extension contract as a NAMED, visible check (not buried in the
+  # pi-agent test run). The 5 tests gate every manifest extension: factory
+  # loads, wires up, no tool-name conflicts, valid schema, handler present.
+  # ──────────────────────────────────────────────────────────────────────────
+  extension-contract:
+    name: extension-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install (workspace, frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+      - name: Extension contract (5 tests)
+        working-directory: bun-apps/pi-agent
+        run: bun test src/__tests__/extension-contract.test.ts
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Thrust B — deploy --verify. Builds pi-agent, bundles the 9 extensions, then
+  # boots the deployed artifact from a FOREIGN cwd and probes getAllTools for
+  # 0 conflicts. Catches resolve.ts mode bugs + broken bundles at DEPLOY time.
+  # Runs on every PR (could be path-gated to pi-agent/extension changes later;
+  # always-on is strictly more verification and avoids branch-protection gaps).
+  # ──────────────────────────────────────────────────────────────────────────
+  deploy-verify:
+    name: deploy --verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install (workspace, frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+      - name: Deploy + verify (boot deployed artifact, probe getAllTools)
+        working-directory: bun-apps/pi-agent
+        run: bun scripts/deploy.ts dist/ci-verify --writable --verify
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Thrust C — regression baselines. schema-cost (WARNING at >5%, not a block —
+  # schema growth is sometimes intentional) + the 2 MB file-size guard (BLOCK —
+  # the remote twin of .githooks/pre-commit, so a bypassed local hook can't ship
+  # a large blob).
+  # ──────────────────────────────────────────────────────────────────────────
+  regression-gates:
+    name: regression gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install (workspace, frozen lockfile)
+        run: bun install --frozen-lockfile
+
+      - name: Build pi-dynamic-workflows (workspace dep)
+        # The schema-cost CLI is pi-agent-cli → workflow.ts → needs dist/.
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+
+      - name: File-size guard (2 MB, blocks)
+        run: bash scripts/ci-file-size-guard.sh
+
+      - name: Schema-cost regression (warns >5%, not a block)
+        run: bun scripts/check-schema-cost.ts

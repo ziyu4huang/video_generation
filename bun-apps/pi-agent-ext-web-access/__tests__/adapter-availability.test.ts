@@ -94,7 +94,35 @@ function testWithoutEnv(name: string, fn: () => void) {
 		// Can't assert the "unavailable" branch deterministically if a real config
 		// file supplies a key on this machine — skip rather than risk a flake.
 		test.skip(name, fn);
-	} else {
-		test(name, fn);
+		return;
 	}
+	// Run the body with ALL provider API-key env vars cleared + the config cache
+	// invalidated, then restore. The enclosing describe's withEnv() beforeEach
+	// sets the provider's key for the "available" sibling test; without this
+	// guard the "unavailable" test would inherit that key. That was masked on
+	// dev machines (CONFIG_PRESENT skip) but fails on CI (no config file → the
+	// test runs while the env key is still set). Clearing every provider key
+	// makes the "no key" assertion deterministic on every host.
+	const PROVIDER_KEYS = [
+		"BRAVE_API_KEY", "TAVILY_API_KEY", "EXA_API_KEY", "PARALLEL_API_KEY",
+		"PERPLEXITY_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "ZAI_API_KEY",
+		"CLOUDFLARE_API_KEY",
+	];
+	test(name, () => {
+		const backup: Record<string, string | undefined> = {};
+		for (const k of PROVIDER_KEYS) {
+			backup[k] = process.env[k];
+			delete process.env[k];
+		}
+		clearParallelConfigCache();
+		try {
+			fn();
+		} finally {
+			for (const k of PROVIDER_KEYS) {
+				if (backup[k] === undefined) delete process.env[k];
+				else process.env[k] = backup[k];
+			}
+			clearParallelConfigCache();
+		}
+	});
 }
