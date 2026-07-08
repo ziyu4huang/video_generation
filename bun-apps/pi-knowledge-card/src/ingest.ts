@@ -51,6 +51,7 @@ import {
 	ZETTEL_MAX_BYTES,
 	type VaultIndex,
 } from "pi-obsidian/extensions/obsidian.ts";
+import { tokeniseText, bestMatch } from "./similarity.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -98,6 +99,18 @@ export interface IngestOptions {
 	maxLinks?: number;
 	/** Max detail length in chars before truncation (keeps the note < 64KB). */
 	maxDetailChars?: number;
+	/** When true, match each incoming record against EXISTING cards in the
+	 *  folder (token-set Jaccard over title + detail). A match at or above
+	 *  `wikiThreshold` UPSERTS into the existing canonical card (appends
+	 *  evidence + bumps last_seen) instead of minting a parallel duplicate.
+	 *  This is the wiki-aware convergence that keeps 10+ id namespaces from
+	 *  growing parallel cards for the same lesson. */
+	wikiAware?: boolean;
+	/** Minimum token-set Jaccard similarity to treat an incoming record as a
+	 *  reuse of an existing card (default 0.85 — deliberately HIGH, one notch
+	 *  below the 0.9 duplicate-merge bar, so a bad reuse never collapses two
+	 *  merely-related ideas). */
+	wikiThreshold?: number;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";
@@ -118,6 +131,7 @@ export interface IngestSummary {
 	unchanged: number;
 	skipped: number; // malformed records
 	linked: number; // total cross-link edges written
+	wikiMerged: number; // records wiki-aware-merged into an existing canonical card
 	mocUpdated: boolean;
 	vaultPath: string;
 	folder: string;
@@ -882,7 +896,90 @@ export function writeMoc(
  * (created vs updated vs unchanged decided by content hash). Cross-links are
  * computed across ALL cards in the folder — so a card from a prior source
  * (e.g. hermes) links to today's workflow-jsonl card when they share a tag.
+ *
+ * Wiki-aware convergence (opts.wikiAware): before minting a new card, each
+ * incoming record is matched against EXISTING cards in the folder (token-set
+ * Jaccard over title + detail). A match at or above `wikiThreshold` UPSERTS
+ * into the existing canonical card (append evidence + bump last_seen) instead
+ * of creating a parallel duplicate — the Alluvium "add to the existing page"
+ * pattern. Canonical-id policy: FIRST-WINS — the existing card keeps its id;
+ * later sources upsert evidence into it.
  */
+
+// ---------------------------------------------------------------------------
+// Wiki-aware merge helpers
+// ---------------------------------------------------------------------------
+
+/** Tokenise a card FILE's title + 核心想法 body for wiki-aware matching.
+ *  Mirrors merge.ts's tokeniseCard so the duplicate scanner and the ingest
+ *  matcher agree on token sets. */
+function tokeniseCardFile(content: string): Set<string> {
+	const titleMatch = content.match(/^#\s+(.+?)\s*$/m);
+	const title = titleMatch ? titleMatch[1]! : "";
+	const bodyMatch = content.match(/## 核心想法\n([\s\S]*?)(?=\n## )/);
+	const body = bodyMatch ? bodyMatch[1]! : "";
+	return tokeniseText(`${title} ${body}`);
+}
+
+/** Surgical in-place merge of a wiki-matched record into an EXISTING canonical
+ *  card. Appends the new source's evidence + bumps last_seen WITHOUT replacing
+ *  the canonical card's title/body/links (first-wins policy). Returns the card
+ *  outcome: "updated" if content changed, "unchanged" if already merged. */
+function wikiMergeIntoCard(
+	abs: string,
+	rec: KnowledgeRecord,
+	sourceLabel: string,
+	similarity: number,
+	today: string,
+	dryRun: boolean,
+): CardOutcome {
+	const original = readFileSync(abs, "utf8");
+	let next = original;
+	let changed = false;
+
+	// 1. Add sourceLabel to the `sources` frontmatter array if not present.
+	const sourcesRe = /^(sources:\s*\[)([^\]]*)(\])/m;
+	const sm = next.match(sourcesRe);
+	if (sm) {
+		const items = sm[2]!.split(",").map((s) => s.trim()).filter(Boolean);
+		if (!items.includes(sourceLabel)) {
+			items.push(sourceLabel);
+			next = next.replace(sourcesRe, `${sm[1]}${items.join(", ")}${sm[3]}`);
+			changed = true;
+		}
+	}
+
+	// 2. Append a wiki-merge provenance line to the 證據 / 脈絡 section.
+	const mergeLine = `- wiki-merged: ${sourceLabel} (sim=${similarity.toFixed(3)}, ${today})`;
+	if (!next.includes(mergeLine)) {
+		const secHdr = "## 證據 / 脈絡";
+		const secStart = next.indexOf(secHdr);
+		if (secStart >= 0) {
+			const bodyStart = secStart + secHdr.length;
+			const nextSec = next.indexOf("\n## ", bodyStart);
+			const secEnd = nextSec < 0 ? next.length : nextSec;
+			const before = next.slice(0, secEnd).replace(/\n+$/, "");
+			const tail = next.slice(secEnd);
+			next = `${before}\n${mergeLine}\n${tail}`;
+			changed = true;
+		}
+	}
+
+	// 3. Bump last_seen to today (if a last_seen evidence line exists).
+	const lsRe = /^(- last_seen:\s*).*$/m;
+	if (lsRe.test(next)) {
+		const bumped = next.replace(lsRe, `$1${today}`);
+		if (bumped !== next) {
+			next = bumped;
+			changed = true;
+		}
+	}
+
+	if (!changed) return "unchanged";
+	if (!dryRun) writeFileSync(abs, next, "utf8");
+	return "updated";
+}
+
 export async function ingestRecords(
 	records: KnowledgeRecord[],
 	opts: IngestOptions,
@@ -892,6 +989,8 @@ export async function ingestRecords(
 	const maxLinks = opts.maxLinks ?? 8;
 	const maxDetailChars = opts.maxDetailChars ?? 32_000;
 	const dryRun = opts.dryRun === true;
+	const wikiAware = opts.wikiAware === true;
+	const wikiThreshold = opts.wikiThreshold ?? 0.85;
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -899,15 +998,37 @@ export async function ingestRecords(
 	}
 	if (!dryRun) mkdirSync(folderAbs, { recursive: true });
 
-	// 1. Snapshot existing cards in the folder (for cross-link + collision).
-	const existing = new Map<string, { abs: string; tags: Set<string> }>(); // basename -> meta
+	// 1. Snapshot existing cards in the folder (for cross-link + collision +
+	//    wiki-aware matching). When wikiAware is on we also capture each card's
+	//    source_id + tokenised title/body so incoming records can be matched
+	//    against them BEFORE minting a new card.
+	interface ExistingCard {
+		abs: string;
+		tags: Set<string>;
+		sourceId: string;
+		tokens: Set<string>;
+	}
+	const existing = new Map<string, ExistingCard>(); // basename -> meta
 	if (existsSync(folderAbs)) {
 		for (const name of readdirSync(folderAbs)) {
 			if (!name.endsWith(".md")) continue;
 			const abs = join(folderAbs, name);
 			const meta = readCardMeta(abs);
 			if (!meta) continue;
-			existing.set(name.slice(0, -3), { abs, tags: meta.tags });
+			let content = "";
+			let tokens = new Set<string>();
+			if (wikiAware) {
+				try {
+					content = readFileSync(abs, "utf8");
+					tokens = tokeniseCardFile(content);
+				} catch { /* best effort */ }
+			}
+			existing.set(name.slice(0, -3), {
+				abs,
+				tags: meta.tags,
+				sourceId: meta.source_id ?? name.slice(0, -3),
+				tokens,
+			});
 		}
 	}
 
@@ -920,12 +1041,58 @@ export async function ingestRecords(
 		unchanged: 0,
 		skipped: 0,
 		linked: 0,
+		wikiMerged: 0,
 		mocUpdated: false,
 		vaultPath: opts.vaultPath,
 		folder,
 		cards: [],
 		parseErrors: [],
 	};
+
+	// 1b. Wiki-aware pre-filter: match each incoming record against existing
+	//     cards. A match UPSERTS into the canonical card (first-wins policy);
+	//     only unmatched records fall through to the normal create/update path.
+	//     This is what prevents the 10+ id namespaces from growing parallel
+	//     duplicate cards for the same lesson.
+	const today = new Date().toISOString().slice(0, 10);
+	const pendingRecords: typeof records = [];
+	for (const rec of records) {
+		let wikiMatched = false;
+		if (wikiAware && existing.size > 0) {
+			// Skip the wiki check for an EXACT id match (normal upsert path handles it).
+			let exactId = false;
+			for (const c of existing.values()) {
+				if (c.sourceId === rec.id) { exactId = true; break; }
+			}
+			if (!exactId) {
+				const recTokens = tokeniseText(`${rec.title} ${rec.detail}`);
+				if (recTokens.size > 0) {
+					const candidateBasenames = [...existing.keys()];
+					const candidates = [...existing.values()];
+					const candidateTokens = candidates.map((c) => c.tokens);
+					const match = bestMatch(recTokens, candidateTokens, wikiThreshold);
+					if (match.index >= 0) {
+						const targetBasename = candidateBasenames[match.index]!;
+						const target = candidates[match.index]!;
+						const outcome = wikiMergeIntoCard(
+							target.abs, rec, opts.sourceLabel, match.similarity, today, dryRun,
+						);
+						summary.wikiMerged++;
+						if (outcome === "updated") summary.updated++;
+						else summary.unchanged++;
+						summary.cards.push({
+							id: rec.id,
+							path: `${folder}/${targetBasename}.md`,
+							status: outcome,
+							links: 0,
+						});
+						wikiMatched = true;
+					}
+				}
+			}
+		}
+		if (!wikiMatched) pendingRecords.push(rec);
+	}
 
 	// 2. Resolve a target filename per record (handle slug collisions).
 	const planned: {
@@ -935,7 +1102,7 @@ export async function ingestRecords(
 		basename: string;
 	}[] = [];
 	const usedBasenames = new Set(existing.keys());
-	for (const rec of records) {
+	for (const rec of pendingRecords) {
 		let base = slugify(rec.id);
 		// Disambiguate slug collisions where the existing file is a DIFFERENT id.
 		let candidate = base;
@@ -1069,7 +1236,7 @@ export function formatSummary(s: IngestSummary): string {
 		`vault:   ${s.vaultPath}`,
 		`folder:  ${rel(s.folder)}/`,
 		`source:  ${s.source} (${s.sourceLabel})`,
-		`total:   ${s.total} record(s) → ${s.created} created, ${s.updated} updated, ${s.unchanged} unchanged, ${s.skipped} skipped`,
+		`total:   ${s.total} record(s) → ${s.created} created, ${s.updated} updated, ${s.unchanged} unchanged, ${s.skipped} skipped${s.wikiMerged > 0 ? `, ${s.wikiMerged} wiki-merged` : ""}`,
 		`links:   ${s.linked} cross-source edge(s) written`,
 		`moc:     ${s.mocUpdated ? "regenerated " + rel("Tags/Knowledge Graph.md") : "(no MOC change)"}`,
 	];

@@ -129,3 +129,69 @@ describe("smart-knowledge-pipeline — end-to-end golden flow", () => {
     );
   });
 });
+
+// =================================================================
+// Wiki-aware convergence + idempotency (tight-pipeline regression bar)
+// =================================================================
+
+describe("tight-knowledge-pipeline — wiki-aware convergence", () => {
+  it("wiki_aware_no_duplicate: same lesson from two namespaces → ONE card", async () => {
+    // Source 1: a hermes-style entry about bun isolated linker.
+    const lesson =
+      "Bun workspace monorepo uses isolated linker with globalStore. bun.lock is the canonical lockfile; never commit package-lock.json.";
+
+    // Converge from the failure target (mints a pi-memory: card).
+    const r1 = await convergeToVault([lesson], "failure", vault);
+    assert.equal(r1.ok, true);
+    assert.equal(r1.created, 1, "first source creates a card");
+
+    // Converge the SAME lesson from a DIFFERENT target (different id namespace).
+    // The wiki-aware matcher (Jaccard ≥ 0.85) should reuse the canonical card,
+    // NOT mint a parallel duplicate.
+    const r2 = await convergeToVault([lesson], "memory", vault);
+    assert.equal(r2.ok, true);
+    assert.equal(r2.created, 0, "no new card — wiki-aware reuse");
+    assert.equal(r2.wikiMerged, 1, "wiki-merged into the canonical card");
+
+    // Verify: exactly ONE card in the folder.
+    const kgDir = path.join(vault, "Zettelkasten", "knowledge-graph");
+    const cards = fs.readdirSync(kgDir).filter((n) => n.endsWith(".md"));
+    assert.equal(cards.length, 1, "no parallel duplicate card minted");
+  });
+
+  it("hook_idempotent: re-converging the same entry is unchanged", async () => {
+    const entry =
+      "MLX venv at python/venv must be recreated with uv after a fresh clone; run.py fails with ModuleNotFoundError otherwise.";
+
+    // First converge: creates.
+    const r1 = await convergeToVault([entry], "failure", vault);
+    assert.equal(r1.created, 1);
+
+    // Second converge of the SAME entry: unchanged (id-dedup).
+    const r2 = await convergeToVault([entry], "failure", vault);
+    assert.equal(r2.created, 0);
+    assert.equal(r2.updated, 0);
+    assert.equal(r2.unchanged, 1);
+
+    // Still one card.
+    const kgDir = path.join(vault, "Zettelkasten", "knowledge-graph");
+    const cards = fs.readdirSync(kgDir).filter((n) => n.endsWith(".md"));
+    assert.equal(cards.length, 1, "idempotent — still one card");
+  });
+
+  it("wiki_aware does NOT collapse merely-related (low-similarity) ideas", async () => {
+    // Two DIFFERENT lessons that share some words but are not the same concept.
+    const lesson1 =
+      "Bun workspace uses isolated linker with globalStore for package resolution.";
+    const lesson2 =
+      "Bun dev server supports hot reload but resets bundle state on file changes.";
+
+    await convergeToVault([lesson1], "memory", vault);
+    await convergeToVault([lesson2], "failure", vault);
+
+    // Both should create separate cards (Jaccard < 0.85).
+    const kgDir = path.join(vault, "Zettelkasten", "knowledge-graph");
+    const cards = fs.readdirSync(kgDir).filter((n) => n.endsWith(".md"));
+    assert.equal(cards.length, 2, "two distinct ideas → two cards (no false merge)");
+  });
+});

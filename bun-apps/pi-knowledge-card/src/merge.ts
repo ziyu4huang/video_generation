@@ -35,6 +35,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFile
 import { join } from "node:path";
 import { parseFrontmatter } from "pi-obsidian/extensions/obsidian.ts";
 import { readCardMeta, slugify } from "./ingest.ts";
+import { tokeniseText, jaccard } from "./similarity.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,45 +70,18 @@ export interface MergeResult {
 }
 
 // ---------------------------------------------------------------------------
-// Tokenisation
+// Tokenisation (delegates to the shared similarity module)
 // ---------------------------------------------------------------------------
 
-const STOPWORDS = new Set([
-	"a", "an", "the", "and", "or", "but", "if", "then", "else", "for", "of",
-	"to", "in", "on", "at", "by", "with", "from", "as", "is", "are", "was",
-	"were", "be", "been", "being", "this", "that", "these", "those", "it",
-	"its", "into", "via", "use", "used", "using", "when", "while", "not",
-	"no", "do", "does", "did", "has", "have", "had", "can", "will", "may",
-	"might", "should", "would", "could", "all", "any", "each", "every",
-	"卡片", "核心", "想法", "證據", "脈絡", "連結", "相關", "card",
-]);
-
-/** Tokenise a card's title + 核心想法 body into a Set of normalised tokens. */
+/** Tokenise a card's title + 核心想法 body into a Set of normalised tokens.
+ *  Uses the shared {@link tokeniseText} so the duplicate scanner and the
+ *  wiki-aware ingest matcher agree on what counts as the same concept. */
 function tokeniseCard(content: string): Set<string> {
 	const titleMatch = content.match(/^#\s+(.+?)\s*$/m);
 	const title = titleMatch ? titleMatch[1]! : "";
 	const bodyMatch = content.match(/## 核心想法\n([\s\S]*?)(?=\n## )/);
 	const body = bodyMatch ? bodyMatch[1]! : "";
-	const text = `${title} ${body}`.toLowerCase();
-	const tokens = new Set<string>();
-	for (const raw of text.split(/[^a-z0-9\u4e00-\u9fff]+/)) {
-		const t = raw.trim();
-		if (!t) continue;
-		if (/^[a-z0-9]+$/.test(t)) {
-			if (t.length < 3) continue;
-			if (STOPWORDS.has(t)) continue;
-		}
-		tokens.add(t);
-	}
-	return tokens;
-}
-
-/** Jaccard similarity between two token sets: |A∩B| / |A∪B|. */
-function jaccard(a: Set<string>, b: Set<string>): number {
-	if (a.size === 0 && b.size === 0) return 0;
-	let inter = 0;
-	for (const t of a) if (b.has(t)) inter++;
-	return inter / (a.size + b.size - inter);
+	return tokeniseText(`${title} ${body}`);
 }
 
 // ---------------------------------------------------------------------------

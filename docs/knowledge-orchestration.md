@@ -67,6 +67,36 @@ entry → one `KnowledgeRecord`:
 Defensive: malformed/empty/timestamp-only entries are skipped (never throws);
 returns `[]` if nothing parses (the caller records a parse error).
 
+## Wiki-aware convergence (the tight pipeline, 2026-07-09)
+
+The convergence is **wiki-aware**: before minting a new card, each incoming
+record is matched against EXISTING cards in the convergence folder (token-set
+Jaccard over title + detail, threshold **0.85**). A match **upserts into the
+existing canonical card** — appends the new source's evidence + bumps `last_seen`
+— instead of creating a parallel duplicate. Only genuinely-new lessons mint a
+new card. This is the Alluvium "add to the existing page, don't create a
+parallel zoo" pattern.
+
+The matcher lives in `src/similarity.ts` (`tokeniseText` + `jaccard` +
+`bestMatch`), shared by both the wiki-aware ingest path and the duplicate
+scanner (`mergeDuplicates`) so there is ONE notion of "same concept" across the
+pipeline. It is deterministic (token-set overlap, NOT embeddings — embeddings
+would re-open the closed semantic-retrieval question per #370).
+
+### Canonical-id namespace policy (first-wins)
+
+When two sources claim the same lesson (e.g. a `gotcha:` card and a
+`pi-memory:` entry), the **existing canonical card wins** — its id, title, and
+body are preserved; the later source only appends evidence (source label +
+`wiki-merged:` provenance line + `last_seen` bump). This is conservative and
+reversible: the canonical card keeps its identity, and the merge provenance is
+visible in the `## 證據 / 脈絡` section.
+
+The wiki-aware matcher is an **addition** to id-dedup, not a replacement: a
+re-ingested record with the same id still upserts via the normal path. The
+periodic `mergeDuplicates` (Jaccard ≥ 0.9) catches cross-namespace
+near-dupes that slip past the 0.85 ingest gate.
+
 ## Where does a new learning go? (the decision rule)
 
 - **A failure / correction / insight / tool-quirk discovered in a session** →
@@ -112,11 +142,14 @@ is the asset for the *ingest* side.
 
 ## Honest caveats
 
-- **Dedup is by record id.** `hermes:fp8-…` ≠ `gotcha:fp8-…` ≠
-  `auto-memory:fp8-…`, so the same lesson converging from two sources creates
-  **parallel** cards, cross-linked by shared tags (graph-connected, not merged).
-  A future cycle may define a canonical-source policy; today, the graph edges
-  make the duplication harmless for recall.
+- **Dedup is now wiki-aware.** The same lesson converging from two sources
+  (different id namespaces) **upserts into one canonical card** (wiki-aware
+  match, Jaccard ≥ 0.85) instead of creating parallel duplicates. Cross-namespace
+  near-dupes that slip past the 0.85 ingest gate are caught by the periodic
+  `mergeDuplicates` scan (Jaccard ≥ 0.9). See the wiki-aware section above.
+  **Pre-existing** parallel cards from before the wiki-aware convergence
+  (2026-07-09) are a separate optional follow-up (`zk-query --merge-duplicates
+  --fix`), not auto-merged on ingest.
 - **`memory remove` is unreliable** (returns success but often doesn't delete) +
   **the SQLite index lags** the flat `.md` files. Ground truth = the `.md` files.
   `zk_ingest` reads the `.md`, so re-convergence is always correct regardless.
