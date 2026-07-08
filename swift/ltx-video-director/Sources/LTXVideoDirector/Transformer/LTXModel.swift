@@ -166,7 +166,7 @@ public struct LTXModel {
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
         videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
-        audioOnly: Bool = false, stgBlocks: Set<Int> = []
+        audioOnly: Bool = false, stgBlocks: Set<Int> = [], isolateModality: Bool = false
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -215,6 +215,11 @@ public struct LTXModel {
 
         // STG (Milestone 2b) — see the matching comment in `streamingForward`.
         let stgMask: MLXArray? = stgBlocks.isEmpty ? nil : MLXArray(Float(0.0))
+        // Modality guidance (Milestone 2c): isolating the modality means
+        // BOTH cross-modal directions are skipped in EVERY block, regardless
+        // of `audioOnly` — reference: `mod_perturbations` applies
+        // `SKIP_A2V_CROSS_ATTN` + `SKIP_V2A_CROSS_ATTN` with `blocks=None`.
+        let runCrossModal = !audioOnly && !isolateModality
 
         for (blockIdx, block) in transformerBlocks.enumerated() {
             let (v, a) = block(
@@ -227,7 +232,7 @@ public struct LTXModel {
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
                 videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
-                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly,
+                runVideoStream: !audioOnly, a2vCrossAttn: runCrossModal, v2aCrossAttn: runCrossModal,
                 videoPerturbationMask: stgBlocks.contains(blockIdx) ? stgMask : nil
             )
             videoHidden = v
@@ -260,7 +265,7 @@ public struct LTXModel {
         videoPositions: MLXArray? = nil, audioPositions: MLXArray? = nil,
         videoAttentionMask: MLXArray? = nil, audioAttentionMask: MLXArray? = nil,
         videoTimesteps: MLXArray? = nil, audioTimesteps: MLXArray? = nil,
-        audioOnly: Bool = false, stgBlocks: Set<Int> = []
+        audioOnly: Bool = false, stgBlocks: Set<Int> = [], isolateModality: Bool = false
     ) -> (video: MLXArray, audio: MLXArray) {
         var videoHidden = linear(videoLatent, weight: patchifyProjWeight, bias: patchifyProjBias)
         var audioHidden = linear(audioLatent, weight: audioPatchifyProjWeight, bias: audioPatchifyProjBias)
@@ -313,6 +318,8 @@ public struct LTXModel {
         // per-sample mask array isn't needed (reference: `Perturbation
         // .is_perturbed` keyed only on `block_idx` here).
         let stgMask: MLXArray? = stgBlocks.isEmpty ? nil : MLXArray(Float(0.0))
+        // Modality guidance (Milestone 2c) — see matching comment in `callAsFunction`.
+        let runCrossModal = !audioOnly && !isolateModality
 
         for blockIdx in 0..<numLayers {
             let block = blockProvider(blockIdx)
@@ -326,7 +333,7 @@ public struct LTXModel {
                 videoRopeFreqs: videoRopeFreqs, audioRopeFreqs: audioRopeFreqs,
                 videoCrossRopeFreqs: videoCrossRopeFreqs, audioCrossRopeFreqs: audioCrossRopeFreqs,
                 videoAttentionMask: videoAttentionMask, audioAttentionMask: audioAttentionMask,
-                runVideoStream: !audioOnly, a2vCrossAttn: !audioOnly, v2aCrossAttn: !audioOnly,
+                runVideoStream: !audioOnly, a2vCrossAttn: runCrossModal, v2aCrossAttn: runCrossModal,
                 videoPerturbationMask: stgBlocks.contains(blockIdx) ? stgMask : nil
             )
             MLX.eval(v, a)

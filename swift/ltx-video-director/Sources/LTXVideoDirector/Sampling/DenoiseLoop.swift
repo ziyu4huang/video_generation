@@ -198,6 +198,14 @@ public enum DenoiseLoop {
     ///     perturbed when `stgScale` is active. Default `[28]` matches
     ///     production's `_GUIDER_STG_BLOCKS` constant for dev/dasiwa.
     ///     Ignored when `stgScale` is inactive.
+    ///   - modalityScale: Modality guidance scale (Milestone 2c, see
+    ///     `docs/native-i2v-dev-variant-study.md`). `1.0` (default) means
+    ///     no guidance — behavior-identical to before this parameter
+    ///     existed. When active, an extra forward pass runs per step with
+    ///     BOTH cross-modal attention directions (A2V and V2A) disabled in
+    ///     every block — reference: `MultiModalGuider.calculate`'s
+    ///     `uncond_modality` term uses the COND text embeds (same as the
+    ///     STG "uncond_perturbed" term), not the negative prompt.
     public static func runStreaming(
         model: LTXModel, numLayers: Int, blockProvider: (Int) -> BasicAVTransformerBlock,
         videoState: LatentState, audioState: LatentState,
@@ -210,7 +218,8 @@ public enum DenoiseLoop {
         cfgScale: Float = 1.0,
         rescaleScale: Float = 0.0,
         stgScale: Float = 0.0,
-        stgBlocks: Set<Int> = [28]
+        stgBlocks: Set<Int> = [28],
+        modalityScale: Float = 1.0
     ) -> DenoiseResult {
         var videoX = videoState.latent
         var audioX = audioState.latent
@@ -224,6 +233,7 @@ public enum DenoiseLoop {
         var blockCache: [Int: BasicAVTransformerBlock] = [:]
         let cfgActive = uncondVideoTextEmbeds != nil && CFGGuidance.isActive(cfgScale: cfgScale)
         let stgActive = CFGGuidance.isSTGActive(stgScale: stgScale) && !stgBlocks.isEmpty
+        let modalityActive = CFGGuidance.isModalityActive(modalityScale: modalityScale)
 
         return withoutActuallyEscaping(blockProvider) { blockProvider in
             let effectiveBlockProvider: (Int) -> BasicAVTransformerBlock = cachedBlockCount <= 0 ? blockProvider : { idx in
@@ -254,7 +264,7 @@ public enum DenoiseLoop {
                 var videoX0 = (videoX.asType(.float32) - sigmaB * videoV.asType(.float32)).asType(videoX.dtype)
                 var audioX0 = (audioX.asType(.float32) - sigmaB * audioV.asType(.float32)).asType(audioX.dtype)
 
-                if cfgActive || stgActive {
+                if cfgActive || stgActive || modalityActive {
                     // Second forward pass with the negative prompt — only
                     // needed when CFG itself is active (video stream only;
                     // audio guidance is a separate sub-milestone, see
@@ -299,9 +309,30 @@ public enum DenoiseLoop {
                         uncondPerturbedVideoX0 = (videoX.asType(.float32) - sigmaB * perturbedV.asType(.float32)).asType(videoX.dtype)
                     }
 
+                    var uncondModalityVideoX0: MLXArray?
+                    if modalityActive {
+                        // Fourth forward pass (Milestone 2c) — same conditioned
+                        // text embeds as the `cond` pass, but with BOTH
+                        // cross-modal attention directions isolated in every
+                        // block (`isolateModality: true`). Reference:
+                        // `MultiModalGuider.calculate`'s `uncond_modality`
+                        // term uses the COND text embeds, matching the STG
+                        // pass's naming convention (see comment above).
+                        let (modalityV, _) = model.streamingForward(
+                            videoLatent: videoX, audioLatent: audioX, timestep: sigmaArray,
+                            numLayers: numLayers, blockProvider: effectiveBlockProvider,
+                            videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                            videoPositions: videoState.positions, audioPositions: audioState.positions,
+                            videoAttentionMask: vMask, audioAttentionMask: aMask,
+                            videoTimesteps: videoTimesteps, audioTimesteps: audioTimesteps,
+                            audioOnly: audioOnly, isolateModality: true)
+                        uncondModalityVideoX0 = (videoX.asType(.float32) - sigmaB * modalityV.asType(.float32)).asType(videoX.dtype)
+                    }
+
                     videoX0 = CFGGuidance.blend(
                         cond: videoX0, uncond: uncondVideoX0, uncondPerturbed: uncondPerturbedVideoX0,
-                        cfgScale: cfgScale, stgScale: stgScale, rescaleScale: rescaleScale)
+                        cfgScale: cfgScale, stgScale: stgScale, rescaleScale: rescaleScale,
+                        uncondModality: uncondModalityVideoX0, modalityScale: modalityScale)
                 }
 
                 videoX0 = applyDenoiseMask(x0: videoX0, cleanLatent: videoState.cleanLatent, denoiseMask: videoState.denoiseMask)

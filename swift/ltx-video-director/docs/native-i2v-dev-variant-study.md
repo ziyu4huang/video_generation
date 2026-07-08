@@ -439,3 +439,53 @@ just unit/algebraic tests) in addition to being merged (PR #343,
 `b02d5b2e`). Remaining open item before considering the CFG/STG/modality
 guidance gate fully closed is Milestone 2c (modality/cross-modal A2V-V2A
 guidance) — still entirely unstarted.
+
+## Status update (2026-07-08, later): Milestone 2c (modality guidance) shipped
+
+Ported `MultiModalGuider.calculate`'s remaining term —
+`(modality_scale-1)*(cond-uncond_modality)` — closing the CFG/STG/modality
+guidance gate started in Milestones 2a/2b.
+
+**Key finding: the block-level primitive already existed.**
+`BasicAVTransformerBlock.callAsFunction`'s `a2vCrossAttn`/`v2aCrossAttn`
+flags (added earlier for `LTXVAudioOnlyModel`'s `audioOnly` gating, see the
+block's own header) turned out to be the exact mechanism the reference's
+`SKIP_A2V_CROSS_ATTN` + `SKIP_V2A_CROSS_ATTN` perturbation pair needs — set
+both false in every block and cross-modal attention is fully isolated,
+matching `mod_perturbations = [..., blocks=None]` (all blocks, both
+directions). No change to `BasicAVTransformerBlock.swift` was needed; only
+`LTXModel.swift`'s `callAsFunction`/`streamingForward` needed a new
+`isolateModality: Bool` parameter that forces `a2vCrossAttn`/`v2aCrossAttn`
+off regardless of `audioOnly`.
+
+**What shipped**:
+- `CFGGuidance.blend` gained `uncondModality`/`modalityScale` parameters
+  (default `nil`/`1.0`, source-compatible with all existing call sites) plus
+  `isModalityActive(modalityScale:)`.
+- `LTXModel.callAsFunction`/`streamingForward` gained `isolateModality: Bool
+  = false`.
+- `DenoiseLoop.runStreaming` gained `modalityScale: Float = 1.0`; when
+  active, a 4th forward pass runs per step with `isolateModality: true` and
+  the same conditioned text embeds as the `cond` pass (matching the
+  reference's naming convention: "uncond" names the guidance role being
+  subtracted, not the text conditioning — same as the STG pass).
+- `NativeI2VStage.Request.modalityScale: Double?` + `--modality-scale` CLI
+  flag, same default-by-variant pattern as `cfgScale`/`stgScale`: `nil` means
+  `1.0` (off) for `.distilled`, `3.0` for `.dev`/`.dasiwa` (matches
+  production's `LTX_2_3_PARAMS.modality_scale = 3.0`, confirmed against
+  `ltx_pipelines_mlx/utils/constants.py`).
+- `bun-apps/pi-agent-ext-ltx/src/commands.ts` modeled the new flag in the
+  same PR (per the standing lesson from PR #359: an unmodeled guidance flag
+  went unnoticed for two milestones); `check-flags.ts` still reports 16/16.
+
+**Video-only scope, matching 2a/2b**: like CFG/STG, this port only guides
+the video stream. The reference also supports an independent audio
+`modality_scale`/`audio_guider_factory`; porting audio-side guidance remains
+out of scope here (same boundary as 2a/2b).
+
+**Verification**: algebraic blend tests (`CFGGuidanceTests`), a real-fixture
+`LTXModelParityTests` check that `isolateModality: true` diverges from the
+normal forward pass (proving the flag reaches every block), and a real
+19GB-checkpoint `DenoiseLoopStreamingRealCheckpointTests` test showing
+`modalityScale=3.0` changes the denoised output vs. the `1.0` no-op baseline
+— same pattern as the existing STG real-checkpoint test.

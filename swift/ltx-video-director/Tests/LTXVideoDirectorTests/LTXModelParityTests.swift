@@ -117,4 +117,71 @@ final class LTXModelParityTests: XCTestCase {
         let audioDiff = MLX.abs(audioOut.asType(.float32) - expectedAudio.asType(.float32)).max().item(Float.self)
         XCTAssertLessThan(audioDiff, 5e-3, "audio output max abs diff \(audioDiff)")
     }
+
+    /// Milestone 2c wiring check: `isolateModality: true` must actually
+    /// disable BOTH cross-modal attention directions (reference:
+    /// `mod_perturbations = [SKIP_A2V_CROSS_ATTN, SKIP_V2A_CROSS_ATTN]`,
+    /// `blocks=None` — i.e. every block, both directions). Uses the same
+    /// real-parity fixture as `testFullModelForwardPass`; asserts the
+    /// isolated-modality pass diverges from the normal pass (proving the
+    /// flag reaches every block and changes the computation) rather than
+    /// checking a specific expected value (no reference dump exists for
+    /// this branch).
+    func testIsolateModalityDisablesCrossModalAttention() throws {
+        let arrays = try MLX.loadArrays(url: refsDir.appendingPathComponent("model.safetensors"))
+
+        var cfg = LTXModelConfig()
+        cfg.numLayers = 2
+        cfg.videoDim = 32; cfg.audioDim = 16
+        cfg.videoNumHeads = 4; cfg.audioNumHeads = 4
+        cfg.videoHeadDim = 8; cfg.audioHeadDim = 4
+        cfg.avCrossNumHeads = 4; cfg.avCrossHeadDim = 4
+        cfg.videoPatchChannels = 6; cfg.audioPatchChannels = 5
+        cfg.timestepEmbeddingDim = 32
+        cfg.positionalEmbeddingMaxPos = [20, 64, 64]
+        cfg.audioPositionalEmbeddingMaxPos = [20]
+
+        let blocks = (0..<cfg.numLayers).map { makeBlock(arrays, prefix: "transformer_blocks.\($0)", cfg: cfg) }
+
+        let model = LTXModel(
+            config: cfg,
+            patchifyProjWeight: arrays["patchify_proj.weight"]!, patchifyProjBias: arrays["patchify_proj.bias"]!,
+            audioPatchifyProjWeight: arrays["audio_patchify_proj.weight"]!, audioPatchifyProjBias: arrays["audio_patchify_proj.bias"]!,
+            projOutWeight: arrays["proj_out.weight"]!, projOutBias: arrays["proj_out.bias"]!,
+            audioProjOutWeight: arrays["audio_proj_out.weight"]!, audioProjOutBias: arrays["audio_proj_out.bias"]!,
+            scaleShiftTable: arrays["scale_shift_table"]!, audioScaleShiftTable: arrays["audio_scale_shift_table"]!,
+            adalnSingle: makeAdaLN(arrays, prefix: "adaln_single"),
+            audioAdalnSingle: makeAdaLN(arrays, prefix: "audio_adaln_single"),
+            promptAdalnSingle: makeAdaLN(arrays, prefix: "prompt_adaln_single"),
+            audioPromptAdalnSingle: makeAdaLN(arrays, prefix: "audio_prompt_adaln_single"),
+            avCaVideoScaleShiftAdalnSingle: makeAdaLN(arrays, prefix: "av_ca_video_scale_shift_adaln_single"),
+            avCaAudioScaleShiftAdalnSingle: makeAdaLN(arrays, prefix: "av_ca_audio_scale_shift_adaln_single"),
+            avCaA2VGateAdalnSingle: makeAdaLN(arrays, prefix: "av_ca_a2v_gate_adaln_single"),
+            avCaV2AGateAdalnSingle: makeAdaLN(arrays, prefix: "av_ca_v2a_gate_adaln_single"),
+            transformerBlocks: blocks)
+
+        let commonArgs: (videoLatent: MLXArray, audioLatent: MLXArray, timestep: MLXArray, videoPositions: MLXArray, audioPositions: MLXArray) = (
+            arrays["video_latent"]!, arrays["audio_latent"]!, arrays["timestep"]!,
+            arrays["video_positions"]!.asType(.int32), arrays["audio_positions"]!.asType(.int32))
+
+        let (normalVideo, normalAudio) = model(
+            videoLatent: commonArgs.videoLatent, audioLatent: commonArgs.audioLatent, timestep: commonArgs.timestep,
+            videoTextEmbeds: arrays["video_text_embeds"], audioTextEmbeds: arrays["audio_text_embeds"],
+            videoPositions: commonArgs.videoPositions, audioPositions: commonArgs.audioPositions)
+
+        let (isolatedVideo, isolatedAudio) = model(
+            videoLatent: commonArgs.videoLatent, audioLatent: commonArgs.audioLatent, timestep: commonArgs.timestep,
+            videoTextEmbeds: arrays["video_text_embeds"], audioTextEmbeds: arrays["audio_text_embeds"],
+            videoPositions: commonArgs.videoPositions, audioPositions: commonArgs.audioPositions,
+            isolateModality: true)
+        MLX.eval(normalVideo, normalAudio, isolatedVideo, isolatedAudio)
+
+        XCTAssertEqual(isolatedVideo.shape, normalVideo.shape)
+        XCTAssertEqual(isolatedAudio.shape, normalAudio.shape)
+
+        let videoDiff = MLX.abs(isolatedVideo.asType(.float32) - normalVideo.asType(.float32)).max().item(Float.self)
+        let audioDiff = MLX.abs(isolatedAudio.asType(.float32) - normalAudio.asType(.float32)).max().item(Float.self)
+        XCTAssertGreaterThan(videoDiff, 1e-5, "isolating cross-modal attention should change video output")
+        XCTAssertGreaterThan(audioDiff, 1e-5, "isolating cross-modal attention should change audio output")
+    }
 }
