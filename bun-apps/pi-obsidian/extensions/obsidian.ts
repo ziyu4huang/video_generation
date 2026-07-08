@@ -3475,6 +3475,39 @@ export async function validateNoteIntegrityBatch(
 	};
 }
 
+/**
+ * Schedule the transient "obsidian vault active" banner: show once after a
+ * short delay, then auto-dismiss. Both deferred ctx.ui calls are guarded — a
+ * session switch (/resume, ctx.fork, ctx.switchSession) between schedule and
+ * fire leaves ctx stale, and ctx.ui's assertActive() would otherwise throw an
+ * uncaughtException that crashes pi. Extracted from the session_start handler
+ * so the guard is unit-testable (see __tests__/banner-stale-ctx.test.mjs).
+ */
+export function scheduleVaultBanner(
+	ctx: { ui: { setWidget(key: string, lines: string[] | undefined): void } },
+	line: string,
+): void {
+	const SHOW_DELAY_MS = 10_000; // past the startup notify burst (zai-mcp)
+	const DISPLAY_MS = 8_000; // visible window before auto-dismiss
+	setTimeout(() => {
+		try {
+			ctx.ui.setWidget("obsidian-vault", [line]);
+		} catch {
+			/* ctx stale after session switch — banner is non-essential */
+			return;
+		}
+		// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session
+		// switch between show and dismiss leaves ctx stale.
+		setTimeout(() => {
+			try {
+				ctx.ui.setWidget("obsidian-vault", undefined);
+			} catch {
+				/* ctx stale after session switch */
+			}
+		}, DISPLAY_MS);
+	}, SHOW_DELAY_MS);
+}
+
 export default function (pi: ExtensionAPI) {
 	// Phase 5 / WS-C8: light ExtensionAPI contract guard. The ExtensionAPI type
 	// is a type-only import (no runtime symbol), and pi-agent-cli vendors an
@@ -5138,27 +5171,7 @@ ${output.slice(-2000)}`,
 			// uncaughtException -> pi crashes. Guard every deferred ctx.ui call;
 			// a stale session needs no banner (the replacement session renders
 			// its own on its own session_start).
-			const SHOW_DELAY_MS = 10_000; // past the startup notify burst (zai-mcp)
-			const DISPLAY_MS = 8_000; // visible window before auto-dismiss
-			setTimeout(() => {
-				try {
-					ctx.ui.setWidget("obsidian-vault", [
-						`${icon} ${label} ${name}${tag}`,
-					]);
-				} catch {
-					/* ctx stale after session switch — banner is non-essential */
-					return;
-				}
-				// Auto-dismiss after DISPLAY_MS. Guarded the same way: a session
-				// switch between show and dismiss leaves ctx stale.
-				setTimeout(() => {
-					try {
-						ctx.ui.setWidget("obsidian-vault", undefined);
-					} catch {
-						/* ctx stale after session switch */
-					}
-				}, DISPLAY_MS);
-			}, SHOW_DELAY_MS);
+			scheduleVaultBanner(ctx, `${icon} ${label} ${name}${tag}`);
 		} catch {
 			ctx.ui.notify("obsidian: no vault found", "warning");
 		}
