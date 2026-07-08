@@ -60,6 +60,7 @@
         "pi-agent": "workspace:*",
         "pi-knowledge-card": "workspace:*",
         "pi-obsidian": "workspace:*",
+        "pi-schema-cost": "workspace:*",
         "pi-vlm": "workspace:*",
         "typebox": "latest",
       },
@@ -259,6 +260,10 @@
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
       },
+    },
+    "bun-apps/pi-schema-cost": {
+      "name": "pi-schema-cost",
+      "version": "0.1.0",
     },
     "bun-apps/pi-vlm": {
       "name": "pi-vlm",
@@ -1182,6 +1187,8 @@
 
     "pi-obsidian": ["pi-obsidian@workspace:bun-apps/pi-obsidian"],
 
+    "pi-schema-cost": ["pi-schema-cost@workspace:bun-apps/pi-schema-cost"],
+
     "pi-vlm": ["pi-vlm@workspace:bun-apps/pi-vlm"],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
@@ -1332,7 +1339,7 @@
 
     "type-is": ["type-is@2.1.0", "", { "dependencies": { "content-type": "^2.0.0", "media-typer": "^1.1.0", "mime-types": "^3.0.0" } }, "sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA=="],
 
-    "typebox": ["typebox@1.3.4", "", {}, "sha512-j3MCKfJMIHdrr4ZQMzaJnvXrUbMNuncwssmQkny3Cv5vxrDE1o1WhZFEqGSlU884xtYS5sAa3O/XsUPbUbPWKQ=="],
+    "typebox": ["typebox@1.3.5", "", {}, "sha512-Va+8RjPkXCy5j+K6TXtaqrXlu+H5ijaw1mAZN6ql26MW4atY4T1Md/4CVvLCAKpb61hzVv1Xq0RxnaJ3UYq2jQ=="],
 
     "typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 

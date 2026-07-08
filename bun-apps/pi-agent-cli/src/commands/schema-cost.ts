@@ -27,48 +27,29 @@ import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { globSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
 
-// --- types -------------------------------------------------------------------
+// --- pure core delegated to the publishable package -------------------------
+// The static schema-cost accounting (estimateToolCost + formatting + types)
+// lives in `pi-schema-cost` (zero pi-agent deps, publishable). This command
+// keeps ONLY the pi-coupled collection half (capturing mock API, repo
+// discovery, builtin loading via createCodingTools) and delegates the pure
+// accounting to the package. The parity contract (pi-schema-cost
+// __tests__/estimate.test.ts) guarantees identical numbers.
+//
+// Note on the token ratio: the package defaults to 4 (matching this static
+// instrument). The live `context_analyzer` (pi-agent-ext-power-tool) uses 3.7
+// — a known inconsistency; standardizing is a future cleanup, not this cycle.
+import {
+	estimateToolCost as _estimateToolCost,
+	formatReport as _formatReport,
+	formatJson as _formatJson,
+} from "pi-schema-cost";
 
-export interface ToolCost {
-	name: string;
-	/** Description string length (chars). */
-	descLen: number;
-	/** JSON-stringified TypeBox parameters schema length (chars). */
-	paramsLen: number;
-	/** Estimated tokens: round((descLen + paramsLen) / 4). */
-	approxTokens: number;
-	/** Where the tool came from: "(builtin)" or the extension source label. */
-	source: string;
-}
+export type { ToolCost, SchemaCostReport } from "pi-schema-cost";
+import type { ToolCost, SchemaCostReport } from "pi-schema-cost";
 
-export interface SchemaCostReport {
-	tools: ToolCost[]; // sorted desc by approxTokens
-	totalTokens: number;
-	builtinCount: number;
-	extensionCount: number;
-	errors: { source: string; error: string }[];
-}
-
-// --- pure cost ---------------------------------------------------------------
-
-/**
- * Estimate the API schema token cost of a single ToolDefinition.
- * Pure + deterministic — the unit-testable core.
- */
-export function estimateToolCost(def: unknown, source: string): ToolCost {
-	const d = def as { name?: string; description?: unknown; parameters?: unknown };
-	const name = typeof d.name === "string" ? d.name : "?";
-	const desc = typeof d.description === "string" ? d.description : "";
-	const paramsObj = d.parameters;
-	const paramsLen = paramsObj && typeof paramsObj === "object" ? JSON.stringify(paramsObj).length : 0;
-	return {
-		name,
-		descLen: desc.length,
-		paramsLen,
-		approxTokens: Math.round((desc.length + paramsLen) / 4),
-		source,
-	};
-}
+/** @deprecated delegate — import from `pi-schema-cost` directly. Kept as an
+ *  alias so existing imports from this module stay valid. */
+export const estimateToolCost = _estimateToolCost;
 
 // --- capturing mock API ------------------------------------------------------
 
@@ -196,72 +177,12 @@ export async function buildSchemaCostReport(
 	};
 }
 
-// --- formatting --------------------------------------------------------------
+// --- formatting (delegated to pi-schema-cost) ------------------------------
 
-export function formatSchemaCostReport(report: SchemaCostReport): string[] {
-	const lines: string[] = [];
-	lines.push(
-		`schema-cost — ${report.tools.length} tools · ≈${report.totalTokens.toLocaleString()} tokens ` +
-			`(builtins ${report.builtinCount} + extensions ${report.extensionCount})`,
-	);
-	if (report.errors.length) {
-		lines.push(`${report.errors.length} extension(s) failed to load (run with --schema-cost-json to see):`);
-		for (const e of report.errors) lines.push(`  [skip] ${e.source}: ${e.error}`);
-	}
-	lines.push("");
-	const top3 = report.tools.slice(0, 3);
-	const top3Tokens = top3.reduce((s, t) => s + t.approxTokens, 0);
-	if (report.totalTokens > 0) {
-		lines.push(
-			`top 3 — ${top3.map((t) => `${t.name}(${t.approxTokens})`).join(" + ")} = ${top3Tokens} tok ` +
-				`(${Math.round((top3Tokens / report.totalTokens) * 100)}% of total)`,
-		);
-		lines.push("");
-	}
-	const rows = report.tools.map((t) => ({
-		tool: t.name,
-		tokens: String(t.approxTokens),
-		desc: String(t.descLen),
-		params: String(t.paramsLen),
-		source: t.source,
-	}));
-	const cols = ["tool", "tokens", "desc", "params", "source"];
-	const numeric = new Set(["tokens", "desc", "params"]);
-	const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? "").length)));
-	const fmt = (r: Record<string, string>) =>
-		cols
-			.map((c, i) => {
-				const v = String(r[c] ?? "");
-				return numeric.has(c) ? v.padStart(widths[i]!) : v.padEnd(widths[i]!);
-			})
-			.join("  ")
-			.trimEnd();
-	const header = Object.fromEntries(cols.map((c) => [c, c])) as Record<string, string>;
-	lines.push(fmt(header));
-	for (const r of rows) lines.push(fmt(r));
-	return lines;
-}
-
-export function formatSchemaCostJson(report: SchemaCostReport): string {
-	return JSON.stringify(
-		{
-			tools: report.tools.length,
-			totalTokens: report.totalTokens,
-			builtinCount: report.builtinCount,
-			extensionCount: report.extensionCount,
-			errors: report.errors,
-			toolsRanked: report.tools.map((t) => ({
-				name: t.name,
-				approxTokens: t.approxTokens,
-				descLen: t.descLen,
-				paramsLen: t.paramsLen,
-				source: t.source,
-			})),
-		},
-		null,
-		2,
-	);
-}
+/** @deprecated delegate — use `formatReport` from `pi-schema-cost` directly. */
+export const formatSchemaCostReport = _formatReport;
+/** @deprecated delegate — use `formatJson` from `pi-schema-cost` directly. */
+export const formatSchemaCostJson = _formatJson;
 
 /** Human-readable relative path for a discovered entry (for --verbose). */
 export function describeEntries(entries: { source: string; path: string }[], cwd: string): string[] {
