@@ -9,6 +9,8 @@ Sub-actions (loaded from sibling modules via importlib):
                         → app/commands/video-restore.py
   vbvr                — I2V generation with VBVR reasoning LoRA
                         → app/commands/video-vbvr.py
+  storyboard          — --story → character-locked panels → multi-shot video
+                        → app/commands/video-storyboard.py
 
 Usage:
   run.py video --test-prompt rainy-street
@@ -39,6 +41,7 @@ _quality = importlib.import_module("app.commands.video-quality")
 _restore = importlib.import_module("app.commands.video-restore")
 _vbvr = importlib.import_module("app.commands.video-vbvr")
 _relay = importlib.import_module("app.commands.video-relay")
+_storyboard = importlib.import_module("app.commands.video-storyboard")
 _segment = importlib.import_module("app.commands.video-segment")
 _t2i2v = importlib.import_module("app.commands.video-t2i2v")
 _asr_gate = importlib.import_module("app.commands.video-asr-gate")
@@ -53,6 +56,7 @@ VIDEO_ACTIONS = (
     "restore",
     "vbvr",
     "relay",
+    "storyboard",
     "segment",
     "t2i2v",
     "asr-gate",
@@ -71,6 +75,7 @@ PARSER_META = {
         "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n"
         "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
         "  relay              — Multi-segment Prompt-Relay short film + custom audio\n"
+        "  storyboard         — --story to multi-shot video (storyboard panels → relay segments)\n"
         "  segment            — Scene detection + per-segment quality analysis\n"
         "  t2i2v              — ZImage T2I → VLM prompt → LTX I2V (end-to-end pipeline)\n"
         "  asr-gate           — Standalone ASR audio-content gate (language + transcript match)\n\n"
@@ -89,6 +94,10 @@ PARSER_META = {
         "  run.py video vbvr --prompt 'ball bounces off wall' --frames 49\n"
         "  run.py video relay --relay-prompt-file prompts.txt --relay-first-image base.jpg\n"
         "  run.py video relay --relay-prompt-file prompts.txt --relay-audio music.mp3 --low-ram\n"
+        "  run.py video storyboard --story 'a detective solves a case' --num-panels 4 "
+        "--character hero.png\n"
+        "  run.py video storyboard --storyboard-json out/storyboard_.../storyboard.json "
+        "--relay-audio music.mp3\n"
         "\n"
         "Voice / speech tips (audio is generated from the SAME prompt; intelligible-with-effort\n"
         "ceiling on MLX):\n"
@@ -108,7 +117,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default=VIDEO_ACTIONS[0],
         choices=list(VIDEO_ACTIONS),
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'segment', 't2i2v', or 'asr-gate'",
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'storyboard', 'segment', 't2i2v', or 'asr-gate'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -142,6 +151,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
     # Relay args: --relay-prompt-file, --relay-audio, --relay-first-image, etc.
     _relay.add_relay_args(parser)
+
+    # Storyboard→video bridge args: --story, --num-panels, --character,
+    # --storyboard-json, etc. (derives --relay-prompts/--relay-images from panels).
+    _storyboard.add_storyboard_video_args(parser)
 
     # Segment args: --segment-input, --threshold, --vlm-score, etc.
     _segment.add_segment_args(parser)
@@ -177,6 +190,8 @@ def run(args: "argparse.Namespace") -> None:
         _asr_gate.run_asr_gate(args)
     elif action == "relay":
         _relay.run_relay(args)
+    elif action == "storyboard":
+        _storyboard.run_storyboard_video(args)
     elif action == "segment":
         _segment.run_segment(args)
     elif action == "vbvr":

@@ -275,7 +275,7 @@ def _build_contact_sheet(image_paths: list[str], out_path: str, cols: int = 3) -
 # Entry point
 # ---------------------------------------------------------------------------
 
-def run_storyboard(args: argparse.Namespace) -> None:
+def run_storyboard(args: argparse.Namespace) -> dict[str, Any]:
     from app.commands._shared import execute_generation
 
     scenes = _load_scenes(args)
@@ -349,6 +349,8 @@ def run_storyboard(args: argparse.Namespace) -> None:
         "contact_sheet": contact_path,
         "hero": hero,
         "style_context": style_context,
+        "out_dir": out_dir,
+        "storyboard_json": storyboard_json,
     }
     with open(storyboard_json, "w") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -358,6 +360,7 @@ def run_storyboard(args: argparse.Namespace) -> None:
     print(f"  contact sheet : {contact_path}", flush=True)
     print(f"  plan          : {storyboard_json}", flush=True)
     print(f"Manifest:   {storyboard_json}")  # sentinel so adapters can find the artifact
+    return payload
 
 
 def _identity_judge():

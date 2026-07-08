@@ -29,7 +29,7 @@ correct starting point instead of re-deriving it.
 | `image_to_video` | yes | `video generate --input-image X --prompt ...` | `native-i2v --input-image X` | |
 | `first_last_frame_to_video` | yes | `video generate --begin-image X --end-image Y` | `native-i2v --last-frame` (FFLF) | not even mentioned in OpenMontage's unmerged draft |
 | `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), audio-track **injection** in `native-i2v`/`native-relay` | Python: joint A/V diffusion, not bolted-on TTS. Swift: see `--audio-track` caveat below — injection only, not conditioning. |
-| `multi_shot` | yes | `video relay`, `video segment` | `native-relay`, `native-storyboard` | continuous multi-segment + grid-guide storyboard |
+| `multi_shot` | yes | `video relay`, `video segment`, `video storyboard` (new 2026-07-09) | `native-relay`, `native-storyboard` | continuous multi-segment + grid-guide storyboard; `video storyboard` is the new `--story`→video bridge, see below |
 | `camera_direction` | yes (text-only) | `shotLanguage.ts` vocabulary (pan/tilt/dolly/track/crane/handheld/orbital/zoom/rack-focus) | same, via `bun-apps/pi-agent-ext-ltx` | prompt-text conditioning only — no dedicated camera-control LoRA wired in yet, see `project_camera_control_lora_research` memory |
 | `lip_sync` | **yes (coarse), precision inadequate — measured 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | pipeline-verified 2026-07-08 (vendor bug fix); precision measured 2026-07-08, see `docs/lipsync-precision-measurement-20260708.md` — tracks speech-presence/absence, not phoneme-level mouth shape |
 | `dialogue_generation` | yes (same IA2V path) | same as above | not yet verified | speech-from-prompt/audio works "with effort" per `video-generate.py` module docstring voice tips |
@@ -141,6 +141,55 @@ conditioning — neither exists in Python `run.py` either (checked: no
 `--reference-video`/`--reference-audio` style flags in
 `video-generate.py`). This is a capability gap, not just a documentation
 gap.
+
+## Storyboard→video bridge (2026-07-09)
+
+New `run.py video storyboard` command (`app/commands/video-storyboard.py`)
+composes three already-verified pieces into the OpenMontage-shaped
+deliverable none of them alone provides — a story becomes a multi-shot
+*video*, not just still panels:
+
+1. the storyline → SceneSpec decomposition + character-lock storyboard loop
+   (`image storyboard`, PR #366) — N character-consistent panels, each with
+   a 5-layer cinematography prompt (subject/motion/scene/framing/camera
+   already baked in by `shot_prompt_builder`, so no separate camera-
+   vocabulary wiring was needed for this bridge — it was already text in
+   the panel's prompt);
+2. the multi-segment Prompt-Relay video pipeline (`video relay`) — chains N
+   I2V segments into one concatenated mp4.
+
+Each panel becomes one relay segment: the panel's image is that segment's
+I2V starting frame (a **hard per-panel anchor**, not a chained relay-frame
+— the storyboard's character-lock already guarantees identity continuity
+panel-to-panel, so each segment restarts from its own certified frame
+rather than drifting off the previous segment's last generated frame).
+
+One-command path: `run.py video storyboard --story "..." --num-panels 4
+--character hero.png --relay-duration 3 --relay-audio narration.mp3`.
+Two-step path (reuse an existing `storyboard.json`, skip panel
+regeneration): `run.py video storyboard --storyboard-json
+out/storyboard_.../storyboard.json`.
+
+**Verified end-to-end (2026-07-09)**: generated the deterministic 3-beat
+`image storyboard --self-test` fixture (detective noir, one recurring
+character), then fed its `storyboard.json` into `video storyboard
+--storyboard-json ...` (dev pipeline, 512×512, 2s/segment). Result: a real
+6.05s, 512×512 mp4 with both video and audio streams (`ffprobe`-confirmed),
+3 segments correctly concatenated in panel order. Eyeballed two extracted
+frames against their source panels' scene descriptions (alley silhouette /
+diner reading a case file) — content matched, confirming the relay
+correctly consumed each panel's prompt+image rather than just concatenating
+placeholder segments.
+
+**Caveats**: the local environment lacks `transformer-distilled.safetensors`
+(only the distilled LoRA-on-dev path is available), so this verification
+used the dev pipeline (`--stage1-steps 15 --cfg-scale 5.0 --stg-scale 1.0`),
+not relay's own `--distilled` default — an environment gap, not a bridge
+bug. `--judge` (the storyboard's identity-judge closed loop) was not
+exercised in this smoke test; combining it with the video bridge (does a
+weak-identity panel get regenerated *before* being handed to relay?) is
+untested but should work unmodified since `video storyboard` calls
+`image-storyboard.run_storyboard` as-is.
 
 ## Swift coverage vs this checklist
 
