@@ -31,6 +31,7 @@ bun-apps/pi-dynamic-workflows/docs/media/*.gif
 tmp/
 comfyui_data/models/
 comfyui_data/input/
+python/mlx-movie-director/app/models/
 comfyui_data/user/**/*.db
 comfyui_data/user/**/*.log
 comfyui_data/user/__manager/
