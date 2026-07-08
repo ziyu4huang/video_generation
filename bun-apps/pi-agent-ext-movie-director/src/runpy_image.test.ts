@@ -60,6 +60,21 @@ describe("buildImageArgs", () => {
     expect(args).toEqual(["image", "review", "vae"]);
   });
 
+  it("inpaint: input + mask + crop map to the masked-redraw flags", () => {
+    const args = buildImageArgs(
+      { action: "inpaint", input: "/in/photo.png", mask: "/in/mask.png",
+        prompt: "clear sky, no object", crop: true },
+      null,
+    );
+    expect(args[1]).toBe("inpaint");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/photo.png");
+    expect(args).toContain("--mask");
+    expect(args).toContain("/in/mask.png");
+    expect(args).toContain("--crop");
+    expect(args).toContain("--prompt");
+  });
+
   it("self-test boolean emits bare --self-test; string emits the fixture name", () => {
     expect(buildImageArgs({ selfTest: true }, null)).toContain("--self-test");
     const named = buildImageArgs({ action: "workflow", selfTest: "workflow:portrait" }, null);

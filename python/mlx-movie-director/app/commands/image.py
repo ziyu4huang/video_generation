@@ -87,6 +87,7 @@ _restore = importlib.import_module("app.commands.image-restore")
 _multicouple = importlib.import_module("app.commands.image-multicouple")
 _twosubject = importlib.import_module("app.commands.image-twosubject")
 _storyboard = importlib.import_module("app.commands.image-storyboard")
+_inpaint = importlib.import_module("app.commands.image-inpaint")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -118,6 +119,7 @@ PARSER_META = {
         "  anime2real    — Anime→realistic with identity preservation (Flux2KleinEdit ref + LoRA)\n"
         "  quality       — No-reference image quality analysis + VAE A/B self-test\n"
         "  expansion     — Flux2 Klein outpaint / image expansion (latent-mask, native MLX)\n"
+"  inpaint       — Masked latent redraw / object removal (Flux2 Klein latent-mask, OM C4)\n"
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
@@ -204,6 +206,9 @@ PARSER_META = {
         "  run.py image workflow --self-test workflow:landscape\n"
         "  run.py image expansion --input photo.png --expand left,right --pixels 768 --prompt '...'\n"
         "  run.py image expansion --input photo.png --aspect 16:9 --upscale --upscale-method seedvr2\n"
+        "  run.py image inpaint --input photo.png --mask mask.png --prompt 'clear sky, no object'\n"
+        "  run.py image inpaint --input photo.png --mask mask.png --prompt 'a coffee cup' --crop\n"
+        "  run.py image inpaint --self-test\n"
         "  run.py image --self-test expansion:basic\n"
         "  run.py image purify --input-image output/photo.png\n"
         "  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x\n"
@@ -230,7 +235,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -295,6 +300,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Storyboard-specific args: --scenes/--story/--style-context/--character/--judge
     # (the storyline→storyboard→image flow; reuses t2i/common args for the per-shot gen)
     _storyboard.add_storyboard_args(parser)
+
+    # Inpaint-specific args: --mask/--inpaint-feather/--inpaint-ref-strength/--crop
+    # (masked latent redraw / object removal; reuses --input/--prompt/--seed from common)
+    _inpaint.add_inpaint_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -378,5 +387,7 @@ def run(args: "argparse.Namespace") -> None:
         _twosubject.run_twosubject(args)
     elif action == "storyboard":
         _storyboard.run_storyboard(args)
+    elif action == "inpaint":
+        _inpaint.run_inpaint(args)
     else:
         _t2i.run_t2i(args)

@@ -48,7 +48,8 @@ export type ImageAction =
   | "workflow"
   | "expansion"
   | "review"
-  | "quality";
+  | "quality"
+  | "inpaint";
 
 /** Typed options for `run.py image <action>` (camelCase → kebab CLI flags). */
 export interface RunPyImageOptions {
@@ -92,6 +93,10 @@ export interface RunPyImageOptions {
   /** purify mode (purify|enhance|redraw) + resolution (same|2x|2160|...). */
   purifyMode?: string;
   resolution?: string | number;
+  /** --mask (inpaint: mask image, white=regenerate / black=keep). */
+  mask?: string;
+  /** --crop (inpaint: Union 2.1 crop-for-detail on the mask bbox). */
+  crop?: boolean;
   /**
    * Pick a named image self-test fixture (image.py's unified selftest dispatcher).
    * `true` runs the action's bare self-test; a string runs one named fixture.
@@ -218,6 +223,8 @@ export function buildImageArgs(opts: RunPyImageOptions, genOutputDir: string | n
   if (opts.controlnetStrength != null) args.push("--controlnet-strength", String(opts.controlnetStrength));
   if (opts.purifyMode != null) args.push("--purify-mode", opts.purifyMode);
   if (opts.resolution != null) args.push("--resolution", String(opts.resolution));
+  if (opts.mask != null) args.push("--mask", opts.mask);
+  if (opts.crop) args.push("--crop");
 
   if (genOutputDir) args.push("--gen-output-dir", genOutputDir);
   return args;
