@@ -95,9 +95,9 @@ export const REGISTRY: ProviderEntry[] = [
     commands: [
       "controlnet", "faceswap", "swap", "anime2real", "profile", "angle",
       "purify", "restore", "multicouple", "twosubject", "workflow", "expansion",
-      "i2i", "storyboard",
+      "i2i", "storyboard", "inpaint",
     ],
-    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i reaches run.py (Swift directors declare no commands, so they don't claim these). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
+    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i/inpaint reaches run.py (Swift directors declare no commands, so they don't claim these). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
   },
 
   // Video generation — native Swift/MLX director.

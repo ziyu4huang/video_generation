@@ -96,6 +96,7 @@ class Storyboard:
 def plan_storyboard(
     scenes: list[SceneSpec],
     style_context: dict[str, Any] | None = None,
+    playbook: Any = None,
 ) -> Storyboard:
     """Map a gemma-produced scene list onto a storyboard of generation prompts.
 
@@ -107,13 +108,26 @@ def plan_storyboard(
 
     Args:
         scenes: The scene list (gemma decomposed the story into these).
-        style_context: Optional playbook/style context (Layer 5 of the prompt).
+        style_context: Optional Layer-5 style context dict (``{mood,
+            visual_language}``). Takes precedence over ``playbook``.
+        playbook: Optional :class:`app.planning.playbook.Playbook`. When
+            ``style_context`` is None, the playbook's mood/aesthetic drives Layer
+            5 via :func:`playbook_to_style_context` (Step 4 wiring). The
+            playbook's ``style_anchor`` is the character-lock's ``styleAnchor`` —
+            surfaced on the returned shots via the batch driver, not here.
 
     Returns:
         A :class:`Storyboard` ready for batch image-gen.
     """
     # Local import avoids a circular dependency at module load.
     from app.planning.shot_prompt_builder import build_batch_prompts
+
+    if style_context is None and playbook is not None:
+        # Step 4: a playbook projects into the Layer-5 style_context the prompt
+        # builder already reads (no new code in the builder). Deferred import so a
+        # scene_spec import never pulls the (heavier) playbook module eagerly.
+        from app.planning.playbook import playbook_to_style_context
+        style_context = playbook_to_style_context(playbook)
 
     planner_scenes = [s.to_planner_scene() for s in scenes]
     built = build_batch_prompts(planner_scenes, style_context)
