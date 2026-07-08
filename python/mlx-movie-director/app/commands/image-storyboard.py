@@ -117,14 +117,21 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
              "pass. Unset → the gemma brain (vlm_model / the caption resolver).",
     )
     # Step 1b (hardening): the identity JUDGE tier. _vlm_verify_identity was authored
-    # for Qwen3-VL multi-image; gemma's multi-image JSON is flaky (1/4 parsed in #366).
+    # for Qwen3-VL multi-image (gemma's multi-image JSON is the flakier path, 1/4
+    # parsed in #366) — but the user's standing LM Studio model (set 2026-07-09) is
+    # google/gemma-4-26b-a4b-qat, so the default follows what's actually kept loaded
+    # rather than forcing a model swap on every storyboard run. If identity JSON
+    # parsing comes back flaky, pass --identity-judge-model qwen/qwen3-vl-4b
+    # explicitly (and load it in LM Studio) for the more reliable multi-image path.
     parser.add_argument(
-        "--identity-judge-model", type=str, default="qwen/qwen3-vl-4b",
+        "--identity-judge-model", type=str, default="google/gemma-4-26b-a4b-qat",
         dest="identity_judge_model",
         help="Local VLM model id for the multi-image identity judge "
-             "(_vlm_verify_identity). Default qwen/qwen3-vl-4b — the model the "
-             "identity prompt was authored for (gemma multi-image JSON is flaky). "
-             "Falls back to the gemma brain if Qwen3-VL is unavailable.",
+             "(_vlm_verify_identity). Default google/gemma-4-26b-a4b-qat (the "
+             "user's standing LM Studio model). Qwen3-VL is the more reliable "
+             "multi-image path (gemma's multi-image JSON is flakier, 1/4 parsed "
+             "in #366) — pass --identity-judge-model qwen/qwen3-vl-4b if identity "
+             "judgments come back unparseable often.",
     )
     # NOTE: --vlm-api-url / --vlm-model are NOT re-registered here — image-profile's
     # add_profile_args already registers them on the shared `image` parser (image.py
@@ -406,9 +413,9 @@ def _judge_identity(frames: list[dict[str, Any]], hero: str,
     _vlm_verify_identity = _identity_judge()
 
     api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
-    # Step 1b: the identity judge tier defaults to Qwen3-VL (the model the
-    # multi-image identity prompt was authored for; gemma's multi-image JSON is
-    # flaky). Falls back to the gemma brain when Qwen3-VL is unavailable.
+    # Step 1b: the identity judge tier defaults to the user's standing LM Studio
+    # model (see _resolve_identity_judge_model); prefers a loaded Qwen3-VL when
+    # the default isn't loaded (gemma's multi-image JSON is the flakier path).
     model = _resolve_identity_judge_model(api_url, args)
     recurr_set = set(recurring_ids)
     for f in frames:
@@ -496,18 +503,24 @@ def _identity_judge_models(api_url: str) -> set[str]:
 
 
 def _resolve_identity_judge_model(api_url: str, args: argparse.Namespace) -> str | None:
-    """Resolve the identity-judge VLM, preferring Qwen3-VL (Step 1b).
+    """Resolve the identity-judge VLM.
 
-    ``_vlm_verify_identity`` was authored for Qwen3-VL multi-image; gemma's
-    multi-image JSON is the flaky path (1/4 parsed in PR #366). Default
-    ``--identity-judge-model`` is qwen3-vl-4b. If that model is NOT loaded we fall
-    back to the gemma brain (so the loop still runs) rather than hard-failing.
+    Default ``--identity-judge-model`` is the user's standing LM Studio model
+    (``google/gemma-4-26b-a4b-qat``, set 2026-07-09) — used as-is when it's
+    actually loaded. When the preferred id isn't loaded, prefer a loaded
+    Qwen3-VL (``_vlm_verify_identity`` was authored for Qwen3-VL multi-image;
+    gemma's multi-image JSON is the flakier path, 1/4 parsed in PR #366) —
+    return the ACTUAL loaded id, not a hardcoded guess, since LM Studio ids
+    vary by quant/build. Falls back to the gemma brain resolver (so the loop
+    still runs) rather than hard-failing.
     """
-    preferred = getattr(args, "identity_judge_model", None) or "qwen/qwen3-vl-4b"
+    preferred = getattr(args, "identity_judge_model", None) or "google/gemma-4-26b-a4b-qat"
     available = _identity_judge_models(api_url)
-    # Exact match, or a loaded id that contains the preferred family token.
-    if preferred in available or any("qwen3-vl" in m.lower() for m in available):
+    if preferred in available:
         return preferred
+    qwen_loaded = next((m for m in available if "qwen3-vl" in m.lower()), None)
+    if qwen_loaded:
+        return qwen_loaded
     # Fall back to the gemma brain (the proven single-image path) — never None-bind.
     return getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
 

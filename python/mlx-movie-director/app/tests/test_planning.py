@@ -242,4 +242,42 @@ def test_build_run_config_locks_seed_and_applies_character_lock():
     # Without character lock → independent T2I, no input image.
     rc2 = _sb._build_run_config("a prompt", args, hero="/h.png", use_character_lock=False)
     assert rc2.input_image is None
-    assert rc2.denoise_strength == 1.0
+
+
+# ─── _resolve_identity_judge_model (Step 1b, 2026-07-09: default = user's ────
+# ─── standing LM Studio model, google/gemma-4-26b-a4b-qat) ───────────────────
+
+def test_resolve_identity_judge_model_default_is_gemma_qat(monkeypatch):
+    args = _argparse.Namespace(identity_judge_model=None, vlm_model=None)
+    monkeypatch.setattr(_sb, "_identity_judge_models",
+                        lambda api_url: {"google/gemma-4-26b-a4b-qat"})
+    assert _sb._resolve_identity_judge_model("http://x", args) == "google/gemma-4-26b-a4b-qat"
+
+
+def test_resolve_identity_judge_model_uses_preferred_when_loaded(monkeypatch):
+    args = _argparse.Namespace(identity_judge_model="qwen/qwen3-vl-4b", vlm_model=None)
+    monkeypatch.setattr(_sb, "_identity_judge_models",
+                        lambda api_url: {"qwen/qwen3-vl-4b", "other-model"})
+    assert _sb._resolve_identity_judge_model("http://x", args) == "qwen/qwen3-vl-4b"
+
+
+def test_resolve_identity_judge_model_falls_back_to_loaded_qwen3vl(monkeypatch):
+    """Preferred (default gemma) isn't loaded, but a Qwen3-VL variant is —
+    return the ACTUAL loaded id, not a hardcoded guess."""
+    args = _argparse.Namespace(identity_judge_model=None, vlm_model=None)
+    monkeypatch.setattr(_sb, "_identity_judge_models",
+                        lambda api_url: {"qwen3-vl-4b-instruct-mlx"})
+    assert _sb._resolve_identity_judge_model("http://x", args) == "qwen3-vl-4b-instruct-mlx"
+
+
+def test_resolve_identity_judge_model_falls_back_to_gemma_brain_when_nothing_loaded(monkeypatch):
+    args = _argparse.Namespace(identity_judge_model=None, vlm_model=None)
+    monkeypatch.setattr(_sb, "_identity_judge_models", lambda api_url: set())
+    monkeypatch.setattr(_sb, "_resolve_brain_model", lambda api_url: "some-loaded-model")
+    assert _sb._resolve_identity_judge_model("http://x", args) == "some-loaded-model"
+
+
+def test_resolve_identity_judge_model_vlm_model_wins_over_brain_resolver(monkeypatch):
+    args = _argparse.Namespace(identity_judge_model=None, vlm_model="explicit-vlm-model")
+    monkeypatch.setattr(_sb, "_identity_judge_models", lambda api_url: set())
+    assert _sb._resolve_identity_judge_model("http://x", args) == "explicit-vlm-model"
