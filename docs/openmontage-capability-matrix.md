@@ -25,10 +25,10 @@ correct starting point instead of re-deriving it.
 
 | `supports` flag | status | command (Python `run.py`) | command (Swift `ltx-video`) | notes |
 |---|---|---|---|---|
-| `text_to_video` | yes | `video generate --prompt ...` | `native-i2v` (verify T2V-without-image path) | |
-| `image_to_video` | yes | `video generate --input-image X --prompt ...` | `native-i2v` | |
+| `text_to_video` | yes (Python) / partial (Swift) | `video generate --prompt ...` (zero image conditioning) | `native-i2v` (no `--input-image`) | checked 2026-07-08 (`NativeI2VCommand.swift:120`): Swift always conditions on an image — if `--input-image` is omitted it runs `NativeT2IStage` internally to generate one first, then does I2V from that. There is no true zero-image T2V path in Swift today. |
+| `image_to_video` | yes | `video generate --input-image X --prompt ...` | `native-i2v --input-image X` | |
 | `first_last_frame_to_video` | yes | `video generate --begin-image X --end-image Y` | `native-i2v --last-frame` (FFLF) | not even mentioned in OpenMontage's unmerged draft |
-| `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), audio-track passthrough in `native-relay` | joint A/V diffusion, not bolted-on TTS |
+| `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), audio-track **injection** in `native-i2v`/`native-relay` | Python: joint A/V diffusion, not bolted-on TTS. Swift: see `--audio-track` caveat below — injection only, not conditioning. |
 | `multi_shot` | yes | `video relay`, `video segment` | `native-relay`, `native-storyboard` | continuous multi-segment + grid-guide storyboard |
 | `camera_direction` | yes (text-only) | `shotLanguage.ts` vocabulary (pan/tilt/dolly/track/crane/handheld/orbital/zoom/rack-focus) | same, via `bun-apps/pi-agent-ext-ltx` | prompt-text conditioning only — no dedicated camera-control LoRA wired in yet, see `project_camera_control_lora_research` memory |
 | `lip_sync` | **yes, verified 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | see "IA2V verification" below — required a vendor bug fix |
