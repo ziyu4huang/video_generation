@@ -88,6 +88,23 @@ describe("buildImageArgs", () => {
       .toEqual(["--subject", "woman", "--fill-holes", "--trim"]);
   });
 
+  it("styletransfer: action routes restyle (style-preset/playbook/strength via extraArgs)", () => {
+    const args = buildImageArgs(
+      { action: "styletransfer", input: "/in/photo.png", prompt: "neon synthwave" },
+      null,
+    );
+    expect(args[1]).toBe("styletransfer");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/photo.png");
+    expect(args).toContain("--prompt");
+    // --style-preset / --playbook / --strength reach run.py via the allowlist.
+    expect(validateImageExtraArgs(
+      ["--style-preset", "watercolor", "--playbook", "/p/clean-professional.yaml", "--strength", "0.6"],
+    )).toEqual(
+      ["--style-preset", "watercolor", "--playbook", "/p/clean-professional.yaml", "--strength", "0.6"],
+    );
+  });
+
   it("self-test boolean emits bare --self-test; string emits the fixture name", () => {
     expect(buildImageArgs({ selfTest: true }, null)).toContain("--self-test");
     const named = buildImageArgs({ action: "workflow", selfTest: "workflow:portrait" }, null);
