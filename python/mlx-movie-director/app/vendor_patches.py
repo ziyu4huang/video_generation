@@ -13,6 +13,9 @@ Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
                                load_transformer: LTX_DEV_AUDIO env var → audio stream
                                transplant (replace dasiwa/distilled audio keys with dev)
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
+  6b. A2VidPipelineTwoStage  — IA2V (image+audio) call site doesn't forward its own
+                               frame_rate to combined_image_conditionings(), raising
+                               TypeError on any --input-image + --audio combination
   10. _fuse_distilled_lora   — dequantize int8 LoRA weights before fusion
   11. PromptEncoder.load +   — quantize connector to match pre-quantized weights
       load_feature_extractor    BEFORE load_weights; detects bits+group_size from
@@ -348,6 +351,56 @@ def _patch_orchestration() -> None:
 
     _orch._load_transformer_config = _load_transformer_config
     _orch.load_transformer = load_transformer
+
+
+# ---------------------------------------------------------------------------
+# Patch 6b — A2VidPipelineTwoStage IA2V frame_rate  (a2vid_two_stage.py)
+# ---------------------------------------------------------------------------
+
+
+def _patch_a2v_image_conditioning() -> None:
+    """Fix A2VidPipelineTwoStage's IA2V (image+audio) conditioning path.
+
+    ``A2VidPipelineTwoStage.generate_and_save`` receives ``frame_rate`` as its
+    own parameter but its internal ``_encode_combined`` closure calls
+    ``combined_image_conditionings(...)`` without forwarding it, even though
+    that function requires ``frame_rate`` as a keyword-only argument. This
+    raises ``TypeError: combined_image_conditionings() missing 1 required
+    keyword-only argument: 'frame_rate'`` on any A2V call that also passes
+    ``image=``/``images=`` (talking-portrait / lip-sync style generation) —
+    confirmed live via `run.py video generate --input-image X --audio Y`.
+
+    ``frame_rate`` is only read for keyframe entries (``frame_idx != 0``,
+    ``VideoConditionByKeyframeIndex``) — the single-anchor ``image=``
+    shorthand used by this repo's A2V path always sets ``frame_idx=0``
+    (``VideoConditionByLatentIndex``), which never reads ``frame_rate``. So
+    defaulting the missing argument to ``None`` is a behavioral no-op for
+    that path; if a caller ever supplies real (non-zero-index) keyframes
+    without a frame_rate, raise instead of silently mis-computing positions.
+    """
+    import ltx_pipelines_mlx.utils._orchestration as _orch
+
+    _orig_combined_image_conditionings = _orch.combined_image_conditionings
+
+    def combined_image_conditionings(  # type: ignore[no-untyped-def]
+        images, *, enc_h, enc_w, spatial_dims, video_encoder, frame_rate=None
+    ):
+        if frame_rate is None and any(getattr(img, "frame_idx", 0) != 0 for img in images):
+            raise ValueError(
+                "combined_image_conditionings: frame_rate is required when any "
+                "image has frame_idx != 0 (keyframe conditioning), but the "
+                "caller didn't provide one."
+            )
+        return _orig_combined_image_conditionings(
+            images,
+            enc_h=enc_h,
+            enc_w=enc_w,
+            spatial_dims=spatial_dims,
+            video_encoder=video_encoder,
+            frame_rate=frame_rate,
+        )
+
+    _orch.combined_image_conditionings = combined_image_conditionings
 
 
 # ---------------------------------------------------------------------------
@@ -1012,6 +1065,7 @@ def apply_all_patches() -> None:
     _patch_audio_vae_decoder()
     _patch_ltx_model_config()
     _patch_orchestration()
+    _patch_a2v_image_conditioning()
     _patch_ti2vid()
     _patch_klein_edit_nan_guard()
     _patch_image_util_nan_guard()
@@ -1019,7 +1073,7 @@ def apply_all_patches() -> None:
     _patch_int8_lora()
     _patch_connector_apply_quantization()
     _patch_mflux_int8_lora()
-    print("[vendor_patches] Applied 12 patches (8 ltx-2-mlx + 4 mflux) + audio transplant helper")
+    print("[vendor_patches] Applied 13 patches (9 ltx-2-mlx + 4 mflux) + audio transplant helper")
 
 
 apply_all_patches()
