@@ -75,6 +75,52 @@ describe("buildImageArgs", () => {
     expect(args).toContain("--prompt");
   });
 
+  it("cutout: action routes transparent-bg cutout (subject via extraArgs)", () => {
+    const args = buildImageArgs(
+      { action: "cutout", input: "/in/portrait.png" },
+      null,
+    );
+    expect(args[1]).toBe("cutout");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/portrait.png");
+    // --subject / --fill-holes / --trim reach run.py through the extraArgs allowlist.
+    expect(validateImageExtraArgs(["--subject", "woman", "--fill-holes", "--trim"]))
+      .toEqual(["--subject", "woman", "--fill-holes", "--trim"]);
+  });
+
+  it("styletransfer: action routes restyle (style-preset/playbook/strength via extraArgs)", () => {
+    const args = buildImageArgs(
+      { action: "styletransfer", input: "/in/photo.png", prompt: "neon synthwave" },
+      null,
+    );
+    expect(args[1]).toBe("styletransfer");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/photo.png");
+    expect(args).toContain("--prompt");
+    // --style-preset / --playbook / --strength reach run.py via the allowlist.
+    expect(validateImageExtraArgs(
+      ["--style-preset", "watercolor", "--playbook", "/p/clean-professional.yaml", "--strength", "0.6"],
+    )).toEqual(
+      ["--style-preset", "watercolor", "--playbook", "/p/clean-professional.yaml", "--strength", "0.6"],
+    );
+  });
+
+  it("character: action routes the character-sheet bundle (style-anchor/cutout-subject via extraArgs)", () => {
+    const args = buildImageArgs(
+      { action: "character", input: "/in/hero.png" },
+      null,
+    );
+    expect(args[1]).toBe("character");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/hero.png");
+    // --style-anchor / --cutout-subject reach run.py via the allowlist.
+    expect(validateImageExtraArgs(
+      ["--style-anchor", "soft anime shading", "--cutout-subject", "person"],
+    )).toEqual(
+      ["--style-anchor", "soft anime shading", "--cutout-subject", "person"],
+    );
+  });
+
   it("self-test boolean emits bare --self-test; string emits the fixture name", () => {
     expect(buildImageArgs({ selfTest: true }, null)).toContain("--self-test");
     const named = buildImageArgs({ action: "workflow", selfTest: "workflow:portrait" }, null);
