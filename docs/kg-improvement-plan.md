@@ -353,18 +353,28 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   `generation/flux2`); the flattening code would touch <1% of cards. **Reopen
   when:** hierarchical-tag rate exceeds 5% of the convergence folder.
 
-### P7 — Improve `knowledge_query` natural-language recall (tag path → full-text fallback)  *(Candidate, surfaced by real-retrieval-validation 2026-07-08)*
+### P7 — Improve `knowledge_query` natural-language recall (tag path → full-text fallback)  *(Candidate — zk_ask branch CLOSED 2026-07-08; tag-path-only)*
 
-> **Surfaced by the real-retrieval-validation cycle.** The deterministic
-> measurement showed `retrieveRecords` (the `knowledge_query` / `zk-query`
-> path, shared-TAG matching) scores hit-rate@4 = **0.48** on real natural-language
-> queries, while a full-text proxy (query tokens in the expected card body)
-> scores **0.68**. Natural words (“the image comes out black”, “package-lock.json”)
-> rarely match curated tags (“vae”, “bun”, “package-management”). This is a
-> property of the TAG path, not of P1 (the callout boost was neutral, Δ=0) and
-> not of `zk_ask` (which uses `obsidian_search` full-text + graph and was not
-> live-measured here). The ~20pt gap is recall left on the table by the
-> deterministic digest path.
+> **Surfaced by the real-retrieval-validation cycle (#356), zk_ask branch
+> settled by the live-zk-ask-measure cycle (2026-07-08, receipt
+> `output/live-zk-ask-measurements/measure-2026-07-08T14-27-04-881Z.json`).** The
+> deterministic measurement showed `retrieveRecords` (the `knowledge_query` /
+> `zk-query` path, shared-TAG matching) scores hit-rate@4 = **0.48** on real
+> natural-language queries, while a full-text proxy (query tokens in the
+> expected card body) scores **0.68**. Natural words (“the image comes out
+> black”, “package-lock.json”) rarely match curated tags (“vae”, “bun”,
+> “package-management”). This is a property of the TAG path, not of P1 (the
+> callout boost was neutral, Δ=0).
+>
+> **zk_ask branch CLOSED (live receipt `measure-2026-07-08T14-27-04-881Z`).**
+> The live `zk_ask --retrieve-only --blend default --top-k 4` run over the same
+> 25-query eval set scored **hit-rate@4 = 0.64** (strict — expected card in the
+> first-4 of the agent’s declared top-4; loose citation-at-any-depth = 0.68;
+> mentioned-anywhere = 0.76; 0/25 failures). zk_ask clears the 0.5 reopen gate
+> and beats the 0.48 tag-path baseline by +16pts — **the ~20pt recall gap is a
+> property of the TAG path (`knowledge_query` / `retrieveRecords`), NOT zk_ask**
+> (which uses `obsidian_search` full-text + graph). The flagship recall path is
+> adequate. P7 is now a **tag-path-only candidate**, not a systemic one.
 
 - **Lever:** when `knowledge_query` is given a natural-language query (no tags),
   its naive tokenizer (`toLowerCase → split on non-alphanumeric → top-10 words`)
@@ -376,13 +386,15 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   tags are sparse, then merge with `retrieveRecords`.
 - **Risk:** **low-medium.** `knowledge_query` is the deterministic no-LLM digest;
   adding a search call couples it to the pi-obsidian index (already a hard dep).
-- **Verdict:** **prototype when `knowledge_query` recall becomes a felt pain.**
-  Today `zk_ask` (full-text + graph) is the flagship recall path and serves the
-  “answer my question” use case; `knowledge_query` is the digest/CLI tool. The
-> 0.48 tag-path number is a BASELINE, not a regression. **Reopen when:** a real
-  agent session reports `knowledge_query` missing an obvious card (felt pain),
-  OR when `zk_ask` is also measured <0.5 on the real eval set (then the gap is
-  systemic, not path-specific).
+- **Verdict:** **prototype when `knowledge_query` recall becomes a felt pain**
+  (tag path only). The zk_ask reopen condition is CLOSED: it measured 0.64 ≥ 0.5,
+  so the gap is path-specific, not systemic. `zk_ask` (full-text + graph) is the
+  flagship recall path and serves the “answer my question” use case;
+  `knowledge_query` is the digest/CLI tool. The 0.48 tag-path number is a
+  BASELINE, not a regression. **Reopen (tag path) when:** a real agent session
+  reports `knowledge_query` missing an obvious card (felt pain). The zk_ask
+  branch stays closed unless a future retrieval change drops it below 0.5 on
+  this eval set (re-runnable via `scripts/live-zk-ask-measure.mjs`).
 
 ---
 
@@ -395,7 +407,7 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 | P4 | Graph-health-aware reindex sync | M | medium | ❌ COLLAPSED (P3 retired) | reopen only if P3 reopens + semantic wins (opt-in) |
 | P2 | Change-detection fingerprint | S | low | ⏸ DEFER (scale) | >30% speedup on no-op re-ingest; reopen at ~4000+ cards |
 | P6 | Hierarchical-tag flattening | S | low | ❌ DROP (0.4% measured) | reopen if hierarchical-tag rate >5% (measured 2/429) |
-| **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | 🆕 CANDIDATE (baseline 0.48 vs 0.68 proxy) | reopen on felt pain OR if zk_ask also <0.5 on real eval |
+| **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | ✅ zk_ask branch CLOSED (live 0.64 ≥ 0.5; tag-path candidate only) | reopen (tag path) on felt pain; zk_ask branch closed unless a retrieval change drops it <0.5 (re-run `scripts/live-zk-ask-measure.mjs`) |
 | P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
 
 ---
@@ -411,9 +423,24 @@ The top 1–2 proposals to actually build next, each with its proof metric.
    LLM-judge harness was vacuous). Reopen when a callout-bearing surface exists.
 
 *Everything else is **defer** (P2/P4/P6) or **rejected** (P5); **P1** is CLOSED
-(dormant, Δ=0 measured); **P7** is a new candidate (baseline only, reopen on
-felt pain). No `zk_*` / `obsidian_*` code ships until the plan is reviewed and
-the real-retrieval eval set is re-run against any ranking change.*
+(dormant, Δ=0 measured); **P7**’s zk_ask branch is CLOSED (live hit-rate@4 =
+0.64 ≥ 0.5, receipt `measure-2026-07-08T14-27-04-881Z`) — it survives as a
+**tag-path-only candidate** (reopen on felt pain). No `zk_*` / `obsidian_*` code
+ships until the plan is reviewed and the real-retrieval eval set is re-run
+against any ranking change.*
+
+> **🏁 Knowledge arc closed (2026-07-08).** Every item P1–P7 now has a
+> measured/settled verdict — no “candidate with an untested branch” remains:
+> **P1** CLOSED-dormant (Δ=0 callout boost, surface-only), **P3** CLOSED-retired
+> (semantic blend lost iter-6/7), **P5** rejected (atomic-zettel design), **P6**
+> dropped (0.4% hierarchical-tag rate), **P2/P4** deferred-with-conditions, and
+> **P7** settled (zk_ask branch CLOSED at 0.64; tag-path candidate only). The
+> durable regression assets are `scripts/real-retrieval-eval.json` (the eval
+> set) + `scripts/real-retrieval-measure.mjs` (tag-path baseline, 0.48) +
+> `scripts/live-zk-ask-measure.mjs` (zk_ask live baseline, 0.64) — re-run either
+> against any future retrieval/ranking change to catch regressions. The next
+> cycle can pivot (media generation has momentum) with no dangling knowledge
+> thread.
 
 ---
 
