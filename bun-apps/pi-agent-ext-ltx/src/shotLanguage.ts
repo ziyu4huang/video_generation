@@ -16,6 +16,18 @@
  * Pure text templating — no model/CLI changes required, so this works with
  * every prompt-taking command (t2i, native-i2v, native-relay per-segment)
  * without touching Swift at all.
+ *
+ * Deliberately NOT wired into native-storyboard: that command's `prompt`
+ * text lives inside a JSON config file (`--config <path>`), not an inline
+ * `options.prompt`/`options.prompts` string(-array) — `withShotLanguage`
+ * (index.ts) only rewrites those two fields, so reaching storyboard would
+ * mean reading the JSON, rewriting each segment's `prompt`, and writing a
+ * temp file just to swap `--config` to point at it. Storyboard's config
+ * already gives the caller full per-panel authorial control over prompt
+ * text, so the redundant round-trip isn't worth the added invasiveness
+ * (extra temp-file lifecycle, path-safety implications) for a purely
+ * additive convenience feature. Revisit only if a real user request for
+ * storyboard-level shot-language surfaces.
  */
 
 export const SHOT_SIZES = [
