@@ -11,6 +11,7 @@ Public API:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import traceback
@@ -300,15 +301,51 @@ def _vlm_verify_profile_view(image_path: str, expected_view: str,
     return None
 
 
+def _parse_identity_json(raw: str | dict) -> dict | None:
+    """Strict-parse a multi-image identity VLM response into a dict.
+
+    Tries ``json.loads`` first; if that fails (prose / markdown fence around the
+    object) strips to the first balanced ``{...}`` object and retries. Returns None
+    if no ``same_identity``-bearing object can be recovered.
+    """
+    if isinstance(raw, dict):
+        candidate = raw
+    else:
+        candidate = None
+        text = raw or ""
+        try:
+            candidate = json.loads(text)
+        except (ValueError, TypeError):
+            candidate = None
+        if not isinstance(candidate, dict):
+            # Pull the {...} object out of surrounding prose / ```json fences.
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                try:
+                    candidate = json.loads(m.group(0))
+                except ValueError:
+                    candidate = None
+    if isinstance(candidate, dict) and "same_identity" in candidate:
+        return candidate
+    return None
+
+
 def _vlm_verify_identity(reference_path: str, view_path: str,
                           vlm_api_url: str, vlm_model: str) -> dict | None:
-    """Call Qwen3-VL (multi-image) to verify a generated view depicts the SAME
+    """Call the local VLM (multi-image) to verify a generated view depicts the SAME
     character as the reference image.
 
     Uses _call_vlm_multi with [reference, view] so the VLM can compare identity
     attributes directly. Returns a dict with: same_identity, face_match,
     hair_match, skin_match, outfit_match, accessories_match, identity_score,
     issues, summary. Returns None if VLM is unavailable / unparseable.
+
+    Step 1b (next-goal-20260709-000000): runs on the SAME local brain as
+    decomposition — gemma-4-26b (NOT Qwen3-VL). The #366 multi-image JSON flakiness
+    (1/4 parsed) was a prompt/parse problem, not a model problem, so this hardens
+    it two ways: (1) send ``reasoning_effort:"none"`` for cleaner JSON (no reasoning
+    interference), and (2) strict-parse with a balanced-object fallback + ONE retry
+    if the first response is unparseable. This retires the PR-#368 Qwen3-VL unblock.
 
     This measures the multi-view IDENTITY-preservation concern (is it the same
     person?) which the angle verify (_vlm_verify_profile_view) does NOT cover
@@ -320,10 +357,12 @@ def _vlm_verify_identity(reference_path: str, view_path: str,
         ref_b64 = _image_to_base64(reference_path)
         view_b64 = _image_to_base64(view_path)
         prompt = get_profile_identity_prompt()
-        raw = _call_vlm_multi(vlm_api_url, vlm_model, [ref_b64, view_b64], prompt)
-        result = json.loads(raw) if isinstance(raw, str) else raw
-        if isinstance(result, dict) and "same_identity" in result:
-            return result
+        for _attempt in range(2):  # one clean pass + one retry on unparseable JSON
+            raw = _call_vlm_multi(vlm_api_url, vlm_model, [ref_b64, view_b64], prompt,
+                                  reasoning_effort="none")
+            result = _parse_identity_json(raw)
+            if result is not None:
+                return result
     except Exception as e:
         print(f"skipped ({type(e).__name__})")
     return None

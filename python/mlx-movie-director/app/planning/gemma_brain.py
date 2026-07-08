@@ -10,6 +10,16 @@ cloud LLM). Reuses ``caption.resolve_default_model`` (the gemma brain resolver �
 preferred loaded variant, else auto-load gemma-4-26b) and ``caption._lmstudio_ensure_model``
 so the model is loaded before the request. Generation itself stays on run.py
 (constraint 1); this module only does the LLM planning call.
+
+Fast path (Step 1a, next-goal-20260709-000000 — VERIFIED by direct measurement):
+``reasoning_effort:"none"`` is the OpenAI-style knob LM Studio HONORS to suppress
+gemma-4-26b's thinking (NOT ``enable_thinking``/``thinking``/``chat_template_kwargs``,
+which leave ``reasoning_content`` populated). With reasoning off, gemma emits the
+JSON directly in ``content`` (``reasoning_content`` stays empty) and a 4-panel
+decomposition lands in **~9s** at the small budget — vs the 3-5min thinking pass.
+So gemma-4-26b IS the fast non-thinking brain we already have; the only model that
+needs loading is the one already loaded. This retires the PR-#368 "no fast brain
+loaded" honest-negative, which was a self-inflicted artifact of the wrong param.
 """
 from __future__ import annotations
 
@@ -23,31 +33,18 @@ from app.commands.caption import (
 )
 from app.planning.decompose_prompt import build_decompose_prompt, parse_decomposition
 
-# Gemma-4-26b-a4b-qat is a THINKING model: it ignores `enable_thinking:false` and
-# emits a large <think>/reasoning_content before the final JSON. For a 4-6 panel
-# decomposition the reasoning alone is ~8-12k tokens, so a small budget truncates
-# BEFORE the JSON lands (content empty, reasoning cut off). 14000 lets the reasoning
-# complete (the JSON then appears in `content` AND/OR `reasoning_content` — the
-# parser checks both). At ~20 tok/s this is a one-time ~8-10 min planning call per
-# storyboard, consistent with the local-gemma brain constraint. The deterministic
-# fallback catches a still-truncated response.
-_MAX_TOKENS = 14000
-
-# A NON-THINKING instruct model emits the JSON directly (no <think> preamble), so
-# a 4-6 panel decomposition fits in a small budget and runs in seconds. Used when
-# the caller pins a fast brain via --decompose-model (Step 1a of the hardening
-# goal): a 7-12B instruct model lands <60s vs gemma-4-26b's 3-5min.
+# The fast-path budget: with ``reasoning_effort:"none"`` suppressing thinking, the
+# JSON lands directly in ``content`` and a 4-6 panel decomposition fits comfortably
+# (~9s measured on gemma-4-26b). This is the DEFAULT budget for every brain now.
 _NON_THINKING_MAX_TOKENS = 2048
 
-# Model ids known to be thinking models (emit reasoning_content that eats the
-# budget). A pinned --decompose-model NOT in this set gets the small non-thinking
-# budget. Gemma-4 / Qwen3 (thinking variants) match here.
-_THINKING_MODEL_HINTS = ("gemma-4", "gemma-3", "thinking", "qwen3", "reasoner")
-
-
-def _is_thinking_model(model_id: str) -> bool:
-    mid = (model_id or "").lower()
-    return any(h in mid for h in _THINKING_MODEL_HINTS)
+# A DEFENSIVE safety-net budget for a brain that ignores ``reasoning_effort:"none"``
+# and reasons anyway (e.g. some community quants). Then the reasoning must complete
+# before the JSON appears, so a small budget truncates it. We retry ONCE at this
+# budget WITHOUT reasoning_effort:none so a reasoning model can finish its chain.
+# This is NOT thinking-ness name-guessing (the prior, wrong abstraction) — it is a
+# single parse-driven retry triggered only when the fast path produced no JSON.
+_MAX_TOKENS = 14000
 
 
 def decompose_story(
@@ -65,10 +62,10 @@ def decompose_story(
         num_panels: Number of storyboard panels to plan.
         api_url: LM Studio OpenAI-compatible base URL (default localhost:1234/v1).
         model: Explicit model id; None → ``resolve_default_model`` (the gemma brain).
-            Pin a FAST NON-THINKING instruct model here (Step 1a) to skip the 3-5min
-            gemma reasoning pass — a 7-12B instruct lands <60s at the small budget.
+            The fast path (``reasoning_effort:"none"``) is the default for ANY model,
+            including gemma-4-26b; pin only to target a different loaded brain.
         style_hint: Optional look/genre anchor baked into the prompt.
-        timeout: Per-request timeout (thinking models can be slow on first call).
+        timeout: Per-request timeout (a reasoning-model retry can be slow).
 
     Returns:
         A list of dicts matching the SceneSpec JSON shape.
@@ -90,18 +87,20 @@ def decompose_story(
         print(f"[storyboard] model-ensure warning ({type(e).__name__}: {e}); trying anyway.",
               file=sys.stderr)
 
-    # Step 1a hardening: try the SMALL budget first (a non-thinking instruct model
-    # emits the JSON directly → fast path, <60s). If no JSON parses (the model is a
-    # reasoning/thinking model whose chain-of-thought ate the small budget), retry
-    # ONCE with the large budget so the reasoning completes and the JSON lands.
-    # This makes --decompose-model robust on BOTH model families without guessing
-    # thinking-ness from the name (ornith-1.0-35b reasons too, despite the id).
-    pinned_nonthinking = model is not None and not _is_thinking_model(model)
-    budgets = [_NON_THINKING_MAX_TOKENS, _MAX_TOKENS] if pinned_nonthinking else [_MAX_TOKENS]
+    # Fast path first, safety net second. (attempt, max_tokens, reasoning_effort):
+    #   0: small budget + reasoning_effort:"none"  — the ~9s fast path on gemma.
+    #   1: large budget, NO reasoning_effort:none  — lets a reasoning model finish
+    #      its chain if the fast path produced no parseable JSON.
+    # No name-guessing: the retry fires only when the fast path's content+reasoning
+    # both lack a JSON array.
+    attempts = [
+        (_NON_THINKING_MAX_TOKENS, "none"),
+        (_MAX_TOKENS, None),
+    ]
 
     url = f"{api_url}/chat/completions"
     last_err: Exception | None = None
-    for attempt, max_tokens in enumerate(budgets):
+    for attempt, (max_tokens, reasoning_effort) in enumerate(attempts):
         payload = {
             "model": resolved,
             "messages": [{"role": "user", "content": prompt}],
@@ -109,6 +108,8 @@ def decompose_story(
             "temperature": 0.3,
             "stream": False,
         }
+        if reasoning_effort is not None:
+            payload["reasoning_effort"] = reasoning_effort
         resp = requests.post(url, json=payload, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
@@ -122,21 +123,21 @@ def decompose_story(
                 f"({type(e).__name__}: {e}); raw excerpt: {str(data)[:300]}"
             ) from e
 
-        # Thinking models: LM Studio returns reasoning in a separate
-        # `reasoning_content` field (and the final answer may live ONLY there when
-        # the token budget ran out mid-content). Try `content` first, then
-        # `reasoning_content` — parse_decomposition strips <think>/preambles and
-        # pulls the JSON array from whichever holds it.
+        # With reasoning_effort:none, reasoning_content is empty and the JSON is in
+        # `content`. A reasoning model whose chain ate the small budget may still
+        # surface the JSON in `reasoning_content` — parse_decomposition strips
+        # <think>/preambles and pulls the JSON array from whichever holds it.
         reasoning = message.get("reasoning_content") if isinstance(message, dict) else None
         try:
             scenes = parse_decomposition(content)
         except ValueError:
             if not reasoning:
-                if attempt < len(budgets) - 1:
+                if attempt < len(attempts) - 1:
                     last_err = ValueError(
                         f"no JSON in content at budget {max_tokens}; retrying larger budget")
                     print(f"[storyboard] no JSON at budget {max_tokens} "
-                          f"(thinking model?); retrying at {_MAX_TOKENS}.", file=sys.stderr)
+                          f"(model ignored reasoning_effort:none?); retrying at {_MAX_TOKENS}.",
+                          file=sys.stderr)
                     continue
                 raise
             scenes = parse_decomposition(reasoning)  # raises ValueError if still no array
