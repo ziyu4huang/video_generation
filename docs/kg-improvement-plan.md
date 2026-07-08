@@ -180,9 +180,31 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 > existing graph+lexical stack, not vectors). Receipt:
 > `output/p1-feature-measurements/measure-*.json`.
 >
-> **Reopen condition:** re-measure with the LLM-judge harness once a
-> callout-bearing human-authored surface exists (≥5 cards with real
-> `> [!warning|tip]` callouts), to quantify a live `relevance@4` delta.
+> **EMPIRICAL VALIDATION (real-retrieval-validation cycle, 2026-07-08).** The
+> reopen condition below was met: 20 real callout-bearing cards were seeded
+> into the convergence vault (from project gotchas/MEMORY/failure-lessons),
+> a 25-query real eval set was built, and a DETERMINISTIC ablation was run
+> (`scripts/real-retrieval-measure.mjs`, receipt
+> `output/real-retrieval-measurements/measure-*.json`). **Result: the P1 callout
+> boost is NEUTRAL — Δ = 0 (it flipped 0/25 rankings, withBoost 12/25 =
+> withoutBoost 12/25).** At 20 callout cards in 449 (4.5% density) the bounded
+> +0.5 tie-break almost never encounters a callout card that ties an equal-tag
+> prose card AND matters for top-4. The **surfacing lever works** (60% of
+> callout cards that hit top-4 had their callout headline lifted into the
+> digest), so P1's value is in *surfacing*, not *ranking*. **Decision update:
+> keep the boost dormant** (bounded, harmless, ready for higher density) **and
+> keep the surfacing lever** (functional). The ranking boost is NOT removed —
+> it costs nothing and activates automatically if callout density grows. Reopen
+> the ranking-boost question only at >15% callout density (≈70+ callout cards).
+>
+> **Separate finding (not P1): the tag-based path has limited natural-language
+> recall.** The deterministic `retrieveRecords` path (shared-tag matching, what
+> `knowledge_query` uses) scored hit-rate@4 = **0.48** on real queries — natural
+> words (“black”, “package-lock”) rarely match curated tags (“vae”, “bun”). A
+> full-text proxy (query tokens in the expected card body — what `zk_ask`'s
+> `obsidian_search` matches) scored **0.68**. This ~20pt gap is a property of
+> the TAG path, NOT P1, and NOT a live `zk_ask` run — filed as candidate P7
+> below (improve `knowledge_query` recall).
 
 <details><summary>Original proposal (superseded by the closure above)</summary>
 
@@ -331,6 +353,37 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
   `generation/flux2`); the flattening code would touch <1% of cards. **Reopen
   when:** hierarchical-tag rate exceeds 5% of the convergence folder.
 
+### P7 — Improve `knowledge_query` natural-language recall (tag path → full-text fallback)  *(Candidate, surfaced by real-retrieval-validation 2026-07-08)*
+
+> **Surfaced by the real-retrieval-validation cycle.** The deterministic
+> measurement showed `retrieveRecords` (the `knowledge_query` / `zk-query`
+> path, shared-TAG matching) scores hit-rate@4 = **0.48** on real natural-language
+> queries, while a full-text proxy (query tokens in the expected card body)
+> scores **0.68**. Natural words (“the image comes out black”, “package-lock.json”)
+> rarely match curated tags (“vae”, “bun”, “package-management”). This is a
+> property of the TAG path, not of P1 (the callout boost was neutral, Δ=0) and
+> not of `zk_ask` (which uses `obsidian_search` full-text + graph and was not
+> live-measured here). The ~20pt gap is recall left on the table by the
+> deterministic digest path.
+
+- **Lever:** when `knowledge_query` is given a natural-language query (no tags),
+  its naive tokenizer (`toLowerCase → split on non-alphanumeric → top-10 words`)
+  produces words that don’t match tags. Options: (a) route tag-less queries
+  through `obsidian_search` (full-text) and feed those hits into the shared-tag
+  ranking; (b) a query→tag inference step (map “black image” → `vae`); (c) hybrid
+  (full-text OR shared-tag). **Lean (a)** — reuse pi-obsidian’s search.
+- **Effort:** **M.** Plumbing `knowledge_query` to call `obsidian_search` when
+  tags are sparse, then merge with `retrieveRecords`.
+- **Risk:** **low-medium.** `knowledge_query` is the deterministic no-LLM digest;
+  adding a search call couples it to the pi-obsidian index (already a hard dep).
+- **Verdict:** **prototype when `knowledge_query` recall becomes a felt pain.**
+  Today `zk_ask` (full-text + graph) is the flagship recall path and serves the
+  “answer my question” use case; `knowledge_query` is the digest/CLI tool. The
+> 0.48 tag-path number is a BASELINE, not a regression. **Reopen when:** a real
+  agent session reports `knowledge_query` missing an obvious card (felt pain),
+  OR when `zk_ask` is also measured <0.5 on the real eval set (then the gap is
+  systemic, not path-specific).
+
 ---
 
 ## 5. Ranking summary
@@ -338,10 +391,11 @@ Each: **lever** (what moves), **effort** (S/M/L), **risk**, **proof metric**
 | # | Proposal | Effort | Risk | Priority | Gate metric |
 |---|---|---|---|---|---|
 | **P3** | Re-confirm semantic-blend measurement | S | low | ✅ CLOSED (retire) | semantic-lexical relevance@4 > lexical+graph +0.05, else retire |
-| **P1** | Richer feature metadata in zettel frontmatter | M | low | ✅ CLOSED (ship) | queryCount-5 relevance@4 improves OR ≥1 answer-quality change — proven via deterministic mechanism gate (corpus has 0 callouts) |
+| **P1** | Richer feature metadata in zettel frontmatter | M | low | ✅ CLOSED (dormant) | callout boost NEUTRAL (Δ=0, 0/25 flips); surfacing works (60%); keep dormant, reopen at >15% callout density (receipt real-retrieval-measurements) |
 | P4 | Graph-health-aware reindex sync | M | medium | ❌ COLLAPSED (P3 retired) | reopen only if P3 reopens + semantic wins (opt-in) |
 | P2 | Change-detection fingerprint | S | low | ⏸ DEFER (scale) | >30% speedup on no-op re-ingest; reopen at ~4000+ cards |
 | P6 | Hierarchical-tag flattening | S | low | ❌ DROP (0.4% measured) | reopen if hierarchical-tag rate >5% (measured 2/429) |
+| **P7** | knowledge_query NL recall (tag→full-text) | M | low-med | 🆕 CANDIDATE (baseline 0.48 vs 0.68 proxy) | reopen on felt pain OR if zk_ask also <0.5 on real eval |
 | P5 | Per-section chunking | — | — | **rejected** | not applicable (atomic-zettel design) |
 
 ---
@@ -356,9 +410,10 @@ The top 1–2 proposals to actually build next, each with its proof metric.
    mechanism proven deterministically (real surface has 0 callouts, so the
    LLM-judge harness was vacuous). Reopen when a callout-bearing surface exists.
 
-*Everything else is **defer** (P2/P4/P6) or **rejected** (P5) — not next-cycle
-actions. No `zk_*` / `obsidian_*` code ships until the plan is reviewed and
-P3's measurement has run.*
+*Everything else is **defer** (P2/P4/P6) or **rejected** (P5); **P1** is CLOSED
+(dormant, Δ=0 measured); **P7** is a new candidate (baseline only, reopen on
+felt pain). No `zk_*` / `obsidian_*` code ships until the plan is reviewed and
+the real-retrieval eval set is re-run against any ranking change.*
 
 ---
 
