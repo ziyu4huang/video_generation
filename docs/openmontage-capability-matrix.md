@@ -1,4 +1,4 @@
-# OpenMontage capability matrix (dated 2026-07-08)
+# OpenMontage capability matrix (dated 2026-07-08, updated 2026-07-09)
 
 Read-only survey of what OpenMontage's video-generation providers advertise
 as `supports` flags, mapped against what `video_generation__ltx`'s native
@@ -34,7 +34,7 @@ correct starting point instead of re-deriving it.
 | `lip_sync` | **yes (coarse), precision inadequate — measured 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | pipeline-verified 2026-07-08 (vendor bug fix); precision measured 2026-07-08, see `docs/lipsync-precision-measurement-20260708.md` — tracks speech-presence/absence, not phoneme-level mouth shape |
 | `dialogue_generation` | yes (same IA2V path) | same as above | not yet verified | speech-from-prompt/audio works "with effort" per `video-generate.py` module docstring voice tips |
 | `cinematic_quality` | unproven vs Kling/Veo | n/a | n/a | guidance parity is 3/3 (CFG/STG/modality) as of Milestone 2c, but no measured A/B claim vs premium providers exists |
-| `reference_to_video` | partial | — | `native-ingredients` (IC-LoRA ingredients) | scope vs OpenMontage's `reference_to_video` operation not yet verified |
+| `reference_to_video` | **partial, scope-narrow — verified 2026-07-09** | — | `native-ingredients` (IC-LoRA ingredients) | see "reference_to_video scope verification" below — single-image reference only, no multi-reference/video/audio anchors |
 
 ## IA2V verification (2026-07-08)
 
@@ -95,6 +95,52 @@ sync. The RunComfy "LTX-2.3 ICLoRA LipDub" workflow (external finding,
 `output/next-goal-20260708-235500.md`) is the correct escalation path if a
 concrete downstream need for precision lip-sync emerges; not imported
 speculatively.
+
+## `reference_to_video` scope verification (2026-07-09)
+
+**OpenMontage's semantics** (read from `../OpenMontage/tools/video/
+seedance_video.py`, `veo_video.py`, `grok_video.py` — read-only, per
+`feedback_never_modify_openmontage`): `reference_to_video` is a
+multi-modal, multi-reference conditioning operation. The richest
+definition (Seedance 2.0) accepts **up to 9 reference images** (identity /
+wardrobe / setting / style anchors), **up to 3 reference video clips**
+(motion / camera / pacing anchors), and **up to 3 reference audio clips**
+(voice / music / ambience anchors) — all simultaneously, in one
+generation call.
+
+**Swift `native-ingredients` scope** (read `NativeIngredientsCommand.swift`
++ `NativeUpscaleStage.generateIngredients`, and confirmed empirically with
+a real generation): a single `referenceImageURL: URL` parameter — one
+still image, tiled across the target frame count as IC-LoRA conditioning.
+No reference-video parameter, no reference-audio parameter, no
+multi-image array — the command's own doc comment already states this
+("the reference is a single still image tiled across the generation's
+frame count ... not a real input video clip"). It also requires a
+user-supplied Ingredients IC-LoRA checkpoint via `--lora` (no bundled
+default — one is present locally at
+`mlx-models/lora/ltx-2-3-ingredients/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors`
+for testing, but the command has no built-in default path).
+
+**Verification generation**: `ltx-video native-ingredients --input
+<portrait> --prompt "... sunlit garden, cinematic wide shot" --lora
+<ingredients-lora> --width 512 --height 512 --seconds 2.0` produced a real
+800×800, 49-frame, 2.0s mp4 (video + audio streams, `video.mp4` via
+`AVAssetWriter` mux) in 299.5s wall time — the pipeline runs and is not a
+stub.
+
+**Verdict: scope mismatch, not just "unverified."** `native-ingredients`
+covers roughly the *identity-anchor image* slice of OpenMontage's
+`reference_to_video` (1 image, not up to 9; no wardrobe/setting/style
+compositing beyond what a single reference conveys) and covers **none** of
+the motion/camera-reference-video or voice/music-reference-audio anchors.
+Mapping OpenMontage's `reference_to_video` operation onto this repo's
+current native surface would require: (1) extending `native-ingredients`
+(or a new command) to accept multiple reference images, and (2) new engine
+work for reference-video motion conditioning and reference-audio
+conditioning — neither exists in Python `run.py` either (checked: no
+`--reference-video`/`--reference-audio` style flags in
+`video-generate.py`). This is a capability gap, not just a documentation
+gap.
 
 ## Swift coverage vs this checklist
 
