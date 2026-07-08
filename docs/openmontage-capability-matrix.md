@@ -97,6 +97,19 @@ CLI is not at parity with `run.py video`'s 10 sub-actions — see
 `project_swift_vs_runpy_video_parity_20260708` memory for the full
 mapping. Against *this* checklist specifically (not the QA-tooling
 sub-actions, which are out of scope for the provider-capability
-checklist): T2V/I2V/FFLF/multi-shot/native-audio-output all have Swift
-equivalents; IA2V (lip-sync) has not yet been ported/verified in Swift —
-the fix above lives in the Python vendor-patch layer only.
+checklist): T2V/I2V/FFLF/multi-shot all have Swift equivalents.
+
+**`native-i2v --audio-track` is NOT the same mechanism as Python's
+A2V/IA2V** — checked 2026-07-08 (`NativeI2VStage.swift:520-544`). It
+*injects* a user-supplied WAV as preserved audio tokens
+(`denoiseMask=0`, i.e. "pin this exact audio, don't generate/attend to
+it as conditioning") rather than feeding audio in as a true joint
+conditioning signal the video-generation denoising loop attends to.
+This is fine for "keep my music track through generation" use cases,
+but it is **not a path to `lip_sync`** — there is no mechanism in Swift
+today by which video generation is conditioned on audio content to
+produce synchronized mouth motion. The IA2V fix in this PR lives
+entirely in the Python `run.py` / vendored `ltx-2-mlx` layer; porting
+true audio-conditioned generation (a Swift `A2VidPipelineTwoStage`
+equivalent) to Swift is unstarted and would be new engine work, not a
+CLI-surface port.
