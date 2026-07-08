@@ -3508,6 +3508,76 @@ export function scheduleVaultBanner(
 	}, SHOW_DELAY_MS);
 }
 
+// ─── obsidian_search on-demand reference (single source) ───────────────────
+// The full per-enum/per-field semantics for `obsidian_search`. The always-on
+// tool description + the enum/param descriptions are kept TERSE (value lists +
+// a pointer here); this prose lives behind `obsidian_search_help`, which calls
+// these same consts — so the two surfaces cannot drift. Mirrors the flux2/ltx
+// on-demand-help split (−73% schema cost on those tools).
+//
+// Retrieval-neutral by construction: only description STRINGS change. Param
+// names, types, enum literal values, the required set, and the dispatcher
+// execute() logic are byte-identical → search/graph results are unchanged.
+
+/** Terse always-on routing description for obsidian_search (routing info only). */
+function searchRoutingDescription(): string {
+	return (
+		"Full-text search across notes (substring/regex/words/fuzzy) + graph queries " +
+		"(backlinks/outgoing/orphans/dead-links/neighbors); returns file:line snippets. " +
+		"Per-mode semantics → obsidian_search_help."
+	);
+}
+
+/** The full per-enum/per-field reference (the prose the old description embedded).
+ *  Returned verbatim by obsidian_search_help so no capability is lost. */
+function searchReferenceText(): string {
+	return [
+		"── obsidian_search reference ──",
+		"",
+		"matchMode (what `query` means):",
+		"  • substring (default) — literal substring.",
+		"  • regex — JS RegExp (new RegExp(query, flags)).",
+		"  • words — tokens AND; `|`=OR group, `-token`=NOT (file-level: excludes any",
+		"    file where the term appears anywhere); tokens within a group are AND.",
+		"  • fuzzy — typo-tolerant (tolerance scales with length: ≤3 chars → 0, ≤6 → 1, else 2).",
+		"",
+		"fields (restrict searchable note sections):",
+		"  • all (default) — everywhere.",
+		"  • title — first H1.",
+		"  • tags — frontmatter `tags:`/`tag:` line + inline `#tag` lines.",
+		"  • frontmatter — the `---` block.",
+		"  • body — the rest.",
+		"",
+		"sort (result ordering):",
+		"  • file (default) — alphabetical traversal.",
+		"  • relevance — title +10 / tag +6 / frontmatter +3 / body +1, summed per file.",
+		"  • recency — frontmatter created date desc.",
+		"",
+		"graph (overrides matchMode/fields; query is a note title unless noted):",
+		"  • backlinks — notes that wiki-link to `query` ([[query]]); normalizes away .md,",
+		"    case-insensitive unless caseSensitive. The `backlinks:true` param is a legacy alias.",
+		"  • outgoing — what `query` links to.",
+		"  • orphans — notes with no inbound links.",
+		"  • dead-links — [[Target]] pointing to nonexistent notes.",
+		"  • neighbors — N-hop neighborhood of `query` (`depth`, default 1).",
+		"",
+		"Output shaping:",
+		"  • context — lines of surrounding context per match (0 = single line, the default).",
+		"    When >0 the text field shows an indented snippet with the hit line marked `>`.",
+		"  • groupByFile — collapse to at most `perFile` matches per file (default false).",
+		"  • perFile — max matches per file when groupByFile (default 3).",
+		"  • max — hard cap on total returned matches (default 50).",
+		"  • folder — restrict to a sub-tree relative to vault root (default: whole vault).",
+		"  • caseSensitive — default false. Also applies to backlink matching (link targets",
+		"    are matched case-insensitively by default).",
+		"  • paths — restrict matching to this set of vault-relative paths (e.g. from",
+		"    obsidian_query). Ignores `folder`.",
+		"",
+		"Other: a `#`-prefixed query is a tag search. regex mode auto-repairs over-escaped",
+		"alternations (e.g. `SEARCH\\(WORD\\|TERM\\)` → `SEARCH(WORD|TERM)`) on a 0-match result.",
+	].join("\n");
+}
+
 export default function (pi: ExtensionAPI) {
 	// Phase 5 / WS-C8: light ExtensionAPI contract guard. The ExtensionAPI type
 	// is a type-only import (no runtime symbol), and pi-agent-cli vendors an
@@ -3828,16 +3898,11 @@ export default function (pi: ExtensionAPI) {
 		name: "obsidian_search",
 		label: "Obsidian Search",
 		promptSnippet: "Full-text search across notes (substring/regex/words/fuzzy) + backlinks",
-		description:
-			"Full-text search across notes; returns file:line snippets. matchMode: substring (default, literal) " +
-			"| regex (JS RegExp) | words (tokens AND; `|`=OR group, `-token`=NOT) | fuzzy (typo-tolerant). " +
-			"`fields` restricts searchable sections (title/tags/body/frontmatter; default all); `folder` a sub-tree. " +
-			"`sort`: file (default) | relevance | recency. `context`/`groupByFile`/`perFile` shape output (see params). " +
-			"Graph: `backlinks:true` treats query as a note title → notes linking to it; a `#`-prefixed query is a tag search.",
+		description: searchRoutingDescription(),
 		parameters: Type.Object({
 			query: Type.String({
 				description:
-					"Search string. Meaning depends on matchMode. Prefix with # for a tag search. See also backlinks.",
+					"Search query (`#` prefix = tag search).",
 			}),
 			matchMode: Type.Optional(
 				Type.Union(
@@ -3849,7 +3914,7 @@ export default function (pi: ExtensionAPI) {
 					],
 					{
 						description:
-							"substring (default) | regex | words | fuzzy. See tool description for semantics.",
+							"substring|regex|words|fuzzy. → obsidian_search_help.",
 						default: "substring",
 					},
 				),
@@ -3857,13 +3922,13 @@ export default function (pi: ExtensionAPI) {
 			caseSensitive: Type.Optional(
 				Type.Boolean({
 					description:
-						"Default false. Also applies to backlink matching unless backlinks is used (link targets are matched case-insensitively by default).",
+						"Default false.",
 				}),
 			),
 			folder: Type.Optional(
 				Type.String({
 					description:
-						"Restrict search to a folder relative to vault root. Default: whole vault.",
+						"Folder (vault-relative). Default: whole vault.",
 				}),
 			),
 			fields: Type.Optional(
@@ -3878,7 +3943,7 @@ export default function (pi: ExtensionAPI) {
 						],
 						{
 							description:
-								"Restrict to note sections. 'all' (default) searches everywhere. title = first H1; tags = frontmatter tags: line + inline #tag lines; frontmatter = --- block; body = the rest.",
+								"all|title|tags|body|frontmatter. → obsidian_search_help.",
 						},
 					),
 				),
@@ -3886,7 +3951,7 @@ export default function (pi: ExtensionAPI) {
 			context: Type.Optional(
 				Type.Number({
 					description:
-						"Lines of surrounding context per match (0 = single line, the default). When >0 the text field shows an indented snippet with the hit line marked `>`.",
+						"Context lines per match (0 default).",
 				}),
 			),
 			sort: Type.Optional(
@@ -3898,7 +3963,7 @@ export default function (pi: ExtensionAPI) {
 					],
 					{
 						description:
-							"Result ordering. file (default, alphabetical traversal) | relevance (title +10 / tag +6 / frontmatter +3 / body +1, summed per file) | recency (frontmatter created date desc).",
+							"file|relevance|recency. → obsidian_search_help.",
 						default: "file",
 					},
 				),
@@ -3906,19 +3971,19 @@ export default function (pi: ExtensionAPI) {
 			groupByFile: Type.Optional(
 				Type.Boolean({
 					description:
-						"Collapse to at most `perFile` matches per file. Default false.",
+						"Collapse to ≤ perFile matches/file. Default false.",
 				}),
 			),
 			perFile: Type.Optional(
 				Type.Number({
 					description:
-						"When groupByFile, max matches to keep per file. Default 3.",
+						"Matches per file when groupByFile. Default 3.",
 				}),
 			),
 			backlinks: Type.Optional(
 				Type.Boolean({
 					description:
-						"Treat `query` as a note title and return notes that wiki-link to it ([[query]]). Normalizes away .md; case-insensitive unless caseSensitive. Overrides matchMode/fields. (Legacy alias for graph:'backlinks'.)",
+						"Legacy alias for graph:'backlinks'.",
 				}),
 			),
 			graph: Type.Optional(
@@ -3932,7 +3997,7 @@ export default function (pi: ExtensionAPI) {
 					],
 					{
 						description:
-							"Graph query mode. backlinks=who links to `query`; outgoing=what `query` links to; orphans=notes with no inbound links; dead-links=[[Target]] pointing to nonexistent notes; neighbors=N-hop neighborhood of `query`. Overrides matchMode/fields.",
+							"backlinks|outgoing|orphans|dead-links|neighbors. → obsidian_search_help.",
 					},
 				),
 			),
@@ -3948,7 +4013,7 @@ export default function (pi: ExtensionAPI) {
 			paths: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"B4.3: restrict matching to this set of vault-relative paths (e.g. from obsidian_query). Ignores `folder`.",
+						"Vault-relative paths; ignores folder.",
 				}),
 			),
 		}),
@@ -4127,6 +4192,31 @@ export default function (pi: ExtensionAPI) {
 					regexRepaired,
 					matches,
 				},
+			};
+		},
+	});
+
+	// ---- Tool: obsidian_search_help -----------------------------------------
+	// On-demand reference for obsidian_search (~120 tok schema). A tool RESULT
+	// (lives in conversation history), so the heavy per-enum/per-field prose
+	// appears only in the turn it is requested — never in the static schema.
+	// Reads the SAME searchReferenceText() the terse always-on description
+	// deferred, so the two surfaces cannot drift. Retrieval-neutral: purely
+	// additive, executes no search.
+	pi.registerTool({
+		name: "obsidian_search_help",
+		label: "Obsidian Search Reference",
+		description:
+			"On-demand reference for `obsidian_search`. Call to get the full per-enum semantics " +
+			"(matchMode/fields/sort/graph modes) + output-shaping param details the terse " +
+			"obsidian_search description defers. Executes no search.",
+		promptSnippet:
+			"Look up obsidian_search matchMode/fields/sort/graph semantics on demand.",
+		parameters: Type.Object({}),
+		async execute(_id, _params) {
+			return {
+				content: [{ type: "text", text: searchReferenceText() }],
+				details: { ok: true, reference: "obsidian_search" },
 			};
 		},
 	});
