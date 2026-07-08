@@ -9,6 +9,8 @@ Sub-actions (loaded from sibling modules via importlib):
                         → app/commands/video-restore.py
   vbvr                — I2V generation with VBVR reasoning LoRA
                         → app/commands/video-vbvr.py
+  lipdub              — reference-video lip-dubbing via the LipDub IC-LoRA
+                        → app/commands/video-lipdub.py
   storyboard          — --story → character-locked panels → multi-shot video
                         → app/commands/video-storyboard.py
 
@@ -40,6 +42,7 @@ _compare = importlib.import_module("app.commands.video-compare")
 _quality = importlib.import_module("app.commands.video-quality")
 _restore = importlib.import_module("app.commands.video-restore")
 _vbvr = importlib.import_module("app.commands.video-vbvr")
+_lipdub = importlib.import_module("app.commands.video-lipdub")
 _relay = importlib.import_module("app.commands.video-relay")
 _storyboard = importlib.import_module("app.commands.video-storyboard")
 _segment = importlib.import_module("app.commands.video-segment")
@@ -55,6 +58,7 @@ VIDEO_ACTIONS = (
     "quality",
     "restore",
     "vbvr",
+    "lipdub",
     "relay",
     "storyboard",
     "segment",
@@ -74,6 +78,7 @@ PARSER_META = {
         "  quality            — No-reference quality analysis (noise, sharpness, artifacts)\n"
         "  restore            — IC-LoRA restoration (remove watermarks/subtitles, deblur, upscale)\n"
         "  vbvr               — I2V generation with VBVR reasoning LoRA\n"
+        "  lipdub             — Reference-video lip-dubbing via the LipDub IC-LoRA\n"
         "  relay              — Multi-segment Prompt-Relay short film + custom audio\n"
         "  storyboard         — --story to multi-shot video (storyboard panels → relay segments)\n"
         "  segment            — Scene detection + per-segment quality analysis\n"
@@ -117,7 +122,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default=VIDEO_ACTIONS[0],
         choices=list(VIDEO_ACTIONS),
-        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'relay', 'storyboard', 'segment', 't2i2v', or 'asr-gate'",
+        help="Sub-action: 'generate' (default), 'review', 'compare', 'quality', 'restore', 'vbvr', 'lipdub', 'relay', 'storyboard', 'segment', 't2i2v', or 'asr-gate'",
     )
 
     # Nested review sub-action (only consumed when action='review')
@@ -148,6 +153,9 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
 
     # VBVR args: --vbvr-prompt, --vbvr-input-image, --vbvr-lora, etc.
     _vbvr.add_vbvr_args(parser)
+
+    # LipDub args: --lipdub-reference-video, --lipdub-lora, --reference-strength
+    _lipdub.add_lipdub_args(parser)
 
     # Relay args: --relay-prompt-file, --relay-audio, --relay-first-image, etc.
     _relay.add_relay_args(parser)
@@ -196,6 +204,8 @@ def run(args: "argparse.Namespace") -> None:
         _segment.run_segment(args)
     elif action == "vbvr":
         _vbvr.run_vbvr(args)
+    elif action == "lipdub":
+        _lipdub.run_lipdub(args)
     elif action == "restore":
         _restore.run_restore(args)
     elif action == "review":

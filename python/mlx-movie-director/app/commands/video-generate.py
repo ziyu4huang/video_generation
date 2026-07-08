@@ -55,6 +55,44 @@ _VALID_FRAMES_MSG = (
     "must satisfy 8k+1: 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, ..."
 )
 
+_DEFAULT_IMAGE_CRF = 33  # vendor DEFAULT_IMAGE_CRF (mirrored; no vendor import at parse time)
+
+
+class _ImageAnchorAction(argparse.Action):
+    """Variadic, repeatable ``--image PATH [FRAME_IDX STRENGTH [CRF]]`` action.
+
+    Mirrors the vendor ``ltx_pipelines_mlx.utils.args.ImageAction`` shape but
+    emits plain ``(path, frame_idx, strength, crf)`` tuples so no vendor module
+    is imported at argparse-registration time (the vendor sys.path is only set
+    up once ``app.ltx_pipeline`` is imported). ``ltx_pipeline.generate()``
+    normalizes the tuples into vendor ``ImageConditioningInput``.
+    """
+
+    def __call__(self, parser, namespace, values, option_string=None):  # type: ignore[override]
+        if not isinstance(values, list):
+            values = [values]
+        if len(values) not in (1, 3, 4):
+            parser.error(
+                f"{option_string}: expected 1, 3, or 4 values "
+                f"(PATH [FRAME_IDX STRENGTH [CRF]]), got {len(values)}: {values}"
+            )
+        path = values[0]
+        if len(values) == 1:
+            frame_idx, strength, crf = 0, 1.0, _DEFAULT_IMAGE_CRF
+        else:
+            try:
+                frame_idx = int(values[1])
+                strength = float(values[2])
+                crf = int(values[3]) if len(values) == 4 else _DEFAULT_IMAGE_CRF
+            except (ValueError, TypeError) as e:
+                parser.error(
+                    f"{option_string}: could not parse FRAME_IDX/STRENGTH/CRF "
+                    f"from {values[1:]}: {e}"
+                )
+        existing = getattr(namespace, self.dest, None) or []
+        existing.append((path, frame_idx, strength, crf))
+        setattr(namespace, self.dest, existing)
+
 
 def add_generate_args(parser: argparse.ArgumentParser) -> None:
     """Register video generation arguments."""
@@ -77,6 +115,19 @@ def add_generate_args(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument("--input-image", type=str, default=None, metavar="PATH",
                         help="Reference image for I2V conditioning (optional)")
+    # Multi-anchor I2V (repeatable) — unblocked upstream by ltx-2-mlx bd2217a
+    # (v0.14.15). Each --image appends one anchor; PATH alone → frame_idx=0,
+    # strength=1.0 (== --input-image). Mutually exclusive with --input-image.
+    # Parsed into plain (path, frame_idx, strength, crf) tuples here (no vendor
+    # import at parse time — the vendor sys.path is only set up once
+    # app.ltx_pipeline is imported); ltx_pipeline.generate() normalizes them
+    # into vendor ImageConditioningInput.
+    parser.add_argument("--image", nargs="+", action=_ImageAnchorAction, dest="images",
+                        default=None, metavar="PATH [FRAME_IDX STRENGTH [CRF]]",
+                        help="Multi-anchor I2V conditioning image (repeatable): "
+                             "PATH alone, or PATH FRAME_IDX STRENGTH [CRF]. "
+                             "FRAME_IDX 0 = first frame; >0 = keyframe at that pixel "
+                             "frame. Mutually exclusive with --input-image.")
     parser.add_argument("--audio", type=str, default=None, metavar="PATH",
                         help="Audio file for A2V mode (.wav/.mp3, optional)")
 
@@ -600,6 +651,22 @@ def _run_generate_inner(args):
               file=sys.stderr)
         args.teacache = False
 
+    # --- Multi-anchor I2V (--image) validation ---
+    anchors = getattr(args, "images", None)
+    if anchors:
+        if args.input_image:
+            print("ERROR: --image and --input-image are mutually exclusive "
+                  "(--image PATH alone == --input-image)", file=sys.stderr)
+            sys.exit(1)
+        if begin_image:
+            print("ERROR: --image (multi-anchor I2V) and --begin-image (FLF2V) "
+                  "are mutually exclusive", file=sys.stderr)
+            sys.exit(1)
+        for a_path, _idx, _str, _crf in anchors:
+            if not os.path.exists(a_path):
+                print(f"ERROR: --image anchor not found: {a_path}", file=sys.stderr)
+                sys.exit(1)
+
     # --- Auto-adjust resolution and frames for pipeline constraints ---
     # Fit video dimensions to input image(s) aspect ratio
     image_path = args.input_image
@@ -608,6 +675,11 @@ def _run_generate_inner(args):
             begin_image, end_image, args.width, args.height)
     elif image_path and os.path.exists(image_path):
         args.width, args.height = _fit_to_image(image_path, args.width, args.height)
+    elif anchors:
+        # Fit to the first anchor (frame_idx 0 if present, else the first entry).
+        _first = next((a for a in anchors if a[1] == 0), anchors[0])
+        if os.path.exists(_first[0]):
+            args.width, args.height = _fit_to_image(_first[0], args.width, args.height)
 
     args.width, args.height = _adjust_resolution(args.width, args.height)
     args.frames = _adjust_frames(args.frames)
@@ -803,15 +875,16 @@ def _ltx_pipeline_name(args) -> str:
     ).key
     if getattr(args, "begin_image", None):
         return "ltx-dasiwa-flf2v" if transformer == "dasiwa" else "ltx-flf2v"
+    has_image = getattr(args, "input_image", None) or getattr(args, "images", None)
     if transformer == "distilled":
-        if getattr(args, "input_image", None):
+        if has_image:
             return "ltx-distilled-i2v"
         return "ltx-distilled"
     if getattr(args, "audio", None):
         return "ltx-dasiwa-a2v" if transformer == "dasiwa" else "ltx-a2v"
     if getattr(args, "hq", False):
         return "ltx-dasiwa-hq" if transformer == "dasiwa" else "ltx-hq"
-    if getattr(args, "input_image", None):
+    if has_image:
         return "ltx-dasiwa-i2v" if transformer == "dasiwa" else "ltx-i2v"
     return "ltx-dasiwa" if transformer == "dasiwa" else "ltx-t2v"
 
@@ -822,7 +895,7 @@ def _mode_label(args) -> str:
         return "FLF2V"
     distilled = getattr(args, "distilled", False)
     audio = getattr(args, "audio", None)
-    image = getattr(args, "input_image", None)
+    image = getattr(args, "input_image", None) or getattr(args, "images", None)
     if distilled and image:
         return "Distilled-I2V"
     if distilled and audio:
@@ -924,6 +997,7 @@ def _run_single(args, prompt: str) -> None:
                 cfg_scale=args.cfg_scale,
                 stg_scale=args.stg_scale,
                 image=image_path,
+                images=getattr(args, "images", None),
                 audio_path=audio_path,
                 audio_stage1_only=getattr(args, "audio_stage1_only", False),
                 audio_cfg_scale=getattr(args, "audio_cfg_scale", None),

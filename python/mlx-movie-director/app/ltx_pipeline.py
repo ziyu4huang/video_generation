@@ -304,6 +304,7 @@ class LTXVideoPipeline:
         cfg_scale: float = 5.0,
         stg_scale: float = 1.0,
         image: str | None = None,
+        images: list | None = None,
         audio_path: str | None = None,
         audio_stage1_only: bool = False,
         audio_cfg_scale: float | None = None,
@@ -317,6 +318,13 @@ class LTXVideoPipeline:
         It does not affect image conditioning (I2V) or keyframe enforcement (FLF2V).
         Use 5.0 for T2V/I2V, 3.0 for FLF2V, 1.0 for distilled mode.
 
+        Image conditioning has two forms:
+          * ``image`` — single-anchor shorthand (frame_idx=0, strength=1.0).
+          * ``images`` — multi-anchor list of ``ImageConditioningInput``
+            (path, frame_idx, strength) for repeatable ``--image`` I2V,
+            unblocked upstream by bd2217a (v0.14.15). When ``images`` is
+            non-empty it takes precedence over ``image`` (vendor-iso).
+
         Returns:
             dict with timing measurements (phase → seconds).
         """
@@ -328,6 +336,17 @@ class LTXVideoPipeline:
                 stage2_steps = 3
             cfg_scale = 1.0
             stg_scale = 0.0
+
+        # Normalize multi-anchor `images` (CLI passes plain (path, frame_idx,
+        # strength[, crf]) tuples to avoid a vendor import at argparse time)
+        # into vendor ImageConditioningInput — vendor is on sys.path here.
+        if images:
+            from ltx_pipelines_mlx.utils.args import ImageConditioningInput
+            images = [
+                img if isinstance(img, ImageConditioningInput)
+                else ImageConditioningInput(*img)
+                for img in images
+            ]
 
         mode = "distilled" if self.distilled else ("a2v" if audio_path else "t2v_i2v")
         if self._pipeline is None or self._pipeline_mode != mode:
@@ -351,6 +370,8 @@ class LTXVideoPipeline:
             stg_scale=stg_scale,
             image=image,
         )
+        if images:
+            kwargs["images"] = images
         kwargs["stage1_steps"] = stage1_steps
         kwargs["stage2_steps"] = stage2_steps
         if audio_path is not None:
@@ -391,7 +412,8 @@ class LTXVideoPipeline:
             "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
                        "cfg_scale": cfg_scale, "stg_scale": stg_scale,
                        "frames": num_frames, "frame_rate": frame_rate,
-                       "image_conditioning": image is not None,
+                       "image_conditioning": image is not None or bool(images),
+                       "image_anchors": len(images) if images else (1 if image else 0),
                        "audio": audio_path is not None, "teacache": enable_teacache},
             "seconds": None,
         })
@@ -647,6 +669,127 @@ class LTXVideoPipeline:
                        "video_conditioning_count": len(video_conditioning)},
             "seconds": None,
         })
+        return {"generate_seconds": time.time() - t0, "events": _events}
+
+    def generate_lipdub(
+        self,
+        prompt: str,
+        output_path: str,
+        reference_video_path: str,
+        lipdub_lora_path: str,
+        lora_scale: float = 1.0,
+        height: int = 480,
+        width: int = 704,
+        reference_strength: float = 1.0,
+        seed: int = 42,
+        stage1_steps: int | None = None,
+        stage2_steps: int | None = None,
+        images: list | None = None,
+    ) -> dict[str, Any]:
+        """Run LipDub lip-dubbing: reference-video → lip-synced video.
+
+        Wraps the vendor ``LipDubPipeline`` (a two-stage IC-LoRA pipeline that
+        subclasses ``ICLoraPipeline`` — the same base ``generate_ic_lora()``
+        wraps). The reference video supplies BOTH the visual structure (via
+        IC-LoRA conditioning) and the target speech audio (VAE-encoded and
+        appended as reference-audio conditioning), so lips are re-synced to
+        that audio. Requires exactly one lip-dub IC-LoRA checkpoint.
+
+        Like the IC-LoRA restoration path, this uses the distilled model dir
+        (both stages run distilled for efficiency); construct the owning
+        ``LTXVideoPipeline`` with ``distilled=True`` so ``self._model_dir``
+        resolves to the distilled weights.
+
+        Args:
+            prompt: Text prompt describing the desired output.
+            output_path: Path to write the generated .mp4 file.
+            reference_video_path: Reference video (provides visual structure +
+                source audio). Must contain an audio stream.
+            lipdub_lora_path: Path to the lip-dub IC-LoRA safetensors.
+            lora_scale: LoRA strength (default 1.0).
+            height: Output height (multiple of 64 — Stage 1 runs at height//2).
+            width: Output width (multiple of 64 — Stage 1 runs at width//2).
+            reference_strength: IC-LoRA reference conditioning strength.
+            seed: Random seed.
+            stage1_steps: Stage 1 steps (default: vendor DISTILLED_SIGMAS).
+            stage2_steps: Stage 2 steps (default: vendor STAGE_2_SIGMAS).
+            images: Optional extra I2V anchors (path, frame_index, strength).
+
+        Returns:
+            dict with {'generate_seconds': float, 'events': [...]}.
+        """
+        from ltx_pipelines_mlx.lipdub import LipDubPipeline
+
+        if images:
+            from ltx_pipelines_mlx.utils.args import ImageConditioningInput
+            images = [
+                img if isinstance(img, ImageConditioningInput)
+                else ImageConditioningInput(*img)
+                for img in images
+            ]
+
+        print(
+            f"[LTXVideoPipeline] Loading LipDubPipeline "
+            f"(model_dir={self._model_dir!r}, low_ram={self.low_ram}, "
+            f"lora={os.path.basename(lipdub_lora_path)})…"
+        )
+
+        # LipDubPipeline takes lora_paths at init — always create fresh.
+        if self._pipeline is not None:
+            self._pipeline = None
+            import mlx.core as mx
+            mx.clear_cache()
+
+        pipeline = LipDubPipeline(
+            model_dir=self._model_dir,
+            lora_paths=[(lipdub_lora_path, lora_scale)],
+            low_memory=True,
+            low_ram_streaming=self.low_ram,
+        )
+
+        t0 = time.time()
+        try:
+            pipeline.generate_and_save(
+                prompt=prompt,
+                output_path=output_path,
+                reference_video_path=reference_video_path,
+                height=height,
+                width=width,
+                reference_strength=reference_strength,
+                images=images,
+                seed=seed,
+                stage1_steps=stage1_steps,
+                stage2_steps=stage2_steps,
+            )
+        except (RuntimeError, MemoryError):
+            # Metal OOM / MemoryError: flush caches + GC so the ~17GB tensors
+            # are released before the next run. Parity with generate_ic_lora().
+            import gc
+            import mlx.core as mx
+            if hasattr(mx, "clear_cache"):
+                mx.clear_cache()
+            gc.collect()
+            raise
+
+        _events = [{
+            "event": "model_loaded", "target": "ltx_lipdub",
+            "detail": {"mode": "lipdub", "model_dir": self._model_dir,
+                       "variant": self.transformer,
+                       "lora": os.path.basename(lipdub_lora_path)},
+            "seconds": None,
+        }, {
+            "event": "lora_applied",
+            "target": os.path.basename(lipdub_lora_path),
+            "detail": {"type": "lipdub_ic_lora_fused_at_init", "user_scale": lora_scale},
+            "seconds": None,
+        }, {
+            "event": "denoise_config", "target": "ltx_lipdub",
+            "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
+                       "reference_strength": reference_strength,
+                       "reference_video": os.path.basename(reference_video_path),
+                       "extra_image_anchors": len(images) if images else 0},
+            "seconds": None,
+        }]
         return {"generate_seconds": time.time() - t0, "events": _events}
 
     def _build_flf2v_pipeline(self) -> Any:

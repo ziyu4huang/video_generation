@@ -1,7 +1,7 @@
 {
   "version": 1,
   "store_relative_to_repo_root": "../video_generation__models",
-  "count": 109,
+  "count": 110,
   "files": {
     "audio/ltx-2.3-audio/audio_vae.safetensors": {
       "md5": "f4dd0367b95f98fdd8b2f7e5c45018e8",
@@ -31,11 +31,11 @@
       "md5": "1b0c4260ffc982db46b44eba44eb6bc9",
       "size": 285246040
     },
-    "lora/anything2real-characters/Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.int8.safetensors": {
+    "lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.int8.safetensors": {
       "md5": "2dd4bbbb1ac1cdc5862b694625f1a34a",
       "size": 82894998
     },
-    "lora/anything2real-characters/Flux2 Klein动漫转写实真人 AnythingtoRealCharacters.safetensors": {
+    "lora/anything2real-characters/Flux2 Klein\u52a8\u6f2b\u8f6c\u5199\u5b9e\u771f\u4eba AnythingtoRealCharacters.safetensors": {
       "md5": "0bc9dd6fc317d48470e57d5b20f4b45c",
       "size": 165704392
     },
@@ -115,6 +115,14 @@
       "md5": "3f9d2ab756dc49b4119b8ee0e7a33c2a",
       "size": 41447664
     },
+    "lora/ltx-2-3-ingredients/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors": {
+      "md5": "19e25a8526f2b11ccec2e271185806ed",
+      "size": 1308778338
+    },
+    "lora/ltx-2-3-lipdub/ltx-2.3-22b-ic-lora-lipdub-0.9.safetensors": {
+      "md5": "ecc629668da1222455718ac1e24508fb",
+      "size": 2466665072
+    },
     "lora/ltx-2-3-transition/ltx2.3-transition.int8.safetensors": {
       "md5": "88814d4beff65481929986c38469e97a",
       "size": 195352219
@@ -126,6 +134,14 @@
     "lora/ltx-2.3-distilled/ltx-2.3-22b-distilled-lora-384.int8.safetensors": {
       "md5": "167d95093440b9e8534943c4f8b68315",
       "size": 3803475845
+    },
+    "lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors": {
+      "md5": "f536a2858e0055b6314883c48c65c45a",
+      "size": 327287384
+    },
+    "lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors": {
+      "md5": "0ad6142ee6f845949e5eecf71de1bf40",
+      "size": 100767488
     },
     "lora/luneva-cyber-hd-enhancer/ZIT_Luneva_CyberHD.safetensors": {
       "md5": "39451647d479ef70af1aa0d83056eafe",
@@ -207,6 +223,10 @@
       "md5": "54f4629a0c7750d500a540fc12430329",
       "size": 1984551738
     },
+    "text_encoder/qwen3-4b-instruct/model.safetensors": {
+      "md5": "80488b8240aae282e43d0417da7c264c",
+      "size": 2514414621
+    },
     "text_encoder/qwen3-4b/model.safetensors": {
       "md5": "c1da478b98ca88e280f8ec3643c5ede7",
       "size": 2514414621
@@ -227,13 +247,13 @@
       "md5": "d97a5adbf4efae2e824b8ebb071b979b",
       "size": 1693615932
     },
-    "tokenizer/qwen3/tokenizer.json": {
-      "md5": "6423133b9cc1a2077b57822c30c211aa",
-      "size": 11422654
-    },
     "tokenizer/qwen3-klein/tokenizer.json": {
       "md5": "0fa489dfe491c3835067a33b4d7dea6e",
       "size": 11422650
+    },
+    "tokenizer/qwen3/tokenizer.json": {
+      "md5": "6423133b9cc1a2077b57822c30c211aa",
+      "size": 11422654
     },
     "transformer/beyond-reality/model.safetensors": {
       "md5": "6fccca8507e5fff9104bba37367e2cf9",
@@ -243,33 +263,13 @@
       "md5": "300437ff9eb4534db70e4dce219b003c",
       "size": 6540686735
     },
-    "transformer/ernie-redmix-redzit15/model.safetensors": {
-      "md5": "2ca2147c655b7bd4b1daca6d52ca274d",
-      "size": 3848371806
-    },
     "transformer/ernie-redmix-redzit15-8bit/model.safetensors": {
       "md5": "9de50fea3224870e387a7c461458b328",
       "size": 6540686735
     },
-    "transformer/klein-9b/0.safetensors": {
-      "md5": "1b65b4111fe714ac4f5240bf8d2e0ba4",
-      "size": 2140791069
-    },
-    "transformer/klein-9b/1.safetensors": {
-      "md5": "2ab60c1cb6f96c5513522572622e7315",
-      "size": 2139119960
-    },
-    "transformer/klein-9b/2.safetensors": {
-      "md5": "46f5c3d44c57d3d4b80099c7b2bf61d2",
-      "size": 2085631345
-    },
-    "transformer/klein-9b/3.safetensors": {
-      "md5": "46f740920666598e2077851cdea45254",
-      "size": 2085631415
-    },
-    "transformer/klein-9b/4.safetensors": {
-      "md5": "91be5ee30ca80ba0a34e32060a532d0a",
-      "size": 1194893301
+    "transformer/ernie-redmix-redzit15/model.safetensors": {
+      "md5": "2ca2147c655b7bd4b1daca6d52ca274d",
+      "size": 3848371806
     },
     "transformer/klein-9b-dark-beast-bfs/0.safetensors": {
       "md5": "32058004c2281407b9366e04d0a34139",
@@ -291,6 +291,26 @@
       "md5": "2a754fb07e2173e8c33d0a2bf0d52566",
       "size": 1194597359
     },
+    "transformer/klein-9b/0.safetensors": {
+      "md5": "1b65b4111fe714ac4f5240bf8d2e0ba4",
+      "size": 2140791069
+    },
+    "transformer/klein-9b/1.safetensors": {
+      "md5": "2ab60c1cb6f96c5513522572622e7315",
+      "size": 2139119960
+    },
+    "transformer/klein-9b/2.safetensors": {
+      "md5": "46f5c3d44c57d3d4b80099c7b2bf61d2",
+      "size": 2085631345
+    },
+    "transformer/klein-9b/3.safetensors": {
+      "md5": "46f740920666598e2077851cdea45254",
+      "size": 2085631415
+    },
+    "transformer/klein-9b/4.safetensors": {
+      "md5": "91be5ee30ca80ba0a34e32060a532d0a",
+      "size": 1194893301
+    },
     "transformer/kleinova-nsfw-v3/0.safetensors": {
       "md5": "285ab47b5daaf6ed90106e4f102e7d5f",
       "size": 2140791069
@@ -310,6 +330,14 @@
     "transformer/kleinova-nsfw-v3/4.safetensors": {
       "md5": "018255af62ff4d0b0b92c961c23d7cc3",
       "size": 1194893301
+    },
+    "transformer/krea2-depth-control-lora/model.safetensors": {
+      "md5": "f0f9bfe007c08ce9e00265867c529e8b",
+      "size": 861995928
+    },
+    "transformer/krea2-turbo/model.safetensors": {
+      "md5": "b3bb2ec9a98d5636c409db7a33bbdb00",
+      "size": 13645822445
     },
     "transformer/ltx-2.3-dasiwa-golden-lace-v3-q8/transformer-dev.safetensors": {
       "md5": "5686ead4ab51eefbe73a4812ebe657f5",
@@ -395,6 +423,10 @@
       "md5": "fea460c455143804bb8a4e6291d3457d",
       "size": 637885319
     },
+    "vae/qwen-image-vae/diffusion_pytorch_model.safetensors": {
+      "md5": "53cbcb16b5df94818f10f811d4c041bc",
+      "size": 507591892
+    },
     "vae/seedvr2-vae/model.safetensors": {
       "md5": "b1d16406f7ec85c523036a49f4cf7155",
       "size": 501325022
@@ -410,34 +442,6 @@
     "vae/zimage-ae/model.safetensors": {
       "md5": "55021fc9d44772075424c44f88585ad6",
       "size": 167666894
-    },
-    "transformer/krea2-turbo/model.safetensors": {
-      "md5": "b3bb2ec9a98d5636c409db7a33bbdb00",
-      "size": 13645822445
-    },
-    "vae/qwen-image-vae/diffusion_pytorch_model.safetensors": {
-      "md5": "53cbcb16b5df94818f10f811d4c041bc",
-      "size": 507591892
-    },
-    "text_encoder/qwen3-4b-instruct/model.safetensors": {
-      "md5": "80488b8240aae282e43d0417da7c264c",
-      "size": 2514414621
-    },
-    "lora/ltx-2-3-ingredients/ltx-2.3-22b-ic-lora-ingredients-0.9.safetensors": {
-      "md5": "19e25a8526f2b11ccec2e271185806ed",
-      "size": 1308778338
-    },
-    "transformer/krea2-depth-control-lora/model.safetensors": {
-      "md5": "f0f9bfe007c08ce9e00265867c529e8b",
-      "size": 861995928
-    },
-    "lora/ltx-2.3-restore/ltx2.3-video-restoration-general.safetensors": {
-      "md5": "0ad6142ee6f845949e5eecf71de1bf40",
-      "size": 100767488
-    },
-    "lora/ltx-2.3-restore/ltx2.3-ic-video-upscale-general.safetensors": {
-      "md5": "f536a2858e0055b6314883c48c65c45a",
-      "size": 327287384
     }
   }
 }

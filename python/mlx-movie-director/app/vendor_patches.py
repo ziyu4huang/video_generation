@@ -3,24 +3,35 @@
 Applies runtime fixes at import time so the vendor submodules stay clean
 at upstream HEAD.
 
+Vendor ltx-2-mlx pinned at v0.14.15 (755c3b5) — bumped 2026-07-09 from v0.14.9
+(2678f49). The bump retired four patches that upstream now owns natively; see
+docs/ltx-2-mlx-vendor-bump-v0.14.15-20260709.md for the full audit.
+
 Patches for vendor/ltx-2-mlx (upstream dgrauet/ltx-2-mlx):
-  1. UpSample1d.__call__   — MLX 0.31.2 .at[strided].add() Metal bug
-  2. HannSincResampler      — same .at[strided].add() bug
   3. AudioVAEDecoder.decode — causal frame crop (T*4-3)
-  4. LTXModelConfig         — av_ca_timestep_scale_multiplier 1.0→1000.0
-                               + from_checkpoint_config classmethod
-  5. _orchestration          — _load_transformer_config reads embedded_config.json;
-                               load_transformer: LTX_DEV_AUDIO env var → audio stream
-                               transplant (replace dasiwa/distilled audio keys with dev)
+  5. _orchestration          — load_transformer: LTX_DEV_AUDIO env var → audio stream
+                               transplant (replace dasiwa/distilled audio keys with dev).
+                               Config is read via upstream LTXModelConfig.from_checkpoint_dir
+                               (added in #39); this patch only carries the bespoke
+                               dev-audio transplant that upstream does not have.
   6. TI2VidTwoStagesPipeline — audio_stage1_only param
-  6b. A2VidPipelineTwoStage  — IA2V (image+audio) call site doesn't forward its own
-                               frame_rate to combined_image_conditionings(), raising
-                               TypeError on any --input-image + --audio combination
   10. _fuse_distilled_lora   — dequantize int8 LoRA weights before fusion
   11. PromptEncoder.load +   — quantize connector to match pre-quantized weights
       load_feature_extractor    BEFORE load_weights; detects bits+group_size from
                                 the model's in_features (connector is int4/g32,
                                 not the int8/g64 the transformer uses)
+
+RETIRED at the v0.14.15 bump (upstream now owns these — do not reintroduce):
+  1.  UpSample1d.__call__      — upstream #34/#38 (7a26987) applies the same
+      2.  HannSincResampler        strided-assignment dodge for the mlx 0.31.2 Metal
+                                   scatter bug at both call sites.
+  4.  LTXModelConfig          — upstream #39 (59a42d7) adds a strictly richer
+                                 from_checkpoint_config (+ from_checkpoint_dir) that
+                                 also maps video_dim/audio_dim/av_cross_* fields our
+                                 subset omitted; keeping our version would REGRESS.
+  6b. A2VidPipelineTwoStage   — upstream #56 (cc0cacc) forwards frame_rate to
+                                 combined_image_conditionings at both the a2vid and
+                                 lipdub call sites.
 
 Patches for vendor/mflux (upstream filipstrand/mflux):
   7. Flux2KleinEdit.predict  — NaN guard on transformer output (attention overflow)
@@ -33,7 +44,6 @@ Patches for vendor/mflux (upstream filipstrand/mflux):
 
 from __future__ import annotations
 
-import json as _json
 import os as _os
 from pathlib import Path
 
@@ -79,90 +89,10 @@ def _transplant_audio_from_dev(weights: dict, dev_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Patch 1 — UpSample1d.__call__  (vocoder.py)
+# Patches 1 & 2 (UpSample1d / HannSincResampler MLX-0.31.2 scatter dodge) —
+# RETIRED at the v0.14.15 bump: upstream #34/#38 (7a26987) applies the same
+# strided-assignment fix at both call sites. See module docstring.
 # ---------------------------------------------------------------------------
-
-
-def _patch_upsample1d() -> None:
-    """Fix MLX 0.31.2 .at[strided].add() mis-indexing on Metal."""
-    import mlx.core as mx
-
-    from ltx_core_mlx.model.audio_vae.vocoder import UpSample1d
-
-    _orig_call = UpSample1d.__call__
-
-    def __call__(self, x):  # type: ignore[no-untyped-def]
-        """x: (B, T, C) -> (B, T*2, C)"""
-        B, T, C = x.shape
-        # MLX 0.31.2 regression: .at[strided].add() mis-indexes source on Metal.
-        # Use direct assignment since x_up is freshly zeroed (add ≡ assign here).
-        x_up = mx.zeros((B, T * 2, C))
-        x_up[:, ::2, :] = x
-
-        # Reshape for grouped conv1d: (B*C, T*2, 1)
-        x_up = x_up.transpose(0, 2, 1).reshape(B * C, T * 2, 1)
-
-        K = self.filter.shape[1]
-        pad = K // 2
-        left_edge = mx.repeat(x_up[:, :1, :], pad, axis=1)
-        right_edge = mx.repeat(x_up[:, -1:, :], pad - 1, axis=1)
-        x_up = mx.concatenate([left_edge, x_up, right_edge], axis=1)
-
-        x_up = mx.conv1d(x_up, self.filter)
-
-        T_out = x_up.shape[1]
-        return x_up.reshape(B, C, T_out).transpose(0, 2, 1) * 2.0
-
-    UpSample1d.__call__ = __call__
-
-
-# ---------------------------------------------------------------------------
-# Patch 2 — HannSincResampler.__call__  (bwe.py)
-# ---------------------------------------------------------------------------
-
-
-def _patch_hann_sinc_resampler() -> None:
-    """Fix MLX 0.31.2 .at[strided].add() mis-indexing on Metal."""
-    import mlx.core as mx
-
-    from ltx_core_mlx.model.audio_vae.bwe import HannSincResampler
-
-    _orig_call = HannSincResampler.__call__
-
-    def __call__(self, x):  # type: ignore[no-untyped-def]
-        """Upsample: (B, T) -> (B, T * factor)."""
-        B, T = x.shape
-        ratio = self.upsample_factor
-
-        # 1. Replicate-pad input
-        first = mx.repeat(x[:, :1], self._pad, axis=1)
-        last = mx.repeat(x[:, -1:], self._pad, axis=1)
-        x_padded = mx.concatenate([first, x, last], axis=1)
-        T_padded = x_padded.shape[1]
-
-        # 2. Zero-insert between samples
-        zi_len = (T_padded - 1) * ratio + 1
-        # MLX 0.31.2 regression: .at[strided].add() mis-indexes source on Metal.
-        # Use direct assignment since upsampled is freshly zeroed (add ≡ assign here).
-        upsampled = mx.zeros((B, zi_len))
-        upsampled[:, ::ratio] = x_padded
-
-        # 3. Full convolution via zero-pad + valid conv1d
-        upsampled = upsampled[:, :, None]
-        K = self.kernel.shape[0]
-        upsampled = mx.pad(upsampled, [(0, 0), (K - 1, K - 1), (0, 0)])
-        filt = self.kernel[None, :, :]
-        result = mx.conv1d(upsampled, filt, padding=0)
-        result = result.squeeze(-1)
-
-        # 4. Scale by ratio
-        result = result * ratio
-
-        # 5. Slice to match reference output
-        result = result[:, self._pad_left : -self._pad_right]
-        return result[:, : T * ratio]
-
-    HannSincResampler.__call__ = __call__
 
 
 # ---------------------------------------------------------------------------
@@ -232,49 +162,13 @@ def _patch_audio_vae_decoder() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Patch 4 — LTXModelConfig  (model.py)
+# Patch 4 (LTXModelConfig av_ca default + from_checkpoint_config) — RETIRED at
+# the v0.14.15 bump: upstream #39 (59a42d7) adds a strictly richer
+# from_checkpoint_config (+ from_checkpoint_dir) that also maps
+# video_dim/audio_dim/av_cross_* — fields our subset omitted. Keeping our
+# version would OVERRIDE upstream's and regress those mappings. Patch 5 below
+# now reads config through upstream's from_checkpoint_dir. See module docstring.
 # ---------------------------------------------------------------------------
-
-
-def _patch_ltx_model_config() -> None:
-    """Fix default av_ca_timestep_scale_multiplier 1.0 → 1000.0.
-
-    Also adds ``from_checkpoint_config`` classmethod that reads
-    embedded_config.json values (especially av_ca_timestep_scale_multiplier).
-    """
-    from ltx_core_mlx.model.transformer.model import LTXModelConfig
-
-    # Override the default field value
-    LTXModelConfig.av_ca_timestep_scale_multiplier = 1000.0
-
-    @classmethod
-    def from_checkpoint_config(cls, cfg: dict) -> LTXModelConfig:  # type: ignore[no-untyped-def]
-        """Construct config from embedded_config.json transformer section.
-
-        The checkpoint metadata stores the authoritative values for
-        ``timestep_scale_multiplier`` and ``av_ca_timestep_scale_multiplier``.
-        The ``av_ca`` value is critical for audio quality: when set to 1.0
-        instead of 1000.0, the AV cross-attention gate is attenuated by 1000x,
-        effectively zeroing speech information.
-        """
-        return cls(
-            num_layers=cfg.get("num_layers", 48),
-            video_num_heads=cfg.get("num_attention_heads", 32),
-            video_head_dim=cfg.get("attention_head_dim", 128),
-            audio_num_heads=cfg.get("audio_num_attention_heads", 32),
-            audio_head_dim=cfg.get("audio_attention_head_dim", 64),
-            video_patch_channels=cfg.get("in_channels", 128),
-            audio_patch_channels=cfg.get("audio_in_channels", 128),
-            timestep_scale_multiplier=float(cfg.get("timestep_scale_multiplier", 1000.0)),
-            av_ca_timestep_scale_multiplier=float(cfg.get("av_ca_timestep_scale_multiplier", 1000.0)),
-            rope_theta=cfg.get("positional_embedding_theta", 10000.0),
-            rope_type=cfg.get("rope_type", "split"),
-            positional_embedding_max_pos=tuple(cfg.get("positional_embedding_max_pos", [20, 2048, 2048])),
-            audio_positional_embedding_max_pos=tuple(cfg.get("audio_positional_embedding_max_pos", [20])),
-            norm_eps=cfg.get("norm_eps", 1e-6),
-        )
-
-    LTXModelConfig.from_checkpoint_config = from_checkpoint_config
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +177,15 @@ def _patch_ltx_model_config() -> None:
 
 
 def _patch_orchestration() -> None:
-    """Replace load_transformer to read config from embedded_config.json."""
+    """Replace load_transformer to add the bespoke LTX_DEV_AUDIO transplant.
+
+    Upstream (#39) already reads the checkpoint config via
+    ``LTXModelConfig.from_checkpoint_dir`` inside its own ``load_transformer``.
+    This patch only exists to add the repo-specific audio-stream transplant
+    (``LTX_DEV_AUDIO`` env var) that upstream has no equivalent for; it
+    delegates config loading to upstream's ``from_checkpoint_dir`` rather than
+    re-reading embedded_config.json by hand.
+    """
     import mlx.core as mx
 
     from ltx_core_mlx.model.transformer.model import LTXModel, LTXModelConfig
@@ -292,35 +194,17 @@ def _patch_orchestration() -> None:
 
     import ltx_pipelines_mlx.utils._orchestration as _orch
 
-    def _load_transformer_config(model_dir: Path) -> LTXModelConfig:  # type: ignore[no-untyped-def]
-        """Read transformer config from ``embedded_config.json`` if available."""
-        cfg_path = model_dir / "embedded_config.json"
-        if cfg_path.exists():
-            cfg_raw = _json.loads(cfg_path.read_text())
-            transformer_cfg = cfg_raw.get("transformer", cfg_raw)
-            config = LTXModelConfig.from_checkpoint_config(transformer_cfg)
-            print(
-                f"[load_transformer] Config from {cfg_path.name}: "
-                f"av_ca_timestep_scale_multiplier={config.av_ca_timestep_scale_multiplier}, "
-                f"timestep_scale_multiplier={config.timestep_scale_multiplier}"
-            )
-            return config
-        print(
-            "[load_transformer] No embedded_config.json found — using defaults "
-            "(av_ca_timestep_scale_multiplier=1000.0)"
-        )
-        return LTXModelConfig()
-
     def load_transformer(transformer_path, *, low_ram_streaming=False):  # type: ignore[no-untyped-def]
         """Build an LTXModel from safetensors with optional block streaming.
 
-        Reads embedded_config.json from the model directory to load
-        checkpoint-specific config.  If LTX_DEV_AUDIO is set to the dev
-        transformer safetensors path, replaces all audio stream keys in the
-        loaded weights dict with those from the dev checkpoint before building
-        the model — giving dasiwa/distilled video quality with dev zh audio.
+        Reads checkpoint config via upstream ``LTXModelConfig.from_checkpoint_dir``
+        (embedded_config.json / config.json, incl. av_ca_timestep_scale_multiplier).
+        If LTX_DEV_AUDIO is set to the dev transformer safetensors path, replaces
+        all audio stream keys in the loaded weights dict with those from the dev
+        checkpoint before building the model — giving dasiwa/distilled video
+        quality with dev zh audio.
         """
-        config = _load_transformer_config(transformer_path.parent)
+        config = LTXModelConfig.from_checkpoint_dir(transformer_path.parent)
         dit = LTXModel(config=config)
         weights = load_split_safetensors(transformer_path, prefix="transformer.")
         dev_audio_path_str = _os.environ.get("LTX_DEV_AUDIO", "")
@@ -349,58 +233,16 @@ def _patch_orchestration() -> None:
         aggressive_cleanup()
         return dit
 
-    _orch._load_transformer_config = _load_transformer_config
     _orch.load_transformer = load_transformer
 
 
 # ---------------------------------------------------------------------------
-# Patch 6b — A2VidPipelineTwoStage IA2V frame_rate  (a2vid_two_stage.py)
+# Patch 6b (A2VidPipelineTwoStage IA2V frame_rate) — RETIRED at the v0.14.15
+# bump: upstream #56 (cc0cacc) forwards frame_rate to
+# combined_image_conditionings at both the a2vid_two_stage.py and lipdub.py
+# call sites, which is the official fix for the TypeError this defensive
+# callee-patch guarded against. See module docstring.
 # ---------------------------------------------------------------------------
-
-
-def _patch_a2v_image_conditioning() -> None:
-    """Fix A2VidPipelineTwoStage's IA2V (image+audio) conditioning path.
-
-    ``A2VidPipelineTwoStage.generate_and_save`` receives ``frame_rate`` as its
-    own parameter but its internal ``_encode_combined`` closure calls
-    ``combined_image_conditionings(...)`` without forwarding it, even though
-    that function requires ``frame_rate`` as a keyword-only argument. This
-    raises ``TypeError: combined_image_conditionings() missing 1 required
-    keyword-only argument: 'frame_rate'`` on any A2V call that also passes
-    ``image=``/``images=`` (talking-portrait / lip-sync style generation) —
-    confirmed live via `run.py video generate --input-image X --audio Y`.
-
-    ``frame_rate`` is only read for keyframe entries (``frame_idx != 0``,
-    ``VideoConditionByKeyframeIndex``) — the single-anchor ``image=``
-    shorthand used by this repo's A2V path always sets ``frame_idx=0``
-    (``VideoConditionByLatentIndex``), which never reads ``frame_rate``. So
-    defaulting the missing argument to ``None`` is a behavioral no-op for
-    that path; if a caller ever supplies real (non-zero-index) keyframes
-    without a frame_rate, raise instead of silently mis-computing positions.
-    """
-    import ltx_pipelines_mlx.utils._orchestration as _orch
-
-    _orig_combined_image_conditionings = _orch.combined_image_conditionings
-
-    def combined_image_conditionings(  # type: ignore[no-untyped-def]
-        images, *, enc_h, enc_w, spatial_dims, video_encoder, frame_rate=None
-    ):
-        if frame_rate is None and any(getattr(img, "frame_idx", 0) != 0 for img in images):
-            raise ValueError(
-                "combined_image_conditionings: frame_rate is required when any "
-                "image has frame_idx != 0 (keyframe conditioning), but the "
-                "caller didn't provide one."
-            )
-        return _orig_combined_image_conditionings(
-            images,
-            enc_h=enc_h,
-            enc_w=enc_w,
-            spatial_dims=spatial_dims,
-            video_encoder=video_encoder,
-            frame_rate=frame_rate,
-        )
-
-    _orch.combined_image_conditionings = combined_image_conditionings
 
 
 # ---------------------------------------------------------------------------
@@ -1059,13 +901,13 @@ def _patch_mflux_int8_lora() -> None:
 
 
 def apply_all_patches() -> None:
-    """Apply all vendor monkey-patches.  Called automatically at import time."""
-    _patch_upsample1d()
-    _patch_hann_sinc_resampler()
+    """Apply all vendor monkey-patches.  Called automatically at import time.
+
+    Patches 1, 2, 4 and 6b were retired at the v0.14.15 vendor bump (upstream
+    #34/#38, #39 and #56 now own those fixes natively). See module docstring.
+    """
     _patch_audio_vae_decoder()
-    _patch_ltx_model_config()
     _patch_orchestration()
-    _patch_a2v_image_conditioning()
     _patch_ti2vid()
     _patch_klein_edit_nan_guard()
     _patch_image_util_nan_guard()
@@ -1073,7 +915,7 @@ def apply_all_patches() -> None:
     _patch_int8_lora()
     _patch_connector_apply_quantization()
     _patch_mflux_int8_lora()
-    print("[vendor_patches] Applied 13 patches (9 ltx-2-mlx + 4 mflux) + audio transplant helper")
+    print("[vendor_patches] Applied 9 patches (5 ltx-2-mlx + 4 mflux) + audio transplant helper")
 
 
 apply_all_patches()
