@@ -39,6 +39,7 @@ export interface ProviderEntry {
     | "swift:flux2"
     | "swift:ltx"
     | "mlx:runpy"
+    | "mlx:runpy-image"
     | "mlx:caption"
     | "fetch"
     | "ffmpeg"
@@ -74,6 +75,30 @@ export const REGISTRY: ProviderEntry[] = [
   { name: "krea2_image", capability: "image_generation", provider: "krea2", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "swift/krea2-image-director (Z-Image/Krea2 T2I + ControlNet + style transfer)" },
   { name: "flux2_image", capability: "image_generation", provider: "flux2", backend: "native_swift", invoke: "swift:flux2", configured: true, notes: "swift/flux2-image-director (Flux2 Klein T2I/i2i/edit/scene)" },
   { name: "z_image", capability: "image_generation", provider: "z-image", backend: "native_swift", invoke: "swift:krea2", configured: true, notes: "Z-Image T2I (via krea2 director family)" },
+  // run.py image adapter — the force multiplier. run.py already has ~15 local,
+  // tested image sub-actions (controlnet/faceswap/swap/anime2real/profile/angle/
+  // purify/restore/multicouple/twosubject/workflow/expansion), but until this
+  // entry the ENTIRE run.py image surface was direct-CLI-only — the agent could
+  // not call any of it (only mlx:runpy VIDEO + mlx:caption were wired). Declared
+  // AFTER the Swift directors (same native_swift rank 0) and addressed by COMMAND
+  // (commands[] below), so the selector routes {image_generation, "controlnet"|
+  // "faceswap"|...} here when no Swift director claims that command — while basic
+  // t2i/i2i still fall through to the Swift directors (the default tiebreak).
+  // probeConfigured = runPyRuntimePresent (venv python + run.py). LOCAL MLX only.
+  {
+    name: "runpy_image",
+    capability: "image_generation",
+    provider: "runpy-image",
+    backend: "native_swift",
+    invoke: "mlx:runpy-image",
+    configured: true,
+    commands: [
+      "controlnet", "faceswap", "swap", "anime2real", "profile", "angle",
+      "purify", "restore", "multicouple", "twosubject", "workflow", "expansion",
+      "i2i", "storyboard",
+    ],
+    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i reaches run.py (Swift directors declare no commands, so they don't claim these). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
+  },
 
   // Video generation — native Swift/MLX director.
   { name: "ltx_video", capability: "video_generation", provider: "ltx", backend: "native_swift", invoke: "swift:ltx", configured: true, notes: "swift/ltx-video-director (LTX-2.3 T2V/i2v/relay/upscale). probeConfigured checks the built binary; when unbuilt, mlx:runpy below wins." },

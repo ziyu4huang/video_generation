@@ -86,6 +86,7 @@ _purify = importlib.import_module("app.commands.image-purify")
 _restore = importlib.import_module("app.commands.image-restore")
 _multicouple = importlib.import_module("app.commands.image-multicouple")
 _twosubject = importlib.import_module("app.commands.image-twosubject")
+_storyboard = importlib.import_module("app.commands.image-storyboard")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -229,7 +230,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -290,6 +291,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # (VLM-driven single-prompt two-character; shares t2i/common args + --style from
     # multicouple + --vlm-api-url/--vlm-model from profile)
     _twosubject.add_twosubject_args(parser)
+
+    # Storyboard-specific args: --scenes/--story/--style-context/--character/--judge
+    # (the storyline→storyboard→image flow; reuses t2i/common args for the per-shot gen)
+    _storyboard.add_storyboard_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -371,5 +376,7 @@ def run(args: "argparse.Namespace") -> None:
         _multicouple.run_multicouple(args)
     elif action == "twosubject":
         _twosubject.run_twosubject(args)
+    elif action == "storyboard":
+        _storyboard.run_storyboard(args)
     else:
         _t2i.run_t2i(args)

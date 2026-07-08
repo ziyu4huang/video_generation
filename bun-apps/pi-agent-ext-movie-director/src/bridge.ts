@@ -35,6 +35,11 @@ import type { Capability, ProviderEntry } from "./registry.ts";
 import { selectProvider, type SelectorOptions } from "./selector.ts";
 import { nonNativeAdapters } from "./providers.ts";
 import { runPyCaption, type CaptionDetails, type CaptionOptions } from "./caption.ts";
+import {
+  runPyImage,
+  type RunPyImageDetails,
+  type RunPyImageOptions,
+} from "./runpy_image.ts";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -366,6 +371,55 @@ async function realCaption(req: GenerateRequest, env?: Record<string, string | u
   return adaptCaption(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptRunPyImage — normalize a run.py image result into the same ToolResult
+ * shape the swift directors emit. Each produced image (manifest output_files[],
+ * or the globbed newest-image fallback) becomes one kind:"image" artifact carrying
+ * its seed/width/height/bytes when the manifest recorded them. ok = run.py exited
+ * 0 AND a real image landed on disk (a 0-exit review/list-only run is NOT a
+ * generation success — mirrors adaptRunPy). The model id is the manifest's local
+ * transformer basename (zimage / flux2-klein / lens — never a cloud id).
+ */
+export function adaptRunPyImage(
+  req: GenerateRequest,
+  details: RunPyImageDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = details.outputs.map((o) => ({
+    path: o.path,
+    kind: "image",
+    seed: o.seed ?? null,
+    width: o.width ?? null,
+    height: o.height ?? null,
+    bytes: o.sizeBytes ?? null,
+    role: "primary",
+  }));
+  return {
+    success: details.ok,
+    provider: "runpy-image",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: details.elapsedSeconds,
+    seed: (req.options?.seed as number | undefined) ?? details.outputs[0]?.seed ?? null,
+    // Prefer the manifest's local transformer basename; fall back to a local label
+    // so the result never reads as a cloud model id.
+    model: details.model ?? `run.py:${details.command}`,
+  };
+}
+
+async function realRunPyImage(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const out = await runPyImage({
+    options: (req.options ?? {}) as RunPyImageOptions,
+    outputDir: req.outputDir,
+    extraArgs: req.extraArgs,
+  });
+  return adaptRunPyImage(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -373,6 +427,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "swift:flux2": (req) => realFlux2(req, env),
     "swift:ltx": (req) => realLtx(req, env),
     "mlx:runpy": (req) => realRunPy(req, env),
+    "mlx:runpy-image": (req) => realRunPyImage(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),
