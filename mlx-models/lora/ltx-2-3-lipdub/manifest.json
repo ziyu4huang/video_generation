@@ -1,0 +1,18 @@
+{
+  "_comment": "Private metadata for mlx-movie-director model registry. Created by convert.py or manually. Validated by `run.py check-manifests`. See docs/models.md for schema docs.",
+  "name": "ltx-2-3-lipdub",
+  "type": "lora",
+  "arch": "ltx-2.3",
+  "format": "safetensors-bf16",
+  "description": "LipDub IC-LoRA: reference-video lip-dubbing (two-stage IC-LoRA + VAE-encoded reference audio) for LTX-2.3",
+  "source": "huggingface/Lightricks/LTX-2.3-22b-IC-LoRA-LipDub",
+  "compatible_with": [
+    "transformer/ltx-2.3-dev-q8"
+  ],
+  "size_bytes": 2466665072,
+  "created_at": "2026-07-09T00:00:00Z",
+  "pipeline": [
+    "ltx-2.3"
+  ],
+  "source_url": "https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-LipDub"
+}

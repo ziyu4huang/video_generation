@@ -91,21 +91,13 @@ Patch count: **13 (9 ltx + 4 mflux) → 9 (5 ltx + 4 mflux)**.
   visual structure via IC-LoRA and source audio via VAE-encode) and returns a
   **3-tuple** `(video_latent, audio_latent, frame_rate)` — note the extra
   element vs the a2vid path when wiring.
-  - **BLOCKED (2026-07-09): the LipDub checkpoint is HF-gated.**
-    `Lightricks/LTX-2.3-22b-IC-LoRA-LipDub` (file
-    `ltx-2.3-22b-ic-lora-lipdub-0.9.safetensors`, 2.47 GB) is `gated: auto`
-    and this account is **not on the authorized list** — the file download is
-    denied ("Access to model … is restricted and you are not in the
-    authorized list"), even though the sibling
-    `LTX-2.3-22b-IC-LoRA-Ingredients` (also `gated: auto`) was accepted
-    earlier and is present locally. Wiring `generate_lipdub()` + a `video
-    lipdub` CLI was **deliberately deferred**: without the checkpoint the
-    end-to-end deliverable (a before/after `lipsync_metrics.py` correlation
-    number) is unrunnable, and shipping an unverifiable new generation
-    sub-action is against this repo's verification discipline. **Next step
-    for the user:** visit https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-LipDub
-    and accept the license (auto-granted); a future session can then wire +
-    verify LipDub on this already-bumped tree.
+  - **WIRED 2026-07-09** (the HF gate was accepted by the user mid-session, so
+    the checkpoint downloaded and LipDub was wired + verified on this bumped
+    tree). New `video lipdub` sub-action; runs end-to-end and produces valid
+    talking-head clips. The first before/after `lipsync_metrics.py`
+    measurement showed **no** clear frame-level improvement over IA2V — see
+    `docs/lipdub-wiring-and-measurement-20260709.md` for the honest result and
+    next steps.
 - **`bd2217a` (#45) multi-anchor I2V** is now in the tree: the CLI
   `_legacy_single_image()` guard is gone, so repeatable `--image PATH
   FRAME_IDX STRENGTH` multi-anchor I2V works on `--one-stage`/`--distilled`
