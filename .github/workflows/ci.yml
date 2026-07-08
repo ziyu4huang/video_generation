@@ -83,6 +83,15 @@ jobs:
       - name: Install (workspace, frozen lockfile)
         run: bun install --frozen-lockfile
 
+      # pi-dynamic-workflows ships TS source; its `main`/`exports` point at
+      # compiled dist/index.js (a gitignored artifact). Importers — notably
+      # pi-agent-cli/src/commands/workflow.ts, and anything transitively loading
+      # the CLI — resolve that dist/. A fresh CI checkout lacks it (locally it
+      # lingers from prior builds), so build it. ~2.5 s; the documented
+      # "builds first" workspace pattern (CLAUDE.md testing section).
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+
       - name: Test
         working-directory: bun-apps/${{ matrix.package }}
         env:
@@ -112,6 +121,8 @@ jobs:
           node-version: lts/*
       - name: Install (workspace, frozen lockfile)
         run: bun install --frozen-lockfile
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
       - name: Extension contract (5 tests)
         working-directory: bun-apps/pi-agent
         run: bun test src/__tests__/extension-contract.test.ts
@@ -139,6 +150,8 @@ jobs:
           node-version: lts/*
       - name: Install (workspace, frozen lockfile)
         run: bun install --frozen-lockfile
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
       - name: Deploy + verify (boot deployed artifact, probe getAllTools)
         working-directory: bun-apps/pi-agent
         run: bun scripts/deploy.ts dist/ci-verify --writable --verify
@@ -165,6 +178,10 @@ jobs:
           node-version: lts/*
       - name: Install (workspace, frozen lockfile)
         run: bun install --frozen-lockfile
+
+      - name: Build pi-dynamic-workflows (workspace dep)
+        # The schema-cost CLI is pi-agent-cli → workflow.ts → needs dist/.
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
 
       - name: File-size guard (2 MB, blocks)
         run: bash scripts/ci-file-size-guard.sh
