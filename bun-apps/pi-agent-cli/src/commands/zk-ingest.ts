@@ -25,6 +25,7 @@ import {
 	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
+	adaptHermesMarkdown,
 	formatSummary,
 	type KnowledgeRecord,
 	type SourceFamily,
@@ -92,7 +93,16 @@ Examples:
 			const abs = isAbsolute(f) ? f : resolve(cwd, f);
 			if (!existsSync(abs)) throw new Error(`Input not found: ${f} (resolved: ${abs})`);
 			const content = readFileSync(abs, "utf8");
-			if (source === "auto-memory") {
+			if (source === "hermes") {
+				// hermes inputs are .md memory files with MANY `§`-separated entries
+				// (failures/MEMORY/USER) — adapt to one record per entry.
+				const recs = adaptHermesMarkdown(content);
+				if (recs.length === 0) {
+					parseErrors.push({ line: 0, reason: `${f}: no § entries parsed` });
+					continue;
+				}
+				records.push(...recs);
+			} else if (source === "auto-memory") {
 				// auto-memory inputs are .md topic files (one memory each), not jsonl.
 				const rec = adaptAutoMemoryMarkdown(content);
 				if (!rec) {

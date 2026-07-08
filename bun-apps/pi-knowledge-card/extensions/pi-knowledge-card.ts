@@ -1145,7 +1145,16 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					});
 					continue;
 				}
-				if (source === "auto-memory") {
+				if (source === "hermes") {
+					// hermes inputs are .md memory files with MANY `§`-separated entries
+					// (failures/MEMORY/USER) — adapt to one record per entry.
+					const recs = adaptHermesMarkdown(content);
+					if (recs.length === 0) {
+						parseErrors.push({ line: 0, reason: `${abs}: no § entries parsed` });
+						continue;
+					}
+					records.push(...recs);
+				} else if (source === "auto-memory") {
 					const rec = adaptAutoMemoryMarkdown(content);
 					if (!rec) {
 						parseErrors.push({ line: 0, reason: `${abs}: not a memory file` });

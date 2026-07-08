@@ -15,6 +15,7 @@ import {
 	ingestRecords,
 	parseKnowledgeJsonl,
 	adaptAutoMemoryMarkdown,
+	adaptHermesMarkdown,
 	collectInputFiles,
 	slugify,
 	extractDate,
@@ -238,6 +239,127 @@ describe("adaptAutoMemoryMarkdown", () => {
 	});
 });
 
+describe("adaptHermesMarkdown", () => {
+	test("parses a [failure] entry into a record (type=avoid, id namespaced)", () => {
+		const md = [
+			"[failure] ARG-PARSE LOOP MUST ADVANCE INDEX (args.ts): a missed i++ spins forever.",
+			"FIX: advance the cursor on every branch. <!-- created=2026-06-28, last=2026-06-29 -->",
+			"§",
+		].join("\n");
+		const recs = adaptHermesMarkdown(md);
+		expect(recs.length).toBe(1);
+		const r = recs[0]!;
+		expect(r.id).toMatch(/^hermes:/);
+		expect(r.id).toContain("arg-parse"); // slug from title
+		expect(r.type).toBe("avoid"); // failure → avoid
+		expect(r.dimension).toBe("failure"); // literal category preserved
+		expect(r.tags).toContain("hermes");
+		expect(r.tags).toContain("failure");
+		expect(r.confidence).toBe(0.9);
+		expect(r.evidence?.first_seen).toBe("2026-06-28");
+		expect(r.evidence?.last_seen).toBe("2026-06-29");
+	});
+
+	test("maps each [category] prefix to the right record type", () => {
+		const mk = (prefix: string) =>
+			`${prefix} Some title here. Body text. <!-- created=2026-07-01, last=2026-07-01 -->`;
+		expect(adaptHermesMarkdown(mk("[tool-quirk]"))[0]!.type).toBe("gotcha");
+		expect(adaptHermesMarkdown(mk("[insight]"))[0]!.type).toBe("pattern");
+		expect(adaptHermesMarkdown(mk("[correction]"))[0]!.type).toBe("false_positive");
+		expect(adaptHermesMarkdown(mk("[convention]"))[0]!.type).toBe("pattern");
+		expect(adaptHermesMarkdown(mk("[preference]"))[0]!.type).toBe("pattern");
+	});
+
+	test("a prefix-less entry becomes type=pattern (general note)", () => {
+		const md =
+			"**Tool quirks** (verified 2026-06-29):\n• Some bullet fact. <!-- created=2026-06-29, last=2026-06-29 -->\n§\n";
+		const recs = adaptHermesMarkdown(md);
+		expect(recs.length).toBe(1);
+		expect(recs[0]!.type).toBe("pattern");
+		expect(recs[0]!.dimension).toBe("general");
+		expect(recs[0]!.title).toBe("Tool quirks"); // ** stripped, trailing (date): stripped
+	});
+
+	test("returns one record per § entry in a multi-entry file", () => {
+		const md = [
+			"[failure] First entry. Body one. <!-- created=2026-06-28, last=2026-06-28 -->",
+			"§",
+			"[tool-quirk] Second entry. Body two. <!-- created=2026-06-29, last=2026-06-29 -->",
+			"§",
+			"[insight] Third entry. Body three. <!-- created=2026-06-30, last=2026-06-30 -->",
+		].join("\n");
+		const recs = adaptHermesMarkdown(md);
+		expect(recs.length).toBe(3);
+		expect(recs[0]!.type).toBe("avoid");
+		expect(recs[1]!.type).toBe("gotcha");
+		expect(recs[2]!.type).toBe("pattern");
+		expect(recs.map((r) => r.id)).toEqual([...new Set(recs.map((r) => r.id))]); // unique ids
+	});
+
+	test("detail carries the full body (minus prefix + timestamp); brackets stripped", () => {
+		const md =
+			"[insight] Porting rule. See [[vae-decode-range]] for the dark-half bug. <!-- created=2026-07-01, last=2026-07-02 -->";
+		const r = adaptHermesMarkdown(md)[0]!;
+		expect(r.detail).toContain("Porting rule");
+		expect(r.detail).not.toContain("<!--"); // timestamp stripped from detail
+		expect(r.detail).not.toContain("[["); // wiki brackets stripped
+		expect(r.detail).toContain("vae-decode-range"); // link text preserved as prose
+		expect(r.tags).toContain("vae-decode-range"); // [[link]] also harvested as tag
+	});
+
+	test("handles duplicated timestamp comments (takes first created, last last)", () => {
+		const md =
+			"[failure] X. Body. <!-- created=2026-06-28, last=2026-06-29 --> <!-- created=2026-06-28, last=2026-06-29 -->";
+		const r = adaptHermesMarkdown(md)[0]!;
+		expect(r.evidence?.first_seen).toBe("2026-06-28");
+		expect(r.evidence?.last_seen).toBe("2026-06-29");
+		expect(r.detail).not.toContain("<!--");
+	});
+
+	test("defensive: empty / no-timestamp / malformed entries are skipped, never throw", () => {
+		expect(adaptHermesMarkdown("")).toEqual([]);
+		expect(adaptHermesMarkdown("   \n\n  ")).toEqual([]);
+		// entry with ONLY a timestamp comment (no body after strip) → skipped
+		expect(adaptHermesMarkdown("<!-- created=2026-07-01, last=2026-07-01 -->\n§\n")).toEqual([]);
+		// an entry with no timestamp still parses (evidence undefined)
+		const r = adaptHermesMarkdown("[insight] A timestamp-less note.\n§\n")[0]!;
+		expect(r.evidence).toBeUndefined();
+		expect(r.type).toBe("pattern");
+	});
+
+	test("hermes records converge + cross-link a workflow card via shared tags", async () => {
+		// Seed a workflow gotcha card sharing the `argparse` concept tag.
+		await ingestRecords(
+			[
+				rec({
+					id: "cli:argparse-i-advance",
+					type: "gotcha",
+					title: "Argv loop must advance i",
+					tags: ["argparse", "argv"],
+					detail: "Every branch must i++.",
+				}),
+			],
+			{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "workflow-jsonl:cli" },
+		);
+		// A hermes failure entry whose title yields the `argparse` keyword tag.
+		const hRecs = adaptHermesMarkdown(
+			"[failure] ARGPARSE loop must advance index. Missed i++ hangs. <!-- created=2026-06-28, last=2026-06-29 -->",
+		);
+		expect(hRecs[0]!.tags).toContain("argparse");
+		const s = await ingestRecords(hRecs, {
+			vaultPath: vault,
+			source: "hermes",
+			sourceLabel: "hermes:failures",
+		});
+		expect(s.created).toBe(1);
+		// Shared `argparse` tag → a cross-source edge in the hermes card.
+		const names = readdirSync(join(vault, FOLDER));
+		const hermesCard = names.find((n) => n.startsWith("hermes-"))!;
+		const body = readFileSync(join(vault, FOLDER, hermesCard), "utf8");
+		expect(body).toContain("[[cli-argparse-i-advance]]");
+	});
+});
+
 describe("collectInputFiles", () => {
 	const memMd = (name: string) =>
 		[
@@ -381,6 +503,30 @@ describe("ingestRecords — idempotency + dedup", () => {
 		expect(s2.created).toBe(0);
 		const files = readdirSync(join(vault, FOLDER));
 		expect(files.filter((f) => f.startsWith("x-upd")).length).toBe(1);
+	});
+
+	test("dry-run is a true idempotency probe: unchanged existing cards report unchanged (not updated)", async () => {
+		const opts = {
+			vaultPath: vault,
+			source: "workflow-jsonl" as const,
+			sourceLabel: "s",
+		};
+		const r = rec({ id: "x:dryidem", title: "Stable" });
+		await ingestRecords([r], opts); // create
+		// dry-run re-ingest of the SAME record → unchanged (content matches), 0 updated.
+		const sDry = await ingestRecords([r], { ...opts, dryRun: true });
+		expect(sDry.unchanged).toBe(1);
+		expect(sDry.updated).toBe(0);
+		expect(sDry.created).toBe(0);
+		// a CHANGED record in dry-run → updated (content differs), file NOT written.
+		const sDryUpd = await ingestRecords(
+			[rec({ id: "x:dryidem", title: "Changed" })],
+			{ ...opts, dryRun: true },
+		);
+		expect(sDryUpd.updated).toBe(1);
+		expect(existsSync(join(vault, FOLDER, "x-dryidem.md"))).toBe(true); // created earlier
+		const body = readFileSync(join(vault, FOLDER, "x-dryidem.md"), "utf8");
+		expect(body).toContain("Stable"); // dry-run wrote nothing → still the old title
 	});
 });
 
