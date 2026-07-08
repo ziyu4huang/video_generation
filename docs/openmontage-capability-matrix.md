@@ -31,7 +31,7 @@ correct starting point instead of re-deriving it.
 | `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), audio-track **injection** in `native-i2v`/`native-relay` | Python: joint A/V diffusion, not bolted-on TTS. Swift: see `--audio-track` caveat below — injection only, not conditioning. |
 | `multi_shot` | yes | `video relay`, `video segment` | `native-relay`, `native-storyboard` | continuous multi-segment + grid-guide storyboard |
 | `camera_direction` | yes (text-only) | `shotLanguage.ts` vocabulary (pan/tilt/dolly/track/crane/handheld/orbital/zoom/rack-focus) | same, via `bun-apps/pi-agent-ext-ltx` | prompt-text conditioning only — no dedicated camera-control LoRA wired in yet, see `project_camera_control_lora_research` memory |
-| `lip_sync` | **yes, verified 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | see "IA2V verification" below — required a vendor bug fix |
+| `lip_sync` | **yes (coarse), precision inadequate — measured 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | pipeline-verified 2026-07-08 (vendor bug fix); precision measured 2026-07-08, see `docs/lipsync-precision-measurement-20260708.md` — tracks speech-presence/absence, not phoneme-level mouth shape |
 | `dialogue_generation` | yes (same IA2V path) | same as above | not yet verified | speech-from-prompt/audio works "with effort" per `video-generate.py` module docstring voice tips |
 | `cinematic_quality` | unproven vs Kling/Veo | n/a | n/a | guidance parity is 3/3 (CFG/STG/modality) as of Milestone 2c, but no measured A/B claim vs premium providers exists |
 | `reference_to_video` | partial | — | `native-ingredients` (IC-LoRA ingredients) | scope vs OpenMontage's `reference_to_video` operation not yet verified |
@@ -80,15 +80,21 @@ identity). Full pipeline (Stage 1 dev+CFG, Stage 2 distilled, decode)
 completed without error; non-GPU pytest suite still green after the
 patch.
 
-**Not yet assessed**: actual lip-sync *accuracy* (does mouth motion
-track the audio waveform, or just "a face talking in general"?) — this
-verification only confirms the pipeline runs and produces a
-plausible-looking talking-portrait video, not that lip-sync precision
-matches dedicated commercial lipsync models (per the July 2026 WaveSpeed
-LTX-2.3-Lipsync / ComfyUI IA2V workflow research that motivated this
-spike). A frame-by-frame phoneme/mouth-shape correlation check would be
-the next step if lip-sync *precision* becomes load-bearing for a real
-integration decision.
+**Precision measured 2026-07-08** (full method + data in
+`docs/lipsync-precision-measurement-20260708.md`): a mouth-open-ratio
+(mediapipe FaceLandmarker) vs. audio-RMS-envelope correlation check across
+3 talking-portrait clips (continuous digits speech, plosive-heavy phrase,
+speech-with-real-silence-gaps) found **no measurable correlation during
+continuous speech** (lag0 Pearson r ≈ 0.01 and ≈ -0.006 on the two
+continuous-speech clips) and only a **coarse presence/absence signal**
+(r = 0.35 on the clip alternating speech and real silence). Verdict: plain
+IA2V lip-sync is *not* a substitute for a dedicated lip-sync model when
+phoneme-accurate mouth-shape matching matters — it produces "a face
+talking in general," gated by whether audio is present, not frame-accurate
+sync. The RunComfy "LTX-2.3 ICLoRA LipDub" workflow (external finding,
+`output/next-goal-20260708-235500.md`) is the correct escalation path if a
+concrete downstream need for precision lip-sync emerges; not imported
+speculatively.
 
 ## Swift coverage vs this checklist
 
