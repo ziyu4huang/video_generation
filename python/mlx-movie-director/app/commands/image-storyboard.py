@@ -106,25 +106,29 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
         help="Look/genre anchor baked into every panel (e.g. 'noir, 35mm film "
              "grain, teal-and-orange grade'). Optional.",
     )
-    # Step 1a (hardening): pin a FAST NON-THINKING instruct model for decomposition
-    # (a 7-12B instruct lands <60s vs gemma-4-26b's 3-5min thinking pass). Falls back
-    # to the gemma brain (vlm_model / the caption resolver) when unset.
+    # Step 1a: the DEFAULT gemma brain is already the FAST path — gemma_brain sends
+    # `reasoning_effort:"none"` (the knob LM Studio honors to suppress gemma-4-26b
+    # thinking) so decomposition lands in ~9s with no reasoning overhead. Pin a
+    # different LOADED brain here only to target a non-default model.
     parser.add_argument(
         "--decompose-model", type=str, default=None, dest="decompose_model",
-        help="Local LM Studio model id for the story→scene decomposition. Pin a "
-             "fast NON-THINKING instruct model here (e.g. a 7-12B Qwen/Llama instruct) "
-             "for a <60s decomposition; the default gemma brain is a 3-5min thinking "
-             "pass. Unset → the gemma brain (vlm_model / the caption resolver).",
+        help="Local LM Studio model id for the story→scene decomposition. The "
+             "default gemma brain is already the fast path (~9s via "
+             "reasoning_effort:none); set this only to target a different loaded "
+             "brain. Unset → the gemma brain (vlm_model / the caption resolver).",
     )
-    # Step 1b (hardening): the identity JUDGE tier. _vlm_verify_identity was authored
-    # for Qwen3-VL multi-image; gemma's multi-image JSON is flaky (1/4 parsed in #366).
+    # Step 1b: the identity JUDGE tier runs on the SAME local brain as decomposition
+    # — gemma-4-26b (NOT Qwen3-VL). The #366 multi-image JSON flakiness was a
+    # prompt/parse problem (now hardened in _vlm_verify_identity via
+    # reasoning_effort:none + strict parse), not a model problem.
     parser.add_argument(
-        "--identity-judge-model", type=str, default="qwen/qwen3-vl-4b",
+        "--identity-judge-model", type=str, default="google/gemma-4-26b-a4b-qat",
         dest="identity_judge_model",
         help="Local VLM model id for the multi-image identity judge "
-             "(_vlm_verify_identity). Default qwen/qwen3-vl-4b — the model the "
-             "identity prompt was authored for (gemma multi-image JSON is flaky). "
-             "Falls back to the gemma brain if Qwen3-VL is unavailable.",
+             "(_vlm_verify_identity). Default the gemma brain — the same local "
+             "model decomposition uses; its multi-image JSON is hardened with "
+             "reasoning_effort:none + strict parse. Falls back to vlm_model if "
+             "the configured id isn't loaded.",
     )
     # NOTE: --vlm-api-url / --vlm-model are NOT re-registered here — image-profile's
     # add_profile_args already registers them on the shared `image` parser (image.py
@@ -403,9 +407,8 @@ def _judge_identity(frames: list[dict[str, Any]], hero: str,
     _vlm_verify_identity = _identity_judge()
 
     api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
-    # Step 1b: the identity judge tier defaults to Qwen3-VL (the model the
-    # multi-image identity prompt was authored for; gemma's multi-image JSON is
-    # flaky). Falls back to the gemma brain when Qwen3-VL is unavailable.
+    # Step 1b: the identity judge runs on the gemma brain (the same local model
+    # decomposition uses); its multi-image JSON is hardened in _vlm_verify_identity.
     model = _resolve_identity_judge_model(api_url, args)
     recurr_set = set(recurring_ids)
     for f in frames:
@@ -493,19 +496,19 @@ def _identity_judge_models(api_url: str) -> set[str]:
 
 
 def _resolve_identity_judge_model(api_url: str, args: argparse.Namespace) -> str | None:
-    """Resolve the identity-judge VLM, preferring Qwen3-VL (Step 1b).
+    """Resolve the identity-judge VLM. Default is the gemma brain (Step 1b).
 
-    ``_vlm_verify_identity`` was authored for Qwen3-VL multi-image; gemma's
-    multi-image JSON is the flaky path (1/4 parsed in PR #366). Default
-    ``--identity-judge-model`` is qwen3-vl-4b. If that model is NOT loaded we fall
-    back to the gemma brain (so the loop still runs) rather than hard-failing.
+    The judge runs on the SAME local brain as decomposition — gemma-4-26b (the
+    default ``--identity-judge-model``), whose multi-image JSON is hardened in
+    ``_vlm_verify_identity``. If the configured id is NOT loaded, fall back to the
+    shared ``--vlm-model`` or the gemma brain resolver (so the loop still runs)
+    rather than None-binding.
     """
-    preferred = getattr(args, "identity_judge_model", None) or "qwen/qwen3-vl-4b"
+    preferred = getattr(args, "identity_judge_model", None) or "google/gemma-4-26b-a4b-qat"
     available = _identity_judge_models(api_url)
-    # Exact match, or a loaded id that contains the preferred family token.
-    if preferred in available or any("qwen3-vl" in m.lower() for m in available):
+    if not available or preferred in available:
         return preferred
-    # Fall back to the gemma brain (the proven single-image path) — never None-bind.
+    # Configured id isn't loaded — fall back to vlm_model / the gemma brain.
     return getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
 
 

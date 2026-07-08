@@ -1427,7 +1427,7 @@ def parse_pose_dsg(text: str | dict) -> dict:
 
 
 def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str,
-                    auto_load: bool = True) -> str:
+                    auto_load: bool = True, reasoning_effort: str | None = None) -> str:
     """Call OpenAI-compatible chat completions API with MULTIPLE images + text.
 
     Same as _call_vlm() but accepts a list of base64-encoded images. Each image
@@ -1440,6 +1440,9 @@ def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str
         b64_images: List of base64 JPEG strings, one per keyframe.
         prompt: Text prompt to accompany the images.
         auto_load: If True, ensure model is loaded in LM Studio first.
+        reasoning_effort: Optional OpenAI-style reasoning-effort knob (e.g. "none").
+            LM Studio honors ``"none"`` to suppress gemma-4 thinking, so multi-image
+            JSON tasks land cleanly in ``content`` with no reasoning interference.
 
     Returns:
         Raw text response from the VLM.
@@ -1462,6 +1465,8 @@ def _call_vlm_multi(api_url: str, model: str, b64_images: list[str], prompt: str
         "temperature": 0.3,
         "stream": False,
     }
+    if reasoning_effort is not None:
+        payload["reasoning_effort"] = reasoning_effort
 
     def _do_request():
         resp = requests.post(url, json=payload, timeout=_VLM_REQUEST_TIMEOUT)  # tolerates cold start
