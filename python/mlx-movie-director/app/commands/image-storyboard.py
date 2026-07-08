@@ -92,10 +92,24 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--story", type=str, default=None,
-        help="Free-form story text. The gemma brain decomposes it into a scene "
-             "list (production path). When the brain is unavailable, falls back to "
-             "a deterministic 3-beat decomposition so the pipeline still runs.",
+        help="Free-form story text. The local gemma brain decomposes it into a "
+             "SceneSpec list (Story2Board-shaped: N panels, consistent character "
+             "identity, diverse camera). When the brain is unavailable, falls back "
+             "to a deterministic 3-beat decomposition so the pipeline still runs.",
     )
+    parser.add_argument(
+        "--num-panels", type=int, default=4, metavar="N",
+        help="Number of storyboard panels to plan from --story (default: 4).",
+    )
+    parser.add_argument(
+        "--style-hint", type=str, default=None,
+        help="Look/genre anchor baked into every panel (e.g. 'noir, 35mm film "
+             "grain, teal-and-orange grade'). Optional.",
+    )
+    # NOTE: --vlm-api-url / --vlm-model are NOT re-registered here — image-profile's
+    # add_profile_args already registers them on the shared `image` parser (image.py
+    # calls it before add_storyboard_args), so args.vlm_api_url / args.vlm_model are
+    # already populated. Re-registering would raise a conflicting-option-string error.
     parser.add_argument(
         "--style-context", type=str, default=None,
         help="Path to a JSON style context (Layer 5: {mood, visual_language:{aesthetic}}).",
@@ -128,15 +142,24 @@ def _load_scenes(args: argparse.Namespace) -> list[SceneSpec]:
             raise ValueError(f"--scenes JSON must be a list, got {type(raw).__name__}")
         return [_scene_from_dict(s) for s in raw]
     if args.story:
-        # Production path: gemma decomposes the story. The brain is the local
-        # pi-agent (constraint 2). When unavailable, fall back deterministically
-        # so the pipeline still certifies end-to-end (never hard-fail on runtime).
+        # Production path: the local gemma brain decomposes the story into a
+        # SceneSpec list (constraint 2: brain = local gemma, never cloud). When the
+        # brain is unreachable / returns unparseable JSON, fall back deterministically
+        # so the pipeline still runs end-to-end (never hard-fail on runtime).
+        num_panels = getattr(args, "num_panels", None) or 4
+        style_hint = getattr(args, "style_hint", None)
+        api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
+        model = getattr(args, "vlm_model", None)
         try:
-            decomposed = _gemma_decompose(args.story)  # may raise if brain absent
-            if decomposed:
-                return decomposed
+            raw_scenes = _gemma_decompose(args.story, num_panels=num_panels,
+                                          api_url=api_url, model=model,
+                                          style_hint=style_hint)
+            scenes = [_scene_from_dict(s) for s in raw_scenes]
+            if scenes:
+                print(f"[storyboard] gemma decomposed {len(scenes)} panels.", flush=True)
+                return scenes
         except Exception as e:  # noqa: BLE001 — fall back is the documented behavior
-            print(f"[storyboard] gemma decomposition unavailable ({type(e).__name__}); "
+            print(f"[storyboard] gemma decomposition unavailable ({type(e).__name__}: {e}); "
                   f"using deterministic fallback.", flush=True)
         return _deterministic_fixture()
     # No scene source: default to the fixture (so `image storyboard` alone runs).
@@ -166,19 +189,23 @@ def _scene_from_dict(d: dict[str, Any]) -> SceneSpec:
     )
 
 
-def _gemma_decompose(story: str) -> list[SceneSpec]:
-    """Decompose a story into scenes via the local gemma brain.
+def _gemma_decompose(story: str, *, num_panels: int = 4,
+                     api_url: str = "http://localhost:1234/v1",
+                     model: str | None = None,
+                     style_hint: str | None = None) -> list[dict[str, Any]]:
+    """Decompose a story into SceneSpec-shaped dicts via the local gemma brain.
 
-    Stub for the production path: the template + brain call land with the
-    `data/storyboard_prompts/` planner integration (next-goal). Returning [] (or
-    raising) triggers the deterministic fallback above so the command is always
-    runnable. This keeps the gemma dependency honest: the decomposition IS gemma's
-    job, but the pipeline must not break when the brain is absent.
+    Thin wrapper over ``app.planning.gemma_brain.decompose_story``: builds the
+    Story2Board-shaped prompt, calls LM Studio (text-only completion), and parses
+    the strict ``SceneSpec[]`` JSON. Raises on unreachable brain / unparseable
+    output — the caller falls back deterministically so the pipeline never breaks.
+
+    LOCAL ONLY (constraint 2): the brain is the local gemma on LM Studio, never a
+    cloud LLM. Generation stays on run.py (constraint 1).
     """
-    # TODO(next-goal): load data/storyboard_prompts/decompose.md, call the local
-    # gemma brain (LM Studio / pi-agent), parse SceneSpec JSON. Until then, signal
-    # "not implemented" so the caller falls back deterministically.
-    raise NotImplementedError("gemma decomposition template not wired yet")
+    from app.planning.gemma_brain import decompose_story
+    return decompose_story(story, num_panels=num_panels, api_url=api_url,
+                           model=model, style_hint=style_hint)
 
 
 def _build_run_config(shot_prompt: str, args: argparse.Namespace,
@@ -270,28 +297,32 @@ def run_storyboard(args: argparse.Namespace) -> None:
     # land alongside storyboard.json. execute_generation reads cfg.OUTPUT_DIR via
     # make_output_paths(); save/restore so we don't leak the override.
     orig_output_dir = cfg.OUTPUT_DIR
-    cfg.OUTPUT_DIR = out_dir
+
+    def _gen(shot: Any) -> dict[str, Any]:
+        cfg.OUTPUT_DIR = out_dir
+        use_lock = shot.character_id is not None and shot.character_id in storyboard.recurring_characters
+        run_config = _build_run_config(shot.prompt, args, hero, use_lock)
+        manifest_file = execute_generation(run_config, pipeline_type=run_config.pipeline)
+        frame_path = _newest_png_in_dir(out_dir)
+        if not frame_path:
+            raise RuntimeError(f"shot {shot.scene_id} produced no image (manifest: {manifest_file})")
+        return {
+            "scene_id": shot.scene_id,
+            "character_id": shot.character_id,
+            "hero_moment": shot.hero_moment,
+            "character_locked": use_lock,
+            "prompt": shot.prompt,
+            "image": frame_path,
+            "manifest": manifest_file,
+        }
+
     frames: list[dict[str, Any]] = []
     try:
         for i, shot in enumerate(storyboard.shots):
-            use_lock = shot.character_id is not None and shot.character_id in storyboard.recurring_characters
-            run_config = _build_run_config(shot.prompt, args, hero, use_lock)
             tag = f"[storyboard {i + 1}/{len(storyboard.shots)}] {shot.scene_id}"
-            tag += f" (character-lock: {shot.character_id})" if use_lock else ""
+            tag += f" (character-lock: {shot.character_id})" if shot.character_id in storyboard.recurring_characters else ""
             print(f"{tag}\n  prompt: {shot.prompt[:120]}{'…' if len(shot.prompt) > 120 else ''}", flush=True)
-            manifest_file = execute_generation(run_config, pipeline_type=run_config.pipeline)
-            frame_path = _newest_png_in_dir(out_dir)
-            if not frame_path:
-                raise RuntimeError(f"shot {shot.scene_id} produced no image (manifest: {manifest_file})")
-            frames.append({
-                "scene_id": shot.scene_id,
-                "character_id": shot.character_id,
-                "hero_moment": shot.hero_moment,
-                "character_locked": use_lock,
-                "prompt": shot.prompt,
-                "image": frame_path,
-                "manifest": manifest_file,
-            })
+            frames.append(_gen(shot))
     finally:
         cfg.OUTPUT_DIR = orig_output_dir
 
@@ -299,9 +330,16 @@ def run_storyboard(args: argparse.Namespace) -> None:
     contact_path = os.path.join(out_dir, "contact_sheet.png")
     _build_contact_sheet([f["image"] for f in frames], contact_path)
 
-    # Optional closed-loop judge: mlx:caption --style score per frame.
+    # Optional closed-loop judge (constraint 3: orchestrator reads TEXT judgments,
+    # never pixels):
+    #   1. mlx:caption --style score per frame (quality).
+    #   2. For recurring characters with a hero: _vlm_verify_identity (multi-image
+    #      same_identity) per frame vs the hero; regenerate weak frames ONCE (OM D12).
     if args.judge:
         frames = _judge_frames(frames)
+        if hero and storyboard.recurring_characters:
+            frames = _judge_identity(frames, hero, storyboard.recurring_characters, args)
+            frames = _regenerate_weak_identity(frames, args, hero, out_dir, orig_output_dir)
 
     storyboard_json = os.path.join(out_dir, "storyboard.json")
     payload = {
@@ -320,6 +358,102 @@ def run_storyboard(args: argparse.Namespace) -> None:
     print(f"  contact sheet : {contact_path}", flush=True)
     print(f"  plan          : {storyboard_json}", flush=True)
     print(f"Manifest:   {storyboard_json}")  # sentinel so adapters can find the artifact
+
+
+def _identity_judge():
+    """Lazy-load ``_vlm_verify_identity`` from the hyphenated image-profile module.
+
+    ``app/commands/image-profile.py`` has a hyphen → not importable as a bare
+    ``image_profile`` name; must go through importlib (like image.py does).
+    """
+    import importlib
+    return importlib.import_module("app.commands.image-profile")._vlm_verify_identity
+
+
+def _judge_identity(frames: list[dict[str, Any]], hero: str,
+                    recurring_ids: list[str], args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Judge each recurring-character frame against the hero via the multi-image
+    identity VLM (``image-profile._vlm_verify_identity`` → same_identity /
+    face_match / identity_score). Best-effort: records the verdict on the frame
+    and flags ``identity_weak`` when identity doesn't hold (constraint 3: the
+    orchestrator reads TEXT judgments, never pixels). No regen here.
+    """
+    _vlm_verify_identity = _identity_judge()
+
+    api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
+    model = getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
+    recurr_set = set(recurring_ids)
+    for f in frames:
+        if f.get("character_id") not in recurr_set:
+            continue
+        verdict = _vlm_verify_identity(hero, f["image"], api_url, model)
+        f["identity"] = verdict
+        if verdict is None:
+            f["identity_weak"] = None  # judge unavailable — can't decide
+            print(f"  [identity] {f['scene_id']} judge unavailable (skipped)", flush=True)
+            continue
+        same = bool(verdict.get("same_identity", False))
+        score = verdict.get("identity_score")
+        weak = (not same) or (isinstance(score, (int, float)) and score < 0.6)
+        f["identity_weak"] = weak
+        print(f"  [identity] {f['scene_id']}: same={same} score={score} "
+              f"{'→ WEAK (will regen)' if weak else '→ ok'}", flush=True)
+    return frames
+
+
+def _regenerate_weak_identity(frames: list[dict[str, Any]], args: argparse.Namespace,
+                              hero: str, out_dir: str, orig_output_dir: str) -> list[dict[str, Any]]:
+    """Closed loop (OM D12): regenerate each identity-weak frame ONCE under the
+    same character-lock, then re-judge. Frames already regenerated or whose judge
+    was unavailable are left alone. Best-effort: a regen failure keeps the original.
+    """
+    from app.commands._shared import execute_generation
+    _vlm_verify_identity = _identity_judge()
+
+    api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
+    model = getattr(args, "vlm_model", None) or _resolve_brain_model(api_url)
+    weak = [f for f in frames if f.get("identity_weak") is True and not f.get("regen_attempted")]
+    if not weak:
+        return frames
+    print(f"[storyboard] regenerating {len(weak)} identity-weak frame(s) once (OM D12 loop)", flush=True)
+    cfg.OUTPUT_DIR = out_dir
+    try:
+        for f in weak:
+            f["regen_attempted"] = True
+            try:
+                run_config = _build_run_config(f["prompt"], args, hero, use_character_lock=True)
+                execute_generation(run_config, pipeline_type=run_config.pipeline)
+                new_img = _newest_png_in_dir(out_dir)
+                if new_img:
+                    f["image"] = new_img
+                    f["regenerated"] = True
+            except Exception as e:  # noqa: BLE001 — keep the original frame on regen failure
+                ename = type(e).__name__
+                f["regen_error"] = f"{ename}: {e}"
+                sid = f["scene_id"]
+                print(f"  [regen] {sid} failed ({ename}); kept original", flush=True)
+                continue
+            # Re-judge the regenerated image.
+            verdict = _vlm_verify_identity(hero, f["image"], api_url, model)
+            f["identity_post_regen"] = verdict
+            if verdict is not None:
+                f["identity_weak"] = (not bool(verdict.get("same_identity", False))) or (
+                    isinstance(verdict.get("identity_score"), (int, float))
+                    and verdict["identity_score"] < 0.6)
+            print(f"  [regen] {f['scene_id']} re-judged: same={verdict.get('same_identity') if verdict else 'n/a'}",
+                  flush=True)
+    finally:
+        cfg.OUTPUT_DIR = orig_output_dir
+    return frames
+
+
+def _resolve_brain_model(api_url: str) -> str:
+    """Resolve the local gemma brain model id (same resolver as `run.py caption`)."""
+    try:
+        from app.commands.caption import resolve_default_model
+        return resolve_default_model(api_url)
+    except Exception:  # noqa: BLE001 — caller treats None as "let LM Studio pick"
+        return None
 
 
 def _judge_frames(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
