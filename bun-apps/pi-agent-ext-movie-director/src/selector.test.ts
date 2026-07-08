@@ -4,7 +4,7 @@ import {
   rankedProviders,
   NoConfiguredProviderError,
 } from "./selector.ts";
-import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest } from "./providers.ts";
+import { _setFfmpegAvailableForTest, _setRemotionProbeForTest, _setMotionFiltersForTest, _setWhisperRuntimeForTest, _setVisionRuntimeForTest, _setRunPyRuntimeForTest } from "./providers.ts";
 import { REGISTRY, type Capability } from "./registry.ts";
 
 // Selector availability is runtime-probed (ffmpeg on PATH, cloud keys in env).
@@ -19,6 +19,10 @@ beforeAll(() => {
   _setMotionFiltersForTest(false);
   _setWhisperRuntimeForTest(true);
   _setVisionRuntimeForTest("clip", true);
+  // run.py runtime present so mlx:runpy / mlx:runpy-image are callable regardless
+  // of whether this host has recreated python/venv (keeps the command-routing +
+  // capability-coverage tests host-independent).
+  _setRunPyRuntimeForTest(true);
 });
 afterAll(() => {
   _setFfmpegAvailableForTest(undefined);
@@ -26,6 +30,7 @@ afterAll(() => {
   _setMotionFiltersForTest(undefined);
   _setWhisperRuntimeForTest(undefined);
   _setVisionRuntimeForTest("clip", undefined);
+  _setRunPyRuntimeForTest(undefined);
 });
 
 const NO_ENV: Record<string, string | undefined> = {};
@@ -132,11 +137,25 @@ describe("selectProvider command routing", () => {
   });
 
   it("a command no provider declares falls back to the backend-rank pick (soft)", () => {
-    // image_generation providers don't declare `commands`; an arbitrary command
-    // must NOT change behavior — the pick matches the command-less selector.
+    // image_generation's Swift directors don't declare `commands`, and runpy_image
+    // does NOT claim "t2i" (basic t2i/i2i stay on the Swift directors). So an
+    // unclaimed command like "t2i" must NOT change behavior — the pick matches the
+    // command-less selector (krea2, the first-declared native_swift director).
     const withCmd = selectProvider("image_generation", { command: "t2i", env: NO_ENV });
     const noCmd = selectProvider("image_generation", { env: NO_ENV });
     expect(withCmd.name).toBe(noCmd.name);
+  });
+
+  it("routes image_generation:<run.py-only command> → runpy-image (the force multiplier)", () => {
+    // runpy_image declares controlnet/faceswap/swap/anime2real/profile/angle/purify/
+    // restore/multicouple/twosubject/workflow/expansion/i2i — commands the Swift
+    // directors don't claim. Command routing sends them to the run.py adapter with
+    // no provider hint, unlocking ~15 local capabilities the agent otherwise can't reach.
+    for (const cmd of ["controlnet", "faceswap", "profile", "twosubject", "swap"]) {
+      const e = selectProvider("image_generation", { command: cmd, env: NO_ENV });
+      expect(e.provider).toBe("runpy-image");
+      expect(e.invoke).toBe("mlx:runpy-image");
+    }
   });
 
   it("an explicit provider hint still wins over a command match", () => {

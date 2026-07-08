@@ -140,14 +140,23 @@ function ltxBinaryPresent(): boolean {
 }
 
 /** True if the MLX venv python AND run.py resolve (never throws). */
+let runPyRuntimeCached: boolean | undefined;
 function runPyRuntimePresent(): boolean {
+  if (runPyRuntimeCached != null) return runPyRuntimeCached;
   try {
     const repoRoot = resolveRepoRoot();
     const { python, runPy } = resolveRunPyPaths(repoRoot);
-    return existsSync(python) && existsSync(runPy);
+    runPyRuntimeCached = existsSync(python) && existsSync(runPy);
+    return runPyRuntimeCached;
   } catch {
+    runPyRuntimeCached = false;
     return false;
   }
+}
+
+/** Force the run.py-runtime probe result (tests inject a deterministic value). */
+export function _setRunPyRuntimeForTest(v: boolean | undefined): void {
+  runPyRuntimeCached = v;
 }
 
 /**
@@ -199,6 +208,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // callable iff the MLX venv python AND run.py resolve (env-overridable via
       // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present
       // on any machine that has recreated python/venv per CLAUDE.md.
+      return entry.configured && runPyRuntimePresent();
+    case "mlx:runpy-image":
+      // callable iff run.py + the MLX venv resolve — same presence signal as
+      // mlx:runpy (image is a run.py subcommand family). Whether a specific
+      // sub-action's models are present is a RUNTIME concern (run.py resolves
+      // them from mlx-models); the static probe stays honest about the runtime.
       return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
       // callable iff run.py + the MLX venv resolve — same presence signal as
