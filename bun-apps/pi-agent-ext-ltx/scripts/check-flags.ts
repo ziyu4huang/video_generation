@@ -16,6 +16,10 @@ import { EXTRA_ARG_ALLOW } from "../src/index.ts";
 // Flags ltx-video emits that we deliberately do NOT model (builtins / diagnostic-only).
 const ALLOW_SKIP: Record<string, string[]> = {
   "*": ["--version", "--help", "-h"],
+  // Diagnostic-only timing/caching-experiment flags (project_teacache_style_
+  // caching_research memory: "measurement only... quality-verdict prototype,
+  // not a default-on optimization") — deliberately not agent-facing.
+  t2i: ["--profile-substeps", "--profile-blocks", "--profile-similarity", "--profile-attn-mlp", "--cache-skip-step"],
 };
 
 interface Report {
