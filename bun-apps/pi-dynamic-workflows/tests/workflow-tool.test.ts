@@ -1,6 +1,15 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { backgroundStartedText, createWorkflowTool, modelRoutingGuideline } from "../src/workflow-tool.js";
+import {
+  backgroundStartedText,
+  buildSimplifiedGuidelines,
+  buildVerboseGuidelines,
+  buildWorkflowGuidelinesForTurn,
+  buildWorkflowPointerGuideline,
+  createWorkflowTool,
+  modelRoutingGuideline,
+  shouldInjectFullWorkflowGuidelines,
+} from "../src/workflow-tool.js";
 
 // ─── backgroundStartedText ─────────────────────────────────────────────────────
 
@@ -50,23 +59,43 @@ test("createWorkflowTool has promptSnippet", () => {
   assert.ok(tool.promptSnippet.includes("workflow"), "should contain workflow");
 });
 
-test("createWorkflowTool has promptGuidelines array", () => {
+test("createWorkflowTool no longer carries static promptGuidelines (migrated to before_agent_start)", () => {
+  // The authoring guidelines were migrated off the tool's static promptGuidelines
+  // into the extension's before_agent_start conditional injection (Layer-3 gate).
+  // The tool stays always-active + keeps promptSnippet for discoverability, but
+  // must NOT carry the full guideline block as an always-on tax.
   const tool = createWorkflowTool();
-  assert.ok(Array.isArray(tool.promptGuidelines), "tool.promptGuidelines should be an array");
-  assert.ok(tool.promptGuidelines.length > 5, "should have several guidelines");
+  assert.equal(
+    (tool as { promptGuidelines?: unknown }).promptGuidelines,
+    undefined,
+    "tool should NOT define static promptGuidelines after the Layer-3 migration",
+  );
+  const verboseTool = createWorkflowTool({ verboseWorkflowGuidelines: true });
+  assert.equal(
+    (verboseTool as { promptGuidelines?: unknown }).promptGuidelines,
+    undefined,
+    "verbose tool should NOT define static promptGuidelines either",
+  );
 });
 
-test("createWorkflowTool promptGuidelines mention model routing", () => {
+test("createWorkflowTool keeps promptSnippet for discoverability", () => {
   const tool = createWorkflowTool();
-  const all = tool.promptGuidelines.join(" ");
+  assert.ok(tool.promptSnippet, "promptSnippet should remain for discoverability");
+  assert.ok(tool.promptSnippet.includes("workflow"), "snippet should mention workflow");
+});
+
+test("buildSimplifiedGuidelines is the default full authoring set", () => {
+  const guidelines = buildSimplifiedGuidelines();
+  assert.ok(Array.isArray(guidelines), "should be an array");
+  assert.ok(guidelines.length > 5, "should have several guidelines");
+  const all = guidelines.join(" ");
   assert.ok(all.includes("opts.tier"), "should mention opts.tier");
   assert.ok(all.includes("opts.model"), "should mention opts.model");
   assert.ok(all.includes("small") || all.includes("medium") || all.includes("big"), "should mention tier names");
 });
 
-test("createWorkflowTool promptGuidelines keep budget and timeout unbounded by default", () => {
-  const tool = createWorkflowTool();
-  const all = tool.promptGuidelines.join(" ");
+test("buildSimplifiedGuidelines keeps budget and timeout unbounded by default", () => {
+  const all = buildSimplifiedGuidelines().join(" ");
   assert.match(all, /do not set tokenBudget or agentTimeoutMs/i);
   assert.match(all, /defaults are unbounded/i);
 });
@@ -87,13 +116,97 @@ test("createWorkflowTool schema exposes concurrency and agentRetries", () => {
   assert.match(parameters.properties?.agentRetries?.description ?? "", /Retry attempts/i);
 });
 
-test("createWorkflowTool verbose promptGuidelines mention retry and concurrency controls", () => {
-  const tool = createWorkflowTool({ verboseWorkflowGuidelines: true });
-  const all = tool.promptGuidelines.join(" ");
-
+test("buildVerboseGuidelines mentions retry and concurrency controls", () => {
+  const all = buildVerboseGuidelines().join(" ");
   assert.match(all, /low concurrency/i);
   assert.match(all, /agentRetries/i);
   assert.match(all, /null handling/i);
+});
+
+// ─── Layer-3 conditional injection: intent detector + turn builder ─────────────
+// These back the extension's before_agent_start handler: on a workflow-intent
+// turn the FULL authoring block is injected; otherwise just a one-line pointer.
+// Keep-when-unsure: ambiguous prompts get the pointer, but the tool stays
+// always-active so a workflow the model starts still self-corrects via
+// workflow_help (near-zero false-negative cost).
+
+test("shouldInjectFullWorkflowGuidelines: explicit workflow vocabulary → full", () => {
+  assert.equal(shouldInjectFullWorkflowGuidelines("write a workflow that fans out to audit the repo", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("orchestrate multi-agent research across the repo", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("use a pipeline of agents to review these", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("run a workflow to inventory the modules", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("fan-out subagents for this", false), true);
+});
+
+test("shouldInjectFullWorkflowGuidelines: decomposable-work verbs → full", () => {
+  // analyze/research/survey/audit/investigate/review + (the|this|all|...) — these
+  // are legitimate workflow candidates, so keep full guidance.
+  assert.equal(shouldInjectFullWorkflowGuidelines("analyze the codebase for bugs", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("research this dependency tree", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("survey all the extensions for cost", false), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("review every package's tests", false), true);
+});
+
+test("shouldInjectFullWorkflowGuidelines: plain direct action → pointer (not full)", () => {
+  // Common file/read/edit/test turns must NOT carry the full guideline tax.
+  assert.equal(shouldInjectFullWorkflowGuidelines("read this file", false), false);
+  assert.equal(shouldInjectFullWorkflowGuidelines("edit the function to return early", false), false);
+  assert.equal(shouldInjectFullWorkflowGuidelines("fix the typo on line 42", false), false);
+  assert.equal(shouldInjectFullWorkflowGuidelines("run the test suite", false), false);
+  assert.equal(shouldInjectFullWorkflowGuidelines("what does this function do?", false), false);
+});
+
+test("shouldInjectFullWorkflowGuidelines: effort armed → always full", () => {
+  // /effort high|ultra is standing workflow context — full regardless of prompt.
+  assert.equal(shouldInjectFullWorkflowGuidelines("read this file", true), true);
+  assert.equal(shouldInjectFullWorkflowGuidelines("", true), true);
+});
+
+test("shouldInjectFullWorkflowGuidelines: empty/undefined prompt → pointer (no effort)", () => {
+  assert.equal(shouldInjectFullWorkflowGuidelines("", false), false);
+  assert.equal(shouldInjectFullWorkflowGuidelines(undefined as unknown as string, false), false);
+});
+
+test("buildWorkflowPointerGuideline is a short pointer advertising workflow_help", () => {
+  const pointer = buildWorkflowPointerGuideline();
+  assert.equal(typeof pointer, "string");
+  // Must be MUCH shorter than the full block (~pointer ≪ 722 tok).
+  assert.ok(pointer.length < 400, `pointer should be short, got ${pointer.length} chars`);
+  assert.match(pointer, /workflow/i);
+  assert.match(pointer, /workflow_help/i, "pointer must advertise workflow_help for self-correction");
+});
+
+test("buildWorkflowGuidelinesForTurn: full turn returns the full authoring block", () => {
+  const full = buildWorkflowGuidelinesForTurn({ full: true });
+  const simplified = buildSimplifiedGuidelines().join("\n");
+  assert.equal(full, simplified, "full non-verbose turn = simplified set joined by newlines");
+  // Sanity: the full block carries the correctness essentials.
+  assert.match(full, /export const meta/);
+  assert.match(full, /parallel\(\) takes functions/);
+  assert.match(full, /defaults are unbounded/);
+});
+
+test("buildWorkflowGuidelinesForTurn: full+verbose returns the verbose set", () => {
+  const fullVerbose = buildWorkflowGuidelinesForTurn({ full: true, verbose: true });
+  const verbose = buildVerboseGuidelines().join("\n");
+  assert.equal(fullVerbose, verbose, "full verbose turn = verbose set joined by newlines");
+  assert.match(fullVerbose, /low concurrency/);
+});
+
+test("buildWorkflowGuidelinesForTurn: non-workflow turn returns only the pointer", () => {
+  const pointer = buildWorkflowGuidelinesForTurn({ full: false });
+  assert.equal(pointer, buildWorkflowPointerGuideline());
+  // The pointer must NOT contain the heavy authoring bullets.
+  assert.doesNotMatch(pointer, /export const meta/);
+  assert.doesNotMatch(pointer, /parallel\(\) takes functions/);
+});
+
+test("buildWorkflowGuidelinesForTurn: full block is much larger than the pointer (the tax we save)", () => {
+  const full = buildWorkflowGuidelinesForTurn({ full: true });
+  const pointer = buildWorkflowGuidelinesForTurn({ full: false });
+  // Measured: full ≈668 tok, pointer ≈71 tok (~9x). Net ~−597 tok on every
+  // non-workflow turn vs. the old always-on static promptGuidelines.
+  assert.ok(full.length > pointer.length * 8, "full block should be ~9x the pointer length");
 });
 
 // ─── modelRoutingGuideline ──────────────────────────────────────────────────────

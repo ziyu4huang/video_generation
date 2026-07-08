@@ -119,7 +119,17 @@ export {
   saveWorkflowSettingsForCwd,
 } from "./workflow-settings.js";
 export type { WorkflowToolInput, WorkflowToolOptions } from "./workflow-tool.js";
-export { backgroundStartedText, createWorkflowHelpTool, createWorkflowTool } from "./workflow-tool.js";
+export {
+  backgroundStartedText,
+  buildSimplifiedGuidelines,
+  buildVerboseGuidelines,
+  buildWorkflowGuidelinesForTurn,
+  buildWorkflowPointerGuideline,
+  createWorkflowHelpTool,
+  createWorkflowTool,
+  modelRoutingGuideline,
+  shouldInjectFullWorkflowGuidelines,
+} from "./workflow-tool.js";
 export {
   keyToAction,
   type NavAction,

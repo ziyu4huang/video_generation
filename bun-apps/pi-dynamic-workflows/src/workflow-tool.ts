@@ -207,14 +207,22 @@ export interface WorkflowToolOptions {
 }
 
 /**
- * Minimal guidelines for everyday use. ~11 bullets vs 22 in the full set.
- * Covers correctness essentials only (JS-only, globals, parallel()/null rules,
- * budget safety, background-default, model-routing essentials). The advanced
- * reference (quality helpers, phase tracking, synthesis/pipeline patterns,
- * retry/concurrency tuning, the full available-model list) is served on demand
- * by workflow_help({topic}), not inlined — see workflowHelpersDoc() etc. below.
+ * The default workflow-authoring guideline set, injected on workflow-intent
+ * turns (the ~12-bullet set). Covers correctness essentials (JS-only, globals,
+ * parallel()/null rules, budget safety, background-default, model-routing
+ * essentials). The advanced reference (quality helpers, phase tracking,
+ * synthesis/pipeline patterns, retry/concurrency tuning, the full
+ * available-model list) is served on demand by workflow_help({topic}), not
+ * inlined — see workflowHelpersDoc() etc. below.
+ *
+ * NOTE: these guidelines are NO LONGER a static `promptGuidelines` on the
+ * workflow tool. They are injected per-turn by the extension's
+ * `before_agent_start` handler (see buildWorkflowGuidelinesForTurn below) —
+ * full on workflow-intent turns, a one-line pointer otherwise. This keeps the
+ * workflow tool discoverable (always-active + promptSnippet) without paying
+ * the always-on guideline tax on non-workflow turns.
  */
-function buildSimplifiedGuidelines(): string[] {
+export function buildSimplifiedGuidelines(): string[] {
   return [
     "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
     "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
@@ -230,6 +238,100 @@ function buildSimplifiedGuidelines(): string[] {
     agentTypeGuideline(),
     "For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: \"helpers\" (verify/judgePanel/loopUntilDry/completenessCheck), \"budget\" (tokenBudget/phase budget/retry/gate), \"phases\" (phase() tracking), \"patterns\" (pipeline()/opts.schema/synthesis), \"models\" (full available-model list).",
   ].filter((g): g is string => typeof g === "string" && g.length > 0);
+}
+
+/**
+ * The verbose workflow-authoring guideline set (~22 bullets), used when the
+ * user opts into verboseWorkflowGuidelines. Inlines the advanced reference
+ * (quality helpers, phase tracking, budget bounding, pipeline patterns) that
+ * the simplified set defers to workflow_help. Extracted verbatim from the old
+ * static promptGuidelines so verbose-mode behavior is byte-identical.
+ */
+export function buildVerboseGuidelines(): string[] {
+  return [
+    "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
+    "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
+    "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description', phases: [{ title: 'Phase name' }] }`; meta.name and meta.description are required non-empty strings.",
+    "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
+    "For workflow, available globals are agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args, cwd, process.cwd(), and budget. Every workflow must call agent() at least once; do not use workflow only to declare phases or return a static object.",
+    "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic.",
+    "For workflow, when meta.phases declares more than one phase, call phase('Exact Title') at the start of each phase's work (or set opts.phase on each agent) so every agent groups under the correct phase; never declare a phase you don't switch into — a declared phase with no agents shows as 0/0 and any agent you forgot to move stays in the previous phase.",
+    "For workflow, do not set tokenBudget or agentTimeoutMs unless the user explicitly asks to cap spend or time; the defaults are unbounded.",
+    "For workflow, to bound spend: pass tokenBudget for a hard run-wide cap; carve a per-phase ceiling with phase('Name', {budget: N}) (that phase throws at its sub-budget without touching the run total — wrap its work in try/catch so later phases proceed); use retry(thunk, {attempts, until}) for bounded retry, and gate(thunk, validator, {attempts}) when a validator's feedback should steer the next attempt. To degrade gracefully, branch on budget.remaining() to skip optional rounds or choose a lighter tier.",
+    "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
+    "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
+    "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
+    "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
+    "For workflow, use low concurrency and agentRetries for unstable provider/transport fan-out runs; retries apply only to recoverable agent failures and still require explicit null handling after exhaustion.",
+    "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
+    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
+    "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
+    modelRoutingGuideline(),
+    agentTypeGuideline(),
+    "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
+    "For workflow, runs are background by default: the tool returns immediately with a run ID, the turn ends so the user isn't blocked, and the result is delivered back into the conversation when the run finishes. Pass background: false only when you must use the result inline in this same turn (it will block).",
+    "For workflow, you may call `await workflow('saved-name', argsObject)` to run a saved workflow inline and use its result; nesting is one level deep only, and the global 16-concurrent / 1000-total caps hold across the nesting.",
+  ].filter((g): g is string => typeof g === "string" && g.length > 0);
+}
+
+/**
+ * The slim one-line pointer injected on NON-workflow turns. Tells the model the
+ * workflow tool exists and where full authoring guidance loads from, without
+ * paying the full guideline block's token cost. The model can still
+ * spontaneously start a workflow (tool stays always-active) and self-correct
+ * via workflow_help.
+ */
+export function buildWorkflowPointerGuideline(): string {
+  return [
+    "For workflow, the workflow tool is available for deterministic multi-agent orchestration (fan-out/pipeline/parallel subagents).",
+    "Full authoring guidance loads on demand via workflow_help({topic}) — call it before authoring a script, or it loads automatically when you start a workflow.",
+  ].join(" ");
+}
+
+/**
+ * Conservative keep-when-unsure intent detector. Returns true when the current
+ * turn looks like a workflow turn (full guidelines injected), false when it is
+ * clearly a plain/direct action (only the pointer is injected).
+ *
+ * Signals (any one → full):
+ *   - effort mode armed (high|ultra): standing workflow context.
+ *   - workflow vocabulary in the prompt: explicit ask OR decomposable-work
+ *     verbs (fan-out, orchestrate, multi-agent, subagent, pipeline of agents,
+ *     research/survey/audit/investigate/analyze/review the codebase/repo/...).
+ *
+ * Ambiguous prompts that match none of these still get the pointer, NOT full —
+ * because the pointer itself advertises the tool + workflow_help, so a
+ * workflow the model decides to start mid-turn still self-corrects. This is
+ * the intended safety: near-zero false-NEGATIVE cost (authoring never breaks)
+ * while saving the guideline tax on the common file/read/edit/test turns.
+ */
+const WORKFLOW_INTENT_RE =
+  /\b(workflows?|fan[- ]?out|orchestrat\w*|multi[- ]?agent|sub[- ]?agents?|parallel\s+agents|pipeline\s+of\s+agents|run\s+a\s+workflow)\b|\b(research|survey|audit|investigate|review|analyze|analyse)\s+(the|this|all|every|our)\s+\w+/i;
+
+export function shouldInjectFullWorkflowGuidelines(prompt: string, effortArmed: boolean): boolean {
+  if (effortArmed) return true;
+  if (!prompt) return false;
+  return WORKFLOW_INTENT_RE.test(prompt);
+}
+
+export interface WorkflowGuidelinesForTurnOptions {
+  /** True → inject the full authoring block; false → inject the pointer. */
+  full: boolean;
+  /** When full, use the verbose ~22-bullet set instead of the default ~12. */
+  verbose?: boolean;
+}
+
+/**
+ * Single source of truth for what the before_agent_start handler appends to the
+ * system prompt each turn. Returns one block string (full set joined by
+ * newlines, or the pointer). The extension handler simply does
+ * `{ systemPrompt: base + "\n\n" + block }`.
+ */
+export function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelinesForTurnOptions): string {
+  if (options.full) {
+    return (options.verbose ? buildVerboseGuidelines() : buildSimplifiedGuidelines()).join("\n");
+  }
+  return buildWorkflowPointerGuideline();
 }
 
 export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefinition<typeof workflowToolSchema, any> {
@@ -256,32 +358,12 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     ].join(" "),
     promptSnippet:
       "Run a deterministic JavaScript workflow. Required script header: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }.",
-    promptGuidelines: options.verboseWorkflowGuidelines
-      ? [
-          "Use workflow only when the user explicitly asks for a workflow, workflows, fan-out, or multi-agent orchestration.",
-          "For workflow, always pass one raw JavaScript string in the required script parameter; do not include Markdown fences or prose around the script.",
-          "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description', phases: [{ title: 'Phase name' }] }`; meta.name and meta.description are required non-empty strings.",
-          "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
-          "For workflow, available globals are agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args, cwd, process.cwd(), and budget. Every workflow must call agent() at least once; do not use workflow only to declare phases or return a static object.",
-          "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic.",
-          "For workflow, when meta.phases declares more than one phase, call phase('Exact Title') at the start of each phase's work (or set opts.phase on each agent) so every agent groups under the correct phase; never declare a phase you don't switch into — a declared phase with no agents shows as 0/0 and any agent you forgot to move stays in the previous phase.",
-          "For workflow, do not set tokenBudget or agentTimeoutMs unless the user explicitly asks to cap spend or time; the defaults are unbounded.",
-          "For workflow, to bound spend: pass tokenBudget for a hard run-wide cap; carve a per-phase ceiling with phase('Name', {budget: N}) (that phase throws at its sub-budget without touching the run total — wrap its work in try/catch so later phases proceed); use retry(thunk, {attempts, until}) for bounded retry, and gate(thunk, validator, {attempts}) when a validator's feedback should steer the next attempt. To degrade gracefully, branch on budget.remaining() to skip optional rounds or choose a lighter tier.",
-          "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
-          "For workflow, parallel() takes functions, not promises: use `await parallel(items.map(item => () => agent('...', { label: '...' })))`, never `await parallel(items.map(item => agent(...)))`. Results are returned in input order.",
-          "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
-          "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
-          "For workflow, use low concurrency and agentRetries for unstable provider/transport fan-out runs; retries apply only to recoverable agent failures and still require explicit null handling after exhaustion.",
-          "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
-          "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
-          "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
-          modelRoutingGuideline(),
-          agentTypeGuideline(),
-          "For workflow, do not assume the parent assistant has repository code context inside subagents; include enough task context and relevant paths in each agent prompt.",
-          "For workflow, runs are background by default: the tool returns immediately with a run ID, the turn ends so the user isn't blocked, and the result is delivered back into the conversation when the run finishes. Pass background: false only when you must use the result inline in this same turn (it will block).",
-          "For workflow, you may call `await workflow('saved-name', argsObject)` to run a saved workflow inline and use its result; nesting is one level deep only, and the global 16-concurrent / 1000-total caps hold across the nesting.",
-        ].filter((g): g is string => typeof g === "string" && g.length > 0)
-      : buildSimplifiedGuidelines(),
+    // Guidelines are NO LONGER static here — they are injected per-turn by the
+    // extension's before_agent_start handler (buildWorkflowGuidelinesForTurn):
+    // full authoring block on workflow-intent turns, a one-line pointer
+    // otherwise. The tool stays always-active for discoverability; see
+    // extensions/workflow.ts. Keeping the tool's schema slim saves ~722 tok
+    // (the full guideline block) on every non-workflow turn.
     parameters: workflowToolSchema,
     prepareArguments(args) {
       return normalizeWorkflowToolArgs(args);

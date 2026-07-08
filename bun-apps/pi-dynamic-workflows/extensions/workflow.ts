@@ -4,6 +4,7 @@ import {
   createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
+  buildWorkflowGuidelinesForTurn,
   installResultDelivery,
   installTaskPanel,
   installWorkflowEditor,
@@ -15,6 +16,7 @@ import {
   registerWorkflowCommands,
   registerWorkflowModelsCommand,
   saveWorkflowSettingsForCwd,
+  shouldInjectFullWorkflowGuidelines,
   WorkflowManager,
 } from "../src/index.js";
 
@@ -44,6 +46,28 @@ export default function extension(pi: ExtensionAPI) {
   // and appear only in the turn they are requested (tool result, not schema).
   const workflowHelpTool = createWorkflowHelpTool();
   pi.registerTool(workflowHelpTool);
+
+  // Layer-3 conditional guideline injection. The workflow tool's authoring
+  // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
+  // are injected here, per-turn, by before_agent_start:
+  //   - workflow-intent turn (vocab match or effort armed) → full authoring block (~668 tok)
+  //   - otherwise → a one-line pointer (~71 tok; tool stays always-active, so
+  //     the model can still start a workflow and self-correct via workflow_help).
+  // Cache cost of the per-turn swap is ~0 on BOTH cloud and local: the Goal 4
+  // probes (cache-probe-workflow.mjs + cache-probe-workflow-local.mjs) confirmed
+  // multi-entry prefix caching on zai AND on local LM Studio/MLX gemma
+  // (transition latency 0.98× warm). Net ~−597 tok on every non-workflow turn.
+  pi.on("before_agent_start", (event: { prompt?: string; systemPrompt?: string }) => {
+    const prompt = typeof event.prompt === "string" ? event.prompt : "";
+    const effortArmed = effort.level !== "off";
+    const full = shouldInjectFullWorkflowGuidelines(prompt, effortArmed);
+    const block = buildWorkflowGuidelinesForTurn({
+      full,
+      verbose: settings.verboseWorkflowGuidelines,
+    });
+    const base = event.systemPrompt ?? "";
+    return { systemPrompt: `${base}\n\n${block}` };
+  });
   // Standing /effort opt-in (off|high|ultra): auto-arms a workflow for substantive
   // messages, like CC's ultracode. Shared with the editor's input hook below and
   // with the explicit /workflows run <prompt> manual trigger.
