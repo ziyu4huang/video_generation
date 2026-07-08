@@ -304,6 +304,7 @@ class LTXVideoPipeline:
         cfg_scale: float = 5.0,
         stg_scale: float = 1.0,
         image: str | None = None,
+        images: list | None = None,
         audio_path: str | None = None,
         audio_stage1_only: bool = False,
         audio_cfg_scale: float | None = None,
@@ -317,6 +318,13 @@ class LTXVideoPipeline:
         It does not affect image conditioning (I2V) or keyframe enforcement (FLF2V).
         Use 5.0 for T2V/I2V, 3.0 for FLF2V, 1.0 for distilled mode.
 
+        Image conditioning has two forms:
+          * ``image`` — single-anchor shorthand (frame_idx=0, strength=1.0).
+          * ``images`` — multi-anchor list of ``ImageConditioningInput``
+            (path, frame_idx, strength) for repeatable ``--image`` I2V,
+            unblocked upstream by bd2217a (v0.14.15). When ``images`` is
+            non-empty it takes precedence over ``image`` (vendor-iso).
+
         Returns:
             dict with timing measurements (phase → seconds).
         """
@@ -328,6 +336,17 @@ class LTXVideoPipeline:
                 stage2_steps = 3
             cfg_scale = 1.0
             stg_scale = 0.0
+
+        # Normalize multi-anchor `images` (CLI passes plain (path, frame_idx,
+        # strength[, crf]) tuples to avoid a vendor import at argparse time)
+        # into vendor ImageConditioningInput — vendor is on sys.path here.
+        if images:
+            from ltx_pipelines_mlx.utils.args import ImageConditioningInput
+            images = [
+                img if isinstance(img, ImageConditioningInput)
+                else ImageConditioningInput(*img)
+                for img in images
+            ]
 
         mode = "distilled" if self.distilled else ("a2v" if audio_path else "t2v_i2v")
         if self._pipeline is None or self._pipeline_mode != mode:
@@ -351,6 +370,8 @@ class LTXVideoPipeline:
             stg_scale=stg_scale,
             image=image,
         )
+        if images:
+            kwargs["images"] = images
         kwargs["stage1_steps"] = stage1_steps
         kwargs["stage2_steps"] = stage2_steps
         if audio_path is not None:
@@ -391,7 +412,8 @@ class LTXVideoPipeline:
             "detail": {"stage1_steps": stage1_steps, "stage2_steps": stage2_steps,
                        "cfg_scale": cfg_scale, "stg_scale": stg_scale,
                        "frames": num_frames, "frame_rate": frame_rate,
-                       "image_conditioning": image is not None,
+                       "image_conditioning": image is not None or bool(images),
+                       "image_anchors": len(images) if images else (1 if image else 0),
                        "audio": audio_path is not None, "teacache": enable_teacache},
             "seconds": None,
         })

@@ -1,4 +1,4 @@
-# OpenMontage capability matrix (dated 2026-07-08, updated 2026-07-09)
+# OpenMontage capability matrix (dated 2026-07-08, updated 2026-07-09 — ltx-2-mlx v0.14.15 bump)
 
 Read-only survey of what OpenMontage's video-generation providers advertise
 as `supports` flags, mapped against what `video_generation__ltx`'s native
@@ -34,7 +34,8 @@ correct starting point instead of re-deriving it.
 | `lip_sync` | **yes (coarse), precision inadequate — measured 2026-07-08** | `video generate --input-image PORTRAIT --audio SPEECH --prompt "... speaking, mouth moving ..."` (IA2V / talking-portrait) | not yet verified in Swift | pipeline-verified 2026-07-08 (vendor bug fix); precision measured 2026-07-08, see `docs/lipsync-precision-measurement-20260708.md` — tracks speech-presence/absence, not phoneme-level mouth shape |
 | `dialogue_generation` | yes (same IA2V path) | same as above | not yet verified | speech-from-prompt/audio works "with effort" per `video-generate.py` module docstring voice tips |
 | `cinematic_quality` | unproven vs Kling/Veo | n/a | n/a | guidance parity is 3/3 (CFG/STG/modality) as of Milestone 2c, but no measured A/B claim vs premium providers exists |
-| `reference_to_video` | **partial, scope-narrow — verified 2026-07-09** | — | `native-ingredients` (IC-LoRA ingredients) | see "reference_to_video scope verification" below — single-image reference only, no multi-reference/video/audio anchors |
+| `reference_to_video` | **partial, scope-narrow — verified 2026-07-09** | `video generate --image PATH FRAME_IDX STRENGTH` (repeatable, temporal multi-anchor) | `native-ingredients` (IC-LoRA ingredients) | see "reference_to_video scope verification" below. Two distinct partial slices: (a) `native-ingredients` = single identity-anchor image (IC-LoRA); (b) run.py `--image` = **temporal** multi-anchor keyframing (N images at chosen frame indices, unblocked by ltx-2-mlx v0.14.15 bd2217a, exposed + verified 2026-07-09). Neither is OpenMontage's simultaneous multi-*reference* (identity/wardrobe/style at frame 0); reference-video/reference-audio anchors still absent. |
+| `character_consistency` | **yes (storyboard character-lock) — 2026-07-09** | `video storyboard --story ... --character PORTRAIT` (identity-judge closed loop, #366/#371) | — | storyboard decomposition locks a supplied character portrait across all shots via the gemma identity-judge (`--identity-judge-model`, hardened in #372); covers Higgsfield's `character_consistency` flag. Per-shot re-generation until identity matches. |
 
 ## IA2V verification (2026-07-08)
 
@@ -141,6 +142,32 @@ conditioning — neither exists in Python `run.py` either (checked: no
 `--reference-video`/`--reference-audio` style flags in
 `video-generate.py`). This is a capability gap, not just a documentation
 gap.
+
+### Multi-anchor I2V update (2026-07-09) — temporal, not multi-reference
+
+The ltx-2-mlx v0.14.15 bump (see
+`docs/ltx-2-mlx-vendor-bump-v0.14.15-20260709.md`) landed upstream
+`bd2217a` (#45), which removed the CLI guard that rejected >1 image anchor
+on the one-stage/distilled paths. run.py now exposes this as a repeatable
+`--image PATH FRAME_IDX STRENGTH [CRF]` flag (mutually exclusive with
+`--input-image`; parsed by `_ImageAnchorAction` in `video-generate.py`,
+normalized to vendor `ImageConditioningInput` in `ltx_pipeline.generate()`).
+
+**Verified 2026-07-09**: `video generate --image portrait_a.png 0 1.0
+--image portrait_b.png 48 0.9 --distilled --width 512 --height 512
+--frames 49` produced a valid 512×512×49 clip whose **first frame matches
+anchor A (frame_idx 0) and last frame matches anchor B (frame_idx 48)** —
+the model interpolates through the temporal anchors as intended.
+
+**Scope caveat (do not overclaim):** this is *temporal* multi-anchor
+keyframing — N images pinned at distinct **frame indices** that the video
+passes through. It is NOT OpenMontage's `reference_to_video`, where N
+reference images all condition the **same** output (identity / wardrobe /
+setting / style compositing, conceptually all at frame 0). The
+`combined_image_conditionings` machinery could in principle place multiple
+anchors at frame 0, but that is untested and is not the same as
+true multi-reference identity/style compositing. Reference-video and
+reference-audio anchors remain absent (real engine work).
 
 ## Storyboard→video bridge (2026-07-09)
 
