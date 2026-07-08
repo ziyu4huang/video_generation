@@ -246,8 +246,14 @@ def run_character(args: "argparse.Namespace") -> dict[str, str] | None:
     print(f"\n{'='*60}\n[character] Phase 2: transparent cutouts\n{'='*60}", flush=True)
     subject = getattr(args, "cutout_subject", None) or _DEFAULT_CUTOUT_SUBJECT
     threshold = float(getattr(args, "sam_threshold", 0.3) or 0.3)
-    feather = int(getattr(args, "feather", 8) or 0)
-    fill_holes = bool(getattr(args, "fill_holes", True))
+    feather = int(getattr(args, "feather", 10) or 0)
+    # A character turnaround silhouette MUST be solid — fill interior holes so
+    # gaps between arm/torso don't render as translucent slits. NOTE: the shared
+    # --fill-holes flag (registered by `image cutout`) defaults to False, so
+    # reading getattr(args, "fill_holes", True) would return False (the registered
+    # default wins over our fallback — the same `getattr(...) or default` pitfall
+    # that bit profile's --transformer). A character sheet always fills.
+    fill_holes = True
 
     views_meta: list[dict] = []
     cutout_count = 0

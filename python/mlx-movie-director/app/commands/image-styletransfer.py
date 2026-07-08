@@ -16,11 +16,11 @@ WHY img2img (not a ControlNet/K/V-injection port):
     the input latent; the style comes from the prompt. Sufficient for OM's
     restyle-to-visual-language need.
 
-STYLE SOURCES (first non-empty wins):
+STYLE SOURCES (combined; --prompt may amplify a preset/playbook):
   --playbook <yaml>   load the playbook's ``asset_generation.image_prompt_prefix``
                       + ``consistency_anchors`` + ``visual_language`` texture/composition
                       via ``app.planning.playbook`` → the canonical OM style contract.
-  --style <preset>    a built-in named preset (clean-professional, watercolor,
+  --style-preset <p>  a built-in named preset (clean-professional, watercolor,
                       oil-painting, anime, cinematic, 3d-render, line-art, low-poly).
   --prompt <text>     free-form style description (the fallback / override).
 
@@ -85,12 +85,13 @@ _STYLE_PRESETS: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def build_style_prompt(args: "argparse.Namespace") -> str:
-    """Resolve the style source (playbook → preset → prompt) → one prompt string.
+    """Resolve the style source (playbook + preset + prompt) → one prompt string.
 
-    Order of precedence: explicit ``--prompt`` wins; then ``--style`` preset;
-    then ``--playbook`` yaml. A prompt assembled from a playbook/preset may be
-    AMPLIFIED by an explicit ``--prompt`` (appended as extra style direction).
-    Raises SystemExit(1) with a clear message if no style source is given.
+    All three sources are COMBINED (deduped, joined): the preset fragment, the
+    playbook's image_prompt_prefix + style_anchor + aesthetic, and an explicit
+    ``--prompt`` appended last as extra direction (it AMPLIFIES a preset/playbook,
+    or stands alone when it is the only source). Raises SystemExit(1) with a
+    clear message if no style source is given.
     """
     playbook_path = getattr(args, "playbook", None)
     preset = getattr(args, "style_preset", None)
@@ -101,7 +102,7 @@ def build_style_prompt(args: "argparse.Namespace") -> str:
     if preset:
         key = preset.strip().lower()
         if key not in _STYLE_PRESETS:
-            print(f"ERROR: unknown --style '{preset}'. Available: "
+            print(f"ERROR: unknown --style-preset '{preset}'. Available: "
                   f"{', '.join(sorted(_STYLE_PRESETS))}", file=sys.stderr)
             sys.exit(1)
         base_parts.append(_STYLE_PRESETS[key])
@@ -127,7 +128,7 @@ def build_style_prompt(args: "argparse.Namespace") -> str:
         base_parts.append(extra)
 
     if not base_parts:
-        print("ERROR: a style source is required — pass --style <preset>, "
+        print("ERROR: a style source is required — pass --style-preset <preset>, "
               "--playbook <yaml>, or --prompt <text>.", file=sys.stderr)
         sys.exit(1)
 
@@ -153,11 +154,11 @@ PARSER_META = {
         "img2img. The content image is the img2img base (structure preserved); the\n"
         "style prompt repaints it; --strength (denoise) controls the style/content\n"
         "balance. Closes OpenMontage gap D (local style transfer / repaint).\n\n"
-        "Style sources (first non-empty wins, --prompt may amplify a preset/playbook):\n"
-        "  --playbook <yaml>  OM playbook visual_language (image_prompt_prefix + anchors)\n"
-        "  --style <preset>   clean-professional | watercolor | oil-painting | anime |\n"
-        "                     cinematic | 3d-render | line-art | low-poly\n"
-        "  --prompt <text>    free-form style description\n\n"
+        "Style sources (combined; --prompt may amplify a preset/playbook):\n"
+        "  --playbook <yaml>    OM playbook visual_language (image_prompt_prefix + anchors)\n"
+        "  --style-preset <p>   clean-professional | watercolor | oil-painting | anime |\n"
+        "                      cinematic | 3d-render | line-art | low-poly\n"
+        "  --prompt <text>     free-form style description\n\n"
         "Examples:\n"
         "  run.py image styletransfer --input photo.png --style-preset watercolor\n"
         "  run.py image styletransfer --input char.png --playbook clean-professional.yaml\n"
