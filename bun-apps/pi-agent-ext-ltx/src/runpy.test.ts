@@ -167,7 +167,10 @@ describe("runPyVideo (run.py video t2i2v adapter)", () => {
     }
   });
 
-  test("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
+  // Machine-coupled: asserts the local MLX venv + run.py are present on disk.
+  // GitHub Actions runners have neither (no Apple-Silicon Metal, no venv), so
+  // this skips under CI=true. See .github/CI.md.
+  test.skipIf(process.env.CI)("resolves venv python + run.py from the repo root (paths exist on this machine)", () => {
     const { python, runPy } = resolveRunPyPaths(resolveRepoRoot());
     expect(existsSync(python)).toBe(true);
     expect(existsSync(runPy)).toBe(true);

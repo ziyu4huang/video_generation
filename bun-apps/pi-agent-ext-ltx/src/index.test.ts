@@ -75,7 +75,11 @@ describe("runLtx — pre-spawn validation", () => {
     ).rejects.toThrow(PathSafetyError);
   });
 
-  test("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
+  // Machine-coupled: runLtx() spawns the ltx-video binary (or run.py fallback).
+  // On GitHub Actions neither is built, so the spawn hangs despite the abort
+  // signal → 5s timeout. Skip under CI=true (no Metal/swift build). See
+  // .github/CI.md.
+  test.skipIf(process.env.CI)("does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')", async () => {
     // Pre-abort so this never actually runs a real (multi-minute)
     // generation — invokeLtx kills the process immediately post-spawn and
     // resolves with aborted:true rather than rejecting. The only thing this

@@ -268,7 +268,11 @@ describe("analysis selector — caption command resolves to mlx:caption (the loc
     expect(e.configured).toBe(true);
   });
 
-  it("selectProvider({command:'caption'}) picks mlx:caption for the analysis capability", () => {
+  // Machine-coupled: selectProvider() needs the caption_vlm probe (local MLX
+  // venv) to pass. GitHub Actions runners have no venv → NoConfiguredProviderError.
+  // Skip under CI=true. See .github/CI.md. (The registry + probe-tracking tests
+  // above/below are pure and still run in CI.)
+  it.skipIf(process.env.CI)("selectProvider({command:'caption'}) picks mlx:caption for the analysis capability", () => {
     const entry = selectProvider("analysis", { command: "caption" });
     expect(entry.invoke).toBe("mlx:caption");
     expect(entry.provider).toBe("caption-vlm");
@@ -296,7 +300,9 @@ describe("video_generation selector — swift:ltx vs mlx:runpy presence tiebreak
     expect(runpyEntry.backend).toBe("native_swift");
   });
 
-  it("swift:ltx probe tracks the built binary; mlx:runpy probe tracks the venv+run.py", () => {
+  // Machine-coupled: hard-asserts the local venv+run.py probe is true; on CI
+  // (no venv) the probe is false. Skip under CI=true. See .github/CI.md.
+  it.skipIf(process.env.CI)("swift:ltx probe tracks the built binary; mlx:runpy probe tracks the venv+run.py", () => {
     // Sanity: probeConfigured is the runtime truth, not the static configured flag.
     expect(probeConfigured(runpyEntry)).toBe(true); // venv + run.py present on this machine
     // swift:ltx is callable iff the binary exists — assert the probe AGREES with the disk.
@@ -308,7 +314,10 @@ describe("video_generation selector — swift:ltx vs mlx:runpy presence tiebreak
     expect(probeConfigured(ltxEntry)).toBe(existsSync(defaultBinaryPath(repoRoot)));
   });
 
-  it("selects mlx:runpy when the swift:ltx binary is absent (the local-machine truth)", () => {
+  // Machine-coupled: with neither a built swift:ltx binary NOR the venv-backed
+  // mlx:runpy (the CI reality), selectProvider('video_generation') throws.
+  // Skip under CI=true. See .github/CI.md.
+  it.skipIf(process.env.CI)("selects mlx:runpy when the swift:ltx binary is absent (the local-machine truth)", () => {
     if (existsSync(defaultBinaryPath(resolveRepoRoot()))) {
       // Binary present on this machine → swift:ltx wins (rank 0, declared first).
       expect(selectProvider("video_generation").invoke).toBe("swift:ltx");

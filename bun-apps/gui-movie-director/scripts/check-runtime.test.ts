@@ -21,7 +21,12 @@ function runJson(): { json: any; exitCode: number | null } {
   return { json: JSON.parse(stdout), exitCode: proc.exitCode };
 }
 
-describe("check-runtime", () => {
+// Machine-coupled: check-runtime.ts probes run.py's argparse contract via the
+// local MLX venv (python/venv/bin/python). GitHub Actions runners have neither
+// the venv nor Apple-Silicon Metal, so the probe returns no parseable JSON and
+// these assertions can't hold. Skip under CI=true (set automatically by GitHub
+// Actions). See .github/CI.md. Runs locally (CI unset) where the venv exists.
+describe.skipIf(process.env.CI)("check-runtime", () => {
   it("emits a well-formed JSON contract", () => {
     const { json } = runJson();
     expect(typeof json.findingCount).toBe("number");
