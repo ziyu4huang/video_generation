@@ -323,6 +323,148 @@ export function adaptAutoMemoryMarkdown(content: string): KnowledgeRecord | null
 }
 
 // ---------------------------------------------------------------------------
+// hermes memory parsing (the third convergence source)
+// ---------------------------------------------------------------------------
+
+/** Mapping from a hermes `[category]` prefix to the KnowledgeRecord `type`.
+ *  Hermes entries are prefixed `[failure]` / `[correction]` / `[insight]` /
+ *  `[tool-quirk]` / `[convention]` / `[preference]`; entries with no prefix are
+ *  general notes. The literal category is ALSO carried as a tag (preserving
+ *  the human classification) — the `type` is the schema enum the ranking /
+ *  retrieve paths key on. */
+const HERMES_TYPE: Record<string, string> = {
+	failure: "avoid",
+	correction: "false_positive",
+	insight: "pattern",
+	"tool-quirk": "gotcha",
+	convention: "pattern",
+	preference: "pattern",
+};
+
+/** Common English stopwords excluded from the keyword-tag harvest so hermes
+ *  cards cross-link on *distinctive* tokens (argparse, fp8, metallib) rather
+ *  than generic glue words (the, with, that). */
+const HERMES_STOP = new Set([
+	"the", "and", "for", "with", "that", "this", "how", "why", "does", "was",
+	"were", "when", "what", "have", "has", "not", "but", "are", "is", "its",
+	"all", "any", "can", "you", "your", "use", "using", "used", "from", "into",
+	"will", "must", "should", "then", "than", "via", "per", "each", "every",
+]);
+
+/** Adapt a hermes memory file into an array of `KnowledgeRecord`s — one per
+ *  `§`-separated entry. Unlike auto-memory (one fact per FILE), a hermes file
+ *  (`~/.pi/agent/pi-hermes-memory/{MEMORY,failures,USER}.md`) holds MANY dense,
+ *  human-curated entries separated by a line containing only `§`. Each entry
+ *  typically carries a `[category]` prefix and a trailing
+ *  `<!-- created=YYYY-MM-DD, last=YYYY-MM-DD -->` provenance comment.
+ *
+ *  Mapping (mirrors `adaptAutoMemoryMarkdown` where the shapes overlap):
+ *    id          = `hermes:<slug>`        (slug from the entry's first line)
+ *    type        = HERMES_TYPE[prefix]    (failure→avoid, insight→pattern, …)
+ *    title       = first line (prefix + `**` + trailing `:`/date stripped), ≤120 chars
+ *    detail      = full entry body (prefix + timestamp comment stripped)
+ *    tags        = [hermes, <category>, …[[wikilink]] slugs, …distinctive title keywords]
+ *    dimension   = category (or "general")
+ *    confidence  = 0.9 (human-curated working memory)
+ *    evidence    = { first_seen, last_seen } harvested from the timestamp comment
+ *
+ *  Defensive: malformed/empty entries are skipped (never throws), mirroring how
+ *  `adaptAutoMemoryMarkdown` returns null on bad input. Returns [] if no entry
+ *  in the file parses — the caller records a parse error in that case.
+ */
+export function adaptHermesMarkdown(content: string): KnowledgeRecord[] {
+	if (!content || !content.trim()) return [];
+	// Entries are separated by "a line containing only §" (per hermes MEMORY.md).
+	const rawEntries = content.split(/^§\s*$/m);
+	const records: KnowledgeRecord[] = [];
+	for (const raw of rawEntries) {
+		const entry = raw.trim();
+		if (!entry) continue;
+
+		// 1. Category prefix (optional): `[failure]` / `[tool-quirk]` / …
+		const prefixMatch = entry.match(
+			/^\[(failure|correction|insight|tool-quirk|convention|preference)\]\s*/,
+		);
+		const category = prefixMatch?.[1] ?? "";
+		const type = category ? (HERMES_TYPE[category] ?? "pattern") : "pattern";
+		const afterPrefix = prefixMatch ? entry.slice(prefixMatch[0]!.length) : entry;
+
+		// 2. Harvest provenance timestamps (may be duplicated; take first created,
+		//    last `last`). Strip the comment(s) from the body afterward.
+		const createdDates: string[] = [];
+		const lastDates: string[] = [];
+		const tsRe = /<!--\s*created=([^,\s>]+)[^>]*?last=([^,\s>]+)[^>]*?-->/g;
+		let tm: RegExpExecArray | null;
+		while ((tm = tsRe.exec(entry)) !== null) {
+			const c = extractDate(tm[1]);
+			const l = extractDate(tm[2]);
+			if (c) createdDates.push(c);
+			if (l) lastDates.push(l);
+		}
+		const firstSeen = createdDates[0] ?? "";
+		const lastSeen = lastDates[lastDates.length - 1] ?? firstSeen ?? "";
+		const bodyNoTs = afterPrefix.replace(/<!--\s*created=[^>]*?-->/g, "").trim();
+		if (!bodyNoTs) continue;
+
+		// 3. Title = first non-empty line, cleaned of markdown bold + trailing
+		//    `:` / date parenthetical. Truncate for a stable, readable hook.
+		const firstLine = bodyNoTs.split(/\r?\n/)[0]!.trim();
+		const titleRaw = firstLine
+			.replace(/\*\*/g, "")
+			.replace(/\s*\(verified[^)]*\)\s*:?\s*$/, "")
+			.replace(/\s*\(\d{4}[^)]*\)\s*:?\s*$/, "")
+			.replace(/[:：]\s*$/, "")
+			.trim();
+		const title = (titleRaw || firstLine).slice(0, 120);
+		if (!title) continue;
+
+		// 4. Detail = the full entry body (richest signal for zk_ask full-text).
+		//    Strip inline `[[wiki-link]]` brackets → plain link text (same rationale
+		//    as adaptAutoMemoryMarkdown: namespaced slugs diverge from raw targets,
+		//    so raw links would be dead; shared-TAG edges drive the real graph).
+		const detail = bodyNoTs.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
+			const parts = String(inner).split("|");
+			const target = parts[0]!.split("#")[0]!.trim();
+			const alias = parts[1]?.trim();
+			return alias || target || String(inner);
+		});
+
+		// 5. Tags: hermes + category + [[wikilink]] slugs + distinctive title
+		//    keywords (the keyword harvest is what lets a hermes fp8 entry
+		//    cross-link the existing gotcha-fp8-compute-mps-crash card via shared
+		//    tags — without it hermes cards would only link each other).
+		const tagSet = new Set<string>();
+		tagSet.add("hermes");
+		tagSet.add(category || "note");
+		const linkRe = /\[\[([^\]]+)\]\]/g;
+		let lm: RegExpExecArray | null;
+		while ((lm = linkRe.exec(entry)) !== null) {
+			const t = normTag(lm[1]!.split(/[#|]/)[0]!);
+			if (t) tagSet.add(t);
+		}
+		for (const tok of title.toLowerCase().split(/[^a-z0-9-]+/)) {
+			if (tok.length >= 4 && !HERMES_STOP.has(tok)) tagSet.add(tok);
+		}
+		const tags = [...tagSet].slice(0, 8);
+
+		records.push({
+			id: `hermes:${slugify(title)}`,
+			type,
+			title,
+			detail,
+			tags,
+			dimension: category || "general",
+			confidence: 0.9,
+			status: "active",
+			superseded_by: null,
+			evidence:
+				firstSeen || lastSeen ? { first_seen: firstSeen, last_seen: lastSeen } : undefined,
+		});
+	}
+	return records;
+}
+
+// ---------------------------------------------------------------------------
 // Obsidian feature extraction (callouts / tasks / embeds / code density)
 // ---------------------------------------------------------------------------
 
@@ -876,7 +1018,18 @@ export async function ingestRecords(
 		let outcome: CardOutcome;
 		const existedBefore = existing.has(p.basename);
 		if (dryRun) {
-			outcome = existedBefore ? "updated" : "created";
+			// Dry-run is a TRUE idempotency probe: for an existing card, compare the
+			// would-be content against the on-disk content so a re-ingest reports
+			// `unchanged` (not a conservative `updated`) when nothing changed.
+			if (existedBefore) {
+				try {
+					outcome = readFileSync(p.abs, "utf8") === content ? "unchanged" : "updated";
+				} catch {
+					outcome = "updated";
+				}
+			} else {
+				outcome = "created";
+			}
 		} else if (!existedBefore) {
 			writeFileSync(p.abs, content, "utf8");
 			outcome = "created";
