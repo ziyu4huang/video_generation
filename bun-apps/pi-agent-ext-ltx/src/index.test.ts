@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { resolveRepoRoot } from "./binary.ts";
-import { PathSafetyError, runLtx } from "./index.ts";
+import { PathSafetyError, runLtx, withShotLanguage } from "./index.ts";
 
 // These tests exercise the validation layers that run BEFORE ltx-video is
 // ever spawned (unknown command / path-safety / extraArgs allow-list), so
@@ -131,5 +131,56 @@ describe("runLtx — pre-spawn validation", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  });
+});
+
+describe("withShotLanguage", () => {
+  test("returns options unchanged when shotLanguage is undefined", () => {
+    const options = { prompt: "a cat playing piano" };
+    expect(withShotLanguage(options, undefined)).toBe(options);
+  });
+
+  test("merges the rendered clause into a string `prompt` field", () => {
+    const merged = withShotLanguage({ prompt: "a cat playing piano" }, { shotSize: "close_up" });
+    expect(merged.prompt).toBe("a cat playing piano, close-up.");
+  });
+
+  test("merges the rendered clause into every element of a `prompts` array field", () => {
+    const merged = withShotLanguage(
+      { prompts: ["cat walks in", "cat jumps out"] },
+      { cameraMovement: "dolly_in" },
+    );
+    expect(merged.prompts).toEqual(["cat walks in, dollying in.", "cat jumps out, dollying in."]);
+  });
+
+  test("leaves non-string prompt/prompts fields untouched", () => {
+    const merged = withShotLanguage({ prompt: 123, prompts: [1, 2] }, { shotSize: "close_up" });
+    expect(merged.prompt).toBe(123);
+    expect(merged.prompts).toEqual([1, 2]);
+  });
+
+  test("does not mutate the input options object", () => {
+    const options = { prompt: "a cat playing piano" };
+    withShotLanguage(options, { shotSize: "close_up" });
+    expect(options.prompt).toBe("a cat playing piano");
+  });
+});
+
+describe("runLtx — shotLanguage does not bypass path-safety validation", () => {
+  test("an unrelated bad path still trips PathSafetyError when shotLanguage is also set", async () => {
+    // Sanity check that adding shotLanguage doesn't short-circuit or reorder
+    // the existing validation pipeline — reuses the same outside-root
+    // pattern as the plain (no-shotLanguage) test above.
+    const outsideDir = mkdtempSync(join(tmpdir(), "pi-ltx-shotlang-outside-"));
+    const sneaky = join(outsideDir, "sneaky.mp4");
+    writeFileSync(sneaky, "x");
+
+    await expect(
+      runLtx({
+        command: "upscale",
+        options: { input: sneaky },
+        shotLanguage: { shotSize: "close_up" },
+      }),
+    ).rejects.toThrow(PathSafetyError);
   });
 });

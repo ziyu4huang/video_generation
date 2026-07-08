@@ -25,9 +25,11 @@ import {
   type AllowedRoots,
 } from "./paths.ts";
 import { buildDetails, stderrTail, summarize, type LtxDetails } from "./result.ts";
+import { applyShotLanguage, type ShotLanguage } from "./shotLanguage.ts";
 
 export * from "./commands.ts";
 export * from "./paths.ts";
+export * from "./shotLanguage.ts";
 export { invokeLtx } from "./invoke.ts";
 export type { LtxDetails, GateEntry } from "./result.ts";
 export { PathSafetyError } from "./paths.ts";
@@ -47,6 +49,14 @@ export interface RunLtxInput {
   command: CommandName;
   /** Per-command typed options (camelCase keys matching commands.ts fields). */
   options?: Record<string, unknown>;
+  /**
+   * Structured camera/lighting vocabulary (concept borrowed from
+   * ../OpenMontage's scene_plan.shot_language, see shotLanguage.ts), rendered
+   * to a text clause and appended to `options.prompt` (or every element of
+   * `options.prompts` for native-relay) before the command runs. No-op for
+   * commands with no prompt-shaped field.
+   */
+  shotLanguage?: ShotLanguage;
   /** Output dir override (constrains path validation; individual commands' `output` field wins if set). */
   outputDir?: string;
   /** Models root override (constrains path validation only — no CLI flag to inject, see paths.ts). */
@@ -209,6 +219,23 @@ function withDefaultOutput(
 }
 
 /**
+ * Merge a ShotLanguage clause into `options.prompt` (string commands) or
+ * every element of `options.prompts` (native-relay's string[]). No-op if
+ * `sl` is undefined or neither field is present/a string(-array).
+ */
+export function withShotLanguage(options: Record<string, unknown>, sl: ShotLanguage | undefined): Record<string, unknown> {
+  if (!sl) return options;
+  const next = { ...options };
+  if (typeof next.prompt === "string") {
+    next.prompt = applyShotLanguage(next.prompt, sl);
+  }
+  if (Array.isArray(next.prompts)) {
+    next.prompts = next.prompts.map((p) => (typeof p === "string" ? applyShotLanguage(p, sl) : p));
+  }
+  return next;
+}
+
+/**
  * Run ONE ltx-video command invocation end-to-end (validate paths -> build
  * args -> spawn -> parse).
  */
@@ -295,7 +322,7 @@ export async function runLtx(input: RunLtxInput): Promise<RunLtxOutput> {
   if (!COMMANDS[input.command]) {
     throw new Error(`Unknown ltx-video command "${input.command}". Known: ${Object.keys(COMMANDS).join(", ")}`);
   }
-  const options = input.options ?? {};
+  const options = withShotLanguage(input.options ?? {}, input.shotLanguage);
   const repoRoot = resolveRepoRoot();
   const roots = resolveRoots(repoRoot, input.outputDir, input.modelsRoot);
   const extraArgs = input.extraArgs ?? [];

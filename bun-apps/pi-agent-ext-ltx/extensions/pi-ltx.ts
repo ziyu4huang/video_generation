@@ -38,6 +38,15 @@
 import { defineTool, type ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { COMMANDS, COMMAND_LIST, runLtx, PathSafetyError, type CommandName } from "../src/index.ts";
+import {
+  SHOT_SIZES,
+  CAMERA_MOVEMENTS,
+  LENS_MM,
+  LIGHTING_KEYS,
+  DEPTH_OF_FIELDS,
+  COLOR_TEMPERATURES,
+  type ShotLanguage,
+} from "../src/index.ts";
 
 // ─── On-demand reference builders (shared by the slim description + help tool) ─
 //
@@ -150,7 +159,8 @@ function buildDescription(): string {
     "Notes: defaults are the CLI's own (omit a field to use it), EXCEPT `output` — when a command has " +
     "an `output` field and you omit it, this tool injects a timestamped path under the resolved output " +
     "dir so results always land in a stable, externally-discoverable location. Repeatable flags " +
-    "(--lora, gate's videos) take arrays."
+    "(--lora, gate's videos) take arrays. Optional `shotLanguage` (camera/lighting vocab) appends to " +
+    'prompt(s) — see ltx_help({topic:"shot-language"}).'
   );
 }
 
@@ -159,9 +169,47 @@ const COMMAND_ENUM = Type.Union(COMMAND_LIST.map((c) => Type.Literal(c.name)), {
 });
 
 const HELP_TOPIC_ENUM = Type.Union(
-  [Type.Literal("native-vs-prod")],
+  [Type.Literal("native-vs-prod"), Type.Literal("shot-language")],
   { description: "Reference topic to look up instead of a single command." },
 );
+
+/** Optional camera/lighting vocabulary schema — see shotLanguage.ts. */
+const SHOT_LANGUAGE_SCHEMA = Type.Optional(
+  Type.Object(
+    {
+      shotSize: Type.Optional(Type.Union(SHOT_SIZES.map((v) => Type.Literal(v)))),
+      cameraMovement: Type.Optional(Type.Union(CAMERA_MOVEMENTS.map((v) => Type.Literal(v)))),
+      lensMm: Type.Optional(Type.Union(LENS_MM.map((v) => Type.Literal(v)))),
+      lightingKey: Type.Optional(Type.Union(LIGHTING_KEYS.map((v) => Type.Literal(v)))),
+      depthOfField: Type.Optional(Type.Union(DEPTH_OF_FIELDS.map((v) => Type.Literal(v)))),
+      colorTemperature: Type.Optional(Type.Union(COLOR_TEMPERATURES.map((v) => Type.Literal(v)))),
+    },
+    {
+      description:
+        "Optional camera/lighting vocabulary appended to options.prompt (or every options.prompts " +
+        'element for native-relay). See ltx_help({topic:"shot-language"}) for the full vocab.',
+    },
+  ),
+);
+
+/** Reference doc for the shot-language vocabulary (deferred to ltx_help, same pattern as native-vs-prod). */
+function shotLanguageDoc(): string {
+  return (
+    "── shotLanguage ──\n" +
+    "Optional structured camera/lighting fields, rendered to a text clause and appended to " +
+    "options.prompt (or every options.prompts element for native-relay). Pure prompt-templating — no " +
+    "CLI flag, no model change; LTX-2.3 has no named-camera-move control, this just phrases the request " +
+    "consistently. Concept adapted from ../OpenMontage's scene_plan.shot_language vocabulary.\n\n" +
+    `  shotSize: ${SHOT_SIZES.join(" | ")}\n` +
+    `  cameraMovement: ${CAMERA_MOVEMENTS.join(" | ")}\n` +
+    `  lensMm: ${LENS_MM.join(" | ")}\n` +
+    `  lightingKey: ${LIGHTING_KEYS.join(" | ")}\n` +
+    `  depthOfField: ${DEPTH_OF_FIELDS.join(" | ")}\n` +
+    `  colorTemperature: ${COLOR_TEMPERATURES.join(" | ")}\n\n` +
+    'Example:\n  ltx({command:"native-i2v", options:{prompt:"a cat playing piano"}, ' +
+    'shotLanguage:{shotSize:"close_up", cameraMovement:"dolly_in", lensMm:35, lightingKey:"golden_hour"}})'
+  );
+}
 
 /**
  * Coerce the LLM-supplied `options` into a plain object.
@@ -226,6 +274,7 @@ function makeLtxTool() {
             "allow-listed; value tokens are path-validated.",
         }),
       ),
+      shotLanguage: SHOT_LANGUAGE_SCHEMA,
     }),
 
     async execute(_id, params, signal, onUpdate, _ctx) {
@@ -236,6 +285,7 @@ function makeLtxTool() {
           outputDir: params.outputDir,
           modelsRoot: params.modelsRoot,
           extraArgs: params.extraArgs,
+          shotLanguage: params.shotLanguage as ShotLanguage | undefined,
           signal,
           onProgress: (u) => onUpdate?.({ kind: "progress", text: u.text }),
         });
@@ -273,7 +323,7 @@ function makeLtxHelpTool() {
       "On-demand reference for the `ltx` tool. Call BEFORE first use of a command (or anytime you are " +
       "unsure of an option key) to get that command's exact option keys, defaults, path rules, and a " +
       "worked example. Omit both args to list all subcommands. Use topic:\"native-vs-prod\" for the " +
-      "native-i2v-vs-i2v tradeoff.",
+      "native-i2v-vs-i2v tradeoff, or topic:\"shot-language\" for the camera/lighting vocabulary.",
     promptSnippet:
       "Look up ltx command options/defaults/path-rules on demand (call before using a command).",
     parameters: Type.Object({
@@ -284,8 +334,7 @@ function makeLtxHelpTool() {
     async execute(_id, params) {
       let text: string;
       if (params.topic) {
-        // Only one topic today (native-vs-prod); the union enum guarantees it.
-        text = nativeVsProdDoc();
+        text = params.topic === "shot-language" ? shotLanguageDoc() : nativeVsProdDoc();
       } else if (params.command) {
         const cmd = params.command as CommandName;
         const spec = COMMANDS[cmd];
