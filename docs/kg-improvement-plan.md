@@ -1,9 +1,9 @@
 # Knowledge-Graph Improvement Plan
 
 > **Planning doc — `plan/ecosystem-kg-review` cycle.** Research + design audit only.
-> No `zk_*` / `obsidian_*` code shipped from this cycle. Companion:
-> [`ecosystem-review.md`](./ecosystem-review.md) (shipped on PR #333, pending
-> review — not yet on `main`).
+> No `zk_*` / `obsidian_*` code shipped from this cycle. (A companion
+> `ecosystem-review.md` was drafted on PR #333, but that PR was closed
+> unmerged — the file is not on `main`.)
 >
 > **Goal:** turn "improve the knowledge graph" from a vague ambition into a
 > ranked, measurable backlog — and force the semantic-blend question to be
