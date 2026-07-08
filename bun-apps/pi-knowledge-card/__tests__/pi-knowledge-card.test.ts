@@ -690,6 +690,32 @@ describe("knowledge_query + graph_health (migrated tools)", () => {
 		rmSync(vault, { recursive: true, force: true });
 	});
 
+	test("DEBUG-CI-VAULT vault resolution diagnostic", async () => {
+		const rec2: KnowledgeRecord = {
+			id: "migrated:argv", type: "gotcha", title: "Argv gotcha",
+			detail: "Reject leading-dash argv.", tags: ["argv"], dimension: "correctness",
+			confidence: 0.8, status: "active", superseded_by: null,
+		};
+		await ingestRecords([rec2], { vaultPath: vault, source: "workflow-jsonl", sourceLabel: "migrated-test" });
+		const { resolveVault } = await import("pi-obsidian/extensions/obsidian.ts");
+		const { existsSync: ex, readdirSync: rd, readFileSync: rf } = await import("node:fs");
+		const resolved = await resolveVault("/test");
+		const folderAbs = join(vault, "Zettelkasten/knowledge-graph");
+		let listing: any[] = [];
+		try {
+			listing = rd(folderAbs).map((n) => {
+				let head = "";
+				try { head = rf(join(folderAbs, n), "utf8").split("\n").slice(0, 8).join(" | "); } catch {}
+				return { n, head };
+			});
+		} catch (e) { listing = [`ERR: ${(e as Error).message}`]; }
+		console.error("DEBUG-CI-VAULT " + JSON.stringify({
+			OB_VAULT_PATH: process.env.OB_VAULT_PATH, vault,
+			resolvedPath: resolved.path, resolvedSource: resolved.source,
+			folderAbs, folderExists: ex(folderAbs), listing,
+		}));
+	});
+
 	test("knowledge_query returns the cross-workflow digest for matched tags", async () => {
 		const rec: KnowledgeRecord = {
 			id: "migrated:argv", type: "gotcha", title: "Argv gotcha",

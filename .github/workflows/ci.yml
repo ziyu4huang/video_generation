@@ -92,6 +92,13 @@ jobs:
       - name: Build pi-dynamic-workflows (workspace dep)
         run: bun run --cwd bun-apps/pi-dynamic-workflows build
 
+      # movie-director's preflight test probes ffmpeg on PATH (the composition
+      # runtime). ubuntu-latest doesn't ship it; install only for that matrix
+      # entry. (compose.test.ts uses mocked ffmpeg; e2e.local is opt-in.)
+      - name: Install ffmpeg (movie-director preflight probe)
+        if: matrix.package == 'pi-agent-ext-movie-director'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Test
         working-directory: bun-apps/${{ matrix.package }}
         env:
