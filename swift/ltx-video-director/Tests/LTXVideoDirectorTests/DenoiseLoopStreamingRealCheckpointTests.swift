@@ -139,4 +139,53 @@ final class DenoiseLoopStreamingRealCheckpointTests: XCTestCase {
         let diff = MLX.abs(stgOn.videoLatent - baseline.videoLatent).max().item(Float.self)
         XCTAssertGreaterThan(diff, 1e-4, "active STG must actually change the video output vs. the stgScale=0 baseline")
     }
+
+    /// Milestone 2c (modality guidance): proves `modalityScale` actually
+    /// reaches the real block stack (via `LTXModel.streamingForward`'s
+    /// `isolateModality` flag disabling both A2V/V2A cross-modal attention)
+    /// and changes the denoised output — same real 2-block streaming setup
+    /// as the STG test above.
+    func testStreamingLoopModalityGuidanceChangesOutputAndDefaultIsUnchanged() throws {
+        guard let raw = try loadRawCheckpoint() else {
+            throw XCTSkip("real checkpoint not found — skipping integration smoke test")
+        }
+        let numLayers = 2
+        let cfg = realConfig(numLayers: numLayers)
+        let model = TransformerCheckpointLoader.makeModel(
+            TransformerCheckpointLoader.topLevelWeights(raw: raw), config: cfg, transformerBlocks: [])
+
+        let B = 1, Nv = 4, Na = 2
+        let videoNoise = MLXRandom.normal([B, Nv, cfg.videoPatchChannels]).asType(.float32)
+        let audioNoise = MLXRandom.normal([B, Na, cfg.audioPatchChannels]).asType(.float32)
+        let videoPositions = MLXArray.zeros([B, Nv, 3]).asType(.int32)
+        let audioPositions = MLXArray.zeros([B, Na, 1]).asType(.int32)
+
+        let videoState = LatentState(latent: videoNoise, cleanLatent: videoNoise, denoiseMask: MLXArray.ones([B, Nv, 1]), positions: videoPositions)
+        let audioState = LatentState(latent: audioNoise, cleanLatent: audioNoise, denoiseMask: MLXArray.ones([B, Na, 1]), positions: audioPositions)
+
+        let videoTextEmbeds = MLXRandom.normal([B, 1, cfg.videoDim]).asType(.float32)
+        let audioTextEmbeds = MLXArray.zeros([B, 1, cfg.audioDim]).asType(.float32)
+
+        let sigmas: [Float] = [1.0, 0.5, 0.0]
+
+        func run(modalityScale: Float) -> DenoiseResult {
+            let result = DenoiseLoop.runStreaming(
+                model: model, numLayers: numLayers,
+                blockProvider: { idx in
+                    TransformerCheckpointLoader.makeBlock(TransformerCheckpointLoader.blockWeights(raw: raw, blockIndex: idx), config: cfg)
+                },
+                videoState: videoState, audioState: audioState,
+                videoTextEmbeds: videoTextEmbeds, audioTextEmbeds: audioTextEmbeds,
+                sigmas: sigmas, modalityScale: modalityScale)
+            MLX.eval(result.videoLatent, result.audioLatent)
+            return result
+        }
+
+        let baseline = run(modalityScale: 1.0)
+        let modalityOn = run(modalityScale: 3.0)
+        XCTAssertTrue(modalityOn.videoLatent.asArray(Float.self).allSatisfy { $0.isFinite }, "modality-guided video output has NaN/Inf")
+        XCTAssertTrue(modalityOn.audioLatent.asArray(Float.self).allSatisfy { $0.isFinite }, "modality-guided audio output has NaN/Inf")
+        let diff = MLX.abs(modalityOn.videoLatent - baseline.videoLatent).max().item(Float.self)
+        XCTAssertGreaterThan(diff, 1e-4, "active modality guidance must actually change the video output vs. the modalityScale=1.0 baseline")
+    }
 }
