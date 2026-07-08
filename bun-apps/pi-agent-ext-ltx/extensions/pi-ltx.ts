@@ -248,9 +248,8 @@ function makeLtxTool() {
       `Generate/upscale/verify video with LTX-2.3 (Swift/MLX). One tool, ${COMMAND_LIST.length} subcommands; ` +
       "call ltx_help for a command's options; chain via details.output / details.extraOutputs.",
     promptGuidelines: [
-      "Before first use of any ltx command (or when unsure of an option key), call ltx_help with that " +
-      "command name to get its exact options, defaults, and path rules.",
-      "Use ltx for video.",
+      "Use ltx for video generation/upscale/verify. Call ltx_help({command}) before first use of a " +
+      "command or when unsure of an option key.",
     ],
     parameters: Type.Object({
       command: COMMAND_ENUM,

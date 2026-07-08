@@ -156,10 +156,9 @@ function makeKrea2Tool() {
       "Generate/edit images with Krea 2 Turbo (Swift/MLX). One tool, 2 subcommands (t2i, i2i); " +
       "call krea2_help for a command's options; chain via details.output.",
     promptGuidelines: [
-      "Before first use of any krea2 command (or when unsure of an option key), call krea2_help " +
-      "with that command name to get its exact options, defaults, and path rules.",
-      "Use krea2 for a fast single-image draft or light i2i edit (8 steps); escalate to flux2 for " +
-      "multi-character scenes, style transfer, or higher fidelity.",
+      "Use krea2 for a fast single-image draft or light i2i (8 steps); escalate to flux2 for " +
+      "multi-character scenes, style transfer, or higher fidelity. Call krea2_help({command}) " +
+      "before first use of a command or when unsure of an option key.",
     ],
     parameters: Type.Object({
       command: COMMAND_ENUM,
