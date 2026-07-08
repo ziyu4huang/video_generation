@@ -51,7 +51,8 @@ export type ImageAction =
   | "quality"
   | "inpaint"
   | "cutout"
-  | "styletransfer";
+  | "styletransfer"
+  | "character";
 
 /** Typed options for `run.py image <action>` (camelCase → kebab CLI flags). */
 export interface RunPyImageOptions {
@@ -181,6 +182,7 @@ const EXTRA_ARG_ALLOW_RUNPY_IMAGE = new Set<string>([
   "expand", "pixels", "aspect", "longest", "overlap",
   "subject", "fill-holes", "trim",
   "style-preset", "playbook", "strength",
+  "style-anchor", "cutout-subject",
   "softness-override", "film-grain", "sharpening", "lut", "face-detail",
   "anime2real-ref-count", "anime2real-lora-scale",
   "prompt-a", "prompt-b", "merge-prompt", "merge-denoise",

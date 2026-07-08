@@ -749,7 +749,7 @@ def run_profile(args):
             model_path=getattr(args, "flux2_model_path", None),
             quantize=getattr(args, "quantize", None),
             variant=args.variant,
-            transformer_name=getattr(args, "transformer", "klein-9b"),
+            transformer_name=getattr(args, "transformer", None) or "klein-9b",
         )
     else:
         from app.pipeline import ZImagePipeline
@@ -971,6 +971,11 @@ def run_profile(args):
         )
         manifest.to_json(os.path.join(out_dir, "manifest.json"))
         print(f"\nDone → {out_dir}")
+        # Return the artifact locations + locked seed so a composer (e.g. the
+        # `image character` sheet command) can post-process the views without
+        # guessing the timestamped folder name. Backward-compatible: callers
+        # that ignore the return value are unaffected.
+        return {"out_dir": out_dir, "view_outputs": view_outputs, "seed": seed}
 
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()

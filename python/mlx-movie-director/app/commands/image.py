@@ -90,6 +90,7 @@ _storyboard = importlib.import_module("app.commands.image-storyboard")
 _inpaint = importlib.import_module("app.commands.image-inpaint")
 _cutout = importlib.import_module("app.commands.image-cutout")
 _styletransfer = importlib.import_module("app.commands.image-styletransfer")
+_character = importlib.import_module("app.commands.image-character")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -124,6 +125,7 @@ PARSER_META = {
 "  inpaint       — Masked latent redraw / object removal (Flux2 Klein latent-mask, OM C4)\n"
 "  cutout        — Transparent-background cutout: SAM3 text segment → alpha PNG (OM G/F)\n"
 "  styletransfer — Restyle an image to a target visual language (playbook/preset/prompt, OM D)\n"
+"  character     — Character sheet: multi-view + transparent cutouts + IdentitySpec.json (OM F)\n"
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
@@ -220,6 +222,10 @@ PARSER_META = {
         "  run.py image styletransfer --input char.png --playbook clean-professional.yaml\n"
         "  run.py image styletransfer --input scene.png --style-preset cinematic --strength 0.6\n"
         "  run.py image styletransfer --self-test\n"
+        "  run.py image character --input hero.png\n"
+        "  run.py image character --input hero.png --views front side back\n"
+        "  run.py image character --input hero.png --style-anchor 'soft anime shading, blue palette'\n"
+        "  run.py image character --self-test\n"
         "  run.py image --self-test expansion:basic\n"
         "  run.py image purify --input-image output/photo.png\n"
         "  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x\n"
@@ -246,7 +252,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint | cutout | styletransfer",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint | cutout | styletransfer | character",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -323,6 +329,10 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Styletransfer-specific args: --style/--playbook/--strength
     # (restyle content to a target visual language via Flux2 Klein img2img)
     _styletransfer.add_styletransfer_args(parser)
+
+    # Character-specific args: --style-anchor/--cutout-subject
+    # (multi-view sheet + transparent cutouts + IdentitySpec; reuses profile args)
+    _character.add_character_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -412,5 +422,7 @@ def run(args: "argparse.Namespace") -> None:
         _cutout.run_cutout(args)
     elif action == "styletransfer":
         _styletransfer.run_styletransfer(args)
+    elif action == "character":
+        _character.run_character(args)
     else:
         _t2i.run_t2i(args)
