@@ -3,8 +3,7 @@ import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import Database from 'better-sqlite3';
-import { DatabaseManager, SQLITE_WAL_AUTOCHECKPOINT_PAGES } from '../../src/store/db.js';
+import { DatabaseManager, SQLITE_WAL_AUTOCHECKPOINT_PAGES, RawDatabase as Database } from '../../src/store/db.js';
 
 describe('DatabaseManager', () => {
   let tmpDir: string;
