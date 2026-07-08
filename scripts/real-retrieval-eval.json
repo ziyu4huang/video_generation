@@ -1,0 +1,35 @@
+{
+  "_meta": {
+    "purpose": "Real-query eval set for retrieval-quality validation (real-retrieval-validation cycle).",
+    "format": "q = natural-language question a real agent/user asks; expect = substring matched against retrieved card path/title; calloutCard = whether the expected card carries a callout (Metric B); why = 1-line rationale the expected card is the right hit.",
+    "queryStyle": "Paraphrased the way a person asks — NOT the card title. Tests semantic+lexical+graph retrieval, not title substring match.",
+    "seeded": "calloutCard:true cards were seeded this cycle (scripts/real-callout-seed.knowledge.jsonl). calloutCard:false are pre-existing prose cards."
+  },
+  "queries": [
+    { "q": "run.py crashes saying No module named mlx right after I cloned the repo", "expect": "python-venv-not-autocreated", "calloutCard": true, "why": "fresh-clone venv-absent ModuleNotFoundError is the exact symptom" },
+    { "q": "why does my generated image come out almost completely black", "expect": "vae-decode-range", "calloutCard": true, "why": "[-1,1] VAE range not converted before clamp crushes the dark half" },
+    { "q": "the run.sh with fp8 compute flag throws ValueError invalid scaling on Mac", "expect": "fp8-compute-mps-crash", "calloutCard": true, "why": "--supports-fp8-compute crashes on MPS, the exact flag+error" },
+    { "q": "SeedVR2 fails device validation when offload is set to cpu", "expect": "seedvr2-offload-must-be-none", "calloutCard": true, "why": "offload_device cpu is rejected on MPS, must be none" },
+    { "q": "the pi CLI hangs forever and even bun test doesn't return", "expect": "argparse-loop-must-advance-index", "calloutCard": true, "why": "missed i++ in argv loop = silent infinite hang incl. test runner" },
+    { "q": "after switching git branches run.py says No module named mflux at the VAE stage", "expect": "submodule-cleared-after-branch-switch", "calloutCard": true, "why": "vendor submodules cleared by branch switch → ModuleNotFoundError" },
+    { "q": "I accidentally have a package-lock.json in the repo, what do I do", "expect": "no-package-lock-json", "calloutCard": true, "why": "bun.lock canonical; package-lock is gitignored, delete it" },
+    { "q": "AutoTokenizer.register error after installing the sibling forks", "expect": "transformers-must-be-below-5", "calloutCard": true, "why": "transformers 5.x breaks mlx_lm register; pin clobbered by unpinned sibling" },
+    { "q": "the bash tool rejected my cd command, how should I change directories", "expect": "never-top-level-cd", "calloutCard": true, "why": "top-level cd blocked by hook; use subshell/--cwd/absolute paths" },
+    { "q": "pytest fails but I didn't change that file, could the cache be lying", "expect": "stale-pycache", "calloutCard": true, "why": "stale __pycache__ shadows edited source → phantom failures" },
+    { "q": "my python subprocess step hangs and never finishes generation", "expect": "streaming-subprocess-blocks", "calloutCard": true, "why": "proc.stdout loop + proc.wait() blocks forever if child hangs" },
+    { "q": "how do I write a test for the vault resolution failure path", "expect": "resolvevault-tier2", "calloutCard": true, "why": "resolveVault Tier-2 app fallback can't be failed by env; use a seam" },
+    { "q": "the self-learning knowledge loop keeps forgetting what it learned", "expect": "knowledge-db-destructive", "calloutCard": true, "why": "per-run overwrite instead of mergeByKey accumulation" },
+    { "q": "should I run image purify on an already sharp detailed image", "expect": "purify-source-dependent", "calloutCard": true, "why": "purify degrades sharp images (9→7); only rescue soft ones" },
+    { "q": "what port does the gui dev server run on in this worktree", "expect": "gui-port-per-worktree", "calloutCard": true, "why": "port is per-worktree, discover via gui:port not assume 3099" },
+    { "q": "after merging a PR what's the branch cleanup procedure", "expect": "branch-delete-at-pr-merge", "calloutCard": true, "why": "SOP #320 — stale-branches.sh, detach before local delete" },
+    { "q": "there's a cfg as any cast hiding an optional field in the config", "expect": "cfg-papered-over-cast", "calloutCard": true, "why": "as any papers over real optional typing, drop the cast" },
+    { "q": "can I use flash attention or sage attention on this apple silicon box", "expect": "no-cuda-attention-sdpa-only", "calloutCard": true, "why": "CUDA-only backends unsupported on MPS, SDPA only" },
+    { "q": "the date in my output filename is wrong or empty", "expect": "filename-tokens", "calloutCard": true, "why": "%date:...% unsupported, use %year%-%month%-%day%" },
+    { "q": "I made three edits in one call but none of them applied", "expect": "edit-multiedit-all-or-nothing", "calloutCard": true, "why": "one bad oldText drops all edits silently (all-or-nothing)" },
+    { "q": "how was the controlnet reference image outline removal solved", "expect": "controlnet-outline-removal", "calloutCard": false, "why": "pre-existing prose card on exactly this topic" },
+    { "q": "flux2 klein lora review and the formats that silently no-op", "expect": "flux2-lora-three-key-formats", "calloutCard": false, "why": "pre-existing card on LoRA format silent-noop" },
+    { "q": "face head swap workflow with painter flux and seedvr2", "expect": "flux2-klein-face-head-swap", "calloutCard": false, "why": "pre-existing card on the face/head swap pipeline" },
+    { "q": "ltx dasiwa composite integration on mlx", "expect": "dasiwa-ltx-mlx-integration", "calloutCard": false, "why": "pre-existing card on LTX dasiwa integration" },
+    { "q": "the tembedder shape bug in i2i flux2 klein", "expect": "i2i-flux2klein-tembedder-shape-bug", "calloutCard": false, "why": "pre-existing card on the specific shape bug" }
+  ]
+}
