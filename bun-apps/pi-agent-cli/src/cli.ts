@@ -30,6 +30,7 @@ import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
 import { vlmDescribeCommand } from "./commands/vlm-describe.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
+import { knowledgePipelineCommand } from "./commands/knowledge-pipeline.ts";
 import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
@@ -192,6 +193,8 @@ ${agentLines}
 
 Pipelines:
 ${pipelineLines}
+  status / run /     knowledge pipeline: converge + merge + heal
+  dry-run / lint     (pipeline status | run | dry-run | lint)
 
 Workflow:
 ${workflowLines}
@@ -479,6 +482,22 @@ async function main(): Promise<void> {
     // `pipeline <name> ...` namespace
     if (first === "pipeline") {
       const pname = probe.positionals[1];
+      // Knowledge-pipeline sub-commands: pipeline status / run / dry-run / lint.
+      // These are the ONE operational surface for the knowledge flow.
+      const KP_SUBS = new Set(["status", "run", "dry-run", "lint"]);
+      if (pname && KP_SUBS.has(pname)) {
+        // Keep the sub-command as positionals[0]; only strip the `pipeline` token.
+        await runAgentCommand(
+          {
+            name: "pipeline",
+            summary: knowledgePipelineCommand.summary,
+            details: knowledgePipelineCommand.details,
+            run: knowledgePipelineCommand.run,
+          },
+          withoutIndices(stripped, [cmdIdx]),
+        );
+        return;
+      }
       if (!pname) {
         console.error("Usage: pipeline <name> [options]\n");
         console.error(

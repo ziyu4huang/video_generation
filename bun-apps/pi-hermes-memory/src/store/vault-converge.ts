@@ -52,6 +52,7 @@ export interface ConvergeResult {
 	unchanged?: number;
 	skipped?: number;
 	linked?: number;
+	wikiMerged?: number;
 	cards?: ConvergeCard[];
 	/** True when the knowledge-card extension was not available and the caller
 	 *  should fall back to the archive-handoff path. */
@@ -157,6 +158,8 @@ export async function convergeToVault(
 			source: "hermes",
 			sourceLabel: `hermes:${target}`,
 			folder: "Zettelkasten/knowledge-graph",
+			wikiAware: true,
+			wikiThreshold: 0.85,
 		});
 		return {
 			ok: true,
@@ -166,6 +169,7 @@ export async function convergeToVault(
 			unchanged: summary.unchanged,
 			skipped: summary.skipped,
 			linked: summary.linked,
+			wikiMerged: summary.wikiMerged,
 			cards: (summary.cards ?? []).map((c) => ({ id: c.id, path: c.path })),
 		};
 	} catch (err) {
@@ -181,5 +185,6 @@ interface IngestShape {
 	unchanged: number;
 	skipped: number;
 	linked: number;
+	wikiMerged: number;
 	cards: { id: string; path: string }[];
 }
