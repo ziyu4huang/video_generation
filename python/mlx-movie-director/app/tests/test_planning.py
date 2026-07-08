@@ -155,6 +155,54 @@ import importlib as _importlib
 
 # image-storyboard.py has a hyphen → must load via importlib (not a bare import).
 _sb = _importlib.import_module("app.commands.image-storyboard")
+_dp = _importlib.import_module("app.planning.decompose_prompt")
+
+
+# ─── decompose_prompt (gemma decomposition — pure functions) ──────────────────
+
+
+def test_build_decompose_prompt_carries_story_panels_style_schema():
+    p = _dp.build_decompose_prompt("a heist goes wrong", num_panels=5,
+                                   style_hint="noir, 35mm grain")
+    assert "exactly 5 sequential" in p
+    assert "a heist goes wrong" in p
+    assert "noir, 35mm grain" in p
+    # The SceneSpec JSON schema is embedded so the model returns parseable output.
+    assert "character_id" in p and "shot_language" in p and "shot_size" in p
+
+
+def test_build_decompose_prompt_has_5aspect_identity_diversity_gate():
+    p = _dp.build_decompose_prompt("x", num_panels=3)
+    assert "5-aspect" in p                       # CHAI self-review gate
+    assert "identity anchored verbatim" in p     # recurring-character rule
+    assert "DIVERSITY" in p                       # vary shot_size/camera
+
+
+def test_parse_decomposition_clean_array():
+    assert _dp.parse_decomposition('[{"id":"a"},{"id":"b"}]') == [
+        {"id": "a"}, {"id": "b"}]
+
+
+def test_parse_decomposition_strips_think_and_fences():
+    raw = "<think>let me plan</think>\n```json\n[{\"id\":\"x\"}]\n```"
+    assert _dp.parse_decomposition(raw) == [{"id": "x"}]
+
+
+def test_parse_decomposition_recovers_inner_think_text():
+    # Gemma-4 sometimes puts the answer INSIDE the <think> block.
+    raw = "<think>[{\"id\":\"y\"}]</think>"
+    assert _dp.parse_decomposition(raw) == [{"id": "y"}]
+
+
+def test_parse_decomposition_falls_back_to_span_extract():
+    raw = 'Here are the panels:\n[{"id":"z"}]\nHope that helps.'
+    assert _dp.parse_decomposition(raw) == [{"id": "z"}]
+
+
+def test_parse_decomposition_raises_on_no_array():
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        _dp.parse_decomposition("no json anywhere here")
 
 
 def test_deterministic_fixture_has_one_recurring_character():
