@@ -17,6 +17,21 @@ The test matrix gives a **native per-package check row** in the PR UI — a brok
 package goes red by name. `fail-fast: false` so every package reports even when
 one fails.
 
+### CI-specific setup steps (non-obvious)
+
+Two setup quirks the workflow handles, documented so they aren't "lost":
+
+- **Build `pi-dynamic-workflows` before tests.** Its `main`/`exports` point at
+  compiled `dist/index.js` — a gitignored artifact. Importers (`pi-agent-cli` →
+  `workflow.ts`, and anything loading the CLI, incl. the schema-cost command)
+  resolve that `dist/`. A fresh checkout lacks it (locally it lingers from prior
+  builds), so every job runs `bun run --cwd bun-apps/pi-dynamic-workflows build`
+  after install (~2.5 s). The documented "builds first" workspace pattern.
+- **Install `ffmpeg` for `pi-agent-ext-movie-director`.** Its `preflight` test
+  probes ffmpeg on PATH (the composition runtime). `ubuntu-latest` doesn't ship
+  it, so the workflow installs it for that matrix entry only. (`compose.test.ts`
+  uses mocked ffmpeg; `e2e.local` is opt-in.)
+
 ## What is tested
 
 The 16 `bun-apps/*` packages that declare a `test` script, each via its
