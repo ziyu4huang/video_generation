@@ -1,0 +1,73 @@
+{
+  "name": "pi-planning-with-files",
+  "version": "1.0.0",
+  "description": "Manus-style file-based planning for Pi — task_plan.md / findings.md / progress.md working memory, with a Layer-3 extension: 6 lifecycle events, 4 injection modes, SHA-256 attestation, a /plan-execute approval gate, and a dangerous-bash guard. Pure TypeScript, no Python runtime dep.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "extensions/",
+    "src/",
+    "skills/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "npm run check && npm run build && npm run test:unit",
+    "test:unit": "bun test",
+    "test:e2e": "RUN_E2E=1 bun test tests/e2e",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "planning-with-files",
+    "planning",
+    "manus",
+    "working-memory",
+    "task-plan",
+    "agent",
+    "ai-agent",
+    "llm",
+    "context-management"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills/planning-with-files"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OthmanAdi/planning-with-files.git"
+  },
+  "author": "OthmanAdi (upstream planning-with-files); Pi port by video_generation monorepo",
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@earendil-works/pi-coding-agent": "latest",
+    "@types/bun": "^1.3.14",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}
