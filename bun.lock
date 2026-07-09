@@ -4,9 +4,6 @@
   "workspaces": {
     "": {
       "name": "video-generation-monorepo",
-      "dependencies": {
-        "@earendil-works/pi-coding-agent": "^0.80.5",
-      },
       "devDependencies": {
         "@types/bun": "latest",
       },
@@ -63,7 +60,6 @@
         "pi-agent": "workspace:*",
         "pi-knowledge-card": "workspace:*",
         "pi-obsidian": "workspace:*",
-        "pi-schema-cost": "workspace:*",
         "pi-vlm": "workspace:*",
         "typebox": "latest",
       },
@@ -277,10 +273,6 @@
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
       },
-    },
-    "bun-apps/pi-schema-cost": {
-      "name": "pi-schema-cost",
-      "version": "0.1.0",
     },
     "bun-apps/pi-vlm": {
       "name": "pi-vlm",
@@ -1245,8 +1237,6 @@
     "pi-obsidian": ["pi-obsidian@workspace:bun-apps/pi-obsidian"],
 
     "pi-planning-with-files": ["pi-planning-with-files@workspace:bun-apps/pi-planning-with-files"],
-
-    "pi-schema-cost": ["pi-schema-cost@workspace:bun-apps/pi-schema-cost"],
 
     "pi-vlm": ["pi-vlm@workspace:bun-apps/pi-vlm"],
 

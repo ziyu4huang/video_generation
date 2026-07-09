@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi extension: power-tool suite. Includes context-analyzer (context window breakdown by component).",
+  "description": "Pi extension: power-tool suite. Includes context-analyzer (context window breakdown by component) + schema-cost (static tool-schema token accounting).",
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./extensions/*": "./extensions/*"
+    "./extensions/*": "./extensions/*",
+    "./schema-cost": "./src/schema-cost/index.ts"
   },
   "pi": {
     "extensions": ["./src/index.ts"]
@@ -15,7 +16,8 @@
   "scripts": {
     "test": "bun test",
     "test:coverage": "bun test --coverage",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "example:schema-cost": "bun examples/schema-cost-quick.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "latest",

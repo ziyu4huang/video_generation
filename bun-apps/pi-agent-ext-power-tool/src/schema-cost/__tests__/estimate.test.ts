@@ -7,13 +7,13 @@ import {
 	formatReport,
 	formatJson,
 	DEFAULT_CHARS_PER_TOKEN,
-} from "../src/index.ts";
-import type { ToolDefinitionLike } from "../src/index.ts";
+} from "../index.ts";
+import type { ToolDefinitionLike } from "../index.ts";
 
-// ─── Golden fixture: the same tool set the in-tree schema-cost.ts ranks ──────
+// ─── Golden fixture: the same tool set the pi-agent-cli schema-cost command ranks
 // These mirror real tool shapes (a builtin + two extensions). The parity
 // contract: estimateToolCost + analyzeTools produce IDENTICAL numbers to the
-// in-tree logic, byte-for-byte, on this fixture.
+// pi-agent-cli heuristic, byte-for-byte, on this fixture.
 const GOLDEN: { def: ToolDefinitionLike; source: string }[] = [
 	{
 		def: { name: "read", description: "Read the contents of a file.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } },
@@ -136,18 +136,18 @@ describe("formatReport / formatJson — output parity", () => {
 	});
 });
 
-describe("PARITY CONTRACT — package matches in-tree schema-cost.ts logic", () => {
-	// The decisive test: the package's estimateToolCost MUST produce the same
-	// approxTokens as the in-tree heuristic `Math.round((desc.length + paramsLen) / 4)`
-	// on the golden fixture. This is what makes in-tree delegation safe.
-	test("estimateToolCost == in-tree heuristic on golden fixture", () => {
+describe("PARITY CONTRACT — submodule matches pi-agent-cli schema-cost logic", () => {
+	// The decisive test: the submodule's estimateToolCost MUST produce the same
+	// approxTokens as the CLI heuristic `Math.round((desc.length + paramsLen) / 4)`
+	// on the golden fixture. This is what makes CLI delegation safe.
+	test("estimateToolCost == CLI heuristic on golden fixture", () => {
 		for (const g of GOLDEN) {
 			const def = g.def as { name?: string; description?: string; parameters?: unknown };
 			const descLen = (def.description ?? "").length;
 			const paramsLen = def.parameters && typeof def.parameters === "object" ? JSON.stringify(def.parameters).length : 0;
-			const inTreeApprox = Math.round((descLen + paramsLen) / 4); // ← the in-tree formula
+			const cliApprox = Math.round((descLen + paramsLen) / 4); // ← the CLI formula
 			const pkg = estimateToolCost(g.def, g.source);
-			expect(pkg.approxTokens).toBe(inTreeApprox);
+			expect(pkg.approxTokens).toBe(cliApprox);
 			expect(pkg.descLen).toBe(descLen);
 			expect(pkg.paramsLen).toBe(paramsLen);
 		}
