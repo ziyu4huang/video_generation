@@ -70,3 +70,33 @@ class TestApplyPromptDefaults:
         args = self._args()
         _generate()._apply_prompt_defaults(args, {"bogus_key": 999})
         assert not hasattr(args, "bogus_key")
+
+
+class TestSelfTestRecursionFix:
+    """Regression test: --self-test previously hit RecursionError because
+    the args clone kept self_test set, so _run_generate_inner(test_args)
+    re-entered _run_generate_self_test() instead of actually generating
+    (found + fixed 2026-07-10 while verifying the `ambient_sound` capability
+    row via `video generate --self-test rainy-street`)."""
+
+    def _args(self, **kw):
+        base = dict(self_test=["rainy-street"], test_prompt=None, prompt=None,
+                     frames=97, width=704, height=448, fps=24.0,
+                     cfg_scale=None, stg_scale=None, stage1_steps=None, stage2_steps=None)
+        base.update(kw)
+        return types.SimpleNamespace(**base)
+
+    def test_clone_has_self_test_cleared_before_inner_call(self, monkeypatch):
+        gen = _generate()
+        seen = []
+        monkeypatch.setattr(gen, "_run_generate_inner", lambda a: seen.append(a))
+        gen._run_generate_self_test(self._args(), "rainy-street")
+        assert len(seen) == 1
+        assert seen[0].self_test is None
+
+    def test_original_args_self_test_untouched(self, monkeypatch):
+        gen = _generate()
+        monkeypatch.setattr(gen, "_run_generate_inner", lambda a: None)
+        args = self._args()
+        gen._run_generate_self_test(args, "rainy-street")
+        assert args.self_test == ["rainy-street"]
