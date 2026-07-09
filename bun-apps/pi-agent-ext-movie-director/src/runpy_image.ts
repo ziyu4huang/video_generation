@@ -194,7 +194,7 @@ const EXTRA_ARG_ALLOW_RUNPY_IMAGE = new Set<string>([
   "subject", "fill-holes", "trim",
   "style-preset", "playbook", "strength",
   "style-anchor", "cutout-subject",
-  "quantize", "scenes", "prompt-subject",
+  "quantize", "scenes", "prompt-subject", "kontext-lock",
   "softness-override", "film-grain", "sharpening", "lut", "face-detail",
   "anime2real-ref-count", "anime2real-lora-scale",
   "prompt-a", "prompt-b", "merge-prompt", "merge-denoise",

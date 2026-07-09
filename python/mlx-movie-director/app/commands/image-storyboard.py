@@ -145,6 +145,15 @@ def add_storyboard_args(parser: argparse.ArgumentParser) -> None:
              "identity; without it, all shots are independent T2I.",
     )
     parser.add_argument(
+        "--kontext-lock", action="store_true", default=False, dest="kontext_lock",
+        help="Upgrade the character-lock to TRUE in-context conditioning: route "
+             "recurring-character shots through `image kontext` (FLUX.1-Kontext-dev) "
+             "with the hero as the conditioning image, instead of the default soft "
+             "seed+Flux2KleinEdit ref-conditioning lock. The certified 3/3 identity "
+             "preservation becomes the recurring-character render path (model loaded "
+             "ONCE for the whole arc). Needs --character. Omit to keep the soft lock.",
+    )
+    parser.add_argument(
         "--judge", action="store_true", default=False,
         help="Run `run.py caption --style score` on each frame (the closed loop's "
              "judge step). Needs LM Studio; skipped gracefully if unavailable.",
@@ -258,6 +267,88 @@ def _build_run_config(shot_prompt: str, args: argparse.Namespace,
     )
 
 
+def _kontext_lock_active(args: argparse.Namespace, hero: str | None) -> bool:
+    """Whether recurring-character shots should route through true in-context
+    Kontext rendering instead of the soft seed+Flux2KleinEdit ref-cond lock.
+
+    Active iff ``--kontext-lock`` is set AND a hero (``--character``) is present
+    — Kontext needs the hero as its conditioning image, so without one it falls
+    back to the soft lock / independent T2I. Pure predicate (pytest target).
+    """
+    return bool(getattr(args, "kontext_lock", False)) and bool(hero)
+
+
+def _shot_route(shot: Any, recurring_ids, kontext_lock: bool) -> str:
+    """Decide one shot's render path. Pure (pytest target).
+
+    Returns ``"kontext"`` (true in-context, hero as conditioning image),
+    ``"locked"`` (soft seed+Flux2KleinEdit ref-cond lock), or ``"independent"``
+    (plain T2I — the shot has no recurring character). A recurring character
+    routes to Kontext only when ``--kontext-lock`` is active; otherwise the
+    certified soft lock is the default.
+    """
+    if shot.character_id is not None and shot.character_id in recurring_ids:
+        return "kontext" if kontext_lock else "locked"
+    return "independent"
+
+
+def _kontext_module():
+    """Lazy-load the hyphenated ``app.commands.image-kontext`` module (importlib,
+    like image.py does — a bare ``image_kontext`` name won't import)."""
+    import importlib
+    return importlib.import_module("app.commands.image-kontext")
+
+
+def _kontext_batch(prompts: list[str], args: argparse.Namespace, hero: str,
+                   out_dir: str, orig_output_dir: str) -> list[dict[str, Any]]:
+    """Render a batch of in-context Kontext shots in ONE Flux1Kontext load.
+
+    The expensive part of Kontext is the ~31GB model load; rendering all
+    recurring-character shots in a single batch (rather than one load per shot)
+    keeps the storyboard arc to one load. Delegates to
+    ``image-kontext._run_kontext_generation`` (which loads once, renders every
+    prompt, returns ``all_outputs``). Output dir is redirected into the storyboard
+    folder and restored.
+
+    Returns one output dict per prompt (``{path, seed, size_bytes, width,
+    height}``) — the caller maps them back to its own frames in order.
+    """
+    from app.commands._shared import resolve_lora_paths
+
+    run = _kontext_module()._run_kontext_generation
+    km = _kontext_module()
+    base_seed = int(getattr(args, "seed", None) or 777)
+    seeds = [base_seed + i for i in range(len(prompts))]  # distinct per scene
+
+    lora_paths = resolve_lora_paths(getattr(args, "lora_path", None) or [])
+    lora_scales_raw = getattr(args, "lora_scale", None)
+    if lora_paths:
+        if isinstance(lora_scales_raw, list):
+            lora_scales = [lora_scales_raw[i] if i < len(lora_scales_raw) else 1.0
+                           for i in range(len(lora_paths))]
+        else:
+            lora_scales = [float(lora_scales_raw) if lora_scales_raw else 1.0] * len(lora_paths)
+    else:
+        lora_scales = None
+
+    cfg.OUTPUT_DIR = out_dir
+    try:
+        outputs = run(
+            hero=hero, prompts=prompts, seeds=seeds,
+            width=getattr(args, "width", None) or 1024,
+            height=getattr(args, "height", None) or 1024,
+            steps=getattr(args, "steps", None) or km.DEFAULT_KONTEXT_STEPS,
+            guidance=getattr(args, "guidance", None) or km.DEFAULT_KONTEXT_GUIDANCE,
+            scheduler=getattr(args, "scheduler", None) or "linear",
+            quantize=getattr(args, "quantize", None) or 8,
+            lora_paths=lora_paths or None, lora_scales=lora_scales,
+            args=args,
+        )
+    finally:
+        cfg.OUTPUT_DIR = orig_output_dir
+    return outputs
+
+
 def _newest_png_in_dir(directory: str) -> str | None:
     """Newest *.png in a flat dir (execute_generation writes exactly one per call)."""
     if not os.path.isdir(directory):
@@ -319,6 +410,7 @@ def run_storyboard(args: argparse.Namespace) -> dict[str, Any]:
     os.makedirs(out_dir, exist_ok=True)
 
     hero = args.character
+    kontext_lock = _kontext_lock_active(args, hero)
     # Redirect generation output into the storyboard dir so frames + their manifests
     # land alongside storyboard.json. execute_generation reads cfg.OUTPUT_DIR via
     # make_output_paths(); save/restore so we don't leak the override.
@@ -342,15 +434,56 @@ def run_storyboard(args: argparse.Namespace) -> dict[str, Any]:
             "manifest": manifest_file,
         }
 
-    frames: list[dict[str, Any]] = []
+    def _frame_from_shot(shot: Any, image: str, *, kontext: bool) -> dict[str, Any]:
+        return {
+            "scene_id": shot.scene_id,
+            "character_id": shot.character_id,
+            "hero_moment": shot.hero_moment,
+            "character_locked": True,
+            "kontext_locked": kontext,
+            "prompt": shot.prompt,
+            "image": image,
+            "manifest": None,
+        }
+
+    # Render in original order, but DEFER recurring-character shots to a single
+    # Kontext batch when --kontext-lock is active (the ~31GB Flux1Kontext load is
+    # the expensive part — one load per arc, not per shot). Non-locked shots and
+    # the soft-lock path render inline as before.
+    frames_by_idx: dict[int, dict[str, Any]] = {}
+    deferred_kontext: list[tuple[int, Any]] = []
     try:
         for i, shot in enumerate(storyboard.shots):
+            route = _shot_route(shot, storyboard.recurring_characters, kontext_lock)
             tag = f"[storyboard {i + 1}/{len(storyboard.shots)}] {shot.scene_id}"
-            tag += f" (character-lock: {shot.character_id})" if shot.character_id in storyboard.recurring_characters else ""
+            if route == "kontext":
+                tag += f" (kontext-lock: {shot.character_id})"
+            elif route == "locked":
+                tag += f" (character-lock: {shot.character_id})"
             print(f"{tag}\n  prompt: {shot.prompt[:120]}{'…' if len(shot.prompt) > 120 else ''}", flush=True)
-            frames.append(_gen(shot))
+            if route == "kontext":
+                deferred_kontext.append((i, shot))
+                continue
+            frames_by_idx[i] = _gen(shot)
+
+        if deferred_kontext:
+            prompts = [shot.prompt for _, shot in deferred_kontext]
+            print(f"[storyboard] Kontext-lock batch: {len(prompts)} recurring-character "
+                  f"shot(s), hero={hero} (one Flux1Kontext load)", flush=True)
+            outputs = _kontext_batch(prompts, args, hero, out_dir, orig_output_dir)
+            if len(outputs) != len(deferred_kontext):
+                raise RuntimeError(
+                    f"kontext batch returned {len(outputs)} renders for "
+                    f"{len(deferred_kontext)} shots")
+            for (i, shot), out in zip(deferred_kontext, outputs):
+                path = out.get("path")
+                if not path or not os.path.exists(path):
+                    raise RuntimeError(f"kontext render for shot {shot.scene_id} produced no image")
+                frames_by_idx[i] = _frame_from_shot(shot, path, kontext=True)
     finally:
         cfg.OUTPUT_DIR = orig_output_dir
+
+    frames = [frames_by_idx[i] for i in range(len(storyboard.shots))]
 
     # Contact sheet (the storyboard artifact).
     contact_path = os.path.join(out_dir, "contact_sheet.png")
@@ -374,6 +507,7 @@ def run_storyboard(args: argparse.Namespace) -> dict[str, Any]:
         "recurring_characters": storyboard.recurring_characters,
         "contact_sheet": contact_path,
         "hero": hero,
+        "kontext_lock": kontext_lock,
         "style_context": style_context,
         "out_dir": out_dir,
         "storyboard_json": storyboard_json,
@@ -437,8 +571,11 @@ def _regenerate_weak_identity(frames: list[dict[str, Any]], args: argparse.Names
     """Closed loop (OM D12): regenerate each identity-weak frame ONCE under the
     same character-lock, then re-judge. Frames already regenerated or whose judge
     was unavailable are left alone. Best-effort: a regen failure keeps the original.
+
+    Under ``--kontext-lock`` the regen uses the SAME true in-context Kontext path
+    (batched into one Flux1Kontext load), so the closed loop is consistent with
+    how the arc was rendered rather than silently dropping back to the soft lock.
     """
-    from app.commands._shared import execute_generation
     _vlm_verify_identity = _identity_judge()
 
     api_url = getattr(args, "vlm_api_url", None) or "http://localhost:1234/v1"
@@ -446,11 +583,18 @@ def _regenerate_weak_identity(frames: list[dict[str, Any]], args: argparse.Names
     weak = [f for f in frames if f.get("identity_weak") is True and not f.get("regen_attempted")]
     if not weak:
         return frames
+    for f in weak:
+        f["regen_attempted"] = True
     print(f"[storyboard] regenerating {len(weak)} identity-weak frame(s) once (OM D12 loop)", flush=True)
+
+    if _kontext_lock_active(args, hero):
+        return _regen_weak_via_kontext(weak, frames, args, hero, out_dir, orig_output_dir,
+                                       api_url, model, _vlm_verify_identity)
+
+    from app.commands._shared import execute_generation
     cfg.OUTPUT_DIR = out_dir
     try:
         for f in weak:
-            f["regen_attempted"] = True
             try:
                 run_config = _build_run_config(f["prompt"], args, hero, use_character_lock=True)
                 execute_generation(run_config, pipeline_type=run_config.pipeline)
@@ -461,20 +605,57 @@ def _regenerate_weak_identity(frames: list[dict[str, Any]], args: argparse.Names
             except Exception as e:  # noqa: BLE001 — keep the original frame on regen failure
                 ename = type(e).__name__
                 f["regen_error"] = f"{ename}: {e}"
-                sid = f["scene_id"]
-                print(f"  [regen] {sid} failed ({ename}); kept original", flush=True)
+                print(f"  [regen] {f['scene_id']} failed ({ename}); kept original", flush=True)
                 continue
-            # Re-judge the regenerated image.
-            verdict = _vlm_verify_identity(hero, f["image"], api_url, model)
-            f["identity_post_regen"] = verdict
-            if verdict is not None:
-                f["identity_weak"] = (not bool(verdict.get("same_identity", False))) or (
-                    isinstance(verdict.get("identity_score"), (int, float))
-                    and verdict["identity_score"] < 0.6)
-            print(f"  [regen] {f['scene_id']} re-judged: same={verdict.get('same_identity') if verdict else 'n/a'}",
-                  flush=True)
+            _rejudge(f, hero, api_url, model, _vlm_verify_identity)
     finally:
         cfg.OUTPUT_DIR = orig_output_dir
+    return frames
+
+
+def _rejudge(f: dict[str, Any], hero: str, api_url: str, model: str | None,
+             _vlm_verify_identity) -> None:
+    """Re-judge one frame against the hero and update its identity flags."""
+    verdict = _vlm_verify_identity(hero, f["image"], api_url, model)
+    f["identity_post_regen"] = verdict
+    if verdict is not None:
+        f["identity_weak"] = (not bool(verdict.get("same_identity", False))) or (
+            isinstance(verdict.get("identity_score"), (int, float))
+            and verdict["identity_score"] < 0.6)
+    print(f"  [regen] {f['scene_id']} re-judged: "
+          f"same={verdict.get('same_identity') if verdict else 'n/a'}", flush=True)
+
+
+def _regen_weak_via_kontext(weak: list[dict[str, Any]], frames: list[dict[str, Any]],
+                            args: argparse.Namespace, hero: str, out_dir: str,
+                            orig_output_dir: str, api_url: str, model: str | None,
+                            _vlm_verify_identity) -> list[dict[str, Any]]:
+    """Regenerate identity-weak frames via a single batched Kontext load, then
+    re-judge. Maps outputs back to frames 1:1 by order; a batch failure keeps the
+    originals (best-effort, like the soft regen)."""
+    prompts = [f["prompt"] for f in weak]
+    try:
+        outputs = _kontext_batch(prompts, args, hero, out_dir, orig_output_dir)
+    except Exception as e:  # noqa: BLE001 — keep originals on batch failure
+        ename = type(e).__name__
+        for f in weak:
+            f["regen_error"] = f"{ename}: {e}"
+        print(f"  [regen] kontext batch failed ({ename}); kept {len(weak)} original(s)",
+              flush=True)
+        return frames
+    if len(outputs) != len(weak):
+        print(f"  [regen] kontext batch returned {len(outputs)} for {len(weak)}; "
+              f"kept originals", flush=True)
+        return frames
+    for f, out in zip(weak, outputs):
+        path = out.get("path")
+        if path and os.path.exists(path):
+            f["image"] = path
+            f["regenerated"] = True
+            _rejudge(f, hero, api_url, model, _vlm_verify_identity)
+        else:
+            f["regen_error"] = "kontext produced no image"
+            print(f"  [regen] {f['scene_id']} no image; kept original", flush=True)
     return frames
 
 

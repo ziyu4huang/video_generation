@@ -311,11 +311,16 @@ def _run_kontext_generation(*, hero: str, prompts: list[str], seeds: list[int],
                             scheduler: str, quantize: int,
                             lora_paths: list[str] | None,
                             lora_scales: list[float] | None,
-                            args: "argparse.Namespace") -> None:
+                            args: "argparse.Namespace") -> list[dict]:
     """Load Flux1Kontext once, render each prompt, write run.json + manifest.
 
     Kept separate from run_kontext so the generation surface is testable without
     argparse — the heavy mflux import lives here (deferred to call time).
+
+    Returns ``all_outputs`` (one dict per render: ``{path, seed, size_bytes,
+    width, height}``) so callers that batch renders — e.g. ``image storyboard
+    --kontext-lock`` routing recurring-character shots here — can map outputs back
+    to their own frames without scraping the output dir.
     """
     import gc
     from datetime import datetime, timezone
@@ -395,6 +400,7 @@ def _run_kontext_generation(*, hero: str, prompts: list[str], seeds: list[int],
         manifest.to_json(paths.manifest_file)
         print(f"Run config: {paths.run_file}")
         print(f"Manifest:   {paths.manifest_file}")
+        return all_outputs
 
     except Exception as exc:
         end_time = datetime.now(timezone.utc).isoformat()
