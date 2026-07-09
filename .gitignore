@@ -32,6 +32,10 @@ tmp/
 comfyui_data/models/
 comfyui_data/input/
 python/mlx-movie-director/app/models/
+# face-restore: facexlib hardcodes a 'gfpgan/weights' download dir (relative to
+# cwd=repo root). Symlinked into app/models/face-restore (gitignored above) so
+# weights aren't re-downloaded; this wrapper dir is itself an artifact.
+/gfpgan/
 comfyui_data/user/**/*.db
 comfyui_data/user/**/*.log
 comfyui_data/user/__manager/
