@@ -146,9 +146,20 @@ def run_facerestore(args: "argparse.Namespace") -> None:
     if bg_upsampler:
         argv.append("--bg-upsampler")
 
+    # Offline propagation: when the parent run.py is --offline, tell the bridge
+    # (a) to treat the MLX upscale store as a candidate for the vendored
+    # Real-ESRGAN weight, and (b) to NEVER download (FACE_RESTORE_OFFLINE=1).
+    # The bridge runs in python/face-venv (no app. imports), so env vars are the
+    # only clean channel. mlx-models/upscale/realesrgan/ is the vendor location.
+    env = os.environ.copy()
+    realesrgan_vendor_dir = os.path.join(cfg.MODELS_DIR, "upscale", "realesrgan")
+    env["FACE_RESTORE_EXTRA_WEIGHTS_DIRS"] = realesrgan_vendor_dir
+    if bool(getattr(cfg, "OFFLINE", False)):
+        env["FACE_RESTORE_OFFLINE"] = "1"
+
     print(f"[facerestore] spawning face-venv bridge ({model}, fidelity={fidelity}, "
           f"bg_upsampler={bg_upsampler})...", file=sys.stderr)
-    proc = subprocess.run(argv, cwd=cfg.REPO_DIR, capture_output=True, text=True)
+    proc = subprocess.run(argv, cwd=cfg.REPO_DIR, capture_output=True, text=True, env=env)
     sys.stderr.write(proc.stderr)
     manifest = _parse_manifest(proc.stdout)
     if proc.returncode != 0 or not manifest or not manifest.get("ok"):
