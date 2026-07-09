@@ -577,9 +577,12 @@ def _run_generate_self_test(args: argparse.Namespace, st: bool | str | list[str]
             print(f"  [SKIP] Unknown test prompt: {name!r}")
             continue
 
-        # Clone args and inject test prompt
+        # Clone args and inject test prompt. Clear self_test on the clone —
+        # otherwise _run_generate_inner(test_args) sees it still set and
+        # recurses back into this function (infinite recursion / RecursionError).
         import copy
         test_args = copy.copy(args)
+        test_args.self_test = None
         test_args.test_prompt = name
         test_args.prompt = tp["prompt"]
         # Apply recommended defaults for params still at their argparse defaults.
