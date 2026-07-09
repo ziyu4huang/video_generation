@@ -144,4 +144,20 @@ if [ -f "$SCRIPT_DIR/.deploy-readonly" ]; then
   fi
 fi
 
+# Source-mode pre-flight dep self-heal: ensure extension workspace deps are
+# linked into node_modules BEFORE bun boots. The bun process that loads the
+# extensions imports them as bare specifiers (@repo/…, js-yaml,
+# @mozilla/readability, …); under Bun's isolated linker those only resolve once
+# `bun install` has run. Installing here (in a throwaway process) means the
+# subsequent `exec bun` is FRESH and sees the deps on the FIRST launch —
+# resolve.ts's mid-boot auto-install can't satisfy the same launch (Bun doesn't
+# re-scan node_modules mid-process), which is why ./pi-agent.sh needed a manual
+# `bun install` + re-run. check-deps.ts is a silent no-op when nothing's
+# missing. Gated to source mode (deploys bake deps in). Opt out with
+# BUN_PI_AUTO_INSTALL=0 (passed through to check-deps.ts). `|| true` so a failed
+# install still launches pi, which then prints the actionable guide.
+if [ -f "$SCRIPT_DIR/src/cli.ts" ] && [ -f "$SCRIPT_DIR/run-dir/check-deps.ts" ]; then
+  bun "$SCRIPT_DIR/run-dir/check-deps.ts" || true
+fi
+
 exec bun "$ENTRY" "$@"
