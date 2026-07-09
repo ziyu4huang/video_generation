@@ -127,7 +127,7 @@ const FULL_FOR = new Set<string>(
 // better-sqlite3 require is left as a bare specifier and abs-resolved to the
 // repo .bun store (non-portable) or resolved from the deploy's node_modules
 // (portable). Add other native/heavy exts here when vendored.
-const DEFAULT_FULL = new Set<string>(["pi-hermes-memory"]);
+const DEFAULT_FULL = new Set<string>(["pi-agent-ext-hermes-memory"]);
 
 // ── manifest ────────────────────────────────────────────────────────────────
 if (!existsSync(MANIFEST_PATH)) die(`manifest not found: ${MANIFEST_PATH}`);

@@ -8,8 +8,8 @@
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
-import { runVlmDescribePipeline, DEFAULT_VLM_MODEL } from "pi-vlm";
-import type { DocProfile } from "pi-vlm";
+import { runVlmDescribePipeline, DEFAULT_VLM_MODEL } from "@repo/pi-agent-ext-vlm";
+import type { DocProfile } from "@repo/pi-agent-ext-vlm";
 
 export const vlmDescribeCommand = {
 	name: "vlm-describe",

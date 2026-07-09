@@ -25,7 +25,7 @@
   "dependencies": {
     "@earendil-works/pi-ai": "latest",
     "@earendil-works/pi-agent-core": "latest",
-    "pi-vlm": "workspace:*"
+    "@repo/pi-agent-ext-vlm": "workspace:*"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

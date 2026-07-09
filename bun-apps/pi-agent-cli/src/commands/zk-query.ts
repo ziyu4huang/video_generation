@@ -33,8 +33,8 @@ import {
 	graphHealth,
 	healGraph,
 	formatHealth,
-} from "pi-knowledge-card/src/retrieve.ts";
-import { mergeDuplicates, formatMerge } from "pi-knowledge-card/src/merge.ts";
+} from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
+import { mergeDuplicates, formatMerge } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
 
 function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
 	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;

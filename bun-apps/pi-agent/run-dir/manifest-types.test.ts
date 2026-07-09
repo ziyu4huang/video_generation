@@ -55,7 +55,7 @@ describe("parseManifestEntries", () => {
 		const entries = parseManifestEntries([
 			"pi-vlm/extensions/pi-vlm.ts",
 			{ name: "pi-hermes-memory", entry: "pi-hermes-memory/src/index.ts", bundleMode: "full" },
-			"pi-obsidian/extensions/obsidian.ts",
+			"@repo/pi-agent-ext-obsidian/extensions/obsidian.ts",
 		]);
 		expect(entries).toHaveLength(3);
 		expect(entries[0]!.bundleMode).toBe("thin");

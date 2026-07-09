@@ -221,7 +221,7 @@ See [[self-improve-sop]] memory for the full procedure. Key: branch off `main` (
 
 Wire these via the workflow's `model-routing` / `model-tier-config`. Only escalate to the fallback if a run reports structured-output recovery or poor tool adherence — the loop only works when the model reliably calls the StructuredOutput tool.
 
-**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-dynamic-workflows / pi-vlm / pi-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
+**Infrastructure self-improve** — `pi-infra-self-improve` (`.claude/workflows/pi-infra-self-improve.js`) is the infrastructure-layer loop (pi-agent / pi-agent-cli / pi-dynamic-workflows / pi-agent-ext-vlm / pi-agent-ext-obsidian): contract lane (each package's real gate) + build lane (`pi-agent build:all` + `getAllTools()` probe) + review lane + opt-in **fix** lane (`fix:true`, dryRun-capable, dirty-tree-refuse, never-pushes). First adopter of the Self-Fix (Code-Review-Based) shared primitive in `_shared-patterns.md`. Run after touching any infra package.
 
 ## Branch hygiene — delete at PR-merge time (SOP #320)
 

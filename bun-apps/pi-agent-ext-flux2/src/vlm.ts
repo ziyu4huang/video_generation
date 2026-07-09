@@ -22,7 +22,7 @@
  * machinery.
  */
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { askImage, resolveLLM, type ResolvedLLM } from "pi-vlm";
+import { askImage, resolveLLM, type ResolvedLLM } from "@repo/pi-agent-ext-vlm";
 
 let _lmStudioRegistry: ModelRegistry | null = null;
 

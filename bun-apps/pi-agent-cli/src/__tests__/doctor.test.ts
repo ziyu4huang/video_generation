@@ -135,11 +135,11 @@ describe("individual checks", () => {
 		const { ctx, repo } = makeCtx({});
 		const manifestDir = join(repo, "bun-apps", "pi-agent", "run-dir");
 		mkdirSync(manifestDir, { recursive: true });
-		mkdirSync(join(repo, "bun-apps", "pi-obsidian", "extensions"), { recursive: true });
-		writeFileSync(join(repo, "bun-apps", "pi-obsidian", "extensions", "obsidian.ts"), "// ok");
+		mkdirSync(join(repo, "bun-apps", "pi-agent-ext-obsidian", "extensions"), { recursive: true });
+		writeFileSync(join(repo, "bun-apps", "pi-agent-ext-obsidian", "extensions", "obsidian.ts"), "// ok");
 		writeFileSync(
 			join(manifestDir, "manifest.json"),
-			JSON.stringify({ extensions: ["pi-obsidian/extensions/obsidian.ts"], skills: [] }),
+			JSON.stringify({ extensions: ["pi-agent-ext-obsidian/extensions/obsidian.ts"], skills: [] }),
 		);
 		expect(checkRunDir(ctx, repo).status).toBe("pass");
 	});
