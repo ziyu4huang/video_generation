@@ -15,8 +15,11 @@ export function formatBytes(bytes: number): string {
 export { formatBytes as formatSize };
 
 /** Relative time from ISO timestamp (e.g. "just now", "5m ago", "2h ago"). */
-export function relativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
+// `now` is an injectable clock seam (defaults to the wall-clock) so tests can
+// assert relative-time formatting deterministically instead of racing the
+// wall-clock (see .github/TEST-DETERMINISM.md D1). Production callers omit it.
+export function relativeTime(iso: string, now: number = Date.now()): string {
+  const diffMs = now - new Date(iso).getTime();
   const s = Math.floor(diffMs / 1000);
   if (s < 60) return "just now";
   const m = Math.floor(s / 60);

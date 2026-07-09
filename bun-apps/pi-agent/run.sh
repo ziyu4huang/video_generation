@@ -19,6 +19,24 @@
 #
 #   From anywhere (resolves its own dir):
 #   cd /anywhere && /abs/path/to/.../run.sh -p hi
+#
+# UPGRADING pi
+#   This launcher runs pi from the npm package @earendil-works/pi-coding-agent
+#   (pinned as "latest" in bun-apps/*/package.json). pi's built-in `pi update`
+#   is DISABLED here (workspace dep, not a global install), so use the dedicated
+#   wrapper sibling:
+#
+#       ./bun-apps/pi-agent/update-pi.sh            # upgrade pi to latest
+#       ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest, no change
+#       ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
+#       ./run.sh --update-help                      # print this from the launcher
+#
+#   The wrapper runs `bun update @earendil-works/pi-coding-agent --latest` at
+#   the monorepo root, verifies the installed version, and rewrites bun.lock
+#   (the canonical lockfile) for ALL bun-apps/* consumers at once. NEVER use
+#   `npm install` — it writes the gitignored package-lock.json and breaks the
+#   Bun workspace layout. This file is a symlink target (./pi-agent.sh → here),
+#   so editing run.sh updates both invocations.
 ########################################
 set -euo pipefail
 
@@ -38,6 +56,35 @@ SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 if ! command -v bun >/dev/null 2>&1; then
   echo "error: 'bun' not found on PATH — install from https://bun.sh" >&2
   exit 1
+fi
+
+# Quick update-help: `./run.sh --update-help` (or `-U`) prints how to upgrade
+# pi without launching the TUI. It just points at the dedicated wrapper — real
+# upgrading happens in update-pi.sh (a repo-root bun command), not inside this
+# launcher / node_modules.
+if [ "${1:-}" = "--update-help" ] || [ "${1:-}" = "-U" ]; then
+  cat <<'EOF'
+How to upgrade pi (@earendil-works/pi-coding-agent):
+
+  Use the dedicated wrapper (pi's built-in `pi update` is disabled here —
+  pi is a workspace dep, not a global install):
+
+    ./bun-apps/pi-agent/update-pi.sh            # upgrade to latest
+    ./bun-apps/pi-agent/update-pi.sh --check    # current vs latest only
+    ./bun-apps/pi-agent/update-pi.sh --rebuild  # also rebuild pi-agent dist bundle
+    ./bun-apps/pi-agent/update-pi.sh --help     # full wrapper docs
+
+  The wrapper runs `bun update @earendil-works/pi-coding-agent --latest` at the
+  monorepo root, verifies the version, and bumps bun.lock for all consumers.
+
+  Verify after:  ./pi-agent.sh --list-models
+
+Notes:
+  - pi is pinned as "latest" in bun-apps/*/package.json — no version to edit.
+  - NEVER use `npm install`; it writes the gitignored package-lock.json.
+  - This launcher is also reachable via the repo-root symlink ./pi-agent.sh.
+EOF
+  exit 0
 fi
 
 ENTRY=""

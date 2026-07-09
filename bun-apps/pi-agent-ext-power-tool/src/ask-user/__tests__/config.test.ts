@@ -10,16 +10,22 @@
  *         specs, special keys), loadConfig (no file, valid JSON).
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
-// We must dynamically import the module AFTER setting up any HOME override.
-// The config module resolves CONFIG_PATH at import time via homedir().
-// We use the real HOME for the import, then manage a temp config file.
+// Determinism: loadConfig reads from ~/.config/rpiv-ask-user-question/config.json
+// (real host state). The module resolves CONFIG_PATH at import via os.homedir(),
+// and Bun's homedir() ignores process.env.HOME — so the OLD test wrote to
+// process.env.HOME while the module read os.homedir() (a divergence that
+// intermittently failed) AND polluted the real ~/.config. The __setConfigPathForTest
+// seam points BOTH the read and the write at a per-test tmpdir: deterministic +
+// never touches the real host.
 import {
 	type AskUserQuestionConfig,
 	COLLAPSE_KEY_OFF,
 	DEFAULT_COLLAPSE_KEY,
+	__setConfigPathForTest,
 	loadConfig,
 	resolveCollapseKey,
 } from "../config.js";
@@ -74,25 +80,19 @@ describe("resolveCollapseKey", () => {
 // ─── loadConfig ──────────────────────────────────────────────────────────────
 
 describe("loadConfig", () => {
-	const home = process.env.HOME ?? "";
-	const configPath = join(home, ".config", "rpiv-ask-user-question", "config.json");
-
-	// Track whether the config dir existed before we started
-	let configDirExisted = false;
-	let configFileExisted = false;
+	// Per-test tmpdir: the seam makes loadConfig read here, and we write fixtures
+	// to the same path — read and write agree, and the real ~/.config is untouched.
+	const tmpHome = mkdtempSync(join(tmpdir(), "ask-user-config-test-"));
+	const configDir = join(tmpHome, ".config", "rpiv-ask-user-question");
+	const configPath = join(configDir, "config.json");
 
 	beforeAll(() => {
-		configDirExisted = existsSync(join(home, ".config", "rpiv-ask-user-question"));
-		configFileExisted = existsSync(configPath);
+		__setConfigPathForTest(configPath);
 	});
 
 	afterAll(() => {
-		// Only remove the test config file if we created it during testing
-		if (!configFileExisted && existsSync(configPath)) rmSync(configPath);
-		// Only remove the config dir if we created it during testing
-		if (!configDirExisted && existsSync(join(home, ".config", "rpiv-ask-user-question"))) {
-			rmSync(join(home, ".config", "rpiv-ask-user-question"), { recursive: true });
-		}
+		__setConfigPathForTest(null);
+		rmSync(tmpHome, { recursive: true, force: true });
 	});
 
 	test("returns an empty config when no file is present", () => {
@@ -101,7 +101,7 @@ describe("loadConfig", () => {
 	});
 
 	test("reads a valid JSON config", () => {
-		mkdirSync(join(home, ".config", "rpiv-ask-user-question"), { recursive: true });
+		mkdirSync(configDir, { recursive: true });
 		writeFileSync(
 			configPath,
 			JSON.stringify({ collapseKey: "alt+o", guidance: { promptSnippet: "x" } } satisfies AskUserQuestionConfig),

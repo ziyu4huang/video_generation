@@ -1,27 +1,21 @@
-# pi-schema-cost
+# schema-cost
 
 **Measure and rank the API schema-token cost of LLM tool definitions.** Pure token-accounting — zero dependencies, runs anywhere.
 
-> Every LLM tool-call request repeats each tool's `description` + the JSON Schema of its `parameters` in the API `tools` array. That schema text is a **per-request token tax** — the #1 demand bucket for context-window cost. `pi-schema-cost` makes it measurable, rankable, and reducible.
+> Submodule of `@repo/pi-agent-ext-power-tool`, exported at `@repo/pi-agent-ext-power-tool/schema-cost`. Source lives at `src/schema-cost/`. (Formerly the standalone `pi-schema-cost` package, merged in to reduce monorepo package count on 2026-07-10.)
+
+Every LLM tool-call request repeats each tool's `description` + the JSON Schema of its `parameters` in the API `tools` array. That schema text is a **per-request token tax** — the #1 demand bucket for context-window cost. This module makes it measurable, rankable, and reducible.
 
 ## Why
 
-Context-window cost is the largest, most-recurring demand across the pi.dev ecosystem. In our own agent (30+ tools across 9 extensions), the per-request schema tax was **~328K aggregate tokens** — paid on *every* request. You can't shrink what you can't measure. This package is the measurement half: dependency-free, deterministic, offline.
+Context-window cost is the largest, most-recurring demand across the pi.dev ecosystem. In our own agent (30+ tools across 9 extensions), the per-request schema tax was **~328K aggregate tokens** — paid on *every* request. You can't shrink what you can't measure. This module is the measurement half: dependency-free, deterministic, offline.
 
 It ranks tools correctly (the expensive ones float to the top) even though the absolute number is a heuristic — real cost depends on the provider's tokenizer, but the ranking is stable across changes, which is what you need to baseline and track cost reductions.
-
-## Install
-
-```bash
-bun add pi-schema-cost      # or: npm install pi-schema-cost
-```
-
-Zero runtime dependencies.
 
 ## Quick start
 
 ```js
-import { analyzeTools, formatReport } from "pi-schema-cost";
+import { analyzeTools, formatReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
 const tools = [
   {
@@ -53,8 +47,7 @@ beep             6     5      17  example
 Run the bundled example:
 
 ```bash
-git clone … && cd pi-schema-cost
-bun run example     # → bun examples/quick.mjs
+bun run --cwd bun-apps/pi-agent-ext-power-tool example:schema-cost   # → bun examples/schema-cost-quick.mjs
 ```
 
 ## API
@@ -64,7 +57,7 @@ bun run example     # → bun examples/quick.mjs
 Estimate one tool's schema-token cost. Pure + deterministic.
 
 ```js
-import { estimateToolCost } from "pi-schema-cost";
+import { estimateToolCost } from "@repo/pi-agent-ext-power-tool/schema-cost";
 const c = estimateToolCost({ name: "read", description: "Read a file.", parameters: {} }, "(builtin)");
 // → { name: "read", descLen: 12, paramsLen: 2, approxTokens: 4, source: "(builtin)" }
 ```
@@ -108,10 +101,6 @@ It's an **estimate** (real cost uses the provider's BPE tokenizer), but:
 
 For an exact count, swap in a real tokenizer by post-processing the `descLen`/`paramsLen` fields.
 
-## Scope (what this package is NOT)
+## Scope (what this module is NOT)
 
-This is the **static schema-cost** half. It measures tool *definitions*, not live-session usage. The live half (system-prompt text, guideline snippets, real token usage from the API) is agent-coupled and lives in-tree (`context_analyzer`). The clean boundary is the point: feed this package whatever tool definitions you have and it ranks them.
-
-## License
-
-MIT.
+This is the **static schema-cost** half. It measures tool *definitions*, not live-session usage. The live half (system-prompt text, guideline snippets, real token usage from the API) is agent-coupled and lives alongside this in the same package (`context_analyzer`, `src/index.ts`). The clean boundary within `src/schema-cost/` is the point: feed it whatever tool definitions you have and it ranks them, with zero runtime deps.

@@ -1,8 +1,10 @@
 /**
  * Unit tests for MemoryStore — core persistent memory with file-backed storage.
  *
- * Uses real file I/O via the hardcoded ~/.pi/agent/memory/ path.
- * Each test isolates via beforeEach/afterEach cleanup with aggressive settling.
+ * Determinism: writes go to a per-test tmpdir (mkdtemp under os.tmpdir()),
+ * never the real ~/.pi/agent/memory/. The tmpdir is passed as `memoryDir` so
+ * MemoryStore resolves every file (MEMORY.md / USER.md / failures.md) inside
+ * it; before/afterEach clean the slate and the whole dir is removed in after.
  */
 
 import * as fs from "node:fs/promises";

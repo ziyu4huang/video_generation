@@ -2,7 +2,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DEFAULT_PROJECTS_MEMORY_DIR } from "./constants.js";
 
-export const AGENT_ROOT = resolveAgentRoot();
+// AGENT_ROOT is a live-binding `let` so tests can redirect it to a tmpdir via
+// __setAgentRootForTest (the proven __setVaultResolverForTest pattern). In
+// production it is set once at module load and never reassigned, so behavior is
+// identical to a `const` outside tests. ESM live bindings guarantee every
+// importer (config.ts, memory-store.ts, index-sessions.ts, …) observes the
+// test override — the whole agent-root subtree resolves to the tmpdir.
+export let AGENT_ROOT = resolveAgentRoot();
+
+// --- test seam (deterministic agent-root injection) --------------------------
+// Every hermes test that touches host state must resolve it to a tmpdir, never
+// the real ~/.pi/agent (which is under concurrent modification by live sessions
+// + self-improve runs — a full overwrite can be silently clobbered, and a crash
+// mid-test corrupts real memory). Null = restore the real resolved root.
+/** @internal test-only override of the agent root (pass null to restore). */
+export function __setAgentRootForTest(root: string | null): void {
+	AGENT_ROOT = root ?? resolveAgentRoot();
+}
 
 export function resolveAgentRoot(env: Record<string, string | undefined> = process.env): string {
   const configured = env.PI_CODING_AGENT_DIR?.trim();
