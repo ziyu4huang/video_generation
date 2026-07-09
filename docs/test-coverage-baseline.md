@@ -53,7 +53,7 @@ Mixed — the pure-logic cores are well covered, the I/O/render leaves are not:
   `baseline-contract.test.mjs` (content-controlled, does **not** drift).
   After a vault-content PR, refresh the snapshot:
   ```bash
-  ( cd bun-apps/pi-obsidian && bun run regen:baseline )
+  ( cd bun-apps/pi-agent-ext-obsidian && bun run regen:baseline )
   ```
   (Refreshed in this same pass: vault grew 553→598 + dead-link cleanup.)
 - The `gui-movie-director` 2 fails (`check-runtime … hard errors`) are

@@ -137,7 +137,7 @@ Two machine-specific consequences:
 
 The `pi-vlm` build runs a portability check that warns if any `/Users/...` (macOS),
 `/home/...` (Linux), or `C:\Users\...` (Windows) path leaks into bundled output
-(`bun-apps/pi-vlm/scripts/verify-portability.ts`).
+(`bun-apps/pi-agent-ext-vlm/scripts/verify-portability.ts`).
 
 ---
 

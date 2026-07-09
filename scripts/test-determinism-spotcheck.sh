@@ -8,8 +8,8 @@
 # (scripts/test-determinism-audit.sh + .github/TEST-DETERMINISM.md) is the proof.
 #
 # Scoped to the packages with known determinism smells (the audit's D1/D3
-# surface): pi-hermes-memory (former node:test hang), pi-dynamic-workflows
-# (time/runtime fixtures), pi-obsidian (mtime/time tests). Keeps CI cost bounded
+# surface): pi-agent-ext-hermes-memory (former node:test hang), pi-dynamic-workflows
+# (time/runtime fixtures), pi-agent-ext-obsidian (mtime/time tests). Keeps CI cost bounded
 # — a full-17-package N× run is a follow-up once the subset is clean.
 #
 # Usage (from repo root):
@@ -31,13 +31,13 @@ emit() { printf '%s\n' "$*"; }
 
 # Flake-prone subset: "package-dir<TAB>test-command". Commands run from repo
 # root (so --cwd / build paths are stable), matching the CI matrix commands.
-# - pi-hermes-memory: the former node:test-hang package (now single-process bun test)
+# - pi-agent-ext-hermes-memory: the former node:test-hang package (now single-process bun test)
 # - pi-dynamic-workflows: build-first; time/runtime fixtures
-# - pi-obsidian: mtime/time tests (scoped to the portable extensions suite)
+# - pi-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
 ENTRIES=(
-	"pi-hermes-memory	( cd bun-apps/pi-hermes-memory && bash tests/run-all.sh )"
+	"pi-agent-ext-hermes-memory	( cd bun-apps/pi-agent-ext-hermes-memory && bash tests/run-all.sh )"
 	"pi-dynamic-workflows	( cd bun-apps/pi-dynamic-workflows && bun run build && bun test )"
-	"pi-obsidian	( cd bun-apps/pi-obsidian && bun test extensions/__tests__/ )"
+	"pi-agent-ext-obsidian	( cd bun-apps/pi-agent-ext-obsidian && bun test extensions/__tests__/ )"
 )
 
 FLAKE_DETECTED=0
