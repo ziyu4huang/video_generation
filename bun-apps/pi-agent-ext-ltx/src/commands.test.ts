@@ -119,8 +119,8 @@ describe("pathFieldKeys", () => {
 });
 
 describe("pathSpecFieldKeys", () => {
-  test("native-i2v/native-t2a/native-relay's loras is the only path-spec field in the registry", () => {
-    expect(pathSpecFieldKeys(COMMANDS["native-i2v"])).toEqual(["loras"]);
+  test("native-i2v's loras/anchorImages, native-t2a/native-relay's loras are the only path-spec fields in the registry", () => {
+    expect(pathSpecFieldKeys(COMMANDS["native-i2v"])).toEqual(["loras", "anchorImages"]);
     expect(pathSpecFieldKeys(COMMANDS["native-t2a"])).toEqual(["loras"]);
     expect(pathSpecFieldKeys(COMMANDS["native-relay"])).toEqual(["loras"]);
     for (const [name, spec] of Object.entries(COMMANDS)) {
