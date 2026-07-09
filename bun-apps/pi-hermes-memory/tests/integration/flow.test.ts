@@ -1,21 +1,39 @@
 /**
  * Integration tests — exercise the extension end-to-end.
  *
- * NOTE: Tests that write to ~/.pi/agent/memory/ are excluded because the
- * MemoryStore class hardcodes that path and node:test runs files in parallel,
- * which causes race conditions between test files that share the directory.
- * File-level integration is instead validated by the Epic 1 smoke test
- * (npm run verify in package.json) which runs after all unit tests.
+ * Determinism: these contracts construct a MemoryStore via loadConfig() (which
+ * resolves memoryDir from AGENT_ROOT). The store is never asked to write here,
+ * but a future edit adding loadFromDisk()/add() would silently target the real
+ * ~/.pi/agent/pi-hermes-memory (real host state, under concurrent modification
+ * by live sessions). __setAgentRootForTest points AGENT_ROOT at a tmpdir for the
+ * whole file, so any store built from loadConfig() resolves to the tmpdir — a
+ * deterministic, host-safe default that can't regress into a real-dir write.
  *
- * This file tests cross-module contracts that don't touch disk.
+ * This file tests cross-module contracts that don't touch the real host.
  */
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import * as assert from "node:assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 import { MemoryStore, type MemoryConfig } from "../../src/store/memory-store.js";
 import { scanContent } from "../../src/store/content-scanner.js";
 import { getMessageText } from "../../src/types.js";
+import { __setAgentRootForTest } from "../../src/paths.js";
 import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT, DEFAULT_NUDGE_INTERVAL, DEFAULT_FLUSH_MIN_TURNS } from "../../src/constants.js";
+
+let tmpAgentRoot = "";
+
+before(() => {
+	tmpAgentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pi-flow-test-"));
+	__setAgentRootForTest(tmpAgentRoot);
+});
+
+after(() => {
+	__setAgentRootForTest(null);
+	fs.rmSync(tmpAgentRoot, { recursive: true, force: true });
+});
 
 // ─── Cross-module contracts ────────────────────────────────────────────
 

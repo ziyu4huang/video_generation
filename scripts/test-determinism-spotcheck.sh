@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# test-determinism-spotcheck.sh — cross-RUN flake detector.
+#
+# Runs the flake-prone test subset N times in sequence (default 3) and fails if
+# any run's pass/fail outcome DIFFERS from the others. A flake = pass-then-fail
+# (or fail-then-pass) on identical code, with no changes between runs. This is
+# the detection backstop for the determinism contract; the structural audit
+# (scripts/test-determinism-audit.sh + .github/TEST-DETERMINISM.md) is the proof.
+#
+# Scoped to the packages with known determinism smells (the audit's D1/D3
+# surface): pi-hermes-memory (former node:test hang), pi-dynamic-workflows
+# (time/runtime fixtures), pi-obsidian (mtime/time tests). Keeps CI cost bounded
+# — a full-17-package N× run is a follow-up once the subset is clean.
+#
+# Usage (from repo root):
+#   bash scripts/test-determinism-spotcheck.sh            # 3× the flake-prone subset
+#   REPEATS=5 bash scripts/test-determinism-spotcheck.sh  # N×
+#
+# CI rollout: runs as the `determinism spot-check` job. v1 is INFORMATIONAL — a
+# detected flake prints [FLAKE] but the job continues (continue-on-error in CI)
+# until the false-positive rate is confirmed ≈ 0; flip to blocking once trusted,
+# the same discipline as the portability audit. "3× clean is a weak flake
+# signal — the structural audit is the proof; this is the detection backstop."
+set -uo pipefail
+
+REPEATS="${REPEATS:-3}"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+emit() { printf '%s\n' "$*"; }
+
+# Flake-prone subset: "package-dir<TAB>test-command". Commands run from repo
+# root (so --cwd / build paths are stable), matching the CI matrix commands.
+# - pi-hermes-memory: the former node:test-hang package (now single-process bun test)
+# - pi-dynamic-workflows: build-first; time/runtime fixtures
+# - pi-obsidian: mtime/time tests (scoped to the portable extensions suite)
+ENTRIES=(
+	"pi-hermes-memory	( cd bun-apps/pi-hermes-memory && bash tests/run-all.sh )"
+	"pi-dynamic-workflows	( cd bun-apps/pi-dynamic-workflows && bun run build && bun test )"
+	"pi-obsidian	( cd bun-apps/pi-obsidian && bun test extensions/__tests__/ )"
+)
+
+FLAKE_DETECTED=0
+CONSISTENT_FAIL=0
+
+emit "═══ determinism spot-check ═══"
+emit "running the flake-prone subset ${REPEATS}× per package — a differing outcome = a flake"
+emit ""
+
+for entry in "${ENTRIES[@]}"; do
+	pkg="${entry%%	*}"          # up to first tab
+	cmd="${entry#*	}"            # after first tab
+	emit "── $pkg ──"
+	results=""
+	for run in $(seq 1 "$REPEATS"); do
+		# Run the package's CI command; capture only the exit code.
+		sh -c "$cmd" >/dev/null 2>&1
+		ec=$?
+		if [ "$ec" = "0" ]; then
+			results="${results}PASS "
+			emit "  run ${run}: PASS"
+		else
+			results="${results}FAIL "
+			emit "  run ${run}: FAIL (exit $ec)"
+		fi
+	done
+	pass_count=$(printf '%s' "$results" | grep -o 'PASS' | grep -c . || true)
+	fail_count=$(printf '%s' "$results" | grep -o 'FAIL' | grep -c . || true)
+	if [ "$pass_count" = "$REPEATS" ]; then
+		emit "  ✓ $pkg: ${REPEATS}/${REPEATS} clean (no flake)"
+	elif [ "$fail_count" = "$REPEATS" ]; then
+		emit "  ✗ $pkg: ${REPEATS}/${REPEATS} FAIL — consistent failure (a real bug, NOT a flake)"
+		CONSISTENT_FAIL=$((CONSISTENT_FAIL + 1))
+	else
+		emit "  ⚠ FLAKE in $pkg: mixed outcomes [$results] — pass-then-fail across runs"
+		FLAKE_DETECTED=1
+	fi
+	emit ""
+done
+
+emit "═══ verdict ═══"
+if [ "$FLAKE_DETECTED" = "1" ]; then
+	emit "⚠ flake(s) detected — a test produced differing outcomes across ${REPEATS} runs."
+	emit "  This is informational in CI v1 (the job continues). Investigate per-package above;"
+	emit "  see .github/TEST-DETERMINISM.md for the four failure classes + fix seams."
+elif [ "$CONSISTENT_FAIL" -gt 0 ]; then
+	emit "✗ consistent failure(s) — not a flake, a real bug. Fix the failing package(s) above."
+else
+	emit "✓ no flakes: the flake-prone subset passed ${REPEATS}/${REPEATS} on every package."
+fi
+# v1 is informational: exit 0 even on a flake (CI uses continue-on-error to
+# surface the signal without blocking). Exit non-zero only on a CONSISTENT
+# failure (a real bug, never a determinism concern).
+[ "$CONSISTENT_FAIL" -gt 0 ] && exit 1
+exit 0
