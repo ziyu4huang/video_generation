@@ -1,10 +1,14 @@
 name: Setup Bun workspace
 description: |
-  The shared job preamble every CI job needs: checkout → setup Bun → (optional)
-  setup Node → `bun install --frozen-lockfile` → build the one compiled workspace
-  dep (`pi-dynamic-workflows`, whose `main` resolves a gitignored `dist/`).
-  Centralizes the Bun version + the build-first workspace pattern so a rename
-  or version bump touches ONE place, not 5 job definitions.
+  The shared job preamble every CI job needs AFTER checkout: setup Bun →
+  (optional) setup Node → `bun install --frozen-lockfile` → build the one
+  compiled workspace dep (`pi-dynamic-workflows`, whose `main` resolves a
+  gitignored `dist/`). Centralizes the Bun version + the build-first workspace
+  pattern so a rename or version bump touches ONE place, not 5 job definitions.
+
+  NOTE: each calling job MUST run `actions/checkout@v4` BEFORE this action — the
+  runner reads a local action's action.yml from the workspace, so the repo must
+  be checked out first (a composite cannot check out the repo it lives in).
 
   Node is OPT-IN via `setup-node: true` — only jobs that shell out to `npx tsx`
   need it (the `pi-agent-ext-hermes-memory` matrix entry via `tests/run-all.sh`,
@@ -20,8 +24,6 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v4
-
     - name: Setup Bun
       uses: oven-sh/setup-bun@v2
       with:

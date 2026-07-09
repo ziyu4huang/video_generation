@@ -73,7 +73,8 @@ jobs:
           - { package: pi-agent-ext-hermes-memory, test-cmd: "bash tests/run-all.sh" }
 
     steps:
-      # Shared preamble (checkout + Bun + conditional Node + install + build
+      - uses: actions/checkout@v4
+      # Shared preamble (Bun + conditional Node + install + build
       # pi-dynamic-workflows). Node is enabled only for the hermes-memory entry
       # (its tests/run-all.sh shells out to `npx tsx` — see D3 in
       # TEST-DETERMINISM.md); every other entry is pure Bun.
@@ -106,6 +107,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
       - name: Extension contract (5 tests)
         working-directory: bun-apps/pi-agent
@@ -123,6 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
       - name: Deploy + verify (boot deployed artifact, probe getAllTools)
         working-directory: bun-apps/pi-agent
@@ -140,6 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-env
 
       - name: File-size guard (2 MB, blocks)
@@ -183,6 +187,7 @@ jobs:
     timeout-minutes: 12
     continue-on-error: true
     steps:
+      - uses: actions/checkout@v4
       # Node IS needed here: the spot-check runs pi-agent-ext-hermes-memory's
       # tests/run-all.sh, which shells out to `npx tsx`.
       - uses: ./.github/actions/setup-env
