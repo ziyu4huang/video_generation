@@ -544,14 +544,34 @@ async function portableDeploy() {
 	// store. Covers: typebox + @earendil-works/* (getAliases require.resolve) +
 	// jiti + any FULL-bundle residual bare specifiers (node-fetch, ws, …). The
 	// deps list is pi-agent's own deps (which pull the pi-coding-agent graph) +
-	// typebox explicitly + the npm-ext packages (in case a FULL bundle residual
-	// references them). Same-machine: bun symlinks into its global store.
-	const nmPkgs = readJson<{ dependencies?: Record<string, string> }>(join(piAgentDir, "package.json"))?.dependencies ?? {};
-	const deps: Record<string, string> = { typebox: "latest", ...nmPkgs };
-	// Pin floating "latest"/"*" to the exact resolved version (same reproducibility
-	// rationale as releaseDeploy). typebox + pi-coding-agent ship as "latest" in
-	// pi-agent's package.json — without pinning, every portable deploy re-resolves.
+	// typebox explicitly + EVERY manifest extension package's npm deps (a
+	// FULL-bundled extension may leave residual bare specifiers — native addons,
+	// WASM, dynamic imports — that resolve from this node_modules at runtime).
+	// Workspace deps (range starts with "workspace:") are EXCLUDED: they are the
+	// local extension packages themselves, FULL-bundled into ext-bundles, NOT
+	// npm-installable (a `workspace:*` range fails `bun install` outside the
+	// monorepo — the bug that broke --portable since web-access became workspace).
+	const deps: Record<string, string> = { typebox: "latest" };
+	const depSources = [join(piAgentDir, "package.json")];
+	for (const dir of pkgDirs) depSources.push(join(repoRoot, "bun-apps", dir, "package.json"));
+	for (const pjPath of depSources) {
+		const pj = readJson<{ dependencies?: Record<string, string>; peerDependencies?: Record<string, string> }>(pjPath);
+		if (!pj) continue;
+		for (const f of ["dependencies", "peerDependencies"] as const) {
+			for (const [dep, range] of Object.entries(pj[f] ?? {})) {
+				if (String(range).startsWith("workspace:")) continue; // bundled, not npm-installed
+				if (!deps[dep]) deps[dep] = String(range);
+			}
+		}
+	}
 	for (const [dep, range] of Object.entries(deps)) deps[dep] = pinRange(range, dep);
+	// Exclude workspace ranges AFTER pinning: pinRange can turn a floating
+	// "*"/"latest" into "^workspace:..." (when bun.lock records the dep as a
+	// local workspace package). Those are the bundled extensions themselves —
+	// not npm-installable. Drop them so `bun install` doesn't 404 on the registry.
+	for (const [dep, range] of Object.entries(deps)) {
+		if (String(range).includes("workspace:")) delete deps[dep];
+	}
 	writeFileSync(
 		join(OUTDIR, "package.json"),
 		JSON.stringify({ name: "pi-agent-portable", private: true, type: "module", dependencies: deps }, null, 2) + "\n",

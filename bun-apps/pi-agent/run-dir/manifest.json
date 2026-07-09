@@ -15,10 +15,18 @@
       "testGate": "cd bun-apps/pi-hermes-memory && bun test",
       "version": "0.80.3"
     },
-    "pi-agent-ext-web-access/index.ts"
+    "pi-agent-ext-web-access/index.ts",
+    {
+      "name": "pi-planning-with-files",
+      "entry": "pi-planning-with-files/extensions/index.ts",
+      "bundleMode": "thin",
+      "testGate": "cd bun-apps/pi-planning-with-files && bun test",
+      "version": "1.0.0"
+    }
   ],
   "skills": [
-    "pi-obsidian/skills"
+    "pi-obsidian/skills",
+    "pi-planning-with-files/skills/planning-with-files"
   ],
   "npmExtensions": [],
   "lazyExtensions": {

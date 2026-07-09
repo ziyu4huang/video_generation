@@ -14,7 +14,10 @@
  * — tools simply omit the sub-breakdown and show "system prompt: ~X tok total".
  */
 
+import { createRequire } from "node:module";
+
 let patched = false;
+const sdkRequire = createRequire(import.meta.url);
 
 // Runtime: ensureGetSystemPromptOptions() polyfills getSystemPromptOptions()
 // onto the tool execution context (ExtensionContext) — the SDK only declares
@@ -31,22 +34,32 @@ export function ensureGetSystemPromptOptions(): boolean {
   if (patched) return true;
 
   try {
-    // Resolve the runner module from the SDK — Bun resolves the symlink.
-    // We need the internal runner module, not the public API.
-    const runnerMod = require(
-      "@earendil-works/pi-coding-agent/dist/core/extensions/runner.js",
+    // The SDK's exports map (0.80.3) only exposes "." and "./rpc-entry", so a
+    // bare deep-subpath require(".../dist/core/extensions/runner.js") fails with
+    // "Cannot find module". Resolve the SDK package.json (always resolvable) and
+    // derive the runner path from it — a direct file-path require bypasses the
+    // exports map.
+    const pkgJsonPath = sdkRequire.resolve(
+      "@earendil-works/pi-coding-agent/package.json",
     );
+    const runnerMod = require(
+      pkgJsonPath.replace(/package\.json$/, "dist/core/extensions/runner.js"),
+    );
+    // The runner class was renamed PiAgentRunner → ExtensionRunner; look it up
+    // by the createContext method on its prototype (name-agnostic) so a future
+    // rename doesn't silently break the polyfill again.
     const Runner: unknown =
-      runnerMod.default ?? Object.values(runnerMod).find(
+      runnerMod.default ??
+      Object.values(runnerMod).find(
         (v: unknown) =>
           typeof v === "function" &&
-          (v as { name?: string }).name === "PiAgentRunner" &&
-          (v as unknown as { prototype?: { createContext?: unknown } }).prototype?.createContext,
+          typeof (v as { prototype?: { createContext?: unknown } }).prototype?.createContext ===
+            "function",
       );
 
     if (!Runner || typeof Runner !== "function") {
       console.warn(
-        "[sdk-patch] PiAgentRunner not found — getSystemPromptOptions() polyfill skipped",
+        "[sdk-patch] runner class with createContext not found — getSystemPromptOptions() polyfill skipped",
       );
       return false;
     }
