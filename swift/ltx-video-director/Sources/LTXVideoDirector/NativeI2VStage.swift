@@ -57,6 +57,9 @@ public struct NativeI2VStage {
         case inputImageWrongSize(expected: (width: Int, height: Int), actual: (width: Int, height: Int))
         case gridImageNotFound(URL)
         case gridConfigMismatch(String)
+        case anchorImageNotFound(URL)
+        case anchorImageWrongSize(path: URL, expected: (width: Int, height: Int), actual: (width: Int, height: Int))
+        case anchorConfigMismatch(String)
 
         public var description: String {
             switch self {
@@ -76,6 +79,11 @@ public struct NativeI2VStage {
                     + "(same resolution as the requested clip — resize it first, e.g. with sips)"
             case .gridImageNotFound(let url): return "--grid-image not found at \(url.path)"
             case .gridConfigMismatch(let msg): return "NativeI2VStage grid guide: \(msg)"
+            case .anchorImageNotFound(let url): return "--anchor-image not found at \(url.path)"
+            case .anchorImageWrongSize(let path, let expected, let actual):
+                return "--anchor-image \(path.lastPathComponent) is \(actual.width)x\(actual.height), expected \(expected.width)x\(expected.height) "
+                    + "(same resolution as the requested clip — resize it first, e.g. with sips)"
+            case .anchorConfigMismatch(let msg): return "NativeI2VStage multi-anchor: \(msg)"
             }
         }
     }
@@ -237,6 +245,23 @@ public struct NativeI2VStage {
         /// strength 1.0"; otherwise must match `gridFrameIndices.count`.
         public var gridStrengths: [Float] = []
 
+        /// Multi-anchor I2V: additional standalone images pinned at
+        /// independent latent frame indices, each at its own strength —
+        /// the temporal-keyframing generalization of `lastFrameImagePath`
+        /// (which only covers frame 0 + the last frame). Mirrors
+        /// `run.py video generate --image PATH FRAME_IDX STRENGTH`
+        /// (repeatable, Python-side, `docs/openmontage-capability-matrix.md`
+        /// "reference_to_video" row) but reuses this package's own
+        /// `VideoConditionByLatentIndex` primitive already exercised by
+        /// grid-guide/FFLF rather than porting new engine code — a CLI +
+        /// conditioning-wiring task, not new engine work. Each entry's
+        /// image must already be exactly `width`x`height` (same fail-fast
+        /// convention `inputImagePath` uses — no auto-resize). Applied
+        /// after frame-0/FFLF, before grid-guide, so a grid panel's frame
+        /// index wins on collision (same last-writer-wins semantics FFLF
+        /// documents). Empty (default) disables multi-anchor conditioning.
+        public var anchorImages: [(path: URL, frameIndex: Int, strength: Float)] = []
+
         public init(
             prompt: String, seconds: Double = 0.5, fps: Double = 24.0,
             width: Int = 640, height: Int = 960, seed: UInt64 = 42,
@@ -351,6 +376,18 @@ public struct NativeI2VStage {
             guard request.gridStrengths.isEmpty || request.gridStrengths.count == panelCount else {
                 throw StageError.gridConfigMismatch(
                     "gridStrengths has \(request.gridStrengths.count) entries, expected \(panelCount) or 0 (0 = all panels default to strength 1.0)")
+            }
+        }
+        for anchor in request.anchorImages {
+            guard let cgImage = FrameLoad.loadCGImage(from: anchor.path) else {
+                throw StageError.anchorImageNotFound(anchor.path)
+            }
+            guard cgImage.width == request.width, cgImage.height == request.height else {
+                throw StageError.anchorImageWrongSize(
+                    path: anchor.path, expected: (request.width, request.height), actual: (cgImage.width, cgImage.height))
+            }
+            guard anchor.frameIndex >= 0 else {
+                throw StageError.anchorConfigMismatch("--anchor-image \(anchor.path.lastPathComponent) frameIndex=\(anchor.frameIndex) must be >= 0")
             }
         }
 
@@ -486,6 +523,28 @@ public struct NativeI2VStage {
             let (lastTokens, _) = VideoLatentPatchifier.patchify(lastLatentBCFHW)
             let lastFrameConditioner = VideoConditionByLatentIndex(frameIndices: [fLat - 1], cleanLatent: lastTokens, strength: request.lastFrameStrength)
             videoState = lastFrameConditioner.apply(to: videoState, spatialDims: (fLat, hLat, wLat))
+        }
+
+        // Multi-anchor I2V: pin each supplied --anchor-image at its own
+        // latent frame index (see Request.anchorImages's header). Applied
+        // after frame-0/FFLF, before grid-guide, so a grid panel wins on a
+        // colliding frame index (same last-writer-wins semantics FFLF
+        // already relies on above).
+        for anchor in request.anchorImages {
+            guard anchor.frameIndex < fLat else {
+                throw StageError.anchorConfigMismatch(
+                    "--anchor-image \(anchor.path.lastPathComponent) frameIndex=\(anchor.frameIndex) out of range [0, \(fLat))")
+            }
+            print("[anchor-image] pinning \(anchor.path.lastPathComponent) -> latent frame \(anchor.frameIndex) (strength \(anchor.strength))")
+            let anchorCGImage = FrameLoad.loadCGImage(from: anchor.path)!  // existence + size re-validated up-front
+            let anchorPixels01 = FrameLoad.toArray(anchorCGImage)
+            let anchorPixelsNeg1to1 = anchorPixels01.asType(.float32) * 2.0 - 1.0
+            let anchorPixelsBCFHW = anchorPixelsNeg1to1.reshaped([1, 3, 1, request.height, request.width])
+            let anchorLatentBCFHW = videoEncoder(anchorPixelsBCFHW)
+            MLX.eval(anchorLatentBCFHW)
+            let (anchorTokens, _) = VideoLatentPatchifier.patchify(anchorLatentBCFHW)
+            let anchorConditioner = VideoConditionByLatentIndex(frameIndices: [anchor.frameIndex], cleanLatent: anchorTokens, strength: anchor.strength)
+            videoState = anchorConditioner.apply(to: videoState, spatialDims: (fLat, hLat, wLat))
         }
 
         // Grid guide: split one NxN storyboard-panel image into panels and

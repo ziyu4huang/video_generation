@@ -121,6 +121,10 @@ struct NativeI2V: ParsableCommand {
             help: "I2V from an arbitrary supplied image instead of a T2I-generated one: skips NativeT2IStage entirely and VAE-encodes this image as the frame-0 conditioning latent. Must already be exactly --width x --height. Useful for chaining (e.g. feeding a prior clip's last decoded frame back in as the next segment's start).")
     var inputImage: String?
 
+    @Option(name: .customLong("anchor-image"), parsing: .upToNextOption,
+            help: "Multi-anchor I2V conditioning image (repeatable), temporal-keyframing generalization of --last-frame: path:frameIndex[:strength] (strength defaults to 1.0). frameIndex is a LATENT frame index (0 = frame 0, same slot --input-image/T2I already fill — collides last-writer-wins; must be < the clip's latent frame count). Must already be exactly --width x --height. Example: --anchor-image mid.png:12:1.0 --anchor-image end.png:24")
+    var anchorImages: [String] = []
+
     @Flag(name: .customLong("mp4"), inversion: .prefixedNo,
           help: "Mux the final PNG frame sequence (post-upscale if --upscale is on) + audio.wav into a real H.264+AAC output.mp4 via AVAssetWriter. On by default — --no-mp4 to skip and keep just the frame sequence.")
     var mp4: Bool = true
@@ -198,6 +202,24 @@ struct NativeI2V: ParsableCommand {
                 strength = 1.0
             }
             return (path: URL(fileURLWithPath: path), strength: strength)
+        }
+        request.anchorImages = try anchorImages.map { spec in
+            let parts = spec.split(separator: ":")
+            guard parts.count == 2 || parts.count == 3 else {
+                throw ValidationError("invalid --anchor-image '\(spec)' — expected path:frameIndex[:strength]")
+            }
+            let path = String(parts[0])
+            guard let frameIndex = Int(parts[1]) else {
+                throw ValidationError("invalid --anchor-image frameIndex in '\(spec)' — expected an integer")
+            }
+            var strength: Float = 1.0
+            if parts.count == 3 {
+                guard let s = Float(parts[2]) else {
+                    throw ValidationError("invalid --anchor-image strength in '\(spec)' — expected path:frameIndex[:strength]")
+                }
+                strength = s
+            }
+            return (path: URL(fileURLWithPath: path), frameIndex: frameIndex, strength: strength)
         }
 
         let recommended = ResolutionResolver.modelOptimalDefault
