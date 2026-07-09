@@ -33,6 +33,12 @@ JSON
 > The full PUT replaces the entire protection rule — include the existing
 > `enforce_admins`, `required_pull_request_reviews`, and other settings (see
 > `gh api repos/ziyu4huang/video_generation/branches/main/protection`).
+>
+> The `determinism spot-check` job is intentionally NOT in the required 20 — it
+> is v1 informational (`continue-on-error`): it runs the flake-prone subset 3×
+> and surfaces flakes without blocking. Promote it to required once the
+> false-positive rate is ≈ 0 (the same rollout the portability audit just
+> completed: warn → block).
 
 ## What runs on every PR
 
@@ -152,10 +158,40 @@ forward.
   or an env-var opt-in — never let it run unguarded on the runner.
 - If your test reads/writes `process.env`, always save + restore (and clear
   **in-body** before any "unset" assertion).
-- Run the audit locally before pushing: `bash scripts/test-portability-audit.sh`.
-  A new `existsSync(machine-path)` or `Bun.spawn` in a test file with no
-  `CI`/env-var guard prints as `[BLOCK under --strict]` — fix it before the
-  check flips from warn-only to blocking.
+- Run the audit locally before pushing: `bash scripts/test-portability-audit.sh
+  --strict`. It now BLOCKS in CI; a new `existsSync(machine-path)` or
+  `Bun.spawn` in a test file with no `CI`/env-var guard will fail the
+  `regression gates` check. Fix it (add a guard) before pushing.
+
+## Test-author determinism guide
+
+A test that passes once but fails on re-run is a flake — and now that the gate
+is mandatory, a flake blocks PRs on nondeterminism. The
+[test-determinism audit](TEST-DETERMINISM.md) catalogs every existing instance;
+this is the cheat-sheet for the four cross-RUN failure classes.
+
+| If your test… | …it will flake because | Fix pattern |
+|---------------|------------------------|-------------|
+| asserts on "X seconds ago" / file freshness / a generated timestamp against the wall-clock | the gap between recording `now` and asserting drifts with clock + test speed | inject a clock seam (`relativeTime(iso, now)` defaults `Date.now()`; tests pass a fixed `now`) or assert on **relative/delta** values — never the wall-clock. A `timestamp: Date.now()` used only as a fixture **seed** (never compared to "now") is fine |
+| writes to the real `~/.pi/`, `~/.config`, vault, or model dir | it races with live sessions / self-improve runs writing the same files; a crash mid-test corrupts host state | route through a **tmpdir** (`mkdtempSync` per test), or inject the root via `PI_CODING_AGENT_DIR` / `__setAgentRootForTest` / `__setConfigPathForTest`. Never `homedir()`-derived paths in a portable test |
+| relies on cross-file shared state, or stalls when test files run concurrently | synchronous native ops (better-sqlite3) on a shared thread starve another file's async I/O — an intermittent multi-minute stall | use **per-file process isolation** for packages that mix synchronous native ops with async I/O (pi-hermes-memory's `tests/run-all.sh`); close every handle you open (`dbManager.close()` in `afterEach`). A single `bun test` is fine for a quick local check but not for a flake-sensitive gate |
+| makes a real `fetch()` / HTTP / DNS call | the service is down / rate-limits / returns different data per run | mock `globalThis.fetch` (the `zai.test.ts` save/restore pattern), mock DNS (`{ lookup: fn }`), or `skipIf` when the service is unreachable (the `semanticSearch` graceful-`isError` pattern). A URL **string** parsed by a pure function is fine |
+
+**Rules of thumb:**
+
+- If your test touches **time, host-state, or network**: inject / mock /
+  isolate — never assert against the real world.
+- The proven seams are all already in-tree: `relativeTime(iso, now)` (clock),
+  `__setAgentRootForTest` / `__setConfigPathForTest` / `mkdtempSync` (host),
+  `globalThis.fetch = mock` (network), `dbManager.close()` (handles).
+- Run the audit locally before pushing: `bash scripts/test-determinism-audit.sh`.
+  D2 (real-host-state writes) blocks under `--strict`; D1/D4 are review-only.
+  The `determinism spot-check` job runs the flake-prone subset 3× — if a test
+  flakes there, it will flake on real PRs.
+
+> The portability + determinism guides together are the complete "how to write
+> a CI-safe test" contract: **portable** (cross-machine, the portability guide)
+> + **deterministic** (cross-run, this guide).
 
 ## Re-running locally
 
@@ -177,6 +213,10 @@ for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
   echo "=== $pkg ==="
   ( cd "bun-apps/$pkg" && CI=true bun test ) || echo "FAILED: $pkg"
 done
+# pi-hermes-memory note: the loop above uses a single `bun test` as a QUICK
+# local check (passes on macOS). The CI GATE uses `bash tests/run-all.sh`
+# (per-file tsx) — see D3 in TEST-DETERMINISM.md for why (concurrent-SQLite
+# starvation hang + bun better-sqlite3 corruption-recovery quirk on linux).
 
 # the named checks:
 ( cd bun-apps/pi-agent && CI=true bun test src/__tests__/extension-contract.test.ts )

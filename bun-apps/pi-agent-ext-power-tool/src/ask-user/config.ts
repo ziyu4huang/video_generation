@@ -25,6 +25,22 @@ function configPath(name: string, file: string = "config.json"): string {
 
 const CONFIG_PATH = configPath("rpiv-ask-user-question");
 
+// --- test seam (deterministic config-path injection) --------------------------
+// CONFIG_PATH is resolved at module load via os.homedir(), and Bun's homedir()
+// ignores process.env.HOME at runtime (Node respects it) — so a test cannot
+// redirect the path by setting HOME, and a divergence between the module's
+// read path and a test's write path causes intermittent failures. Worse, the
+// real path is ~/.config (real host state). This seam lets tests point both the
+// read and the write at a tmpdir. Null = use the real resolved path.
+let __configPathOverride: string | null = null;
+/** @internal test-only override of the config path (pass null to restore). */
+export function __setConfigPathForTest(p: string | null): void {
+	__configPathOverride = p;
+}
+function activeConfigPath(): string {
+	return __configPathOverride ?? CONFIG_PATH;
+}
+
 // ---------------------------------------------------------------------------
 // Guidance fields (inlined from rpiv-config)
 // ---------------------------------------------------------------------------
@@ -112,5 +128,5 @@ export function resolveCollapseKey(config: Pick<AskUserQuestionConfig, "collapse
 }
 
 export function loadConfig(): AskUserQuestionConfig {
-	return loadJsonConfig<AskUserQuestionConfig>(CONFIG_PATH);
+	return loadJsonConfig<AskUserQuestionConfig>(activeConfigPath());
 }

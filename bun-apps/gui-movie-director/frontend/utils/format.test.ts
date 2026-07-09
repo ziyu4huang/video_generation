@@ -30,23 +30,26 @@ describe("basename", () => {
 });
 
 describe("relativeTime", () => {
+  // Deterministic clock: inject a fixed `now` so the assertions don't race the
+  // wall-clock (the proven injectable-clock seam — see TEST-DETERMINISM.md D1).
+  const NOW = Date.parse("2026-07-09T12:00:00Z");
   it("returns 'just now' for recent", () => {
-    const now = new Date().toISOString();
-    expect(relativeTime(now)).toBe("just now");
+    const now = new Date(NOW).toISOString();
+    expect(relativeTime(now, NOW)).toBe("just now");
   });
   it("returns '5m ago' for 5 min ago", () => {
-    const past = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    expect(relativeTime(past)).toBe("5m ago");
+    const past = new Date(NOW - 5 * 60 * 1000).toISOString();
+    expect(relativeTime(past, NOW)).toBe("5m ago");
   });
   it("returns '2h ago' for 2 hours ago", () => {
-    const past = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    expect(relativeTime(past)).toBe("2h ago");
+    const past = new Date(NOW - 2 * 60 * 60 * 1000).toISOString();
+    expect(relativeTime(past, NOW)).toBe("2h ago");
   });
 });
 
 describe("formatDate", () => {
   it("returns a non-empty string", () => {
-    const result = formatDate(new Date().toISOString());
+    const result = formatDate("2026-07-09T12:00:00Z");
     expect(result.length).toBeGreaterThan(0);
   });
   it("includes the time", () => {

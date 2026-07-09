@@ -62,8 +62,15 @@ jobs:
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-dynamic-workflows, test-cmd: "bun run build && bun test" }
-          # pi-hermes-memory: one tsx process per file (avoids a node:test hang).
-          # Uses `npx tsx` → needs Node on PATH (setup-node below).
+          # pi-hermes-memory: per-file `npx tsx --test` (tests/run-all.sh). Two
+          # root-caused reasons tsx (Node) per-file is required (NOT a single
+          # `bun test`): (1) bun runs files CONCURRENTLY on a shared thread, and
+          # this package's synchronous SQLite (better-sqlite3) starves
+          # memory-store's async atomic-write path → intermittent ~900s stall;
+          # (2) bun's better-sqlite3 binding fails the corruption-recovery test
+          # on ubuntu-latest (recovers rows differently than Node). tsx per-file
+          # avoids both (proven #383–#391). Requires Node (setup-node below).
+          # See .github/TEST-DETERMINISM.md (D3).
           - { package: pi-hermes-memory, test-cmd: "bash tests/run-all.sh" }
 
     steps:
@@ -74,8 +81,8 @@ jobs:
         with:
           bun-version: 1.3
 
-      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh).
-      # Cheap (~1 s) and harmless for the bun-only packages.
+      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh) —
+      # see D3 in TEST-DETERMINISM.md. Cheap (~1 s) and harmless for the others.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -195,17 +202,57 @@ jobs:
       - name: File-size guard (2 MB, blocks)
         run: bash scripts/ci-file-size-guard.sh
 
-      # Test-portability prevention check (warn-only v1). Scans the test surface
-      # for the four "works on my machine" signal patterns (existsSync of a
-      # machine-coupled path; spawn/exec of a host binary; provider API-key env
-      # reads; OB_VAULT env reads) and prints GUARDED/UNGATED classifications.
-      # P1/P2 UNGATED hits print as [BLOCK under --strict] so a new ungated
-      # machine-coupled test is noticed, but the step does NOT fail the job yet
-      # (warn-only). Flip to `--strict` once the false-positive rate is ≈ 0
-      # across a few PRs — the documented capstone. See
-      # .github/TEST-PORTABILITY.md for the full catalog + dispositions.
-      - name: Test-portability audit (warn-only v1)
-        run: bash scripts/test-portability-audit.sh
+      # Test-portability prevention check — now BLOCKING (--strict). Scans the
+      # test surface for the four "works on my machine" signal patterns and
+      # exits non-zero on any UNGATED P1/P2 hit (existsSync of a machine-coupled
+      # path; spawn/exec of a host binary). P3/P4 stay review-only. Green across
+      # #384–#391 warranted the flip from warn-only; a NEW ungated machine-
+      # coupled test now blocks the merge. See .github/TEST-PORTABILITY.md.
+      - name: Test-portability audit (--strict, blocks)
+        run: bash scripts/test-portability-audit.sh --strict
+
+      # Test-determinism prevention check (warn-only v1). The cross-RUN twin of
+      # the portability audit: scans for the four flake classes (uncontrolled
+      # time; real host-state writes; cross-file ordering; live network) and
+      # classifies each file CONTROLLED / UNCONTROLLED. D2 (real-host-state
+      # writes) blocks under --strict; D1/D4 are review-only (a Date.now() is
+      # often a benign seed; a URL string isn't a live call). Flip D2 to --strict
+      # once trusted — same discipline as the portability flip above. See
+      # .github/TEST-DETERMINISM.md for the full catalog + dispositions.
+      - name: Test-determinism audit (warn-only v1)
+        run: bash scripts/test-determinism-audit.sh
 
       - name: Schema-cost regression (warns >5%, not a block)
         run: bun scripts/check-schema-cost.ts
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Thrust C — determinism spot-check (cross-RUN flake detector). Runs the
+  # flake-prone subset (pi-hermes-memory, pi-dynamic-workflows, pi-obsidian)
+  # 3× in sequence and flags any differing pass/fail outcome as a flake. v1 is
+  # INFORMATIONAL (continue-on-error) until the false-positive rate is ≈ 0; flip
+  # to blocking once trusted — same rollout discipline as the portability audit.
+  # The structural audit (test-determinism-audit.sh) is the proof; this is the
+  # detection backstop. See .github/TEST-DETERMINISM.md.
+  # ──────────────────────────────────────────────────────────────────────
+  determinism-spotcheck:
+    name: determinism spot-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3
+      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Install (workspace, frozen lockfile)
+        run: bun install --frozen-lockfile
+      - name: Build pi-dynamic-workflows (workspace dep)
+        run: bun run --cwd bun-apps/pi-dynamic-workflows build
+      - name: Determinism spot-check (3× flake-prone subset)
+        run: bash scripts/test-determinism-spotcheck.sh
