@@ -32,7 +32,7 @@ import {
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
-import obsidianExtension from "pi-obsidian/extensions/obsidian.ts";
+import obsidianExtension from "@repo/pi-agent-ext-obsidian/extensions/obsidian.ts";
 // The baked provider CATALOG (lm-studio) is sourced from `pi-agent` — single
 // source of truth across both CLIs. We register it explicitly here (the
 // programmatic-session path) rather than via pi-agent's main()-oriented

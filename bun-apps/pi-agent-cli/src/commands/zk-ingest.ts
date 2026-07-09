@@ -29,7 +29,7 @@ import {
 	formatSummary,
 	type KnowledgeRecord,
 	type SourceFamily,
-} from "pi-knowledge-card/src/ingest.ts";
+} from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
 
 const KNOWN_SOURCES = new Set<SourceFamily>(["workflow-jsonl", "hermes", "auto-memory"]);
 

@@ -33,9 +33,9 @@ import {
 	adaptHermesMarkdown,
 	type KnowledgeRecord,
 	type IngestSummary,
-} from "pi-knowledge-card/src/ingest.ts";
-import { mergeDuplicates, type MergeResult } from "pi-knowledge-card/src/merge.ts";
-import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "pi-knowledge-card/src/retrieve.ts";
+} from "@repo/pi-agent-ext-knowledge-card/src/ingest.ts";
+import { mergeDuplicates, type MergeResult } from "@repo/pi-agent-ext-knowledge-card/src/merge.ts";
+import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "@repo/pi-agent-ext-knowledge-card/src/retrieve.ts";
 
 const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "agent", "pi-hermes-memory");
 const HERMES_FILES = ["MEMORY.md", "failures.md", "USER.md"];

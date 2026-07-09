@@ -21,10 +21,10 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent", "test · pi-agent-cli", "test · pi-agent-ext-flux2",
   "test · pi-agent-ext-krea2", "test · pi-agent-ext-ltx",
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
-  "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-vlm",
-  "test · gui-movie-director", "test · pi-knowledge-card", "test · pi-obsidian",
-  "test · pi-planning-with-files",
-  "test · pi-dynamic-workflows", "test · pi-hermes-memory",
+  "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-agent-ext-vlm",
+  "test · gui-movie-director", "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-obsidian",
+  "test · pi-agent-ext-planning-with-files",
+  "test · pi-dynamic-workflows", "test · pi-agent-ext-hermes-memory",
   "extension-contract", "deploy --verify", "regression gates"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
@@ -76,9 +76,9 @@ documented command (see the `tests` matrix in the workflow):
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
-pi-agent-ext-web-access, pi-agent-sdk-demo, pi-vlm, gui-movie-director,
-pi-knowledge-card, pi-obsidian, pi-planning-with-files,
-pi-dynamic-workflows, pi-hermes-memory
+pi-agent-ext-web-access, pi-agent-sdk-demo, pi-agent-ext-vlm, gui-movie-director,
+pi-agent-ext-knowledge-card, pi-agent-ext-obsidian, pi-agent-ext-planning-with-files,
+pi-dynamic-workflows, pi-agent-ext-hermes-memory
 ```
 
 ## What is deliberately NOT tested in CI (and why)
@@ -106,7 +106,7 @@ registry data, mocked spawns) still run and ARE gated in CI.
 
 ### Self-skipping (env-precondition gates, no CI flag needed)
 
-- **pi-obsidian** · `baseline.test.mjs` "A0.9 regression baseline" uses
+- **pi-agent-ext-obsidian** · `baseline.test.mjs` "A0.9 regression baseline" uses
   `describe.skipIf(!vaultAvailable())` — skips when the
   `vaults_root/pi-agent-vault` submodule is absent (the CI case; the submodule is
   a private repo, not initialized by the default checkout). The CI-enforced
@@ -127,7 +127,7 @@ These never run in CI; they're gated on explicit env vars:
 - **GPU / Metal / MLX tests** — `python/mlx-movie-director` pytest (incl.
   `--run-gpu`). No Apple Silicon on Actions runners; the MLX stack also needs the
   sibling-fork deps (`mflux`, `ltx-2-mlx`) not on PyPI. **Local-only.**
-- **3 packages with no test script** — `pi-agent-flux2`, `scripts`, `zai-mcp`.
+- **3 packages with no test script** — `pi-agent-flux2`, `scripts`, `pi-agent-ext-zai-mcp`.
   They have no `bun test` entry point, so they're not in the matrix.
 - **pi-dynamic-workflows biome lint** — the package's `test` script chains
   `npm run check` (biome), which has pre-existing formatting drift. CI runs the
@@ -174,7 +174,7 @@ this is the cheat-sheet for the four cross-RUN failure classes.
 |---------------|------------------------|-------------|
 | asserts on "X seconds ago" / file freshness / a generated timestamp against the wall-clock | the gap between recording `now` and asserting drifts with clock + test speed | inject a clock seam (`relativeTime(iso, now)` defaults `Date.now()`; tests pass a fixed `now`) or assert on **relative/delta** values — never the wall-clock. A `timestamp: Date.now()` used only as a fixture **seed** (never compared to "now") is fine |
 | writes to the real `~/.pi/`, `~/.config`, vault, or model dir | it races with live sessions / self-improve runs writing the same files; a crash mid-test corrupts host state | route through a **tmpdir** (`mkdtempSync` per test), or inject the root via `PI_CODING_AGENT_DIR` / `__setAgentRootForTest` / `__setConfigPathForTest`. Never `homedir()`-derived paths in a portable test |
-| relies on cross-file shared state, or stalls when test files run concurrently | synchronous native ops (better-sqlite3) on a shared thread starve another file's async I/O — an intermittent multi-minute stall | use **per-file process isolation** for packages that mix synchronous native ops with async I/O (pi-hermes-memory's `tests/run-all.sh`); close every handle you open (`dbManager.close()` in `afterEach`). A single `bun test` is fine for a quick local check but not for a flake-sensitive gate |
+| relies on cross-file shared state, or stalls when test files run concurrently | synchronous native ops (better-sqlite3) on a shared thread starve another file's async I/O — an intermittent multi-minute stall | use **per-file process isolation** for packages that mix synchronous native ops with async I/O (pi-agent-ext-hermes-memory's `tests/run-all.sh`); close every handle you open (`dbManager.close()` in `afterEach`). A single `bun test` is fine for a quick local check but not for a flake-sensitive gate |
 | makes a real `fetch()` / HTTP / DNS call | the service is down / rate-limits / returns different data per run | mock `globalThis.fetch` (the `zai.test.ts` save/restore pattern), mock DNS (`{ lookup: fn }`), or `skipIf` when the service is unreachable (the `semanticSearch` graceful-`isError` pattern). A URL **string** parsed by a pure function is fine |
 
 **Rules of thumb:**
@@ -207,13 +207,13 @@ bun install --frozen-lockfile
 # the full suite, mirroring the matrix:
 for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-agent-ext-ltx pi-agent-ext-movie-director pi-agent-ext-power-tool \
-           pi-agent-ext-web-access pi-agent-sdk-demo pi-vlm gui-movie-director \
-           pi-knowledge-card pi-obsidian pi-dynamic-workflows \
-           pi-hermes-memory; do
+           pi-agent-ext-web-access pi-agent-sdk-demo pi-agent-ext-vlm gui-movie-director \
+           pi-agent-ext-knowledge-card pi-agent-ext-obsidian pi-dynamic-workflows \
+           pi-agent-ext-hermes-memory; do
   echo "=== $pkg ==="
   ( cd "bun-apps/$pkg" && CI=true bun test ) || echo "FAILED: $pkg"
 done
-# pi-hermes-memory note: the loop above uses a single `bun test` as a QUICK
+# pi-agent-ext-hermes-memory note: the loop above uses a single `bun test` as a QUICK
 # local check (passes on macOS). The CI GATE uses `bash tests/run-all.sh`
 # (per-file tsx) — see D3 in TEST-DETERMINISM.md for why (concurrent-SQLite
 # starvation hang + bun better-sqlite3 corruption-recovery quirk on linux).

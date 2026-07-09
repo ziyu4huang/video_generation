@@ -27,9 +27,9 @@
     "@repo/pi-agent-ext-flux2": "workspace:*",
     "@repo/pi-agent-ext-power-tool": "workspace:*",
     "pi-agent": "workspace:*",
-    "pi-knowledge-card": "workspace:*",
-    "pi-obsidian": "workspace:*",
-    "pi-vlm": "workspace:*",
+    "@repo/pi-agent-ext-knowledge-card": "workspace:*",
+    "@repo/pi-agent-ext-obsidian": "workspace:*",
+    "@repo/pi-agent-ext-vlm": "workspace:*",
     "typebox": "latest"
   },
   "devDependencies": {

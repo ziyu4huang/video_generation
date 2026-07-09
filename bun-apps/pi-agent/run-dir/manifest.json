@@ -1,32 +1,32 @@
 {
   "extensions": [
-    "pi-obsidian/extensions/obsidian.ts",
-    "pi-vlm/extensions/pi-vlm.ts",
-    "pi-knowledge-card/extensions/pi-knowledge-card.ts",
+    "pi-agent-ext-obsidian/extensions/obsidian.ts",
+    "pi-agent-ext-vlm/extensions/pi-vlm.ts",
+    "pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts",
     "pi-agent-ext-power-tool/src/index.ts",
     "pi-agent-ext-flux2/extensions/pi-flux2.ts",
     "pi-agent-ext-krea2/extensions/pi-krea2.ts",
     "pi-agent-ext-ltx/extensions/pi-ltx.ts",
     {
-      "name": "pi-hermes-memory",
-      "entry": "pi-hermes-memory/src/index.ts",
+      "name": "pi-agent-ext-hermes-memory",
+      "entry": "pi-agent-ext-hermes-memory/src/index.ts",
       "bundleMode": "thin",
       "fullReason": "Was FULL due to deep pi-ai/* subpath imports + better-sqlite3 native addon. Switched to THIN after the Bun.resolveSync fix (criterion 1) — deep subpaths now resolve, and better-sqlite3 stays as a residual bare specifier (same as FULL).",
-      "testGate": "cd bun-apps/pi-hermes-memory && bun test",
+      "testGate": "cd bun-apps/pi-agent-ext-hermes-memory && bun test",
       "version": "0.80.3"
     },
     "pi-agent-ext-web-access/index.ts",
     {
-      "name": "pi-planning-with-files",
-      "entry": "pi-planning-with-files/extensions/index.ts",
+      "name": "pi-agent-ext-planning-with-files",
+      "entry": "pi-agent-ext-planning-with-files/extensions/index.ts",
       "bundleMode": "thin",
-      "testGate": "cd bun-apps/pi-planning-with-files && bun test",
+      "testGate": "cd bun-apps/pi-agent-ext-planning-with-files && bun test",
       "version": "1.0.0"
     }
   ],
   "skills": [
-    "pi-obsidian/skills",
-    "pi-planning-with-files/skills/planning-with-files"
+    "pi-agent-ext-obsidian/skills",
+    "pi-agent-ext-planning-with-files/skills/planning-with-files"
   ],
   "npmExtensions": [],
   "lazyExtensions": {

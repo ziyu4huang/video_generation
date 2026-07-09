@@ -26,7 +26,7 @@ import {
   buildFindTask,
   buildRemoveTask,
   buildUpdateTask,
-} from "pi-knowledge-card/extensions/pi-knowledge-card.ts";
+} from "@repo/pi-agent-ext-knowledge-card/extensions/pi-knowledge-card.ts";
 import { runJsonTask, runPrettyTask } from "../sessions/task-runner.ts";
 
 /** Resolve content from positional text or --file. */

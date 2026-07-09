@@ -1,0 +1,32 @@
+{
+  "name": "@repo/pi-agent-ext-obsidian",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Obsidian integration for pi: project-local vault, 7 tools, 3 commands, auto-seeded starter notes.",
+  "license": "MIT",
+  "keywords": ["pi-package", "obsidian", "pi", "knowledge-base", "vault"],
+  "type": "module",
+  "scripts": {
+    "test": "bun test extensions/__tests__/",
+    "test:coverage": "bun test --coverage extensions/__tests__/",
+    "regen:contract": "bun run extensions/__tests__/fixtures/frozen-baseline.gen.mjs > extensions/__tests__/fixtures/frozen-baseline.txt",
+    "regen:baseline": "bun run extensions/__tests__/fixtures/search-baseline.real.mjs > extensions/__tests__/fixtures/search-baseline.txt"
+  },
+  "files": [
+    "extensions",
+    "vault-template",
+    "skills",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-agent-core": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  }
+}

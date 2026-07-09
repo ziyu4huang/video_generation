@@ -46,7 +46,7 @@ import { emptyParsed } from "../args.ts";
 import { vlmDescribeCommand } from "./vlm-describe.ts";
 import { zkExtractCommand } from "./zk-extract.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { slugify, loadManifest, type DocLayout, layoutFor } from "pi-vlm";
+import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/pi-agent-ext-vlm";
 
 /** Defaults. */
 const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-26b-a4b-qat";

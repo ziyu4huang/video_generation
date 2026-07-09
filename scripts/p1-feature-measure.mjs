@@ -43,7 +43,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = execSync("git rev-parse --show-toplevel", { encoding: "utf8" }).trim();
-const KC = `${ROOT}/bun-apps/pi-knowledge-card`;
+const KC = `${ROOT}/bun-apps/pi-agent-ext-knowledge-card`;
 // bun resolves .ts on dynamic import — no build step needed.
 const ingestMod = await import(`${KC}/src/ingest.ts`);
 const retrieveMod = await import(`${KC}/src/retrieve.ts`);
