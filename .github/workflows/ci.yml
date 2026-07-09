@@ -62,15 +62,15 @@ jobs:
           # `npm run check` chain (biome has pre-existing formatting drift — out
           # of scope for the CI cycle; the unit tests + build are the gate).
           - { package: pi-dynamic-workflows, test-cmd: "bun run build && bun test" }
-          # pi-hermes-memory: per-file `bun test` (tests/run-all.sh). The 585
-          # tests pass under a single `bun test`, BUT bun runs files CONCURRENTLY
-          # on a shared thread; this package mixes synchronous native SQLite
-          # (better-sqlite3) with async file-I/O tests, and the SQLite ops starve
-          # memory-store's async atomic-write path — intermittently stalling one
-          # test ~900s (a cross-RUN flake). Per-file process isolation (one bun
-          # per file) removes the shared-thread contention (PROVEN reliable
-          # #383–#391). Uses bun (not tsx) — no Node needed. See
-          # .github/TEST-DETERMINISM.md (D3) for the root-cause disposition.
+          # pi-hermes-memory: per-file `npx tsx --test` (tests/run-all.sh). Two
+          # root-caused reasons tsx (Node) per-file is required (NOT a single
+          # `bun test`): (1) bun runs files CONCURRENTLY on a shared thread, and
+          # this package's synchronous SQLite (better-sqlite3) starves
+          # memory-store's async atomic-write path → intermittent ~900s stall;
+          # (2) bun's better-sqlite3 binding fails the corruption-recovery test
+          # on ubuntu-latest (recovers rows differently than Node). tsx per-file
+          # avoids both (proven #383–#391). Requires Node (setup-node below).
+          # See .github/TEST-DETERMINISM.md (D3).
           - { package: pi-hermes-memory, test-cmd: "bash tests/run-all.sh" }
 
     steps:
@@ -81,10 +81,8 @@ jobs:
         with:
           bun-version: 1.3
 
-      # Node is available for any package that needs it. Every package runs via
-      # `bun test` (pi-hermes-memory wraps it per-file in tests/run-all.sh to
-      # avoid a cross-file SQLite event-loop-starvation flake — see
-      # .github/TEST-DETERMINISM.md D3). Kept because it is cheap (~1 s).
+      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh) —
+      # see D3 in TEST-DETERMINISM.md. Cheap (~1 s) and harmless for the others.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -247,6 +245,11 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3
+      # Node is required for pi-hermes-memory's `npx tsx` (tests/run-all.sh).
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
       - name: Install (workspace, frozen lockfile)
         run: bun install --frozen-lockfile
       - name: Build pi-dynamic-workflows (workspace dep)

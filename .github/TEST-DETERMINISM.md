@@ -101,41 +101,41 @@ path-construction assertions (`resources-discover`, `project` — pure
 `path.join(AGENT_ROOT, …)` expected-value strings, no write) and the
 constant-string assertion (`utils.test.ts` asserts a `~/.pi/…` literal).
 
-### D3 — cross-file shared state / ordering — **`fixed` (root-caused; per-file isolation retained)**
+### D3 — cross-file shared state / ordering — **`fixed` (root-caused; per-file tsx isolation retained)**
 
-`pi-hermes-memory` ran **one tsx process per file** (`tests/run-all.sh`) “to
-avoid node:test runner hang.” **The hang is real and now root-caused** — it is
-NOT a node:test bug:
+`pi-hermes-memory` runs **one tsx (Node) process per file** (`tests/run-all.sh`).
+Two root-caused reasons a single `bun test` is NOT acceptable for the gate:
 
-**Root cause:** `bun test` runs test files **concurrently on a shared thread**.
-This package mixes **synchronous native SQLite** (better-sqlite3, in
-`db`/`session-indexer`/`skill` tests) with **async file-I/O** tests
-(`memory-store`). The synchronous SQLite ops block the main thread and **starve
-the async fs callbacks** of `memory-store`'s atomic-write path
-(`saveToDisk`: `mkdtemp` → `writeFile` → `rename`). Under contention this
-intermittently stalls the *“handles very long entry near char limit”* test for
-**~900 s (15 min)** — a cross-RUN flake that would block the mandatory gate.
-Reproduced: `memory-store.test.ts` alone = clean 30 s; full single-process
-`bun test` = intermittent 900 s stall on that one test (and an occasional
-1-test fail). The old per-file-isolation workaround masked it.
+1. **The hang (single-process concurrency).** `bun test` runs test files
+   **concurrently on a shared thread**. This package mixes **synchronous native
+   SQLite** (better-sqlite3, in `db`/`session-indexer`/`skill` tests) with
+   **async file-I/O** tests (`memory-store`). The synchronous SQLite ops block
+   the main thread and **starve the async fs callbacks** of `memory-store`'s
+   atomic-write path (`saveToDisk`: `mkdtemp` → `writeFile` → `rename`). Under
+   contention this intermittently stalls the *“handles very long entry near
+   char limit”* test for **~900 s (15 min)** — a cross-RUN flake. Reproduced:
+   `memory-store.test.ts` alone = clean 30 s; full single-process `bun test` =
+   intermittent 900 s stall (and an occasional 1-test fail).
+2. **The bun+linux quirk.** `bun test` runs all 585 tests fine on **macOS**, but
+   bun’s `better-sqlite3` binding **fails the corruption-recovery test** on the
+   CI runner (`db.test.ts`: *“repairs recoverable corruption on open and
+   preserves readable rows”*) — it recovers rows differently than Node’s
+   binding on ubuntu-latest. (This is the grain of truth behind the old vault
+   card “better-sqlite3 unsupported by bun”: not unsupported, but not
+   byte-identical to Node on linux.) tsx (Node) passes it on every platform.
 
 **Fix (criterion 4 option b — workaround retained, root-caused):** per-file
-**process** isolation (one `bun` per file) gives each file its own event loop,
-so no synchronous-op leak can starve another file's async I/O. `tests/run-all.sh`
-is retained but **modernized to `bun test`** (drops the `npx tsx` / Node
-dependency — bun runs `node:test` files natively). CI matrix entry:
-`bash tests/run-all.sh`. PROVEN reliable (this isolation shape kept CI green
-#383–#391; only the runner binary changed tsx → bun).
+**tsx (Node) process** isolation is retained — it avoids BOTH the shared-thread
+starvation (each file gets its own event loop) and the bun+linux corruption
+quirk (Node’s binding is the reference). PROVEN reliable (#383–#391 green).
+`run-all.sh` is updated with the accurate dual root-cause (the old
+*“node:test runner hang”* comment was a misdiagnosis — node:test was never the
+problem; it was bun’s concurrency + binding).
 
-> Why not a single `bun test`? The 585 tests DO pass under one `bun test`, but
-> the concurrent-SQLite starvation makes it flake ~15 min intermittently —
-> unacceptable for a mandatory gate (and worse on CI’s 2-core runners). A single
-> `bun test` is fine for a quick local check; the per-file runner is the
-> reliable gate. The determinism spot-check uses the runner for the same reason.
-
-> A vault knowledge card claimed “pi-hermes-memory CANNOT run under `bun test`
-> (better-sqlite3 unsupported).” Disproven — bun runs all 585 tests; the real
-> caveat is the concurrent-starvation flake above. Card marked `superseded`.
+> A single `bun test` is fine for a **quick local check on macOS** (585 pass,
+> ~32 s), but the CI gate MUST use `bash tests/run-all.sh` (tsx). The
+> determinism spot-check uses the runner for the same reason (and its CI job
+> sets up Node for tsx).
 
 ### D4 — live network — **0 live `fetch()` in portable tests**
 
@@ -164,10 +164,11 @@ The genuine network tests are in the `CONTROLLED` set:
 
 1. **Real host-state (D2):** the two real writers fixed; durable tmpdir seams
    added. `--strict` is clean. **None remaining.**
-2. **Cross-file ordering (D3):** root-caused (concurrent synchronous SQLite
-   starves async file-I/O on a shared thread → intermittent ~900s stall);
-   per-file process isolation retained (modernized to bun). **Flake eliminated**
-   for the gate (single `bun test` kept as a quick local check).
+2. **Cross-file ordering (D3):** root-caused (TWO reasons — concurrent
+   synchronous SQLite starves async file-I/O on a shared thread → ~900s stall;
+   AND bun’s better-sqlite3 binding fails the corruption-recovery test on
+   ubuntu). Per-file tsx (Node) isolation retained (proven on CI). A single
+   `bun test` is a fine macOS-only local check. **Gate flake eliminated.**
 3. **Uncontrolled time (D1):** the one wall-clock assertion (`relativeTime`)
    is injected; the rest are benign fixture seeds. **None remaining.**
 4. **Live network (D4):** zero live `fetch()` in portable tests; the real

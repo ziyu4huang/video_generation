@@ -211,10 +211,12 @@ for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-knowledge-card pi-obsidian pi-schema-cost pi-dynamic-workflows \
            pi-hermes-memory; do
   echo "=== $pkg ==="
-  # pi-hermes-memory: per-file isolation (tests/run-all.sh) — see D3 in
-  # TEST-DETERMINISM.md. Its package `test` script already wraps this.
-  ( cd "bun-apps/$pkg" && CI=true bun run test ) || echo "FAILED: $pkg"
+  ( cd "bun-apps/$pkg" && CI=true bun test ) || echo "FAILED: $pkg"
 done
+# pi-hermes-memory note: the loop above uses a single `bun test` as a QUICK
+# local check (passes on macOS). The CI GATE uses `bash tests/run-all.sh`
+# (per-file tsx) — see D3 in TEST-DETERMINISM.md for why (concurrent-SQLite
+# starvation hang + bun better-sqlite3 corruption-recovery quirk on linux).
 
 # the named checks:
 ( cd bun-apps/pi-agent && CI=true bun test src/__tests__/extension-contract.test.ts )

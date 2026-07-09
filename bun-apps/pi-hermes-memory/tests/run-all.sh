@@ -1,35 +1,32 @@
 #!/usr/bin/env bash
-# Run each pi-hermes-memory test file in its OWN bun process.
+# Run each pi-hermes-memory test file in its OWN tsx (Node) process.
 #
-# WHY per-file process isolation (root-caused 2026-07-09, test-determinism cycle):
-# The suite's 585 tests pass under a single `bun test`, BUT bun runs test files
-# CONCURRENTLY on a shared thread, and this package mixes synchronous native
-# SQLite (better-sqlite3, in db/session-indexer/skill tests) with async file-I/O
-# tests (memory-store). The synchronous SQLite ops block the main thread and
-# STARVE the async fs callbacks of memory-store's atomic-write path; under
-# contention this intermittently stalls the "handles very long entry near char
-# limit" test for ~900s (15 min) — a cross-RUN flake that would block the
-# mandatory CI gate. Per-file process isolation (one bun per file) removes the
-# shared-thread contention entirely: each file gets its own event loop, so no
-# synchronous-op leak can starve another file's async I/O. PROVEN reliable
-# (this isolation shape kept CI green #383–#391; only the runner was tsx then).
+# WHY per-file tsx (Node) isolation — two root-caused reasons (2026-07-09,
+# test-determinism cycle):
 #
-# This is the test-determinism criterion-4 option (b) disposition: root-caused
-# (concurrent synchronous SQLite starvation, NOT the old "node:test runner bug"
-# myth) + workaround retained. A single-process run is fine for a quick local
-# check (`bun test`) but is NOT reliable enough for the mandatory gate. See
-# .github/TEST-DETERMINISM.md (D3).
+# 1. The hang (single-process). `bun test` runs test files CONCURRENTLY on a
+#    shared thread, and this package mixes synchronous native SQLite
+#    (better-sqlite3) with async file-I/O tests (memory-store). The SQLite ops
+#    starve memory-store's async atomic-write path, intermittently stalling the
+#    "handles very long entry near char limit" test for ~900s. Per-file process
+#    isolation removes the shared-thread contention.
 #
-# Uses `bun test` (not `npx tsx`) — bun runs node:test-style files natively, so
-# no Node/tsx setup is required.
+# 2. The bun+linux quirk. `bun test` runs all 585 tests fine on macOS, BUT
+#    bun's better-sqlite3 binding fails the corruption-recovery test
+#    (db.test.ts: "repairs recoverable corruption on open and preserves
+#    readable rows") on the CI runner (ubuntu-latest) — it recovers rows
+#    differently than Node's binding. tsx (Node) passes it on every platform.
+#
+# Net: tsx (Node) per-file is the proven CI runner (#383–#391 green). A single
+# `bun test` is fine for a quick LOCAL check on macOS but is neither reliable
+# (the hang) nor correct (the linux corruption quirk) for the gate. See
+# .github/TEST-DETERMINISM.md (D3). Requires Node on PATH (npx tsx).
 set -euo pipefail
 
 PASS=0
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
 
 for f in $(find tests -name '*.test.ts' | sort); do
-  bun test "$f" >/dev/null 2>&1 || { echo "FAILED: $f" >&2; bun test "$f" >&2; exit 1; }
+  npx tsx --test "$f" >/dev/null 2>&1 || { echo "FAILED: $f" >&2; npx tsx --test "$f" >&2; exit 1; }
   PASS=$((PASS + 1))
 done
 
