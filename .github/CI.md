@@ -4,9 +4,9 @@ The PR gate. Every pull request to `main` (and every push to `main`) runs
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which turns the
 manual-`bun test` trust model into an enforced gate.
 
-## Branch protection — the 19 required checks on `main`
+## Branch protection — the 20 required checks on `main`
 
-`main` is under branch protection: the **19 checks** below are **required**
+`main` is under branch protection: the **20 checks** below are **required**
 (strict — no stale checks; branches must be up-to-date) before any merge,
 including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
 (merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
@@ -14,7 +14,7 @@ setting, not a committed file) — **if a check is renamed in `ci.yml`, update t
 protection rule too** so it stays required:
 
 ```bash
-# re-assert the 19 required checks on main (run after any check-rename)
+# re-assert the 20 required checks on main (run after any check-rename)
 gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   --input - <<'JSON'
 { "required_status_checks": { "strict": true, "contexts": [
@@ -23,7 +23,8 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
   "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-vlm",
   "test · gui-movie-director", "test · pi-knowledge-card", "test · pi-obsidian",
-  "test · pi-schema-cost", "test · pi-dynamic-workflows", "test · pi-hermes-memory",
+  "test · pi-planning-with-files", "test · pi-schema-cost",
+  "test · pi-dynamic-workflows", "test · pi-hermes-memory",
   "extension-contract", "deploy --verify", "regression gates"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
@@ -37,7 +38,7 @@ JSON
 
 | Job | What it gates | Fail behavior |
 |-----|---------------|---------------|
-| **test · `<package>`** (matrix of 16) | Each `bun-apps/*` package's test suite | **blocks** |
+| **test · `<package>`** (matrix of 17) | Each `bun-apps/*` package's test suite | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
 | **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size **blocks**; schema-cost + portability **warn only** |
@@ -63,15 +64,15 @@ Two setup quirks the workflow handles, documented so they aren't "lost":
 
 ## What is tested
 
-The 16 `bun-apps/*` packages that declare a `test` script, each via its
+The 17 `bun-apps/*` packages that declare a `test` script, each via its
 documented command (see the `tests` matrix in the workflow):
 
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
 pi-agent-ext-web-access, pi-agent-sdk-demo, pi-vlm, gui-movie-director,
-pi-knowledge-card, pi-obsidian, pi-schema-cost, pi-dynamic-workflows,
-pi-hermes-memory
+pi-knowledge-card, pi-obsidian, pi-planning-with-files, pi-schema-cost,
+pi-dynamic-workflows, pi-hermes-memory
 ```
 
 ## What is deliberately NOT tested in CI (and why)
