@@ -23,7 +23,8 @@ export type Capability =
   | "analysis"
   | "enhancement"
   | "subtitle"
-  | "composition";
+  | "composition"
+  | "story_generation";
 
 export type ProviderBackend = "native_swift" | "cloud_http" | "ffmpeg" | "macos_native";
 
@@ -40,6 +41,7 @@ export interface ProviderEntry {
     | "swift:ltx"
     | "mlx:runpy"
     | "mlx:runpy-image"
+    | "mlx:runpy-story"
     | "mlx:caption"
     | "fetch"
     | "ffmpeg"
@@ -98,6 +100,23 @@ export const REGISTRY: ProviderEntry[] = [
       "i2i", "storyboard", "inpaint",
     ],
     notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i/inpaint reaches run.py (Swift directors declare no commands, so they don't claim these). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
+  },
+
+  // run.py story adapter — OM's research→proposal→approval stage UPSTREAM of
+  // `image storyboard`. From a topic the local gemma brain (reasoning_effort:none)
+  // emits angles + an OM-shaped proposal_packet; `story shots` delegates the
+  // approved concept to `image storyboard`. Closes the OM storyline gap.
+  // probeConfigured = runPyRuntimePresent (same as mlx:runpy-image). LOCAL MLX
+  // + local gemma brain only.
+  {
+    name: "runpy_story",
+    capability: "story_generation",
+    provider: "runpy-story",
+    backend: "native_swift",
+    invoke: "mlx:runpy-story",
+    configured: true,
+    commands: ["angles", "propose", "shots"],
+    notes: "run.py story adapter (src/runpy_story.ts) — storyline creation from a topic (OM's research→proposal→approval stage). angles → N differentiated creative angles; propose → an OM-shaped proposal_packet (concept options with scene_list/visual_language/est_shot_count); shots → delegates the approved concept to `image storyboard`. Brain = local gemma (reasoning_effort:none). Local MLX + local LLM, never cloud.",
   },
 
   // Video generation — native Swift/MLX director.

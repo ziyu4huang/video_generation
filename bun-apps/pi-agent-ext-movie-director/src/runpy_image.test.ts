@@ -121,6 +121,34 @@ describe("buildImageArgs", () => {
     );
   });
 
+  it("kontext: action routes in-context re-render + its dedicated flags", () => {
+    const args = buildImageArgs(
+      {
+        action: "kontext",
+        input: "/in/hero.png",
+        prompt: "<same person>, knight in armor",
+        guidance: 2.5,
+        scheduler: "linear",
+        quantize: 8,
+        scenes: 3,
+        promptSubject: "a woman with red hair",
+      },
+      null,
+    );
+    expect(args[1]).toBe("kontext");
+    expect(args).toContain("--input");
+    expect(args).toContain("/in/hero.png");
+    // Every kontext-specific flag is emitted as a kebab token + value.
+    expect(args).toContain("--guidance");
+    expect(args).toContain("2.5");
+    expect(args).toContain("--scheduler");
+    expect(args).toContain("--quantize");
+    expect(args).toContain("--scenes");
+    expect(args).toContain("3");
+    expect(args).toContain("--prompt-subject");
+    expect(args).toContain("a woman with red hair");
+  });
+
   it("self-test boolean emits bare --self-test; string emits the fixture name", () => {
     expect(buildImageArgs({ selfTest: true }, null)).toContain("--self-test");
     const named = buildImageArgs({ action: "workflow", selfTest: "workflow:portrait" }, null);

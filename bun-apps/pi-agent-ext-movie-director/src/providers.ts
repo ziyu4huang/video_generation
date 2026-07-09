@@ -215,6 +215,11 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // sub-action's models are present is a RUNTIME concern (run.py resolves
       // them from mlx-models); the static probe stays honest about the runtime.
       return entry.configured && runPyRuntimePresent();
+    case "mlx:runpy-story":
+      // callable iff run.py + the MLX venv resolve (story is a run.py top-level
+      // command). The gemma brain load is a RUNTIME concern (run.py auto-resolves
+      // it); the static probe stays honest about the runtime, not the brain.
+      return entry.configured && runPyRuntimePresent();
     case "mlx:caption":
       // callable iff run.py + the MLX venv resolve — same presence signal as
       // mlx:runpy (caption is a run.py subcommand). Whether a VLM is actually
