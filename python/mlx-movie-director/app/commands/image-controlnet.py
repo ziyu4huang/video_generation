@@ -3,11 +3,14 @@
 Source: https://civitai.com/models/2192289/zimageturbo-controlnet-6g-vram-can-run-it?modelVersionId=2509261
 
 Preprocessors supported:
-  canny   — cv2.Canny edge detection (built-in, no extra model)
-  raw     — pass control image directly without preprocessing (--skip-preprocess)
+  canny     — cv2.Canny edge detection (built-in, no extra model)
+  scribble  — XDoG line-art/sketch map (built-in classical CV, no extra model)
+  raw       — pass control image directly without preprocessing (--skip-preprocess)
 
-Preprocessors requiring external models (deferred):
-  pose, depth, hed, scribble — use --skip-preprocess and run preprocessing externally
+Preprocessors requiring external models (NOT yet wired — exit 2 with recreate steps):
+  depth, pose, hed — need a learned model (Depth-Anything / OpenPose / HED) that has
+  no MLX port and would regress the certified MLX venv via timm. See
+  _raise_missing_preprocessor() for the architectural note + how to wire them.
 
 Public API:
   add_controlnet_args(parser)  — register ControlNet-specific CLI arguments
@@ -66,9 +69,14 @@ def add_controlnet_args(parser: argparse.ArgumentParser) -> None:
         )
     parser.add_argument(
         "--controlnet-type",
-        choices=["canny"],
+        choices=["canny", "scribble", "depth", "pose", "hed"],
         default="canny",
-        help="ControlNet preprocessor: canny (built-in, default: canny)",
+        help=(
+            "ControlNet preprocessor (default: canny). "
+            "Built-in (no model): canny, scribble. "
+            "Require an external preprocessor model (NOT yet wired — see the "
+            "exit-2 message for recreate steps): depth, pose, hed."
+        ),
     )
     parser.add_argument(
         "--controlnet-strength", type=float, default=1.0, dest="controlnet_strength",
@@ -594,14 +602,18 @@ def _load_and_preprocess(path: str, ctrl_type: str, out_w: int, out_h: int,
         desc = "+".join(parts) if parts else "raw"
         print(f"[ControlNet] Preprocessing skipped — using {desc} image as control.")
         return img
+
+    # Built-in preprocessors (classical CV, no external model)
     if ctrl_type == "canny":
         return _apply_canny(img)
-    print(
-        f"[ControlNet] WARNING: preprocessor '{ctrl_type}' requires an external model. "
-        f"Using raw image as fallback (run with --skip-preprocess to silence this warning).",
-        file=sys.stderr,
-    )
-    return img
+    if ctrl_type == "scribble":
+        return _apply_scribble(img)
+
+    # depth / pose / hed — require a learned preprocessor model that is NOT wired yet.
+    # Fail loudly with actionable recreate steps (never silently fall back to raw —
+    # the silent-wrong fallback was the prior behavior; see controlnet RCA).
+    _raise_missing_preprocessor(ctrl_type)
+    return img  # unreachable; _raise_missing_preprocessor exits the process
 
 
 def _apply_canny(pil_img: "Image.Image") -> "Image.Image":
@@ -618,6 +630,106 @@ def _apply_canny(pil_img: "Image.Image") -> "Image.Image":
     # 3-channel so VAE expects RGB
     edges_rgb = np.stack([edges] * 3, axis=-1)
     return Image.fromarray(edges_rgb)
+
+
+def _apply_scribble(pil_img: "Image.Image") -> "Image.Image":
+    """Generate a scribble/line-art control map via XDoG (extended difference-of-Gaussians).
+
+    Classical CV — no learned model, no external weights, no extra venv. Produces a
+    soft, anti-aliased sketch that is a genuinely DISTINCT signal from Canny's binary
+    edges: XDoG responds to local contrast structure with smooth gradients, so the
+    Z-Image ControlNet (image-reference-conditioned) conditions on a sketch-like map
+    rather than thin hard edges. This mirrors ComfyUI's classical "scribble" preprocessor.
+
+    Returns a 3-channel uint8 image (white lines on black) sized like the input.
+    """
+    from PIL import Image
+    try:
+        import cv2
+    except ImportError:
+        print("[ControlNet] cv2 not available — using raw image instead of scribble.",
+              file=sys.stderr)
+        return pil_img
+    import numpy as np
+
+    gray = np.array(pil_img.convert("L")).astype(np.float32) / 255.0
+
+    # Difference-of-Gaussians: σ1 keeps fine structure, σ2 carries broad shading.
+    # dog is positive on the bright side of edges → bright lines there.
+    g1 = cv2.GaussianBlur(gray, (0, 0), sigmaX=1.0)
+    g2 = cv2.GaussianBlur(gray, (0, 0), sigmaX=2.5)
+    dog = g1 - g2
+
+    # XDoG soft-threshold: tanh(φ · max(dog,0)) emphasizes edges while keeping
+    # anti-aliased falloff (smooth gradients, not binary). Flat regions → 0 (black).
+    phi = 5.0
+    sketch = np.tanh(np.clip(dog, 0.0, None) * phi)
+
+    # Normalize to full dynamic range; thicken lightly so lines are scribble-bold.
+    peak = float(sketch.max())
+    if peak > 1e-6:
+        sketch = sketch / peak
+    sketch = cv2.dilate(sketch, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    sketch = np.clip(sketch, 0.0, 1.0)
+    sketch_u8 = (sketch * 255.0).astype(np.uint8)
+    sketch_rgb = np.stack([sketch_u8] * 3, axis=-1)
+    return Image.fromarray(sketch_rgb)
+
+
+# Learned preprocessors that require a model not present in this repo.
+# Maps type → (human name, what-it-needs, venv-regression note).
+_MISSING_PREPROCESSORS = {
+    "depth": (
+        "Depth-Anything-V2 (depth map)",
+        "a depth-estimation model. No native MLX port exists; the torch path "
+        "(MiDaS / Depth-Anything via timm) needs `pip install timm` which "
+        "regresses the certified MLX venv (transformers<5, mlx-vlm 0.6.2 pin).",
+    ),
+    "pose": (
+        "OpenPose (body/pose keypoints)",
+        "an OpenPose runtime. onnxruntime is NOT in python/venv, and OpenPose "
+        "weights are not in the content-addressed store.",
+    ),
+    "hed": (
+        "HED (holistically-nested soft edges)",
+        "a trained HED network + its weights. No MLX port; not in the store.",
+    ),
+}
+
+
+def _raise_missing_preprocessor(ctrl_type: str) -> None:
+    """Exit(2) with honest, actionable recreate steps for an unwired learned preprocessor.
+
+    Never silently falls back to raw — the prior behavior produced a wrong-but-plausible
+    generation (control signal vanished into a raw reference image) with only a stderr
+    warning. The correct action is to refuse and tell the user exactly what is missing.
+
+    Architectural note included in the message: the Z-Image ControlNet here is
+    image-reference-conditioned (control = VAE-encoded image → 33ch), NOT a type-aware
+    union ControlNet. Even with a depth/pose model wired, the map would condition the
+    output as a reference image, not as a trained control type. True depth/pose control
+    needs a type-specific ControlNet (or the map should be used for composition guidance).
+    """
+    name, needs = _MISSING_PREPROCESSORS[ctrl_type]
+    print(
+        f"\n[ControlNet] preprocessor '{ctrl_type}' ({name}) is not wired.\n"
+        f"  It requires {needs}\n\n"
+        f"  To proceed NOW, choose one:\n"
+        f"    1. Preprocess externally and pass the map with --skip-preprocess\n"
+        f"       (the map is then VAE-encoded directly as the control image).\n"
+        f"    2. Use a built-in preprocessor: --controlnet-type canny  or  scribble.\n"
+        f"    3. Wire the model: place weights in the content-addressed store\n"
+        f"       (mlx-models/store-manifest.json) and add a loader in this file,\n"
+        f"       following the facerestore spawn-sibling-venv pattern if torch is\n"
+        f"       required (python/face-venv is the precedent) — do NOT install into\n"
+        f"       the main python/venv (regresses transformers<5 / mlx-vlm 0.6.2).\n\n"
+        f"  NOTE: this Z-Image ControlNet is image-reference-conditioned, not a\n"
+        f"  type-aware union net. A depth/pose MAP conditions output as a reference\n"
+        f"  image, not as a trained control type. For true depth/pose control, pair\n"
+        f"  the preprocessor with a type-specific ControlNet model.\n",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 def _blur_ref_image(pil_img: "Image.Image", sigma: float) -> "Image.Image":
