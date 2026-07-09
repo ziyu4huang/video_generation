@@ -119,7 +119,14 @@ export class DialogView implements StatefulView<DialogProps> {
 		const tabIdx = this.liveProps.state.currentTab;
 		const tab = this.config.tabsByIndex[tabIdx];
 		if (!tab) return [];
-		// Render the option list and preview pane
+		// Multi-select questions render the checkbox view ([✔] rows + Next sentinel)
+		// so the user can SEE toggled state. The plain optionList has no checkbox
+		// affordance — rendering it for multiSelect left toggles with zero visual
+		// feedback (the user could not tell anything was selected).
+		const question = this.config.questions[tabIdx];
+		if (question?.multiSelect && tab.multiSelect) {
+			return tab.multiSelect.render(width);
+		}
 		return tab.optionList.render(width);
 	}
 
@@ -152,6 +159,12 @@ export class DialogView implements StatefulView<DialogProps> {
 		if (state.inputMode) return `${HINT_PART_ENTER} · ↑/↓ · Esc`;
 		const hintParts = [HINT_PART_ENTER, HINT_PART_NAV];
 		if (isMulti) hintParts.push(HINT_PART_TAB);
+		// Multi-select questions toggle with Space — surface it so the user
+		// knows how to mark options (the HINT_MULTISELECT_SUFFIX existed but was
+		// never appended, leaving the hint to misleadingly say only "Enter to select").
+		const focusedQuestion =
+			state.currentTab < this.config.questions.length ? this.config.questions[state.currentTab] : undefined;
+		if (focusedQuestion?.multiSelect) hintParts.push(HINT_PART_TOGGLE);
 		if (state.focusedOptionHasPreview) hintParts.push(`n ${HINT_PART_NOTES}`);
 		hintParts.push(HINT_PART_CANCEL);
 		return hintParts.join(" · ");
