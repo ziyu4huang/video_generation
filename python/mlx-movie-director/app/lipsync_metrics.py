@@ -22,14 +22,20 @@ the numeric verdict.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
 
 import numpy as np
 
+from app import config as cfg
 from app.audio_noise_detect import _extract_audio_pcm
 from app.voice_metrics import _frame_rms, _probe_sample_rate
+
+# Marker line app/syncnet_bridge.py emits before its JSON manifest (same
+# convention as app/face_restore_bridge.py).
+_SYNCNET_MANIFEST_MARKER = "__SYNCNET_MANIFEST__"
 
 # Inner-lip vertical gap (top, bottom) and interocular horizontal reference
 # (outer eye corners), MediaPipe FaceMesh 468-point topology.
@@ -281,6 +287,60 @@ def measure_lipsync_precision(mp4_path: str) -> dict:
             "trustworthy statistic in this case."
         )
     return result
+
+
+def _resolve_sync_python() -> str | None:
+    """Find python/sync-venv/bin/python (env override MD_SYNC_PYTHON wins)."""
+    env_override = os.environ.get("MD_SYNC_PYTHON")
+    if env_override and os.path.exists(env_override):
+        return env_override
+    candidate = os.path.join(cfg.REPO_DIR, "python", "sync-venv", "bin", "python")
+    return candidate if os.path.exists(candidate) else None
+
+
+def measure_lse_metrics(mp4_path: str) -> dict:
+    """SyncNet-based LSE-D/LSE-C measurement, run via the isolated sync-venv bridge.
+
+    This is the literature-standard replacement for ``measure_lipsync_precision``'s
+    mouth-ratio/RMS proxy (see ``app/syncnet_bridge.py`` module docstring for why
+    that proxy is known-weak). Spawns
+    ``python/sync-venv/bin/python app/syncnet_bridge.py <mp4>`` the same way
+    ``app/commands/image-facerestore.py`` spawns ``python/face-venv`` -- SyncNet's
+    own torch/torchvision/opencv-contrib pin is unrelated to the MLX generation
+    stack, so it lives in its own venv rather than polluting python/venv.
+
+    Returns the bridge's JSON payload (keys: verdict, lse_d, lse_c, offset_frames,
+    n_frames, n_detected, optional caveat/note) or a ``sync_venv_missing`` verdict
+    with setup instructions if the venv hasn't been created on this machine.
+    """
+    sync_python = _resolve_sync_python()
+    if not sync_python:
+        return {
+            "verdict": "sync_venv_missing",
+            "note": (
+                "python/sync-venv is absent (per-machine, gitignored, NOT auto-created). "
+                "Recreate it:\n"
+                "  uv venv python/sync-venv --python 3.12\n"
+                "  uv pip install --python python/sync-venv/bin/python syncnet-python\n"
+                "  # then download weights into app/models/syncnet/ "
+                "(sfd_face.pth, syncnet_v2.model) -- see app/syncnet_bridge.py docstring"
+            ),
+        }
+
+    bridge_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "syncnet_bridge.py")
+    proc = subprocess.run(
+        [sync_python, bridge_script, mp4_path],
+        capture_output=True, text=True, timeout=300,
+    )
+    stdout = proc.stdout or ""
+    if _SYNCNET_MANIFEST_MARKER not in stdout:
+        return {
+            "verdict": "bridge_error",
+            "note": f"syncnet_bridge produced no manifest (exit {proc.returncode}): "
+                    f"{(proc.stderr or '')[-2000:]}",
+        }
+    payload = stdout.rsplit(_SYNCNET_MANIFEST_MARKER, 1)[1].strip()
+    return json.loads(payload)
 
 
 if __name__ == "__main__":
