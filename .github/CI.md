@@ -4,6 +4,35 @@ The PR gate. Every pull request to `main` (and every push to `main`) runs
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), which turns the
 manual-`bun test` trust model into an enforced gate.
 
+## Branch protection — the 19 required checks on `main`
+
+`main` is under branch protection: the **19 checks** below are **required**
+(strict — no stale checks; branches must be up-to-date) before any merge,
+including the admin's (`enforce_admins`). A PR with a failing check is BLOCKED
+(merge button disabled); a green PR is mergeable. Applied via `gh api` (a repo
+setting, not a committed file) — **if a check is renamed in `ci.yml`, update the
+protection rule too** so it stays required:
+
+```bash
+# re-assert the 19 required checks on main (run after any check-rename)
+gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
+  --input - <<'JSON'
+{ "required_status_checks": { "strict": true, "contexts": [
+  "test · pi-agent", "test · pi-agent-cli", "test · pi-agent-ext-flux2",
+  "test · pi-agent-ext-krea2", "test · pi-agent-ext-ltx",
+  "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
+  "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-vlm",
+  "test · gui-movie-director", "test · pi-knowledge-card", "test · pi-obsidian",
+  "test · pi-schema-cost", "test · pi-dynamic-workflows", "test · pi-hermes-memory",
+  "extension-contract", "deploy --verify", "regression gates"
+] } } /* …preserve existing review/admin settings in the full PUT body… */
+JSON
+```
+
+> The full PUT replaces the entire protection rule — include the existing
+> `enforce_admins`, `required_pull_request_reviews`, and other settings (see
+> `gh api repos/ziyu4huang/video_generation/branches/main/protection`).
+
 ## What runs on every PR
 
 | Job | What it gates | Fail behavior |
