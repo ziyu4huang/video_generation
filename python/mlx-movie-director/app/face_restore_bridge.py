@@ -72,15 +72,40 @@ def _resolve_weights_dir(raw: str) -> str:
 
 
 def _make_bg_upsampler(weights_dir: str, device: str):
-    """Real-ESRGAN background upsampler (optional --bg-upsampler)."""
+    """Real-ESRGAN background upsampler (optional --bg-upsampler).
+
+    Weight resolution order (offline-safe):
+      1. ``weights_dir/RealESRGAN_x4plus.pth`` (the legacy gfpgan/weights dir).
+      2. Any dir in ``FACE_RESTORE_EXTRA_WEIGHTS_DIRS`` (colon-separated; the
+         MLX model store's upscale dir is passed here so a vendored copy wins).
+      3. Under ``FACE_RESTORE_OFFLINE=1`` → FAIL LOUD (never download).
+      4. Otherwise (online) → download from the GitHub release (legacy path).
+    """
     from realesrgan import RealESRGANer
     from basicsr.archs.rrdbnet_arch import RRDBNet
 
-    model_path = os.path.join(weights_dir, "RealESRGAN_x4plus.pth")
-    url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
-    if not os.path.exists(model_path):
+    fname = "RealESRGAN_x4plus.pth"
+    candidate_dirs = [weights_dir]
+    extra = os.environ.get("FACE_RESTORE_EXTRA_WEIGHTS_DIRS", "")
+    candidate_dirs += [d for d in extra.split(os.pathsep) if d]
+    model_path = next(
+        (os.path.join(d, fname) for d in candidate_dirs if os.path.exists(os.path.join(d, fname))),
+        None,
+    )
+
+    if not model_path:
+        if os.environ.get("FACE_RESTORE_OFFLINE") == "1":
+            raise RuntimeError(
+                f"Real-ESRGAN bg weight '{fname}' not found in any of "
+                f"{candidate_dirs} and FACE_RESTORE_OFFLINE=1 forbids download. "
+                f"Vendor it ONLINE first into mlx-models/upscale/realesrgan/{fname} "
+                f"(or gfpgan/weights/) and re-run."
+            )
+        # Legacy online path — only reached when NOT offline.
         import urllib.request
 
+        model_path = os.path.join(weights_dir, fname)
+        url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth"
         print(f"[face-restore] downloading Real-ESRGAN bg model to {model_path}", file=sys.stderr)
         urllib.request.urlretrieve(url, model_path)  # noqa: S310 — fixed release URL
     model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
@@ -126,15 +151,20 @@ def _run_codeformer(input_path: str, output_path: str, weights_dir: str, fidelit
     # CodeFormer is NOT on PyPI (source-install only) and its inference + paste-back
     # wiring is the documented follow-up. GFPGAN (--model gfpgan) is the certified
     # path today. Surface a precise install command rather than silently no-op'ing.
+    # The install is a `git clone` (network) — gated as an EXPLICIT enable step,
+    # never attempted at runtime; under offline we just report it is unavailable.
     import importlib.util
 
     installed = importlib.util.find_spec("codeformer") is not None
+    offline = os.environ.get("FACE_RESTORE_OFFLINE") == "1"
+    suffix = (" Use --model gfpgan (the certified path) for now."
+              + (" (offline: the CodeFormer source-install is a network step — skipped.)" if offline else ""))
     raise RuntimeError(
         "CodeFormer is " + ("installed but inference wiring is not implemented yet"
                             if installed else "not installed in python/face-venv (source-install only)")
         + ". To enable: git clone https://github.com/sczhou/CodeFormer ../CodeFormer && "
         "uv pip install --python python/face-venv/bin/python -e ../CodeFormer, then wire "
-        "_run_codeformer. Use --model gfpgan (the certified path) for now."
+        "_run_codeformer." + suffix
     )
 
 

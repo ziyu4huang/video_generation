@@ -131,6 +131,34 @@ python/venv/bin/python python/mlx-movie-director/run.py image t2i --self-test t2
 python/venv/bin/python python/mlx-movie-director/run.py image i2i --self-test i2i:pose i2i:style
 ```
 
+### Fully-offline generation (`--offline`)
+
+`--offline` makes `run.py` generate image + video with **zero runtime network
+egress** on Apple Silicon:
+
+- Sets `HF_HUB_OFFLINE=1` / `TRANSFORMERS_OFFLINE=1` → HuggingFace-backed
+  loaders (mflux `from_pretrained`, `ltx_downloader`) resolve cache-only and
+  fail loud instead of fetching.
+- Runs a weight-presence **preflight** that aborts (exit 1) before dispatch if
+  any required model is missing locally — never a silent fetch.
+- Skips stages that need a network service (the `video t2i2v` VLM/caption stage →
+  LM Studio) unless `--vlm-online` is given; gates the i2i pose-model download
+  (falls back to Canny) and the storyboard brain.
+- Propagates to all `run.py` subprocess children.
+
+```bash
+# Verify all weights resolve locally (single preflight command):
+python/venv/bin/python python/mlx-movie-director/run.py check-model --preflight
+# Generate fully offline:
+python/venv/bin/python python/mlx-movie-director/run.py image t2i --offline --self-test
+python/venv/bin/python python/mlx-movie-director/run.py video generate --offline --self-test beach-walk
+python/venv/bin/python python/mlx-movie-director/run.py video t2i2v --offline --prompt '...' --frames 9
+```
+
+One-command bootstrap of the offline stack (venv + sibling forks + preflight):
+`bash scripts/setup-offline.sh`. Full runtime-egress map:
+[`docs/offline-egress-map.md`](docs/offline-egress-map.md).
+
 ## Video T2I2V Pipeline (`video t2i2v`)
 
 3-stage pipeline: ZImage T2I → VLM prompt assistant → LTX I2V. Omit `--action` to skip VLM stage. See [[t2i2v-pipeline]] memory for full args and examples.

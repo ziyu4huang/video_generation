@@ -1,6 +1,11 @@
 import os
 import json
 
+# Offline-generation flag. Flipped True by ``app.offline.apply_offline()``
+# (invoked from run.py ``--offline``) and read by command modules + the
+# preflight in ``app.offline``. Default False = online (cache-then-fetch).
+OFFLINE = False
+
 
 def check_model_available(model_dir: str) -> bool:
     """Check if a model directory exists and is not marked as REMOVED.
