@@ -50,7 +50,7 @@ Usage:
   run.py image profile --input char.png
   run.py image controlnet
   run.py image controlnet --input-image photo.png --prompt '背面拍摄...'
-  run.py image controlnet --controlnet-type pose --controlnet-strength 0.8
+  run.py image controlnet --controlnet-type scribble --controlnet-strength 0.8
   run.py image faceswap --input body.png --face source.png
   run.py image faceswap --self-test
   run.py image faceswap --self-test crossgender
@@ -193,7 +193,7 @@ PARSER_META = {
         "  run.py image profile --input char.png --ratio standing\n"
         "  run.py image controlnet\n"
         "  run.py image controlnet --input-image photo.png --prompt '背面拍摄...'\n"
-        "  run.py image controlnet --controlnet-type pose --controlnet-strength 0.8\n"
+        "  run.py image controlnet --controlnet-type scribble --controlnet-strength 0.8\n"
         "  run.py image controlnet --self-test\n"
         "  run.py image controlnet --input-image photo.png --prompt '...' --pipeline flux2-klein\n"
         "  run.py image i2i --input-image photo.jpg --denoise-strength 0.4 --prompt 'oil painting'\n"
@@ -281,7 +281,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Profile-specific args: --views, --base-prompt, --ratio, etc.
     _profile.add_profile_args(parser)
 
-    # ControlNet-specific args: --input-image, --controlnet-type, --controlnet-strength, --scale, --server
+    # ControlNet-specific args: --input-image, --controlnet-type {canny,scribble,depth,pose,hed}, --controlnet-strength, --scale
     _controlnet.add_controlnet_args(parser)
 
     # I2I-specific args: --reference-image, --denoise-strength, --controlnet-strength (i2i)
