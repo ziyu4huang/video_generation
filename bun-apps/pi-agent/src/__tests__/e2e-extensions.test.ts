@@ -27,9 +27,15 @@ import {
 	ensureBundle,
 } from "./e2e-harness.ts";
 
-// probe: counts tools whose source path includes $PI_VERIFY_MARKER, then writes
-// a [PROBE] line the runner reads. We kill the process the instant it fires —
-// no model call, fully offline.
+// probe: counts tools AND commands whose source path includes $PI_VERIFY_MARKER,
+// then writes a [PROBE] line the runner reads. We kill the process the instant it
+// fires — no model call, fully offline.
+//
+// `cmdMatched` covers extensions that register slash commands but NO tools
+// (e.g. pi-planning-with-files — 5 /plan-* commands, 0 registerTool calls).
+// The tool-only `matched` count alone would never see such an extension, so the
+// command count is the load proof for command-only extensions. Commands register
+// synchronously in the factory (load time), so they are available at session_start.
 const PROBE_TS = `
 export default (pi) => {
   pi.on("session_start", () => {
@@ -39,7 +45,36 @@ export default (pi) => {
     for (const t of tools) {
       if (marker && String(t.sourceInfo?.path ?? "").includes(marker)) matched++;
     }
-    process.stderr.write("[PROBE] total=" + tools.length + " matched=" + matched + "\\n");
+    const cmds = pi.getCommands();
+    let cmdMatched = 0;
+    for (const c of cmds) {
+      if (marker && String(c.sourceInfo?.path ?? "").includes(marker)) cmdMatched++;
+    }
+    process.stderr.write("[PROBE] total=" + tools.length + " matched=" + matched + " cmdMatched=" + cmdMatched + "\\n");
+  });
+};
+`;
+
+// Skill-load probe: fires on before_agent_start (the ONLY event that carries
+// the assembled systemPromptOptions with loaded skills — session_start's ctx
+// does not expose getSystemPromptOptions). Asserts a manifest-declared skill
+// (pi-planning-with-files) actually loaded end-to-end, closing the gap the
+// extension-conversion goal left open (it proved extension injection, not skill
+// loading). The skill's filePath/baseDir includes "planning-with-files" in every
+// layout (source bun-apps/..., deploy-bundle skills/pi-planning-with-files-...,
+// deploy-package packages/pi-planning-with-files/...), so a substring check is
+// layout-agnostic. Kills on [PROBE-SKILL] — still before the provider call, so
+// offline.
+const PROBE_TS_SKILL = `
+export default (pi) => {
+  pi.on("before_agent_start", (event) => {
+    const skills = (event && event.systemPromptOptions && event.systemPromptOptions.skills) || [];
+    let skillMatched = 0;
+    for (const s of skills) {
+      const loc = String((s && s.filePath) || "") + " " + String((s && s.baseDir) || "");
+      if (loc.includes("planning-with-files")) skillMatched++;
+    }
+    process.stderr.write("[PROBE-SKILL] skillMatched=" + skillMatched + " totalSkills=" + skills.length + "\\n");
   });
 };
 `;
@@ -64,7 +99,12 @@ export default (pi) => {
     for (const t of tools) {
       if (marker && String(t.sourceInfo?.path ?? "").includes(marker)) matched++;
     }
-    process.stderr.write("[PROBE] total=" + tools.length + " matched=" + matched + "\\n");
+    const cmds = pi.getCommands();
+    let cmdMatched = 0;
+    for (const c of cmds) {
+      if (marker && String(c.sourceInfo?.path ?? "").includes(marker)) cmdMatched++;
+    }
+    process.stderr.write("[PROBE] total=" + tools.length + " matched=" + matched + " cmdMatched=" + cmdMatched + "\\n");
   });
 };
 `;
@@ -78,6 +118,9 @@ interface Scenario {
 interface Result {
 	total: number | null;
 	matched: number | null;
+	cmdMatched: number | null;
+	skillMatched: number | null;
+	totalSkills: number | null;
 	errors: string[];
 }
 
@@ -85,6 +128,9 @@ async function runScenario(s: Scenario): Promise<Result> {
 	const errors: string[] = [];
 	let total: number | null = null;
 	let matched: number | null = null;
+	let cmdMatched: number | null = null;
+	let skillMatched: number | null = null;
+	let totalSkills: number | null = null;
 	const proc = Bun.spawn(s.cmd, {
 		cwd: s.cwd,
 		env: { ...process.env, PI_VERIFY_MARKER: s.marker },
@@ -109,18 +155,31 @@ async function runScenario(s: Scenario): Promise<Result> {
 			while ((nl = buf.indexOf("\n")) >= 0) {
 				const line = buf.slice(0, nl);
 				buf = buf.slice(nl + 1);
-				const m = line.match(/\[PROBE\] total=(\d+) matched=(\d+)/);
+				const m = line.match(/\[PROBE\] total=(\d+) matched=(\d+) cmdMatched=(\d+)/);
 				if (m) {
 					total = +m[1];
 					matched = +m[2];
+					cmdMatched = +m[3];
 					try {
 						proc.kill();
 					} catch {
 						/* */
 					}
 					killed = true;
-				} else if (ERR.test(line)) {
-					errors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
+				} else {
+					const sm = line.match(/\[PROBE-SKILL\] skillMatched=(\d+) totalSkills=(\d+)/);
+					if (sm) {
+						skillMatched = +sm[1];
+						totalSkills = +sm[2];
+						try {
+							proc.kill();
+						} catch {
+							/* */
+						}
+						killed = true;
+					} else if (ERR.test(line)) {
+						errors.push(line.replace(/\x1b\[[0-9;]*m/g, "").trim());
+					}
 				}
 			}
 			if (killed) break;
@@ -132,10 +191,14 @@ async function runScenario(s: Scenario): Promise<Result> {
 			/* */
 		}
 	}
-	return { total, matched, errors };
+	return { total, matched, cmdMatched, skillMatched, totalSkills, errors };
 }
 
-// Shared assertions for one scenario's Result.
+// Shared assertions for one scenario's Result (tool/command probe on
+// session_start). Asserts ZERO load errors, the probe extension loaded
+// (matched > 0 — tool-bearing extensions), AND command-bearing extensions
+// registered (cmdMatched > 0 — covers pi-planning-with-files, which registers
+// 5 /plan-* commands but 0 tools).
 function assertCleanLoad(r: Result) {
 	// ZERO conflict/cannot-find/failed-to-load.
 	expect(r.errors).toEqual([]);
@@ -145,6 +208,21 @@ function assertCleanLoad(r: Result) {
 	expect(r.total).not.toBeNull();
 	// Built-in tool floor (7) plus the matched extension's tools.
 	expect(r.total as number).toBeGreaterThanOrEqual(7 + (r.matched as number));
+	// Command-bearing extensions registered (cmdMatched > 0). PwF has no tools
+	// but 5 commands — without this, a command-only extension could silently
+	// fail to load and the tool probe would never notice.
+	expect(r.cmdMatched).not.toBeNull();
+	expect(r.cmdMatched as number).toBeGreaterThan(0);
+}
+
+// Shared assertion for a skill-load scenario's Result (skill probe on
+// before_agent_start). Asserts the PwF skill is in systemPromptOptions.skills.
+function assertSkillLoaded(r: Result) {
+	expect(r.errors).toEqual([]);
+	expect(r.skillMatched).not.toBeNull();
+	expect(r.skillMatched as number).toBeGreaterThan(0);
+	expect(r.totalSkills).not.toBeNull();
+	expect(r.totalSkills as number).toBeGreaterThanOrEqual(1);
 }
 
 // Run `doctor --json` against an entry (deployed pi-agent.js or SRC_CLI), parse
@@ -221,14 +299,21 @@ async function deployPkg(extraFlags: string[]): Promise<{
 }
 
 // SOURCE mode is identical for both deploy modes — cover it once here.
+// Also covers the skill-load assertion (PROBE_TS_SKILL on before_agent_start)
+// for SOURCE — proving the manifest's `skills` entry loads the PwF SKILL.md
+// end-to-end, not just the extension injection.
 describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading (reference)", () => {
 	let probePath = "";
+	let skillProbePath = "";
 	beforeAll(() => {
 		probePath = join(tmpdir(), `pi-source-probe-${process.pid}.ts`);
 		writeFileSync(probePath, PROBE_TS);
+		skillProbePath = join(tmpdir(), `pi-source-skill-probe-${process.pid}.ts`);
+		writeFileSync(skillProbePath, PROBE_TS_SKILL);
 	});
 	afterAll(() => {
 		if (existsSync(probePath)) rmSync(probePath, { force: true });
+		if (existsSync(skillProbePath)) rmSync(skillProbePath, { force: true });
 	});
 	for (const cwd of [REPO_ROOT, tmpdir()]) {
 		test(`SOURCE from ${cwd === REPO_ROOT ? "repo" : "/tmp"}`, async () => {
@@ -255,6 +340,18 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: SOURCE extension loading 
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000); // spawns a real session_start (offline, but needs headroom)
+	test("SOURCE skill-load: pi-planning-with-files SKILL.md is in systemPromptOptions.skills", async () => {
+		// Closes the gap the extension-conversion goal left open: it proved the
+		// EXTENSION injects, not that the declared SKILL loads. before_agent_start
+		// is the only event carrying the assembled systemPromptOptions.skills.
+		const r = await runScenario({
+			name: "source-skill",
+			cmd: ["bun", SRC_CLI, "-e", skillProbePath, "-p", "hi"],
+			cwd: REPO_ROOT,
+			marker: join(REPO_ROOT, "bun-apps"),
+		});
+		assertSkillLoaded(r);
+	}, 60_000);
 });
 
 // Regression for the extension-load size bug. Source-mode only — independent
@@ -284,6 +381,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
 	beforeAll(async () => {
 		pkg = await deployPkg(["--release"]);
+		writeFileSync(join(pkg.pkgDir, ".verify-skill-probe.ts"), PROBE_TS_SKILL);
 	}, 120_000); // deploys + bun install: needs headroom past the 5s default
 	afterAll(() => {
 		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
@@ -309,6 +407,15 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PACKAGE (--release
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000);
+	test("DEPLOY-PACKAGE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+		const r = await runScenario({
+			name: "deploy-pkg-skill",
+			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],
+			cwd: pkg.pkgDir,
+			marker: pkg.pkgDir,
+		});
+		assertSkillLoaded(r);
+	}, 60_000);
 });
 
 // DEPLOY-BUNDLE mode = `deploy.ts` default (pre-bundled ext-bundles/*.thin.js).
@@ -318,6 +425,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
 	beforeAll(async () => {
 		pkg = await deployPkg([]);
+		writeFileSync(join(pkg.pkgDir, ".verify-skill-probe.ts"), PROBE_TS_SKILL);
 	}, 120_000); // builds 5 ext bundles + deploys: needs headroom past the 5s default
 	afterAll(() => {
 		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
@@ -345,6 +453,15 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-BUNDLE (default) e
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
 	}, 60_000);
+	test("DEPLOY-BUNDLE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+		const r = await runScenario({
+			name: "deploy-bundle-skill",
+			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],
+			cwd: pkg.pkgDir,
+			marker: join(pkg.pkgDir, "ext-bundles"),
+		});
+		assertSkillLoaded(r);
+	}, 60_000);
 });
 
 // DEPLOY-PORTABLE mode = `deploy.ts --portable` (FULL ext bundles incl. npm exts
@@ -355,6 +472,7 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 	let pkg = { pkgDir: "", pkgPiAgent: "", probePath: "" };
 	beforeAll(async () => {
 		pkg = await deployPkg(["--portable"]);
+		writeFileSync(join(pkg.pkgDir, ".verify-skill-probe.ts"), PROBE_TS_SKILL);
 	}, 180_000); // FULL-bundles 7 exts + bun install host subset: needs headroom
 	afterAll(() => {
 		if (pkg.pkgDir) rmSync(pkg.pkgDir, { recursive: true, force: true });
@@ -405,5 +523,14 @@ describe.skipIf(!E2E_ENABLED || !DEPLOY_ENABLED)("e2e: DEPLOY-PORTABLE (--portab
 		const r = await runDoctorSmoke(pkg.pkgPiAgent, pkg.pkgDir);
 		expect(r.ok).toBe(true);
 		expect(r.matched).toBeGreaterThan(0);
+	}, 60_000);
+	test("DEPLOY-PORTABLE skill-load: PwF SKILL.md is in systemPromptOptions.skills", async () => {
+		const r = await runScenario({
+			name: "deploy-portable-skill",
+			cmd: ["bun", pkg.pkgPiAgent, "-e", join(pkg.pkgDir, ".verify-skill-probe.ts"), "-p", "hi"],
+			cwd: pkg.pkgDir,
+			marker: join(pkg.pkgDir, "ext-bundles"),
+		});
+		assertSkillLoaded(r);
 	}, 60_000);
 });

@@ -45,6 +45,7 @@ jobs:
           - { package: pi-agent-ext-movie-director, test-cmd: "bun test" }
           - { package: pi-agent-ext-power-tool, test-cmd: "bun test" }
           - { package: pi-agent-ext-web-access, test-cmd: "bun test" }
+          - { package: pi-planning-with-files, test-cmd: "bun test" }
           - { package: pi-agent-sdk-demo, test-cmd: "bun test" }
           - { package: pi-vlm, test-cmd: "bun test" }
           # gui-movie-director: lint is pure static analysis (CI-safe); the

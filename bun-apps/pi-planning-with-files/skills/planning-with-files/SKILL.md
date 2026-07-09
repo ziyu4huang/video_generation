@@ -159,9 +159,14 @@ Copy these templates to start:
 - [templates/findings.md](templates/findings.md) — research storage
 - [templates/progress.md](templates/progress.md) — session logging
 
+## Further reading
+
+- [examples.md](examples.md) — concrete walkthroughs (research, bug fix, feature, error recovery)
+- [reference.md](reference.md) — the Manus context-engineering principles, adapted to Pi's runtime
+
 ## Pi Extension Hooks (mode-based)
 
-When installed via `pi install npm:pi-planning-with-files`, this package also loads a Pi extension that maps lifecycle events to hook-equivalent behavior. It is **pure TypeScript** — attestation and catchup run in-process; no `python3`/`uv`/shell scripts are spawned.
+When loaded as a Pi extension (via `pi install ./bun-apps/pi-planning-with-files`, the deploy manifest, or `-e`), this package maps lifecycle events to hook-equivalent behavior. It is **pure TypeScript** — attestation and catchup run in-process; no `python3`/`uv`/shell scripts are spawned.
 
 Modes:
 
