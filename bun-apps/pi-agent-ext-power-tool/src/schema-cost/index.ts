@@ -1,11 +1,11 @@
 /**
- * pi-schema-cost — public API.
+ * schema-cost — public API (submodule of @repo/pi-agent-ext-power-tool).
  *
  * Measure and rank the API schema-token cost of LLM tool definitions.
  * Pure token-accounting + per-tool schema-cost. Zero runtime deps.
  *
  * @example
- *   import { estimateToolCost, analyzeTools, formatReport } from "pi-schema-cost";
+ *   import { estimateToolCost, analyzeTools, formatReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
  *
  *   const tools = [{ name: "read", description: "Read a file.", parameters: { type: "object" } }];
  *   const report = analyzeTools(tools, "(builtin)");

@@ -8,7 +8,7 @@
  * required) and prints the ranked report. This is the whole value prop in
  * ~15 lines: the #1 demand bucket, measurable anywhere.
  */
-import { analyzeTools, formatReport, estimateToolCost } from "../src/index.ts";
+import { analyzeTools, formatReport, estimateToolCost } from "../src/schema-cost/index.ts";
 
 // A tiny tool set — imagine these are your agent's registered tools.
 const tools = [

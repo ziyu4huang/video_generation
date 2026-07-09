@@ -1,6 +1,6 @@
 /**
- * Report formatting — pure, no deps. Mirrors the in-tree `schema-cost.ts`
- * output so delegation is byte-for-byte.
+ * Report formatting — pure, no deps. Mirrors the pi-agent-cli `schema-cost`
+ * command output so delegation is byte-for-byte.
  */
 import type { SchemaCostReport } from "./types.ts";
 
@@ -28,7 +28,7 @@ export function formatReport(report: SchemaCostReport): string[] {
 		);
 		lines.push("");
 	}
-	const rows = report.tools.map((t) => ({
+	const rows: Record<string, string>[] = report.tools.map((t) => ({
 		tool: t.name,
 		tokens: String(t.approxTokens),
 		desc: String(t.descLen),

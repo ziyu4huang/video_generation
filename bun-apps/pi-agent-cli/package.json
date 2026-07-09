@@ -29,7 +29,6 @@
     "pi-agent": "workspace:*",
     "pi-knowledge-card": "workspace:*",
     "pi-obsidian": "workspace:*",
-    "pi-schema-cost": "workspace:*",
     "pi-vlm": "workspace:*",
     "typebox": "latest"
   },

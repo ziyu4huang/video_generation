@@ -27,28 +27,28 @@ import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { globSync, existsSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
 
-// --- pure core delegated to the publishable package -------------------------
+// --- pure core delegated to the schema-cost submodule ----------------------
 // The static schema-cost accounting (estimateToolCost + formatting + types)
-// lives in `pi-schema-cost` (zero pi-agent deps, publishable). This command
-// keeps ONLY the pi-coupled collection half (capturing mock API, repo
-// discovery, builtin loading via createCodingTools) and delegates the pure
-// accounting to the package. The parity contract (pi-schema-cost
-// __tests__/estimate.test.ts) guarantees identical numbers.
+// lives in `@repo/pi-agent-ext-power-tool/schema-cost` (a zero-dep internal
+// submodule). This command keeps ONLY the pi-coupled collection half
+// (capturing mock API, repo discovery, builtin loading via createCodingTools)
+// and delegates the pure accounting to that submodule. The parity contract
+// (src/schema-cost/__tests__/estimate.test.ts) guarantees identical numbers.
 //
-// Note on the token ratio: the package defaults to 4 (matching this static
-// instrument). The live `context_analyzer` (pi-agent-ext-power-tool) uses 3.7
-// — a known inconsistency; standardizing is a future cleanup, not this cycle.
+// Note on the token ratio: the submodule defaults to 4 (matching this static
+// instrument). The live `context_analyzer` (same package, src/index.ts) uses
+// 3.7 — a known inconsistency; standardizing is a future cleanup, not this cycle.
 import {
 	estimateToolCost as _estimateToolCost,
 	formatReport as _formatReport,
 	formatJson as _formatJson,
-} from "pi-schema-cost";
+} from "@repo/pi-agent-ext-power-tool/schema-cost";
 
-export type { ToolCost, SchemaCostReport } from "pi-schema-cost";
-import type { ToolCost, SchemaCostReport } from "pi-schema-cost";
+export type { ToolCost, SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
+import type { ToolCost, SchemaCostReport } from "@repo/pi-agent-ext-power-tool/schema-cost";
 
-/** @deprecated delegate — import from `pi-schema-cost` directly. Kept as an
- *  alias so existing imports from this module stay valid. */
+/** @deprecated delegate — import from `@repo/pi-agent-ext-power-tool/schema-cost`
+ *  directly. Kept as an alias so existing imports from this module stay valid. */
 export const estimateToolCost = _estimateToolCost;
 
 // --- capturing mock API ------------------------------------------------------
@@ -177,11 +177,11 @@ export async function buildSchemaCostReport(
 	};
 }
 
-// --- formatting (delegated to pi-schema-cost) ------------------------------
+// --- formatting (delegated to schema-cost submodule) -----------------------
 
-/** @deprecated delegate — use `formatReport` from `pi-schema-cost` directly. */
+/** @deprecated delegate — use `formatReport` from `@repo/pi-agent-ext-power-tool/schema-cost` directly. */
 export const formatSchemaCostReport = _formatReport;
-/** @deprecated delegate — use `formatJson` from `pi-schema-cost` directly. */
+/** @deprecated delegate — use `formatJson` from `@repo/pi-agent-ext-power-tool/schema-cost` directly. */
 export const formatSchemaCostJson = _formatJson;
 
 /** Human-readable relative path for a discovered entry (for --verbose). */
