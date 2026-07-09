@@ -133,7 +133,7 @@ the submodule initialized** while staying green on CI via the skip — the mirro
 image of a "works on my machine" failure (a dishonest CI green).
 
 **Disposition: `fixed`.** Regenerated `search-baseline.txt` via
-`bun run --cwd bun-apps/pi-obsidian regen:baseline`. The diff is data-only (2 new
+`bun run --cwd bun-apps/pi-agent-ext-obsidian regen:baseline`. The diff is data-only (2 new
 cards inserted + line-number shifts; search *behavior* unchanged). The skipIf
 guard itself is correct and untouched. Local matrix now 16/16 green.
 

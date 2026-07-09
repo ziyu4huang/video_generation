@@ -1,21 +1,21 @@
 name: CI
 
-# Package-level quality gate for pi-planning-with-files (the guide's §7 Phase 2
+# Package-level quality gate for pi-agent-ext-planning-with-files (the guide's §7 Phase 2
 # "CI/CD" rung). Mirrors the monorepo root CI's per-package matrix but runs the
 # FULL quality chain (biome check → tsc → bun test) so a lint/typecheck
-# regression is caught here, not only at the root `test · pi-planning-with-files`
+# regression is caught here, not only at the root `test · pi-agent-ext-planning-with-files`
 # unit-only check. No npm publish step — this is a local pi-ext by user mandate.
 on:
   push:
     branches: [main]
     paths:
-      - "bun-apps/pi-planning-with-files/**"
-      - ".github/workflows/pi-planning-with-files-ci.yml"
+      - "bun-apps/pi-agent-ext-planning-with-files/**"
+      - ".github/workflows/pi-agent-ext-planning-with-files-ci.yml"
   pull_request:
     branches: [main]
     paths:
-      - "bun-apps/pi-planning-with-files/**"
-      - ".github/workflows/pi-planning-with-files-ci.yml"
+      - "bun-apps/pi-agent-ext-planning-with-files/**"
+      - ".github/workflows/pi-agent-ext-planning-with-files-ci.yml"
 
 concurrency:
   group: piwf-ci-${{ github.ref }}
@@ -36,11 +36,11 @@ jobs:
       - name: Install (workspace)
         run: bun install --frozen-lockfile
       - name: Lint (biome check)
-        working-directory: bun-apps/pi-planning-with-files
+        working-directory: bun-apps/pi-agent-ext-planning-with-files
         run: bun run check
       - name: Typecheck + emit (tsc)
-        working-directory: bun-apps/pi-planning-with-files
+        working-directory: bun-apps/pi-agent-ext-planning-with-files
         run: bun run build
       - name: Unit tests
-        working-directory: bun-apps/pi-planning-with-files
+        working-directory: bun-apps/pi-agent-ext-planning-with-files
         run: bun test
