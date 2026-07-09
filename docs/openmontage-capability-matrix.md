@@ -1,4 +1,4 @@
-# OpenMontage capability matrix (dated 2026-07-08, updated 2026-07-09 — ltx-2-mlx v0.14.15 bump)
+# OpenMontage capability matrix (dated 2026-07-08, updated 2026-07-09 — ltx-2-mlx v0.14.15 bump + Swift audio-track re-measurement)
 
 Read-only survey of what OpenMontage's video-generation providers advertise
 as `supports` flags, mapped against what `video_generation__ltx`'s native
@@ -28,13 +28,13 @@ correct starting point instead of re-deriving it.
 | `text_to_video` | yes (Python) / partial (Swift) | `video generate --prompt ...` (zero image conditioning) | `native-i2v` (no `--input-image`) | checked 2026-07-08 (`NativeI2VCommand.swift:120`): Swift always conditions on an image — if `--input-image` is omitted it runs `NativeT2IStage` internally to generate one first, then does I2V from that. There is no true zero-image T2V path in Swift today. |
 | `image_to_video` | yes | `video generate --input-image X --prompt ...` | `native-i2v --input-image X` | |
 | `first_last_frame_to_video` | yes | `video generate --begin-image X --end-image Y` | `native-i2v --last-frame` (FFLF) | not even mentioned in OpenMontage's unmerged draft |
-| `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), audio-track **injection** in `native-i2v`/`native-relay` | Python: joint A/V diffusion, not bolted-on TTS. Swift: see `--audio-track` caveat below — injection only, not conditioning. |
+| `native_audio` | yes | `video generate --audio X` (A2V), `video t2i2v` | `native-t2a` (output), `--audio-track` in `native-i2v`/`native-relay` = **real joint-loop conditioning, verified 2026-07-09** | Python: joint A/V diffusion, not bolted-on TTS. Swift: `--audio-track` pins the WAV as preserved (denoiseMask=0) tokens INTO the same `DenoiseLoop.runStreaming` call as the video tokens — `a2vCrossAttn` attends to them every step. Prior "injection only, not conditioning" claim was stale (code predates the joint-AV-block port); see `docs/swift-native-audio-track-measurement-20260709.md`. |
 | `multi_shot` | yes | `video relay`, `video segment`, `video storyboard` (new 2026-07-09) | `native-relay`, `native-storyboard` | continuous multi-segment + grid-guide storyboard; `video storyboard` is the new `--story`→video bridge, see below |
 | `camera_direction` | yes (text-only) | `shotLanguage.ts` vocabulary (pan/tilt/dolly/track/crane/handheld/orbital/zoom/rack-focus) | same, via `bun-apps/pi-agent-ext-ltx` | prompt-text conditioning only — no dedicated camera-control LoRA wired in yet, see `project_camera_control_lora_research` memory |
-| `lip_sync` | **coarse (IA2V) + dedicated LipDub path wired 2026-07-09, precision still unproven** | IA2V: `video generate --input-image PORTRAIT --audio SPEECH ...`; LipDub: `video lipdub --lipdub-reference-video HEAD.mp4 --prompt "..."` | not yet verified in Swift | IA2V pipeline-verified 2026-07-08; precision measured inadequate (`docs/lipsync-precision-measurement-20260708.md`). Dedicated `LipDub` IC-LoRA now wired + runs end-to-end (`docs/lipdub-wiring-and-measurement-20260709.md`) — produces valid talking-head clips, but the first before/after measurement showed **no** clear frame-level lag0 improvement over IA2V (0.13→−0.08, both near noise floor). Needs a real talking-head reference + a viseme metric before any precision claim. |
+| `lip_sync` | **coarse (IA2V, both engines) + dedicated LipDub path wired 2026-07-09 (Python only), precision still unproven** | IA2V: `video generate --input-image PORTRAIT --audio SPEECH ...`; LipDub: `video lipdub --lipdub-reference-video HEAD.mp4 --prompt "..."` | `native-i2v --input-image PORTRAIT --audio-track SPEECH.wav` — **coarse, verified 2026-07-09, same tier as Python IA2V** | Python IA2V pipeline-verified 2026-07-08; precision measured inadequate (`docs/lipsync-precision-measurement-20260708.md`). Swift `--audio-track` is real conditioning (see `native_audio` row) — measured `\|lag0 r\|` 0.13-0.16 on a 2-clip sample, 12-27x Python IA2V's near-zero, but still under the 0.3 adequacy bar and sign-flips between clips (`docs/swift-native-audio-track-measurement-20260709.md`) — **not** yet a precision lip-sync path in either engine. Dedicated `LipDub` IC-LoRA (Python only, no Swift port) now wired + runs end-to-end (`docs/lipdub-wiring-and-measurement-20260709.md`) — produces valid talking-head clips, but the first before/after measurement showed **no** clear frame-level lag0 improvement over IA2V (0.13→−0.08, both near noise floor). Needs a real talking-head reference + a viseme metric before any precision claim. |
 | `dialogue_generation` | yes (same IA2V path) | same as above | not yet verified | speech-from-prompt/audio works "with effort" per `video-generate.py` module docstring voice tips |
 | `cinematic_quality` | unproven vs Kling/Veo | n/a | n/a | guidance parity is 3/3 (CFG/STG/modality) as of Milestone 2c, but no measured A/B claim vs premium providers exists |
-| `reference_to_video` | **partial, scope-narrow — verified 2026-07-09** | `video generate --image PATH FRAME_IDX STRENGTH` (repeatable, temporal multi-anchor) | `native-ingredients` (IC-LoRA ingredients) | see "reference_to_video scope verification" below. Two distinct partial slices: (a) `native-ingredients` = single identity-anchor image (IC-LoRA); (b) run.py `--image` = **temporal** multi-anchor keyframing (N images at chosen frame indices, unblocked by ltx-2-mlx v0.14.15 bd2217a, exposed + verified 2026-07-09). Neither is OpenMontage's simultaneous multi-*reference* (identity/wardrobe/style at frame 0); reference-video/reference-audio anchors still absent. |
+| `reference_to_video` | **partial, scope-narrow — verified 2026-07-09** | `video generate --image PATH FRAME_IDX STRENGTH` (repeatable, temporal multi-anchor) | `native-ingredients` (IC-LoRA ingredients); `native-i2v --anchor-image PATH:FRAMEIDX[:STRENGTH]` (repeatable, temporal multi-anchor — **ported 2026-07-09**) | see "reference_to_video scope verification" below. Three distinct partial slices: (a) `native-ingredients` = single identity-anchor image (IC-LoRA); (b) run.py `--image` = **temporal** multi-anchor keyframing (N images at chosen frame indices, unblocked by ltx-2-mlx v0.14.15 bd2217a, exposed + verified 2026-07-09); (c) Swift `native-i2v --anchor-image` = the same temporal multi-anchor keyframing ported to Swift, reusing the existing `VideoConditionByLatentIndex` primitive grid-guide/FFLF already exercise (CLI + conditioning-wiring, not new engine work) — verified end-to-end (`[anchor-image] pinning ... -> latent frame N` log line + a real-checkpoint XCTest asserting the pinned image decodes at its target frame). Note: Swift's `frameIndex` is a **latent** frame index (consistent with `--grid-frame-indices`), whereas Python's `--image FRAME_IDX` is a **pixel** frame index — not a drop-in CLI-flag match, callers must convert. None of the three is OpenMontage's simultaneous multi-*reference* (identity/wardrobe/style at frame 0); reference-video/reference-audio anchors still absent. |
 | `character_consistency` | **yes (storyboard character-lock) — 2026-07-09** | `video storyboard --story ... --character PORTRAIT` (identity-judge closed loop, #366/#371) | — | storyboard decomposition locks a supplied character portrait across all shots via the gemma identity-judge (`--identity-judge-model`, hardened in #372); covers Higgsfield's `character_consistency` flag. Per-shot re-generation until identity matches. |
 
 ## IA2V verification (2026-07-08)
@@ -227,17 +227,24 @@ mapping. Against *this* checklist specifically (not the QA-tooling
 sub-actions, which are out of scope for the provider-capability
 checklist): T2V/I2V/FFLF/multi-shot all have Swift equivalents.
 
-**`native-i2v --audio-track` is NOT the same mechanism as Python's
-A2V/IA2V** — checked 2026-07-08 (`NativeI2VStage.swift:520-544`). It
-*injects* a user-supplied WAV as preserved audio tokens
-(`denoiseMask=0`, i.e. "pin this exact audio, don't generate/attend to
-it as conditioning") rather than feeding audio in as a true joint
-conditioning signal the video-generation denoising loop attends to.
-This is fine for "keep my music track through generation" use cases,
-but it is **not a path to `lip_sync`** — there is no mechanism in Swift
-today by which video generation is conditioned on audio content to
-produce synchronized mouth motion. The IA2V fix in this PR lives
-entirely in the Python `run.py` / vendored `ltx-2-mlx` layer; porting
-true audio-conditioned generation (a Swift `A2VidPipelineTwoStage`
-equivalent) to Swift is unstarted and would be new engine work, not a
-CLI-surface port.
+**`native-i2v --audio-track` IS real joint-loop audio conditioning —
+corrected 2026-07-09** (was previously claimed "injection only, not
+conditioning," checked 2026-07-08 against `NativeI2VStage.swift:520-544`;
+that read was stale). It pins a user-supplied WAV as preserved audio tokens
+(`denoiseMask=0`, "don't regenerate this content") but those tokens are
+still passed into the SAME `DenoiseLoop.runStreaming` call as the video
+tokens (`NativeI2VStage.swift:604-617`), where `a2vCrossAttn`
+(`LTXModel.swift:164-235`) lets the video stream attend to them every
+denoise step — a real cross-modal conditioning signal, not a post-hoc
+splice. Measured 2026-07-09
+(`docs/swift-native-audio-track-measurement-20260709.md`): on a 2-clip
+sample, Swift's `\|lag0 r\|` (0.13-0.16) is 12-27x Python IA2V's near-zero
+values on the same portrait/script content — the code-read holds up. But
+the magnitude stays well under the 0.3 "adequate" threshold and the sign
+flips between clips, so this is **not** a precision `lip_sync` path either
+— it lands in the same "coarse, talking-in-general" tier Python IA2V
+already occupies, just confirmed to be real conditioning rather than
+inert audio pass-through. Porting Python's dedicated LipDub IC-LoRA path
+(true precision lip-sync candidate, itself still unproven — see
+`lip_sync` row) to Swift remains unstarted new engine work; the
+`native-i2v --audio-track` primitive covers the coarse tier only.

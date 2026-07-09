@@ -178,6 +178,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       gridRows: { flag: "--grid-rows", type: "int", description: "Grid guide row count. Default 2." },
       gridFrameIndices: { flag: "--grid-frame-indices", type: "number[]", description: "Latent frame index for each grid panel, row-major (top-left, top-right, ..., bottom-right). Must have exactly gridColumns * gridRows entries." },
       gridStrengths: { flag: "--grid-strengths", type: "number[]", description: "Per-panel conditioning strength (0.0-1.0, default 1.0 for all panels if omitted). Must match gridFrameIndices count when given." },
+      anchorImages: { flag: "--anchor-image", type: "string[]", isPathSpecArray: true, description: "Multi-anchor I2V conditioning image (repeatable), temporal-keyframing generalization of lastFrame: path:frameIndex[:strength] (strength defaults to 1.0). frameIndex is a LATENT frame index (0 = frame 0, collides last-writer-wins with the T2I/inputImage slot; must be < the clip's latent frame count). Must already be exactly width x height, e.g. ['mid.png:12:1.0', 'end.png:24']." },
     },
   },
 
