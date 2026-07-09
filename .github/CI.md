@@ -23,7 +23,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
   "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-vlm",
   "test · gui-movie-director", "test · pi-knowledge-card", "test · pi-obsidian",
-  "test · pi-planning-with-files", "test · pi-schema-cost",
+  "test · pi-planning-with-files",
   "test · pi-dynamic-workflows", "test · pi-hermes-memory",
   "extension-contract", "deploy --verify", "regression gates"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
@@ -77,7 +77,7 @@ documented command (see the `tests` matrix in the workflow):
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
 pi-agent-ext-web-access, pi-agent-sdk-demo, pi-vlm, gui-movie-director,
-pi-knowledge-card, pi-obsidian, pi-planning-with-files, pi-schema-cost,
+pi-knowledge-card, pi-obsidian, pi-planning-with-files,
 pi-dynamic-workflows, pi-hermes-memory
 ```
 
@@ -208,7 +208,7 @@ bun install --frozen-lockfile
 for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-agent-ext-ltx pi-agent-ext-movie-director pi-agent-ext-power-tool \
            pi-agent-ext-web-access pi-agent-sdk-demo pi-vlm gui-movie-director \
-           pi-knowledge-card pi-obsidian pi-schema-cost pi-dynamic-workflows \
+           pi-knowledge-card pi-obsidian pi-dynamic-workflows \
            pi-hermes-memory; do
   echo "=== $pkg ==="
   ( cd "bun-apps/$pkg" && CI=true bun test ) || echo "FAILED: $pkg"

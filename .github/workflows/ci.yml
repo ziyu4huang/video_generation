@@ -1,6 +1,6 @@
 # CI — the PR gate. Turns the manual-test trust model into an enforced gate.
 #
-# Every PR to main runs the full Bun test suite (16 packages), the extension
+# Every PR to main runs the full Bun test suite (15 packages), the extension
 # contract test, the deploy --verify probe, and the regression baselines
 # (schema-cost + 2 MB file-size guard). Machine-coupled tests (probing the
 # local Apple-Silicon generation stack: python/venv, built swift binaries,
@@ -55,7 +55,6 @@ jobs:
           #    files outside extensions/__tests__ in pi-obsidian) ──
           - { package: pi-knowledge-card, test-cmd: "bun test __tests__/" }
           - { package: pi-obsidian, test-cmd: "bun test extensions/__tests__/" }
-          - { package: pi-schema-cost, test-cmd: "bun test __tests__/" }
           # ── special runners (see CLAUDE.md testing section) ──
           # pi-dynamic-workflows: build first (tests import compiled src/*.js);
           # uses the CLAUDE.md canonical `build && bun test`, NOT the package's
