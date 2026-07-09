@@ -11,7 +11,7 @@ manual-`bun test` trust model into an enforced gate.
 | **test · `<package>`** (matrix of 16) | Each `bun-apps/*` package's test suite | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the pi-agent run | **blocks** |
 | **deploy --verify** | Builds pi-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
-| **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** schema-cost regression (warns >5%) | file-size **blocks**; schema-cost **warns only** |
+| **regression gates** | 2 MB file-size guard (twin of `.githooks/pre-commit`) **+** schema-cost regression (warns >5%) **+** test-portability audit (warn-only v1 — surfaces new ungated machine-coupled tests; see [TEST-PORTABILITY.md](TEST-PORTABILITY.md)) | file-size **blocks**; schema-cost + portability **warn only** |
 
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when
@@ -99,6 +99,33 @@ These never run in CI; they're gated on explicit env vars:
   unit tests are the gate; the lint drift is a separate cleanup, out of scope for
   the CI cycle).
 - **Scheduled/nightly runs, coverage reporting, cross-repo CI** — follow-ups.
+
+## Test-author portability guide
+
+CI runs on `ubuntu-latest` (x86_64, no Apple Silicon). A test that passes on a
+fully-set-up dev machine can fail on CI for one of four "works on my machine"
+reasons. The [test-portability audit](TEST-PORTABILITY.md) catalogs every
+existing instance; this is the cheat-sheet for writing CI-safe tests going
+forward.
+
+| If your test… | …it will fail on CI because | Fix pattern |
+|---------------|----------------------------|-------------|
+| imports a workspace package whose `main`/`exports` point at compiled `dist/` (only `pi-dynamic-workflows` today) | the `dist/` lingers locally from prior builds but is absent on a fresh checkout | ensure the CI build step covers it (the workflow already runs `bun run --cwd bun-apps/pi-dynamic-workflows build` in every job); if you add a new compiled-`dist` workspace dep, add a build step for it |
+| spawns/probes a non-bun binary (`ffmpeg`, `ffprobe`, a swift binary, `run.py`, the MLX venv) | the binary/path exists on your machine but not on the runner | `*.skipIf(process.env.CI)`, or gate behind an env-var opt-in (`MLX_E2E`/`PI_AGENT_E2E`/`PI_RUN_L2`); or install the binary in CI (as ffmpeg is) |
+| asserts an env var is **unset** while a sibling `beforeEach`/`withEnv` in the same `describe` **sets** it | the env-isolation differs (a `CONFIG_PRESENT` skip can hide the case locally) | clear the var **in-body** before the "unset" assertion (the `testWithoutEnv` helper in `adapter-availability.test.ts`) |
+| re-reads `process.env.X` across an `await` that mutates it (the `resolveVault`/`OB_VAULT` pattern) | async timing differs locally; a mid-async re-read picks up a stale/changed value | use a deterministic injection seam (`__setVaultResolverForTest`) or set the env **once** in `beforeAll` and rely on the module's closure cache |
+
+**Rules of thumb:**
+
+- If your test needs the local generation stack (python/venv, built swift
+  binaries, `run.py`, the vault submodule), gate it with `*.skipIf(process.env.CI)`
+  or an env-var opt-in — never let it run unguarded on the runner.
+- If your test reads/writes `process.env`, always save + restore (and clear
+  **in-body** before any "unset" assertion).
+- Run the audit locally before pushing: `bash scripts/test-portability-audit.sh`.
+  A new `existsSync(machine-path)` or `Bun.spawn` in a test file with no
+  `CI`/env-var guard prints as `[BLOCK under --strict]` — fix it before the
+  check flips from warn-only to blocking.
 
 ## Re-running locally
 

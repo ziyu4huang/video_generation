@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-07-08T13:43
-Vault note count: 598
+Generated: 2026-07-09T00:31
+Vault note count: 643
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -330,14 +330,14 @@ Tags/Index.md:236: ## #agent-loop
 Tags/Index.md:238: - [[Zettelkasten/Workflow Pattern - Self-Improving Agent Loop Mechanisms]]
 Tags/Index.md:253: > pi agent 可用 `obsidian_append_section` 工具自動追加。
 Tags/Index.md:257: - [[Zettelkasten/Architecture Pattern - Bundled CLI Cross-Directory Agent Discovery]]
-Tags/Knowledge Graph.md:302: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
-Tags/Knowledge Graph.md:303: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
-Tags/Knowledge Graph.md:304: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
-Tags/Knowledge Graph.md:305: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
-Tags/Knowledge Graph.md:306: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
-Tags/Knowledge Graph.md:307: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
-Tags/Knowledge Graph.md:308: - [[auto-memory-pi-agent-extensions-source-of-truth-run-dir]]
-Tags/Knowledge Graph.md:309: - [[auto-memory-pi-agent-jiti-nametoolong-esm-eval-temp-file]]
-Tags/Knowledge Graph.md:310: - [[auto-memory-pi-agent-multi-effort-run-test]]
-Tags/Knowledge Graph.md:311: - [[auto-memory-pi-agent-readonly-deploy]]
+Tags/Knowledge Graph.md:119: - [[hermes-zai-glm-5.2-structured-output-flake-on-verify-bun-pi-agent-cli-knowledge-]]
+Tags/Knowledge Graph.md:162: - [[hermes-arg-parse-loop-must-advance-index-on-every-branch-bun-pi-agent-cli-src-ar]]
+Tags/Knowledge Graph.md:317: - [[auto-memory-pi-agent-cli-based-on-pi-agent]]
+Tags/Knowledge Graph.md:318: - [[auto-memory-pi-agent-cli-deploy-single-bundle]]
+Tags/Knowledge Graph.md:319: - [[auto-memory-pi-agent-cli-slice-before-patch-drops-splice]]
+Tags/Knowledge Graph.md:320: - [[auto-memory-pi-agent-deploy-bundle-nodemodules-symlink]]
+Tags/Knowledge Graph.md:321: - [[auto-memory-pi-agent-deploy-efficiency-tier-a]]
+Tags/Knowledge Graph.md:322: - [[auto-memory-pi-agent-deploy-modes-portability-ceiling]]
+Tags/Knowledge Graph.md:323: - [[auto-memory-pi-agent-extensions-source-of-truth-run-dir]]
+Tags/Knowledge Graph.md:324: - [[auto-memory-pi-agent-jiti-nametoolong-esm-eval-temp-file]]
 
