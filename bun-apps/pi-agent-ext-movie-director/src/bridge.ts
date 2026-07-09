@@ -40,6 +40,11 @@ import {
   type RunPyImageDetails,
   type RunPyImageOptions,
 } from "./runpy_image.ts";
+import {
+  runPyStory,
+  type RunPyStoryDetails,
+  type RunPyStoryOptions,
+} from "./runpy_story.ts";
 
 // ─── ToolResult contract ─────────────────────────────────────────────────────
 
@@ -420,6 +425,52 @@ async function realRunPyImage(req: GenerateRequest, env?: Record<string, string 
   return adaptRunPyImage(req, out.details, out.summary, out.stderrTail, env);
 }
 
+/**
+ * adaptRunPyStory — normalize a run.py story result. angles/propose produce a
+ * structured text artifact (the angles.json / proposal.yaml the agent reads for
+ * the approval gate, kind:"text"); shots produces storyboard image frames
+ * (kind:"image", delegated to `image storyboard`). ok = run.py exited 0 AND the
+ * sub-action's expected artifact parsed (angles/concepts) or ≥1 frame landed
+ * (shots). LOCAL MLX + local gemma brain — never a cloud id.
+ */
+export function adaptRunPyStory(
+  req: GenerateRequest,
+  details: RunPyStoryDetails,
+  summary: string,
+  stderrTailStr: string,
+  env?: Record<string, string | undefined>,
+): ToolResult {
+  const artifacts: Artifact[] = [];
+  // angles/propose: the structured artifact is the deliverable.
+  if (details.artifactPath) {
+    artifacts.push({ path: details.artifactPath, kind: "text", role: "primary" });
+  }
+  // shots: the delegated storyboard frames.
+  for (const p of details.outputs) {
+    artifacts.push({ path: p, kind: "image", role: "primary" });
+  }
+  return {
+    success: details.ok,
+    provider: "runpy-story",
+    command: details.command,
+    artifacts,
+    error: details.ok ? null : `${summary}\n${stderrTailStr}`.trim(),
+    cost_usd: details.ok ? costFor(req.capability, null, env) : 0,
+    duration_seconds: null,
+    seed: null,
+    model: "run.py:story",
+  };
+}
+
+async function realRunPyStory(req: GenerateRequest, env?: Record<string, string | undefined>): Promise<ToolResult> {
+  const out = await runPyStory({
+    options: (req.options ?? {}) as RunPyStoryOptions,
+    outputDir: req.outputDir,
+    extraArgs: req.extraArgs,
+  });
+  return adaptRunPyStory(req, out.details, out.summary, out.stderrTail, env);
+}
+
 /** The live adapter map. Tests override entries via GenerateDeps.adapters. */
 export function realAdapters(env?: Record<string, string | undefined>): Partial<Record<InvokeKey, Adapter>> {
   return {
@@ -428,6 +479,7 @@ export function realAdapters(env?: Record<string, string | undefined>): Partial<
     "swift:ltx": (req) => realLtx(req, env),
     "mlx:runpy": (req) => realRunPy(req, env),
     "mlx:runpy-image": (req) => realRunPyImage(req, env),
+    "mlx:runpy-story": (req) => realRunPyStory(req, env),
     "mlx:caption": (req) => realCaption(req, env),
     // Non-native adapters (ffmpeg / pure-Bun subtitle / cloud HTTP) — iteration 3.
     ...nonNativeAdapters(env),

@@ -91,6 +91,8 @@ _inpaint = importlib.import_module("app.commands.image-inpaint")
 _cutout = importlib.import_module("app.commands.image-cutout")
 _styletransfer = importlib.import_module("app.commands.image-styletransfer")
 _character = importlib.import_module("app.commands.image-character")
+_kontext = importlib.import_module("app.commands.image-kontext")
+_facerestore = importlib.import_module("app.commands.image-facerestore")
 
 # ---------------------------------------------------------------------------
 # Load sample prompts for --help display (absorbed from generate.py)
@@ -126,6 +128,7 @@ PARSER_META = {
 "  cutout        — Transparent-background cutout: SAM3 text segment → alpha PNG (OM G/F)\n"
 "  styletransfer — Restyle an image to a target visual language (playbook/preset/prompt, OM D)\n"
 "  character     — Character sheet: multi-view + transparent cutouts + IdentitySpec.json (OM F)\n"
+"  kontext       — In-context character-locked re-render (FLUX.1-Kontext-dev, OM capability E)\n"
 "  purify        — SeedVR2 AI high-quality redraw + upscale (purify / enhance / redraw)\n\n"
         "Named self-tests (--self-test <id>):\n"
         "  vae:ultraflux           — VAE comparison (was: ultraflux)\n"
@@ -226,6 +229,9 @@ PARSER_META = {
         "  run.py image character --input hero.png --views front side back\n"
         "  run.py image character --input hero.png --style-anchor 'soft anime shading, blue palette'\n"
         "  run.py image character --self-test\n"
+        "  run.py image kontext --input hero.png --prompt '<same person>, now a knight in armor'\n"
+        "  run.py image kontext --input hero.png --scenes 3 --prompt-subject 'a woman with red hair'\n"
+        "  run.py image kontext --self-test\n"
         "  run.py image --self-test expansion:basic\n"
         "  run.py image purify --input-image output/photo.png\n"
         "  run.py image purify --input-image output/photo.png --purify-mode redraw --resolution 2x\n"
@@ -252,7 +258,7 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
         nargs="?",
         default="t2i",
         metavar="ACTION",
-        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint | cutout | styletransfer | character",
+        help="t2i (default) | angle | review | profile | controlnet | i2i | faceswap | swap | anime2real | quality | workflow | expansion | purify | multicouple | twosubject | storyboard | inpaint | cutout | styletransfer | character | kontext | facerestore",
     )
     # Secondary positional — meaningful for review (angle/generation/vae/lora) and others
     parser.add_argument(
@@ -333,6 +339,16 @@ def add_args(parser: "argparse.ArgumentParser") -> None:
     # Character-specific args: --style-anchor/--cutout-subject
     # (multi-view sheet + transparent cutouts + IdentitySpec; reuses profile args)
     _character.add_character_args(parser)
+
+    # Kontext-specific args: --guidance/--scheduler/--quantize/--scenes
+    # (in-context character-locked re-render via FLUX.1-Kontext-dev; reuses
+    # --input/--prompt/--steps/--seed from common args)
+    _kontext.add_kontext_args(parser)
+
+    # Facerestore args: --model/--fidelity/--bg-upsampler (DEFERRED stub — declares
+    # the intended surface; run_facerestore refuses with the documented blocker so
+    # the action never silently falls through to t2i).
+    _facerestore.add_facerestore_args(parser)
 
     # Common args: --prompt/--prompt-file, --steps, --seed, --upscale, --count, etc.
     # CAUTION: Some subcommands above register shared args (e.g. --lora-scale)
@@ -424,5 +440,9 @@ def run(args: "argparse.Namespace") -> None:
         _styletransfer.run_styletransfer(args)
     elif action == "character":
         _character.run_character(args)
+    elif action == "kontext":
+        _kontext.run_kontext(args)
+    elif action == "facerestore":
+        _facerestore.run_facerestore(args)
     else:
         _t2i.run_t2i(args)

@@ -52,7 +52,8 @@ export type ImageAction =
   | "inpaint"
   | "cutout"
   | "styletransfer"
-  | "character";
+  | "character"
+  | "kontext";
 
 /** Typed options for `run.py image <action>` (camelCase → kebab CLI flags). */
 export interface RunPyImageOptions {
@@ -100,6 +101,16 @@ export interface RunPyImageOptions {
   mask?: string;
   /** --crop (inpaint: Union 2.1 crop-for-detail on the mask bbox). */
   crop?: boolean;
+  /** --guidance (kontext CFG; also extraArg-allowed). */
+  guidance?: number;
+  /** --scheduler (kontext mflux scheduler). */
+  scheduler?: string;
+  /** --quantize (kontext MLX bits, default 8). */
+  quantize?: number;
+  /** --scenes (kontext certify mode: N differentiated in-context renders). */
+  scenes?: number;
+  /** --prompt-subject (kontext scenes mode subject description). */
+  promptSubject?: string;
   /**
    * Pick a named image self-test fixture (image.py's unified selftest dispatcher).
    * `true` runs the action's bare self-test; a string runs one named fixture.
@@ -183,6 +194,7 @@ const EXTRA_ARG_ALLOW_RUNPY_IMAGE = new Set<string>([
   "subject", "fill-holes", "trim",
   "style-preset", "playbook", "strength",
   "style-anchor", "cutout-subject",
+  "quantize", "scenes", "prompt-subject",
   "softness-override", "film-grain", "sharpening", "lut", "face-detail",
   "anime2real-ref-count", "anime2real-lora-scale",
   "prompt-a", "prompt-b", "merge-prompt", "merge-denoise",
@@ -231,6 +243,12 @@ export function buildImageArgs(opts: RunPyImageOptions, genOutputDir: string | n
   if (opts.resolution != null) args.push("--resolution", String(opts.resolution));
   if (opts.mask != null) args.push("--mask", opts.mask);
   if (opts.crop) args.push("--crop");
+  // Kontext-specific (FLUX.1-Kontext-dev in-context re-render).
+  if (opts.guidance != null) args.push("--guidance", String(opts.guidance));
+  if (opts.scheduler != null) args.push("--scheduler", opts.scheduler);
+  if (opts.quantize != null) args.push("--quantize", String(opts.quantize));
+  if (opts.scenes != null) args.push("--scenes", String(opts.scenes));
+  if (opts.promptSubject != null) args.push("--prompt-subject", opts.promptSubject);
 
   if (genOutputDir) args.push("--gen-output-dir", genOutputDir);
   return args;
