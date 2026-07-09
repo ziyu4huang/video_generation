@@ -215,7 +215,12 @@ let continuationPending: ContinuationPending | undefined;
 let goalRecovery: GoalRecovery | undefined;
 let staleGoalToolCallsBlocked = false;
 let goalOverlay: GoalOverlayLike | undefined;
+/** Periodic refresh of the active-goal overlay (elapsed time / budget metric). */
+let statusRefreshTimer: ReturnType<typeof setInterval> | undefined;
+/** Most recent ctx, captured so the refresh tick can recompute usage + poke the overlay. */
+let latestCtx: StatusContext | undefined;
 const cancelledContinuationMarkers = new Set<string>();
+const STATUS_REFRESH_INTERVAL_MS = 1_000;
 
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
@@ -330,6 +335,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		// Reset the overlay for the fresh session: rebind the UI ctx and drop any
 		// stale completion flash left over from the previous session.
 		goalOverlay?.setUICtx(ctx.ui);
+		stopStatusRefreshTimer();
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
@@ -343,6 +349,7 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 		clearContinuationTracking();
 		clearGoalRecovery();
 		clearStaleGoalToolCallBlock();
+		stopStatusRefreshTimer();
 		goalOverlay?.dispose();
 	});
 
@@ -655,6 +662,40 @@ function updateGoalUsage(goal: ActiveGoal, ctx: StatusContext) {
 	goal.updatedAt = Date.now();
 }
 
+/**
+ * Keep the active-goal overlay ticking. Without this, `timeUsedSeconds` is a
+ * frozen snapshot (only recomputed at agent_end / compact), so a long active
+ * turn shows "goal active · 0s · iter 0" for its whole duration. The tick
+ * recomputes elapsed time (and token usage) live and pokes the overlay, whose
+ * `refresh()` re-renders the widget. Not persisted — persistence stays at
+ * agent_end / compact to avoid flooding the session log.
+ */
+function tickActiveGoalStatus() {
+	if (!activeGoal || activeGoal.status !== "active" || !latestCtx) return;
+	activeGoal.timeUsedSeconds = Math.max(0, Math.floor((Date.now() - activeGoal.startedAt) / 1000));
+	activeGoal.tokensUsed = Math.max(0, currentTokenTotal(latestCtx) - activeGoal.baselineTokens);
+	activeGoal.updatedAt = Date.now();
+	goalOverlay?.update(activeGoal);
+}
+
+function stopStatusRefreshTimer() {
+	if (!statusRefreshTimer) return;
+	clearInterval(statusRefreshTimer);
+	statusRefreshTimer = undefined;
+}
+
+/** Start a 1s refresh interval only while a goal is active; stop otherwise. */
+function syncStatusRefreshTimer() {
+	const shouldRun = activeGoal?.status === "active";
+	if (shouldRun && !statusRefreshTimer) {
+		statusRefreshTimer = setInterval(tickActiveGoalStatus, STATUS_REFRESH_INTERVAL_MS);
+		// Never keep the process alive just for the status ticker (tests, -p batch).
+		statusRefreshTimer?.unref?.();
+	} else if (!shouldRun && statusRefreshTimer) {
+		stopStatusRefreshTimer();
+	}
+}
+
 // ─── Argument completions & parsing ───────────────────────────────────────────
 
 export function completeGoalArguments(argumentPrefix: string): GoalArgumentCompletion[] | null {
@@ -797,8 +838,10 @@ async function sendPrompt(pi: ExtensionAPI, ctx: StatusContext, prompt: string) 
 // thin delegates so command handlers / lifecycle hooks / agent_end read cleanly
 // while updateStatus keeps its (_ctx, goal) call sites unchanged.
 
-function updateStatus(_ctx: StatusContext, _goal: ActiveGoal) {
+function updateStatus(ctx: StatusContext, _goal: ActiveGoal) {
+	latestCtx = ctx;
 	goalOverlay?.update(activeGoal);
+	syncStatusRefreshTimer();
 }
 
 function goalSummary(goal: ActiveGoal) {
@@ -1072,11 +1115,15 @@ function clearActiveGoal(ctx: StatusContext) {
 	activeGoal = undefined;
 	clearPersistedGoal(ctx.cwd);
 	goalOverlay?.update(undefined);
+	stopStatusRefreshTimer();
 }
 
 // Transient "✓ goal complete" flash (~8s) shown after goal_complete, then the
-// overlay hides itself. The flash timer + render live entirely in GoalOverlay,
-// so there is no module-level timer or captured ctx to go stale across sessions.
+// overlay hides itself. The flash timer + render live entirely in GoalOverlay.
+// The status-refresh interval (statusRefreshTimer) is a SEPARATE module-level
+// timer that ticks the elapsed-time metric while a goal is active; it is
+// stopped on session_shutdown / clearActiveGoal / any non-active transition
+// (syncStatusRefreshTimer), so it never goes stale across sessions.
 function showCompletionStatus(_ctx: StatusContext, objective: string) {
 	goalOverlay?.showCompletion(objective);
 }

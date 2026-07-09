@@ -168,6 +168,69 @@ async function startGoalForTest(overrides: Record<string, unknown> = {}) {
 	return { mock, ctx, notifications, statuses, overlay };
 }
 
+// ─── Status refresh timer ───────────────────────────────────────────────────
+
+describe("status refresh timer", () => {
+	test("active goal overlay ticks its elapsed-time metric on a 1s interval and stops on pause", async () => {
+		let tick: (() => void) | undefined;
+		let intervalMs = 0;
+		let timerHandle = 0;
+		let clearCalls = 0;
+		const realSetInterval = globalThis.setInterval;
+		const realClearInterval = globalThis.clearInterval;
+		const realDateNow = Date.now;
+		const startedAt = 1_700_000_000_000;
+		Date.now = (() => startedAt) as never;
+		globalThis.setInterval = ((fn: () => void, ms: number) => {
+			tick = fn;
+			intervalMs = ms;
+			timerHandle += 1;
+			return timerHandle as never;
+		}) as never;
+		globalThis.clearInterval = (() => {
+			clearCalls += 1;
+		}) as never;
+
+		try {
+			let updateCalls = 0;
+			let currentGoal: ActiveGoal | undefined;
+			const overlay: GoalOverlayLike = {
+				setUICtx() {},
+				update(g) {
+					updateCalls++;
+					currentGoal = g;
+				},
+				showCompletion() {},
+				dispose() {},
+			};
+			const mock = createMockPi();
+			goal(mock.pi, overlay);
+			const { ctx } = createMockCtx({});
+			await mock.events.get("session_start")![0]!({}, ctx);
+			await mock.commands.get("goal")!.handler("finish", ctx);
+
+			expect(intervalMs).toBe(1_000);
+			expect(currentGoal?.status).toBe("active");
+			expect(currentGoal?.timeUsedSeconds).toBe(0);
+
+			// Advance the clock 65s and fire the captured refresh tick.
+			Date.now = (() => startedAt + 65_000) as never;
+			const beforeTick = updateCalls;
+			tick?.();
+			expect(updateCalls).toBe(beforeTick + 1);
+			expect(currentGoal?.timeUsedSeconds).toBe(65);
+
+			// Pausing the goal stops the refresh timer.
+			await mock.commands.get("goal")!.handler("pause", ctx);
+			expect(clearCalls).toBeGreaterThanOrEqual(1);
+		} finally {
+			globalThis.setInterval = realSetInterval;
+			globalThis.clearInterval = realClearInterval;
+			Date.now = realDateNow;
+		}
+	});
+});
+
 // ─── Registration ────────────────────────────────────────────────────────────
 
 describe("registration", () => {
