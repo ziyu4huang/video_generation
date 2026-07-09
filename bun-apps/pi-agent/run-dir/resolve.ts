@@ -16,7 +16,7 @@
  * scripts/build.ts's stageGenerateRunDirBase().
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
@@ -90,34 +90,42 @@ function probeMissingNpm(): string[] {
 }
 
 /**
- * Workspace packages referenced by the manifest's local extension/lazy entries
- * that are NOT resolvable through node_modules right now. The extensions
- * themselves load fine by ABSOLUTE PATH (so they're never in missingNpm), but
- * sibling extensions import them as BARE SPECIFIERS — e.g.
- * pi-knowledge-card.ts does `import ... from "pi-obsidian/extensions/…"`. When
- * `bun install` hasn't run (fresh clone / clean tree) those workspace packages
- * aren't linked into node_modules, and pi's loader throws the unhelpful
+ * Extension dependency packages (workspace OR npm) that are NOT resolvable from
+ * their owning extension's package dir right now. The extensions themselves
+ * load fine by ABSOLUTE PATH, but they import other packages as BARE
+ * SPECIFIERS — e.g. pi-knowledge-card.ts imports `@repo/pi-agent-ext-obsidian`,
+ * power-tool imports `js-yaml`, web-access imports `@mozilla/readability`.
+ * When `bun install` hasn't run (fresh clone / clean tree) those packages aren't
+ * linked into node_modules, and pi's loader throws the unhelpful
  * `Cannot find module '<pkg>/…'` + `Hint: Start without extensions using "pi -ne"`
- * — which never points at `bun install`. This probe closes that gap: it tests
- * the exact bare-specifier resolution the loader will use, so the consolidated
- * guide (and opt-in auto-install) fire for the transitive case too.
+ * — which never points at `bun install`. This probe closes that gap by testing
+ * the exact bare-specifier resolution the loader will use.
  *
- * Reads the distinct top-level package name from each manifest entry's path
- * (first segment), then probes `<pkg>/package.json`. Returns missing packages,
- * deduped, preserving manifest order.
+ * MUST resolve from each extension's OWN dir, not from resolve.ts's context.
+ * Bun's ISOLATED linker (bunfig.toml `linker = "isolated"`) enforces
+ * phantom-dependency hygiene: a package resolves a bare specifier ONLY if that
+ * package declares it in its own dependencies. pi-agent declares almost none of
+ * the sibling extensions, so probing them from here (the old impl) reported
+ * EVERY extension as missing — always — even on a healthy install. Resolving
+ * each dep from `<bunAppsDir>/<extDir>` via `Bun.resolveSync(dep, extDir)`
+ * mirrors the loader exactly, so detection is accurate. (The real package names
+ * are also scoped — `@repo/pi-agent-ext-obsidian`, `@quintinshaw/…` — so we read
+ * them from each extension's package.json `dependencies` rather than guessing
+ * the scope from the directory name.)
+ *
+ * Returns missing dependency names, deduped.
  */
-function probeMissingWorkspaceDeps(): string[] {
+export function probeMissingExtensionDeps(bunAppsDir: string | undefined): string[] {
   if (mode === "bundle" || mode === "binary") return [];
-  const pkgs: string[] = [];
-  const seen = new Set<string>();
+  if (!bunAppsDir) return [];
+  // Distinct extension dirs from the manifest (top path segment of each entry).
+  const dirs = new Set<string>();
   const consider = (entry: string | undefined): void => {
     if (!entry) return;
     const seg = entry.split("/")[0];
-    // Skip relative/self entries (shouldn't occur here, but be safe) and dups.
+    // Skip relative/self entries (shouldn't occur here, but be safe).
     if (!seg || seg.startsWith(".")) return;
-    if (seen.has(seg)) return;
-    seen.add(seg);
-    pkgs.push(seg);
+    dirs.add(seg);
   };
   for (const e of manifest.extensions) {
     consider(typeof e === "string" ? e : e?.entry);
@@ -126,11 +134,25 @@ function probeMissingWorkspaceDeps(): string[] {
     consider(typeof e === "string" ? e : e?.entry);
   }
   const missing: string[] = [];
-  for (const pkg of pkgs) {
+  for (const dir of dirs) {
+    const extDir = join(bunAppsDir, dir);
+    let deps: Record<string, string> | undefined;
     try {
-      import.meta.resolve(`${pkg}/package.json`);
+      deps = JSON.parse(readFileSync(join(extDir, "package.json"), "utf8")).dependencies;
     } catch {
-      missing.push(pkg);
+      // No/unreadable package.json for this extension dir — nothing to probe.
+      continue;
+    }
+    if (!deps) continue;
+    for (const dep of Object.keys(deps)) {
+      if (missing.includes(dep)) continue;
+      // `<dep>/package.json` is the most reliable "is this package linked"
+      // signal: every installed package has one, regardless of main/exports.
+      try {
+        Bun.resolveSync(`${dep}/package.json`, `${extDir}/`);
+      } catch {
+        missing.push(dep);
+      }
     }
   }
   return missing;
@@ -140,10 +162,12 @@ function probeMissingWorkspaceDeps(): string[] {
  * Union of declared-npm + transitive-workspace missing extension packages — the
  * single signal both the opt-in auto-install and the consolidated guide use.
  * Deduped (a package can appear in both sources), manifest/npm order preserved.
+ * Exported so run-dir/check-deps.ts can run the SAME detection pre-flight
+ * (before bun boots) and install, so the loading process is fresh and sees deps.
  */
-function missingExtensionPackages(): string[] {
+export function missingExtensionPackages(bunAppsDir: string | undefined): string[] {
   const out: string[] = [];
-  for (const p of [...probeMissingNpm(), ...probeMissingWorkspaceDeps()]) {
+  for (const p of [...probeMissingNpm(), ...probeMissingExtensionDeps(bunAppsDir)]) {
     if (!out.includes(p)) out.push(p);
   }
   return out;
@@ -163,7 +187,7 @@ function maybeAutoInstall(bunAppsDir: string | undefined): boolean {
   const opt = process.env.BUN_PI_AUTO_INSTALL ?? process.env.BUN_PI_AUTO_RESOLVE;
   if (opt !== "1" && opt !== "true") return false;
   if (mode !== "source") return false;
-  const missing = missingExtensionPackages();
+  const missing = missingExtensionPackages(bunAppsDir);
   if (missing.length === 0) return false;
   const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : process.cwd();
   warn(
@@ -212,13 +236,13 @@ function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
   // re-run is sufficient (the in-process resolver likely still can't see the
   // new deps, so `missing` may be non-empty here despite the install).
   if (autoInstalled) return;
-  const missing = missingExtensionPackages();
+  const missing = missingExtensionPackages(bunAppsDir);
   if (missing.length === 0) return;
   const repoRoot = bunAppsDir ? resolve(bunAppsDir, "..") : "<repo-root>";
   warn("──────── dependency resolution guide ────────");
   warn(
     `${missing.length} extension dependency package(s) are not installed ` +
-      "(workspace deps not linked into node_modules):",
+      "(not linked into node_modules):",
   );
   for (const p of missing) warn(`  • ${p}`);
   warn("Some extensions were skipped or failed to load. Fix by installing deps at the repo root:");
