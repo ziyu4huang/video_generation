@@ -9,11 +9,16 @@ export const controlnetCommand: UnifiedCommand = {
   fields: [
     { key: "input_image", cliFlag: "--input", control: "image", label: "Reference Image (optional)", section: "Input" },
     { key: "prompt", cliFlag: "--prompt", control: "prompt", required: true, placeholder: "Describe the image...", section: "ControlNet" },
-    // run.py's argparse only accepts "canny" (app/commands/image-controlnet.py)
-    // — pose/depth/hed/scribble require --skip-preprocess + external preprocessing,
-    // they are not selectable --controlnet-type values.
+    // run.py accepts: canny, scribble (built-in classical CV, no model).
+    // depth/pose/hed require a learned preprocessor model that is NOT wired yet
+    // (run.py exits 2 with recreate steps) — they are selectable here so the user
+    // sees the full surface, but generation will refuse until the model is wired.
     { key: "controlnet_type", cliFlag: "--controlnet-type", control: "select", label: "Type", choices: [
       { value: "canny", label: "Canny Edges" },
+      { value: "scribble", label: "Scribble (XDoG)" },
+      { value: "depth", label: "Depth (not wired)" },
+      { value: "pose", label: "Pose (not wired)" },
+      { value: "hed", label: "HED (not wired)" },
     ], default: "canny", section: "ControlNet" },
     { key: "controlnet_strength", cliFlag: "--controlnet-strength", control: "range", label: "Strength", min: 0, max: 1, step: 0.05, default: 1.0, section: "ControlNet" },
     { key: "blur_ref", cliFlag: "--blur-ref", control: "range", label: "Blur Ref Sigma", min: 0, max: 10, step: 0.5, section: "ControlNet" },

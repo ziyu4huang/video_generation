@@ -129,6 +129,7 @@ def _build():
         },
         "controlnet": {
             "controlnet_type": "canny",
+            "controlnet_type_choices": ["canny", "scribble", "depth", "pose", "hed"],
             "controlnet_strength": 1.0,
             "seed": 777,
             "pipeline_steps": pipeline_steps,
