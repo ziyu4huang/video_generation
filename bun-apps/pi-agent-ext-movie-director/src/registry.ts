@@ -97,9 +97,9 @@ export const REGISTRY: ProviderEntry[] = [
     commands: [
       "controlnet", "faceswap", "swap", "anime2real", "profile", "angle",
       "purify", "restore", "multicouple", "twosubject", "workflow", "expansion",
-      "i2i", "storyboard", "inpaint",
+      "i2i", "storyboard", "inpaint", "character", "kontext",
     ],
-    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i/inpaint reaches run.py (Swift directors declare no commands, so they don't claim these). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
+    notes: "run.py image adapter (src/runpy_image.ts) — unlocks the ~15 local run.py image sub-actions to the agent at zero new generation code. Command-routed: a {capability, command} where command is one of controlnet/faceswap/swap/anime2real/profile/angle/purify/restore/multicouple/twosubject/workflow/expansion/i2i/storyboard/inpaint/character/kontext reaches run.py (Swift directors declare no commands, so they don't claim these). storyboard accepts --kontext-lock to route recurring-character shots through true in-context Kontext (FLUX.1-Kontext-dev). Basic t2i stays on the Swift directors. Local MLX, never a cloud GAI API.",
   },
 
   // run.py story adapter — OM's research→proposal→approval stage UPSTREAM of
