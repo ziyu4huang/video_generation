@@ -44,12 +44,9 @@
 export const meta = {
   name: "multi-character-compose",
   description:
-    "Put two characters (same art style, different look/body/age) in one picture via Latent-Couple: " +
-    "run.py image multicouple generates each, composites the latents, and resume-denoises a unified " +
-    "background; then a VLM reflect pass explains the result.",
+    "Put two characters (same art style, different look/body/age) in one picture via Latent-Couple: run.py image multicouple generates each, composites the latents, and resume-denoises a unified background; then a VLM reflect pass explains the result.",
   whenToUse:
-    "Two distinct characters in a single coherent image with consistent style but different " +
-    "appearance (e.g. two girls, different age/hair/build, same dreamlike art style).",
+    "Two distinct characters in a single coherent image with consistent style but different appearance (e.g. two girls, different age/hair/build, same dreamlike art style).",
   phases: [
     { title: "Latent-Couple", detail: "run.py image multicouple — generate A+B, composite latents, resume-denoise one background" },
     { title: "Reflect", detail: "run.py caption (VLM) to understand + explain the result — self-reflection, default on" },

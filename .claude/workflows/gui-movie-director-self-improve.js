@@ -1478,7 +1478,7 @@ Return { root: "<the absolute path, whitespace-trimmed>" }.`,
   }
 }
 
-// Timestamp (no Date.now() in workflows).
+// Timestamp — fetched via agent (the nondeterministic time builtin is banned).
 const RUN_TIMESTAMP = await agent(
   `Return the current timestamp in ISO format with colons replaced by dashes for filename safety.
   Run: Bash("date -u +%Y-%m-%dT%H-%M-%S")

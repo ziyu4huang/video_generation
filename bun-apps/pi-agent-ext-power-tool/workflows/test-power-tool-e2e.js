@@ -29,6 +29,7 @@
  *                     expected-content markers in stdout.
  *   Synthesize      — pass iff every tool clears its gate.
  */
+/**
  * INVOCATION (unified runner)
  *   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh power-tool
  *   # or directly via the workflow tool:

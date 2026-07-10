@@ -842,7 +842,7 @@ including run-specific *_runN keys, triggers check-workflow-patterns.mjs drift =
   evidence_count(int: gate runs contributing) | updated(ISO date)
 NEVER emit run-specific top-level keys like failing_scales_run2 / passing_scales_run3 —
 merge this run's scales into the stable failing_scales / passing_scales arrays above and
-put the per-run narrative ("Run 3: passing=[...] failing=[...]") inside `note`.
+put the per-run narrative ("Run 3: passing=[...] failing=[...]") inside \`note\`.
 
 STEPS:
 1. Bash("test -f '${KB_FILE}' && cat '${KB_FILE}' || echo '__EMPTY__'")
