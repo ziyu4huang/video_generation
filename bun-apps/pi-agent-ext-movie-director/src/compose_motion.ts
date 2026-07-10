@@ -26,6 +26,7 @@ import { join, resolve } from "node:path";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import { burnCaptions, planBurn, buildDrawtextFilter, drawtextFilterAvailable, resolveCaptionFont, type CaptionOutcome } from "./captions.ts";
 import type { Animation, RemotionEditDecisions, RemotionCut } from "./remotion.ts";
+import { probeMedia, probeDuration } from "./ffprobe.ts";
 
 // ─── spawn helper (mirrors remotion.ts) ───────────────────────────────────────
 
@@ -311,7 +312,7 @@ export async function composeMotion(
   }
 
   // 3. ffprobe → RenderReport.
-  const probe = await probeOutput(finalOutput, run);
+  const probe = await probeMedia(finalOutput, run);
   notes.push(`rendered via ffmpeg zoompan+xfade (${segments.length} cuts)`);
   return {
     version: "1.0",
@@ -501,44 +502,7 @@ async function renderXfade(
 
 // ─── ffprobe helpers ──────────────────────────────────────────────────────────
 
-async function probeDuration(path: string, run: SpawnImpl): Promise<number> {
-  const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", path]);
-  const n = Number((r.stdout ?? "").trim());
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-interface ProbeResult {
-  duration: number;
-  format?: string;
-  videoCodec?: string;
-  audioCodec?: string;
-  resolution?: string;
-  fps?: number;
-}
-
-async function probeOutput(path: string, run: SpawnImpl): Promise<ProbeResult> {
-  const r = await run("ffprobe", ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", path]);
-  if (r.code !== 0) return { duration: 0 };
-  try {
-    const j = JSON.parse(r.stdout);
-    const v = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "video");
-    const a = (j.streams ?? []).find((s: { codec_type?: string }) => s.codec_type === "audio");
-    let fps: number | undefined;
-    if (v?.avg_frame_rate) {
-      const parts = String(v.avg_frame_rate).split("/").map(Number);
-      const n = parts[0];
-      const d = parts[1];
-      if (d && n !== undefined && Number.isFinite(n)) fps = n / d;
-    }
-    return {
-      duration: Number(j.format?.duration ?? 0),
-      format: j.format?.format_name ? String(j.format.format_name).split(",")[0] : undefined,
-      videoCodec: v?.codec_name,
-      audioCodec: a?.codec_name,
-      resolution: v && v.width && v.height ? `${v.width}x${v.height}` : undefined,
-      fps,
-    };
-  } catch {
-    return { duration: 0 };
-  }
-}
+// probeDuration + probeOutput (now probeMedia) live in the shared ./ffprobe.ts
+// module — the three compose tiers (compose / compose_motion / remotion) all
+// share one parser. Re-exported here only if a caller imported it from this
+// module; the canonical import is ./ffprobe.ts.

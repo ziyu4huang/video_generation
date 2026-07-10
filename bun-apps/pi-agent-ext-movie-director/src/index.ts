@@ -20,5 +20,6 @@ export * from "./character_lock.ts";
 export * from "./compose.ts";
 export * from "./compose_motion.ts";
 export * from "./remotion.ts";
+export * from "./ffprobe.ts";
 export * from "./precompose-gate.ts";
 export * from "./tool-scope.ts";

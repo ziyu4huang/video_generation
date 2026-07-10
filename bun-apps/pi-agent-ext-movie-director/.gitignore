@@ -1,0 +1,3 @@
+# Regeneratable run artifacts written by E2E / probe scripts
+# (runpy-image-e2e output, zoompan-lanczos receipt, etc.).
+output/

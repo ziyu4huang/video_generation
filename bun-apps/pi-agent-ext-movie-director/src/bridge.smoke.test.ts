@@ -28,7 +28,12 @@ describe.skipIf(!SMOKE)("bridge real-silicon smoke (MLX_SMOKE=1)", () => {
           seed: 7,
         },
       },
-      {},
+      // Pin krea2 explicitly: the default selector now ranks by binary presence
+      // (probe fidelity), so an unbuilt krea2 yields to runpy-image. An explicit
+      // hint honors the statically-configured krea2 provider regardless of probe
+      // (selector.ts), and runKrea2's ensureBinary builds the binary on first run —
+      // preserving this smoke's intent (prove the krea2 path) on any host.
+      { provider: "krea2" },
     );
 
     expect(entry.provider).toBe("krea2");

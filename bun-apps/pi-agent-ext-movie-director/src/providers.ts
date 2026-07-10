@@ -159,14 +159,98 @@ export function _setRunPyRuntimeForTest(v: boolean | undefined): void {
   runPyRuntimeCached = v;
 }
 
+// ─── swift image-director binary probes (krea2 / flux2) ───────────────────────
+
+/**
+ * True if the built krea2-image-director binary is on disk (never throws).
+ * Mirrors ltxBinaryPresent. Unlike ltx (whose binary is often absent on a fresh
+ * checkout), krea2/flux2 auto-build on first `runKrea2`/`runFlux2` via each
+ * ext's ensureBinary() — so an absent binary is NOT a hard block (generation
+ * builds it). But the PROBE reports the honest current state so the preflight
+ * rollup + the default selector reflect what is callable right now (an unbuilt
+ * krea2 yields the default image_generation pick to runpy-image, the faster
+ * no-build path). An explicit `provider:"krea2"` hint still reaches krea2
+ * (selector.ts honors statically-configured providers regardless of probe) so
+ * the auto-build flow is preserved.
+ */
+let krea2BinaryCached: boolean | undefined;
+function krea2BinaryPresent(): boolean {
+  if (krea2BinaryCached != null) return krea2BinaryCached;
+  try {
+    krea2BinaryCached = existsSync(join(resolveRepoRoot(), "swift", "krea2-image-director", ".build", "release", "krea2"));
+  } catch {
+    krea2BinaryCached = false;
+  }
+  return krea2BinaryCached;
+}
+/** Force the krea2-binary probe result (tests inject a deterministic value). */
+export function _setKrea2BinaryForTest(v: boolean | undefined): void {
+  krea2BinaryCached = v;
+}
+
+/** True if the built flux2-image-director binary is on disk (never throws). */
+let flux2BinaryCached: boolean | undefined;
+function flux2BinaryPresent(): boolean {
+  if (flux2BinaryCached != null) return flux2BinaryCached;
+  try {
+    flux2BinaryCached = existsSync(join(resolveRepoRoot(), "swift", "flux2-image-director", ".build", "release", "flux2"));
+  } catch {
+    flux2BinaryCached = false;
+  }
+  return flux2BinaryCached;
+}
+/** Force the flux2-binary probe result (tests inject a deterministic value). */
+export function _setFlux2BinaryForTest(v: boolean | undefined): void {
+  flux2BinaryCached = v;
+}
+
+// ─── python import probe (whisper / clip / esrgan deps honesty) ──────────────
+
+/**
+ * Cached `python -c "<importStmt>"` probe. The whisper/clip/esrgan adapters
+ * resolve a python binary (a venv or the "python3" PATH fallback); the PRIOR
+ * probe assumed "python3" had the deps (a false-positive when system python3
+ * lacks mlx_whisper / torch / spandrel → generation then ImportError'd). This
+ * probe asks the resolved python whether it can actually import the module, so
+ * "callable" is honest. Spawned once per (python, importStmt), then cached.
+ */
+const importProbeCache = new Map<string, boolean>();
+function pythonImportsModule(py: string, importStmt: string): boolean {
+  const key = `${py}::${importStmt}`;
+  const cached = importProbeCache.get(key);
+  if (cached !== undefined) return cached;
+  try {
+    const r = spawnSync(py, ["-c", importStmt], {
+      stdio: ["ignore", "ignore", "ignore"],
+      timeout: 20_000,
+      encoding: "utf8",
+    });
+    const ok = r.status === 0;
+    importProbeCache.set(key, ok);
+    return ok;
+  } catch {
+    importProbeCache.set(key, false);
+    return false;
+  }
+}
+/** Force an import-probe result (tests inject a deterministic value). */
+export function _setImportProbeForTest(py: string, importStmt: string, v: boolean | undefined): void {
+  const key = `${py}::${importStmt}`;
+  if (v === undefined) importProbeCache.delete(key);
+  else importProbeCache.set(key, v);
+}
+
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
- * already marks GAPs / unimplemented providers false); the probe refines it ONLY
- * for the two strategies with an environment signal — ffmpeg (binary on PATH) and
- * fetch (cloud API key). Thus: a cloud provider upgrades to callable when its key
- * appears; an ffmpeg provider downgrades when the binary is gone; everything else
- * honors its registry `configured` flag.
+ * already marks GAPs / unimplemented providers false); the probe refines it for
+ * every strategy with an environment/disk signal: ffmpeg (binary on PATH), fetch
+ * (cloud API key), the swift directors (built binary on disk), run.py (venv+
+ * run.py present), whisper/clip/esrgan (a real python that imports its deps),
+ * and the compose runtimes (remotion binary / motion filters). Thus a cloud
+ * provider upgrades to callable when its key appears; an ffmpeg/swift provider
+ * downgrades when its binary is gone; the python adapters downgrade when their
+ * venv is absent or lacks the deps. bun:builtin (subtitle_gen) honors its flag.
  */
 export function probeConfigured(entry: ProviderEntry, env: Record<string, string | undefined> = process.env): boolean {
   switch (entry.invoke) {
@@ -204,6 +288,17 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // video_generation instead. This is the honest "selector ranks by presence"
       // tiebreak between two native_swift rank-0 providers.
       return entry.configured && ltxBinaryPresent();
+    case "swift:krea2":
+      // callable iff the built krea2-image-director binary is on disk. Absent on a
+      // fresh checkout (until the first runKrea2 auto-builds it); the default
+      // selector then yields image_generation to runpy-image (no build, faster).
+      // An explicit provider:"krea2" hint still reaches it (selector honors
+      // statically-configured providers) so the auto-build path is preserved.
+      // z-image (same invoke) probes the SAME krea2 binary.
+      return entry.configured && krea2BinaryPresent();
+    case "swift:flux2":
+      // callable iff the built flux2-image-director binary is on disk (mirrors krea2).
+      return entry.configured && flux2BinaryPresent();
     case "mlx:runpy":
       // callable iff the MLX venv python AND run.py resolve (env-overridable via
       // MLX_VENV_PYTHON / RUN_PY). The canonical local PYTHON runtime — present
@@ -228,8 +323,9 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
       // about the runtime being present, not the model being loaded.
       return entry.configured && runPyRuntimePresent();
     default:
-      // native_swift directors (krea2/flux2/ltx) + bun:builtin (subtitle_gen):
-      // on-platform / in-repo, availability == the registry's configured flag.
+      // bun:builtin (subtitle_gen): pure-Bun, in-repo, availability == the
+      // registry's configured flag. (All native_swift directors now have explicit
+      // binary/venv probes above — ltx/krea2/flux2 check the built swift binary.)
       return entry.configured;
   }
 }
@@ -479,20 +575,24 @@ export function resolveWhisperPython(env: Record<string, string | undefined> = p
   return "python3";
 }
 
-let whisperRuntimeCached: boolean | undefined;
+/** Test-only override (when set, short-circuits the real probe). */
+let whisperRuntimeOverride: boolean | undefined;
 function whisperRuntimePresent(env: Record<string, string | undefined>): boolean {
-  if (whisperRuntimeCached != null) return whisperRuntimeCached;
+  if (whisperRuntimeOverride != null) return whisperRuntimeOverride;
+  if (!existsSync(WHISPER_SCRIPT)) return false;
   const py = env.MD_WHISPER_PYTHON ? env.MD_WHISPER_PYTHON : resolveWhisperPython(env);
-  // "python3" resolves via PATH (existsSync("python3") is false but it is callable);
-  // an absolute resolved path must actually exist on disk.
-  const pyPresent = py === "python3" ? true : existsSync(py);
-  whisperRuntimeCached = pyPresent && existsSync(WHISPER_SCRIPT);
-  return whisperRuntimeCached;
+  // "python3" is the PATH fallback (no whisper-venv discovered). Don't assume it
+  // has mlx_whisper — that was the false-positive (system python3 usually lacks
+  // it, so generation would ImportError). Require a real python path, and for
+  // ANY resolved python do a cached import probe (keyed by py+stmt, so different
+  // envs / overrides each get their own cache entry — no stale cross-env result).
+  if (py === "python3" || !existsSync(py)) return false;
+  return pythonImportsModule(py, "import mlx_whisper");
 }
 
 /** Force the whisper-runtime probe result (tests inject a deterministic value). */
 export function _setWhisperRuntimeForTest(v: boolean | undefined): void {
-  whisperRuntimeCached = v;
+  whisperRuntimeOverride = v;
 }
 
 export interface WhisperOptions {
@@ -657,23 +757,29 @@ export function resolveVisionPython(env: Record<string, string | undefined> = pr
   return "python3";
 }
 
-const visionRuntimeCache = new Map<string, boolean>();
+/** Test-only overrides per entry (when set, short-circuit the real probe). */
+const visionRuntimeOverride = new Map<string /*"clip"|"esrgan"*/, boolean>();
+/** The import statement each vision entry needs (clip → transformers; esrgan → spandrel). */
+const VISION_IMPORT_FOR: Record<string, string> = {
+  [CLIP_SCRIPT]: "import torch, transformers",
+  [ESRGAN_SCRIPT]: "import torch, spandrel",
+};
 function visionRuntimePresent(env: Record<string, string | undefined>, script: string): boolean {
-  if (visionRuntimeCache.has(script)) return visionRuntimeCache.get(script)!;
+  const overrideKey = script === CLIP_SCRIPT ? "clip" : "esrgan";
+  if (visionRuntimeOverride.has(overrideKey)) return visionRuntimeOverride.get(overrideKey)!;
+  if (!existsSync(script)) return false;
   const py = env.MD_VISION_PYTHON ? env.MD_VISION_PYTHON : resolveVisionPython(env);
-  const pyPresent = py === "python3" ? true : existsSync(py);
-  const present = pyPresent && existsSync(script);
-  visionRuntimeCache.set(script, present);
-  return present;
+  // Same honesty fix as whisper: "python3" (PATH fallback) is not assumed to have
+  // torch/transformers/spandrel. Require a real python path + a cached import
+  // probe (keyed by py+stmt → env-correct, no stale cross-env cache entry).
+  if (py === "python3" || !existsSync(py)) return false;
+  return pythonImportsModule(py, VISION_IMPORT_FOR[script] ?? "import torch");
 }
 
 /** Force the vision-runtime probe result (tests inject a deterministic value). */
 export function _setVisionRuntimeForTest(script: "clip" | "esrgan", v: boolean | undefined): void {
-  if (v == null) {
-    visionRuntimeCache.delete(script === "clip" ? CLIP_SCRIPT : ESRGAN_SCRIPT);
-  } else {
-    visionRuntimeCache.set(script === "clip" ? CLIP_SCRIPT : ESRGAN_SCRIPT, v);
-  }
+  if (v == null) visionRuntimeOverride.delete(script);
+  else visionRuntimeOverride.set(script, v);
 }
 
 // ─── ESRGAN adapter (native upscale via python subprocess) ───────────────────
