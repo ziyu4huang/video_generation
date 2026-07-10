@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
+  buildWorkflowGuidelinesForTurn,
   createEffortState,
   createWorkflowHelpTool,
   createWorkflowStorage,
   createWorkflowTool,
-  buildWorkflowGuidelinesForTurn,
   installResultDelivery,
   installTaskPanel,
   installWorkflowEditor,
