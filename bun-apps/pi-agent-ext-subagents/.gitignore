@@ -1,0 +1,8 @@
+.pi/todos/
+.pi-subagents/
+.DS_Store
+AGENTS.md
+node_modules/
+.fallow/
+tmp/
+__pi-subagent-eval-*

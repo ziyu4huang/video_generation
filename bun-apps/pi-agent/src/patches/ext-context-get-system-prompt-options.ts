@@ -7,8 +7,8 @@
  * ------------------
  * The upstream @earendil-works/pi-coding-agent 0.80.3 added `getSystemPromptOptions()` to
  * `ExtensionCommandContext` (command handlers only) but NOT to the base `ExtensionContext`
- * used by event handlers. Our extensions (context_analyzer, agent_inventory,
- * extension_analyzer) need `getSystemPromptOptions()` inside their execute() callbacks,
+ * used by event handlers. Our extensions (inspect_context, inspect_agent,
+ * inspect_extensions) need `getSystemPromptOptions()` inside their execute() callbacks,
  * which receive `ExtensionContext`, not `ExtensionCommandContext`.
  *
  * The fix was applied directly to the bun cache (non-durable — lost on `bun install`).

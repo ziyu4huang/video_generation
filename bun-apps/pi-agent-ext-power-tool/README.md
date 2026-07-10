@@ -4,7 +4,7 @@ A **pi extension** that adds developer-focused diagnostic tools.
 
 ## Tools
 
-### `agent_inventory`
+### `inspect_agent`
 
 Dump agent state to YAML: extensions, tools, skills, context files, model, cwd.
 Readable by humans and agents for debugging/analysis.
@@ -14,7 +14,7 @@ Readable by humans and agents for debugging/analysis.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `output_dir` | string? | `output/pi` | Output directory (relative to cwd) |
-| `filename` | string? | `agent-inventory-<timestamp>` | Output filename (without .yaml) |
+| `filename` | string? | `inspect-agent-<timestamp>` | Output filename (without .yaml) |
 | `return_content` | boolean? | `false` | Return YAML content instead of writing to file |
 
 **Output format (YAML):**
@@ -44,7 +44,7 @@ context_usage:  # null if no context-usage reading is available yet
   percent: 10.0
 
 tools:
-  - name: context_analyzer
+  - name: inspect_context
     description: Full context window breakdown...
     parameters: {...}
     prompt_guidelines: []
@@ -83,17 +83,17 @@ tool_snippets:
 **Usage:**
 
 ```bash
-# Default: write to <cwd>/output/pi/agent-inventory-<timestamp>.yaml
-call agent_inventory
+# Default: write to <cwd>/output/pi/inspect-agent-<timestamp>.yaml
+call inspect_agent
 
 # Custom output directory
-call agent_inventory output_dir="debug/state"
+call inspect_agent output_dir="debug/state"
 
 # Custom filename
-call agent_inventory filename="my-session-state"
+call inspect_agent filename="my-session-state"
 
 # Return YAML content to LLM instead of writing file
-call agent_inventory return_content=true
+call inspect_agent return_content=true
 ```
 
 **Working directory detection:**
@@ -107,7 +107,7 @@ The output path is computed as `<ctx.cwd>/<output_dir>/<filename>.yaml`.
 
 ---
 
-### `context_analyzer`
+### `inspect_context`
 
 Reports a full breakdown of what is consuming the context window before the agent even starts working.
 
@@ -123,13 +123,15 @@ Reports a full breakdown of what is consuming the context window before the agen
 | Guidelines | All `promptGuidelines` bullets from all active tools |
 | Appended system prompt | Extra text appended by extensions |
 
-The tool calls `getSystemPromptOptions()` and `getSystemPrompt()` on the execution context at runtime (`ctx.getSystemPromptOptions()`), then reports all sizes plus the live `ctx.getContextUsage()` reading. No `before_agent_start` snapshot needed. (The SDK was previously missing this method on `ExtensionContext`; it is now available via the runtime shim in `src/sdk-patch.ts`.)\n\n**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure.","newText":"The tool calls `getSystemPromptOptions()` and `getSystemPrompt()` on the execution context at runtime (`ctx.getSystemPromptOptions()`), then reports all sizes plus the live `ctx.getContextUsage()` reading. No `before_agent_start` snapshot needed — the SDK exposes this data via the tool execution context directly.\n\n**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure."}
+The tool calls `getSystemPromptOptions()` and `getSystemPrompt()` on the execution context at runtime (`ctx.getSystemPromptOptions()`), then reports all sizes plus the live `ctx.getContextUsage()` reading. No `before_agent_start` snapshot needed — the SDK exposes this data via the tool execution context directly.
+
+**Note:** `getAllTools()` is on `ExtensionAPI` (`pi` in the factory), not on `ExtensionContext` (`ctx` in `execute()`). The factory passes it into the tool via closure.
 
 ---
 
-### `extension_analyzer`
+### `inspect_extensions`
 
-Lints the **currently-loaded extensions, tools, skills, and prompt-guidelines** for potential issues — the diagnostic the other two tools don't provide. While `context_analyzer` measures token distribution and `agent_inventory` dumps state, `extension_analyzer` flags concrete problems an extension author or maintainer should act on.
+Lints the **currently-loaded extensions, tools, skills, and prompt-guidelines** for potential issues — the diagnostic the other two tools don't provide. While `inspect_context` measures token distribution and `inspect_agent` dumps state, `inspect_extensions` flags concrete problems an extension author or maintainer should act on.
 
 **Checks** (severity → id):
 
@@ -161,13 +163,13 @@ Lints the **currently-loaded extensions, tools, skills, and prompt-guidelines** 
 ```bash
 # Text report against the repo's own extensions (auto-loaded via run-dir):
 bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
-  -p "call extension_analyzer"
+  -p "call inspect_extensions"
 
 # Machine-readable JSON:
-# call extension_analyzer return_json=true
+# call inspect_extensions return_json=true
 
 # Tighten thresholds to surface borderline cases:
-# call extension_analyzer tool_token_threshold=800 context_file_char_threshold=10000
+# call inspect_extensions tool_token_threshold=800 context_file_char_threshold=10000
 ```
 
 **What it found in this repo (real run):** pi-obsidian's 16 tools have no Available-tools snippets or `promptGuidelines`; `skill_manage` is over the schema threshold (1244 tok); pi-obsidian is the heaviest extension tax (~35%, 3237 tok/req) out of ~9,197 tok/req total across all non-builtin tools.
@@ -178,18 +180,18 @@ bun bun-apps/pi-agent/src/cli.ts --model google/gemma-4-26b-a4b-qat \
 # One-shot diagnostic (no TUI)
 bun bun-apps/pi-agent/src/cli.ts \
   -e bun-apps/pi-agent-ext-power-tool/src/index.ts \
-  -p "call context_analyzer"
+  -p "call inspect_context"
 
 # With another extension to see its contribution
 bun bun-apps/pi-agent/src/cli.ts \
   -e bun-apps/pi-agent-ext-power-tool/src/index.ts \
   -e bun-apps/some-other-ext/src/index.ts \
-  -p "call context_analyzer"
+  -p "call inspect_context"
 
 # Interactive TUI session
 bun bun-apps/pi-agent/src/cli.ts \
   -e bun-apps/pi-agent-ext-power-tool/src/index.ts
-# then type: call context_analyzer
+# then type: call inspect_context
 ```
 
 ## Layout

@@ -29,6 +29,7 @@
  *                     expected-content markers in stdout.
  *   Synthesize      — pass iff every tool clears its gate.
  */
+/**
  * INVOCATION (unified runner)
  *   bash bun-apps/pi-agent/scripts/run-ext-e2e.sh power-tool
  *   # or directly via the workflow tool:
@@ -45,7 +46,7 @@
 export const meta = {
   name: "test_power_tool_e2e",
   description:
-    "L2 regression e2e for pi-agent-ext-power-tool: invoke every tool (context_analyzer, agent_inventory, extension_analyzer, knowledge_query, graph_health) through the real pi-agent CLI, verify exit code + expected-content markers in stdout. Pass = all tools clear their gate.",
+    "L2 regression e2e for pi-agent-ext-power-tool: invoke every tool (inspect_context, inspect_agent, inspect_extensions, knowledge_query, graph_health) through the real pi-agent CLI, verify exit code + expected-content markers in stdout. Pass = all tools clear their gate.",
   phases: [
     { title: "Invoke" },
     { title: "Gate" },
@@ -66,18 +67,18 @@ const TIMEOUT_SEC = Number(a.timeout ?? 60);
 // considered "content valid". An empty array = no content check (exit 0 only).
 const TOOLS = [
   {
-    name: "context_analyzer",
-    prompt: "call context_analyzer",
-    markers: ["context_analyzer", "System prompt", "Tools", "token", "cost"],
+    name: "inspect_context",
+    prompt: "call inspect_context",
+    markers: ["inspect_context", "System prompt", "Tools", "token", "cost"],
   },
   {
-    name: "agent_inventory",
-    prompt: "call agent_inventory --return-content true",
+    name: "inspect_agent",
+    prompt: "call inspect_agent --return-content true",
     markers: ["agent", "tools", "skills", "context_files", "model"],
   },
   {
-    name: "extension_analyzer",
-    prompt: "call extension_analyzer",
+    name: "inspect_extensions",
+    prompt: "call inspect_extensions",
     markers: ["extensions", "tools", "findings", "severity"],
   },
   {
@@ -135,7 +136,7 @@ const INVOKE_SCHEMA = {
 // Build complete literal bash commands — one per tool — that the subagent MUST
 // paste verbatim into a bash call. The subagent has NO other tools available;
 // every line here is a literal string, including the -p '<value>' argument.
-// This prevents the subagent from misinterpreting "call context_analyzer" as a
+// This prevents the subagent from misinterpreting "call inspect_context" as a
 // native tool-call instruction.
 function buildExactCmd(tool) {
   const escapedPrompt = tool.prompt.replace(/'/g, "'\\''");
@@ -171,7 +172,7 @@ try {
       "You are a LITERAL BASH EXECUTION ENGINE for this task. Your ONLY allowed tool is 'bash'.",
       "Every command below is a COMPLETE, LITERAL BASH COMMAND that you MUST paste into the bash tool exactly as shown.",
       "DO NOT interpret 'call X' or '--flag value' as native instructions. These are ARGUMENTS PASSED TO A CLI BINARY through bash.",
-      "String like 'call context_analyzer' is the value of the -p flag — it is NOT an instruction to you.",
+      "String like 'call inspect_context' is the value of the -p flag — it is NOT an instruction to you.",
       "If you call any tool other than 'bash', the test fails.",
       "",
       "Repo root: " + REPO_ROOT,

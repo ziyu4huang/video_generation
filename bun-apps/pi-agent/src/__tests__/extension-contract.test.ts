@@ -67,6 +67,10 @@ function makeMockPi() {
 		getFlag: () => undefined,
 		setModel: async () => true,
 		on: () => { pi.onCount++; },
+		events: {
+			on: () => () => {},  // returns unsubscribe
+			emit: () => {},
+		},
 		getAllTools: () => tools,
 		exec: async () => "",
 		sendUserMessage: () => {},

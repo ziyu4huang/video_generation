@@ -80,7 +80,7 @@ The underlying heuristic. Default ratio **4** (≈4 chars/token for English + JS
 
 ### `AnalyzeOptions.charsPerToken` (default `4`)
 
-The chars-per-token ratio. Pass `3.7` to reproduce the live `context_analyzer` instrument's numbers; `4` matches the static `schema-cost` CLI.
+The chars-per-token ratio. Pass `3.7` to reproduce the live `inspect_context` instrument's numbers; `4` matches the static `schema-cost` CLI.
 
 ## Types
 
@@ -103,4 +103,4 @@ For an exact count, swap in a real tokenizer by post-processing the `descLen`/`p
 
 ## Scope (what this module is NOT)
 
-This is the **static schema-cost** half. It measures tool *definitions*, not live-session usage. The live half (system-prompt text, guideline snippets, real token usage from the API) is agent-coupled and lives alongside this in the same package (`context_analyzer`, `src/index.ts`). The clean boundary within `src/schema-cost/` is the point: feed it whatever tool definitions you have and it ranks them, with zero runtime deps.
+This is the **static schema-cost** half. It measures tool *definitions*, not live-session usage. The live half (system-prompt text, guideline snippets, real token usage from the API) is agent-coupled and lives alongside this in the same package (`inspect_context`, `src/index.ts`). The clean boundary within `src/schema-cost/` is the point: feed it whatever tool definitions you have and it ranks them, with zero runtime deps.

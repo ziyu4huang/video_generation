@@ -187,7 +187,7 @@ async function loadGraphKnowledge(kbFile, graphTags, workflowName) {
 1. Bash("printenv PI_GRAPH_KNOWLEDGE || echo 1")
    If "0", return { count: 0, digest: "", published: false, reason: "opt-out" }.
 2. Bash("OB_VAULT_PATH='${vault}' bun --cwd '${PROJECT_ROOT}/bun-apps/pi-agent-cli' src/cli.ts zk-query --tags '${tagsCsv}' --exclude-from-kb '${kbFile}' --top-k 8 --json 2>/dev/null")
-3. Parse the JSON output. The `count` field gives the number of matched cards, `digest` gives the grouped digest.
+3. Parse the JSON output. The \`count\` field gives the number of matched cards, \`digest\` gives the grouped digest.
 Return { count: <count from JSON or 0>, digest: <digest from JSON or "">, published: true }.`,
     { label: "load-graph-knowledge", phase: "Resolve", tier: "small",
       schema: { type: "object", properties: {
@@ -276,7 +276,7 @@ Return { updated: true, total_lines: <wc -l>, active: <active count>, new_ids: [
 // Opt-in (PI_PUBLISH_KNOWLEDGE=1); best-effort (never throws, never fails the run).
 async function publishKnowledge(kbFile, workflowName) {
   
-  const vault = //  `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
+  const vault = `${PROJECT_ROOT}/vaults_root/pi-agent-vault`
   const sourceLabel = `workflow-jsonl:${workflowName}`
   const cli = await agent(
     `Check PI_PUBLISH_KNOWLEDGE env var, then run the ingest CLI if enabled.

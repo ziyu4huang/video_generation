@@ -731,8 +731,8 @@ const ltxRunResult = {
   priorKbDigest: R.kbDigest || null,
 }
 const knowledge = await extractKnowledge(KB_FILE, R.runId, ltxRunResult,
-await publishKnowledge(KB_FILE, _WF_NAME)
   reflections.length > 0 ? reflections.map((r) => r.insight).join('; ') : null)
+await publishKnowledge(KB_FILE, _WF_NAME)
 if (knowledge) log(`Knowledge: ${knowledge.new_ids?.length || 0} new record(s) (active≈${knowledge.active ?? "?"})`)
 
 // ── Phase 4: Persist (run summary JSON + cross-workflow index) ───────────────
