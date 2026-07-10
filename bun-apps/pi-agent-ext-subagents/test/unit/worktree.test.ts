@@ -51,7 +51,10 @@ const hookScriptSkip = process.platform === "win32"
 	? "Hook script execution differs on Windows CI environments."
 	: undefined;
 
-describe("worktree", () => {
+// Portability: spawns `git` (host-binary probe) — skip on CI bare runners.
+const SKIP_CI = process.env.CI ? "git spawn — skip on CI (host-binary probe)" : undefined;
+
+describe("worktree", { skip: SKIP_CI }, () => {
 	it("createWorktrees returns expected structure", () => {
 		const repoDir = createRepo("pi-worktree-structure-");
 		let setup: WorktreeSetup | undefined;

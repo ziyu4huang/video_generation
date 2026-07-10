@@ -71,7 +71,10 @@ function createRepo(): string {
 	return repo;
 }
 
-describe("main watchdog runtime", () => {
+// Portability: spawns `git` (host-binary probe) — skip on CI bare runners.
+const SKIP_CI = process.env.CI ? "git spawn — skip on CI (host-binary probe)" : undefined;
+
+describe("main watchdog runtime", { skip: SKIP_CI }, () => {
 	it("stays default-off and contains invalid config at the watchdog boundary", () => {
 		let reviewCalls = 0;
 		const runtime = new MainWatchdogRuntime({

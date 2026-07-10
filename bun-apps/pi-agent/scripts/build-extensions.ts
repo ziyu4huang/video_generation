@@ -413,17 +413,30 @@ async function liveFactoryTest(
 	}
 	const tools: any[] = [];
 	// A permissive mock: capture registerTool calls, no-op `on`, and return a
-	// no-op fn for ANY other ExtensionAPI method (registerCommand, etc.) so a
-	// factory that touches secondary surfaces still runs. The point is to prove
-	// ESM validity + dep resolution + the factory executes, not to model pi.
+	// DEEP permissive callable for ANY other surface — INCLUDING nested access
+	// like pi.events.on(...) / pi.getContext().x, since `events: EventBus` is a
+	// real part of the ExtensionAPI and a factory may register handlers on it
+	// synchronously. The point is to prove ESM validity + dep resolution + the
+	// factory executes, not to model pi.
+	const deepCallable = (): any =>
+		new Proxy(function () {}, {
+			get(_t, prop) {
+				// Symbols + the thenable trap must NOT yield a callable, or Promise
+				// resolution / iteration / coercion checks misbehave.
+				if (typeof prop === "symbol" || prop === "then") return undefined;
+				return deepCallable();
+			},
+			apply: () => deepCallable(),
+		});
 	const target = {
 		on: () => {}, // session_start handler registration — no-op
 		registerTool: (def: any) => tools.push(def),
 	};
 	const mockApi = new Proxy(target, {
 		get(t, prop) {
+			if (typeof prop === "symbol" || prop === "then") return undefined;
 			if (prop in t) return (t as any)[prop];
-			return () => {}; // no-op any other method (registerCommand, …)
+			return deepCallable(); // permissive: nested access (pi.events.on, …) + callable
 		},
 	});
 	try {

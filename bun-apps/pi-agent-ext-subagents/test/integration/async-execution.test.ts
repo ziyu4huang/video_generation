@@ -322,7 +322,10 @@ function readMockPiArgsMatching(mockPi: MockPi, text: string): string[] {
 	assert.fail(`expected recorded call containing ${text}`);
 }
 
-describe("async execution utilities", { skip: !available ? "pi packages not available" : undefined }, () => {
+// Portability: spawns `git` (host-binary probe) — skip on CI bare runners.
+const SKIP_CI = process.env.CI ? "git spawn — skip on CI (host-binary probe)" : undefined;
+
+describe("async execution utilities", { skip: !available ? "pi packages not available" : SKIP_CI }, () => {
 	let tempDir: string;
 	let mockPi: MockPi;
 
