@@ -1,0 +1,31 @@
+{
+  "name": "@repo/pi-agent-ext-research-tool",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Pi extension: collect LLM/AI videos from Bilibili + YouTube, organize vault frontmatter, and import hermes memory. Unified research collection tool.",
+  "license": "MIT",
+  "keywords": ["pi-package", "research", "bilibili", "youtube", "video-collection", "obsidian"],
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "files": [
+    "extensions",
+    "lib",
+    "skills",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": ["./extensions"],
+    "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  }
+}
