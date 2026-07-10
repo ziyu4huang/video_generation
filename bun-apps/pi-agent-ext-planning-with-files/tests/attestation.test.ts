@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkPlanAttestation } from "../src/attestation.js";
+import { attestPlan, checkPlanAttestation } from "../src/attestation.js";
 import { readPlanStatus } from "../src/plan.js";
 
 const tempRoots: string[] = [];
@@ -85,5 +85,44 @@ describe("checkPlanAttestation", () => {
 
     expect(result.enabled).toBe(false);
     expect(result.tampered).toBe(false);
+  });
+});
+
+describe("attestation scope isolation (regression: root + scoped coexistence)", () => {
+  // Bug A: a stale root .plan-attestation (left by a previous root plan) must
+  // NOT be matched against a scoped plan. Before the fix it caused every
+  // scoped plan to read as [PLAN TAMPERED].
+  it("a scoped plan ignores a stale root .plan-attestation (no false tamper)", () => {
+    const cwd = makeWorkspace();
+    const plan = "### Phase 1\n**Status:** complete\n";
+    writeScopedPlan(cwd, plan);
+    // Simulate a prior root-plan attestation lingering in the cwd.
+    writeFileSync(join(cwd, ".plan-attestation"), sha256(`${plan}\nold-root-content`));
+
+    const result = checkPlanAttestation(readPlanStatus(cwd));
+
+    expect(result.enabled).toBe(false);
+    expect(result.tampered).toBe(false);
+  });
+
+  // Bug B: attesting a scoped plan must create <planDir>/.attestation, not
+  // clobber the root .plan-attestation. Before the fix pickWritePath reused
+  // the existing root file.
+  it("attesting a scoped plan writes <planDir>/.attestation and leaves the root file untouched", () => {
+    const cwd = makeWorkspace();
+    const plan = "### Phase 1\n**Status:** complete\n";
+    writeScopedPlan(cwd, plan);
+    const rootHash = sha256(`${plan}\nold-root-content`);
+    writeFileSync(join(cwd, ".plan-attestation"), rootHash);
+
+    const result = attestPlan(cwd, "attest");
+
+    expect(result.ok).toBe(true);
+    expect(result.attestationPath).toBe(join(cwd, ".planning", "demo", ".attestation"));
+    // The scoped attestation file was created with the correct hash.
+    expect(existsSync(join(cwd, ".planning", "demo", ".attestation"))).toBe(true);
+    // The root file is untouched (not clobbered).
+    expect(existsSync(join(cwd, ".plan-attestation"))).toBe(true);
+    expect(readFileSync(join(cwd, ".plan-attestation"), "utf-8").trim()).toBe(rootHash);
   });
 });

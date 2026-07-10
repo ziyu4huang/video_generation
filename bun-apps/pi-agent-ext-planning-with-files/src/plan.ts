@@ -78,7 +78,14 @@ export function resolvePlanPaths(cwd: string): PlanPaths {
     planPath: join(planDir, "task_plan.md"),
     progressPath: join(planDir, "progress.md"),
     findingsPath: join(planDir, "findings.md"),
-    attestationCandidates: [join(planDir, ".attestation"), join(cwd, ".plan-attestation")],
+    // Attestation is STRICTLY scope-bound: a scoped plan only ever honors its
+    // own <planDir>/.attestation. Including <cwd>/.plan-attestation here (as a
+    // migration fallback) caused two bugs once a root plan had been attested in
+    // the same cwd: (A) checkPlanAttestation picked up the stale root hash and
+    // reported every scoped plan as [PLAN TAMPERED]; (B) pickWritePath's
+    // "reuse existing candidate" rule made /plan-attest on a scoped plan
+    // clobber the root file instead of creating <planDir>/.attestation.
+    attestationCandidates: [join(planDir, ".attestation")],
   });
 
   const makeRoot = (): PlanPaths => ({
