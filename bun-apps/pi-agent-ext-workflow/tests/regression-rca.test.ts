@@ -160,11 +160,11 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // does not ship an incomplete result as complete.
   it.todo("RCA#8: loopUntilDry must signal budget/limit truncation, not return partial as complete");
 
-  // RCA#10: withTimeout races the agent promise with a timer but does not cancel
-  // the underlying session, which keeps consuming provider tokens never recorded
-  // in shared.spent (amplified by agentRetries). Correct: a timed-out agent must
-  // not leave an orphaned session burning uncounted tokens.
-  it.todo("RCA#10: withTimeout must not orphan the agent session with uncounted tokens");
+  // RCA#10: FIXED. runAgentWithTimeout now aborts a per-agent child signal so a
+  // real WorkflowAgent session is cancelled (session.abort()) and its partial
+  // usage is reported + counted before the timeout error propagates — no orphaned
+  // session burning uncounted tokens. Regression test:
+  //   workflow-runtime.test.ts > "RCA#10: a timed-out agent's session is aborted and its usage counted"
 
   // RCA#11: checkpoint() awaits options.confirm() with no abort signal; an abort
   // during a pending checkpoint orphans the run promise in-memory (throwIfAborted

@@ -854,3 +854,70 @@ return { escaped, arr, j, s }`;
   // where Date.now is neutered -> blocked (the old host-object escape is closed).
   assert.match(r.result.escaped, /blocked/, "constructor escape via vm objects is closed");
 });
+
+// ─── RCA#10: timeout must cancel the agent session and count its usage ────────
+
+test("RCA#10: a timed-out agent's session is aborted and its usage counted (no orphan)", async () => {
+  // A stand-in for a real WorkflowAgent: it honors its abort signal (resolves
+  // when aborted) and reports partial usage in its "finally" — exactly the path
+  // that used to be orphaned by a bare Promise.race timeout.
+  let signalAborted = false;
+  const slowAgent = {
+    async run(_prompt: string, opts: { signal?: AbortSignal; onUsage?: (u: AgentUsage) => void }) {
+      const signal = opts.signal;
+      const aborted = new Promise<void>((resolve) => {
+        if (!signal) return;
+        if (signal.aborted) return resolve();
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      try {
+        await aborted; // never resolves on its own; only when the timeout aborts
+        signalAborted = signal?.aborted ?? false;
+      } finally {
+        // Real agents report usage here (session.getSessionStats) before dispose.
+        opts.onUsage?.({ input: 50, output: 10, cacheRead: 0, cacheWrite: 0, total: 60, cost: 0.001 });
+      }
+      throw new Error("Subagent was aborted");
+    },
+  };
+
+  const script = `export const meta = { name: 'rca10', description: 'timeout orphan' }
+const a = await agent('slow', { label: 's', timeoutMs: 20 })
+return { a }`;
+
+  const result = await runWorkflow<{ a: unknown }>(script, { agent: slowAgent, persistLogs: false });
+
+  assert.equal(result.result.a, null, "a recoverable timeout returns null, not a throw");
+  assert.equal(signalAborted, true, "the agent's session signal was aborted (the session is cancelled, not orphaned)");
+  assert.ok(
+    (result.tokenUsage?.total ?? 0) >= 60,
+    "the aborted session's partial usage (60 tokens) is counted in tokenUsage, not lost",
+  );
+});
+
+test("RCA#10: a timeout still surfaces the AGENT_TIMEOUT error message (behavior preserved)", async () => {
+  // delayedAgent ignores its signal, so this exercises the race-enforced timeout
+  // path: the error must still be the recoverable AGENT_TIMEOUT, not a hang.
+  const delayed = {
+    async run(_prompt: string, opts: { onUsage?: (u: AgentUsage) => void }) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      opts.onUsage?.({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 });
+      return "slow";
+    },
+  };
+  const logs: string[] = [];
+  const script = `export const meta = { name: 'rca10_msg', description: 'timeout msg' }
+const a = await agent('slow', { label: 's', timeoutMs: 5 })
+return { a }`;
+  const result = await runWorkflow<{ a: unknown }>(script, {
+    agent: delayed,
+    persistLogs: false,
+    onLog: (m) => logs.push(m),
+  });
+  assert.equal(result.result.a, null, "timed-out agent yields null");
+  // The exhausted-recoverable log carries the timeout message.
+  assert.ok(
+    logs.some((m) => /timed out after 5ms/.test(m)),
+    `logs mention the timeout; got: ${logs.join(" | ")}`,
+  );
+});

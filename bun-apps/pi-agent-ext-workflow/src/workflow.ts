@@ -460,33 +460,38 @@ export async function runWorkflow<T = unknown>(
           try {
             throwIfAborted();
 
-            // Run agent with timeout
-            const result = await withTimeout(
-              agentRunner.run(prompt, {
-                label,
-                schema: agentOptions.schema,
-                signal: options.signal,
-                instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
-                model: modelSpec,
-                tier: agentOptions.tier,
-                toolNames: agentDef?.tools,
-                disallowedToolNames: agentDef?.disallowedTools,
-                cwd: runCwd,
-                onModelResolved: (id: string) => {
-                  displayModel = id;
-                },
-                onModelFallback: (spec: string) => {
-                  // Make the silent degrade visible in /workflows, not just console.
-                  log(`${label}: model "${spec}" unavailable — using the session default`);
-                },
-                onUsage: (u: AgentUsage) => {
-                  usage = u;
-                },
-                onHistory: (history: AgentHistoryEntry[]) => {
-                  options.onAgentHistory?.({ label, phase: assignedPhase, history });
-                },
-              } as any),
+            // Run agent with timeout. The timeout aborts the agent's OWN child
+            // signal (derived from options.signal), so a timed-out session is
+            // cancelled and its partial usage counted — not left as an orphan
+            // burning uncounted tokens (RCA#10).
+            const result = await runAgentWithTimeout(
+              (signal) =>
+                agentRunner.run(prompt, {
+                  label,
+                  schema: agentOptions.schema,
+                  signal,
+                  instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
+                  model: modelSpec,
+                  tier: agentOptions.tier,
+                  toolNames: agentDef?.tools,
+                  disallowedToolNames: agentDef?.disallowedTools,
+                  cwd: runCwd,
+                  onModelResolved: (id: string) => {
+                    displayModel = id;
+                  },
+                  onModelFallback: (spec: string) => {
+                    // Make the silent degrade visible in /workflows, not just console.
+                    log(`${label}: model "${spec}" unavailable — using the session default`);
+                  },
+                  onUsage: (u: AgentUsage) => {
+                    usage = u;
+                  },
+                  onHistory: (history: AgentHistoryEntry[]) => {
+                    options.onAgentHistory?.({ label, phase: assignedPhase, history });
+                  },
+                } as any),
               timeout,
+              options.signal,
               label,
             );
 
@@ -1160,26 +1165,70 @@ function normalizeAgentRetries(value: unknown): number {
 /**
  * Run a promise with a timeout.
  */
-async function withTimeout<T>(promise: Promise<T>, ms: number | null, label: string): Promise<T> {
-  if (ms === null) return promise;
+/**
+ * Run an agent call under an optional timeout. Unlike a plain Promise.race,
+ * a timeout ABORTS the agent's own child signal (derived from `parentSignal`),
+ * so a real WorkflowAgent session is cancelled via session.abort() and reports
+ * its partial usage in its finally — instead of being orphaned mid-flight with
+ * its tokens never counted (RCA#10). After the abort the real promise is still
+ * awaited (swallowing the expected abort rejection) so that usage capture runs
+ * before the timeout error propagates.
+ *
+ * `runFn` receives the child signal to pass to the agent. When `timeoutMs` is
+ * null (the default) the parent signal is passed through unchanged.
+ */
+async function runAgentWithTimeout<T>(
+  runFn: (signal: AbortSignal | undefined) => Promise<T>,
+  timeoutMs: number | null,
+  parentSignal: AbortSignal | undefined,
+  label: string,
+): Promise<T> {
+  // Default path: no timeout — pass the parent signal through unchanged.
+  if (timeoutMs === null) return runFn(parentSignal);
 
+  // Derive a child signal that fires on timeout OR parent abort, so a timeout
+  // cancels just this agent (not the whole run) while a parent abort still
+  // propagates into the session.
+  const controller = new AbortController();
+  const abortChildFromParent = () => controller.abort((parentSignal as AbortSignal & { reason?: unknown })?.reason);
+  if (parentSignal?.aborted) {
+    controller.abort((parentSignal as AbortSignal & { reason?: unknown })?.reason);
+  } else if (parentSignal) {
+    parentSignal.addEventListener("abort", abortChildFromParent, { once: true });
+  }
+
+  const realPromise = runFn(controller.signal);
+  let timedOut = false;
   let timeoutId: NodeJS.Timeout | undefined;
-
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
+      timedOut = true;
+      // Cancel the in-flight session; it settles and reports usage in its finally.
+      controller.abort();
       reject(
         new WorkflowError(
-          `Agent "${label}" timed out after ${ms}ms; raise or omit timeoutMs/agentTimeoutMs to allow longer runs`,
+          `Agent "${label}" timed out after ${timeoutMs}ms; raise or omit timeoutMs/agentTimeoutMs to allow longer runs`,
           WorkflowErrorCode.AGENT_TIMEOUT,
           { recoverable: true },
         ),
       );
-    }, ms);
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([promise, timeoutPromise]);
+    return await Promise.race([realPromise, timeoutPromise]);
+  } catch (err) {
+    if (timedOut) {
+      // The session has been told to abort. Wait for it to settle so its finally
+      // runs (reporting partial usage via onUsage, counted by the caller, and
+      // disposing the session) — closing the orphan-token hole. The abort
+      // rejection is expected; swallow it. Real agents honor abort and settle
+      // promptly; agents that ignore their signal settle on their own.
+      await realPromise.catch(() => {});
+    }
+    throw err;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
+    if (parentSignal) parentSignal.removeEventListener("abort", abortChildFromParent);
   }
 }
