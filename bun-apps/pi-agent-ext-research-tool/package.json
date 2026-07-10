@@ -9,10 +9,15 @@
   "scripts": {
     "test": "bun test"
   },
+  "exports": {
+    "./extensions/*": "./extensions/*",
+    "./lib/*": "./lib/*"
+  },
   "files": [
     "extensions",
     "lib",
     "skills",
+    "index.ts",
     "README.md"
   ],
   "pi": {
