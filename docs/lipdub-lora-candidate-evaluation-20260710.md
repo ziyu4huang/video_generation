@@ -67,22 +67,33 @@ is MLX-native; ID-LoRA's reference repo is unverified-MLX in this pass — that
 compatibility check is the first concrete step of any integration attempt,
 not assumed).
 
+**UPDATE 2026-07-10 — step 1 done, de-risked further than expected:**
+`packages/ltx-core` IS PyTorch/CUDA-only (`torch~=2.7` + `xformers`, no MPS
+path), so porting it directly would be the expensive path. But that's not
+the actual integration surface — direct safetensors-header inspection shows
+the ID-LoRA CelebV-HQ checkpoint has byte-identical key naming/shapes
+(`audio_attn1`/`audio_attn2`/`audio_ff`, rank 128, no `.default.` infix) to
+this repo's own already-working LipDub IC-LoRA. Same base model
+(`ltx-2.3-22b-dev`), same `audio_ref_only_ic` conditioning family, same LoRA
+export convention. This means the MLX transformer already has the exact
+fusable modules this checkpoint targets — **no MLX porting needed at all**,
+just a checkpoint swap through `video lipdub --lipdub-lora <path>` (which
+already supports an explicit path override). Full detail:
+`docs/id-lora-mlx-compatibility-check-20260710.md`. Steps 2-3 below are now
+the direct next action, not gated on any further compatibility work.
+
 ## Recommendation
 
 **ID-LoRA is the credible next lead; elix3r AV-LoRA is out.** Before
 committing engine time to a Swift LipDub port
 (`docs/lipdub-swift-port-scoping-20260709.md`), the higher-leverage move is:
 
-1. Check whether `ID-LoRA/ID-LoRA`'s `ID-LoRA-2.3/packages/ltx-core` is MLX
-   or PyTorch/CUDA — determines whether this is a "download + wire into
-   existing `ltx_pipeline.py` conditioning" job (cheap, if it's compatible
-   with the vendored `ltx-2-mlx` conditioning primitives) or a "port a new
-   reference architecture to MLX" job (expensive, same class of effort as
-   the LipDub IC-LoRA integration already done).
-2. If compatible: import the CelebV-HQ checkpoint via the existing
-   `import-lora-image`-style tooling (adapted for AV LoRAs, per
-   `[[project_model_import]]`), wire a `video generate --id-lora
-   REFERENCE_IMAGE REFERENCE_AUDIO` (or extend `video lipdub`) path, and
+1. ~~Check whether `ID-LoRA/ID-LoRA`'s `ID-LoRA-2.3/packages/ltx-core` is MLX
+   or PyTorch/CUDA~~ — **done 2026-07-10, see update above**: it's a
+   checkpoint swap, not a port.
+2. Import the CelebV-HQ checkpoint (not gated — confirmed via HF API) into
+   `mlx-models/lora/id-lora-celebvhq-ltx2.3/`, run `video lipdub
+   --lipdub-lora <path>` (existing flag, zero new CLI plumbing), and
    re-run the same SyncNet LSE-D/LSE-C measurement harness
    (`app/syncnet_bridge.py`, already built in #394) against the same 8s
    reference clip used for the IA2V/LipDub comparison — same metric, same
