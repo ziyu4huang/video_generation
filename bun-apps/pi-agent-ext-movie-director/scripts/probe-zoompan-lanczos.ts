@@ -47,7 +47,7 @@ function laplacianVariance(pgmPath: string): number | null {
   const readToken = (): string => {
     while (i < buf.length && (buf[i] === 0x20 || buf[i] === 0x0a || buf[i] === 0x0d || buf[i] === 0x09)) i++;
     let s = "";
-    while (i < buf.length && buf[i] !== 0x20 && buf[i] !== 0x0a && buf[i] !== 0x0d && buf[i] !== 0x09) s += String.fromCharCode(buf[i++!]);
+    while (i < buf.length && buf[i] !== 0x20 && buf[i] !== 0x0a && buf[i] !== 0x0d && buf[i] !== 0x09) s += String.fromCharCode(buf[i++]!);
     return s;
   };
   const magic = readToken();
