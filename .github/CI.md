@@ -21,7 +21,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · pi-agent", "test · pi-agent-cli", "test · pi-agent-ext-flux2",
   "test · pi-agent-ext-krea2", "test · pi-agent-ext-ltx",
   "test · pi-agent-ext-movie-director", "test · pi-agent-ext-power-tool",
-  "test · pi-agent-ext-web-access", "test · pi-agent-sdk-demo", "test · pi-agent-ext-vlm",
+  "test · pi-agent-ext-web-access", "test · pi-agent-ext-vlm",
   "test · gui-movie-director", "test · pi-agent-ext-knowledge-card", "test · pi-agent-ext-obsidian",
   "test · pi-agent-ext-planning-with-files",
   "test · pi-dynamic-workflows", "test · pi-agent-ext-hermes-memory",
@@ -76,7 +76,7 @@ documented command (see the `tests` matrix in the workflow):
 ```
 pi-agent, pi-agent-cli, pi-agent-ext-flux2, pi-agent-ext-krea2,
 pi-agent-ext-ltx, pi-agent-ext-movie-director, pi-agent-ext-power-tool,
-pi-agent-ext-web-access, pi-agent-sdk-demo, pi-agent-ext-vlm, gui-movie-director,
+pi-agent-ext-web-access, pi-agent-ext-vlm, gui-movie-director,
 pi-agent-ext-knowledge-card, pi-agent-ext-obsidian, pi-agent-ext-planning-with-files,
 pi-dynamic-workflows, pi-agent-ext-hermes-memory
 ```
@@ -207,7 +207,7 @@ bun install --frozen-lockfile
 # the full suite, mirroring the matrix:
 for pkg in pi-agent pi-agent-cli pi-agent-ext-flux2 pi-agent-ext-krea2 \
            pi-agent-ext-ltx pi-agent-ext-movie-director pi-agent-ext-power-tool \
-           pi-agent-ext-web-access pi-agent-sdk-demo pi-agent-ext-vlm gui-movie-director \
+           pi-agent-ext-web-access pi-agent-ext-vlm gui-movie-director \
            pi-agent-ext-knowledge-card pi-agent-ext-obsidian pi-dynamic-workflows \
            pi-agent-ext-hermes-memory; do
   echo "=== $pkg ==="

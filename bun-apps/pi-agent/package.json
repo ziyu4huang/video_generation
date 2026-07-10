@@ -1,5 +1,5 @@
 {
-  "name": "pi-agent",
+  "name": "@repo/pi-agent",
   "version": "0.1.0",
   "private": true,
   "description": "Interactive pi TUI with monkey-patch hooks — forces model loading from .pi/agent/models.json, delegates everything else to the official pi main().",
