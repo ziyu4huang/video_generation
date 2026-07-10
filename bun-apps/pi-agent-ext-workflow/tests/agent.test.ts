@@ -10,6 +10,7 @@ import { runWorkflow } from "../src/workflow.js";
 type WorkflowAgentPrivates = {
   buildPrompt(prompt: string, options: AgentRunOptions<any>, structured: boolean): string;
   lastAssistantText(messages: unknown[]): string;
+  getTierConfig(): ModelTierConfig | null;
 };
 
 test("listAvailableModelSpecs returns an array (empty when no auth configured)", () => {
@@ -95,6 +96,52 @@ test("WorkflowAgent constructor accepts all option shapes without throwing", () 
     const agent = opts ? new WorkflowAgent(opts) : new WorkflowAgent();
     assert.ok(agent instanceof WorkflowAgent, `agent should be constructed for options: ${JSON.stringify(opts)}`);
   }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// tier-config cache — a run with many default agents must not re-read disk
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("WorkflowAgent caches the tier config: loadTierConfig runs at most once per instance", () => {
+  let calls = 0;
+  const cfg: ModelTierConfig = { tiers: { small: "v/small", medium: "v/medium", big: "v/big" } };
+  const agent = new WorkflowAgent({
+    cwd: "/tmp",
+    mainModel: "main/model",
+    loadTierConfig: () => {
+      calls++;
+      return cfg;
+    },
+  }) as WorkflowAgent & WorkflowAgentPrivates;
+
+  // Multiple resolutions (as many default/untagged agents would trigger) read
+  // the cache, not disk.
+  assert.equal(agent.getTierConfig(), cfg);
+  assert.equal(agent.getTierConfig(), cfg);
+  assert.equal(agent.getTierConfig(), cfg);
+  assert.equal(calls, 1, "loadTierConfig must run exactly once across repeated reads");
+});
+
+test("WorkflowAgent caches a null tier config (absent file) without re-reading", () => {
+  let calls = 0;
+  const agent = new WorkflowAgent({
+    cwd: "/tmp",
+    loadTierConfig: () => {
+      calls++;
+      return null;
+    },
+  }) as WorkflowAgent & WorkflowAgentPrivates;
+
+  assert.equal(agent.getTierConfig(), null);
+  assert.equal(agent.getTierConfig(), null);
+  assert.equal(calls, 1, "a null (absent-file) result is cached, not re-probed");
+});
+
+test("WorkflowAgent defaults loadTierConfig to the real disk loader without throwing", () => {
+  const agent = new WorkflowAgent({ cwd: "/tmp" }) as WorkflowAgent & WorkflowAgentPrivates;
+  // No throw; returns the on-disk config or null when the file is absent.
+  const cfg = agent.getTierConfig();
+  assert.ok(cfg === null || (typeof cfg === "object" && typeof cfg.tiers === "object"));
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
