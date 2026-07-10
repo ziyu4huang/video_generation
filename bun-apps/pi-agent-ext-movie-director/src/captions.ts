@@ -18,8 +18,9 @@
  * Shared by `compose.ts` (straight-cut) and `compose_motion.ts` (motion tier)
  * so both runtimes honor the same ladder without duplication.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { runSpawn, type SpawnImpl } from "./spawn.ts";
 
 // ─── SRT parsing ─────────────────────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ export interface BurnResult {
 }
 
 export interface BurnDeps {
-  spawnImpl?: (cmd: string, argv: string[], opts?: { cwd?: string }) => Promise<{ code: number; stdout: string; stderr: string }>;
+  spawnImpl?: SpawnImpl;
   /** Frame width (px) for drawtext word-wrap (default 1920). libass/sidecar ignore it. */
   width?: number;
   /** drawtext font size (px), default 48. */
@@ -408,16 +409,3 @@ export function buildDrawtextFilter(text: string, style: DrawtextStyle): string 
   return `drawtext=${opts.join(":")}`;
 }
 
-// ─── spawn helper (mirrors compose.ts) ───────────────────────────────────────
-
-function runSpawn(cmd: string, argv: string[], opts: { cwd?: string } = {}): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((res) => {
-    const p = spawn(cmd, argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", () => res({ code: -1, stdout, stderr }));
-    p.on("exit", (c) => res({ code: c ?? -1, stdout, stderr }));
-  });
-}

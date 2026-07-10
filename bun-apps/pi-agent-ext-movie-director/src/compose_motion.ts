@@ -20,34 +20,15 @@
  * ffmpeg render; the real-silicon smoke is opt-in via `MOTION_SMOKE=1` or the
  * e2e script (`scripts/run-compose-motion-e2e.ts`).
  */
-import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import { burnCaptions, planBurn, buildDrawtextFilter, drawtextFilterAvailable, resolveCaptionFont, type CaptionOutcome } from "./captions.ts";
 import type { Animation, RemotionEditDecisions, RemotionCut } from "./remotion.ts";
 import { probeMedia, probeDuration } from "./ffprobe.ts";
+import { runSpawn, type SpawnImpl, type SpawnResult } from "./spawn.ts";
 
-// ─── spawn helper (mirrors remotion.ts) ───────────────────────────────────────
-
-export interface SpawnResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-export type SpawnImpl = (cmd: string, argv: string[], opts?: { cwd?: string }) => Promise<SpawnResult>;
-
-function runSpawn(cmd: string, argv: string[], opts: { cwd?: string } = {}): Promise<SpawnResult> {
-  return new Promise((res) => {
-    const p = spawn(cmd, argv, { cwd: opts.cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    p.stdout.on("data", (d) => (stdout += d));
-    p.stderr.on("data", (d) => (stderr += d));
-    p.on("error", () => res({ code: -1, stdout, stderr }));
-    p.on("exit", (c) => res({ code: c ?? -1, stdout, stderr }));
-  });
-}
+export type { SpawnImpl, SpawnResult } from "./spawn.ts";
 
 export interface MotionDeps {
   spawnImpl?: SpawnImpl;
