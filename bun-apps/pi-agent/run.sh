@@ -22,7 +22,7 @@
 #
 # UPGRADING pi
 #   This launcher runs pi from the npm package @earendil-works/pi-coding-agent
-#   (pinned as "latest" in bun-apps/*/package.json). pi's built-in `pi update`
+#   (a workspace dep; specs vary across bun-apps/*/package.json). pi's built-in `pi update`
 #   is DISABLED here (workspace dep, not a global install), so use the dedicated
 #   wrapper sibling:
 #
@@ -80,7 +80,7 @@ How to upgrade pi (@earendil-works/pi-coding-agent):
   Verify after:  ./pi-agent.sh --list-models
 
 Notes:
-  - pi is pinned as "latest" in bun-apps/*/package.json — no version to edit.
+  - pi is a workspace dep; specs vary ("latest"/"*"/ranges) — no version to edit by hand.
   - NEVER use `npm install`; it writes the gitignored package-lock.json.
   - This launcher is also reachable via the repo-root symlink ./pi-agent.sh.
 EOF
