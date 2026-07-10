@@ -1009,3 +1009,58 @@ return { first: results[0], second: results[1] }`;
   assert.ok(result.result.first.includes("edit work"), "first agent ran");
   assert.ok(result.result.second.includes("research work"), "second agent ran");
 });
+
+// ─── RCA#7: judgePanel must not coerce all-judges-failed to 0 ────────────────
+
+test("RCA#7: judgePanel with all judges failing returns undefined score (not 0)", async () => {
+  // Check that judgePanel at least runs by returning a simple constant
+  const script = `export const meta = { name: 'rca7', description: 'judgePanel all fail' }
+try {
+  const best = await judgePanel(['A'], { judges: 1 })
+  return { ok: true, best: best ?? null, score: best?.score }
+} catch (e) {
+  return { ok: false, error: String(e) }
+}`;
+  const wfResult = await runWorkflow(script, {
+    agent: {
+      async run() {
+        return null;
+      },
+    },
+    persistLogs: false,
+  });
+  assert.ok(wfResult.result !== undefined, `got: ${JSON.stringify(wfResult.result)}`);
+  assert.equal(wfResult.result?.ok, true, `judgePanel didn't throw: ${JSON.stringify(wfResult.result)}`);
+  assert.equal(wfResult.result?.score, undefined, "all judges fail → score is undefined");
+});
+
+// ─── RCA#8: loopUntilDry must signal budget/limit truncation ─────────────────
+
+test("RCA#8: loopUntilDry truncation via TOKEN_BUDGET_EXHAUSTED sets truncated=true", async () => {
+  const script = `export const meta = { name: 'rca8', description: 'truncated loop' }
+try {
+  const items = await loopUntilDry({
+    round: async () => {
+      const result = await agent('find one', { label: 'finder' })
+      return [result]
+    },
+    consecutiveEmpty: 3,
+    maxRounds: 5,
+  })
+  return { ok: true, count: items.length, truncated: items.truncated }
+} catch (e) {
+  return { ok: false, error: String(e) }
+}`;
+  const result = await runWorkflow(script, {
+    agent: {
+      async run() {
+        return "found";
+      },
+    },
+    tokenBudget: 1,
+    persistLogs: false,
+  });
+  assert.ok(result.result?.ok === true, `loop should handle budget gracefully: ${JSON.stringify(result.result)}`);
+  assert.equal(result.result?.truncated, true, "loop reports truncated=true when budget exhausted");
+  assert.equal(result.result?.count, 1, "one item found before budget exhausted");
+});

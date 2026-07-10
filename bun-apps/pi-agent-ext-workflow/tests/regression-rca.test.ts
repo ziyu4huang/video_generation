@@ -140,32 +140,31 @@ describe("RCA design-level findings (regression targets — not yet fixed)", () 
   // inside a parallel thunk does not pollute sibling phases".
   // NOTE: phase() inside parallel is intentionally a no-op; use opts.phase
   // to assign a different phase within one parallel branch.
-
   // RCA#6: FIXED. resolveAgentModelSpec now emits console.warn when the
   // requested tier is unknown or no model-tiers config exists — no silent
   // cost escalation. Tests: agent.test.ts "RCA#6: an unknown/misspelled tier
   // warns AND falls back to the main model" + "RCA#6: a tier with NO config
   // file warns that tiers are unconfigured" + "RCA#6: a known tier resolves
   // without warning".
-
-  // RCA#7: judgePanel scores a candidate whose judges ALL failed as 0 —
-  // indistinguishable from a genuine zero score — and may rank it below worse
-  // candidates. Correct: a failed-judging candidate must be observable as
-  // unscored, not coerced to 0.
-  it.todo("RCA#7: judgePanel must not coerce all-judges-failed to score 0");
-
-  // RCA#8: loopUntilDry catches TOKEN_BUDGET_EXHAUSTED / AGENT_LIMIT_EXCEEDED
-  // and returns the partial array as if the loop completed dry. Correct: the
-  // return must distinguish "dry" from "truncated by budget/limit" so a caller
-  // does not ship an incomplete result as complete.
-  it.todo("RCA#8: loopUntilDry must signal budget/limit truncation, not return partial as complete");
-
+  // RCA#7: FIXED. judgePanel sets score to undefined (not 0) when all judges
+  // fail, and the best-candidate selection skips undefined-score entries so
+  // they never rank above a scored candidate. When every candidate is unscored,
+  // the first entry is returned as the degenerate best. Tests:
+  // workflow-runtime.test.ts > "RCA#7: judgePanel with all judges failing
+  // returns undefined score (not 0)".
+  // RCA#8: FIXED. loopUntilDry sets a .truncated flag on the returned array
+  // when the loop is terminated by TOKEN_BUDGET_EXHAUSTED or
+  // AGENT_LIMIT_EXCEEDED, so callers can distinguish "completed all rounds
+  // dry" from "truncated by budget/limit". Tests:
+  // workflow-runtime.test.ts > "RCA#8: loopUntilDry truncation via
+  // TOKEN_BUDGET_EXHAUSTED sets truncated=true".
+  // quality-stdlib.test.ts > "loopUntilDry(): returns partial results when a
+  // round hits the budget" (existing test, still passes).
   // RCA#10: FIXED. runAgentWithTimeout now aborts a per-agent child signal so a
   // real WorkflowAgent session is cancelled (session.abort()) and its partial
   // usage is reported + counted before the timeout error propagates — no orphaned
   // session burning uncounted tokens. Regression test:
   //   workflow-runtime.test.ts > "RCA#10: a timed-out agent's session is aborted and its usage counted"
-
   // RCA#11: FIXED. checkpoint() now threads options.signal into the confirm
   // callback via checkpointOptions.signal so a parent abort during a pending
   // checkpoint cancels it instead of orphaning the run. Test:

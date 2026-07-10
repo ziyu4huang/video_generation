@@ -577,6 +577,7 @@ export async function runWorkflow<T = unknown>(
     }
     // RCA#3: freeze the phase for the entire parallel scope so a thunk's
     // phase() call can't pollute siblings. Restore after all thunks complete.
+    const savedOverride = state.parallelPhaseOverride;
     const savedPhase = state.currentPhase;
     state.parallelPhaseOverride = savedPhase;
     try {
@@ -594,8 +595,7 @@ export async function runWorkflow<T = unknown>(
         }),
       );
     } finally {
-      state.parallelPhaseOverride = undefined;
-      // Also restore currentPhase in case it was mutated by a thunk's phase().
+      state.parallelPhaseOverride = savedOverride;
       state.currentPhase = savedPhase;
     }
   };
@@ -731,14 +731,21 @@ export async function runWorkflow<T = unknown>(
               ),
             )
           ).filter(Boolean) as Array<{ score?: number }>;
-          const score = js.length ? js.reduce((s, v) => s + (Number(v?.score) || 0), 0) / js.length : 0;
+          const score = js.length ? js.reduce((s, v) => s + (Number(v?.score) || 0), 0) / js.length : undefined;
           return { index: idx, attempt: att, score, judgments: js };
         }),
       )
-    ).filter(Boolean) as Array<{ index: number; attempt: unknown; score: number; judgments: unknown[] }>;
+    ).filter(Boolean) as Array<{ index: number; attempt: unknown; score: number | undefined; judgments: unknown[] }>;
     // Highest mean score; stable tie-break by input index.
-    let best = scored[0];
-    for (const s of scored) if (s.score > best.score || (s.score === best.score && s.index < best.index)) best = s;
+    // A candidate whose judges ALL failed has score === undefined (unscored),
+    // distinguishable from a genuine zero — do not rank it above any scored
+    // candidate (RCA#7). When every candidate is unscored, return the first.
+    let best: (typeof scored)[0] | undefined;
+    for (const s of scored) {
+      if (s.score === undefined) continue;
+      if (!best || s.score > best.score! || (s.score === best.score! && s.index < best.index)) best = s;
+    }
+    best ??= scored[0];
     return best;
   };
 
@@ -755,15 +762,20 @@ export async function runWorkflow<T = unknown>(
     const maxRounds = opts.maxRounds ?? 50;
     const seen = new Set<string>();
     const all: unknown[] = [];
+    let truncated = false;
     let dry = 0;
     for (let r = 0; r < maxRounds && dry < consecutiveEmpty; r++) {
       let items: unknown[];
       try {
         items = (await opts.round(r)) ?? [];
       } catch (error) {
-        // Budget / agent-limit exhaustion: return the partial result, don't abort.
+        // Budget / agent-limit exhaustion: return the partial result as
+        // truncated, not as a completed dry run (RCA#8).
         const code = (error as { code?: string })?.code;
-        if (code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED || code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED) break;
+        if (code === WorkflowErrorCode.TOKEN_BUDGET_EXHAUSTED || code === WorkflowErrorCode.AGENT_LIMIT_EXCEEDED) {
+          truncated = true;
+          break;
+        }
         throw error;
       }
       const fresh = (Array.isArray(items) ? items : []).filter((x) => x != null && !seen.has(key(x)));
@@ -777,7 +789,11 @@ export async function runWorkflow<T = unknown>(
         all.push(x);
       }
     }
-    return all;
+    // Attach a truncated flag to the result array so callers can distinguish
+    // "completed all rounds dry" from "truncated by budget/limit" (RCA#8).
+    const result = all.slice();
+    if (truncated) (result as any).truncated = true;
+    return result;
   };
 
   const COMPLETENESS_SCHEMA = {
